@@ -1355,6 +1355,10 @@ actor APIClient {
         if let token = Self.loadToken() {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
+        // G183(d) — a write names the bank it started in; the server refuses it when that bank is no longer active.
+        if let bank = BankScope.value(method: method) {
+            request.setValue(bank, forHTTPHeaderField: BankScope.header)
+        }
         return request
     }
 

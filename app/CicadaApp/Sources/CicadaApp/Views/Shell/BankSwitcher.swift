@@ -96,7 +96,7 @@ struct BankSwitcher: View {
         .disabled(isSwitching)
         .opacity(isSwitching ? NeutralButton.disabledOpacity : 1)
         .onHover { isHovered = $0 }
-        .help(banksVM.switchingTo.map(Copy.switchingMemoryBank) ?? Copy.switchMemoryBank)
+        .help(banksVM.switchingTo.map(Copy.switchingMemoryBank) ?? (isSwitching ? Copy.switchingMemory : Copy.switchMemoryBank))
         .accessibilityLabel("\(Copy.memoryBanks): \(displayName)")
         .task { await banksVM.load() }
         .sheet(isPresented: $showCreateSheet) {
@@ -155,7 +155,7 @@ struct BankSwitcher: View {
         }
     }
 
-    private var isSwitching: Bool { banksVM.switchingTo != nil }
+    private var isSwitching: Bool { banksVM.isSwitching }
 
     private var displayName: String {
         banksVM.activeBank?.name ?? banksVM.activeName ?? Copy.memoryBank

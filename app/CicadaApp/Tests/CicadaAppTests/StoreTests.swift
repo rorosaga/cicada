@@ -152,11 +152,13 @@ final class FakeSyncAPI: SyncAPI {
         XCTFail("activation never parked", file: file, line: line)
     }
 
+    /// Parks only the writes whose name starts with this — one request in flight while the rest go through.
+    var gateWritePrefix: String?
+
     private func record(_ what: String) async throws {
         if honorsCancellation { try Task.checkCancellation() }
         writes.append(what)
-        if let serverBank { bankWrites.append("\(what)@\(serverBank)") }
-        if gateWrites {
+        if gateWrites || gateWritePrefix.map({ what.hasPrefix($0) }) == true {
             await withCheckedContinuation { c in
                 writeIsParked = true
                 writeGates.append(c)
@@ -164,6 +166,12 @@ final class FakeSyncAPI: SyncAPI {
         }
         if failWrites { throw APIError.serverUnreachable }
         if let writeError { throw writeError }
+        // The server's choke point (`bank_binding`): a write named for a bank that is no longer active is refused on
+        // arrival, before anything is written. A bank switch itself is exempt.
+        if let serverBank, let origin = BankScope.origin, origin != serverBank, !what.hasPrefix("activateBank") {
+            throw APIError.httpError(409, #"{"code":"bank_mismatch","detail":"Memory switched before this was saved — nothing was written."}"#)
+        }
+        if let serverBank { bankWrites.append("\(what)@\(serverBank)") }
     }
 
     func resolveInbox(id: String, action: String, answer: String?,

@@ -101,18 +101,21 @@ extension Store {
         }
     }
 
-    /// Send the held answer now: the window's end, a bank switch, the window closing, quit. `duringSwitch` is
-    /// `Store.activateBank`'s own drain, the one send a switch in flight lets through (R-DI3).
-    func flushHeld(duringSwitch: Bool = false) async {
+    /// Send the held answer now: the window's end, a bank switch, the window closing, quit.
+    func flushHeld() async {
         guard let held = heldResolve else { return }
         graceTask?.cancel()
         graceTask = nil
         heldResolve = nil
         sendingInboxIds.insert(held.id)
-        await send(held, duringSwitch: duringSwitch)
+        await send(held)
     }
 
-    private func send(_ held: ResolveGrace, duringSwitch: Bool = false) async {
+    /// An accepted answer is never dropped by the switch (re-review finding 2): it is old-bank work already admitted,
+    /// so it passes the Store's switch hold — `Store.activateBank` waits for it before posting — and it names the bank
+    /// it was made in, so one that still arrives after the server moved is refused by the server (`bank_mismatch`),
+    /// rolled back and its question reopened, never filed in the other bank.
+    private func send(_ held: ResolveGrace) async {
         defer { sendingInboxIds.remove(held.id) }
         guard held.bank == bank else {
             toast = Copy.Inbox.answerNotSaved
@@ -122,7 +125,7 @@ extension Store {
         // already closed it, and a POST would 404 into a "reverted" toast. No snapshot at all (a cache
         // miss) is not evidence of that, so it still sends.
         if let items = inbox.value, !items.contains(where: { $0.id == held.id }) { return }
-        _ = await perform(held.resolve, duringSwitch: duringSwitch)
-        await onHeldResolveSent?()
+        let sent = await BankScope.bound(to: held.bank) { await perform(held.resolve, duringSwitch: true) }
+        if sent { await onHeldResolveSent?() }
     }
 }

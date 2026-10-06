@@ -118,7 +118,8 @@ enum SleepRefusal {
 /// a 400's detail names ids (DR-54).
 enum DecayChangeFailure {
     static func message(_ error: any Error) -> String {
-        SleepRefusal.matches(error) ? Copy.sleepIsRunning : Copy.Graph.fadesNotChanged
+        if BankScope.isMismatch(error) { return Copy.memorySwitched }
+        return SleepRefusal.matches(error) ? Copy.sleepIsRunning : Copy.Graph.fadesNotChanged
     }
 }
 

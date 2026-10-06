@@ -25,6 +25,8 @@ final class BanksViewModel {
     var isLoading: Bool { store.banks.isEmpty && store.banks.isRefreshing }
     /// G183(d) — the bank a switch is waiting on the server for (`Store.switchingBank`); `nil` when none is.
     var switchingTo: String? { store.switchingBank }
+    /// Any switch in flight, named or not (leaving the demo lets the server pick the bank).
+    var isSwitching: Bool { store.bankSwitch != nil }
 
     /// The currently-active bank object, if present in the roster.
     var activeBank: MemoryBank? {

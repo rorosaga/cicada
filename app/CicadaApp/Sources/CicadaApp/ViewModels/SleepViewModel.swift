@@ -561,8 +561,10 @@ final class SleepViewModel {
     /// at what the backend still has.
     @discardableResult
     func updateSchedule(_ new: ScheduleConfig) async -> Bool {
+        // G183(d): the schedule is per bank — the write names the bank shown when it was asked for.
+        let origin = store.bank
         do {
-            schedule = try await putSchedule(new)
+            schedule = try await BankScope.bound(to: origin) { try await putSchedule(new) }
             scheduleLoaded = true
             return true
         } catch {

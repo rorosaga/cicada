@@ -228,4 +228,87 @@ final class BankSwitchTests: XCTestCase {
         XCTAssertEqual(store.banks.value?.banks.first(where: { $0.name == "B" })?.active, true)
         XCTAssertEqual(api.writes.first, "activateBank:B")
     }
+    // MARK: Fix round 2 — the server's bank check is the safety net
+
+    /// Re-review finding 2: hold one answer, hold a second (the first is queued to send, its task not yet run), and
+    /// switch at once. Both accepted answers land in the bank they were made in before the switch is posted; none is
+    /// dropped, and the sent callback runs once per landed answer.
+    func testTwoHoldsThenAnImmediateSwitchLandBothAnswersInTheOldBank() async throws {
+        let (store, api) = try await makeStore()
+        var sent = 0
+        store.onHeldResolveSent = { sent += 1 }
+        XCTAssertTrue(hold(store, "inbox-001"))
+        XCTAssertTrue(hold(store, "inbox-002"))     // inbox-001 is queued now, not yet on the wire
+        let ok = await store.activateBank("B")
+        XCTAssertTrue(ok)
+        XCTAssertEqual(Set(api.bankWrites.prefix(2)),
+                       ["resolveInbox:inbox-001:resolve:b:nil@A", "resolveInbox:inbox-002:resolve:b:nil@A"])
+        XCTAssertEqual(api.bankWrites.last, "activateBank:B@A")
+        XCTAssertEqual(sent, 2)
+        XCTAssertTrue(store.sendingInboxIds.isEmpty)
+    }
+
+    /// An answer that still reaches the server after it moved (another client switched it) names its own bank, so it
+    /// is refused, not filed in the other bank: the question comes back, it says so, and no "sent" is reported.
+    func testALateAnswerIsRefusedByTheServerAndItsQuestionReopens() async throws {
+        let (store, api) = try await makeStore()
+        var sent = 0
+        store.onHeldResolveSent = { sent += 1 }
+        XCTAssertTrue(hold(store, "inbox-001"))
+        api.serverBank = "B"                        // the server moved; the app has not heard yet
+        await store.flushHeld()
+        XCTAssertEqual(api.bankWrites, [], "nothing was written into B")
+        XCTAssertEqual(store.toast, Copy.memorySwitched)
+        XCTAssertTrue(store.visibleInbox.map(\.id).contains("inbox-001"), "the question is open again")
+        XCTAssertEqual(sent, 0)
+    }
+
+    /// Re-review finding 1: a picture upload admitted in A and still in flight when the switch to B completes is
+    /// refused by the server (`bank_mismatch`), rolled back, and says "Memory switched — try that again".
+    func testAPictureUploadPausedAcrossASwitchIsRefusedAndRolledBack() async throws {
+        let (store, api) = try await makeStore()
+        let pictures = PictureStore(root: FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)) { _ in nil }
+        api.gateWritePrefix = "useEntityInitials"
+        let upload = Task {
+            await store.perform(EntityPictureWrite(entityId: "bob-example", type: .person, bank: "A",
+                                                   action: .useInitials, inputs: nil, store: store, pictures: pictures))
+        }
+        await api.waitForParkedWrite()
+        XCTAssertNotNil(store.pictureOverrides[Store.pictureKey(bank: "A", id: "bob-example")], "painted at once")
+        let switched = await store.activateBank("B")
+        XCTAssertTrue(switched)
+        XCTAssertEqual(api.serverBank, "B")
+        api.releaseWriteGate()
+        let landed = await upload.value
+        XCTAssertFalse(landed)
+        XCTAssertNil(store.pictureOverrides[Store.pictureKey(bank: "A", id: "bob-example")], "rolled back")
+        XCTAssertEqual(store.toast, Copy.memorySwitched)
+        XCTAssertFalse(api.bankWrites.contains { $0.hasPrefix("useEntityInitials") }, "never written into B")
+    }
+
+    /// Leaving the demo (the server picks the bank) is the same transition: it reserves, refuses a second switch, and
+    /// lands where the server's roster says.
+    func testADemoLeaveIsTheSameSerializedTransition() async throws {
+        let (store, api) = try await makeStore()
+        api.serverBank = "A"
+        var release: CheckedContinuation<Void, Never>?
+        let leaving = Task {
+            try await store.switchBank(to: nil, post: { () async -> BanksResponse in
+                await withCheckedContinuation { release = $0 }
+                api.serverBank = "C"
+                return api.roster(active: "C")
+            }, roster: { $0 })
+        }
+        await eventually(release != nil)
+        XCTAssertNotNil(store.bankSwitch)
+        XCTAssertNil(store.switchingBank, "no named target")
+        let refused = await store.activateBank("B")
+        XCTAssertFalse(refused)
+        XCTAssertFalse(hold(store, "inbox-001"))
+        release?.resume()
+        _ = try await leaving.value
+        XCTAssertEqual(store.bank, "C")
+        XCTAssertNil(store.bankSwitch)
+    }
 }

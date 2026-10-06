@@ -70,14 +70,17 @@ struct FadePaceCard: View {
 
     private func write(_ changes: [String: Double?]) {
         guard !store.refusesWriteWhileSwitching() else { return }   // the tuning is per bank (G183(d))
+        let origin = store.bank
         busy = true
         Task { @MainActor in
             defer { busy = false }
             do {
-                response = try await APIClient.shared.setDecayTuning(changes)
+                response = try await BankScope.bound(to: origin) { try await APIClient.shared.setDecayTuning(changes) }
                 note = nil
                 // R-FD9: the card's pace reads the tuning; drop cached bodies so the next open refetches.
                 store.invalidateAllEntities()
+            } catch let error where BankScope.isMismatch(error) {
+                note = Copy.memorySwitched
             } catch APIError.httpError(409, _) {
                 note = Copy.sleepIsRunning
             } catch {

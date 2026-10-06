@@ -22,8 +22,14 @@ final class Store {
     // MARK: Snapshots
 
     var bank: String = "default" {
-        didSet { if oldValue != bank { onBankChanged?() } }
+        didSet {
+            if publishesBankScope { BankScope.onScreen = bank }
+            if oldValue != bank { onBankChanged?() }
+        }
     }
+    /// The app's own Store (the one talking to `APIClient`) is the fallback bank every unbound write names
+    /// (`BankScope.onScreen`, G183(d)); a test's Store never touches that process-wide value.
+    @ObservationIgnored private let publishesBankScope: Bool
     var graph = Snapshot<GraphResponse>()
     var inbox = Snapshot<[InboxItem]>()
     var banks = Snapshot<BanksResponse>()
@@ -189,8 +195,10 @@ final class Store {
     init(cache: SnapshotCache = SnapshotCache(), api: any SyncAPI = APIClient.shared) {
         self.cache = cache
         self.api = api
+        self.publishesBankScope = api is APIClient
         self.engine = SyncEngine(api: api)
         self.engine.attach(store: self)
+        if publishesBankScope { BankScope.onScreen = bank }
     }
 
     // MARK: - Hydration
@@ -558,6 +566,12 @@ final class Store {
     @discardableResult
     func perform(_ mutation: any Mutation, duringSwitch: Bool = false) async -> Bool {
         if !duringSwitch, refusesWriteWhileSwitching() { return false }
+        // G183(d) — bound at admission: the request names the bank this mutation started in (an enclosing binding —
+        // a held answer's own bank — wins), so one that outlives a switch is refused by the server, not misfiled.
+        return await BankScope.bound(to: BankScope.origin ?? bank) { await admitted(mutation) }
+    }
+
+    private func admitted(_ mutation: any Mutation) async -> Bool {
         await mutation.optimistic(self)
         do {
             try await mutation.request(api)
@@ -568,7 +582,9 @@ final class Store {
             await mutation.rollback(self)
             // R-SR11 — the person stopped it: no toast. The reconcile below shares the cancelled task, so its
             // requests end at once; the next SSE `version` event is what brings the domains back in line.
-            if !(SyncCancellation.isCancellation(error) || Task.isCancelled) { toast = mutation.failureMessage }
+            if !(SyncCancellation.isCancellation(error) || Task.isCancelled) {
+                toast = BankScope.isMismatch(error) ? Copy.memorySwitched : mutation.failureMessage
+            }
             Self.logger.debug("mutation failed: \(String(describing: error))")
             // The rollback restores what this mutation changed, but it cannot
             // know what else moved while the request was in flight (an SSE
