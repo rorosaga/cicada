@@ -17,7 +17,9 @@ def test_companion_app_is_a_human_origin():
 
 def test_only_the_projects_router_and_the_demo_set_it():
     hits = sorted(p.relative_to(REPO).as_posix() for root in ("api", "mcp") for p in (REPO / root).rglob("*.py")
-                  if ".venv" not in p.parts and "tests" not in p.parts
+                  if not any(part.startswith(".") or part in {"node_modules", "__pycache__"}
+                             for part in p.relative_to(REPO).parts)
+                  and "tests" not in p.relative_to(REPO).parts
                   and SETS_ORIGIN.search(p.read_text(encoding="utf-8")))
     assert hits == ["api/routers/projects.py", "api/services/demo_bank.py"], hits
 
