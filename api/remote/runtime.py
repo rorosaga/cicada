@@ -265,9 +265,13 @@ class RemoteRuntime:
         self._lock = threading.Lock()
         self._write_lock = threading.Lock()  # R-R28: one remote write at a time
 
-    def tool_context(self, connector: catalog.Connector, handle: str) -> mcp_tools.ToolContext:
+    def tool_context(self, connector: catalog.Connector, handle: str,
+                     memory_path: Path | None = None) -> mcp_tools.ToolContext:
+        """``memory_path`` pins the bank for the whole call (G183 round 1): admission, the gate, every write and the
+        commit name ONE bank, so a bank switched mid-call is never written."""
         return mcp_tools.ToolContext(
-            memory_path=self._memory_path, session_id=handle, harness=connector.harness,
+            memory_path=(lambda: memory_path) if memory_path is not None else self._memory_path,
+            session_id=handle, harness=connector.harness,
             client_name=connector.last_client, skipped_inbox_ids=self.conversations.skipped(handle),
             state_hint_sent=self.conversations.hint_sent(handle), post=self._post, headers=self._headers,
             backend_url=self._backend_url or _backend_url(), read_surface="remote",
@@ -278,35 +282,35 @@ class RemoteRuntime:
 
     def call(self, connector: catalog.Connector, tool: str, arguments: dict | None) -> tuple[str, str]:
         writes = tool in catalog.WRITE_TOOLS and _writes_bank(tool, arguments)
+        memory_path = self._memory_path()   # resolved ONCE: admitted, gated, written and committed (G183 round 1)
         # G183: a write holds the bank's write admission from its "busy" answer through its commit, so a Sleep
         # window cannot open in between (R-R27's refusal is then the whole truth for the call).
-        with write_admission.shared(self._memory_path()) if writes else contextlib.nullcontext():
-            return self._call(connector, tool, arguments, writes)
+        with write_admission.shared(memory_path) if writes else contextlib.nullcontext():
+            return self._call(connector, tool, arguments, writes, memory_path)
 
     def _call(self, connector: catalog.Connector, tool: str, arguments: dict | None,
-              writes: bool) -> tuple[str, str]:
+              writes: bool, memory_path: Path) -> tuple[str, str]:
         today = self._today()
         if tool not in catalog.tool_names_for(connector.scopes):
             text, status = DENIED_TEXT, "denied"
         elif writes and self._sleep_running():
             text, status = BUSY_TEXT, "busy"
-        elif tool in catalog.WRITE_TOOLS and demo_guard.is_demo(self._memory_path()):
+        elif tool in catalog.WRITE_TOOLS and demo_guard.is_demo(memory_path):
             # R-CS13: its own status, so the `remote_call` row says why nothing was written.
             text, status = demo_guard.AGENT_REFUSAL, "demo"
         elif tool == "cicada_ask" and not self._take_ask(connector.id, today):
             text, status = CAPPED_TEXT, "capped"
         else:
             try:
-                text, status = self._run(connector, tool, dict(arguments or {}), today), "ok"
+                text, status = self._run(connector, tool, dict(arguments or {}), today, memory_path), "ok"
             except Exception as exc:  # noqa: BLE001 — never a stack trace to a cloud app
                 logger.warning(f"remote tool {tool} failed for connector {connector.id}: {type(exc).__name__}")
                 text, status = f"Error: that didn't work ({type(exc).__name__}).", "error"
-        self._record(connector, tool, status, text)
+        self._record(connector, tool, status, text, memory_path)
         return text, status
 
-    def _run(self, connector: catalog.Connector, tool: str, args: dict, today: str) -> str:
+    def _run(self, connector: catalog.Connector, tool: str, args: dict, today: str, memory_path: Path) -> str:
         if tool == "cicada_handshake":
-            memory_path = self._memory_path()
             primer, meta = handshake.load_or_build(
                 memory_path, variant=handshake.REMOTE_VARIANT, tools=catalog.tool_names_for(connector.scopes))
             handshake.record("remote", meta, bank=memory_path.name, harness=connector.harness,
@@ -314,7 +318,7 @@ class RemoteRuntime:
             text = primer.replace(handshake.CONVERSATION_SLOT, mint_handle(connector.id, today))
             return text + self._reading_note(memory_path, connector)
         handle = resolve_handle(connector.id, args.get("conversation"), today)
-        ctx = self.tool_context(connector, handle)
+        ctx = self.tool_context(connector, handle, memory_path)
         if tool in catalog.WRITE_TOOLS:
             with self._write_lock:
                 text = _DISPATCH[tool](ctx, args)
@@ -352,14 +356,15 @@ class RemoteRuntime:
             self._ask_counts[(connector_id, today)] = used + 1
             return True
 
-    def _record(self, connector: catalog.Connector, tool: str, status: str, text: str) -> None:
+    def _record(self, connector: catalog.Connector, tool: str, status: str, text: str,
+                memory_path: Path | None = None) -> None:
         """One `remote_call` ledger row — ids and enums only (the telemetry
         rule): never the arguments, never the reply. A tool name the client
         made up is recorded as `unknown`, not echoed."""
         try:
             telemetry.record(telemetry.UsageEvent(
                 kind="remote_call", stage="remote", connection=None, engine=None, model=None,
-                bank=self._memory_path().name, billing="free", invocations=0,
+                bank=(memory_path or self._memory_path()).name, billing="free", invocations=0,
                 refs={"connector_id": connector.id, "harness": connector.harness,
                       "tool": tool if tool in catalog.TOOL_SCOPE else "unknown",
                       "status": status, "bytes_out": len(text.encode("utf-8"))},

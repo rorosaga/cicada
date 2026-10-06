@@ -8,6 +8,7 @@ under it (each site says why).
 from __future__ import annotations
 
 import ast
+import time
 from pathlib import Path
 
 import pytest
@@ -136,3 +137,48 @@ def test_the_stale_probe_is_used_only_where_no_page_rides_on_it():
 def test_the_lint_catches_a_bare_check():
     tree = ast.parse("from api.services import sleep_cycle\nif sleep_cycle.is_writing():\n    pass\n")
     assert any(_attribute_uses(tree, "is_writing"))
+
+
+# --- Fix round 1, finding 4: a remote write admits, gates and writes ONE bank -----------------------------------------
+
+
+def _two_banks(tmp_path):
+    a, b = tmp_path / "a", tmp_path / "b"
+    a.mkdir()
+    b.mkdir()
+    return _bank(a), _bank(b)
+
+
+def _connector():
+    return catalog.Connector(id="ab12cd34", label="Phone", app="claude", scopes=catalog.DEFAULT_SCOPES,
+                             created_at="2026-09-01T00:00:00+00:00", last_client="claude-ai")
+
+
+def test_a_remote_write_lands_in_the_bank_it_was_admitted_on(tmp_path, monkeypatch):
+    import threading
+
+    bank_a, bank_b = _two_banks(tmp_path)
+    active = {"bank": bank_a}
+    runtime = RemoteRuntime(memory_path=lambda: active["bank"], post=lambda p, d: {},
+                            sleep_running=write_admission.holding)
+    monkeypatch.setattr(mcp_tools, "_backend_sleep_running", lambda url, headers: False)
+    result: dict = {}
+    # Another remote write holds the runtime's write lock: this call is admitted and gated on A, then waits.
+    runtime._write_lock.acquire()
+    t = threading.Thread(target=lambda: result.update(out=runtime.call(
+        _connector(), "cicada_add_backlog_item",
+        {"project": "alpha-project", "title": "An idea", "description": "the reasoning"})))
+    t.start()
+    try:
+        deadline = time.monotonic() + 10
+        while write_admission.holders(bank_a) == 0:
+            assert time.monotonic() < deadline
+            time.sleep(0.01)
+        active["bank"] = bank_b                                   # the person switches banks meanwhile
+        assert write_admission.wait_for_writers(bank_b, give_up_after=1) is True, "B has no holder: Sleep may open"
+    finally:
+        runtime._write_lock.release()
+    t.join(10)
+    assert result["out"][1] == "ok", result
+    assert list((bank_a / "backlog").rglob("*.md")), "written where it was admitted"
+    assert not (bank_b / "backlog").exists(), "never in the bank Sleep may have opened"
