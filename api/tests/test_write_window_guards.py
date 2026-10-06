@@ -171,41 +171,73 @@ def test_an_edit_already_on_the_page_is_committed_apart_not_as_the_persons(bank,
     assert _git(bank, "status", "--porcelain") == ""
 
 
-# --- The window is re-asked once the page lock is held, before any page write (review finding 4) -------------------
+# --- Admission (G183): a writer admitted before Sleep's flip finishes first; Sleep waits it out ---------------------
+
+from api.services import write_admission
+
+
+def _admitted_soon(bank) -> None:
+    """Wait (a deadline, not a fixed sleep) until the route holds the bank's admission."""
+    deadline = time.monotonic() + 10
+    while write_admission.holders(bank) == 0:
+        assert time.monotonic() < deadline, "the route never took admission"
+        time.sleep(0.01)
+
+
+def _sleep_flips(bank, state, seen) -> threading.Thread:
+    """Sleep's order: the flag first, then the wait; records the HEAD Sleep would read from."""
+    def flip():
+        state["writing"] = True
+        seen["drained"] = write_admission.wait_for_writers(bank, give_up_after=10)
+        seen["head_at_read"] = _git(bank, "rev-parse", "HEAD")
+    t = threading.Thread(target=flip)
+    t.start()
+    return t
 
 
 @pytest.mark.parametrize("method,path,body", PAGE_ROUTES, ids=[r[1] for r in PAGE_ROUTES])
-def test_a_window_that_opens_while_the_route_waits_for_the_page_lock_refuses_it(bank, monkeypatch, method, path,
-                                                                                body):
+def test_a_window_that_opens_while_an_admitted_route_waits_for_the_page_lock_waits_for_its_commit(
+        bank, monkeypatch, method, path, body):
     state = {"writing": False}
     monkeypatch.setattr(sleep_cycle, "get_sleep_state",
                         lambda: SimpleNamespace(status="running", drain_run=True, writing=state["writing"]))
-    head = _git(bank, "rev-parse", "HEAD")
     result: dict = {}
+    seen: dict = {}
     with page_lock.page_lock(bank):
         t = threading.Thread(target=lambda: result.update(
             resp=getattr(TestClient(main.app), method)(path, json=body)))
         t.start()
-        time.sleep(0.5)            # past the route's first check, waiting on the page lock
-        state["writing"] = True    # Sleep's batch reaches Stage 2
+        _admitted_soon(bank)              # admitted, now waiting on the page lock
+        flip = _sleep_flips(bank, state, seen)
+        flip.join(0.3)
+        assert flip.is_alive(), "Sleep must not read while an admitted route is mid-transaction"
     t.join(10)
-    assert result["resp"].status_code == 409, result["resp"].text
-    assert _git(bank, "status", "--porcelain") == "" and _git(bank, "rev-parse", "HEAD") == head
+    flip.join(10)
+    assert result["resp"].status_code == 200, result["resp"].text
+    assert seen["drained"] is True
+    assert seen["head_at_read"] == _git(bank, "rev-parse", "HEAD"), "Sleep reads after the route's own commit"
+    assert "Cicada-Author: user" in _git(bank, "log", "-1", "--format=%B")
+    assert _git(bank, "status", "--porcelain") == ""
+    resp = getattr(TestClient(main.app), method)(path, json=body)
+    assert resp.status_code == 409, "a writer arriving after the flip is refused"
 
 
-def test_an_inbox_answer_re_asks_the_window_after_its_awaited_snapshot(bank, monkeypatch):
+def test_an_inbox_answer_admitted_before_the_flip_finishes_before_sleep_reads(bank, monkeypatch):
     state = {"writing": False}
     monkeypatch.setattr(sleep_cycle, "get_sleep_state",
                         lambda: SimpleNamespace(status="running", drain_run=True, writing=state["writing"]))
     real = git_service.snapshot_dirty
+    seen: dict = {}
 
     async def snapshot_then_window(memory_path):
         out = await real(memory_path)
-        state["writing"] = True    # the window opened while the answer awaited its snapshot
+        seen["flip"] = _sleep_flips(bank, state, seen)   # the window opens while the answer awaited its snapshot
         return out
 
     monkeypatch.setattr(git_service, "snapshot_dirty", snapshot_then_window)
     head = _git(bank, "rev-parse", "HEAD")
     resp = TestClient(main.app).post("/inbox/inbox-001/resolve", json={"action": "resolve", "optionKey": "keep"})
-    assert resp.status_code == 409, resp.text
-    assert _git(bank, "status", "--porcelain") == "" and _git(bank, "rev-parse", "HEAD") == head
+    seen["flip"].join(10)
+    assert resp.status_code == 200, resp.text
+    assert _git(bank, "rev-parse", "HEAD") != head
+    assert seen["head_at_read"] == _git(bank, "rev-parse", "HEAD"), "Sleep reads after the answer's commit"

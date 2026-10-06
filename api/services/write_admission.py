@@ -27,6 +27,7 @@ admission while it holds any of them. Awake capture never takes admission.
 from __future__ import annotations
 
 import fcntl
+import functools
 import logging
 import os
 import threading
@@ -126,6 +127,20 @@ def admitted(memory_path, *, refuse: Callable[[], BaseException] | None = None) 
         if holding():
             raise refuse() if refuse is not None else SleepHolding()
         yield
+
+
+def route(*, refuse: Callable[[], BaseException] | None = None):
+    """An ``async`` backend route as one admitted transaction — the bank is its ``settings`` argument's
+    ``memory_path``, resolved once. With ``refuse``, :func:`admitted` (its 409 while Sleep holds the pages); without,
+    :func:`shared`, for a route whose write changes shape inside instead (it asks :func:`holding`)."""
+    def wrap(fn):
+        @functools.wraps(fn)
+        async def admitted_route(*args, **kwargs):
+            memory_path = kwargs["settings"].memory_path
+            with (admitted(memory_path, refuse=refuse) if refuse is not None else shared(memory_path)):
+                return await fn(*args, **kwargs)
+        return admitted_route
+    return wrap
 
 
 def wait_for_writers(memory_path, *, log_after: float = WAIT_LOG_S, give_up_after: float = WAIT_MAX_S,

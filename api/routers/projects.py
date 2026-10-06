@@ -26,6 +26,7 @@ and only this router (and the synthetic demo) may set it (R-PJB13).
 from __future__ import annotations
 
 import asyncio
+from contextlib import asynccontextmanager
 from datetime import date, datetime
 from pathlib import Path
 from typing import Optional
@@ -39,7 +40,7 @@ from api.models.schemas import (HappeningCreate, MilestoneCreate, MilestonePatch
                                 ProjectTimeline, ProjectWriteResponse, ThreadSettle, WithdrawRequest)
 from api.services import (bank_index, episode_scrub, git_service, handshake, markdown_parser, owner_identity,
                           progress, project_timeline, search_index, sync_service, telemetry,
-                          turn_authorship, when)
+                          turn_authorship, when, write_admission)
 from api.services.claim_reconciler import is_human
 from api.services.claims import HAPPENED, MILESTONE, Claim, MalformedClaimsBlockError, is_event, parse_claims
 from api.services.id_utils import resolve_entity_file
@@ -135,11 +136,13 @@ def _now() -> datetime:
     return datetime.now(when.zone(_tz()))
 
 
-def _guard() -> None:
-    from api.services import sleep_cycle
-
-    if sleep_cycle.is_writing():
-        raise HTTPException(409, BUSY)
+@asynccontextmanager
+async def _admitted(memory_path):
+    """The write's admission (G183), then this process's one-write lock: 409 when Sleep holds the pages, asked once
+    the hold is taken, so a window cannot open until the write and its commit are done."""
+    with write_admission.admitted(memory_path, refuse=lambda: HTTPException(409, BUSY)):
+        async with _write_lock:
+            yield
 
 
 def _on(raw: str | None, today: date) -> date:
@@ -238,10 +241,9 @@ def _observer(memory_path: Path, settings: Settings) -> str:
 
 @router.post("/projects/{project_id}/milestones", response_model=ProjectWriteResponse)
 async def add_milestone(project_id: str, body: MilestoneCreate, settings: Settings = Depends(get_settings)):
-    _guard()
     mp = settings.memory_path
     stem = _project_stem(mp, project_id)
-    async with _write_lock:
+    async with _admitted(mp):
         today = _now().date()
         result = await run_in_threadpool(
             progress.set_milestone, mp, subject=stem, name=body.name, target=body.target,
@@ -261,10 +263,9 @@ async def change_milestone(project_id: str, slug: str, body: MilestonePatch,
     name first, so the new state carries it). A read-compat `due-<date>` is
     promoted by its first touch (`progress.advance`), and a name sent with it
     renames the milestone that promotion opened."""
-    _guard()
     mp = settings.memory_path
     stem = _project_stem(mp, project_id)
-    async with _write_lock:
+    async with _admitted(mp):
         today = _now().date()
         page, is_due = _find_slot(mp, stem, slug)
         on = _on(body.on, today)
@@ -304,7 +305,6 @@ async def log_happening(project_id: str, body: HappeningCreate, settings: Settin
     The companion episode keeps the words verbatim, and the claim cites it as
     a `user` span (R-PJ18: a span, not a copy). Everything is validated before
     the episode is written, so a refusal writes nothing."""
-    _guard()
     mp = settings.memory_path
     stem = _project_stem(mp, project_id)
     text = " ".join((body.text or "").split())
@@ -321,7 +321,7 @@ async def log_happening(project_id: str, body: HappeningCreate, settings: Settin
         raise HTTPException(400, "Say what happened")
     if when.has_relative(claim_text):
         raise HTTPException(422, TWO_DAYS)
-    async with _write_lock:
+    async with _admitted(mp):
         now = _now()
         today = now.date()
         if phrase:
@@ -360,12 +360,11 @@ async def settle_thread(project_id: str, claim_id: str, body: ThreadSettle,
     """An open thread's answer. Done/dropped writes its own born-closed
     happening that settles the thread; "still going" restates it, which folds
     into the thread (rule 2) and moves `recorded_at` — the quiet clock resets."""
-    _guard()
     mp = settings.memory_path
     stem = _project_stem(mp, project_id)
     if body.status not in ("done", "ongoing", "dropped"):
         raise HTTPException(400, "A thread is done, still going or dropped")
-    async with _write_lock:
+    async with _admitted(mp):
         today = _now().date()
         page, thread = _find_event(mp, stem, claim_id)
         if thread.predicate != HAPPENED or thread.status != "ongoing" or thread.valid_to is not None:
@@ -389,10 +388,9 @@ async def withdraw_happening(project_id: str, body: WithdrawRequest, settings: S
     could leave its slot with no open head. When the claim was not the
     person's own, the withdrawal is an `overruled` verdict (G113, R-PJB24):
     one ids-and-enums ledger row, never the sentence."""
-    _guard()
     mp = settings.memory_path
     stem = _project_stem(mp, project_id)
-    async with _write_lock:
+    async with _admitted(mp):
         today = _now().date()
         page, target = _find_event(mp, stem, body.claim_id)
         if target.predicate == MILESTONE:

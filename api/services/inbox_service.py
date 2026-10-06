@@ -896,11 +896,16 @@ async def resolve(
     rewrites entity pages and the item itself, and one written between a batch's
     read and its commit would be lost or swept into that commit under the
     model's name. A defer too — the item file rides the same ``git add -A``.
-    Between a drain's batches it goes through and commits alone."""
-    from api.services import sleep_cycle
+    Between a drain's batches it goes through and commits alone. Asked once the
+    bank's write admission is held (G183), and held through the answer's writes
+    and its commit: a window cannot open in between."""
+    from api.services import write_admission
 
-    if sleep_cycle.is_writing():
-        raise HTTPException(409, SLEEP_BUSY)
+    with write_admission.admitted(settings.memory_path, refuse=lambda: HTTPException(409, SLEEP_BUSY)):
+        return await _resolve_admitted(item_id, request, settings)
+
+
+async def _resolve_admitted(item_id: str, request: InboxResolveRequest, settings: Settings) -> dict:
     path = _inbox_dir(settings.memory_path) / f"{item_id}.md"
     if not path.exists():
         raise HTTPException(404, f"Inbox item {item_id} not found")
@@ -947,11 +952,6 @@ async def resolve(
     from api.services import git_service as _git_service
 
     before = await _git_service.snapshot_dirty(settings.memory_path)
-    # Re-asked after the await and before any page write: a window can open while
-    # the snapshot was read (G183(a) round 1). Sleep takes no page lock, so a
-    # window opening after this still overlaps the answer — storage.md says so.
-    if sleep_cycle.is_writing():
-        raise HTTPException(409, SLEEP_BUSY)
     extra_lines: list[str] = []
     emit_extra: dict = {}
     if kind == "decay":
