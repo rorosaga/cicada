@@ -63,7 +63,7 @@ def git_head(memory_path: Path) -> str:
 # on the ``/sync/version`` hot path (the SSE loop polls it once a second, and
 # every ETag check for graph/inbox/sources/origins/banks calls it), so the
 # YAML parse below must not run per call -- only when the inbox actually moves.
-_DEFER_CACHE: dict[str, tuple[float, bool]] = {}
+_DEFER_CACHE: dict[str, tuple[str, bool]] = {}
 
 
 def _scan_inbox_for_pending_defer(mp: Path) -> bool:

@@ -93,3 +93,11 @@ def test_a_fingerprint_comes_from_the_shared_scan(bank, monkeypatch):
         sync_service.components(bank)
         sync_service.components(bank)
     assert calls.count("entities") == 1 and calls.count("episodes") == 1
+
+
+def test_a_directory_that_is_a_file_degrades_never_raises(tmp_path):
+    bank = tmp_path / "bank"
+    bank.mkdir()
+    (bank / "entities").write_text("not a folder")
+    comps = sync_service.components(bank)
+    assert comps["entities"] == bank_index.fingerprint([])

@@ -84,7 +84,9 @@ def _scan_uncached(directory: Path) -> dict[str, tuple[int, int]]:
                 if entry.is_file() and entry.name.endswith(".md"):
                     st = entry.stat()
                     out[entry.name] = (st.st_mtime_ns, st.st_size)
-    except FileNotFoundError:
+    except OSError:
+        # Missing, a plain file, unreadable: an empty listing, never a raise into
+        # /sync/version or an ETag (the old max-mtime stamp's contract).
         pass
     return out
 
