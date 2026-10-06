@@ -583,24 +583,31 @@ repo-link rewrites, and by the MCP's page-writing tools (`write_claim`, `retract
 `add_source`, `change_source`, `record_check`, `record_read`, and `record_watch` around its record) across the write
 **and its commit**. Nothing waits on a network call under it: such a tool asks Sleep before it takes the lock and
 reuses the answer, and `record_watch`'s link save and queue credit stay outside. Some holders are `async` routes and
-the inbox's follow-up resolver, which wait on the event loop — one page operation is milliseconds. **Order:** the page
-lock, then the git write lock (inside the commit), then `episode_lock` — never the reverse. **Not under it yet:**
-Sleep's own page writes (agent commits already defer to its write window) and the inbox's other resolvers.
-**Residual race (disclosed, G183):** the window guards are an admission check, not isolation, and admission is **not
-atomic**. The sweep re-asks `is_writing()` once it holds the page lock and again once it holds the git write lock, the
-decay/repo routes once they hold the page lock, an inbox answer after its awaited snapshot — each before writing. But
-Sleep enters its window (`_state.writing = True`, then Stage 2 loads the pages) without either lock, so a window that
-opens *after* a writer's last check overlaps everything that writer does next, and there is no time bound on that: the
-exposure is the rest of its transaction — the sweep's footprint scan, merge, commit and any recovery, plus waits for a
-lock and git's index-lock retries. Sleep can load a pre-write page and later rewrite it, or sweep the write into its
-batch commit under the Sleep author. The sweep limits its commit and its rollback to the footprint frozen at planning: a
-page written outside it is neither committed nor put back, and a merge that returns a path outside it stops the sweep —
-but a write outside the snapshot that the merge itself then makes (say, a reference to the loser that an unguarded writer
-added after the footprint was planned, which the repoint pass rewrites) is left for recovery by hand, reported as
-`recoveryFailed`. Closing the race needs shared admission coordination between Sleep and these writers
-and/or revision-safe read-modify-write (a write that refuses when the page changed since it was read) — Sleep taking a
-lock at two separate points (its load and its commit) would not by itself protect a stale read between them. Out of this
-slice.
+the inbox's follow-up resolver, which wait on the event loop — one page operation is milliseconds. **Order:** the write
+admission (below), then the page lock, then the git write lock (inside the commit), then `episode_lock` — never the
+reverse. **Not under it yet:**
+Sleep's own page writes (they run inside the write window, which every guarded writer now waits out or refuses) and
+the inbox's other resolvers.
+**Write admission (G183):** the window guards are atomic. `write_admission` is one per-bank admission with shared and
+exclusive sides: an in-process count of holders (not owned by a thread, so an `async` route may hold it across its own
+short awaits) plus an `flock` on the bank's `.git` path (`LOCK_SH` per holder — nothing created, a different inode
+from the page lock's), so the stdio MCP server, another process, is admitted too. A guarded writer holds it shared
+around its `is_writing()` check, its page writes and its own commit — `admitted()` refuses with the writer's own 409 or
+sentence, `shared()` + `holding()` for a writer whose answer changes shape instead (folder and Wispr Flow syncs,
+skill pages, the MCP tools whose in-window write stays uncommitted for Sleep). Sleep **sets its flag first, then
+waits** (`wait_for_writers`, off the loop): every writer that saw the window shut took its hold before the flag, so it
+finishes its write and commit before Sleep reads a page, and every later one sees the flag and refuses — no writer
+preference needed, and a shared hold waits on Sleep only for the instant its `LOCK_EX` is held. The flip runs at the
+run's start, at a drain batch's Stage 2 and at the tail; closing the window takes nothing. The wait is **bounded**:
+logged past 5 s, and past 60 s Sleep proceeds with a warning — a stopped-but-alive holder (an agent process paused in
+a debugger) must not stall every night's consolidation, and a dead process's `flock` is released by the kernel.
+Admission is never held across a model call or a network fetch: the dedup sweep takes it per merge (before the page
+lock, through the commit or the put-back, `may_write` asked once inside) and asks only a stale `probe()` before each
+judge call. **Still a probe, disclosed:** `enrich-links`, `verify-sites` and the user-triggered paper-details run
+write pages between fetches and commit at the end, so a window that opens mid-run can still overlap their uncommitted
+pages; they refuse up front and stop at their next check. `test_write_admission_sites.py` keeps every other module off
+the bare predicate and lists each `probe()` site with its reason. Inside a window an agent's claim still writes and
+rides the batch commit (in-window attribution is a DECIDE); Sleep's own stages take no page lock.
 
 **Entity-level provenance uses `git blame`** enriched with parsed commit metadata; repo-level
 history uses `git log`. **No changelog in frontmatter** — git handles all history, zero storage
