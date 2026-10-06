@@ -129,7 +129,9 @@ Settings' local-folder picker — and check only the chosen file or folder
 (`IntakeRouter.refusedRoot(of:)`); a watched folder that *contains* a refused root is still walked
 (open, G125).
 
-**Home (G108; Direction D, DS-3b; F-09, round 4).** The front door at ⌘1: a 208 pt living band —
+**Home (G108; Direction D, DS-3b; F-09, round 4).** The front door at ⌘1: a 208 pt living band, **currently off** behind
+`HomeBandLayout.showsBand = false` (G189(a), 2026-10-06; the code stays, the headline row is Home's first content at the room
+pages' 24 pt top inset) —
 `PaintedScene(.hero(band:))`, the one component Home, the Welcome and onboarding's panes share (C10) — painting the
 person's Scene (Settings → General: Automatic · Day · Afternoon · Night; Automatic follows `SceneClock`, NOAA's sun
 over the Mac's time zone's tzdb point, no location; the afternoon is the last two hours before sunset through civil
@@ -794,17 +796,35 @@ mode, logs in `~/.cicada/logs`). `CICADA_PORT` (default 8000; the app also reads
 by the app, the backend, the MCP server, the hooks and the launchers. The bundled git is first on the backend's
 `PATH`; the app's own repo reads try the person's git first and the bundled one last.
 
-**Releases (G182 phase 4).** `make release VERSION=x.y.z` (`scripts/release/release.sh`, the owner's command, never an
-agent's) works in a temporary worktree: it bumps `VERSION`, `api/pyproject.toml` and uv.lock's project line on `dev`,
-merges `dev` into `main` with a merge commit, tags `vX.Y.Z`, and pushes dev, main and the tag in one atomic push
-(`--dry-run` pushes nothing). The tag starts `.github/workflows/release.yml` on `macos-26` (arm64, Xcode 26): it builds
-`bundle.sh --release --with-backend` with the commit count as the build number, runs `smoke-test.sh` on the result,
-zips it with `ditto -c -k --keepParent`, signs the zip's bytes with Ed25519 (`scripts/release/sign_update.py`, private
-key in the `CICADA_UPDATE_SIGNING_KEY` secret, verified against the committed `update-public-key.txt` before
-anything is published), writes `latest.json` (`latest_json.py`: version, build, versioned asset URL, size, sha256,
-signature, notes URL) and publishes a GitHub Release with generated notes. A push to `ci/release-dry-run` or a manual
-run does everything but publish and uploads the files as an artifact. The app carries the public key and the repo
-(`CicadaUpdatePublicKey`, `CicadaUpdateRepo` in Info.plist) for the updater.
+**Releases (G182 phase 4; TODO ruling 19).** A release is a `dev` → `main` PR, and merging it is the release. `VERSION`
+is the one version: `scripts/release/check_version.py` holds `api/pyproject.toml`, uv.lock's `cicada-api` entry, the
+built app's `CFBundleShortVersionString` and `latest.json` to it, and judges it against the remote's `v*` tags (already
+tagged → publish nothing; not greater than the latest → fail). The owner's two commands open PRs and nothing else
+(`scripts/release/release.sh`; never pushes `main`, never tags, never force-pushes; `--dry-run`): `make release
+VERSION=x.y.z` bumps the version files on `release/vx.y.z` off `origin/dev` and opens its PR to `dev`; `make release-pr`
+opens `dev` → `main` "Release vX.Y.Z". `.github/workflows/release-check.yml` fails a PR to `main` whose head isn't this
+repo's `dev` or whose `VERSION` CI would not publish. A push to `main` runs `.github/workflows/release.yml` (one
+concurrency group per commit, so a run never cancels or replaces another commit's): a **plan** job on ubuntu (stamps
+agree, tags decide), a **build** job on `macos-26` (arm64, Xcode 26) — `bundle.sh --release --with-backend` with the
+commit count as the build number, the Info.plist version check, `smoke-test.sh`, a `ditto -c -k --keepParent` zip, its
+Ed25519 signature (`scripts/release/sign_update.py`, private key in the `CICADA_UPDATE_SIGNING_KEY` secret, verified
+against the committed `update-public-key.txt`), `latest.json` (`latest_json.py`: version, build, versioned asset URL,
+size, sha256, signature, notes URL) and `Cicada-macos-arm64.zip`, the same bytes under a stable name the website links
+as `releases/latest/download/Cicada-macos-arm64.zip` — and a **publish** job, the only one with write access
+(`scripts/release/publish.sh`): the version judged again against the live tags (a re-run reuses a stale plan) and the
+commit checked to still be main's tip (only the tip publishes; a superseded run ends green and deletes only its own
+draft, so of two release merges in flight only the newer ships), a draft release at the merged commit created through
+the REST API and owned by the id in its response (never rediscovered through the lagging releases list; two drafts may
+share a tag), all four assets uploaded to that id with notes (`release-notes-header.md` + notes generated since the
+previous tag), the draft read back by id (tag, target, every asset's name and size), main's tip checked again, then
+published by a PATCH that spells out `tag_name` and `target_commitish` (one that omits `tag_name` drops the tag) —
+GitHub creates the tag only then — and marked latest only when it is the highest version; the release must then read
+back public under `vX.Y.Z` and the remote tag must point at the merged commit, else the run fails loudly and touches
+nothing. A failure before publication deletes the id it created and nothing else (a draft has no tag, so no tag is
+touched); a published release is never touched again. A push to `ci/release-dry-run` or a manual run off `main` does
+everything but publish and uploads the files as an artifact; a re-run or a manual run on `main` re-attempts an untagged
+`VERSION` only while main's tip is still its commit (a fix ships as a new release PR). The app carries the public key
+and the repo (`CicadaUpdatePublicKey`, `CicadaUpdateRepo` in Info.plist) for the updater.
 
 **Installing and updating a release (G182 phase 5).** Testers install with
 `curl -fsSL https://raw.githubusercontent.com/rorosaga/cicada/main/scripts/install-release.sh | bash`: it reads the

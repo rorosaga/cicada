@@ -191,8 +191,11 @@ def test_only_the_mcp_tool_calls_the_git_runner():
     offenders = []
     for root in ("api", "mcp"):
         for path in (REPO_ROOT / root).rglob("*.py"):
-            rel = path.relative_to(REPO_ROOT).as_posix()
-            if rel.startswith(("api/tests/", "api/.venv/")) or "/.venv/" in rel:
+            relative = path.relative_to(REPO_ROOT)
+            rel = relative.as_posix()
+            if any(part.startswith(".") or part in {"node_modules", "__pycache__"} for part in relative.parts):
+                continue
+            if rel.startswith("api/tests/"):
                 continue
             if rel in {"api/services/repo_context.py", "mcp/server.py"}:
                 continue
