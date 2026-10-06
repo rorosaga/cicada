@@ -30,12 +30,14 @@ logged, never its message (it can carry a path). It never raises.
 """
 from __future__ import annotations
 
+import errno
 import fcntl
 import hashlib
 import json
 import os
 import re
 import secrets
+import stat
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -215,17 +217,59 @@ def _paths(memory_path: Path, bank_paths) -> tuple[Path, Path] | None:
     return home / f"{fid}.json", home / f"{fid}.lock"
 
 
-def _read(path: Path) -> bytes:
+def open_regular(path: Path, flags: int, mode: int = 0o600) -> int:
+    """Open ``path`` without following a symlink in its final component and
+    refuse anything but a regular file (G110 fix round 1, review finding 3): a
+    planted ``<id>.lock`` or ``<id>.json`` symlink pointing into a bank is never
+    read, written or chmodded through, and a FIFO never blocks the open."""
+    fd = os.open(path, flags | os.O_NOFOLLOW | os.O_NONBLOCK, mode)
     try:
-        with open(path, "rb") as fh:
-            return fh.read(MAX_BYTES + 1)
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise OSError(errno.EINVAL, "not a regular file")
+    except BaseException:
+        os.close(fd)
+        raise
+    return fd
+
+
+def read_regular(path: Path, limit: int) -> bytes:
+    """Up to ``limit + 1`` bytes of a regular, non-symlinked file; ``b""`` when
+    it does not exist. Anything unsafe raises ``OSError``."""
+    try:
+        fd = open_regular(path, os.O_RDONLY)
     except FileNotFoundError:
         return b""
+    try:
+        chunks, size = [], 0
+        while size <= limit:
+            chunk = os.read(fd, min(1 << 20, limit + 1 - size))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            size += len(chunk)
+        return b"".join(chunks)
+    finally:
+        os.close(fd)
+
+
+def open_lock(path: Path) -> int:
+    """A lock file's descriptor: created 0600 if absent, never through a symlink."""
+    fd = open_regular(path, os.O_RDWR | os.O_CREAT)
+    try:
+        os.fchmod(fd, 0o600)
+    except BaseException:
+        os.close(fd)
+        raise
+    return fd
+
+
+def _read(path: Path) -> bytes:
+    return read_regular(path, MAX_BYTES)
 
 
 def _write(path: Path, rows: dict[str, dict]) -> None:
     tmp = path.with_name(f".{path.name}.{secrets.token_hex(4)}.tmp")
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             json.dump({"schema": 1, "rows": rows}, fh, sort_keys=True)
@@ -240,8 +284,7 @@ def _write(path: Path, rows: dict[str, dict]) -> None:
 
 
 def _lock(lock_path: Path, deadline: float | None) -> int | None:
-    fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o600)
-    os.fchmod(fd, 0o600)
+    fd = open_lock(lock_path)
     until = deadline if deadline is not None else time.monotonic() + UNBOUNDED_WAIT_S
     while True:
         try:

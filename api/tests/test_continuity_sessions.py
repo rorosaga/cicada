@@ -177,3 +177,39 @@ def test_bank_paths_for_lists_the_root_and_every_bank(tmp_path):
     bank_registry.create_bank(root, "beta", seed_owner=False)
     paths = cs.bank_paths_for(root)
     assert root in paths and bank_registry.bank_dir(root, "beta") in paths
+
+
+# --- fix round 1, finding 3: a symlinked final component is never followed ------
+
+
+@pytest.mark.parametrize("which", ["json", "lock"])
+def test_a_symlinked_registry_file_is_never_followed(env, which):
+    _apply(env, {"started_at": _t(0)})
+    home = cs.continuity_home(env["paths"])
+    victim = env["bank"] / "victim.md"
+    victim.write_text("bank page")
+    os.chmod(victim, 0o644)
+    name = f"{cs.bank_file_id(env['bank'])}.{'json' if which == 'json' else 'lock'}"
+    (home / name).unlink()
+    (home / name).symlink_to(victim)
+    status = _apply(env, {"last_prompt_at": _t(5)})
+    # Refused, never followed: the bank file keeps its bytes and its mode, and the link stays as planted.
+    assert status == "error"
+    assert stat.S_IMODE(victim.stat().st_mode) == 0o644 and victim.read_text() == "bank page"
+    assert (home / name).is_symlink()
+
+
+def test_a_symlinked_registry_json_is_never_read(env):
+    home = cs.continuity_home(env["paths"])
+    outside = env["root"].parent / "outside.json"
+    outside.write_text(json.dumps({"schema": 1, "rows": {f"claude-code:{SID}": {"started_at": _t(0)}}}))
+    (home / f"{cs.bank_file_id(env['bank'])}.json").symlink_to(outside)
+    assert _get(env) is None
+
+
+def test_a_fifo_in_place_of_the_registry_is_refused_without_blocking(env):
+    home = cs.continuity_home(env["paths"])
+    os.mkfifo(home / f"{cs.bank_file_id(env['bank'])}.json")
+    started = time.monotonic()
+    assert _get(env) is None
+    assert time.monotonic() - started < 1

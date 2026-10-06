@@ -225,3 +225,31 @@ def test_a_busy_bank_lock_is_treated_as_unprotected(bank):
         t.join()
     assert result["state"] == "unprotected"
     assert bank_registry.derived_exclusion_state(bank, continuity.INDEX_FILE) == "excluded"
+
+
+# --- fix round 1, finding 3: the index lock and the index never follow a symlink --
+
+
+def test_a_symlinked_index_lock_keeps_the_index_in_memory(bank):
+    from api.services import continuity_sessions
+
+    home = continuity_sessions.continuity_home((bank,))
+    victim = bank / "victim.md"
+    victim.write_text("bank page")
+    os.chmod(victim, 0o644)
+    (home / f"{continuity_sessions.bank_file_id(bank)}.index.lock").symlink_to(victim)
+    write_session(bank, 1, [("user", "a"), ("assistant", "b")])
+    snap = _refresh(bank)
+    assert snap.rows and not (bank / continuity.INDEX_FILE).exists()
+    assert victim.read_text() == "bank page" and (victim.stat().st_mode & 0o777) == 0o644
+
+
+def test_a_symlinked_index_file_is_never_read(bank, tmp_path):
+    write_session(bank, 1, [("user", "a"), ("assistant", "b")])
+    outside = tmp_path / "planted.json"
+    outside.write_text(json.dumps({"schema": 1, "entries": {"ep_2026-09-03_999.md": [1, 2, None]}}))
+    (bank / continuity.INDEX_FILE).symlink_to(outside)
+    continuity.reset()
+    snap = _refresh(bank)
+    assert [r["id"] for r in snap.rows.values()] == ["ep_2026-09-03_001"]
+    assert json.loads(outside.read_text())["entries"] == {"ep_2026-09-03_999.md": [1, 2, None]}

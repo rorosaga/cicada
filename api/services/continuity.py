@@ -52,6 +52,8 @@ from api.services import bank_registry, continuity_sessions, episode_ids, eviden
 
 SCHEMA = 1
 INDEX_FILE = "continuity_index.json"
+#: A larger index file is not read (it is rebuilt from the heads instead).
+INDEX_MAX_BYTES = 64 * 1024 * 1024
 HEAD_CAP = 16_384
 MAX_CHOSEN_PARSE = 3
 ACTIVE_WINDOW_MIN = 15
@@ -160,7 +162,8 @@ def _load(memory_path: Path) -> dict[str, list]:
         if key in _MEMO:
             return dict(_MEMO[key])
     try:
-        doc = json.loads(_index_path(memory_path).read_text(encoding="utf-8"))
+        raw = continuity_sessions.read_regular(_index_path(memory_path), INDEX_MAX_BYTES)
+        doc = json.loads(raw.decode("utf-8")) if raw and len(raw) <= INDEX_MAX_BYTES else {}
     except (OSError, ValueError):
         return {}
     if not isinstance(doc, dict) or doc.get("schema") != SCHEMA or not isinstance(doc.get("entries"), dict):
@@ -211,7 +214,7 @@ def _persist(memory_path: Path, entries: dict[str, list], bank_paths) -> None:
         return
     lock = home / f"{continuity_sessions.bank_file_id(memory_path)}.index.lock"
     try:
-        fd = os.open(lock, os.O_RDWR | os.O_CREAT, 0o600)
+        fd = continuity_sessions.open_lock(lock)       # never through a symlink (review finding 3)
     except OSError:
         return
     try:
