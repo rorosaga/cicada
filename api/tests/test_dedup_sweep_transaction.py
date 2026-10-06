@@ -13,6 +13,8 @@ Synthetic banks only.
 from __future__ import annotations
 
 import subprocess
+import threading
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -20,6 +22,7 @@ import pytest
 import yaml
 
 from api.services import dedup_sweep as ds
+from api.services import git_service
 
 
 def _git(repo, *args: str) -> str:
@@ -149,3 +152,81 @@ def test_a_clean_merge_commits_exactly_its_changes_under_cicada(bank):
     message = _git(bank, "log", "-1", "--format=%B").splitlines()
     assert "Cicada-Author: cicada" in message and "Cicada-Engine: litellm" in message
     assert _git(bank, "status", "--porcelain") == ""
+
+
+# --- Finding 2: a failed commit is put back exactly, and recovery is one locked step --------------------------------
+
+
+def _fail_commit_subprocess(monkeypatch):
+    """`git add` really runs; only `git commit` fails — the failure after real staging."""
+    real = git_service._spawn
+
+    def spawn(memory_path, args):
+        if args and args[0] == "commit":
+            return subprocess.CompletedProcess(args, 1, b"", b"simulated commit failure")
+        return real(memory_path, args)
+
+    monkeypatch.setattr(git_service, "_spawn", spawn)
+
+
+def test_a_commit_that_fails_after_staging_puts_back_every_byte_and_the_index(bank, monkeypatch):
+    with open(bank / "entities" / "carol-example.md", "a") as fh:
+        fh.write("\npre-existing edit on a page the merge never touches\n")
+    before, head = _files(bank), _head(bank)
+    _fail_commit_subprocess(monkeypatch)
+
+    out = _sweep(bank)
+
+    assert out["merged"] == [] and out["failed"] == [("esta", "esa")]
+    assert out["recovery_failed"] is False
+    assert _files(bank) == before
+    assert _head(bank) == head
+    assert _git(bank, "status", "--porcelain").strip() == "M entities/carol-example.md", "nothing left staged"
+
+
+def test_a_competing_whole_bank_writer_cannot_commit_a_failed_merge(bank, monkeypatch):
+    """The reproduced interleaving: a `git add -A` writer between the failed commit and the recovery."""
+    before, head = _files(bank), _head(bank)
+    real_commit = git_service.commit_changes_sync
+    competitor: dict = {}
+
+    def competing():
+        competitor["sha"] = real_commit(bank, "Sleep batch\n\nCicada-Author: some-model")
+
+    def failing_commit(memory_path, message, paths):
+        t = threading.Thread(target=competing)
+        t.start()
+        competitor["thread"] = t
+        time.sleep(0.3)   # the competitor is now waiting on the bank's git write lock
+        raise git_service.GitError("simulated")
+
+    monkeypatch.setattr(git_service, "commit_paths_sync", failing_commit)
+    out = _sweep(bank)
+    competitor["thread"].join(10)
+
+    assert out["failed"] == [("esta", "esa")]
+    assert competitor["sha"] is None, "the recovery finished first: nothing of the merge was left to sweep"
+    assert _head(bank) == head
+    assert _files(bank) == before
+
+
+def test_a_failed_recovery_is_reported_and_stops_the_sweep(bank, monkeypatch):
+    judged = []
+
+    def judge(a_body, b_body, a_id, b_id):
+        judged.append((a_id, b_id))
+        return {"verdict": "same", "confidence": 0.95, "winner": a_id}
+
+    def failing_commit(memory_path, message, paths):
+        raise git_service.GitError("simulated")
+
+    def failing_restore(*a, **k):
+        raise OSError("disk went away")
+
+    monkeypatch.setattr(git_service, "commit_paths_sync", failing_commit)
+    monkeypatch.setattr(ds, "_put_back", failing_restore)
+    out = _sweep(bank, pairs=[("esa", "esta"), ("bob-example", "carol-example")], judge=judge)
+
+    assert out["recovery_failed"] is True
+    assert out["failed"] == [("esta", "esa")]
+    assert judged == [("esa", "esta")], "no further pair is judged or merged"

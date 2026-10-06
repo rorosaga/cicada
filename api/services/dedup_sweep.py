@@ -2,12 +2,14 @@
 different/unsure judge with both pages, auto-merge high-confidence, nudge the
 uncertain. Runs on a duplicate bank; never on the live bank in tests.
 
-A real (not dry) sweep is one writer per merge (G183(e)): each merge and its
-own path-scoped commit run under the bank's page lock — never across the
-judge's model call — authored ``cicada``, so no merged page is left dirty for
-the next ``git add -A`` writer to sweep under its author. A merge whose commit
-fails is put back from HEAD. ``may_write`` is asked before every merge: once
-Sleep's write window opens, the sweep stops merging (``stopped_for_sleep``)."""
+A real (not dry) sweep is one transaction per merge (G183(e)), never spanning
+the judge's model call: under the page lock and the bank's git write lock it
+refuses a merge that would change a path someone else left dirty, commits
+exactly the paths the merge changed (``cicada``), and puts a failed merge back
+to its exact pre-merge bytes and index entries; one that cannot be put back
+stops the sweep (``recovery_failed``). ``may_write`` is asked before every
+judge call and again once the page lock is held: once Sleep's write window
+opens, the sweep stops (``stopped_for_sleep``)."""
 from __future__ import annotations
 import logging
 import os
@@ -96,6 +98,7 @@ def dedup_sweep(memory_path: Path, settings, *, judge_fn=None, embed_fn=None,
     skipped_rejected = 0
     stopped_for_sleep = False
     skipped_dirty, failed = [], []
+    recovery_failed = False
     for a, b in pairs:
         if stopped_for_sleep or (not dry_run and may_write is not None and not may_write()):
             stopped_for_sleep = True   # no judge call spent on a merge that could not land
@@ -157,6 +160,12 @@ def dedup_sweep(memory_path: Path, settings, *, judge_fn=None, embed_fn=None,
                     "winner": winner if winner in (a, b) else None, "applied": applied,
                 },
             ))
+        except RecoveryFailed as exc:
+            # The bank is not as the merge found it: no further merge on top of that.
+            logger.error("dedup_sweep: a failed merge could not be put back (%s); sweep stopped", exc)
+            failed.append((b if winner == a else a, winner))
+            recovery_failed = True
+            break
         except Exception as exc:  # noqa: BLE001 - one bad pair must not abort the sweep
             logger.warning("dedup_sweep: skipping pair (%s, %s) after error: %s", a, b, exc)
             continue
@@ -169,6 +178,7 @@ def dedup_sweep(memory_path: Path, settings, *, judge_fn=None, embed_fn=None,
         "stopped_for_sleep": stopped_for_sleep,
         "skipped_dirty": skipped_dirty,
         "failed": failed,
+        "recovery_failed": recovery_failed,
     }
 
 
@@ -186,37 +196,97 @@ MERGED, DIRTY, FAILED = "merged", "dirty", "failed"
 GRAPH = "graph_edges.yaml"
 
 
+class RecoveryFailed(Exception):
+    """A failed merge could not be put back as it was: the sweep stops and says so."""
+
+
 def _merge_and_commit(memory_path: Path, loser: str, winner: str, engine: str | None) -> str:
-    """One merge and its own commit under the page lock (page → git order).
+    """One merge as one transaction: the page lock, then the bank's git write
+    lock, held from the dirty check through the commit or the recovery (page →
+    git order), so no in-process git writer — Sleep's ``git add -A`` included —
+    can commit a half-done or failed merge in between.
 
     A merge commits only what is wholly its own (G183(e)): a merge whose winner
     or loser is already dirty is refused before anything is written, and one
     that turns out to change another dirty path (a page that names the loser,
-    the graph) is put back byte-for-byte and refused — never committed under
-    ``cicada`` with someone else's edit inside. ``DIRTY`` then; the next sweep
-    retries once that writer has committed."""
+    the graph) is put back and refused — never committed under ``cicada`` with
+    someone else's edit inside. ``DIRTY`` then; the next sweep retries once that
+    writer has committed. A failed merge or commit is put back to the exact
+    pre-merge bytes and index entries — never to HEAD, which would drop an edit
+    already on a page — and ``FAILED``; a put-back that cannot be done raises
+    :class:`RecoveryFailed`."""
     memory_path = Path(memory_path)
     with page_lock.page_lock(memory_path):
         if not (memory_path / ".git").exists():
             merge_entities(memory_path, loser_id=loser, winner_id=winner)
             return MERGED
-        dirty = git_service.dirty_paths_sync(memory_path, "entities", GRAPH)
-        if {f"entities/{loser}.md", f"entities/{winner}.md"} & dirty:
-            return DIRTY
-        snap = _snapshot(memory_path)
+        with git_service.write_lock(memory_path):
+            return _merge_transaction(memory_path, loser, winner, engine)
+
+
+def _merge_transaction(memory_path: Path, loser: str, winner: str, engine: str | None) -> str:
+    dirty = git_service.dirty_paths_sync(memory_path, "entities", GRAPH)
+    if {f"entities/{loser}.md", f"entities/{winner}.md"} & dirty:
+        return DIRTY
+    snap, index, head = _snapshot(memory_path), _index_entries(memory_path), _head(memory_path)
+    try:
         merge_entities(memory_path, loser_id=loser, winner_id=winner)
         changed = _changed(memory_path, snap)
         if set(changed) & dirty:
-            _put_back(memory_path, snap, changed)
-            return DIRTY
-        try:
+            outcome = DIRTY
+        else:
             git_service.commit_paths_sync(
                 memory_path, commit_message(changed, loser, date.today(), engine), changed)
-        except Exception as exc:  # noqa: BLE001 — logged by class, the pages are restored
-            logger.warning("dedup_sweep: merge commit failed (%s); restoring its pages", type(exc).__name__)
-            _restore(memory_path, changed)
-            return FAILED
-    return MERGED
+            return MERGED
+    except Exception as exc:  # noqa: BLE001 — logged by class; the pages are put back below
+        logger.warning("dedup_sweep: merge failed (%s); putting its pages back", type(exc).__name__)
+        outcome = FAILED
+    _recover(memory_path, snap, index, head)
+    return outcome
+
+
+def _recover(memory_path: Path, snap: dict[str, bytes | None], index: dict[str, tuple[str, str]], head: str) -> None:
+    """Every path the merge changed gets its snapshot bytes and index entry back
+    (an absent or untracked path stays absent from the index). HEAD must be
+    where the transaction found it: a moved HEAD means something committed
+    inside it, and putting files back then could undo that — so it is reported
+    instead."""
+    try:
+        if _head(memory_path) != head:
+            raise RecoveryFailed("HEAD moved inside a failed merge")
+        changed = _changed(memory_path, snap)
+        _put_back(memory_path, snap, changed)
+        for rel in changed:
+            if rel in index:
+                mode, blob = index[rel]
+                git_service._git_sync(memory_path, "update-index", "--add", "--cacheinfo", f"{mode},{blob},{rel}")
+            else:
+                git_service._git_sync(memory_path, "update-index", "--force-remove", "--", rel)
+    except RecoveryFailed:
+        raise
+    except Exception as exc:  # noqa: BLE001 — any failure here leaves the tree unknown
+        raise RecoveryFailed(type(exc).__name__) from exc
+
+
+def _head(memory_path: Path) -> str:
+    try:
+        return git_service._git_sync(memory_path, "rev-parse", "--verify", "-q", "HEAD^{commit}").strip()
+    except git_service.GitError:
+        return ""   # an unborn branch
+
+
+def _index_entries(memory_path: Path) -> dict[str, tuple[str, str]]:
+    """``path -> (mode, blob)`` for every stage-0 index entry a merge can touch."""
+    out: dict[str, tuple[str, str]] = {}
+    listing = git_service._git_sync(memory_path, "ls-files", "-s", "-z", "--", "entities", GRAPH)
+    for record in listing.split("\0"):
+        if not record or "\t" not in record:
+            continue
+        meta, rel = record.split("\t", 1)
+        mode, blob, stage = meta.split()
+        if stage == "0":
+            out[rel] = (mode, blob)
+    return out
 
 
 def _snapshot(memory_path: Path) -> dict[str, bytes | None]:
@@ -250,15 +320,6 @@ def _put_back(memory_path: Path, snap: dict[str, bytes | None], paths: list[str]
         except BaseException:
             Path(tmp).unlink(missing_ok=True)
             raise
-
-
-def _restore(memory_path: Path, paths: list[str]) -> None:
-    """Put each path back as HEAD has it (a removed loser comes back too)."""
-    for rel in paths:
-        try:
-            git_service.run_git_write_sync(memory_path, "checkout", "HEAD", "--", rel)
-        except git_service.GitError:
-            logger.warning("dedup_sweep: could not restore a merged path")
 
 
 def _default_judge_fn(settings):  # pragma: no cover - needs a real model

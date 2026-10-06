@@ -86,6 +86,9 @@ async def run_dedup_sweep(
         ],
         skipped_rejected=report.get("skipped_rejected", 0),
         stopped_for_sleep=report.get("stopped_for_sleep", False),
+        skipped_dirty=[MaintenanceMergePair(loser=l, winner=w) for l, w in report.get("skipped_dirty", [])],
+        failed=[MaintenanceMergePair(loser=l, winner=w) for l, w in report.get("failed", [])],
+        recovery_failed=report.get("recovery_failed", False),
     )
 
 
