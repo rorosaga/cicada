@@ -23,7 +23,17 @@ video, and never keeps a transcript. **`cicada_project(project, since?, tz?)`** 
 scope remotely) answers where a project stands — next milestones, what passed with no word, the Sleep
 queue, what happened and what is around it — from the engine-free read model, printing every relative
 word beside its absolute date ("yesterday (2026-09-22)"); a quote of the person's words needs
-`sources` remotely. **`cicada_note_progress`** (G141) records a happening or a milestone the person
+`sources` remotely. **`cicada_continue(session?, before?)`** (G110 slice 1a, stdio only — `catalog.NEVER_REMOTE`,
+because it reads the person's verbatim words for a folder the caller names; slice 4 decides its scope) reads where the
+work in this folder stopped: the most recent captured session whose `project_dir` equals this MCP process's project
+dir (exact string), or the one an exact episode id or full session id names. The bank is resolved once and pinned.
+It returns whole turns only (a captured turn is ≤ 2,000 characters), a page of ≤ 8,000 characters, newest last; the
+person's requests as an outline (≤ 160 characters each), each with a cursor that reads its turn in full; a page cursor
+is `"<turn>@<content_hash>"`, and a cursor printed for another revision restarts from the newest turns and says so
+(pages are never mixed). The identity, the gaps, *workspace state not checked*, the verify-first line and every
+"earlier turns" cursor are reserved within the 12,000-character reply. It does not exclude this process's own session
+id: after `/clear` a long-lived MCP process can still hold the previous one (G48). Contract item 1 names it
+(`CONTRACT_VERSION` 14). **`cicada_note_progress`** (G141) records a happening or a milestone the person
 described — observer always the agent, `record` scope remotely, never creates a page, echoes how the date
 was decided; `cicada_retract_claim` withdraws an event the same way.
 **`cicada_add_source(subject, ref, predicate?, access?, kind?)`** (G61 phase 2 S1) records where a

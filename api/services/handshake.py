@@ -65,7 +65,8 @@ from api.services.auth import cicada_home
 # one past either, so neither branch's cached primer is ever served as the other's.
 # 12: G61 S3-a — step 4 names cicada_add_source and cicada_change_source (sources are a living set).
 # 13: G61 S3 — the reading item names cicada_record_check (a report on a listed source; it settles nothing).
-CONTRACT_VERSION = 13
+# 14: G110 slice 1a — item 1 names cicada_continue (where the work in this folder stopped).
+CONTRACT_VERSION = 14
 MAX_TOKENS = 1800
 VARIANTS = ("claude-code", "codex", "generic")
 
@@ -256,7 +257,8 @@ _CONTRACT = (
     "## Contract\n"
     "1. Recall first: `cicada_recall(query)` at the start of a topic, `cicada_recall_detail(entity_id)` for a "
     "page, `cicada_ask` for a direct factual question, `cicada_timeline(since)` for what changed recently. State "
-    "only what the tools returned. Ask where a project stands with `cicada_project(project)`.\n"
+    "only what the tools returned. Ask where a project stands with `cicada_project(project)` and where the "
+    "work in this folder stopped with `cicada_continue()`.\n"
     "2. After `cicada_recall`, call `cicada_check_nudges(entity_ids=<recall ids>)`; at most one question per "
     "turn, after the user's request is done; quote the Cause line and lead with the Recommended option when the "
     "item shows them; never a blocking question at the end of an unrelated turn; "
