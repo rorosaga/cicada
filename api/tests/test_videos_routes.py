@@ -17,7 +17,7 @@ from api import config, main
 from api.routers import videos as videos_router
 from api.services import bank_index, demo_guard, sync_service, video_prompt, video_queue, video_state
 
-NOW = datetime(2026, 9, 29, 14, 0, 0, tzinfo=timezone.utc)
+NOW = datetime.now(timezone.utc).replace(hour=14, minute=0, second=0, microsecond=0)
 
 
 @pytest.fixture
@@ -220,7 +220,8 @@ def test_a_lapse_shows_over_the_wire_with_no_write(rig, monkeypatch):
     first = c.get("/videos/state")
     item = next(i for i in first.json()["items"] if i["key"] == keys[0])
     assert item["queueState"] == "claimed" and item["claimedBy"] == "claude-code"
-    assert first.json()["nextChangeAt"] == "2026-09-29T14:45:00Z"
+    expected_change = (NOW + timedelta(minutes=45)).isoformat().replace("+00:00", "Z")
+    assert first.json()["nextChangeAt"] == expected_change
     assert c.get("/videos/state", headers={"If-None-Match": first.headers["ETag"]}).status_code == 304
     before = video_queue.path_for(memory).stat().st_mtime_ns
     clock["t"] = NOW + timedelta(minutes=50)
