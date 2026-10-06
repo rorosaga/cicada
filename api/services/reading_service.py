@@ -93,6 +93,10 @@ def read_state(url: str, fm_read, ask_row, *, enabled: bool, wall: str | None = 
     return {k: v for k, v in state.items() if v is not None or k == "reason"}
 
 
+#: The ask's save while Sleep holds the pages (G183 round 2).
+SAVE_BUSY = "Sleep is updating your memory — ask again in a moment."
+
+
 async def ask(memory_path: Path, url: str) -> dict:
     """The person's "Ask an agent". Returns ``{ask, mediaEntityId, saved, prompt}``
     or raises :class:`AskRefused` with a sentence the person can read."""
@@ -108,8 +112,8 @@ async def ask(memory_path: Path, url: str) -> dict:
     entry = idx.get(h)
     saved = False
     if not (isinstance(entry, dict) and entry.get("media_entity_id")):
-        # No fetch (``defer_enrich``): the save and its commit are one held admission (G183 round 1), never refused —
-        # like ``POST /sources/save``.
+        # No fetch (``defer_enrich``): the save and its commit are one admitted transaction, refused (409, nothing
+        # written) while Sleep holds the pages — like ``POST /sources/save`` (G183 round 2).
         async def save():
             item = media_ingestor.RawItem(url=url, origin="saved-link", defer_enrich=True)
             index = media_ingestor.load_url_index(memory_path)
@@ -125,7 +129,7 @@ async def ask(memory_path: Path, url: str) -> dict:
                     logger.warning(f"Reading ask: save commit failed: {type(exc).__name__}")
             return result
 
-        result = await write_admission.run_admitted(memory_path, save)
+        result = await write_admission.run_admitted(memory_path, save, refuse=lambda: AskRefused(409, SAVE_BUSY))
         entity_id = result.media_entity_id
         saved = result.status == "created"
     else:

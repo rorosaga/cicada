@@ -615,8 +615,10 @@ page lock, through the commit or the put-back, `may_write` asked once inside; on
 call); an inbox conflict answer synthesizes its prose before admission and, admitted, re-plans on the page as it is
 then, using the prose only if every input it was made for is unchanged — the item, the pick, the entity, the
 planned body, the answer sentence, the date (else the dedup-guarded fallback); a link save
-(`POST /sources/save`, `cicada_save_url`, a remote `cicada_record_watch`'s save) fetches with no hold
-(`media_ingestor.prepare_one`) and writes and commits inside one (`write_prepared`, the index checked again). The
+(`POST /sources/save`, `cicada_save_url`, a remote `cicada_record_watch`'s save, the reading ask's save) fetches with
+no hold (`media_ingestor.prepare_one`) and writes and commits inside one (`write_prepared`, the index checked again) —
+refused (409, nothing written) when Sleep holds the pages, since a page written inside the window could ride the
+batch commit under Sleep's author; a stdio save the backend refused is never written directly behind its back. The
 remote runtime resolves the bank once per call and admits, gates, writes and commits that one bank. **Disclosed
 exceptions (still probes or unadmitted):** `enrich-links` and `verify-sites` refuse up front only — once started they
 keep writing and committing after a window opens, and `verify-sites` writes frontmatter it parsed before its fetch, so

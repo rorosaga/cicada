@@ -119,14 +119,20 @@ async def save_source(
         harness=request.harness,
         project_dir=request.project_dir,
     )
-    # G183 round 1: the link's metadata is fetched with no admission held; the files are written and committed
-    # inside the bank's write admission (held, never refused — a person's save is capture). A save that lands
-    # inside Sleep's window still writes its new page and commits it alone, at once.
+    # G183: the link's metadata is fetched with no admission held; the page, index and episode are written and
+    # committed inside the bank's write admission, and a save that finds Sleep holding the pages is refused (409)
+    # with nothing written — a page written inside the window could ride the batch commit under Sleep's author
+    # (fix round 2). The person saves again in a moment; the app shows the sentence.
     async with httpx.AsyncClient() as client:
         prepared = await media_ingestor.prepare_one(
             item, memory_path, client, media_ingestor.load_url_index(memory_path))
     return await write_admission.run_admitted(
-        memory_path, lambda: _write_saved_source(memory_path, item, prepared, request))
+        memory_path, lambda: _write_saved_source(memory_path, item, prepared, request),
+        refuse=lambda: HTTPException(409, SAVE_BUSY))
+
+
+#: A single save while Sleep holds the pages (G183 round 2).
+SAVE_BUSY = "Sleep is updating your memory — save the link again in a moment."
 
 
 async def _write_saved_source(memory_path, item, prepared, request) -> SourceSaveResponse:

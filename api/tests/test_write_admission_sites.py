@@ -385,7 +385,7 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /intake/import": (CAPTURE, None),
     "PUT /agent-methods": (HELD, "api.services.skill_pages.ensure"),
     "POST /agent-methods/skills/{skill}/page": (HELD, "api.services.skill_pages.ensure"),
-    "POST /sources/save": (HELD, None),
+    "POST /sources/save": (ADMITTED, None),
     "POST /sources/upload": (INTAKE, None),
     "POST /sources/rss": (INTAKE, None),
     "POST /sources/sync-bookmarks": (INTAKE, None),
@@ -434,7 +434,7 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "DELETE /connections/{connection_id}/key": (OUTSIDE, None),
     "PUT /connections/{connection_id}/prefs": (OUTSIDE, None),
     "PUT /reading/settings": (OUTSIDE, None),
-    "POST /reading/asks": (HELD, "api.services.reading_service.ask"),
+    "POST /reading/asks": (ADMITTED, "api.services.reading_service.ask"),
     "DELETE /reading/asks/{url_hash}": (OUTSIDE, None),
     "PUT /remote/settings": (OUTSIDE, None),
     "POST /remote/connectors": (OUTSIDE, None),
@@ -460,7 +460,7 @@ TOOLS: dict[str, tuple[str, str | None]] = {
     "cicada_record_watch": (ADMITTED, "record_watch"),
     "cicada_add_backlog_item": (ADMITTED, "add_backlog_item"),
     "cicada_add_backlog_note": (ADMITTED, "add_backlog_note"),
-    "cicada_save_url": (HELD, "save_url"),                      # backend up: POST /sources/save admits itself
+    "cicada_save_url": (ADMITTED, "save_url"),                  # backend up: POST /sources/save admits itself
     "cicada_resolve_inbox": (ADMITTED, None),                   # posts to /inbox/{id}/resolve, which admits
     "cicada_save_episode": (CAPTURE, None),
     "cicada_mark_processed": (CAPTURE, None),                   # an episode's cursor, revision-checked (A01)
@@ -552,3 +552,66 @@ def test_holding_is_asked_only_where_a_hold_is_taken():
                            for n in ast.walk(tree))})
     assert sorted(set(sites) - set(HOLDING_SITES)) == [], "a new holding() site: say what holds the bank there"
     assert sorted(set(HOLDING_SITES) - set(sites)) == [], "a stale HOLDING_SITES entry"
+
+
+# --- Fix round 2, finding 5: a single link save never writes a page inside an open window ---------------------------
+
+
+def test_a_save_whose_window_opened_during_its_fetch_is_refused_with_nothing_written(tmp_path, monkeypatch, save_spy):
+    seen, bank_of = save_spy
+    memory = bank_of["bank"] = _bank(tmp_path)
+    state = {"writing": False}
+    monkeypatch.setattr(sleep_cycle, "is_writing", lambda: state["writing"])
+
+    def open_window():
+        state["writing"] = True
+        assert write_admission.wait_for_writers(memory, give_up_after=1) is True
+
+    bank_of["on_fetch"] = open_window
+    pages = sorted(p.name for p in (memory / "entities").iterdir())
+    try:
+        resp = _client_on(memory, monkeypatch).post("/sources/save", json={"url": "https://example.com/a"})
+    finally:
+        config.get_settings.cache_clear()
+    assert resp.status_code == 409, resp.text
+    assert seen["write"] == [] and sorted(p.name for p in (memory / "entities").iterdir()) == pages
+    assert not (memory / "sources" / "url_index.json").exists()
+
+
+def test_a_reading_ask_inside_the_window_saves_nothing(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from api.services import reading_service
+
+    memory = _bank(tmp_path)
+    monkeypatch.setattr(sleep_cycle, "is_writing", lambda: True)
+    monkeypatch.setattr(reading_service.reading_settings, "agent_enabled", lambda: True)
+    monkeypatch.setattr(reading_service.reading_hosts, "agent_may_read", lambda url, enabled: SimpleNamespace(
+        ok=True, cls="open", reason="", host="example.com", host_class="open"))
+    pages = sorted(p.name for p in (memory / "entities").iterdir())
+    import asyncio
+
+    with pytest.raises(reading_service.AskRefused) as err:
+        asyncio.run(reading_service.ask(memory, "https://example.com/an-article"))
+    assert err.value.status == 409
+    assert sorted(p.name for p in (memory / "entities").iterdir()) == pages
+
+
+def test_a_stdio_save_the_backend_refused_is_not_written_directly(tmp_path, monkeypatch, save_spy):
+    import io
+    import urllib.error
+    import urllib.request
+
+    seen, bank_of = save_spy
+    memory = bank_of["bank"] = _bank(tmp_path)
+
+    def refuse(req, timeout=None):
+        raise urllib.error.HTTPError(req.full_url, 409, "Conflict", {},
+                                     io.BytesIO(b'{"detail": "Sleep is updating your memory"}'))
+
+    monkeypatch.setattr(urllib.request, "urlopen", refuse)
+    ctx = mcp_tools.ToolContext(memory_path=lambda: memory, session_id="ses_2026-10-06_c0ffee00",
+                                harness="claude-code", backend_url="http://127.0.0.1:9")
+    out = mcp_tools.save_url(ctx, "https://example.com/a", None)
+    assert "Sleep" in out and not out.startswith("Saved")
+    assert seen == {"fetch": [], "write": []}, "no fallback write behind the backend's refusal"

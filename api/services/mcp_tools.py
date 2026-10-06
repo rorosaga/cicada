@@ -372,6 +372,7 @@ def save_url(ctx: ToolContext, url: str, note: str | None) -> str:
     # it as an MCP save from this Mac.
     if not ctx.is_remote:
         try:
+            import urllib.error
             import urllib.request
 
             payload = json.dumps({
@@ -393,6 +394,14 @@ def save_url(ctx: ToolContext, url: str, note: str | None) -> str:
                 data.get("status", "created"), data.get("title", url), data.get("mediaType", "url"),
                 data.get("mediaEntityId", "?"), data.get("episodeId", "?"), data.get("noteEpisodeId"),
             )
+        except urllib.error.HTTPError as exc:
+            if exc.code == 409:
+                # The backend refused (Sleep holds the pages, G183 round 2): never written behind its back.
+                try:
+                    detail = json.loads(exc.read().decode("utf-8")).get("detail")
+                except Exception:  # noqa: BLE001
+                    detail = None
+                return f"Not saved: {detail or 'the backend is busy'}. Try again in a moment."
         except Exception:
             pass
 
