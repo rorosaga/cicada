@@ -327,3 +327,228 @@ def test_a_reading_ask_saves_its_link_inside_admission(tmp_path, monkeypatch):
     out = asyncio.run(reading_service.ask(memory, "https://example.com/an-article"))
     assert out["saved"] is True
     assert seen == [1]
+
+
+# --- Fix round 1, finding 8: the inventory — every route and tool that can write is classified -----------------------
+#
+# Absence of an `is_writing` reference proves nothing, so every non-GET backend route and every MCP tool is listed
+# here with its class and why. An unlisted one fails; a stale entry fails; ADMITTED/HELD/PER_WRITE are checked in the
+# code (a `write_admission.route` marker, or `run_admitted(` / `write_admission.shared(` in the named function).
+
+ADMITTED = "admitted: holds the bank's admission through its commit, 409/refusal while Sleep holds the pages"
+HELD = "held: holds admission through its commit, never refused (capture-shaped; its answer changes shape inside)"
+PER_WRITE = "per-write: each write takes its own admission (no hold across a model call or fetch)"
+PROBE = "probe: a stale early answer only — a long networked job; DISCLOSED in storage.md"
+INTAKE = ("intake: creates NEW media pages and episodes in a batch with fetches interleaved, not admitted — a page "
+          "written inside Sleep's window can ride a batch commit; DISCLOSED in storage.md (follow-up)")
+CAPTURE = "capture: episodes and capture sidecars only (Awake, ungated by rail) — never an entity page"
+REGISTRY = "registry: one bank file Sleep never reads or rewrites, committed alone"
+OUTSIDE = "outside: writes nothing in the bank (settings, credentials, ledger, caches, the video queue)"
+SLEEP = "sleep: Sleep's own controls"
+BANKS = "banks: bank lifecycle — refused while a run is pinned to its bank"
+NONE = "none: reads or computes; writes nothing"
+
+ROUTES: dict[str, tuple[str, str | None]] = {
+    "POST /ask": (NONE, None),
+    "POST /inbox/{item_id}/resolve": (ADMITTED, "api.services.inbox_service.resolve"),
+    "POST /nudges/{nudge_id}/resolve": (ADMITTED, "api.services.inbox_service.resolve"),
+    "POST /clarifications/{clarification_id}": (ADMITTED, "api.services.inbox_service.resolve"),
+    "POST /entities/{entity_id}/read": (OUTSIDE, None),
+    "POST /entities/{entity_id}/picture": (ADMITTED, None),
+    "POST /entities/{entity_id}/picture/initials": (ADMITTED, None),
+    "DELETE /entities/{entity_id}/picture": (ADMITTED, None),
+    "PUT /entities/{entity_id}/decay": (ADMITTED, None),
+    "POST /entities/{entity_id}/repos/observed": (OUTSIDE, None),
+    "PATCH /entities/{entity_id}/repos": (ADMITTED, None),
+    "POST /entities/{entity_id}/sources": (ADMITTED, None),
+    "POST /entities/{entity_id}/sources/change": (ADMITTED, None),
+    "DELETE /entities/{entity_id}/sources/{index}": (ADMITTED, None),
+    "POST /projects/{project_id}/milestones": (ADMITTED, None),
+    "PATCH /projects/{project_id}/milestones/{slug}": (ADMITTED, None),
+    "POST /projects/{project_id}/happenings": (ADMITTED, None),
+    "POST /projects/{project_id}/threads/{claim_id}": (ADMITTED, None),
+    "POST /projects/{project_id}/withdraw": (ADMITTED, None),
+    "POST /projects/{project_id}/backlog": (ADMITTED, None),
+    "POST /backlog/{project_id}/{item_id}/notes": (ADMITTED, None),
+    "PATCH /backlog/{project_id}/{item_id}": (ADMITTED, None),
+    "POST /projects/{project_id}/backlog/import": (ADMITTED, None),
+    "POST /sleep/trigger": (SLEEP, None),
+    "POST /sleep/run/end": (SLEEP, None),
+    "POST /sleep/parked/retry": (SLEEP, None),
+    "POST /sleep/cancel": (SLEEP, None),
+    "PUT /sleep/run-options": (OUTSIDE, None),
+    "PUT /sleep/schedule": (OUTSIDE, None),
+    "PUT /sleep/engine": (OUTSIDE, None),
+    "POST /conversations/upload": (CAPTURE, None),
+    "POST /conversations/{conversation_id}/resume": (NONE, None),
+    "POST /intake/sniff": (NONE, None),
+    "POST /intake/import": (CAPTURE, None),
+    "PUT /agent-methods": (HELD, "api.services.skill_pages.ensure"),
+    "POST /agent-methods/skills/{skill}/page": (HELD, "api.services.skill_pages.ensure"),
+    "POST /sources/save": (HELD, None),
+    "POST /sources/upload": (INTAKE, None),
+    "POST /sources/rss": (INTAKE, None),
+    "POST /sources/sync-bookmarks": (INTAKE, None),
+    "POST /sources/sync-safari-tabs": (INTAKE, None),
+    "POST /sources/feeds": (REGISTRY, None),
+    "DELETE /sources/feeds": (REGISTRY, None),
+    "POST /sources/poll-feeds": (INTAKE, None),
+    "POST /sources/calendars": (REGISTRY, None),
+    "DELETE /sources/calendars": (REGISTRY, None),
+    "POST /sources/poll-calendars": (CAPTURE, None),
+    "POST /sources/sync-notes": (CAPTURE, None),
+    "POST /banks": (BANKS, None),
+    "POST /banks/{name}/activate": (BANKS, None),
+    "POST /banks/{name}/duplicate": (BANKS, None),
+    "POST /banks/{name}/rename": (BANKS, None),
+    "DELETE /banks/{name}": (BANKS, None),
+    "POST /banks/demo": (BANKS, None),
+    "POST /banks/leave-demo": (BANKS, None),
+    "POST /banks/{name}/import": (CAPTURE, None),
+    "PUT /settings/owner": (ADMITTED, None),
+    "POST /sources/folders": (ADMITTED, None),
+    "PUT /sources/folders/{folder_id}": (HELD, None),
+    "DELETE /sources/folders/{folder_id}": (REGISTRY, None),
+    "POST /sources/folders/{folder_id}/sync": (HELD, None),
+    "PUT /capture/local-source/wispr-flow/settings": (REGISTRY, None),
+    "POST /capture/local-source/wispr-flow": (HELD, None),
+    "POST /sources/calendar-local/sync": (CAPTURE, None),
+    "POST /sources/tab-groups/sync": (CAPTURE, None),
+    "POST /sources/contacts-local/sync": (ADMITTED, None),
+    "POST /capture/telegram": (INTAKE, None),
+    "POST /capture/transcript": (CAPTURE, None),
+    "POST /capture/hook-context": (NONE, None),
+    "PUT /sources/connectors/{connector_id}/credentials": (OUTSIDE, None),
+    "DELETE /sources/connectors/{connector_id}/credentials": (OUTSIDE, None),
+    "POST /sources/connectors/{connector_id}/authorize": (OUTSIDE, None),
+    "POST /sources/connectors/{connector_id}/sync": (INTAKE, None),
+    "POST /maintenance/dedup-sweep": (PER_WRITE, "api.services.dedup_sweep._merge_and_commit"),
+    "POST /maintenance/enrich-links": (PROBE, None),
+    "POST /maintenance/link-sources": (ADMITTED, None),
+    "POST /maintenance/verify-sites": (PROBE, None),
+    "POST /maintenance/search-index/rebuild": (OUTSIDE, None),
+    "PUT /memory/decay-tuning": (ADMITTED, None),
+    "POST /connections/{connection_id}/login": (OUTSIDE, None),
+    "POST /connections/{connection_id}/logout": (OUTSIDE, None),
+    "PUT /connections/{connection_id}/key": (OUTSIDE, None),
+    "DELETE /connections/{connection_id}/key": (OUTSIDE, None),
+    "PUT /connections/{connection_id}/prefs": (OUTSIDE, None),
+    "PUT /reading/settings": (OUTSIDE, None),
+    "POST /reading/asks": (HELD, "api.services.reading_service.ask"),
+    "DELETE /reading/asks/{url_hash}": (OUTSIDE, None),
+    "PUT /remote/settings": (OUTSIDE, None),
+    "POST /remote/connectors": (OUTSIDE, None),
+    "POST /remote/connectors/{connector_id}/rotate": (OUTSIDE, None),
+    "DELETE /remote/connectors/{connector_id}": (OUTSIDE, None),
+    "PUT /videos/queue/{key}": (OUTSIDE, None),
+    "DELETE /videos/queue/{key}": (OUTSIDE, None),
+    "POST /videos/queue/{key}/retry": (OUTSIDE, None),
+    "POST /videos/run/handoff": (OUTSIDE, None),
+    "POST /embeddings/choice": (OUTSIDE, None),
+    "POST /embeddings/install": (OUTSIDE, None),
+}
+
+#: Every MCP tool (stdio and remote): the mcp_tools function it runs and its class.
+TOOLS: dict[str, tuple[str, str | None]] = {
+    "cicada_write_claim": (ADMITTED, "write_claim"),            # stdio: in-window write stays uncommitted (DECIDE)
+    "cicada_retract_claim": (ADMITTED, "retract_claim"),
+    "cicada_note_progress": (ADMITTED, "note_progress"),
+    "cicada_add_source": (ADMITTED, "add_source"),
+    "cicada_change_source": (ADMITTED, "change_source"),
+    "cicada_record_check": (ADMITTED, "record_check"),
+    "cicada_record_read": (ADMITTED, "record_read"),
+    "cicada_record_watch": (ADMITTED, "record_watch"),
+    "cicada_add_backlog_item": (ADMITTED, "add_backlog_item"),
+    "cicada_add_backlog_note": (ADMITTED, "add_backlog_note"),
+    "cicada_save_url": (HELD, "save_url"),                      # backend up: POST /sources/save admits itself
+    "cicada_resolve_inbox": (ADMITTED, None),                   # posts to /inbox/{id}/resolve, which admits
+    "cicada_save_episode": (CAPTURE, None),
+    "cicada_mark_processed": (CAPTURE, None),                   # an episode's cursor, revision-checked (A01)
+    "cicada_video_claim": (OUTSIDE, None),
+    **{t: (NONE, None) for t in (
+        "cicada_handshake", "cicada_recall", "cicada_recall_detail", "cicada_open_hub", "cicada_get_perspective",
+        "cicada_check_nudges", "cicada_timeline", "cicada_project", "cicada_sources", "cicada_ask",
+        "cicada_backlog", "cicada_reading_queue", "cicada_video_queue", "cicada_pending", "cicada_repo_context")},
+}
+
+#: `write_admission.holding()` is the in-hold question: each site and what holds the bank around it.
+HOLDING_SITES = {
+    "api/routers/maintenance.py": "the sweep's may_write: asked inside each merge's own hold (and, stale, before a "
+                                  "judge call, where nothing is written)",
+    "api/routers/local_sources.py": "folder update/sync and Wispr Flow: inside their route()'s hold",
+    "api/services/skill_pages.py": "inside ensure()'s run_admitted",
+    "api/remote/runtime.py": "the remote gate: inside call()'s hold or a self-admitted tool's own",
+}
+
+
+def _routes():
+    from fastapi.routing import APIRoute
+
+    from api import main
+
+    for r in main.app.routes:
+        if isinstance(r, APIRoute):
+            for m in sorted(r.methods - {"GET", "HEAD", "OPTIONS"}):
+                yield f"{m} {r.path}", r.endpoint
+
+
+def _src(fn) -> str:
+    import inspect
+
+    return inspect.getsource(inspect.unwrap(fn))
+
+
+def _resolve(dotted: str):
+    import importlib
+
+    module, _, name = dotted.rpartition(".")
+    return getattr(importlib.import_module(module), name)
+
+
+def test_every_writing_route_is_classified():
+    found = dict(_routes())
+    assert sorted(set(found) - set(ROUTES)) == [], "an unclassified route: add it to ROUTES with its class"
+    assert sorted(set(ROUTES) - set(found)) == [], "a stale ROUTES entry"
+
+
+@pytest.mark.parametrize("route", sorted(k for k, (c, _) in ROUTES.items() if c in (ADMITTED, HELD, PER_WRITE)))
+def test_an_admitted_route_takes_admission_in_its_code(route):
+    endpoint = dict(_routes())[route]
+    cls, via = ROUTES[route]
+    marker = getattr(endpoint, "__write_admission__", None)
+    if marker is not None:
+        assert marker == ("admitted" if cls == ADMITTED else "held"), (route, marker)
+        return
+    src = _src(_resolve(via)) if via else _src(endpoint)
+    needle = "write_admission.shared(" if cls == PER_WRITE else "run_admitted("
+    assert needle in src, f"{route} is classified {cls.split(':')[0]} but its code takes no admission"
+    if cls == ADMITTED and "run_admitted(" in src:
+        assert "refuse=" in src, f"{route} is classified admitted but never refuses"
+
+
+def test_a_probe_route_says_so_in_its_code():
+    for route, (cls, _) in ROUTES.items():
+        if cls == PROBE:
+            assert "write_admission.probe()" in _src(dict(_routes())[route]), route
+
+
+def test_every_mcp_tool_is_classified_and_admitted_tools_take_admission():
+    server = (ROOT / "mcp" / "server.py").read_text()
+    import re
+
+    names = set(re.findall(r'"(cicada_[a-z_]+)"', server))
+    assert sorted(names - set(TOOLS)) == [], "an unclassified MCP tool"
+    assert sorted(set(TOOLS) - names) == [], "a stale TOOLS entry"
+    for tool, (cls, fn_name) in TOOLS.items():
+        if cls in (ADMITTED, HELD) and fn_name:
+            src = _src(getattr(mcp_tools, fn_name))
+            assert "@_holding_pages" in src or "write_admission.shared(" in src, f"{tool}: no admission in its code"
+
+
+def test_holding_is_asked_only_where_a_hold_is_taken():
+    sites = sorted({rel for rel, tree in _sources()
+                    if any(isinstance(n, ast.Attribute) and n.attr == "holding"
+                           and isinstance(n.value, ast.Name) and n.value.id == "write_admission"
+                           for n in ast.walk(tree))})
+    assert sorted(set(sites) - set(HOLDING_SITES)) == [], "a new holding() site: say what holds the bank there"
+    assert sorted(set(HOLDING_SITES) - set(sites)) == [], "a stale HOLDING_SITES entry"
