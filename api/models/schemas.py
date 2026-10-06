@@ -3471,6 +3471,9 @@ class MaintenanceDedupSweepResponse(CamelModel):
     # merges whose write or commit failed and were put back exactly, and
     # whether a put-back itself failed (the sweep stopped there).
     skipped_dirty: list[MaintenanceMergePair] = []
+    # Fix round 2 — merges refused because a path they would write could not be
+    # put back exactly (unmerged index stages, a symlink, not a regular file).
+    skipped_unsafe: list[MaintenanceMergePair] = []
     failed: list[MaintenanceMergePair] = []
     recovery_failed: bool = False
 

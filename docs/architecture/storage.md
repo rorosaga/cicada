@@ -103,14 +103,17 @@ loser's name joins the winner's `aliases`, and the result lists the paths it wro
 rename-to-the-cleaner-slug branch repoints the same references (`rename_references`), and every inbox note lands above
 the fence. `episodes/` is never rewritten. **The dedup sweep commits its own merges (G183(e)):** `POST
 /maintenance/dedup-sweep` with `dryRun: false` runs each merge as one transaction under the page lock **and** the bank's
-git write lock, from its dirty check through its commit or recovery (never across the judge's model call). A merge that
-would change a path someone else left dirty — winner, loser, a page naming the loser, the graph — is refused
-(`skippedDirty`; one discovered only after merging is put back byte-for-byte first), so nothing another writer left
-uncommitted is ever committed as `cicada`. Otherwise it commits exactly the paths whose bytes changed — `Dedup sweep
-<date>`, `<path>: updated|removed (merged, trigger: maintenance/dedup-sweep)`, `Cicada-Author: cicada`, `Cicada-Engine:`
-the judge's engine. A failed merge or commit gets its exact pre-merge bytes and index entries back, never HEAD's
-(`failed`); a put-back that cannot be done, or a HEAD that moved inside the transaction, stops the sweep
-(`recoveryFailed`). `repoint_edges` leaves an untouched graph alone. A dry run writes and commits nothing.
+git write lock, from its footprint check through its commit or recovery (never across the judge's model call). The
+footprint — `entity_merge.merge_footprint`: winner, loser, `graph_edges.yaml` when an edge names the loser, and every page
+naming the loser, found by `_repoint_page`, the same matcher `repoint_references` writes with — is known before any write.
+The merge is refused untouched when a footprint path is unsafe to put back (`skippedUnsafe`: unmerged index stages, a
+symlink, not a regular file) or dirty (`skippedDirty`), so nothing another writer left uncommitted is ever committed as
+`cicada`. Only the footprint is snapshotted (bytes, permission bits, stage-0 index entry or absence). The merge must write
+only inside it; the paths it wrote whose bytes changed are committed — `Dedup sweep <date>`, `<path>: updated|removed
+(merged, trigger: maintenance/dedup-sweep)`, `Cicada-Author: cicada`, `Cicada-Engine:` the judge's engine. A failed merge
+or commit gets the footprint back as found, never HEAD's version, and nothing outside it is read or written (`failed`);
+a write outside the footprint, a put-back that cannot be done, or a HEAD that moved inside the transaction stops the
+sweep (`recoveryFailed`). `repoint_edges` leaves an untouched graph alone. A dry run writes and commits nothing.
 
 **Evidence spans (G118) — spans, not copies.** Every claim written since that slice carries
 `evidence: [{episode, start, end, kind, hash}]`. `start`/`end` are character offsets into the source

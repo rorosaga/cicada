@@ -274,3 +274,172 @@ def test_a_dry_run_also_stops_judging_once_sleep_is_writing(bank):
                  may_write=lambda: not state["writing"])
     assert judged == [("esa", "esta")]
     assert out["stopped_for_sleep"] is True
+
+
+# --- Fix round 2: the merge's footprint is known before any write, and nothing outside it is touched ---------------
+
+import os
+import stat
+
+from api.services import entity_merge
+
+
+def _index(memory) -> str:
+    return _git(memory, "ls-files", "-s", "-z")
+
+
+def test_an_unmerged_reference_page_refuses_the_merge_and_keeps_every_index_stage(bank):
+    rel = "entities/bob-example.md"
+    blob = _git(bank, "rev-parse", f"HEAD:{rel}").strip()
+    info = "".join(f"100644 {blob} {n}\t{rel}\n" for n in (1, 2, 3))
+    subprocess.run(["git", "update-index", "--force-remove", "--", rel], cwd=bank, check=True)
+    subprocess.run(["git", "update-index", "--index-info"], cwd=bank, input=info, text=True, check=True)
+    before_index, before, head = _index(bank), _files(bank), _head(bank)
+
+    out = _sweep(bank)
+
+    assert out["merged"] == [] and out["skipped_unsafe"] == [("esta", "esa")]
+    assert _index(bank) == before_index, "all three conflict stages still there"
+    assert _files(bank) == before and _head(bank) == head
+
+
+def test_a_symlinked_winner_refuses_the_merge_and_leaves_link_and_target_alone(bank):
+    target = bank / "target.md"
+    target.write_bytes((bank / "entities" / "esa.md").read_bytes())
+    (bank / "entities" / "esa.md").unlink()
+    os.symlink("../target.md", bank / "entities" / "esa.md")
+    _git(bank, "add", "-A")
+    _git(bank, "commit", "-q", "-m", "link the winner")
+    target_bytes, index, head = target.read_bytes(), _index(bank), _head(bank)
+
+    out = _sweep(bank)
+
+    assert out["skipped_unsafe"] == [("esta", "esa")]
+    assert os.readlink(bank / "entities" / "esa.md") == "../target.md"
+    assert target.read_bytes() == target_bytes
+    assert (bank / "entities" / "esta.md").exists()
+    assert _index(bank) == index and _head(bank) == head
+    assert _git(bank, "status", "--porcelain") == ""
+
+
+def test_an_executable_loser_comes_back_with_its_mode_after_a_failed_commit(bank, monkeypatch):
+    loser = bank / "entities" / "esta.md"
+    loser.chmod(0o755)
+    _git(bank, "add", "-A")
+    _git(bank, "commit", "-q", "-m", "exec loser")
+    before, index, head = _files(bank), _index(bank), _head(bank)
+
+    def failing_commit(memory_path, message, paths):
+        raise git_service.GitError("simulated")
+
+    monkeypatch.setattr(git_service, "commit_paths_sync", failing_commit)
+    out = _sweep(bank)
+
+    assert out["failed"] == [("esta", "esa")]
+    assert stat.S_IMODE(loser.stat().st_mode) == 0o755
+    assert _files(bank) == before and _index(bank) == index and _head(bank) == head
+    assert _git(bank, "status", "--porcelain") == ""
+
+
+def _unguarded_write_after_the_merge(monkeypatch, bank):
+    """Sleep takes no page lock: a page the merge never touches is written while the transaction runs."""
+    real = ds.merge_entities
+
+    def merge_then_sleep_writes(memory_path, **kw):
+        result = real(memory_path, **kw)
+        with open(bank / "entities" / "carol-example.md", "a") as fh:
+            fh.write("\nwritten by an unguarded writer\n")
+        return result
+
+    monkeypatch.setattr(ds, "merge_entities", merge_then_sleep_writes)
+
+
+def test_an_unguarded_write_to_an_unrelated_page_never_rides_the_merge_commit(bank, monkeypatch):
+    _unguarded_write_after_the_merge(monkeypatch, bank)
+    out = _sweep(bank)
+    assert out["merged"] == [("esta", "esa")]
+    assert "entities/carol-example.md" not in _git(bank, "show", "--name-only", "--format=", "HEAD").split()
+    assert "written by an unguarded writer" in (bank / "entities" / "carol-example.md").read_text()
+    assert _git(bank, "status", "--porcelain").strip() == "M entities/carol-example.md"
+
+
+def test_an_unguarded_write_to_an_unrelated_page_is_never_reverted_by_a_recovery(bank, monkeypatch):
+    _unguarded_write_after_the_merge(monkeypatch, bank)
+
+    def failing_commit(memory_path, message, paths):
+        raise git_service.GitError("simulated")
+
+    monkeypatch.setattr(git_service, "commit_paths_sync", failing_commit)
+    out = _sweep(bank)
+    assert out["failed"] == [("esta", "esa")]
+    assert "written by an unguarded writer" in (bank / "entities" / "carol-example.md").read_text()
+    assert (bank / "entities" / "esta.md").exists()
+    assert _git(bank, "status", "--porcelain").strip() == "M entities/carol-example.md"
+
+
+def test_a_merge_that_writes_outside_its_footprint_is_put_back_and_stops_the_sweep(bank, monkeypatch):
+    real = ds.merge_entities
+
+    def merge_claiming_more(memory_path, **kw):
+        result = real(memory_path, **kw)
+        result["paths"] = [*result["paths"], "entities/carol-example.md"]
+        return result
+
+    monkeypatch.setattr(ds, "merge_entities", merge_claiming_more)
+    before, head = _files(bank), _head(bank)
+    out = _sweep(bank, pairs=[("esa", "esta"), ("bob-example", "carol-example")])
+    assert out["recovery_failed"] is True and out["merged"] == []
+    assert _files(bank) == before and _head(bank) == head
+
+
+def test_the_footprint_is_exactly_what_the_merge_writes(tmp_path):
+    """One matcher: the footprint and `merge_entities`' repointing are the same per-page code."""
+    ents = tmp_path / "entities"
+    ents.mkdir()
+    _page(ents, "alpha-project", "Alpha Project")
+    _page(ents, "beta-project", "Beta Project")
+    _page(ents, "by-id", "by-id", related=["beta-project"])
+    _page(ents, "by-name", "by-name", related=["BETA PROJECT"])
+    _page(ents, "by-link", "by-link", "## Summary\nsee [[Beta Project|the beta]] and [[beta-project#notes]]\n")
+    _page(ents, "by-source", "by-source", sources=[{"ref": "https://example.com/b", "entity": "beta-project"}])
+    _page(ents, "by-claim", "by-claim",
+          "## Summary\nx\n\n```claims\n- id: c1\n  subject: by-claim\n  predicate: works_on\n"
+          "  object: beta-project\n  object_kind: entity\n```\n")
+    _page(ents, "unrelated", "unrelated", "## Summary\nmentions alpha only: [[Alpha Project]]\n")
+    (tmp_path / "graph_edges.yaml").write_text(yaml.safe_dump({"edges": [
+        {"source": "beta-project", "target": "by-id", "label": "x"}]}))
+
+    footprint = entity_merge.merge_footprint(tmp_path, loser_id="beta-project", winner_id="alpha-project")
+    written = entity_merge.merge_entities(tmp_path, loser_id="beta-project", winner_id="alpha-project")["paths"]
+
+    assert set(footprint) == set(written)
+    assert {"entities/by-id.md", "entities/by-name.md", "entities/by-link.md", "entities/by-source.md",
+            "entities/by-claim.md", "graph_edges.yaml"} <= set(footprint)
+    assert "entities/unrelated.md" not in footprint
+
+
+def test_the_footprint_leaves_out_a_graph_no_edge_of_which_names_the_loser(tmp_path):
+    ents = tmp_path / "entities"
+    ents.mkdir()
+    _page(ents, "alpha-project", "Alpha Project")
+    _page(ents, "beta-project", "Beta Project")
+    (tmp_path / "graph_edges.yaml").write_text(yaml.safe_dump({"edges": [
+        {"source": "alpha-project", "target": "gamma", "label": "x"}]}))
+    assert "graph_edges.yaml" not in entity_merge.merge_footprint(tmp_path, "beta-project", "alpha-project")
+
+
+def test_a_window_that_opens_while_the_merge_waits_for_the_git_lock_stops_it(bank, monkeypatch):
+    state = {"writing": False}
+    monkeypatch.setattr(sleep_cycle, "get_sleep_state",
+                        lambda: SimpleNamespace(status="running", drain_run=True, writing=state["writing"]))
+    before, head = _files(bank), _head(bank)
+    result: dict = {}
+    with git_service.write_lock(bank):
+        t = threading.Thread(target=lambda: result.update(
+            _sweep(bank, may_write=lambda: not sleep_cycle.is_writing())))
+        t.start()
+        time.sleep(0.5)            # past its in-page-lock check, waiting on the git lock
+        state["writing"] = True
+    t.join(10)
+    assert result["merged"] == [] and result["stopped_for_sleep"] is True
+    assert _files(bank) == before and _head(bank) == head

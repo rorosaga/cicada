@@ -170,6 +170,57 @@ def _carry_claims(winner: list[Claim], loser: list[Claim], loser_id: str, loser_
     return [*winner, *carried]
 
 
+def _repoint_page(ep: Path, old: set[str], old_id: str, new_id: str, new_name: str, wikilink_re,
+                  *, warn: bool = True) -> tuple[bool, dict, str]:
+    """One page's references to the old entity, pointed at the new one, without
+    writing: ``(changed, frontmatter, body)``. The ONE matcher — both
+    :func:`repoint_references` (which writes) and :func:`merge_footprint` (which
+    only asks) call it, so what a merge is predicted to touch and what it
+    touches cannot drift."""
+    epar = markdown_parser.parse(ep)
+    efm = dict(epar.frontmatter)
+    changed = False
+
+    related = efm.get("related")
+    if isinstance(related, list):
+        new_related, seen_r = [], set()
+        for r in related:
+            if isinstance(r, str) and r.lower() in old:
+                r = new_name
+            dedup_key = r.lower() if isinstance(r, str) else r
+            if dedup_key in seen_r:
+                continue
+            seen_r.add(dedup_key)
+            new_related.append(r)
+        if new_related != related:
+            efm["related"] = new_related
+            changed = True
+
+    srcs = efm.get("sources")
+    if isinstance(srcs, list):
+        for src in srcs:
+            if isinstance(src, dict) and str(src.get("entity") or "") == old_id:
+                src["entity"] = new_id   # G61 S3-a: a source's link follows the merge
+                changed = True
+
+    try:
+        page_claims = parse_claims(epar.body, strict=True)
+    except MalformedClaimsBlockError:
+        if warn:
+            logger.warning(f"merge: {ep.stem} has an unparseable claims block; its claims keep their references")
+        page_claims = []
+    claims_changed = False
+    for c in page_claims:
+        claims_changed |= _repoint_claim(c, old, old_id, new_id)
+
+    new_body, n_subs = _relink(wikilink_re, new_name, epar.body)
+    if claims_changed:
+        new_body = write_claims(new_body, page_claims)
+    if n_subs or claims_changed:
+        changed = True
+    return changed, efm, new_body
+
+
 def repoint_references(memory_path: Path, old_id: str, old_name: str, new_id: str, new_name: str,
                        *, skip: tuple[str, ...] = ()) -> list[str]:
     """Point every OTHER entity page's references at ``new_id`` before the old
@@ -187,51 +238,42 @@ def repoint_references(memory_path: Path, old_id: str, old_name: str, new_id: st
     for ep in sorted(ents.glob("*.md")):
         if ep.name in skip_names:
             continue
-        epar = markdown_parser.parse(ep)
-        efm = dict(epar.frontmatter)
-        changed = False
-
-        related = efm.get("related")
-        if isinstance(related, list):
-            new_related, seen_r = [], set()
-            for r in related:
-                if isinstance(r, str) and r.lower() in old:
-                    r = new_name
-                dedup_key = r.lower() if isinstance(r, str) else r
-                if dedup_key in seen_r:
-                    continue
-                seen_r.add(dedup_key)
-                new_related.append(r)
-            if new_related != related:
-                efm["related"] = new_related
-                changed = True
-
-        srcs = efm.get("sources")
-        if isinstance(srcs, list):
-            for src in srcs:
-                if isinstance(src, dict) and str(src.get("entity") or "") == old_id:
-                    src["entity"] = new_id   # G61 S3-a: a source's link follows the merge
-                    changed = True
-
-        try:
-            page_claims = parse_claims(epar.body, strict=True)
-        except MalformedClaimsBlockError:
-            logger.warning(f"merge: {ep.stem} has an unparseable claims block; its claims keep their references")
-            page_claims = []
-        claims_changed = False
-        for c in page_claims:
-            claims_changed |= _repoint_claim(c, old, old_id, new_id)
-
-        new_body, n_subs = _relink(wikilink_re, new_name, epar.body)
-        if claims_changed:
-            new_body = write_claims(new_body, page_claims)
-        if n_subs or claims_changed:
-            changed = True
-
+        changed, efm, new_body = _repoint_page(ep, old, old_id, new_id, new_name, wikilink_re)
         if changed:
             markdown_parser.write(ep, efm, new_body)
             touched.append(f"entities/{ep.name}")
     return touched
+
+
+def _edges_name(memory_path: Path, old_id: str) -> bool:
+    """Does an edge in ``graph_edges.yaml`` end at ``old_id``? (:func:`repoint_edges` rewrites it exactly then.)"""
+    edges_file = Path(memory_path) / "graph_edges.yaml"
+    if not edges_file.exists():
+        return False
+    data = yaml.safe_load(edges_file.read_text()) or {}
+    return any(e.get(end) == old_id for e in data.get("edges", []) for end in ("source", "target"))
+
+
+def merge_footprint(memory_path: Path, loser_id: str, winner_id: str) -> list[str]:
+    """Every memory-relative path :func:`merge_entities` would write or remove,
+    computed before it runs and without writing (G183(e)): the winner, the
+    loser, ``graph_edges.yaml`` when an edge names the loser, and each page the
+    shared matcher (:func:`_repoint_page`) would repoint."""
+    ents = Path(memory_path) / "entities"
+    lp, wp = ents / f"{loser_id}.md", ents / f"{winner_id}.md"
+    loser_name = str(markdown_parser.parse(lp).frontmatter.get("name", loser_id))
+    winner_name = str(markdown_parser.parse(wp).frontmatter.get("name", winner_id))
+    paths = [f"entities/{winner_id}.md", f"entities/{loser_id}.md"]
+    if _edges_name(memory_path, loser_id):
+        paths.append("graph_edges.yaml")
+    old = _names(loser_id, loser_name)
+    wikilink_re = _wikilink_re(loser_id, loser_name)
+    for ep in sorted(ents.glob("*.md")):
+        if ep.name in (lp.name, wp.name):
+            continue
+        if _repoint_page(ep, old, loser_id, winner_id, winner_name, wikilink_re, warn=False)[0]:
+            paths.append(f"entities/{ep.name}")
+    return paths
 
 
 def repoint_edges(memory_path: Path, old_id: str, new_id: str) -> int | None:

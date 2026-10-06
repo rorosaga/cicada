@@ -4,20 +4,22 @@ uncertain. Runs on a duplicate bank; never on the live bank in tests.
 
 A real (not dry) sweep is one transaction per merge (G183(e)), never spanning
 the judge's model call: under the page lock and the bank's git write lock it
-refuses a merge that would change a path someone else left dirty, commits
-exactly the paths the merge changed (``cicada``), and puts a failed merge back
-to its exact pre-merge bytes and index entries; one that cannot be put back
-stops the sweep (``recovery_failed``). ``may_write`` is asked before every
-judge call and again once the page lock is held: once Sleep's write window
-opens, the sweep stops (``stopped_for_sleep``)."""
+computes the merge's footprint before any write, refuses a merge whose
+footprint is dirty or cannot be put back exactly, commits only the merge's own
+changed paths (``cicada``), and puts a failed merge's footprint back as it was
+found; one that cannot be put back stops the sweep (``recovery_failed``).
+``may_write`` is asked before every judge call and again under each lock: once
+Sleep's write window opens, the sweep stops (``stopped_for_sleep``)."""
 from __future__ import annotations
 import logging
 import os
+import stat
 import tempfile
+from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import Callable
-from api.services import git_service, markdown_parser, merge_rejections, page_lock, telemetry
+from api.services import entity_merge, git_service, markdown_parser, merge_rejections, page_lock, telemetry
 from api.services.entity_merge import merge_entities
 
 logger = logging.getLogger(__name__)
@@ -97,7 +99,7 @@ def dedup_sweep(memory_path: Path, settings, *, judge_fn=None, embed_fn=None,
     rejected = merge_rejections.load_rejected(memory_path)
     skipped_rejected = 0
     stopped_for_sleep = False
-    skipped_dirty, failed = [], []
+    skipped_dirty, skipped_unsafe, failed = [], [], []
     recovery_failed = False
     for a, b in pairs:
         if stopped_for_sleep or (may_write is not None and not may_write()):
@@ -138,6 +140,8 @@ def dedup_sweep(memory_path: Path, settings, *, judge_fn=None, embed_fn=None,
                         gone.add(loser)
                     elif applied == DIRTY:
                         skipped_dirty.append((loser, winner))
+                    elif applied == UNSAFE:
+                        skipped_unsafe.append((loser, winner))
                     else:
                         failed.append((loser, winner))
             elif verdict in ("same", "unsure"):
@@ -176,6 +180,7 @@ def dedup_sweep(memory_path: Path, settings, *, judge_fn=None, embed_fn=None,
         "skipped_rejected": skipped_rejected,
         "stopped_for_sleep": stopped_for_sleep,
         "skipped_dirty": skipped_dirty,
+        "skipped_unsafe": skipped_unsafe,
         "failed": failed,
         "recovery_failed": recovery_failed,
     }
@@ -191,35 +196,44 @@ def commit_message(paths: list[str], loser: str, today: date, engine: str | None
                                             authors=[AUTHOR], engine=engine)
 
 
-MERGED, DIRTY, FAILED, STOPPED = "merged", "dirty", "failed", "stopped"
-GRAPH = "graph_edges.yaml"
+MERGED, DIRTY, UNSAFE, FAILED, STOPPED = "merged", "dirty", "unsafe", "failed", "stopped"
 
 
 class RecoveryFailed(Exception):
     """A failed merge could not be put back as it was: the sweep stops and says so."""
 
 
+@dataclass(frozen=True)
+class _Found:
+    """One footprint path as the transaction found it."""
+    data: bytes | None              # None: the file is absent
+    mode: int | None                # its permission bits
+    index: tuple[str, str] | None   # its stage-0 (mode, blob); None: not in the index
+
+
 def _merge_and_commit(memory_path: Path, loser: str, winner: str, engine: str | None,
                       may_write: Callable[[], bool] | None = None) -> str:
     """One merge as one transaction: the page lock, then the bank's git write
-    lock, held from the dirty check through the commit or the recovery (page →
-    git order), so no in-process git writer — Sleep's ``git add -A`` included —
+    lock, held from the footprint check through the commit or the recovery (page
+    → git order), so no in-process git writer — Sleep's ``git add -A`` included —
     can commit a half-done or failed merge in between.
 
-    A merge commits only what is wholly its own (G183(e)): a merge whose winner
-    or loser is already dirty is refused before anything is written, and one
-    that turns out to change another dirty path (a page that names the loser,
-    the graph) is put back and refused — never committed under ``cicada`` with
-    someone else's edit inside. ``DIRTY`` then; the next sweep retries once that
-    writer has committed. A failed merge or commit is put back to the exact
-    pre-merge bytes and index entries — never to HEAD, which would drop an edit
-    already on a page — and ``FAILED``; a put-back that cannot be done raises
-    :class:`RecoveryFailed`.
+    Its footprint (:func:`entity_merge.merge_footprint`: winner, loser, the graph
+    when an edge names the loser, each page naming the loser — the same matcher
+    the merge repoints with) is known BEFORE any write, and the merge is refused
+    without writing anything when a footprint path is unsafe to put back
+    (``UNSAFE``: unmerged index stages, a symlink, not a regular file) or dirty
+    (``DIRTY``: someone else's uncommitted edit, which a ``cicada`` commit must
+    never carry). Only the footprint is snapshotted (bytes, permission bits,
+    stage-0 index entry or absence); only the merge's own written paths whose
+    bytes changed are committed; a recovery restores only footprint paths, so a
+    write elsewhere in the bank is neither committed nor erased. A merge that
+    wrote outside its footprint, a failed put-back, or a HEAD that moved inside
+    the transaction raises :class:`RecoveryFailed`.
 
-    ``may_write`` is re-asked once the page lock is held (``STOPPED``): a window
-    can open while this waited for it. Sleep itself takes no page lock, so a
-    window opening after this check still overlaps the merge — disclosed in
-    ``docs/architecture/storage.md``."""
+    ``may_write`` is re-asked once the page lock and again once the git lock is
+    held (``STOPPED``). Sleep itself takes neither lock, so admission is not
+    atomic — disclosed in ``docs/architecture/storage.md``, "Residual race"."""
     memory_path = Path(memory_path)
     with page_lock.page_lock(memory_path):
         if may_write is not None and not may_write():
@@ -228,45 +242,83 @@ def _merge_and_commit(memory_path: Path, loser: str, winner: str, engine: str | 
             merge_entities(memory_path, loser_id=loser, winner_id=winner)
             return MERGED
         with git_service.write_lock(memory_path):
+            if may_write is not None and not may_write():
+                return STOPPED
             return _merge_transaction(memory_path, loser, winner, engine)
 
 
 def _merge_transaction(memory_path: Path, loser: str, winner: str, engine: str | None) -> str:
-    dirty = git_service.dirty_paths_sync(memory_path, "entities", GRAPH)
-    if {f"entities/{loser}.md", f"entities/{winner}.md"} & dirty:
+    footprint = entity_merge.merge_footprint(memory_path, loser, winner)
+    index = _index_entries(memory_path, footprint)
+    if _unsafe(memory_path, footprint, index):
+        return UNSAFE
+    if git_service.dirty_paths_sync(memory_path, *footprint):
         return DIRTY
-    snap, index, head = _snapshot(memory_path), _index_entries(memory_path), _head(memory_path)
+    found = {rel: _found(memory_path / rel, index.get(rel, [])) for rel in footprint}
+    head = _head(memory_path)
     try:
-        merge_entities(memory_path, loser_id=loser, winner_id=winner)
-        changed = _changed(memory_path, snap)
-        if set(changed) & dirty:
-            outcome = DIRTY
-        else:
-            git_service.commit_paths_sync(
-                memory_path, commit_message(changed, loser, date.today(), engine), changed)
-            return MERGED
-    except Exception as exc:  # noqa: BLE001 — logged by class; the pages are put back below
+        written = list(dict.fromkeys(
+            merge_entities(memory_path, loser_id=loser, winner_id=winner).get("paths") or []))
+        outside = [rel for rel in written if rel not in found]
+        if outside:
+            _recover(memory_path, found, head)
+            raise RecoveryFailed(f"the merge wrote {len(outside)} path(s) outside its footprint")
+        changed = [rel for rel in written if _read(memory_path / rel) != found[rel].data]
+        git_service.commit_paths_sync(memory_path, commit_message(changed, loser, date.today(), engine), changed)
+        return MERGED
+    except RecoveryFailed:
+        raise
+    except Exception as exc:  # noqa: BLE001 — logged by class; the footprint is put back below
         logger.warning("dedup_sweep: merge failed (%s); putting its pages back", type(exc).__name__)
-        outcome = FAILED
-    _recover(memory_path, snap, index, head)
-    return outcome
+    _recover(memory_path, found, head)
+    return FAILED
 
 
-def _recover(memory_path: Path, snap: dict[str, bytes | None], index: dict[str, tuple[str, str]], head: str) -> None:
-    """Every path the merge changed gets its snapshot bytes and index entry back
-    (an absent or untracked path stays absent from the index). HEAD must be
-    where the transaction found it: a moved HEAD means something committed
-    inside it, and putting files back then could undo that — so it is reported
-    instead."""
+def _unsafe(memory_path: Path, footprint: list[str], index: dict[str, list[tuple[str, str, str]]]) -> bool:
+    """A path the transaction could not put back exactly: an unmerged index entry
+    (any stage but 0), a symlink, or anything but a regular file."""
+    for rel in footprint:
+        if any(stage != "0" for _mode, _blob, stage in index.get(rel, [])):
+            return True
+        path = memory_path / rel
+        if os.path.islink(path):
+            return True
+        if os.path.lexists(path) and not stat.S_ISREG(os.lstat(path).st_mode):
+            return True
+    return False
+
+
+def _read(path: Path) -> bytes | None:
+    return path.read_bytes() if path.is_file() else None
+
+
+def _found(path: Path, entries: list[tuple[str, str, str]]) -> _Found:
+    stage0 = next(((mode, blob) for mode, blob, stage in entries if stage == "0"), None)
+    if not path.is_file():
+        return _Found(None, None, stage0)
+    return _Found(path.read_bytes(), stat.S_IMODE(path.stat().st_mode), stage0)
+
+
+def _recover(memory_path: Path, found: dict[str, _Found], head: str) -> None:
+    """Each footprint path gets the bytes, permission bits and stage-0 index
+    entry (or absence) it was found with; nothing outside the footprint is read
+    or written. HEAD must be where the transaction found it: a moved HEAD means
+    something committed inside it, and putting files back then could undo that —
+    so it is reported instead."""
     try:
         if _head(memory_path) != head:
             raise RecoveryFailed("HEAD moved inside a failed merge")
-        changed = _changed(memory_path, snap)
-        _put_back(memory_path, snap, changed)
-        for rel in changed:
-            if rel in index:
-                mode, blob = index[rel]
-                git_service._git_sync(memory_path, "update-index", "--add", "--cacheinfo", f"{mode},{blob},{rel}")
+        now_index = _index_entries(memory_path, list(found))
+        for rel, was in found.items():
+            path = memory_path / rel
+            if _read(path) != was.data or (was.data is not None and stat.S_IMODE(path.stat().st_mode) != was.mode):
+                _put_back(path, was)
+            now = next(((m, b) for m, b, stage in now_index.get(rel, []) if stage == "0"), None)
+            if now == was.index:
+                continue
+            if was.index is not None:
+                git_service._git_sync(memory_path, "update-index", "--add", "--cacheinfo",
+                                      f"{was.index[0]},{was.index[1]},{rel}")
             else:
                 git_service._git_sync(memory_path, "update-index", "--force-remove", "--", rel)
     except RecoveryFailed:
@@ -282,51 +334,35 @@ def _head(memory_path: Path) -> str:
         return ""   # an unborn branch
 
 
-def _index_entries(memory_path: Path) -> dict[str, tuple[str, str]]:
-    """``path -> (mode, blob)`` for every stage-0 index entry a merge can touch."""
-    out: dict[str, tuple[str, str]] = {}
-    listing = git_service._git_sync(memory_path, "ls-files", "-s", "-z", "--", "entities", GRAPH)
+def _index_entries(memory_path: Path, paths: list[str]) -> dict[str, list[tuple[str, str, str]]]:
+    """``path -> [(mode, blob, stage), …]`` — every index entry of ``paths``, conflict stages included."""
+    out: dict[str, list[tuple[str, str, str]]] = {}
+    if not paths:
+        return out
+    listing = git_service._git_sync(memory_path, "ls-files", "-s", "-z", "--", *paths)
     for record in listing.split("\0"):
         if not record or "\t" not in record:
             continue
         meta, rel = record.split("\t", 1)
         mode, blob, stage = meta.split()
-        if stage == "0":
-            out[rel] = (mode, blob)
+        out.setdefault(rel, []).append((mode, blob, stage))
     return out
 
 
-def _snapshot(memory_path: Path) -> dict[str, bytes | None]:
-    """Every byte a merge can change: each page, and the graph (``None``: absent)."""
-    snap: dict[str, bytes | None] = {
-        f"entities/{p.name}": p.read_bytes() for p in (memory_path / "entities").glob("*.md")}
-    graph = memory_path / GRAPH
-    snap[GRAPH] = graph.read_bytes() if graph.is_file() else None
-    return snap
-
-
-def _changed(memory_path: Path, snap: dict[str, bytes | None]) -> list[str]:
-    """The paths whose bytes differ from ``snap`` now (a page that appeared counts too)."""
-    now = _snapshot(memory_path)
-    return sorted(rel for rel in set(snap) | set(now) if snap.get(rel) != now.get(rel))
-
-
-def _put_back(memory_path: Path, snap: dict[str, bytes | None], paths: list[str]) -> None:
-    """Restore each path's snapshot bytes, atomically (``None``: remove it)."""
-    for rel in paths:
-        target = memory_path / rel
-        data = snap.get(rel)
-        if data is None:
-            target.unlink(missing_ok=True)
-            continue
-        fd, tmp = tempfile.mkstemp(dir=target.parent, prefix=f".{target.name}.", suffix=".restore")
-        try:
-            with os.fdopen(fd, "wb") as fh:
-                fh.write(data)
-            os.replace(tmp, target)
-        except BaseException:
-            Path(tmp).unlink(missing_ok=True)
-            raise
+def _put_back(path: Path, was: _Found) -> None:
+    """Restore one regular file's bytes and permission bits, atomically (``None``: remove it)."""
+    if was.data is None:
+        path.unlink(missing_ok=True)
+        return
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".restore")
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(was.data)
+        os.chmod(tmp, was.mode if was.mode is not None else 0o644)
+        os.replace(tmp, path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
 
 
 def _default_judge_fn(settings):  # pragma: no cover - needs a real model
