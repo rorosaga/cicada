@@ -229,7 +229,10 @@ def test_only_the_router_imports_skill_pages_and_the_anti_pollution_rail_is_unto
     root = Path(__file__).resolve().parents[2]
     hits = []
     for path in list((root / "api").rglob("*.py")) + list((root / "mcp").rglob("*.py")):
-        if "tests" in path.parts or path.name == "skill_pages.py":
+        relative = path.relative_to(root)
+        if any(part.startswith(".") or part in {"node_modules", "__pycache__"} for part in relative.parts):
+            continue
+        if "tests" in relative.parts or path.name == "skill_pages.py":
             continue
         if re.search(r"^\s*(from api\.services import .*\bskill_pages\b|from api\.services\.skill_pages|import api\.services\.skill_pages)",
                      path.read_text(encoding="utf-8"), re.MULTILINE):

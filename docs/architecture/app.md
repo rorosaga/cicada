@@ -129,7 +129,9 @@ Settings' local-folder picker — and check only the chosen file or folder
 (`IntakeRouter.refusedRoot(of:)`); a watched folder that *contains* a refused root is still walked
 (open, G125).
 
-**Home (G108; Direction D, DS-3b; F-09, round 4).** The front door at ⌘1: a 208 pt living band —
+**Home (G108; Direction D, DS-3b; F-09, round 4).** The front door at ⌘1: a 208 pt living band, **currently off** behind
+`HomeBandLayout.showsBand = false` (G189(a), 2026-10-06; the code stays, the headline row is Home's first content at the room
+pages' 24 pt top inset) —
 `PaintedScene(.hero(band:))`, the one component Home, the Welcome and onboarding's panes share (C10) — painting the
 person's Scene (Settings → General: Automatic · Day · Afternoon · Night; Automatic follows `SceneClock`, NOAA's sun
 over the Mac's time zone's tzdb point, no location; the afternoon is the last two hours before sunset through civil

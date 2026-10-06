@@ -524,6 +524,16 @@ importer),
   `MAX_SESSION_TRAILERS` (50) by the call site, not the builder. User-action commits stay
   session-less.
 
+**Event write ownership (G183(b), checked 2026-10-06).** The follow-up resolver commits the retired inbox item,
+the event page and any companion-note episode as `user`; `_state.md` follows in its own `cicada` commit.
+No current event write, whether from the person or an agent, can merge into an open item:
+`claim_reconciler.reconcile_events` emits only divergence nudges, which `write_claim_nudges` always writes
+as new files; only conflict nudges merge. `test_followup_manifest.py` covers person answers and agent-over-person
+milestone divergence, verifying owned paths, author trailers, unchanged conflicts and clean trees after commits.
+The historical missing-merged-conflict report is not reproducible on any current event path. Revisit the progress
+helper's created-name manifest if event reconciliation starts emitting a mergeable kind, or divergence items
+start merging into open items.
+
 **G85 — decay gets its own `cicada`-authored commit.** Temporal decay runs over entities a cycle
 never referenced: no LLM, no source episode, pure arithmetic. Folding it into the main commit
 stamped it with whichever model happened to run Stage 1/2, inflating that model's contributor counts
