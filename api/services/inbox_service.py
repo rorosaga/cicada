@@ -1707,15 +1707,20 @@ async def _resolve_divergence(path, parsed, request, settings, item_id: str) -> 
 
 async def _resolve_normalization(path, parsed, request, settings, item_id: str) -> tuple[str, bool, list[str]]:
     """G113 slice 3: confirm/reject a predicate fold `claim_reconciler` already
-    applied. `0` (correct fold) does nothing to the bank — the fold already
-    happened at extraction time, so the resolve is a pure acknowledgement.
-    `1` (wrong fold) is the substantive branch: it un-merges the raw label
-    from `_predicates.yaml`'s synonym map, adds it as its own canonical
-    predicate (R4 — never delete the entity's history, just stop folding the
-    label going forward), and repoints the one claim the nudge was raised for
-    back onto the raw (now canonical) predicate.
+    applied. `0` (correct fold) leaves every claim and the synonym map as they
+    are — the fold already happened at extraction time — and records the pair
+    in `_predicates.yaml`'s `confirmed_folds`, so Sleep never asks about it
+    again (G98/G115: one question per pair per bank). `1` (wrong fold) is the
+    substantive branch: it un-merges the raw label from the synonym map, adds it
+    as its own canonical predicate (R4 — never delete the entity's history,
+    just stop folding the label going forward), and repoints every claim the
+    question covers (the one that opened it plus `covered_claims`) back onto
+    the raw (now canonical) predicate.
     """
+    import yaml
+
     from api.services.claims import MalformedClaimsBlockError, parse_claims, write_claims
+    from api.services.inbox_generator import fold_claims
 
     fm = parsed.frontmatter
     entity_id = _opt_str(fm.get("entity_id")) or ""
@@ -1723,46 +1728,60 @@ async def _resolve_normalization(path, parsed, request, settings, item_id: str) 
     if request.action == "skip":
         return entity_id, True, []
     extra: list[str] = []
-    if key == "1":  # wrong fold — keep the raw predicate separate
-        import yaml
-
-        raw = _opt_str(fm.get("raw_predicate")) or ""
-        # `predicates` is already imported at module scope; local imports here
-        # match `_resolve_conflict`'s style (`Claim`/`write_claims` imported
-        # locally too) so a divergence/normalization resolve never becomes a
-        # hard module-load dependency for the rest of this file.
-        raw_slug = predicates._slugify_predicate(raw)
-        if raw_slug:
-            runtime = settings.memory_path / predicates.RUNTIME_FILE
-            data = predicates._read_runtime_map(settings.memory_path)
-            syn = {str(k): v for k, v in (data.get("synonyms") or {}).items()}
-            for k in list(syn):
-                if k.strip().lower() in (raw.strip().lower(), raw_slug):
-                    syn.pop(k)
-            canonical = [str(c) for c in (data.get("canonical") or [])]
-            if raw_slug not in canonical:
-                canonical.append(raw_slug)
-            data["synonyms"], data["canonical"] = syn, canonical
+    raw = _opt_str(fm.get("raw_predicate")) or ""
+    canonical = _opt_str(fm.get("canonical_predicate")) or ""
+    # `predicates` is already imported at module scope; `yaml`/claims imports
+    # stay local, matching `_resolve_conflict`, so a normalization resolve never
+    # becomes a hard module-load dependency for the rest of this file.
+    raw_slug = predicates._slugify_predicate(raw)
+    runtime = settings.memory_path / predicates.RUNTIME_FILE
+    manifest = f"{predicates.RUNTIME_FILE}: updated (source: {path.stem}, trigger: inbox/normalization/resolved)"
+    if key == "0" and raw_slug and canonical and raw_slug != canonical:
+        data = predicates._read_runtime_map(settings.memory_path)
+        confirmed = dict(data.get("confirmed_folds") or {}) if isinstance(data.get("confirmed_folds"), dict) else {}
+        if confirmed.get(raw_slug) != canonical:
+            confirmed[raw_slug] = canonical
+            data["confirmed_folds"] = confirmed
             runtime.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
-            extra.append(f"{predicates.RUNTIME_FILE}: updated (source: {path.stem}, trigger: inbox/normalization/resolved)")
-            entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
-            claim_id = _opt_str(fm.get("claim_id"))
-            if entity_path.exists() and claim_id:
-                entity = markdown_parser.parse(entity_path)
-                try:
-                    claims = parse_claims(entity.body)
-                except MalformedClaimsBlockError:
-                    claims = []
-                hit = False
-                for c in claims:
-                    if c.id == claim_id:
-                        c.predicate = raw_slug
-                        hit = True
-                if hit:
-                    efm = entity.frontmatter
-                    efm["version"] = int(efm.get("version", 1) or 1) + 1
-                    markdown_parser.write(entity_path, efm, write_claims(entity.body, claims))
-                    extra.append(f"entities/{entity_id}.md: updated (source: {path.stem}, trigger: inbox/normalization/resolved)")
+            extra.append(manifest)
+    elif key == "1" and raw_slug:  # wrong fold — keep the raw predicate separate
+        data = predicates._read_runtime_map(settings.memory_path)
+        syn = {str(k): v for k, v in (data.get("synonyms") or {}).items()}
+        for k in list(syn):
+            if k.strip().lower() in (raw.strip().lower(), raw_slug):
+                syn.pop(k)
+        canon = [str(c) for c in (data.get("canonical") or [])]
+        if raw_slug not in canon:
+            canon.append(raw_slug)
+        data["synonyms"], data["canonical"] = syn, canon
+        if isinstance(data.get("confirmed_folds"), dict):
+            data["confirmed_folds"].pop(raw_slug, None)
+        runtime.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
+        extra.append(manifest)
+        by_entity: dict[str, set[str]] = {}
+        for eid, cid in fold_claims(fm):
+            by_entity.setdefault(eid, set()).add(cid)
+        for eid, claim_ids in by_entity.items():
+            entity_path = settings.memory_path / "entities" / f"{eid}.md"
+            if not entity_path.exists():
+                continue
+            entity = markdown_parser.parse(entity_path)
+            try:
+                claims = parse_claims(entity.body)
+            except MalformedClaimsBlockError:
+                claims = []
+            hit = False
+            for c in claims:
+                # A covered claim is repointed only while it still carries the
+                # folded predicate — never one an answer has since moved.
+                if c.id in claim_ids and (not canonical or c.predicate == canonical):
+                    c.predicate = raw_slug
+                    hit = True
+            if hit:
+                efm = entity.frontmatter
+                efm["version"] = int(efm.get("version", 1) or 1) + 1
+                markdown_parser.write(entity_path, efm, write_claims(entity.body, claims))
+                extra.append(f"entities/{eid}.md: updated (source: {path.stem}, trigger: inbox/normalization/resolved)")
     path.unlink(missing_ok=True)
     return entity_id, False, extra
 

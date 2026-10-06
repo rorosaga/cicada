@@ -145,6 +145,31 @@ def load_normalizer(memory_path: Path) -> NormalizeFn:
     return normalize
 
 
+def fold_key(raw_label: str, canonical: str) -> tuple[str, str]:
+    """The identity of one predicate fold: ``(slug(raw), canonical)``.
+
+    G98/G115: a fold is asked about once per pair per bank, so ``built with``
+    and ``Built  With`` folding onto ``uses`` are the same question. A pair
+    whose two sides are equal is no fold at all — the normalizer kept the
+    label as its own slug.
+    """
+    return _slugify_predicate(raw_label), str(canonical or "").strip()
+
+
+def confirmed_folds(memory_path: Path | None) -> dict[str, str]:
+    """``raw_slug -> canonical`` folds the person confirmed ("Correct fold").
+
+    Kept in ``<memory>/_predicates.yaml`` under ``confirmed_folds`` beside the
+    synonyms they confirm; the inbox writer never asks about one again.
+    """
+    if memory_path is None:
+        return {}
+    raw = _read_runtime_map(memory_path).get("confirmed_folds")
+    if not isinstance(raw, dict):
+        return {}
+    return {str(k).strip(): str(v).strip() for k, v in raw.items() if k and v}
+
+
 def inverse_pairs(memory_path: Path) -> dict[str, str]:
     """``raw_inverse_label -> canonical_active`` map (for edge-flipping callers)."""
     data = _read_runtime_map(memory_path)
