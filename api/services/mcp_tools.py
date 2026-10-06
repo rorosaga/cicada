@@ -37,7 +37,7 @@ from typing import Callable
 
 from api.services import agent_commits, agentic_write, demo_guard, episode_ids, episode_scrub, search_service
 # One fence rule for every frontmatter reader (L final review, finding 2).
-from api.services import markdown_parser, page_lock
+from api.services import markdown_parser, page_lock, write_admission
 
 
 def _loopback_post(url: str, payload: dict, headers: dict[str, str], timeout: float = 8) -> dict:
@@ -224,10 +224,14 @@ def _holding_pages(fn):
     def inner(ctx: "ToolContext", *args, **kwargs):
         memory_path = ctx.memory_path()
         resolve, ctx.memory_path = ctx.memory_path, (lambda: memory_path)
-        ctx.sleep_answer = ctx.sleep_running()
         try:
-            with page_lock.page_lock(memory_path):
-                return fn(ctx, *args, **kwargs)
+            # G183: the bank's write admission (an `flock` the backend's Sleep waits out — this server is another
+            # process) is held from the probe through the commit, so a window cannot open between the answer and
+            # the write. The probe is bounded (2 s); the page lock is taken after it, never around it.
+            with write_admission.shared(memory_path):
+                ctx.sleep_answer = ctx.sleep_running()
+                with page_lock.page_lock(memory_path):
+                    return fn(ctx, *args, **kwargs)
         finally:
             ctx.memory_path, ctx.sleep_answer = resolve, None
     return inner
@@ -493,22 +497,25 @@ def record_watch(ctx: ToolContext, url: str, summary: str, excerpts: list | None
             return "Error: the link could not be saved, so the watch was not recorded."
     # Audit 2026-10-05 P1-2: the page write and its commit hold the bank's page
     # lock; the save above, the Sleep probe and the queue credit (both HTTP on
-    # stdio) stay outside it, so no writer ever waits on a network call.
-    sleeping = ctx.sleep_running()
-    with page_lock.page_lock(memory_path):
-        r = watch_record.record(
-            memory_path, target, summary=summary, excerpts=excerpts, chapters=chapters,
-            session_frontmatter=ctx.session_frontmatter(), author=ctx.author, session_id=ctx.session_id,
-            origin=ctx.claim_origin or watch_record.ORIGIN, recorded_ts=_now_ts(),
-            basis=basis, engine=engine, duration=duration,
-        )
-        if not r.get("error") and not sleeping:
-            agent_commits.commit_write(
-                memory_path, subject=ctx.commit_subject,
-                lines=[f"episodes/{r['episode_id']}.md: created (trigger: {ctx.trigger})",
-                       f"entities/{r['entity_id']}.md: updated (source: {r['episode_id']}, trigger: {ctx.trigger})"],
-                paths=r["paths"], author=ctx.author, session=ctx.session_id,
+    # stdio) stay outside it, so no page writer ever waits on a network call.
+    # G183: the write admission spans the probe through the commit (see `_holding_pages`).
+    with write_admission.shared(memory_path):
+        sleeping = ctx.sleep_running()
+        with page_lock.page_lock(memory_path):
+            r = watch_record.record(
+                memory_path, target, summary=summary, excerpts=excerpts, chapters=chapters,
+                session_frontmatter=ctx.session_frontmatter(), author=ctx.author, session_id=ctx.session_id,
+                origin=ctx.claim_origin or watch_record.ORIGIN, recorded_ts=_now_ts(),
+                basis=basis, engine=engine, duration=duration,
             )
+            if not r.get("error") and not sleeping:
+                agent_commits.commit_write(
+                    memory_path, subject=ctx.commit_subject,
+                    lines=[f"episodes/{r['episode_id']}.md: created (trigger: {ctx.trigger})",
+                           f"entities/{r['entity_id']}.md: updated (source: {r['episode_id']}, "
+                           f"trigger: {ctx.trigger})"],
+                    paths=r["paths"], author=ctx.author, session=ctx.session_id,
+                )
     if r.get("error"):
         return f"Could not record the watch: {r['error']}"
     queue_outcome = _credit_video_queue(ctx, memory_path, target.url, r.get("basis"))
@@ -1922,14 +1929,20 @@ def add_backlog_item(ctx: ToolContext, project: str, title: str, description: st
     note can be joined to its turn at read (R-B6). Refused, each in one line
     and writing nothing: in a demo bank, without a reasoning, while Sleep runs
     (R-B8), and when an open item already holds the idea (R-B9)."""
-    from api.services import backlog as store
-
     memory_path = ctx.memory_path()
     if (refusal := _demo_refusal(memory_path)) is not None:
         return refusal
     if not str(description or "").strip():
         return ("Give the reasoning as the description — the problem, the evidence, what a fix must respect. "
                 "Nothing was added.")
+    with write_admission.shared(memory_path):   # G183: from the probe through the commit
+        return _add_backlog_item_admitted(ctx, memory_path, project, title, description, triage, paid)
+
+
+def _add_backlog_item_admitted(ctx: ToolContext, memory_path: Path, project, title, description, triage,
+                               paid) -> str:
+    from api.services import backlog as store
+
     if ctx.sleep_running():
         return BACKLOG_SLEEPING
     result = store.add_item(memory_path, project=str(project or ""), title=str(title or ""),
@@ -1964,6 +1977,13 @@ def add_backlog_note(ctx: ToolContext, item: str, note: str, status=None) -> str
     if isinstance(got, dict):
         return f"Not noted: {got['error']}."
     stem, iid = got
+    with write_admission.shared(memory_path):   # G183: from the probe through the commit
+        return _add_backlog_note_admitted(ctx, memory_path, stem, iid, note, status)
+
+
+def _add_backlog_note_admitted(ctx: ToolContext, memory_path: Path, stem: str, iid: str, note, status) -> str:
+    from api.services import backlog as store
+
     if ctx.sleep_running():
         return BACKLOG_SLEEPING
     move = (str(status).strip().lower() or None) if status else None

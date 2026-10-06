@@ -25,6 +25,7 @@ review r1; sharing a lock with the save path is Task 6's). G114's rule, unchange
 """
 from __future__ import annotations
 
+import contextlib
 import re
 import secrets
 import threading
@@ -37,7 +38,7 @@ from typing import Callable
 from loguru import logger
 
 from api.remote import catalog
-from api.services import demo_guard, handshake, mcp_tools, telemetry
+from api.services import demo_guard, handshake, mcp_tools, telemetry, write_admission
 
 HANDLE_RE = re.compile(r"^rc_([a-z0-9]{8})_(\d{4}-\d{2}-\d{2})(?:_([0-9a-f]{8}))?$")
 REFERENCE_HEADER = mcp_tools.REFERENCE_HEADER
@@ -129,9 +130,11 @@ class ConversationState:
 
 
 def _sleep_running() -> bool:
-    from api.services import sleep_cycle
+    """Asked inside the bank's write admission for a write (`RemoteRuntime.call`, G183); for a queue-only tool's lease
+    judgement (`ToolContext.pages_held`) an answer that may be stale is enough."""
+    from api.services import write_admission
 
-    return sleep_cycle.is_writing()
+    return write_admission.holding()
 
 
 def _memory_path() -> Path:
@@ -274,10 +277,18 @@ class RemoteRuntime:
         )
 
     def call(self, connector: catalog.Connector, tool: str, arguments: dict | None) -> tuple[str, str]:
+        writes = tool in catalog.WRITE_TOOLS and _writes_bank(tool, arguments)
+        # G183: a write holds the bank's write admission from its "busy" answer through its commit, so a Sleep
+        # window cannot open in between (R-R27's refusal is then the whole truth for the call).
+        with write_admission.shared(self._memory_path()) if writes else contextlib.nullcontext():
+            return self._call(connector, tool, arguments, writes)
+
+    def _call(self, connector: catalog.Connector, tool: str, arguments: dict | None,
+              writes: bool) -> tuple[str, str]:
         today = self._today()
         if tool not in catalog.tool_names_for(connector.scopes):
             text, status = DENIED_TEXT, "denied"
-        elif tool in catalog.WRITE_TOOLS and _writes_bank(tool, arguments) and self._sleep_running():
+        elif writes and self._sleep_running():
             text, status = BUSY_TEXT, "busy"
         elif tool in catalog.WRITE_TOOLS and demo_guard.is_demo(self._memory_path()):
             # R-CS13: its own status, so the `remote_call` row says why nothing was written.
