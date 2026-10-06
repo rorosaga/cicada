@@ -198,3 +198,22 @@ def test_a_file_changed_between_scan_and_parse_is_dropped(bank, monkeypatch):
     monkeypatch.setattr(continuity, "view", swap)
     ctx = _ctx(bank)
     assert ctx.chosen is None and not ctx.complete and ctx.selection.reason == "changed"
+
+
+# --- fix round 1, finding 7: "nothing captured" only on complete evidence -------
+
+
+@pytest.mark.parametrize("how", ["unreadable", "deadline"])
+def test_a_later_session_that_cannot_be_read_is_not_called_uncaptured(bank, how):
+    write_session(bank, 1, A_TURNS, start=0)
+    continuity.refresh_index(bank, bank_paths=(bank,), deadline=None)
+    extra = {"zz_note": "x" * 20_000} if how == "unreadable" else None
+    write_session(bank, 2, [("user", "later work"), ("assistant", "ok")], session=sid(5), start=30,
+                  extra_meta=extra, cwd="/home/example/elsewhere" if how == "deadline" else CWD)
+    continuity_sessions.apply(bank, bank_paths=(bank,), harness="claude-code", session_id=sid(5),
+                              events={"started_at": at(29), "cwd_hash": continuity_sessions.cwd_hash(CWD)},
+                              deadline=None)
+    ctx = _ctx(bank, deadline=time.monotonic() + continuity.VIEW_RESERVE_S / 2 if how == "deadline" else None)
+    text, _ = continuity.startup_block(ctx, max_chars=1800)
+    assert "nothing from it was captured" not in text
+    assert "Cicada could not tell whether a later session here" in text

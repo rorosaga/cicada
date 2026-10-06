@@ -548,7 +548,9 @@ def assemble(memory_path: Path, *, bank_paths, harness: str | None, session_id: 
                 started = _parse_time(reg.get("started_at"))
                 if (reg["session_id"] not in captured and reg["session_id"] != session_id
                         and started and since and started > since):
-                    ctx.later_starts.append(reg)
+                    # "Nothing captured" is said only on complete evidence; with an
+                    # unreadable or unscanned episode it may exist (review finding 7).
+                    ctx.later_starts.append({**reg, "established": snap.complete})
     return ctx
 
 
@@ -609,7 +611,12 @@ def gap_lines(ctx: WorkingContext) -> list[str]:
     if flags.get("note_like_turns"):
         out.append(f"{flags['note_like_turns']} of its turns look like a Cicada note kept as typed text")
     for reg in ctx.later_starts[:2]:
-        out.append(f"a later session started here at {_hm(reg.get('started_at'))} and nothing from it was captured")
+        if reg.get("established"):
+            out.append(f"a later session started here at {_hm(reg.get('started_at'))} and nothing from it was "
+                       "captured")
+        else:
+            out.append(f"Cicada could not tell whether a later session here (started {_hm(reg.get('started_at'))}) "
+                       "was captured")
     if not ctx.complete:
         out.append("the search here was incomplete")
     return out
