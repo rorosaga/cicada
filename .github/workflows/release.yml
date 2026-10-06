@@ -20,8 +20,10 @@ on:
 permissions:
   contents: read
 
+# One release at a time on main, never cancelled. Dry runs queue in their own group: GitHub cancels a *pending* run
+# when a newer one joins its group, and a dry-run push must never cancel a release waiting its turn.
 concurrency:
-  group: release
+  group: ${{ github.ref == 'refs/heads/main' && 'release' || format('release-dry-run-{0}', github.ref) }}
   cancel-in-progress: false
 
 jobs:
@@ -158,6 +160,7 @@ jobs:
       - name: Publish the GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           LATEST: ${{ needs.plan.outputs.latest }}
           PREVIOUS: ${{ needs.plan.outputs.previous }}
         run: scripts/release/publish.sh "${{ needs.plan.outputs.version }}" "$GITHUB_SHA" dist

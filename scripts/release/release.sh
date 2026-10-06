@@ -59,7 +59,8 @@ confirm() {
 git -C "$REPO" fetch -q "$REMOTE" dev
 git -C "$REPO" ls-remote --tags --refs "$REMOTE" 'refs/tags/v*' > "$TMP/tags.txt"
 
-# What CI would decide for a version: prints the plan's status, or dies with check_version.py's reason.
+# What CI would decide for a version: prints the plan's status, or fails with check_version.py's reason. Call it as
+# `status="$(judge X)"` — inside `[ "$(judge X)" … ]` a failure would not stop the script.
 judge() {
   mkdir -p "$TMP/judge"
   printf '%s\n' "$1" > "$TMP/judge/VERSION"
@@ -75,7 +76,8 @@ DEV_VERSION="$(tr -d '[:space:]' < "$TMP/dev/VERSION")"
 
 if [ "$CMD" = "bump" ]; then
   TAG="v$VERSION"
-  [ "$(judge "$VERSION")" = "released" ] && die "$TAG is already released — pick the next version"
+  status="$(judge "$VERSION")"   # an assignment, so a refusal stops the script
+  [ "$status" = "released" ] && die "$TAG is already released — pick the next version"
   if [ "$VERSION" = "$DEV_VERSION" ]; then
     echo "dev already says $VERSION — nothing to bump."
     echo "Next: make release-pr   (opens dev → main; merging it releases $TAG)"

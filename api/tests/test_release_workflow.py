@@ -84,7 +84,10 @@ def test_a_push_to_main_releases_and_no_tag_ever_starts_a_run():
     assert on["push"]["branches"] == ["main", "ci/release-dry-run"]
     assert "tags" not in on["push"]
     assert "workflow_dispatch" in on, "a manual run on main is the recovery path after a failed run"
-    assert wf["concurrency"] == {"group": "release", "cancel-in-progress": False}
+    assert wf["concurrency"]["cancel-in-progress"] is False
+    group = wf["concurrency"]["group"]
+    assert "github.ref == 'refs/heads/main' && 'release'" in group, "main serialises in the one `release` group"
+    assert "release-dry-run" in group, "a dry run never cancels a pending release"
     assert wf["permissions"] == {"contents": "read"}, "only the publish job may write"
 
 
@@ -125,6 +128,7 @@ def test_only_the_publish_job_advertises_and_only_from_main():
     run = job["steps"][-1]["run"]
     assert run.startswith("scripts/release/publish.sh") and '"$GITHUB_SHA"' in run, "the tag lands on the merged commit"
     env = job["steps"][-1]["env"]
+    assert env["GH_REPO"] == "${{ github.repository }}"
     assert env["LATEST"] == "${{ needs.plan.outputs.latest }}" and env["PREVIOUS"] == "${{ needs.plan.outputs.previous }}"
     text = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
     for banned in ("git push", "git tag", "--force", "--clobber", "gh release create"):
@@ -291,3 +295,11 @@ def test_the_pr_check_head_branch_rule_runs_as_written(tmp_path):
     assert run("dev", "owner-example/cicada").returncode == 0
     assert run("feat/alpha-project", "owner-example/cicada").returncode != 0
     assert run("dev", "bob-example/cicada").returncode != 0, "a fork's dev is not this repo's dev"
+
+
+def test_bump_refuses_a_version_below_the_latest_tag_even_when_above_dev_s(repo):
+    """The tag check's failure must stop the script, not just print (a `[ "$(…)" ]` swallows it)."""
+    repo["tag"]("v0.5.0")
+    done = repo["run"]("bump", "0.4.0", "--yes")
+    assert done.returncode == 1 and "not greater than v0.5.0" in done.stderr
+    assert repo["gh_calls"]() == [] and _git(repo["remote"], "branch", "--list", "release/*") == ""
