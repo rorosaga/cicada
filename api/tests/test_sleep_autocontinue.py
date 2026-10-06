@@ -368,7 +368,8 @@ def test_only_the_continue_route_and_this_module_may_pass_continue_from():
     hits = set()
     for path in root.rglob("*.py"):
         rel = path.relative_to(root)
-        if rel.parts[0] in ("tests", ".venv") or ".venv" in str(path):
+        if rel.parts[0] == "tests" or any(part.startswith(".") or part in {"node_modules", "__pycache__"}
+                                           for part in rel.parts):
             continue
         if re.search(r"continue_from\s*=", path.read_text(encoding="utf-8")):
             hits.add(str(rel))

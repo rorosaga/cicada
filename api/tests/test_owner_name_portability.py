@@ -69,9 +69,13 @@ def _shipped_agent_facing_files() -> list[Path]:
     files = [
         p
         for p in (REPO_ROOT / "api").rglob("*.py")
-        if "tests" not in p.parts and ".venv" not in p.parts
+        if "tests" not in p.relative_to(REPO_ROOT).parts
+        and not any(part.startswith(".") or part in {"node_modules", "__pycache__"}
+                    for part in p.relative_to(REPO_ROOT).parts)
     ]
-    files += list((REPO_ROOT / "mcp").rglob("*.py"))
+    files += [p for p in (REPO_ROOT / "mcp").rglob("*.py")
+              if not any(part.startswith(".") or part in {"node_modules", "__pycache__"}
+                         for part in p.relative_to(REPO_ROOT).parts)]
     files += list((REPO_ROOT / "skills").rglob("*.md"))
     return files
 
