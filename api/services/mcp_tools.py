@@ -3219,7 +3219,10 @@ def save_episode(ctx: ToolContext, content: str, title: str | None) -> str:
 
 
 def _episode_signature(path: Path) -> tuple[int, int, int, int, int]:
-    """Detect replacement and in-place edits, even with restored mtime/size."""
+    """Detect replacement and in-place edits, even with restored mtime/size.
+
+    On filesystems with coarse timestamps, this relies on the atomic-write rail.
+    """
     stat = path.stat()
     return stat.st_dev, stat.st_ino, stat.st_mtime_ns, stat.st_ctime_ns, stat.st_size
 
