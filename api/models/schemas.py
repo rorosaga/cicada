@@ -2185,7 +2185,7 @@ class SleepDebtResponse(CamelModel):
 
 class SleepDrainStop(CamelModel):
     """Why a person-started run stopped before it read everything it froze.
-    ``reason``: ``cancelled | plan_limit | engine | bank_switched | error``.
+    ``reason``: ``cancelled | plan_limit | engine | bank_switched | error | reserve | busy``.
     ``sentence`` is a plain sentence (the vendor's own for a plan limit) and
     ``resets_at`` the vendor's unix reset time when one was measured — never
     estimated (G107)."""

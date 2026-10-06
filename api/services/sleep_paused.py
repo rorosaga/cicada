@@ -28,14 +28,14 @@ from api.services import bank_index, sleep_local
 FILE = "run.json"
 
 #: Why a run is paused (a closed set; the wire carries it).
-REASONS = ("user", "plan_window", "plan_weekly", "reserve", "overage", "engine", "restart", "bank_switched")
+REASONS = ("user", "plan_window", "plan_weekly", "reserve", "overage", "engine", "restart", "bank_switched", "busy")
 
-#: A scheduled run's pause that no person chose — the process went away (``restart``) or the
-#: scheduled engine failed (``engine``) — is the schedule's own to replace with a fresh
-#: unattended run (TODO ruling 16, final review): otherwise one quit of the app, or one night
+#: A scheduled run's pause that no person chose — the process went away (``restart``), the
+#: scheduled engine failed (``engine``) or a write held the bank (``busy``, G183) — is the schedule's own to replace
+#: with a fresh unattended run (TODO ruling 16, final review): otherwise one quit of the app, or one night
 #: the scheduled engine was away, would stop scheduled reading until someone pressed Continue.
 #: A person's Pause, a plan or reserve stop, and every run a person started stay theirs.
-SCHEDULE_REPLACEABLE = ("restart", "engine")
+SCHEDULE_REPLACEABLE = ("restart", "engine", "busy")
 #: An engine pause is replaced only once it is this old, so a scheduled engine that stays
 #: away costs one failed call every few hours, never one every five minutes.
 ENGINE_RETRY_S = 6 * 3600
@@ -57,6 +57,8 @@ def reason_for(stop) -> str | None:
         return "reserve"
     if r == "engine":
         return "engine"
+    if r == "busy":
+        return "busy"   # a write held the bank when a batch would have read it (G183): nothing of it was read
     if r == "plan_limit":
         limit = getattr(stop, "limit", None)
         return "plan_weekly" if limit == "seven_day" else "overage" if limit == "overage" else "plan_window"

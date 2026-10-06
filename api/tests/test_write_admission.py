@@ -128,9 +128,9 @@ def test_the_flip_waits_and_logs_past_the_threshold(bank, window, caplog):
     assert any("waiting for 1 write" in r.getMessage() for r in caplog.records)
 
 
-def test_a_stuck_writer_cannot_wedge_sleep(bank, window, caplog):
-    """Bounded: past `give_up_after` Sleep proceeds and says so — a hung-but-alive holder (a stopped agent process)
-    must not stop every night's consolidation. False tells the caller it went ahead without the barrier."""
+def test_a_stuck_writer_is_never_reported_as_a_free_bank(bank, window, caplog):
+    """Bounded and honest (fix round 1, finding 1): past `give_up_after` the wait answers False and says Sleep will
+    not read — the caller pauses; nothing treats a timed-out wait as an open window."""
     held, release = threading.Event(), threading.Event()
 
     def writer():
@@ -146,7 +146,7 @@ def test_a_stuck_writer_cannot_wedge_sleep(bank, window, caplog):
             t0 = time.monotonic()
             assert _flip(bank, window, log_after=0.05, give_up_after=0.2) is False
             assert time.monotonic() - t0 < 2
-        assert any("proceeds" in r.getMessage() for r in caplog.records)
+        assert any("will not read" in r.getMessage() for r in caplog.records)
     finally:
         release.set()
         w.join(5)

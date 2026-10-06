@@ -749,3 +749,88 @@ def test_a_writer_admitted_before_stage_two_finishes_before_the_pages_are_read(t
         assert not any(ln.startswith("+") and "sqlite-vec" in ln for ln in diff.splitlines()), \
             "the admitted write rode a Sleep commit"
     assert git(memory, "status", "--porcelain").strip() == ""
+
+
+# --- Fix round 1, finding 1: a wait that times out is a pause, never an open window -----------------------------------
+
+
+def _hold_admission(memory):
+    """A writer admitted and stuck until released; returns (release, thread)."""
+    import threading
+
+    from api.services import write_admission
+
+    held, release = threading.Event(), threading.Event()
+
+    def writer():
+        with write_admission.shared(memory):
+            held.set()
+            release.wait(30)
+
+    t = threading.Thread(target=writer)
+    t.start()
+    assert held.wait(10)
+    return release, t
+
+
+def test_a_stuck_writer_at_stage_two_pauses_the_drain_before_any_page_is_read(tmp_path, monkeypatch):
+    import threading
+
+    from api.services import sleep_paused, write_admission
+
+    ids = episode_ids(6)
+    memory = seed_bank(tmp_path, ids)
+    rig = install(monkeypatch)
+    monkeypatch.setattr(write_admission, "WAIT_MAX_S", 0.2)
+    loads: list[int] = []
+    real_load = sleep_cycle._load_existing_entities
+    monkeypatch.setattr(sleep_cycle, "_load_existing_entities",
+                        lambda mp: loads.append(write_admission.holders(memory)) or real_load(mp))
+    tail: list[int] = []
+    real_tail = sleep_cycle._run_engine_independent_tail
+
+    async def spy_tail(*a, **k):
+        tail.append(1)
+        return await real_tail(*a, **k)
+
+    monkeypatch.setattr(sleep_cycle, "_run_engine_independent_tail", spy_tail)
+    stuck: dict = {}
+
+    async def stick_during_batch_two(batch_no, episodes):
+        if batch_no == 2:
+            stuck["release"], stuck["thread"] = await asyncio.to_thread(_hold_admission, memory)
+
+    rig.on_extract = stick_during_batch_two
+    try:
+        _cfg, state = run_drain(memory, cap=3)
+        assert loads == [0], "batch 1 read with no holder; batch 2 never read while one held"
+        assert tail == [], "the tail writes pages too: it does not run past a holder either"
+        assert state.drain.stop.reason == "busy"
+        assert sleep_paused.get_paused(memory)["reason"] == "busy", "the frozen work is kept for Continue"
+        assert len(sleep_commits(memory)) == 1, "batch 2 filed nothing"
+        assert not sleep_cycle.is_writing() and state.status == "idle"
+    finally:
+        stuck["release"].set()
+        stuck["thread"].join(10)
+    assert set(waiting(memory)) == set(ids[3:]), "what batch 2 read waits for the next run"
+
+
+def test_a_stuck_writer_at_the_start_stops_the_run_before_anything_is_touched(tmp_path, monkeypatch):
+    from api.services import write_admission
+
+    memory = seed_bank(tmp_path, episode_ids(2))
+    rig = install(monkeypatch)
+    monkeypatch.setattr(write_admission, "WAIT_MAX_S", 0.2)
+    flushed: list[int] = []
+    monkeypatch.setattr(sleep_cycle, "_flush_pending_commits_safely", lambda mp: flushed.append(1))
+    release, thread = _hold_admission(memory)
+    try:
+        asyncio.run(sleep_cycle.run(settings(memory), "sleep_busy_start", user_triggered=False))
+    finally:
+        release.set()
+        thread.join(10)
+    state = sleep_cycle.get_sleep_state()
+    assert rig.extract_batches == [] and flushed == []
+    assert state.status == "idle" and not sleep_cycle.is_writing()
+    assert "write" in (state.error or "")
+    assert len(waiting(memory)) == 2

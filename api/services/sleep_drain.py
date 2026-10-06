@@ -26,7 +26,7 @@ from api.services import engine_errors
 
 #: Why a drain stopped before it read everything it froze. ``reserve`` is the
 #: person's "leave room in my plan" line (a soft stop that keeps the batch).
-STOP_REASONS = ("cancelled", "plan_limit", "engine", "bank_switched", "error", "reserve")
+STOP_REASONS = ("cancelled", "plan_limit", "engine", "bank_switched", "error", "reserve", "busy")
 
 #: Why one conversation could not be read (a closed enum: ids and enums only).
 UNREAD_REASONS = ("empty_answer", "timed_out", "unparseable", "refused", "other")

@@ -13,8 +13,8 @@ again. **Never across a model call or a network fetch** — a long networked job
 **Sleep** sets its flag first and then calls :func:`wait_for_writers` off the event loop: it returns once no shared
 hold is left, so every writer that saw the window shut has finished its write and commit, and every later one sees the
 flag and refuses. Closing the window needs nothing. The wait is bounded — logged past ``WAIT_LOG_S``, and past
-``WAIT_MAX_S`` Sleep proceeds with a warning (a stopped-but-alive agent process must not stall every night's
-consolidation; a dead process's lock is released by the kernel).
+``WAIT_MAX_S`` it answers False: Sleep then reads and writes nothing and pauses the run (``busy``), keeping its frozen
+work for Continue. A timed-out wait is never treated as an open window (a paused process can resume and write).
 
 **Across processes** (the stdio MCP server writes pages too) the hold is also an ``flock(LOCK_SH)``: on the bank's
 ``.git`` path when it has one (nothing created; a different inode from the bank directory ``page_lock`` locks), else on
@@ -185,11 +185,14 @@ def route(*, refuse: Callable[[], BaseException] | None = None):
     return wrap
 
 
-def wait_for_writers(memory_path, *, log_after: float = WAIT_LOG_S, give_up_after: float = WAIT_MAX_S,
+def wait_for_writers(memory_path, *, log_after: float | None = None, give_up_after: float | None = None,
                      clock: Callable[[], float] = time.monotonic) -> bool:
     """Sleep's side, called right AFTER its flag is set and before it reads a page: wait until no writer holds the
-    bank's admission. True once none does; False when ``give_up_after`` passed first and Sleep goes ahead anyway.
-    Blocks — call it off the event loop."""
+    bank's admission. True only once none does. False when ``give_up_after`` (``WAIT_MAX_S``) passed first, or the
+    lock cannot be opened — the caller must then NOT read or write a page (Sleep pauses; fix round 1). Blocks — call
+    it off the event loop."""
+    log_after = WAIT_LOG_S if log_after is None else log_after
+    give_up_after = WAIT_MAX_S if give_up_after is None else give_up_after
     key = _key(memory_path)
     bank = _bank(key)
     start = clock()
@@ -202,8 +205,8 @@ def wait_for_writers(memory_path, *, log_after: float = WAIT_LOG_S, give_up_afte
             logged = True
             logger.info(f"Sleep is waiting for {n} write(s) in progress to finish before it reads the pages")
         if elapsed >= give_up_after:
-            logger.warning(f"a write in progress did not finish in {give_up_after:.0f}s; Sleep proceeds, and that "
-                           "write may overlap this batch")
+            logger.warning(f"a write in progress did not finish in {give_up_after:.0f}s; Sleep will not read the "
+                           "pages and pauses instead")
             return False
         return True
 

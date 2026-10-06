@@ -304,15 +304,23 @@ def is_writing() -> bool:
     return state.status == "running" and (not getattr(state, "drain_run", False) or getattr(state, "writing", False))
 
 
-async def _open_window(memory_path) -> None:
+#: Why a run stopped before reading a page: a writer admitted before the window still held the bank (G183).
+WINDOW_BUSY = ("A write was still in progress, so Sleep paused before reading your pages. What was filed stays "
+               "filed; continue when you like.")
+
+
+async def _open_window(memory_path) -> bool:
     """Open the write window (G183): the flag first, then wait — off the event loop — until no writer still holds
     the bank's admission (``write_admission``). A writer that saw the window shut took its hold before the flag was
     set, so it finishes its write and its own commit before Sleep reads a page; every later one sees the flag and
-    refuses. Never called holding the page or git lock (admission comes first in the order). Closing needs nothing."""
+    refuses. Never called holding the page or git lock (admission comes first in the order). Closing needs nothing.
+
+    False when the wait timed out or could not be confirmed: the window did NOT open, and the caller reads and
+    writes nothing — it pauses (fix round 1). The flag stays set until the caller's exit path clears it."""
     from api.services import write_admission
 
     _state.writing = True
-    await asyncio.to_thread(write_admission.wait_for_writers, memory_path)
+    return bool(await asyncio.to_thread(write_admission.wait_for_writers, memory_path))
 
 
 def _cancel_requested() -> bool:
@@ -1304,10 +1312,19 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True,
     agent_engine.reset_models_used()
 
     outcome = _StageOutcome()
+    window_refused = False
     try:
-        await _open_window(memory_path)   # status/writing are set above; no page is read before writers are out
-        await _flush_pending_commits_safely(memory_path)
-        if tail_only:
+        # status/writing are set above; no page is read, flushed or committed before writers are out.
+        if not await _open_window(memory_path):
+            window_refused = True
+            _state.error = WINDOW_BUSY
+            _state.progress = f"Paused: {WINDOW_BUSY}"
+            logger.warning("Sleep did not start: a write admitted before it still held the bank")
+        else:
+            await _flush_pending_commits_safely(memory_path)
+        if window_refused:
+            pass
+        elif tail_only:
             _state.progress = "Tidying up while your run is paused"
         elif drain:
             outcome = await _drain(settings, cycle_id, memory_path, user_triggered=user_triggered,
@@ -1345,13 +1362,16 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True,
         # while `status == "running"`, so every later cycle would be silently
         # refused with no way to recover short of restarting the process.
         try:
-            await _open_window(memory_path)   # the tail's commits sweep with `git add -A`: a hold, like a plain cycle
-            await _run_engine_independent_tail(
-                memory_path, settings, outcome, user_triggered=user_triggered,
-                # Only a drain stopped at the plan's limit passes this; the call
-                # stays the plain one otherwise, exactly as before.
-                **({"skip_links": True} if outcome.skip_links else {}),
-            )
+            # The tail's commits sweep with `git add -A`: a hold, like a plain cycle — and never past a holder.
+            if window_refused or not await _open_window(memory_path):
+                logger.warning("Sleep's engine-free tail skipped: a write admitted before it still held the bank")
+            else:
+                await _run_engine_independent_tail(
+                    memory_path, settings, outcome, user_triggered=user_triggered,
+                    # Only a drain stopped at the plan's limit passes this; the call
+                    # stays the plain one otherwise, exactly as before.
+                    **({"skip_links": True} if outcome.skip_links else {}),
+                )
         finally:
             _state.status = "idle"
             _state.writing = False
@@ -2274,8 +2294,13 @@ async def _run_stages(
     # Stage 2: Entity Resolution & Deduplication
     _say("Stage 2/5: Resolving entities...")
     logger.info("Stage 2: Resolving entities against existing graph")
-    if batch is not None:
-        await _open_window(memory_path)   # the pages Stage 5 rewrites are read from here (see `is_writing`)
+    if batch is not None and not await _open_window(memory_path):
+        # A writer admitted before the flag still holds the bank: read nothing, file nothing — the batch's
+        # conversations stay waiting and the run pauses (`busy`), never reads past a live holder (G183 round 1).
+        _state.writing = False
+        _say(f"Paused: {WINDOW_BUSY}")
+        return _StageOutcome(stop=sleep_drain.DrainStop("busy", WINDOW_BUSY))
+    # (A plain cycle opened its window at the run's start.) The pages Stage 5 rewrites are read from here.
     existing = _load_existing_entities(memory_path)
     from api.services.entity_resolver import resolve
     if decay_only:
