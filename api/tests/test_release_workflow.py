@@ -86,8 +86,12 @@ def test_a_push_to_main_releases_and_no_tag_ever_starts_a_run():
     assert "workflow_dispatch" in on, "a manual run on main is the recovery path after a failed run"
     assert wf["concurrency"]["cancel-in-progress"] is False
     group = wf["concurrency"]["group"]
-    assert "github.ref == 'refs/heads/main' && 'release'" in group, "main serialises in the one `release` group"
-    assert "release-dry-run" in group, "a dry run never cancels a pending release"
+    # Per commit on main: a run never cancels or replaces a run for a different commit (GitHub replaces a *pending*
+    # run when another joins its group, even with cancel-in-progress false — a re-run of an old commit included).
+    # Across commits, publish.sh's tip and live-tag checks decide.
+    assert "github.ref == 'refs/heads/main' && format('release-{0}', github.sha)" in group
+    assert "format('release-dry-run-{0}', github.ref)" in group, "dry runs queue per ref, apart from releases"
+    assert "'release' ||" not in group, "no shared group on main"
     assert wf["permissions"] == {"contents": "read"}, "only the publish job may write"
 
 

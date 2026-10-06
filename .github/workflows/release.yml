@@ -5,11 +5,13 @@
 # than the latest tag: the run fails. Otherwise the build job builds the app with its backend, signs it ad hoc
 # inside out, smoke-tests it in a temp folder, zips it and signs the zip with Ed25519, and the publish job
 # (scripts/release/publish.sh) judges the version again against the live tags, drafts the GitHub Release at the
-# merged commit, checks every asset, and only then publishes it — which is when GitHub creates the tag. Nobody tags by hand, and a failed run advertises nothing.
+# merged commit, checks every asset, and only then publishes it — which is when GitHub creates the tag. Only the
+# commit at main's tip may publish: if two release merges land before the first publishes, only the newer ships.
+# Nobody tags by hand, and a failed run advertises nothing.
 #
 # A push to `ci/release-dry-run`, or a manual run from any branch but main, does everything except publish and
-# uploads the result as an artifact. A manual run on main re-attempts publishing an untagged VERSION — the
-# recovery path after a failed run.
+# uploads the result as an artifact. A re-run, or a manual run on main, re-attempts publishing an untagged VERSION —
+# and publishes only while main's tip is still that commit.
 name: Release
 
 on:
@@ -20,11 +22,13 @@ on:
 permissions:
   contents: read
 
-# One release at a time on main; a running release is never cancelled. GitHub does cancel a *pending* run when a newer
-# one joins its group — harmless on main, where the newer run carries the same or a newer VERSION — so dry runs queue
-# in their own group and can never cancel a release waiting its turn.
+# One group per commit on main, so a run never cancels or replaces a run for a different commit: GitHub replaces a
+# *pending* run when another joins its group, even with cancel-in-progress false — and a re-run of an old commit
+# joins as a newcomer. Runs for different commits may therefore overlap; publish.sh keeps that safe (only the commit at
+# main's tip publishes, the version is judged against the live tags, releases are addressed by id, and an existing
+# release is a green no-op). Dry runs queue per ref in their own groups.
 concurrency:
-  group: ${{ github.ref == 'refs/heads/main' && 'release' || format('release-dry-run-{0}', github.ref) }}
+  group: ${{ github.ref == 'refs/heads/main' && format('release-{0}', github.sha) || format('release-dry-run-{0}', github.ref) }}
   cancel-in-progress: false
 
 jobs:

@@ -41,9 +41,9 @@ push, no PR. Neither ever pushes `main`, creates a tag or force-pushes.
 
 ## What CI does on `main`
 
-`.github/workflows/release.yml` runs on every push to `main`, one run at a time (`concurrency: release`; a running
-release is never cancelled, though a run still *waiting* is replaced by a newer push to `main`, which carries the same
-or a newer `VERSION`):
+`.github/workflows/release.yml` runs on every push to `main`. Runs for one commit queue behind each other; runs for
+different commits never cancel or replace each other (`concurrency: release-<sha>`), and may overlap — the publish
+step below keeps that safe.
 
 1. **Plan** (ubuntu, seconds). Every version stamp agrees; then the remote's `v*` tags decide. `v$VERSION` already
    tagged → "already released", nothing is built or published, and the run is **green** (so re-running a merge, or a
@@ -55,23 +55,37 @@ or a newer `VERSION`):
    `latest.json` (checked against `VERSION`) → `Cicada-macos-arm64.zip`, the same bytes under a name that never
    changes. Uploaded as a run artifact.
 3. **Publish** (ubuntu, the only job with write access; `scripts/release/publish.sh`): judges `VERSION` again against
-   the live tags (a re-run reuses the plan job's answer, and a newer release may exist by then), then creates the
-   GitHub Release as a **draft** at the merged commit, titled `Cicada X.Y.Z`, with `Cicada-X.Y.Z.zip`, its `.sig`, `latest.json` and
+   the live tags (a re-run reuses the plan job's answer, and a newer release may exist by then), and checks that its
+   commit is still **main's tip** — only the commit at main's tip may publish. Then it creates the GitHub Release as a
+   **draft** at the merged commit, titled `Cicada X.Y.Z`, with `Cicada-X.Y.Z.zip`, its `.sig`, `latest.json` and
    `Cicada-macos-arm64.zip`; notes are a fixed header (Apple silicon, macOS 14+, not notarized yet → Open Anyway; the
    install line) followed by notes generated from the PRs merged since the previous tag. It checks every asset's name
-   and size, and only then publishes the draft — which is when GitHub creates the tag.
+   and size, checks main's tip once more, and only then publishes the draft — which is when GitHub creates the tag.
+   A run whose commit was superseded on `main` publishes nothing, deletes only the draft it made, and ends green
+   ("superseded by <sha> — that run releases main").
+
+**Only the newest release merge ships.** If two release merges land on `main` before the first one publishes, the
+first run finds itself superseded and publishes nothing; the newer commit's run releases its `VERSION`. Should the two
+carry different versions, the older version is never published — its changes ship inside the newer one.
 
 **The website's download link** is `https://github.com/rorosaga/cicada/releases/latest/download/Cicada-macos-arm64.zip`:
 it always resolves to the newest release, so no release needs a website edit.
 
 **A failed run advertises nothing.** A build or verification failure stops before the publish job: no tag, no release.
-A publish failure deletes the draft it made (a draft has no tag yet, so no tag is touched). A published release is never edited,
-re-uploaded to or deleted, and nothing force-pushes. **To recover**, fix the cause on `dev`, then either re-run the
-failed run (*Re-run all jobs*, or *Re-run failed jobs* — both judge the version again), or run the Release workflow by
-hand on `main` (Actions → Release → Run workflow → `main`), which
-re-attempts publishing the untagged `VERSION`. If the fix changed code, merge it into `dev` and run `make release-pr`
-again: the version is still untagged, so merging that PR releases it. A draft left behind by a cancelled run is never
-public; the next run replaces it.
+A publish failure deletes the draft it made (a draft has no tag yet, so no tag is touched). A published release is
+never edited, re-uploaded to or deleted, and nothing force-pushes.
+
+**To recover from a failed run:**
+
+- **The failure was transient** (a runner, network or GitHub error) and the code is fine: re-run it (*Re-run all
+  jobs*, *Re-run failed jobs*, or Actions → Release → Run workflow → `main`). A re-run builds the same commit and
+  publishes **only while main's tip is still that commit**; if anything has merged to `main` since, it ends green
+  without publishing, and the newer commit's run is the one that releases.
+- **The release needs a fix:** a re-run cannot pick it up — it always rebuilds its own commit. Merge the fix into
+  `dev`, then run `make release-pr` again and merge that PR: it is a new commit on `main`, and since the version is
+  still untagged it may keep the same `VERSION`; its run releases the fixed code.
+- A draft left behind by a cancelled run is never public; the next run for that commit replaces it, and any other
+  commit's run leaves it alone (delete it by hand from the Releases page if it lingers).
 
 **A hotfix for an older line** (after a newer release exists) is never published by CI and never becomes "latest", or
 every app would be offered a downgrade: CI fails a `VERSION` that isn't greater than the latest tag. Build it with a

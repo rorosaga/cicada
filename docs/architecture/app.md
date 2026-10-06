@@ -801,22 +801,24 @@ tagged → publish nothing; not greater than the latest → fail). The owner's t
 (`scripts/release/release.sh`; never pushes `main`, never tags, never force-pushes; `--dry-run`): `make release
 VERSION=x.y.z` bumps the version files on `release/vx.y.z` off `origin/dev` and opens its PR to `dev`; `make release-pr`
 opens `dev` → `main` "Release vX.Y.Z". `.github/workflows/release-check.yml` fails a PR to `main` whose head isn't this
-repo's `dev` or whose `VERSION` CI would not publish. A push to `main` runs `.github/workflows/release.yml` (one run at
-a time): a **plan** job on ubuntu (stamps agree, tags decide), a **build** job on `macos-26` (arm64, Xcode 26) —
-`bundle.sh --release --with-backend` with the commit count as the build number, the Info.plist version check,
-`smoke-test.sh`, a `ditto -c -k --keepParent` zip, its Ed25519 signature (`scripts/release/sign_update.py`, private key
-in the `CICADA_UPDATE_SIGNING_KEY` secret, verified against the committed `update-public-key.txt`), `latest.json`
-(`latest_json.py`: version, build, versioned asset URL, size, sha256, signature, notes URL) and
-`Cicada-macos-arm64.zip`, the same bytes under a stable name the website links as
-`releases/latest/download/Cicada-macos-arm64.zip` — and a **publish** job, the only one with write access
-(`scripts/release/publish.sh`): the version judged again against the live tags (a re-run reuses a stale plan), a draft
-release at the merged commit with all four assets and notes (`release-notes-header.md` + notes generated since the
-previous tag), every asset checked by name and size, then published — GitHub creates the tag only then — and marked
-latest only when it is the highest version. A failure deletes the draft it made (a draft has no tag, so no tag is
-touched); a published release is never touched again. A push to `ci/release-dry-run` or a manual run off `main` does
-everything but publish and uploads the files as an artifact; a manual run on `main` re-attempts an untagged `VERSION`
-(the recovery path). The app carries the public key and the repo (`CicadaUpdatePublicKey`, `CicadaUpdateRepo` in
-Info.plist) for the updater.
+repo's `dev` or whose `VERSION` CI would not publish. A push to `main` runs `.github/workflows/release.yml` (one
+concurrency group per commit, so a run never cancels or replaces another commit's): a **plan** job on ubuntu (stamps
+agree, tags decide), a **build** job on `macos-26` (arm64, Xcode 26) — `bundle.sh --release --with-backend` with the
+commit count as the build number, the Info.plist version check, `smoke-test.sh`, a `ditto -c -k --keepParent` zip, its
+Ed25519 signature (`scripts/release/sign_update.py`, private key in the `CICADA_UPDATE_SIGNING_KEY` secret, verified
+against the committed `update-public-key.txt`), `latest.json` (`latest_json.py`: version, build, versioned asset URL,
+size, sha256, signature, notes URL) and `Cicada-macos-arm64.zip`, the same bytes under a stable name the website links
+as `releases/latest/download/Cicada-macos-arm64.zip` — and a **publish** job, the only one with write access
+(`scripts/release/publish.sh`): the version judged again against the live tags (a re-run reuses a stale plan) and the
+commit checked to still be main's tip (only the tip publishes; a superseded run ends green and deletes only its own
+draft, so of two release merges in flight only the newer ships), a draft release at the merged commit with all four
+assets and notes (`release-notes-header.md` + notes generated since the previous tag), every asset checked by name and
+size, main's tip checked again, then published (by release id, since two drafts may share a tag) — GitHub creates the
+tag only then — and marked latest only when it is the highest version. A failure deletes the draft it made (a draft has
+no tag, so no tag is touched); a published release is never touched again. A push to `ci/release-dry-run` or a manual
+run off `main` does everything but publish and uploads the files as an artifact; a re-run or a manual run on `main`
+re-attempts an untagged `VERSION` only while main's tip is still its commit (a fix ships as a new release PR). The app
+carries the public key and the repo (`CicadaUpdatePublicKey`, `CicadaUpdateRepo` in Info.plist) for the updater.
 
 **Installing and updating a release (G182 phase 5).** Testers install with
 `curl -fsSL https://raw.githubusercontent.com/rorosaga/cicada/main/scripts/install-release.sh | bash`: it reads the
