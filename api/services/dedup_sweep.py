@@ -100,8 +100,8 @@ def dedup_sweep(memory_path: Path, settings, *, judge_fn=None, embed_fn=None,
     skipped_dirty, failed = [], []
     recovery_failed = False
     for a, b in pairs:
-        if stopped_for_sleep or (not dry_run and may_write is not None and not may_write()):
-            stopped_for_sleep = True   # no judge call spent on a merge that could not land
+        if stopped_for_sleep or (may_write is not None and not may_write()):
+            stopped_for_sleep = True   # no judge call spent while Sleep holds the pages, a dry run's either
             break
         if a in gone or b in gone:
             continue
@@ -127,14 +127,13 @@ def dedup_sweep(memory_path: Path, settings, *, judge_fn=None, embed_fn=None,
                     proposed.append((loser, winner))
                     applied = "proposed"
                     gone.add(loser)
-                elif may_write is not None and not may_write():
-                    # Sleep's write window opened while the judge answered: its
-                    # batch has loaded the pages this merge would rewrite.
-                    stopped_for_sleep = True
-                    applied = "stopped"
                 else:
-                    applied = _merge_and_commit(memory_path, loser, winner, engine)
-                    if applied == MERGED:
+                    applied = _merge_and_commit(memory_path, loser, winner, engine, may_write)
+                    if applied == STOPPED:
+                        # Sleep's write window opened while the judge answered or
+                        # while the merge waited for the page lock.
+                        stopped_for_sleep = True
+                    elif applied == MERGED:
                         merged.append((loser, winner))
                         gone.add(loser)
                     elif applied == DIRTY:
@@ -192,7 +191,7 @@ def commit_message(paths: list[str], loser: str, today: date, engine: str | None
                                             authors=[AUTHOR], engine=engine)
 
 
-MERGED, DIRTY, FAILED = "merged", "dirty", "failed"
+MERGED, DIRTY, FAILED, STOPPED = "merged", "dirty", "failed", "stopped"
 GRAPH = "graph_edges.yaml"
 
 
@@ -200,7 +199,8 @@ class RecoveryFailed(Exception):
     """A failed merge could not be put back as it was: the sweep stops and says so."""
 
 
-def _merge_and_commit(memory_path: Path, loser: str, winner: str, engine: str | None) -> str:
+def _merge_and_commit(memory_path: Path, loser: str, winner: str, engine: str | None,
+                      may_write: Callable[[], bool] | None = None) -> str:
     """One merge as one transaction: the page lock, then the bank's git write
     lock, held from the dirty check through the commit or the recovery (page →
     git order), so no in-process git writer — Sleep's ``git add -A`` included —
@@ -214,9 +214,16 @@ def _merge_and_commit(memory_path: Path, loser: str, winner: str, engine: str | 
     writer has committed. A failed merge or commit is put back to the exact
     pre-merge bytes and index entries — never to HEAD, which would drop an edit
     already on a page — and ``FAILED``; a put-back that cannot be done raises
-    :class:`RecoveryFailed`."""
+    :class:`RecoveryFailed`.
+
+    ``may_write`` is re-asked once the page lock is held (``STOPPED``): a window
+    can open while this waited for it. Sleep itself takes no page lock, so a
+    window opening after this check still overlaps the merge — disclosed in
+    ``docs/architecture/storage.md``."""
     memory_path = Path(memory_path)
     with page_lock.page_lock(memory_path):
+        if may_write is not None and not may_write():
+            return STOPPED
         if not (memory_path / ".git").exists():
             merge_entities(memory_path, loser_id=loser, winner_id=winner)
             return MERGED

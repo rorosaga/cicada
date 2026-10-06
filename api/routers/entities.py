@@ -235,6 +235,7 @@ def _rewrite_page_and_commit(memory_path: Path, entity_id: str, mutate, message:
     rel = f"entities/{entity_id}.md"
     page = memory_path / rel
     with page_lock.page_lock(memory_path):
+        _page_guard()   # re-asked once the lock is held: a window can open while this waited for it
         if not page.exists():
             raise HTTPException(404, f"Entity {entity_id} not found")
         tracked = (memory_path / ".git").exists()

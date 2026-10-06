@@ -76,8 +76,12 @@ schedules one revalidation there. The queue's writes (`PUT|DELETE /videos/queue/
   go through between a drain's batches:** `PUT /entities/{id}/decay`, `PATCH /entities/{id}/repos` (which commits only
   its page, never `git add -A`), every `POST /inbox/{id}/resolve` action — a defer too — and the deprecated
   `/nudges/{id}/resolve` and `/clarifications/{id}` that route through it, and `POST /maintenance/dedup-sweep` (a dry
-  run too; G183). `POST /entities/{id}/read` (a ledger row) and `POST /entities/{id}/repos/observed` (a cache outside
-  the bank) write no page and are never gated. MCP's `cicada_resolve_inbox` relays a 409's sentence to the agent.
+  run too; G183). Each re-asks once it holds the page lock (the inbox after its awaited snapshot), before writing; Sleep
+  takes no page lock, so this narrows but does not close the race (`storage.md`, "Residual race"). The decay and repo
+  rewrites run write → scoped commit as one page-lock section in a worker thread, an edit already on the page committed
+  apart first. The sweep answers `stoppedForSleep`, `skippedDirty`, `failed` and `recoveryFailed` beside its merges.
+  `POST /entities/{id}/read` (a ledger row) and `POST /entities/{id}/repos/observed` (a cache outside the bank) write no
+  page and are never gated. MCP's `cicada_resolve_inbox` relays a 409's sentence to the agent.
 - `GET /sync/version` is the cheap change-detector (<10 ms); `GET /sync/events` is the SSE stream.
   Its idle cost is shared (audit 2026-10-02 A10): `sync_ticker.current` computes the version vector and the Sleep debt
   at most once per 0.9 s per bank, and concurrent streams await that one computation. Its filesystem half runs in

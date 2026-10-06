@@ -102,10 +102,15 @@ source `entity:` links and claims whose subject or node object named it are repo
 loser's name joins the winner's `aliases`, and the result lists the paths it wrote. The inbox's
 rename-to-the-cleaner-slug branch repoints the same references (`rename_references`), and every inbox note lands above
 the fence. `episodes/` is never rewritten. **The dedup sweep commits its own merges (G183(e)):** `POST
-/maintenance/dedup-sweep` with `dryRun: false` runs each merge and its commit of exactly the result's paths under the page
-lock (never across the judge's model call) — `Dedup sweep <date>`, `<path>: updated|removed (merged, trigger:
-maintenance/dedup-sweep)`, `Cicada-Author: cicada`, `Cicada-Engine:` the judge's engine — and a failed commit puts those
-paths back from HEAD; a dry run writes and commits nothing.
+/maintenance/dedup-sweep` with `dryRun: false` runs each merge as one transaction under the page lock **and** the bank's
+git write lock, from its dirty check through its commit or recovery (never across the judge's model call). A merge that
+would change a path someone else left dirty — winner, loser, a page naming the loser, the graph — is refused
+(`skippedDirty`; one discovered only after merging is put back byte-for-byte first), so nothing another writer left
+uncommitted is ever committed as `cicada`. Otherwise it commits exactly the paths whose bytes changed — `Dedup sweep
+<date>`, `<path>: updated|removed (merged, trigger: maintenance/dedup-sweep)`, `Cicada-Author: cicada`, `Cicada-Engine:`
+the judge's engine. A failed merge or commit gets its exact pre-merge bytes and index entries back, never HEAD's
+(`failed`); a put-back that cannot be done, or a HEAD that moved inside the transaction, stops the sweep
+(`recoveryFailed`). `repoint_edges` leaves an untouched graph alone. A dry run writes and commits nothing.
 
 **Evidence spans (G118) — spans, not copies.** Every claim written since that slice carries
 `evidence: [{episode, start, end, kind, hash}]`. `start`/`end` are character offsets into the source
@@ -568,6 +573,13 @@ reuses the answer, and `record_watch`'s link save and queue credit stay outside.
 the inbox's follow-up resolver, which wait on the event loop — one page operation is milliseconds. **Order:** the page
 lock, then the git write lock (inside the commit), then `episode_lock` — never the reverse. **Not under it yet:**
 Sleep's own page writes (agent commits already defer to its write window) and the inbox's other resolvers.
+**Residual race (disclosed, G183 fix round 1):** the window guards are an admission check, not isolation. The sweep and
+the decay/repo routes re-ask `is_writing()` once they hold the page lock, and an inbox answer after its awaited snapshot,
+before writing — but Sleep enters its window (`_state.writing = True`, then Stage 2 loads the pages) without taking the
+page lock, so a window that opens *after* that check still overlaps the write: Sleep can load the pre-write page and
+later rewrite it, or sweep the write into its batch commit under the Sleep author. The window is milliseconds wide (one
+page write and its commit). Closing it needs Sleep to take the page lock around Stage 2's load and its commit — out of
+this slice.
 
 **Entity-level provenance uses `git blame`** enriched with parsed commit metadata; repo-level
 history uses `git log`. **No changelog in frontmatter** — git handles all history, zero storage

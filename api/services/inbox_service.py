@@ -947,6 +947,11 @@ async def resolve(
     from api.services import git_service as _git_service
 
     before = await _git_service.snapshot_dirty(settings.memory_path)
+    # Re-asked after the await and before any page write: a window can open while
+    # the snapshot was read (G183(a) round 1). Sleep takes no page lock, so a
+    # window opening after this still overlaps the answer — storage.md says so.
+    if sleep_cycle.is_writing():
+        raise HTTPException(409, SLEEP_BUSY)
     extra_lines: list[str] = []
     emit_extra: dict = {}
     if kind == "decay":
