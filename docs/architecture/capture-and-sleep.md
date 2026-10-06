@@ -186,6 +186,8 @@ then says the model wasn't shared.
 4. **Pattern detection & skill extraction** — recurring patterns distilled into skill entities.
 5. **Nudge generation, clarification queue & versioning** — snapshot, git commit.
 
+**Claim preservation (G148 regression):** Stage 5 rewrites prose with the stored `claims` fences removed from section parsing, then reattaches those fences unchanged. Rebuilding `Related` cannot remove beliefs before the claim pipeline reconciles them; synthesis output never authors a claims fence.
+
 An **engine-independent tail** runs on every exit path, idle nights included: the state-dictionary
 refresh, claim expiry (first in the clean-tree-guarded slot, its own `commit_paths` commit),
 follow-ups (G141 PJ-6, right after expiry, its own `cicada` commit), the exact-match source links (G61 S3-a, `source_links`,
