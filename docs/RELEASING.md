@@ -41,8 +41,9 @@ push, no PR. Neither ever pushes `main`, creates a tag or force-pushes.
 
 ## What CI does on `main`
 
-`.github/workflows/release.yml` runs on every push to `main`, one run at a time (`concurrency: release`, never
-cancelled):
+`.github/workflows/release.yml` runs on every push to `main`, one run at a time (`concurrency: release`; a running
+release is never cancelled, though a run still *waiting* is replaced by a newer push to `main`, which carries the same
+or a newer `VERSION`):
 
 1. **Plan** (ubuntu, seconds). Every version stamp agrees; then the remote's `v*` tags decide. `v$VERSION` already
    tagged → "already released", nothing is built or published, and the run is **green** (so re-running a merge, or a
@@ -53,8 +54,9 @@ cancelled):
    `/healthz` must report `VERSION` too) → zip → Ed25519 signature (checked against the committed public key) →
    `latest.json` (checked against `VERSION`) → `Cicada-macos-arm64.zip`, the same bytes under a name that never
    changes. Uploaded as a run artifact.
-3. **Publish** (ubuntu, the only job with write access; `scripts/release/publish.sh`): creates the GitHub Release as a
-   **draft** at the merged commit, titled `Cicada X.Y.Z`, with `Cicada-X.Y.Z.zip`, its `.sig`, `latest.json` and
+3. **Publish** (ubuntu, the only job with write access; `scripts/release/publish.sh`): judges `VERSION` again against
+   the live tags (a re-run reuses the plan job's answer, and a newer release may exist by then), then creates the
+   GitHub Release as a **draft** at the merged commit, titled `Cicada X.Y.Z`, with `Cicada-X.Y.Z.zip`, its `.sig`, `latest.json` and
    `Cicada-macos-arm64.zip`; notes are a fixed header (Apple silicon, macOS 14+, not notarized yet → Open Anyway; the
    install line) followed by notes generated from the PRs merged since the previous tag. It checks every asset's name
    and size, and only then publishes the draft — which is when GitHub creates the tag.
@@ -63,9 +65,10 @@ cancelled):
 it always resolves to the newest release, so no release needs a website edit.
 
 **A failed run advertises nothing.** A build or verification failure stops before the publish job: no tag, no release.
-A publish failure deletes the draft it made (and its tag, should one exist). A published release is never edited,
+A publish failure deletes the draft it made (a draft has no tag yet, so no tag is touched). A published release is never edited,
 re-uploaded to or deleted, and nothing force-pushes. **To recover**, fix the cause on `dev`, then either re-run the
-failed run, or run the Release workflow by hand on `main` (Actions → Release → Run workflow → `main`), which
+failed run (*Re-run all jobs*, or *Re-run failed jobs* — both judge the version again), or run the Release workflow by
+hand on `main` (Actions → Release → Run workflow → `main`), which
 re-attempts publishing the untagged `VERSION`. If the fix changed code, merge it into `dev` and run `make release-pr`
 again: the version is still untagged, so merging that PR releases it. A draft left behind by a cancelled run is never
 public; the next run replaces it.

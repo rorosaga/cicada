@@ -4,8 +4,8 @@
 # stamp agrees and reads the remote's v* tags — already tagged: nothing to publish, the run is green; not greater
 # than the latest tag: the run fails. Otherwise the build job builds the app with its backend, signs it ad hoc
 # inside out, smoke-tests it in a temp folder, zips it and signs the zip with Ed25519, and the publish job
-# (scripts/release/publish.sh) drafts the GitHub Release at the merged commit, checks every asset, and only then
-# publishes it — which is when GitHub creates the tag. Nobody tags by hand, and a failed run advertises nothing.
+# (scripts/release/publish.sh) judges the version again against the live tags, drafts the GitHub Release at the
+# merged commit, checks every asset, and only then publishes it — which is when GitHub creates the tag. Nobody tags by hand, and a failed run advertises nothing.
 #
 # A push to `ci/release-dry-run`, or a manual run from any branch but main, does everything except publish and
 # uploads the result as an artifact. A manual run on main re-attempts publishing an untagged VERSION — the
@@ -20,8 +20,9 @@ on:
 permissions:
   contents: read
 
-# One release at a time on main, never cancelled. Dry runs queue in their own group: GitHub cancels a *pending* run
-# when a newer one joins its group, and a dry-run push must never cancel a release waiting its turn.
+# One release at a time on main; a running release is never cancelled. GitHub does cancel a *pending* run when a newer
+# one joins its group — harmless on main, where the newer run carries the same or a newer VERSION — so dry runs queue
+# in their own group and can never cancel a release waiting its turn.
 concurrency:
   group: ${{ github.ref == 'refs/heads/main' && 'release' || format('release-dry-run-{0}', github.ref) }}
   cancel-in-progress: false
@@ -32,8 +33,6 @@ jobs:
     timeout-minutes: 5
     outputs:
       version: ${{ steps.plan.outputs.version }}
-      latest: ${{ steps.plan.outputs.latest }}
-      previous: ${{ steps.plan.outputs.previous }}
       build: ${{ steps.plan.outputs.build }}
       publish: ${{ steps.plan.outputs.publish }}
     steps:
@@ -141,6 +140,7 @@ jobs:
           name: ${{ steps.v.outputs.artifact }}
           path: dist/
           retention-days: 14
+          overwrite: true   # "Re-run all jobs" uploads again under the same name
 
   publish:
     needs: [plan, build]
@@ -161,6 +161,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          LATEST: ${{ needs.plan.outputs.latest }}
-          PREVIOUS: ${{ needs.plan.outputs.previous }}
         run: scripts/release/publish.sh "${{ needs.plan.outputs.version }}" "$GITHUB_SHA" dist

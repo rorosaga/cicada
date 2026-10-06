@@ -129,7 +129,8 @@ def test_only_the_publish_job_advertises_and_only_from_main():
     assert run.startswith("scripts/release/publish.sh") and '"$GITHUB_SHA"' in run, "the tag lands on the merged commit"
     env = job["steps"][-1]["env"]
     assert env["GH_REPO"] == "${{ github.repository }}"
-    assert env["LATEST"] == "${{ needs.plan.outputs.latest }}" and env["PREVIOUS"] == "${{ needs.plan.outputs.previous }}"
+    assert "LATEST" not in env and "PREVIOUS" not in env, \
+        "publish.sh judges against the live tags; a re-run of failed jobs reuses a stale plan"
     text = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
     for banned in ("git push", "git tag", "--force", "--clobber", "gh release create"):
         assert banned not in text, f"{banned}: publication goes through publish.sh only"

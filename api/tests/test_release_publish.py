@@ -19,7 +19,7 @@ SCRIPT = ROOT / "scripts" / "release" / "publish.sh"
 SHA = "0123456789abcdef0123456789abcdef01234567"
 
 FAKE_GH = r'''#!PYTHON
-"""A fake `gh release` with state in $FAKE_GH_STATE; $FAKE_GH_FAIL names a step to fail (upload|edit|verify)."""
+"""A fake `gh release` with state in $FAKE_GH_STATE; $FAKE_GH_FAIL names a step to fail (view|upload|edit|verify)."""
 import json, os, sys
 from pathlib import Path
 
@@ -36,6 +36,8 @@ def save():
     state_file.write_text(json.dumps(state))
 
 if cmd == "view":
+    if fail == "view":
+        print("HTTP 502: Bad Gateway", file=sys.stderr); sys.exit(1)
     if tag not in state:
         print("release not found", file=sys.stderr); sys.exit(1)
     print(json.dumps(state[tag])); sys.exit(0)
@@ -61,8 +63,15 @@ sys.exit(2)
 '''
 
 
+def _git(cwd, *args):
+    subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True,
+                   env={**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com",
+                        "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com"})
+
+
 @pytest.fixture
 def env(tmp_path):
+    """dist/ with the four assets, a checkout whose origin (a bare repo) carries v0.3.0, and a fake gh on PATH."""
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     gh = bin_dir / "gh"
@@ -74,18 +83,31 @@ def env(tmp_path):
     (dist / "Cicada-0.4.0.zip.sig").write_text("c2ln\n")
     (dist / "latest.json").write_text(json.dumps({"version": "0.4.0"}))
     (dist / "Cicada-macos-arm64.zip").write_bytes(b"zip bytes")
+    remote, checkout = tmp_path / "remote.git", tmp_path / "checkout"
+    _git(tmp_path, "init", "-q", "--bare", str(remote))
+    _git(tmp_path, "init", "-q", "-b", "main", str(checkout))
+    _git(checkout, "commit", "-q", "--allow-empty", "-m", "init")
+    _git(checkout, "remote", "add", "origin", str(remote))
+
+    def tag(name):
+        _git(checkout, "tag", name)
+        _git(checkout, "push", "-q", "origin", name)
+
+    tag("v0.3.0")
     return {
         "dist": dist,
+        "checkout": checkout,
+        "tag": tag,
         "state": tmp_path / "state.json",
         "log": tmp_path / "gh.log",
         "env": {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "FAKE_GH_STATE": str(tmp_path / "state.json"),
-                "FAKE_GH_LOG": str(tmp_path / "gh.log"), "LATEST": "true", "PREVIOUS": "v0.3.0"},
+                "FAKE_GH_LOG": str(tmp_path / "gh.log")},
     }
 
 
 def _publish(env, **extra):
     return subprocess.run([str(SCRIPT), "0.4.0", SHA, str(env["dist"])], env={**env["env"], **extra},
-                          capture_output=True, text=True)
+                          cwd=env["checkout"], capture_output=True, text=True)
 
 
 def _calls(env):
@@ -113,20 +135,42 @@ def test_a_release_is_drafted_at_the_merged_commit_verified_then_published_as_la
     assert "--draft=false" in edit and "--latest=true" in edit
 
 
-def test_a_release_that_is_not_the_highest_is_never_marked_latest(env):
-    assert _publish(env, LATEST="false", PREVIOUS="").returncode == 0
-    assert _state(env)["v0.4.0"]["latest"] is False
+def test_the_version_is_judged_again_against_the_live_tags_not_the_plan_s(env):
+    """\"Re-run failed jobs\" reuses the plan job's outputs: a newer release since then must stop an older publish."""
+    env["tag"]("v0.5.0")
+    done = _publish(env)
+    assert done.returncode == 1 and "not greater than v0.5.0" in done.stderr
+    assert [c[1] for c in _calls(env)] == ["view"], "nothing is created, nothing becomes latest"
+
+
+def test_a_tag_that_already_exists_publishes_nothing_and_stays_green(env):
+    env["tag"]("v0.4.0")
+    done = _publish(env)
+    assert done.returncode == 0 and "already released" in done.stdout
+    assert not any(c[1] == "create" for c in _calls(env))
+
+
+def test_the_first_release_has_no_previous_tag_for_its_notes(tmp_path, env):
+    _git(env["checkout"], "push", "-q", "origin", ":refs/tags/v0.3.0")
+    assert _publish(env).returncode == 0
     create = next(c for c in _calls(env) if c[1] == "create")
-    assert "--notes-start-tag" not in create, "the first release has no previous tag"
+    assert "--notes-start-tag" not in create
+
+
+def test_a_failed_lookup_is_never_read_as_no_release(env):
+    done = _publish(env, FAKE_GH_FAIL="view")
+    assert done.returncode != 0 and "502" in done.stderr
+    assert not any(c[1] == "create" for c in _calls(env))
 
 
 @pytest.mark.parametrize("step", ["upload", "verify", "edit"])
-def test_any_failure_deletes_the_draft_it_made_and_with_it_the_tag(env, step):
+def test_any_failure_deletes_the_draft_it_made(env, step):
     done = _publish(env, FAKE_GH_FAIL=step)
     assert done.returncode != 0
     assert _state(env) == {}, "nothing is advertised"
     delete = next(c for c in _calls(env) if c[1] == "delete")
-    assert "--cleanup-tag" in delete and "--yes" in delete
+    assert delete == ["release", "delete", "v0.4.0", "--yes"]
+    assert "--cleanup-tag" not in delete, "a draft has no tag of this run's; any tag there is someone else's"
 
 
 def test_the_stable_asset_must_be_the_same_bytes_as_the_versioned_zip(env):
