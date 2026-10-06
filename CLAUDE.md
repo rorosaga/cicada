@@ -88,7 +88,8 @@ against the mission, not a polish item.
 - `main`: production/stable branch
 - `dev`: active development branch — all work goes here first
 
-PRs open against `dev`. Promotion to `main` is a manual, deliberate step — never a PR target.
+PRs open against `dev`. **A release is a PR from `dev` to `main`, and merging it is the release** (TODO ruling 19,
+2026-10-06): CI tags `VERSION` at the merge and publishes the GitHub Release. Nothing but a release reaches `main`.
 
 ---
 

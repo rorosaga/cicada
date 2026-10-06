@@ -79,7 +79,7 @@ Any additional failure needs attribution against the current baseline. Never `sw
   *and* the Swift `VersionVector` mapping in the same commit, or the app serves stale data forever.
 - **Portability.** No owner name, no author-machine path in shipped code. (Committed plans currently
   do carry the worktree path — a known, disclosed inconsistency, not a licence to add more.)
-- **Branching.** PRs open against `dev`. `main` is a manual, deliberate promotion. Devin's review
+- **Branching.** PRs open against `dev`. A release is a `dev` → `main` PR whose merge publishes it (TODO ruling 19). Devin's review
   comments are ignored by standing instruction (2026-09-01).
 
 ---

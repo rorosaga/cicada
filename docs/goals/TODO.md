@@ -528,3 +528,20 @@ A whole row moves to DONE only after its remaining implementation and required a
       night/fx builders replace prior output. Static family provenance removes the Codex CLI rebuild dependency.
     Revisit R-BW4 or R-BW11 if either half of R-BW11's budget is exceeded or a viewer reports motion discomfort;
     R-BW5–R-BW9 on the owner's word.
+
+19. **A release is a merge to `main`, and a merge to `main` is a release (owner, 2026-10-06; G182).** This replaces
+    the manual-promotion rail for releases only. Owner, verbatim: "from now on yes we merge by default to dev, but for
+    releases we merge to main and automatically should be a GitHub release. So versioning should be setup properly."
+    **The rule.** Every feature/fix PR still targets `dev`. A release is a PR from `dev` to `main`, opened only for a
+    release and carrying the version bump; merging it is the release. CI on `main` then tags `vX.Y.Z` at the merged
+    commit, builds, verifies and publishes the GitHub Release — nobody tags by hand, and nothing else reaches `main`.
+    **Versioning.** `VERSION` (semver) is the one source; the app bundle, `pyproject`, the tag, the release title and
+    `latest.json` must all equal it, and CI rejects any disagreement. A merge whose `VERSION` already has a tag
+    publishes nothing (idempotent); a `VERSION` not greater than the latest tag fails loudly. A failed build,
+    verification or publication advertises nothing (no tag, no `latest`), never force-pushes, never overwrites a
+    released asset. The website's download link resolves through a stable latest-release asset, so no later release
+    needs a website edit.
+    **Why.** The owner's delivery priority for 2026-10-06 (G182): releases must exist, and the released version,
+    `main` and the website must never drift. Before this, 0.3.0 was built and dry-run four times but never published,
+    and `main` trailed `dev` by 88 commits.
+    Revisit on the owner's word (e.g. a release-candidate channel or an older-line hotfix branch).
