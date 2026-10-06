@@ -1,8 +1,9 @@
 """G182 phase 4 — the release workflow's pieces, exercised without publishing anything.
 
 `sign_update.py` signs a release zip with Ed25519 and verifies against the committed
-public key; `latest_json.py` writes what the updater reads; `release.sh` is the owner's
-one command (exercised here against a throwaway bare repo, never the real remote).
+public key; `latest_json.py` writes what the updater reads; `release.sh` opens the two PRs a
+release takes (exercised here against a throwaway bare repo and a fake `gh`, never the real remote);
+the workflows are read as data.
 """
 from __future__ import annotations
 
@@ -134,11 +135,28 @@ def _git(cwd, *args):
     return subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True).stdout.strip()
 
 
-def test_release_sh_bumps_merges_tags_and_pushes_atomically(tmp_path):
+FAKE_GH = """#!/bin/sh
+{ printf '%s' "$*" | tr '\\n' ' '; echo; } >> "$FAKE_GH_LOG"
+case "$1 $2" in
+  "pr list") printf '%s' "${FAKE_GH_OPEN_PR:-}" ;;
+  "pr create") echo "https://github.com/owner-example/cicada/pull/1" ;;
+  *) echo "unexpected: $*" >&2; exit 2 ;;
+esac
+"""
+
+
+@pytest.fixture
+def repo(tmp_path):
+    """A throwaway origin (bare) with main and dev at VERSION 0.3.0, a clone on main, and a fake gh on PATH."""
     remote = tmp_path / "remote.git"
     work = tmp_path / "work"
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "gh").write_text(FAKE_GH)
+    (bin_dir / "gh").chmod(0o755)
     env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com",
-           "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com"}
+           "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com",
+           "PATH": f"{bin_dir}:{os.environ['PATH']}", "FAKE_GH_LOG": str(tmp_path / "gh.log")}
     subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True)
     subprocess.run(["git", "init", "-q", "-b", "main", str(work)], check=True)
     (work / "api").mkdir()
@@ -146,27 +164,104 @@ def test_release_sh_bumps_merges_tags_and_pushes_atomically(tmp_path):
     (work / "VERSION").write_text("0.3.0\n")
     (work / "api" / "pyproject.toml").write_text('[project]\nname = "cicada-api"\nversion = "0.3.0"\n')
     (work / "api" / "uv.lock").write_text('[[package]]\nname = "cicada-api"\nversion = "0.3.0"\nsource = { virtual = "." }\n')
-    script = work / "scripts" / "release" / "release.sh"
-    script.write_text((RELEASE / "release.sh").read_text(encoding="utf-8"))
-    script.chmod(0o755)
+    for name in ("release.sh", "check_version.py"):
+        (work / "scripts" / "release" / name).write_text((RELEASE / name).read_text(encoding="utf-8"))
+        (work / "scripts" / "release" / name).chmod(0o755)
     for args in (["add", "-A"], ["commit", "-qm", "init"], ["branch", "dev"], ["remote", "add", "origin", str(remote)],
                  ["push", "-q", "origin", "main", "dev"]):
         subprocess.run(["git", *args], cwd=work, check=True, env=env)
-    done = subprocess.run([str(script), "0.2.0", "--yes"], cwd=work, env=env, capture_output=True, text=True)
-    assert done.returncode == 1 and "older" in done.stderr
-    dry = subprocess.run([str(script), "0.4.0", "--dry-run"], cwd=work, env=env, capture_output=True, text=True)
+
+    def run(*args, **extra):
+        return subprocess.run([str(work / "scripts" / "release" / "release.sh"), *args], cwd=work,
+                              env={**env, **extra}, capture_output=True, text=True)
+
+    def gh_calls():
+        log = tmp_path / "gh.log"
+        return log.read_text().splitlines() if log.exists() else []
+
+    def tag(name):
+        subprocess.run(["git", "tag", name], cwd=work, check=True, env=env)
+        subprocess.run(["git", "push", "-q", "origin", name], cwd=work, check=True, env=env)
+
+    return {"remote": remote, "work": work, "run": run, "gh_calls": gh_calls, "tag": tag}
+
+
+def test_bump_opens_a_release_branch_pr_to_dev_and_touches_nothing_else(repo):
+    remote = repo["remote"]
+    main_before, dev_before = _git(remote, "rev-parse", "main"), _git(remote, "rev-parse", "dev")
+    dry = repo["run"]("bump", "0.4.0", "--dry-run")
     assert dry.returncode == 0, dry.stderr
-    assert _git(remote, "tag") == "" and _git(work, "tag") == ""
-    done = subprocess.run([str(script), "0.4.0", "--yes"], cwd=work, env=env, capture_output=True, text=True)
+    assert "release/v0.4.0" in dry.stdout and repo["gh_calls"]() == []
+    assert _git(remote, "branch", "--list", "release/*") == "", "a dry run pushes nothing"
+
+    done = repo["run"]("bump", "0.4.0", "--yes")
     assert done.returncode == 0, done.stderr
-    assert _git(remote, "show", "dev:VERSION") == "0.4.0"
-    assert 'version = "0.4.0"' in _git(remote, "show", "dev:api/uv.lock")
-    assert _git(remote, "tag") == "v0.4.0"
-    assert _git(remote, "log", "-1", "--format=%s", "main") == "Release v0.4.0"
-    assert _git(remote, "rev-parse", "v0.4.0^{commit}") == _git(remote, "rev-parse", "main")
-    assert _git(work, "rev-parse", "--abbrev-ref", "HEAD") == "main", "the checkout it ran from is never switched"
-    again = subprocess.run([str(script), "0.4.0", "--yes"], cwd=work, env=env, capture_output=True, text=True)
-    assert again.returncode == 1 and "already exists" in again.stderr
+    assert _git(remote, "show", "release/v0.4.0:VERSION") == "0.4.0"
+    assert 'version = "0.4.0"' in _git(remote, "show", "release/v0.4.0:api/pyproject.toml")
+    assert 'version = "0.4.0"' in _git(remote, "show", "release/v0.4.0:api/uv.lock")
+    assert _git(remote, "log", "-1", "--format=%s", "release/v0.4.0") == "chore(release): 0.4.0"
+    assert _git(remote, "rev-parse", "release/v0.4.0~1") == dev_before, "branched off dev"
+    assert (_git(remote, "rev-parse", "main"), _git(remote, "rev-parse", "dev")) == (main_before, dev_before)
+    assert _git(remote, "tag") == "", "never tags"
+    assert any(c.startswith("pr create --base dev --head release/v0.4.0 --title chore(release): 0.4.0")
+               for c in repo["gh_calls"]())
+    assert "make release-pr" in done.stdout, "says the next step"
+    assert _git(repo["work"], "rev-parse", "--abbrev-ref", "HEAD") == "main", "the checkout it ran from is never switched"
+
+
+def test_bump_refuses_a_tagged_or_older_version_and_needs_no_bump_for_dev_s_own(repo):
+    repo["tag"]("v0.3.0")
+    again = repo["run"]("bump", "0.3.0", "--yes")
+    assert again.returncode == 1 and "already released" in again.stderr
+    older = repo["run"]("bump", "0.2.9", "--yes")
+    assert older.returncode == 1 and "not greater than v0.3.0" in older.stderr
+    assert repo["gh_calls"]() == []
+    bad = repo["run"]("bump", "0.4", "--yes")
+    assert bad.returncode == 2
+
+
+def test_bump_to_the_version_dev_already_says_is_a_no_op_pointing_at_release_pr(repo):
+    same = repo["run"]("bump", "0.3.0", "--yes")
+    assert same.returncode == 0 and "make release-pr" in same.stdout
+    assert repo["gh_calls"]() == [] and _git(repo["remote"], "branch", "--list", "release/*") == ""
+
+
+def test_release_pr_opens_dev_to_main_for_the_untagged_version_with_no_bump(repo):
+    """dev says 0.3.0 and nothing is tagged: `make release-pr` alone releases it."""
+    remote = repo["remote"]
+    dry = repo["run"]("pr", "--dry-run")
+    assert dry.returncode == 0, dry.stderr
+    assert "Release v0.3.0" in dry.stdout
+    assert not any(c.startswith("pr create") for c in repo["gh_calls"]())
+    done = repo["run"]("pr", "--yes")
+    assert done.returncode == 0, done.stderr
+    create = next(c for c in repo["gh_calls"]() if c.startswith("pr create"))
+    assert create.startswith("pr create --base main --head dev --title Release v0.3.0")
+    assert "merge commit" in create, "a squash would fork main from dev"
+    assert _git(remote, "tag") == "" and _git(remote, "log", "-1", "--format=%s", "main") == "init"
+
+
+def test_release_pr_refuses_a_released_version(repo):
+    repo["tag"]("v0.3.0")
+    done = repo["run"]("pr", "--yes")
+    assert done.returncode == 1 and "already released" in done.stderr and "make release VERSION=" in done.stderr
+    assert not any(c.startswith("pr create") for c in repo["gh_calls"]())
+
+
+def test_release_pr_with_one_already_open_says_where_it_is(repo):
+    done = repo["run"]("pr", "--yes", FAKE_GH_OPEN_PR="https://github.com/owner-example/cicada/pull/7")
+    assert done.returncode == 0 and "pull/7" in done.stdout
+    assert not any(c.startswith("pr create") for c in repo["gh_calls"]())
+
+
+def test_release_sh_never_pushes_main_tags_or_forces():
+    text = (RELEASE / "release.sh").read_text(encoding="utf-8")
+    for banned in ("push origin main", "refs/heads/main", "git tag", "--atomic", "merge --no-ff", "--force-with-lease"):
+        assert banned not in text, banned
+    pushes = [line for line in text.splitlines() if " push " in line and not line.lstrip().startswith("#")]
+    assert pushes and all("--force" not in line and " -f " not in line for line in pushes), pushes
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+    assert "scripts/release/release.sh bump $(VERSION)" in makefile and "scripts/release/release.sh pr" in makefile
 
 
 def test_a_pr_to_main_must_come_from_dev_and_carry_an_untagged_greater_version():
