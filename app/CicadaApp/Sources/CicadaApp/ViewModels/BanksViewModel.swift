@@ -23,6 +23,8 @@ final class BanksViewModel {
         store.banks.value?.active ?? banks.first(where: { $0.active })?.name
     }
     var isLoading: Bool { store.banks.isEmpty && store.banks.isRefreshing }
+    /// G183(d) — the bank a switch is waiting on the server for (`Store.switchingBank`); `nil` when none is.
+    var switchingTo: String? { store.switchingBank }
 
     /// The currently-active bank object, if present in the roster.
     var activeBank: MemoryBank? {
@@ -40,11 +42,12 @@ final class BanksViewModel {
         }
     }
 
-    /// Switch the active bank, optimistically (§5.4): `store.bank` moves and
-    /// every domain re-hydrates from the target bank's disk cache before the
-    /// POST is sent, so the app repaints on the click. A failure re-hydrates
-    /// the previous bank and restores the roster's active flag. Returns true
-    /// on success so the caller can chain a `graphVM.loadGraph()`.
+    /// Switch the active bank, confirmed first (G183(d)): the POST goes out while
+    /// the app stays on the current bank (`switchingTo` names the target), and
+    /// only the server's yes moves `store.bank` and re-hydrates every domain
+    /// from the target bank's disk cache. A refusal changes nothing and toasts
+    /// the server's sentence. Returns true on success so the caller can chain a
+    /// `graphVM.loadGraph()`.
     @discardableResult
     func activate(_ name: String) async -> Bool {
         errorMessage = nil

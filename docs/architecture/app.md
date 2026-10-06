@@ -588,6 +588,12 @@ by name, the id in `.help`). The app-level `SleepViewModel` empties its queue, r
 (`Store.onBankChanged`). `PriceLintTests` keeps `$` and token literals out of every other Sleep
 file.
 A refused bank switch shows the server's own 409 sentence (`BankSwitchFailure`), from every door: the switcher, the demo's enter and leave (`DemoMode.leaveToast`) and an active bank's rename.
+**A bank switch is confirmed first (G183(d)), the one `Mutation` not painted ahead of the server.** `ActivateBank` sends a
+held answer (R-DI3), sets only `Store.switchingBank`, and posts the switch; the Store's `bank`, its snapshots and the
+roster flag move in `confirmed` (the `Mutation` step `Store.perform` runs after a success, before the reconcile), which
+hydrates the target bank from its cache. Until then every request still reads the bank the server is on, and a refusal
+leaves the Store untouched. While it waits the command bar's switcher keeps the current name, disabled at 45 % with
+"Switching to <bank>…" in `.help` (DR-41) — no spinner, no animation (DR-60).
 
 **Mascot states (G107).** `BookwormState` gained `reading` for this page only —
 `deriveSleepPageMood` returns it where the menu bar's `deriveBookwormState` returns `.curious`, and

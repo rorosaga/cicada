@@ -56,6 +56,10 @@ final class Store {
     /// un-hiding it here would flash the card back for one refresh cycle.
     var hiddenInboxIds: Set<String> = []
 
+    /// G183(d) — the bank a switch has asked the server for and is waiting on; `nil` otherwise. `bank` moves only
+    /// when the server confirms (`ActivateBank`), so the switcher reads this for its quiet in-progress state.
+    var switchingBank: String?
+
     /// R-DL5 — `entityNames`' memo (`Models/EntityNames.swift`). Ignored by observation: it is a cache, and the
     /// getter already reads `graph`, which is what views must track.
     @ObservationIgnored var entityNamesMemo: (stamp: Date?, count: Int, names: EntityNames)?
@@ -544,6 +548,7 @@ final class Store {
         await mutation.optimistic(self)
         do {
             try await mutation.request(api)
+            await mutation.confirmed(self)
             let domains = mutation.refreshDomains
             if !domains.isEmpty { await refresh(domains) }
             return true
