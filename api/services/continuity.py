@@ -106,7 +106,9 @@ def _row(fm: dict) -> dict | str | None:
     scalars are malformed."""
     if fm.get("capture_kind") != "transcript":
         return None
-    row: dict = {}
+    # The discriminator is kept in the row, so a persisted row decodes through
+    # this same function after a restart (review finding 4).
+    row: dict = {"capture_kind": "transcript"}
     for key in _ROW_STR_KEYS:
         value = fm.get(key)
         if key in ("captured_at", "last_turn_at"):

@@ -253,3 +253,19 @@ def test_a_symlinked_index_file_is_never_read(bank, tmp_path):
     snap = _refresh(bank)
     assert [r["id"] for r in snap.rows.values()] == ["ep_2026-09-03_001"]
     assert json.loads(outside.read_text())["entries"] == {"ep_2026-09-03_999.md": [1, 2, None]}
+
+
+# --- fix round 1, finding 4: the persisted index survives a restart -------------
+
+
+def test_a_persisted_index_is_reused_after_a_restart_without_rereading_heads(bank, monkeypatch):
+    write_session(bank, 1, [("user", "a"), ("assistant", "b")])
+    write_session(bank, 2, [("user", "c"), ("assistant", "d")], extra_meta={"zz_note": "x" * 20_000})
+    tool = _refresh(bank, allow_full_parse=20)                  # the tool recovers the oversized head
+    assert len(tool.rows) == 2 and (bank / continuity.INDEX_FILE).exists()
+    continuity._MEMO.clear()                                    # a new process: nothing in memory
+    reads = []
+    real = continuity.read_head
+    monkeypatch.setattr(continuity, "read_head", lambda p: reads.append(p) or real(p))
+    hook = _refresh(bank, deadline=time.monotonic() + 5)        # hook mode: no full parse allowed
+    assert reads == [] and hook.complete and len(hook.rows) == 2
