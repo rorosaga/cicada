@@ -22,7 +22,7 @@ import pytest
 import yaml
 
 from api.services import dedup_sweep as ds
-from api.services import git_service
+from api.services import git_service, page_lock, sleep_cycle
 
 
 def _git(repo, *args: str) -> str:
@@ -230,3 +230,47 @@ def test_a_failed_recovery_is_reported_and_stops_the_sweep(bank, monkeypatch):
     assert out["recovery_failed"] is True
     assert out["failed"] == [("esta", "esa")]
     assert judged == [("esa", "esta")], "no further pair is judged or merged"
+
+
+# --- Finding 4: the window is re-asked once the page lock is held ---------------------------------------------------
+
+
+def test_a_window_that_opens_while_the_merge_waits_for_the_page_lock_stops_it(bank, monkeypatch):
+    state = {"writing": False}
+    monkeypatch.setattr(sleep_cycle, "get_sleep_state",
+                        lambda: SimpleNamespace(status="running", drain_run=True, writing=state["writing"]))
+    judged = threading.Event()
+
+    def judge(a_body, b_body, a_id, b_id):
+        judged.set()
+        return {"verdict": "same", "confidence": 0.95, "winner": "esa"}
+
+    before, head = _files(bank), _head(bank)
+    result: dict = {}
+    with page_lock.page_lock(bank):
+        t = threading.Thread(target=lambda: result.update(
+            _sweep(bank, judge=judge, may_write=lambda: not sleep_cycle.is_writing())))
+        t.start()
+        assert judged.wait(5)
+        time.sleep(0.3)            # past its last pre-lock check, waiting on the page lock
+        state["writing"] = True    # Sleep's batch reaches Stage 2
+    t.join(10)
+
+    assert result["merged"] == []
+    assert result["stopped_for_sleep"] is True
+    assert _files(bank) == before and _head(bank) == head
+
+
+def test_a_dry_run_also_stops_judging_once_sleep_is_writing(bank):
+    state = {"writing": False}
+    judged = []
+
+    def judge(a_body, b_body, a_id, b_id):
+        judged.append((a_id, b_id))
+        state["writing"] = True
+        return {"verdict": "different", "confidence": 0.9, "winner": None}
+
+    out = _sweep(bank, pairs=[("esa", "esta"), ("bob-example", "carol-example")], judge=judge, dry_run=True,
+                 may_write=lambda: not state["writing"])
+    assert judged == [("esa", "esta")]
+    assert out["stopped_for_sleep"] is True

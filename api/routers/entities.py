@@ -226,6 +226,30 @@ def _page_guard() -> None:
         raise HTTPException(409, PAGE_BUSY)
 
 
+def _rewrite_page_and_commit(memory_path: Path, entity_id: str, mutate, message: str) -> dict:
+    """One page's frontmatter rewrite and its commit as ONE page-lock section, in a worker thread (G183(a)): read,
+    ``mutate(frontmatter)``, write, then the scoped synchronous commit — so no other page writer (an agent's claim, a
+    dedup merge) can take the person's change into its own commit between the write and the commit. Nothing here is
+    awaited, so the thread-re-entrant lock never spans the event loop. An edit already on the page is committed apart
+    first, unauthored (``commit_touched_sync``'s ``before`` — the inbox's P1-3 mechanism). Returns the frontmatter."""
+    rel = f"entities/{entity_id}.md"
+    page = memory_path / rel
+    with page_lock.page_lock(memory_path):
+        if not page.exists():
+            raise HTTPException(404, f"Entity {entity_id} not found")
+        tracked = (memory_path / ".git").exists()
+        before = None
+        if tracked:
+            before = {rel: page.read_bytes()} if rel in git_service.dirty_paths_sync(memory_path, rel) else {}
+        parsed = markdown_parser.parse(page)
+        fm = parsed.frontmatter
+        mutate(fm)
+        markdown_parser.write(page, fm, parsed.body)
+        if tracked:
+            git_service.commit_touched_sync(memory_path, message, [rel], before=before)
+    return fm
+
+
 def _entity_page(settings: Settings, entity_id: str) -> Path:
     page = settings.memory_path / "entities" / f"{entity_id}.md"
     if not page.is_file():
@@ -424,15 +448,6 @@ async def update_entity_decay(
     ``Cicada-Author: user``. 409 while Sleep holds the pages (G177).
     """
     _page_guard()
-    entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
-    if not entity_path.exists():
-        raise HTTPException(404, f"Entity {entity_id} not found")
-
-    with page_lock.page_lock(settings.memory_path):
-        parsed = markdown_parser.parse(entity_path)
-        parsed.frontmatter.update(decay_policy.frontmatter_fields(request.decay_class))
-        markdown_parser.write(entity_path, parsed.frontmatter, parsed.body)
-
     message = git_service.build_commit_message(
         f"Set decay class {date.today().isoformat()}",
         [
@@ -443,9 +458,9 @@ async def update_entity_decay(
     )
     # Scoped, never ``git add -A``: a decay override must not sweep an unrelated
     # dirty file in memory/ into this commit.
-    await git_service.commit_paths(
-        settings.memory_path, message, [f"entities/{entity_id}.md"]
-    )
+    fields = decay_policy.frontmatter_fields(request.decay_class)
+    await run_in_threadpool(
+        _rewrite_page_and_commit, settings.memory_path, entity_id, lambda fm: fm.update(fields), message)
 
     return await get_entity(entity_id, settings=settings)
 
@@ -658,27 +673,20 @@ async def update_entity_repos(
     holds the pages (G177). Answers the declarations, like ``GET`` — never a probe.
     """
     _page_guard()
-    entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
-    if not entity_path.exists():
-        raise HTTPException(404, f"Entity {entity_id} not found")
+    repos = [_repo_input_to_frontmatter(r) for r in request.repos]
 
-    with page_lock.page_lock(settings.memory_path):
-        parsed = markdown_parser.parse(entity_path)
-        fm = parsed.frontmatter
-
-        if not request.repos:
-            fm.pop("repos", None)
+    def mutate(fm: dict) -> None:
+        if repos:
+            fm["repos"] = repos
         else:
-            fm["repos"] = [_repo_input_to_frontmatter(r) for r in request.repos]
-
-        markdown_parser.write(entity_path, fm, parsed.body)
+            fm.pop("repos", None)
 
     message = git_service.build_commit_message(
         f"Update repo links {date.today().isoformat()}",
         [f"entities/{entity_id}.md: updated (trigger: user/companion_app)"],
         authors=["user"],
     )
-    await git_service.commit_paths(settings.memory_path, message, [f"entities/{entity_id}.md"])
+    fm = await run_in_threadpool(_rewrite_page_and_commit, settings.memory_path, entity_id, mutate, message)
 
     return _declarations_payload(entity_id, _repo_declarations(fm))
 
