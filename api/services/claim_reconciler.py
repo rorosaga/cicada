@@ -29,7 +29,6 @@ the human-protection rule must be deterministic and auditable.
 
 from __future__ import annotations
 
-import re
 from datetime import date, datetime, timedelta
 from typing import Callable
 
@@ -617,12 +616,15 @@ def reconcile_stage3(
             continue
 
         # Mandatory normalization-audit nudge on any auto-folded predicate.
+        # G98/G115: a fold is a label mapped onto a DIFFERENT predicate. The
+        # label's own slug is the normalizer's keep-as-is fallback ("uses
+        # dataset" -> "uses-dataset"), a formatting change, never a question.
         raw_label = getattr(new, "predicate_raw", None)
         if raw_label:
-            raw_norm = re.sub(r"\s+", " ", str(raw_label).strip().lower())
+            raw_slug = predicates._slugify_predicate(str(raw_label))
             canonical = new.predicate
-            if raw_norm and raw_norm != canonical:
-                fold_key = (raw_norm, canonical)
+            if raw_slug and raw_slug != canonical:
+                fold_key = (raw_slug, canonical)
                 if fold_key not in audited_folds:
                     audited_folds.add(fold_key)
                     nudges.append(_normalization_audit_nudge(str(raw_label), canonical, new))
