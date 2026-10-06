@@ -65,7 +65,8 @@ def release(tmp_path):
     server.shutdown()
 
 
-def _run(env):
+def _run(env, locale="C"):
+    env = {**env, "LANG": locale, "LC_ALL": locale}
     return subprocess.run(["/bin/bash", str(SCRIPT)], env=env, capture_output=True, text=True, timeout=120)
 
 
@@ -126,3 +127,13 @@ def test_a_wrong_version_inside_installs_nothing(release):
     done = _run(env)
     assert done.returncode == 1 and "not 9.9.8" in done.stderr
     assert not dest.exists()
+
+
+@pytest.mark.parametrize("locale", ["C", "en_US.UTF-8"])
+def test_it_runs_under_both_the_posix_and_the_default_utf8_locale(release, locale):
+    """Under set -u and a UTF-8 locale bash folds the bytes of an ellipsis after $NAME into the name."""
+    env, _served, dest, _home = release
+    done = _run(env, locale)
+    assert done.returncode == 0, done.stderr + done.stdout
+    assert "unbound variable" not in done.stderr
+    assert dest.exists()

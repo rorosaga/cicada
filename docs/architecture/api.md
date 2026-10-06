@@ -72,6 +72,17 @@ schedules one revalidation there. The queue's writes (`PUT|DELETE /videos/queue/
 - `POST /maintenance/enrich-links` returns `409` both while a Sleep cycle runs and while another
   call is still running (a process-local lock — two overlapping clicks would stage each other's
   half-written pages under their own trailers).
+- **Inside Sleep's write window (G177, `sleep_cycle.is_writing()`) these answer `409` with a sentence in `detail`, and
+  go through between a drain's batches:** `PUT /entities/{id}/decay`, `PATCH /entities/{id}/repos` (which commits only
+  its page, never `git add -A`), every `POST /inbox/{id}/resolve` action — a defer too — and the deprecated
+  `/nudges/{id}/resolve` and `/clarifications/{id}` that route through it, and `POST /maintenance/dedup-sweep` (a dry
+  run too; G183). Each re-asks under its locks (the inbox after its awaited snapshot), before writing; Sleep's
+  window transition takes neither lock (its commits do take the git write lock), so admission stays non-atomic — this narrows but does not close the race (`storage.md`, "Residual
+  race"). The decay and repo rewrites run write → scoped commit as one page-lock section in a worker thread, an edit
+  already on the page committed apart first. The sweep answers `stoppedForSleep`, `skippedDirty`, `skippedUnsafe`,
+  `failed` and `recoveryFailed` beside its merges.
+  `POST /entities/{id}/read` (a ledger row) and `POST /entities/{id}/repos/observed` (a cache outside the bank) write no
+  page and are never gated. MCP's `cicada_resolve_inbox` relays a 409's sentence to the agent.
 - `GET /sync/version` is the cheap change-detector (<10 ms); `GET /sync/events` is the SSE stream.
   Its idle cost is shared (audit 2026-10-02 A10): `sync_ticker.current` computes the version vector and the Sleep debt
   at most once per 0.9 s per bank, and concurrent streams await that one computation. Its filesystem half runs in
