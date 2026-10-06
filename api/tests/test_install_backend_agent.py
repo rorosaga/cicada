@@ -140,3 +140,51 @@ def test_the_variable_still_wins_and_the_default_stays_last(tmp_path):
     assert _run(env).returncode == 0
     assert plistlib.loads(plist_path.read_bytes())["EnvironmentVariables"]["CICADA_MEMORY_PATH"] == \
         f"{env['HOME']}/cicada/memory"
+
+
+# --- G182: a release app's copy runs its stable launcher, never a path inside the app ---
+
+def _release_env(tmp_path: Path) -> tuple[dict, Path, Path, Path]:
+    env, repo, plist_path, log = _setup(tmp_path, venv=False)
+    cicada_home = tmp_path / "cicada home"
+    launcher = cicada_home / "bin" / "cicada-backend"
+    launcher.parent.mkdir(parents=True)
+    launcher.write_text("#!/bin/sh\nexit 0\n")
+    launcher.chmod(0o755)
+    env.update({"CICADA_BACKEND_PROGRAM": str(launcher), "CICADA_HOME": str(cicada_home), "CICADA_PORT": "18000"})
+    return env, cicada_home, plist_path, log
+
+
+def test_a_release_install_runs_the_launcher_with_logs_under_cicada_home(tmp_path):
+    env, cicada_home, plist_path, log = _release_env(tmp_path)
+    done = _run(env)
+    assert done.returncode == 0, done.stderr
+    plist = plistlib.loads(plist_path.read_bytes())
+    assert plist["ProgramArguments"] == [env["CICADA_BACKEND_PROGRAM"]]
+    assert plist["WorkingDirectory"] == str(cicada_home)
+    environment = plist["EnvironmentVariables"]
+    assert environment["CICADA_PORT"] == "18000"
+    assert environment["CICADA_HOME"] == str(cicada_home)
+    assert environment["CICADA_MEMORY_PATH"] == env["CICADA_MEMORY_PATH"]
+    assert "PYTHONPATH" not in environment
+    assert plist["StandardErrorPath"] == str(cicada_home / "logs" / "backend.err.log")
+    assert (cicada_home / "logs").is_dir()
+    assert any(line.startswith("bootstrap") for line in log.read_text().splitlines())
+
+
+def test_a_release_install_without_its_launcher_refuses(tmp_path):
+    env, _, plist_path, _ = _release_env(tmp_path)
+    Path(env["CICADA_BACKEND_PROGRAM"]).unlink()
+    done = _run(env)
+    assert done.returncode == 3
+    assert "open Cicada once" in done.stderr
+    assert not plist_path.exists()
+
+
+def test_the_label_can_be_a_test_label(tmp_path):
+    env, _, plist_path, log = _release_env(tmp_path)
+    env["PLIST_LABEL"] = "com.cicada.backend.test"
+    assert _run(env).returncode == 0
+    assert not plist_path.exists()
+    other = plist_path.with_name("com.cicada.backend.test.plist")
+    assert plistlib.loads(other.read_bytes())["Label"] == "com.cicada.backend.test"

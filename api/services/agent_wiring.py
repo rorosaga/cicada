@@ -57,6 +57,7 @@ from urllib.parse import quote
 import yaml
 
 from api.hooks import registry as hook_registry
+from api.services import runtime_layout
 from api.services.connections import base
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -88,13 +89,17 @@ def venv_python(repo: Path = REPO_ROOT) -> str:
     way, so the hook command below is byte-identical to the one install.sh
     registered — a ``sys.executable`` spelled differently would make
     ``registry.status`` read every correct install as ``stale`` (R-IA15)."""
+    if runtime_layout.is_release():
+        # G182 — a release app has no venv; its interpreter is reached through the launcher.
+        return runtime_layout.launcher("cicada-python")
     candidate = repo / "api" / ".venv" / "bin" / "python"
     return str(candidate) if candidate.exists() else sys.executable
 
 
 def hook_command(python: str, repo: Path, harness: str) -> str:
-    """``install.sh:55``'s ``hook_command``, character for character."""
-    return f'"{python}" "{repo}/api/hooks/capture.py" --harness {harness}'
+    """``install.sh:55``'s ``hook_command``, character for character — or, in a
+    release app, the stable ``$CICADA_HOME/bin/cicada-hook`` launcher (G182)."""
+    return runtime_layout.hook_command("capture", python, repo, harness)
 
 
 def _step(step: str, argv: list[str], touches: list[str]) -> dict:
@@ -105,12 +110,12 @@ def mcp_step(h: Harness, binary: str, *, memory_root: Path, repo: Path, python: 
     """install.sh's MCP registration — the ONE argv `/agents/wiring` offers and
     `/agents/setup` names (C5: the two can never disagree)."""
     return _step("mcp", [binary, "mcp", "add", "cicada", *h.scope, "--env", f"CICADA_MEMORY_PATH={memory_root}",
-                         "--", python, str(repo / "mcp" / "server.py")], [h.config_touch])
+                         "--", *runtime_layout.mcp_argv(python, repo)], [h.config_touch])
 
 
 def hook_step(h: Harness, *, home: Path, repo: Path, python: str) -> dict:
     """install.sh's G105 Stop-hook registration, merged in by `registry.py`."""
-    return _step("hook", [python, str(repo / "api" / "hooks" / "registry.py"), "install",
+    return _step("hook", [*runtime_layout.registry_argv(python, repo), "install",
                           "--settings", str(home / h.settings), "--event", "Stop",
                           "--command", hook_command(python, repo, h.id)], [f"~/{h.settings}"])
 
@@ -224,14 +229,14 @@ def gemini_mcp_step(binary: str, *, memory_root: Path, repo: Path, python: str) 
     prompt the person's own agent runs; `/agents/wiring`'s row stays read-only
     until the app has verified it (R-IA15, R4B-10)."""
     return _step("mcp", [binary, "mcp", "add", "-s", "user", "-e", f"CICADA_MEMORY_PATH={memory_root}",
-                         "cicada", python, str(repo / "mcp" / "server.py")], [f"~/{GEMINI_SETTINGS}"])
+                         "cicada", *runtime_layout.mcp_argv(python, repo)], [f"~/{GEMINI_SETTINGS}"])
 
 
 def server_spec(*, memory_root: Path, repo: Path, python: str) -> dict:
     """The MCP server as a config object — the shape `ConnectView.swift` already
     writes for Cursor and the Claude app."""
-    return {"command": python, "args": [str(repo / "mcp" / "server.py")],
-            "env": {"CICADA_MEMORY_PATH": str(memory_root)}}
+    command, *args = runtime_layout.mcp_argv(python, repo)
+    return {"command": command, "args": args, "env": {"CICADA_MEMORY_PATH": str(memory_root)}}
 
 
 CURSOR_INSTALL = "cursor://anysphere.cursor-deeplink/mcp/install"
@@ -375,8 +380,9 @@ RECALL_EVENTS = ("SessionStart", "UserPromptSubmit")
 def recall_hook_command(python: str, repo: Path, harness: str) -> str:
     """install.sh's ``recall_command``, character for character (G149), for the
     same reason this module's ``hook_command`` mirrors install.sh's
-    ``hook_command``: ``registry.status`` compares bytes (R-IA15)."""
-    return f'"{python}" "{repo}/api/hooks/recall.py" --harness {harness}'
+    ``hook_command``: ``registry.status`` compares bytes (R-IA15). A release app's
+    is the ``cicada-hook`` launcher (G182)."""
+    return runtime_layout.hook_command("recall", python, repo, harness)
 
 
 def autorecall_argv(h: Harness, *, home: Path, repo: Path, python: str) -> dict[str, list[dict]]:
@@ -386,13 +392,13 @@ def autorecall_argv(h: Harness, *, home: Path, repo: Path, python: str) -> dict[
     stale one). ``off`` removes Cicada's recall entries and nothing else
     (``--hook recall``): the Stop hook stays."""
     settings = str(home / h.settings)
-    registry = str(repo / "api" / "hooks" / "registry.py")
+    registry = runtime_layout.registry_argv(python, repo)
     command = recall_hook_command(python, repo, h.id)
     touches = [f"~/{h.settings}"]
     return {
-        "on": [_step("autorecall", [python, registry, "install", "--settings", settings, "--event", event,
+        "on": [_step("autorecall", [*registry, "install", "--settings", settings, "--event", event,
                                     "--command", command], touches) for event in RECALL_EVENTS],
-        "off": [_step("autorecall-off", [python, registry, "uninstall", "--settings", settings, "--hook", "recall"],
+        "off": [_step("autorecall-off", [*registry, "uninstall", "--settings", settings, "--hook", "recall"],
                       touches)],
     }
 

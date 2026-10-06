@@ -38,6 +38,10 @@ from api.services import episode_ids  # noqa: E402,F401
 # public and the install is portable. Imported from its one documented home
 # rather than retyped, so `mcp/` holds no name literal of its own.
 from api.services.owner_identity import LEGACY_OBSERVER  # noqa: E402
+# G182 — the one VERSION file, the same string /healthz and the app report.
+from api.version import __version__  # noqa: E402
+# G182 — CICADA_PORT (the launchers export it), else 8000.
+from api.services import runtime_layout  # noqa: E402
 
 # G140 Q-R11: one pattern, not an enum — JSON Schema ANDs an `enum` with a
 # `pattern`, and the librarian skill's `external:<name>` (a named third party)
@@ -805,7 +809,7 @@ def initialize_result(params: dict) -> dict:
     result = {
         "protocolVersion": "2024-11-05",
         "capabilities": {"tools": {}},
-        "serverInfo": {"name": "cicada-bookworm", "version": "0.1.0"},
+        "serverInfo": {"name": "cicada-bookworm", "version": __version__},
     }
     try:
         result["instructions"] = _handshake_text(delivery="initialize")
@@ -1093,6 +1097,7 @@ def _ctx() -> mcp_tools.ToolContext:
         state_hint_sent=_STATE_HINT_SENT,
         post=lambda path, payload: _backend_post(path, payload),
         headers=lambda: _backend_headers(),
+        backend_url=runtime_layout.backend_url(),
     )
 
 
@@ -1392,7 +1397,7 @@ def _backend_post(path: str, payload: dict) -> dict:
     import urllib.request
 
     req = urllib.request.Request(
-        f"http://127.0.0.1:8000{path}",
+        f"{runtime_layout.backend_url()}{path}",  # CICADA_PORT, else 8000 (G182)
         data=json.dumps(payload).encode("utf-8"),
         headers=_backend_headers(),
         method="POST",

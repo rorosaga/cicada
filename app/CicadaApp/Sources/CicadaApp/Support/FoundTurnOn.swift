@@ -133,8 +133,9 @@ enum AppSourceDrivers {
 /// because the live ones read `LocalInventory`, `BrowserWatcher` and the router.
 struct FoundTurnOnDeps {
     var wiring: @MainActor () -> AgentWiringResponse?
-    var installRoot: URL
-    var connect: @MainActor ([AgentWiringStep], URL, Set<String>) async -> AgentConnectOutcome
+    /// G182 — the allowlist's shapes and, in a release, the MCP command Cursor's deep link carries.
+    var runtime: CicadaRuntime
+    var connect: @MainActor ([AgentWiringStep], CicadaRuntime, Set<String>) async -> AgentConnectOutcome
     var syncBrowser: @MainActor (String) async throws -> String
     var readiness: @MainActor (FoundItemID) -> FoundItem.Readiness?
     var open: @MainActor (URL) -> Void
@@ -155,8 +156,8 @@ struct FoundTurnOnDeps {
                      tabGroups: TabGroupWatcher? = nil) -> FoundTurnOnDeps {
         var deps = FoundTurnOnDeps(
             wiring: { inventory.wiring },
-            installRoot: BackendProcess.installRoot(),
-            connect: { steps, root, binaries in await AgentConnect.run(steps, installRoot: root, binaries: binaries) },
+            runtime: .current,
+            connect: { steps, runtime, binaries in await AgentConnect.run(steps, runtime: runtime, binaries: binaries) },
             syncBrowser: { try await watcher.syncNow($0) },
             readiness: { id in inventory.items.first { $0.id == id }?.readiness },
             open: { NSWorkspace.shared.open($0) },
@@ -180,10 +181,18 @@ enum FoundTurnOn {
         case .agent("cursor"):
             // An empty `repo` (a trimmed payload decodes to "") must not build a
             // deep link against "/api/.venv/bin/python" (part a final review).
+            // G182 — a release's link carries its launcher, never the bundled code root the backend reports.
             let wiring = deps.wiring()
-            let repo = wiring.map(\.repo).flatMap { $0.isEmpty ? nil : $0 } ?? deps.installRoot.path
-            guard let url = AgentSetupCatalog.all(home: repo, memoryRoot: wiring?.memory)
-                .first(where: { $0.id == "cursor" })?.deeplink?.url else { return .failed(Copy.intakeFailed) }
+            let catalog: [AgentSetup]
+            if deps.runtime.isRelease {
+                catalog = AgentSetupCatalog.all(runtime: deps.runtime, memoryRoot: wiring?.memory)
+            } else {
+                let repo = wiring.map(\.repo).flatMap { $0.isEmpty ? nil : $0 } ?? deps.runtime.codeRoot.path
+                catalog = AgentSetupCatalog.all(home: repo, memoryRoot: wiring?.memory)
+            }
+            guard let url = catalog.first(where: { $0.id == "cursor" })?.deeplink?.url else {
+                return .failed(Copy.intakeFailed)
+            }
             deps.open(url)
             return .openedApp
         case .agent("claude-desktop"):
@@ -203,7 +212,7 @@ enum FoundTurnOn {
                 let fresh = deps.wiring()?.agents.first { $0.id == agentId }
                 return fresh.map(Self.isOn) == true ? .on(nil) : .rechecked
             }
-            let outcome = await deps.connect(agent.connect, deps.installRoot, Set(wiring.agents.compactMap(\.binary)))
+            let outcome = await deps.connect(agent.connect, deps.runtime, Set(wiring.agents.compactMap(\.binary)))
             await deps.refresh()
             switch outcome {
             case .done: return .on(nil)

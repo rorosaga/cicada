@@ -42,6 +42,11 @@ struct SettingsGeneralView: View {
     @Environment(SetupRunner.self) private var runner
     @Environment(LoginItemService.self) private var loginItems
     @Environment(BackendAgentService.self) private var backendAgent
+    /// G182 phase 5 — the in-app updater; inert (and its row hidden) in a developer build.
+    @Environment(UpdateService.self) private var updates
+    /// G182 — `/healthz`'s version, read once per visit; nil until it answers (never a mismatch).
+    @State private var backendVersion: String?
+    private let appVersion = AppVersion.current()
 
     private var appearance: Binding<AppearancePreference> {
         Binding(get: { AppearancePreference.stored(appearanceRaw) }, set: { appearanceRaw = $0.rawValue })
@@ -158,6 +163,35 @@ struct SettingsGeneralView: View {
                         }
                     }
                 }
+                SettingsDivider()
+                // G182 — the version a tester reports; the backend's only when it differs (an updated app beside a
+                // background service still running the old one). Plain text, monospaced digits (DR-21). An update
+                // that couldn't be installed while Cicada was closed is said here, once, for this session (phase 5).
+                SettingsRow(.appVersion, title: Copy.versionTitle,
+                            detail: updates.lastInstallFailure.map { Copy.Updates.installFailed($0, current: appVersion.short) }
+                                ?? Copy.versionDetail(appVersion, backend: backendVersion)) {
+                    Text(Copy.versionLine(appVersion))
+                        .font(CicadaTheme.captionFont.monospacedDigit())
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                        .textSelection(.enabled)
+                }
+                .task(id: store.isConnected) {
+                    if let health = try? await APIClient.shared.fetchHealth() { backendVersion = health.version }
+                }
+                // G182 phase 5 — the updater's switch and its one status line, in Version's card (DR-37: a line never
+                // gets a card of its own). Hidden entirely where the updater is inert (a developer build).
+                if updates.isActive {
+                    SettingsDivider()
+                    SettingsRow(.autoUpdate, title: Copy.Updates.autoTitle,
+                                detail: Copy.Updates.autoDetail(automatic: updates.automatic)) {
+                        Toggle(Copy.Updates.autoTitle, isOn: Binding(get: { updates.automatic },
+                                                                     set: { updates.automatic = $0 }))
+                            .toggleStyle(.switch)
+                            .labelsHidden()
+                    } below: {
+                        if updates.state != .idle { UpdateStatusLine() }
+                    }
+                }
             }
             // G152 + G117 round 4 — the tour's replay and the demo's door, in their own view (one line here).
             SettingsDemoTourGroup()
@@ -198,6 +232,61 @@ struct BackgroundServiceButton: View {
             ProgressView().controlSize(.small)
         case .running:
             EmptyView()
+        }
+    }
+}
+
+/// G182 phase 5 — the line under *Install updates automatically*: where the updater stands, in words, recomputed each
+/// minute so "checked 2 hours ago" is true when read (DR-58); digits stay tabular (DR-21). Its actions are the house
+/// buttons (DR-40): *What's new* and *Download* are text buttons, *Restart to update* a neutral one — disabled, with
+/// the reason in `.help`, while Sleep writes (DR-41), because installing restarts the background service.
+struct UpdateStatusLine: View {
+    @Environment(UpdateService.self) private var updates
+    @Environment(Store.self) private var store
+
+    var body: some View {
+        TimelineView(.everyMinute) { context in
+            HStack(alignment: .center, spacing: CicadaTheme.spacingSM) {
+                if let line = Copy.Updates.statusLine(updates.state, now: context.date,
+                                                      deferredVersion: updates.deferredVersion,
+                                                      sleepRefused: updates.sleepRefusedRestart) {
+                    Text(line)
+                        .font(CicadaTheme.captionFont.monospacedDigit())
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: CicadaTheme.spacingSM)
+                actions
+            }
+        }
+    }
+
+    @ViewBuilder private var actions: some View {
+        switch updates.state {
+        case .available(let manifest):
+            notes(manifest)
+            TextButton(title: Copy.Updates.download, help: Copy.Updates.downloadHelp(manifest.version)) {
+                Task { await updates.download() }
+            }
+        case .ready(let manifest):
+            notes(manifest)
+            let sleeping = ProjectWriteGate.blocked(store.status.value)
+            NeutralButton(title: Copy.Updates.restart, size: .compact, isDisabled: sleeping,
+                          help: Copy.Updates.restartHelp(manifest.version), disabledHelp: Copy.Updates.waitForSleep) {
+                guard !ProjectWriteGate.blocked(store.status.value) else { return }
+                Task { await updates.restartToUpdate() }
+            }
+        case .checking, .downloading, .installing:
+            ProgressView().controlSize(.small)
+        default:
+            EmptyView()
+        }
+    }
+
+    /// The release notes, only from a secure address the manifest named; opened in the person's browser on their click.
+    @ViewBuilder private func notes(_ manifest: UpdateManifest) -> some View {
+        if let url = manifest.notesURL, url.scheme == "https" {
+            TextButton(title: Copy.Updates.whatsNew, help: Copy.Updates.whatsNewHelp) { NSWorkspace.shared.open(url) }
         }
     }
 }

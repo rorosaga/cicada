@@ -69,12 +69,13 @@ enum SettingsIndex {
     /// holds the entries to the pages — a task that adds a row adds it here
     /// in the same commit (R-O1).
     static let staticIDs: [SettingsRowID] = [
-        .appearance, .heroScene, .textSize, .runSetup, .openAtLogin, .showInMenuBar, .backgroundService,
+        .appearance, .heroScene, .textSize, .runSetup, .appVersion, .autoUpdate, .openAtLogin, .showInMenuBar,
+        .backgroundService,
         .guidedTour, .demoMemory,
         .ownerName, .ownerHandle, .ownerEmail, .ownerPage,
         .memoryLocation, .banks, .bankExport, .bankDelete, .telemetry,
         .outboundConnectors, .outboundFeeds, .outboundLogos, .credentials, .remoteAccess, .transcripts,
-        .searchIndex, .enrichLinks, .fadePace,
+        .searchIndex, .searchModel, .enrichLinks, .fadePace,
         .sleepRuns, .sleepTime, .sleepInterval, .sleepEngine,
         .scenerySource, .sceneryTime, .sceneryWeather, .sceneryPreview,
         .mascot,
@@ -100,6 +101,12 @@ enum SettingsIndex {
         SettingsEntry(.heroScene, .general, Copy.scene, keywords: ["painting", "picture", "home", "sky", "day", "night", "sunrise", "sunset", "afternoon", "golden hour", "evening", "meadow"], detail: Copy.sceneDetail),
         SettingsEntry(.textSize, .general, Copy.textSize, keywords: ["zoom", "font", "bigger", "smaller", "larger", "scale"], detail: Copy.textSizeDetail),
         SettingsEntry(.runSetup, .general, Copy.setup, keywords: ["onboarding", "first run", "welcome", "start over"], detail: Copy.runSetupDetail),
+        SettingsEntry(.appVersion, .general, Copy.versionTitle, keywords: ["version", "build", "about", "update", "release"]),
+        // G182 phase 5 — anchored on Version, its card-mate, because a developer build hides this row: a search for
+        // "update" lands on a row that is always there.
+        SettingsEntry(.autoUpdate, .general, Copy.Updates.autoTitle,
+                      keywords: ["update", "updates", "automatic", "upgrade", "new version", "check for updates", "install"],
+                      anchor: .appVersion),
         SettingsEntry(.openAtLogin, .general, Copy.openAtLogin, keywords: ["login", "startup", "start", "launch", "boot"]),
         SettingsEntry(.showInMenuBar, .general, Copy.showInMenuBar, keywords: ["menu bar", "status", "bookworm", "icon", "tray", "hide"], detail: Copy.showInMenuBarDetail),
         SettingsEntry(.backgroundService, .general, Copy.keepMemoryWorking, keywords: ["background", "launchd", "service", "closed", "always on", "sync"]),
@@ -124,6 +131,8 @@ enum SettingsIndex {
         SettingsEntry(.transcripts, .privacy, Copy.transcriptsTitle, keywords: ["transcripts", "conversations", "claude code"], detail: Copy.transcriptsFact),
         // Memory
         SettingsEntry(.searchIndex, .memory, Copy.searchIndexTitle, keywords: ["search", "index", "rebuild", "find"]),
+        SettingsEntry(.searchModel, .memory, Copy.SearchModel.title,
+                      keywords: ["model", "embedding", "embeddings", "semantic", "meaning", "larger", "smaller", "download", "vectors"]),
         SettingsEntry(.enrichLinks, .memory, Copy.enrichLinksTitle, keywords: ["links", "previews", "descriptions", "bookmarks"], detail: Copy.enrichLinksDetail),
         SettingsEntry(.fadePace, .memory, Copy.fadePaceTitle,
                       keywords: ["fade", "decay", "forget", "archive", "pace", "still tracking", "slower", "faster"],

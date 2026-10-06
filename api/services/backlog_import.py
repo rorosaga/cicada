@@ -220,6 +220,13 @@ def import_markdown(memory_path: Path, *, project: str, text: str, prefix: str =
 
 
 DEFAULT_BACKEND = "http://127.0.0.1:8000"
+
+
+def _default_backend() -> str:
+    """``CICADA_PORT``'s backend, else ``DEFAULT_BACKEND`` (G182)."""
+    from api.services import runtime_layout
+
+    return runtime_layout.backend_url()
 SLEEP_REFUSAL = ("a Sleep cycle is running, and its commit would take these files under its own author; "
                  "nothing was imported — run it again once the cycle ends")
 DEMO_REFUSAL = "that bank is the demo, which holds only made-up examples; nothing was imported"
@@ -262,7 +269,7 @@ def import_file(memory_path: Path, project: str, source: Path, *, prefix: str = 
     if demo_guard.is_demo(memory_path):
         return ImportReport(error=DEMO_REFUSAL)
     probe = sleep_running or (lambda: mcp_tools._backend_sleep_running(
-        (backend_url or DEFAULT_BACKEND).rstrip("/"), _backend_headers()))
+        (backend_url or _default_backend()).rstrip("/"), _backend_headers()))
     if probe():
         return ImportReport(error=SLEEP_REFUSAL)
     report = import_markdown(memory_path, project=project, text=Path(source).read_text(encoding="utf-8"),

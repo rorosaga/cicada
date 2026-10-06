@@ -5,7 +5,7 @@ The Sleep cycle's Stage-2 resolution normalizes open-vocabulary relation labels
 vocabulary so that contradiction-keying — ``(subject, predicate, context,
 observer)`` — folds genuine synonyms together without collapsing distinct
 beliefs. The map is hand-seeded conservatively (see
-``docs/goals/m5-prep/predicates-seed.yaml`` and its rationale): fold a synonym
+``api/data/predicates-seed.yaml``; rationale in ``docs/goals/m5-prep/predicates-rationale.md``): fold a synonym
 into a canonical ONLY when it is clearly the same relation in the same
 direction; under-folding is safe, over-folding is the dangerous direction.
 
@@ -43,10 +43,9 @@ from loguru import logger
 
 from api.services.claims import event_cardinality
 
-# The prep seed lives at repo root (NOT inside the api package). Resolve it
-# relative to this file: api/services/predicates.py -> repo root is parents[2].
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-_SEED_PATH = _REPO_ROOT / "docs" / "goals" / "m5-prep" / "predicates-seed.yaml"
+# The seed ships with the package (api/data/), so a release bundle that carries
+# only api/ still has it (G182; it lived under docs/goals/m5-prep/ until then).
+_SEED_PATH = Path(__file__).resolve().parents[1] / "data" / "predicates-seed.yaml"
 
 RUNTIME_FILE = "_predicates.yaml"
 
