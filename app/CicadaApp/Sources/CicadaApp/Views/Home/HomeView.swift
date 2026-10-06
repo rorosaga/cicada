@@ -49,52 +49,59 @@ struct HomeView: View {
                 // DR-13 — paint only: no word, no number and nothing over it (`HomeBandLayoutTests`). The framing owns
                 // the band's height, crop and fade (C10).
                 if HomeBandLayout.showsBand { HomeHeroBand() }
-                VStack(spacing: 0) {
-                    // R-HS2 — the headline is the row under the band, on the window (DR-50), in the room pages'
-                    // title (DR-17): one line, the mock's words.
-                    PageTitle(Copy.homeHeadline)
-                        .multilineTextAlignment(.center)
-                        .accessibilityAddTraits(.isHeader)
-                        .padding(.top, CicadaTheme.scaled(HomeLayout.headlineTopInset(showsBand: HomeBandLayout.showsBand)))
-                        .padding(.bottom, CicadaTheme.scaled(HomeLayout.headlineBottom))
-                    fieldColumn(showsResults: showsResults)
-                        .frame(maxWidth: CicadaTheme.scaled(HomeLayout.fieldWidth))
-                    if !showsResults {
-                        ScrollView {
-                            VStack(alignment: .leading, spacing: CicadaTheme.scaled(HomeLayout.blockGap)) {
-                                if tipShown && tipPlacement == .inline { AppearanceTip() }
-                                // Seam 3 — onboarding's "Open Cicada" asked for the tour's offer; Home asks once.
-                                if tour.offerPending { TourOfferCard() }
-                                // Between the field and TODAY, and only while the blocks show
-                                // (R-IB6): the first keystroke replaces it too.
-                                GettingStartedCard(selectedTab: $selectedTab)
-                                HomeSections(today: today, gettingStartedVisible: gettingStartedVisible,
-                                             selectedTab: $selectedTab)
-                                    .tourAnchor(.home)
+                // Owner 2026-10-06 — one scroll view carries the headline, the field and the blocks, so a scrolled card
+                // leaves under the window's edge whole, never cut flush under the field (the field used to sit above the
+                // blocks' own scroll view). The field keeps one place in the tree in both states, so the first keystroke
+                // never drops its focus: with results the page pins to the viewport and the results fill what is left.
+                GeometryReader { viewport in
+                    ScrollView {
+                        VStack(spacing: 0) {
+                            // R-HS2 — the headline is the row under the band, on the window (DR-50), in the room pages'
+                            // title (DR-17): one line, the mock's words.
+                            PageTitle(Copy.homeHeadline)
+                                .multilineTextAlignment(.center)
+                                .accessibilityAddTraits(.isHeader)
+                                .padding(.top, CicadaTheme.scaled(HomeLayout.headlineTopInset(showsBand: HomeBandLayout.showsBand)))
+                                .padding(.bottom, CicadaTheme.scaled(HomeLayout.headlineBottom))
+                            fieldColumn(showsResults: showsResults)
+                                .frame(maxWidth: CicadaTheme.scaled(HomeLayout.fieldWidth))
+                            if !showsResults {
+                                VStack(alignment: .leading, spacing: CicadaTheme.scaled(HomeLayout.blockGap)) {
+                                    if tipShown && tipPlacement == .inline { AppearanceTip() }
+                                    // Seam 3 — onboarding's "Open Cicada" asked for the tour's offer; Home asks once.
+                                    if tour.offerPending { TourOfferCard() }
+                                    // Between the field and TODAY, and only while the blocks show
+                                    // (R-IB6): the first keystroke replaces it too.
+                                    GettingStartedCard(selectedTab: $selectedTab)
+                                    HomeSections(today: today, gettingStartedVisible: gettingStartedVisible,
+                                                 selectedTab: $selectedTab)
+                                        .tourAnchor(.home)
+                                }
+                                .frame(maxWidth: CicadaTheme.scaled(HomeLayout.columnWidth))
+                                .padding(.top, CicadaTheme.scaled(HomeLayout.fieldToFirstBlock))
+                                .padding(.bottom, CicadaTheme.scaled(HomeLayout.bottomPadding))
+                                .transition(.opacity)
                             }
-                            .frame(maxWidth: CicadaTheme.scaled(HomeLayout.columnWidth))
-                            .padding(.top, CicadaTheme.spacingCard)
-                            .padding(.bottom, CicadaTheme.scaled(HomeLayout.bottomPadding))
-                            .frame(maxWidth: .infinity)
                         }
-                        .scrollIndicators(.automatic)
-                        .transition(.opacity)
+                        .padding(.horizontal, CicadaTheme.spacingGutter)
+                        .frame(maxWidth: .infinity, alignment: .top)
+                        .frame(height: showsResults ? viewport.size.height : nil, alignment: .top)
+                        // F-09 — beside the column at the headline's height, never over the band: an overlay on the
+                        // page below it, never a layer over the paint (`HomeBandLayoutTests`), riding the scroll with
+                        // the headline. No comment here may spell the stack type's name — that test greps this file.
+                        .overlay(alignment: .topTrailing) {
+                            if tipShown && tipPlacement == .side {
+                                AppearanceTip()
+                                    .frame(width: CicadaTheme.scaled(AppearanceTipLayout.width))
+                                    .padding(.top, CicadaTheme.scaled(HomeLayout.headlineTopInset(showsBand: HomeBandLayout.showsBand)))
+                                    .padding(.trailing, CicadaTheme.scaled(AppearanceTipLayout.edgeInset))
+                            }
+                        }
                     }
+                    .scrollDisabled(showsResults)
+                    .scrollIndicators(.automatic)
+                    .animation(CicadaMotion.morph(reduceMotion: reduceMotion), value: showsResults)
                 }
-                .padding(.horizontal, CicadaTheme.spacingGutter)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                // F-09 — beside the column at the headline's height, never over the band: an overlay on the page
-                // below it, never a layer over the paint (`HomeBandLayoutTests`). No comment here may spell the
-                // stack type's name — that test greps this file for it.
-                .overlay(alignment: .topTrailing) {
-                    if tipShown && tipPlacement == .side {
-                        AppearanceTip()
-                            .frame(width: CicadaTheme.scaled(AppearanceTipLayout.width))
-                            .padding(.top, CicadaTheme.scaled(HomeLayout.headlineTopInset(showsBand: HomeBandLayout.showsBand)))
-                            .padding(.trailing, CicadaTheme.scaled(AppearanceTipLayout.edgeInset))
-                    }
-                }
-                .animation(CicadaMotion.morph(reduceMotion: reduceMotion), value: showsResults)
             }
             .frame(width: geo.size.width, height: geo.size.height)
         }
