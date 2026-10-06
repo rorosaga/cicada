@@ -701,6 +701,21 @@ async def dirty_paths(memory_path: Path) -> frozenset[str]:
     `porcelain_status`'s empty string, so an unreadable tree never reads as a
     clean one."""
     out = await _run_git(memory_path, "status", "--porcelain", "-z", "--untracked-files=all")
+    return _parse_status_z(out)
+
+
+def dirty_paths_sync(memory_path, *pathspec: str) -> frozenset[str]:
+    """:func:`dirty_paths` for a sync writer, under the bank's write lock (a
+    writer that already holds it re-enters), optionally narrowed to
+    ``pathspec``. Staged, modified and untracked paths all count."""
+    memory_path = Path(memory_path)
+    with write_lock(memory_path):
+        out = _git_sync(memory_path, "status", "--porcelain", "-z", "--untracked-files=all",
+                        *(("--", *pathspec) if pathspec else ()))
+    return _parse_status_z(out)
+
+
+def _parse_status_z(out: str) -> frozenset[str]:
     records = out.split("\0")
     dirty: set[str] = set()
     i = 0
