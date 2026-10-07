@@ -257,6 +257,9 @@ said and what day it is now (`api/services/source_dates.py`).
   - keep explicitly stated dates.
 - **Merge and contradiction.** The synthesis prompt (both callers: Stage 3 and an inbox conflict answer) gets today, the
   page's `last_referenced` and every day the new information was said. "Newer" means a later date, not a later read.
+  Those days are the ones Stage 1 resolved (a conversation's timestamp, else its id's date: `source_episode_day` on the
+  extracted entity, `source_episode_days` on Stage 2's change). They are prompt-only: `last_referenced` and `created`
+  still come from the stored timestamps, and no timestamp is invented from an id.
   The contradiction prompt dates both descriptions.
 - **What this changes, and what it does not.** The note is in the model's message only, never in a stored body, so G118
   offsets and hashes do not move. A quote of the note itself degrades to `reasoning`. **This is prompt guidance:** no code
