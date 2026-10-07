@@ -129,3 +129,27 @@ def test_latest_project_context_keeps_done_progress_as_a_dated_event(tmp_path):
                  if line.startswith("claim: ") and '"id": "clm_done"' in line)
     assert event["current"] is False and event["event_status"] == "done"
     assert event["event_day"] == event["valid_to"] == "2026-02-02"
+
+
+@pytest.mark.parametrize("warm", [True, False])
+def test_history_retrieval_uses_default_ttl_and_only_waits_for_a_cold_index(tmp_path, monkeypatch, warm):
+    import numpy as np
+    from api.services import search_index
+    _bank(tmp_path, current=False)
+    if warm:
+        search_index.rebuild(tmp_path)
+    import threading
+    original = search_index.ensure_fresh
+    caller = threading.current_thread()
+    calls = []
+    def refresh(path, **kwargs):
+        if threading.current_thread() is caller:
+            calls.append(kwargs)
+        return original(path, **kwargs)
+    monkeypatch.setattr(search_index, "ensure_fresh", refresh)
+    retrieve = ask_service.build_claim_first_retrieve_fn(
+        tmp_path, embed_fn=lambda texts, **kw: np.ones((len(texts), 2), dtype=np.float32))
+    assert retrieve("What method did alpha-project use previously?", 6)
+    assert calls[0] == {}, "normal history reads must honor the freshness TTL"
+    assert all(call.get("max_age_s") is None for call in calls)
+    assert any(call.get("wait") for call in calls) is (not warm)

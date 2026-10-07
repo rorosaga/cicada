@@ -452,7 +452,9 @@ def build_claim_first_retrieve_fn(memory_path, *, embed_fn=None) -> RetrieveFn:
         if _wants_history(query):
             from api.services import search_index, search_service
             try:
-                search_index.ensure_fresh(memory_path, wait=True, max_age_s=0)
+                state = search_index.ensure_fresh(memory_path)
+                if state == "building":
+                    search_index.ensure_fresh(memory_path, wait=True)
                 history = search_service.search(memory_path, _history_query(query), kinds=("claim",),
                                                 mode="prefix", per_kind=top_k)
                 claim_hits = [{"score": h.score, "text": h.name,

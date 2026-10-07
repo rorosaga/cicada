@@ -316,7 +316,8 @@ against the loaded markdown. A deleted page is never revived from indexed text;
 Pages with only closed beliefs and no usable background return an honest gap
 without a synthesis call.
 The historical lexical leg removes question/date words before matching, warms
-a cold disposable index synchronously, and takes matching historical subjects
+a cold disposable index synchronously only when no usable index exists, honors
+the default freshness TTL on warm reads, and takes matching historical subjects
 before generic semantic neighbours. Prompt budgeting reserves claims from both
 sides of a change. Implicit recall rechecks each selected page's claims against
 markdown; every type's recall summary strips claim fences before truncation.
