@@ -198,7 +198,8 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   Sleep sets its flag then waits holders out — past the bound it pauses, never reads; order admission → page → git;
   never held across a model call or a fetch.
 - **Entity promotion:** a first mention stays in the index; a page needs 2+ conversations, >3 exchanges, or a link to a
-  high-confidence page. Claims about a name with no page yet are held (`pending_store`), never lost.
+  high-confidence page other than the owner's. Claims about a name with no page yet are held (`pending_store`), never lost.
+  A speaker's self-reference ("the user", "me", "yo"…) is the owner's page, never a page of its own (G169).
 - **Temporal decay is a signal:** at most one week charged per cycle (ruling 1), paced by how many weeks a page came up
   in (G147); evergreen never decays; an import is not silence. Below 0.2 archived, below 0.4 a decay nudge.
   **Confidence does not rank recall.**
@@ -251,8 +252,8 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   login-walled page.
 - **Video (G162):** Cicada never downloads a video or derives a stream; a video's state is derived, never stored; the
   queue lives outside every bank.
-- **Continuity (G110, slice 1a):** a session started in the same folder is told, at SessionStart, where the last one
-  there stopped — assembled on demand from captured episodes over a disposable index, inside the whole 1,800-token note;
+- **Continuity (G110, slice 1a/1b):** SessionStart carries a light pointer inside the whole 1,800-token note;
+  previous working history is retrieved on demand via `cicada_continue`, from captured episodes over a disposable index;
   workspace state is not checked; the registry outside every bank holds ids, a cwd hash and times only (`mcp.md`).
 
 ### The app

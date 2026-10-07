@@ -37,7 +37,7 @@ Seven rails hold across all of them:
   same command is also registered under `PreCompact` and `SessionEnd` (install.sh step 5b, both harnesses; the app's
   Connect through `flushOn`). Stop stays the trigger (TODO ruling 7): a flush is the same idempotent request —
   `unchanged` after a Stop with no new turn — and it is the only capture of a turn the person interrupted (no Stop
-  fires) before compacting, clearing or quitting, which the next continuity note then discloses as "its last request
+  fires) before compacting, clearing or quitting, which the requested continuity read then discloses as "its last request
   has no captured reply". A SessionEnd flush bounds its request with a 1.2 s client timeout (a socket
   timeout, not a whole-process deadline; the backend finishes the write regardless). Claude Code's SessionEnd budget is
   1.5 s by default but is raised to the largest per-hook `timeout` in the settings files, and Cicada registers 5 s — so
@@ -90,7 +90,7 @@ Seven rails hold across all of them:
   `reasoning`, and an existing span into the old tail (or into the 60–100k region, once the cap is first crossed)
   reads `stale` — the claim is still written; (3) more `body_revision` mismatches between Sleep's read and its
   retirement while the session runs; (4) the person's words in the dropped middle leave the bank (they are disclosed
-  in `capture_gap` and the continuity note, never kept). **One episode
+  in `capture_gap` and the requested continuity read, never kept). **One episode
   per session** — a later Stop rewrites it in place and flips `processed: false`, never two
   episodes for one conversation (G104). Cicada's own `claude -p` and `codex exec` spawns run with
   `CICADA_CAPTURE=off`. **Where capture stopped (G110 slice 1a).** Every write also records, outside
@@ -98,7 +98,7 @@ Seven rails hold across all of them:
   (the last 8 kept turns as `{offset, speaker, at?}`, exact offsets into the body — the G118 sidecar stops at 500
   and skips untimed turns), `capture_gap` (`{dropped_turns, first_dropped_at?, last_dropped_at?, offset}`, only while the
   session cap drops the middle; an episode captured before gate B2 may still carry the older
-  `{dropped_turns, last_seen_at}`, which the continuity note reads as "turns past the limit") and `capture_flags` (`{note_like_turns}`, kept person turns holding a line that opens like a
+  `{dropped_turns, last_seen_at}`, which the requested continuity read labels "turns past the limit") and `capture_flags` (`{note_like_turns}`, kept person turns holding a line that opens like a
   Cicada note — counted and kept, never removed for that), plus `continues`: the one episode id the continuity
   registry says Cicada pointed this session at, stamped once and never rewritten. An unchanged body whose metadata
   moved (a late `continues`) is rewritten in place under `episode_lock` with the same body,
@@ -112,7 +112,7 @@ Seven rails hold across all of them:
   person's — Claude Code's attachment/hook records and `isMeta` user records, Codex's non-user roles — which is how
   Claude Code documents hook context. Text inside the person's own block is kept as their words, whatever it looks like
   (a pasted note, a quoted header line, a `<session-start-hook>` tag): it is counted in `capture_flags.note_like_turns`
-  (a line that opens with `recall_text.INJECTION_PREFIX`, past any leading tags) and the next continuity note
+  (a line that opens with `recall_text.INJECTION_PREFIX`, past any leading tags) and the requested continuity read
   discloses the count. The textual `is_injection` deletion and the hook-tag span/first-tag rules were removed for
   person text; G105 R5's tool-output rules — the `<system-reminder>` span strip and the first-tag skip for harness tags —
   are a different rail and stay.
@@ -360,6 +360,47 @@ name before it has a page is not lost (G141 PJ-0b): Stage 5.56 holds those claim
 `<bank>/pending_entities.jsonl` (`api/services/pending_store.py`: spans, not copies; at most 50 per name,
 the rest counted) and releases them onto the page, first and through Stage 3, in the cycle whose Stage 5
 gives the name one — a holding line leaves the store only then.
+
+**The owner is never a page of a pronoun (G169).** One closed, language-aware list of self-reference spellings
+(`owner_identity.SELF_REFERENCE_FORMS`: "User", "the user", "I", "me", "myself", "the person", "the owner",
+"owner", "el usuario", "la usuaria", "usuario", "usuaria", "yo", "mí"; compared NFC, case-, outer-quote-,
+trailing-punctuation- and spacing-insensitive) feeds both the resolver and the prompts' wording
+(`self_reference_list`), so neither can name a form the other misses. A spelling is the person only when it is a
+**speaker reference** — one qualified decision, `owner_identity.SelfReferences`: the name is a person or carries
+no type (an edge or claim endpoint, a wikilink) **and** no non-person page, no typed non-person pending line
+(`pending_store` — a company heard once is still that company when a later batch names it only as an endpoint), and
+no non-person entity in this batch holds that exact name. So a company "Owner", a concept "I", a tool "Me", a company "Yo" keep their own facts,
+edges, claims and held claims, while an old duplicate *person* page named "User" reserves nothing. Every step that
+keys a name builds it from the same inputs: Stage 2 merges a speaker-reference entity into the `owner: true` page
+under its name and type (speaker-reference aliases dropped; several such payloads union their key facts, links,
+questions and aliases; each input's one effective summary — `summary`, else the legacy `description` — competes,
+the longer is the summary, and every other distinct one is kept once as a key fact) and resolves speaker
+endpoints to it; Sleep's claims (`claim_pipeline.subject_resolver`) and holds (`hold_page_less`'s `reserved`) and
+Stage 5.5's wikilink `mentions` (`materialize_wikilink_edges(memory_path, extracted, settings)` — the same
+`settings` owner tie-break when a bank holds two owner pages: `[[User]]`, `[[the
+user|…]]`, `[[mí]]` → the owner page, never an old duplicate; the prose is never rewritten) agree. With no owner
+page a speaker reference is dropped — never a page, a pending line or a "Who is User?" question. A link to the
+owner page, or to a speaker reference, is **not** the promotion rule's link to a high-confidence page (everything
+the person mentions is linked to them). Stage 1's prompt gains an owner block (`entity_extractor.owner_block`) and
+the synthesis prompt an owner line (`conflict_resolver._owner_line`) naming the owner page's `name`, read once per
+extraction (`owner_identity.owner_name`), so prose says the name, never "the user"; a bank without an owner page
+keeps both prompts byte-identical. An older bank's `user` page is not migrated: speaker references stop feeding it,
+and folding it in is the dedup merge (`dedup_sweep` / `entity_merge`, loser `user`, winner the owner page) behind
+the person's explicit call — not built. Disclosed: a "User" Stage 1 types as a concept is not a speaker reference
+and becomes its own page.
+
+**Known limitations (G169, deferred — backlog):**
+- *A later collision re-binds earlier wikilinks.* Stage 5.5 re-reads every page's prose each cycle under that
+  cycle's decision. A page written when `[[Yo]]` meant the person gets `→ owner`; when a later batch introduces a
+  company "Yo", the unchanged page also gains `→ yo`, and both `mentions` edges persist (the non-claim edge merge is
+  additive). The fix is to bind a speaker wikilink to the owner when the prose is written (keeping its label), or to
+  remember the resolved identity per page revision — never to reinterpret unchanged prose with later type evidence.
+- *Synthesis drops additive fields (pre-existing).* When an update carries a `description`, Stage 3's synthesis
+  prompt (`conflict_resolver._synthesize_entity_update`) is given the description and history only, and its body
+  replaces the page's on an agent-only page — so the unioned key facts, links and open questions of a merged
+  payload (several self-references on the owner page included) do not reach the written page on that path. The
+  deterministic and human-edited paths keep them. The fix is to send the whole merged payload to synthesis, or to
+  merge the additive fields deterministically into its result.
 
 ### Temporal decay
 Absence of mention IS a signal, and **how often something came up sets how fast its absence

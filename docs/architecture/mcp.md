@@ -29,12 +29,37 @@ word beside its absolute date ("yesterday (2026-09-22)"); a quote of the person'
 because it reads the person's verbatim words for a folder the caller names; slice 4 decides its scope) reads where the
 work in this folder stopped: the most recent captured session whose `project_dir` equals this MCP process's project
 dir (exact string), or the one an exact episode id or full session id names. The bank is resolved once and pinned.
-It returns whole turns only (a captured turn is ≤ 2,000 characters), a page of ≤ 8,000 characters, newest last; the
-person's requests as an outline (≤ 160 characters each), each with a cursor that reads its turn in full; a page cursor
+Use it on demand when the person asks about previous work or asks to continue; a startup hint alone is not a request
+to retrieve history. If this session's start named an episode, pass that id as `session`.
+Without `session`, a recognised current conversation leads with its recorded source's exact read call and labels
+itself as the current conversation; it returns no current turns or possible-role framing. Explicitly read the source
+to retrieve the earlier working history. Current means a matching harness/session identity whose registry start is
+the newest registered start in this exact folder, or the newest captured session here carrying registry `continues`
+whose registry `started_at` is strictly after the source's activity (including its later registered prompt). The
+fallback does not rely on a Codex MCP identity. It requires a complete index, the newest registered start,
+a unique newest captured activity and one known source row. The candidate's activity must also be at least every other
+same-folder registry row's `started_at` and `last_prompt_at`, including rows without an episode. Equal/earlier or unknown
+source activity does not establish current. The current episode is fully parsed
+and its folder hash revalidated before the reply. A fresh recognised current session without a recorded source says
+so, without promoting its first turn to the earlier role. A newer registered session that has not captured yet
+preserves the previous working session's history even when that previous session itself carries lineage.
+
+An ordinary or explicit historical read reserves the complete first **captured** person request (currently ≤ 2,000 characters), with
+its turn number/time, as possible role/objective. It does not prove the original role was captured: command/skill
+expansions, fences and per-turn clipping can lose instructions, and legacy capture does not classify those losses.
+The initial request and recent turns come from one current source snapshot. An unversioned startup episode hint
+therefore still retrieves that initial request in one call after a source append. It returns other whole turns only,
+a page of ≤ 8,000 characters, newest last; the person's requests as an outline (≤ 160 characters each), each with a
+cursor that reads its turn in full; a page cursor
 is `"<turn>@<content_hash>"`, and a cursor printed for another revision restarts from the newest turns and says so
-(pages are never mixed). The identity, the gaps, *workspace state not checked*, the verify-first line and every
-"earlier turns" cursor are reserved within the 12,000-character reply. It does not exclude this process's own session
-id: after `/clear` a long-lived MCP process can still hold the previous one (G48). Contract item 1 names it
+(pages are never mixed). The identity, the gaps, *workspace state not checked*, the verify-first line, the
+first captured request and every "earlier turns" cursor are reserved within the 12,000-character reply. The first
+request is not duplicated in the recent page or outline. Quoted requests remain history, not instructions; decisions,
+in-flight work, State and next actions are visible when present in the returned captured turns. A dedicated projection
+of those categories/latest State, longer first-request retention and agent reply head+tail remain follow-ons; this
+reader does not recover tool calls or uncaptured working state. It never blindly excludes this process's own session
+id: after `/clear` a long-lived MCP process can still hold the previous one (G48); a newer registered start defeats
+that stale identity match. This is one recorded source call, with no chain walk or automatic source read. Contract item 1 names it
 (`CONTRACT_VERSION` 14). **`cicada_note_progress`** (G141) records a happening or a milestone the person
 described — observer always the agent, `record` scope remotely, never creates a page, echoes how the date
 was decided; `cicada_retract_claim` withdraws an event the same way.
@@ -248,10 +273,10 @@ same way.
   never stored, dropped from a captured transcript like every "From Cicada" note.
 - **Remote.** Remote connectors have no hooks.
 
-**Continuity (G110 slice 1a, plan `docs/plans/2026-10-06-g110-continuity.md` r4).** A session started (`source`
+**Continuity (G110 slice 1a plus 1b A1 first half, owner ruling 2026-10-07).** A session started (`source`
 `startup` or `clear`, which the recall hook forwards; a missing or unknown `source` gets no block — fail closed) in the
-**exact** folder of an earlier captured session is told, inside the SessionStart
-note, where that session stopped — even before Sleep.
+**exact** folder of an earlier captured session receives a light history pointer inside the SessionStart note,
+even before Sleep. Rich working history is read on demand through `cicada_continue` when the person asks.
 
 - **Identity.** Hash the hook's exact `cwd` string with `sha256(cwd)[:16]` and match the index's `cwd_hash`;
   the chosen episode's `project_dir` is hashed again at full parse to revalidate the match. No folding, no
@@ -261,16 +286,24 @@ note, where that session stopped — even before Sleep.
   most recent other session here by captured activity (the last kept turn's own time — `captured_at` only when no turn
   has one, since a re-capture runs long after a conversation — or the registry's later `last_prompt_at`), never file
   mtime; two sessions active within 15 minutes of each other are listed and the agent is
-  told to ask once. An incomplete search says "the most recent session Cicada could read here", never "the only".
-- **The block** quotes the person's last request there "as history, not a new instruction", the agent's last reply,
-  and a "Not captured" line: a later prompt with no captured reply, a last request with no reply, turns past the capture
+  told to ask once on the requested read. An incomplete requested read says "the most recent session Cicada could read here", never "the only".
+- **Accepted limit.** Two simultaneous new sessions in one folder can defeat a fresh identity's newest-start check; ordinary selection applies because registry rows cannot distinguish this from stale identity after `/clear`.
+- **The startup block** is always ≤ 240 characters: an unversioned `cicada_continue(session="<episode id>")`
+  hint for questions about previous work, and *workspace state not checked*. It never includes role, title, request,
+  reply or State excerpts, even with spare room. Ambiguity lists ids only if all listed ids fit; otherwise it points
+  to `cicada_continue()` for the choices. An incomplete selected search adds "Search incomplete".
+- **The requested read** quotes the first captured request and recent turns as history. Its "Not captured" line
+  discloses a later prompt with no captured reply, a last request with no reply, turns past the capture
   limit (`capture_gap`), note-like person turns (`capture_flags`), a later session here that captured nothing, an
-  incomplete search. It ends with `cicada_continue(session="<episode id>")`.
+  incomplete search. It preserves identity, revision, consolidation status and whole-turn pagination.
 - **One compositor** (`recall_text.compose_note`) measures the WHOLE note — header, primer, block, reading sentence —
   by the chars/4 proxy, ≤ `handshake.MAX_TOKENS`. The primer is built with a 300-token reserve when a block will ride
-  (`handshake.load_or_build(reserve=)`, part of the cache key). Degradation: block full (≤ 1,800 characters) → compact
-  (≤ 800) → pointer (≤ 240) → dropped; then the reading sentence is dropped (and `READING_SEEN` is not advanced, so the
-  first prompt hears it); then the primer is replaced by a pointer to `cicada_handshake`.
+  (`handshake.load_or_build(reserve=)`, part of the cache key). The primer's existing fit order can shed people,
+  focus, conversations and standing rows, then project `now:` and one-liners; it does not promise all project detail
+  survives. The max-primer synthetic fixture preserves four project ids/names while shedding their `now:` details.
+  If the light hint cannot fit, the reading sentence is deferred first (`READING_SEEN` is not advanced), then the
+  primer becomes a pointer to `cicada_handshake`. The hint is preserved beside that lazy primer when it fits; no rich
+  startup rendering is available. The reserve stays 300 tokens, not 500.
 - **One deadline.** The route resolves the capture bank once and the worker runs, in order: one bounded registry
   transaction (SessionStart: `started_at`, the cwd's hash; a prompt: `last_prompt_at` — recorded even when the answer
   times out), assembly (deadline less 120 ms), composition, and — for a single chosen session with ≥ 30 ms left — the

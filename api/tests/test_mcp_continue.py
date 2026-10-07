@@ -78,10 +78,10 @@ def test_a_late_rejection_in_a_long_request_is_read_whole_through_its_cursor(ban
         ("user" if i % 2 == 0 else "assistant", "follow-up " * 150) for i in range(12)]
     write_session(bank, 1, turns)
     out = _call()
-    assert "never ship the beta without the migration check" not in out      # past the outline's 160 characters
-    m = re.search(r'- \[1\] [^\n]*`cicada_continue\(session="ep_2026-09-03_001", before="(2@[0-9a-f]{12})"\)`', out)
-    assert m, out[:2000]
-    page = _call(session="ep_2026-09-03_001", before=m.group(1))
+    assert "never ship the beta without the migration check." in out
+    assert "First captured person request" in out and out.count(long_request) == 1
+    revision = markdown_parser.parse(bank / "episodes" / "ep_2026-09-03_001.md").frontmatter["content_hash"]
+    page = _call(session="ep_2026-09-03_001", before=f"2@{revision}")
     assert "never ship the beta without the migration check." in page and "[1] The person" in page
 
 
@@ -117,7 +117,7 @@ def test_r12_holds_for_every_startup_rendering(bank):
         text, rendering = continuity.startup_block(ctx, max_chars=cap)
         seen.add(rendering)
         _r12(text)
-    assert seen == {"full", "compact", "pointer"}
+    assert seen == {"pointer"}
     write_session(bank, 2, [("user", "x"), ("assistant", "y")], start=1)
     amb = continuity.assemble(bank, bank_paths=(bank,), harness="claude-code", session_id=sid(98), cwd=CWD)
     text, rendering = continuity.startup_block(amb, max_chars=1800)
