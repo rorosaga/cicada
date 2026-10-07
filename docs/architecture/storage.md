@@ -92,21 +92,32 @@ Stage-5 prose rewrites use `preserve_claims_blocks` only to re-emit closed fence
 already read from disk, including unknown fields and malformed YAML; it never
 authors claims. Synthesis receives stripped prose before its input budget is applied.
 
-**Recovering claims a rewrite dropped (G148 follow-up).** Before that fix a rewrite took the fence for part of the last
-section and rebuilt it, so ids vanished while the prose grew. `python -m api.services.claim_recovery --bank <path>
-[--plan <file>] [--apply]` finds them from git alone: it replays every first-parent commit that touched `entities/`,
-and an id in a page's fence before a commit and not after it is a removal; an id still on any page at HEAD is no loss,
-and the id's **last** removal decides. Only a `Sleep cycle …` commit (batch, plain or `(decay)`) is recoverable;
-anything else is excluded by what it was — `person_edit` (`Cicada-Author: user`), `merged` (the dedup sweep, or a
-`<id>-from-<loser>` copy at HEAD), `inbox_resolution`, `other_writer` — and so is an id a `retracts` record names
-(`retracted`), one whose page is gone, archived/dropped or has an unreadable fence at HEAD, and one lost under prose that
-did not change (`prose_unchanged`: not the rewrite's signature). When unsure it excludes. The dry run (default) prints
-counts and writes a plan of ids, page paths, the removing commit and the reason — never claim text. `--apply` re-adds
-each claim as it last existed through `write_claims`, every span checked with `evidence.span_status` and kept as
-`reasoning` when it no longer locates, under admission (refused while Sleep holds the pages; the CLI also asks the
-backend's `/sleep/status`, as the stdio MCP does) → page lock → git's write lock; a dirty page is skipped; one `Recover
-dropped claims <date>` commit of only the pages written, `Cicada-Author: cicada`, put back on failure. A re-run finds
-nothing.
+**Recovering claims a rewrite dropped (G148 follow-up) — only ever as closed history.** Before that fix a rewrite
+sectioned the raw body, so the fence rode in the last section and was rebuilt or lost; the claim pipeline, which runs
+after the prose writes, then kept only what it could still read. `python -m api.services.claim_recovery --bank <path>
+[--plan <file>] [--apply]` finds the holes from git alone: it replays every first-parent commit that touched
+`entities/`; an id in a page's fence before a commit and not after it is a removal, an id on any page at HEAD is no
+loss, and the id's **last** removal decides. **A recovered entry is never a current belief:** it comes back closed —
+`valid_to` the removal commit's day, or its own stated end (`claim_expiry.stated_end`) when earlier, never before
+`valid_from`; an entry already closed keeps its own — and marked `recovered_from: <removing commit>`,
+`recovered_by: claim_recovery` (`Claim` fields, omitted when unset). Excluded, each needing positive evidence to pass:
+the removal's writer (`person_edit`, `merged`, `inbox_resolution`, `other_writer`, and `unproven_writer` — a `Sleep
+cycle` subject whose `Cicada-Author`s are not all models or `cicada`); `unreadable_fence` (the page's fence was
+unterminated, repeated or unparseable at any version read — `claims.fence_state`), `unreadable_elsewhere` (an
+unreadable HEAD page whose bytes name the id); `retracted` (a `retracts` record named it at ANY version read);
+`merged` (a `<id>-from-` copy), `page_gone`, `page_archived` (at the removal or now); and `not_rewrite` — the bug's
+signature is required: the section that held the fence when the page is sectioned raw must have had its fence-stripped
+prose rewritten. What is left is classed `replaced` (a current claim on the page shares subject and predicate — and
+object unless the vocabulary marks it single-valued — or a HEAD claim `supersedes` it), `closed_history` (every
+dropped copy was already closed) or `no_current_replacement` (a belief current when dropped with no successor: listed by
+id and page only, **never written** — the person decides). The dry run (default) prints counts by class and reason and
+writes ids, paths, commits and classes — never claim text. `--apply` writes the first two classes: each entry as the
+YAML held it (unknown fields kept), appended by `claims.append_claim_entries` without re-rendering any entry already in
+the fence or the frontmatter (`markdown_parser.write_document`), spans checked with `evidence.span_status` (one that no
+longer locates becomes `reasoning`), under admission → page lock → git's write lock. The CLI is its own process, so it
+also asks the backend's `/sleep/status` and **refuses on any answer but a clear `writing: false`** (no backend, an auth
+or server error, a malformed body). A dirty or unreadable page is skipped; one `Recover dropped claims <date>` commit
+of only the pages written, `Cicada-Author: cicada`, put back from HEAD on failure. A re-run finds nothing.
 
 **A merge keeps both claim sets (audit 2026-10-05 P1-1).** `entity_merge.merge_entities` — the dedup sweep's and
 the inbox's one merge primitive — carries every claim the loser held into the winner's fence: re-subjected to the

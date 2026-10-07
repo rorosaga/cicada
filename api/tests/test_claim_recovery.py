@@ -1,19 +1,27 @@
-"""G148 follow-up — recover claims a Sleep prose rewrite dropped, from git alone, never what someone removed on purpose.
+"""G148 follow-up — recover the claims a Sleep prose rewrite dropped, from git alone, ONLY as closed history.
 
-Every bank here is synthetic: `alpha-project`, `bob-example`, made-up claims and one made-up episode."""
+Every bank here is synthetic: `alpha-project`, `bob-example`, made-up claims and one made-up episode. The fixture page
+keeps its fence inside its last section when sectioned raw — the layout the unfixed rewrite tore."""
 from __future__ import annotations
 
+import http.server
 import json
+import socket
 import subprocess
+import threading
 from pathlib import Path
 
 import pytest
 
-from api.services import claim_recovery, evidence, git_service, markdown_parser
-from api.services.claims import RETRACT_PREDICATE, Claim, parse_claims, write_claims
+from api.services import claim_recovery, evidence, git_service, markdown_parser, write_admission
+from api.services.claims import RETRACT_PREDICATE, Claim, parse_claims, raw_claim_entries, write_claims
 
 EP = "ep_2026-10-01_001"
 EP_BODY = "user: alpha-project now uses the example tool for its builds\nassistant: noted\n"
+PAGE = "entities/alpha-project.md"
+DROP_DAY = "2026-10-02"
+FIRST = "## Overview\nFirst prose.\n"
+REWRITTEN = "## Overview\nRewritten, longer prose.\n"
 
 
 def _git(bank: Path, *args: str) -> str:
@@ -21,13 +29,14 @@ def _git(bank: Path, *args: str) -> str:
 
 
 @pytest.fixture
-def bank(tmp_path: Path) -> Path:
+def bank(tmp_path: Path, monkeypatch) -> Path:
     bank = tmp_path / "bank"
     (bank / "entities").mkdir(parents=True)
     (bank / "episodes").mkdir()
     _git(bank, "init", "-q")
     _git(bank, "config", "user.email", "test@example.com")
     _git(bank, "config", "user.name", "Cicada Test")
+    monkeypatch.setenv("GIT_COMMITTER_DATE", f"{DROP_DAY}T12:00:00+00:00")
     markdown_parser.write(bank / "episodes" / f"{EP}.md", {"id": EP, "processed": True}, EP_BODY)
     _commit(bank, "Sources ingest 2026-10-01", [f"episodes/{EP}.md"], author="cicada")
     return bank
@@ -35,9 +44,15 @@ def bank(tmp_path: Path) -> Path:
 
 def _claim(n: int, **kw) -> Claim:
     base = dict(id=f"clm_2026-10-01_{n:03d}", text=f"Synthetic fact number {n} about alpha-project.",
-                subject="alpha-project", predicate="uses", object=f"tool-{n}", recorded_at="2026-10-01")
+                subject="alpha-project", predicate="uses", object=f"tool-{n}", recorded_at="2026-10-01",
+                valid_from="2026-10-01")
     base.update(kw)
     return Claim(**base)
+
+
+def _restated(old: Claim, n: int, **kw) -> Claim:
+    """The pipeline re-asserting the same fact under a new id — a current replacement."""
+    return _claim(n, object=old.object, predicate=old.predicate, **kw)
 
 
 def _spanned(bank: Path, n: int) -> Claim:
@@ -52,10 +67,25 @@ def _page(bank: Path, eid: str, prose: str, claims: list[Claim], *, status: str 
     return f"entities/{eid}.md"
 
 
-def _commit(bank: Path, subject: str, paths: list[str], *, author: str = "claude-sonnet-test") -> None:
+def _commit(bank: Path, subject: str, paths: list[str], *, author: str | None = "claude-sonnet-test") -> None:
     message = git_service.build_commit_message(subject, [f"{p}: updated (trigger: test)" for p in paths],
-                                               authors=[author])
+                                               authors=[author] if author else [])
     git_service.commit_touched_sync(bank, message, paths)
+
+
+def _seed(bank: Path, claims: list[Claim], prose: str = FIRST) -> str:
+    _commit(bank, "Sleep cycle 2026-10-01", [_page(bank, "alpha-project", prose, claims)])
+    return (bank / PAGE).read_text(encoding="utf-8")
+
+
+def _drop(bank: Path, keep: list[Claim], *, prose: str = REWRITTEN,
+          subject: str = "Sleep cycle 2026-10-02 (batch 1 of 2)", author: str | None = "claude-sonnet-test",
+          status: str = "active") -> None:
+    _commit(bank, subject, [_page(bank, "alpha-project", prose, keep, status=status)], author=author)
+
+
+def _claims_now(bank: Path, eid: str = "alpha-project") -> dict[str, Claim]:
+    return {c.id: c for c in parse_claims(markdown_parser.parse(bank / "entities" / f"{eid}.md").body, strict=True)}
 
 
 def _fence(text: str) -> str:
@@ -63,46 +93,99 @@ def _fence(text: str) -> str:
     return text[start:text.index("```", start + 3) + 3]
 
 
-def _ids(bank: Path, eid: str) -> list[str]:
-    return [c.id for c in parse_claims(markdown_parser.parse(bank / "entities" / f"{eid}.md").body, strict=True)]
+def _counts(bank: Path) -> dict:
+    return claim_recovery.analyze(bank).counts()
 
 
-def _drop_by_sleep(bank: Path, *, keep: list[Claim], prose: str = "## Overview\nRewritten, longer prose.\n",
-                   subject: str = "Sleep cycle 2026-10-02 (batch 1 of 2)") -> None:
-    _commit(bank, subject, [_page(bank, "alpha-project", prose, keep)])
+# --- restored only as closed history ---------------------------------------------------------------------------
 
 
-def _seed(bank: Path, claims: list[Claim]) -> str:
-    rel = _page(bank, "alpha-project", "## Overview\nFirst prose.\n", claims)
-    _commit(bank, "Sleep cycle 2026-10-01", [rel])
-    return (bank / rel).read_text(encoding="utf-8")
-
-
-# --- finding candidates ------------------------------------------------------------------------------------------
-
-
-def test_a_claim_a_sleep_rewrite_dropped_is_recovered_byte_identically(bank):
+def test_a_dropped_claim_with_a_current_restatement_comes_back_closed_and_marked(bank):
     c1, c2 = _claim(1), _spanned(bank, 2)
     seeded = _seed(bank, [c1, c2])
-    _drop_by_sleep(bank, keep=[c1])
+    _drop(bank, [c1, _restated(c2, 9)])
+    survivors = _fence((bank / PAGE).read_text(encoding="utf-8"))[:-3]
 
     plan = claim_recovery.analyze(bank)
-    assert plan.counts()["recoverable"] == 1
-    assert [(i.claim_id, i.page) for i in plan.recoverable] == [(c2.id, "entities/alpha-project.md")]
-
+    assert plan.counts()["replaced"] == 1 and plan.counts()["no_current_replacement"] == 0
     result = claim_recovery.apply(bank)
-    assert result.recovered == 1 and result.pages == ["entities/alpha-project.md"]
-    now = (bank / "entities" / "alpha-project.md").read_text(encoding="utf-8")
-    assert _fence(now) == _fence(seeded), "same ids, same fields, same evidence span — byte for byte"
-    assert "Rewritten, longer prose." in now, "the prose the rewrite wrote stays"
+    assert result.recovered == 1 and result.pages == [PAGE]
+
+    now_text = (bank / PAGE).read_text(encoding="utf-8")
+    assert _fence(now_text).startswith(survivors), "every entry already in the fence keeps its bytes"
+    back = _claims_now(bank)[c2.id]
+    assert back.valid_to == DROP_DAY, "closed the day the rewrite dropped it — never a current belief"
+    assert back.recovered_by == "claim_recovery" and back.recovered_from == plan.items[0].removed_in
+    original = Claim.from_dict(raw_claim_entries(seeded)[1]).to_dict()
+    restored = back.to_dict()
+    for key in ("valid_to", "recovered_from", "recovered_by"):
+        restored.pop(key, None)
+        original.pop(key, None)
+    assert restored == original, "every other field, the evidence span included"
+    assert "Rewritten, longer prose." in now_text
 
 
-def test_a_claim_dropped_and_then_restated_is_not_a_candidate(bank):
+def test_a_belief_with_no_current_replacement_is_listed_never_written(bank):
     c1, c2 = _claim(1), _claim(2)
     _seed(bank, [c1, c2])
-    _drop_by_sleep(bank, keep=[c1])
-    _drop_by_sleep(bank, keep=[c1, c2], subject="Sleep cycle 2026-10-03")
-    assert claim_recovery.analyze(bank).counts()["candidates"] == 0
+    _drop(bank, [c1])
+    plan = claim_recovery.analyze(bank)
+    assert plan.counts()["no_current_replacement"] == 1
+    assert plan.items[0].to_dict() == {"claim_id": c2.id, "page": PAGE, "removed_in": plan.items[0].removed_in,
+                                       "class": "no_current_replacement"}
+    head = _git(bank, "rev-parse", "HEAD")
+    assert claim_recovery.apply(bank).recovered == 0
+    assert _git(bank, "rev-parse", "HEAD") == head
+
+
+def test_a_claim_already_closed_when_dropped_comes_back_with_its_own_close(bank):
+    c1, c2 = _claim(1), _claim(2, valid_to="2026-09-15", superseded_by="clm_gone")
+    _seed(bank, [c1, c2])
+    _drop(bank, [c1])
+    assert _counts(bank)["closed_history"] == 1
+    claim_recovery.apply(bank)
+    assert _claims_now(bank)[c2.id].valid_to == "2026-09-15"
+
+
+def test_a_conflicting_successor_never_leaves_two_open_beliefs(bank):
+    """The live order (prose written, THEN the claim pipeline): the old claim vanished before reconciliation, so a
+    newer single-valued claim never closed it. Recovery must not hand back the old one open beside it."""
+    (bank / "_predicates.yaml").write_text("single_valued:\n  - lives_in\n", encoding="utf-8")
+    old = _claim(2, predicate="lives_in", object="city-a")
+    _seed(bank, [_claim(1), old])
+    new = _claim(5, predicate="lives_in", object="city-b", valid_from=DROP_DAY)
+    _drop(bank, [_claim(1), new])
+    assert _counts(bank)["replaced"] == 1
+    claim_recovery.apply(bank)
+    open_slot = [c for c in _claims_now(bank).values() if c.predicate == "lives_in" and c.valid_to is None]
+    assert [c.id for c in open_slot] == [new.id]
+
+
+def test_without_a_vocabulary_a_different_object_is_not_a_replacement(bank):
+    old = _claim(2, predicate="lives_in", object="city-a")
+    _seed(bank, [_claim(1), old])
+    _drop(bank, [_claim(1), _claim(5, predicate="lives_in", object="city-b")])
+    assert _counts(bank)["no_current_replacement"] == 1
+
+
+def test_a_surviving_supersedes_link_marks_it_replaced(bank):
+    c1, c2 = _claim(1), _claim(2)
+    _seed(bank, [c1, c2])
+    _drop(bank, [c1, _claim(6, object="tool-other", supersedes=c2.id)])
+    assert _counts(bank)["replaced"] == 1
+    claim_recovery.apply(bank)
+    assert _claims_now(bank)[c2.id].valid_to == DROP_DAY
+
+
+def test_a_stated_end_that_passed_first_is_the_close(bank):
+    c1, c2 = _claim(1), _claim(2, expected_end="2026-09-30", valid_from="2026-09-01")
+    _seed(bank, [c1, c2])
+    _drop(bank, [c1, _restated(c2, 9)])
+    claim_recovery.apply(bank)
+    assert _claims_now(bank)[c2.id].valid_to == "2026-09-30"
+
+
+# --- who removed it ----------------------------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("subject,author,reason", [
@@ -111,185 +194,239 @@ def test_a_claim_dropped_and_then_restated_is_not_a_candidate(bank):
     ("Inbox resolution (conflict) 2026-10-02", "cicada", "inbox_resolution"),
     ("Agent write 2026-10-02", "claude-code", "other_writer"),
     ("Dedup sweep 2026-10-02", "cicada", "merged"),
+    ("Sleep cycle 2026-10-02", "claude-code", "unproven_writer"),
+    ("Sleep cycle 2026-10-02", None, "unproven_writer"),
+    ("Sleep cycle 2026-10-02", "unknown", "unproven_writer"),
 ])
-def test_a_claim_removed_by_anything_but_a_sleep_rewrite_is_never_recovered(bank, subject, author, reason):
+def test_only_a_sleep_commit_by_a_model_or_cicada_is_a_rewrite_candidate(bank, subject, author, reason):
     c1, c2 = _claim(1), _claim(2)
     _seed(bank, [c1, c2])
-    _commit(bank, subject, [_page(bank, "alpha-project", "## Overview\nEdited prose.\n", [c1])], author=author)
-
-    plan = claim_recovery.analyze(bank)
-    assert plan.counts()["recoverable"] == 0
-    assert plan.counts()["excluded"] == {reason: 1}
+    _drop(bank, [c1, _restated(c2, 9)], subject=subject, author=author)
+    assert _counts(bank)["excluded"] == {reason: 1}
     assert claim_recovery.apply(bank).recovered == 0
 
 
 def test_the_last_removal_decides(bank):
-    """Sleep dropped it, the fact came back, then the person removed it: that removal is the one that stands."""
     c1, c2 = _claim(1), _claim(2)
     _seed(bank, [c1, c2])
-    _drop_by_sleep(bank, keep=[c1])
-    _drop_by_sleep(bank, keep=[c1, c2], subject="Sleep cycle 2026-10-03")
-    _commit(bank, "Memory update 2026-10-04", [_page(bank, "alpha-project", "## Overview\nMine.\n", [c1])],
-            author="user")
-    assert claim_recovery.analyze(bank).counts()["excluded"] == {"person_edit": 1}
+    _drop(bank, [c1])
+    _drop(bank, [c1, c2], prose="## Overview\nAgain.\n", subject="Sleep cycle 2026-10-03")
+    _drop(bank, [c1, _restated(c2, 9)], prose="## Overview\nMine.\n", subject="Memory update 2026-10-04",
+          author="user")
+    assert _counts(bank)["excluded"] == {"person_edit": 1}
 
 
-def test_a_retracted_claim_is_never_recovered(bank):
+def test_a_fence_lost_while_a_different_section_changed_is_not_the_rewrite(bank):
+    """A hand edit removed the entry; Sleep later rewrote another section and committed both: not the signature."""
+    c1, c2 = _claim(1), _claim(2)
+    prose = "## Overview\nFirst prose.\n\n## Related\n- [[bob-example]]\n"
+    _seed(bank, [c1, c2], prose=prose)
+    _drop(bank, [c1, _restated(c2, 9)], prose="## Overview\nRewritten.\n\n## Related\n- [[bob-example]]\n")
+    assert _counts(bank)["excluded"] == {"not_rewrite": 1}
+
+
+def test_a_fence_lost_under_unchanged_prose_is_not_the_rewrite(bank):
     c1, c2 = _claim(1), _claim(2)
     _seed(bank, [c1, c2])
-    record = _claim(3, predicate=RETRACT_PREDICATE, object=c2.id, valid_from="2026-10-02", valid_to="2026-10-02")
-    _drop_by_sleep(bank, keep=[c1, record])
-    assert claim_recovery.analyze(bank).counts()["excluded"] == {"retracted": 1}
+    _drop(bank, [c1, _restated(c2, 9)], prose=FIRST)
+    assert _counts(bank)["excluded"] == {"not_rewrite": 1}
+
+
+# --- what the history says about it -------------------------------------------------------------------------------
+
+
+def test_a_claim_retracted_at_any_point_is_never_recovered(bank):
+    c1, c2 = _claim(1), _claim(2)
+    record = _claim(3, predicate=RETRACT_PREDICATE, object=c2.id, valid_from="2026-10-01", valid_to="2026-10-01")
+    closed = _claim(2, valid_to="2026-10-01", superseded_by=record.id)
+    _seed(bank, [c1, closed, record])
+    _drop(bank, [c1, _restated(c2, 9)])   # the rewrite took the target AND its record
+    assert _counts(bank)["excluded"] == {"retracted": 2}
 
 
 def test_a_claim_a_merge_carried_under_a_new_id_is_never_recovered(bank):
     c1, c2 = _claim(1), _claim(2)
     _seed(bank, [c1, c2])
-    _drop_by_sleep(bank, keep=[c1])
+    _drop(bank, [c1, _restated(c2, 9)])
     moved = _claim(2, id=f"{c2.id}-from-bob-example", subject="bob-example")
     _commit(bank, "Dedup sweep 2026-10-03", [_page(bank, "bob-example", "## Overview\nBob.\n", [moved])],
             author="cicada")
-    assert claim_recovery.analyze(bank).counts()["excluded"] == {"merged": 1}
+    assert _counts(bank)["excluded"] == {"merged": 1}
 
 
-def test_a_page_deleted_or_archived_since_is_left_alone(bank):
+def test_a_page_archived_at_the_removal_stays_excluded_after_reactivation(bank):
     c1, c2 = _claim(1), _claim(2)
     _seed(bank, [c1, c2])
-    _drop_by_sleep(bank, keep=[c1])
-    _commit(bank, "Sleep cycle 2026-10-03 (decay)",
-            [_page(bank, "alpha-project", "## Overview\nRewritten, longer prose.\n", [c1], status="archived")],
-            author="cicada")
-    assert claim_recovery.analyze(bank).counts()["excluded"] == {"page_archived": 1}
-
-    (bank / "entities" / "alpha-project.md").unlink()
-    _commit(bank, "Memory update 2026-10-04", ["entities/alpha-project.md"], author="user")
-    # c1 went with the page the person deleted: their removal, not a rewrite's.
-    assert claim_recovery.analyze(bank).counts()["excluded"] == {"page_gone": 1, "person_edit": 1}
+    _drop(bank, [c1, _restated(c2, 9)], subject="Sleep cycle 2026-10-02 (decay)", author="cicada",
+          status="archived")
+    _drop(bank, [c1, _restated(c2, 9)], subject="Memory update 2026-10-03", author="user")   # reactivated
+    assert _counts(bank)["excluded"] == {"page_archived": 1}
 
 
-def test_a_sleep_commit_that_lost_claims_without_rewriting_prose_is_reported_not_recovered(bank):
-    """The rewrite bug's signature is prose that moved; a fence that shrank under unchanged prose is something else
-    (a hand edit a Sleep commit swept up) — excluded, never guessed at."""
+def test_a_page_deleted_since_is_left_alone(bank):
     c1, c2 = _claim(1), _claim(2)
     _seed(bank, [c1, c2])
-    _drop_by_sleep(bank, keep=[c1], prose="## Overview\nFirst prose.\n")
-    assert claim_recovery.analyze(bank).counts()["excluded"] == {"prose_unchanged": 1}
+    _drop(bank, [c1, _restated(c2, 9)])
+    (bank / PAGE).unlink()
+    _commit(bank, "Memory update 2026-10-04", [PAGE], author="user")
+    assert _counts(bank)["excluded"]["page_gone"] == 1
 
 
-# --- dry run, plan file, CLI -------------------------------------------------------------------------------------
+# --- unreadable fences ---------------------------------------------------------------------------------------------
+
+
+def test_an_unterminated_fence_is_never_written_to(bank):
+    c1, c2 = _claim(1), _claim(2)
+    _seed(bank, [c1, c2])
+    _drop(bank, [c1, _restated(c2, 9)])
+    path = bank / PAGE
+    text = path.read_text(encoding="utf-8")
+    path.write_text(text[:text.rindex("```")] + f"- id: {c2.id}\n  text: trapped\n", encoding="utf-8")
+    _commit(bank, "Memory update 2026-10-03", [PAGE], author="user")
+    trapped = path.read_bytes()
+    assert _counts(bank)["excluded"] == {"unreadable_fence": 1}
+    assert claim_recovery.apply(bank).recovered == 0
+    assert path.read_bytes() == trapped
+
+
+def test_an_unreadable_page_elsewhere_that_names_the_id_blocks_recovery(bank):
+    c1, c2 = _claim(1), _claim(2)
+    _seed(bank, [c1, c2])
+    _drop(bank, [c1, _restated(c2, 9)])
+    other = bank / "entities" / "bob-example.md"
+    other.write_text(f"---\nid: bob-example\n---\n\n```claims\n- id: {c2.id}\n  text: [unclosed\n```\n",
+                     encoding="utf-8")
+    _commit(bank, "Memory update 2026-10-03", ["entities/bob-example.md"], author="user")
+    assert _counts(bank)["excluded"] == {"unreadable_elsewhere": 1}
+
+
+# --- bytes ---------------------------------------------------------------------------------------------------------
+
+
+def test_a_legacy_entry_and_unknown_fields_come_back_as_the_yaml_held_them(bank):
+    kept = ("- id: keep-1\n  text: Kept.\n  subject: alpha-project\n  predicate: uses\n  object: tool-9\n"
+            "  custom_note: kept verbatim\n")
+    lost = "- id: lost-1\n  text: Legacy.\n  subject: alpha-project\n  predicate: uses\n  object: tool-9\n  odd_field: 7\n"
+    path = bank / PAGE
+    path.write_text(f"---\nid: alpha-project\nstatus: active\n---\n\n{FIRST}\n```claims\n{kept}{lost}```\n",
+                    encoding="utf-8")
+    _commit(bank, "Sleep cycle 2026-10-01", [PAGE])
+    path.write_text(f"---\nid: alpha-project\nstatus: active\n---\n\n{REWRITTEN}\n```claims\n{kept}```\n",
+                    encoding="utf-8")
+    _commit(bank, "Sleep cycle 2026-10-02", [PAGE])
+    before = path.read_text(encoding="utf-8")
+    dropped_in = _git(bank, "rev-parse", "HEAD").strip()
+
+    assert claim_recovery.apply(bank).recovered == 1
+    after = path.read_text(encoding="utf-8")
+    assert after.startswith(before[:before.rindex("```")]), "frontmatter, prose and the surviving entry untouched"
+    assert raw_claim_entries(after)[1] == {"id": "lost-1", "text": "Legacy.", "subject": "alpha-project",
+                                           "predicate": "uses", "object": "tool-9", "odd_field": 7,
+                                           "valid_to": DROP_DAY, "recovered_from": dropped_in,
+                                           "recovered_by": "claim_recovery"}
+
+
+def test_recovery_markers_survive_a_later_writer_re_rendering_the_fence(bank):
+    c1, c2 = _claim(1), _claim(2)
+    _seed(bank, [c1, c2])
+    _drop(bank, [c1, _restated(c2, 9)])
+    claim_recovery.apply(bank)
+    parsed = markdown_parser.parse(bank / PAGE)
+    again = parse_claims(write_claims(parsed.body, parse_claims(parsed.body, strict=True)))
+    assert next(c for c in again if c.id == c2.id).recovered_by == "claim_recovery"
+
+
+# --- dry run, apply transaction -----------------------------------------------------------------------------------
 
 
 def test_a_dry_run_writes_nothing_and_its_plan_carries_no_claim_text(bank, tmp_path, capsys):
     c1, c2 = _claim(1), _spanned(bank, 2)
     _seed(bank, [c1, c2])
-    _drop_by_sleep(bank, keep=[c1])
+    _drop(bank, [c1, _restated(c2, 9)])
     head = _git(bank, "rev-parse", "HEAD")
-    before = (bank / "entities" / "alpha-project.md").read_bytes()
+    before = (bank / PAGE).read_bytes()
     out = tmp_path / "plan.json"
 
     assert claim_recovery.main(["--bank", str(bank), "--plan", str(out)]) == 0
 
     assert _git(bank, "rev-parse", "HEAD") == head and _git(bank, "status", "--porcelain") == ""
-    assert (bank / "entities" / "alpha-project.md").read_bytes() == before
+    assert (bank / PAGE).read_bytes() == before
     plan = json.loads(out.read_text(encoding="utf-8"))
-    assert plan["counts"]["recoverable"] == 1
-    assert plan["recoverable"][0]["claim_id"] == c2.id
-    assert plan["recoverable"][0]["page"] == "entities/alpha-project.md"
+    assert plan["counts"]["replaced"] == 1
+    assert plan["items"][0]["claim_id"] == c2.id and plan["items"][0]["class"] == "replaced"
     printed = capsys.readouterr().out
     for text in (out.read_text(encoding="utf-8"), printed):
         assert c2.text not in text and c1.text not in text and "example tool" not in text
-    assert "recoverable: 1" in printed
-
-
-def test_the_cli_applies_and_says_what_it_did(bank, capsys):
-    c1, c2 = _claim(1), _claim(2)
-    _seed(bank, [c1, c2])
-    _drop_by_sleep(bank, keep=[c1])
-    assert claim_recovery.main(["--bank", str(bank), "--apply"]) == 0
-    assert _ids(bank, "alpha-project") == [c1.id, c2.id]
-    printed = capsys.readouterr().out
-    assert "recovered: 1" in printed and c2.text not in printed
-
-
-# --- apply -------------------------------------------------------------------------------------------------------
+    assert "replaced: 1" in printed and "no_current_replacement: 0" in printed
 
 
 def test_apply_commits_only_the_pages_it_touched_as_cicada_and_is_idempotent(bank):
     c1, c2, c3 = _claim(1), _claim(2), _claim(3)
     _seed(bank, [c1, c2, c3])
-    _drop_by_sleep(bank, keep=[c1])
-    _page(bank, "bob-example", "## Overview\nUncommitted.\n", [])   # someone else's uncommitted page
+    _drop(bank, [c1, _restated(c2, 8), _restated(c3, 9)])
+    _page(bank, "bob-example", "## Overview\nUncommitted.\n", [])
 
-    result = claim_recovery.apply(bank)
-    assert result.recovered == 2
-    assert _ids(bank, "alpha-project") == [c1.id, c2.id, c3.id]
+    assert claim_recovery.apply(bank).recovered == 2
     shown = _git(bank, "show", "--name-only", "--format=%s%n%(trailers:key=Cicada-Author,valueonly)", "HEAD")
     assert shown.splitlines()[0].startswith("Recover dropped claims ")
     assert "cicada" in shown.splitlines()[1]
-    assert [ln for ln in shown.splitlines() if ln.startswith("entities/")] == ["entities/alpha-project.md"]
+    assert [ln for ln in shown.splitlines() if ln.startswith("entities/")] == [PAGE]
     assert "?? entities/bob-example.md" in _git(bank, "status", "--porcelain")
 
     head = _git(bank, "rev-parse", "HEAD")
     again = claim_recovery.apply(bank)
-    assert again.recovered == 0 and again.commit is None
-    assert _git(bank, "rev-parse", "HEAD") == head
-    assert claim_recovery.analyze(bank).counts()["candidates"] == 0
+    assert again.recovered == 0 and again.commit is None and _git(bank, "rev-parse", "HEAD") == head
+    assert _counts(bank)["candidates"] == 0
 
 
 def test_apply_refuses_while_sleep_holds_the_pages(bank):
     c1, c2 = _claim(1), _claim(2)
     _seed(bank, [c1, c2])
-    _drop_by_sleep(bank, keep=[c1])
+    _drop(bank, [c1, _restated(c2, 9)])
     head = _git(bank, "rev-parse", "HEAD")
     with pytest.raises(claim_recovery.SleepIsWriting):
         claim_recovery.apply(bank, sleep_holding=lambda: True)
     assert _git(bank, "rev-parse", "HEAD") == head and _git(bank, "status", "--porcelain") == ""
 
 
+def test_sleep_is_asked_while_the_admission_is_held(bank):
+    c1, c2 = _claim(1), _claim(2)
+    _seed(bank, [c1, c2])
+    _drop(bank, [c1, _restated(c2, 9)])
+    seen: list[int] = []
+    claim_recovery.apply(bank, sleep_holding=lambda: seen.append(write_admission.holders(bank)) or False)
+    assert seen == [1], "the answer must hold until the commit: a window cannot open under a shared holder"
+
+
 def test_apply_skips_a_page_with_an_uncommitted_edit(bank):
     c1, c2 = _claim(1), _claim(2)
     _seed(bank, [c1, c2])
-    _drop_by_sleep(bank, keep=[c1])
-    path = bank / "entities" / "alpha-project.md"
+    _drop(bank, [c1, _restated(c2, 9)])
+    path = bank / PAGE
     path.write_text(path.read_text(encoding="utf-8") + "\nA hand edit.\n", encoding="utf-8")
     edited = path.read_bytes()
-
     result = claim_recovery.apply(bank)
-    assert result.recovered == 0 and result.skipped_dirty == ["entities/alpha-project.md"]
-    assert path.read_bytes() == edited
+    assert result.recovered == 0 and result.skipped_dirty == [PAGE] and path.read_bytes() == edited
 
 
 def test_a_span_that_no_longer_locates_is_kept_as_reasoning(bank):
-    c1, c2, c3 = _claim(1), _spanned(bank, 2), _spanned(bank, 3)
-    _seed(bank, [c1, c2, c3])
-    _drop_by_sleep(bank, keep=[c1, c3])
-    _drop_by_sleep(bank, keep=[c1], prose="## Overview\nRewritten again.\n", subject="Sleep cycle 2026-10-03")
-    # The episode is rewritten in place (not appended to): c2's and c3's offsets no longer point at their words.
+    c1, c2 = _claim(1), _spanned(bank, 2)
+    _seed(bank, [c1, c2])
+    _drop(bank, [c1, _restated(c2, 9)])
     markdown_parser.write(bank / "episodes" / f"{EP}.md", {"id": EP, "processed": True}, "user: something else\n")
     _commit(bank, "Sources ingest 2026-10-04", [f"episodes/{EP}.md"], author="cicada")
 
     result = claim_recovery.apply(bank)
-    assert result.recovered == 2 and result.degraded_spans == 2
-    recovered = {c.id: c for c in parse_claims(markdown_parser.parse(bank / "entities" / "alpha-project.md").body)}
-    for cid in (c2.id, c3.id):
-        (ev,) = recovered[cid].evidence
-        assert ev.kind == "reasoning" and ev.start == ev.end == -1 and ev.episode == EP
-        assert recovered[cid].text == _claim(int(cid[-3:])).text, "the claim is still written"
-
-
-def test_a_bank_without_git_is_refused(tmp_path):
-    (tmp_path / "plain" / "entities").mkdir(parents=True)
-    with pytest.raises(claim_recovery.NotAGitBank):
-        claim_recovery.analyze(tmp_path / "plain")
-    assert claim_recovery.main(["--bank", str(tmp_path / "plain")]) == 2
+    assert result.recovered == 1 and result.degraded_spans == 1
+    (ev,) = _claims_now(bank)[c2.id].evidence
+    assert ev.kind == "reasoning" and ev.start == ev.end == -1 and ev.episode == EP
 
 
 def test_a_failed_commit_puts_the_pages_back(bank, monkeypatch):
     c1, c2 = _claim(1), _claim(2)
     _seed(bank, [c1, c2])
-    _drop_by_sleep(bank, keep=[c1])
-    before = (bank / "entities" / "alpha-project.md").read_bytes()
-
+    _drop(bank, [c1, _restated(c2, 9)])
+    before = (bank / PAGE).read_bytes()
     real = git_service._git_sync
 
     def failing_commit(memory_path, *args):
@@ -300,16 +437,97 @@ def test_a_failed_commit_puts_the_pages_back(bank, monkeypatch):
     monkeypatch.setattr(git_service, "_git_sync", failing_commit)
     with pytest.raises(git_service.GitError):
         claim_recovery.apply(bank)
-    assert (bank / "entities" / "alpha-project.md").read_bytes() == before
-    assert _git(bank, "status", "--porcelain") == ""
+    assert (bank / PAGE).read_bytes() == before and _git(bank, "status", "--porcelain") == ""
 
 
-def test_sleep_is_asked_while_the_admission_is_held(bank):
-    from api.services import write_admission
+def test_a_bank_without_git_is_refused(tmp_path):
+    (tmp_path / "plain" / "entities").mkdir(parents=True)
+    with pytest.raises(claim_recovery.NotAGitBank):
+        claim_recovery.analyze(tmp_path / "plain")
+    assert claim_recovery.main(["--bank", str(tmp_path / "plain")]) == 2
 
+
+# --- the CLI's Sleep check fails closed -----------------------------------------------------------------------------
+
+
+def _serve(monkeypatch, status: int, body: bytes):
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802 — the stdlib's name
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *_a):
+            pass
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    monkeypatch.setenv("CICADA_PORT", str(server.server_address[1]))
+    return server
+
+
+def _free_port() -> int:
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+@pytest.mark.parametrize("status,body", [
+    (401, b'{"detail": "missing or invalid bearer token"}'),
+    (403, b"{}"),
+    (500, b"oops"),
+    (200, b"not json"),
+    (200, b'{"status": "idle"}'),
+    (200, b'{"writing": "false"}'),
+    (200, b'{"writing": true}'),
+])
+def test_the_cli_refuses_unless_the_backend_clearly_says_sleep_is_not_writing(bank, monkeypatch, status, body):
     c1, c2 = _claim(1), _claim(2)
     _seed(bank, [c1, c2])
-    _drop_by_sleep(bank, keep=[c1])
-    seen: list[int] = []
-    claim_recovery.apply(bank, sleep_holding=lambda: seen.append(write_admission.holders(bank)) or False)
-    assert seen == [1], "the answer must hold until the commit: a window cannot open under a shared holder"
+    _drop(bank, [c1, _restated(c2, 9)])
+    head = _git(bank, "rev-parse", "HEAD")
+    server = _serve(monkeypatch, status, body)
+    try:
+        assert claim_recovery.main(["--bank", str(bank), "--apply"]) == 3
+    finally:
+        server.shutdown()
+    assert _git(bank, "rev-parse", "HEAD") == head and _git(bank, "status", "--porcelain") == ""
+
+
+def test_the_cli_refuses_when_no_backend_answers(bank, monkeypatch):
+    c1, c2 = _claim(1), _claim(2)
+    _seed(bank, [c1, c2])
+    _drop(bank, [c1, _restated(c2, 9)])
+    monkeypatch.setenv("CICADA_PORT", str(_free_port()))
+    assert claim_recovery.main(["--bank", str(bank), "--apply"]) == 3
+
+
+def test_the_cli_applies_when_the_backend_says_sleep_is_not_writing(bank, monkeypatch, capsys):
+    c1, c2 = _claim(1), _claim(2)
+    _seed(bank, [c1, c2])
+    _drop(bank, [c1, _restated(c2, 9)])
+    server = _serve(monkeypatch, 200, b'{"status": "idle", "writing": false}')
+    try:
+        assert claim_recovery.main(["--bank", str(bank), "--apply"]) == 0
+    finally:
+        server.shutdown()
+    assert _claims_now(bank)[c2.id].valid_to == DROP_DAY
+    printed = capsys.readouterr().out
+    assert "restored as history: 1 entries" in printed and c2.text not in printed
+
+
+def test_two_concurrent_applies_restore_once(bank):
+    c1, c2 = _claim(1), _claim(2)
+    _seed(bank, [c1, c2])
+    _drop(bank, [c1, _restated(c2, 9)])
+    head = _git(bank, "rev-parse", "HEAD").strip()
+    results: list[int] = []
+    workers = [threading.Thread(target=lambda: results.append(claim_recovery.apply(bank).recovered)) for _ in range(2)]
+    for t in workers:
+        t.start()
+    for t in workers:
+        t.join(30)
+    assert sorted(results) == [0, 1]
+    assert _git(bank, "rev-list", "--count", f"{head}..HEAD").strip() == "1"
+    assert [c.id for c in _claims_now(bank).values()].count(c2.id) == 1
