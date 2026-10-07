@@ -1786,9 +1786,13 @@ def _answer_normalization(path: Path, request, settings, label: str) -> str:
                 extra.append(manifest)
         elif key == "1" and is_fold:  # wrong fold — keep the raw predicate separate
             def split(data: dict) -> bool:
+                # Every spelling the normalizer folds onto this pair goes, the
+                # way the pair was deduplicated (`predicates.fold_key`): a key
+                # whose slug is the raw label's and which maps to the questioned
+                # canonical — never another label's fold.
                 syn = {str(k): v for k, v in (data.get("synonyms") or {}).items()}
                 for k in list(syn):
-                    if k.strip().lower() in (raw.strip().lower(), raw_slug):
+                    if predicates.fold_key(k, str(syn[k])) == (raw_slug, canonical):
                         syn.pop(k)
                 canon = [str(c) for c in (data.get("canonical") or [])]
                 if raw_slug not in canon:

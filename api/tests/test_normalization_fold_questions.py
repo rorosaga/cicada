@@ -510,3 +510,36 @@ def test_a_window_opening_while_the_answer_waited_refuses_and_writes_nothing(tmp
                                           _ResolveSettings(memory)))
     after = {p: p.read_bytes() for p in memory.rglob("*") if p.is_file() and ".git" not in p.parts}
     assert after == before
+
+
+# ---------------------------------------------------------------- rejecting a pair rejects its spellings (review round 1, #3)
+
+
+def test_wrong_fold_on_one_spelling_stops_every_spelling_of_the_pair(tmp_path):
+    memory, _ = _resolvable_bank(tmp_path)
+
+    def add_spellings(data):
+        data["synonyms"]["built-with"] = "uses"          # a slug-shaped key: "Built With!" resolves through it
+        data["synonyms"]["built  with"] = "uses"         # a stray double-space key
+        data["synonyms"]["is built with"] = "uses"       # a different label: not this pair, stays
+        return True
+
+    predicates.update_runtime_map(memory, add_spellings)
+    _git(memory, "commit", "-qam", "spellings")
+    for p, _ in _items(memory):
+        p.unlink()
+    inbox_generator.write_claim_nudges([_fold("alpha-project", "clm_a", raw="Built  With")], memory)
+    _git(memory, "add", "-A")
+    _git(memory, "commit", "-qm", "ask")
+    (path, _), = _items(memory)
+    asyncio.run(inbox_service.resolve(path.stem, InboxResolveRequest(action="resolve", option_key="1"),
+                                      _ResolveSettings(memory)))
+    normalize = predicates.load_normalizer(memory)
+    for spelling in ("built with", "Built  With", "BUILT WITH", "built-with", "Built With!", "built_with"):
+        assert normalize(spelling) == "built-with", spelling
+    assert normalize("is built with") == "uses"
+    # the next extraction neither folds it nor asks
+    claims = entities_to_claims(_extracted([("Gamma Store", "Built  With", "Example Lib")]), memory)
+    assert claims[0].predicate == "built-with"
+    _, nudges, _ = reconcile_stage3(claims, {}, _Settings(memory), decay=False)
+    assert _fold_nudges(nudges) == []
