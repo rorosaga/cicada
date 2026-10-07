@@ -55,7 +55,9 @@ TOOL_SCOPE: dict[str, str | None] = {
     "cicada_resolve_inbox": "answer",
     "cicada_ask": "ask",
 }
-NEVER_REMOTE = frozenset({"cicada_pending", "cicada_mark_processed", "cicada_repo_context"})
+# G110 slice 1a: `cicada_continue` reads the person's verbatim words for a folder
+# the caller names; slice 4 (G135) decides whether and under which scope it goes remote.
+NEVER_REMOTE = frozenset({"cicada_pending", "cicada_mark_processed", "cicada_repo_context", "cicada_continue"})
 WRITE_TOOLS = frozenset({"cicada_save_episode", "cicada_write_claim", "cicada_retract_claim",
                          "cicada_save_url", "cicada_record_watch", "cicada_record_read", "cicada_record_check", "cicada_add_source",
                          "cicada_change_source",
