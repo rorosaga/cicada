@@ -361,6 +361,22 @@ name before it has a page is not lost (G141 PJ-0b): Stage 5.56 holds those claim
 the rest counted) and releases them onto the page, first and through Stage 3, in the cycle whose Stage 5
 gives the name one — a holding line leaves the store only then.
 
+**The owner is never a page of a pronoun (G169).** One closed, language-aware set of self-references
+(`owner_identity.SELF_REFERENCES`: "user", "the user", "me", "myself", "I", "the person", "the owner",
+"owner", "el usuario", "la usuaria", "usuario", "usuaria", "yo"; `is_self_reference` ignores case, outer
+quotes, trailing punctuation and spacing) is the bank's `owner: true` page everywhere Sleep keys a name: Stage 2
+merges a self-reference entity into the owner page under its own name and type (self-reference aliases dropped)
+and resolves a self-reference edge endpoint to it; Sleep's claims key through the same rule
+(`claim_pipeline.subject_resolver`), so a held claim that points at the person points at the owner page. With no
+owner page a self-reference is dropped — never a page, a pending line or a "Who is User?" question. A link to
+the owner page is **not** the promotion rule's link to a high-confidence page (everything the person mentions
+is linked to them). Stage 1's prompt gains an owner block (`entity_extractor.owner_block`) and the synthesis
+prompt an owner line (`conflict_resolver._owner_line`) naming the owner page's `name`, read once per extraction
+(`owner_identity.owner_name`), so prose says the name, never "the user"; a bank without an owner page keeps the
+prompts unchanged. An older bank that already holds a `user` page beside its owner page is not migrated: new
+self-references stop feeding it, and folding it in is the dedup merge (`dedup_sweep` / `entity_merge`, loser
+`user`, winner the owner page) behind the person's explicit call — not built.
+
 ### Temporal decay
 Absence of mention IS a signal, and **how often something came up sets how fast its absence
 counts** (G147). Each Sleep cycle charges an unreferenced page at most one week

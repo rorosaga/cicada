@@ -9,7 +9,7 @@ from loguru import logger
 from thefuzz import fuzz
 
 from api.config import Settings
-from api.services import engine_errors, json_parse
+from api.services import engine_errors, json_parse, owner_identity
 from api.services.clarification_manager import (
     CONFIDENCE_THRESHOLD,
     ClarificationManager,
@@ -37,6 +37,14 @@ def endpoint_id(name: str, name_to_id: dict[str, str]) -> str | None:
         if fuzz.ratio(key, known_name) > 85:
             return known_id
     return None
+
+
+def _edge_endpoint(name: str, name_to_id: dict[str, str], owner_id: str | None) -> str | None:
+    """:func:`endpoint_id`, with a self-reference keyed to the owner page (G169) —
+    and to nothing when the bank has none, never to a page named after a pronoun."""
+    if owner_identity.is_self_reference(name):
+        return owner_id
+    return endpoint_id(name, name_to_id)
 
 
 async def resolve(
@@ -102,6 +110,19 @@ async def resolve(
         name = e["frontmatter"].get("name", e["id"].replace("-", " ").title())
         existing_by_name[name.lower()] = e
 
+    # G169: "User", "the user", "me", "yo"... is the bank's owner, never a page of
+    # its own. One rule (`owner_identity.is_self_reference`), the one Sleep's
+    # claims key through too (`claim_pipeline.subject_resolver`).
+    owner_id = owner_identity.owner_page_id(existing, getattr(settings, "memory_path", None), settings)
+    owner_entity = next((e for e in existing if e["id"] == owner_id), None) if owner_id else None
+    self_entities = [
+        entity for extraction in extracted for entity in extraction.get("entities", [])
+        if owner_identity.is_self_reference(entity.get("name", ""))
+    ]
+    if self_entities:
+        logger.info(f"Stage 2: {len(self_entities)} self-reference(s) "
+                    + ("merged into the owner page" if owner_entity else "dropped (this bank has no owner page)"))
+
     # Count mentions across episodes for promotion threshold
     mention_counts: Counter = Counter()
     episode_mentions: dict[str, set[str]] = {}  # entity_name -> set of episode_ids
@@ -119,6 +140,8 @@ async def resolve(
         per_episode_names: list[str] = []
         for entity in extraction.get("entities", []):
             name = entity["name"]
+            if owner_identity.is_self_reference(name):
+                continue
             mention_counts[name.lower()] += 1
             episode_mentions.setdefault(name.lower(), set()).add(episode_id)
             all_entities.append(entity)
@@ -175,6 +198,25 @@ async def resolve(
     # loop completes without cancelling. `cancelled` records whether it did.
     pending_actions: list[tuple[Callable, tuple, dict]] = []
     cancelled = False
+
+    # A self-reference's facts are the owner's: they land on the owner page, under
+    # its own name and type (a "User" concept must not retype or rename it). With
+    # no owner page they are dropped — never a `user` page, never a pending line,
+    # never a "Who is User?" question (R-CS2).
+    if owner_entity is not None:
+        owner_fm = owner_entity.get("frontmatter") or {}
+        for entity in self_entities:
+            _merge_into_update(
+                updates_by_id=resolved_updates,
+                existing_entity=owner_entity,
+                incoming={
+                    **entity,
+                    "name": owner_fm.get("name") or entity.get("name"),
+                    "type": "person",
+                    "aliases": [a for a in entity.get("aliases") or []
+                                if not owner_identity.is_self_reference(a)],
+                },
+            )
 
     # Process more specific names first so "Bob Example" becomes the
     # canonical in-cycle entity and "Bob" can merge into it rather than
@@ -244,7 +286,7 @@ async def resolve(
 
         # New entity — check promotion threshold
         episodes_seen = len(episode_mentions.get(name_lower, set()))
-        linked_to_existing = _is_linked_to_existing(name, all_relationships, existing_by_name)
+        linked_to_existing = _is_linked_to_existing(name, all_relationships, existing_by_name, owner_id=owner_id)
 
         # Promote if the entity is already in pending from a previous cycle
         pending_entry = None
@@ -346,9 +388,10 @@ async def resolve(
     seen_edges: set[tuple[str, str, str]] = set()
     for rel in all_relationships:
         label = rel.get("label", "related to")
-        # Exact, then fuzzy — one rule, shared with Sleep's claims (G141 PJ-0).
-        source_id = endpoint_id(rel.get("source", ""), name_to_id)
-        target_id = endpoint_id(rel.get("target", ""), name_to_id)
+        # Self-references first (G169), then exact, then fuzzy — one rule,
+        # shared with Sleep's claims (G141 PJ-0, `claim_pipeline.subject_resolver`).
+        source_id = _edge_endpoint(rel.get("source", ""), name_to_id, owner_id)
+        target_id = _edge_endpoint(rel.get("target", ""), name_to_id, owner_id)
 
         if source_id and target_id and source_id != target_id:
             key = (source_id, target_id, label.lower())
@@ -678,9 +721,13 @@ def _latest_timestamp(left: str | None, right: str | None) -> str | None:
 
 
 def _is_linked_to_existing(
-    name: str, relationships: list[dict], existing: dict[str, dict]
+    name: str, relationships: list[dict], existing: dict[str, dict], *, owner_id: str | None = None,
 ) -> bool:
-    """Check if entity is linked to a high-confidence existing entity."""
+    """Check if entity is linked to a high-confidence existing entity.
+
+    The owner's page never counts (G169): everything the person talks about is
+    linked to them, so that link is no sign a first mention matters — the
+    promotion rule would otherwise promote every name on its first mention."""
     for rel in relationships:
         partner = None
         if rel.get("source", "").lower() == name.lower():
@@ -688,7 +735,11 @@ def _is_linked_to_existing(
         elif rel.get("target", "").lower() == name.lower():
             partner = rel.get("source", "").lower()
 
+        if partner and owner_identity.is_self_reference(partner):
+            continue
         if partner and partner in existing:
+            if owner_id and existing[partner]["id"] == owner_id:
+                continue
             confidence = existing[partner]["frontmatter"].get("confidence", 0)
             if confidence >= 0.6:
                 return True

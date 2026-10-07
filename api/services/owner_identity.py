@@ -55,6 +55,78 @@ DEFAULT_SUMMARY = "The main person this memory belongs to."
 PLACEHOLDER_KEY = "owner_placeholder"
 
 
+#: G169 — what a conversation or an extraction calls the person when it does not
+#: use their name: Stage 1 writes "User" or "the user"; a transcript says "me" or
+#: "I"; a Spanish one says "el usuario" or "yo". Each is the bank's owner, never a
+#: page of its own. Closed on purpose (R-PJ17, R-CS2): only these, only onto a page
+#: marked ``owner: true``. Not "you" — in a transcript that is the assistant
+#: speaking to the person, and in an export it is as often a title.
+SELF_REFERENCES = frozenset({
+    "user", "the user", "me", "myself", "i", "the person", "the owner", "owner",
+    "el usuario", "la usuaria", "usuario", "usuaria", "yo",
+})
+
+
+def is_self_reference(name: str) -> bool:
+    """Is ``name`` one of :data:`SELF_REFERENCES` — case, outer quotes, trailing
+    punctuation and inner spacing aside? The one test every Sleep step that keys
+    a name to a page runs (Stage 2's entities and edges, Sleep's claims)."""
+    key = " ".join(str(name or "").split()).lower().strip(" \"'`.,;:!?")
+    return key in SELF_REFERENCES
+
+
+def owner_page_id(existing: list[dict] | None, memory_path: Path | None, settings=None) -> str | None:
+    """The bank's ``owner: true`` page among Stage 2's ``existing`` list, or ``None``.
+
+    Two owner pages can exist (G117 R3's disclosed gap: re-onboarding under a
+    new display name writes a second page); the one :func:`resolve_observer`
+    answers with wins, else the first by id, so the answer never depends on file
+    order."""
+    owners = sorted(
+        str(e.get("id")) for e in (existing or [])
+        if isinstance(e, dict) and e.get("id") and (e.get("frontmatter") or {}).get("owner")
+    )
+    if len(owners) <= 1:
+        return owners[0] if owners else None
+    try:
+        resolved = resolve_observer(memory_path, settings)
+    except Exception:  # noqa: BLE001 - a tie-break is never worth a failed cycle
+        resolved = None
+    return resolved if resolved in owners else owners[0]
+
+
+def owner_name(memory_path: Path | None, settings=None) -> str | None:
+    """The ``name`` on this bank's ``owner: true`` page, or ``None`` without one —
+    what Sleep's prompts call the person (G169). The page :func:`resolve_observer`
+    names is read first (one file); only when that is not the owner page is the
+    bank scanned."""
+    if memory_path is None:
+        return None
+    entities_dir = Path(memory_path) / "entities"
+
+    def _name(path: Path) -> str | None:
+        try:
+            fm = markdown_parser.parse(path).frontmatter
+        except Exception:  # noqa: BLE001 - an unreadable page is no owner
+            return None
+        name = str(fm.get("name") or "").strip()
+        return name if fm.get("owner") is True and name else None
+
+    try:
+        first = entities_dir / f"{resolve_observer(memory_path, settings)}.md"
+    except Exception:  # noqa: BLE001
+        first = None
+    if first is not None and first.is_file():
+        name = _name(first)
+        if name:
+            return name
+    found = [(p.stem, n) for p in sorted(entities_dir.glob("*.md")) if (n := _name(p))]
+    if not found:
+        return None
+    winner = owner_page_id([{"id": i, "frontmatter": {"owner": True}} for i, _ in found], memory_path, settings)
+    return dict(found).get(winner)
+
+
 def owner_json_path() -> Path:
     return cicada_home() / OWNER_FILE_NAME
 

@@ -59,11 +59,11 @@ from api.services.entity_resolver import endpoint_id
 from api.services.id_utils import sanitize_id
 from api.services.pending_store import HoldOutcome, Release
 
-#: What Stage 1 writes for an endpoint that IS the person — its prompt speaks of
-#: "the user" (``entity_extractor.EXTRACTION_SYSTEM_PROMPT``). Closed on purpose
-#: (R-PJ17, R-CS2): only these, only onto a page marked ``owner: true``;
-#: whatever still misses is counted, and G141's M3 reads the count.
-OWNER_SURFACES = frozenset({"user", "the user", "me", "myself", "i"})
+#: What Stage 1 writes for an endpoint that IS the person (G169: one closed,
+#: language-aware set, ``owner_identity.SELF_REFERENCES``, shared with Stage 2).
+#: Only onto a page marked ``owner: true`` (R-PJ17, R-CS2); whatever still
+#: misses is counted, and G141's M3 reads the count.
+OWNER_SURFACES = owner_identity.SELF_REFERENCES
 
 #: G141 PJ-0b (R-HP2): the ids the owner surfaces key to when no owner page
 #: exists. Never held — R-CS2 never invents a `user` page, and a pending
@@ -73,22 +73,8 @@ _OWNER_SLUGS = frozenset(sanitize_id(s) for s in OWNER_SURFACES)
 
 
 def _owner_page_id(existing_entities: list[dict] | None, memory_path: Path, settings) -> str | None:
-    """The bank's ``owner: true`` page among Stage 2's ``existing`` list, or ``None``.
-
-    Two owner pages can exist (G117 R3's disclosed gap: re-onboarding under a
-    new display name writes a second page); the one ``owner_identity`` resolves
-    wins, else the first by id, so the answer never depends on file order."""
-    owners = sorted(
-        str(e.get("id")) for e in (existing_entities or [])
-        if isinstance(e, dict) and e.get("id") and (e.get("frontmatter") or {}).get("owner")
-    )
-    if len(owners) <= 1:
-        return owners[0] if owners else None
-    try:
-        resolved = owner_identity.resolve_observer(memory_path, settings)
-    except Exception:  # noqa: BLE001 - a tie-break is never worth a failed cycle
-        resolved = None
-    return resolved if resolved in owners else owners[0]
+    """The bank's ``owner: true`` page (``owner_identity.owner_page_id``)."""
+    return owner_identity.owner_page_id(existing_entities, memory_path, settings)
 
 
 def subject_resolver(name_to_id: dict[str, str] | None, owner_id: str | None) -> Callable[[str], str]:
@@ -101,10 +87,9 @@ def subject_resolver(name_to_id: dict[str, str] | None, owner_id: str | None) ->
     table = dict(name_to_id or {})
 
     def resolve(name: str) -> str:
-        key = (name or "").strip().lower()
-        if owner_id and key in OWNER_SURFACES:
+        if owner_id and owner_identity.is_self_reference(name):
             return owner_id
-        return endpoint_id(key, table) or sanitize_id(name)
+        return endpoint_id((name or "").strip().lower(), table) or sanitize_id(name)
 
     return resolve
 
