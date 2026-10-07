@@ -550,3 +550,19 @@ A whole row moves to DONE only after its remaining implementation and required a
     `main` and the website must never drift. Before this, 0.3.0 was built and dry-run four times but never published,
     and `main` trailed `dev` by 88 commits.
     Revisit on the owner's word (e.g. a release-candidate channel or an older-line hotfix branch).
+
+20. **G110 continuity rulings (owner, 2026-10-07): A — flush yes; B — head and tail; C — strip only what the harness marks.**
+    Recorded with the build that implements them (feat/g110-gates).
+    **A — amends ruling 7.** Stop stays the capture trigger; PreCompact and SessionEnd ALSO run the same deterministic
+    capture as a best-effort, idempotent flush, so a turn the person interrupted before a `/clear` or a compaction is not
+    lost. Every capture log line is tagged with its event (Stop / PreCompact / SessionEnd), so ruling 7's revisit signal
+    (timeout `error:` lines) stays visible per event. SessionEnd posts within Claude Code's 1.5 s budget.
+    **B — the capture cap keeps the head and the tail.** Over the 100k-character session cap, capture keeps the first
+    60k and the last 40k (the tail advancing in blocks of whole turns) with an explicit gap marker that is never a
+    speaker's words. Costs accepted knowingly (G104): a long active session is re-extracted as its tail moves; quotes in
+    turns that slide out degrade to `reasoning`; the person's words that slide out of the tail leave the bank. Revisit
+    if re-extraction cost on long sessions is measured as a problem (G104/G148).
+    **C — clarifies G149.** A Cicada note is dropped from capture only when the harness marks it as injected (whole
+    non-person records / harness envelopes). Text the person typed or pasted — even one starting with Cicada's header — is
+    kept as the person's words and counted/disclosed (`note_like_turns`). G105 R5's tool-output and system-reminder
+    rules are unchanged.
