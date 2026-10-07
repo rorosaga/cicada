@@ -1192,6 +1192,38 @@ class ProvenanceTotals(CamelModel):
     conversations: int = 0
 
 
+class SectionEvidence(CamelModel):
+    """Recorded input; raw coordinates are metadata, `span` alone may wash."""
+
+    evidence: EvidenceModel
+    source_title: str = ""
+    conversation_id: Optional[str] = None
+    source_available: bool = False
+    status: str = "not_checked"
+    span: Optional[ProvenanceSpan] = None
+
+
+class SectionProvenanceItem(CamelModel):
+    identity: str
+    text: str
+    body_ranges: list[list[int]] = []
+    ambiguous: bool = False
+    evidence: list[SectionEvidence] = []
+
+
+class SectionProvenance(CamelModel):
+    key: str
+    title: str
+    status: str = "not_tracked"
+    item_count: int = 0
+    recorded_items: int = 0
+    span_count: int = 0
+    reasoning_count: int = 0
+    unmatched_records: int = 0
+    items: list[SectionProvenanceItem] = []
+    partial: bool = False
+
+
 class EntityProvenance(CamelModel):
     """``GET /entities/{id}/provenance`` — "Where this came from" in one call
     (G118 slice 2, design §4.8.4). ``conversations`` is capped at 50
@@ -1208,6 +1240,10 @@ class EntityProvenance(CamelModel):
     inferred_count: int = 0
     totals: ProvenanceTotals = Field(default_factory=ProvenanceTotals)
     commits_truncated: bool = False
+    page_body_hash: str = ""
+    section_schema: int = 1
+    sections: list[SectionProvenance] = []
+    sections_partial: bool = False
 
 
 class EpisodeCitation(CamelModel):

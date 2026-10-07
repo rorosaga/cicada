@@ -235,6 +235,76 @@ struct ProvenanceTotals: Codable, Hashable {
     }
 }
 
+/// Section/item identity and ranges are server-owned. This is decode only;
+/// display binding (including a graph stub without a token) belongs to 1b.
+struct SectionEvidence: Codable, Hashable {
+    let evidence: Evidence?
+    let sourceTitle: String
+    let conversationId: String?
+    let sourceAvailable: Bool
+    let status: String
+    let span: ProvenanceSpan?
+
+    enum CodingKeys: String, CodingKey { case evidence, sourceTitle, conversationId, sourceAvailable, status, span }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        evidence = try c.decodeIfPresent(Evidence.self, forKey: .evidence)
+        sourceTitle = try c.decodeIfPresent(String.self, forKey: .sourceTitle) ?? ""
+        conversationId = try c.decodeIfPresent(String.self, forKey: .conversationId)
+        sourceAvailable = try c.decodeIfPresent(Bool.self, forKey: .sourceAvailable) ?? false
+        status = try c.decodeIfPresent(String.self, forKey: .status) ?? "not_checked"
+        span = try c.decodeIfPresent(ProvenanceSpan.self, forKey: .span)
+    }
+}
+
+struct SectionProvenanceItem: Codable, Hashable {
+    let identity: String
+    let text: String
+    let bodyRanges: [[Int]]
+    let ambiguous: Bool
+    let evidence: [SectionEvidence]
+
+    enum CodingKeys: String, CodingKey { case identity, text, bodyRanges, ambiguous, evidence }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        identity = try c.decodeIfPresent(String.self, forKey: .identity) ?? ""
+        text = try c.decodeIfPresent(String.self, forKey: .text) ?? ""
+        bodyRanges = try c.decodeIfPresent([[Int]].self, forKey: .bodyRanges) ?? []
+        ambiguous = try c.decodeIfPresent(Bool.self, forKey: .ambiguous) ?? false
+        evidence = try c.decodeIfPresent([SectionEvidence].self, forKey: .evidence) ?? []
+    }
+}
+
+struct SectionProvenance: Codable, Hashable {
+    let key: String
+    let title: String
+    let status: String
+    let itemCount: Int
+    let recordedItems: Int
+    let spanCount: Int
+    let reasoningCount: Int
+    let unmatchedRecords: Int
+    let items: [SectionProvenanceItem]
+    let partial: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case key, title, status, itemCount, recordedItems, spanCount, reasoningCount, unmatchedRecords, items, partial
+    }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        key = try c.decodeIfPresent(String.self, forKey: .key) ?? ""
+        title = try c.decodeIfPresent(String.self, forKey: .title) ?? ""
+        status = try c.decodeIfPresent(String.self, forKey: .status) ?? "not_tracked"
+        itemCount = try c.decodeIfPresent(Int.self, forKey: .itemCount) ?? 0
+        recordedItems = try c.decodeIfPresent(Int.self, forKey: .recordedItems) ?? 0
+        spanCount = try c.decodeIfPresent(Int.self, forKey: .spanCount) ?? 0
+        reasoningCount = try c.decodeIfPresent(Int.self, forKey: .reasoningCount) ?? 0
+        unmatchedRecords = try c.decodeIfPresent(Int.self, forKey: .unmatchedRecords) ?? 0
+        items = try c.decodeIfPresent([SectionProvenanceItem].self, forKey: .items) ?? []
+        partial = try c.decodeIfPresent(Bool.self, forKey: .partial) ?? false
+    }
+}
+
 struct EntityProvenance: Codable, Hashable {
     let entityId: String
     let entityName: String
@@ -245,11 +315,16 @@ struct EntityProvenance: Codable, Hashable {
     let inferredCount: Int
     let totals: ProvenanceTotals
     let commitsTruncated: Bool
+    let pageBodyHash: String?
+    let sectionSchema: Int
+    let sections: [SectionProvenance]
+    let sectionsPartial: Bool
 
     init(entityId: String, entityName: String = "", entityType: String = "",
          contributors: [ProvenanceContributor] = [], conversations: [ProvenanceConversation] = [],
          pages: [ProvenancePage] = [], inferredCount: Int = 0, totals: ProvenanceTotals = ProvenanceTotals(),
-         commitsTruncated: Bool = false) {
+         commitsTruncated: Bool = false, pageBodyHash: String? = nil, sectionSchema: Int = 0,
+         sections: [SectionProvenance] = [], sectionsPartial: Bool = false) {
         self.entityId = entityId
         self.entityName = entityName
         self.entityType = entityType
@@ -259,11 +334,15 @@ struct EntityProvenance: Codable, Hashable {
         self.inferredCount = inferredCount
         self.totals = totals
         self.commitsTruncated = commitsTruncated
+        self.pageBodyHash = pageBodyHash
+        self.sectionSchema = sectionSchema
+        self.sections = sections
+        self.sectionsPartial = sectionsPartial
     }
 
     enum CodingKeys: String, CodingKey {
         case entityId, entityName, entityType, contributors, conversations, pages, inferredCount, totals
-        case commitsTruncated
+        case commitsTruncated, pageBodyHash, sectionSchema, sections, sectionsPartial
     }
 
     init(from decoder: Decoder) throws {
@@ -277,6 +356,10 @@ struct EntityProvenance: Codable, Hashable {
         inferredCount = try c.decodeIfPresent(Int.self, forKey: .inferredCount) ?? 0
         totals = try c.decodeIfPresent(ProvenanceTotals.self, forKey: .totals) ?? ProvenanceTotals()
         commitsTruncated = try c.decodeIfPresent(Bool.self, forKey: .commitsTruncated) ?? false
+        pageBodyHash = try c.decodeIfPresent(String.self, forKey: .pageBodyHash)
+        sectionSchema = try c.decodeIfPresent(Int.self, forKey: .sectionSchema) ?? 0
+        sections = try c.decodeIfPresent([SectionProvenance].self, forKey: .sections) ?? []
+        sectionsPartial = try c.decodeIfPresent(Bool.self, forKey: .sectionsPartial) ?? false
     }
 }
 

@@ -1,0 +1,872 @@
+{
+  "services/agentic_write.py": [
+    {
+      "function": "_ensure_subject_page",
+      "method": "write",
+      "frontmatter": "frontmatter",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "write_claim",
+      "method": "write",
+      "frontmatter": "parsed.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "retract_claim",
+      "method": "write",
+      "frontmatter": "parsed.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "mark_episodes_processed",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    }
+  ],
+  "services/bookmark_sync.py": [
+    {
+      "function": "_propose_removals",
+      "method": "write",
+      "frontmatter": "frontmatter",
+      "disposition": "uninstrumented_guarded"
+    }
+  ],
+  "services/check_record.py": [
+    {
+      "function": "append_check",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    }
+  ],
+  "services/claim_expiry.py": [
+    {
+      "function": "expire",
+      "method": "write",
+      "frontmatter": "parsed.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    }
+  ],
+  "services/claim_pipeline.py": [
+    {
+      "function": "run_claim_pipeline",
+      "method": "write",
+      "frontmatter": "parsed.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    }
+  ],
+  "services/claim_recovery.py": [
+    {
+      "function": "_apply_locked",
+      "method": "write_document",
+      "frontmatter": "updated",
+      "disposition": "uninstrumented_guarded"
+    }
+  ],
+  "services/claim_seeder.py": [
+    {
+      "function": "seed_claims_from_edges",
+      "method": "write",
+      "frontmatter": "frontmatter",
+      "disposition": "uninstrumented_guarded"
+    }
+  ],
+  "services/clarification_manager.py": [
+    {
+      "function": "create",
+      "method": "write",
+      "frontmatter": "parsed.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "create",
+      "method": "write",
+      "frontmatter": "frontmatter",
+      "disposition": "uninstrumented_guarded"
+    }
+  ],
+  "services/conflict_resolver.py": [
+    {
+      "function": "apply_changes",
+      "method": "write",
+      "frontmatter": "frontmatter",
+      "disposition": "refresh_or_preserve"
+    },
+    {
+      "function": "apply_changes",
+      "method": "write",
+      "frontmatter": "parsed.frontmatter",
+      "disposition": "refresh_or_preserve"
+    },
+    {
+      "function": "apply_changes",
+      "method": "write",
+      "frontmatter": "parsed.frontmatter",
+      "disposition": "refresh_or_preserve"
+    }
+  ],
+  "services/contacts_local.py": [
+    {
+      "function": "sync",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    }
+  ],
+  "services/decay_migration.py": [
+    {
+      "function": "_rewrite_pages",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    }
+  ],
+  "services/decay_watermark_migration.py": [
+    {
+      "function": "_rewrite_pages",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    }
+  ],
+  "services/demo_bank.py": [
+    {
+      "function": "_write_entities",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "_write_episodes",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "_write_inbox",
+      "method": "write",
+      "frontmatter": "{'kind': 'decay', 'status': 'pending', 'priority': 0.3, 'entity_id': 'beta-project', 'entity_name': 'Beta Project', 'title': 'No recent mentions of Beta Project', 'created_date': stale}",
+      "disposition": "fresh_frontmatter_untracked"
+    },
+    {
+      "function": "_write_inbox",
+      "method": "write",
+      "frontmatter": "{'kind': 'decay', 'status': 'pending', 'priority': 0.25, 'entity_id': 'gamma-project', 'entity_name': 'Gamma Project', 'title': 'No recent mentions of Gamma Project', 'created_date': stale}",
+      "disposition": "fresh_frontmatter_untracked"
+    },
+    {
+      "function": "_write_inbox",
+      "method": "write",
+      "frontmatter": "{'kind': 'conflict', 'required_input': 'choice', 'status': 'pending', 'entity_id': 'dana-example', 'entity_name': 'Dana Example', 'title': 'Where does Dana Example work now?', 'question': 'Where does Dana Example work now?', 'predicate': 'works-at', 'created_date': today, 'claim_id': 'clm_demo_new', 'options': [{'key': 'a', 'label': 'Acme Example', 'claim_id': 'clm_demo_old'}, {'key': 'b', 'label': 'Globex Example', 'claim_id': 'clm_demo_new'}, {'key': 'both', 'label': 'Both are true (different contexts)'}]}",
+      "disposition": "fresh_frontmatter_untracked"
+    },
+    {
+      "function": "_write_inbox",
+      "method": "write",
+      "frontmatter": "{'kind': 'conflict', 'required_input': 'choice', 'status': 'pending', 'entity_id': 'alpha-project', 'entity_name': 'Alpha Project', 'title': 'What does Alpha Project use now?', 'question': 'What does Alpha Project use now?', 'predicate': 'uses', 'created_date': today, 'claim_id': 'clm_demo_new2', 'options': [{'key': 'a', 'label': 'Tool Example A', 'claim_id': 'clm_demo_old2'}, {'key': 'b', 'label': 'Tool Example B', 'claim_id': 'clm_demo_new2'}, {'key': 'both', 'label': 'Both are true (different contexts)'}]}",
+      "disposition": "fresh_frontmatter_untracked"
+    },
+    {
+      "function": "_write_inbox",
+      "method": "write",
+      "frontmatter": "{'kind': 'clarification', 'status': 'pending', 'entity_id': 'sam-unclear', 'entity_name': 'Sam', 'title': 'Who is Sam?', 'uncertainty_type': 'who is this', 'options': [], 'created_date': today}",
+      "disposition": "fresh_frontmatter_untracked"
+    },
+    {
+      "function": "_write_inbox",
+      "method": "write",
+      "frontmatter": "{'kind': 'merge_suggestion', 'required_input': 'merge', 'status': 'pending', 'entity_name': 'Tool Example A (CLI)', 'entity_id': 'tool-example-a-cli', 'merge_target_hint': 'tool-example-a', 'source_episode': merge_source['id'], 'source_episode_timestamp': f\"{merge_source['date']}T09:00:00+00:00\", 'created_date': today}",
+      "disposition": "fresh_frontmatter_untracked"
+    },
+    {
+      "function": "_write_scenario",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "_write_scenario",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    }
+  ],
+  "services/demo_showcase.py": [
+    {
+      "function": "_write_media_rows",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "_write_watch_records",
+      "method": "write",
+      "frontmatter": "{**parsed.frontmatter, 'processed': True, 'processed_by': 'sleep'}",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "_media_episode",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "_write_paper_page",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "_write_removal",
+      "method": "write",
+      "frontmatter": "{'kind': 'removal', 'required_input': 'choice', 'status': 'pending', 'priority': 0.4, 'entity_id': BOOKMARK_ID, 'entity_name': 'A gripper teardown', 'title': 'Still keep A gripper teardown?', 'created_date': str(today), 'question': 'It was removed from Safari.', 'options': [{'key': 'keep', 'label': 'Keep'}, {'key': 'remove', 'label': 'Remove'}], 'allow_other': False, 'allow_defer': True, 'channel': 'safari-bookmarks', 'browser': 'Safari', 'url': 'https://example.com/blog/gripper-teardown', 'synced_at': f'{today}T07:30:00+00:00', 'hint': None, 'trigger': 'sync/bookmark_removal'}",
+      "disposition": "fresh_frontmatter_untracked"
+    },
+    {
+      "function": "_write_sleep_findings",
+      "method": "write",
+      "frontmatter": "parsed.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "_write_sleep_findings",
+      "method": "write",
+      "frontmatter": "{'kind': 'divergence', 'required_input': 'choice', 'status': 'pending', 'priority': 0.5, 'entity_id': 'grace-example', 'entity_name': 'Grace Example', 'title': \"I'm reading something different about Grace Example\", 'created_date': day, 'options': ['Keep my statement (Acme Example)', 'Update to Initech Example', 'Both true \u2014 different context'], 'predicate': None, 'question': None, 'allow_other': False, 'allow_defer': False, 'claim_id': agent['claim_id'], 'existing_claim_id': owner.id, 'source_episode': capture, 'trigger': 'sleep/conflict_resolution', 'raw_predicate': None, 'canonical_predicate': None}",
+      "disposition": "fresh_frontmatter_untracked"
+    },
+    {
+      "function": "_write_sleep_findings",
+      "method": "write",
+      "frontmatter": "{'kind': 'normalization', 'required_input': 'choice', 'status': 'pending', 'priority': 0.3, 'entity_id': 'nina-example', 'entity_name': 'Nina Example', 'title': 'Confirm a predicate fold for Nina Example', 'created_date': day, 'options': ['Correct fold', 'Wrong fold \u2014 keep separate'], 'predicate': None, 'question': None, 'allow_other': False, 'allow_defer': False, 'claim_id': nina['claim_id'], 'existing_claim_id': None, 'source_episode': capture, 'trigger': 'sleep/conflict_resolution', 'raw_predicate': 'is employed by', 'canonical_predicate': 'works-at'}",
+      "disposition": "fresh_frontmatter_untracked"
+    },
+    {
+      "function": "_write_capture",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "_write_page",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    }
+  ],
+  "services/entity_merge.py": [
+    {
+      "function": "repoint_references",
+      "method": "write",
+      "frontmatter": "efm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "rename_references",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "merge_entities",
+      "method": "write",
+      "frontmatter": "wfm",
+      "disposition": "uninstrumented_guarded"
+    }
+  ],
+  "services/entity_picture.py": [
+    {
+      "function": "write_upload",
+      "method": "write",
+      "frontmatter": "parsed.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "write_initials",
+      "method": "write",
+      "frontmatter": "parsed.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "write_clear",
+      "method": "write",
+      "frontmatter": "parsed.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    }
+  ],
+  "services/episode_ids.py": [
+    {
+      "function": "create_episode",
+      "method": "write_new",
+      "frontmatter": "frontmatter",
+      "disposition": "uninstrumented_guarded"
+    }
+  ],
+  "services/episode_staging.py": [
+    {
+      "function": "update_in_place",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "_refresh",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "reattribute",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "_restamp",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "_repoint",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "_tombstone",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    }
+  ],
+  "services/export_origin_migration.py": [
+    {
+      "function": "_rewrite",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    }
+  ],
+  "services/fact_sources.py": [
+    {
+      "function": "add_source",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "add_source",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "delete_source",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "change_source",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "change_source",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    }
+  ],
+  "services/folder_source.py": [
+    {
+      "function": "ensure_project",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "ensure_project",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    }
+  ],
+  "services/followups.py": [
+    {
+      "function": "propose",
+      "method": "write",
+      "frontmatter": "{'kind': 'followup', 'required_input': 'choice', 'status': 'pending', 'priority': 0.5, 'entity_id': pick.page, 'entity_name': names.name(pick.page), 'predicate': pick.predicate, 'claim_id': pick.claim_id, 'title': TITLE, 'created_date': today.isoformat()}",
+      "disposition": "fresh_frontmatter_untracked"
+    }
+  ],
+  "services/hub_builder.py": [
+    {
+      "function": "_write_hub",
+      "method": "write",
+      "frontmatter": "frontmatter",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "_write_index",
+      "method": "write",
+      "frontmatter": "frontmatter",
+      "disposition": "uninstrumented_guarded"
+    }
+  ],
+  "services/inbox_generator.py": [
+    {
+      "function": "_cover_fold",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "_refresh_decay_item",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "merge_options_into",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "generate",
+      "method": "write",
+      "frontmatter": "frontmatter",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "generate",
+      "method": "write",
+      "frontmatter": "frontmatter",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "generate",
+      "method": "write",
+      "frontmatter": "frontmatter",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "write_claim_nudges",
+      "method": "write",
+      "frontmatter": "frontmatter",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "_update_related_fields",
+      "method": "write",
+      "frontmatter": "parsed.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    }
+  ],
+  "services/inbox_migration.py": [
+    {
+      "function": "_do_migration",
+      "method": "write",
+      "frontmatter": "new_fm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "_do_migration",
+      "method": "write",
+      "frontmatter": "new_fm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "dedup_open_items",
+      "method": "write",
+      "frontmatter": "parsed.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "dedup_decay_items",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "_dedup_normalization_admitted",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    }
+  ],
+  "services/inbox_questions.py": [
+    {
+      "function": "_refresh_one",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    }
+  ],
+  "services/inbox_service.py": [
+    {
+      "function": "_defer",
+      "method": "write",
+      "frontmatter": "parsed.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "_resolve_decay",
+      "method": "write",
+      "frontmatter": "entity.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "_resolve_decay",
+      "method": "write",
+      "frontmatter": "entity.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "_resolve_decay",
+      "method": "write",
+      "frontmatter": "entity.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "_resolve_removal",
+      "method": "write",
+      "frontmatter": "entity.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "_resolve_conflict",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "_resolve_divergence",
+      "method": "write",
+      "frontmatter": "efm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "_answer_normalization",
+      "method": "write",
+      "frontmatter": "efm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "_resolve_clarification",
+      "method": "write",
+      "frontmatter": "entity.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "_resolve_clarification",
+      "method": "write",
+      "frontmatter": "frontmatter",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "_resolve_clarification",
+      "method": "write",
+      "frontmatter": "target.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "_resolve_clarification",
+      "method": "write",
+      "frontmatter": "existing.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "_resolve_clarification",
+      "method": "write",
+      "frontmatter": "target.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    }
+  ],
+  "services/link_enrichment.py": [
+    {
+      "function": "_append_claim",
+      "method": "write",
+      "frontmatter": "parsed.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "_add_transclusion",
+      "method": "write",
+      "frontmatter": "parsed.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "_set_attempted",
+      "method": "write",
+      "frontmatter": "parsed.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "_stamp",
+      "method": "write",
+      "frontmatter": "parsed.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "backfill",
+      "method": "write",
+      "frontmatter": "parsed.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    }
+  ],
+  "services/link_recon.py": [
+    {
+      "function": "run_recon",
+      "method": "write",
+      "frontmatter": "parsed.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    }
+  ],
+  "services/media_ingestor.py": [
+    {
+      "function": "write_media_entity",
+      "method": "write",
+      "frontmatter": "frontmatter",
+      "disposition": "uninstrumented_guarded"
+    }
+  ],
+  "services/owner_identity.py": [
+    {
+      "function": "ensure_owner_entity",
+      "method": "write",
+      "frontmatter": "parsed.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "ensure_owner_entity",
+      "method": "write",
+      "frontmatter": "frontmatter",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "ensure_default_owner",
+      "method": "write",
+      "frontmatter": "frontmatter",
+      "disposition": "uninstrumented_guarded"
+    }
+  ],
+  "services/page_read.py": [
+    {
+      "function": "_apply_title",
+      "method": "write",
+      "frontmatter": "parsed.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "_finish_page",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    }
+  ],
+  "services/paper_claim_text_migration.py": [
+    {
+      "function": "_rewrite",
+      "method": "write",
+      "frontmatter": "parsed.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    }
+  ],
+  "services/paper_context_migration.py": [
+    {
+      "function": "_rewrite",
+      "method": "write",
+      "frontmatter": "parsed.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    }
+  ],
+  "services/paper_metadata.py": [
+    {
+      "function": "_mark_failed",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "_apply",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    }
+  ],
+  "services/papers.py": [
+    {
+      "function": "_upgrade",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "ensure_page",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "apply_claims",
+      "method": "write",
+      "frontmatter": "parsed.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "propose_removals",
+      "method": "write",
+      "frontmatter": "{'kind': 'removal', 'required_input': 'choice', 'status': 'pending', 'priority': 0.4, 'entity_id': eid, 'entity_name': name, 'title': f'Still keep {name}?', 'created_date': date.today().isoformat(), 'question': f\"It isn't cited anywhere in {label} any more.\", 'options': [{'key': 'keep', 'label': 'Keep'}, {'key': 'remove', 'label': 'Remove'}], 'allow_other': False, 'allow_defer': True, 'channel': folder_source.channel_id(folder['id']), 'browser': label, 'url': str((fm.get('media') or {}).get('url') or ''), 'synced_at': episode_ids.utc_now_iso(), 'hint': None, 'trigger': 'sync/folder_removal'}",
+      "disposition": "fresh_frontmatter_untracked"
+    }
+  ],
+  "services/placeholder_summary_migration.py": [
+    {
+      "function": "_rewrite_one",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    }
+  ],
+  "services/progress.py": [
+    {
+      "function": "_reconcile_write",
+      "method": "write",
+      "frontmatter": "parsed.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "_write_claims",
+      "method": "write",
+      "frontmatter": "parsed.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "_bump",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    }
+  ],
+  "services/promote_targets.py": [
+    {
+      "function": "promote_relationship_targets",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    }
+  ],
+  "services/site_sources.py": [
+    {
+      "function": "propose",
+      "method": "write",
+      "frontmatter": "parsed.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "_write_page",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    }
+  ],
+  "services/skill_pages.py": [
+    {
+      "function": "_ensure_admitted",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "_ensure_admitted",
+      "method": "write",
+      "frontmatter": "_frontmatter(entry, name, day)",
+      "disposition": "uninstrumented_guarded"
+    }
+  ],
+  "services/sleep_cycle.py": [
+    {
+      "function": "_mark_episodes_processed",
+      "method": "write",
+      "frontmatter": "parsed.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    }
+  ],
+  "services/source_links.py": [
+    {
+      "function": "backfill",
+      "method": "write",
+      "frontmatter": "parsed.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    }
+  ],
+  "services/source_rewrite.py": [
+    {
+      "function": "rewrite_entity_from_sources",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    }
+  ],
+  "services/telegram_capture.py": [
+    {
+      "function": "_tag_episode_origin",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "_append_saved_because_section_if_absent",
+      "method": "write",
+      "frontmatter": "dict(parsed.frontmatter or {})",
+      "disposition": "uninstrumented_guarded"
+    }
+  ],
+  "services/transcript_capture.py": [
+    {
+      "function": "capture_transcript",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "capture_transcript",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    }
+  ],
+  "services/watch_record.py": [
+    {
+      "function": "_merge_how",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "_store_chapters",
+      "method": "write",
+      "frontmatter": "parsed.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "_store_duration",
+      "method": "write",
+      "frontmatter": "parsed.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    }
+  ],
+  "routers/entities.py": [
+    {
+      "function": "_rewrite_page_and_commit",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    }
+  ]
+}

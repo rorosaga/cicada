@@ -13,7 +13,7 @@ from loguru import logger
 from tqdm import tqdm
 
 from api.config import Settings
-from api.services import decay_policy, engine_errors, evidence, source_dates
+from api.services import decay_policy, engine_errors, evidence, section_provenance, source_dates
 from api.services.json_parse import parse_json_object
 
 EXTRACTION_SYSTEM_PROMPT = """You are an entity extraction system for a personal knowledge graph.
@@ -549,6 +549,7 @@ async def extract(
 
                 ep_origin = episode.get("origin", "unknown")
                 for entity in all_entities:
+                    section_provenance.attach(entity, ep_id, content)
                     entity["source_episode"] = ep_id
                     entity["source_episode_timestamp"] = episode.get("timestamp")
                     # G194 fix 1: the day the date note gave (timestamp, else the id's date) rides along for Stage
