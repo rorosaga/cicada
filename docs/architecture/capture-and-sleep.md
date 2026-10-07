@@ -407,6 +407,8 @@ name before it has a page is not lost (G141 PJ-0b): Stage 5.56 holds those claim
 the rest counted) and releases them onto the page, first and through Stage 3, in the cycle whose Stage 5
 gives the name one — a holding line leaves the store only then.
 
+**The engine's own runtime is never a page.** The `claude -p` CLI still tells the model its cwd, platform and shell despite `--system-prompt` (probed 2.1.x; `--exclude-dynamic-system-prompt-sections` is ignored with it), so the extraction prompt says that is not conversation content and Stage 2 drops, with a text-free debug line, any entity named for `$CICADA_HOME` or a path under it (`agent_engine.is_runtime_path`; the scratch dir is one).
+
 **The owner is never a page of a pronoun (G169).** One closed, language-aware list of self-reference spellings
 (`owner_identity.SELF_REFERENCE_FORMS`: "User", "the user", "I", "me", "myself", "the person", "the owner",
 "owner", "el usuario", "la usuaria", "usuario", "usuaria", "yo", "mí"; compared NFC, case-, outer-quote-,
