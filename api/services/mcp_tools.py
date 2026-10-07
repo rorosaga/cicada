@@ -1274,8 +1274,12 @@ def recall(ctx: ToolContext, query: str) -> str:
     # process emits, and only there — a block that was never emitted (nothing
     # to suggest) does not consume it.
     state_hint = None if ctx.state_hint_sent else _state_hint(memory_path)
+    if state_hint is not None and not ctx.can("cicada_handshake"):
+        # G180: the cursor points at the primer only for a caller that holds it (R12).
+        state_hint = {k: v for k, v in state_hint.items() if k != "next_tool"}
     hints_block = _hints_block(suggested, relevant_hub, hub_member_ids, state=state_hint,
-                               can_read_detail=ctx.can("cicada_recall_detail"))
+                               can_read_detail=ctx.can("cicada_recall_detail"),
+                               can_open_hub=ctx.can("cicada_open_hub"))
     if hints_block:
         output_parts.append(hints_block)
         if state_hint is not None:
@@ -1441,6 +1445,7 @@ def _hints_block(
     hub_members: list[str],
     state: dict | None = None,
     can_read_detail: bool = True,
+    can_open_hub: bool = True,
 ) -> str:
     """Render the machine-parseable ``cicada-hints`` fenced JSON block.
 
@@ -1456,22 +1461,31 @@ def _hints_block(
     ``read`` has no ``cicada_recall_detail``, and a hint naming it is G75
     R12's bug; it is pointed at ``cicada_open_hub`` instead, which shares
     recall's scope and so is always present when recall is.
+
+    ``can_open_hub`` (G180) is false only for the ``cicada`` command line, which may hold
+    neither tool yet: then the block names no action at all rather than one the caller lacks.
     """
     if not suggested_entities and not relevant_hub:
         return ""
-    if can_read_detail:
+    if can_read_detail and can_open_hub:
         next_tool = "cicada_recall_detail"
         note = "Call cicada_recall_detail with each suggested_entity id for full pages, or cicada_open_hub with relevant_hub for a topic index."
-    else:
+    elif can_read_detail:
+        next_tool = "cicada_recall_detail"
+        note = "Call cicada_recall_detail with each suggested_entity id for full pages."
+    elif can_open_hub:
         next_tool = "cicada_open_hub"
         note = "Call cicada_open_hub with relevant_hub for a topic index."
+    else:
+        next_tool = note = None
     payload = {
         "suggested_entities": suggested_entities,
         "relevant_hub": relevant_hub,
         "hub_members_preview": hub_members[:8],
-        "next_tool": next_tool,
-        "note": note,
     }
+    if next_tool:
+        payload["next_tool"] = next_tool
+        payload["note"] = note
     if state:
         payload["state"] = state
     return "```cicada-hints\n" + json.dumps(payload, indent=2) + "\n```"

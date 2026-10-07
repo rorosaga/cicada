@@ -325,3 +325,65 @@ the default freshness TTL on warm reads, and takes matching historical subjects
 before generic semantic neighbours. Prompt budgeting reserves claims from both
 sides of a change. Implicit recall rechecks each selected page's claims against
 markdown; every type's recall summary strips claim fences before truncation.
+
+---
+
+**The CLI (G180, TODO ruling 21; plan revision 3, build unit 1, 2026-10-07).** `cicada` is a second, thin door onto the
+same bodies as the MCP server, for agents with a shell: they run a command and read `--help` only when they need it,
+instead of loading every tool schema up front. The MCP stays for clients without a shell, and stays registered beside
+the CLI.
+
+- **Entry point.** `python -P -m api.cli` (`api/cli.py`). A developer checkout runs it through `scripts/cicada`, which
+  follows its own symlink chain back to the checkout, runs the checkout's venv and passes `CICADA_CHECKOUT`. It is never
+  a venv console script (G88). The release launcher in `~/.cicada/bin` and the Settings button that links
+  `~/.local/bin/cicada` are later units.
+- **In-process, like stdio MCP.** It calls `mcp_tools` bodies with a `ToolContext` whose `read_surface` is `cli` (read
+  ledger rows say `cli-recall`) and whose `available` is the set of MCP tools the CLI exposes
+  (`cli_map.exposed_tools()`). A reply therefore never names an action the command line lacks.
+- **One bootstrap, before any service import.** In order:
+  - The caller's folder is recorded and is never used to find configuration.
+  - `LITELLM_MODE=PRODUCTION` is forced, so litellm's import-time `load_dotenv` stays off.
+  - The memory root is resolved as **one field**: caller `CICADA_MEMORY_PATH` > caller `CICADA_MEMORY_ROOT` > a
+    developer checkout's `api/.env` PATH > ROOT > `~/cicada/memory`. The checkout file's other keys are overlaid (the
+    file wins, as in the app-spawned dev backend).
+  - The root is canonicalised once (`realpath`) and published as the only root in the environment.
+  - `api.config.disable_dotenv()` then makes every `Settings` read **no** `.env` file, so neither a project's `.env` in
+    the cwd nor one in `CICADA_HOME` can steer it.
+  - Provider keys load from `secrets.env` as the backend's lifespan loads them.
+  - The active bank is pinned once (`bank_registry.pin_request_bank`) in a context every command runs in. The settings
+    root is asserted equal to the pinned root, so `get_settings().memory_path` answers the pin through a mid-command bank
+    switch.
+- **Cross-check, not authority.** `GET /healthz` (1 s, no proxy, `memoryRoot` compared after `realpath`) gives one of:
+  - `confirmed`;
+  - `mismatch`: reads proceed with `warnings: ["root_mismatch"]`, and writes will refuse;
+  - `backend_down`: connection refused, and the bootstrap above is the authority;
+  - `unverified`: a timeout or an error answer, with a `root_unverified` warning.
+- **`--bank NAME`** (or `CICADA_BANK`) asserts the active bank, compared exactly. It never selects another bank. A
+  mismatch exits 3 before anything is read.
+- **Output contract.** Text by default. `--json` / `--format json` (before or after the subcommand) prints exactly one
+  envelope, `{schema: "cicada.cli/1", command, ok, code, bank, data, text, warnings, version}`, and nothing else on
+  either stream. Library output is sent to `/dev/null` at the descriptor level while the command runs.
+  - Exit codes: 0 ok, 1 refused, 2 usage (unknown or abbreviated flags are rejected, never ignored), 3 bank/root
+    mismatch, 4 demo bank, 5 sandbox denied, 70 internal or bootstrap.
+  - An internal error carries the exception's class name only, never its message.
+  - The envelope is additive-only within `cicada.cli/1`.
+- **Names: one tested table** (`api/services/cli_map.py`). Every stdio tool has exactly one row, a short grouped command
+  (`recall`, `get`, `claim add`, `inbox resolve`, …) with each schema property mapped once to a positional (required) or
+  a flag (optional), and kinds that match the schema. CLI-only options (`get --from`) are catalogued apart.
+  - `test_cli_map.py` checks the table against `TOOLS`. The parser, `--help` and `cicada commands` are generated from
+    it.
+  - MCP tool names keep their `cicada_` prefix. Grouping them is the lean-MCP slice, with the old names kept as aliases.
+  - No row takes a tool name: there is no generic dispatcher.
+- **Commands in this unit.**
+  - `recall <query>`: the MCP body's text. `data` is read from its machine-parseable `cicada-hints` block. A missing
+    vector index adds `warnings: ["degraded:vector"]`.
+  - `status`: root path, source and verification; bank name, path and demo flag; the unconsolidated count; backend
+    version and `writing`; the vector index state; distribution; the caller's folder.
+  - `commands`: the full table in `data.commands`, with `exposed` per row.
+- **Gating.** `_hints_block` has a `can_open_hub` argument and names no action when the caller holds neither the detail
+  tool nor the hub tool. Recall drops the state cursor's `next_tool` when the caller lacks `cicada_handshake`. Stdio holds
+  every tool, and remote always holds the handshake and holds the hub tool whenever it holds recall, so both are
+  byte-identical. Memory's own text is returned untouched (a page quoting a tool name or command-looking code stays as
+  written).
+- **Not yet built:** `get`, `project`, `continue`, `save`, `handshake`, session identity, the release launcher, the
+  Settings button, the skill and the overhead measurement. The full slice and its later units are in the G180 row.
