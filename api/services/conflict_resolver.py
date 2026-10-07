@@ -11,7 +11,9 @@ from tqdm import tqdm
 
 from api.config import Settings
 from api.models.schemas import DecayClass
-from api.services import decay_policy, decay_tuning, engine_errors, entity_body, fact_sources, json_parse, markdown_parser
+from api.services import (
+    decay_policy, decay_tuning, engine_errors, entity_body, fact_sources, json_parse, markdown_parser, source_dates,
+)
 from api.services.providers import resolve_llm_fn
 
 # Confidence floor a decaying/archived entity is restored to when it is
@@ -67,6 +69,8 @@ async def resolve_and_prune(
     can inject a pace without writing the file.
     """
     changes: list[dict] = list(resolved)
+    # G194 A1: the day the synthesis and contradiction prompts call today — the decay pass's reference day below.
+    cycle_day = (now or datetime.now()).date().isoformat()
 
     # IDs of entities referenced in this cycle
     referenced_ids = {r["id"] for r in resolved}
@@ -109,6 +113,8 @@ async def resolve_and_prune(
         entity_type = new_entity.get("type") or fm.get("type", "concept")
         entity_name = new_entity.get("name") or fm.get("name", entity_id)
 
+        page_said = _extract_date_string(fm.get("last_referenced"))
+        change_days = _change_dates(change)
         try:
             synthesized = await _synthesize_entity_update(
                 entity_name=entity_name,
@@ -118,6 +124,9 @@ async def resolve_and_prune(
                 new_history_entries=new_history,
                 source_reference_date=_latest_change_date(change),
                 settings=settings,
+                page_last_referenced=page_said,
+                source_dates_seen=change_days,
+                today=cycle_day,
             )
             if synthesized:
                 change["synthesized_body"] = synthesized
@@ -140,6 +149,9 @@ async def resolve_and_prune(
                 existing_body=existing_body,
                 new_description=new_desc,
                 settings=settings,
+                existing_as_of=page_said,
+                new_as_of=change_days,
+                today=cycle_day,
             )
         except engine_errors.EngineError:
             # Same reasoning as the synthesis branch above: an engine failure
@@ -656,6 +668,19 @@ def _latest_change_date(change: dict) -> str | None:
     return max(dates) if dates else None
 
 
+def _change_dates(change: dict) -> list[str]:
+    """Every distinct day the change's information was said, oldest first (G194 A1)."""
+    dates = [_extract_date_string(ts) for ts in list(change.get("source_episode_timestamps", []) or [])]
+    dates.append(_extract_date_string(change.get("source_episode_timestamp")))
+    return sorted({d for d in dates if d})
+
+
+def _days_line(days) -> str:
+    """Days for a prompt line, oldest first; ``unknown`` when none is known."""
+    known = sorted({source_dates.describe(d) for d in days} - {"unknown"})
+    return ", ".join(known) if known else "unknown"
+
+
 def _earliest_change_date(change: dict) -> str | None:
     dates = [
         _extract_date_string(ts)
@@ -704,15 +729,21 @@ Description: {new_description}
 New history entries (JSON): {new_history}
 Source episode date: {source_reference_date}
 
+DATES (when things were said, and when this is being written):
+Today: {today}
+The existing page was last mentioned in a conversation dated: {page_last_referenced}
+The new information comes from conversation(s) dated: {source_dates}
+
 INSTRUCTIONS:
 1. Merge the new information into the existing page body.
 2. The body has two sections: a description (prose paragraphs at the top) and an optional `## History` section (dated bullet entries).
-3. For the description: integrate new facts, remove redundancy, and resolve contradictions by preferring newer information. Keep the description coherent — do not append disconnected paragraphs.
+3. For the description: integrate new facts, remove redundancy, and resolve contradictions by preferring the information with the LATER DATE above — not whichever was read last. When the new information is dated earlier than the existing page, add it as dated background or a dated History entry; it never replaces the page's later statements. Keep the description coherent — do not append disconnected paragraphs.
 4. For the `## History` section: add new dated entries in chronological order. Do not duplicate existing entries. If the body has no History section yet and there are history entries, create one.
-5. If a new fact contradicts an older fact, update the description to the current state and move the old fact into a history bullet (e.g., "2026-03-15: Previously used Postgres, switched to SQLite").
+5. If a new fact contradicts an older fact, update the description to the latest dated state and move the earlier fact into a history bullet (e.g., "2026-03-15: Previously used Postgres, switched to SQLite").
 6. Preserve every wikilink ([[Entity Name]]) that appears in the existing body.
 7. Preserve specific details — dates, names, numbers.
 8. If the new information implies a change over time but the extraction did not provide an explicit dated history entry, you may use the source episode date as the fallback date for that change.
+9. Write as of when things were said, never as of today. A statement known only from conversations dated more than 90 days before today names its month and year ("In February 2025, …") and is never presented as current. Plans, intentions and states of mind ("considering", "planning", "interested in", "wants", "hopes") always name the month and year they were stated. Keep every date already written on the page. Never write "currently", "now", "recently", "this week" or "soon".
 
 DESCRIPTION LENGTH GUIDELINES (by entity type):
 - deadline, skill: 1-2 sentences
@@ -733,8 +764,16 @@ async def _synthesize_entity_update(
     new_history_entries: list[dict],
     source_reference_date: str | None,
     settings: Settings,
+    *,
+    page_last_referenced: str | None = None,
+    source_dates_seen: list[str] | None = None,
+    today: str | None = None,
 ) -> str | None:
-    """Call the LLM to merge an existing entity body with new extraction info."""
+    """Call the LLM to merge an existing entity body with new extraction info.
+
+    G194 A1: the prompt also carries today, the day the page was last mentioned and every day the new information was
+    said, so "newer" means a later date rather than a later read, and old material is written as of its own date.
+    A missing day reads ``unknown`` — never guessed. Prompt guidance only; what is written is unchanged."""
     from api.services.claims import strip_claims_block
 
     existing_body = strip_claims_block(existing_body)
@@ -748,6 +787,9 @@ async def _synthesize_entity_update(
         new_description=new_description or "(none)",
         new_history=json.dumps(new_history_entries) if new_history_entries else "[]",
         source_reference_date=source_reference_date or "unknown",
+        today=source_dates.describe(today or date.today()),
+        page_last_referenced=source_dates.describe(page_last_referenced),
+        source_dates=_days_line(source_dates_seen or ([source_reference_date] if source_reference_date else [])),
     )
     # Route through the provider factory (CQA-H3) so llm_mode="local" (ollama)
     # and consolidation_model overrides apply uniformly here too. completion
@@ -779,12 +821,16 @@ _CONTRADICTION_PROMPT = """You are checking whether two descriptions of the same
 
 A contradiction is unresolvable when newer information alone does not make it obvious which statement is currently true. For example: two different stacks mentioned across two conversations with no date cue, or two different roles for the same person.
 
+"Newer" means said on a later date (below), not read later: a description from an earlier conversation does not replace a later one, and two statements made months apart can both have been true at their own dates.
+
+TODAY: {today}
+
 ENTITY: {entity_name}
 
-EXISTING DESCRIPTION:
+EXISTING DESCRIPTION (last mentioned in a conversation dated {existing_as_of}):
 {existing_body}
 
-NEW DESCRIPTION:
+NEW DESCRIPTION (from conversation(s) dated {new_as_of}):
 {new_description}
 
 Respond with JSON only:
@@ -854,12 +900,21 @@ async def _detect_contradiction(
     existing_body: str,
     new_description: str,
     settings: Settings,
+    *,
+    existing_as_of: str | None = None,
+    new_as_of: list[str] | None = None,
+    today: str | None = None,
 ) -> dict | None:
-    """Call the LLM to check whether existing and new descriptions contradict."""
+    """Call the LLM to check whether existing and new descriptions contradict.
+
+    G194 A1: both descriptions carry the day they were said, and the prompt carries today."""
     prompt = _CONTRADICTION_PROMPT.format(
         entity_name=entity_name,
         existing_body=existing_body[:4000],
         new_description=new_description[:2000],
+        today=source_dates.describe(today or date.today()),
+        existing_as_of=source_dates.describe(existing_as_of),
+        new_as_of=_days_line(new_as_of or []),
     )
     llm_fn = resolve_llm_fn(
         settings, model=settings.effective_consolidation_model,
