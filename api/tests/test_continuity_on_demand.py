@@ -145,7 +145,9 @@ def test_light_start_requested_initial_read_and_recapture_in_both_directions(env
     note = _start(env, destination)
     assert f'cicada_continue(session="{a["episodeId"]}")' in note
     assert "previous work" in note and len(note) // 4 <= handshake.MAX_TOKENS
-    assert all(text not in note for text in ("role-end-sentinel", "latest-question-sentinel", "typed decoder", "State:"))
+    assert all(text not in note for text in ("role-end-sentinel", "latest-question-sentinel", "typed decoder",
+                                            "State: blocked on one fixture"))
+    assert "brief `State:`" in note
     prompt_note = _start(env, destination, prompt=QUESTION)
     assert ROLE not in prompt_note and REPORT not in prompt_note
     # This invokes the tool directly: model tool choice is a separate live gate.
@@ -416,3 +418,4 @@ def test_large_actual_primer_keeps_project_ids_but_sheds_now_and_focus_at_reserv
         max_tokens=handshake.MAX_TOKENS)
     assert rendering == "pointer" and f'cicada_continue(session="{a["episodeId"]}")' in note
     assert len(note) // 4 <= handshake.MAX_TOKENS and ROLE not in note
+    assert "brief `State:`" in note and "optional" in note

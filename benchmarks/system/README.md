@@ -99,6 +99,15 @@ index/commit times overlap write time and must not be summed. Calls include fail
 transport retry counts are unknown unless reported. Fake calls report tokens as
 unknown; no estimate or per-run subscription dollar figure is invented.
 
+G110 A2's separate retention-size diagnostic uses synthetic Stop-hook episodes,
+the real Sleep queue loader, Stage-1 chunker and provider wrapper with a fake
+completion below that wrapper. It compares the dev parser, a first-message-only
+counterfactual and A2 on identical turns, counting message characters/UTF-8 bytes
+(including repeated system prompts and overlap) and calls. The paired 20-session
+result is in `docs/architecture/capture-and-sleep.md`. This diagnostic measures
+input size only; it does not run the whole-system preset or grade Sleep quality,
+and model tokens, dollars and real subscription impact remain unknown.
+
 Resources use real `perf_counter`, process CPU plus child CPU, `RUSAGE_SELF.ru_maxrss`
 (macOS bytes, Linux KiB converted), and bank/home disk growth. Model subprocess RSS
 is unavailable. Throughput is unique staged episodes per whole-workload wall second,

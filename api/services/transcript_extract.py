@@ -52,14 +52,17 @@ from dataclasses import dataclass, field
 from typing import Iterable
 
 from api.services import recall_text
+from api.services.evidence import REPLY_GAP_LINE
 from api.services.episode_scrub import REDACTED, scrub as _scrub  # R-LS6: one rule set
 from api.services.agent_turns import clean_effort, clean_model  # round 4 C1: one vocabulary
 
 HARNESSES = ("claude-code", "codex")
 
-#: ~2,000 chars is the ruling's per-turn cap: enough for a real question or
-#: a real answer, small enough that a pasted log cannot become an episode.
+#: Later person turns keep their head; final replies keep head + tail plus a
+#: recorded gap, all within 2k. The first eligible person message gets 16k
+#: after the same scrub, inside the unchanged whole-session cap (G110 A2).
 TURN_CAP_CHARS = 2000
+FIRST_USER_CAP_CHARS = 16_000
 #: The session cap (R6), in characters of kept turn text. Under it every turn
 #: is kept. Over it (G110 gate B2, ruling 2026-10-07) the first
 #: ``HEAD_SHARE`` of it is the HEAD — the longest prefix that fits, so its
@@ -110,6 +113,7 @@ class Turn:
     # kept reply's line; never inferred (R4B-2).
     model: str | None = None
     effort: str | None = None
+    reply_gap: dict | None = None  # offsets within cleaned turn text, not raw transcript
 
 
 @dataclass
@@ -181,10 +185,13 @@ class _Builder:
     final-reply-per-turn pending buffer, R6's cleaning order and caps."""
 
     def __init__(self, harness: str, *, keep_assistant: bool, turn_cap: int, session_cap: int,
-                 tail_block: int | None = None):
+                 tail_block: int | None = None, first_cap: int = FIRST_USER_CAP_CHARS):
         self.harness = harness
         self.keep_assistant = keep_assistant
         self.turn_cap = turn_cap
+        self.first_cap = first_cap
+        self.first_user_seen = False
+        self.first_request_clipped = False
         self.session_cap = session_cap
         self.tail_block = max(1, tail_block or TAIL_BLOCK_TURNS)
         self.turns: list[Turn] = []
@@ -248,14 +255,28 @@ class _Builder:
         if not cleaned:
             self.count_msg("empty")
             return
-        if len(cleaned) > self.turn_cap:
-            cleaned = cleaned[: self.turn_cap - 1] + "…"
+        first = role == "user" and not self.first_user_seen
+        cap = self.first_cap if first else self.turn_cap
+        reply_gap = None
+        if len(cleaned) > cap:
+            if role == "assistant" and cap > len(REPLY_GAP_LINE) + 2:
+                marker = "\n" + REPLY_GAP_LINE + "\n"
+                kept = cap - len(marker)
+                head, tail = (kept + 1) // 2, kept // 2
+                reply_gap = {"offset": head + 1, "omitted_chars": len(cleaned) - kept}
+                cleaned = cleaned[:head] + marker + cleaned[-tail:]
+            else:
+                cleaned = cleaned[:cap - 1] + "…"
+            if first:
+                self.first_request_clipped = True
             self.truncated_turns += 1
+        if role == "user":
+            self.first_user_seen = True
         if ts:
             self.last_seen_at = ts
-        # Every cleaned turn is held until `finish` (each is ≤ the per-turn cap):
+        # Every cleaned turn is held until `finish` (first person ≤16k, others ≤2k):
         # which ones the body keeps depends on the whole session (gate B2).
-        self.turns.append(Turn(role=role, text=cleaned, ts=ts, model=model, effort=effort))
+        self.turns.append(Turn(role=role, text=cleaned, ts=ts, model=model, effort=effort, reply_gap=reply_gap))
 
     def _window(self) -> None:
         """Gate B2: keep the head and the tail, drop and describe the middle."""
@@ -318,6 +339,7 @@ class _Builder:
                 "session_cap_hit": self.session_cap_hit,
                 "refused_turns": self.refused_turns,
                 "note_like_turns": self.note_like_turns,
+                "first_request_clipped": self.first_request_clipped,
             },
         )
 
@@ -348,7 +370,8 @@ def extract_claude_code(
     """One Claude Code transcript (JSONL lines) → the ruling's conversation."""
     b = _Builder("claude-code", keep_assistant=keep_assistant, turn_cap=turn_cap or TURN_CAP_CHARS,
                  session_cap=session_cap or SESSION_CAP_CHARS,  # read per call, so a test can pin a small cap
-                 tail_block=tail_block or TAIL_BLOCK_TURNS)
+                 tail_block=tail_block or TAIL_BLOCK_TURNS,
+                 first_cap=FIRST_USER_CAP_CHARS if turn_cap is None else (turn_cap or TURN_CAP_CHARS))
     session_id: str | None = None
     cwd: str | None = None
     for raw in lines:
@@ -451,7 +474,8 @@ def extract_codex(
     """
     b = _Builder("codex", keep_assistant=keep_assistant, turn_cap=turn_cap or TURN_CAP_CHARS,
                  session_cap=session_cap or SESSION_CAP_CHARS,  # read per call, so a test can pin a small cap
-                 tail_block=tail_block or TAIL_BLOCK_TURNS)
+                 tail_block=tail_block or TAIL_BLOCK_TURNS,
+                 first_cap=FIRST_USER_CAP_CHARS if turn_cap is None else (turn_cap or TURN_CAP_CHARS))
     session_id: str | None = None
     cwd: str | None = None
     ctx_model = ctx_effort = None

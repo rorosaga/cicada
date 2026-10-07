@@ -59,7 +59,20 @@ Seven rails hold across all of them:
   `turn_context.payload.effort`, and for the last reply the Stop hook's stdin `effort.level`). Both
   are cleaned by `agent_turns` (an effort is one of `minimal|low|medium|high|xhigh|max`, and
   anything else is dropped). They ride the sidecar on agent entries only; the transcript wins over
-  the hook. Secrets scrubbed, per-turn and per-session caps applied. **The session cap keeps the head and the tail
+  the hook. **Retention (G110 A2, owner D1/D1-tail):** after the same fence removal and secret scrub, the first
+  eligible person message keeps its head up to 16,000 characters (including a terminal ellipsis if clipped).
+  Structurally excluded housekeeping/meta records and empty cleaned messages do not consume that allowance.
+  Later person turns keep their head up to 2,000. A final agent reply keeps approximately equal head and tail
+  within its existing 2,000-character budget, including the newline-delimited
+  `[Cicada: part of this reply was not kept]` gap. The omitted count is over cleaned text; neither raw secrets
+  nor code are retained elsewhere. Short replies stay whole. Tool calls/intermediate replies remain excluded.
+  The first message spends the same session budget as every other turn; the 100,000-character ceiling is unchanged.
+  A paired synthetic Stage-1 diagnostic (20 sessions, first person message 14k, six turns each) grew stored body
+  text from 169,740 to 409,740 characters. Keeping only the longer first message grew actual extraction messages
+  (system + user, including overlap) from 328,180 to 736,620 characters and calls from 20 to 40; A2's reply-gap
+  notes brought messages to 740,480. This is input size through the real loader/chunker with fake completions,
+  not measured model tokens, dollars, full-Sleep quality or real workload cost.
+  **The session cap keeps the head and the tail
   (G110 gate B2, owner ruling 2026-10-07).** Under `SESSION_CAP_CHARS` (100,000 characters of kept turn text) every
   turn is kept. Over it the body is the HEAD — the longest prefix within 60,000 (3/5 of the cap; its offsets never
   move, so G118 spans into it stay exact) — then one marker line, `[Cicada: <k> turns from <t1> to <t2> were not
@@ -69,17 +82,21 @@ Seven rails hold across all of them:
   It is known ONLY from the episode's own record, never from its words: `evidence.gap_ranges(frontmatter, body)` takes
   `capture_gap.offset` when the line there opens with `[Cicada: ` (even if edited since), else the one whole line that
   spells the record's own marker (an older or shifted body), else nothing. An episode without `capture_gap` has no
-  gap, so a person who pastes marker-like words — and everything they wrote after — keeps them as theirs. Every reader
+  session gap. Reply gaps require the exact reply marker at a recorded `reply_gaps.offset` and a positive
+  `omitted_chars`; there is no text-pattern fallback. Without either recorded range, a person who pastes marker-like
+  words — and everything they wrote after — keeps them as theirs. Every reader
   takes those ranges as `gaps`: inside one, `speaker_kind`/`kind_for` answer `gap` (no declared authorship covers it)
   and a following line that opens no turn goes back to the speaker before it; `verify` makes any touching span
   `reasoning` (read from disk it uses the episode's own record; Stage 1 passes it); the Reader draws the line as its
-  own block labelled "Not captured · Cicada's note" and `turn_at` skips it; a focus on it never highlights; the span
+  own block labelled "Not captured · Cicada's note" (Reader indexes still count blocks); `turn_at` skips it and
+  counts a resumed reply tail as part of the original turn. Reply fragments retain time, model and effort;
+  a focus on the gap never highlights; the span
   route answers `gap`; the lexical index blanks it to spaces (`mask_gaps`, offsets kept) and keeps the range in the
   row's meta, so a hit on it carries no span, kind or hash; vector chunks are cut from the blanked body; Stage 1
   blanks it on the WHOLE body before the production chunker slices (so no chunk can open on a fragment of it) and
   tells each chunk that touches it in a separate note ahead of the conversation; an agent reading an entity's source
   episodes (`cicada_sources`) sees Cicada's note in its place (`label_gaps`); and the continuity reader cuts it from
-  the head's last turn at the same range. The G118 sidecar and
+  the head's last turn at the same range, and labels reply gaps as nobody's words within the agent reply. The G118 sidecar and
   `tail_turns` are built from the head and the tail separately, so every offset stays exact around it. A reply's
   `model`/`effort` that only the stored sidecar knew is carried to the new sidecar only for the SAME reply — same time
   and the identical rendered text at its old offset — and remapped to wherever it sits now; a reply that slid onto an
@@ -98,7 +115,9 @@ Seven rails hold across all of them:
   (the last 8 kept turns as `{offset, speaker, at?}`, exact offsets into the body — the G118 sidecar stops at 500
   and skips untimed turns), `capture_gap` (`{dropped_turns, first_dropped_at?, last_dropped_at?, offset}`, only while the
   session cap drops the middle; an episode captured before gate B2 may still carry the older
-  `{dropped_turns, last_seen_at}`, which the requested continuity read labels "turns past the limit") and `capture_flags` (`{note_like_turns}`, kept person turns holding a line that opens like a
+  `{dropped_turns, last_seen_at}`, which the requested continuity read labels "turns past the limit"),
+  `reply_gaps` (`[{offset, omitted_chars}]`, kept clipped agent replies only) and `capture_flags`
+  (`first_request_clipped: true` when the cleaned first person request exceeded 16k; `note_like_turns`, kept person turns holding a line that opens like a
   Cicada note — counted and kept, never removed for that), plus `continues`: the one episode id the continuity
   registry says Cicada pointed this session at, stamped once and never rewritten. An unchanged body whose metadata
   moved (a late `continues`) is rewritten in place under `episode_lock` with the same body,
