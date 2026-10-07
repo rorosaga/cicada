@@ -126,6 +126,8 @@ TIME (every conversation is written up as of its own date):
 - history_entries: the date the event happened when it is stated, otherwise the conversation's date.
 
 EXTRACTION GUIDELINES:
+- The agent's own runtime (its working directory, platform, shell, git status, the date of the session)
+  is never conversation content: extract nothing from it, and never an entity for a path it shows you.
 - Extract entities that are meaningful to the user's life, work, or goals. Skip trivial mentions.
 - ATTACHMENTS ARE NOT THE USER'S WORDS. A turn written `attachment [<file name>]:` (its lines quoted
   with "> ") is the text of a document the user shared — a CV, contract, paper, article. Never
@@ -304,7 +306,7 @@ GAP_NOTE_PREFIX = "[Cicada's note, not part of the conversation and nobody's wor
 def _gap_note(gaps, start: int, end: int) -> str | None:
     if not evidence.touches_gap(start, end, gaps):
         return None
-    return (f"{GAP_NOTE_PREFIX} some turns in the middle of this conversation were not captured; "
+    return (f"{GAP_NOTE_PREFIX} some conversation text (turns or parts of replies) was not captured; "
             "the blank line marks where. Never quote or attribute it.]\n\n")
 
 

@@ -151,6 +151,13 @@ def episode_document(
     # Round 4 C4: an agent turn's model/effort is its sidecar entry at exactly
     # the turn's start (the entry the capture wrote); never on a person's turn.
     agents = {s.offset: s for s in agent_turns.stamps(fm) if s.speaker == "assistant"} if is_episode else {}
+    for i, t in enumerate(spans):
+        if t.role == "assistant" and t.marker is None and i >= 2 and spans[i - 1].role == evidence.GAP_KIND:
+            # A recorded reply gap splits one agent turn into Reader blocks.
+            # Its resumed tail inherits the actual head's stamp, never a guess.
+            head = agents.get(spans[i - 2].start)
+            if head is not None:
+                agents[t.start] = head
     # R4B-15: `agent` is the most recent agent turn's — of the WHOLE document,
     # read before the Reader's cut — and null when that turn names neither; an
     # older turn's model never stands in for it (D1: never guessed).

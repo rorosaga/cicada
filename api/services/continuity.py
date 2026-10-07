@@ -12,10 +12,10 @@ projection: every answer is assembled when it is asked for, from
   parses;
 * the continuity registry (``continuity_sessions``) — ids, a cwd hash, times.
 
-Identity is a hash of the **exact** ``cwd`` string the harness's hook reports,
-which capture stores as ``project_dir`` only in the episode. No folding, no prefix matching, no
-repository key, no ``.git`` read: every note says the workspace state was not
-checked.
+Identity starts with the **exact** cwd hash; D2's hook-observed git hashes add
+same-checkout association and related-checkout choices, never lexical worktree
+matching or task authority. The backend only parses supplied values: no git or
+workspace reads here. Every note says workspace state was not checked.
 
 **The index** (``$CICADA_HOME/continuity/<bank-id>.index.json``, beside the
 registry, never inside a bank) maps every ``ep_*.md`` to
@@ -44,16 +44,16 @@ import re
 import secrets
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml
 from loguru import logger
 
-from api.services import continuity_sessions, episode_ids, evidence, markdown_parser
+from api.services import continuity_sessions, episode_ids, evidence, markdown_parser, workspace_identity
 
-SCHEMA = 2
+SCHEMA = 3
 #: The index file's suffix in the continuity home: ``<bank-id>.index.json``.
 INDEX_SUFFIX = ".index.json"
 #: A larger index file is not read (it is rebuilt from the heads instead).
@@ -132,6 +132,9 @@ def _row(fm: dict, *, persisted: bool = False) -> dict | str | None:
         if cwd:
             row["cwd_hash"] = continuity_sessions.cwd_hash(cwd)
     row["processed"] = fm.get("processed") is True
+    workspace = workspace_identity.clean(fm.get("workspace_identity"))
+    if workspace and workspace.get("family_hash") and workspace["cwd_hash"] == row.get("cwd_hash"):
+        row["workspace_identity"] = workspace
     if not row.get("session_id") or row.get("harness") not in continuity_sessions.HARNESSES:
         return UNREADABLE
     if not episode_ids.EPISODE_ID_RE.match(str(row.get("id") or "")):
@@ -358,7 +361,7 @@ def activity(row: dict, registry_row: dict | None) -> str:
 
 
 def select(snapshot: Snapshot, registry_rows: dict[str, dict], *, cwd: str | None, exclude_session: str | None,
-           session: str | None = None) -> Selection:
+           session: str | None = None, workspace: dict | None = None) -> Selection:
     """The total selection of plan C1: an exact ``session`` (episode id or full
     session id), else the most recent other session in this exact folder; two
     active within ``ACTIVE_WINDOW_MIN`` of each other is a question, never a
@@ -379,6 +382,17 @@ def select(snapshot: Snapshot, registry_rows: dict[str, dict], *, cwd: str | Non
     folder_hash = continuity_sessions.cwd_hash(cwd)
     here = [(n, r) for n, r in snapshot.rows.items()
             if r.get("cwd_hash") == folder_hash and r.get("session_id") != exclude_session]
+    match = "latest"
+    if not here and workspace:
+        here = [(n, r) for n, r in snapshot.rows.items() if r.get("session_id") != exclude_session
+                and workspace_identity.same_checkout(workspace, r.get("workspace_identity"))]
+        match = "same_checkout"
+        if not here:
+            related = [(n, r) for n, r in snapshot.rows.items() if r.get("session_id") != exclude_session
+                       and (r.get("workspace_identity") or {}).get("family_hash") == workspace.get("family_hash")]
+            related.sort(key=lambda nr: activity(nr[1], reg(nr[1])), reverse=True)
+            if related:
+                return Selection("ambiguous", None, tuple(related[:MAX_LISTED]), reason="related_checkouts")
     if not here:
         return Selection("none", None, reason="none_here")
     here.sort(key=lambda nr: activity(nr[1], reg(nr[1])), reverse=True)
@@ -389,11 +403,11 @@ def select(snapshot: Snapshot, registry_rows: dict[str, dict], *, cwd: str | Non
             close = [nr for nr in here[:MAX_LISTED]
                      if (t := _parse_time(activity(nr[1], reg(nr[1])))) and (a - t).total_seconds() <= ACTIVE_WINDOW_MIN * 60]
             return Selection("ambiguous", None, tuple(close), reason="active_together")
-    return Selection("latest", here[0], tuple(here[1:MAX_LISTED]), reason="latest")
+    return Selection("latest", here[0], tuple(here[1:MAX_LISTED]), reason=match)
 
 
 def _current_conversation(snapshot: Snapshot, registry: dict[str, dict], *, cwd: str | None,
-                          identity: tuple[str, str]) -> tuple[str, dict] | None:
+                          identity: tuple[str, str], workspace: dict | None = None) -> tuple[str, dict] | None:
     """No-argument continuation only: recognise current, never blindly exclude
     an MCP id retained across /clear. Unknown identities use recorded lineage
     and chronology on the newest captured session here; no chain walk."""
@@ -402,6 +416,12 @@ def _current_conversation(snapshot: Snapshot, registry: dict[str, dict], *, cwd:
     folder_hash = continuity_sessions.cwd_hash(cwd)
     here = [(n, r) for n, r in snapshot.rows.items() if r.get("cwd_hash") == folder_hash]
     starts_here = {k: r for k, r in registry.items() if r.get("cwd_hash") == folder_hash}
+    if workspace:
+        starts_here.update({k: r for k, r in registry.items()
+                            if workspace_identity.same_checkout(workspace, r.get("workspace_identity"))})
+    if not here and workspace:
+        here = [(n, r) for n, r in snapshot.rows.items()
+                if workspace_identity.same_checkout(workspace, r.get("workspace_identity"))]
 
     def key(row):
         return f"{row['harness']}:{row['session_id']}"
@@ -471,12 +491,14 @@ class SessionView:
     body: str = ""
     sidecar: list = field(default_factory=list)
     tail: list = field(default_factory=list)
+    reply_gaps: list = field(default_factory=list)
     _turns: list | None = None
 
     def turns(self) -> list[Turn]:
         if self._turns is None:
             self._turns = split_turns(self.body, self.sidecar, self.tail, self.turn_count,
-                                      gap_at=gap_offset(self.body, self.capture_gap))
+                                      gap_at=gap_offset(self.body, self.capture_gap),
+                                      reply_gaps=evidence.gap_ranges({"reply_gaps": self.reply_gaps}, self.body))
         return self._turns
 
 
@@ -499,6 +521,9 @@ def view(memory_path: Path, chosen: tuple[str, dict], *, deadline: float | None 
         return None
     if (continuity_sessions.cwd_hash(cwd) if cwd else None) != row.get("cwd_hash"):
         return None
+    current_row = _row(fm)
+    if not isinstance(current_row, dict) or current_row.get("workspace_identity") != row.get("workspace_identity"):
+        return None
     return SessionView(
         filename=name, episode_id=str(fm["id"]), harness=str(fm["harness"]), session_id=str(fm["session_id"]),
         project_dir=fm.get("project_dir"), title=str(fm.get("title") or ""),
@@ -511,6 +536,7 @@ def view(memory_path: Path, chosen: tuple[str, dict], *, deadline: float | None 
         # The G118 sidecar through its one reader (R-PJ16): `evidence.turn_stamps`.
         body=doc.body, sidecar=[{"offset": o, **e} for o, e in evidence.turn_stamps(fm).items()],
         tail=fm.get("tail_turns") if isinstance(fm.get("tail_turns"), list) else [],
+        reply_gaps=fm.get("reply_gaps") if isinstance(fm.get("reply_gaps"), list) else [],
     )
 
 
@@ -530,7 +556,8 @@ def gap_offset(body: str, capture_gap: dict | None) -> int | None:
     return ranges[0][0] if ranges else None
 
 
-def split_turns(body: str, sidecar, tail, turn_count: int, *, gap_at: int | None = None) -> list[Turn]:
+def split_turns(body: str, sidecar, tail, turn_count: int, *, gap_at: int | None = None,
+                reply_gaps: tuple = ()) -> list[Turn]:
     """The body's turns, numbered from 1. Boundaries come from exact offsets —
     the G118 sidecar (the first ≤ 500 timed turns) and ``tail_turns`` (the last
     8, consecutive) — and ``turn_count`` says how many there are. When those
@@ -579,6 +606,8 @@ def split_turns(body: str, sidecar, tail, turn_count: int, *, gap_at: int | None
             rest = chunk[cut:]
             end = rest.find("\n")
             chunk = (chunk[:cut].rstrip("\n") + ("" if end == -1 else rest[end:])).rstrip("\n")
+        chunk = evidence.label_gaps(chunk, tuple((g0 - s0, g1 - s0) for g0, g1 in reply_gaps
+                                                if s0 <= g0 < g1 <= s0 + len(chunk)))
         speaker, _, text = chunk.partition(": ")
         if speaker not in ("user", "assistant"):
             speaker, text = "unknown", chunk
@@ -600,6 +629,20 @@ class WorkingContext:
     listed: list = field(default_factory=list)            # (filename, row) of other sessions shown
     later_starts: list = field(default_factory=list)      # registry rows: sessions started here after, nothing captured
     now: datetime | None = None
+    workspace: dict | None = None
+
+
+def _caller_workspace(registry, cwd, now) -> dict | None:
+    """Newest fresh cwd-bound hook observation; never probe the caller's folder."""
+    values = [v for row in registry.values()
+              if (v := workspace_identity.clean(row.get("workspace_identity"))) and cwd
+              and v["cwd_hash"] == workspace_identity.digest(cwd)]
+    if not values:
+        return None
+    latest = max(v["observed_at"] for v in values)
+    newest = [v for v in values if v["observed_at"] == latest]
+    keys = {(v.get("family_hash"), v.get("checkout_hash")) for v in newest}
+    return workspace_identity.current(newest[0], cwd, now=now) if len(keys) == 1 else None
 
 
 def assemble(memory_path: Path, *, bank_paths, harness: str | None, session_id: str | None, cwd: str | None,
@@ -620,12 +663,13 @@ def assemble(memory_path: Path, *, bank_paths, harness: str | None, session_id: 
             if isinstance(direct, dict):
                 snap.rows[name] = direct
     registry = continuity_sessions.all_rows(memory_path, bank_paths=bank_paths, now=now)
-    sel = select(snap, registry, cwd=cwd, exclude_session=session_id, session=session)
+    workspace = _caller_workspace(registry, cwd, now)
+    sel = select(snap, registry, cwd=cwd, exclude_session=session_id, session=session, workspace=workspace)
     if session is None and continue_identity is not None:
-        current = _current_conversation(snap, registry, cwd=cwd, identity=continue_identity)
+        current = _current_conversation(snap, registry, cwd=cwd, identity=continue_identity, workspace=workspace)
         if current is not None:
             sel = Selection("latest", current, reason="current_conversation")
-    ctx = WorkingContext(memory_path, sel, snap.complete, listed=list(sel.listed), now=now)
+    ctx = WorkingContext(memory_path, sel, snap.complete, listed=list(sel.listed), now=now, workspace=workspace)
     if sel.chosen is not None:
         ctx.chosen = view(memory_path, sel.chosen, deadline=deadline)
         if ctx.chosen is None:
@@ -709,6 +753,10 @@ def gap_lines(ctx: WorkingContext) -> list[str]:
         out.append(f"{gap['dropped_turns']} turns from the middle{span}, past Cicada's capture limit — "
                    "its start and its latest turns are kept")
     flags = (v.capture_flags or {}) if v else {}
+    if flags.get("first_request_clipped"):
+        out.append("the first person request past 16,000 cleaned characters")
+    if v and v.reply_gaps:
+        out.append("parts of long agent replies (their heads and tails are kept; marked gaps are nobody's words)")
     if flags.get("note_like_turns"):
         out.append(f"{flags['note_like_turns']} of its turns look like a Cicada note kept as typed text")
     for reg in ctx.later_starts[:2]:
@@ -740,15 +788,17 @@ def startup_block(ctx: WorkingContext, *, max_chars: int) -> tuple[str, str]:
     limit = min(POINTER_CHARS, max_chars)
     if ctx.selection.kind == "ambiguous":
         ids = ", ".join(f"`{row['id']}`" for _, row in ctx.selection.listed)
-        text = (f"### Recent sessions in this folder\nHistory: {ids}. For previous-work questions: "
+        heading = "Related checkouts" if ctx.selection.reason == "related_checkouts" else "Recent sessions in this folder"
+        text = (f"### {heading}\nHistory: {ids}. For previous-work questions: "
                 "`cicada_continue()`; ask which one to continue. Workspace state not checked.")
         if len(text) > limit:
-            text = ("### Recent sessions in this folder\nSeveral histories match. For questions about previous work, "
+            text = (f"### {heading}\nSeveral histories match. For questions about previous work, "
                     "`cicada_continue()` lists the choices. Workspace state not checked.")
         return (text, "ambiguous") if len(text) <= limit else ("", "none")
     if ctx.chosen is None:
         return "", "none"
-    text = ("### Where the last session in this folder stopped\nFor questions about previous work, "
+    heading = "Earlier work in this checkout" if ctx.selection.reason == "same_checkout" else "Where the last session in this folder stopped"
+    text = (f"### {heading}\nFor questions about previous work, "
             f"captured history: {call(ctx.chosen.episode_id)}. Workspace state not checked.")
     if not ctx.complete:
         text += " Search incomplete."
@@ -764,6 +814,8 @@ REPLY_CAP = 12_000
 OUTLINE_CHARS = 160
 OUTLINE_HEAD = 5
 _CURSOR_RE = re.compile(r"^(\d{1,6})@([0-9a-f]{12})$")
+_FIRST_CURSOR_RE = re.compile(r"^first:(\d{1,6})@([0-9a-f]{12})$")
+FIRST_PAGE_CHARS = 2_000
 
 
 def cursor(n: int, revision: str) -> str:
@@ -786,8 +838,8 @@ class Page:
 
 def page(v: SessionView, *, before: str | None = None, max_chars: int = PAGE_CHARS) -> Page:
     """Whole turns ending just before the cursor's turn (newest last), up to
-    ``max_chars`` — at least one turn, never a clipped one (a captured turn is
-    ≤ 2,000 characters). A cursor printed for another revision restarts from
+    ``max_chars``. Oversized first requests use their own bounded text pages.
+    A cursor printed for another revision restarts from
     the newest turns and says so; pages are never mixed across revisions."""
     turns = v.turns()
     end, note = len(turns), ""
@@ -804,6 +856,8 @@ def page(v: SessionView, *, before: str | None = None, max_chars: int = PAGE_CHA
     used = 0
     for t in reversed(turns[:end]):
         size = len(t.text) + TURN_LINE_OVERHEAD
+        if size > max_chars:
+            break
         if out and used + size > max_chars:
             break
         out.append(t)
@@ -832,10 +886,19 @@ def full_text(ctx: WorkingContext, *, before: str | None = None, cap: int = REPL
     cursor. Then recent whole turns and the request outline, within ``cap``.
     The first request and recent turns come from this one current snapshot,
     so a live source's append never invalidates the unversioned startup hint.
-    Capture still limits turns to 2k; this is not a 16k initial-turn pager."""
+    Longer first requests have separate 2k text pages pinned to their own hash,
+    so appending a later turn does not stale that cursor."""
     now = ctx.now or datetime.now(timezone.utc)
     sel = ctx.selection
     if sel.kind == "ambiguous":
+        if sel.reason == "related_checkouts":
+            lines = ["# Related checkouts — history, not this session's role",
+                     "Other harness-observed checkouts have captured histories. Ask which history to read; "
+                     "no task or role was adopted. Workspace state not checked."]
+            if not ctx.complete:
+                lines.append("Search incomplete: a history in this checkout may not have been readable.")
+            lines += [f"- Episode `{row['id']}`: {call(row['id'])}" for _, row in sel.listed]
+            return "\n".join(lines)[:cap]
         lines = ["# Recent sessions here — which one to continue is the person's call",
                  "Two or more sessions here were active at about the same time. Ask the person which one to continue "
                  "(once), then read it with the call shown beside it. Workspace state not checked."]
@@ -876,6 +939,12 @@ def full_text(ctx: WorkingContext, *, before: str | None = None, cap: int = REPL
         f"- {which}; revision `{v.content_hash}`; last active {_local(act)} ({_age(act, now)} ago); "
         f"{v.turn_count or len(v.turns())} captured turns; {consolidation(v)}.",
     ]
+    if sel.reason == "same_checkout":
+        reserved.append("- Matched by harness-observed git checkout identity, not backend verification of workspace state.")
+    source_workspace = sel.chosen[1].get("workspace_identity") if sel.chosen else None
+    if sel.kind == "explicit" and ctx.workspace and source_workspace \
+            and not workspace_identity.same_checkout(ctx.workspace, source_workspace):
+        reserved.append("- This history is from a different observed checkout; the explicit episode selects it, not a shared role.")
     if v.continues:
         reserved.append(f"- It continued episode `{v.continues}`: {call(v.continues)}.")
     gaps = gap_lines(ctx)
@@ -888,7 +957,29 @@ def full_text(ctx: WorkingContext, *, before: str | None = None, cap: int = REPL
         reserved.append("\n## First captured person request (quoted as history)")
         reserved.append("This may contain the role/objective. The original instruction is not guaranteed: capture "
                         "can omit command/skill expansions, fences and text past its per-turn cap.")
-        reserved.append(_turn_line(initial, now))
+        at = 0
+        first_page = bool(before and before.startswith("first:"))
+        digest = evidence.body_hash(initial.text)
+        if first_page:
+            m = _FIRST_CURSOR_RE.fullmatch(before.strip())
+            if not m:
+                reserved.append("That initial-request cursor is invalid; restarting its first page.")
+            elif m.group(2) != digest:
+                reserved.append("The initial request changed since that page; restarting its first page.")
+            elif not 0 <= int(m.group(1)) < len(initial.text):
+                reserved.append("That initial-request cursor is out of range; restarting its first page.")
+            else:
+                at = int(m.group(1))
+        end = min(len(initial.text), at + FIRST_PAGE_CHARS)
+        reserved.append(_turn_line(replace(initial, text=initial.text[at:end]), now))
+        if len(initial.text) > FIRST_PAGE_CHARS:
+            reserved.append(f"Initial request characters {at + 1}–{end} of {len(initial.text)} kept characters.")
+        if end < len(initial.text):
+            reserved.append(f'More of the initial request: `cicada_continue(session="{v.episode_id}", '
+                            f'before="first:{end}@{digest}")`')
+        if first_page:
+            reserved.append(f"Recent working history: {call(v.episode_id)}")
+            return "\n".join(reserved)
     else:
         reserved.append("- No person request was captured; the original role/objective is unknown.")
     # The page gets what the reserved lines and the hints leave, so a turn is never cut.

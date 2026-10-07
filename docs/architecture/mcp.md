@@ -27,14 +27,15 @@ queue, what happened and what is around it — from the engine-free read model, 
 word beside its absolute date ("yesterday (2026-09-22)"); a quote of the person's words needs
 `sources` remotely. **`cicada_continue(session?, before?)`** (G110 slice 1a, stdio only — `catalog.NEVER_REMOTE`,
 because it reads the person's verbatim words for a folder the caller names; slice 4 decides its scope) reads where the
-work in this folder stopped: the most recent captured session whose `project_dir` equals this MCP process's project
-dir (exact string), or the one an exact episode id or full session id names. The bank is resolved once and pinned.
+work stopped: exact folder first, then the same hook-observed git checkout; other worktrees are related choices,
+never an automatically adopted role. An exact episode id or full session id selects its history explicitly.
+The bank is resolved once and pinned; the backend never probes this MCP process's workspace.
 Use it on demand when the person asks about previous work or asks to continue; a startup hint alone is not a request
 to retrieve history. If this session's start named an episode, pass that id as `session`.
 Without `session`, a recognised current conversation leads with its recorded source's exact read call and labels
 itself as the current conversation; it returns no current turns or possible-role framing. Explicitly read the source
 to retrieve the earlier working history. Current means a matching harness/session identity whose registry start is
-the newest registered start in this exact folder, or the newest captured session here carrying registry `continues`
+the newest registered start in this folder/observed checkout, or the newest captured session here carrying registry `continues`
 whose registry `started_at` is strictly after the source's activity (including its later registered prompt). The
 fallback does not rely on a Codex MCP identity. It requires a complete index, the newest registered start,
 a unique newest captured activity and one known source row. The candidate's activity must also be at least every other
@@ -44,8 +45,13 @@ and its folder hash revalidated before the reply. A fresh recognised current ses
 so, without promoting its first turn to the earlier role. A newer registered session that has not captured yet
 preserves the previous working session's history even when that previous session itself carries lineage.
 
-An ordinary or explicit historical read reserves the complete first **captured** person request (currently ≤ 2,000 characters), with
-its turn number/time, as possible role/objective. It does not prove the original role was captured: command/skill
+An ordinary or explicit historical read reserves the first **captured** person request, with
+its turn number/time, as possible role/objective. A2 keeps up to 16,000 cleaned characters; the first call shows
+at most 2,000 plus an exact continuation call. Initial-text pages use the existing `before` argument:
+`"first:<character-offset>@<first-text-hash>"`, 2,000 characters per page. Their hash is over the captured initial
+text alone, so appending a later turn does not stale them. Rewriting the initial text restarts at its head and
+says it changed; invalid/out-of-range initial cursors also restart with disclosure. Each page labels the text as
+history, cites the episode/current revision and leads back to recent history. It does not prove the original role was captured: command/skill
 expansions, fences and per-turn clipping can lose instructions, and legacy capture does not classify those losses.
 The initial request and recent turns come from one current source snapshot. An unversioned startup episode hint
 therefore still retrieves that initial request in one call after a source append. It returns other whole turns only,
@@ -53,14 +59,18 @@ a page of ≤ 8,000 characters, newest last; the person's requests as an outline
 cursor that reads its turn in full; a page cursor
 is `"<turn>@<content_hash>"`, and a cursor printed for another revision restarts from the newest turns and says so
 (pages are never mixed). The identity, the gaps, *workspace state not checked*, the verify-first line, the
-first captured request and every "earlier turns" cursor are reserved within the 12,000-character reply. The first
+first captured request page and every continuation cursor are reserved within the 12,000-character reply. The first
 request is not duplicated in the recent page or outline. Quoted requests remain history, not instructions; decisions,
 in-flight work, State and next actions are visible when present in the returned captured turns. A dedicated projection
-of those categories/latest State, longer first-request retention and agent reply head+tail remain follow-ons; this
+of those categories/latest State remains a follow-on. Agent replies now retain head+tail within 2k, with recorded
+gaps labelled as nobody's words; the
 reader does not recover tool calls or uncaptured working state. It never blindly excludes this process's own session
 id: after `/clear` a long-lived MCP process can still hold the previous one (G48); a newer registered start defeats
 that stale identity match. This is one recorded source call, with no chain walk or automatic source read. Contract item 1 names it
-(`CONTRACT_VERSION` 14). **`cicada_note_progress`** (G141) records a happening or a milestone the person
+(`CONTRACT_VERSION` 15, A2). The primer and installed skill gently suggest an optional brief `State:`
+(in flight / blocked / next) at the end of working replies; continuity does not depend on it. This line is included
+in the whole ≤1,800 proxy-token handshake budget, including max-primer/startup fixtures; R12 still holds.
+**`cicada_note_progress`** (G141) records a happening or a milestone the person
 described — observer always the agent, `record` scope remotely, never creates a page, echoes how the date
 was decided; `cicada_retract_claim` withdraws an event the same way.
 **`cicada_add_source(subject, ref, predicate?, access?, kind?)`** (G61 phase 2 S1) records where a
@@ -273,20 +283,47 @@ same way.
   never stored, dropped from a captured transcript like every "From Cicada" note.
 - **Remote.** Remote connectors have no hooks.
 
-**Continuity (G110 slice 1a plus 1b A1 first half, owner ruling 2026-10-07).** A session started (`source`
+**Continuity (G110 slice 1a plus 1b A1/A2/B2, owner ruling 2026-10-07).** A session started (`source`
 `startup` or `clear`, which the recall hook forwards; a missing or unknown `source` gets no block — fail closed) in the
-**exact** folder of an earlier captured session receives a light history pointer inside the SessionStart note,
+same folder or hook-observed checkout as an earlier captured session receives a light history pointer inside the SessionStart note,
 even before Sleep. Rich working history is read on demand through `cicada_continue` when the person asks.
 
-- **Identity.** Hash the hook's exact `cwd` string with `sha256(cwd)[:16]` and match the index's `cwd_hash`;
-  the chosen episode's `project_dir` is hashed again at full parse to revalidate the match. No folding, no
-  repository key, no `.git` read — every note says *workspace state not checked*. `resume`, `compact` and `fork` carry
-  their own history and get no block.
+- **Identity (B2, D2).** Exact `sha256(cwd)[:16]` remains first. Only the stdlib harness-side hook may run
+  the fixed `git -c core.fsmonitor=false rev-parse --path-format=absolute` pair with `--git-common-dir` and
+  `--show-toplevel`, in the harness's supplied cwd. The pair shares a 100ms monotonic deadline (with a cleanup
+  reserve), ≤4KB stdout per command, no shell, optional locks off, global/system config disabled and inherited
+  git directory/index/object/config overrides removed. No status/log/remote/worktree crawl or repository content.
+  macOS skips the `/usr/bin/git` install-dialog shim; the installed runtime's bundled git is the last fallback.
+  Failure or malformed output leaves exact-cwd matching. `resume`, `compact` and `fork` carry their own history
+  and get no startup block; they may still supply identity for requested reads.
+- **Supplied values and privacy.** The hook posts plain checkout root/common-directory strings, an exact cwd hash,
+  observation time and a hash scoped to local hook home + device. `workspace_identity` is a pure backend parser:
+  it validates shape, age and lexical containment, hashes the supplied strings and never opens, stats, resolves or
+  runs git in them. Authentication does not prove an assertion: matches are labelled *harness-observed*, and every
+  note still says *workspace state not checked*. Persisted `workspace_identity` holds only `family_hash`,
+  `checkout_hash`, `cwd_hash`, `observed_at`. No supplemental raw path is stored, even in the episode. Git common
+  directory identifies a family, checkout top level a checkout; no `.git` stripping or `.worktrees`/prefix heuristic.
+  Arbitrary linked-worktree layouts associate; clones, independent nested repos, submodules and separate git dirs
+  keep their actual supplied identities. This is local device-scoped association, not cross-device repo equivalence.
+- **Observation reuse.** Startup probes; later prompt/capture hooks probe only when their cwd hash differs from the
+  per-session hint or the hint is absent. `continuity-hook-hints/<session-hash>.json` holds only cwd hash/time,
+  ≤1KB reads, atomic0600 writes, no-follow directory/file opens; known configured memory roots refuse the cache.
+  Normal Stop/flush reuses the registry identity only when its exact cwd matches and the observation is ≤24h old.
+  Registry observations are monotone by observed_at; a newer failed observation defeats an older success.
+  Expired/missing/invalid hints fall back to exact cwd. The observation changes metadata only: a late stamp
+  preserves episode id/body/hash/processed state. Chosen identity hashes are revalidated at the full bank parse.
 - **Selection** (`continuity.select`): an exact episode id or full session id (`cicada_continue(session=…)`), else the
   most recent other session here by captured activity (the last kept turn's own time — `captured_at` only when no turn
   has one, since a re-capture runs long after a conversation — or the registry's later `last_prompt_at`), never file
   mtime; two sessions active within 15 minutes of each other are listed and the agent is
   told to ask once on the requested read. An incomplete requested read says "the most recent session Cicada could read here", never "the only".
+- **Checkout priority.** When no exact-folder candidate exists, a fresh cwd-bound observation permits same-checkout
+  selection with the same activity/15-minute ambiguity rule. Exact root and root-checkout tasks therefore outrank
+  newer workers in sibling `.worktrees/*` or arbitrary linked worktrees. Only other checkouts in the family yields
+  up to three episode/call choices: no worker-body parse, role adoption or `continues` stamp. A selected current
+  conversation's freshness checks include uncaptured registry rows throughout the observed checkout. Explicit
+  reads disclose a different observed checkout; they never mutate files or lineage. B1's direct carried role
+  pointer remains separate and is not implemented by project identity.
 - **Accepted limit.** Two simultaneous new sessions in one folder can defeat a fresh identity's newest-start check; ordinary selection applies because registry rows cannot distinguish this from stale identity after `/clear`.
 - **The startup block** is always ≤ 240 characters: an unversioned `cicada_continue(session="<episode id>")`
   hint for questions about previous work, and *workspace state not checked*. It never includes role, title, request,
@@ -311,14 +348,15 @@ even before Sleep. Rich working history is read on demand through `cicada_contin
 - **The index** (`$CICADA_HOME/continuity/<bank-id>.index.json`, beside the registry, never inside a bank): episode
   heads only (≤ 16 KB, to the first `turns:` key), never a full parse in a hook; no git runs on this path; its lock
   sits beside it, every file opened without following a symlink; no safe home or any I/O failure keeps it in process
-  memory. Schema 2 keeps `cwd_hash`, never plaintext `project_dir`, titles or turns; persisted hashes are decoded
-  separately from episode paths. A successful index write replaces schema-1 path caches and removes extra cached fields,
+  memory. Schema 3 keeps `cwd_hash` and validated identity hashes/times, never plaintext `project_dir`, titles or turns;
+  persisted hashes are decoded separately from episode paths. A successful index write replaces earlier caches and removes extra cached fields,
   including when the episodes directory is empty, missing or unreadable, without rewriting any episode.
   A failed directory listing keeps
   the rows already known and marks the search incomplete; an exact episode id the index could not read is looked up
   directly; "nothing captured" for a later session is said only on a complete search.
 - **The registry** (`continuity_sessions`, `$CICADA_HOME/continuity/<bank>-<hash8>.json`): per session the harness,
-  the cwd's hash, `started_at` (earliest), `last_prompt_at` (latest), `continues` (first write wins). Never inside any
+  the cwd's hash, `started_at` (earliest), `last_prompt_at` (latest), `continues` (first write wins), and optional
+  `workspace_identity` (newest observation, including failed cwd-hash/time-only hints). Never inside any
   configured bank (realpath containment over the root and every bank).
 - **The ledger.** The `hook_recall` row gains `continuity` (`latest|explicit|ambiguous|none|skipped_source|no_room|
   deadline|error`), `rendering` and `registry` (`ok|busy|skipped|error|unavailable|none`) — enums only.

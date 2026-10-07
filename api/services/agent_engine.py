@@ -31,6 +31,7 @@ from __future__ import annotations
 import contextlib
 import contextvars
 import json
+import os
 import re
 import threading
 from dataclasses import dataclass
@@ -398,6 +399,25 @@ def scratch_dir() -> Path:
     path = cicada_home() / "engine-scratch"
     path.mkdir(mode=0o700, parents=True, exist_ok=True)
     return path
+
+
+def is_runtime_path(name: str) -> bool:
+    """True when ``name`` is an absolute or ``~`` path that is ``$CICADA_HOME`` or lies under it.
+
+    The engine's scratch dir is one such path. The vendor CLI still tells the model its
+    working directory, platform and shell despite ``--system-prompt``; Stage 2 uses this
+    to drop an entity the extractor made of it. Pure string/``realpath`` work: reads no
+    file and never creates the scratch dir.
+    """
+    text = (name or "").strip()
+    if not text.startswith(("/", "~")):
+        return False
+    try:
+        path = os.path.realpath(os.path.expanduser(text))
+        home = os.path.realpath(cicada_home())
+    except (OSError, RuntimeError, ValueError):
+        return False
+    return path == home or path.startswith(home.rstrip(os.sep) + os.sep)
 
 
 def model_for_stage(settings, stage: str | None) -> str:

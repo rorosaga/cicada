@@ -47,6 +47,8 @@ start at the index, pick a hub, then drill into entities. Use hubs to answer
 "show me everything about <area>"; use recall to answer "find <specific thing>".
 
 ## Saving memories
+- When useful, end a working reply with a brief `State:` (in flight / blocked /
+  next); optional, not a handoff ritual. Capture keeps it as part of the reply.
 - Important conversation content (a decision, a plan, a fact the user will want
   later) -> `cicada_save_episode(content, title)`. It stages a raw episode; the
   nightly Sleep cycle extracts entities and relationships from it.

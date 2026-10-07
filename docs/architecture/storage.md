@@ -248,7 +248,15 @@ exact) or `stale`. A stale span travels without wash offsets; a `derived` span (
 written. The chat importer and every Local-sources draft keep each turn's time as
 `turns: [{offset, ts, speaker}]` in frontmatter, written by `episode_staging` outside
 `content_hash`; the Stop hook writes the same list (G141 PJ-4), and a reader treats any non-list — an
-older Stop-hook episode's count — as no times. Round 4 (C2–C4):
+older Stop-hook episode's count — as no times.
+
+G110 A2's `reply_gaps: [{offset, omitted_chars}]` records clipped final-reply gaps outside `content_hash`.
+Evidence readers accept only the exact marker at that recorded offset. Reader head/gap/tail blocks keep their
+block indexes; the reply fragments retain the original timestamp, model and effort. Evidence `turn_at` counts
+the head and tail as one original turn; a marker or touching quote is nobody's words
+and becomes `reasoning`. Offsets into retained text remain exact; see `capture-and-sleep.md` for the caps.
+
+Round 4 (C2–C4):
 
 - Every claim on the wire also carries `recordedTs` (stored on MCP writes only), and
   `authorModel`/`authorEffort` for a harness write. These are joined by

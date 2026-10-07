@@ -103,6 +103,7 @@ _ATTACHMENT_RE = re.compile(r"^attachment\s*\[[^\]\n]{1,128}\]\s*:", re.IGNORECA
 # before chunking and is told about it apart from the conversation.
 _GAP_LINE_RE = re.compile(r"^\[Cicada: \d+ turns? (?:from \S+ to \S+ )?were not kept\]$", re.MULTILINE)
 GAP_PREFIX = "[Cicada: "
+REPLY_GAP_LINE = "[Cicada: part of this reply was not kept]"
 GAP_KIND = "gap"
 Gaps = tuple  # of (start, end) ranges, ascending
 # R-F2 / R-LS7: an episode may declare whose words it holds (a folder file's
@@ -133,7 +134,7 @@ def _line_at(text: str, at: int) -> tuple[int, int] | None:
     return at, (len(text) if end == -1 else end)
 
 
-def gap_ranges(frontmatter: dict | None, text: str) -> tuple[tuple[int, int], ...]:
+def _session_gap_ranges(frontmatter: dict | None, text: str) -> tuple[tuple[int, int], ...]:
     """The episode's dropped-middle marker as ``((start, end),)``, from its OWN
     record only (gate B2), or ``()``. No ``capture_gap`` → no gap, whatever the
     body's words look like.
@@ -159,6 +160,27 @@ def gap_ranges(frontmatter: dict | None, text: str) -> tuple[tuple[int, int], ..
     return (hits[0],) if len(hits) == 1 else ()
 
 
+def gap_ranges(frontmatter: dict | None, text: str) -> tuple[tuple[int, int], ...]:
+    """Recorded session/reply gaps only; matching words alone never mark a gap.
+
+    Reply gaps require an exact marker at the recorded offset. Unlike legacy
+    session gaps they have no spelling fallback: a person can type this line.
+    """
+    fm = frontmatter or {}
+    ranges = list(_session_gap_ranges(fm, text))
+    entries = fm.get("reply_gaps")
+    for entry in entries if isinstance(entries, list) else []:
+        if not isinstance(entry, dict):
+            continue
+        omitted = entry.get("omitted_chars")
+        if not isinstance(omitted, int) or isinstance(omitted, bool) or omitted <= 0:
+            continue
+        line = _line_at(text or "", entry.get("offset"))
+        if line and text[line[0]:line[1]] == REPLY_GAP_LINE:
+            ranges.append(line)
+    return tuple(sorted(set(ranges)))
+
+
 def mask_gaps(text: str, gaps: Gaps = ()) -> str:
     """``text`` with each of ``gaps`` blanked to spaces of the same length, so a
     derived index keeps exact offsets into the body but never holds the marker's
@@ -177,7 +199,7 @@ def mask_gaps(text: str, gaps: Gaps = ()) -> str:
     return "".join(out)
 
 
-GAP_NOTE = "[Cicada's note, not part of the conversation and nobody's words: turns here were not captured]"
+GAP_NOTE = "[Cicada's note, not part of the conversation and nobody's words: text here was not captured]"
 
 
 def label_gaps(text: str, gaps: Gaps = ()) -> str:
@@ -470,7 +492,8 @@ class TurnSpan:
     under R4 and the Reader may say so — or ``speaker:<label>`` as written for
     a note-taker line (R-LS7), and ``None`` for a block with no marker line.
     ``ts``/``speaker`` come only from a stored ``turns`` sidecar entry at
-    exactly ``start``: a time is never inferred (§4.4). ``t`` is the seconds
+    exactly ``start`` (a fragment resuming after a recorded gap reuses the
+    original turn's stored stamp): a time is never inferred (§4.4). ``t`` is the seconds
     into the video for a ``video [m:ss]:`` turn (G140 Q-R9) — derived from the
     marker, never stored, and ``None`` whenever the turn's role is not
     ``media`` (so :func:`media_time` agrees at every offset).
@@ -511,10 +534,17 @@ def turns(text: str, *, page: bool = False, stamps: dict[int, dict] | None = Non
     if not blocks or blocks[0][0] > 0:
         blocks.insert(0, (0, "user", None, 0, None))
     out: list[TurnSpan] = []
+    previous_stamp = {}
     for i, (start, kind, marker, content_start, raw_t) in enumerate(blocks):
         nxt = blocks[i + 1][0] if i + 1 < len(blocks) else len(text)
         end = start + len(text[start:nxt].rstrip("\r\n"))
         stamp = stamps.get(start) or {}
+        # The fragment after a recorded reply gap belongs to the same turn.
+        if kind != GAP_KIND:
+            if marker is None and i and blocks[i - 1][1] == GAP_KIND:
+                stamp = previous_stamp
+            else:
+                previous_stamp = stamp
         role = kind if kind == GAP_KIND else (forced or kind)
         out.append(TurnSpan(
             index=i + 1, start=start, content_start=min(content_start, end), end=end,
@@ -562,22 +592,30 @@ def turn_at(text: str, start: int, stamps: dict[int, dict] | None, gaps: Gaps = 
     ``None`` when the episode stores no ``turns`` sidecar (written before it
     existed, or nothing it holds had a time). ``number``/``of`` count the
     turns :func:`turns` reads — a gate-B2 ``gap`` block is not a turn and is
-    skipped (the Reader's block ``index`` still counts it);
+    skipped, and a resumed reply fragment is part of the preceding turn
+    (the Reader's block ``index`` still counts blocks);
     ``ts`` is the sidecar entry at exactly that turn's start and ``speaker``
     falls back to the turn's own written marker — never an inferred value.
     Computed at read, never stored on a claim."""
     if not stamps:
         return None
     # Gate B2: the gap marker is a block, not a turn — never counted or landed on.
-    spans = [t for t in turns(text, stamps=stamps, gaps=gaps) if t.role != GAP_KIND]
+    spans = turns(text, stamps=stamps, gaps=gaps)
     hit, number = None, 0
-    for n, t in enumerate(spans, start=1):
-        if t.start > start:
-            break
-        hit, number = t, n
+    count = 0
+    for i, t in enumerate(spans):
+        if t.role == GAP_KIND:
+            if t.start <= start < t.end:
+                return None
+            continue
+        resumed = t.marker is None and i and spans[i - 1].role == GAP_KIND
+        if not resumed:
+            count += 1
+        if t.start <= start and not resumed:
+            hit, number = t, count
     if hit is None:
         return None
-    return {"number": number, "of": len(spans), "ts": hit.ts, "speaker": hit.speaker or hit.marker}
+    return {"number": number, "of": count, "ts": hit.ts, "speaker": hit.speaker or hit.marker}
 
 
 # G118 slice 2 (design amendment A7) — what a stored span's hash says about the

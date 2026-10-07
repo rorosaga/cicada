@@ -51,6 +51,9 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).parent))
+from workspace_identity import observe_if_needed, remember  # stdlib sibling, run by path
+
 TIMEOUT_S = 0.9
 LOG_MAX_BYTES = 1024 * 1024
 HEAD_CHARS = 6000
@@ -168,12 +171,17 @@ def main(argv=None, *, stdin=None, stdout=None, environ=None, post=None, log_pat
             # startup and clear, and treats a missing value as unknown.
             body["source"] = source[:32]
         port = str(environ.get("CICADA_PORT") or "8000")
+        workspace = observe_if_needed(body["cwd"], home=home, environ=environ, harness=harness,
+                                      session_id=session_id, startup=event == "session_start")
+        if workspace is not None:
+            body["workspace"] = workspace
         started = time.monotonic()
         status, text = post(f"http://127.0.0.1:{port}/capture/hook-context", json.dumps(body).encode("utf-8"),
                             token, TIMEOUT_S)
         ms = int((time.monotonic() - started) * 1000)
         reason, pages, context = "-", 0, None
         if status == 200:
+            remember(home, harness, session_id, workspace, environ=environ)
             try:
                 parsed = json.loads(text)
                 raw = str(parsed.get("reason") or "")
