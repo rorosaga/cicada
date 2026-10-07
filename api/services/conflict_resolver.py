@@ -411,7 +411,11 @@ def apply_changes(changes: list[dict], memory_path) -> None:
             # into Key Facts, so the detector + preservation must run BEFORE the
             # lift). A page is human-edited if frontmatter says so, or the raw
             # body carries a non-canonical H2 the agent pipeline never emits.
-            raw_sections = entity_body.parse_sections(parsed.body)
+            from api.services.claims import preserve_claims_blocks, strip_claims_block
+
+            original_body = parsed.body
+            prose_body = strip_claims_block(original_body)
+            raw_sections = entity_body.parse_sections(prose_body)
             human_edited = _is_human_edited(parsed.frontmatter, raw_sections)
 
             synthesized_body = change.get("synthesized_body")
@@ -426,7 +430,7 @@ def apply_changes(changes: list[dict], memory_path) -> None:
                 # Agent-only page: the synthesis call returns a full v2 body;
                 # re-parse so the Related reconciler runs against the canonical
                 # section dict. Full synthesis behavior is unchanged here.
-                sections = entity_body.parse_sections(synthesized_body)
+                sections = entity_body.parse_sections(strip_claims_block(synthesized_body))
             elif human_edited:
                 # Additive-only merge over the RAW sections (preserving every
                 # human-authored line, canonical or not, verbatim). The LLM
@@ -439,7 +443,7 @@ def apply_changes(changes: list[dict], memory_path) -> None:
                 # Agent-only page with no synthesis: deterministic section merge
                 # over the lifted v2 sections (unchanged behavior).
                 sections = entity_body.upgrade_legacy_to_v2(
-                    parsed.body, str(parsed.frontmatter.get("type", "concept"))
+                    prose_body, str(parsed.frontmatter.get("type", "concept"))
                 )
                 sections = entity_body.merge_sections_fallback(sections, new_fields)
             parsed.frontmatter["layout_version"] = 2
@@ -453,7 +457,8 @@ def apply_changes(changes: list[dict], memory_path) -> None:
                 sections.pop("Related", None)
 
             markdown_parser.write(
-                filepath, parsed.frontmatter, entity_body.render_sections(sections)
+                filepath, parsed.frontmatter,
+                preserve_claims_blocks(original_body, entity_body.render_sections(sections))
             )
 
         elif action in ("decay", "decay_nudge", "archive") and filepath.exists():
@@ -730,6 +735,9 @@ async def _synthesize_entity_update(
     settings: Settings,
 ) -> str | None:
     """Call the LLM to merge an existing entity body with new extraction info."""
+    from api.services.claims import strip_claims_block
+
+    existing_body = strip_claims_block(existing_body)
     if not existing_body.strip() and not new_description.strip():
         return None
 
