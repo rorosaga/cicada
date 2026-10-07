@@ -275,15 +275,18 @@ def dedup_open_items(memory_path: Path) -> int:
     return removed
 
 
-def _commit_dedup(memory_path: Path, removed: int) -> None:
-    """Commit the dedup scoped to ONLY inbox/ (never ``git add -A``), under the
-    bank's write lock (F2-back R-B1)."""
-    message = git_service.build_commit_message(
+def _dedup_message(removed: int) -> str:
+    return git_service.build_commit_message(
         "Collapse duplicate open inbox questions",
         [f"inbox/: {removed} duplicate item(s) merged into their oldest sibling (trigger: inbox/dedup)"],
         authors=["cicada"],
     )
-    git_service.commit_paths_sync(memory_path, message, ["inbox"])
+
+
+def _commit_dedup(memory_path: Path, removed: int) -> None:
+    """Commit the dedup scoped to ONLY inbox/ (never ``git add -A``), under the
+    bank's write lock (F2-back R-B1)."""
+    git_service.commit_paths_sync(memory_path, _dedup_message(removed), ["inbox"])
 
 
 _DECAY_DEDUP_MARKER = ".deduped_decay"
@@ -398,7 +401,9 @@ def dedup_normalization_items(memory_path: Path) -> int:
     does it. **A transaction:** every file it will delete or rewrite is
     snapshotted first; a failure while changing them or committing restores
     them byte for byte (and their index entries), and the marker is written only
-    after the commit. Never raises. Returns the number of files removed.
+    after the commit. It commits exactly the files it changed — an uncommitted
+    edit already on one is committed apart first, unauthored; any other inbox
+    edit stays uncommitted. Never raises. Returns the number of files removed.
     """
     memory_path = Path(memory_path)
     inbox = memory_path / "inbox"
@@ -473,13 +478,18 @@ def _dedup_normalization_locked(memory_path: Path, inbox: Path) -> int:
         owned = list(dict.fromkeys([*deletes, *rewrites]))
         snapshot = {p: p.read_bytes() for p in owned}
         tracked = (memory_path / ".git").exists()
+        rels = [p.relative_to(memory_path).as_posix() for p in owned]
+        # An uncommitted edit already on a file it changes is committed apart first,
+        # unauthored (`commit_touched_sync`'s `before`); nothing else in inbox/ is its.
+        before = ({rel: (memory_path / rel).read_bytes() for rel in git_service.dirty_paths_sync(memory_path, *rels)}
+                  if owned and tracked else None)
         try:
             for path, (fm, body) in rewrites.items():
                 markdown_parser.write(path, fm, body)
             for path in deletes:
                 path.unlink()
             if owned and tracked:
-                _commit_dedup(memory_path, len(deletes))
+                git_service.commit_touched_sync(memory_path, _dedup_message(len(deletes)), rels, before=before)
         except BaseException:
             _restore(memory_path, snapshot, tracked)
             raise

@@ -318,8 +318,9 @@ def test_migration_retires_slug_only_items_and_collapses_pairs(tmp_path):
     fm = markdown_parser.parse(memory / "inbox" / "inbox-002.md").frontmatter
     assert fm["covered_claims"] == [{"entity_id": "beta-baseline", "claim_id": "clm_4"}]
     assert (memory / "inbox" / ".deduped_normalization").exists()
-    # committed, scoped to inbox/ only — the unrelated bank files stay untracked
-    assert _git(memory, "ls-files").split() == [f"inbox/{s}.md" for s in stems]
+    # committed: only the file it rewrote — the untouched items (005, 006) and the
+    # rest of the bank stay untracked, never swept into the cleanup's commit
+    assert _git(memory, "ls-files").split() == ["inbox/inbox-002.md"]
     # marker-guarded: a second run is free and touches nothing
     _write_item(memory, 7, "delta-paper", "clm_7", "uses dataset", "uses-dataset")
     assert dedup_normalization_items(memory) == 0
@@ -706,3 +707,30 @@ def test_a_marker_that_cannot_be_written_never_raises(tmp_path, monkeypatch):
 
     monkeypatch.setattr(Path, "write_text", no_marker)
     assert inbox_migration.dedup_normalization_items(memory) == 2
+
+
+# ---------------------------------------------------------------- the migration commits only what it changed (review round 1, #6)
+
+
+def test_migration_commits_only_its_own_files_and_keeps_others_edits_apart(tmp_path):
+    from api.services.inbox_migration import dedup_normalization_items
+
+    memory = _migration_bank(tmp_path)
+    markdown_parser.write(memory / "inbox" / "inbox-009.md",
+                          {"kind": "conflict", "status": "pending", "entity_id": "alpha-project"}, "A vs B")
+    _git(memory, "add", "-A")
+    _git(memory, "commit", "-qm", "conflict")
+    # an unrelated uncommitted edit, and someone's uncommitted edit on the survivor
+    unrelated = memory / "inbox" / "inbox-009.md"
+    unrelated.write_text(unrelated.read_text() + "\nedited by hand\n")
+    survivor = memory / "inbox" / "inbox-002.md"
+    survivor.write_text(survivor.read_text() + "\nnote on the survivor\n")
+
+    assert dedup_normalization_items(memory) == 2
+    cleanup = _git(memory, "log", "-1", "--format=%H", "--grep=^Collapse duplicate open inbox questions").strip()
+    files = set(_git(memory, "show", "--name-only", "--format=", cleanup).split())
+    assert files == {"inbox/inbox-001.md", "inbox/inbox-002.md", "inbox/inbox-003.md"}
+    assert "note on the survivor" not in _git(memory, "show", cleanup)       # kept apart, not the cleanup's
+    kept = _git(memory, "log", "-1", "--format=%B", "--grep=^Uncommitted edit kept apart")
+    assert "inbox/inbox-002.md" in kept and "Cicada-Author" not in kept
+    assert _git(memory, "status", "--porcelain", "--untracked-files=no").split() == ["M", "inbox/inbox-009.md"]
