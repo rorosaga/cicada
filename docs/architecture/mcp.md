@@ -8,6 +8,8 @@ The interface between any LLM and the memory system. On `initialize` the server 
 handshake as `instructions`. On query: check `memory/inbox/` for relevant pending items → search the
 vector index → search the markdown graph → follow wikilinks for relational depth → progressive
 disclosure (cluster pages → entity pages → episodic sources).
+Recall prose summaries, including related-page blurbs, strip closed claims fences
+before truncation; `cicada_recall_detail` returns the complete page for structured reads.
 
 **Recall (G140).** Three legs fused by one RRF (`search_service.rrf_fuse`): the stored vectors, the
 FTS lexical leg (names, aliases and prose, word by word), and current claims mapped to their
