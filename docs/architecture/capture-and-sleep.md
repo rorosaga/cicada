@@ -37,7 +37,7 @@ Seven rails hold across all of them:
   same command is also registered under `PreCompact` and `SessionEnd` (install.sh step 5b, both harnesses; the app's
   Connect through `flushOn`). Stop stays the trigger (TODO ruling 7): a flush is the same idempotent request —
   `unchanged` after a Stop with no new turn — and it is the only capture of a turn the person interrupted (no Stop
-  fires) before compacting, clearing or quitting, which the next continuity note then discloses as "its last request
+  fires) before compacting, clearing or quitting, which the requested continuity read then discloses as "its last request
   has no captured reply". A SessionEnd flush bounds its request with a 1.2 s client timeout (a socket
   timeout, not a whole-process deadline; the backend finishes the write regardless). Claude Code's SessionEnd budget is
   1.5 s by default but is raised to the largest per-hook `timeout` in the settings files, and Cicada registers 5 s — so
@@ -90,7 +90,7 @@ Seven rails hold across all of them:
   `reasoning`, and an existing span into the old tail (or into the 60–100k region, once the cap is first crossed)
   reads `stale` — the claim is still written; (3) more `body_revision` mismatches between Sleep's read and its
   retirement while the session runs; (4) the person's words in the dropped middle leave the bank (they are disclosed
-  in `capture_gap` and the continuity note, never kept). **One episode
+  in `capture_gap` and the requested continuity read, never kept). **One episode
   per session** — a later Stop rewrites it in place and flips `processed: false`, never two
   episodes for one conversation (G104). Cicada's own `claude -p` and `codex exec` spawns run with
   `CICADA_CAPTURE=off`. **Where capture stopped (G110 slice 1a).** Every write also records, outside
@@ -98,7 +98,7 @@ Seven rails hold across all of them:
   (the last 8 kept turns as `{offset, speaker, at?}`, exact offsets into the body — the G118 sidecar stops at 500
   and skips untimed turns), `capture_gap` (`{dropped_turns, first_dropped_at?, last_dropped_at?, offset}`, only while the
   session cap drops the middle; an episode captured before gate B2 may still carry the older
-  `{dropped_turns, last_seen_at}`, which the continuity note reads as "turns past the limit") and `capture_flags` (`{note_like_turns}`, kept person turns holding a line that opens like a
+  `{dropped_turns, last_seen_at}`, which the requested continuity read labels "turns past the limit") and `capture_flags` (`{note_like_turns}`, kept person turns holding a line that opens like a
   Cicada note — counted and kept, never removed for that), plus `continues`: the one episode id the continuity
   registry says Cicada pointed this session at, stamped once and never rewritten. An unchanged body whose metadata
   moved (a late `continues`) is rewritten in place under `episode_lock` with the same body,
@@ -112,7 +112,7 @@ Seven rails hold across all of them:
   person's — Claude Code's attachment/hook records and `isMeta` user records, Codex's non-user roles — which is how
   Claude Code documents hook context. Text inside the person's own block is kept as their words, whatever it looks like
   (a pasted note, a quoted header line, a `<session-start-hook>` tag): it is counted in `capture_flags.note_like_turns`
-  (a line that opens with `recall_text.INJECTION_PREFIX`, past any leading tags) and the next continuity note
+  (a line that opens with `recall_text.INJECTION_PREFIX`, past any leading tags) and the requested continuity read
   discloses the count. The textual `is_injection` deletion and the hook-tag span/first-tag rules were removed for
   person text; G105 R5's tool-output rules — the `<system-reminder>` span strip and the first-tag skip for harness tags —
   are a different rail and stay.
