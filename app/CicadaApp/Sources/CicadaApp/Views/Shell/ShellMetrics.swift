@@ -65,3 +65,54 @@ extension View {
             .accessibilityHidden(chrome.itemsHidden)
     }
 }
+
+/// How the rail, the titlebar band and the page meet at the page's top-leading corner (owner 2026-10-07). One
+/// compile-time switch, never a setting: the 2026-10-06 fillet painted `bgRail` into the page's corner under a `bgBase`
+/// band, so the rail ended in a horn along the titlebar line. Both answers are complete; the owner picks one.
+enum RailCorner: CaseIterable {
+    /// A — one frame: the titlebar band takes the rail's surface, so band and rail read as one L-shaped chrome, and the
+    /// page is a panel whose top-leading corner is rounded and clips what it holds.
+    case oneFrame
+    /// B — rounded rail: the band stays the window's `bgBase`; the rail column's own top-trailing corner is rounded and
+    /// the page stays square under it — no colour reaches into the page.
+    case roundedRail
+
+    /// The switch. A until the owner picks (DESIGN_RULES, 2026-10-07 ruling).
+    static let current: RailCorner = .oneFrame
+
+    /// Whether the titlebar band is painted with the rail's surface (`CicadaTheme.titlebarBackground`).
+    var titlebarIsRail: Bool { self == .oneFrame }
+
+    /// The rail column's fill. Square in A (it and the band are one L); rounded at its top-trailing corner in B.
+    var railShape: UnevenRoundedRectangle {
+        UnevenRoundedRectangle(topTrailingRadius: self == .roundedRail ? CicadaTheme.contentCornerRadius : 0,
+                               style: .continuous)
+    }
+
+    /// The page panel's clip and fill in A; `nil` in B, where the page is neither clipped nor painted by the shell.
+    var contentShape: UnevenRoundedRectangle? {
+        self == .oneFrame
+            ? UnevenRoundedRectangle(topLeadingRadius: CicadaTheme.contentCornerRadius, style: .continuous) : nil
+    }
+}
+
+/// A's page panel: the page's own `bgBase` in the panel shape, clipped to it, so the rounded corner shows the band's and
+/// the rail's surface and nothing a page scrolls up draws over the band. B leaves the page exactly as it was.
+struct ShellContentPanel: ViewModifier {
+    var corner: RailCorner = .current
+
+    func body(content: Content) -> some View {
+        if let shape = corner.contentShape {
+            content
+                .background(alignment: .top) { shape.fill(CicadaTheme.background) }
+                .clipShape(shape)
+        } else {
+            content
+        }
+    }
+}
+
+extension View {
+    /// The one door for the page host's corner treatment (`RailCorner`).
+    func shellContentPanel(_ corner: RailCorner = .current) -> some View { modifier(ShellContentPanel(corner: corner)) }
+}

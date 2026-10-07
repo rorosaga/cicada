@@ -8,6 +8,11 @@ import XCTest
 final class NavRailTests: XCTestCase {
     override func tearDown() { CicadaTheme.uiScale = 1.0; super.tearDown() }
 
+    private func rgb(_ color: NSColor) -> [Int] {
+        let c = color.usingColorSpace(.sRGB) ?? color
+        return [c.redComponent, c.greenComponent, c.blueComponent].map { Int(($0 * 255).rounded()) }
+    }
+
     private func source(_ path: String) throws -> String {
         let file = try XCTUnwrap(ThemeTokenTests.swiftSources().first { $0.path.hasSuffix(path) }, path)
         return try String(contentsOf: file, encoding: .utf8)
@@ -66,8 +71,8 @@ final class NavRailTests: XCTestCase {
 
     func testTheRailIsGraphiteAndNeutral() throws {
         let text = try source("Views/Shell/NavRail.swift")
-        XCTAssertTrue(text.contains(".background(CicadaTheme.bgRail, ignoresSafeAreaEdges: [])"),
-                      "owner 2026-10-05: the rail starts under the titlebar, never behind the traffic lights")
+        XCTAssertTrue(text.contains(".background(alignment: .top) { corner.railShape.fill(CicadaTheme.bgRail) }"),
+                      "owner 2026-10-05: the rail starts under the titlebar (a view background keeps the safe area)")
         XCTAssertFalse(text.contains(".background(CicadaTheme.bgRail)\n"), "a bare colour background runs into the titlebar")
         XCTAssertTrue(text.contains("CicadaTheme.bgSelected"), "selection is one neutral fill")
         XCTAssertTrue(text.contains("CicadaTheme.bgBadge"), "the Inbox numeral is neutral")
@@ -79,31 +84,68 @@ final class NavRailTests: XCTestCase {
         XCTAssertTrue(text.contains("router.openSettings()"), "the gear opens the panel through the one door (R-DS22)")
     }
 
-    /// Owner 2026-10-06 — "the 90 degree cut corner of the side panel doesnt look that good." The content's top-leading
-    /// corner is a rounded join at one fixed radius (DR-12: radii do not scale), drawn by the rail's own fill, in both rail
-    /// widths and at every zoom.
-    func testTheContentCornerIsARoundedJoinAtOneFixedRadius() throws {
+    /// Owner 2026-10-07 — the 2026-10-06 fillet painted `bgRail` into the content's corner under a `bgBase` titlebar, so
+    /// the rail ended in a horn along the titlebar line. One compile-time switch picks how the corner is drawn; the
+    /// default is A until the owner picks.
+    func testTheCornerIsOneCompileTimeSwitchDefaultingToOneFrame() throws {
+        XCTAssertEqual(RailCorner.current, .oneFrame)
+        XCTAssertEqual(Set(RailCorner.allCases), [.oneFrame, .roundedRail])
         XCTAssertEqual(CicadaTheme.contentCornerRadius, CicadaTheme.radiusLarge)
         for scale in [0.8, 1.0, 1.4] {
             CicadaTheme.uiScale = scale
             XCTAssertEqual(CicadaTheme.contentCornerRadius, 16, "radii stay put under zoom (scale \(scale))")
         }
-        // The fillet is the corner square minus the rounded content: its outer corner is filled, its inner one clear.
-        let r = CicadaTheme.contentCornerRadius
-        let side = RailCornerFillet.extent(r)
-        let path = RailCornerFillet(radius: r).path(in: CGRect(x: 0, y: 0, width: side, height: side))
-        XCTAssertTrue(path.contains(CGPoint(x: 1, y: 1)), "the corner itself is the rail's")
-        XCTAssertFalse(path.contains(CGPoint(x: side - 1, y: side - 1)), "past the curve is the page")
-        XCTAssertFalse(path.contains(CGPoint(x: side - 1, y: 1)), "along the titlebar's edge, past the curve, is the page")
-        XCTAssertLessThanOrEqual(path.boundingRect.maxX, side, "the fill never leaves its corner square")
-        XCTAssertLessThanOrEqual(path.boundingRect.maxY, side)
-        // One view draws the rail and the labelled sidebar, so the join rides whichever edge the page starts at.
-        let text = try source("Views/Shell/NavRail.swift")
-        XCTAssertTrue(text.contains("RailCornerFillet(radius: CicadaTheme.contentCornerRadius)"))
-        XCTAssertTrue(text.contains(".overlay(alignment: .topTrailing)"), "at the rail's trailing edge, whatever its width")
-        XCTAssertTrue(text.contains(".allowsHitTesting(false)"))
+        XCTAssertFalse(try ThemeTokenTests.swiftSources().contains { file in
+            ((try? String(contentsOf: file, encoding: .utf8)) ?? "").contains("struct RailCornerFillet")
+        }, "no fill reaches out of the rail into the content")
         XCTAssertFalse(try source("Theme/CicadaTheme.swift").contains("windowCornerRadius"),
                        "no claimed concentricity with the window's corner")
+    }
+
+    /// A — one frame: the titlebar band takes the rail's surface, the rail is a plain column, and the page is a panel
+    /// whose top-leading corner (only) is rounded and clips what it holds.
+    func testOneFrameRoundsTheContentPanelUnderARailColouredTitlebar() throws {
+        let a = RailCorner.oneFrame
+        XCTAssertTrue(a.titlebarIsRail)
+        let saved = CicadaTheme.mode
+        defer { CicadaTheme.mode = saved }
+        for mode in AppColorScheme.allCases {
+            CicadaTheme.mode = mode
+            XCTAssertEqual(rgb(CicadaTheme.titlebarBackground(for: mode, corner: a)), rgb(NSColor(CicadaTheme.bgRail)))
+            XCTAssertEqual(rgb(CicadaTheme.windowBackground(for: mode)), rgb(NSColor(CicadaTheme.bgBase)),
+                           "the window's base colour is unchanged (AccentInk measures against it)")
+        }
+        let r = CicadaTheme.contentCornerRadius
+        XCTAssertEqual(a.contentShape?.cornerRadii, RectangleCornerRadii(topLeading: r))
+        XCTAssertEqual(a.railShape.cornerRadii, RectangleCornerRadii(), "the rail is square: it and the band are one L")
+        let rect = CGRect(x: 0, y: 0, width: 200, height: 200)
+        let panel = try XCTUnwrap(a.contentShape).path(in: rect)
+        XCTAssertFalse(panel.contains(CGPoint(x: 1, y: 1)), "the corner is the chrome's")
+        XCTAssertTrue(panel.contains(CGPoint(x: 199, y: 1)), "the top-trailing corner is square")
+        XCTAssertTrue(panel.contains(CGPoint(x: 1, y: 199)), "the bottom-leading corner is square")
+        let shell = try source("ContentView.swift")
+        XCTAssertTrue(shell.contains(".shellContentPanel()"), "the page host is the panel")
+        let metrics = try source("Views/Shell/ShellMetrics.swift")
+        XCTAssertTrue(metrics.contains(".clipShape(shape)"), "the panel clips what scrolls up into the band")
+        XCTAssertTrue(try source("CicadaApp.swift").contains("CicadaTheme.titlebarBackground(for: mode)"),
+                      "the AppKit band reads the switch")
+    }
+
+    /// B — rounded rail: the titlebar band stays the window's `bgBase`; the rail column's own top-trailing corner is
+    /// rounded and the content stays square — no colour reaches into the page.
+    func testRoundedRailRoundsOnlyTheRailAndLeavesTheTitlebar() throws {
+        let b = RailCorner.roundedRail
+        XCTAssertFalse(b.titlebarIsRail)
+        for mode in AppColorScheme.allCases {
+            XCTAssertEqual(rgb(CicadaTheme.titlebarBackground(for: mode, corner: b)), rgb(CicadaTheme.windowBackground(for: mode)))
+        }
+        let r = CicadaTheme.contentCornerRadius
+        XCTAssertEqual(b.railShape.cornerRadii, RectangleCornerRadii(topTrailing: r))
+        XCTAssertNil(b.contentShape, "the page is not clipped or painted")
+        let rail = b.railShape.path(in: CGRect(x: 0, y: 0, width: 56, height: 400))
+        XCTAssertFalse(rail.contains(CGPoint(x: 55, y: 1)), "the rail's top-trailing corner is rounded away")
+        XCTAssertTrue(rail.contains(CGPoint(x: 1, y: 1)), "its top-leading corner meets the window edge square")
+        XCTAssertLessThanOrEqual(rail.boundingRect.maxX, 56, "the rail never paints past its own column")
     }
 
     func testTheSplitViewIsGone() throws {

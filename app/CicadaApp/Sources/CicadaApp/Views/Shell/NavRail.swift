@@ -27,6 +27,7 @@ struct NavRail: View {
     var inboxCount: Int
     var isSleeping: Bool
     var needsAttention: Bool
+    var corner: RailCorner = .current
 
     @AppStorage(ThemeStore.defaultsKey) private var colorSchemeRaw: String = AppColorScheme.dark.rawValue
     @State private var tooltip = RailTooltipState()
@@ -45,20 +46,10 @@ struct NavRail: View {
         .frame(width: ShellMetrics.navWidth(labelled: labelled))
         .frame(maxHeight: .infinity, alignment: .top)
         // The rail starts under the titlebar (owner 2026-10-05): a bare `.background(color)` ignores the safe area
-        // and ran the rail's fill up behind the traffic lights. The titlebar band stays the window's own surface.
-        .background(CicadaTheme.bgRail, ignoresSafeAreaEdges: [])
-        // Owner 2026-10-06 — the rail wraps the content: the content's top-leading corner, where it meets the rail and
-        // the titlebar band, is rounded at `contentCornerRadius` by the rail's own fill reaching into it. A fill, not a
-        // shadow or glass (DR-9, DR-14); it takes no clicks, so the page under it answers as before.
-        .overlay(alignment: .topTrailing) {
-            RailCornerFillet(radius: CicadaTheme.contentCornerRadius)
-                .fill(CicadaTheme.bgRail)
-                .frame(width: RailCornerFillet.extent(CicadaTheme.contentCornerRadius),
-                       height: RailCornerFillet.extent(CicadaTheme.contentCornerRadius))
-                .offset(x: RailCornerFillet.extent(CicadaTheme.contentCornerRadius))
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
-        }
+        // and ran the rail's fill up behind the traffic lights; a view background keeps it. Its shape is the corner
+        // switch's (owner 2026-10-07, `RailCorner`): square under a rail-coloured band in A, its top-trailing corner
+        // rounded in B. A fill, never a shadow or glass (DR-9, DR-14), and it never paints past the column.
+        .background(alignment: .top) { corner.railShape.fill(CicadaTheme.bgRail) }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(Copy.pages)
     }
@@ -278,20 +269,5 @@ final class RailTooltipState {
             guard !Task.isCancelled else { return }
             self?.shown = tab
         }
-    }
-}
-
-/// The rail's fill outside the content's rounded top-leading corner (owner 2026-10-06): the square at the corner minus a
-/// continuous rounded rectangle of `radius` that starts at the same corner. A continuous corner leaves the straight edge
-/// about 1.53 × its radius from the corner, so the square is twice the radius and the rounded rectangle twice that again.
-struct RailCornerFillet: Shape {
-    let radius: CGFloat
-
-    static func extent(_ radius: CGFloat) -> CGFloat { radius * 2 }
-
-    func path(in rect: CGRect) -> Path {
-        let content = CicadaTheme.shape(radius).path(in: CGRect(x: rect.minX, y: rect.minY,
-                                                                width: rect.width * 2, height: rect.height * 2))
-        return Path(rect).subtracting(content)
     }
 }

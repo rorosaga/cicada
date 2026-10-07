@@ -242,6 +242,9 @@ struct ContentView: View {
                 ReaderColumn().disabled(tour.isActive)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // Owner 2026-10-07 — the page host is a panel with a rounded top-leading corner under a rail-coloured band
+            // (`RailCorner.oneFrame`); a no-op under `.roundedRail`. Before the tour, so its scrim is not clipped.
+            .shellContentPanel()
             // G152 — the tour over the page area, reading the targets the pages publish (`.tourAnchor`). An overlay
             // on the host, so the rail, the titlebar and the demo banner below are outside the scrim.
             .overlayPreferenceValue(TourAnchorKey.self) { anchors in
