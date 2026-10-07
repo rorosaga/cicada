@@ -9,7 +9,7 @@ from loguru import logger
 from thefuzz import fuzz
 
 from api.config import Settings
-from api.services import engine_errors, json_parse, owner_identity
+from api.services import agent_engine, engine_errors, json_parse, owner_identity
 from api.services.clarification_manager import (
     CONFIDENCE_THRESHOLD,
     ClarificationManager,
@@ -144,6 +144,9 @@ async def resolve(
         for entity in extraction.get("entities", []):
             name = entity["name"]
             if refs.is_speaker(name, entity.get("type")):
+                continue
+            if agent_engine.is_runtime_path(name):
+                logger.debug("Stage 2: dropped an entity named for the engine runtime path")
                 continue
             mention_counts[name.lower()] += 1
             episode_mentions.setdefault(name.lower(), set()).add(episode_id)
