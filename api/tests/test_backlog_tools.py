@@ -109,7 +109,7 @@ def test_the_stdio_server_dispatches_the_three_tools(bank, monkeypatch):
 
 
 def test_the_primer_says_what_to_do_and_counts_open_items(bank):
-    assert (handshake.CONTRACT_VERSION, handshake.REMOTE_CONTRACT_VERSION) == (14, 10)  # 14 / 10: G110 cicada_continue; 13 / 10: G61 S3 the check; 9 / 6: G166 reading; 10 / 7: G162 video; 11 / 8: their merge; 12 / 9: G61 S3-a sources
+    assert (handshake.CONTRACT_VERSION, handshake.REMOTE_CONTRACT_VERSION) == (15, 10)  # 15 / 10: G110 optional State guidance; 14 / 10: cicada_continue
     backlog.add_item(bank, project="alpha-project", title="One", author="user")
     backlog.add_item(bank, project="alpha-project", title="Two", author="user")
     state_dictionary.refresh(bank, _settings(bank), force=True, repo_resolver=_ok_repo)

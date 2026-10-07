@@ -304,7 +304,7 @@ GAP_NOTE_PREFIX = "[Cicada's note, not part of the conversation and nobody's wor
 def _gap_note(gaps, start: int, end: int) -> str | None:
     if not evidence.touches_gap(start, end, gaps):
         return None
-    return (f"{GAP_NOTE_PREFIX} some turns in the middle of this conversation were not captured; "
+    return (f"{GAP_NOTE_PREFIX} some conversation text (turns or parts of replies) was not captured; "
             "the blank line marks where. Never quote or attribute it.]\n\n")
 
 
