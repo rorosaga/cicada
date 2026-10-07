@@ -91,8 +91,9 @@ def test_cli_recall_is_the_mcp_body_with_actions_gated(tmp_path, monkeypatch, ca
     text = env_["text"]
     stdio = mcp_tools.recall(mcp_tools.ToolContext(memory_path=lambda: memory.resolve(), session_id="s",
                                                    harness="unknown"), "alpha project")
-    # Identical outside the hints block; inside it, no action the CLI does not hold.
-    assert HINTS.sub("", text) == HINTS.sub("", stdio)
+    # Identical outside the hints block, but for the inbox's resolution instruction (the CLI does not hold
+    # cicada_resolve_inbox); inside the block, no action the CLI does not hold.
+    assert HINTS.sub("", text) == HINTS.sub("", stdio).replace("; skip=true if unanswered", "")
     hints = _payload(text)
     assert "cicada_" not in json.dumps({k: v for k, v in hints.items() if k != "suggested_entities"})
     assert env_["data"]["suggested_entities"] == hints["suggested_entities"]

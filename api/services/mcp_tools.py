@@ -208,6 +208,25 @@ FENCE_OPEN = "<<<cicada-reference"
 FENCE_CLOSE = "cicada-reference>>>"
 
 
+class Reply(str):
+    """A tool's reply text, plus what a structured caller needs beside it (G180).
+
+    It IS the text — a ``str`` — so the stdio and remote servers, which only ever send
+    the text, see exactly the bytes they always did. The ``cicada`` command line reads the
+    two extras: ``code``, a refusal it maps to an exit code (``empty_graph``), and
+    ``data``, the generated payload (recall's hints) carried apart from the rendered
+    text, so nothing in memory's own words can stand in for it."""
+
+    code: str | None
+    data: dict | None
+
+    def __new__(cls, text: str, *, code: str | None = None, data: dict | None = None):
+        reply = super().__new__(cls, text)
+        reply.code = code
+        reply.data = data
+        return reply
+
+
 def _holding_pages(fn):
     """Audit 2026-10-05 P1-2: a page-writing tool holds the bank's page lock
     (`page_lock`) across its write AND its commit, so no other writer — this
@@ -1228,7 +1247,7 @@ def recall(ctx: ToolContext, query: str) -> str:
     entities_dir = memory_path / "entities"
 
     if not entities_dir.exists():
-        return "No entities found. The knowledge graph is empty."
+        return Reply("No entities found. The knowledge graph is empty.", code="empty_graph")
 
     output_parts: list[str] = []
 
@@ -1239,7 +1258,11 @@ def recall(ctx: ToolContext, query: str) -> str:
     relevant_hub, hub_member_ids = _match_hub(memory_path, query)
 
     # === Proactive: pending inbox items related to the query ===
-    inbox_blurbs = _relevant_inbox(memory_path, query, raw_excerpts=ctx.raw_excerpts)
+    # G180: the "skip=true if unanswered" instruction is for a caller holding
+    # cicada_resolve_inbox. A remote connection keeps its current rendering until
+    # its owner (G135) decides — see the finding in the G180 report.
+    inbox_blurbs = _relevant_inbox(memory_path, query, raw_excerpts=ctx.raw_excerpts,
+                                   can_answer=ctx.is_remote or ctx.can("cicada_resolve_inbox"))
     if inbox_blurbs:
         output_parts.append(
             "**Pending inbox items relevant to this query:**\n"
@@ -1279,9 +1302,10 @@ def recall(ctx: ToolContext, query: str) -> str:
     if state_hint is not None and not ctx.can("cicada_handshake"):
         # G180: the cursor points at the primer only for a caller that holds it (R12).
         state_hint = {k: v for k, v in state_hint.items() if k != "next_tool"}
-    hints_block = _hints_block(suggested, relevant_hub, hub_member_ids, state=state_hint,
-                               can_read_detail=ctx.can("cicada_recall_detail"),
-                               can_open_hub=ctx.can("cicada_open_hub"))
+    hints = _hints_payload(suggested, relevant_hub, hub_member_ids, state=state_hint,
+                           can_read_detail=ctx.can("cicada_recall_detail"),
+                           can_open_hub=ctx.can("cicada_open_hub"))
+    hints_block = _render_hints(hints)
     if hints_block:
         output_parts.append(hints_block)
         if state_hint is not None:
@@ -1355,7 +1379,7 @@ def recall(ctx: ToolContext, query: str) -> str:
                 ep_lines.append(f"- [{ep_id}] {snippet}")
             output_parts.append("\n".join(ep_lines))
 
-    return "\n\n".join(output_parts).strip() or f"No entities found matching '{query}'."
+    return Reply("\n\n".join(output_parts).strip() or f"No entities found matching '{query}'.", data=hints)
 
 
 def _hub_files(memory_path: Path):
@@ -1449,14 +1473,34 @@ def _hints_block(
     can_read_detail: bool = True,
     can_open_hub: bool = True,
 ) -> str:
-    """Render the machine-parseable ``cicada-hints`` fenced JSON block.
+    """The ``cicada-hints`` fenced block: :func:`_hints_payload`, rendered."""
+    return _render_hints(_hints_payload(suggested_entities, relevant_hub, hub_members, state=state,
+                                        can_read_detail=can_read_detail, can_open_hub=can_open_hub))
 
-    Fenced with the literal info-string ``cicada-hints`` so a small model can
-    locate it and ``json.loads`` deterministically. ``state`` (G53, R13) is
-    an optional compact now-view added under the ``"state"`` key — additive,
-    so a consumer that only knows the older keys is unaffected. The early
-    ``return ""`` when there is nothing to suggest is a kept contract: the
-    cursor rides in a block that exists, never in a block of its own.
+
+def _render_hints(payload: dict | None) -> str:
+    if payload is None:
+        return ""
+    return "```cicada-hints\n" + json.dumps(payload, indent=2) + "\n```"
+
+
+def _hints_payload(
+    suggested_entities: list[str],
+    relevant_hub: str | None,
+    hub_members: list[str],
+    state: dict | None = None,
+    can_read_detail: bool = True,
+    can_open_hub: bool = True,
+) -> dict | None:
+    """The machine-parseable ``cicada-hints`` payload (``None`` when there is nothing to suggest).
+
+    :func:`_render_hints` fences it with the literal info-string ``cicada-hints`` so a
+    small model can locate it and ``json.loads`` deterministically; recall also hands
+    the payload itself to a structured caller (``Reply.data``, G180). ``state`` (G53,
+    R13) is an optional compact now-view added under the ``"state"`` key — additive,
+    so a consumer that only knows the older keys is unaffected. The early ``None``
+    when there is nothing to suggest is a kept contract: the cursor rides in a block
+    that exists, never in a block of its own.
 
     ``can_read_detail`` (G135 R-R22) is ``ctx.can("cicada_recall_detail")``
     — always true on stdio. A remote connection holding ``search`` but not
@@ -1468,7 +1512,7 @@ def _hints_block(
     neither tool yet: then the block names no action at all rather than one the caller lacks.
     """
     if not suggested_entities and not relevant_hub:
-        return ""
+        return None
     if can_read_detail and can_open_hub:
         next_tool = "cicada_recall_detail"
         note = "Call cicada_recall_detail with each suggested_entity id for full pages, or cicada_open_hub with relevant_hub for a topic index."
@@ -1490,7 +1534,7 @@ def _hints_block(
         payload["note"] = note
     if state:
         payload["state"] = state
-    return "```cicada-hints\n" + json.dumps(payload, indent=2) + "\n```"
+    return payload
 
 
 def _state_hint(memory_path: Path) -> dict | None:
@@ -2939,6 +2983,7 @@ def _format_inbox_blurb(
     cause: dict | None = None,
     recommended_key: str | None = None,
     raw_excerpts: bool = True,
+    can_answer: bool = True,
 ) -> str:
     """One proactive-recall line per pending item.
 
@@ -2950,7 +2995,8 @@ def _format_inbox_blurb(
     ename = fm.get("entity_name", fm.get("entity_mention", "Unknown"))
     if fm.get("question"):
         return f"- [{kind or 'item'}] **{ename}**\n" + render_question(
-            fm, body, cause=cause, recommended_key=recommended_key, raw_excerpts=raw_excerpts
+            fm, body, cause=cause, recommended_key=recommended_key, raw_excerpts=raw_excerpts,
+            can_answer=can_answer,
         )
     if kind in ("clarification", "merge_suggestion"):
         utype = fm.get("uncertainty_type", "unknown")
@@ -2974,6 +3020,7 @@ def render_question(
     cause: dict | None = None,
     recommended_key: str | None = None,
     raw_excerpts: bool = True,
+    can_answer: bool = True,
 ) -> str:
     """Render an inbox item's question object for an agent to ask in-flow (§2.7, v2 in G115 Phase 1).
 
@@ -3052,8 +3099,10 @@ def render_question(
     if fm.get("allow_defer"):
         choices.append("ask to be reminded later")
     if choices:
+        # `skip=true` is an argument of cicada_resolve_inbox: named only for a caller
+        # that holds it (G180, R12). The question and its choices stay either way.
         lines.append(
-            "  Other / Later — " + ", or ".join(choices) + "; skip=true if unanswered"
+            "  Other / Later — " + ", or ".join(choices) + ("; skip=true if unanswered" if can_answer else "")
         )
     if fm.get("hint"):
         lines.append(f"  Source to check: {fm['hint']}")
@@ -3229,7 +3278,8 @@ def resolve_inbox(
 _REMOTE_INBOX_ID_RE = re.compile(r"^inbox-\d+$")
 
 
-def _relevant_inbox(memory_path: Path, query: str, *, raw_excerpts: bool = True) -> list[str]:
+def _relevant_inbox(memory_path: Path, query: str, *, raw_excerpts: bool = True,
+                    can_answer: bool = True) -> list[str]:
     """Recall's proactive inbox block. ``raw_excerpts`` is the caller's
     ``ctx.raw_excerpts`` — False keeps the person's words out of each item's
     ``Cause:`` line for a remote connector without ``sources`` (R-R22)."""
@@ -3259,7 +3309,7 @@ def _relevant_inbox(memory_path: Path, query: str, *, raw_excerpts: bool = True)
             continue
         fm, cause, rec = _agent_question(memory_path, fm, today, ctx=ctx, verbatim_ok=raw_excerpts)
         blurbs.append(_format_inbox_blurb(
-            fm, body, cause=cause, recommended_key=rec, raw_excerpts=raw_excerpts))
+            fm, body, cause=cause, recommended_key=rec, raw_excerpts=raw_excerpts, can_answer=can_answer))
     return blurbs
 
 

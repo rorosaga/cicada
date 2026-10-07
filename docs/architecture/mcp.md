@@ -344,7 +344,8 @@ the CLI.
   (`cli_map.exposed_tools()`). A reply therefore never names an action the command line lacks.
 - **One bootstrap, before any service import.** In order:
   - The caller's folder is recorded and is never used to find configuration.
-  - `LITELLM_MODE=PRODUCTION` is forced, so litellm's import-time `load_dotenv` stays off.
+  - `LITELLM_MODE=PRODUCTION` is forced, so litellm's import-time `load_dotenv` stays off. It is forced again after
+    every overlay: no config file can set it, or the root keys.
   - The memory root is resolved as **one field**: caller `CICADA_MEMORY_PATH` > caller `CICADA_MEMORY_ROOT` > a
     developer checkout's `api/.env` PATH > ROOT > `~/cicada/memory`. The checkout file's other keys are overlaid (the
     file wins, as in the app-spawned dev backend).
@@ -366,7 +367,8 @@ the CLI.
   envelope, `{schema: "cicada.cli/1", command, ok, code, bank, data, text, warnings, version}`, and nothing else on
   either stream. Library output is sent to `/dev/null` at the descriptor level while the command runs.
   - Exit codes: 0 ok, 1 refused, 2 usage (unknown or abbreviated flags are rejected, never ignored), 3 bank/root
-    mismatch, 4 demo bank, 5 sandbox denied, 70 internal or bootstrap.
+    mismatch, 4 demo bank, 5 sandbox denied (also a permission denial during bootstrap), 70 internal or bootstrap.
+  - Help with JSON selected is an envelope too: `command: "help"`, `data: {topic}`, with the usage text in `text`.
   - An internal error carries the exception's class name only, never its message.
   - The envelope is additive-only within `cicada.cli/1`.
 - **Names: one tested table** (`api/services/cli_map.py`). Every stdio tool has exactly one row, a short grouped command
@@ -377,13 +379,20 @@ the CLI.
   - MCP tool names keep their `cicada_` prefix. Grouping them is the lean-MCP slice, with the old names kept as aliases.
   - No row takes a tool name: there is no generic dispatcher.
 - **Commands in this unit.**
-  - `recall <query>`: the MCP body's text. `data` is read from its machine-parseable `cicada-hints` block. A missing
-    vector index adds `warnings: ["degraded:vector"]`.
+  - `recall <query>`: the MCP body's text.
+    - `data` is the generated hints payload the body returns beside its text (`mcp_tools.Reply`, a `str` subclass
+      carrying `code` and `data`, so stdio and remote send the same bytes). It is never parsed out of the text, where a
+      memory's own words may contain a `cicada-hints` fence.
+    - An empty graph is a refusal: `ok: false`, `code: empty_graph`, exit 1, typed at the body's return site. No match
+      in a populated graph is still a success.
+    - A missing vector index adds `warnings: ["degraded:vector"]`.
   - `status`: root path, source and verification; bank name, path and demo flag; the unconsolidated count; backend
     version and `writing`; the vector index state; distribution; the caller's folder.
   - `commands`: the full table in `data.commands`, with `exposed` per row.
 - **Gating.** `_hints_block` has a `can_open_hub` argument and names no action when the caller holds neither the detail
-  tool nor the hub tool. Recall drops the state cursor's `next_tool` when the caller lacks `cicada_handshake`. Stdio holds
+  tool nor the hub tool. Recall drops the state cursor's `next_tool` when the caller lacks `cicada_handshake`.
+  `render_question` (`can_answer`) drops `skip=true if unanswered` for a caller without `cicada_resolve_inbox`, and
+  keeps the question and its choices. A remote connection keeps its current rendering until the G135 owner decides. Stdio holds
   every tool, and remote always holds the handshake and holds the hub tool whenever it holds recall, so both are
   byte-identical. Memory's own text is returned untouched (a page quoting a tool name or command-looking code stays as
   written).

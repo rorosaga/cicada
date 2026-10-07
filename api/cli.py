@@ -28,9 +28,8 @@ import contextvars
 import io
 import json
 import os
-import re
 import sys
-from contextlib import contextmanager
+from contextlib import contextmanager, redirect_stdout
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
@@ -40,11 +39,14 @@ from api.version import __version__
 
 SCHEMA = "cicada.cli/1"
 ROOT_KEYS = ("CICADA_MEMORY_PATH", "CICADA_MEMORY_ROOT")
+#: Keys the bootstrap decides itself: no config file may set them.
+CONTROL_KEYS = ROOT_KEYS + ("LITELLM_MODE",)
+#: A body's typed refusal (``mcp_tools.Reply.code``) → not ok, its exit code.
+REFUSAL_CODES = frozenset({"not_found", "empty_graph", "demo_bank"})
 DEFAULT_ROOT = "~/cicada/memory"
 HEALTH_TIMEOUT_S = 1.0
 EXIT_CODES = {"usage": 2, "not_found": 1, "empty_graph": 1, "bank_mismatch": 3, "root_mismatch": 3,
               "demo_bank": 4, "sandbox_denied": 5, "internal": 70, "bootstrap": 70}
-_HINTS = re.compile(r"```cicada-hints\n(.*?)\n```", re.S)
 
 
 class UsageError(Exception):
@@ -64,7 +66,12 @@ class BootstrapError(Exception):
 
 
 class _HelpShown(Exception):
-    pass
+    """argparse printed help; ``topic`` is the subcommand it was for (None for the top level)."""
+
+    def __init__(self, prog: str) -> None:
+        super().__init__(prog)
+        words = prog.split()[1:]
+        self.topic = " ".join(words) or None
 
 
 @dataclass
@@ -72,6 +79,11 @@ class Result:
     text: str
     data: dict | None
     warnings: list[str] = field(default_factory=list)
+    code: str | None = None
+
+    @property
+    def ok(self) -> bool:
+        return self.code not in REFUSAL_CODES
 
 
 @dataclass
@@ -99,6 +111,12 @@ def resolve_root(environ, file_values) -> tuple[str, str]:
     return DEFAULT_ROOT, "default"
 
 
+def _force_production(environ) -> None:
+    """litellm runs ``load_dotenv()`` at import unless ``LITELLM_MODE`` is not ``DEV``: forced here, and
+    re-forced after every overlay, so no inherited value and no config file can turn that load back on."""
+    environ["LITELLM_MODE"] = "PRODUCTION"
+
+
 def bootstrap(environ=None) -> Boot:
     """PLAN §3.3. ``environ`` is the process environment (``Settings`` reads ``os.environ``)."""
     environ = os.environ if environ is None else environ
@@ -106,7 +124,7 @@ def bootstrap(environ=None) -> Boot:
         caller_cwd = os.getcwd()
     except OSError:          # the caller's folder was deleted under it
         caller_cwd = None
-    environ["LITELLM_MODE"] = "PRODUCTION"      # litellm's import-time load_dotenv() stays off
+    _force_production(environ)
 
     checkout = (environ.get("CICADA_CHECKOUT") or "").strip()
     if (environ.get("CICADA_DISTRIBUTION") or "").strip() == "release":
@@ -123,7 +141,7 @@ def bootstrap(environ=None) -> Boot:
 
     raw, source = resolve_root(environ, file_values)
     for key, value in file_values.items():     # the app-spawned dev backend's overlay: the file wins
-        if key not in ROOT_KEYS:
+        if key not in CONTROL_KEYS:
             environ[key] = value
     canonical = Path(os.path.realpath(os.path.expanduser(raw)))
     environ["CICADA_MEMORY_PATH"] = str(canonical)
@@ -138,6 +156,7 @@ def bootstrap(environ=None) -> Boot:
         connection_secrets.load_secrets()      # the backend lifespan's call: fills unset keys only
     except Exception:  # noqa: BLE001 - an unreadable secrets file never stops a read
         pass
+    _force_production(environ)                 # last word, after every overlay, before any service import
 
     from api.services import bank_registry, runtime_layout
 
@@ -244,28 +263,32 @@ def _vector_state(bank: Path) -> str:
         return "unreadable"
 
 
-def _hints_data(text: str) -> dict:
-    match = _HINTS.search(text)
-    payload = {}
-    if match:
-        try:
-            payload = json.loads(match.group(1))
-        except ValueError:
-            payload = {}
-    return {"suggested_entities": payload.get("suggested_entities", []),
-            "relevant_hub": payload.get("relevant_hub"),
-            "hub_members_preview": payload.get("hub_members_preview", []),
-            "state": payload.get("state")}
+def _recall_data(payload) -> dict:
+    """Recall's structured data: the generated hints payload the body handed back beside its text
+    (``Reply.data``), never anything parsed out of the text, where memory's own words also live."""
+    payload = payload if isinstance(payload, dict) else {}
+
+    def ids(value) -> list[str]:
+        return [v for v in value if isinstance(v, str)] if isinstance(value, list) else []
+
+    hub, state = payload.get("relevant_hub"), payload.get("state")
+    return {"suggested_entities": ids(payload.get("suggested_entities")),
+            "relevant_hub": hub if isinstance(hub, str) else None,
+            "hub_members_preview": ids(payload.get("hub_members_preview")),
+            "state": state if isinstance(state, dict) else None}
 
 
 def cmd_recall(boot: Boot, args) -> Result:
     from api.services import mcp_tools
 
-    text = mcp_tools.recall(_tool_context(boot), args.query)
+    reply = mcp_tools.recall(_tool_context(boot), args.query)
+    code = getattr(reply, "code", None)
+    if code in REFUSAL_CODES:
+        return Result(text=str(reply), data=None, code=code)
     warnings = _root_warnings(boot)
     if _vector_state(boot.pin.path) != "present":
         warnings.append("degraded:vector")
-    return Result(text=text, data=_hints_data(text), warnings=warnings)
+    return Result(text=str(reply), data=_recall_data(getattr(reply, "data", None)), warnings=warnings)
 
 
 _VERIFIED_WORDS = {"confirmed": "matches the app's backend", "mismatch": "the app's backend uses a DIFFERENT folder",
@@ -338,7 +361,7 @@ class _Parser(argparse.ArgumentParser):
     def exit(self, status=0, message=None):
         if status:
             raise UsageError((message or "").strip() or "invalid command line")
-        raise _HelpShown()
+        raise _HelpShown(self.prog)
 
 
 def _globals(parser: argparse.ArgumentParser, *, top: bool) -> None:
@@ -476,9 +499,16 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     command: str | None = None
     try:
+        help_text = io.StringIO()
         try:
-            args = parser.parse_args(argv)
-        except _HelpShown:
+            with redirect_stdout(help_text):
+                args = parser.parse_args(argv)
+        except _HelpShown as shown:
+            if as_json:
+                _emit(True, command="help", ok=True, code=None, bank=None, data={"topic": shown.topic},
+                      text=help_text.getvalue(), warnings=[])
+            else:
+                sys.stdout.write(help_text.getvalue())
             return 0
         as_json = args.json or args.format == "json"
         if args.version and not args.command:
@@ -509,6 +539,8 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 try:
                     boot = bootstrap()
+                except PermissionError:
+                    raise                      # a sandboxed shell: exit 5 with the MCP fallback, below
                 except Exception as exc:  # noqa: BLE001
                     raise BootstrapError(type(exc).__name__) from None
                 bank_name = boot.pin.name
@@ -533,9 +565,9 @@ def main(argv: list[str] | None = None) -> int:
         _emit(as_json, command=command, ok=False, code="internal", bank=bank_name, data=None,
               text=f"Internal error ({type(exc).__name__}).", warnings=[])
         return EXIT_CODES["internal"]
-    _emit(as_json, command=command, ok=True, code=None, bank=bank_name, data=result.data, text=result.text,
-          warnings=result.warnings)
-    return 0
+    _emit(as_json, command=command, ok=result.ok, code=result.code, bank=bank_name, data=result.data,
+          text=result.text, warnings=result.warnings)
+    return 0 if result.ok else EXIT_CODES.get(result.code, 1)
 
 
 def run() -> int:
