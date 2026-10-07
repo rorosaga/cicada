@@ -490,6 +490,10 @@ def split_turns(body: str, sidecar, tail, turn_count: int) -> list[Turn]:
     for n, s0 in enumerate(starts, start=1):
         e0 = starts[n] if n < len(starts) else end_of_body
         chunk = body[s0:e0 - 1]
+        for g0, g1 in reversed(evidence.gap_spans(chunk)):
+            # Gate B2: the dropped-middle marker trails the head's last turn; it
+            # is not that turn's words (the gap is said in "Not captured").
+            chunk = (chunk[:g0].rstrip("\n") + chunk[g1:]).rstrip("\n")
         speaker, _, text = chunk.partition(": ")
         if speaker not in ("user", "assistant"):
             speaker, text = "unknown", chunk
@@ -606,8 +610,15 @@ def gap_lines(ctx: WorkingContext) -> list[str]:
     elif last and last.speaker == "user":
         out.append("its last request has no captured reply")
     gap = (v.capture_gap or {}) if v else {}
-    if gap.get("dropped_turns"):
+    if gap.get("dropped_turns") and gap.get("last_seen_at") and not gap.get("first_dropped_at"):
+        # An episode captured before gate B2 (head-only cap): the turns after the head.
         out.append(f"{gap['dropped_turns']} turns past Cicada's capture limit, until {_hm(gap.get('last_seen_at'))}")
+    elif gap.get("dropped_turns"):
+        span = ""
+        if gap.get("first_dropped_at"):
+            span = f" ({_hm(gap.get('first_dropped_at'))}–{_hm(gap.get('last_dropped_at'))})"
+        out.append(f"{gap['dropped_turns']} turns from the middle{span}, past Cicada's capture limit — "
+                   "its start and its latest turns are kept")
     flags = (v.capture_flags or {}) if v else {}
     if flags.get("note_like_turns"):
         out.append(f"{flags['note_like_turns']} of its turns look like a Cicada note kept as typed text")

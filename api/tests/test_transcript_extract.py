@@ -231,13 +231,60 @@ def test_per_turn_cap_truncates_and_counts():
     assert conv.summary["truncated_turns"] == 1
 
 
-def test_session_cap_keeps_the_head_and_flags():
-    # Word runs, not "a" * 60 — sixty hex characters match the 32+ hex rule
-    # and would be redacted. After strip(): 59 + 59 fits 130, + 63 does not.
-    lines = [user("alpha " * 10), asst_text("bravo " * 10), user("charlie " * 8)]
-    conv = tx.extract_claude_code(lines, session_cap=130)
-    assert [t.text[0] for t in conv.turns] == ["a", "b"]
-    assert conv.summary["session_cap_hit"] is True
+def _numbered(n: int, width: int = 10) -> list[str]:
+    """``n`` turns of exactly ``width`` characters, alternating speakers, one second apart."""
+    out = []
+    for i in range(n):
+        text = f"turn {i:03d} " + "w" * width
+        ts = f"2026-09-03T10:{i // 60:02d}:{i % 60:02d}.000Z"
+        out.append(user(text[:width], ts=ts) if i % 2 == 0 else asst_text(text[:width], ts=ts))
+    return out
+
+
+def test_under_the_session_cap_everything_is_kept_and_there_is_no_gap():
+    conv = tx.extract_claude_code(_numbered(10), session_cap=100)
+    assert len(conv.turns) == 10 and conv.gap is None
+    assert conv.summary["session_cap_hit"] is False and conv.summary["refused_turns"] == 0
+
+
+def test_session_cap_keeps_the_head_and_the_tail_and_marks_the_middle():
+    """Gate B2 (ruling 2026-10-07): the first 3/5 of the cap is the head, the
+    rest the tail; the tail starts on a block boundary; the middle is dropped,
+    counted, and described by its first and last times."""
+    conv = tx.extract_claude_code(_numbered(20), session_cap=100, tail_block=2)
+    texts = [t.text[:8] for t in conv.turns]
+    assert texts == [f"turn {i:03d}" for i in (*range(6), *range(16, 20))]
+    g = conv.gap
+    assert (g.after, g.dropped) == (6, 10)
+    assert g.first_at == "2026-09-03T10:00:06.000Z" and g.last_at == "2026-09-03T10:00:15.000Z"
+    assert conv.summary["session_cap_hit"] is True and conv.summary["refused_turns"] == 10
+    assert conv.ended_at == "2026-09-03T10:00:19.000Z"          # the latest turn is kept
+
+
+def test_the_head_is_stable_and_the_tail_advances_in_blocks():
+    heads, starts = set(), []
+    for n in range(12, 40):
+        conv = tx.extract_claude_code(_numbered(n), session_cap=100, tail_block=4)
+        heads.add(tuple(t.text for t in conv.turns[: conv.gap.after]))
+        start = conv.gap.after + conv.gap.dropped
+        assert start % 4 == 0 and sum(len(t.text) for t in conv.turns[conv.gap.after:]) <= 40
+        assert conv.turns[-1].text.startswith(f"turn {n - 1:03d}")
+        starts.append(start)
+    assert len(heads) == 1                                          # head offsets never move
+    moves = [b - a for a, b in zip(starts, starts[1:]) if b != a]
+    assert moves and all(m == 4 for m in moves)                     # whole blocks, never one turn at a time
+
+
+def test_the_last_turn_is_always_kept_even_when_the_tail_cannot_hold_a_block():
+    conv = tx.extract_claude_code(_numbered(12), session_cap=100)  # default block of 10
+    assert conv.turns[-1].text.startswith("turn 011") and conv.gap.dropped >= 1
+
+
+def test_a_note_like_turn_in_the_dropped_middle_is_not_counted():
+    lines = _numbered(20)
+    lines[10] = user("see:\n" + recall_text.INJECTION_PREFIX + " x", ts="2026-09-03T10:00:10.000Z")
+    conv = tx.extract_claude_code(lines, session_cap=100, tail_block=2)
+    assert conv.gap.dropped == 10 and conv.summary["note_like_turns"] == 0
 
 
 def test_secrets_inside_code_fences_never_survive_and_scrub_runs_before_cap():
@@ -378,16 +425,6 @@ def test_codex_harness_tags_are_still_skipped():
 # --- G110 slice 1a: refused turns and note-like person turns are counted -------
 
 
-def test_refused_turns_and_the_latest_time_seen_are_counted():
-    lines = [_line("user", "a" * 30, ts="2026-09-03T10:00:00.000Z"),
-             _line("assistant", [{"type": "text", "text": "b" * 30}], ts="2026-09-03T10:00:01.000Z"),
-             _line("user", "c" * 30, ts="2026-09-03T10:00:02.000Z")]
-    conv = tx.extract_claude_code(lines, session_cap=65)
-    assert [t.text for t in conv.turns] == ["a" * 30, "b" * 30]
-    assert conv.summary["refused_turns"] == 1 and conv.summary["session_cap_hit"] is True
-    assert conv.last_seen_at == "2026-09-03T10:00:02.000Z"
-
-
 def test_a_note_like_line_inside_a_person_turn_is_kept_and_counted():
     text = "I pasted this:\n" + recall_text.INJECTION_PREFIX + " at session start ...\nplease fix it"
     conv = tx.extract_claude_code([_line("user", text)])
@@ -395,14 +432,6 @@ def test_a_note_like_line_inside_a_person_turn_is_kept_and_counted():
 
 
 # --- fix round 1, finding 9: only text that reaches the body is counted ----------
-
-
-def test_a_note_like_turn_refused_by_the_cap_is_not_counted():
-    # The header on a later line, so the existing G149 block rule keeps the block and the CAP refuses it.
-    lines = [_line("user", "short"), _line("user", "see:\n" + recall_text.INJECTION_PREFIX + " at session start ...")]
-    conv = tx.extract_claude_code(lines, session_cap=40)
-    assert len(conv.turns) == 1 and conv.summary["refused_turns"] == 1
-    assert conv.summary["note_like_turns"] == 0
 
 
 def test_a_note_header_removed_by_cleaning_is_not_counted():

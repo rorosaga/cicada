@@ -91,9 +91,34 @@ _SPEAKER_RE = re.compile(r"^speaker:[^:\n]{1,64}:")
 # quoted (`> `), so nothing inside it can open a turn. It is `page` evidence —
 # the document's words, never the person's (a pasted contract is not "You said").
 _ATTACHMENT_RE = re.compile(r"^attachment\s*\[[^\]\n]{1,128}\]\s*:", re.IGNORECASE)
+# G110 gate B2: the one line a captured session's body carries where the
+# session cap dropped its middle (`transcript_capture`). It opens no turn and is
+# nobody's words: a span that touches it is `reasoning` (`verify`), and a
+# continuity reader strips it from the turn it would otherwise trail.
+_GAP_LINE_RE = re.compile(r"^\[Cicada: \d+ turns? (?:from \S+ to \S+ )?were not kept\]$", re.MULTILINE)
 # R-F2 / R-LS7: an episode may declare whose words it holds (a folder file's
 # authorship). Only these two values are honoured; anything else falls back to markers.
 OVERRIDE_KINDS = frozenset({"user", "assistant"})
+
+
+def gap_line(dropped: int, first_at: str | None, last_at: str | None) -> str:
+    """The marker for ``dropped`` turns not kept between a session's head and
+    its tail (gate B2) — the ONE spelling, so :func:`is_gap_line` reads every
+    line the writer wrote."""
+    first, last = first_at or last_at, last_at or first_at
+    when = f" from {first} to {last}" if first else ""
+    return f"[Cicada: {int(dropped)} turn{'' if int(dropped) == 1 else 's'}{when} were not kept]"
+
+
+def is_gap_line(line: str) -> bool:
+    return bool(_GAP_LINE_RE.fullmatch(line or ""))
+
+
+def gap_spans(text: str) -> list[tuple[int, int]]:
+    """``(start, end)`` of every marker line in ``text``."""
+    if "[Cicada: " not in (text or ""):
+        return []
+    return [(m.start(), m.end()) for m in _GAP_LINE_RE.finditer(text)]
 
 
 def body_hash(text: str) -> str:
@@ -479,8 +504,10 @@ def span_status(
     span in a conversation that continued after Sleep read ``stale``: the Stop
     hook rewrites a session's one episode in place with appended turns
     (``transcript_capture.capture_transcript``), G20 rewrites a grown chat
-    export the same way, and ``transcript_extract.SESSION_CAP_CHARS`` is
-    head-stable precisely so those offsets do not move. So when the whole text
+    export the same way, and ``transcript_extract.SESSION_CAP_CHARS`` keeps a
+    stable head precisely so those offsets do not move (past the cap, the tail
+    after the gap marker moves in blocks — a span there reads ``stale`` once it
+    slides, the cost gate B2 accepted). So when the whole text
     does not match, try every prefix that ends at the newline just before a
     turn-marker line and still covers the span (``cut >= end``): if one hashes
     to ``hash``, the cited text is byte-identical and the answer is ``grown``.
@@ -553,6 +580,9 @@ def verify(
     if span is None:
         return reasoning(doc_id, hash=digest)
     start, end = span
+    if any(g0 < end and start < g1 for g0, g1 in gap_spans(text)):
+        # Gate B2: the dropped-middle marker is Cicada's line, not anyone's words.
+        return reasoning(doc_id, hash=digest)
     kind = kind_for(doc_id, text, start, kind_override)
     return Evidence(episode=doc_id, start=start, end=end, kind=kind, hash=digest)
 

@@ -112,33 +112,6 @@ def test_untimed_turns_record_no_time(roots, memory):
     assert "last_turn_at" not in fm and all("at" not in e for e in fm["tail_turns"])
 
 
-def test_a_refused_turn_on_an_unchanged_body_is_a_metadata_write(roots, memory, monkeypatch):
-    monkeypatch.setattr(transcript_extract, "SESSION_CAP_CHARS", 60)
-    base = [("user", "u" * 20), ("assistant", "a" * 20), ("user", "x" * 30)]   # the third is refused
-    r1 = _capture(roots, memory, base)
-    fp = _episode(memory, r1)
-    fm1 = markdown_parser.parse(fp).frontmatter
-    assert fm1["capture_gap"] == {"dropped_turns": 1, "last_seen_at": "2026-09-03T10:00:02+00:00"}
-    # Sleep consolidated it meanwhile.
-    doc = markdown_parser.parse(fp)
-    sleep_cycle._mark_episodes_processed([{"filepath": fp, "id": r1.episode_id,
-                                            "revision": episode_ids.body_revision(doc.body)}])
-    body_before = markdown_parser.parse(fp).body
-    r2 = _capture(roots, memory, base + [("assistant", "y" * 30)])
-    assert r2.status == "metadata"
-    doc2 = markdown_parser.parse(fp)
-    assert doc2.body == body_before and doc2.frontmatter["content_hash"] == fm1["content_hash"]
-    assert doc2.frontmatter["processed"] is True and doc2.frontmatter["processed_by"] == "sleep"
-    assert doc2.frontmatter["capture_gap"] == {"dropped_turns": 2, "last_seen_at": "2026-09-03T10:00:03+00:00"}
-    assert list(doc2.frontmatter)[-1] == "turns"
-    # Nothing moved: unchanged, no write.
-    assert _capture(roots, memory, base + [("assistant", "y" * 30)]).status == "unchanged"
-    # Capture fits again: an ordinary update, and the gap is gone.
-    monkeypatch.setattr(transcript_extract, "SESSION_CAP_CHARS", 10_000)
-    r4 = _capture(roots, memory, base + [("assistant", "y" * 30)])
-    assert r4.status == "updated" and "capture_gap" not in markdown_parser.parse(fp).frontmatter
-
-
 def test_note_like_person_turns_are_kept_and_counted(roots, memory):
     turns = [("user", "here is what I saw:\n" + recall_text.INJECTION_PREFIX + " at session start ...\nfix it"),
              ("assistant", "ok")]

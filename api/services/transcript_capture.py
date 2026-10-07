@@ -41,7 +41,8 @@ from pathlib import Path
 from loguru import logger
 
 from api.services import (
-    agent_turns, continuity_sessions, demo_guard, episode_ids, episode_staging, markdown_parser, session_stats, telemetry,
+    agent_turns, continuity_sessions, demo_guard, episode_ids, episode_staging, evidence, markdown_parser, session_stats,
+    telemetry,
 )
 from api.services.transcript_extract import HARNESSES, Conversation, extract
 
@@ -138,28 +139,20 @@ def capture_meta(conv: Conversation, body: str) -> dict:
       speaker, at?}`` with exact offsets into the body (``_body``'s join), so a
       reader never guesses turn boundaries from text — the G118 sidecar stops
       at 500 entries and skips untimed turns;
-    * ``capture_gap`` — only while the session cap refused turns: how many and
-      the latest time seen;
+    * ``capture_gap`` — only while the session cap dropped the middle (gate
+      B2): how many turns, and the first and last of their times;
     * ``capture_flags`` — only when a kept person turn holds a line that opens
       like a Cicada note (counted, kept, disclosed)."""
     meta: dict = {}
     if conv.turns and conv.turns[-1].ts:
         meta["last_turn_at"] = _utc(conv.turns[-1].ts)
     meta["turn_count"] = len(conv.turns)
-    refused = int(conv.summary.get("refused_turns") or 0)
-    if refused:
-        gap: dict = {"dropped_turns": refused}
-        if conv.last_seen_at:
-            gap["last_seen_at"] = _utc(conv.last_seen_at)
-        meta["capture_gap"] = gap
+    if conv.gap is not None:
+        meta["capture_gap"] = _gap_meta(conv)
     note_like = int(conv.summary.get("note_like_turns") or 0)
     if note_like:
         meta["capture_flags"] = {"note_like_turns": note_like}
-    offsets: list[int] = []
-    at = 0
-    for t in conv.turns:
-        offsets.append(at)
-        at += len(f"{t.role}: {t.text}") + 1
+    offsets = _turn_offsets(conv)
     tail = []
     for i in range(max(0, len(conv.turns) - TAIL_TURNS), len(conv.turns)):
         entry = {"offset": offsets[i], "speaker": conv.turns[i].role}
@@ -215,10 +208,43 @@ def _utc(ts: str | None) -> str:
     return episode_ids.utc_now_iso()
 
 
+def _gap_meta(conv: Conversation) -> dict:
+    gap: dict = {"dropped_turns": conv.gap.dropped}
+    if conv.gap.first_at:
+        gap["first_dropped_at"] = _utc(conv.gap.first_at)
+    if conv.gap.last_at:
+        gap["last_dropped_at"] = _utc(conv.gap.last_at)
+    return gap
+
+
+def _lines(conv: Conversation) -> list[str]:
+    """The body's lines: one ``role: text`` per kept turn and, over the session
+    cap (gate B2), the ONE marker line between the head and the tail
+    (``evidence.gap_line``). Every offset this module records is taken here."""
+    out = [f"{t.role}: {t.text}" for t in conv.turns]
+    if conv.gap is not None:
+        g = _gap_meta(conv)
+        out.insert(conv.gap.after, evidence.gap_line(g["dropped_turns"], g.get("first_dropped_at"),
+                                                     g.get("last_dropped_at")))
+    return out
+
+
+def _turn_offsets(conv: Conversation) -> list[int]:
+    """Where each kept turn's line starts in :func:`_body` — the marker line is skipped."""
+    offsets: list[int] = []
+    at = 0
+    for i, line in enumerate(_lines(conv)):
+        if not (conv.gap is not None and i == conv.gap.after):
+            offsets.append(at)
+        at += len(line) + 1
+    return offsets
+
+
 def _body(conv: Conversation) -> str:
     """The importer's exact body shape (``conversations.py:792``), so G118
-    spans and ``evidence.speaker_kind`` read a captured episode unchanged."""
-    return "\n".join(f"{t.role}: {t.text}" for t in conv.turns)
+    spans and ``evidence.speaker_kind`` read a captured episode unchanged —
+    plus, over the cap, the gap marker line (gate B2)."""
+    return "\n".join(_lines(conv))
 
 
 def _turn_sidecar(conv: Conversation, body: str) -> list[dict]:
@@ -231,10 +257,24 @@ def _turn_sidecar(conv: Conversation, body: str) -> list[dict]:
     times, and ``[]`` rather than offsets into text the body does not hold.
     Before this the hook wrote ``turns: <count>`` and every Claude Code turn
     dated to the session's first day."""
-    draft = episode_staging.EpisodeDraft(turns=[
-        episode_staging.Turn(text=t.text, speaker=t.role, ts=t.ts, model=t.model, effort=t.effort)
-        for t in conv.turns])
-    return episode_staging.stamps_for(draft, body)
+    def piece(turns) -> tuple[episode_staging.EpisodeDraft, str]:
+        draft = episode_staging.EpisodeDraft(turns=[
+            episode_staging.Turn(text=t.text, speaker=t.role, ts=t.ts, model=t.model, effort=t.effort)
+            for t in turns])
+        return draft, "\n".join(f"{t.role}: {t.text}" for t in turns)
+
+    if conv.gap is None:
+        return episode_staging.stamps_for(piece(conv.turns)[0], body)
+    # Gate B2: the head and the tail are each the stager's own rendering; the
+    # tail's offsets start after the marker line. Head first under the 500 cap.
+    head_draft, head_body = piece(conv.turns[: conv.gap.after])
+    tail_draft, tail_body = piece(conv.turns[conv.gap.after:])
+    base = _turn_offsets(conv)[conv.gap.after]
+    if body[base:] != tail_body or (head_body and not body.startswith(head_body + "\n")):
+        return []
+    tail = [{**e, "offset": e["offset"] + base} for e in episode_staging.stamps_for(tail_draft, tail_body)]
+    head = episode_staging.stamps_for(head_draft, head_body) if head_body else []
+    return (head + tail)[: episode_staging.MAX_TURN_STAMPS]
 
 
 def _place_turns(fm: dict, sidecar: list[dict]) -> None:
@@ -252,8 +292,7 @@ def _last_offset(conv: Conversation, body: str) -> int | None:
     chunks with `\\n`, so it is the body's length minus that chunk's."""
     if not conv.turns:
         return None
-    last = conv.turns[-1]
-    return len(body) - len(f"{last.role}: {last.text}")
+    return _turn_offsets(conv)[-1]
 
 
 def _agent_fields(sidecar: list[dict], previous, effort: str | None, last_offset: int | None) -> list[dict]:
