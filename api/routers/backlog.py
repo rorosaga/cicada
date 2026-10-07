@@ -33,7 +33,7 @@ from api.config import Settings, get_settings
 from api.models.schemas import (BacklogImportRequest, BacklogImportResponse, BacklogItemCreate, BacklogItemModel,
                                 BacklogItemPatch, BacklogItemSummary, BacklogLink, BacklogListResponse,
                                 BacklogNoteCreate, BacklogNoteModel)
-from api.services import backlog, backlog_import, git_service, handshake, sync_service, when
+from api.services import backlog, backlog_import, git_service, handshake, sync_service, when, write_admission
 from api.services.sleep_refusal import SleepWriting
 
 router = APIRouter()
@@ -41,7 +41,7 @@ router = APIRouter()
 # One write at a time in this process (the `routers/projects.py` reason): two
 # quick taps would read the same file before either commit ran. Across
 # processes the item file's own lock holds (`backlog._locked`).
-_write_lock = asyncio.Lock()
+_write_lock = write_admission.TransactionLock()   # taken inside admitted transactions (writer loop)
 BUSY = "Sleep is writing memory right now, try again in a moment"
 TRIGGER = "user/companion_app"
 
@@ -55,11 +55,13 @@ def _now() -> datetime:
     return datetime.now(when.zone(_tz()))
 
 
-def _guard() -> None:
-    from api.services import sleep_cycle
+def _busy() -> SleepWriting:
+    return SleepWriting(BUSY)
 
-    if sleep_cycle.is_writing():
-        raise SleepWriting(BUSY)
+
+#: The route's write admission (G183): 409 while Sleep holds the pages, asked once the hold is taken and held — on
+#: the writer loop, through this process's one-write lock and the commit — so a window cannot open between.
+_admitted = write_admission.route(refuse=_busy)
 
 
 def _project(memory_path, project_id: str) -> tuple[str, dict]:
@@ -172,8 +174,8 @@ async def get_backlog_item(project_id: str, item_id: str, request: Request, resp
 
 
 @router.post("/projects/{project_id}/backlog", response_model=BacklogItemModel)
+@_admitted
 async def add_backlog_item(project_id: str, body: BacklogItemCreate, settings: Settings = Depends(get_settings)):
-    _guard()
     mp = settings.memory_path
     stem, _ = _project(mp, project_id)
     async with _write_lock:
@@ -186,9 +188,9 @@ async def add_backlog_item(project_id: str, body: BacklogItemCreate, settings: S
 
 
 @router.post("/backlog/{project_id}/{item_id}/notes", response_model=BacklogItemModel)
+@_admitted
 async def add_backlog_note(project_id: str, item_id: str, body: BacklogNoteCreate,
                            settings: Settings = Depends(get_settings)):
-    _guard()
     mp = settings.memory_path
     stem, _ = _project(mp, project_id)
     async with _write_lock:
@@ -201,9 +203,9 @@ async def add_backlog_note(project_id: str, item_id: str, body: BacklogNoteCreat
 
 
 @router.patch("/backlog/{project_id}/{item_id}", response_model=BacklogItemModel)
+@_admitted
 async def change_backlog_item(project_id: str, item_id: str, body: BacklogItemPatch,
                               settings: Settings = Depends(get_settings)):
-    _guard()
     mp = settings.memory_path
     stem, _ = _project(mp, project_id)
     links = None if body.links is None else [link.model_dump(by_alias=False) for link in body.links]
@@ -217,10 +219,10 @@ async def change_backlog_item(project_id: str, item_id: str, body: BacklogItemPa
 
 
 @router.post("/projects/{project_id}/backlog/import", response_model=BacklogImportResponse)
+@_admitted
 async def import_backlog(project_id: str, body: BacklogImportRequest, settings: Settings = Depends(get_settings)):
     """R-B15's live path: one `Backlog import` commit as the person, or none —
     an id already on the backlog is skipped, so a second post changes nothing."""
-    _guard()
     mp = settings.memory_path
     stem, _ = _project(mp, project_id)
     if len(body.markdown) > backlog_import.MAX_CHARS:

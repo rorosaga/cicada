@@ -378,9 +378,9 @@ def _sleep_holds() -> bool:
     """Is Sleep holding the pages (``sleep_cycle.is_writing``)? Imported lazily —
     the service sits under ``sleep_cycle`` — and False when it cannot be read."""
     try:
-        from api.services import sleep_cycle
+        from api.services import write_admission
 
-        return bool(sleep_cycle.is_writing())
+        return write_admission.probe()   # a stale answer is enough: the queue lives outside every bank (G183)
     except Exception:  # noqa: BLE001
         return False
 

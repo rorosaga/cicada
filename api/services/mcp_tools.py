@@ -37,7 +37,7 @@ from typing import Callable
 
 from api.services import agent_commits, agentic_write, demo_guard, episode_ids, episode_scrub, search_service
 # One fence rule for every frontmatter reader (L final review, finding 2).
-from api.services import markdown_parser, page_lock
+from api.services import markdown_parser, page_lock, write_admission
 
 
 def _loopback_post(url: str, payload: dict, headers: dict[str, str], timeout: float = 8) -> dict:
@@ -224,10 +224,14 @@ def _holding_pages(fn):
     def inner(ctx: "ToolContext", *args, **kwargs):
         memory_path = ctx.memory_path()
         resolve, ctx.memory_path = ctx.memory_path, (lambda: memory_path)
-        ctx.sleep_answer = ctx.sleep_running()
         try:
-            with page_lock.page_lock(memory_path):
-                return fn(ctx, *args, **kwargs)
+            # G183: the bank's write admission (an `flock` the backend's Sleep waits out — this server is another
+            # process) is held from the probe through the commit, so a window cannot open between the answer and
+            # the write. The probe is bounded (2 s); the page lock is taken after it, never around it.
+            with write_admission.shared(memory_path):
+                ctx.sleep_answer = ctx.sleep_running()
+                with page_lock.page_lock(memory_path):
+                    return fn(ctx, *args, **kwargs)
         finally:
             ctx.memory_path, ctx.sleep_answer = resolve, None
     return inner
@@ -368,6 +372,7 @@ def save_url(ctx: ToolContext, url: str, note: str | None) -> str:
     # it as an MCP save from this Mac.
     if not ctx.is_remote:
         try:
+            import urllib.error
             import urllib.request
 
             payload = json.dumps({
@@ -389,6 +394,14 @@ def save_url(ctx: ToolContext, url: str, note: str | None) -> str:
                 data.get("status", "created"), data.get("title", url), data.get("mediaType", "url"),
                 data.get("mediaEntityId", "?"), data.get("episodeId", "?"), data.get("noteEpisodeId"),
             )
+        except urllib.error.HTTPError as exc:
+            if exc.code == 409:
+                # The backend refused (Sleep holds the pages, G183 round 2): never written behind its back.
+                try:
+                    detail = json.loads(exc.read().decode("utf-8")).get("detail")
+                except Exception:  # noqa: BLE001
+                    detail = None
+                return f"Not saved: {detail or 'the backend is busy'}. Try again in a moment."
         except Exception:
             pass
 
@@ -405,52 +418,67 @@ def save_url(ctx: ToolContext, url: str, note: str | None) -> str:
         (memory_path / "episodes").mkdir(parents=True, exist_ok=True)
         (memory_path / "entities").mkdir(parents=True, exist_ok=True)
 
-        async def _save():
-            item = media_ingestor.RawItem(
-                url=url,
-                note=note,
-                # Byte-identical frontmatter to path 1's `POST /sources/save`,
-                # so which path ran (backend up or down) never shows up as a
-                # provenance difference.
-                origin="saved-link",
-                session_id=ctx.session_id,
-                harness=ctx.harness,
-                project_dir=ctx.project_dir,
-            )
-            idx = media_ingestor.load_url_index(memory_path)
-            async with httpx.AsyncClient() as client:
-                result = await media_ingestor.ingest_one(item, memory_path, client, idx)
-            media_ingestor.save_url_index(memory_path, idx)
-            # G140 Q-R10: a note for an already-saved link is kept as its own
-            # episode — this is one of the two single-save paths that may.
-            note_ep = (media_ingestor.write_note_episode(memory_path, item, result)
-                       if result.status == "duplicate" else None)
-            return result, note_ep
+        item = media_ingestor.RawItem(
+            url=url,
+            note=note,
+            # Byte-identical frontmatter to path 1's `POST /sources/save`,
+            # so which path ran (backend up or down) never shows up as a
+            # provenance difference.
+            origin="saved-link",
+            session_id=ctx.session_id,
+            harness=ctx.harness,
+            project_dir=ctx.project_dir,
+        )
 
-        result, note_ep = asyncio.run(_save())
-        if ctx.is_remote and result.status == "created":
-            # R-R11: the three files this save wrote, committed on their own
-            # under the app that saved them (the batch path's own path list).
-            paths = ["sources/url_index.json", f"entities/{result.media_entity_id}.md",
-                     f"episodes/{result.episode_id}.md"]
-            agent_commits.commit_write(
-                memory_path, subject=ctx.commit_subject,
-                lines=[f"sources/url_index.json: updated (trigger: {ctx.trigger})",
-                       f"entities/{result.media_entity_id}.md: created (source: {result.episode_id}, trigger: {ctx.trigger})",
-                       f"episodes/{result.episode_id}.md: created (trigger: {ctx.trigger})"],
-                paths=paths, author=ctx.author, session=ctx.session_id)
-        if ctx.is_remote and note_ep and note_ep[1]:
-            # R-R11: a kept note commits alone, under its app, like any remote
-            # write. Stdio's backend-down path leaves it uncommitted, exactly as
-            # it leaves a created save (G135's byte-identical ruling).
-            agent_commits.commit_write(
-                memory_path, subject=ctx.commit_subject,
-                lines=[f"episodes/{note_ep[0]}.md: created (trigger: {ctx.trigger})"],
-                paths=[f"episodes/{note_ep[0]}.md"], author=ctx.author, session=ctx.session_id)
-        return _saved_reply(result.status, result.title, result.media_type, result.media_entity_id,
-                            result.episode_id, note_ep[0] if note_ep else None)
+        async def _fetch():
+            async with httpx.AsyncClient() as client:
+                return await media_ingestor.prepare_one(
+                    item, memory_path, client, media_ingestor.load_url_index(memory_path))
+
+        # G183 round 1: the fetch holds no admission; the files and their commit are written inside it.
+        prepared = asyncio.run(_fetch())
+        with write_admission.shared(memory_path):
+            if ctx.is_remote and ctx.pages_held():
+                raise write_admission.SleepHolding()   # R-R27, asked again now that the hold is taken
+            return _write_saved_url(ctx, memory_path, item, prepared)
+    except write_admission.SleepHolding:
+        raise
     except Exception as e:
         return f"Error: could not save URL ({type(e).__name__}: {e})"
+
+
+def _write_saved_url(ctx: ToolContext, memory_path: Path, item, prepared) -> str:
+    from api.services import media_ingestor
+
+    idx = media_ingestor.load_url_index(memory_path)
+    result = media_ingestor.write_prepared(prepared, memory_path, idx)
+    media_ingestor.save_url_index(memory_path, idx)
+    # G140 Q-R10: a note for an already-saved link is kept as its own
+    # episode — this is one of the two single-save paths that may.
+    note_ep = (media_ingestor.write_note_episode(memory_path, item, result)
+               if result.status == "duplicate" else None)
+    if ctx.is_remote and result.status == "created":
+        # R-R11: the three files this save wrote, committed on their own
+        # under the app that saved them (the batch path's own path list).
+        paths = ["sources/url_index.json", f"entities/{result.media_entity_id}.md",
+                 f"episodes/{result.episode_id}.md"]
+        agent_commits.commit_write(
+            memory_path, subject=ctx.commit_subject,
+            lines=[f"sources/url_index.json: updated (trigger: {ctx.trigger})",
+                   f"entities/{result.media_entity_id}.md: created (source: {result.episode_id}, "
+                   f"trigger: {ctx.trigger})",
+                   f"episodes/{result.episode_id}.md: created (trigger: {ctx.trigger})"],
+            paths=paths, author=ctx.author, session=ctx.session_id)
+    if ctx.is_remote and note_ep and note_ep[1]:
+        # R-R11: a kept note commits alone, under its app, like any remote
+        # write. Stdio's backend-down path leaves it uncommitted, exactly as
+        # it leaves a created save (G135's byte-identical ruling).
+        agent_commits.commit_write(
+            memory_path, subject=ctx.commit_subject,
+            lines=[f"episodes/{note_ep[0]}.md: created (trigger: {ctx.trigger})"],
+            paths=[f"episodes/{note_ep[0]}.md"], author=ctx.author, session=ctx.session_id)
+    return _saved_reply(result.status, result.title, result.media_type, result.media_entity_id,
+                        result.episode_id, note_ep[0] if note_ep else None)
 
 
 def record_watch(ctx: ToolContext, url: str, summary: str, excerpts: list | None = None,
@@ -493,22 +521,28 @@ def record_watch(ctx: ToolContext, url: str, summary: str, excerpts: list | None
             return "Error: the link could not be saved, so the watch was not recorded."
     # Audit 2026-10-05 P1-2: the page write and its commit hold the bank's page
     # lock; the save above, the Sleep probe and the queue credit (both HTTP on
-    # stdio) stay outside it, so no writer ever waits on a network call.
-    sleeping = ctx.sleep_running()
-    with page_lock.page_lock(memory_path):
-        r = watch_record.record(
-            memory_path, target, summary=summary, excerpts=excerpts, chapters=chapters,
-            session_frontmatter=ctx.session_frontmatter(), author=ctx.author, session_id=ctx.session_id,
-            origin=ctx.claim_origin or watch_record.ORIGIN, recorded_ts=_now_ts(),
-            basis=basis, engine=engine, duration=duration,
-        )
-        if not r.get("error") and not sleeping:
-            agent_commits.commit_write(
-                memory_path, subject=ctx.commit_subject,
-                lines=[f"episodes/{r['episode_id']}.md: created (trigger: {ctx.trigger})",
-                       f"entities/{r['entity_id']}.md: updated (source: {r['episode_id']}, trigger: {ctx.trigger})"],
-                paths=r["paths"], author=ctx.author, session=ctx.session_id,
+    # stdio) stay outside it, so no page writer ever waits on a network call.
+    # G183: the write admission spans the probe through the commit (see `_holding_pages`) — never the save above,
+    # whose fetch holds nothing (round 1).
+    with write_admission.shared(memory_path):
+        if ctx.is_remote and ctx.pages_held():
+            raise write_admission.SleepHolding()   # R-R27, asked again now that the hold is taken (G183 round 1)
+        sleeping = ctx.sleep_running()
+        with page_lock.page_lock(memory_path):
+            r = watch_record.record(
+                memory_path, target, summary=summary, excerpts=excerpts, chapters=chapters,
+                session_frontmatter=ctx.session_frontmatter(), author=ctx.author, session_id=ctx.session_id,
+                origin=ctx.claim_origin or watch_record.ORIGIN, recorded_ts=_now_ts(),
+                basis=basis, engine=engine, duration=duration,
             )
+            if not r.get("error") and not sleeping:
+                agent_commits.commit_write(
+                    memory_path, subject=ctx.commit_subject,
+                    lines=[f"episodes/{r['episode_id']}.md: created (trigger: {ctx.trigger})",
+                           f"entities/{r['entity_id']}.md: updated (source: {r['episode_id']}, "
+                           f"trigger: {ctx.trigger})"],
+                    paths=r["paths"], author=ctx.author, session=ctx.session_id,
+                )
     if r.get("error"):
         return f"Could not record the watch: {r['error']}"
     queue_outcome = _credit_video_queue(ctx, memory_path, target.url, r.get("basis"))
@@ -1922,14 +1956,20 @@ def add_backlog_item(ctx: ToolContext, project: str, title: str, description: st
     note can be joined to its turn at read (R-B6). Refused, each in one line
     and writing nothing: in a demo bank, without a reasoning, while Sleep runs
     (R-B8), and when an open item already holds the idea (R-B9)."""
-    from api.services import backlog as store
-
     memory_path = ctx.memory_path()
     if (refusal := _demo_refusal(memory_path)) is not None:
         return refusal
     if not str(description or "").strip():
         return ("Give the reasoning as the description — the problem, the evidence, what a fix must respect. "
                 "Nothing was added.")
+    with write_admission.shared(memory_path):   # G183: from the probe through the commit
+        return _add_backlog_item_admitted(ctx, memory_path, project, title, description, triage, paid)
+
+
+def _add_backlog_item_admitted(ctx: ToolContext, memory_path: Path, project, title, description, triage,
+                               paid) -> str:
+    from api.services import backlog as store
+
     if ctx.sleep_running():
         return BACKLOG_SLEEPING
     result = store.add_item(memory_path, project=str(project or ""), title=str(title or ""),
@@ -1964,6 +2004,13 @@ def add_backlog_note(ctx: ToolContext, item: str, note: str, status=None) -> str
     if isinstance(got, dict):
         return f"Not noted: {got['error']}."
     stem, iid = got
+    with write_admission.shared(memory_path):   # G183: from the probe through the commit
+        return _add_backlog_note_admitted(ctx, memory_path, stem, iid, note, status)
+
+
+def _add_backlog_note_admitted(ctx: ToolContext, memory_path: Path, stem: str, iid: str, note, status) -> str:
+    from api.services import backlog as store
+
     if ctx.sleep_running():
         return BACKLOG_SLEEPING
     move = (str(status).strip().lower() or None) if status else None

@@ -52,10 +52,12 @@ from api.services import (
     source_overview,
     sync_service,
     sync_state,
+    write_admission,
 )
 from api.services.connectors import ADAPTERS
 from api.services.media_ingestor import MAX_BATCH, RawItem
 from api.routers.capture import refuse_capture_into_demo
+from api.services.sleep_refusal import SleepWriting
 
 router = APIRouter()
 
@@ -118,9 +120,25 @@ async def save_source(
         harness=request.harness,
         project_dir=request.project_dir,
     )
-    idx = media_ingestor.load_url_index(memory_path)
+    # G183: the link's metadata is fetched with no admission held; the page, index and episode are written and
+    # committed inside the bank's write admission, and a save that finds Sleep holding the pages is refused (409)
+    # with nothing written — a page written inside the window could ride the batch commit under Sleep's author
+    # (fix round 2). The person saves again in a moment; the app shows the sentence.
     async with httpx.AsyncClient() as client:
-        result = await media_ingestor.ingest_one(item, memory_path, client, idx)
+        prepared = await media_ingestor.prepare_one(
+            item, memory_path, client, media_ingestor.load_url_index(memory_path))
+    return await write_admission.run_admitted(
+        memory_path, lambda: _write_saved_source(memory_path, item, prepared, request),
+        refuse=lambda: SleepWriting(SAVE_BUSY))
+
+
+#: A single save while Sleep holds the pages (G183 round 2).
+SAVE_BUSY = "Sleep is updating your memory — save the link again in a moment."
+
+
+async def _write_saved_source(memory_path, item, prepared, request) -> SourceSaveResponse:
+    idx = media_ingestor.load_url_index(memory_path)
+    result = media_ingestor.write_prepared(prepared, memory_path, idx)
     media_ingestor.save_url_index(memory_path, idx)
 
     if result.status == "created":

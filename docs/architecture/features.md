@@ -55,9 +55,11 @@ resolvable kinds with G113; `removal` is written by a live browser sync, not Sle
 time (G129 slice 2); `followup`, G141 PJ-6, by Sleep's engine-free tail), behind `GET /inbox` /
 `POST /inbox/{id}/resolve`. `api/routers/nudges.py` and `clarifications.py` are thin **deprecated**
 shims (they set `Deprecation: true`) kept only for external callers — the app calls `/inbox`. Every resolve door answers
-409 while Sleep holds the pages (`inbox_service.resolve`, G177/G183(a)), asked again after its awaited snapshot and before
-any write; between a drain's batches it commits alone (a window opening mid-answer is the disclosed residual race in
-`storage.md`).
+409 while Sleep holds the pages (`inbox_service.resolve`, G177/G183(a)), asked under the bank's write admission and held
+through the answer's commit, so a window waits for the answer (`storage.md`, "Write admission"); a conflict answer's
+prose rewrite is a model call made before admission and used only when the item, the pick and the page are what it
+was made for. Between a
+drain's batches it commits alone.
 
 **A count is what the inbox serves, never a count of files.** `load_inbox` skips a deferred item and
 one whose subject is archived, dropped or (for every kind but `clarification`) gone; those files stay

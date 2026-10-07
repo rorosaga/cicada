@@ -1941,27 +1941,20 @@ def _backfill_content_saved_at(existing: dict, item: RawItem) -> bool:
     return True
 
 
-async def ingest_one(
-    item: RawItem, memory_path: Path, client, idx: dict, from_bookmark_file: bool = False
-) -> IngestResult:
-    h = url_hash(item.url)
-    if h in idx:
-        existing = idx[h]
-        # Caller is responsible for persisting `idx` afterward — every
-        # current caller (`POST /sources/save`, the Telegram `/save` path)
-        # already calls `save_url_index` unconditionally right after this
-        # returns, so a backfill here is never silently lost.
-        _backfill_content_saved_at(existing, item)
-        return IngestResult(
-            status="duplicate",
-            media_entity_id=existing.get("media_entity_id", ""),
-            episode_id=existing.get("episode_id", ""),
-            title=existing.get("title", item.title or _fallback_title(item.url)),
-            media_type=existing.get("media_type", _classify(item.url, from_bookmark_file)),
-            thumbnail=existing.get("thumbnail"),
-            url=item.url,
-        )
+@dataclass
+class PreparedItem:
+    """What :func:`prepare_one` fetched for one link — everything :func:`write_prepared` needs to write it with no
+    network call (G183 round 1: a page writer holds the bank's write admission only for the write)."""
+    item: RawItem
+    meta: "MediaMeta | None"   # None: the link was already saved when it was prepared
+    from_bookmark_file: bool = False
 
+
+async def prepare_one(item: RawItem, memory_path: Path, client, idx: dict,
+                      from_bookmark_file: bool = False) -> PreparedItem:
+    """The network half of :func:`ingest_one`: enrich a link the index does not hold yet. Writes nothing."""
+    if url_hash(item.url) in idx:
+        return PreparedItem(item, None, from_bookmark_file)
     if item.defer_enrich:
         ref = video_urls.resolve(item.url)
         meta = MediaMeta(
@@ -1981,6 +1974,33 @@ async def ingest_one(
     # no description of its own — enrichment's words always win.
     if item.preview and not (meta.description or "").strip():
         meta.description = item.preview
+    return PreparedItem(item, meta, from_bookmark_file)
+
+
+def write_prepared(prepared: PreparedItem, memory_path: Path, idx: dict) -> IngestResult:
+    """The file half of :func:`ingest_one`: no network. ``idx`` is checked again — a link saved since it was
+    prepared is a duplicate (and one dropped since gets the offline metadata)."""
+    item, from_bookmark_file = prepared.item, prepared.from_bookmark_file
+    h = url_hash(item.url)
+    if h in idx:
+        existing = idx[h]
+        # Caller is responsible for persisting `idx` afterward — every
+        # current caller (`POST /sources/save`, the Telegram `/save` path)
+        # already calls `save_url_index` unconditionally right after this
+        # returns, so a backfill here is never silently lost.
+        _backfill_content_saved_at(existing, item)
+        return IngestResult(
+            status="duplicate",
+            media_entity_id=existing.get("media_entity_id", ""),
+            episode_id=existing.get("episode_id", ""),
+            title=existing.get("title", item.title or _fallback_title(item.url)),
+            media_type=existing.get("media_type", _classify(item.url, from_bookmark_file)),
+            thumbnail=existing.get("thumbnail"),
+            url=item.url,
+        )
+    meta = prepared.meta or MediaMeta(
+        title=item.title or _fallback_title(item.url), description="", site=_site_of(item.url),
+        media_type=_classify(item.url, from_bookmark_file=from_bookmark_file))
 
     entity_id = _media_entity_id(meta, item, memory_path / "entities")
     episode_id = write_media_episode(
@@ -2014,6 +2034,14 @@ async def ingest_one(
         thumbnail=meta.thumbnail,
         url=item.url,
     )
+
+
+async def ingest_one(
+    item: RawItem, memory_path: Path, client, idx: dict, from_bookmark_file: bool = False
+) -> IngestResult:
+    """Fetch and write one link: :func:`prepare_one`, then :func:`write_prepared`."""
+    prepared = await prepare_one(item, memory_path, client, idx, from_bookmark_file)
+    return write_prepared(prepared, memory_path, idx)
 
 
 def _dedup_items(items: list[RawItem], idx: dict) -> tuple[list[RawItem], int, bool]:

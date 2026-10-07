@@ -199,8 +199,8 @@ async def post_reading_ask(request: AskRequest, settings: Settings = Depends(get
     """"Ask an agent". 409 while agent reading is switched off (there is no per-site
     condition: this ask is the person's own consent for this one page); 422 (with a
     sentence) for a link an agent is never offered. A link that is not
-    saved is saved first — without a fetch, as the person's own save — and this
-    does not 409 while Sleep runs, like ``POST /sources/save``."""
+    saved is saved first — without a fetch, as the person's own save — and that save
+    answers 409 while Sleep holds the pages, like ``POST /sources/save`` (G183 round 2)."""
     try:
         return await reading_service.ask(settings.memory_path, request.url)
     except reading_service.AskRefused as exc:

@@ -102,6 +102,10 @@ litellm.suppress_debug_info = True
 litellm.set_verbose = False
 
 
+#: How long shutdown waits for admitted writes still in flight (G183).
+SHUTDOWN_DRAIN_S = 30.0
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
@@ -191,6 +195,11 @@ async def lifespan(app: FastAPI):
     finally:
         await remote_listener.LISTENER.stop()
         scheduler.shutdown(wait=False)
+        # G183: an admitted write still in flight finishes (its workers and its commit) before the process goes.
+        from api.services import write_admission
+
+        if not await asyncio.to_thread(write_admission.drain, SHUTDOWN_DRAIN_S):
+            logger.warning("shutdown: an admitted write was still running after the drain")
 
 
 app = FastAPI(
