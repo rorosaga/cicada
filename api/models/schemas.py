@@ -1230,8 +1230,7 @@ class EpisodeCitation(CamelModel):
     stale: bool = False
     grown: bool = False
     derived: bool = False
-    # G141 R-PJB11 — an event cited here is a dated happening: `current` is
-    # false only when something replaced it, never for a born-closed done one.
+    # G141 — closed events remain dated happenings; current is false.
     event_status: Optional[str] = None
     event_day: Optional[str] = None
     # G162: on a `media` row only — how faithful the video's words are.
@@ -1727,9 +1726,7 @@ class SearchHit(CamelModel):
     valid_from: str | None = None
     valid_to: str | None = None
     superseded_by: str | None = None
-    # G141 R-PJB11 — an event claim hit: its status and day. Its `valid_to` /
-    # `superseded_by` are sent only when something replaced it, so a
-    # born-closed done happening never renders as history.
+    # G141 — an event claim hit keeps its status, day and closure metadata.
     event_status: str | None = None
     event_day: str | None = None
 

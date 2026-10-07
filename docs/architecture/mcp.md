@@ -291,3 +291,9 @@ clarification naturally in the flow when the conversation touches its entity, an
 saved resources.
 
 ---
+
+**Current-claim reads (G118/G93, 2026-10-07).** The recall claim leg, implicit
+recall's claim lines and perspective's current block use `claims.is_current`.
+Closed events are historical records of happenings, never current-claim recall
+votes; searching the past and `history=true` still expose them with dates and
+state. Closure and successor metadata are preserved for every search hit.

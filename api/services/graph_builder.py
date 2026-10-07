@@ -9,7 +9,7 @@ import yaml
 
 from api.models.schemas import GraphLink, GraphNode, GraphResponse
 from api.services import bank_index, claim_contexts, decay_policy, entity_picture, logo_service, predicates
-from api.services.claims import parse_claims, strip_claims_block
+from api.services.claims import is_current, parse_claims, strip_claims_block
 from api.services.id_utils import sanitize_id
 from api.services.markdown_parser import parse
 
@@ -181,7 +181,7 @@ def _build_full(memory_path: Path) -> GraphResponse:
         entity_ids.add(eid)
         try:
             for claim in parse_claims(body):
-                if claim.valid_to is not None or claim.superseded_by:
+                if not is_current(claim):
                     continue  # overlay reflects currently-valid beliefs only
                 if claim.observer:
                     subject_observers.setdefault(eid, set()).add(claim.observer)
@@ -480,7 +480,7 @@ def _claim_edge_row(claim, page_stem: str) -> dict | None:
     so the full projection Sleep writes and the per-page one a folder sync writes
     can never disagree about a row's shape (F1 R-FX7). Only an open, node-valued
     claim is an edge; closed and superseded beliefs live on in the page and git."""
-    if claim.valid_to is not None or claim.superseded_by:
+    if not is_current(claim):
         return None
     if claim.object_kind not in ("", "node"):
         return None

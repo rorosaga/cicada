@@ -34,7 +34,7 @@ from pathlib import Path
 
 from api.models.schemas import ClaimModel, ParticipantModel, TransclusionPayload
 from api.services import git_service, markdown_parser, turn_authorship
-from api.services.claims import Claim, parse_claims
+from api.services.claims import Claim, is_current, parse_claims
 from api.services.hub_builder import _one_line_summary
 from api.services.id_utils import resolve_entity_file
 
@@ -126,7 +126,7 @@ def _parse_ref(ref: str) -> tuple[str, str, str]:
 
 def _is_valid(claim: Claim) -> bool:
     """Currently-valid = open window and not flagged superseded."""
-    return claim.valid_to is None and not claim.superseded_by
+    return is_current(claim)
 
 
 def _load_claims_for_subject(memory_path: Path, subject: str) -> tuple[list[Claim], Path | None]:

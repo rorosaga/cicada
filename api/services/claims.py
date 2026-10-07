@@ -32,7 +32,9 @@ fence is preserved verbatim by :func:`write_claims`.
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
+from datetime import date, datetime, timezone
 from typing import Any
 
 import yaml
@@ -286,6 +288,58 @@ class Claim:
 # `agentic_write`, because every READER of a claims fence must drop it — and a
 # reader should not import the write path to learn what to skip.
 RETRACT_PREDICATE = "retracts"
+
+
+def _field(claim, name: str):
+    return claim.get(name) if isinstance(claim, Mapping) else getattr(claim, name, None)
+
+
+def _day(raw) -> date | None:
+    try:
+        return date.fromisoformat(str(raw).strip()[:10])
+    except ValueError:
+        return None
+
+
+def stated_end(claim) -> str | None:
+    """A stated end (inclusive), shared with expiry; a milestone target is not one."""
+    candidates = (_field(claim, "expected_end"),
+                  _field(claim, "object") if _field(claim, "predicate") == "due" else None)
+    for raw in candidates:
+        end = _day(raw)
+        if end is not None:
+            return end.isoformat()
+    return None
+
+
+def current_day() -> date:
+    """One UTC clock for claim reads and their conditional-response caches."""
+    return datetime.now(timezone.utc).date()
+
+
+def read_valid_to(claim) -> str | None:
+    """Stored closure or an elapsed stated end, without changing markdown."""
+    closed = _field(claim, "valid_to")
+    if closed is not None:
+        return closed
+    end = stated_end(claim)
+    return end if end and end < current_day().isoformat() else None
+
+
+def is_current(claim, *, now: date | None = None) -> bool:
+    """Current belief at the UTC day, for a Claim or derived metadata.
+
+    Any valid_to is CLOSED, even a future date or a born-closed event. A
+    successor also closes a marker-only legacy claim. Stated ends are inclusive;
+    reads need not wait for the next Sleep expiry commit. Unknown dates keep
+    the legacy open-claim behavior; this predicate never edits the page.
+    """
+    if _field(claim, "valid_to") is not None or _field(claim, "superseded_by"):
+        return False
+    today = now or current_day()
+    began = _day(_field(claim, "valid_from"))
+    end = _day(stated_end(claim))
+    return (began is None or began <= today) and (end is None or today <= end)
 
 
 def is_record(claim: Claim) -> bool:

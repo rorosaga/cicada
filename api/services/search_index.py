@@ -68,7 +68,7 @@ DB_FILE = "search_index.db"
 # happening (R-PJB11); the bump rebuilds every index once (TODO ruling 3).
 # "4": G150 — backlog items are their own kind (`blg`); the bump rebuilds
 # every index once (TODO ruling 3).
-SCHEMA_VERSION = "4"
+SCHEMA_VERSION = "5"
 TOKENIZER = "unicode61 remove_diacritics 2"
 # Prefix indexes for 2-, 3- and 4-character prefixes: type-as-you-go queries
 # are mostly that short, and a prefix with no index is a range scan over
@@ -406,20 +406,7 @@ def _index_entity(conn, doc_key: str, f, fm: dict, body: str) -> None:
         if not text or is_record(claim):
             continue
         spans = [e for e in claim.evidence if e.is_span()]
-        first = spans[0] if spans else (claim.evidence[0] if claim.evidence else None)
-        payload = {
-            "id": claim.id,
-            "predicate": claim.predicate,
-            "object": claim.object,
-            "confidence": _float(claim.confidence),
-            "valid_from": claim.valid_from,
-            "valid_to": claim.valid_to,
-            "superseded_by": claim.superseded_by,
-            "observer": claim.observer,
-            "evidence": first.to_dict() if first else None,
-            # G141 R-PJB11: an event keeps its state beside its day.
-            "status": claim.status if is_event(claim) else None,
-        }
+        payload = claim_payload(claim)
         rowid = (doc_id << ROW_BITS) | n
         conn.execute(
             "INSERT INTO clm(rowid, title, aliases, keywords, payload) VALUES (?, ?, ?, ?, ?)",
@@ -432,6 +419,20 @@ def _index_entity(conn, doc_key: str, f, fm: dict, body: str) -> None:
                 "INSERT INTO claim_evidence(row, episode, s, e, kind, hash) VALUES (?, ?, ?, ?, ?, ?)",
                 (rowid, ev.episode, ev.start, ev.end, ev.kind, ev.hash),
             )
+
+
+def claim_payload(claim) -> dict:
+    """The same claim metadata for indexing and read-time freshness checks."""
+    spans = [e for e in claim.evidence if e.is_span()]
+    first = spans[0] if spans else (claim.evidence[0] if claim.evidence else None)
+    return {
+        "id": claim.id, "predicate": claim.predicate, "object": claim.object,
+        "confidence": _float(claim.confidence), "valid_from": claim.valid_from,
+        "valid_to": claim.valid_to, "superseded_by": claim.superseded_by,
+        "expected_end": claim.expected_end, "observer": claim.observer,
+        "evidence": first.to_dict() if first else None,
+        "status": claim.status if is_event(claim) else None,
+    }
 
 
 def _index_episode(conn, doc_key: str, f, fm: dict, body: str) -> None:

@@ -241,9 +241,9 @@ def test_events_never_reach_the_k_table(tmp_path):
 
 # The readers (R-PJ3, R-PJB11) and expiry ------------------------------------
 
-def test_a_born_closed_happening_is_history_nowhere_it_is_read(tmp_path, monkeypatch):
+def test_a_born_closed_happening_stays_dated_history_everywhere_it_is_read(tmp_path, monkeypatch):
     """Not current in `get_perspective`, not a graph edge — but found in FTS as
-    a current `done` hit, and cited by its episode as current."""
+    a dated historical `done` hit, and cited by its episode as history."""
     import importlib.util
     import sys
     from datetime import date
@@ -281,12 +281,12 @@ def test_a_born_closed_happening_is_history_nowhere_it_is_read(tmp_path, monkeyp
     search_index.ensure_fresh(memory, wait=True, max_age_s=0)
     resp = search_service.search(memory, "calibration", kinds=("claim",), mode="prefix")
     hit = next(h for h in resp.results if h.id == claim.id)
-    assert hit.valid_to is None and hit.superseded_by is None
+    assert hit.valid_to == "2026-09-22" and hit.superseded_by is None
     assert (hit.event_status, hit.event_day) == ("done", "2026-09-22")
 
     cites = provenance.episode_citations(memory, EP)
     row = next(c for c in cites.citations if c.claim_id == claim.id)
-    assert row.current is True and (row.event_status, row.event_day) == ("done", "2026-09-22")
+    assert row.current is False and (row.event_status, row.event_day) == ("done", "2026-09-22")
 
 
 def test_expiry_never_closes_a_milestone_by_its_target(tmp_path):
