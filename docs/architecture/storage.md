@@ -692,3 +692,11 @@ FTS candidate claims are rechecked against markdown too, so a rebuilding or
 stale index cannot label an already closed claim as current.
 The claim-list endpoint, transclusion and graph claim projections share the
 same currentness predicate rather than maintaining separate open-window tests.
+
+**Time-dependent projection lag.** Read-time claim checks and provenance ETags
+use the writers' machine-local day. The persisted graph edges, graph observer
+overlay cache and vector membership evaluate starts and stated ends when built:
+time alone may leave them behind until the next Sleep or sync (normally at most
+one Sleep). A paused Sleep delays that refresh. Read-time vector checks still
+exclude expired results, but cannot add a previously future claim until sync.
+The graph's Store-domain ETag remains tied to its existing version vector.
