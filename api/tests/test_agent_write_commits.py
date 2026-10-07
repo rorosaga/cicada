@@ -63,7 +63,7 @@ def test_a_stdio_claim_written_mid_sleep_is_left_for_sleeps_own_commit(server, m
                         lambda url, headers: asked.append(url) or True)
     head = _git(memory, "rev-parse", "HEAD")
     out = srv.handle_write_claim("alpha-project", "uses", "sqlite-vec", None, None, None, None)
-    assert out.startswith("Recorded") and asked == ["http://127.0.0.1:8000"]
+    assert out.startswith("Recorded") and asked == [f"http://127.0.0.1:{config.get_settings().port}"]
     assert _git(memory, "rev-parse", "HEAD") == head
     assert "entities/alpha-project.md" in _git(memory, "status", "--porcelain")
 

@@ -249,8 +249,8 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   login-walled page.
 - **Video (G162):** Cicada never downloads a video or derives a stream; a video's state is derived, never stored; the
   queue lives outside every bank.
-- **Continuity (G110, slice 1a):** a session started in the same folder is told, at SessionStart, where the last one
-  there stopped — assembled on demand from captured episodes over a disposable index, inside the whole 1,800-token note;
+- **Continuity (G110, slice 1a/1b):** SessionStart carries a light pointer inside the whole 1,800-token note;
+  previous working history is retrieved on demand via `cicada_continue`, from captured episodes over a disposable index;
   workspace state is not checked; the registry outside every bank holds ids, a cwd hash and times only (`mcp.md`).
 
 ### The app
