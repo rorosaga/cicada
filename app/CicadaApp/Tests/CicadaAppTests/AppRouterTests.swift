@@ -8,6 +8,13 @@ import XCTest
 /// one call so a caller can never re-consume a stale tile.
 @MainActor
 final class AppRouterTests: XCTestCase {
+    func testHomeFailureDetailsStagesSleepAndConsumesSectionOnce() {
+        let router = AppRouter()
+        router.routeToSleepDetails(.lastCycle)
+        XCTAssertEqual(router.pendingTab, .sleep)
+        XCTAssertEqual(router.consumeSleepDetails(), .lastCycle)
+        XCTAssertNil(router.consumeSleepDetails())
+    }
 
     func testRouteToFeedStagesTileAndTab() {
         let router = AppRouter()

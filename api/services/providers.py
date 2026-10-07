@@ -571,8 +571,29 @@ def resolve_llm_fn(
                 guard.observe_signals(seen_["stream"].rate_limits)
 
     def _agent_invoke_sync(messages, response_format, timeout: float, reasoning_off: bool = False):
-        with _agent_semaphore(getattr(settings, "agent_max_concurrency", 3)):
-            return _agent_invoke(messages, response_format, timeout, reasoning_off)
+        for attempt in range(2):
+            try:
+                with _agent_semaphore(getattr(settings, "agent_max_concurrency", 3)):
+                    return _agent_invoke(messages, response_format, timeout, reasoning_off)
+            except engine_errors.RETRYABLE as exc:
+                delay = _drain_retry_delay(attempt, exc)
+                if delay is None:
+                    raise
+                time.sleep(delay)
+
+    def _drain_retry_delay(attempt: int, exc: Exception) -> int | None:
+        from api.services import sleep_drain
+
+        # Extraction already owns exactly one retry per chunk. Later calls in
+        # a drain retry here, rather than replaying the whole paid batch. Other
+        # workloads retain their existing retry policy. Every actual attempt
+        # passes through _agent_invoke's ledger and call counter separately.
+        if (attempt or stage == "extraction" or not isinstance(exc, engine_errors.TRANSIENT)
+                or sleep_drain.drain_for(agent_engine_cycle_id()) is None):
+            return None
+        delay = 10 if isinstance(exc, engine_errors.EngineTimeout) else 2
+        logger.warning(f"Sleep engine call timed out or failed; retrying once in {delay}s")
+        return delay
 
     async def _agent_invoke_async(messages, response_format, timeout: float, reasoning_off: bool = False):
         # Round 2 finding 2: the acquire, the call, and the release all
@@ -584,7 +605,14 @@ def resolve_llm_fn(
             with _agent_semaphore(getattr(settings, "agent_max_concurrency", 3)):
                 return _agent_invoke(messages, response_format, timeout, reasoning_off)
 
-        return await asyncio.to_thread(_run_with_permit)
+        for attempt in range(2):
+            try:
+                return await asyncio.to_thread(_run_with_permit)
+            except engine_errors.RETRYABLE as exc:
+                delay = _drain_retry_delay(attempt, exc)
+                if delay is None:
+                    raise
+                await asyncio.sleep(delay)
 
     def _agent_call(*, messages, response_format=None, **kw):
         # Accept-and-drop every unknown kwarg (`temperature`, `max_tokens`,

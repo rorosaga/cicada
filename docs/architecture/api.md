@@ -40,6 +40,10 @@ while Sleep runs and each commits alone over its own pages as `Cicada-Author: us
 `GET /status` has no ETag (the app refetches it whenever the vector's `sleep` component moves). Its `sleep.writing`
 (G177) is `sleep_cycle.is_writing()` — the predicate behind every "Sleep is running" 409 — and the SSE `sleep` event and
 the `sleep` component carry it too, so the app's write controls follow a drain's write window, not `running`.
+`GET /sleep/status`'s paused run and the compact SSE paused block also carry `engineKind` (`transient | needs_fix`,
+null outside an engine pause); legacy engine records default to `needs_fix`. The paused `sleep` component hashes
+the kind and diagnosis, and its existing `VersionVector.swift` mapping to `.status` ships with the wire change.
+The compact kind participates in SSE equality so a different engine diagnosis category refetches the full record.
 
 **A request runs in one bank, and a write only in the bank it was made in (`bank_binding`, G183(d)).** One
 app-wide dependency (`bank_binding.require_same_bank`, beside `require_token` in `api/main.py`) does two things:

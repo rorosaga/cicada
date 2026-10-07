@@ -126,7 +126,7 @@ final class GettingStartedProgressTests: XCTestCase {
         XCTAssertEqual(read { $0.hasRunBefore = true; $0.pages = 146; $0.unprocessed = 0 }, .finished(pages: 146))
         XCTAssertEqual(read { $0.hasRunBefore = true; $0.episodesTotal = 50; $0.episodesQueued = 379; $0.unprocessed = 329 },
                        .capped(read: 50, left: 329))
-        XCTAssertEqual(read { $0.error = "No engine could run. Add a key." }, .failed("No engine could run."))
+        XCTAssertEqual(read { $0.error = "No engine could run. Add a key." }, .failed)
     }
 
     func testEveryStepHasItsTextTwinAndNeverAGuess() {
@@ -139,10 +139,21 @@ final class GettingStartedProgressTests: XCTestCase {
         XCTAssertEqual(FirstReadStep.capped(read: 50, left: 329).line(locale: en), "Read 50 this round. 329 still waiting.")
     }
 
+    func testFirstReadFailureKeepsRawDiagnosisInSleepDetails() {
+        for diagnosis in ["EngineFailed: `codex exec` failed: your prompt was flagged",
+                          "EngineUnavailable: authentication failed", "ValueError: bad config"] {
+            let step = read { $0.error = diagnosis }
+            XCTAssertEqual(step.line(locale: en),
+                           "Reading stopped. See what needs a fix in Details, then try again.")
+            XCTAssertFalse(step.line(locale: en).contains(diagnosis))
+            XCTAssertEqual(step.action, .seeDetails)
+        }
+    }
+
     func testTheWormAndTheOneActionFollowTheStep() {
         XCTAssertEqual(FirstReadStep.waiting(3).worm, .reading)
         XCTAssertEqual(FirstReadStep.running(read: 1, total: 3, stage: 2).worm, .sleeping(stage: 2))
-        XCTAssertEqual(FirstReadStep.failed("x").worm, .error)
+        XCTAssertEqual(FirstReadStep.failed.worm, .error)
         XCTAssertEqual(FirstReadStep.waiting(3).action, .readNow)
         XCTAssertEqual(FirstReadStep.running(read: 1, total: 3, stage: 1).action, .watchSleep)
         XCTAssertEqual(FirstReadStep.finished(pages: 2).action, .openGraph)

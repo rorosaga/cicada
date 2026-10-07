@@ -164,6 +164,7 @@ struct SleepView: View {
     /// R-HS7 / R-HS12 — the engine menu's model, the one `EngineChooser` reads; its response is the
     /// page's first source for every engine line.
     @Environment(SleepEngineViewModel.self) private var engineVM
+    @Environment(AppRouter.self) private var appRouter
     // H1: the study list's header and the desk card's bubble/pile must agree
     // on one live reading of the queue. `Store.status`/`Store.sleepEvent` are
     // the SSE-live sources; reading them here (instead of only
@@ -284,6 +285,8 @@ struct SleepView: View {
                 }
             }
         }
+        .onAppear { consumeDetailsRoute() }
+        .onChange(of: appRouter.pendingSleepDetails) { _, _ in consumeDetailsRoute() }
         .task {
             if !loadedOnce {
                 loadedOnce = true
@@ -453,6 +456,10 @@ struct SleepView: View {
     private func openDetails(_ section: DetailsSection) {
         withAnimation(SleepMotion.disclosure(reduceMotion: reduceMotion)) { detailsOpen = true }
         pendingScroll = section
+    }
+
+    private func consumeDetailsRoute() {
+        if let section = appRouter.consumeSleepDetails() { openDetails(section) }
     }
 
     /// PR #19 round-4 review: a single `sleepVM.load()` was fired per live

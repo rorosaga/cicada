@@ -54,12 +54,12 @@ final class RoomSentenceTests: XCTestCase {
         XCTAssertEqual(SleepStages.all.map(\.progressive), ["Reading", "Sorting", "Deciding", "Noticing", "Filing"])
     }
 
-    func test_L6_T3_aFailureLeadsWithItsFirstClause() {
+    func test_L6_T3_aFailureKeepsItsDiagnosisInDetails() {
         let line = roomSentence(ctx(.error) { $0.cycleError = "claude exited 1: rate limited\nTraceback (most recent call last)" })
-        XCTAssertEqual(line.lead, "The last cycle failed.")
-        XCTAssertEqual(line.tone, .danger)
-        XCTAssertEqual(line.tail, "claude exited 1: rate limited")
-        XCTAssertEqual(line.tailTone, .danger)
+        XCTAssertEqual(line.lead, "Reading stopped.")
+        XCTAssertEqual(line.tone, .warning)
+        XCTAssertEqual(line.tail, "See what needs a fix in Details, then try again.")
+        XCTAssertEqual(line.tailTone, .warning)
         XCTAssertEqual(line.action, .openDetails(.lastCycle))
     }
 
@@ -110,7 +110,7 @@ final class RoomSentenceTests: XCTestCase {
 
     func test_newsOutranksTheStateTails() {
         let failedAndCancelled = roomSentence(ctx(.error) { $0.cycleError = "boom"; $0.cancelled = true })
-        XCTAssertEqual(failedAndCancelled.tail, "boom", "T3 before T4")
+        XCTAssertEqual(failedAndCancelled.tail, "See what needs a fix in Details, then try again.", "T3 before T4")
         let runningAndCancelled = roomSentence(ctx(.sleeping(stage: 2)) { $0.activeStage = 2; $0.cancelled = true })
         XCTAssertEqual(runningAndCancelled.tail, SleepStages.all[1].detail, "T2 before T4")
         let cancelledFirstNight = roomSentence(ctx(.reading, debt: debt(3, hasRunBefore: false)) { $0.cancelled = true })

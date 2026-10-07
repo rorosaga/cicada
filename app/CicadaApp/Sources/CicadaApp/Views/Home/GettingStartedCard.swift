@@ -10,7 +10,7 @@ import SwiftUI
 ///
 /// Dormant until a bank has a record (the Welcome's Start, or *Show setup
 /// checklist* in Settings → General, R-IB17). Its one trigger — *Read now*,
-/// *Read the next N*, *Try again*, all through `read()` — is G125 R10's second
+/// *Read the next N*, all through `read()` — is G125 R10's second
 /// narrow amendment (R-IB19): a user act, subtitled with the manual engine like
 /// Consolidate, and the only trigger anywhere on Home. Home's steady state is a
 /// link to the Sleep page.
@@ -26,6 +26,7 @@ struct GettingStartedCard: View {
     @Environment(IntakeRouter.self) private var intake
     @Environment(SleepViewModel.self) private var sleepVM
     @Environment(SleepEngineViewModel.self) private var engineVM
+    @Environment(AppRouter.self) private var appRouter
     @Environment(ExportWaitStore.self) private var waits
     /// R-OB9 — the app-side sources (Calendar, Apple Notes, Wispr Flow, Contacts, Chrome's open tab groups) turn on
     /// through their registered drivers, so their rows start here exactly as they do on the Import page. Optional: a
@@ -37,7 +38,6 @@ struct GettingStartedCard: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @AccessibilityFocusState private var headingFocused: Bool
-    @State private var showsEngineAfterFailure = false
 
     var body: some View {
         // Defaults are not observable; the revision is (every record write bumps it).
@@ -323,16 +323,9 @@ struct GettingStartedCard: View {
                 trigger(Copy.intakeReadNow, readiness: readiness)
             case .keepReading?:
                 trigger(Copy.gsKeepReading, readiness: readiness)
-            case .tryAgain?:
-                trigger(Copy.gsTryAgain, readiness: readiness)
-                // The needs-choice case already shows the chooser above.
-                if readiness != .needsChoice {
-                    DisclosureGroup(isExpanded: $showsEngineAfterFailure) {
-                        EngineChoice().padding(.top, CicadaTheme.spacingXS)
-                    } label: {
-                        Text(Copy.gsWhoReads).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
-                    }
-                }
+            case .seeDetails?:
+                // DR-40/59 — one calm fix action; the raw diagnosis lives in Sleep Details.
+                Button(Copy.sleepDetails) { appRouter.routeToSleepDetails(.lastCycle) }.buttonStyle(.link)
             case .watchSleep?:
                 VStack(alignment: .leading, spacing: 2) {
                     Button(Copy.gsWatchOnSleep) { selectedTab = .sleep }.buttonStyle(.link)

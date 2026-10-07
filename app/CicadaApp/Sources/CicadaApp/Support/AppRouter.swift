@@ -98,6 +98,19 @@ final class AppRouter {
         activateMainWindow()
     }
 
+    /// Home's first-read failure opens the diagnosis instead of promising a retry.
+    var pendingSleepDetails: DetailsSection?
+
+    func routeToSleepDetails(_ section: DetailsSection) {
+        pendingSleepDetails = section
+        routeToSleep()
+    }
+
+    func consumeSleepDetails() -> DetailsSection? {
+        defer { pendingSleepDetails = nil }
+        return pendingSleepDetails
+    }
+
     /// G141 PJ-5 (R-PP24) — a project opened from elsewhere (a ⌘K entity row) lands in the Projects page's detail
     /// column; the tab and the id move together, `routeToFeedItem`'s reason.
     var pendingProject: String?

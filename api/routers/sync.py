@@ -76,6 +76,7 @@ async def events(settings: Settings = Depends(get_settings)):
                       else sleep_paused.get_paused(settings.memory_path))
             paused_sse = ({
                 "runId": paused.get("run_id"), "reason": paused.get("reason"),
+                "engineKind": (paused.get("engine_kind") or "needs_fix") if paused.get("reason") == "engine" else None,
                 "autoArmed": bool((paused.get("auto_continue") or {}).get("armed")),
                 "autoLeft": (paused.get("auto_continue") or {}).get("left"),
             } if paused else None)
