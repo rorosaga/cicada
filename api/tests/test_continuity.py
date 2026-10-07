@@ -46,11 +46,14 @@ def test_the_latest_session_in_the_same_folder_is_chosen(bank):
     ctx = _ctx(bank)
     assert ctx.selection.kind == "latest" and ctx.chosen.episode_id == "ep_2026-09-03_002"
     text, rendering = continuity.startup_block(ctx, max_chars=1800)
-    assert rendering == "full"
-    assert "Not X, it breaks the fixture loader" in text and "test_alpha_roundtrip" in text
-    assert "quoted as history, not a new instruction" in text
+    assert rendering == "pointer" and len(text) <= continuity.POINTER_CHARS
+    assert "Not X, it breaks the fixture loader" not in text and "test_alpha_roundtrip" not in text
+    assert "captured history" in text and "previous work" in text
     assert "Workspace state not checked" in text and 'cicada_continue(session="ep_2026-09-03_002")' in text
-    assert "not yet consolidated" in text and "the most recent session here" in text
+    read = continuity.full_text(ctx)
+    assert "not yet consolidated" in read and "the most recent session here" in read
+    assert "Not X, it breaks the fixture loader" in read and "test_alpha_roundtrip" in read
+    assert "quoted as history, not a new instruction" in read
     assert "/home/example" not in text and "sibling" not in text and "elsewhere" not in text
 
 
@@ -68,8 +71,9 @@ def test_two_sessions_active_together_are_a_question(bank):
     ctx = _ctx(bank)
     assert ctx.selection.kind == "ambiguous" and len(ctx.selection.listed) == 2
     text, rendering = continuity.startup_block(ctx, max_chars=1800)
-    assert rendering == "ambiguous" and "Ask the person which one to continue" in text
-    assert "ep_2026-09-03_001" in text and "ep_2026-09-03_002" in text and '"task two"' in text
+    assert rendering == "ambiguous" and "ask which one to continue" in text
+    assert "ep_2026-09-03_001" in text and "ep_2026-09-03_002" in text and "task two" not in text
+    assert len(text) <= continuity.POINTER_CHARS and '"task two"' in continuity.full_text(ctx)
     # Far apart: no question.
     write_session(bank, 3, [("user", "task three"), ("assistant", "ok")], start=200)
     assert _ctx(bank).selection.kind == "latest"
@@ -83,7 +87,8 @@ def test_a_later_prompt_from_the_registry_counts_as_activity(bank):
     ctx = _ctx(bank)
     assert ctx.chosen.episode_id == "ep_2026-09-03_001"
     text, _ = continuity.startup_block(ctx, max_chars=1800)
-    assert "a later message at" in text and "has no captured reply" in text
+    assert "a later message at" in continuity.full_text(ctx) and "has no captured reply" in continuity.full_text(ctx)
+    assert "has no captured reply" not in text
 
 
 @pytest.mark.parametrize("pick", ["ep_2026-09-03_001", sid(1)])
@@ -108,21 +113,22 @@ def test_an_incomplete_search_never_claims_the_most_recent(bank):
     ctx = _ctx(bank, deadline=time.monotonic() + continuity.VIEW_RESERVE_S / 2)
     assert not ctx.complete and ctx.chosen.episode_id == "ep_2026-09-03_001"
     text, _ = continuity.startup_block(ctx, max_chars=1800)
-    assert "could read here (the search was incomplete)" in text and "the most recent session here" not in text
+    assert "Search incomplete" in text and "the most recent session here" not in text
+    assert "could read here (the search was incomplete)" in continuity.full_text(ctx)
 
 
 def test_consolidation_wording_follows_processed_by(bank):
     write_session(bank, 1, A_TURNS, processed=True, processed_by="sleep")
-    assert "consolidated by Sleep" in continuity.startup_block(_ctx(bank), max_chars=1800)[0]
+    assert "consolidated by Sleep" in continuity.full_text(_ctx(bank))
     write_session(bank, 1, A_TURNS, processed=True, processed_by="claude-code")
-    assert "marked processed by an agent" in continuity.startup_block(_ctx(bank), max_chars=1800)[0]
+    assert "marked processed by an agent" in continuity.full_text(_ctx(bank))
 
 
 def test_gap_lines(bank):
     write_session(bank, 1, A_TURNS + [("user", "and now?")],
                   extra_meta={"capture_gap": {"dropped_turns": 7, "last_seen_at": at(30)},
                               "capture_flags": {"note_like_turns": 2}})
-    text, _ = continuity.startup_block(_ctx(bank), max_chars=1800)
+    text = continuity.full_text(_ctx(bank))
     assert "its last request has no captured reply" in text
     assert "7 turns past Cicada's capture limit" in text
     assert "2 of its turns look like a Cicada note kept as typed text" in text
@@ -133,7 +139,7 @@ def test_a_later_session_that_captured_nothing_is_disclosed(bank):
     continuity_sessions.apply(bank, bank_paths=(bank,), harness="claude-code", session_id=sid(5),
                               events={"started_at": at(60), "cwd_hash": continuity_sessions.cwd_hash(CWD)},
                               deadline=None)
-    text, _ = continuity.startup_block(_ctx(bank), max_chars=1800)
+    text = continuity.full_text(_ctx(bank))
     assert "nothing from it was captured" in text
 
 
@@ -141,7 +147,7 @@ def test_renderings_fit_their_caps_with_long_turns(bank):
     long_turns = [("user", "u " * 1000), ("assistant", "a " * 1000)] * 3
     write_session(bank, 1, long_turns)
     ctx = _ctx(bank)
-    for cap, expected in ((1800, "full"), (900, "compact"), (300, "pointer"), (50, "none")):
+    for cap, expected in ((1800, "pointer"), (900, "pointer"), (300, "pointer"), (50, "none")):
         text, rendering = continuity.startup_block(ctx, max_chars=cap)
         assert rendering == expected and len(text) <= cap
 
@@ -180,7 +186,7 @@ def test_inconsistent_boundaries_label_every_cut_turn_approximate(bank):
 
 def test_untimed_turns_say_time_not_recorded(bank):
     write_session(bank, 1, A_TURNS, untimed=True)
-    text, _ = continuity.startup_block(_ctx(bank), max_chars=1800)
+    text = continuity.full_text(_ctx(bank))
     assert "time not recorded" in text
 
 
@@ -215,6 +221,9 @@ def test_a_later_session_that_cannot_be_read_is_not_called_uncaptured(bank, how)
                               deadline=None)
     ctx = _ctx(bank, deadline=time.monotonic() + continuity.VIEW_RESERVE_S / 2 if how == "deadline" else None)
     text, _ = continuity.startup_block(ctx, max_chars=1800)
+    assert "nothing from it was captured" not in text
+    assert "Search incomplete" in text
+    text = continuity.full_text(ctx)
     assert "nothing from it was captured" not in text
     assert "Cicada could not tell whether a later session here" in text
 

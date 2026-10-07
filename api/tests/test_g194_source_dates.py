@@ -310,20 +310,21 @@ def _alpha_reply(msg: str) -> str:
                                      "confidence": 0.9}], "relationships": []})
 
 
-def _stage_three_prompts(tmp_path, monkeypatch, episodes):
-    """Real Stage 1 → Stage 2 → Stage 3 over a scratch bank with an `alpha-co` page; returns the update change and
-    every prompt the merge and contradiction calls rendered (fake completions, nothing written)."""
+def _stage_three_prompts(tmp_path, monkeypatch, episodes, *, reply=_alpha_reply, existing=None):
+    """Real Stage 1 → Stage 2 → Stage 3 over a scratch bank with an `alpha-co` page (or ``existing``); returns the
+    update change and every prompt the merge and contradiction calls rendered (fake completions, nothing written)."""
     from api.services import entity_resolver
 
     memory = tmp_path / "memory"
     for sub in ("entities", "episodes", "inbox"):
         (memory / sub).mkdir(parents=True)
     monkeypatch.setenv("CICADA_MEMORY_PATH", str(memory))
+    monkeypatch.setattr(entity_resolver.SqliteVecIndexer, "_rebuild_pending_index", lambda self, entries: None)
     settings = Settings(_env_file=None, litellm_model="m")
     assert settings.memory_path == memory
-    extracted, _ = _run_extract(episodes, _alpha_reply)
-    existing = [{"id": "alpha-co", "body": "## Summary\nAlpha Co runs a programme.\n",
-                 "frontmatter": {"name": "Alpha Co", "type": "company", "last_referenced": "2025-01-10"}}]
+    extracted, _ = _run_extract(episodes, reply)
+    existing = existing or [{"id": "alpha-co", "body": "## Summary\nAlpha Co runs a programme.\n",
+                             "frontmatter": {"name": "Alpha Co", "type": "company", "last_referenced": "2025-01-10"}}]
     resolved = asyncio.run(entity_resolver.resolve(extracted, existing, settings))
     (change,) = [c for c in resolved["changes"] if c.get("action") == "update"]
     prompts = _capture_prompt(monkeypatch, json.dumps({"has_unresolvable_contradiction": False, "options": []}))
@@ -370,3 +371,23 @@ def test_a_timestamp_wins_over_the_id_for_the_same_conversation(tmp_path, monkey
     imported = dict(OLD, id="ep_2026-10-06_014")
     _, (merge, _c) = _stage_three_prompts(tmp_path, monkeypatch, [imported, RECENT])
     assert "comes from conversation(s) dated: 2025-02-04, 2026-09-30" in merge and "2026-10-06" not in merge
+
+
+def test_a_self_reference_routed_to_the_owner_page_keeps_its_day(tmp_path, monkeypatch):
+    """Merge with G169: Stage 2 sends a speaker's self-reference ("User") to the bank's `owner: true` page; the day
+    Stage 1 resolved for that conversation (here only from its id) still reaches both Stage-3 prompts."""
+    def reply(msg: str) -> str:
+        return json.dumps({"entities": [{"name": "User", "type": "person", "confidence": 0.9,
+                                         "description": "Considering an internship at a company.",
+                                         "summary": "Considering an internship at a company."}],
+                           "relationships": []})
+
+    owner = [{"id": "alpha-owner", "body": "The main person this memory belongs to.",
+              "frontmatter": {"name": "Alpha Owner", "type": "person", "owner": True, "confidence": 1.0,
+                              "last_referenced": "2025-01-10"}}]
+    old = {k: v for k, v in OLD.items() if k != "timestamp"}
+    change, (merge, contradiction) = _stage_three_prompts(tmp_path, monkeypatch, [old], reply=reply, existing=owner)
+    assert change["id"] == "alpha-owner" and change["entity"]["name"] == "Alpha Owner"     # G169's owner route
+    assert change["source_episode_days"] == ["2025-02-04"]                                # G194's day rides along
+    assert "comes from conversation(s) dated: 2025-02-04" in merge
+    assert "NEW DESCRIPTION (from conversation(s) dated 2025-02-04)" in contradiction

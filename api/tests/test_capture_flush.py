@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import pytest
 
+from _stdio_server import stdio_server
 from api.services import telemetry
 from api.tests.test_continuity_acceptance import A, B, A_TURNS, _start, _transcript, _ts, env  # noqa: F401
 
@@ -35,14 +36,18 @@ def test_a_flush_after_a_stop_with_no_new_turn_changes_nothing(env, event):
 
 def test_an_interrupted_turn_captured_at_session_end_is_disclosed_next_time(env):
     """The person asked, interrupted the reply (no Stop fires) and cleared: only
-    the SessionEnd flush captures the request, and the next session hears that
-    it has no captured reply."""
+    the SessionEnd flush captures the request. The next session's on-demand
+    read discloses that it has no captured reply."""
     _post(env, A, A_TURNS[:2], "Stop")
     interrupted = A_TURNS[:2] + [("user", "Now also handle leap days in parse_alpha.", _ts(20))]
-    assert _post(env, A, interrupted, "SessionEnd")["status"] == "updated"
+    captured = _post(env, A, interrupted, "SessionEnd")
+    assert captured["status"] == "updated"
     note = _start(env, B)
-    assert "Now also handle leap days in parse_alpha." in note
-    assert "its last request has no captured reply" in note
+    assert f'cicada_continue(session="{captured["episodeId"]}")' in note
+    assert "Now also handle leap days in parse_alpha." not in note
+    out = stdio_server().handle_tool("cicada_continue", {"session": captured["episodeId"]})
+    assert "Now also handle leap days in parse_alpha." in out
+    assert "its last request has no captured reply" in out
 
 
 def test_the_ledger_names_the_event_as_an_enum(env, monkeypatch, tmp_path):

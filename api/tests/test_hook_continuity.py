@@ -60,7 +60,8 @@ def test_a_new_session_hears_where_the_last_one_here_stopped(client, bank, sourc
     note = data["additionalContext"]
     assert note.startswith(recall_text.PRIMER_HEADER) and recall_text.is_injection(note)
     assert "### Where the last session in this folder stopped" in note
-    assert "Not X, it breaks the fixture loader" in note and "Workspace state not checked" in note
+    assert "Not X, it breaks the fixture loader" not in note and "Workspace state not checked" in note
+    assert "previous work" in note
     assert len(note) // 4 <= handshake.MAX_TOKENS
     row = _row(bank)
     assert row["continues"] == "ep_2026-09-03_001" and row["started_at"]
@@ -128,7 +129,7 @@ def test_a_held_registry_lock_never_costs_the_answer(client, bank, monkeypatch):
     assert "Where the last session" in data["additionalContext"]
     row = [e for e in telemetry.read_events() if e.kind == telemetry.HOOK_RECALL_KIND][-1]
     assert row.refs["registry"] == "busy" and row.refs["continuity"] == "latest"
-    assert row.refs["rendering"] in ("full", "compact", "pointer")
+    assert row.refs["rendering"] == "pointer"
 
 
 def test_a_slow_registry_still_answers_within_the_budget(client, bank, monkeypatch):  # noqa: F811
@@ -169,9 +170,8 @@ def test_the_ledger_row_carries_enums_only(client, bank, monkeypatch):  # noqa: 
 
 
 def _block_for(room):
-    for name, size in (("full", 1500), ("compact", 700), ("pointer", 200)):
-        if size <= room:
-            return "B" * size, name
+    if 200 <= room:
+        return "B" * 200, "pointer"
     return "", "none"
 
 
@@ -186,11 +186,11 @@ def _primer_leaving(room: int, reading: str | None) -> str:
 
 
 @pytest.mark.parametrize("room, reading, expected, reading_kept", [
-    (1600, "R" * 300, "full", True),
-    (800, "R" * 300, "compact", True),
+    (1600, "R" * 300, "pointer", True),
+    (800, "R" * 300, "pointer", True),
     (250, "R" * 300, "pointer", True),
-    (100, "R" * 300, "none", True),
-    (-100, "R" * 300, "none", False),       # the primer and the sentence no longer fit together
+    (100, "R" * 300, "pointer", False),
+    (-100, "R" * 300, "pointer", False),       # defer reading to preserve the history hint
     (250, None, "pointer", False),
 ])
 def test_the_whole_note_is_measured_and_degrades_in_order(room, reading, expected, reading_kept):
@@ -204,7 +204,8 @@ def test_the_whole_note_is_measured_and_degrades_in_order(room, reading, expecte
 def test_an_oversized_primer_falls_back_to_a_pointer_note():
     text, rendering, kept = recall_text.compose_note(recall_text.PRIMER_HEADER, "P" * 9000, block_for=_block_for,
                                                      reading="R", max_tokens=handshake.MAX_TOKENS)
-    assert text == recall_text.PRIMER_HEADER + "\n\n" + recall_text.PRIMER_FALLBACK and rendering == "none"
+    assert text == recall_text.PRIMER_HEADER + "\n\n" + recall_text.PRIMER_FALLBACK + "\n\n" + "B" * 200
+    assert rendering == "pointer" and not kept
 
 
 def test_a_dropped_reading_sentence_is_heard_on_the_first_prompt(bank, monkeypatch):  # noqa: F811
@@ -223,5 +224,5 @@ def test_the_real_primer_with_a_block_and_reading_fits(bank, monkeypatch):  # no
     monkeypatch.setattr(hook_recall, "reading_line_for", lambda *a, **k: (recall_text.reading_line(12), (12, 3)))
     inj = hook_recall.session_start_note(bank, harness="claude-code", session_id=ME, cwd=CWD, source="clear",
                                          bank_paths=(bank,), deadline=time.monotonic() + 1)
-    assert len(inj.text) // 4 <= handshake.MAX_TOKENS and inj.rendering in ("full", "compact", "pointer")
+    assert len(inj.text) // 4 <= handshake.MAX_TOKENS and inj.rendering == "pointer"
     assert recall_text.reading_line(12) in inj.text
