@@ -73,7 +73,8 @@ enum AgentConnectOutcome: Equatable {
 }
 
 /// Track I T7 (R-IA28) — the only command shapes the app will run: `mcp add`,
-/// a hook install (the Stop hook's command under `Stop`, the recall hook's
+/// a hook install (the Stop hook's command under `Stop`, and under `PreCompact` / `SessionEnd` as G110's capture
+/// flush, the recall hook's
 /// under `SessionStart` / `UserPromptSubmit`, G149), and removing only the
 /// recall hook — each pinned to the checkout the app itself was built from
 /// (`CicadaRuntime.codeRoot`), or in a release to the stable launchers in
@@ -89,6 +90,9 @@ enum AgentConnectPolicy {
     ]
     /// G149 — the events the recall hook is registered under (R-H11: one command for both).
     static let recallEvents: Set<String> = ["SessionStart", "UserPromptSubmit"]
+    /// G110 gate A — the events the capture command is registered under: `Stop` (the trigger) and the two
+    /// best-effort flushes (`agent_wiring.FLUSH_EVENTS`).
+    static let captureEvents: Set<String> = ["Stop", "PreCompact", "SessionEnd"]
 
     /// G182 — every shape comes from `runtime` (`mcpCommand`, `registryArgv`, `hookCommand`), so a developer build
     /// accepts only the checkout's venv commands and a release only its launchers.
@@ -115,7 +119,7 @@ enum AgentConnectPolicy {
         // The command runs on every agent turn, so it is install.sh's command
         // byte for byte, for the event it belongs to — a substring check would
         // let an appended `; curl … | sh` through.
-        if argv[6] == "Stop" {
+        if captureEvents.contains(argv[6]) {
             return argv[8] == runtime.hookCommand(kind: "capture", harness: harness)
         }
         return recallEvents.contains(argv[6]) && argv[8] == runtime.hookCommand(kind: "recall", harness: harness)

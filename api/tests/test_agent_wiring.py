@@ -41,6 +41,11 @@ def test_an_unwired_harness_gets_install_sh_s_exact_commands(tmp_path):
     row = _row(data, "claude-code")
     assert (row["installed"], row["recall"], row["autosave"]) == (True, "off", "off")
     [mcp, hook] = row["connect"]
+    flush = row["flush_on"]
+    assert [(f["step"], f["argv"][6]) for f in flush] == [("flush", "PreCompact"), ("flush", "SessionEnd")]
+    assert all(f["argv"][:6] == hook["argv"][:6] and f["argv"][7:] == hook["argv"][7:] for f in flush), \
+        "the flush is the Stop hook's own registration under another event"
+    assert row["autosave_flush"] == "off"
     assert mcp["argv"] == ["claude", "mcp", "add", "cicada", "--scope", "user", "--env",
                            f"CICADA_MEMORY_PATH={MEM}", "--", PY, f"{REPO}/mcp/server.py"]
     assert hook["argv"] == [PY, f"{REPO}/api/hooks/registry.py", "install", "--settings",
@@ -54,9 +59,30 @@ def test_an_unwired_harness_gets_install_sh_s_exact_commands(tmp_path):
 
 def test_a_wired_harness_reads_on_and_offers_nothing(tmp_path):
     settings = tmp_path / ".claude/settings.json"
+    for event in ("Stop", *agent_wiring.FLUSH_EVENTS):
+        hook_registry.install(settings, event=event, command=agent_wiring.hook_command(PY, REPO, "claude-code"))
+    row = _row(_probe(tmp_path, rc=0), "claude-code")
+    assert (row["recall"], row["autosave"], row["autosave_flush"], row["connect"], row["flush_on"]) == (
+        "on", "on", "on", [], [])
+
+
+def test_an_install_from_before_the_flush_still_reads_on(tmp_path):
+    """G110 gate A: a Stop-only install (every install before the flush) is not
+    broken — ``autosave`` stays ``on``; the flush is offered as its own steps."""
+    settings = tmp_path / ".claude/settings.json"
     hook_registry.install(settings, event="Stop", command=agent_wiring.hook_command(PY, REPO, "claude-code"))
     row = _row(_probe(tmp_path, rc=0), "claude-code")
-    assert (row["recall"], row["autosave"], row["connect"]) == ("on", "on", [])
+    assert (row["recall"], row["autosave"], row["autosave_flush"], row["connect"]) == ("on", "on", "off", [])
+    assert [(s["step"], s["argv"][6]) for s in row["flush_on"]] == [("flush", "PreCompact"), ("flush", "SessionEnd")]
+
+
+def test_a_half_registered_flush_is_stale(tmp_path):
+    settings = tmp_path / ".claude/settings.json"
+    command = agent_wiring.hook_command(PY, REPO, "claude-code")
+    hook_registry.install(settings, event="Stop", command=command)
+    hook_registry.install(settings, event="PreCompact", command=command)
+    row = _row(_probe(tmp_path, rc=0), "claude-code")
+    assert (row["autosave"], row["autosave_flush"]) == ("on", "stale")
 
 
 def test_a_stale_hook_is_offered_the_update(tmp_path):
@@ -221,6 +247,25 @@ def test_the_route_serves_the_recall_fields_in_camel_case(tmp_path, monkeypatch)
     config.get_settings.cache_clear()
     assert agent["autorecall"] == "off" and agent["autorecallOn"][0]["step"] == "autorecall"
     assert agent["autorecallOff"] == []
+
+
+def test_the_route_serves_the_flush_fields_in_camel_case(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    from api import main
+
+    step = {"step": "flush", "display": "x", "argv": ["x"], "touches": []}
+
+    async def fake_probe(*, home, memory_root):
+        return {"agents": [{"id": "codex", "installed": True, "autosave": "on", "autosave_flush": "off",
+                            "flush_on": [step]}], "python": PY, "repo": str(REPO), "memory": str(memory_root)}
+
+    monkeypatch.setenv("CICADA_MEMORY_PATH", str(tmp_path))
+    config.get_settings.cache_clear()
+    monkeypatch.setattr(agent_wiring, "probe", fake_probe)
+    agent = TestClient(main.app).get("/agents/wiring").json()["agents"][0]
+    config.get_settings.cache_clear()
+    assert agent["autosaveFlush"] == "off" and agent["flushOn"][0]["step"] == "flush"
+
 
 def test_the_probes_run_side_by_side_on_a_six_second_budget(tmp_path):
     """R4B-12: the live Welcome read Claude Code as 'couldn't check in time' at

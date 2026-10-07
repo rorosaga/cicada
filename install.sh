@@ -328,6 +328,23 @@ if command -v codex >/dev/null 2>&1; then
     warn "Could not register the Codex hook in $CODEX_HOOKS"
   fi
 fi
+# G110 gate A: the same command under PreCompact and SessionEnd, as a best-effort
+# flush — Stop stays the trigger; a flush is idempotent and catches a turn the
+# person interrupted (no Stop) before compacting, clearing or quitting.
+for ev in PreCompact SessionEnd; do
+  if run "$VENV_PY" "$HOOKS_REGISTRY" install --settings "$CLAUDE_SETTINGS" --event "$ev" --command "$(hook_command claude-code)"; then
+    ok "Claude Code $ev capture flush registered in $CLAUDE_SETTINGS (idempotent)"
+  else
+    warn "Could not register the $ev capture flush in $CLAUDE_SETTINGS — fix the file and re-run ./install.sh"
+  fi
+  if command -v codex >/dev/null 2>&1; then
+    if run "$VENV_PY" "$HOOKS_REGISTRY" install --settings "$CODEX_HOOKS" --event "$ev" --command "$(hook_command codex)"; then
+      ok "Codex $ev capture flush registered in $CODEX_HOOKS"
+    else
+      warn "Could not register the Codex $ev capture flush in $CODEX_HOOKS"
+    fi
+  fi
+done
 
 # --- 5c. Implicit recall hooks (G149) ---
 # SessionStart sends the primer and UserPromptSubmit a short note of what memory
@@ -398,7 +415,7 @@ if command -v "$CLAUDE_CLI" >/dev/null 2>&1; then
 else
   echo "  MCP:           manual JSON snippet printed above"
 fi
-echo "  capture hook:  $CLAUDE_SETTINGS (hooks.Stop → api/hooks/capture.py)"
+echo "  capture hook:  $CLAUDE_SETTINGS (hooks.Stop, + PreCompact/SessionEnd flush → api/hooks/capture.py)"
 echo "  recall hooks:  $CLAUDE_SETTINGS (hooks.SessionStart + hooks.UserPromptSubmit → api/hooks/recall.py)"
 echo "  launchd:       $PLIST_PATH"
 [ "$DO_SKILL" -eq 1 ] && echo "  skill:         $CLAUDE_SKILLS_DIR/cicada/SKILL.md"

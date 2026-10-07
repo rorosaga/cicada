@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from functools import lru_cache
-from api.services import markdown_parser
+from api.services import evidence, markdown_parser
 from api.services.id_utils import bank_file
 
 
@@ -43,7 +43,8 @@ def gather_entity_sources(memory_path: Path, entity_id: str, *, mode: str = "chu
         sid = eppar.frontmatter.get("source_id")
         episodes.append({
             "id": ep_id,
-            "chunk": eppar.body,
+            # G110 gate B2: a long capture's dropped-middle marker reads as Cicada's note, never a turn's words.
+            "chunk": evidence.label_gaps(eppar.body, evidence.gap_ranges(eppar.frontmatter, eppar.body)),
             "source_id": sid,
             "conversation": convs.get(sid) if convs else None,
         })

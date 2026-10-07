@@ -451,15 +451,22 @@ def _index_episode(conn, doc_key: str, f, fm: dict, body: str) -> None:
         # same `evidence.kind_for` answer a stored span carries.
         "evidence_kind": str(fm.get("evidence_kind") or "").strip(),
     }
+    gaps = evidence.gap_ranges(fm, body)
+    if gaps:
+        meta["gaps"] = [list(g) for g in gaps]   # gate B2: the episode's own record, for a hit's kind
     doc_id = _insert_doc(conn, doc_key, "episode", ref, f, meta)
     conn.execute(
         "INSERT INTO epi(rowid, title, keywords) VALUES (?, ?, ?)",
         (doc_id << ROW_BITS, meta["title"], " ".join(x for x in (meta["harness"], meta["origin"]) if x)),
     )
+    # Gate B2 (G110): a captured session's dropped-middle marker is blanked to
+    # spaces — same offsets, so the rows still tile the body, but its words are
+    # never indexed as anyone's (no schema bump: no index predates the marker).
+    text = evidence.mask_gaps(body, gaps)
     for n, (s, e) in enumerate(passage_spans(body)[:MAX_ROWS_PER_DOC], start=1):
         conn.execute(
             "INSERT INTO pas(rowid, body, s, e) VALUES (?, ?, ?, ?)",
-            ((doc_id << ROW_BITS) | n, body[s:e], s, e),
+            ((doc_id << ROW_BITS) | n, text[s:e], s, e),
         )
 
 

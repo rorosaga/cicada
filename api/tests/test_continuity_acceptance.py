@@ -7,8 +7,9 @@ the stdio `cicada_continue` handler. Timestamps are pinned relative to now so th
 fixtures never age out. Placeholders only (`alpha-project`, `/home/example`).
 
 * Acceptance 1, under the capture cap, same harness: PASSES.
-* Acceptance 1, over the cap: depends on gate B. Under B1 (today) the note
-  discloses the turns past the limit and the acceptance is recorded NOT MET.
+* Acceptance 1, over the cap: PASSES under gate B2 (ruling 2026-10-07) — the
+  head and the tail are kept, so the latest decision is in the bank and the
+  note, and the dropped middle is disclosed.
 * Acceptance 5: NOT CLAIMED. The latest correction is shown, history and
   attribution are intact and the note is never captured, but Sleep would still
   count B's agent restatement of A's fact (strict xfail; optional T10)."""
@@ -143,22 +144,44 @@ def test_acceptance_1_a_later_prompt_with_no_captured_reply_is_disclosed(env):
     assert f"episode `{a.episode_id}`" in note and "has no captured reply" in note
 
 
-def test_acceptance_1_over_the_cap_is_disclosed_and_not_met_under_b1(env, monkeypatch):
-    """Gate B pending. Under B1 (today's head-stable cap) the decision at the end
-    of an over-cap session is NOT in the bank: the note says so. This records
-    acceptance 1 as NOT MET for over-cap sessions; under B2 (T-B) this test is
-    to assert the content instead."""
-    monkeypatch.setattr(transcript_extract, "SESSION_CAP_CHARS", 4_000)
-    # Four 1,000-character turns fill the (pinned) 4,000-character cap exactly, so
-    # every later turn — however short — is refused, as in a long real session.
+def test_acceptance_1_over_the_cap_keeps_the_latest_turns_under_b2(env):
+    """Gate B2 (ruling 2026-10-07), at the real cap: a 120-turn session whose
+    decision, rejection, failing test and next action sit in its last turns,
+    past 100,000 characters. The note carries them and discloses the middle."""
+    assert transcript_extract.SESSION_CAP_CHARS == 100_000
     early = [("user" if i % 2 == 0 else "assistant", (f"early step {i:03d} " + "word " * 250)[:1000],
-              _ts(120 - i * 0.5)) for i in range(114)]
-    late = [(r, t, _ts(60 - i)) for i, (r, t, _) in enumerate(A_TURNS)]
-    a = _capture(env, A, early + late)
+              _ts(140 - i)) for i in range(116)]
+    a = _capture(env, A, early + A_TURNS)
+    fm = markdown_parser.parse(_episode(env, a)).frontmatter
+    assert fm["capture_gap"]["dropped_turns"] > 0 and fm["turn_count"] < 120
     note = _start(env, B)
-    assert f"episode `{a.episode_id}`" in note
-    assert "turns past Cicada's capture limit" in note
-    assert "Not X, it breaks the fixture loader" not in note          # B1: the latest turns are not in memory
+    assert f"episode `{a.episode_id}`" in note and len(note) // 4 <= handshake.MAX_TOKENS
+    for words in ("Not X, it breaks the fixture loader; use Y, the typed decoder.",
+                  "tests/fixtures/alpha.json", "test_alpha_roundtrip", "Next: fix the date branch in parse_alpha",
+                  "turns from the middle", "its start and its latest turns are kept"):
+        assert words in note, words
+    out = stdio_server().handle_tool("cicada_continue", {"session": a.episode_id})
+    assert "Not X, it breaks the fixture loader" in out and "[Cicada:" not in out
+
+
+def test_acceptance_1_a_codex_note_in_the_persons_text_is_kept_counted_and_disclosed(env):
+    """T2b (gate C): Codex's serialization of hook context is unverified. If the
+    note arrives as unmarked person text it is kept as typed, counted, and the
+    next note says so."""
+    note = _start(env, B, harness="codex")
+    rollout = [json.dumps({"timestamp": _ts(30), "type": "session_meta", "payload": {"id": B, "cwd": CWD}})]
+    for role, text, ts in [("user", "fix the parser\n" + note, _ts(10)), ("assistant", "Fixed.", _ts(9))]:
+        kind = "input_text" if role == "user" else "output_text"
+        rollout.append(json.dumps({"timestamp": ts, "type": "response_item", "payload": {
+            "type": "message", "role": role, "content": [{"type": kind, "text": text}]}}))
+    path = env["claude"] / f"rollout-{B}.jsonl"
+    path.write_text("\n".join(rollout) + "\n", encoding="utf-8")
+    b = tc.capture_transcript(env["memory"], harness="codex", session_id=B, transcript_path=str(path), cwd=CWD,
+                              keep_assistant=True, bank_paths=(env["memory"],))
+    doc = markdown_parser.parse(_episode(env, b))
+    assert "fix the parser" in doc.body and recall_text.INJECTION_PREFIX in doc.body
+    assert doc.frontmatter["capture_flags"] == {"note_like_turns": 1}
+    assert "1 of its turns look like a Cicada note kept as typed text" in _start(env, C)
 
 
 def test_acceptance_5_correction_is_shown_history_kept_echo_not_captured(env):

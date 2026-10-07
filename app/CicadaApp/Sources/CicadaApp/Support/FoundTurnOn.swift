@@ -212,7 +212,7 @@ enum FoundTurnOn {
                 let fresh = deps.wiring()?.agents.first { $0.id == agentId }
                 return fresh.map(Self.isOn) == true ? .on(nil) : .rechecked
             }
-            let outcome = await deps.connect(agent.connect, deps.runtime, Set(wiring.agents.compactMap(\.binary)))
+            let outcome = await deps.connect(agent.turnOnSteps, deps.runtime, Set(wiring.agents.compactMap(\.binary)))
             await deps.refresh()
             switch outcome {
             case .done: return .on(nil)

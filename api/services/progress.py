@@ -165,7 +165,7 @@ def _anchor(memory_path: Path, spans: list, now: datetime, tz: tzinfo) -> when_m
             continue
         fm, text = doc
         if ev.is_span():
-            turn = evidence_mod.turn_at(text, ev.start, evidence_mod.turn_stamps(fm))
+            turn = evidence_mod.turn_at(text, ev.start, evidence_mod.turn_stamps(fm), evidence_mod.gap_ranges(fm, text))
             instant = when_mod.parse_instant((turn or {}).get("ts"))
             if instant is not None:
                 return when_mod.Anchor(instant, "turn", tz)

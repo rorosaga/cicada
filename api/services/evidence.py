@@ -45,7 +45,7 @@ __all__ = [
     "SPAN_CURRENT", "SPAN_GROWN", "SPAN_STALE", "turn_starts", "span_status", "TurnSpan", "turns",
     "turn_stamps", "source_document",
     # G133 / G134 (R-LS7, R-LS2)
-    "kind_for", "turn_at", "OVERRIDE_KINDS",
+    "kind_for", "turn_at", "OVERRIDE_KINDS", "gap_ranges", "mask_gaps", "GAP_KIND",
     # G140 Q-R9
     "media_time",
 ]
@@ -91,9 +91,106 @@ _SPEAKER_RE = re.compile(r"^speaker:[^:\n]{1,64}:")
 # quoted (`> `), so nothing inside it can open a turn. It is `page` evidence —
 # the document's words, never the person's (a pasted contract is not "You said").
 _ATTACHMENT_RE = re.compile(r"^attachment\s*\[[^\]\n]{1,128}\]\s*:", re.IGNORECASE)
+# G110 gate B2: the one line a captured session's body carries where the
+# session cap dropped its middle (`transcript_capture`). It is Cicada's line,
+# nobody's words, and it is known ONLY by the episode's own record
+# (`capture_gap`, validated by :func:`gap_ranges`) — never inferred from what a
+# line says, so a person who pastes the same words keeps them as theirs. Every
+# reader takes those ranges as ``gaps``: inside one, ``speaker_kind``/
+# ``kind_for`` answer ``gap``; it is its own block in :func:`turns` (the Reader
+# labels it, :func:`turn_at` skips it); a span touching it is ``reasoning``
+# (:func:`verify`); derived indexes blank it (:func:`mask_gaps`); Sleep masks it
+# before chunking and is told about it apart from the conversation.
+_GAP_LINE_RE = re.compile(r"^\[Cicada: \d+ turns? (?:from \S+ to \S+ )?were not kept\]$", re.MULTILINE)
+GAP_PREFIX = "[Cicada: "
+GAP_KIND = "gap"
+Gaps = tuple  # of (start, end) ranges, ascending
 # R-F2 / R-LS7: an episode may declare whose words it holds (a folder file's
 # authorship). Only these two values are honoured; anything else falls back to markers.
 OVERRIDE_KINDS = frozenset({"user", "assistant"})
+
+
+def gap_line(dropped: int, first_at: str | None, last_at: str | None) -> str:
+    """The marker for ``dropped`` turns not kept between a session's head and
+    its tail (gate B2) — the ONE spelling, so :func:`is_gap_line` reads every
+    line the writer wrote."""
+    first, last = first_at or last_at, last_at or first_at
+    when = f" from {first} to {last}" if first else ""
+    return f"[Cicada: {int(dropped)} turn{'' if int(dropped) == 1 else 's'}{when} were not kept]"
+
+
+def is_gap_line(line: str) -> bool:
+    return bool(_GAP_LINE_RE.fullmatch(line or ""))
+
+
+def _line_at(text: str, at: int) -> tuple[int, int] | None:
+    """The whole line starting exactly at ``at`` (a line start), else None."""
+    if not isinstance(at, int) or isinstance(at, bool) or not 0 <= at < len(text):
+        return None
+    if at and text[at - 1] != "\n":
+        return None
+    end = text.find("\n", at)
+    return at, (len(text) if end == -1 else end)
+
+
+def gap_ranges(frontmatter: dict | None, text: str) -> tuple[tuple[int, int], ...]:
+    """The episode's dropped-middle marker as ``((start, end),)``, from its OWN
+    record only (gate B2), or ``()``. No ``capture_gap`` → no gap, whatever the
+    body's words look like.
+
+    1. ``capture_gap.offset`` names a line start whose line opens with
+       ``[Cicada: `` — that whole line, even if it was edited since;
+    2. else (an episode written before the offset was stored, or a body an edit
+       shifted) the ONE whole line that spells the record's own marker
+       (:func:`gap_line` of its ``dropped_turns`` and times);
+    3. else ``()`` — a record that matches nothing names no gap."""
+    gap = (frontmatter or {}).get("capture_gap")
+    text = text or ""
+    if not isinstance(gap, dict) or not text:
+        return ()
+    line = _line_at(text, gap.get("offset"))
+    if line and text.startswith(GAP_PREFIX, line[0]):
+        return (line,)
+    try:
+        spelled = gap_line(int(gap.get("dropped_turns")), gap.get("first_dropped_at"), gap.get("last_dropped_at"))
+    except (TypeError, ValueError):
+        return ()
+    hits = [m.span() for m in re.finditer(r"(?m)^" + re.escape(spelled) + r"$", text)]
+    return (hits[0],) if len(hits) == 1 else ()
+
+
+def mask_gaps(text: str, gaps: Gaps = ()) -> str:
+    """``text`` with each of ``gaps`` blanked to spaces of the same length, so a
+    derived index keeps exact offsets into the body but never holds the marker's
+    words as anyone's (search passages, vector chunks, Sleep's chunks)."""
+    if not gaps:
+        return text
+    out, at = [], 0
+    for g0, g1 in sorted(gaps):
+        g0, g1 = max(g0, at), min(g1, len(text))
+        if g1 <= g0:
+            continue
+        out.append(text[at:g0])
+        out.append(" " * (g1 - g0))
+        at = g1
+    out.append(text[at:])
+    return "".join(out)
+
+
+GAP_NOTE = "[Cicada's note, not part of the conversation and nobody's words: turns here were not captured]"
+
+
+def label_gaps(text: str, gaps: Gaps = ()) -> str:
+    """``text`` for a reader that gets prose, not offsets (an agent reading an
+    episode's text): each gap line becomes :data:`GAP_NOTE`, so it can never be
+    read as the turn before it. Offsets change — never use this for evidence."""
+    for g0, g1 in sorted(gaps or (), reverse=True):
+        text = text[:g0] + GAP_NOTE + text[g1:]
+    return text
+
+
+def touches_gap(start: int, end: int, gaps: Gaps = ()) -> bool:
+    return any(g0 < end and start < g1 for g0, g1 in gaps or ())
 
 
 def body_hash(text: str) -> str:
@@ -234,7 +331,7 @@ def _marker(line: str) -> tuple[str, str, int, str | None] | None:
     return None
 
 
-def speaker_kind(text: str, start: int) -> str:
+def speaker_kind(text: str, start: int, gaps: Gaps = ()) -> str:
     """R4: ``assistant`` when the last turn marker at or before ``start`` is
     the model's, ``speaker`` when it is a note-taker's ``speaker:<label>:``
     line (R-LS7), ``media`` when it is a timed video line (G140); ``user``
@@ -246,17 +343,23 @@ def speaker_kind(text: str, start: int) -> str:
     which is at or before ``start`` by construction, so this is exactly "at
     or before" — and it is what makes a quote that begins with
     ``assistant: …`` land on that marker instead of the previous turn's.
+
+    ``gaps`` (gate B2, :func:`gap_ranges`): inside one the answer is ``gap``;
+    a line after it that opens no turn goes back to the speaker before it.
     """
     text = text or ""
     start = max(int(start), 0)
     line_end = text.find("\n", start)
     head = text if line_end == -1 else text[:line_end]
-    kind = "user"
-    for line in head.splitlines():
-        hit = _marker(line)
-        if hit:
-            kind = hit[0]
-    return kind
+    if not gaps:
+        kind = "user"
+        for line in head.splitlines():
+            hit = _marker(line)
+            if hit:
+                kind = hit[0]
+        return kind
+    lines = _marker_lines(head, gaps)
+    return lines[-1][1] if lines else "user"
 
 
 def _seconds(raw: str | None) -> int | None:
@@ -296,18 +399,19 @@ def media_time(text: str, start: int, override: str | None = None) -> int | None
     return _seconds(found[3])
 
 
-def kind_for(doc_id: str, text: str, start: int, override: str | None = None) -> str:
+def kind_for(doc_id: str, text: str, start: int, override: str | None = None, gaps: Gaps = ()) -> str:
     """The one evidence-kind decision (R-LS7): ``page`` for an entity document;
     for an episode, its declared ``evidence_kind`` when it is one of
     :data:`OVERRIDE_KINDS`, else the turn marker at ``start``."""
     if not is_episode_id(doc_id):
         return "page"
-    if override in OVERRIDE_KINDS:
-        return override
-    return speaker_kind(text, start)
+    kind = speaker_kind(text, start, gaps)
+    if kind == GAP_KIND:
+        return kind                     # gate B2: no declared authorship covers Cicada's own line
+    return override if override in OVERRIDE_KINDS else kind
 
 
-def _marker_lines(text: str) -> list[tuple[int, str, str, int, str | None]]:
+def _marker_lines(text: str, gaps: Gaps = ()) -> list[tuple[int, str, str | None, int, str | None]]:
     """``(line start, kind, marker, content start, time)`` for every
     turn-marker line — ``time`` is the raw ``m:ss`` of a timed video line
     (G140 Q-R9), ``None`` for every other marker.
@@ -317,16 +421,32 @@ def _marker_lines(text: str) -> list[tuple[int, str, str, int, str | None]]:
     span's kind can never disagree (slice 2, R-PB3: one parser, server-side).
     ``content start`` skips the marker and the spaces after it, so no client
     runs a regex of its own. Ascending by construction.
+
+    ``gaps`` (gate B2): a line starting a gap range is a ``gap`` entry whose
+    content is the whole line; a following line that opens no turn resumes the
+    speaker before the gap (marker ``None``), so nothing after the marker is
+    ever read as the gap's.
     """
-    out: list[tuple[int, str, str, int, str | None]] = []
+    out: list[tuple[int, str, str | None, int, str | None]] = []
+    starts = {g0 for g0, _ in gaps or ()}
     pos = 0
+    before = "user"
+    after_gap = False
     for line in (text or "").splitlines(keepends=True):
-        hit = _marker(line)
-        if hit:
-            kind, marker, content, raw_t = hit
-            while content < len(line) and line[content] in " \t":
-                content += 1
-            out.append((pos, kind, marker, pos + content, raw_t))
+        if pos in starts:
+            out.append((pos, GAP_KIND, GAP_KIND, pos, None))
+            after_gap = True
+        else:
+            hit = _marker(line)
+            if hit:
+                kind, marker, content, raw_t = hit
+                while content < len(line) and line[content] in " \t":
+                    content += 1
+                out.append((pos, kind, marker, pos + content, raw_t))
+                before = kind
+            elif after_gap:
+                out.append((pos, before, None, pos, None))
+            after_gap = False
         pos += len(line)
     return out
 
@@ -368,7 +488,7 @@ class TurnSpan:
 
 
 def turns(text: str, *, page: bool = False, stamps: dict[int, dict] | None = None,
-          override: str | None = None) -> list[TurnSpan]:
+          override: str | None = None, gaps: Gaps = ()) -> list[TurnSpan]:
     """The document as turns (R-PB3, R-PB5) — the marker lines
     :func:`speaker_kind` reads, so a turn's ``role`` and a span's ``kind``
     never disagree (``test_turns_agree_with_speaker_kind_at_every_offset``).
@@ -387,7 +507,7 @@ def turns(text: str, *, page: bool = False, stamps: dict[int, dict] | None = Non
         return [TurnSpan(index=1, start=0, content_start=0, end=len(text), role="page")]
     stamps = stamps or {}
     forced = override if override in OVERRIDE_KINDS else None
-    blocks: list[tuple[int, str, str | None, int, str | None]] = list(_marker_lines(text))
+    blocks: list[tuple[int, str, str | None, int, str | None]] = list(_marker_lines(text, gaps))
     if not blocks or blocks[0][0] > 0:
         blocks.insert(0, (0, "user", None, 0, None))
     out: list[TurnSpan] = []
@@ -395,7 +515,7 @@ def turns(text: str, *, page: bool = False, stamps: dict[int, dict] | None = Non
         nxt = blocks[i + 1][0] if i + 1 < len(blocks) else len(text)
         end = start + len(text[start:nxt].rstrip("\r\n"))
         stamp = stamps.get(start) or {}
-        role = forced or kind
+        role = kind if kind == GAP_KIND else (forced or kind)
         out.append(TurnSpan(
             index=i + 1, start=start, content_start=min(content_start, end), end=end,
             role=role, marker=marker, ts=stamp.get("ts"), speaker=stamp.get("speaker"),
@@ -437,25 +557,27 @@ def turn_stamps(frontmatter: dict | None) -> dict[int, dict]:
     return out
 
 
-def turn_at(text: str, start: int, stamps: dict[int, dict] | None) -> dict | None:
+def turn_at(text: str, start: int, stamps: dict[int, dict] | None, gaps: Gaps = ()) -> dict | None:
     """Which turn a span starts in (R-LS2): ``{number, of, ts, speaker}``, or
     ``None`` when the episode stores no ``turns`` sidecar (written before it
     existed, or nothing it holds had a time). ``number``/``of`` count the
-    turns :func:`turns` reads, so the span endpoint and the Reader agree;
+    turns :func:`turns` reads — a gate-B2 ``gap`` block is not a turn and is
+    skipped (the Reader's block ``index`` still counts it);
     ``ts`` is the sidecar entry at exactly that turn's start and ``speaker``
     falls back to the turn's own written marker — never an inferred value.
     Computed at read, never stored on a claim."""
     if not stamps:
         return None
-    spans = turns(text, stamps=stamps)
-    hit = None
-    for t in spans:
+    # Gate B2: the gap marker is a block, not a turn — never counted or landed on.
+    spans = [t for t in turns(text, stamps=stamps, gaps=gaps) if t.role != GAP_KIND]
+    hit, number = None, 0
+    for n, t in enumerate(spans, start=1):
         if t.start > start:
             break
-        hit = t
+        hit, number = t, n
     if hit is None:
         return None
-    return {"number": hit.index, "of": len(spans), "ts": hit.ts, "speaker": hit.speaker or hit.marker}
+    return {"number": number, "of": len(spans), "ts": hit.ts, "speaker": hit.speaker or hit.marker}
 
 
 # G118 slice 2 (design amendment A7) — what a stored span's hash says about the
@@ -479,8 +601,10 @@ def span_status(
     span in a conversation that continued after Sleep read ``stale``: the Stop
     hook rewrites a session's one episode in place with appended turns
     (``transcript_capture.capture_transcript``), G20 rewrites a grown chat
-    export the same way, and ``transcript_extract.SESSION_CAP_CHARS`` is
-    head-stable precisely so those offsets do not move. So when the whole text
+    export the same way, and ``transcript_extract.SESSION_CAP_CHARS`` keeps a
+    stable head precisely so those offsets do not move (past the cap, the tail
+    after the gap marker moves in blocks — a span there reads ``stale`` once it
+    slides, the cost gate B2 accepted). So when the whole text
     does not match, try every prefix that ends at the newline just before a
     turn-marker line and still covers the span (``cut >= end``): if one hashes
     to ``hash``, the cited text is byte-identical and the answer is ``grown``.
@@ -527,6 +651,7 @@ def verify(
     window: tuple[int, int] | None = None,
     whole_word: bool = False,
     kind_override: str | None = None,
+    gaps: Gaps | None = None,
 ) -> Evidence:
     """Turn a cited quote into an :class:`Evidence` — a span when the quote is
     in the document, ``reasoning`` when it is not. Never raises.
@@ -534,6 +659,9 @@ def verify(
     ``text`` short-circuits the disk read when the caller already holds the
     evidence text (Stage 1 holds the body it chunked — R11). Kind is the
     speaker for an episode and ``page`` for an entity document.
+    ``gaps`` (gate B2) are the episode's own gap ranges (:func:`gap_ranges`):
+    read from its frontmatter when the document is read here, passed by a
+    caller that holds the text (Stage 1).
     ``kind_override`` (R-LS7) is the episode's ``evidence_kind`` when the caller
     already holds the text (Stage 1); without ``text`` it is read from the
     document's own frontmatter.
@@ -548,12 +676,17 @@ def verify(
         fm, text = doc
         if kind_override is None:
             kind_override = str(fm.get("evidence_kind") or "") or None
+        if gaps is None:
+            gaps = gap_ranges(fm, text)
     digest = body_hash(text)
     span = locate(text, quote, window=window, whole_word=whole_word)
     if span is None:
         return reasoning(doc_id, hash=digest)
     start, end = span
-    kind = kind_for(doc_id, text, start, kind_override)
+    kind = kind_for(doc_id, text, start, kind_override, gaps or ())
+    if kind == GAP_KIND or touches_gap(start, end, gaps):
+        # Gate B2: the dropped-middle marker is Cicada's line, not anyone's words.
+        return reasoning(doc_id, hash=digest)
     return Evidence(episode=doc_id, start=start, end=end, kind=kind, hash=digest)
 
 
@@ -587,7 +720,7 @@ def verify_many(memory_path: Path | None, items: Iterable | None) -> list[Eviden
 
 def attach_relationship_evidence(
     rel: dict, episode_id: str, body: str, *, window: tuple[int, int] | None = None,
-    kind_override: str | None = None,
+    kind_override: str | None = None, gaps: Gaps = (),
 ) -> None:
     """Stage 1: consume ``rel["evidence_quote"]`` and set ``rel["evidence"]``.
 
@@ -598,5 +731,5 @@ def attach_relationship_evidence(
     """
     quote = rel.pop("evidence_quote", None)
     ev = verify(None, episode_id, str(quote or ""), text=body, window=window,
-                kind_override=kind_override)
+                kind_override=kind_override, gaps=gaps)
     rel["evidence"] = [ev.to_dict()]

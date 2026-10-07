@@ -407,7 +407,8 @@ class SessionView:
 
     def turns(self) -> list[Turn]:
         if self._turns is None:
-            self._turns = split_turns(self.body, self.sidecar, self.tail, self.turn_count)
+            self._turns = split_turns(self.body, self.sidecar, self.tail, self.turn_count,
+                                      gap_at=gap_offset(self.body, self.capture_gap))
         return self._turns
 
 
@@ -448,7 +449,15 @@ def _offsets(entries) -> dict[int, dict]:
     return out
 
 
-def split_turns(body: str, sidecar, tail, turn_count: int) -> list[Turn]:
+def gap_offset(body: str, capture_gap: dict | None) -> int | None:
+    """The gap marker's stored offset (gate B2), only when the body really has a
+    marker line there — the authoritative range, so marker-like words a person
+    typed elsewhere are never cut."""
+    ranges = evidence.gap_ranges({"capture_gap": capture_gap}, body)
+    return ranges[0][0] if ranges else None
+
+
+def split_turns(body: str, sidecar, tail, turn_count: int, *, gap_at: int | None = None) -> list[Turn]:
     """The body's turns, numbered from 1. Boundaries come from exact offsets —
     the G118 sidecar (the first ≤ 500 timed turns) and ``tail_turns`` (the last
     8, consecutive) — and ``turn_count`` says how many there are. When those
@@ -490,6 +499,13 @@ def split_turns(body: str, sidecar, tail, turn_count: int) -> list[Turn]:
     for n, s0 in enumerate(starts, start=1):
         e0 = starts[n] if n < len(starts) else end_of_body
         chunk = body[s0:e0 - 1]
+        if gap_at is not None and s0 <= gap_at < e0:
+            # Gate B2: the dropped-middle marker (at its stored offset) trails the
+            # head's last turn; it is not that turn's words ("Not captured" says it).
+            cut = gap_at - s0
+            rest = chunk[cut:]
+            end = rest.find("\n")
+            chunk = (chunk[:cut].rstrip("\n") + ("" if end == -1 else rest[end:])).rstrip("\n")
         speaker, _, text = chunk.partition(": ")
         if speaker not in ("user", "assistant"):
             speaker, text = "unknown", chunk
@@ -606,8 +622,15 @@ def gap_lines(ctx: WorkingContext) -> list[str]:
     elif last and last.speaker == "user":
         out.append("its last request has no captured reply")
     gap = (v.capture_gap or {}) if v else {}
-    if gap.get("dropped_turns"):
+    if gap.get("dropped_turns") and gap.get("last_seen_at") and not gap.get("first_dropped_at"):
+        # An episode captured before gate B2 (head-only cap): the turns after the head.
         out.append(f"{gap['dropped_turns']} turns past Cicada's capture limit, until {_hm(gap.get('last_seen_at'))}")
+    elif gap.get("dropped_turns"):
+        span = ""
+        if gap.get("first_dropped_at"):
+            span = f" ({_hm(gap.get('first_dropped_at'))}–{_hm(gap.get('last_dropped_at'))})"
+        out.append(f"{gap['dropped_turns']} turns from the middle{span}, past Cicada's capture limit — "
+                   "its start and its latest turns are kept")
     flags = (v.capture_flags or {}) if v else {}
     if flags.get("note_like_turns"):
         out.append(f"{flags['note_like_turns']} of its turns look like a Cicada note kept as typed text")

@@ -1013,7 +1013,9 @@ class EpisodeTurn(CamelModel):
     """One turn of a document (G118 slice 2, design §4.8.1) — offsets into the
     evidence text, never a copy of it. See ``evidence.TurnSpan``: ``role`` is
     ``user`` | ``assistant`` | ``speaker`` (a note-taker's ``speaker:<label>:``
-    line, R-LS7) | ``media`` (a timed ``video [m:ss]:`` line, G140) | ``page``;
+    line, R-LS7) | ``media`` (a timed ``video [m:ss]:`` line, G140) | ``page``
+    | ``gap`` (G110 gate B2: Cicada's dropped-middle line in a long captured
+    session — nobody's words);
     ``marker`` is the word as written (``None`` for a marker-less block);
     ``ts``/``speaker`` exist only where the episode stores a ``turns`` sidecar
     entry for this turn; ``t`` = seconds into the video for a media turn
@@ -3059,7 +3061,7 @@ class AgentWiringStep(CamelModel):
     ``display == shlex.join(argv)`` so the disclosure can never show one thing
     and run another; ``touches`` are ``~/``-relative (R-IA15)."""
 
-    step: Literal["mcp", "hook", "autorecall", "autorecall-off"]
+    step: Literal["mcp", "hook", "flush", "autorecall", "autorecall-off"]
     display: str
     argv: list[str]
     touches: list[str] = []
@@ -3078,6 +3080,10 @@ class AgentWiringRow(CamelModel):
     binary: Optional[str] = None
     recall: Literal["on", "off", "unknown"] = "off"
     autosave: Literal["on", "off", "stale", "invalid", "n/a"] = "n/a"
+    # G110 gate A: the PreCompact/SessionEnd capture flushes, apart from
+    # ``autosave`` (the Stop hook alone), so an install from before them reads on.
+    autosave_flush: Literal["on", "off", "stale", "invalid", "n/a"] = "n/a"
+    flush_on: list[AgentWiringStep] = []
     connect: list[AgentWiringStep] = []
     detail: Optional[str] = None
     autorecall: Literal["on", "off", "stale", "invalid", "n/a"] = "n/a"
