@@ -8,8 +8,9 @@
 # It never touches work in progress: it does nothing unless this checkout is ON
 # `dev`, has no tracked changes, and can fast-forward. Untracked files are fine.
 # It also waits out Sleep: while the backend reports a running cycle, a write window
-# or an unfinished drain (a paused one included — its Continue resumes in the same
-# process) it changes nothing and the next tick retries. CICADA_AUTOUPDATE_FORCE=1
+# or an unfinished drain, or a paused run waiting on Continue (the status carries a
+# top-level `paused` block; its drain is idle and unfinished, or null after a restart)
+# it changes nothing and the next tick retries. CICADA_AUTOUPDATE_FORCE=1
 # skips that wait.
 set -uo pipefail
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -44,7 +45,7 @@ import json, sys
 try:
     b = json.load(sys.stdin)
     d = b.get("drain") if isinstance(b.get("drain"), dict) else {}
-    busy = b.get("status") == "running" or b.get("writing") is True or (d.get("active") is True and d.get("finished") is not True)
+    busy = b.get("status") == "running" or b.get("writing") is True or (d.get("active") is True and d.get("finished") is not True) or isinstance(b.get("paused"), dict)
 except Exception:
     busy = False
 sys.exit(0 if busy else 1)' 2>/dev/null

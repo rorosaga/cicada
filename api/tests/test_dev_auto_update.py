@@ -131,10 +131,35 @@ def test_busy_running_defers_everything(rig):
     _assert_deferred(rig)
 
 
-def test_paused_active_drain_defers(rig):
+# The real route shape of a paused run (api/routers/sleep.py, test_sleep_paused.py): idle, not writing,
+# an inactive unfinished drain (or none after a restart) and a top-level `paused` block.
+PAUSED = {"runId": "sleep_pz", "reason": "plan_window", "filed": 3, "frozen": 9, "canContinue": True}
+
+
+def test_active_unfinished_drain_defers(rig):
     rig.push_change("api/app.py")
-    rig.sleep_status(status="idle", drain={"active": True, "finished": False, "paused": True})
+    rig.sleep_status(drain={"active": True, "finished": False})
     _assert_deferred(rig)
+
+
+def test_in_process_pause_defers(rig):
+    rig.push_change("api/app.py")
+    rig.sleep_status(drain={"active": False, "finished": False}, paused=PAUSED)
+    _assert_deferred(rig)
+
+
+def test_recovered_pause_without_a_drain_defers(rig):
+    rig.push_change("api/app.py")
+    rig.sleep_status(drain=None, paused=PAUSED)
+    _assert_deferred(rig)
+
+
+@pytest.mark.parametrize("drain", [{"active": False, "finished": True}, {"active": False, "finished": False}, None])
+def test_finished_or_failed_run_without_a_pause_is_eligible(rig, drain):
+    new = rig.push_change("api/app.py")
+    rig.sleep_status(drain=drain, paused=None)
+    assert rig.run().returncode == 0
+    assert rig.head() == new
 
 
 def test_writing_defers(rig):
@@ -168,8 +193,10 @@ def test_idle_proceeds_and_restarts_for_api_runtime_change(rig):
 
 
 def test_unreachable_backend_proceeds(rig):
-    new = rig.push_change("api/app.py")   # no status file: the curl stub exits 7
+    new = rig.push_change("api/app.py")
+    (rig.home / "api_token").write_text("tok\n")   # a token, but no status file: the curl stub exits 7
     assert rig.run().returncode == 0
+    assert "curl" in rig.called()
     assert rig.head() == new
     assert "kickstart -k" in rig.called()
 
