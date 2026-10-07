@@ -207,3 +207,9 @@ previews and stages nothing; `POST /intake/import` stages. `/conversations/uploa
 `Deprecation: true`) and `/banks/{name}/import` are shims over it.
 
 ---
+
+**Closed beliefs (G118/G93, 2026-10-07).** The timeline and belief chips share
+`Claim.isValid`: a close date or successor means history, including a legacy
+successor-only claim with no close date. Search preserves these markers and
+renders a closed event with its day/state as a past event or earlier state,
+using the existing row layout (DR-48) and date formatting (DR-58).

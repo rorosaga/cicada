@@ -135,7 +135,7 @@ struct Claim: Identifiable, Codable, Hashable {
     let authorModel: String?
     let authorEffort: String?
 
-    var isValid: Bool { validTo == nil }
+    var isValid: Bool { validTo == nil && supersededBy == nil }
 
     enum CodingKeys: String, CodingKey {
         case id, text, subject, predicate, object, objectKind, observer, context
