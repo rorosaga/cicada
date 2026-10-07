@@ -126,22 +126,60 @@ final class SleepV5WireTests: XCTestCase {
 // MARK: - The sentence ladder
 
 final class SleepV5RoomSentenceTests: XCTestCase {
-    func test_aTimeoutPauseSaysItCanBeTriedAgainAndOffersContinue() {
+    func test_aTimeoutPauseSaysItCanBeTriedAgainAndOffersContinue() throws {
         let diagnosis = "The engine timed out. Continue to try again; the part it was reading will be read again."
-        let paused = SleepPausedRun(reason: "engine", sentence: diagnosis, filed: 3, frozen: 9)
+        let paused = try JSONDecoder().decode(SleepPausedRun.self, from: Data(
+            #"{"runId":"run","reason":"engine","engineKind":"transient","filed":3,"frozen":9}"#.utf8))
+        var diagnosed = paused
+        diagnosed.sentence = diagnosis
         let page = SleepPageModel.resolve(
             status: nil, sse: nil, queued: [], schedule: ScheduleConfig(mode: "manual", hour: 3, minute: 0),
             enginePreview: nil, history: [], storeStatus: nil, queueLoad: .loaded(count: 6),
-            justFinishedAt: nil, intakeInFlight: false, paused: paused, now: V5Fixture.now, locale: V5Fixture.en)
+            justFinishedAt: nil, intakeInFlight: false, paused: diagnosed, now: V5Fixture.now, locale: V5Fixture.en)
         let line = V5Fixture.sentence(page)
         XCTAssertEqual(line.lead, "Paused. The engine stopped answering.")
         XCTAssertEqual(line.tail, "Continue to try again. 3 of 9 filed.")
         XCTAssertTrue(page.paused?.canContinue == true)
         XCTAssertFalse(page.consolidateEnabled)
-        let rows = LastCycleRow.runRows(drain: nil, paused: paused, run: nil, detail: nil, parkedCount: 0,
+        let rows = LastCycleRow.runRows(drain: nil, paused: diagnosed, run: nil, detail: nil, parkedCount: 0,
                                         runBilling: nil, reserveValue: nil, locale: V5Fixture.en)
         XCTAssertEqual(rows.first { $0.kind == .paused }?.text, diagnosis)
         XCTAssertNil(page.autoContinueWhen)
+    }
+
+    func test_authAndModelPausesKeepTheFixCopyAndTheirDiagnosis() throws {
+        for diagnosis in ["The engine is signed out. Sign in before continuing.",
+                          "The selected model was not found. Choose an available model."] {
+            let paused = try JSONDecoder().decode(SleepPausedRun.self, from: Data(
+                #"{"runId":"run","reason":"engine","engineKind":"needs_fix","filed":3,"frozen":9}"#.utf8))
+            var diagnosed = paused
+            diagnosed.sentence = diagnosis
+            let page = SleepPageModel.resolve(
+                status: nil, sse: nil, queued: [], schedule: ScheduleConfig(mode: "manual", hour: 3, minute: 0),
+                enginePreview: nil, history: [], storeStatus: nil, queueLoad: .loaded(count: 6),
+                justFinishedAt: nil, intakeInFlight: false, paused: diagnosed, now: V5Fixture.now, locale: V5Fixture.en)
+            let line = V5Fixture.sentence(page)
+            XCTAssertEqual(line.lead, "Paused. The engine needs a look.")
+            XCTAssertEqual(line.tail, "Continue when it is fixed. 3 of 9 filed.")
+            let rows = LastCycleRow.runRows(drain: nil, paused: diagnosed, run: nil, detail: nil, parkedCount: 0,
+                                            runBilling: nil, reserveValue: nil, locale: V5Fixture.en)
+            XCTAssertEqual(rows.first { $0.kind == .paused }?.text, diagnosis)
+        }
+    }
+
+    func test_engineKindSurvivesStatusAndSSEDecodingAndMovesTheStatusDomain() throws {
+        let paused = try JSONDecoder().decode(SleepPausedRun.self, from: Data(
+            #"{"runId":"run","reason":"engine","engineKind":"transient"}"#.utf8))
+        let encoded = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(paused)) as? [String: Any])
+        XCTAssertEqual(encoded["engineKind"] as? String, "transient")
+        let transient = try JSONDecoder().decode(SleepPausedSSE.self, from: Data(
+            #"{"runId":"run","reason":"engine","engineKind":"transient"}"#.utf8))
+        let fix = try JSONDecoder().decode(SleepPausedSSE.self, from: Data(
+            #"{"runId":"run","reason":"engine","engineKind":"needs_fix"}"#.utf8))
+        XCTAssertNotEqual(transient, fix, "a changed diagnosis refetches the paused record")
+        let old = VersionVector(version: "a", components: ["bank": "example", "sleep": "paused:run:transient"])
+        let new = VersionVector(version: "b", components: ["bank": "example", "sleep": "paused:run:needs_fix"])
+        XCTAssertEqual(new.changedDomains(since: old), [.status])
     }
 
     func test_everyV5SentenceFitsAndPromisesNothingUntrue() {
@@ -157,7 +195,8 @@ final class SleepV5RoomSentenceTests: XCTestCase {
         let leads = [Copy.SleepV5.sortingLead(31, 86), Copy.SleepV5.decidingLead(4, 12), Copy.SleepV5.filingLead,
                      Copy.SleepV5.pausingLead, Copy.SleepV5.pausedLead, Copy.SleepV5.pausedReserveLead,
                      Copy.SleepV5.pausedPlanWindowLead, Copy.SleepV5.pausedPlanWeeklyLead,
-                     Copy.SleepV5.pausedOverageLead, Copy.SleepV5.pausedEngineLead, Copy.SleepV5.restartLead,
+                     Copy.SleepV5.pausedOverageLead, Copy.SleepV5.pausedEngineLead, Copy.SleepV5.pausedEngineFixLead,
+                     Copy.SleepV5.restartLead,
                      Copy.SleepV5.bankSwitchedLead, Copy.SleepV5.filedLead(286)]
         for lead in leads { XCTAssertLessThanOrEqual(lead.count, SentenceLine.maxLead, lead) }
         let tails = [Copy.SleepV5.firstNightTail(batchSize: 25), Copy.SleepV5.sortingTail, Copy.SleepV5.decidingTail,
@@ -166,6 +205,7 @@ final class SleepV5RoomSentenceTests: XCTestCase {
                      Copy.SleepV5.continueWhenYouLike(filed: 98, frozen: 287),
                      Copy.SleepV5.continuesAfter("3:40 PM", filed: 98, frozen: 287),
                      Copy.SleepV5.resetsContinue("after 2:00 PM"), Copy.SleepV5.continueToTryAgain(filed: 98, frozen: 287),
+                     Copy.SleepV5.continueWhenFixed(filed: 98, frozen: 287),
                      Copy.SleepV5.restartTail(filed: 98, frozen: 287), Copy.SleepV5.bankSwitchedTail]
         for tail in tails { XCTAssertLessThanOrEqual(tail.count, SentenceLine.maxTail, tail) }
     }
@@ -184,8 +224,8 @@ final class SleepV5RoomSentenceTests: XCTestCase {
         XCTAssertEqual(window.lead, "Paused. Your plan window is full.")
 
         let engine = V5Fixture.sentence(V5Fixture.page(try V5Fixture.paused("engine")))
-        XCTAssertEqual(engine.lead, "Paused. The engine stopped answering.")
-        XCTAssertEqual(engine.tail, "Continue to try again. 3 of 9 filed.")
+        XCTAssertEqual(engine.lead, "Paused. The engine needs a look.")
+        XCTAssertEqual(engine.tail, "Continue when it is fixed. 3 of 9 filed.")
 
         let restart = V5Fixture.sentence(V5Fixture.page(try V5Fixture.paused("restart")))
         XCTAssertEqual(restart.lead, "Cicada restarted while reading.")

@@ -217,17 +217,26 @@ throttled, exhausted, model not found) stops the run after the batch commits wha
 conversation. **Transient CLI engine failures (G171/G163):** extraction already retries each call once (10 s after
 `EngineTimeout`, 2 s after `EngineFailed` or `EngineProtocolError`); other CLI calls inside a drain use the same
 one-retry bound at the provider seam, releasing the concurrency permit during backoff. An exhausted `EngineTimeout`
-or `EngineFailed` in extraction discards the whole batch before Stage 2, including successful reads in a mixed batch;
-a transient error escaping a later stage (`engine_errors.RETRYABLE`) also pauses with reason `engine`, no `error`,
-reset time or auto-continue. The frozen ids and prior committed batches stay intact; no episode attempt is charged
-or parked for that interruption. Continue resumes the same run and reads the interrupted batch again. An
-empty/unparseable extraction answer still gets the conversation retry-then-park rule. Authentication, model and
-plan errors are never retried by this policy; calls outside drains retain their existing policy.
+or `EngineFailed` in extraction initially discards the whole batch before Stage 2, including successful reads in a
+mixed batch. Once doomed, the batch starts no further Stage-1 calls; calls already in flight finish. The sidecar
+persists timeout observations by episode across Continue and process restarts. If the same episode times out again
+on Continue and it is the only timeout in that batch, its second failed read parks it (`timed_out`) and healthy
+neighbors can be filed. Timeouts spread across multiple episodes in a batch remain an engine interruption, even
+on repeated Continues, without charging conversation attempts or parking those episodes. A newly affected episode
+also pauses first. An `EngineFailed` retains its trimmed diagnosis (up to 300 characters).
+A transient error escaping a later stage (`engine_errors.RETRYABLE`) pauses with reason `engine`, no `error`,
+reset time or auto-continue. The frozen ids and prior committed batches stay intact; Continue resumes the same run
+and reads the interrupted batch again. An empty/unparseable extraction answer still gets the conversation
+retry-then-park rule. Authentication, model and plan errors are never retried by this policy; calls outside drains
+retain their existing policy.
 An id another writer marked processed meanwhile is `skipped`, and a bank switch between batches stops the run (`bank_switched`; `activate`, `demo`,
 `leave-demo` and the active bank's rename answer **409** while `SleepState.drain_run`). **A scheduled cycle drains too**
-(ruling 16: both scheduler entry points pass `drain=True`) but with `user_triggered=False`, so ruling 4 holds — it never uses
-a plan; on a metered engine it spends until the queue is empty, with no limit Cicada sets, and the engine menu and Details
-say so in words. **Once per drain, not per batch:** temporal decay (both engines,
+(ruling 16: both scheduler entry points pass `drain=True`) but with `user_triggered=False`, so automatic engine
+selection never chooses a plan (ruling 4); on a metered engine it spends until the queue is empty, with no limit Cicada sets, and the engine menu and Details
+say so in words. The default scheduled BYOK/local selection is unchanged; an explicit `CICADA_LLM_MODE` CLI
+override also reaches the transient retry/pause policy. Such a scheduled engine pause is eligible for replacement
+by a fresh unattended run only after six hours (`sleep_paused.ENGINE_RETRY_S`), rather than the next scheduler tick.
+**Once per drain, not per batch:** temporal decay (both engines,
 `decay=False` on `resolve_and_prune` / `reconcile_stage3` / `run_claim_pipeline`) and Stage 5.57's page reads run only in the
 batch that empties the queue (a decay-only finishing pass covers a last batch whose ids were read elsewhere), so decay is
 charged once (TODO ruling 1) and a stopped drain never decays; **once per run:** the whole engine-independent tail, whose

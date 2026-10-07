@@ -19,6 +19,8 @@ rebuilt from ``processed: true`` on load, so a stale sidecar can only make
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -124,12 +126,14 @@ def clear(memory_path: Path) -> None:
 
 def sync_token(memory_path: Path) -> str:
     """What moves ``/sync/version``'s ``sleep`` component when a pause appears,
-    is armed or cleared: the paused run's id and its auto-continue state."""
+    is armed, changes diagnosis or clears: id, auto-continue state and diagnosis hash."""
     rec = get_paused(memory_path)
     if not rec:
         return ""
     ac = rec.get("auto_continue") or {}
-    return f"paused:{rec.get('run_id')}:{int(bool(ac.get('armed')))}:{ac.get('left', '')}"
+    diagnosis = hashlib.sha256(json.dumps([rec.get("engine_kind"), rec.get("sentence")],
+                                         ensure_ascii=True).encode()).hexdigest()[:16]
+    return f"paused:{rec.get('run_id')}:{int(bool(ac.get('armed')))}:{ac.get('left', '')}:{diagnosis}"
 
 
 def remaining_ids(memory_path: Path, record: dict) -> list[str]:
@@ -152,6 +156,7 @@ def build(ds, *, phase: str, stop=None, engine_label: str | None = None,
         "batch": ds.batch, "batch_size": ds.batch_size,
         "requeued": ds.requeued, "requeued_ids": sorted(ds.requeued_ids), "skipped": ds.skipped,
         "attempts": {k: int(v) for k, v in ds.attempts.items() if v},
+        "timeout_attempts": {k: int(v) for k, v in ds.timeout_attempts.items() if v},
         "first_run": bool(ds.first_run), "owner_beliefs": ds.owner_beliefs,
         "engine_label": engine_label or ds.engine_label, "engine_model": ds.engine_model,
         "elapsed_ms": int(elapsed_ms if elapsed_ms is not None else ds.elapsed_ms()),
@@ -168,6 +173,8 @@ def build(ds, *, phase: str, stop=None, engine_label: str | None = None,
         reason = reason_for(stop) if stop is not None else "restart"
         rec.update({
             "reason": reason or "engine",
+            "engine_kind": ("transient" if getattr(stop, "transient", False) else "needs_fix")
+                           if reason == "engine" else None,
             "sentence": (getattr(stop, "sentence", "") or None) if stop is not None else None,
             "resets_at": getattr(stop, "resets_at", None) if stop is not None else None,
             "limit": getattr(stop, "limit", None) if stop is not None else None,
@@ -198,6 +205,7 @@ def to_wire(record: dict | None, memory_path: Path | None = None) -> dict | None
         "run_id": record.get("run_id"),
         "started_by": record.get("started_by", "user"),
         "reason": record.get("reason"),
+        "engine_kind": (record.get("engine_kind") or "needs_fix") if record.get("reason") == "engine" else None,
         "sentence": record.get("sentence"),
         "resets_at": record.get("resets_at"),
         "limit": record.get("limit"),
@@ -236,7 +244,7 @@ def recover_after_restart(memory_path: Path) -> str | None:
         now = time.time()
         rec = dict(rec)
         rec.update({
-            "phase": "paused", "reason": "restart", "sentence": None, "resets_at": None, "limit": None,
+            "phase": "paused", "reason": "restart", "engine_kind": None, "sentence": None, "resets_at": None, "limit": None,
             "paused_at": datetime.fromtimestamp(now, tz=timezone.utc).isoformat(timespec="seconds"),
             "paused_at_ts": int(now), "can_continue": True, "auto_continue": None,
         })

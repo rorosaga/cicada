@@ -1,4 +1,4 @@
-"""G171/G163: transient engine trouble retains the run, never parks its episodes."""
+"""G171/G163: pause transient trouble; park a repeated isolated episode timeout."""
 from __future__ import annotations
 
 import asyncio
@@ -49,9 +49,9 @@ def fake_engine(monkeypatch, ids, failures):
     return rig, calls, backoffs
 
 
-def run(memory, **kw):
+def run(memory, cap=2, **kw):
     asyncio.run(sleep_cycle.run(
-        settings(memory, sleep_max_episodes_per_cycle=2), "sleep_timeout",
+        settings(memory, sleep_max_episodes_per_cycle=cap), "sleep_timeout",
         user_triggered=True, drain=True, **kw))
     return sleep_cycle.get_sleep_state()
 
@@ -83,6 +83,8 @@ def test_persistent_timeout_discards_only_current_batch_and_continue_keeps_froze
     assert rec["frozen_ids"] == ids and rec["filed"] == 2 and rec["committed_batches"] == 1
     assert "timed out" in rec["sentence"]
     assert rec["attempts"] == {} and sleep_parked.ids(memory) == set()
+    assert rec["timeout_attempts"] == dict.fromkeys(failing, 1)
+    assert rec["engine_kind"] == "transient"
     assert rec["resets_at"] is None and not (rec.get("auto_continue") or {}).get("armed", False)
     assert state.error is None and state.status == "idle" and not sleep_cycle.is_writing()
     assert waiting(memory) == ids[2:]
@@ -103,6 +105,104 @@ def test_persistent_timeout_discards_only_current_batch_and_continue_keeps_froze
     assert state.drain.filed == 6 and state.drain.finished and state.error is None
     assert waiting(memory) == [new_id] and sleep_paused.get_paused(memory) is None
     assert sleep_runs.get(memory, "sleep_timeout")["state"] == "finished"
+
+
+@pytest.mark.parametrize("count", [1, 6])
+def test_same_episode_times_out_again_on_continue_is_parked_and_healthy_work_finishes(tmp_path, monkeypatch, count):
+    ids = episode_ids(count)
+    memory = seed_bank(tmp_path, ids)
+    bad_id = ids[3] if count == 6 else ids[0]
+    _, calls, _ = fake_engine(monkeypatch, ids, {bad_id: "persistent"})
+    run(memory)
+    rec = sleep_paused.get_paused(memory)
+    assert rec is not None and rec["timeout_attempts"] == {bad_id: 1}
+    # Load from disk again, as after a process restart; no in-memory observation is needed.
+    sleep_paused._cache.clear()
+    state = run(memory, continue_from=sleep_paused.load(memory))
+    assert state.drain.finished and state.error is None
+    assert state.drain.filed == count - 1 and waiting(memory) == [bad_id]
+    assert state.drain.parked == {bad_id: "timed_out"}
+    assert sleep_parked.valid(memory)[bad_id]["attempts"] == 2
+    assert calls[bad_id] == 4
+    if count == 6:
+        assert calls[ids[2]] == 2, "one interrupted read, one successful reread"
+    assert sleep_paused.get_paused(memory) is None
+    assert git(memory, "status", "--porcelain") == ""
+
+
+def test_timeouts_move_to_different_episodes_across_continues_remain_engine_pauses(tmp_path, monkeypatch):
+    ids = episode_ids(3)
+    memory = seed_bank(tmp_path, ids)
+    failures = {ids[0]: "persistent"}
+    fake_engine(monkeypatch, ids, failures)
+    run(memory, cap=3)
+    rec = sleep_paused.get_paused(memory)
+    failures.clear()
+    failures[ids[1]] = "persistent"
+    state = run(memory, cap=3, continue_from=rec)
+    rec = sleep_paused.get_paused(memory)
+    assert rec is not None and rec["reason"] == "engine" and rec["filed"] == 0
+    assert rec["timeout_attempts"] == {ids[0]: 1, ids[1]: 1}
+    assert rec["attempts"] == {} and sleep_parked.ids(memory) == set()
+    assert state.error is None and waiting(memory) == ids
+
+
+def test_timeouts_spread_over_multiple_episodes_never_park_the_batch_as_bad_content(tmp_path, monkeypatch):
+    ids = episode_ids(2)
+    memory = seed_bank(tmp_path, ids)
+    _, calls, _ = fake_engine(monkeypatch, ids, dict.fromkeys(ids, "persistent"))
+    run(memory)
+    state = run(memory, continue_from=sleep_paused.get_paused(memory))
+    rec = sleep_paused.get_paused(memory)
+    assert rec is not None and rec["reason"] == "engine" and rec["timeout_attempts"] == dict.fromkeys(ids, 2)
+    assert rec["attempts"] == {} and sleep_parked.ids(memory) == set()
+    assert waiting(memory) == ids and state.error is None
+    assert calls == dict.fromkeys(ids, 4)
+
+
+def test_doomed_batch_does_not_start_waiting_stage_one_calls(tmp_path, monkeypatch):
+    ids = episode_ids(4)
+    memory = seed_bank(tmp_path, ids)
+    _, calls, _ = fake_engine(monkeypatch, ids, {ids[0]: "persistent"})
+    monkeypatch.setattr(entity_extractor, "MAX_CONCURRENCY", 1)
+    state = run(memory, cap=4)
+    assert calls == {ids[0]: 2}, "never start reads that will be discarded"
+    assert state.drain.live.skipped == set(ids[1:])
+    assert waiting(memory) == ids and sleep_parked.ids(memory) == set()
+    state = run(memory, cap=4, continue_from=sleep_paused.get_paused(memory))
+    assert state.drain.finished and state.drain.parked == {ids[0]: "timed_out"}
+    assert calls == {ids[0]: 4, **dict.fromkeys(ids[1:], 1)}
+
+
+def test_unknown_cli_failure_keeps_its_trimmed_diagnosis():
+    diagnosis = "temporary CLI configuration failure " + "x" * 400
+    stop = sleep_drain.classify(engine_errors.EngineFailed(diagnosis))
+    assert stop.reason == "engine" and stop.transient
+    assert diagnosis[:300] in stop.sentence and diagnosis not in stop.sentence
+
+
+def test_engine_kind_is_typed_on_the_wire_and_moves_the_sleep_sync_component(tmp_path):
+    from api.models.schemas import SleepPaused
+    from api.services import sync_service
+
+    memory = seed_bank(tmp_path, episode_ids(2))
+    ds = sleep_drain.DrainState("sleep_kind", frozen_ids=episode_ids(2))
+    transient = sleep_paused.build(ds, phase="paused", stop=sleep_drain.classify(engine_errors.EngineTimeout("slow")))
+    sleep_paused.save(memory, transient)
+    before = sync_service.components(memory)["sleep"]
+    assert SleepPaused.model_validate(sleep_paused.to_wire(transient)).model_dump(by_alias=True)["engineKind"] == "transient"
+    needs_fix = sleep_paused.build(ds, phase="paused", stop=sleep_drain.classify(engine_errors.EngineUnavailable("sign in")))
+    sleep_paused.save(memory, needs_fix)
+    assert SleepPaused.model_validate(sleep_paused.to_wire(needs_fix)).engine_kind == "needs_fix"
+    assert sync_service.components(memory)["sleep"] != before
+
+
+def test_explicit_scheduled_cli_transient_pause_is_replaceable_after_six_hours(tmp_path):
+    ds = sleep_drain.DrainState("sleep_schedule", frozen_ids=episode_ids(2), started_by="schedule")
+    rec = sleep_paused.build(ds, phase="paused", paused_at=1000,
+                             stop=sleep_drain.classify(engine_errors.EngineTimeout("slow")))
+    assert not sleep_paused.schedule_may_replace(rec, now=1000 + sleep_paused.ENGINE_RETRY_S - 1)
+    assert sleep_paused.schedule_may_replace(rec, now=1000 + sleep_paused.ENGINE_RETRY_S)
 
 
 @pytest.mark.parametrize("error", engine_errors.RETRYABLE)

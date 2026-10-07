@@ -576,10 +576,13 @@ person's own choice) and journal-honest (no "read and kept": a Pause reads the p
 `GET /sleep/status` and in brief on the SSE event, where a present `null` means none) outranks every idle rung of the sentence — Paused / Paused to
 leave room in your plan / Your plan window is full / The engine stopped answering / Cicada restarted while reading — with what is filed and, when armed
 (ruling 15), "Continues after 3:40 PM" (one locale-aware formatter, `sleepClockWords`); the mood is `.reading`, never an error or a cheer.
-An engine pause includes transient timeouts: its tail says "Continue to try again" with the filed count, and Details
-shows the backend's diagnosis (DR-59). For a timeout, that diagnosis says the interrupted part is read again;
-authentication pauses still show their sign-in fix. The lead never implies a permanent configuration fault or
-automatic continuation. **One
+An engine pause's `engineKind` (`transient | needs_fix`) travels in status and the compact SSE block. Transient
+timeouts/errors say "The engine stopped answering" and "Continue to try again" with the filed count. Sign-out and
+model-not-found pauses retain "The engine needs a look" and "Continue when it is fixed"; older backends without the
+kind retain that fix guidance. Details shows the backend's diagnosis (DR-59), including the sign-in/model fix or a
+trimmed transient failure detail. For a timeout, the diagnosis says the interrupted part is read again. The existing
+`sleep` version component includes kind and diagnosis and maps to `.status` in `VersionVector`; a changed SSE kind
+refetches the paused record. An engine pause never implies automatic continuation. **One
 primary at a time (DR-40):** Consolidate / Pause (a drain's cancel, "Pausing…") / Continue (named for the manual engine; held while a weekly limit's
 reset is ahead) with *End this run* beside it. `SleepViewModel.continueRun()` is the only sender of `{"continue": true}`; **every other door goes
 through `triggerManually()`, which routes to the Sleep page while a run is paused** (`AppRouter.routeToSleep`), and the menu bar, the intake card's

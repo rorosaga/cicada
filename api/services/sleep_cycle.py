@@ -1627,6 +1627,7 @@ async def _drain(
         ds.skipped = int(continue_from.get("skipped") or 0)
         ds.decay_ran = bool(continue_from.get("decay_ran"))
         ds.attempts = {str(k): int(v) for k, v in (continue_from.get("attempts") or {}).items()}
+        ds.timeout_attempts = {str(k): int(v) for k, v in (continue_from.get("timeout_attempts") or {}).items()}
         ds.totals.update({k: int(v) for k, v in (continue_from.get("totals") or {}).items()
                           if k in sleep_drain.CUMULATIVE_COUNTERS})
         ds.owner_beliefs = continue_from.get("owner_beliefs")
@@ -1987,10 +1988,10 @@ def _ae_breaker() -> str | None:
     return agent_engine.breaker_reason()
 
 
-def _batch_hooks(live: "sleep_drain.BatchLive", guard) -> dict:
+def _batch_hooks(live: "sleep_drain.BatchLive", guard, ds: "sleep_drain.DrainState") -> dict:
     """Stage 1's per-conversation hooks for a drain's batch: what started, what was
     read, what failed and whether that was the conversation's or the engine's, what
-    the reserve line stopped from starting."""
+    the reserve line or engine interruption stopped from starting."""
     def started(ep: dict) -> None:
         live.started.add(ep["id"])
 
@@ -1998,13 +1999,23 @@ def _batch_hooks(live: "sleep_drain.BatchLive", guard) -> dict:
         live.read.add(ep["id"])
 
     def failed(ep: dict, exc: BaseException) -> None:
+        from api.services import engine_errors
+
+        if isinstance(exc, engine_errors.EngineTimeout):
+            live.timeouts.add(ep["id"])
+            if len(live.timeouts) > 1 or not ds.timeout_attempts.get(ep["id"]):
+                live.engine_failed.add(ep["id"])
+                live.transient_stop = live.transient_stop or sleep_drain.classify(exc)
+            else:
+                # A sole episode timed out on a previous leg too: let the batch
+                # file its healthy reads and give this episode its second attempt.
+                live.failed[ep["id"]] = "timed_out"
+            return
         kind, reason = sleep_drain.classify_episode(exc)
         if kind == "pause":
             live.engine_failed.add(ep["id"])
             live.pause_class = True
             live.pause_sentence = live.pause_sentence or str(exc).strip()[:300]
-            from api.services import engine_errors
-
             if isinstance(exc, engine_errors.RETRYABLE):
                 live.transient_stop = live.transient_stop or sleep_drain.classify(exc)
         else:
@@ -2015,8 +2026,7 @@ def _batch_hooks(live: "sleep_drain.BatchLive", guard) -> dict:
 
     hooks = {"on_episode_started": started, "on_episode_read": read,
              "on_episode_failed": failed, "on_episode_skipped": skipped}
-    if guard is not None:
-        hooks["stop_check"] = guard.is_reached
+    hooks["stop_check"] = lambda: live.transient_stop is not None or (guard is not None and guard.is_reached())
     return hooks
 
 
@@ -2218,7 +2228,7 @@ async def _run_stages(
     else:
         hooks: dict = {}
         if live is not None:
-            hooks = _batch_hooks(live, guard)
+            hooks = _batch_hooks(live, guard, batch.ds)
         extracted = await extract(
             episodes, settings, cancel_check=_cancel_requested,
             progress_callback=_tick_stage1, on_episode_done=_on_episode_done,
@@ -2239,11 +2249,21 @@ async def _run_stages(
     if _state.cancel_requested:
         return _cycle_cancelled()
 
-    if live is not None and live.transient_stop is not None:
-        # Extraction exhausted its call retry. Even a mixed batch stays entirely
-        # queued: no pages have been read or written yet, and engine trouble must
-        # neither consume an episode attempt nor turn a last batch into "finished".
-        return _StageOutcome(stop=live.transient_stop)
+    if live is not None:
+        for ep_id in live.timeouts:
+            batch.ds.timeout_attempts[ep_id] = batch.ds.timeout_attempts.get(ep_id, 0) + 1
+        if live.transient_stop is not None:
+            # Different ids failing in this batch are an engine problem, even
+            # when they also failed on a previous leg. Never park an outage.
+            for ep_id in live.timeouts:
+                live.failed.pop(ep_id, None)
+            live.engine_failed.update(live.timeouts)
+            return _StageOutcome(stop=live.transient_stop)
+        for ep_id in live.timeouts:
+            # The same isolated id failed across legs. _fold charges its second
+            # content attempt and parks it, allowing this drain to finish.
+            batch.ds.attempts[ep_id] = max(batch.ds.attempts.get(ep_id, 0),
+                                          batch.ds.timeout_attempts[ep_id] - 1)
 
     # A drain's per-conversation outcomes (Sleep page v5): who could not be read and why,
     # and whether the ENGINE is what failed (never counted against a conversation).

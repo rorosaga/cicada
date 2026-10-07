@@ -93,6 +93,8 @@ struct SleepPausedRun: Codable, Equatable {
     var runId: String
     var startedBy: String
     var reason: String
+    /// `transient | needs_fix`; older backends omit this and retain the fix guidance.
+    var engineKind: String?
     /// The pause's diagnosis: a plan's own sentence, or an engine interruption/fix.
     var sentence: String?
     /// The vendor's unix reset time — `nil` when none was given, never guessed.
@@ -110,8 +112,9 @@ struct SleepPausedRun: Codable, Equatable {
     init(runId: String = "run", startedBy: String = "user", reason: String, sentence: String? = nil,
          resetsAt: Int? = nil, limit: String? = nil, filed: Int = 0, frozen: Int = 0, calls: Int = 0,
          committedBatches: Int = 0, pausedAt: String? = nil, canContinue: Bool = true,
-         engineLabel: String? = nil, autoContinue: AutoContinue? = nil) {
+         engineLabel: String? = nil, autoContinue: AutoContinue? = nil, engineKind: String? = nil) {
         self.runId = runId; self.startedBy = startedBy; self.reason = reason; self.sentence = sentence
+        self.engineKind = engineKind
         self.resetsAt = resetsAt; self.limit = limit; self.filed = filed; self.frozen = frozen
         self.calls = calls; self.committedBatches = committedBatches; self.pausedAt = pausedAt
         self.canContinue = canContinue; self.engineLabel = engineLabel; self.autoContinue = autoContinue
@@ -124,6 +127,7 @@ struct SleepPausedRun: Codable, Equatable {
         runId = str(.runId) ?? ""
         startedBy = str(.startedBy) ?? "user"
         reason = str(.reason) ?? "user"
+        engineKind = str(.engineKind)
         sentence = str(.sentence)
         resetsAt = (try? c.decodeIfPresent(Int.self, forKey: .resetsAt)) ?? nil
         limit = str(.limit)
@@ -135,7 +139,7 @@ struct SleepPausedRun: Codable, Equatable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case runId, startedBy, reason, sentence, resetsAt, limit, filed, frozen, calls, committedBatches
+        case runId, startedBy, reason, engineKind, sentence, resetsAt, limit, filed, frozen, calls, committedBatches
         case pausedAt, canContinue, engineLabel, autoContinue
     }
 }
@@ -145,21 +149,25 @@ struct SleepPausedRun: Codable, Equatable {
 struct SleepPausedSSE: Codable, Equatable {
     var runId: String?
     var reason: String?
+    var engineKind: String?
     var autoArmed: Bool
     var autoLeft: Int?
 
-    init(runId: String? = nil, reason: String? = nil, autoArmed: Bool = false, autoLeft: Int? = nil) {
+    init(runId: String? = nil, reason: String? = nil, autoArmed: Bool = false, autoLeft: Int? = nil,
+         engineKind: String? = nil) {
         self.runId = runId; self.reason = reason; self.autoArmed = autoArmed; self.autoLeft = autoLeft
+        self.engineKind = engineKind
     }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         runId = (try? c.decodeIfPresent(String.self, forKey: .runId)) ?? nil
         reason = (try? c.decodeIfPresent(String.self, forKey: .reason)) ?? nil
+        engineKind = (try? c.decodeIfPresent(String.self, forKey: .engineKind)) ?? nil
         autoArmed = ((try? c.decodeIfPresent(Bool.self, forKey: .autoArmed)) ?? nil) ?? false
         autoLeft = (try? c.decodeIfPresent(Int.self, forKey: .autoLeft)) ?? nil
     }
-    enum CodingKeys: String, CodingKey { case runId, reason, autoArmed, autoLeft }
+    enum CodingKeys: String, CodingKey { case runId, reason, engineKind, autoArmed, autoLeft }
 }
 
 /// `GET/PUT /sleep/run-options` — how often progress is saved, the opt-in continue-after-reset

@@ -76,6 +76,7 @@ class BatchLive:
     pause_class: bool = False                                # some failure was the engine's, not the conversation's
     pause_sentence: str | None = None
     transient_stop: DrainStop | None = None           # discard this batch before its first write
+    timeouts: set[str] = field(default_factory=set)    # compare episode-specific failures across Continues
     sort_done: int = 0
     sort_total: int | None = None
     decide_done: int = 0
@@ -129,6 +130,7 @@ class DrainState:
     skipped_ids: set[str] = field(default_factory=set)
     origin_of: dict[str, str] = field(default_factory=dict)
     attempts: dict[str, int] = field(default_factory=dict)
+    timeout_attempts: dict[str, int] = field(default_factory=dict)  # observations, including discarded batches
     #: Failed once for its own reasons; waiting for its one retry: id -> reason enum.
     unread: dict[str, str] = field(default_factory=dict)
     #: Parked in this run (a second failure): id -> reason enum.
@@ -251,6 +253,8 @@ def classify(exc: BaseException, breaker_sentence: str | None = None,
                          breaker_kind or agent_engine.limit_kind_of(exc))
     if isinstance(exc, engine_errors.RETRYABLE):
         cause = "The engine timed out." if isinstance(exc, engine_errors.EngineTimeout) else "The engine stopped answering."
+        if isinstance(exc, engine_errors.EngineFailed) and str(exc).strip():
+            cause += " " + str(exc).strip()[:300]
         return DrainStop("engine", cause + " Continue to try again; the part it was reading will be read again.",
                          transient=True)
     if isinstance(exc, (engine_errors.EngineUnavailable, engine_errors.EngineModelNotFound)):
@@ -266,7 +270,9 @@ def classify_episode(exc: BaseException) -> tuple[str, str | None]:
     classes that clearly belong to the conversation park it (an empty or unparseable
     answer, a provider request timeout, a context-window overflow, a content refusal); an unrecognised
     failure is content here, but a batch where EVERY conversation failed with one is
-    the engine's (``sleep_cycle._run_stages``)."""
+    the engine's (``sleep_cycle._run_stages``). A drain's batch hooks override the
+    CLI-timeout default for an isolated episode that already timed out on an earlier leg,
+    so it can receive its second conversation attempt and be parked."""
     from api.services import json_parse
 
     try:   # the metered rung: a key, a model or a quota is the engine's trouble, never the conversation's

@@ -351,8 +351,8 @@ async def extract(
     succeeded, ``on_episode_failed(episode, exc)`` where the exception is swallowed
     below (the drain classifies it — an engine's trouble is not the conversation's),
     and ``on_episode_skipped`` for one never started because ``stop_check`` (the
-    reserve line — a *soft* stop, unlike ``cancel_check`` which discards the batch)
-    said stop starting new reads. Reads already running finish either way.
+    reserve line or an engine interruption) said stop starting new reads. Reads
+    already running finish either way; the caller decides whether to discard the batch.
     """
     semaphore = asyncio.Semaphore(MAX_CONCURRENCY)
     results: list[dict | None] = [None] * len(episodes)
@@ -395,7 +395,7 @@ async def extract(
         ep_id = episode["id"]
         content = episode["content"]
 
-        # The reserve line (soft stop): no new read starts once a plan window is past it.
+        # The drain's reserve line or engine interruption stops new episode reads.
         if stop_check is not None and stop_check():
             _note_skipped(episode)
             return
