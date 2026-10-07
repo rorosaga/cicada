@@ -127,7 +127,7 @@ def test_route_ship_together_camel_payload_etag_shape_and_conditional_get(bank, 
             first = client.get(url)
             assert first.status_code == 200, first.text
             data = first.json()
-            assert '|sections2|' in shapes[-1]
+            assert '|sections3|' in shapes[-1]
             assert data['pageBodyHash'] == evidence.body_hash(BODY) and data['sections'][0]['recordedItems'] == 1
             assert 'bodyRanges' in data['sections'][0]['items'][0]
             etag = first.headers['etag']
@@ -160,17 +160,18 @@ def test_closed_claim_fences_do_not_make_prose_metadata_unavailable(bank, fences
     assert [(s.status, s.recorded_items) for s in read(bank).sections] == [('tracked', 1), ('tracked', 2)]
 
 
-def test_open_claim_fence_reports_hidden_section_records_and_recovers_after_refresh(bank):
+@pytest.mark.parametrize('fence', ['```claims', '```text', '~~~python'])
+def test_open_fence_reports_hidden_section_records_and_recovers_after_refresh(bank, fence):
     path = bank / 'entities' / 'alpha-project.md'
     parsed = md.parse(path)
-    broken = parsed.body.replace('\n\n## Key Facts', '\n\n```claims\nunfinished\n\n## Key Facts')
+    broken = parsed.body.replace('\n\n## Key Facts', '\n\n' + fence + '\nunfinished\n\n## Key Facts')
     md.write(path, parsed.frontmatter, broken)
     summary, facts = read(bank).sections
     assert summary.status == facts.status == 'metadata_unavailable'
     assert (summary.recorded_items, summary.unmatched_records) == (0, 1)
     assert (facts.item_count, facts.recorded_items, facts.unmatched_records) == (0, 0, 2)
     sp.refresh(parsed.frontmatter, broken, broken, {})
-    repaired = broken.replace('```claims\nunfinished', '```claims\nunfinished\n```')
+    repaired = broken.replace(fence + '\nunfinished\n', '')
     md.write(path, parsed.frontmatter, repaired)
     assert [(s.status, s.recorded_items) for s in read(bank).sections] == [('tracked', 1), ('tracked', 2)]
 

@@ -186,7 +186,7 @@ prevents normalization from recertifying edited words. Summary is one item; list
 include indented continuations. Duplicate/ambiguous normalized bullets are not attributed.
 Editing one of 120 bullets leaves 119 links; reordering preserves them. The server parses
 headings outside code fences, accumulates duplicate headings and supplies Unicode code-point
-body ranges. Claims never enter fingerprints. A claims fence still open at end of the body
+body ranges. Claims never enter fingerprints. Any code fence still open at end of the body
 makes its opening section and any hidden stored sections unavailable. Refresh preserves
 those records with their original guards if either the original or final body cannot be
 read; repairing the fence restores only exact matches, without renewing attribution.

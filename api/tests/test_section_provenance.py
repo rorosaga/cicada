@@ -120,19 +120,24 @@ def test_closed_claim_fences_keep_prose_links_on_read_and_refresh(fences):
 
 
 @pytest.mark.parametrize('opening', ['summary', 'custom', 'before_headings'])
-def test_open_claim_fence_keeps_hidden_records_and_repair_restores_exact_links(opening):
+@pytest.mark.parametrize('fence', ['```claims', '```text', '~~~python'])
+def test_open_fence_keeps_hidden_records_and_repair_restores_exact_links(opening, fence):
     body = '## Summary\nExample.\n\n## Key Facts\n- One.\n- Two.'
     fm = {sp.FIELD: recorded(body)}
     before = sp.decode(fm[sp.FIELD])
     if opening == 'before_headings':
-        broken = '```claims\nunfinished\n' + body
+        broken = fence + '\nunfinished\n' + body
     else:
         prefix = '\n\n## Custom Notes\nHuman note.' if opening == 'custom' else ''
-        broken = body.replace('\n\n## Key Facts', prefix + '\n\n```claims\nunfinished\n\n## Key Facts')
+        broken = body.replace('\n\n## Key Facts', prefix + '\n\n' + fence + '\nunfinished\n\n## Key Facts')
     sp.refresh(fm, broken, broken, {})
     assert sp.decode(fm[sp.FIELD]) == before
-    repaired = broken.replace('```claims\nunfinished', '```claims\nunfinished\n```')
+    # Repair without changing the original prose: remove the unfinished snippet.
+    repaired = broken.replace(fence + '\nunfinished\n', '')
     assert sp.matched(fm, repaired) == before
+    # Closing a non-claims snippet changes Summary text but reveals the unchanged facts.
+    closed = broken.replace(fence + '\nunfinished', fence + '\nunfinished\n' + fence[:3])
+    assert sp.matched(fm, closed)['key_facts'] == before['key_facts']
     # A writer must also preserve what the original body hid when its output is readable.
     sp.refresh(fm, broken, repaired, {})
     assert sp.matched(fm, repaired) == before
@@ -144,3 +149,19 @@ def test_attach_does_not_iterate_string_key_facts_per_character():
     entity = {'summary': 'Example.', 'key_facts': 'One malformed fact.'}
     sp.attach(entity, EP, 'user: Synthetic source.')
     assert [row['field'] for row in entity[sp.INPUTS]] == ['summary']
+
+
+def test_selected_carry_unions_evidence_rows_without_collapsing_source_revisions_or_spans():
+    text = 'Synthetic fact.'
+    rows = [Evidence(episode=EP, hash='123456abcdef', kind='reasoning').to_dict(),
+            Evidence(episode=EP, hash='abcdef123456', kind='reasoning').to_dict(),
+            Evidence(episode=EP, hash='123456abcdef', kind='user', start=1, end=9).to_dict(),
+            Evidence(episode=EP, hash='123456abcdef', kind='user', start=10, end=19).to_dict()]
+    base = {sp.INPUTS: [{'field': 'summary', 'text': text, 'evidence': rows[:2] + rows[:1]},
+                       {'field': 'description', 'text': text, 'evidence': rows}]}
+    incoming = {sp.INPUTS: [{'field': 'key_facts', 'text': text, 'evidence': rows}]}
+    selected = {'summary': text, 'description': text, 'key_facts': [text, text]}
+    merged = sp.merge_selected(base, incoming, selected)
+    assert len(merged) == 3
+    assert [record['field'] for record in merged] == ['summary', 'description', 'key_facts']
+    assert all(record['evidence'] == rows for record in merged)

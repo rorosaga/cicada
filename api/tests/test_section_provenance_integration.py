@@ -13,7 +13,9 @@ def test_substantive_single_episode_promotion_then_b_fact_only_update(tmp_path, 
     (tmp_path / 'entities').mkdir()
     (tmp_path / 'episodes').mkdir()
     (tmp_path / 'inbox').mkdir()
-    settings = Settings(_env_file=None, memory_path=tmp_path, litellm_model='synthetic')
+    monkeypatch.setenv('CICADA_MEMORY_PATH', str(tmp_path))
+    settings = Settings(_env_file=None, litellm_model='synthetic')
+    assert settings.memory_path == tmp_path, 'Every stage must resolve the same fixture bank'
     ep_a, ep_b = 'ep_2026-10-07_001', 'ep_2026-10-07_002'
     description = 'A synthetic project with enough substantive description to qualify for single-episode promotion. ' * 3
     outputs = [

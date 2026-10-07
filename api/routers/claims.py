@@ -173,7 +173,7 @@ async def get_entity_provenance(
         raise HTTPException(404, f"Entity {entity_id} not found")
     etag = sync_service.etag_for(
         memory_path, "entities", "episodes", "git_head",
-        extra=f"provenance|{page.stem}|{git_service.AUTHOR_SHAPE}|src1|sections2|validity2|{claims.current_day()}",
+        extra=f"provenance|{page.stem}|{git_service.AUTHOR_SHAPE}|src1|sections3|validity2|{claims.current_day()}",
     )
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early

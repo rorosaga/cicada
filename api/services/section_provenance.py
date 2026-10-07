@@ -41,7 +41,7 @@ def _item(text: str, ranges: tuple) -> Item:
 
 
 def _fragments(body: str) -> tuple[dict, str | None, bool]:
-    """Raw sections, actual last heading, and whether a claims fence is still open.
+    """Raw sections, actual last heading, and whether any code fence is still open.
 
     Closed claim contents are excluded regardless of their YAML validity.
     """
@@ -80,7 +80,7 @@ def _fragments(body: str) -> tuple[dict, str | None, bool]:
             lines.append((offset, raw, was_fenced or marker is not None))
         offset += len(raw)
 
-    return fragments, title, claims
+    return fragments, title, fence is not None
 
 
 def scan(body: str) -> dict[str, list[Item]]:
@@ -133,18 +133,18 @@ def scan(body: str) -> dict[str, list[Item]]:
 
 
 def unavailable_section(body: str) -> str | None:
-    _, title, open_claims = _fragments(body)
-    return title if open_claims else None
+    _, title, open_fence = _fragments(body)
+    return title if open_fence else None
 
 
 def unavailable_sections(body: str, stored_sections=()) -> set[str]:
-    """An open claims fence hides its own section and possibly stored later ones.
+    """An open code fence hides its own section and possibly stored later ones.
 
     The opening can be under a custom heading or before all headings, so a
     missing canonical opening title does not mean the rest of the page is readable.
     """
-    fragments, title, open_claims = _fragments(body)
-    if not open_claims:
+    fragments, title, open_fence = _fragments(body)
+    if not open_fence:
         return set()
     return ({title} if title else set()) | (set(stored_sections) - fragments.keys())
 
@@ -249,9 +249,17 @@ def attach(entity: dict, episode_id: str, body: str) -> None:
 
 
 def merge_selected(base: dict, incoming: dict, selected: dict) -> list[dict]:
-    """Follow Stage 2's actual selected text, including G169's summary-to-fact carry."""
-    inputs = base.get(INPUTS, []) + incoming.get(INPUTS, [])
-    records = []
+    """Union source rows for exact selected text, including summary-to-fact carry.
+
+    One record per (field, text), one copy per evidence row. A description
+    copied to Summary cannot multiply the carry on the next Stage-2 merge.
+    """
+    by_text = {}
+    for record in base.get(INPUTS, []) + incoming.get(INPUTS, []):
+        rows = by_text.setdefault(record['text'], {})
+        for ev in record['evidence']:
+            rows.setdefault(tuple(sorted(ev.items())), ev)
+    records = {}
     for field in ('summary', 'description', 'key_facts'):
         values = selected.get(field) or []
         if field != 'key_facts':
@@ -260,8 +268,11 @@ def merge_selected(base: dict, incoming: dict, selected: dict) -> list[dict]:
             continue
         for value in values:
             if isinstance(value, str):
-                records.extend({**record, 'field': field} for record in inputs if record['text'] == value.strip())
-    return records
+                text = value.strip()
+                rows = by_text.get(text)
+                if rows:
+                    records.setdefault((field, text), {'field': field, 'text': text, 'evidence': list(rows.values())})
+    return list(records.values())
 
 
 def refresh(frontmatter: dict, original_body: str, body: str, entity: dict, *, synthesized: bool = False) -> None:

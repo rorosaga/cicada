@@ -248,8 +248,10 @@ Key Facts receive transient source-episode `reasoning` records over the full sto
 hash. This adds no prompt instructions, quotes, retries or calls. Stage 2 carries metadata
 with the fields it actually selects. After G169, it follows the chosen effective Summary,
 its description copy, the fact union, and orientation text retained as facts; only exact
-selected text receives the original source record. The pending-store limitation remains;
-earlier pending facts are not restored by provenance. Stage 5 records exact surviving items
+selected text receives the original source record. Carry unions unique evidence rows per
+selected field/text, so repeated mentions cannot multiply identical records when Summary
+and description share the same words. The pending-store limitation remains; earlier pending
+facts are not restored by provenance. Stage 5 records exact surviving items
 on create and fallback/human-safe updates. The B-update fixture retains A's Summary only
 when B supplies no new Summary (or one already contained); an appended Summary invalidates
 that one item's guard while A's facts keep their links.
@@ -257,7 +259,7 @@ that one item's guard while A's facts keep their links.
 Sleep synthesis retains exact old items by identity, without changing its prompt/return shape.
 Rephrased items become unrecorded; incoming facts not supplied to synthesis cannot gain links.
 All refreshes share the existing atomic page write, locks and commit/rollback boundary.
-An open claims fence can hide sections from the original or final body: refresh preserves
+Any open code fence can hide sections from the original or final body: refresh preserves
 their stored records and guards, reporting unavailable metadata until the body is readable.
 Closed claim fences exclude their machine text even if the claims YAML is malformed or repeated.
 Inbox/merge selected-input hooks, other prose sections, Related claim navigation and rephrasing

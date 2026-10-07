@@ -13,9 +13,10 @@ A, B = 'ep_2026-10-07_001', 'ep_2026-10-07_002'
 
 
 @pytest.fixture(autouse=True)
-def bank_dirs(tmp_path):
+def bank_dirs(tmp_path, monkeypatch):
     (tmp_path / 'entities').mkdir()
     (tmp_path / 'episodes').mkdir()
+    monkeypatch.setenv('CICADA_MEMORY_PATH', str(tmp_path))
 
 
 def entity(summary='Example project.', facts=None, *, ep=A, description=''):
@@ -33,7 +34,7 @@ def links(parsed):
     return sp.matched(parsed.frontmatter, parsed.body)
 
 
-def test_extraction_records_reasoning_from_full_body_without_more_calls_or_prompt_changes(monkeypatch):
+def test_extraction_records_reasoning_from_full_body_without_more_calls_or_prompt_changes(tmp_path, monkeypatch):
     seen = []
     async def fake(**kwargs):
         seen.append(kwargs['messages'])
@@ -42,7 +43,9 @@ def test_extraction_records_reasoning_from_full_body_without_more_calls_or_promp
                           'key_facts': ['Inferred fact.'], sp.INPUTS: [{'forged': True}]}], 'relationships': []})))])
     monkeypatch.setattr(ex.litellm, 'acompletion', fake)
     body = 'user: A synthetic conversation 🐝.'
-    [result] = asyncio.run(ex.extract([{'id': A, 'content': body, 'origin': 'synthetic'}], Settings(_env_file=None, litellm_model='m')))
+    settings = Settings(_env_file=None, litellm_model='m')
+    assert settings.memory_path == tmp_path, 'Extraction must read the fixture bank, not the shared scratch bank'
+    [result] = asyncio.run(ex.extract([{'id': A, 'content': body, 'origin': 'synthetic'}], settings))
     assert len(seen) == 1
     assert seen[0][0]['content'] == ex.EXTRACTION_SYSTEM_PROMPT
     assert seen[0][1]['content'].endswith(body)
@@ -62,6 +65,42 @@ def test_stage2_tracks_g169_selected_summary_and_unioned_facts():
         ('key_facts', 'Original fact.', A), ('key_facts', 'Dropped incoming fact.', B),
         ('key_facts', 'Example project.', A), ('key_facts', 'Short.', A),
         ('key_facts', 'Longer new description.', B)}
+
+
+@pytest.mark.parametrize('route', ['payload', 'update'])
+@pytest.mark.parametrize('same_summary', [True, False])
+def test_repeated_stage2_merges_have_linear_inputs_and_unique_source_rows(route, same_summary):
+    chosen = 'A longer synthetic orientation for the example project.'
+    existing = {'id': 'alpha-project', 'frontmatter': {'name': 'alpha-project', 'type': 'project'}, 'body': ''}
+    updates = {}
+    merged = None
+    counts = []
+    for index in range(25):
+        ep = f'ep_2026-10-07_{index + 1:03d}'
+        text = chosen if index == 0 or same_summary else 'Short.'
+        incoming = entity(text, [f'Synthetic fact {index}.'], ep=ep, description=text)
+        if route == 'payload':
+            merged = er._merge_entity_payload(merged, incoming) if merged is not None else incoming
+        else:
+            er._merge_into_update(updates, existing, incoming)
+            merged = updates['alpha-project']['entity']
+        records = merged[sp.INPUTS]
+        evidence_count = sum(len(record['evidence']) for record in records)
+        # Check every step: the red run must fail before exponential allocation.
+        assert len(records) <= 3 * (index + 1)
+        assert evidence_count <= 3 * (index + 1)
+        expected = {f'ep_2026-10-07_{i + 1:03d}' for i in range(index + 1)} if same_summary else {A}
+        for field in ('summary', 'description'):
+            rows = [ev for record in records if record['field'] == field and record['text'] == chosen
+                    for ev in record['evidence']]
+            assert len(rows) == len(expected)
+            assert {row['episode'] for row in rows} == expected
+        counts.append((len(records), evidence_count, len(json.dumps(records).encode())))
+    assert len(merged['key_facts']) == (25 if same_summary else 26)
+    if route == 'update':
+        assert len(updates) == 1 and len(updates['alpha-project']['source_episodes']) == 25
+    print({'route': route, 'same_summary': same_summary, 'mentions': 25,
+           'records': counts[-1][0], 'evidence_rows': counts[-1][1], 'json_bytes': counts[-1][2]})
 
 
 @pytest.mark.parametrize('human', [False, True])
@@ -129,7 +168,7 @@ def test_raw_claim_fence_and_atomic_failure_keep_body_metadata_together(tmp_path
 
 @pytest.mark.parametrize('mode', ['fallback', 'human_safe', 'synthesis'])
 @pytest.mark.parametrize('fences', ['```claims\ninvalid: [\n```', '```claims\n[]\n```\n\n```claims\n[]\n```',
-                                 '```claims\nunfinished'])
+                                 '```claims\nunfinished', '```text\nunfinished', '~~~python\nunfinished'])
 def test_sleep_update_keeps_records_for_sections_it_cannot_read(tmp_path, mode, fences):
     cr.apply_changes([{'id': 'alpha-project', 'action': 'create', 'entity': entity(facts=['One.', 'Two.'])}], tmp_path)
     path = tmp_path / 'entities' / 'alpha-project.md'
