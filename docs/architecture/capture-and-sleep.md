@@ -46,7 +46,16 @@ Seven rails hold across all of them:
   the hook. Secrets scrubbed, per-turn and per-session caps applied. **One episode
   per session** — a later Stop rewrites it in place and flips `processed: false`, never two
   episodes for one conversation (G104). Cicada's own `claude -p` and `codex exec` spawns run with
-  `CICADA_CAPTURE=off`. **Recall is the same move (G149):** the harness's `SessionStart` and
+  `CICADA_CAPTURE=off`. **Where capture stopped (G110 slice 1a).** Every write also records, outside
+  `content_hash` and before `turns`: `last_turn_at` (the last kept turn's own time), `turn_count`, `tail_turns`
+  (the last 8 kept turns as `{offset, speaker, at?}`, exact offsets into the body — the G118 sidecar stops at 500
+  and skips untimed turns), `capture_gap` (`{dropped_turns, last_seen_at}`, only while the head-stable session cap
+  refuses turns) and `capture_flags` (`{note_like_turns}`, kept person turns holding a line that opens like a
+  Cicada note — counted and kept, never removed for that), plus `continues`: the one episode id the continuity
+  registry says Cicada pointed this session at, stamped once and never rewritten. An unchanged body whose metadata
+  moved (a newly refused turn, a late `continues`) is rewritten in place under `episode_lock` with the same body,
+  hash and `processed` state — status `metadata`, nothing re-queued. The capture ledger row gains the two counts.
+  **Recall is the same move (G149):** the harness's `SessionStart` and
   `UserPromptSubmit` hooks (`api/hooks/recall.py` → `POST /capture/hook-context`) put Cicada's note
   in front of the model: the primer at session start, and the pages a message names on every
   prompt. Recall therefore no longer depends on a model calling `cicada_recall`. The prompt travels

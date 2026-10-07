@@ -389,7 +389,9 @@ pages in focus in the last 14 days, people, recent conversations (G140, schema v
 every remote scope set. Contract item 3 names `cicada_note_progress` (G141 PJ-3a; remotely only when the
 connection holds it). Delivered four ways: the MCP `initialize` result's
 `instructions` (which Claude Code truncates), the `cicada_handshake` tool, `GET /handshake`, and the
-SessionStart hook's `additionalContext` under a "From Cicada" header (G149). Contract item 8 tells an
+SessionStart hook's `additionalContext` under a "From Cicada" header (G149). Since G110 slice 1a that whole
+SessionStart note — header, primer, the continuity block, the reading sentence — is measured as one string inside the
+1,800 tokens (`recall_text.compose_note`); the primer is built with a 300-token reserve when a block rides beside it. Contract item 8 tells an
 agent what a "From Cicada" note is. **R12: a primer naming an
 argument the schema rejects is a bug** — every argument it names must exist in the tool schema.
 `SKILL.md` points at the generated text rather than restating the contract — one prose source.
@@ -453,6 +455,25 @@ lifespan and a bank switch warm it in the background. The caller always passes t
 tiers 0–2), fuses it with the stored vectors in `mode=hybrid`, and **never embeds in `mode=prefix`**.
 **The query is never logged**: not by loguru, and not by uvicorn's access log (`api/main.py` strips the
 query string of `/search` and `/conversations/recent`, G136 R22).
+
+### Continuity index and session registry (G110 slice 1a)
+`$CICADA_HOME/continuity/<bank-id>.index.json` is a **derived, disposable** map of every `ep_*.md` to `(mtime_ns, size, row)`, where a
+row is the head scalars of a Stop-hook episode (`id`, `harness`, `session_id`, `project_dir`, `captured_at`,
+`last_turn_at`, `processed`, `processed_by`) read from at most 16 KB up to the first `turns:` key — never a full parse
+inside a hook. It lives **beside the registry, never inside a bank** (G110 fix round 2: proving that git ignored an
+in-bank file proved unreliable, so nothing is written there and no git runs on this path). It shares the registry's
+guarded home, no-follow regular-file opens and 0600 files; its lock is `<bank-id>.index.lock` beside it; with no safe
+home, contention or any I/O failure it stays in process memory. Its rows keep `capture_kind`, so a persisted index
+decodes after a restart. An older in-bank `continuity_index.json` is ignored, never read and never deleted. A wrong schema or malformed row is rebuilt; it is never an error and never an authoritative absence.
+
+The **continuity registry** (`api/services/continuity_sessions.py`, `$CICADA_HOME/continuity/<bank slug>-<hash8>.json`)
+is outside every bank — `continuity_home` refuses a `CICADA_HOME` that resolves (symlinks followed) inside the memory
+root or any configured bank. One row per harness session: the harness, `sha256(cwd)[:16]` (never the path),
+`started_at` (earliest), `last_prompt_at` (latest), `continues` (one episode id, first write wins). Ids, a hash and
+times only; monotone merges; one bounded `flock` transaction per request; 30-day expiry, ≤ 1,000 rows, files 0600.
+Every registry, lock and index file is opened without following a symlink in its final component and refused unless
+it is a regular file (`continuity_sessions.open_regular`), so a planted link can never redirect a read, a write or a
+`chmod` into a bank.
 
 ### Telemetry ledger (`~/.cicada/telemetry/`)
 Append-only JSONL, machine-global, **never in a bank or git**. `CICADA_TELEMETRY=off` disables it.
