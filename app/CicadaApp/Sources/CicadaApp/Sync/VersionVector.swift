@@ -16,7 +16,9 @@ struct VersionVector: Codable, Equatable {
         // The `sources` component folds in `feeds.yaml`, `calendars.yaml` and
         // `sync_state.json` (see `sync_service.components`), so the feed,
         // calendar and capture-channel lists all ride it.
-        "sources": [.sources, .feeds, .calendars, .channels, .sourcesOverview], "git_head": [.contributors], "sleep": [.status],
+        "sources": [.sources, .feeds, .calendars, .channels, .sourcesOverview], "git_head": [.contributors],
+        // The sleep token includes the paused engine kind and diagnosis; both move status together.
+        "sleep": [.status],
         // G166: the reading asks (`$CICADA_HOME/reading_asks/<bank>.json`) and the person's reading settings sit
         // outside every bank, so an agent's `needs_login` moves no other component; `GET /sources` folds this one
         // into its ETag and its `read` block, so the Feed refreshes over SSE with no bank write.

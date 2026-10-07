@@ -74,9 +74,10 @@ final class WormAnswersTests: XCTestCase {
         XCTAssertEqual(digesting.first?.tail, "+4 new · 9 updated.")
         XCTAssertEqual(digesting.count, 2)
         let error = wormAnswers(ctx(.error) { $0.cycleError = "claude exited 1"; $0.lastEngine = "ollama" })
-        XCTAssertEqual(error.map(\.lead), ["The last cycle failed.", "It ran on Ollama (on this Mac).",
+        XCTAssertEqual(error.map(\.lead), ["Reading stopped.", "It ran on Ollama (on this Mac).",
                                            "Last time I read 12 episodes."])
         XCTAssertEqual(error[0].action, .openDetails(.lastCycle))
+        XCTAssertEqual(error[0].tail, "See what needs a fix in Details, then try again.")
         XCTAssertEqual(wormAnswers(ctx(.awake)).map(\.lead), ["I haven't heard from Cicada yet."])
     }
 

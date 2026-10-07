@@ -235,7 +235,7 @@ private func sentenceLead(_ ctx: RoomContext) -> SentenceLine {
         let numeral = "\(count(ctx.read)) of \(count(ctx.total))"
         return SentenceLine(lead: "Reading \(numeral).", numeral: numeral)                      // L3
     case .error:
-        return SentenceLine(lead: "The last cycle failed.", tone: .danger)                      // L6
+        return SentenceLine(lead: Copy.SleepV5.readingStoppedLead, tone: .warning)               // L6 (DR-7, DR-59)
     case .digesting:
         if let drain = ctx.drain, drain.finished, drain.filed > 0 {                              // V5
             let numeral = count(drain.filed)
@@ -289,8 +289,9 @@ private func sentenceTail(_ ctx: RoomContext) -> SentenceTail? {
         }
         return SentenceTail(text: stage(ctx).detail)
     }
-    if case .error = ctx.mood, let clause = sentenceClause(ctx.cycleError) {                     // T3
-        return SentenceTail(text: clause, tone: .danger, action: .openDetails(.lastCycle))
+    if case .error = ctx.mood {                                                                 // T3
+        return SentenceTail(text: Copy.SleepV5.readingStoppedTail, tone: .warning,
+                            action: .openDetails(.lastCycle))
     }
     if ctx.cancelled {                                                                           // T4
         if let drain = ctx.drain {                                                               // T4b (G163)
@@ -374,7 +375,8 @@ private func pausedLead(_ paused: SleepPausedRun) -> SentenceLine {
     case "plan_window": SentenceLine(lead: Copy.SleepV5.pausedPlanWindowLead)
     case "plan_weekly": SentenceLine(lead: Copy.SleepV5.pausedPlanWeeklyLead)
     case "overage": SentenceLine(lead: Copy.SleepV5.pausedOverageLead)
-    case "engine": SentenceLine(lead: Copy.SleepV5.pausedEngineLead, tone: .warning)
+    case "engine": SentenceLine(lead: paused.engineKind == "transient"
+                               ? Copy.SleepV5.pausedEngineLead : Copy.SleepV5.pausedEngineFixLead, tone: .warning)
     case "restart": SentenceLine(lead: Copy.SleepV5.restartLead)
     case "bank_switched": SentenceLine(lead: Copy.SleepV5.bankSwitchedLead)
     default: SentenceLine(lead: Copy.SleepV5.pausedLead)
@@ -406,7 +408,10 @@ private func pausedTail(_ paused: SleepPausedRun, _ ctx: RoomContext) -> Sentenc
         return SentenceTail(text: ctx.resetWhen.map(Copy.SleepV5.resetsThenContinue) ?? Copy.SleepV5.continueWhenItResets,
                             action: .openDetails(.lastCycle))
     case "engine":
-        return SentenceTail(text: Copy.SleepV5.continueWhenFixed(filed: filed, frozen: frozen, locale),
+        let text = paused.engineKind == "transient"
+            ? Copy.SleepV5.continueToTryAgain(filed: filed, frozen: frozen, locale)
+            : Copy.SleepV5.continueWhenFixed(filed: filed, frozen: frozen, locale)
+        return SentenceTail(text: text,
                             tone: .warning, action: .openDetails(.lastCycle))
     case "restart":
         return SentenceTail(text: Copy.SleepV5.restartTail(filed: filed, frozen: frozen, locale))

@@ -1453,7 +1453,9 @@ async def _run_batch(
                 stop = sleep_drain.classify(
                     exc, agent_engine.breaker_reason(), agent_engine.breaker_resets_at(),
                     agent_engine.breaker_kind())
-                if stop.reason != "plan_limit":
+                if stop.transient:
+                    logger.warning(f"Sleep batch {batch_cycle_id} paused: {stop.sentence}")
+                elif stop.reason != "plan_limit":
                     logger.error(f"Sleep batch {batch_cycle_id} failed: {exc}")
                     logger.exception("Full traceback:")
                 return _StageOutcome(raised=exc, stop=stop)
@@ -1471,14 +1473,15 @@ async def _run_batch(
 
 
 def _apply_drain_stop(ds: "sleep_drain.DrainState", stop: "sleep_drain.DrainStop") -> None:
-    """Turn a stop into what the status route shows. A plan limit, the reserve line
-    and a cancel are pauses, not failures (no ``error``); an unusable engine, a moved
-    bank and anything unexpected fail the run exactly like a failed cycle does."""
+    """Turn a stop into what the status route shows. A plan limit, the reserve line,
+    a transient engine interruption and a cancel are pauses, not failures (no
+    ``error``); an unusable engine, a moved bank and anything unexpected still
+    carry the diagnostic error of a failed cycle."""
     ds.stop = stop
     ds.finished = False
     where = (f"Stopped after batch {ds.committed_batches} of {ds.batches} — "
              if ds.committed_batches else "")
-    if stop.reason in ("plan_limit", "reserve"):
+    if stop.reason in ("plan_limit", "reserve") or stop.transient:
         _state.error = None
         _state.engine_detail = stop.sentence or _state.engine_detail
         _state.progress = f"{where}{stop.sentence}".strip() or "Stopped at the plan's limit"
@@ -1624,6 +1627,7 @@ async def _drain(
         ds.skipped = int(continue_from.get("skipped") or 0)
         ds.decay_ran = bool(continue_from.get("decay_ran"))
         ds.attempts = {str(k): int(v) for k, v in (continue_from.get("attempts") or {}).items()}
+        ds.timeout_attempts = {str(k): int(v) for k, v in (continue_from.get("timeout_attempts") or {}).items()}
         ds.totals.update({k: int(v) for k, v in (continue_from.get("totals") or {}).items()
                           if k in sleep_drain.CUMULATIVE_COUNTERS})
         ds.owner_beliefs = continue_from.get("owner_beliefs")
@@ -1984,10 +1988,10 @@ def _ae_breaker() -> str | None:
     return agent_engine.breaker_reason()
 
 
-def _batch_hooks(live: "sleep_drain.BatchLive", guard) -> dict:
+def _batch_hooks(live: "sleep_drain.BatchLive", guard, ds: "sleep_drain.DrainState") -> dict:
     """Stage 1's per-conversation hooks for a drain's batch: what started, what was
     read, what failed and whether that was the conversation's or the engine's, what
-    the reserve line stopped from starting."""
+    the reserve line or engine interruption stopped from starting."""
     def started(ep: dict) -> None:
         live.started.add(ep["id"])
 
@@ -1995,21 +1999,36 @@ def _batch_hooks(live: "sleep_drain.BatchLive", guard) -> dict:
         live.read.add(ep["id"])
 
     def failed(ep: dict, exc: BaseException) -> None:
+        from api.services import engine_errors
+
+        if isinstance(exc, engine_errors.EngineTimeout):
+            live.timeouts.add(ep["id"])
+            if not ds.timeout_attempts.get(ep["id"]):
+                live.engine_failed.add(ep["id"])
+                live.transient_stop = live.transient_stop or sleep_drain.classify(exc)
+            else:
+                # This episode timed out on a previous leg too: let the batch
+                # file its healthy reads and give this episode its second attempt.
+                live.failed[ep["id"]] = "timed_out"
+            return
         kind, reason = sleep_drain.classify_episode(exc)
         if kind == "pause":
             live.engine_failed.add(ep["id"])
             live.pause_class = True
             live.pause_sentence = live.pause_sentence or str(exc).strip()[:300]
+            if isinstance(exc, engine_errors.TRANSIENT):
+                live.transient_stop = live.transient_stop or sleep_drain.classify(exc)
         else:
             live.failed[ep["id"]] = reason or "other"
+            if isinstance(exc, engine_errors.EngineFailed):
+                live.unnamed_failed.add(ep["id"])
 
     def skipped(ep: dict) -> None:
         live.skipped.add(ep["id"])
 
     hooks = {"on_episode_started": started, "on_episode_read": read,
              "on_episode_failed": failed, "on_episode_skipped": skipped}
-    if guard is not None:
-        hooks["stop_check"] = guard.is_reached
+    hooks["stop_check"] = lambda: live.transient_stop is not None or (guard is not None and guard.is_reached())
     return hooks
 
 
@@ -2211,7 +2230,7 @@ async def _run_stages(
     else:
         hooks: dict = {}
         if live is not None:
-            hooks = _batch_hooks(live, guard)
+            hooks = _batch_hooks(live, guard, batch.ds)
         extracted = await extract(
             episodes, settings, cancel_check=_cancel_requested,
             progress_callback=_tick_stage1, on_episode_done=_on_episode_done,
@@ -2231,6 +2250,22 @@ async def _run_stages(
     # cycle is not a failure and must not be reported as one.
     if _state.cancel_requested:
         return _cycle_cancelled()
+
+    if live is not None:
+        for ep_id in live.timeouts:
+            batch.ds.timeout_attempts[ep_id] = batch.ds.timeout_attempts.get(ep_id, 0) + 1
+        if live.transient_stop is not None:
+            # A newly affected id or a positive connection interruption dooms
+            # this leg. Keep per-id observations but discard its content work.
+            for ep_id in live.timeouts:
+                live.failed.pop(ep_id, None)
+            live.engine_failed.update(live.timeouts)
+            return _StageOutcome(stop=live.transient_stop)
+        for ep_id in live.timeouts:
+            # Each repeated id failed across legs. _fold charges its second
+            # content attempt and parks it, allowing this drain to finish.
+            batch.ds.attempts[ep_id] = max(batch.ds.attempts.get(ep_id, 0),
+                                          batch.ds.timeout_attempts[ep_id] - 1)
 
     # A drain's per-conversation outcomes (Sleep page v5): who could not be read and why,
     # and whether the ENGINE is what failed (never counted against a conversation).
@@ -2255,6 +2290,14 @@ async def _run_stages(
         resets, kind = guard.stop_values()
         reserve_stop = sleep_drain.DrainStop("reserve", sleep_reserve.SENTENCE, resets, kind)
 
+    # An unnamed rejection can be the input's fault only with evidence that
+    # the engine works. A sole retry may use this run's already-filed work:
+    # its first attempt ran beside a healthy input. Fresh ids and all-failing
+    # multi-input retries cannot borrow evidence from an earlier batch.
+    unnamed_content = live is not None and (bool(live.read) or (
+        len(episodes) == 1 and bool(batch.ds.filed_ids)
+        and batch.ds.attempts.get(episodes[0]["id"], 0) > 0))
+
     # Resumable queue — hard stop if EVERY episode failed Stage 1 (wrong
     # model id, exhausted credits, total outage). Abort with the queue
     # untouched instead of running the rest of the pipeline on nothing and
@@ -2266,10 +2309,10 @@ async def _run_stages(
             i: r for i, r in unread_content.items() if i in live.failed} if live is not None else {})
     if (episodes and not extracted and live is not None and not pause_class and not _ae_breaker()
             and unread_content and all(i in live.failed for i in unread_content)
-            # An unrecognised failure on EVERY conversation is far likelier the engine's (an
-            # outage, a bad model parameter) than each conversation's: that falls through to the
-            # engine stop below — nothing parked, no attempt counted, the queue left as it was.
-            and "other" not in unread_content.values()):
+            # Without healthy-read evidence, unnamed CLI failures retain the
+            # whole-engine guard below and charge no conversation attempts.
+            and all(r != "other" or (i in live.unnamed_failed and unnamed_content)
+                    for i, r in unread_content.items())):
         # Every conversation failed for ITS OWN reasons (empty answers, timeouts): not an
         # engine failure — nothing to commit, no error, each one gets its retry or is parked.
         _state.progress = f"{label}Could not read {len(unread_content)} conversation(s)"

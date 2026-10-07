@@ -2,15 +2,17 @@
 
 The rung's failures are subprocess-shaped, so nothing above it can branch on
 litellm exception types (``entity_extractor._EXTRACT_RETRYABLE`` matched
-*nothing* and gave a CLI failure zero retries). These seven types are the
+*nothing* and gave a CLI failure zero retries). These failure types are the
 contract every layer above branches on: the extractor's retry tuple, its
 per-episode classifier, the resolver's failure-vs-uncertainty split, and the
 Sleep page's honest engine copy.
 
-No logic beyond carrying a reset time, and no imports beyond stdlib on purpose — this module is safe to
+Only failure classes and transport-message detection, with stdlib imports — this module is safe to
 import from anywhere, including ``providers`` at seam-resolution time.
 """
 from __future__ import annotations
+
+import re
 
 
 class EngineError(Exception):
@@ -79,8 +81,31 @@ class EngineFailed(EngineError):
 
     The spec (§9, "still unverified") could not produce a real 429/quota
     envelope on demand, so an unrecognised failure is logged in full and given
-    one retry rather than being silently mapped onto a class it may not be.
+    one extraction retry rather than being silently mapped onto a class it may
+    not be. Retry eligibility is not evidence of a transient engine outage.
     """
+
+
+class EngineConnectionLost(EngineFailed):
+    """The CLI could not finish its request because its transport went away.
+
+    Retryable like an unnamed failure, but never a conversation's timeout:
+    continuing during an outage must not park the episodes it was reading.
+    """
+
+
+def is_connectivity_error(message: str) -> bool:
+    """Recognize transport diagnoses on failed CLI output, never successful reply text."""
+    text = message.lower()
+    return any(marker in text for marker in (
+        "workspace routing discovery failed", "enotfound", "eai_again", "econnrefused", "econnreset",
+        "enetunreach", "ehostunreach", "etimedout", "getaddrinfo failed", "name or service not known",
+        "temporary failure in name resolution", "nodename nor servname", "could not resolve host",
+        "dns resolution failed", "network is unreachable", "network unreachable", "no route to host",
+        "connection refused", "connection reset", "connection error", "connection failed",
+        "could not connect", "unable to connect", "failed to connect", "network error", "fetch failed",
+        "error sending request", "failed to send request", "connection_error", "network_error",
+    )) or bool(re.search(r"\boffline\b|\breconnecting\s*(?:\.{3}|…)\s*\d+\s*/\s*\d+", text))
 
 
 #: Engine failures worth exactly one retry inside a single call. Deliberately
@@ -88,3 +113,8 @@ class EngineFailed(EngineError):
 #: again), ``EngineUnavailable``, ``EngineExhausted`` and
 #: ``EngineModelNotFound`` (all of which need a human, not a second attempt).
 RETRYABLE: tuple[type[Exception], ...] = (EngineTimeout, EngineProtocolError, EngineFailed)
+
+#: Positively diagnosed interruptions eligible for a drain pause and the
+#: later-stage seam retry. An unnamed failure retains extraction's legacy
+#: retry, but cannot promise that continuing will fix an account or input.
+TRANSIENT: tuple[type[Exception], ...] = (EngineTimeout, EngineProtocolError, EngineConnectionLost)

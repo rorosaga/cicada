@@ -185,6 +185,9 @@ the connected agents, asks `TourOffer` and lands on Home. *Set up later* and *Tr
 remain; export reminders (`ExportWaits`) ask for notification permission only when a delay is chosen. Getting started
 continues on Home — the first read (*Read now*, G125 R10's second narrow amendment, only inside the card) and "Keep
 reading on its own?" asked once of a person still on `manual`, its options gated by ruling 4.
+The first-read failure row uses the same calm “Reading stopped” / “See what needs a fix in Details, then try again”
+copy as Sleep (DR-7/59), never a raw server sentence. Its one Details action (DR-40) stages Sleep's Last cycle
+section through `AppRouter`; Sleep consumes it once on appear/change, expands Details and scrolls to the diagnosis.
 
 **Settings → Engines: the engine picker (G122, Track E; moved by G139 A3).** A row of cards with real marks — Auto,
 Claude plan, ChatGPT plan, OpenRouter, Ollama (tagged *Local*), API key — over the connections registry's candidates writes
@@ -581,8 +584,19 @@ manifest. The ImageRenderer hook produces light/dark Mascot panes, including unk
 (`SleepProviderNeutralLintTests`: no provider or model named in a literal under `Views/Sleep`/`Views/Intake` outside the files that render the
 person's own choice) and journal-honest (no "read and kept": a Pause reads the part in progress again). The **paused run** (`SleepPausedRun`, on
 `GET /sleep/status` and in brief on the SSE event, where a present `null` means none) outranks every idle rung of the sentence — Paused / Paused to
-leave room in your plan / Your plan window is full / The engine needs a look / Cicada restarted while reading — with what is filed and, when armed
-(ruling 15), "Continues after 3:40 PM" (one locale-aware formatter, `sleepClockWords`); the mood is `.reading`, never an error or a cheer. **One
+leave room in your plan / Your plan window is full / The engine stopped answering / Cicada restarted while reading — with what is filed and, when armed
+(ruling 15), "Continues after 3:40 PM" (one locale-aware formatter, `sleepClockWords`); the mood is `.reading`, never an error or a cheer.
+An engine pause's `engineKind` (`transient | needs_fix`) travels in status and the compact SSE block. Transient
+timeouts/errors say "The engine stopped answering" and "Continue to try again" with the filed count. Sign-out and
+model-not-found pauses retain "The engine needs a look" and "Continue when it is fixed"; older backends without the
+kind retain that fix guidance. Details shows the backend's diagnosis (DR-59), including the sign-in/model fix or a
+trimmed transient failure detail. For a timeout, the diagnosis says the interrupted part is read again. The existing
+`sleep` version component includes kind and diagnosis and maps to `.status` in `VersionVector`; a changed SSE kind
+refetches the paused record. An engine pause never implies automatic continuation.
+An engine connection loss uses the transient pause/Continue machinery. Neither an engine pause nor a genuine
+failure renders an exception class, CLI command or raw diagnosis in the page's sentence or worm answers. A failure
+instead says "Reading stopped" / "See what needs a fix in Details, then try again", in warning tone (DR-7, DR-59);
+the existing Last cycle rows retain the full diagnosis (DR-37/48). **One
 primary at a time (DR-40):** Consolidate / Pause (a drain's cancel, "Pausing…") / Continue (named for the manual engine; held while a weekly limit's
 reset is ahead) with *End this run* beside it. `SleepViewModel.continueRun()` is the only sender of `{"continue": true}`; **every other door goes
 through `triggerManually()`, which routes to the Sleep page while a run is paused** (`AppRouter.routeToSleep`), and the menu bar, the intake card's

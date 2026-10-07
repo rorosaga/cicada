@@ -266,14 +266,51 @@ ChatGPT pre-flight's used-up sentence, whose snapshot `resets_at` rides along vi
 (`agent_engine.breaker_resets_at`) ride `drain.stop`, `error` stays null, and the run does **not** continue itself after the
 reset unless the person switched on *Continue after a plan reset* (off by default, ruling 15, below) — otherwise the person presses Continue. A cancel is the
 existing cooperative one: a batch before Stage 5 is discarded (its paid reads are lost and it is read again next time — the API's cancel message says so), one already writing commits, then the loop stops. A
-conversation that fails **for its own reasons** (an empty answer, a timeout, an unparseable reply — `sleep_drain.classify_episode`)
+conversation that fails **for its own reasons** (an empty answer, a provider request timeout, an unparseable reply — `sleep_drain.classify_episode`)
 goes first in the very next batch for **one more try and is then parked**; a failure that is the **engine's** (signed out,
 throttled, exhausted, model not found) stops the run after the batch commits what it read and is never counted against a
-conversation. An id another writer marked processed meanwhile is `skipped`, and a bank switch between batches stops the run (`bank_switched`; `activate`, `demo`,
+conversation. **Transient CLI engine failures (G171/G163):** extraction already retries each call once (10 s after
+`EngineTimeout`, 2 s after `EngineFailed` or `EngineProtocolError`). Retry eligibility alone does not diagnose an
+outage: `TRANSIENT` names only `EngineTimeout`, `EngineConnectionLost` and `EngineProtocolError`. Other CLI calls
+inside a drain retry only those positive diagnoses once at the provider seam, releasing the concurrency permit
+during backoff. A first exhausted extraction timeout discards the batch before Stage 2, including successful
+reads in a mixed batch. Once doomed, the batch starts no further Stage-1 calls; calls already in flight finish.
+The sidecar persists timeout observations by episode across Continue and process restarts. Each previously
+observed id that times out again can receive its second conversation attempt and be parked (`timed_out`), even
+when multiple ids time out together or the batch has no healthy neighbor. A newly affected id still pauses first;
+its discarded leg retains observations but charges no content attempt. Connection loss always pauses and never
+charges a timeout/content attempt.
+An unnamed `EngineFailed` during extraction is content `other` only when another conversation was read in the
+same batch. It then gets the normal next-batch retry-then-park without discarding healthy reads. A lone retry
+may use already-filed work in this run plus its existing attempt as that evidence. When nothing was read and
+every input failed unnamed, a fresh singleton or a multi-input batch stops as `engine/needs_fix`: no new content
+attempts, no parking, and no calls beyond that batch. Earlier successful batches do not exempt a fresh or
+multi-input failing batch from this guard. Generic unobserved failures on every conversation retain the same
+engine guard. An unnamed failure escaping a later stage is an error with a
+trimmed diagnosis (up to 300 characters), not a transient pause or a promise that retrying will fix it.
+A positively transient error escaping a later stage pauses with reason `engine`, no `error`,
+reset time or auto-continue. The frozen ids and prior committed batches stay intact; Continue resumes the same run
+and reads the interrupted batch again. An empty/unparseable extraction answer still gets the conversation
+retry-then-park rule. Positively identified authentication, model and plan errors are never retried by this policy;
+an unclassified extraction rejection retains its legacy call retry. Calls outside drains retain their existing policy.
+**Connectivity (owner, 2026-10-07):** failed CLI transport diagnostics (routing discovery, exhausted reconnect
+warnings, DNS, refused/reset connections and offline/network errors) become `EngineConnectionLost`, a retryable
+`EngineFailed` subtype. The existing one-retry/2-second policy then pauses with Continue; repeated connectivity
+loss never consumes an episode's timeout/parking attempt. Detection includes empty/non-JSON failed output and
+the reading engine's connection-retry metadata. Completed turns that recovered from reconnect warnings remain
+successful; sign-out, model, quota and billing diagnoses outrank old reconnect notices. Raw diagnostics remain
+available in Details, while the page speaks provider-neutral pause/fix copy.
+Routing-discovery authorization/account errors and the reading engine's authentication/login and low-credit
+diagnoses are explicitly non-transient. Failed-turn warning events only inform connectivity detection, not model,
+auth or quota matching; a timeout stays a timeout despite an unrelated unsupported-config warning.
+An id another writer marked processed meanwhile is `skipped`, and a bank switch between batches stops the run (`bank_switched`; `activate`, `demo`,
 `leave-demo` and the active bank's rename answer **409** while `SleepState.drain_run`). **A scheduled cycle drains too**
-(ruling 16: both scheduler entry points pass `drain=True`) but with `user_triggered=False`, so ruling 4 holds — it never uses
-a plan; on a metered engine it spends until the queue is empty, with no limit Cicada sets, and the engine menu and Details
-say so in words. **Once per drain, not per batch:** temporal decay (both engines,
+(ruling 16: both scheduler entry points pass `drain=True`) but with `user_triggered=False`, so automatic engine
+selection never chooses a plan (ruling 4); on a metered engine it spends until the queue is empty, with no limit Cicada sets, and the engine menu and Details
+say so in words. The default scheduled BYOK/local selection is unchanged; an explicit `CICADA_LLM_MODE` CLI
+override also reaches the transient retry/pause policy. Such a scheduled engine pause is eligible for replacement
+by a fresh unattended run only after six hours (`sleep_paused.ENGINE_RETRY_S`), rather than the next scheduler tick.
+**Once per drain, not per batch:** temporal decay (both engines,
 `decay=False` on `resolve_and_prune` / `reconcile_stage3` / `run_claim_pipeline`) and Stage 5.57's page reads run only in the
 batch that empties the queue (a decay-only finishing pass covers a last batch whose ids were read elsewhere), so decay is
 charged once (TODO ruling 1) and a stopped drain never decays; **once per run:** the whole engine-independent tail, whose
