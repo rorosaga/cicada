@@ -213,3 +213,9 @@ previews and stages nothing; `POST /intake/import` stages. `/conversations/uploa
 successor-only claim with no close date. Search preserves these markers and
 renders a closed event with its day/state as a past event or earlier state,
 using the existing row layout (DR-48) and date formatting (DR-58).
+
+Swift claim validity uses the same machine-local day as backend claim writers:
+future starts and elapsed stated ends are excluded, end dates are inclusive,
+and `due` objects supply an end while milestone targets never do. `expectedEnd`
+is decoded from the existing wire field. The Find palette uses this local-day
+convention for its future-start label too (DR-48, DR-58).
