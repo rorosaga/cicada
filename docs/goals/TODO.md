@@ -8,9 +8,10 @@
 
 ## Current state and evidence
 
+- **2026-10-07 (later, acting-owner session).** Merged to dev since the handoff below: #213 write admission (G183/G177), #214 G98 fold dedup/migration, #215 a prose rewrite never drops a page's claims, #216 closed claims are history on every read path, #217 recovery of dropped claims as closed history (dry run first), #218 G191, #219 G110 rulings A/B/C, #220 rail corner variant A, #221 G192/G193, #222 G148 benchmark harness. In review or build: engine-timeout pauses (a timeout or an unnamed engine-wide failure pauses instead of ending the run or parking the queue; approved, gating), reopen mode for recovered claims (fail-closed admission, round 3), the contradiction-prompt claims fence (G148 follow-up), G180 CLI plan (owner rulings in ruling 21), G110 slice 1b cross-harness plan (owner rulings in ruling 22; revision 2), and a qmd research comparison (two independent reports). The G10 trial drain continues on `trial-2026-10-06` (batch 12 of 89 at writing); external backend restarts pause it and it is resumed at batch boundaries. Owner kept the G105 capture rule when offered tool-call capture; the idea is parked on G112 for research. New trial findings: the owner appears as both a generic `user` page and a named page (owner-entity resolution, G98-class); clean batches of 10 take ~5–10 min (~10 model calls per conversation), and each external backend restart loses the batch in progress (cause under investigation).
 - **2026-10-07 handoff (acting-owner session).** Merged to dev: #198 backlog review + ruling 19, #199 G189(a), #200 G185, #201 G183(b,c), #202 G182 release-on-merge, #204 G183(a,e)/G21 guards, #205 installer UTF-8 hotfix, #206 0.3.1 bump, #208 Home scroll + rail corner, #209 G177/G183(d) bank pin, #210 G110 slice 1a, #211 G98 slug-fold core. Releases **v0.3.0** and **v0.3.1** are published from `main`; install acceptance passes on v0.3.1. Backend suite is fully green (G185 fixed). In review: write-admission lock (G183/G177), G98 fold dedup/migration, G148 system-bench runner (found and fixed a Stage-5 claim-loss bug — under opus review), cicada-website #18 (live download button).
 - **G10 trial in progress** on a new named bank (`trial-2026-10-06`, ChatGPT plan, gpt-6-luna, user-started drain, batch 10, continue-after-reset off): 1,519 episodes imported via the app (ChatGPT 1,116 + Claude 345 + 5 project notes + 53 memories; count gaps = empty conversations). Findings so far (generic): onboarding has no import step and the import card offers only "read everything"; Claude memory titles show raw paths; the file picker imports a whole folder when nothing is selected; an `api/.env` model pin overrode the engine menu's model for one stage (owner's local config corrected; the mismatch is a product bug); imported episodes swept into Sleep's first commit (G183); the predicate-fold inbox flood (G98, core fixed).
-- **Pending owner decisions:** G110 gates A/B/C; G179 FDA; GitHub settings for `main` (required Release PR check, PR-only).
+- **Pending owner decisions:** G179 FDA; G110 slice 1b's remaining DECIDE items (after revision 2); reopen counts on a non-trial bank before any write there; GitHub settings for `main` (required Release PR check, PR-only).
 
 
 - Reviewed merged `dev` at `02979949`; during the review it advanced to `3efba432` with the inbox count fix (#196). This was a code-path/scope audit of 186 original G addresses; subsequent requirements at `ba7a4957` add G188 and amend provider/source/benchmark/release priorities. No live-memory run or full-suite rerun is claimed. Preserve other staged/unstaged work in the shared checkout.
@@ -566,3 +567,27 @@ A whole row moves to DONE only after its remaining implementation and required a
     non-person records / harness envelopes). Text the person typed or pasted — even one starting with Cicada's header — is
     kept as the person's words and counted/disclosed (`note_like_turns`). G105 R5's tool-output and system-reminder
     rules are unchanged.
+
+21. **G180 CLI rulings (owner, 2026-10-07).** **Transport:** the `cicada` CLI runs Cicada's services in-process, the
+    stdio MCP's own model, under the same locks (write admission, page, git), the bank pin and `demo_guard`; before a
+    write it cross-checks the backend's `/healthz` `memory_root` and refuses on a mismatch (the split-brain guard). It
+    works with the app closed and in network-off sandboxes. **PATH:** an app Settings button links `~/.local/bin/cicada`
+    without admin; the skill falls back to `~/.cicada/bin/cicada`. **Session:** a write from a shell with no harness
+    session id omits `session_id` and the `Cicada-Session` trailer, never a per-command minted id (it would fragment the
+    stream, G104). **Names:** short grouped commands (`cicada recall`, `cicada save`, `cicada claim add`, `cicada inbox`,
+    `cicada sleep status`); MCP tools keep the `cicada_` prefix, and grouping them is the lean-MCP slice, decided on
+    measured schema numbers with old names kept as aliases. No generic `call <tool>` door.
+    **Why.** Over HTTP nothing works with the backend down and sandboxed shells cannot even read; in-process is the
+    MCP's proven model, and the root check closes its one gap.
+    Revisit if the CLI and the backend are measured to disagree on a bank in practice, or for a server package (G181).
+
+22. **G110 slice 1b rulings (owner, 2026-10-07).** **D1:** capture keeps up to ~16k characters of the person's FIRST
+    message in a session (other turns keep the 2k clip), inside the session budget and with the same scrub, so a long role
+    or objective can be continued; the Sleep cost is measured before shipping. **D2:** amends slice 1a's "no `.git`
+    reading anywhere" for the hook alone: a bounded, read-only, fixed-command git identity observer may run harness-side
+    and send plain values (repository root, worktree list); the backend never reads the person's folders and only parses
+    what is supplied. **Requirement restated:** no handoff prompts; a fresh session in Claude Code, Codex, Cursor or another
+    harness continues the role and the work (G110 row).
+    **Why.** The owner's acceptance example is an orchestrator whose role came from a long first instruction and whose
+    workers run in sibling worktrees; the 2k clip and exact-folder matching each break it.
+    Revisit if the first-message exception is measured as a Sleep-cost or privacy problem.
