@@ -12,8 +12,8 @@ projection: every answer is assembled when it is asked for, from
   parses;
 * the continuity registry (``continuity_sessions``) — ids, a cwd hash, times.
 
-Identity is the **exact** ``cwd`` string the harness's hook reports, which
-capture stores as ``project_dir``. No folding, no prefix matching, no
+Identity is a hash of the **exact** ``cwd`` string the harness's hook reports,
+which capture stores as ``project_dir`` only in the episode. No folding, no prefix matching, no
 repository key, no ``.git`` read: every note says the workspace state was not
 checked.
 
@@ -53,7 +53,7 @@ from loguru import logger
 
 from api.services import continuity_sessions, episode_ids, evidence, markdown_parser
 
-SCHEMA = 1
+SCHEMA = 2
 #: The index file's suffix in the continuity home: ``<bank-id>.index.json``.
 INDEX_SUFFIX = ".index.json"
 #: A larger index file is not read (it is rebuilt from the heads instead).
@@ -72,7 +72,7 @@ VIEW_RESERVE_S = 0.05
 HARNESS_NAMES = {"claude-code": "Claude Code", "codex": "Codex"}
 UNREADABLE = "unreadable"
 
-_ROW_STR_KEYS = ("id", "harness", "session_id", "project_dir", "captured_at", "last_turn_at", "processed_by")
+_ROW_STR_KEYS = ("id", "harness", "session_id", "captured_at", "last_turn_at", "processed_by")
 _Loader = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
 _TURN_START = re.compile(r"\n(?=(?:user|assistant): )")
 
@@ -104,10 +104,11 @@ def _iso(value) -> str | None:
     return None
 
 
-def _row(fm: dict) -> dict | str | None:
+def _row(fm: dict, *, persisted: bool = False) -> dict | str | None:
     """The index row for one episode's frontmatter: None for anything that is
     not a Stop-hook session episode, ``unreadable`` for one that is but whose
-    scalars are malformed."""
+    scalars are malformed. Only episode frontmatter supplies a plaintext cwd;
+    persisted rows supply its hash, never a path."""
     if fm.get("capture_kind") != "transcript":
         return None
     # The discriminator is kept in the row, so a persisted row decodes through
@@ -121,6 +122,18 @@ def _row(fm: dict) -> dict | str | None:
             return UNREADABLE
         if value:
             row[key] = value
+    if persisted:
+        if "cwd_hash" in fm:
+            value = fm["cwd_hash"]
+            if not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{16}", value):
+                return UNREADABLE
+            row["cwd_hash"] = value
+    else:
+        cwd = fm.get("project_dir")
+        if cwd is not None and not isinstance(cwd, str):
+            return UNREADABLE
+        if cwd:
+            row["cwd_hash"] = continuity_sessions.cwd_hash(cwd)
     row["processed"] = fm.get("processed") is True
     if not row.get("session_id") or row.get("harness") not in continuity_sessions.HARNESSES:
         return UNREADABLE
@@ -167,21 +180,25 @@ def index_path(memory_path: Path, bank_paths) -> Path | None:
     return home / f"{continuity_sessions.bank_file_id(memory_path)}{INDEX_SUFFIX}"
 
 
-def _load(memory_path: Path, bank_paths) -> dict[str, list]:
+def _load(memory_path: Path, bank_paths) -> tuple[dict[str, list], bool]:
+    """Return clean entries and whether the disposable file needs replacing.
+
+    A rejected old schema or extra fields must be replaced even if the bank
+    is empty or its episodes cannot currently be listed."""
     key = os.path.realpath(memory_path)
     with _MEMO_LOCK:
         if key in _MEMO:
-            return dict(_MEMO[key])
+            return dict(_MEMO[key]), False
     path = index_path(memory_path, bank_paths)
     if path is None:
-        return {}
+        return {}, False
     try:
         raw = continuity_sessions.read_regular(path, INDEX_MAX_BYTES)
         doc = json.loads(raw.decode("utf-8")) if raw and len(raw) <= INDEX_MAX_BYTES else {}
     except (OSError, ValueError):
-        return {}
+        return {}, False
     if not isinstance(doc, dict) or doc.get("schema") != SCHEMA or not isinstance(doc.get("entries"), dict):
-        return {}
+        return {}, bool(raw)
     out: dict[str, list] = {}
     for name, entry in doc["entries"].items():
         if not (isinstance(name, str) and name.startswith("ep_") and name.endswith(".md") and "/" not in name):
@@ -190,13 +207,13 @@ def _load(memory_path: Path, bank_paths) -> dict[str, list]:
             continue
         value = entry[2]
         if isinstance(value, dict):
-            value = _row(value)
-            if not isinstance(value, dict):
+            value = _row(value, persisted=True)
+            if not isinstance(value, dict) or value != entry[2]:
                 continue
         elif value not in (None, UNREADABLE):
             continue
         out[name] = [entry[0], entry[1], value]
-    return out
+    return out, doc != {"schema": SCHEMA, "entries": out}
 
 
 def _write_index(target: Path, entries: dict[str, list]) -> None:
@@ -251,7 +268,7 @@ def refresh_index(memory_path: Path, *, bank_paths, deadline: float | None,
     many unreadable heads."""
     memory_path = Path(memory_path)
     episodes = memory_path / "episodes"
-    old = _load(memory_path, bank_paths)
+    old, rebuild = _load(memory_path, bank_paths)
     entries: dict[str, list] = {}
     pending = 0
     scan = []
@@ -273,10 +290,16 @@ def refresh_index(memory_path: Path, *, bank_paths, deadline: float | None,
                     continue
                 scan.append((st.st_mtime_ns, st.st_size, e.name))
     except FileNotFoundError:
+        if old or rebuild:
+            with _MEMO_LOCK:
+                _MEMO[os.path.realpath(memory_path)] = {}
+            _persist(memory_path, {}, bank_paths)
         return Snapshot({}, complete=True)       # no episodes directory: genuinely nothing captured
     except OSError:
         # The listing itself failed (review finding 5): what was known still stands, and nothing is absent
         # for certain.
+        if rebuild:
+            _persist(memory_path, old, bank_paths)
         rows = {name: e[2] for name, e in old.items() if isinstance(e[2], dict)}
         return Snapshot(rows, complete=False)
     scan.sort(reverse=True)
@@ -295,7 +318,7 @@ def refresh_index(memory_path: Path, *, bank_paths, deadline: float | None,
             parsed += 1
             entry[2] = _full_row(episodes / name)
     unreadable = sum(1 for e in entries.values() if e[2] == UNREADABLE)
-    if entries != old:
+    if entries != old or rebuild:
         with _MEMO_LOCK:
             _MEMO[os.path.realpath(memory_path)] = dict(entries)
         _persist(memory_path, entries, bank_paths)
@@ -356,8 +379,9 @@ def select(snapshot: Snapshot, registry_rows: dict[str, dict], *, cwd: str | Non
         return Selection("none", None, reason="no_such_session")
     if not cwd:
         return Selection("none", None, reason="no_folder")
+    folder_hash = continuity_sessions.cwd_hash(cwd)
     here = [(n, r) for n, r in snapshot.rows.items()
-            if r.get("project_dir") == cwd and r.get("session_id") != exclude_session]
+            if r.get("cwd_hash") == folder_hash and r.get("session_id") != exclude_session]
     if not here:
         return Selection("none", None, reason="none_here")
     here.sort(key=lambda nr: activity(nr[1], reg(nr[1])), reverse=True)
@@ -423,9 +447,14 @@ def view(memory_path: Path, chosen: tuple[str, dict], *, deadline: float | None 
     except Exception:  # noqa: BLE001
         return None
     fm = doc.frontmatter
-    for key in ("id", "session_id", "harness", "project_dir"):
+    for key in ("id", "session_id", "harness"):
         if str(fm.get(key) or "") != str(row.get(key) or ""):
             return None
+    cwd = fm.get("project_dir")
+    if cwd is not None and not isinstance(cwd, str):
+        return None
+    if (continuity_sessions.cwd_hash(cwd) if cwd else None) != row.get("cwd_hash"):
+        return None
     return SessionView(
         filename=name, episode_id=str(fm["id"]), harness=str(fm["harness"]), session_id=str(fm["session_id"]),
         project_dir=fm.get("project_dir"), title=str(fm.get("title") or ""),

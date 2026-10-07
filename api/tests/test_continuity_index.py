@@ -81,7 +81,9 @@ def test_a_long_folder_path_is_read_from_the_head(bank):
     deep = "/home/example/" + "/".join(["a long folder name with spaces"] * 120)
     write_session(bank, 1, [("user", "a"), ("assistant", "b")], cwd=deep)
     snap = _refresh(bank)
-    assert snap.complete and next(iter(snap.rows.values()))["project_dir"] == deep
+    row = next(iter(snap.rows.values()))
+    assert snap.complete and row["cwd_hash"] == continuity_sessions.cwd_hash(deep)
+    assert "project_dir" not in row
 
 
 def test_concurrent_refreshes_read_the_same_rows(bank):
@@ -205,7 +207,7 @@ def test_the_index_is_written_beside_the_registry_never_in_the_bank(bank):
     assert target.parent == continuity_sessions.continuity_home((bank,))
     assert target.name == f"{continuity_sessions.bank_file_id(bank)}.index.json"
     doc = json.loads(target.read_text())
-    assert doc["schema"] == 1 and "ep_2026-09-03_001.md" in doc["entries"]
+    assert doc["schema"] == 2 and "ep_2026-09-03_001.md" in doc["entries"]
     assert (target.stat().st_mode & 0o777) == 0o600
     assert not [p for p in bank.rglob("*") if "index" in p.name or p.name.endswith(".tmp")]
 
@@ -317,3 +319,139 @@ def test_index_io_failures_fall_back_to_memory(bank, monkeypatch, fail):
     assert not _index(bank).exists() and not list(home.glob(".*.tmp"))
     ctx = continuity.assemble(bank, bank_paths=(bank,), harness=None, session_id=None, cwd=CWD)
     assert "ep_2026-09-03_001" in continuity.full_text(ctx)
+
+
+# --- slice 1b P0: no plaintext folder or conversation outside the bank -------
+
+
+def test_private_path_and_text_stay_in_the_episode_across_index_restart(bank, monkeypatch, capfd):
+    cwd = "/home/example/private-cwd-sentinel/alpha-project"
+    turns = [("user", "private-title-and-request-sentinel"),
+             ("assistant", "private-reply-sentinel")]
+    source = write_session(bank, 1, turns, cwd=cwd)
+    before = source.read_bytes()
+    assert continuity_sessions.apply(
+        bank, bank_paths=(bank,), harness="claude-code", session_id=sid(99), deadline=None,
+        events={"cwd_hash": continuity_sessions.cwd_hash(cwd), "continues": "ep_2026-09-03_001",
+                "started_at": time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime())},
+    ) == "ok"
+    snap = _refresh(bank)
+    row = next(iter(snap.rows.values()))
+    assert row["cwd_hash"] == continuity_sessions.cwd_hash(cwd)
+    assert "project_dir" not in row
+
+    def no_head_read(path):
+        raise AssertionError("a clean persisted hash row must survive restart")
+
+    continuity.reset()
+    monkeypatch.setattr(continuity, "read_head", no_head_read)
+    ctx = continuity.assemble(bank, bank_paths=(bank,), harness=None, session_id=None, cwd=cwd)
+    assert ctx.chosen.episode_id == "ep_2026-09-03_001"
+    assert ctx.chosen.project_dir == cwd
+    assert all(text in ctx.chosen.body for _, text in turns)
+    assert source.read_bytes() == before
+    home = continuity_sessions.continuity_home((bank,))
+    for artifact in home.rglob("*"):
+        if artifact.is_file():
+            raw = artifact.read_bytes()
+            for sentinel in (cwd, *(text for _, text in turns)):
+                assert sentinel.encode() not in raw, artifact.name
+    console = capfd.readouterr()
+    assert all(sentinel not in console.out + console.err for sentinel in (cwd, *(text for _, text in turns)))
+
+
+@pytest.mark.parametrize("state", ["populated", "empty", "missing", "unreadable"])
+def test_old_path_index_is_replaced_even_without_readable_episodes(bank, monkeypatch, state):
+    cwd = "/home/example/old-cached-path-sentinel"
+    source = write_session(bank, 1, A_TURNS_SHORT, cwd=cwd)
+    before = source.read_bytes()
+    stamp = source.stat()
+    row = continuity.read_head(source)
+    row.pop("cwd_hash", None)
+    row["project_dir"] = cwd
+    target = _index(bank)
+    target.write_text(json.dumps({"schema": 1, "entries": {
+        source.name: [stamp.st_mtime_ns, stamp.st_size, row]}}))
+    if state in ("empty", "missing"):
+        source.unlink()
+    if state == "missing":
+        source.parent.rmdir()
+    if state == "unreadable":
+        real_scan = continuity.os.scandir
+
+        def denied(path):
+            if str(path) == str(source.parent):
+                raise PermissionError("synthetic scan denied")
+            return real_scan(path)
+
+        monkeypatch.setattr(continuity.os, "scandir", denied)
+    reads = []
+    real_head = continuity.read_head
+    monkeypatch.setattr(continuity, "read_head", lambda path: reads.append(path) or real_head(path))
+    continuity.reset()
+    snap = _refresh(bank)
+    persisted = json.loads(target.read_text())
+    assert persisted["schema"] == 2
+    assert cwd not in target.read_text() and "project_dir" not in target.read_text()
+    if state == "populated":
+        assert reads == [source] and snap.complete
+        assert continuity.select(snap, {}, cwd=cwd, exclude_session=None).chosen[1]["id"] == row["id"]
+        assert source.read_bytes() == before
+    else:
+        assert reads == [] and snap.rows == {}
+        assert snap.complete is (state != "unreadable")
+        if state == "unreadable":
+            assert source.read_bytes() == before
+
+
+def test_extra_cached_path_and_text_fields_are_removed_before_reuse(bank):
+    source = write_session(bank, 1, A_TURNS_SHORT)
+    _refresh(bank)
+    target = _index(bank)
+    doc = json.loads(target.read_text())
+    doc["entries"][source.name][2].update(project_dir="cached-path-sentinel", title="cached-title-sentinel")
+    doc["extra"] = "cached-body-sentinel"
+    target.write_text(json.dumps(doc))
+    continuity.reset()
+    snap = _refresh(bank)
+    assert _select(bank, snap).chosen[1]["id"] == "ep_2026-09-03_001"
+    assert "sentinel" not in target.read_text()
+
+
+def test_a_forged_cached_folder_hash_cannot_supply_another_folders_context(bank):
+    source = write_session(bank, 1, [("user", "source-only-context-sentinel"), ("assistant", "ok")])
+    _refresh(bank)
+    target = _index(bank)
+    doc = json.loads(target.read_text())
+    other = "/home/example/another-project"
+    doc["entries"][source.name][2]["cwd_hash"] = continuity_sessions.cwd_hash(other)
+    target.write_text(json.dumps(doc))
+    continuity.reset()
+    ctx = continuity.assemble(bank, bank_paths=(bank,), harness=None, session_id=None, cwd=other)
+    assert ctx.chosen is None
+    assert "source-only-context-sentinel" not in continuity.full_text(ctx)
+
+
+def test_changed_source_folder_is_revalidated_without_trusting_frontmatter_hash(bank):
+    source = write_session(bank, 1, A_TURNS_SHORT)
+    chosen = _select(bank, _refresh(bank)).chosen
+    doc = markdown_parser.parse(source)
+    doc.frontmatter["project_dir"] = "/home/example/another-project"
+    doc.frontmatter["cwd_hash"] = continuity_sessions.cwd_hash(CWD)
+    markdown_parser.write(source, doc.frontmatter, doc.body)
+    assert continuity.view(bank, chosen) is None
+    snap = _refresh(bank)
+    assert _select(bank, snap).chosen is None
+
+
+@pytest.mark.parametrize("bad_hash", ["not-a-hash", "a" * 15, "A" * 16, 42, None])
+def test_malformed_cached_hash_is_rebuilt_from_source(bank, bad_hash):
+    source = write_session(bank, 1, A_TURNS_SHORT)
+    _refresh(bank)
+    target = _index(bank)
+    doc = json.loads(target.read_text())
+    doc["entries"][source.name][2]["cwd_hash"] = bad_hash
+    target.write_text(json.dumps(doc))
+    continuity.reset()
+    snap = _refresh(bank)
+    assert _select(bank, snap).chosen[1]["cwd_hash"] == continuity_sessions.cwd_hash(CWD)
