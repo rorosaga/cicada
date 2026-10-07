@@ -688,8 +688,10 @@ unsuperseded events visible (`current: true` means no obsolete-belief styling
 on that wire contract); a successor marks an earlier event state. Vector claim reads recheck the candidate page,
 so a stale vector cannot resurrect a closed claim or a deleted page. The FTS
 schema version is 5 (stated-end metadata); the cache rebuilds automatically.
-FTS candidate claims are rechecked against markdown too, so a rebuilding or
-stale index cannot label an already closed claim as current.
+FTS candidate claims use a single read snapshot of payload and document stamp.
+Matching `(mtime_ns, size)` stamps avoid reparsing on every keystroke; changed
+or missing pages are rechecked against markdown once per request, so a rebuilding
+or stale index cannot label an already closed claim as current.
 The claim-list endpoint, transclusion and graph claim projections share the
 same currentness predicate rather than maintaining separate open-window tests.
 

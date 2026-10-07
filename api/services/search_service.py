@@ -196,6 +196,7 @@ class _Ctx:
     mode: str
     legs: dict[str, list[dict]] | None = None
     live_claims: dict[str, dict] = field(default_factory=dict)
+    unchanged_pages: dict[str, bool] = field(default_factory=dict)
 
     @property
     def match(self) -> str:
@@ -398,6 +399,20 @@ def _live_claim(ctx: _Ctx, subject: search_index.Doc, claim_id: str):
     return ctx.live_claims[subject.ref].get(claim_id)
 
 
+def _candidate_claim(ctx: _Ctx, subject: search_index.Doc, claim_id: str, text: str, payload: dict):
+    """Indexed validity is trustworthy while the source's stamp still matches."""
+    if subject.ref not in ctx.unchanged_pages:
+        try:
+            stamp = (ctx.memory_path / "entities" / f"{subject.ref}.md").stat()
+            ctx.unchanged_pages[subject.ref] = subject.stamp == (stamp.st_mtime_ns, stamp.st_size)
+        except OSError:
+            ctx.unchanged_pages[subject.ref] = False
+    if ctx.unchanged_pages[subject.ref]:
+        return text, payload
+    live = _live_claim(ctx, subject, claim_id)
+    return (live.text, search_index.claim_payload(live)) if live is not None else None
+
+
 def _claim_hit(subject: search_index.Doc, text: str, payload: dict, tokens: list[str], score: float, label: str) -> SearchHit:
     snippet, offsets = snippet_window(text, tokens)
     event = payload.get("predicate") in EVENT_PREDICATES
@@ -442,10 +457,10 @@ def _lexical_claims(ctx: _Ctx) -> list[_Claim]:
         subject = subjects.get(doc_id)
         if subject is None or not payload.get("id"):
             continue
-        claim = _live_claim(ctx, subject, payload["id"])
-        if claim is None:
+        candidate = _candidate_claim(ctx, subject, payload["id"], text, payload)
+        if candidate is None:
             continue
-        text, payload = claim.text, search_index.claim_payload(claim)
+        text, payload = candidate
         fields = [
             (text, 1.0, "name"),
             (subject.meta.get("name", ""), 0.9, "alias"),
@@ -474,10 +489,9 @@ def _claims_kind(ctx: _Ctx, lexical: list[_Claim], order: list[str], scores: dic
         subjects = ctx.reader.docs([doc_id for doc_id, _t, _p in rows.values()])
         for cid, (doc_id, text, payload) in rows.items():
             if doc_id in subjects:
-                claim = _live_claim(ctx, subjects[doc_id], cid)
-                if claim is not None:
-                    hits[cid] = _claim_hit(subjects[doc_id], claim.text, search_index.claim_payload(claim),
-                                           ctx.tokens, 0.0, "semantic")
+                candidate = _candidate_claim(ctx, subjects[doc_id], cid, text, payload)
+                if candidate is not None:
+                    hits[cid] = _claim_hit(subjects[doc_id], *candidate, ctx.tokens, 0.0, "semantic")
     ranked = [hits[cid] for cid in order if cid in hits]
     # History after every current claim in every mode (G136 R10), applied
     # BEFORE the cut: fusion alone ties a lexical-only superseded claim with

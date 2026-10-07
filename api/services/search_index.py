@@ -839,6 +839,7 @@ class Doc:
     kind: str
     ref: str
     meta: dict
+    stamp: tuple[int, int] | None = None
 
 
 class Reader:
@@ -852,6 +853,8 @@ class Reader:
         uri = db_path(memory_path).resolve().as_uri() + "?mode=rw"
         self.conn = sqlite3.connect(uri, uri=True, timeout=2.0, check_same_thread=False)
         self.conn.execute("PRAGMA query_only=ON")
+        # Claim rows and document stamps must share one read snapshot.
+        self.conn.execute("BEGIN")
 
     def close(self) -> None:
         self.conn.close()
@@ -939,8 +942,8 @@ class Reader:
         if not ids:
             return {}
         marks = ",".join("?" * len(ids))
-        rows = self.conn.execute(f"SELECT id, kind, ref, meta FROM docs WHERE id IN ({marks})", list(ids))
-        return {int(i): Doc(int(i), k, r, json.loads(m or "{}")) for i, k, r, m in rows}
+        rows = self.conn.execute(f"SELECT id, kind, ref, meta, mtime_ns, size FROM docs WHERE id IN ({marks})", list(ids))
+        return {int(i): Doc(int(i), k, r, json.loads(m or "{}"), (mt, sz)) for i, k, r, m, mt, sz in rows}
 
     def name_candidates(self, terms: list[str], limit: int, *, statuses: frozenset[str] | None = None,
                         skip_types: frozenset[str] = frozenset(),

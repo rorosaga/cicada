@@ -196,3 +196,34 @@ def test_claim_read_day_matches_writer_at_local_midnight(monkeypatch, zone, inst
         else:
             os.environ["TZ"] = old_zone
         time.tzset()
+
+
+def test_warm_prefix_claim_search_uses_fts_stamp_without_reparsing_markdown(tmp_path, monkeypatch):
+    _page(tmp_path, [Claim(id="clm_test", text="Current calibration method", subject="alpha-project")])
+    search_index.rebuild(tmp_path)
+    reads = []
+    original = markdown_parser.parse
+    def parse(path):
+        reads.append(path)
+        return original(path)
+    monkeypatch.setattr(markdown_parser, "parse", parse)
+    for _ in range(3):
+        assert search_service.search(tmp_path, "calibration", kinds=("claim",), mode="prefix").results
+    assert reads == [], "unchanged candidate pages already have trustworthy indexed validity"
+
+
+@pytest.mark.parametrize("change", ["deleted", "dropped", "successor"])
+def test_changed_fts_candidate_stamp_rechecks_page(tmp_path, monkeypatch, change):
+    row = Claim(id="clm_test", text="Current calibration method", subject="alpha-project")
+    _page(tmp_path, [row])
+    search_index.rebuild(tmp_path)
+    page = tmp_path / "entities" / "alpha-project.md"
+    if change == "deleted":
+        page.unlink()
+    elif change == "dropped":
+        markdown_parser.write(page, {"name": "Alpha Project", "status": "dropped"}, write_claims("", [row]))
+    else:
+        row.superseded_by = "clm_new"
+        _page(tmp_path, [row])
+    monkeypatch.setattr(search_index, "ensure_fresh", lambda *_a, **_k: "stale")
+    assert search_service.claim_subject_hits(tmp_path, "calibration") == []
