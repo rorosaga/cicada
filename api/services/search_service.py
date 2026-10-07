@@ -327,7 +327,7 @@ def _pages_kind(ctx: _Ctx, kind: str, lexical: list[_Page], claims: list["_Claim
     reasons: dict[str, str] = {}
     if kind == "entity":
         for c in claims:
-            if is_current(c.hit) and c.hit.subject_id:
+            if _votes_for_subject(c.hit) and c.hit.subject_id:
                 via_claim.append(c.hit.subject_id)
                 reasons.setdefault(c.hit.subject_id, c.hit.name)
         via_claim = _dedupe(via_claim)
@@ -374,6 +374,11 @@ def _pages_kind(ctx: _Ctx, kind: str, lexical: list[_Page], claims: list["_Claim
 class _Claim:
     hit: SearchHit
     sort: tuple = ()
+
+
+def _votes_for_subject(hit: SearchHit) -> bool:
+    """Page relevance is not a current-belief assertion (G141)."""
+    return is_current(hit) or bool(hit.event_status and not hit.superseded_by)
 
 
 def _is_history(payload: dict) -> bool:
@@ -842,8 +847,8 @@ def lexical_entity_hits(memory_path: Path, query: str, top_k: int = 8) -> list[d
 
 
 def claim_subject_hits(memory_path: Path, query: str, top_k: int = 8) -> list[dict]:
-    """R3 P2's third recall leg: current claims matched lexically, mapped to
+    """R3 P2's third recall leg: current beliefs and unsuperseded events mapped to
     the page they are about, deduplicated, best first."""
     resp = search(memory_path, query, kinds=("claim",), mode="prefix", per_kind=MAX_PER_KIND)
-    subjects = _dedupe(h.subject_id for h in resp.results if is_current(h))
+    subjects = _dedupe(h.subject_id for h in resp.results if _votes_for_subject(h))
     return [{"entity_id": ref, "source": "claim", "score": 0.0} for ref in subjects][:top_k]

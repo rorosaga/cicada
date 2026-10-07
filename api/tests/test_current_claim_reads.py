@@ -40,7 +40,7 @@ def _page(bank, rows):
     ("happened", "done", {"valid_to": "2026-01-01"}),
     ("milestone", "planned", {"valid_to": "2026-01-01", "superseded_by": "clm_new"}),
 ])
-def test_closed_claims_stay_searchable_but_never_reach_current_recall(tmp_path, predicate, status, closure):
+def test_closed_beliefs_do_not_vote_but_unsuperseded_events_reach_their_subject(tmp_path, predicate, status, closure):
     claim = Claim(id="clm_old", text="Retired calibration method", subject="alpha-project",
                   predicate=predicate, status=status, valid_from="2026-01-01", **closure)
     _page(tmp_path, [claim])
@@ -48,8 +48,13 @@ def test_closed_claims_stay_searchable_but_never_reach_current_recall(tmp_path, 
     response = search_service.search(tmp_path, "calibration", kinds=("claim",), mode="prefix")
     [hit] = response.results
     assert (hit.valid_to, hit.superseded_by) == (claim.valid_to, claim.superseded_by)
-    assert search_service.claim_subject_hits(tmp_path, "calibration") == []
-    assert search_service.search(tmp_path, "calibration", kinds=("entity",), mode="prefix").results == []
+    subjects = search_service.claim_subject_hits(tmp_path, "calibration")
+    entities = search_service.search(tmp_path, "calibration", kinds=("entity",), mode="prefix").results
+    if predicate == "happened" and not claim.superseded_by:
+        assert [s["entity_id"] for s in subjects] == ["alpha-project"]
+        assert [h.id for h in entities] == ["alpha-project"]
+    else:
+        assert subjects == [] and entities == []
 
 
 def test_hook_does_not_inject_a_future_or_elapsed_claim():

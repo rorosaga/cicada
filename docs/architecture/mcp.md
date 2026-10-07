@@ -294,9 +294,10 @@ saved resources.
 
 **Current-claim reads (G118/G93, 2026-10-07).** The recall claim leg, implicit
 recall's claim lines and perspective's current block use `claims.is_current`.
-Closed events are historical records of happenings, never current-claim recall
-votes; searching the past and `history=true` still expose them with dates and
-state. Closure and successor metadata are preserved for every search hit.
+Unsuperseded dated events also vote for subject relevance: that leg returns
+page ids, never an assertion that the event is a current belief. Claim text in
+implicit recall remains current-only; history readers expose events with dates
+and state. Closure and successor metadata are preserved for every search hit.
 
 **Ask grounding (G93/G118, 2026-10-07).** `/ask` and `cicada_ask` use the same
 validity-aware context. Each structured claim sent to synthesis has its id,
