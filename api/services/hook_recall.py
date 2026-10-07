@@ -644,7 +644,7 @@ def session_start_note(memory_path: Path, *, harness: str, session_id: str, cwd:
 
 def respond(root: Path, *, event: str, harness: str, session_id: str, prompt: str,
             deadline: float, cwd: str | None = None, source: str | None = None,
-            start: str | None = None) -> tuple[Injection, str | None]:
+            start: str | None = None, workspace=None) -> tuple[Injection, str | None]:
     """The route's one worker call: the bank a capture would write into
     (``bank_registry.capture_bank``, R-H16) — resolved ONCE and pinned for the
     whole request — then the primer or the note. SessionStart resets the
@@ -661,10 +661,13 @@ def respond(root: Path, *, event: str, harness: str, session_id: str, prompt: st
         return Injection.none("no_bank"), None
     bank_paths = continuity_sessions.bank_paths_for(root)
     start = start or episode_ids.utc_now_iso()
+    from api.services import workspace_identity
+    observed = workspace_identity.parse(cwd, workspace)
+    workspace_event = {"workspace_identity": observed} if observed else {}
     if event == "session_start":
         RECENT.reset(session_id)
         READING_SEEN.remember(session_id, 0, 0)
-        events = {"started_at": start}
+        events = {"started_at": start, **workspace_event}
         if cwd:
             events["cwd_hash"] = continuity_sessions.cwd_hash(cwd)
         registry = continuity_sessions.apply(target.path, bank_paths=bank_paths, harness=harness,
@@ -675,7 +678,8 @@ def respond(root: Path, *, event: str, harness: str, session_id: str, prompt: st
                                   deadline=deadline)
         return replace(note, registry=registry), target.name
     registry = continuity_sessions.apply(target.path, bank_paths=bank_paths, harness=harness, session_id=session_id,
-                                         events={"last_prompt_at": start}, deadline=_slice(deadline, REGISTRY_SLICE_S))
+                                         events={"last_prompt_at": start, **workspace_event},
+                                         deadline=_slice(deadline, REGISTRY_SLICE_S))
     note = prompt_context(target.path, prompt, recent=RECENT.recent(session_id), deadline=deadline)
     note = with_reading_note(note, target.path, session_id, event=event, deadline=deadline)
     return replace(note, registry=registry), target.name

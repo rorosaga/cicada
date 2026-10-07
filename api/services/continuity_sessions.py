@@ -11,8 +11,10 @@ the next session learns either: one row per harness session with
   answer timed out (the LATEST kept);
 * ``continues`` — the one episode id Cicada pointed this session at (the
   first write wins; it is never rewritten).
+* ``workspace_identity`` — hook-observed family/checkout/cwd hashes and time;
+  newest observation wins, including a failure containing only cwd hash/time.
 
-Ids, a hash and times only — never a path, a title or a prompt. Merges are
+Ids, hashes and times only — never a path, a title or a prompt. Merges are
 monotone, so a request that finishes after a newer one can never move a time
 backwards (critique finding 35).
 
@@ -44,7 +46,7 @@ from pathlib import Path
 
 from loguru import logger
 
-from api.services import episode_ids
+from api.services import episode_ids, workspace_identity
 
 EXPIRES_AFTER_DAYS = 30
 MAX_ROWS = 1000
@@ -142,11 +144,15 @@ def _clean_row(harness: str, raw) -> dict | None:
             row[key] = stamp
     if isinstance(raw.get("continues"), str) and episode_ids.EPISODE_ID_RE.match(raw["continues"]):
         row["continues"] = raw["continues"]
+    workspace = workspace_identity.clean(raw.get("workspace_identity"))
+    if workspace:
+        row["workspace_identity"] = workspace
     return row
 
 
 def _activity(row: dict) -> str:
-    return max(row.get("started_at") or "", row.get("last_prompt_at") or "")
+    return max(row.get("started_at") or "", row.get("last_prompt_at") or "",
+               (row.get("workspace_identity") or {}).get("observed_at") or "")
 
 
 def _alive(row: dict, now: datetime) -> bool:
@@ -196,6 +202,9 @@ def _merge(row: dict, events: dict) -> dict:
         row["last_prompt_at"] = max(filter(None, (row.get("last_prompt_at"), new["last_prompt_at"])))
     if "continues" in new and "continues" not in row:
         row["continues"] = new["continues"]
+    if "workspace_identity" in new and new["workspace_identity"]["observed_at"] >= \
+            (row.get("workspace_identity") or {}).get("observed_at", ""):
+        row["workspace_identity"] = new["workspace_identity"]
     return row
 
 

@@ -151,8 +151,8 @@ async def capture_telegram(
 
 
 class TranscriptCaptureRequest(BaseModel):
-    """What the Stop hook forwards — the harness's own stdin fields, nothing
-    computed client-side. Snake_case on purpose: the sender is a stdlib
+    """What the Stop hook forwards — harness stdin plus D2's git observation.
+    Snake_case on purpose: the sender is a stdlib
     script, not the app."""
 
     harness: Literal["claude-code", "codex"]
@@ -165,6 +165,8 @@ class TranscriptCaptureRequest(BaseModel):
     # Round 4 C1: the Stop hook's `effort.level` for the reply it fired after —
     # validated by the capture writer (`agent_turns.clean_effort`), unknown dropped.
     effort: str | None = Field(default=None, max_length=32)
+    # D2: plain hook-observed git values; only parsed/hashed, never opened.
+    workspace: Any = None
 
 
 @router.post("/capture/transcript")
@@ -207,6 +209,7 @@ async def capture_transcript_endpoint(
             bank=memory_path.name,
             effort=req.effort,
             hook_event=req.hook_event,
+            workspace=req.workspace,
             # G110: the continuity registry's every-bank guard needs the root and
             # every configured bank — resolved once, off the event loop.
             bank_paths=continuity_sessions.bank_paths_for(settings.memory_root),
@@ -248,6 +251,7 @@ class HookContextRequest(BaseModel):
     prompt: str | None = Field(None, max_length=hook_recall.PROMPT_MAX_CHARS)
     model: str | None = Field(None, max_length=200)
     source: Any = None
+    workspace: Any = None
 
 
 @router.post("/capture/hook-context")
@@ -275,7 +279,7 @@ async def hook_context_endpoint(req: HookContextRequest, settings: Settings = De
         result, bank = await asyncio.wait_for(asyncio.to_thread(
             hook_recall.respond, settings.memory_root, event=req.event, harness=req.harness,
             session_id=req.session_id, prompt=req.prompt or "", deadline=deadline, cwd=req.cwd, source=source,
-            start=arrived), timeout=budget)
+            start=arrived, workspace=req.workspace), timeout=budget)
         if req.event == "user_prompt_submit":
             hook_recall.RECENT.remember(req.session_id, result.injected)
     except TimeoutError:

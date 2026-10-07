@@ -25,8 +25,9 @@ def _run(tmp_path, payload, *, environ=None, post=None, argv=("--harness", "clau
         calls.append((url, json.loads(body), tok, timeout))
         return 200, '{"status":"created"}'
 
+    env = {"HOME": str(tmp_path), "CICADA_HOME": str(tmp_path / "hook-home"), **(environ or {})}
     rc = hook.main(list(argv), stdin=io.StringIO(json.dumps(payload) if isinstance(payload, dict) else payload),
-                   environ=environ or {}, post=post or default_post, log_path=log, token_path=token)
+                   environ=env, post=post or default_post, log_path=log, token_path=token)
     return rc, calls, log
 
 
@@ -35,6 +36,9 @@ def test_posts_the_harness_fields_with_bearer_and_3s_timeout(tmp_path, capsys):
     assert rc == 0
     url, body, tok, timeout = calls[0]
     assert url == "http://127.0.0.1:8123/capture/transcript"
+    workspace = body.pop("workspace")
+    assert set(workspace) == {"cwd_hash", "observed_at"}  # unavailable synthetic repo
+    assert workspace["cwd_hash"] == __import__("hashlib").sha256(PAYLOAD["cwd"].encode()).hexdigest()[:16]
     assert body == {"harness": "claude-code", "session_id": SID, "transcript_path": PAYLOAD["transcript_path"],
                     "cwd": PAYLOAD["cwd"], "hook_event": "Stop"}
     assert tok == "tok-123" and timeout == 3.0

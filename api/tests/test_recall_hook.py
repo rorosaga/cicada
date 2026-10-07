@@ -31,7 +31,8 @@ def _run(tmp_path, payload, *, environ=None, post=None, argv=("--harness", "clau
                                 "latencyMs": 12})
 
     stdin = io.StringIO(json.dumps(payload) if isinstance(payload, (dict, list)) else payload)
-    rc = hook.main(list(argv), stdin=stdin, stdout=out, environ=environ or {}, post=post or default_post,
+    env = {"HOME": str(tmp_path), "CICADA_HOME": str(tmp_path / "hook-home"), **(environ or {})}
+    rc = hook.main(list(argv), stdin=stdin, stdout=out, environ=env, post=post or default_post,
                    log_path=log, token_path=token)
     return rc, calls, out.getvalue(), log
 
@@ -41,6 +42,9 @@ def test_a_prompt_travels_as_a_json_body_and_the_note_prints_in_the_shared_shape
     assert rc == 0
     url, body, tok, timeout = calls[0]
     assert url == "http://127.0.0.1:8123/capture/hook-context"
+    workspace = body.pop("workspace")
+    assert set(workspace) == {"cwd_hash", "observed_at"}  # unavailable synthetic repo
+    assert workspace["cwd_hash"] == __import__("hashlib").sha256(UPS["cwd"].encode()).hexdigest()[:16]
     assert body == {"event": "user_prompt_submit", "harness": "claude-code", "session_id": SID,
                     "cwd": UPS["cwd"], "model": None, "prompt": PROMPT}
     assert tok == "tok-123" and timeout == hook.TIMEOUT_S and hook.TIMEOUT_S <= 0.9

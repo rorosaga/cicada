@@ -710,7 +710,7 @@ TOOLS = [
         # G110 slice 1a: stdio only (`catalog.NEVER_REMOTE`) — it reads the
         # person's verbatim words for a folder the caller names.
         "name": "cicada_continue",
-        "description": "Read previous work in this folder on demand, even before Sleep: the first captured person "
+        "description": "Read previous work in this folder or hook-observed checkout on demand, even before Sleep: the first captured person "
                        "request (possible role/objective), recent whole turns, earlier pages and capture gaps. Use "
                        "when the person asks what we were last working on or asks to continue. A startup hint is "
                        "only a pointer, not a request to load history. If this session's start named an episode, "
@@ -1259,7 +1259,8 @@ def handle_continue(session=None, before=None) -> str:
 
     The bank is resolved ONCE and that path is passed through selection, the
     parse and the rendering (the split-brain rule). The folder is this MCP
-    process's project dir (else its cwd), matched as an exact string. This
+    process's project dir (else its cwd): exact folder first, then a fresh
+    hook-observed checkout identity already supplied to the backend. This
     process's id is not blindly excluded after `/clear` (G48). No-argument
     reads recognise current only with registry freshness or the newest
     session's recorded lineage/chronology, then lead with its source call.
