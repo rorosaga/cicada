@@ -498,13 +498,19 @@ query string of `/search` and `/conversations/recent`, G136 R22).
 
 ### Continuity index and session registry (G110 slice 1a)
 `$CICADA_HOME/continuity/<bank-id>.index.json` is a **derived, disposable** map of every `ep_*.md` to `(mtime_ns, size, row)`, where a
-row is the head scalars of a Stop-hook episode (`id`, `harness`, `session_id`, `project_dir`, `captured_at`,
+row is the head scalars of a Stop-hook episode (`id`, `harness`, `session_id`, `cwd_hash`, `captured_at`,
 `last_turn_at`, `processed`, `processed_by`) read from at most 16 KB up to the first `turns:` key — never a full parse
 inside a hook. It lives **beside the registry, never inside a bank** (G110 fix round 2: proving that git ignored an
 in-bank file proved unreliable, so nothing is written there and no git runs on this path). It shares the registry's
 guarded home, no-follow regular-file opens and 0600 files; its lock is `<bank-id>.index.lock` beside it; with no safe
 home, contention or any I/O failure it stays in process memory. Its rows keep `capture_kind`, so a persisted index
-decodes after a restart. An older in-bank `continuity_index.json` is ignored, never read and never deleted. A wrong schema or malformed row is rebuilt; it is never an error and never an authoritative absence.
+decodes after a restart. Schema 2 derives `cwd_hash = sha256(project_dir)[:16]` from episode frontmatter;
+the plaintext path remains only in that episode, and no title or turn is persisted in the index. Cached rows accept
+validated hashes, not paths. Selection compares the hook cwd's hash; the chosen full parse revalidates against the
+actual episode path value, never a frontmatter-supplied hash. Schema-1 path caches and extra cached fields are replaced
+atomically on a successful index write, even for an empty, missing or unreadable episodes directory; episodes are
+unchanged. An older in-bank `continuity_index.json` is ignored, never read and never deleted. A wrong schema or
+malformed row is rebuilt; it is never an error and never an authoritative absence.
 
 The **continuity registry** (`api/services/continuity_sessions.py`, `$CICADA_HOME/continuity/<bank slug>-<hash8>.json`)
 is outside every bank — `continuity_home` refuses a `CICADA_HOME` that resolves (symlinks followed) inside the memory
