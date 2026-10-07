@@ -76,6 +76,7 @@ HEAD_SHARE = (3, 5)
 TAIL_BLOCK_TURNS = 10
 
 CODE_OMITTED = "[code omitted]"
+REPLY_TAIL_PREFIX = "…"  # a mid-line cut must never manufacture a turn marker
 
 # Harness-injected user text, by the tag it opens with (R5). Verified against
 # a real transcript's key names on 2026-09-03: these wear the user role but
@@ -259,12 +260,13 @@ class _Builder:
         cap = self.first_cap if first else self.turn_cap
         reply_gap = None
         if len(cleaned) > cap:
-            if role == "assistant" and cap > len(REPLY_GAP_LINE) + 2:
+            # Two newlines plus the prefix and at least one character on each side.
+            if role == "assistant" and cap >= len(REPLY_GAP_LINE) + len(REPLY_TAIL_PREFIX) + 4:
                 marker = "\n" + REPLY_GAP_LINE + "\n"
-                kept = cap - len(marker)
+                kept = cap - len(marker) - len(REPLY_TAIL_PREFIX)
                 head, tail = (kept + 1) // 2, kept // 2
                 reply_gap = {"offset": head + 1, "omitted_chars": len(cleaned) - kept}
-                cleaned = cleaned[:head] + marker + cleaned[-tail:]
+                cleaned = cleaned[:head] + marker + REPLY_TAIL_PREFIX + cleaned[-tail:]
             else:
                 cleaned = cleaned[:cap - 1] + "…"
             if first:

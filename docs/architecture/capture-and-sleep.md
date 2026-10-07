@@ -64,7 +64,10 @@ Seven rails hold across all of them:
   Structurally excluded housekeeping/meta records and empty cleaned messages do not consume that allowance.
   Later person turns keep their head up to 2,000. A final agent reply keeps approximately equal head and tail
   within its existing 2,000-character budget, including the newline-delimited
-  `[Cicada: part of this reply was not kept]` gap. The omitted count is over cleaned text; neither raw secrets
+  `[Cicada: part of this reply was not kept]` gap and a fixed `…` prefix on the resumed tail. The prefix prevents
+  a mid-line cut from manufacturing a turn-marker line (`user:`, `assistant:`, `speaker:`, timed video, etc.).
+  Both fragments remain nonempty; tiny explicit caps that cannot fit the gap, prefix and both sides use head clipping.
+  The recorded gap offset and omitted count use the actual kept cleaned text; neither raw secrets
   nor code are retained elsewhere. Short replies stay whole. Tool calls/intermediate replies remain excluded.
   The first message spends the same session budget as every other turn; the 100,000-character ceiling is unchanged.
   A paired synthetic Stage-1 diagnostic (20 sessions, first person message 14k, six turns each) grew stored body

@@ -181,3 +181,39 @@ def test_untimed_reply_tail_keeps_original_turn_speaker_when_other_turns_are_tim
 def test_zero_turn_cap_override_keeps_legacy_default_instead_of_removing_first_limit():
     conv = tx.extract_claude_code(lines("claude-code", [("user", "first role " * 1700)]), turn_cap=0)
     assert len(conv.turns[0].text) == tx.TURN_CAP_CHARS
+
+
+@pytest.mark.parametrize("harness", tx.HARNESSES)
+@pytest.mark.parametrize("marker", ["user: ", "assistant: ", "speaker:x: ", "video [01:23]: "])
+def test_reply_tail_cut_cannot_manufacture_a_turn_marker(tmp_path, monkeypatch, harness, marker):
+    # No original newline: the cut would manufacture column one at this marker.
+    tail_chars = (tx.TURN_CAP_CHARS - len(MARKER) - 2) // 2
+    tail_text = (marker + "probe-tail-sentinel " + "more context " * 100)[:tail_chars - 1] + "."
+    reply = "agent report: " + "context " * 400 + "see the field " + tail_text
+    assert "\n" not in reply and reply[-tail_chars:] == tail_text
+    memory, result, doc = capture(tmp_path, monkeypatch, harness, [("user", "first role"), ("assistant", reply)])
+    gaps = evidence.gap_ranges(doc.frontmatter, doc.body)
+    (g0, g1), = gaps
+    at = doc.body.index("probe-tail-sentinel")
+    assert evidence.speaker_kind(doc.body, at, gaps=gaps) == "assistant"
+    assert evidence.turn_at(doc.body, at, evidence.turn_stamps(doc.frontmatter), gaps) == {
+        "number": 2, "of": 2, "ts": "2026-10-07T10:00:01+00:00", "speaker": "assistant"}
+    ev = evidence.verify(memory, result.episode_id, "probe-tail-sentinel")
+    assert ev.kind == "assistant" and ev.start == at and doc.body[ev.start:ev.end] == "probe-tail-sentinel"
+    reader = provenance.episode_document(memory, result.episode_id)
+    assert [t.role for t in reader.turns] == ["user", "assistant", "gap", "assistant"]
+    assert reader.turns[-1].model == "synthetic-model" and reader.turns[-1].effort == "high"
+    conv = tx.extract(harness, lines(harness, [("user", "first role"), ("assistant", reply)]))
+    assert len(conv.turns[1].text) == 2000 and doc.frontmatter["turn_count"] == 2
+    assert doc.body[g0:g1] == MARKER and doc.frontmatter["reply_gaps"][0]["offset"] == g0
+    assert doc.body[g1 + 1:].startswith("…" + tail_text)
+    omitted = doc.frontmatter["reply_gaps"][0]["omitted_chars"]
+    assert omitted == len(reply) - (2000 - len(MARKER) - 2 - 1)
+
+
+@pytest.mark.parametrize("cap", [len(MARKER) + 3, len(MARKER) + 4])
+def test_tiny_reply_cap_does_not_overflow_when_safe_tail_prefix_cannot_fit(cap):
+    conv = tx.extract_claude_code(lines("claude-code", [("user", "brief"), ("assistant", "context " * 400)]),
+                                 turn_cap=cap)
+    assert len(conv.turns[1].text) == cap and conv.turns[1].text.endswith("…")
+    assert conv.turns[1].reply_gap is None
