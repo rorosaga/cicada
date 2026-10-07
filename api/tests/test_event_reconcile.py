@@ -241,9 +241,9 @@ def test_events_never_reach_the_k_table(tmp_path):
 
 # The readers (R-PJ3, R-PJB11) and expiry ------------------------------------
 
-def test_a_born_closed_happening_stays_dated_history_everywhere_it_is_read(tmp_path, monkeypatch):
+def test_a_born_closed_happening_stays_visible_as_a_dated_event(tmp_path, monkeypatch):
     """Not current in `get_perspective`, not a graph edge — but found in FTS as
-    a dated historical `done` hit, and cited by its episode as history."""
+    a dated historical `done` hit, and cited without an obsolete-belief label."""
     import importlib.util
     import sys
     from datetime import date
@@ -286,7 +286,17 @@ def test_a_born_closed_happening_stays_dated_history_everywhere_it_is_read(tmp_p
 
     cites = provenance.episode_citations(memory, EP)
     row = next(c for c in cites.citations if c.claim_id == claim.id)
-    assert row.current is False and (row.event_status, row.event_day) == ("done", "2026-09-22")
+    assert row.current is True and (row.event_status, row.event_day) == ("done", "2026-09-22")
+    # A later event state, unlike being born closed, does obsolete this row.
+    from api.services.claims import write_claims
+    page = memory / "entities" / "alpha-project.md"
+    parsed = markdown_parser.parse(page)
+    rows = parse_claims(parsed.body)
+    next(c for c in rows if c.id == claim.id).superseded_by = "clm_later_event"
+    markdown_parser.write(page, parsed.frontmatter, write_claims(parsed.body, rows))
+    bank_index.invalidate()
+    row = next(c for c in provenance.episode_citations(memory, EP).citations if c.claim_id == claim.id)
+    assert row.current is False
 
 
 def test_expiry_never_closes_a_milestone_by_its_target(tmp_path):

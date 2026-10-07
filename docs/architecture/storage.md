@@ -141,8 +141,8 @@ done | missed | dropped), with four optional fields omitted when empty — `stat
 sentence — no wikilinks in YAML) and `date_basis` (stated | turn | episode | person | written). A
 done happening is **born closed** (`valid_to == valid_from`), so every reader that treats open as
 current stays right; the history readers call `claims.is_event` (a grep gate enforces it). Events are
-not withdrawal records: they stay in FTS and citations, where closed ones read
-as dated history rather than current beliefs. A milestone's slot is `(subject, milestone, slug)` across observers — the slug is its
+not records: they stay in FTS and citations, where they read as dated happenings,
+never 'no longer current'. A milestone's slot is `(subject, milestone, slug)` across observers — the slug is its
 `object`, never its `context`. Event cardinality is multi and lives in code. **Only `progress.py`
 writes an event**: `write_claim` refuses the predicates, `claim_pipeline` relabels a stray label.
 Dates are decided by `when.py`'s closed table; nothing relative is stored. `companion_app` is a
@@ -683,8 +683,9 @@ and reads stop presenting them as current even before the next expiry commit.
 The stated-end parser is shared with `claim_expiry`; milestone targets are not
 expiry dates. History remains in markdown, FTS and provenance. Search keeps
 closure metadata and sorts current claims first; closed events keep their day
-and state and render as past events or earlier states. Episode citations mark
-closed events `current: false`. Vector claim reads recheck the candidate page,
+and state and render as past events or earlier states. Episode citations keep
+unsuperseded events visible (`current: true` means no obsolete-belief styling
+on that wire contract); a successor marks an earlier event state. Vector claim reads recheck the candidate page,
 so a stale vector cannot resurrect a closed claim or a deleted page. The FTS
 schema version is 5 (stated-end metadata); the cache rebuilds automatically.
 FTS candidate claims are rechecked against markdown too, so a rebuilding or

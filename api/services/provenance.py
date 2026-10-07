@@ -526,8 +526,9 @@ def episode_citations(memory_path: Path, doc_id: str) -> EpisodeCitations | None
                 "authored_by": git_service.canonical_author(claim.authored_by), "observer": claim.observer,
             }
             if is_event(claim):
-                # Keep the dated happening while respecting its validity.
-                base.update(event_status=claim.status,
+                # G141: a dated happening is not an obsolete belief. Only
+                # a successor makes its citation an earlier event state.
+                base.update(current=not bool(claim.superseded_by), event_status=claim.status,
                             event_day=claim.valid_from)
             mine = [ev for ev in claim.evidence if ev.episode == doc_id]
             spans = [ev for ev in mine if ev.is_span()]

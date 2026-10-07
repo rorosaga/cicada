@@ -1213,7 +1213,8 @@ class EpisodeCitation(CamelModel):
     ``evidence`` is the stored entry for a span or reasoning row, ``None`` for
     a derived one. ``start``/``end`` are what to wash — the asserted offsets,
     a derived name match, or ``None`` (reasoning, no match, or ``stale``:
-    R-PB2). ``current`` is false for a superseded or closed claim."""
+    R-PB2). ``current`` is false for a superseded or closed belief; dated events
+    stay visible unless superseded (G141)."""
 
     claim_id: str
     subject_id: str
@@ -1230,7 +1231,7 @@ class EpisodeCitation(CamelModel):
     stale: bool = False
     grown: bool = False
     derived: bool = False
-    # G141 — closed events remain dated happenings; current is false.
+    # G141 — born-closed events remain visible unless superseded.
     event_status: Optional[str] = None
     event_day: Optional[str] = None
     # G162: on a `media` row only — how faithful the video's words are.
