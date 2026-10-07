@@ -38,8 +38,14 @@ Seven rails hold across all of them:
   Connect through `flushOn`). Stop stays the trigger (TODO ruling 7): a flush is the same idempotent request —
   `unchanged` after a Stop with no new turn — and it is the only capture of a turn the person interrupted (no Stop
   fires) before compacting, clearing or quitting, which the next continuity note then discloses as "its last request
-  has no captured reply". A SessionEnd flush posts with a 1.2 s client timeout inside the harness's 1.5 s SessionEnd
-  budget (the backend finishes the write regardless). Every `~/.cicada/logs/capture.log` line names its event
+  has no captured reply". A SessionEnd flush bounds its request with a 1.2 s client timeout (a socket
+  timeout, not a whole-process deadline; the backend finishes the write regardless). Claude Code's SessionEnd budget is
+  1.5 s by default but is raised to the largest per-hook `timeout` in the settings files, and Cicada registers 5 s — so
+  the flush can delay an exit by about that request timeout plus interpreter start, not "within 1.5 s". **A stale
+  capture never overwrites a newer one** (fix round 1): a write records the transcript bytes it read
+  (`transcript_bytes`, outside `content_hash`), and under `episode_lock` a capture that read fewer bytes than the
+  episode stores — while the file now holds at least that much — writes nothing and answers `superseded` (a flush that
+  stalled while a later Stop committed). A transcript that really shrank is still captured. Every `~/.cicada/logs/capture.log` line names its event
   (`<harness> <sid8> Stop|PreCompact|SessionEnd|other …`), so ruling 7's revisit signal — a Stop `error:` line — is
   never confused with a flush's; the capture ledger row carries the same enum as `event`. `autosave` in
   `/agents/wiring` stays the Stop hook alone, so an install from before the flush is never shown as broken; `make doctor`
@@ -59,9 +65,19 @@ Seven rails hold across all of them:
   move, so G118 spans into it stay exact) — then one marker line, `[Cicada: <k> turns from <t1> to <t2> were not
   kept]` (`evidence.gap_line`, the one spelling), then the TAIL: the latest turns within 40,000, starting on a
   multiple of `TAIL_BLOCK_TURNS` (10) so it advances in blocks of whole turns rather than on every Stop; the latest
-  turn is always kept. The marker opens no turn and is nobody's words: a span that touches it is `reasoning`
-  (`evidence.verify`), and the continuity reader strips it from the head's last turn. The G118 sidecar and
-  `tail_turns` are built from the head and the tail separately, so every offset stays exact around it. **The G104
+  turn is always kept. **The marker is Cicada's own line, never a speaker's, for every consumer** (fix round 1): it
+  is its own kind, `gap`, in evidence's one marker grammar (a WHOLE line only — the same words typed inside a person's
+  turn stay theirs), so it ends the turn before it; `speaker_kind`/`kind_for` answer `gap` inside it and no declared
+  authorship covers it; `verify` makes any span touching it `reasoning`; the Reader draws it as its own block
+  labelled "Not captured · Cicada's note", and turn numbering (`turn_at`) skips it; a focus on it never highlights;
+  the lexical index and the vector chunks blank it to spaces (`evidence.mask_gaps`, offsets kept) and a
+  search hit landing on it carries no span, kind or hash; Sleep's extraction receives it as a labelled
+  "(Cicada's note, not part of the conversation …)" line, never as conversation text; and `capture_gap.offset` is its
+  authoritative position, which the continuity reader uses to cut it from the head's last turn. The G118 sidecar and
+  `tail_turns` are built from the head and the tail separately, so every offset stays exact around it. A reply's
+  `model`/`effort` that only the stored sidecar knew is carried to the new sidecar only for the SAME reply — same time
+  and the identical rendered text at its old offset — and remapped to wherever it sits now; a reply that slid onto an
+  old offset never inherits another's. **The G104
   costs the ruling accepted, stated plainly:** (1) while an over-cap session is active, every Stop with a new turn
   changes the body and re-queues the episode for a whole-body re-extraction — no `metadata` short-cut, unlike the
   head-only cap it replaced; (2) when the tail slides, a claim quoting a turn that slid out is re-extracted as
@@ -74,7 +90,7 @@ Seven rails hold across all of them:
   `CICADA_CAPTURE=off`. **Where capture stopped (G110 slice 1a).** Every write also records, outside
   `content_hash` and before `turns`: `last_turn_at` (the last kept turn's own time), `turn_count`, `tail_turns`
   (the last 8 kept turns as `{offset, speaker, at?}`, exact offsets into the body — the G118 sidecar stops at 500
-  and skips untimed turns), `capture_gap` (`{dropped_turns, first_dropped_at?, last_dropped_at?}`, only while the
+  and skips untimed turns), `capture_gap` (`{dropped_turns, first_dropped_at?, last_dropped_at?, offset}`, only while the
   session cap drops the middle; an episode captured before gate B2 may still carry the older
   `{dropped_turns, last_seen_at}`, which the continuity note reads as "turns past the limit") and `capture_flags` (`{note_like_turns}`, kept person turns holding a line that opens like a
   Cicada note — counted and kept, never removed for that), plus `continues`: the one episode id the continuity

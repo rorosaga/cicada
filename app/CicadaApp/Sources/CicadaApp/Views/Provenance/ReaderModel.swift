@@ -95,6 +95,9 @@ enum EvidenceSpeaker {
             return Copy.Videos.mediaTurnMeta(time: mediaTime(turn.t), fidelity: turn.fidelity)
         case "speaker":
             return named(turn.speaker) ?? Copy.Provenance.someoneElse
+        case "gap":
+            // G110 gate B2 — the dropped-middle marker: Cicada's own line, never "You" or the agent.
+            return Copy.Provenance.notCaptured
         default:
             switch turn.marker {
             case "system": return Copy.Provenance.setupMessage

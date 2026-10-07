@@ -407,7 +407,8 @@ class SessionView:
 
     def turns(self) -> list[Turn]:
         if self._turns is None:
-            self._turns = split_turns(self.body, self.sidecar, self.tail, self.turn_count)
+            self._turns = split_turns(self.body, self.sidecar, self.tail, self.turn_count,
+                                      gap_at=gap_offset(self.body, self.capture_gap))
         return self._turns
 
 
@@ -448,7 +449,19 @@ def _offsets(entries) -> dict[int, dict]:
     return out
 
 
-def split_turns(body: str, sidecar, tail, turn_count: int) -> list[Turn]:
+def gap_offset(body: str, capture_gap: dict | None) -> int | None:
+    """The gap marker's stored offset (gate B2), only when the body really has a
+    marker line there — the authoritative range, so marker-like words a person
+    typed elsewhere are never cut."""
+    at = (capture_gap or {}).get("offset")
+    if not isinstance(at, int) or isinstance(at, bool) or not 0 <= at < len(body):
+        return None
+    end = body.find("\n", at)
+    return at if (at == 0 or body[at - 1] == "\n") and evidence.is_gap_line(body[at:None if end == -1 else end]) \
+        else None
+
+
+def split_turns(body: str, sidecar, tail, turn_count: int, *, gap_at: int | None = None) -> list[Turn]:
     """The body's turns, numbered from 1. Boundaries come from exact offsets —
     the G118 sidecar (the first ≤ 500 timed turns) and ``tail_turns`` (the last
     8, consecutive) — and ``turn_count`` says how many there are. When those
@@ -490,10 +503,13 @@ def split_turns(body: str, sidecar, tail, turn_count: int) -> list[Turn]:
     for n, s0 in enumerate(starts, start=1):
         e0 = starts[n] if n < len(starts) else end_of_body
         chunk = body[s0:e0 - 1]
-        for g0, g1 in reversed(evidence.gap_spans(chunk)):
-            # Gate B2: the dropped-middle marker trails the head's last turn; it
-            # is not that turn's words (the gap is said in "Not captured").
-            chunk = (chunk[:g0].rstrip("\n") + chunk[g1:]).rstrip("\n")
+        if gap_at is not None and s0 <= gap_at < e0:
+            # Gate B2: the dropped-middle marker (at its stored offset) trails the
+            # head's last turn; it is not that turn's words ("Not captured" says it).
+            cut = gap_at - s0
+            rest = chunk[cut:]
+            end = rest.find("\n")
+            chunk = (chunk[:cut].rstrip("\n") + ("" if end == -1 else rest[end:])).rstrip("\n")
         speaker, _, text = chunk.partition(": ")
         if speaker not in ("user", "assistant"):
             speaker, text = "unknown", chunk

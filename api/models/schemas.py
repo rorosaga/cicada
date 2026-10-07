@@ -1013,7 +1013,9 @@ class EpisodeTurn(CamelModel):
     """One turn of a document (G118 slice 2, design §4.8.1) — offsets into the
     evidence text, never a copy of it. See ``evidence.TurnSpan``: ``role`` is
     ``user`` | ``assistant`` | ``speaker`` (a note-taker's ``speaker:<label>:``
-    line, R-LS7) | ``media`` (a timed ``video [m:ss]:`` line, G140) | ``page``;
+    line, R-LS7) | ``media`` (a timed ``video [m:ss]:`` line, G140) | ``page``
+    | ``gap`` (G110 gate B2: Cicada's dropped-middle line in a long captured
+    session — nobody's words);
     ``marker`` is the word as written (``None`` for a marker-less block);
     ``ts``/``speaker`` exist only where the episode stores a ``turns`` sidecar
     entry for this turn; ``t`` = seconds into the video for a media turn

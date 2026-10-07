@@ -2,6 +2,7 @@
 
 import asyncio
 import hashlib
+import re
 import sys
 from pathlib import Path
 from typing import Callable
@@ -251,6 +252,22 @@ MEMORY_SOURCE_NOTE = (
 )
 
 
+#: G110 gate B2: how a captured session's dropped-middle marker reaches the
+#: model — a labelled note, never a line that reads as conversation. One line for
+#: one line, so the chunk keeps its shape; a quote from it cannot be located in
+#: the body and stays `reasoning`.
+GAP_NOTE_PREFIX = "(Cicada's note, not part of the conversation and nobody's words:"
+
+
+def _label_gaps(chunk: str) -> str:
+    spans = evidence.gap_spans(chunk)
+    for g0, g1 in reversed(spans):
+        count = re.search(r"\d+", chunk[g0:g1]).group(0)
+        note = f"{GAP_NOTE_PREFIX} {count} turns here were not captured — never quote or attribute this line.)"
+        chunk = chunk[:g0] + note + chunk[g1:]
+    return chunk
+
+
 async def _extract_chunk(
     ep_id: str,
     chunk: str,
@@ -269,6 +286,7 @@ async def _extract_chunk(
     episode is counted failed and requeued. JSON parsing is lenient to tolerate a
     reasoning model that wraps the object in fences or prose.
     """
+    chunk = _label_gaps(chunk)
     try:
         from api.services.providers import resolve_llm_fn
 

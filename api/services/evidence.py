@@ -92,10 +92,15 @@ _SPEAKER_RE = re.compile(r"^speaker:[^:\n]{1,64}:")
 # the document's words, never the person's (a pasted contract is not "You said").
 _ATTACHMENT_RE = re.compile(r"^attachment\s*\[[^\]\n]{1,128}\]\s*:", re.IGNORECASE)
 # G110 gate B2: the one line a captured session's body carries where the
-# session cap dropped its middle (`transcript_capture`). It opens no turn and is
-# nobody's words: a span that touches it is `reasoning` (`verify`), and a
-# continuity reader strips it from the turn it would otherwise trail.
+# session cap dropped its middle (`transcript_capture`). It is part of the ONE
+# marker grammar below as its own kind, `gap` — Cicada's line, nobody's words:
+# it ends the turn before it, `speaker_kind`/`kind_for` answer `gap` inside it,
+# the Reader draws it as its own non-speaker block, a span touching it is
+# `reasoning` (`verify`), search blanks it (`mask_gaps`) and Sleep reads it as a
+# labelled note. Only a WHOLE line matches: the same words typed inside a
+# person's turn stay theirs.
 _GAP_LINE_RE = re.compile(r"^\[Cicada: \d+ turns? (?:from \S+ to \S+ )?were not kept\]$", re.MULTILINE)
+GAP_KIND = "gap"
 # R-F2 / R-LS7: an episode may declare whose words it holds (a folder file's
 # authorship). Only these two values are honoured; anything else falls back to markers.
 OVERRIDE_KINDS = frozenset({"user", "assistant"})
@@ -119,6 +124,22 @@ def gap_spans(text: str) -> list[tuple[int, int]]:
     if "[Cicada: " not in (text or ""):
         return []
     return [(m.start(), m.end()) for m in _GAP_LINE_RE.finditer(text)]
+
+
+def mask_gaps(text: str) -> str:
+    """``text`` with every marker line blanked to spaces of the same length, so
+    a derived index keeps exact offsets into the body but never holds the
+    marker's words as anyone's (search passages, vector chunks)."""
+    spans = gap_spans(text)
+    if not spans:
+        return text
+    out, at = [], 0
+    for g0, g1 in spans:
+        out.append(text[at:g0])
+        out.append(" " * (g1 - g0))
+        at = g1
+    out.append(text[at:])
+    return "".join(out)
 
 
 def body_hash(text: str) -> str:
@@ -244,6 +265,9 @@ def _marker(line: str) -> tuple[str, str, int, str | None] | None:
     label is a name, not a keyword); ``marker end`` is just past the marker's
     colon; ``time`` is the raw ``m:ss`` of a media line, ``None`` otherwise.
     """
+    if line.startswith("[Cicada: ") and _GAP_LINE_RE.fullmatch(line.rstrip("\r\n")):
+        # Gate B2: the whole line is the block's content — Cicada's words, shown as such.
+        return GAP_KIND, GAP_KIND, 0, None
     m = _SPEAKER_RE.match(line)
     if m:
         return "speaker", m.group(0)[:-1], m.end(), None
@@ -327,9 +351,10 @@ def kind_for(doc_id: str, text: str, start: int, override: str | None = None) ->
     :data:`OVERRIDE_KINDS`, else the turn marker at ``start``."""
     if not is_episode_id(doc_id):
         return "page"
-    if override in OVERRIDE_KINDS:
-        return override
-    return speaker_kind(text, start)
+    kind = speaker_kind(text, start)
+    if kind == GAP_KIND:
+        return kind                     # gate B2: no declared authorship covers Cicada's own line
+    return override if override in OVERRIDE_KINDS else kind
 
 
 def _marker_lines(text: str) -> list[tuple[int, str, str, int, str | None]]:
@@ -420,7 +445,7 @@ def turns(text: str, *, page: bool = False, stamps: dict[int, dict] | None = Non
         nxt = blocks[i + 1][0] if i + 1 < len(blocks) else len(text)
         end = start + len(text[start:nxt].rstrip("\r\n"))
         stamp = stamps.get(start) or {}
-        role = forced or kind
+        role = kind if kind == GAP_KIND else (forced or kind)
         out.append(TurnSpan(
             index=i + 1, start=start, content_start=min(content_start, end), end=end,
             role=role, marker=marker, ts=stamp.get("ts"), speaker=stamp.get("speaker"),
@@ -466,21 +491,23 @@ def turn_at(text: str, start: int, stamps: dict[int, dict] | None) -> dict | Non
     """Which turn a span starts in (R-LS2): ``{number, of, ts, speaker}``, or
     ``None`` when the episode stores no ``turns`` sidecar (written before it
     existed, or nothing it holds had a time). ``number``/``of`` count the
-    turns :func:`turns` reads, so the span endpoint and the Reader agree;
+    turns :func:`turns` reads — a gate-B2 ``gap`` block is not a turn and is
+    skipped (the Reader's block ``index`` still counts it);
     ``ts`` is the sidecar entry at exactly that turn's start and ``speaker``
     falls back to the turn's own written marker — never an inferred value.
     Computed at read, never stored on a claim."""
     if not stamps:
         return None
-    spans = turns(text, stamps=stamps)
-    hit = None
-    for t in spans:
+    # Gate B2: the gap marker is a block, not a turn — never counted or landed on.
+    spans = [t for t in turns(text, stamps=stamps) if t.role != GAP_KIND]
+    hit, number = None, 0
+    for n, t in enumerate(spans, start=1):
         if t.start > start:
             break
-        hit = t
+        hit, number = t, n
     if hit is None:
         return None
-    return {"number": hit.index, "of": len(spans), "ts": hit.ts, "speaker": hit.speaker or hit.marker}
+    return {"number": number, "of": len(spans), "ts": hit.ts, "speaker": hit.speaker or hit.marker}
 
 
 # G118 slice 2 (design amendment A7) — what a stored span's hash says about the
@@ -580,10 +607,10 @@ def verify(
     if span is None:
         return reasoning(doc_id, hash=digest)
     start, end = span
-    if any(g0 < end and start < g1 for g0, g1 in gap_spans(text)):
+    kind = kind_for(doc_id, text, start, kind_override)
+    if kind == GAP_KIND or any(g0 < end and start < g1 for g0, g1 in gap_spans(text)):
         # Gate B2: the dropped-middle marker is Cicada's line, not anyone's words.
         return reasoning(doc_id, hash=digest)
-    kind = kind_for(doc_id, text, start, kind_override)
     return Evidence(episode=doc_id, start=start, end=end, kind=kind, hash=digest)
 
 

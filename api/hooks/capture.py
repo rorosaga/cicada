@@ -27,8 +27,14 @@ G110 gate A (ruling 2026-10-07): the same script is ALSO registered under
 trigger; a flush is the same idempotent request (``unchanged`` after a Stop
 with no new turn), and it is the only capture of a turn the person interrupted
 — no Stop fires — before compacting, clearing or quitting. A SessionEnd flush
-posts with :data:`SESSION_END_TIMEOUT_S`, inside the harness's 1.5 s
-SessionEnd budget. Every log line names its event, so ruling 7's revisit
+bounds its REQUEST with :data:`SESSION_END_TIMEOUT_S` (a socket timeout, not a
+whole-process deadline). Claude Code's SessionEnd budget is 1.5 s by default
+but is raised to the largest per-hook ``timeout`` in the settings files, and
+Cicada registers 5 s (``registry.DEFAULT_TIMEOUT_S``) — so a slow exit is
+bounded by that request timeout plus interpreter start, not by 1.5 s. A
+concurrent or delayed capture never overwrites a newer one: the writer refuses
+a read of fewer transcript bytes than the episode stores (``superseded``).
+Every log line names its event, so ruling 7's revisit
 signal (a Stop ``error:`` line) never mixes with a flush's.
 
 Stdlib only, run by path: a hook has no cwd guarantee and no venv on its
@@ -64,8 +70,8 @@ import urllib.request
 from pathlib import Path
 
 TIMEOUT_S = 3.0
-#: G110 gate A: a SessionEnd hook shares the harness's 1.5 s budget, so its
-#: flush gives up first and says so in the log (the backend finishes regardless).
+#: G110 gate A: a SessionEnd flush delays the session's exit, so its request
+#: gives up early and says so in the log (the backend finishes the write regardless).
 SESSION_END_TIMEOUT_S = 1.2
 #: The events this script is registered under; anything else logs as ``other``.
 EVENTS = ("Stop", "PreCompact", "SessionEnd")

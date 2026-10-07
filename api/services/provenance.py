@@ -87,6 +87,8 @@ def _asserted_focus(doc_id: str, text: str, start: int, end: int, hash: str | No
     # R-LS7: the one kind decision — a folder file's declared authorship wins
     # over markers, exactly as the stored span's kind was minted.
     kind = evidence.kind_for(doc_id, text, start, override)
+    if kind == evidence.GAP_KIND:
+        return EpisodeFocus(kind=kind)  # gate B2: Cicada's gap line is nobody's words — never highlighted
     if status == evidence.SPAN_STALE:
         return EpisodeFocus(kind=kind, stale=True)  # R-PB2: no offsets to wash
     return EpisodeFocus(start=start, end=end, kind=kind, grown=status == evidence.SPAN_GROWN)

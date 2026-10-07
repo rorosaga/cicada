@@ -29,7 +29,7 @@ from typing import Callable
 import numpy as np
 from loguru import logger
 
-from api.services import markdown_parser
+from api.services import evidence, markdown_parser
 from api.services import pending_store as _store
 # G141 PJ-0b (R-HP1): the pending store is its own module now. These two names
 # stay importable from here — entity_resolver, link_recon and the tests use them.
@@ -928,8 +928,10 @@ def _text_hash(text: str) -> str:
 
 
 def _chunk_episode_body(body: str) -> list[str]:
-    """Split an episode body into overlapping passages for embedding."""
-    body = body.strip()
+    """Split an episode body into overlapping passages for embedding. A gap
+    marker (G110 gate B2) is blanked first, exactly as the lexical index blanks
+    it, so a chunk still finds its passage and never embeds Cicada's own line."""
+    body = evidence.mask_gaps(body).strip()
     if not body:
         return []
     if len(body) <= EPISODE_CHUNK_CHARS:

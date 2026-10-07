@@ -181,7 +181,7 @@ async def capture_transcript_endpoint(
     harness root before a byte is read, and a refusal is a 400 carrying the
     enum reason plus a ledger row, never a partial write. One episode per
     session, updated in place on every later firing (R3); ``status`` says
-    which of ``created | updated | unchanged | empty`` happened. Runs the
+    which of ``created | updated | unchanged | metadata | superseded | empty`` happened. Runs the
     read + parse off the event loop — an 85 MB transcript takes real time
     and must not stall SSE or the app.
 
