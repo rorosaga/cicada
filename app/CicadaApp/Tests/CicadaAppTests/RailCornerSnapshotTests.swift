@@ -2,44 +2,42 @@ import SwiftUI
 import XCTest
 @testable import CicadaApp
 
-/// Owner 2026-10-07 — the rail's corner has two answers (`RailCorner`); the owner picks by looking. This writes both,
-/// offscreen, never launching the app: a mock window (the AppKit band as its window colour, mock traffic lights and
-/// command bar) holding the real `NavRail` and the real `shellContentPanel()`, in both themes, at 1× and the window's
-/// top-left region at 3×. Opt-in: `CICADA_RAIL_CORNER_SNAPSHOTS=<dir> swift test --filter RailCornerSnapshotTests`.
+/// Owner 2026-10-07 — the rail and the titlebar band are one frame around a page panel with a rounded top-leading
+/// corner. This writes it offscreen, never launching the app: a mock window (the AppKit band as its window colour, mock
+/// traffic lights and command bar) holding the real `NavRail` and the real `shellContentPanel()`, in both themes, at 1×
+/// and the window's top-left region at 3×. Opt-in: `CICADA_RAIL_CORNER_SNAPSHOTS=<dir> swift test --filter
+/// RailCornerSnapshotTests`.
 @MainActor
 final class RailCornerSnapshotTests: XCTestCase {
     private static let size = CGSize(width: 960, height: 600)
     private static let band: CGFloat = 52
     private static let zoomRegion = CGRect(x: 0, y: 0, width: 220, height: 180)
 
-    func test_writeBothVariantsWhenAsked() throws {
+    func test_writeTheFrameWhenAsked() throws {
         guard let path = ProcessInfo.processInfo.environment["CICADA_RAIL_CORNER_SNAPSHOTS"] else { return }
         let dir = URL(fileURLWithPath: path)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let saved = CicadaTheme.mode
         defer { CicadaTheme.mode = saved }
-        for corner in RailCorner.allCases {
-            for mode in AppColorScheme.allCases {
-                CicadaTheme.mode = mode
-                let name = "variant\(corner == .oneFrame ? "A" : "B")-\(mode.rawValue)"
-                try write(window(corner, mode), scale: 1, crop: nil, to: dir.appendingPathComponent("\(name).png"))
-                try write(window(corner, mode), scale: 3, crop: Self.zoomRegion,
-                          to: dir.appendingPathComponent("\(name)-zoom3x.png"))
-            }
+        for mode in AppColorScheme.allCases {
+            CicadaTheme.mode = mode
+            let name = "rail-corner-\(mode.rawValue)"
+            try write(window(mode), scale: 1, crop: nil, to: dir.appendingPathComponent("\(name).png"))
+            try write(window(mode), scale: 3, crop: Self.zoomRegion, to: dir.appendingPathComponent("\(name)-zoom3x.png"))
         }
         print("rail corner snapshots: \(dir.path)")
     }
 
-    private func window(_ corner: RailCorner, _ mode: AppColorScheme) -> some View {
+    private func window(_ mode: AppColorScheme) -> some View {
         ZStack(alignment: .topLeading) {
-            Color(nsColor: CicadaTheme.titlebarBackground(for: mode, corner: corner))
+            Color(nsColor: CicadaTheme.titlebarBackground(for: mode))
             VStack(spacing: 0) {
                 titlebar.frame(height: Self.band)
                 HStack(spacing: 0) {
                     NavRail(selectedTab: .constant(.sleep), labelled: false, inboxCount: 3, isSleeping: false,
-                            needsAttention: false, corner: corner)
+                            needsAttention: false)
                         .zIndex(1)
-                    page.frame(maxWidth: .infinity, maxHeight: .infinity).shellContentPanel(corner)
+                    page.frame(maxWidth: .infinity, maxHeight: .infinity).shellContentPanel()
                 }
             }
         }

@@ -485,8 +485,8 @@ struct CicadaApp: App {
         }
         // G137 R-M10: the one AppKit surface that paints a theme colour reads
         // the token — the hand-copied RGB that was here went stale the moment
-        // the neutrals moved. The band takes the rail's surface when the corner
-        // switch makes them one frame (`RailCorner`, owner 2026-10-07).
+        // the neutrals moved. The band takes the rail's surface: band and rail
+        // are one frame around the page panel (owner 2026-10-07).
         window.backgroundColor = CicadaTheme.titlebarBackground(for: mode)
     }
 

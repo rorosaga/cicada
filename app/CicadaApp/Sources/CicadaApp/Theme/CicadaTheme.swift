@@ -309,12 +309,11 @@ enum CicadaTheme {
         NSColor(mode == .dark ? Dark.bgBase : Light.bgBase)
     }
 
-    /// The AppKit window colour, which is what the transparent titlebar band shows (owner 2026-10-07): the rail's
-    /// surface when the corner switch makes band and rail one frame (`RailCorner.oneFrame`), else `bgBase`.
-    /// `windowBackground` stays `bgBase` — `AccentInk` measures the accent against the page, not the band.
-    static func titlebarBackground(for mode: AppColorScheme, corner: RailCorner = .current) -> NSColor {
-        guard corner.titlebarIsRail else { return windowBackground(for: mode) }
-        return NSColor(mode == .dark ? Dark.bgRail : Light.bgRail)
+    /// The AppKit window colour, which is what the transparent titlebar band shows: the rail's surface, so band and rail
+    /// read as one frame around the page panel (owner 2026-10-07). `windowBackground` stays `bgBase` — `AccentInk`
+    /// measures the accent against the page, not the band.
+    static func titlebarBackground(for mode: AppColorScheme) -> NSColor {
+        NSColor(mode == .dark ? Dark.bgRail : Light.bgRail)
     }
 
     /// Timeline dot hue per commit change type (entity History tab). Replaces
@@ -524,8 +523,8 @@ enum CicadaTheme {
     static let radiusXS: CGFloat = 4               // keycaps, the span wash
     static let radiusLarge: CGFloat = 16           // the focus card, the Settings panel, error and empty cards
 
-    /// The rounded corner where the page meets the rail and the titlebar band (owner 2026-10-06; drawn per
-    /// `RailCorner`, 2026-10-07): one fixed radius, `radiusLarge`, like every radius here (DR-12 — padding scales with
+    /// The page panel's rounded top-leading corner, where it meets the rail and the titlebar band (owner 2026-10-06;
+    /// drawn by `ShellContentPanel`, 2026-10-07): one fixed radius, `radiusLarge`, like every radius here (DR-12 — padding scales with
     /// uiScale, radii do not). Decorative, not concentric: the corner sits a whole rail width in from the window's edge
     /// and under the titlebar, so it shares no centre with the window's own corner.
     static let contentCornerRadius: CGFloat = radiusLarge

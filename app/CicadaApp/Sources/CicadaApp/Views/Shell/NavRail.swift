@@ -27,7 +27,6 @@ struct NavRail: View {
     var inboxCount: Int
     var isSleeping: Bool
     var needsAttention: Bool
-    var corner: RailCorner = .current
 
     @AppStorage(ThemeStore.defaultsKey) private var colorSchemeRaw: String = AppColorScheme.dark.rawValue
     @State private var tooltip = RailTooltipState()
@@ -46,10 +45,9 @@ struct NavRail: View {
         .frame(width: ShellMetrics.navWidth(labelled: labelled))
         .frame(maxHeight: .infinity, alignment: .top)
         // The rail starts under the titlebar (owner 2026-10-05): a bare `.background(color)` ignores the safe area
-        // and ran the rail's fill up behind the traffic lights; a view background keeps it. Its shape is the corner
-        // switch's (owner 2026-10-07, `RailCorner`): square under a rail-coloured band in A, its top-trailing corner
-        // rounded in B. A fill, never a shadow or glass (DR-9, DR-14), and it never paints past the column.
-        .background(alignment: .top) { corner.railShape.fill(CicadaTheme.bgRail) }
+        // and ran the rail's fill up behind the traffic lights. Above it the band is the same surface (owner
+        // 2026-10-07): rail and band are one L-shaped chrome, and the page beside it is a panel (`ShellContentPanel`).
+        .background(CicadaTheme.bgRail, ignoresSafeAreaEdges: [])
         .accessibilityElement(children: .contain)
         .accessibilityLabel(Copy.pages)
     }
