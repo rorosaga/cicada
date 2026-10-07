@@ -86,3 +86,21 @@ def test_the_drop_logs_no_text(tmp_path, monkeypatch):
 
 def test_the_extraction_prompt_says_the_runtime_is_not_content():
     assert "never conversation content" in entity_extractor.EXTRACTION_SYSTEM_PROMPT
+
+
+def test_an_existing_runtime_page_is_never_a_merge_target(tmp_path, monkeypatch):
+    from api.services import markdown_parser
+
+    home = tmp_path / "state"
+    monkeypatch.setenv("CICADA_HOME", str(home))
+    memory = tmp_path / "memory"
+    (memory / "entities").mkdir(parents=True)
+    leaked = str(home / "engine-scratch")
+    fp = memory / "entities" / "leaked-scratch.md"
+    markdown_parser.write(fp, {"id": "leaked-scratch", "name": leaked, "type": "directory", "confidence": 0.8}, "body")
+    existing = [{"id": "leaked-scratch", "frontmatter": {"name": leaked, "confidence": 0.8}, "body": "body", "filepath": fp}]
+    legit = str(tmp_path / "state-notes" / "engine-scratch")
+    assert not agent_engine.is_runtime_path(legit)
+    extracted = [{"episode_id": f"ep{i}", "entities": [_entity(legit)], "relationships": []} for i in (1, 2)]
+    result = asyncio.run(entity_resolver.resolve(extracted, existing, _settings(memory)))
+    assert not any(c.get("id") == "leaked-scratch" or c.get("entity_id") == "leaked-scratch" for c in result["changes"]), result["changes"]

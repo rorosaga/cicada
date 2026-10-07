@@ -109,6 +109,8 @@ async def resolve(
     existing_by_name: dict[str, dict] = {}
     for e in existing:
         name = e["frontmatter"].get("name", e["id"].replace("-", " ").title())
+        if agent_engine.is_runtime_path(str(name)):
+            continue  # an old leaked page: never a merge target, endpoint or judge candidate
         existing_by_name[name.lower()] = e
 
     # G169: a speaker reference ("User", "the user", "me", "yo", "mí"...) is the
