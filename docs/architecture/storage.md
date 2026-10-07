@@ -92,6 +92,22 @@ Stage-5 prose rewrites use `preserve_claims_blocks` only to re-emit closed fence
 already read from disk, including unknown fields and malformed YAML; it never
 authors claims. Synthesis receives stripped prose before its input budget is applied.
 
+**Recovering claims a rewrite dropped (G148 follow-up).** Before that fix a rewrite took the fence for part of the last
+section and rebuilt it, so ids vanished while the prose grew. `python -m api.services.claim_recovery --bank <path>
+[--plan <file>] [--apply]` finds them from git alone: it replays every first-parent commit that touched `entities/`,
+and an id in a page's fence before a commit and not after it is a removal; an id still on any page at HEAD is no loss,
+and the id's **last** removal decides. Only a `Sleep cycle …` commit (batch, plain or `(decay)`) is recoverable;
+anything else is excluded by what it was — `person_edit` (`Cicada-Author: user`), `merged` (the dedup sweep, or a
+`<id>-from-<loser>` copy at HEAD), `inbox_resolution`, `other_writer` — and so is an id a `retracts` record names
+(`retracted`), one whose page is gone, archived/dropped or has an unreadable fence at HEAD, and one lost under prose that
+did not change (`prose_unchanged`: not the rewrite's signature). When unsure it excludes. The dry run (default) prints
+counts and writes a plan of ids, page paths, the removing commit and the reason — never claim text. `--apply` re-adds
+each claim as it last existed through `write_claims`, every span checked with `evidence.span_status` and kept as
+`reasoning` when it no longer locates, under admission (refused while Sleep holds the pages; the CLI also asks the
+backend's `/sleep/status`, as the stdio MCP does) → page lock → git's write lock; a dirty page is skipped; one `Recover
+dropped claims <date>` commit of only the pages written, `Cicada-Author: cicada`, put back on failure. A re-run finds
+nothing.
+
 **A merge keeps both claim sets (audit 2026-10-05 P1-1).** `entity_merge.merge_entities` — the dedup sweep's and
 the inbox's one merge primitive — carries every claim the loser held into the winner's fence: re-subjected to the
 winner, a node object that named the loser repointed, and its observer, trust, sessions, evidence, validity and
@@ -545,7 +561,7 @@ importer),
   turn), the
   literal **`user`** for manual/companion-app writes, **`unknown`** for legacy untrailered commits,
   and **`cicada`** for system maintenance with no model and no user in the loop (the one-shot
-  migrations, the split-out decay commit, the `State snapshot` commit, the `Expiry` and `Follow-ups` commits). Built by
+  migrations, the split-out decay commit, the `State snapshot` commit, the `Expiry` and `Follow-ups` commits, the `Recover dropped claims` commit). Built by
   `git_service.build_commit_message(...)`, parsed by `_parse_authors`.
   `git_service.author_identity` buckets a harness label (and `agent`) as kind `harness`, which the app
   names and marks as that app; the pre-G135 `mcp-agentic-write` claim placeholder reads as `agent`
