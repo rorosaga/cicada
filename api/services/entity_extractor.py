@@ -475,7 +475,8 @@ async def extract(
         masked = evidence.mask_gaps(content, gaps)
         chunks = [masked[s:e] for s, e in spans]
         # G194 A1: every chunk is told when the conversation took place and what day it is now.
-        date_note = source_dates.date_note(source_dates.episode_day(episode), today)
+        ep_day = source_dates.episode_day(episode)
+        date_note = source_dates.date_note(ep_day, today)
 
         async with semaphore:
             # Sleep-control checkpoint 2: this task may have waited a while
@@ -516,6 +517,9 @@ async def extract(
                 for entity in all_entities:
                     entity["source_episode"] = ep_id
                     entity["source_episode_timestamp"] = episode.get("timestamp")
+                    # G194 fix 1: the day the date note gave (timestamp, else the id's date) rides along for Stage
+                    # 3's prompts only — never written, so no stored timestamp is invented from an id.
+                    entity["source_episode_day"] = ep_day.isoformat() if ep_day else None
                     entity["origin"] = ep_origin
                     sanitize_decay_class(entity)
                     sanitize_website(entity)

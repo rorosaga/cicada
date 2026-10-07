@@ -122,7 +122,8 @@ async def resolve_and_prune(
                 existing_body=existing_body,
                 new_description=new_desc,
                 new_history_entries=new_history,
-                source_reference_date=_latest_change_date(change),
+                # The prompt's fallback line may use a day recovered from an id; the stored fields never do.
+                source_reference_date=_latest_change_date(change) or (change_days[-1] if change_days else None),
                 settings=settings,
                 page_last_referenced=page_said,
                 source_dates_seen=change_days,
@@ -669,8 +670,13 @@ def _latest_change_date(change: dict) -> str | None:
 
 
 def _change_dates(change: dict) -> list[str]:
-    """Every distinct day the change's information was said, oldest first (G194 A1)."""
-    dates = [_extract_date_string(ts) for ts in list(change.get("source_episode_timestamps", []) or [])]
+    """Every distinct day the change's information was said, oldest first (G194 A1).
+
+    Stage 1's per-conversation days (``source_episode_days``: the timestamp, else the episode id's date) come first;
+    the stored timestamps cover a change built without them. Prompt-only: ``last_referenced``/``created`` still
+    come from the timestamps alone (``_latest_change_date``)."""
+    dates = [_extract_date_string(d) for d in list(change.get("source_episode_days", []) or [])]
+    dates += [_extract_date_string(ts) for ts in list(change.get("source_episode_timestamps", []) or [])]
     dates.append(_extract_date_string(change.get("source_episode_timestamp")))
     return sorted({d for d in dates if d})
 

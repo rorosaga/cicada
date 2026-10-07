@@ -294,3 +294,79 @@ def test_an_inbox_answer_s_merge_is_told_today_and_the_page_day(conflict_bank, m
     assert kw["today"] == date.today().isoformat() == kw["source_reference_date"]
     assert kw["source_dates_seen"] == [kw["today"]]
     assert str(page["last_referenced"]) == "2026-09-02" == kw["page_last_referenced"]
+
+
+# --------------------------------------------------------------------------- #
+# Fix round 1 (review finding 2): a day recovered from an episode id survives Stage 2 into Stage 3's prompts
+# --------------------------------------------------------------------------- #
+
+
+def _alpha_reply(msg: str) -> str:
+    """Stage 1's fake: the old conversation names "Alpha Co", the recent one "Alpha Co." — two names that both match
+    the existing page, so the production resolver merges them into ONE update."""
+    name = "Alpha Co." if "harbour" in msg else "Alpha Co"
+    desc = "Alpha Co moved its office to the harbour." if "harbour" in msg else "Alpha Co runs a summer programme."
+    return json.dumps({"entities": [{"name": name, "type": "company", "description": desc, "summary": desc,
+                                     "confidence": 0.9}], "relationships": []})
+
+
+def _stage_three_prompts(tmp_path, monkeypatch, episodes):
+    """Real Stage 1 → Stage 2 → Stage 3 over a scratch bank with an `alpha-co` page; returns the update change and
+    every prompt the merge and contradiction calls rendered (fake completions, nothing written)."""
+    from api.services import entity_resolver
+
+    memory = tmp_path / "memory"
+    for sub in ("entities", "episodes", "inbox"):
+        (memory / sub).mkdir(parents=True)
+    monkeypatch.setenv("CICADA_MEMORY_PATH", str(memory))
+    settings = Settings(_env_file=None, litellm_model="m")
+    assert settings.memory_path == memory
+    extracted, _ = _run_extract(episodes, _alpha_reply)
+    existing = [{"id": "alpha-co", "body": "## Summary\nAlpha Co runs a programme.\n",
+                 "frontmatter": {"name": "Alpha Co", "type": "company", "last_referenced": "2025-01-10"}}]
+    resolved = asyncio.run(entity_resolver.resolve(extracted, existing, settings))
+    (change,) = [c for c in resolved["changes"] if c.get("action") == "update"]
+    prompts = _capture_prompt(monkeypatch, json.dumps({"has_unresolvable_contradiction": False, "options": []}))
+    asyncio.run(conflict_resolver.resolve_and_prune(
+        [change], existing, settings, now=datetime(2026, 10, 7, 3, 0), decay=False))
+    assert len(prompts) == 2                                    # one merge, one contradiction check
+    return change, prompts
+
+
+@pytest.mark.parametrize("stamp", [None, "", "t", "not a timestamp"])
+def test_a_day_from_an_episode_id_reaches_both_stage_three_prompts_beside_a_timestamped_one(
+        tmp_path, monkeypatch, stamp):
+    old = {k: v for k, v in OLD.items() if k != "timestamp"} | ({} if stamp is None else {"timestamp": stamp})
+    change, (merge, contradiction) = _stage_three_prompts(tmp_path, monkeypatch, [old, RECENT])
+    assert set(change["source_episodes"]) == {OLD["id"], RECENT["id"]}
+    assert "comes from conversation(s) dated: 2025-02-04, 2026-09-30" in merge
+    assert "NEW DESCRIPTION (from conversation(s) dated 2025-02-04, 2026-09-30)" in contradiction
+    # Prompt-only: the timestamps that become `last_referenced` / `created` are exactly what the episodes held —
+    # a malformed one still rides as it is, and none is invented from the id.
+    assert change["source_episode_timestamps"] == [RECENT["timestamp"]] + ([stamp] if stamp else [])
+    assert not any("2025-02-04" in str(t) for t in change["source_episode_timestamps"])
+    assert change["source_episode_timestamp"] in change["source_episode_timestamps"]   # one the episodes held
+
+
+def test_a_single_source_dated_only_by_its_id_is_still_dated(tmp_path, monkeypatch):
+    old = {k: v for k, v in OLD.items() if k != "timestamp"}
+    change, (merge, contradiction) = _stage_three_prompts(tmp_path, monkeypatch, [old, dict(RECENT, id="ep_x",
+                                                                                       timestamp="t")])
+    assert "comes from conversation(s) dated: 2025-02-04" in merge and "2026-09-30" not in merge
+    assert "Source episode date: 2025-02-04" in merge                    # the prompt's own fallback line
+    assert "NEW DESCRIPTION (from conversation(s) dated 2025-02-04)" in contradiction
+    assert change["source_episode_timestamps"] == ["t"] and change["source_episode_timestamp"] == "t"   # as held
+
+
+def test_a_truly_undated_merge_says_unknown(tmp_path, monkeypatch):
+    undated = [dict(OLD, id="ep_old", timestamp="t"), dict(RECENT, id="ep_new", timestamp="")]
+    _, (merge, contradiction) = _stage_three_prompts(tmp_path, monkeypatch, undated)
+    assert "comes from conversation(s) dated: unknown" in merge and "Source episode date: unknown" in merge
+    assert "NEW DESCRIPTION (from conversation(s) dated unknown)" in contradiction
+
+
+def test_a_timestamp_wins_over_the_id_for_the_same_conversation(tmp_path, monkeypatch):
+    # An id minted on import day carries a different date than the conversation's own timestamp: the timestamp wins.
+    imported = dict(OLD, id="ep_2026-10-06_014")
+    _, (merge, _c) = _stage_three_prompts(tmp_path, monkeypatch, [imported, RECENT])
+    assert "comes from conversation(s) dated: 2025-02-04, 2026-09-30" in merge and "2026-10-06" not in merge
