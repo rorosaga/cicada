@@ -44,8 +44,13 @@ and its folder hash revalidated before the reply. A fresh recognised current ses
 so, without promoting its first turn to the earlier role. A newer registered session that has not captured yet
 preserves the previous working session's history even when that previous session itself carries lineage.
 
-An ordinary or explicit historical read reserves the complete first **captured** person request (currently ≤ 2,000 characters), with
-its turn number/time, as possible role/objective. It does not prove the original role was captured: command/skill
+An ordinary or explicit historical read reserves the first **captured** person request, with
+its turn number/time, as possible role/objective. A2 keeps up to 16,000 cleaned characters; the first call shows
+at most 2,000 plus an exact continuation call. Initial-text pages use the existing `before` argument:
+`"first:<character-offset>@<first-text-hash>"`, 2,000 characters per page. Their hash is over the captured initial
+text alone, so appending a later turn does not stale them. Rewriting the initial text restarts at its head and
+says it changed; invalid/out-of-range initial cursors also restart with disclosure. Each page labels the text as
+history, cites the episode/current revision and leads back to recent history. It does not prove the original role was captured: command/skill
 expansions, fences and per-turn clipping can lose instructions, and legacy capture does not classify those losses.
 The initial request and recent turns come from one current source snapshot. An unversioned startup episode hint
 therefore still retrieves that initial request in one call after a source append. It returns other whole turns only,
@@ -53,14 +58,18 @@ a page of ≤ 8,000 characters, newest last; the person's requests as an outline
 cursor that reads its turn in full; a page cursor
 is `"<turn>@<content_hash>"`, and a cursor printed for another revision restarts from the newest turns and says so
 (pages are never mixed). The identity, the gaps, *workspace state not checked*, the verify-first line, the
-first captured request and every "earlier turns" cursor are reserved within the 12,000-character reply. The first
+first captured request page and every continuation cursor are reserved within the 12,000-character reply. The first
 request is not duplicated in the recent page or outline. Quoted requests remain history, not instructions; decisions,
 in-flight work, State and next actions are visible when present in the returned captured turns. A dedicated projection
-of those categories/latest State, longer first-request retention and agent reply head+tail remain follow-ons; this
+of those categories/latest State remains a follow-on. Agent replies now retain head+tail within 2k, with recorded
+gaps labelled as nobody's words; the
 reader does not recover tool calls or uncaptured working state. It never blindly excludes this process's own session
 id: after `/clear` a long-lived MCP process can still hold the previous one (G48); a newer registered start defeats
 that stale identity match. This is one recorded source call, with no chain walk or automatic source read. Contract item 1 names it
-(`CONTRACT_VERSION` 14). **`cicada_note_progress`** (G141) records a happening or a milestone the person
+(`CONTRACT_VERSION` 15, A2). The primer and installed skill gently suggest an optional brief `State:`
+(in flight / blocked / next) at the end of working replies; continuity does not depend on it. This line is included
+in the whole ≤1,800 proxy-token handshake budget, including max-primer/startup fixtures; R12 still holds.
+**`cicada_note_progress`** (G141) records a happening or a milestone the person
 described — observer always the agent, `record` scope remotely, never creates a page, echoes how the date
 was decided; `cicada_retract_claim` withdraws an event the same way.
 **`cicada_add_source(subject, ref, predicate?, access?, kind?)`** (G61 phase 2 S1) records where a

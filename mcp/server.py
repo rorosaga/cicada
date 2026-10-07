@@ -686,8 +686,8 @@ TOOLS = [
                        "person asks now, and inspect files before editing.",
         "inputSchema": {"type": "object", "properties": {
             "session": {"type": "string", "description": "Optional: an episode id or full session id Cicada showed."},
-            "before": {"type": "string", "description": "Optional: the page cursor Cicada printed (turn and revision), "
-                                                        "to read earlier turns."}}},
+            "before": {"type": "string", "description": "Optional: the cursor Cicada printed to read earlier turns "
+                                                        "or more of the first request (offset and text hash)."}}},
     },
     {
         "name": "cicada_handshake",

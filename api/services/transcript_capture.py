@@ -127,7 +127,7 @@ TAIL_TURNS = 8
 #: G110: the capture metadata this writer owns, kept out of `content_hash` and
 #: always before `turns` (which stays the last key, R-PB4), so the continuity
 #: index reads them from an episode's head.
-META_KEYS = ("last_turn_at", "turn_count", "capture_gap", "capture_flags", "tail_turns")
+META_KEYS = ("last_turn_at", "turn_count", "capture_gap", "capture_flags", "reply_gaps", "tail_turns")
 
 
 def capture_meta(conv: Conversation, body: str) -> dict:
@@ -141,8 +141,9 @@ def capture_meta(conv: Conversation, body: str) -> dict:
       at 500 entries and skips untimed turns;
     * ``capture_gap`` — only while the session cap dropped the middle (gate
       B2): how many turns, and the first and last of their times;
-    * ``capture_flags`` — only when a kept person turn holds a line that opens
-      like a Cicada note (counted, kept, disclosed)."""
+    * ``reply_gaps`` — recorded offsets/counts for clipped final replies;
+    * ``capture_flags`` — a kept person turn looks like a Cicada note (counted,
+      kept, disclosed), or the first request exceeded its cleaned 16k cap."""
     meta: dict = {}
     if conv.turns and conv.turns[-1].ts:
         meta["last_turn_at"] = _utc(conv.turns[-1].ts)
@@ -152,7 +153,13 @@ def capture_meta(conv: Conversation, body: str) -> dict:
     note_like = int(conv.summary.get("note_like_turns") or 0)
     if note_like:
         meta["capture_flags"] = {"note_like_turns": note_like}
+    if conv.summary.get("first_request_clipped"):
+        meta.setdefault("capture_flags", {})["first_request_clipped"] = True
     offsets = _turn_offsets(conv)
+    reply_gaps = [{**t.reply_gap, "offset": offsets[i] + len(t.role) + 2 + t.reply_gap["offset"]}
+                  for i, t in enumerate(conv.turns) if t.reply_gap]
+    if reply_gaps:
+        meta["reply_gaps"] = reply_gaps
     tail = []
     for i in range(max(0, len(conv.turns) - TAIL_TURNS), len(conv.turns)):
         entry = {"offset": offsets[i], "speaker": conv.turns[i].role}

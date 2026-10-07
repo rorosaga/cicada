@@ -169,7 +169,8 @@ def test_the_primer_with_every_method_line_and_all_bridges_stays_inside_the_unra
     assert len(methods) == 2 and methods[0].startswith("- Reading pages:") and methods[1].startswith("- Watching videos:")
     text = handshake.build(None, variant="claude-code", bank="memory", tz="Europe/Madrid", bridges=bridges,
                            reading=True, methods=methods, reading_tools="the tool the person chose")
-    assert len(text) // 4 <= 1570, len(text) // 4  # 1,525 on dev; G61 S3-a item 4 (~25 tokens); G110's cicada_continue clause (~17): 1,570 leaves the state block 230
+    assert len(text) // 4 <= 1600, len(text) // 4  # A2 State guidance: leaves ≥200 of the unchanged 1,800
+    assert "brief `State:`" in text and "optional" in text
 
 
 def test_the_page_is_written_only_on_selection(tmp_path, monkeypatch):

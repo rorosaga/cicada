@@ -44,7 +44,7 @@ import re
 import secrets
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
@@ -472,12 +472,14 @@ class SessionView:
     body: str = ""
     sidecar: list = field(default_factory=list)
     tail: list = field(default_factory=list)
+    reply_gaps: list = field(default_factory=list)
     _turns: list | None = None
 
     def turns(self) -> list[Turn]:
         if self._turns is None:
             self._turns = split_turns(self.body, self.sidecar, self.tail, self.turn_count,
-                                      gap_at=gap_offset(self.body, self.capture_gap))
+                                      gap_at=gap_offset(self.body, self.capture_gap),
+                                      reply_gaps=evidence.gap_ranges({"reply_gaps": self.reply_gaps}, self.body))
         return self._turns
 
 
@@ -512,6 +514,7 @@ def view(memory_path: Path, chosen: tuple[str, dict], *, deadline: float | None 
         # The G118 sidecar through its one reader (R-PJ16): `evidence.turn_stamps`.
         body=doc.body, sidecar=[{"offset": o, **e} for o, e in evidence.turn_stamps(fm).items()],
         tail=fm.get("tail_turns") if isinstance(fm.get("tail_turns"), list) else [],
+        reply_gaps=fm.get("reply_gaps") if isinstance(fm.get("reply_gaps"), list) else [],
     )
 
 
@@ -531,7 +534,8 @@ def gap_offset(body: str, capture_gap: dict | None) -> int | None:
     return ranges[0][0] if ranges else None
 
 
-def split_turns(body: str, sidecar, tail, turn_count: int, *, gap_at: int | None = None) -> list[Turn]:
+def split_turns(body: str, sidecar, tail, turn_count: int, *, gap_at: int | None = None,
+                reply_gaps: tuple = ()) -> list[Turn]:
     """The body's turns, numbered from 1. Boundaries come from exact offsets —
     the G118 sidecar (the first ≤ 500 timed turns) and ``tail_turns`` (the last
     8, consecutive) — and ``turn_count`` says how many there are. When those
@@ -580,6 +584,8 @@ def split_turns(body: str, sidecar, tail, turn_count: int, *, gap_at: int | None
             rest = chunk[cut:]
             end = rest.find("\n")
             chunk = (chunk[:cut].rstrip("\n") + ("" if end == -1 else rest[end:])).rstrip("\n")
+        chunk = evidence.label_gaps(chunk, tuple((g0 - s0, g1 - s0) for g0, g1 in reply_gaps
+                                                if s0 <= g0 < g1 <= s0 + len(chunk)))
         speaker, _, text = chunk.partition(": ")
         if speaker not in ("user", "assistant"):
             speaker, text = "unknown", chunk
@@ -710,6 +716,10 @@ def gap_lines(ctx: WorkingContext) -> list[str]:
         out.append(f"{gap['dropped_turns']} turns from the middle{span}, past Cicada's capture limit — "
                    "its start and its latest turns are kept")
     flags = (v.capture_flags or {}) if v else {}
+    if flags.get("first_request_clipped"):
+        out.append("the first person request past 16,000 cleaned characters")
+    if v and v.reply_gaps:
+        out.append("parts of long agent replies (their heads and tails are kept; marked gaps are nobody's words)")
     if flags.get("note_like_turns"):
         out.append(f"{flags['note_like_turns']} of its turns look like a Cicada note kept as typed text")
     for reg in ctx.later_starts[:2]:
@@ -778,6 +788,8 @@ REPLY_CAP = 12_000
 OUTLINE_CHARS = 160
 OUTLINE_HEAD = 5
 _CURSOR_RE = re.compile(r"^(\d{1,6})@([0-9a-f]{12})$")
+_FIRST_CURSOR_RE = re.compile(r"^first:(\d{1,6})@([0-9a-f]{12})$")
+FIRST_PAGE_CHARS = 2_000
 
 
 def cursor(n: int, revision: str) -> str:
@@ -801,8 +813,8 @@ class Page:
 
 def page(v: SessionView, *, before: str | None = None, max_chars: int = PAGE_CHARS) -> Page:
     """Whole turns ending just before the cursor's turn (newest last), up to
-    ``max_chars`` — at least one turn, never a clipped one (a captured turn is
-    ≤ 2,000 characters). A cursor printed for another revision restarts from
+    ``max_chars``. Oversized first requests use their own bounded text pages.
+    A cursor printed for another revision restarts from
     the newest turns and says so; pages are never mixed across revisions."""
     turns = v.turns()
     end, note = len(turns), ""
@@ -819,6 +831,8 @@ def page(v: SessionView, *, before: str | None = None, max_chars: int = PAGE_CHA
     used = 0
     for t in reversed(turns[:end]):
         size = len(t.text) + TURN_LINE_OVERHEAD
+        if size > max_chars:
+            break
         if out and used + size > max_chars:
             break
         out.append(t)
@@ -848,7 +862,8 @@ def full_text(ctx: WorkingContext, *, before: str | None = None, cap: int = REPL
     cursor. Then recent whole turns and the request outline, within ``cap``.
     The first request and recent turns come from this one current snapshot,
     so a live source's append never invalidates the unversioned startup hint.
-    Capture still limits turns to 2k; this is not a 16k initial-turn pager."""
+    Longer first requests have separate 2k text pages pinned to their own hash,
+    so appending a later turn does not stale that cursor."""
     now = ctx.now or datetime.now(timezone.utc)
     sel = ctx.selection
     if sel.kind == "ambiguous":
@@ -904,7 +919,29 @@ def full_text(ctx: WorkingContext, *, before: str | None = None, cap: int = REPL
         reserved.append("\n## First captured person request (quoted as history)")
         reserved.append("This may contain the role/objective. The original instruction is not guaranteed: capture "
                         "can omit command/skill expansions, fences and text past its per-turn cap.")
-        reserved.append(_turn_line(initial, now))
+        at = 0
+        first_page = bool(before and before.startswith("first:"))
+        digest = evidence.body_hash(initial.text)
+        if first_page:
+            m = _FIRST_CURSOR_RE.fullmatch(before.strip())
+            if not m:
+                reserved.append("That initial-request cursor is invalid; restarting its first page.")
+            elif m.group(2) != digest:
+                reserved.append("The initial request changed since that page; restarting its first page.")
+            elif not 0 <= int(m.group(1)) < len(initial.text):
+                reserved.append("That initial-request cursor is out of range; restarting its first page.")
+            else:
+                at = int(m.group(1))
+        end = min(len(initial.text), at + FIRST_PAGE_CHARS)
+        reserved.append(_turn_line(replace(initial, text=initial.text[at:end]), now))
+        if len(initial.text) > FIRST_PAGE_CHARS:
+            reserved.append(f"Initial request characters {at + 1}–{end} of {len(initial.text)} kept characters.")
+        if end < len(initial.text):
+            reserved.append(f'More of the initial request: `cicada_continue(session="{v.episode_id}", '
+                            f'before="first:{end}@{digest}")`')
+        if first_page:
+            reserved.append(f"Recent working history: {call(v.episode_id)}")
+            return "\n".join(reserved)
     else:
         reserved.append("- No person request was captured; the original role/objective is unknown.")
     # The page gets what the reserved lines and the hints leave, so a turn is never cut.
