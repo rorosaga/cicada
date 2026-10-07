@@ -206,6 +206,10 @@ class Claim:
     # captured turn the write happened in; a reinforce moves neither (R4B-5).
     # Omitted from the YAML when unset (R7's reason).
     recorded_ts: str | None = None
+    # G148 follow-up — a claim a Sleep prose rewrite dropped and `claim_recovery` put back AS HISTORY: the commit that
+    # removed it and the writer that restored it. Such a claim is always closed. Omitted when unset (R7's reason).
+    recovered_from: str | None = None
+    recovered_by: str | None = None
 
     def all_session_ids(self) -> list[str]:
         """Every session that has written or reinforced this claim, deduped,
@@ -239,8 +243,9 @@ class Claim:
         data["participants"] = clean_participants(data.get("participants"))
         if not data["participants"]:
             data.pop("participants", None)
-        if data.get("recorded_ts") is None:
-            data.pop("recorded_ts", None)
+        for key in ("recorded_ts", "recovered_from", "recovered_by"):
+            if data.get(key) is None:
+                data.pop(key, None)
         return data
 
     @classmethod
@@ -279,6 +284,8 @@ class Claim:
             participants=clean_participants(data.get("participants")),
             date_basis=_opt_str(data.get("date_basis")),
             recorded_ts=_opt_str(data.get("recorded_ts")),
+            recovered_from=_opt_str(data.get("recovered_from")),
+            recovered_by=_opt_str(data.get("recovered_by")),
         )
 
 
@@ -333,8 +340,10 @@ def is_current(claim, *, now: date | None = None) -> bool:
     successor also closes a marker-only legacy claim. Stated ends are inclusive;
     reads need not wait for the next Sleep expiry commit. Unknown dates keep
     the legacy open-claim behavior; this predicate never edits the page.
+    An entry ``claim_recovery`` put back is history by its marker alone (G148),
+    even if a hand edit cleared its ``valid_to``.
     """
-    if _field(claim, "valid_to") is not None or _field(claim, "superseded_by"):
+    if _field(claim, "valid_to") is not None or _field(claim, "superseded_by") or _field(claim, "recovered_by"):
         return False
     today = now or current_day()
     began = _day(_field(claim, "valid_from"))
@@ -553,3 +562,102 @@ def preserve_claims_blocks(original: str, rewritten: str) -> str:
     blocks = [match.group(0) for match in _CLAIMS_BLOCK_RE.finditer(original or "")]
     prose = strip_claims_block(rewritten)
     return "\n\n".join(part for part in (prose, *blocks) if part) + "\n"
+
+
+def is_recovered_history(claim) -> bool:
+    """Was this entry put back by ``claim_recovery`` (G148 follow-up)? Such an entry is the record of a belief a Sleep
+    rewrite dropped, restored CLOSED — history, never a current belief. No writer reopens it, whatever it learned the id
+    from (a decay verdict raised before the drop, a source sync's deterministic id): a fresh assertion is a new entry,
+    and a "still true" verdict leaves it as it is. Every writer that clears ``valid_to`` asks this first (a test
+    enforces it)."""
+    return bool(getattr(claim, "recovered_by", None))
+
+
+# G148 follow-up — what a writer that must not re-render a fence needs (`claim_recovery`): the fence's structure checked
+# apart from its YAML, its raw entries, and an append that leaves every existing byte where it was.
+_FENCE_OPEN_RE = re.compile(r"^```claims[ \t]*\r?$", re.MULTILINE)
+FENCE_NONE, FENCE_OK, FENCE_UNREADABLE = "none", "ok", "unreadable"
+
+
+def fence_state(body: str) -> str:
+    """``none`` (no fence), ``ok`` (exactly one closed fence whose YAML strict parsing accepts) or ``unreadable``.
+
+    ``parse_claims`` reads only the FIRST closed fence and answers ``[]`` for an unterminated one, so a page holding
+    an unclosed or a second fence reads as having fewer claims than it does: such a page is ``unreadable`` here."""
+    body = body or ""
+    openings = len(_FENCE_OPEN_RE.findall(body))
+    if openings == 0:
+        return FENCE_NONE
+    if openings != 1 or len(_CLAIMS_BLOCK_RE.findall(body)) != 1:
+        return FENCE_UNREADABLE
+    try:
+        parse_claims(body, strict=True)
+    except MalformedClaimsBlockError:
+        return FENCE_UNREADABLE
+    return FENCE_OK
+
+
+_FENCE_CLOSE_RE = re.compile(r"^```[ \t]*\r?$", re.MULTILINE)
+
+
+def loose_claim_entries(body: str) -> list[dict] | None:
+    """Every entry in EVERY ```claims fence the page holds — each read from its opening to its closing fence, or to
+    the next opening or the end of the page when it has none — as YAML decodes it (escapes, quoting and aliases
+    resolved). For a reader that must know which ids an unreadable page still holds; never for a writer. ``None``
+    when any fence's YAML will not load as a list of mappings: what that page holds cannot be known."""
+    body = body or ""
+    entries: list[dict] = []
+    openings = list(_FENCE_OPEN_RE.finditer(body))
+    for i, opening in enumerate(openings):
+        start = opening.end() + 1
+        limit = openings[i + 1].start() if i + 1 < len(openings) else len(body)
+        close = _FENCE_CLOSE_RE.search(body, start, limit)
+        payload = body[start:close.start() if close else limit]
+        try:
+            loaded = yaml.load(payload, Loader=_SAFE_LOADER)  # noqa: S506 — a SAFE loader
+        except yaml.YAMLError:
+            return None
+        if loaded is None:
+            continue
+        if not isinstance(loaded, list) or not all(isinstance(e, dict) for e in loaded):
+            return None
+        entries.extend(dict(e) for e in loaded)
+    return entries
+
+
+def raw_claim_entries(body: str) -> list[dict]:
+    """The fence's entries as the YAML holds them — unknown fields and key order kept, no defaults added. ``[]``
+    without a fence; :class:`MalformedClaimsBlockError` unless :func:`fence_state` is ``none`` or ``ok``."""
+    state = fence_state(body)
+    if state == FENCE_NONE:
+        return []
+    if state != FENCE_OK:
+        raise MalformedClaimsBlockError("the ```claims fence is unterminated, repeated or unparseable")
+    loaded = yaml.load(_CLAIMS_BLOCK_RE.search(body).group("payload"), Loader=_SAFE_LOADER)  # noqa: S506
+    return [dict(entry) for entry in loaded or []]
+
+
+def append_claim_entries(document: str, entries: list[dict]) -> str:
+    """Append raw entries to the one fence without re-rendering the entries already there (their bytes, unknown
+    fields included, are kept), or add a fence after the prose when there is none. Works on a whole page document.
+    Raises :class:`MalformedClaimsBlockError` when the result would not read back as exactly the old entries followed
+    by ``entries`` (an unreadable fence, a flow-style or oddly indented list)."""
+    if not entries:
+        return document
+    before = raw_claim_entries(document)
+    rendered = yaml.dump(entries, default_flow_style=False, sort_keys=False, allow_unicode=True).strip()
+    match = _CLAIMS_BLOCK_RE.search(document)
+    if match is None:
+        stripped = document.rstrip()
+        out = f"{stripped}\n\n```{CLAIMS_FENCE_LANG}\n{rendered}\n```\n" if stripped else \
+            f"```{CLAIMS_FENCE_LANG}\n{rendered}\n```\n"
+    else:
+        payload = match.group("payload")
+        if payload.strip() in ("", "[]"):
+            payload = ""
+        elif not payload.endswith("\n"):
+            payload += "\n"
+        out = document[:match.start("payload")] + payload + rendered + "\n" + document[match.end("payload"):]
+    if raw_claim_entries(out) != [*before, *entries]:
+        raise MalformedClaimsBlockError("appending would change the entries already in the fence")
+    return out

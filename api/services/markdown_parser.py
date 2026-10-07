@@ -112,8 +112,17 @@ def write(filepath: Path, frontmatter: dict, body: str) -> None:
     survives as it did with ``write_text``. The file is fsynced; the directory
     is not (the guarantee is "never a torn page", not "the rename survives a
     power cut")."""
+    _replace(filepath, _render(frontmatter, body))
+
+
+def write_document(filepath: Path, text: str) -> None:
+    """Replace a page with ``text`` exactly as given — atomically, like :func:`write`, but without re-rendering the
+    frontmatter. For a writer whose change must leave every other byte of the page as it was (G148's recovery)."""
+    _replace(filepath, text.encode("utf-8"))
+
+
+def _replace(filepath: Path, data: bytes) -> None:
     target = Path(os.path.realpath(filepath)) if os.path.islink(filepath) else Path(filepath)
-    data = _render(frontmatter, body)
     tmp = _stage(target, data)
     try:
         try:

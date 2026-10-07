@@ -52,7 +52,14 @@ from api.services import (
     markdown_parser,
     media_ingestor,
 )
-from api.services.claims import Claim, MalformedClaimsBlockError, is_current, parse_claims, write_claims
+from api.services.claims import (
+    Claim,
+    MalformedClaimsBlockError,
+    is_current,
+    is_recovered_history,
+    parse_claims,
+    write_claims,
+)
 from api.services.id_utils import sanitize_id
 
 KIND = "paper"
@@ -488,7 +495,9 @@ def apply_claims(page: Path, episode_id: str, desired: list[Claim], today: str) 
     except MalformedClaimsBlockError as exc:
         logger.error(f"corrupt claims block on {page.name}, paper claims skipped: {exc}")
         return False
-    by_id = {c.id: c for c in claims}
+    # G148: an entry `claim_recovery` put back is closed history and never reopened — the deterministic id it shares
+    # with a re-sent note does not make it that note again; the note is asserted afresh beside it.
+    by_id = {c.id: c for c in claims if not is_recovered_history(c)}
     wanted = {c.id for c in desired}
     for new in desired:
         old = by_id.get(new.id)
