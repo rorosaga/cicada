@@ -445,7 +445,7 @@ the CLI.
   - `continue [--session --before]`: G110's on-demand working-context read, one body shared with
     `cicada_continue` (`api/services/local_tools.continue_text`, never imported by `api/remote`).
     - The same selection and current-conversation rules apply. The folder is the harness's project dir, else the
-      caller's working folder. The caller's own `(harness, session id)` is passed only when the harness gave both.
+      caller's working folder. The caller's own `(harness, session id)` is always passed, either part possibly unknown: `continue_text` requires it, so a no-argument read always applies #229's current-conversation rules (exact match, else the newest session's lineage and chronology), with nothing minted or stored.
     - Every follow-up read it prints is spelled through `continuity.Spelling` (`cicada continue --session …
       --before …`, shell-quoted) and runs as printed. The MCP keeps its literal calls by default.
   - `save <text|-> [--title]`: the one write. It is Awake capture through `cicada_save_episode`'s own body: scrub, dedup

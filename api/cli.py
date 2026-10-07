@@ -438,9 +438,11 @@ def cmd_continue(boot: Boot, args) -> Result:
     from api.services import local_tools
 
     ident = _identity()
-    identity = (ident.harness, ident.session_id) if ident.harness and ident.session_id else None
-    reply = local_tools.continue_text(boot.pin.path, root=boot.root, cwd=_project_dir(boot), session=args.session,
-                                      before=args.before, identity=identity, spelling=_continue_spelling())
+    # Whatever the harness gave — possibly nothing: the shared body still applies the current-conversation
+    # rules for an unknown identity (#229), exactly as for cicada_continue.
+    reply = local_tools.continue_text(boot.pin.path, root=boot.root, cwd=_project_dir(boot),
+                                      identity=(ident.harness, ident.session_id), session=args.session,
+                                      before=args.before, spelling=_continue_spelling())
     return _typed(reply, warnings=_root_warnings(boot))
 
 

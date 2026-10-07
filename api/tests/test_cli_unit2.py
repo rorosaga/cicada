@@ -439,3 +439,53 @@ def test_the_remote_package_never_imports_the_local_only_bodies():
             elif isinstance(node, ast.Import):
                 names = [a.name for a in node.names]
             assert not any(n.endswith("local_tools") for n in names), path
+
+
+def _lineage_bank(tmp_path, monkeypatch):
+    """Review finding (unit 2): an older session A holds the role and handoff; a newer session B in the same
+    folder holds only current small talk, and the continuity registry records B's later start and that B
+    continues A. Synthetic throughout; the registry lives in the scratch CICADA_HOME the CLI will use."""
+    from _continuity_fixtures import at, sid
+    from api.services import continuity_sessions
+
+    memory, work = _continue_bank(tmp_path)                      # A = ep_2026-09-03_001, the role turns
+    folder = os.path.realpath(work)
+    write_session(memory, 2, [("user", "hi there, unrelated-small-talk"), ("assistant", "Hello. What next?")],
+                  cwd=folder, start=60, harness="codex")
+    env = _env(tmp_path, memory)
+    monkeypatch.setenv("CICADA_HOME", env["CICADA_HOME"])
+    paths = continuity_sessions.bank_paths_for(memory)
+    assert continuity_sessions.apply(memory, bank_paths=paths, harness="claude-code", session_id=sid(1),
+                                     events={"started_at": at(-1), "cwd_hash": continuity_sessions.cwd_hash(folder)},
+                                     deadline=None) == "ok"
+    assert continuity_sessions.apply(memory, bank_paths=paths, harness="codex", session_id=sid(2),
+                                     events={"started_at": at(59), "cwd_hash": continuity_sessions.cwd_hash(folder),
+                                             "continues": "ep_2026-09-03_001"}, deadline=None) == "ok"
+    continuity.reset()
+    return memory, work, env
+
+
+def test_continue_without_identity_keeps_the_current_conversation_fallback(tmp_path, monkeypatch):
+    from api.services import local_tools, session_identity
+
+    memory, work, env = _lineage_bank(tmp_path, monkeypatch)
+    out = envelope(run_cli(["continue", "--json"], env, cwd=work))
+    text = out["text"]
+    # It leads with the read of A (the role) and says B looks like the current conversation — never B's turns.
+    assert text.startswith("`cicada continue --session ep_2026-09-03_001`"), text[:300]
+    assert "This looks like the current conversation" in text
+    assert "unrelated-small-talk" not in text and "# Where the work stopped" not in text
+    assert_commands_parse(text)
+    # The same selection as cicada_continue with the stdio server's own unknown identity (a minted id).
+    stdio = session_identity.stdio_identity({})
+    continuity.reset()
+    mcp = local_tools.continue_text(memory, root=memory, cwd=os.path.realpath(work),
+                                    identity=(stdio.harness, stdio.session_id))
+    assert mcp.startswith('`cicada_continue(session="ep_2026-09-03_001")`')
+    assert mcp.data["selection"] == out["data"]["selection"] and mcp.data["episode_id"] == out["data"]["episode_id"]
+
+
+def test_continue_with_an_explicit_session_still_reads_that_history(tmp_path, monkeypatch):
+    memory, work, env = _lineage_bank(tmp_path, monkeypatch)
+    out = envelope(run_cli(["continue", "--session", "ep_2026-09-03_002", "--json"], env, cwd=work))
+    assert "unrelated-small-talk" in out["text"] and "episode `ep_2026-09-03_002`" in out["text"]
