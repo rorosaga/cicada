@@ -129,6 +129,12 @@ class ToolContext:
         return self.connector_id is not None
 
     @property
+    def is_cli(self) -> bool:
+        """The ``cicada`` command line (G180): a reply spells its actions as commands it holds
+        (``cli_map.spell``), never as MCP tool calls."""
+        return self.read_surface == "cli"
+
+    @property
     def author(self) -> str:
         return agent_commits.author_for(self.harness)
 
@@ -153,7 +159,9 @@ class ToolContext:
     def session_frontmatter(self) -> dict:
         """G48's episode keys — additive and inert (see the old
         `_session_frontmatter` docstring); key order kept for byte-identical YAML."""
-        fm: dict = {"session_id": self.session_id}
+        # G180 / ruling 21: the command line has no id when the harness gives none, and then
+        # omits the key rather than inventing one. Stdio and remote always carry one.
+        fm: dict = {"session_id": self.session_id} if self.session_id else {}
         if self.harness and self.harness != "unknown":
             fm["harness"] = self.harness
         if self.project_dir:
@@ -225,6 +233,19 @@ class Reply(str):
         reply.code = code
         reply.data = data
         return reply
+
+
+def _cli_spell(tool: str, **values) -> str:
+    """The ``cicada`` command line for ``tool`` (G180) — from the one CLI↔MCP table."""
+    from api.services import cli_map
+
+    return cli_map.spell(tool, **values)
+
+
+def _placeholder(name: str) -> str:
+    from api.services import cli_map
+
+    return cli_map.Placeholder(name)
 
 
 def _holding_pages(fn):
@@ -1302,9 +1323,11 @@ def recall(ctx: ToolContext, query: str) -> str:
     if state_hint is not None and not ctx.can("cicada_handshake"):
         # G180: the cursor points at the primer only for a caller that holds it (R12).
         state_hint = {k: v for k, v in state_hint.items() if k != "next_tool"}
+    elif state_hint is not None and ctx.is_cli:
+        state_hint = {**state_hint, "next_tool": _cli_spell("cicada_handshake")}
     hints = _hints_payload(suggested, relevant_hub, hub_member_ids, state=state_hint,
                            can_read_detail=ctx.can("cicada_recall_detail"),
-                           can_open_hub=ctx.can("cicada_open_hub"))
+                           can_open_hub=ctx.can("cicada_open_hub"), cli=ctx.is_cli)
     hints_block = _render_hints(hints)
     if hints_block:
         output_parts.append(hints_block)
@@ -1495,6 +1518,7 @@ def _hints_payload(
     state: dict | None = None,
     can_read_detail: bool = True,
     can_open_hub: bool = True,
+    cli: bool = False,
 ) -> dict | None:
     """The machine-parseable ``cicada-hints`` payload (``None`` when there is nothing to suggest).
 
@@ -1517,7 +1541,13 @@ def _hints_payload(
     """
     if not suggested_entities and not relevant_hub:
         return None
-    if can_read_detail and can_open_hub:
+    if cli:
+        # G180: the command line's own spelling, and only for a command it holds (the hub
+        # command is not on it yet).
+        get = _cli_spell("cicada_recall_detail", entity_id=_placeholder("entity-id"))
+        next_tool, note = ((_cli_spell("cicada_recall_detail"), f"Run `{get}` for each suggested entity's full page.")
+                           if can_read_detail else (None, None))
+    elif can_read_detail and can_open_hub:
         next_tool = "cicada_recall_detail"
         note = "Call cicada_recall_detail with each suggested_entity id for full pages, or cicada_open_hub with relevant_hub for a topic index."
     elif can_read_detail:
@@ -1615,9 +1645,11 @@ def recall_detail(ctx: ToolContext, entity_id: str) -> str:
         if path is not None and path.exists():
             from api.services import telemetry  # G124 R11: ids only, never the page text
             telemetry.record_read(cid, surface=ctx.read_surface, bank=memory_path.name)
-            return path.read_text(encoding="utf-8")
+            text = path.read_text(encoding="utf-8")
+            fm = parse_frontmatter(text)[0]
+            return Reply(text, data={"entity_id": path.stem, "type": fm.get("type"), "status": fm.get("status")})
 
-    return f"Entity '{entity_id}' not found."
+    return Reply(f"Entity '{entity_id}' not found.", code="not_found")
 
 
 def sources(ctx: ToolContext, entity_id: str) -> str:
@@ -1686,12 +1718,13 @@ def project(ctx: ToolContext, project: str, since=None, tz: str | None = None) -
         if page is None:
             near = agentic_write._find_subject_candidates(memory_path, ref)
             close = ", ".join(f"`{c['entity_id']}`" for c in near)
-            return f"No project '{ref}'." + (f" Close matches: {close}." if close else "")
+            return Reply(f"No project '{ref}'." + (f" Close matches: {close}." if close else ""), code="not_found")
         fm = parse_frontmatter(page.read_text(encoding="utf-8"))[0]
         etype = str(fm.get("type") or "page")
+        tool = f"`{_cli_spell('cicada_project')}`" if ctx.is_cli else "cicada_project"
         if etype == "project":   # `build` returns None for a dropped project page too
-            return f"`{page.stem}` was dropped from memory — cicada_project reads live projects."
-        return f"`{page.stem}` is a {etype}, not a project — cicada_project reads projects."
+            return Reply(f"`{page.stem}` was dropped from memory — {tool} reads live projects.", code="not_found")
+        return Reply(f"`{page.stem}` is a {etype}, not a project — {tool} reads projects.", code="not_found")
     state = project_state.timeline_state(project_state.input_from_timeline(timeline), today)
     telemetry.record_read(timeline.project.id, surface=f"{ctx.read_surface}-project", bank=memory_path.name)
     # G150 (R-B16): the open backlog, from frontmatter alone — never a body.
@@ -1699,9 +1732,13 @@ def project(ctx: ToolContext, project: str, since=None, tz: str | None = None) -
 
     open_items = [i for i in backlog_store.list_items(memory_path, timeline.project.id)
                   if i.status in backlog_store.OPEN_STATUSES]
-    return project_text.render(timeline, state, memory_path=memory_path, today=today, raw=ctx.raw_excerpts,
+    detail = (f"`{_cli_spell('cicada_recall_detail', entity_id=_placeholder('entity-id'))}`" if ctx.is_cli
+              else project_text.DETAIL_CALL)
+    text = project_text.render(timeline, state, memory_path=memory_path, today=today, raw=ctx.raw_excerpts,
                                can_note=ctx.can("cicada_note_progress"), can_detail=ctx.can("cicada_recall_detail"),
-                               backlog=open_items, can_backlog=ctx.can("cicada_backlog"))
+                               backlog=open_items, can_backlog=ctx.can("cicada_backlog"), detail_call=detail)
+    return Reply(text, data={"project_id": timeline.project.id, "name": timeline.project.name,
+                             "open_backlog": [getattr(i, "id", None) for i in open_items]})
 
 
 def _now_in(tz_name: str | None) -> datetime:
@@ -3323,7 +3360,7 @@ def save_episode(ctx: ToolContext, content: str, title: str | None) -> str:
 
     memory_path = ctx.memory_path()
     if (refusal := _demo_refusal(memory_path)) is not None:
-        return refusal
+        return Reply(refusal, code="demo_bank")
     episodes_dir = memory_path / "episodes"
     episodes_dir.mkdir(parents=True, exist_ok=True)
 
@@ -3341,7 +3378,8 @@ def save_episode(ctx: ToolContext, content: str, title: str | None) -> str:
     with episode_ids.episode_lock(episodes_dir):
         episode_id = _save_new_episode(ctx, episodes_dir, today, content, content_hash, title, snapshot)
     if episode_id is None:
-        return f"Episode already exists (duplicate detected by content hash)."
+        return Reply("Episode already exists (duplicate detected by content hash).", code="duplicate",
+                     data={"episode_id": None, "duplicate": True})
 
     if ctx.is_remote:
         # R-R11: a remote episode commits alone, under its app. Stdio's episode
@@ -3351,7 +3389,8 @@ def save_episode(ctx: ToolContext, content: str, title: str | None) -> str:
             lines=[f"episodes/{episode_id}.md: created (trigger: {ctx.trigger})"],
             paths=[f"episodes/{episode_id}.md"], author=ctx.author, session=ctx.session_id)
 
-    return f"Episode saved as {episode_id}. It will be processed during the next Sleep cycle."
+    return Reply(f"Episode saved as {episode_id}. It will be processed during the next Sleep cycle.",
+                 data={"episode_id": episode_id, "duplicate": False})
 
 
 def _episode_signature(path: Path) -> tuple[int, int, int, int, int]:
@@ -3411,9 +3450,11 @@ def _save_new_episode(ctx: ToolContext, episodes_dir: Path, today: str, content:
         "id": episode_ids.next_episode_id(episodes_dir, today),
         "timestamp": timestamp,
         # R-R25: `origin` stays in G9's closed vocabulary; `source` says remote.
-        "source": "mcp-remote" if ctx.is_remote else "mcp",
+        # G180: `source` says which door (the command line is `cli`); `origin` stays "mcp", G9's
+        # closed vocabulary for an agent's tool-door capture.
+        "source": "mcp-remote" if ctx.is_remote else ("cli" if ctx.is_cli else "mcp"),
         "origin": "mcp",
-        "title": title or "MCP capture",
+        "title": title or ("Agent note" if ctx.is_cli else "MCP capture"),
         "processed": False,
         "content_hash": content_hash,
         # G48: which conversation produced this episode. Additive + inert.
