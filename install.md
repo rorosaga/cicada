@@ -58,6 +58,9 @@ You can follow along, or run the steps yourself. You need a Mac with macOS 14 or
 4. **Build and open the app:** `cd ~/cicada && make install-app && open ~/Applications/Cicada.app`
    The first build takes a few minutes.
 5. **Check it's running:** `curl -s http://127.0.0.1:8000/healthz` should answer.
+   Optional, only if the person asks for it: `make cli` links `~/.local/bin/cicada`, the command line that
+   agents with a shell can use instead of the MCP tools. It needs no password and never replaces a
+   `cicada` that is already there.
 6. **Hand over.** Tell the person the app is open. Its Welcome screen takes it from there: connecting
    other agents, importing chat exports and turning on calendars.
 

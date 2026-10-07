@@ -180,6 +180,74 @@ def spell(tool: str, **values) -> str:
     return " ".join(words + flags)
 
 
+#: Where a release app's launcher lives when `cicada` is not on PATH (the app rewrites it on every launch).
+FALLBACK = '"${CICADA_HOME:-$HOME/.cicada}/bin/cicada"'
+SKILL_BEGIN = "<!-- cicada-cli:begin (generated from api/services/cli_map.py: edit the table, not this block) -->"
+SKILL_END = "<!-- cicada-cli:end -->"
+
+
+def _usage(row: Row) -> str:
+    words = ["cicada", *row.command]
+    for arg in row.args:
+        if arg.positional:
+            name = f"<{arg.prop.replace('_', '-')}>"
+            words.append(f'"{name}"' if arg.prop in ("query", "content") else name)
+    return " ".join(words)
+
+
+def _options(row: Row) -> list[str]:
+    return [a.flag for a in row.args if not a.positional] + [o.flag for o in row.options]
+
+
+def skill_block() -> str:
+    """The portable skill's command-line section (SKILL.md), generated from this table so it can never name a
+    command or flag the CLI lacks (R12 by construction). Provider-neutral; no machine's paths."""
+    rows = [r for r in exposed()]
+    lines = [
+        "Agents that can run shell commands can use `cicada` instead of the MCP tools: the same memory and bank,",
+        "read and written by the same code. `cicada --help` lists the commands (`--help` after any command explains",
+        "it).",
+        "",
+        f"- **Where it is:** `cicada` on PATH; if that is not found, {FALLBACK} (the Cicada app keeps that",
+        "  launcher current).",
+        "- **Start:** `cicada handshake` when no Cicada primer reached you; `cicada continue` for where the work in",
+        "  this folder stopped.",
+        "",
+        "| Command | What it does |",
+        "|---|---|",
+    ]
+    lines += [f"| `{_usage(r)}` | {r.summary.replace('|', '/')} |" for r in rows]
+    opts = [f"{r.name}: " + ", ".join(f"`{f}`" for f in _options(r)) for r in rows if _options(r)]
+    lines += [
+        "",
+        "- **Options:** " + "; ".join(opts) + ". `get` also takes `<entity-id>:<start>[:<end>]`; `save` reads the",
+        "  text from stdin when it is `-`.",
+        "- **`--json`** (before or after the command) prints one envelope: `{schema, command, ok, code, bank, data,",
+        "  text, warnings, version}`. `text` is what the matching MCP tool says; `data` is the structured part.",
+        "- **Exit codes:** 0 ok (a duplicate save is ok too) · 1 refused (`not_found`, `empty_graph`) · 2 usage ·",
+        "  3 bank or memory-folder mismatch, nothing written · 4 demo bank · 5 this shell may not use the memory",
+        "  folder (use the MCP tools there) · 70 internal.",
+        "- **Grouping:** what you save is grouped by your harness's session id. If your harness gives none, set",
+        "  `CICADA_SESSION_ID` and `CICADA_SESSION_HARNESS`; without them a note is saved ungrouped, never under a",
+        "  made-up id.",
+        "- **Not in the command line yet:** questions, claims, sources, progress and the backlog. Use the MCP tools",
+        "  for those when they are connected.",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def write_skill_block(path) -> None:
+    """Rewrite the generated block between the markers in ``path`` (SKILL.md)."""
+    from pathlib import Path
+
+    p = Path(path)
+    text = p.read_text(encoding="utf-8")
+    start = text.index(SKILL_BEGIN) + len(SKILL_BEGIN) + 1
+    end = text.index(SKILL_END)
+    p.write_text(text[:start] + skill_block() + text[end:], encoding="utf-8")
+
+
 def rows() -> tuple[Row, ...]:
     return ROWS
 
@@ -217,4 +285,4 @@ def catalog() -> list[dict]:
 
 
 __all__ = ["Arg", "KINDS", "Option", "Placeholder", "ROWS", "Row", "by_tool", "catalog", "exposed", "exposed_tools",
-           "rows", "spell"]
+           "rows", "skill_block", "spell", "write_skill_block"]

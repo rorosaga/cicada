@@ -113,7 +113,15 @@ window — the bookworm waits in the menu bar, and the Dock icon brings the wind
 `LaunchState`, R-OB18) and Keep memory working when
 Cicada is closed (`BackendAgentService`: a read-only `launchctl print`, and Install runs
 `scripts/install-backend-agent.sh` from the app's own checkout after the click, `CICADA_CAPTURE=off`, then hands
-launchd the port). ⌘K and ⌘F are
+launchd the port). Setup's card also holds *Command-line tool* (G180, ruling 21; `CommandLineTool`,
+`CommandLineToolRow`): one neutral *Install the command-line tool* button (DR-40) that links `~/.local/bin/cicada`
+with no admin.
+  - The target follows `CicadaRuntime`: a release links its `~/.cicada/bin/cicada` launcher, and only once that
+    launcher exists and the app runs from a real folder. A developer build links its checkout's `scripts/cicada`.
+  - A working link or a file already at that path is left alone and named. A dangling link is rewritten.
+  - The row says Installed / not on PATH (with the `export PATH` line in a `CommandBox`, DR-19) / installed
+    elsewhere. It sits in Setup's card, never a card of its own (DR-37).
+  - "On PATH" is read from `/etc/paths` and the shell's profile files (`ShellPath`), never by running a shell. ⌘K and ⌘F are
 menu commands in `Support/FindCommands.swift` (`HiddenShortcutLintTests`); ⌘, and ⌃⌘S live in
 `Support/ShellCommands.swift`. Track P's audit removed the global Sleep button, because a cycle starts from the Sleep
 page's one Consolidate control (G125 R10) or the menu-bar bookworm.
@@ -852,7 +860,8 @@ proves it there with a temporary home, bank and port (health and version, the bu
 model through sqlite-vec, a hook, a launcher that fails loudly when its app moved). `CicadaRuntime` decides the
 distribution once at launch (the plist stamp plus the bundled launcher on disk); a developer build — `make dev`,
 `install_app.sh`, the auto-updater — has no stamp and behaves exactly as before. A release writes
-`~/.cicada/bin/cicada-{backend,mcp,hook,python}` on every launch (`LauncherInstaller`, atomic, 0755), each a few lines
+`~/.cicada/bin/cicada-{backend,mcp,hook,python}` and `~/.cicada/bin/cicada` (the G180 command line) on every launch
+(`LauncherInstaller`, atomic, 0755; the inner scripts come from `scripts/release/write-launchers.sh`), each a few lines
 that exec the matching script inside whichever copy of the app opened last and exit 127 with a sentence when it is
 gone; MCP registrations, the Stop and recall hooks and the launchd plist name only those paths
 (`api/services/runtime_layout.py` and `CicadaRuntime` hold the same shapes; `AgentConnectPolicy` accepts exactly the

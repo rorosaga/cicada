@@ -77,6 +77,30 @@ extension Copy {
         }
     }
     static let backgroundInstall = "Install"
+    // G180 — Settings → General → Command-line tool (ruling 21). Provider-neutral: agents, never a named one.
+    static let cliToolTitle = "Command-line tool"
+    static let cliToolInstall = "Install the command-line tool"
+    static let cliToolInstallHelp = "Adds one link, ~/.local/bin/cicada. No password needed."
+    static let cliToolPathLine = #"export PATH="$HOME/.local/bin:$PATH""#
+    static let cliToolWaitForLauncher = "Cicada writes its launcher each time it opens. Quit and open Cicada again, "
+        + "then install."
+    static let cliToolMoveApp = "Move Cicada to your Applications folder and open it from there first."
+    static let cliToolNoCheckoutLauncher = "This build's folder has no scripts/cicada to link."
+    static func cliToolDetail(_ state: CommandLineToolState) -> String {
+        switch state {
+        case .notInstalled:
+            "Lets agents that run shell commands use your memory as cicada. Adds one link, ~/.local/bin/cicada."
+        case .installed(onPath: true):
+            "Installed at ~/.local/bin/cicada. Agents can run cicada in a new terminal."
+        case .installed(onPath: false):
+            "Installed at ~/.local/bin/cicada, but your shell doesn't seem to look there. Add this line to your shell "
+                + "profile, then open a new terminal:"
+        case .elsewhere(let path): "~/.local/bin/cicada already points to \(path). Cicada left it alone."
+        case .blocked: "Something else is already at ~/.local/bin/cicada. Cicada left it alone."
+        case .unavailable(let why): why
+        case .failed(let why): "Couldn't add the link: \(why)"
+        }
+    }
     static let backgroundInstallHelp = "Runs the command below from your Cicada folder"
     static let backgroundNoPython = "Cicada's Python environment is missing — run the one-time install under Agents first."
     static let backgroundLaunchdRefused = "macOS wouldn't start the background service. The log in your Cicada folder says why."

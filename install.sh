@@ -11,6 +11,7 @@
 #   ./install.sh                 full install (prompts for optional API keys)
 #   ./install.sh --dry-run       print every action without executing
 #   ./install.sh --skill         also copy SKILL.md to ~/.claude/skills/cicada/
+#   ./install.sh --cli           also link ~/.local/bin/cicada to scripts/cicada (G180)
 #   ./install.sh --uninstall     unload+remove launchd + MCP entry (keeps memory)
 #   Every full install also registers the G105 session-capture hook under
 #   hooks.Stop in ~/.claude/settings.json (and ~/.codex/hooks.json when the
@@ -66,15 +67,17 @@ PORT=8000
 
 DRY_RUN=0
 DO_SKILL=0
+DO_CLI=0
 DO_UNINSTALL=0
 
 for arg in "$@"; do
   case "$arg" in
     --dry-run)   DRY_RUN=1 ;;
     --skill)     DO_SKILL=1 ;;
+    --cli)       DO_CLI=1 ;;
     --uninstall) DO_UNINSTALL=1 ;;
     -h|--help)
-      sed -n '3,31p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+      sed -n '3,32p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
       exit 0 ;;
     *) echo "Unknown flag: $arg (try --help)" >&2; exit 2 ;;
   esac
@@ -405,6 +408,13 @@ if [ "$DO_SKILL" -eq 1 ]; then
   ok "Skill installed"
 fi
 
+# --- 8. Command line (opt-in, G180) ---
+if [ "$DO_CLI" -eq 1 ]; then
+  hdr "8. Command line"
+  step "Linking ~/.local/bin/cicada -> $REPO/scripts/cicada"
+  run "$REPO/scripts/install-cli.sh" || warn "the cicada link was left as it was (see above)"
+fi
+
 # --- Summary ---
 hdr "Done — what happened"
 echo "  memory:        $MEMORY_PATH"
@@ -419,6 +429,7 @@ echo "  capture hook:  $CLAUDE_SETTINGS (hooks.Stop, + PreCompact/SessionEnd flu
 echo "  recall hooks:  $CLAUDE_SETTINGS (hooks.SessionStart + hooks.UserPromptSubmit → api/hooks/recall.py)"
 echo "  launchd:       $PLIST_PATH"
 [ "$DO_SKILL" -eq 1 ] && echo "  skill:         $CLAUDE_SKILLS_DIR/cicada/SKILL.md"
+[ "$DO_CLI" -eq 1 ] && echo "  command line:  ~/.local/bin/cicada -> $REPO/scripts/cicada"
 echo "  API token:     ${CICADA_HOME:-$HOME/.cicada}/api_token (the app and MCP server read it automatically)"
 echo
 echo "  Next: run 'make doctor' to verify, or 'curl localhost:$PORT/healthz'."

@@ -164,6 +164,9 @@ struct SettingsGeneralView: View {
                     }
                 }
                 SettingsDivider()
+                // G180 — the `cicada` command for agents with a shell: one link, no admin (ruling 21).
+                CommandLineToolSetting()
+                SettingsDivider()
                 // G182 — the version a tester reports; the backend's only when it differs (an updated app beside a
                 // background service still running the old one). Plain text, monospaced digits (DR-21). An update
                 // that couldn't be installed while Cicada was closed is said here, once, for this session (phase 5).

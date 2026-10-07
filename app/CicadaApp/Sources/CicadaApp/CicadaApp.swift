@@ -156,7 +156,7 @@ struct CicadaApp: App {
         let store = Store()
         _store = State(initialValue: store)
         // G182 — one runtime for the whole app. A release's agents, hooks and background service run the launchers
-        // in ~/.cicada/bin, so they are rewritten before anything can spawn through one (four small files; a failure
+        // in ~/.cicada/bin, so they are rewritten before anything can spawn through one (five small files; a failure
         // is logged, never fatal). A developer build writes nothing.
         let runtime = CicadaRuntime.current
         LauncherInstaller.install(runtime: runtime)

@@ -10,8 +10,45 @@ description: >-
 
 # Cicada memory skill
 
-Cicada is the user's long-term memory. The MCP server gives you the tools; the
-generated handshake is the contract; this file adds the traversal notes.
+Cicada is the user's long-term memory. The MCP server gives you the tools (or,
+from a shell, the `cicada` command below); the generated handshake is the
+contract; this file adds the traversal notes.
+
+## From a shell: the `cicada` command
+<!-- cicada-cli:begin (generated from api/services/cli_map.py: edit the table, not this block) -->
+Agents that can run shell commands can use `cicada` instead of the MCP tools: the same memory and bank,
+read and written by the same code. `cicada --help` lists the commands (`--help` after any command explains
+it).
+
+- **Where it is:** `cicada` on PATH; if that is not found, "${CICADA_HOME:-$HOME/.cicada}/bin/cicada" (the Cicada app keeps that
+  launcher current).
+- **Start:** `cicada handshake` when no Cicada primer reached you; `cicada continue` for where the work in
+  this folder stopped.
+
+| Command | What it does |
+|---|---|
+| `cicada recall "<query>"` | Search memory: pages, claims and conversations, fused. |
+| `cicada get <entity-id>` | One page in full, or a range of its lines (--from/--count, or ENTITY:START[:END]). |
+| `cicada project <project>` | Where one project stands. |
+| `cicada continue` | Where the work in this folder stopped. |
+| `cicada save "<content>"` | Stage a note for the next Sleep (content `-` reads stdin). |
+| `cicada handshake` | The contract and the current state, for an agent arriving cold. |
+| `cicada status` | Which memory this command uses, and whether the app's backend agrees. |
+| `cicada commands` | Every command, and the MCP tool each one mirrors. |
+
+- **Options:** get: `--from`, `--count`, `--line-numbers`; project: `--since`, `--tz`; continue: `--session`, `--before`; save: `--title`. `get` also takes `<entity-id>:<start>[:<end>]`; `save` reads the
+  text from stdin when it is `-`.
+- **`--json`** (before or after the command) prints one envelope: `{schema, command, ok, code, bank, data,
+  text, warnings, version}`. `text` is what the matching MCP tool says; `data` is the structured part.
+- **Exit codes:** 0 ok (a duplicate save is ok too) · 1 refused (`not_found`, `empty_graph`) · 2 usage ·
+  3 bank or memory-folder mismatch, nothing written · 4 demo bank · 5 this shell may not use the memory
+  folder (use the MCP tools there) · 70 internal.
+- **Grouping:** what you save is grouped by your harness's session id. If your harness gives none, set
+  `CICADA_SESSION_ID` and `CICADA_SESSION_HARNESS`; without them a note is saved ungrouped, never under a
+  made-up id.
+- **Not in the command line yet:** questions, claims, sources, progress and the backlog. Use the MCP tools
+  for those when they are connected.
+<!-- cicada-cli:end -->
 
 ## Handshake first
 The contract lives in one generated text: the `instructions` your harness received

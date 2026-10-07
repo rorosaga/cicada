@@ -70,7 +70,7 @@ enum SettingsIndex {
     /// in the same commit (R-O1).
     static let staticIDs: [SettingsRowID] = [
         .appearance, .heroScene, .textSize, .runSetup, .appVersion, .autoUpdate, .openAtLogin, .showInMenuBar,
-        .backgroundService,
+        .backgroundService, .commandLineTool,
         .guidedTour, .demoMemory,
         .ownerName, .ownerHandle, .ownerEmail, .ownerPage,
         .memoryLocation, .banks, .bankExport, .bankDelete, .telemetry,
@@ -110,6 +110,7 @@ enum SettingsIndex {
         SettingsEntry(.openAtLogin, .general, Copy.openAtLogin, keywords: ["login", "startup", "start", "launch", "boot"]),
         SettingsEntry(.showInMenuBar, .general, Copy.showInMenuBar, keywords: ["menu bar", "status", "bookworm", "icon", "tray", "hide"], detail: Copy.showInMenuBarDetail),
         SettingsEntry(.backgroundService, .general, Copy.keepMemoryWorking, keywords: ["background", "launchd", "service", "closed", "always on", "sync"]),
+        SettingsEntry(.commandLineTool, .general, Copy.cliToolTitle, keywords: ["command line", "terminal", "shell", "cli", "path", "agent", "install"]),
         SettingsEntry(.guidedTour, .general, Copy.Tour.settingsTitle, keywords: ["tour", "walkthrough", "tutorial", "guide", "help", "learn"], detail: Copy.Tour.settingsDetail),
         SettingsEntry(.demoMemory, .general, Copy.Demo.demoTitle, keywords: ["demo", "example", "sample", "try", "made-up"], detail: Copy.Demo.demoDetail),
         // You
