@@ -113,6 +113,9 @@ class Conversation:
     ended_at: str | None
     turns: list[Turn] = field(default_factory=list)
     summary: dict = field(default_factory=dict)
+    # G110: the time of the latest turn SEEN, kept or refused by the session
+    # cap — what a "N turns past the capture limit, until HH:MM" line reads.
+    last_seen_at: str | None = None
 
 
 # --- cleaning ----------------------------------------------------------------
@@ -169,6 +172,12 @@ class _Builder:
         self.truncated_turns = 0
         self.scrubbed = 0
         self.session_cap_hit = False
+        # G110: turns refused by the session cap, and the latest time seen.
+        self.refused_turns = 0
+        self.last_seen_at: str | None = None
+        # G110: kept person turns holding a line that opens like a Cicada note
+        # (counted, never removed here — the person's words are kept).
+        self.note_like_turns = 0
         self.total_chars = 0
         self.started_at: str | None = None
         self.ended_at: str | None = None
@@ -221,10 +230,18 @@ class _Builder:
         if len(cleaned) > self.turn_cap:
             cleaned = cleaned[: self.turn_cap - 1] + "…"
             self.truncated_turns += 1
+        if ts:
+            self.last_seen_at = ts
         if self.total_chars + len(cleaned) > self.session_cap:
             self.session_cap_hit = True
+            self.refused_turns += 1
             return
         self.turns.append(Turn(role=role, text=cleaned, ts=ts, model=model, effort=effort))
+        if role == "user" and any(line.lstrip().startswith(recall_text.INJECTION_PREFIX)
+                                  for line in cleaned.splitlines()):
+            # Counted on the cleaned text of a turn that was KEPT — what the body
+            # actually holds (review finding 9).
+            self.note_like_turns += 1
         self.total_chars += len(cleaned)
         self.kept[role] += 1
         if ts:
@@ -240,6 +257,7 @@ class _Builder:
             started_at=self.started_at,
             ended_at=self.ended_at,
             turns=self.turns,
+            last_seen_at=self.last_seen_at,
             summary={
                 "kept": {"user": self.kept["user"], "assistant": self.kept["assistant"]},
                 "dropped_blocks": dict(self.dropped_blocks),
@@ -247,6 +265,8 @@ class _Builder:
                 "truncated_turns": self.truncated_turns,
                 "scrubbed": self.scrubbed,
                 "session_cap_hit": self.session_cap_hit,
+                "refused_turns": self.refused_turns,
+                "note_like_turns": self.note_like_turns,
             },
         )
 
@@ -270,11 +290,12 @@ def extract_claude_code(
     lines: Iterable[str],
     *,
     keep_assistant: bool = True,
-    turn_cap: int = TURN_CAP_CHARS,
-    session_cap: int = SESSION_CAP_CHARS,
+    turn_cap: int | None = None,
+    session_cap: int | None = None,
 ) -> Conversation:
     """One Claude Code transcript (JSONL lines) → the ruling's conversation."""
-    b = _Builder("claude-code", keep_assistant=keep_assistant, turn_cap=turn_cap, session_cap=session_cap)
+    b = _Builder("claude-code", keep_assistant=keep_assistant, turn_cap=turn_cap or TURN_CAP_CHARS,
+                 session_cap=session_cap or SESSION_CAP_CHARS)  # read per call, so a test can pin a small cap
     session_id: str | None = None
     cwd: str | None = None
     for raw in lines:
@@ -365,8 +386,8 @@ def extract_codex(
     lines: Iterable[str],
     *,
     keep_assistant: bool = True,
-    turn_cap: int = TURN_CAP_CHARS,
-    session_cap: int = SESSION_CAP_CHARS,
+    turn_cap: int | None = None,
+    session_cap: int | None = None,
 ) -> Conversation:
     """One Codex rollout (JSONL lines) → the same conversation shape.
 
@@ -375,7 +396,8 @@ def extract_codex(
     ``function_call`` is Codex's ``tool_use`` (resets the pending reply);
     ``function_call_output`` its ``tool_result``; ``reasoning`` its thinking.
     """
-    b = _Builder("codex", keep_assistant=keep_assistant, turn_cap=turn_cap, session_cap=session_cap)
+    b = _Builder("codex", keep_assistant=keep_assistant, turn_cap=turn_cap or TURN_CAP_CHARS,
+                 session_cap=session_cap or SESSION_CAP_CHARS)  # read per call, so a test can pin a small cap
     session_id: str | None = None
     cwd: str | None = None
     ctx_model = ctx_effort = None

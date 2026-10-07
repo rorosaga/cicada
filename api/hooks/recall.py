@@ -11,7 +11,7 @@ One command for both events: the harness's own stdin names the event
 (``hook_event_name``, a common input field in Claude Code; Codex's
 ``SessionStartCommandInput`` / ``UserPromptSubmitCommandInput``, openai/codex
 ``codex-rs/hooks/src/schema.rs`` @ c098f97). This script POSTs the event, the
-session id and, for UserPromptSubmit only, the prompt (``prompt`` in both
+session id, for SessionStart the harness's ``source`` (G110), and, for UserPromptSubmit only, the prompt (``prompt`` in both
 harnesses, windowed exactly as ``hook_recall.prompt_window`` reads it) to
 ``POST /capture/hook-context`` as a JSON body, never a query string. It
 prints ``{"hookSpecificOutput": {"hookEventName": …, "additionalContext": …}}``
@@ -161,6 +161,12 @@ def main(argv=None, *, stdin=None, stdout=None, environ=None, post=None, log_pat
             "model": payload.get("model") if isinstance(payload.get("model"), str) else None,
             "prompt": _window(prompt) if event == "user_prompt_submit" and isinstance(prompt, str) else None,
         }
+        source = payload.get("source")
+        if event == "session_start" and isinstance(source, str) and source:
+            # G110: how the session started (startup/resume/clear/compact/fork in
+            # both harnesses). The backend sends a continuity block only for
+            # startup and clear, and treats a missing value as unknown.
+            body["source"] = source[:32]
         port = str(environ.get("CICADA_PORT") or "8000")
         started = time.monotonic()
         status, text = post(f"http://127.0.0.1:{port}/capture/hook-context", json.dumps(body).encode("utf-8"),

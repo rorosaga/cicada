@@ -53,7 +53,7 @@ def test_a_prompt_travels_as_a_json_body_and_the_note_prints_in_the_shared_shape
 def test_session_start_sends_no_prompt_and_forwards_the_model(tmp_path):
     _, calls, out, _ = _run(tmp_path, START)
     assert calls[0][1] == {"event": "session_start", "harness": "claude-code", "session_id": SID, "cwd": None,
-                           "model": "claude-example-1", "prompt": None}
+                           "model": "claude-example-1", "prompt": None, "source": "startup"}   # G110: source forwarded
     assert json.loads(out)["hookSpecificOutput"]["hookEventName"] == "SessionStart"
 
 
