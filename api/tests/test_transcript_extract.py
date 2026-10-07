@@ -307,31 +307,72 @@ def test_extract_dispatch_and_unknown_harness():
         tx.extract("cursor", [])
 
 
-def test_a_cicada_note_is_never_captured_as_the_persons_words():
-    """G149 R-H12: whatever shape Claude Code stores hook context in, a note
-    Cicada recalled never becomes 'the person said'."""
+def test_a_cicada_note_in_the_persons_own_text_is_kept_and_counted():
+    """G110 T2b (gate C, ruling 2026-10-07): capture drops a Cicada note only
+    when the harness marks it as injected — a whole non-person record. Text in
+    the person's own block is their words, whatever it looks like: kept, and
+    counted as note-like so the next note can say so. G105 R5 (the
+    ``<system-reminder>`` span strip) is a tool-output rail and stays."""
     note = recall_text.RECALL_HEADER + "\n- Alpha Project (project, `alpha-project`): x"
     lines = [
         user("How is the Alpha Project going?"),
-        user(note),
+        user(note),                                                # a whole note, pasted
         user_blocks([{"type": "text", "text": "  " + note}, {"type": "text", "text": "and Bob?"}]),
         user(f"<system-reminder>{note}</system-reminder>What changed?"),
         user(f"<user-prompt-submit-hook>{note}</user-prompt-submit-hook>"),
         user(f"And the budget?\n<user-prompt-submit-hook>{note}</user-prompt-submit-hook>"),
-        user(f"<session-start-hook>{note}"),                       # an unclosed tag still opens the block
+        user(f"<session-start-hook>{note}"),
         asst_text("It is on track."),
     ]
     conv = tx.extract_claude_code(lines)
-    assert all("From Cicada" not in t.text for t in conv.turns)
-    assert [t.text for t in conv.turns if t.role == "user"] == ["How is the Alpha Project going?", "and Bob?",
-                                                                 "What changed?", "And the budget?"]
+    kept = [t.text for t in conv.turns if t.role == "user"]
+    assert kept[0] == "How is the Alpha Project going?"
+    assert kept[1] == note
+    assert kept[2] == note + "\nand Bob?"
+    assert kept[3] == "What changed?"                              # R5's span strip is untouched
+    assert kept[4] == f"<user-prompt-submit-hook>{note}</user-prompt-submit-hook>"
+    assert kept[5].startswith("And the budget?") and recall_text.INJECTION_PREFIX in kept[5]
+    assert kept[6] == f"<session-start-hook>{note}"
+    assert conv.summary["note_like_turns"] == 5
 
 
-def test_codex_keeps_hook_context_out_even_under_the_user_role():
+def test_a_person_quoting_a_header_line_then_asking_keeps_both():
+    text = recall_text.PRIMER_HEADER + "\nWhy did this show up? Please turn it off for alpha-project."
+    conv = tx.extract_claude_code([user(text), asst_text("Done.")])
+    assert conv.turns[0].text == text and conv.summary["note_like_turns"] == 1
+
+
+def test_a_note_the_harness_marks_as_injected_is_dropped_whole():
+    """Hook context Claude Code records as its own (non-user) record, or as an
+    ``isMeta`` user record, is not the person's — dropped, never counted."""
     note = recall_text.PRIMER_HEADER + "\n\n# Cicada — personal memory for this person"
-    lines = [cx_msg("developer", [note]), cx_msg("user", [note, "Rename alpha-project?"]), cx_msg("assistant", ["Yes."])]
-    assert [(t.role, t.text) for t in tx.extract_codex(lines).turns] == [
-        ("user", "Rename alpha-project?"), ("assistant", "Yes.")]
+    lines = [
+        json.dumps({"type": "attachment", "attachment": {"type": "hook_additional_context", "content": [note]}}),
+        user(note, isMeta=True),
+        user("Rename alpha-project?"),
+        asst_text("Yes."),
+    ]
+    conv = tx.extract_claude_code(lines)
+    assert [t.text for t in conv.turns] == ["Rename alpha-project?", "Yes."]
+    assert conv.summary["note_like_turns"] == 0
+
+
+def test_codex_drops_a_developer_note_and_keeps_one_in_the_persons_text():
+    note = recall_text.PRIMER_HEADER + "\n\n# Cicada — personal memory for this person"
+    lines = [cx_msg("developer", [note]), cx_msg("user", [note, "Rename alpha-project?"]),
+             cx_msg("user", [f"<session-start-hook>{note}</session-start-hook>"]), cx_msg("assistant", ["Yes."])]
+    conv = tx.extract_codex(lines)
+    assert [(t.role, t.text) for t in conv.turns] == [
+        ("user", note + "\nRename alpha-project?"),
+        ("user", f"<session-start-hook>{note}</session-start-hook>"),
+        ("assistant", "Yes.")]
+    assert conv.summary["dropped_messages"]["developer"] == 1
+    assert conv.summary["note_like_turns"] == 2
+
+
+def test_codex_harness_tags_are_still_skipped():
+    lines = [cx_msg("user", ["<environment_context>cwd</environment_context>", "hi"]), cx_msg("assistant", ["ok"])]
+    assert [t.text for t in tx.extract_codex(lines).turns] == ["hi", "ok"]
 
 
 # --- G110 slice 1a: refused turns and note-like person turns are counted -------

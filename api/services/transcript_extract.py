@@ -29,10 +29,14 @@ The G48 rail is restated, not removed: tool output, code and secrets never
 enter a bank. This module never opens a file — it takes lines — so the
 only transcript read stays where R2 puts it (``transcript_capture``).
 
-A note Cicada's own recall hook added (G149) is never the person's words,
-whatever shape the harness stores it in (``recall_text.is_injection``,
-``_HOOK_OUTPUT_RE``): captured as "the person said", it would hand Sleep its
-own memory as new evidence (R-H12).
+A note Cicada's own hooks added (G149) is dropped only when the harness marks
+it as injected — a whole record that is not the person's (Claude Code's
+attachment/hook records and ``isMeta`` user records, Codex's non-user roles).
+Text inside the person's own block is their words, whatever it looks like: it
+is kept and counted (``note_like_turns``), and the next continuity note
+discloses the count (G110 T2b, gate C ruling 2026-10-07). G105 R5's
+tool-output rules — the ``<system-reminder>`` span strip and the first-tag
+skip — are a different rail and stay.
 
 Pure: no bank state, no LLM, no I/O. ``summary`` carries counts only so it
 can go straight into the ledger (R10).
@@ -69,10 +73,6 @@ CLAUDE_HARNESS_TAGS = frozenset({
     "task-notification", "command-name", "command-message", "command-args",
     "command-stdout", "local-command-stdout", "local-command-caveat",
     "system-reminder", "ide_opened_file", "ide_selection", "ide_diagnostics",
-    # G149 R-H12: tag names hook output could arrive under. Unverified here (no
-    # transcript is read, R2); a person never types them, so dropping them
-    # costs nothing.
-    "user-prompt-submit-hook", "session-start-hook",
 })
 CODEX_HARNESS_TAGS = frozenset({
     "environment_context", "user_instructions", "permissions",
@@ -81,10 +81,10 @@ CODEX_HARNESS_TAGS = frozenset({
 })
 
 _SYSTEM_REMINDER_RE = re.compile(r"<system-reminder>.*?</system-reminder>", re.DOTALL)
-# G149 R-H12: the same tags as a SPAN, stripped wherever it sits in a block,
-# like a system reminder. `_first_tag` reads only a block's first tag, so hook
-# output a harness appended after the person's prompt would otherwise be kept.
-_HOOK_OUTPUT_RE = re.compile(r"<(user-prompt-submit-hook|session-start-hook)>.*?</\1>", re.DOTALL)
+# G110 T2b: a line that opens like a Cicada note, past any leading tags — the
+# count `note_like_turns` keeps (the line itself is kept: the person's words).
+_NOTE_LINE_RE = re.compile(r"^\s*(?:<[A-Za-z_][A-Za-z0-9_-]*>\s*)*" + re.escape(recall_text.INJECTION_PREFIX),
+                           re.MULTILINE)
 _LEADING_TAG_RE = re.compile(r"^\s*<([A-Za-z_][A-Za-z0-9_-]*)")
 _FENCE_RE = re.compile(r"```.*?```", re.DOTALL)
 _OPEN_FENCE_RE = re.compile(r"```.*\Z", re.DOTALL)
@@ -237,8 +237,7 @@ class _Builder:
             self.refused_turns += 1
             return
         self.turns.append(Turn(role=role, text=cleaned, ts=ts, model=model, effort=effort))
-        if role == "user" and any(line.lstrip().startswith(recall_text.INJECTION_PREFIX)
-                                  for line in cleaned.splitlines()):
+        if role == "user" and _NOTE_LINE_RE.search(cleaned):
             # Counted on the cleaned text of a turn that was KEPT — what the body
             # actually holds (review finding 9).
             self.note_like_turns += 1
@@ -343,9 +342,8 @@ def extract_claude_code(
             for bk in blocks:
                 if bk.get("type") != "text":
                     continue
-                text = _HOOK_OUTPUT_RE.sub("", _SYSTEM_REMINDER_RE.sub("", str(bk.get("text") or "")))
-                tag = _first_tag(text)
-                if tag in CLAUDE_HARNESS_TAGS or recall_text.is_injection(text):
+                text = _SYSTEM_REMINDER_RE.sub("", str(bk.get("text") or ""))
+                if _first_tag(text) in CLAUDE_HARNESS_TAGS:
                     tagged += 1
                     continue
                 if text.strip():
@@ -437,7 +435,7 @@ def extract_codex(
             if role == "user":
                 b.boundary()
                 kept = [t for t in texts
-                        if _first_tag(t) not in CODEX_HARNESS_TAGS and not recall_text.is_injection(t) and t.strip()]
+                        if _first_tag(t) not in CODEX_HARNESS_TAGS and t.strip()]
                 if not kept:
                     b.count_msg("harness_tag" if texts else "empty")
                     continue
