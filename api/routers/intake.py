@@ -382,7 +382,7 @@ def resolve_target(settings: Settings, bank: str | None, *, scaffold: bool = Tru
     sniff passes ``scaffold=False``: it must not create a directory either."""
     root = settings.memory_root
     registry = bank_registry.load_registry(root)
-    active = registry.get("active", bank_registry.DEFAULT_BANK)
+    active = bank_registry.active_bank_name(root)   # the request's pinned bank (G183(d))
     name = bank or active
     if name not in (registry.get("banks", {}) or {}):
         raise HTTPException(404, f"Unknown bank '{name}'")

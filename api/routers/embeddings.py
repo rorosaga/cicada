@@ -17,6 +17,7 @@ from starlette.concurrency import run_in_threadpool
 from api.config import Settings, get_settings
 from api.models.schemas import CamelModel
 from api.services import embedding_models, sleep_cycle
+from api.services.sleep_refusal import SleepWriting
 
 router = APIRouter()
 
@@ -69,7 +70,7 @@ async def choose_model(body: EmbeddingChoiceRequest, settings: Settings = Depend
     # Not only while a batch writes: a drain re-syncs the index between its batches, and a model switched
     # mid-drain would re-embed half the bank under one model and half under the other until the next full sync.
     if sleep_cycle.is_writing() or sleep_cycle.get_sleep_state().status == "running":
-        raise HTTPException(status_code=409, detail="Sleep is running; change the search model when it finishes.")
+        raise SleepWriting("Sleep is running; change the search model when it finishes.")
     await run_in_threadpool(embedding_models.set_bank_choice, settings.memory_path, body.model)
     payload = await run_in_threadpool(embedding_models.status, settings.memory_path, settings)
     return EmbeddingsStatus.model_validate(payload)

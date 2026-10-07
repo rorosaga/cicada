@@ -18,6 +18,8 @@ enum HomeLayout {
     static func headlineTopInset(showsBand: Bool) -> CGFloat { showsBand ? headlineTop : headlineTopWithoutBand }
     static let headlineBottom: CGFloat = 20
     static let blockGap: CGFloat = 24
+    /// The field is a block like the rest (owner 2026-10-06): the first card sits one block gap under it.
+    static let fieldToFirstBlock: CGFloat = blockGap
     static let labelGap: CGFloat = 6
     static let bottomPadding: CGFloat = 64
     static let gutter: CGFloat = 40

@@ -78,7 +78,7 @@ struct BankSwitcher: View {
                 Image(systemName: "chevron.down")
                     .font(CicadaTheme.font(size: 9, weight: .semibold))
             }
-            .foregroundStyle(isHovered ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
+            .foregroundStyle(isHovered && !isSwitching ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
             .padding(.leading, CicadaTheme.spacingSM)
             .padding(.trailing, CicadaTheme.scaled(6))
             .frame(height: CicadaTheme.scaled(24))
@@ -90,8 +90,13 @@ struct BankSwitcher: View {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
+        // G183(d) — while the server has not answered a switch the selector keeps the current name, disabled at
+        // DR-41's 45 % with the target in `.help`: quiet, no spinner and no animation (a palette switch is a
+        // keyboard action, DR-60).
+        .disabled(isSwitching)
+        .opacity(isSwitching ? NeutralButton.disabledOpacity : 1)
         .onHover { isHovered = $0 }
-        .help(Copy.switchMemoryBank)
+        .help(banksVM.switchingTo.map(Copy.switchingMemoryBank) ?? (isSwitching ? Copy.switchingMemory : Copy.switchMemoryBank))
         .accessibilityLabel("\(Copy.memoryBanks): \(displayName)")
         .task { await banksVM.load() }
         .sheet(isPresented: $showCreateSheet) {
@@ -150,6 +155,8 @@ struct BankSwitcher: View {
         }
     }
 
+    private var isSwitching: Bool { banksVM.isSwitching }
+
     private var displayName: String {
         banksVM.activeBank?.name ?? banksVM.activeName ?? Copy.memoryBank
     }
@@ -162,7 +169,7 @@ struct BankSwitcher: View {
     }
 
     private func switchTo(_ name: String) {
-        guard name != banksVM.activeName else { return }
+        guard name != banksVM.activeName, !isSwitching else { return }
         Task {
             if await banksVM.activate(name) {
                 await graphVM.loadGraph()

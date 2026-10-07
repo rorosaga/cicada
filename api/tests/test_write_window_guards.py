@@ -73,6 +73,7 @@ def test_a_page_writing_route_refuses_inside_the_write_window(bank, monkeypatch,
     resp = getattr(TestClient(main.app), method)(path, json=body)
     assert resp.status_code == 409, resp.text
     assert "Sleep" in resp.json()["detail"]
+    assert resp.json()["code"] == "sleep_writing", "the stable code the app keys off (G177 review finding 4)"
     assert _git(bank, "status", "--porcelain") == "", "nothing written"
     assert _git(bank, "rev-parse", "HEAD") == head
 
@@ -208,4 +209,5 @@ def test_an_inbox_answer_re_asks_the_window_after_its_awaited_snapshot(bank, mon
     head = _git(bank, "rev-parse", "HEAD")
     resp = TestClient(main.app).post("/inbox/inbox-001/resolve", json={"action": "resolve", "optionKey": "keep"})
     assert resp.status_code == 409, resp.text
+    assert resp.json()["code"] == "sleep_writing", "the second check carries the code too"
     assert _git(bank, "status", "--porcelain") == "" and _git(bank, "rev-parse", "HEAD") == head

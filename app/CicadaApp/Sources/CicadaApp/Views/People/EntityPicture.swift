@@ -80,10 +80,12 @@ struct EntityPicture: View {
         guard let provider = providers.first(where: { $0.hasItemConformingToTypeIdentifier(UTType.image.identifier) })
         else { return false }
         let (id, type, store) = (self.id, self.type, self.store)
+        let bank = store.bank   // G183(d): the bank the picture was dropped in, before the data loads
         let inputs = store.pictureInputs(for: id, held: heldInputs)
         provider.loadDataRepresentation(forTypeIdentifier: UTType.image.identifier) { data, _ in
             guard let data else { return }
-            Task { @MainActor in await PictureActions.upload(data: data, id: id, type: type, store: store, inputs: inputs) }
+            Task { @MainActor in await PictureActions.upload(data: data, id: id, type: type, bank: bank, store: store,
+                                                                   inputs: inputs) }
         }
         return true
     }

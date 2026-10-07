@@ -15,6 +15,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException
 from api.config import Settings, get_settings
 from api.models.schemas import DecayTuningResponse
 from api.services import decay_tuning, git_service
+from api.services.sleep_refusal import SleepWriting
 
 router = APIRouter()
 
@@ -44,7 +45,7 @@ async def put_decay_tuning(
     from api.services import sleep_cycle
 
     if sleep_cycle.is_writing():
-        raise HTTPException(409, BUSY)
+        raise SleepWriting(BUSY)
     async with _write_lock:
         try:
             tuning = decay_tuning.merge(decay_tuning.load(settings.memory_path), changes)
