@@ -35,8 +35,9 @@ to retrieve the earlier working history. Current means a matching harness/sessio
 the newest registered start in this exact folder, or the newest captured session here carrying registry `continues`
 whose registry `started_at` is strictly after the source's activity (including its later registered prompt). The
 fallback does not rely on a Codex MCP identity. It requires a complete index, the newest registered start,
-a unique newest captured activity and one known
-source row; equal/earlier or unknown source activity does not establish current. The current episode is fully parsed
+a unique newest captured activity and one known source row. The candidate's activity must also be at least every other
+same-folder registry row's `started_at` and `last_prompt_at`, including rows without an episode. Equal/earlier or unknown
+source activity does not establish current. The current episode is fully parsed
 and its folder hash revalidated before the reply. A fresh recognised current session without a recorded source says
 so, without promoting its first turn to the earlier role. A newer registered session that has not captured yet
 preserves the previous working session's history even when that previous session itself carries lineage.
@@ -284,6 +285,7 @@ even before Sleep. Rich working history is read on demand through `cicada_contin
   has one, since a re-capture runs long after a conversation — or the registry's later `last_prompt_at`), never file
   mtime; two sessions active within 15 minutes of each other are listed and the agent is
   told to ask once on the requested read. An incomplete requested read says "the most recent session Cicada could read here", never "the only".
+- **Accepted limit.** Two simultaneous new sessions in one folder can defeat a fresh identity's newest-start check; ordinary selection applies because registry rows cannot distinguish this from stale identity after `/clear`.
 - **The startup block** is always ≤ 240 characters: an unversioned `cicada_continue(session="<episode id>")`
   hint for questions about previous work, and *workspace state not checked*. It never includes role, title, request,
   reply or State excerpts, even with spare room. Ambiguity lists ids only if all listed ids fit; otherwise it points

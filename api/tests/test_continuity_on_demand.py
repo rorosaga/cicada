@@ -109,7 +109,7 @@ def _stop(env, harness, session, turns, **kw):
     return result
 
 
-def _start(env, harness, *, prompt=None):
+def _start(env, harness, *, prompt=None, session=B):
     def post(url, body, token, timeout):
         response = env["client"].post("/capture/hook-context", content=body,
                                       headers={"Content-Type": "application/json"})
@@ -117,7 +117,7 @@ def _start(env, harness, *, prompt=None):
         return response.status_code, response.text
 
     out = io.StringIO()
-    payload = {"session_id": B, "cwd": CWD, "hook_event_name": "SessionStart", "source": "startup"}
+    payload = {"session_id": session, "cwd": CWD, "hook_event_name": "SessionStart", "source": "startup"}
     if prompt is not None:
         payload.update(hook_event_name="UserPromptSubmit", prompt=prompt)
     RECALL.main(["--harness", harness], stdin=io.StringIO(json.dumps(payload)), stdout=out,
@@ -321,6 +321,43 @@ def test_uncaptured_new_start_does_not_skip_a_historical_continuation(env, monke
     out = env["server"].handle_tool("cicada_continue", {})
     assert out.startswith(continuity.call(a["episodeId"])) and "unrelated-first-turn" not in out
     assert not out.startswith(continuity.call(root["episodeId"]))  # one direct source, no chain walk
+
+
+@pytest.mark.parametrize("source,destination", [("claude-code", "codex"), ("codex", "claude-code")])
+def test_uncaptured_unknown_callers_new_prompt_does_not_make_another_session_current(
+        env, monkeypatch, source, destination):
+    caller = "dddddddd-2222-4333-8444-555555555555"
+    a = _stop(env, source, A, [("user", ROLE), ("assistant", REPORT)], minutes_ago=10)
+    _register_source_start(env, source)
+    monkeypatch.setattr(hook_recall, "CONTINUES_MIN_S", 10.0)
+    _start(env, destination, session=caller)
+    assert continuity_sessions.apply(env["memory"], bank_paths=(env["memory"],), harness=destination, session_id=caller,
+        events={"started_at": (env["now"] - timedelta(minutes=8)).isoformat()}, deadline=None) == "ok"
+    monkeypatch.setattr(hook_recall, "CONTINUES_MIN_S", 0.0)
+    note = _start(env, source)
+    assert continuity.call(a["episodeId"]) in note
+    assert continuity_sessions.apply(env["memory"], bank_paths=(env["memory"],), harness=source, session_id=B,
+        events={"started_at": (env["now"] - timedelta(minutes=5)).isoformat()}, deadline=None) == "ok"
+    b = _stop(env, source, B, [("user", "unrelated-first-turn"), ("assistant", "Hello.")], minutes_ago=5, note=note)
+    before = {p: p.read_bytes() for p in (_episode(env, a), _episode(env, b))}
+    _identity(env, monkeypatch, "unknown", source, destination)
+    _start(env, destination, session=caller, prompt=QUESTION)
+    rows = continuity_sessions.all_rows(env["memory"], bank_paths=(env["memory"],), now=env["now"])
+    c_reg, b_reg = rows[f"{destination}:{caller}"], rows[f"{source}:{B}"]
+    assert "continues" not in c_reg and b_reg["continues"] == a["episodeId"]
+    assert b_reg["started_at"] > c_reg["started_at"]
+    assert c_reg["last_prompt_at"] > continuity.activity(markdown_parser.parse(_episode(env, b)).frontmatter, b_reg)
+    out = env["server"].handle_tool("cicada_continue", {})
+    assert out.startswith("# Recent sessions here")
+    assert "This looks like the current conversation" not in out and not out.startswith(continuity.call(a["episodeId"]))
+    assert continuity.call(a["episodeId"]) in out and continuity.call(b["episodeId"]) in out
+    # The true B caller's own newer question is still recognised through registry activity.
+    _start(env, source, prompt=QUESTION)
+    out = env["server"].handle_tool("cicada_continue", {})
+    assert out.startswith(continuity.call(a["episodeId"])) and "This looks like the current conversation" in out
+    assert f"episode `{b['episodeId']}`" in out and "unrelated-first-turn" not in out
+    assert all(p.read_bytes() == data for p, data in before.items())
+    assert len(list((env["memory"] / "episodes").glob("*.md"))) == 2
 
 
 @pytest.mark.parametrize("harness", ["claude-code", "codex"])

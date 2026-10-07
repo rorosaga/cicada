@@ -424,6 +424,11 @@ def _current_conversation(snapshot: Snapshot, registry: dict[str, dict], *, cwd:
     reg = starts_here.get(key(current[1]), {})
     if reg.get("started_at") != newest_start:
         return None  # A newer, not-yet-captured start means this is previous working history.
+    # Another caller may have a newer prompt without a captured episode yet.
+    current_activity = activity(current[1], reg)
+    if any(current_activity < max(r.get("started_at") or "", r.get("last_prompt_at") or "")
+           for k, r in starts_here.items() if k != key(current[1])):
+        return None
     source_id = reg.get("continues")
     sources = [r for r in snapshot.rows.values() if r.get("id") == source_id and r != current[1]]
     if len(sources) != 1:
