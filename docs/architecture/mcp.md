@@ -251,7 +251,8 @@ same way.
 **exact** folder of an earlier captured session is told, inside the SessionStart
 note, where that session stopped — even before Sleep.
 
-- **Identity.** The hook's `cwd` string, matched exactly against the Stop-hook episodes' `project_dir`; no folding, no
+- **Identity.** Hash the hook's exact `cwd` string with `sha256(cwd)[:16]` and match the index's `cwd_hash`;
+  the chosen episode's `project_dir` is hashed again at full parse to revalidate the match. No folding, no
   repository key, no `.git` read — every note says *workspace state not checked*. `resume`, `compact` and `fork` carry
   their own history and get no block.
 - **Selection** (`continuity.select`): an exact episode id or full session id (`cicada_continue(session=…)`), else the
@@ -275,7 +276,10 @@ note, where that session stopped — even before Sleep.
 - **The index** (`$CICADA_HOME/continuity/<bank-id>.index.json`, beside the registry, never inside a bank): episode
   heads only (≤ 16 KB, to the first `turns:` key), never a full parse in a hook; no git runs on this path; its lock
   sits beside it, every file opened without following a symlink; no safe home or any I/O failure keeps it in process
-  memory. A failed directory listing keeps
+  memory. Schema 2 keeps `cwd_hash`, never plaintext `project_dir`, titles or turns; persisted hashes are decoded
+  separately from episode paths. A successful index write replaces schema-1 path caches and removes extra cached fields,
+  including when the episodes directory is empty, missing or unreadable, without rewriting any episode.
+  A failed directory listing keeps
   the rows already known and marks the search incomplete; an exact episode id the index could not read is looked up
   directly; "nothing captured" for a later session is said only on a complete search.
 - **The registry** (`continuity_sessions`, `$CICADA_HOME/continuity/<bank>-<hash8>.json`): per session the harness,
