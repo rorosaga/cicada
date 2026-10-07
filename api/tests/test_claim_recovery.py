@@ -290,10 +290,14 @@ def test_a_failed_commit_puts_the_pages_back(bank, monkeypatch):
     _drop_by_sleep(bank, keep=[c1])
     before = (bank / "entities" / "alpha-project.md").read_bytes()
 
-    def boom(*_a, **_k):
-        raise git_service.GitError("synthetic failure")
+    real = git_service._git_sync
 
-    monkeypatch.setattr(git_service, "commit_paths_sync", boom)
+    def failing_commit(memory_path, *args):
+        if args and args[0] == "commit":   # after `git add` staged the recovered page
+            raise git_service.GitError("synthetic failure")
+        return real(memory_path, *args)
+
+    monkeypatch.setattr(git_service, "_git_sync", failing_commit)
     with pytest.raises(git_service.GitError):
         claim_recovery.apply(bank)
     assert (bank / "entities" / "alpha-project.md").read_bytes() == before

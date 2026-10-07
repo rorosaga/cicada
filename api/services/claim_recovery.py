@@ -416,7 +416,9 @@ def _apply_locked(bank: Path, plan: Plan, today: date) -> ApplyResult:
             result.commit = _head(bank)
     except BaseException:
         if written:
-            git_service.run_git_write_sync(bank, "checkout", "--", *sorted(written))
+            # From HEAD, not the index: a commit that failed after its `git add` left the new bytes staged. Every
+            # page written was clean at HEAD, so this is exactly what was there.
+            git_service.run_git_write_sync(bank, "checkout", "HEAD", "--", *sorted(written))
         raise
     result.pages = sorted(written)
     result.recovered = sum(written.values())
