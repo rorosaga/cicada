@@ -2492,7 +2492,8 @@ def get_perspective(
         return f"Could not read '{subject}': {e}"
 
     page_claims = parse_claims(parsed.body)
-    claims = [c for c in page_claims if c.valid_to is None and not c.superseded_by]
+    from api.services.claims import is_current, read_valid_to
+    claims = [c for c in page_claims if is_current(c)]
     if observer:
         claims = [c for c in claims if c.observer == observer]
     if context:
@@ -2500,7 +2501,7 @@ def get_perspective(
     earlier: list = []
     happened: list = []
     if history:
-        earlier = [c for c in page_claims if (c.valid_to is not None or c.superseded_by) and not _is_record(c)]
+        earlier = [c for c in page_claims if not is_current(c) and not _is_record(c)]
         if observer:
             earlier = [c for c in earlier if c.observer == observer]
         if context:
@@ -2545,7 +2546,7 @@ def get_perspective(
         for c in earlier:
             lines.append(
                 f"- {c.text}\n  _({_how_closed(c, page_claims)} · valid {c.valid_from or 'undated'} → "
-                f"{c.valid_to or 'undated'} · {c.observer} · {c.source_trust})_"
+                f"{read_valid_to(c) or 'undated'} · {c.observer} · {c.source_trust})_"
             )
     if happened:
         lines += ["", f"Happened and earlier states, newest first ({len(happened)}):"]
@@ -2677,6 +2678,8 @@ def _render_entity_summary(entities_dir: Path, hit: dict) -> str:
 
 
 def _type_aware_truncate(body: str, entity_type: str) -> str:
+    from api.services.claims import strip_claims_block
+    body = strip_claims_block(body)
     if not body:
         return ""
     if entity_type in SHORT_TYPES:
@@ -2774,12 +2777,15 @@ def _how_closed(old, page: list) -> str:
     new = {c.id: c for c in page}.get(old.superseded_by or "")
     if new is not None and _is_record(new):
         return f"withdrawn by {new.authored_by or 'an agent'}: {_clip(new.text, 160)}"
-    if not old.superseded_by and _ended_at_stated_end(old):
+    from api.services.claims import is_current, read_valid_to
+    if not old.superseded_by and (_ended_at_stated_end(old) or (old.valid_to is None and read_valid_to(old))):
         return "ended at its stated end"
-    if new is not None and new.valid_to is None:
+    if new is not None and is_current(new):
         return f'replaced by "{_clip(new.object or new.text)}"'
     if old.superseded_by:
         return f"superseded by `{old.superseded_by}`"
+    if old.valid_to is None and not is_current(old):
+        return "not yet current"
     return "closed"
 
 
@@ -2810,7 +2816,8 @@ def _history_line(eid: str, old, page: list) -> str:
         return f"{head} {was} withdrawn {old.valid_to} by {new.authored_by or 'an agent'} — {_clip(new.text, 160)}"
     if not old.superseded_by and _ended_at_stated_end(old):
         return f"{head} {was} ended {old.valid_to} (its stated end)"
-    if new is not None and new.valid_to is None and new.predicate == old.predicate:
+    from api.services.claims import is_current
+    if new is not None and is_current(new) and new.predicate == old.predicate:
         return f'{head} was {was} until {old.valid_to} → now "{_clip(new.object or new.text)}"'
     return f"{head} was {was} until {old.valid_to}"
 
@@ -3480,4 +3487,3 @@ def _content_tokens(text: str) -> set[str]:
     }
     raw = re.findall(r"[\w'-]+", (text or "").lower())
     return {token for token in raw if token not in stopwords and len(token) >= 2}
-

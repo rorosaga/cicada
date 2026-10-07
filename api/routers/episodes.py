@@ -137,7 +137,11 @@ async def get_episode_citations(
     written. 404 for an unknown or non-bare id.
     """
     memory_path = settings.memory_path
-    etag = sync_service.etag_for(memory_path, "episodes", "entities", extra=f"citations|{episode_id}|{git_service.AUTHOR_SHAPE}|{video_state.VIDEO_SHAPE}")
+    from api.services import claims
+    etag = sync_service.etag_for(
+        memory_path, "episodes", "entities",
+        extra=f"citations|{episode_id}|{git_service.AUTHOR_SHAPE}|{video_state.VIDEO_SHAPE}|validity2|{claims.current_day()}",
+    )
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
     result = await run_in_threadpool(provenance.episode_citations, memory_path, episode_id)

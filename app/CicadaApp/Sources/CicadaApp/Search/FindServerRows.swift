@@ -63,14 +63,25 @@ enum FindServerRows {
                 let type = EntityType(rawValue: hit.type) ?? .concept
                 // R-SU19 — the server ranks these after every current claim (R10); drawn as history.
                 let isHistory = hit.validTo != nil || hit.supersededBy != nil
+                let future = ISODay(hit.validFrom).map {
+                    $0 > ISODay.today(now: context.now, calendar: context.calendar)
+                } ?? false
                 let span = hit.episodeId.map {
                     ReaderSpan(doc: $0, start: hit.start, end: hit.end, hash: hit.hash, claimId: hit.id)
                 }
-                let detail = [hit.subtitle, speaker(hit.evidenceKind)].compactMap { $0 }.joined(separator: " · ")
+                let detail = [hit.subtitle, date(hit.eventDay), hit.eventStatus, speaker(hit.evidenceKind)]
+                    .compactMap { $0 }.joined(separator: " · ")
+                let history: String? = future && !isHistory
+                    ? date(hit.validFrom).map { "from \($0)" }
+                    : isHistory
+                    ? (hit.eventStatus != nil
+                        ? (hit.supersededBy != nil ? "earlier state" : "past event")
+                        : (date(hit.validTo).map { "until \($0)" } ?? "no longer current"))
+                    : nil
                 rows.append(FindRow(key: FindRowKey(kind: .belief, id: hit.id), group: .beliefs, title: hit.name,
                                     titleRanges: bold(hit.name), detail: detail.isEmpty ? nil : detail,
                                     mark: .entity(id: subject, name: hit.subtitle ?? subject, type: type),
-                                    history: isHistory ? (date(hit.validTo).map { "until \($0)" } ?? "no longer current") : nil,
+                                    history: history,
                                     score: hit.score, destination: .belief(subjectId: subject, claimId: hit.id),
                                     secondary: context.readerAvailable ? span.map { .evidence($0) } : nil))
             case "episode":

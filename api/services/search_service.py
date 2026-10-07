@@ -30,7 +30,7 @@ stored or sent to telemetry (K9); a missing or broken index degrades to the
 from __future__ import annotations
 
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 from typing import Callable, Iterable
@@ -38,8 +38,8 @@ from typing import Callable, Iterable
 from loguru import logger
 
 from api.models.schemas import SearchHit, SearchResponse
-from api.services import bank_index, evidence, inbox_questions, inbox_service, search_index, text_fold
-from api.services.claims import EVENT_PREDICATES
+from api.services import bank_index, evidence, inbox_questions, inbox_service, markdown_parser, search_index, text_fold
+from api.services.claims import EVENT_PREDICATES, is_current, is_record, parse_claims, read_valid_to
 
 KINDS = ("entity", "claim", "episode", "media", "inbox", "backlog")
 _KIND_ALIASES = {
@@ -195,6 +195,8 @@ class _Ctx:
     per_kind: int
     mode: str
     legs: dict[str, list[dict]] | None = None
+    live_claims: dict[str, dict] = field(default_factory=dict)
+    unchanged_pages: dict[str, bool] = field(default_factory=dict)
 
     @property
     def match(self) -> str:
@@ -326,7 +328,7 @@ def _pages_kind(ctx: _Ctx, kind: str, lexical: list[_Page], claims: list["_Claim
     reasons: dict[str, str] = {}
     if kind == "entity":
         for c in claims:
-            if c.hit.valid_to is None and c.hit.subject_id:
+            if _votes_for_subject(c.hit) and c.hit.subject_id:
                 via_claim.append(c.hit.subject_id)
                 reasons.setdefault(c.hit.subject_id, c.hit.name)
         via_claim = _dedupe(via_claim)
@@ -375,17 +377,44 @@ class _Claim:
     sort: tuple = ()
 
 
+def _votes_for_subject(hit: SearchHit) -> bool:
+    """Page relevance is not a current-belief assertion (G141)."""
+    return is_current(hit) or bool(hit.event_status and not hit.superseded_by)
+
+
 def _is_history(payload: dict) -> bool:
-    """R-PJB11: an event is history only when something replaced it — a
-    born-closed done happening's `valid_to` is its shape, not its end."""
-    if payload.get("predicate") in EVENT_PREDICATES:
-        return bool(payload.get("superseded_by"))
-    return payload.get("valid_to") is not None
+    """History remains searchable; every non-current claim ranks after current ones."""
+    return not is_current(payload)
+
+
+def _live_claim(ctx: _Ctx, subject: search_index.Doc, claim_id: str):
+    """Recheck a candidate against markdown even while FTS rebuilds. One read per page."""
+    if subject.ref not in ctx.live_claims:
+        try:
+            parsed = markdown_parser.parse(ctx.memory_path / "entities" / f"{subject.ref}.md")
+            ctx.live_claims[subject.ref] = ({} if parsed.frontmatter.get("status") == "dropped" else
+                                          {c.id: c for c in parse_claims(parsed.body) if not is_record(c)})
+        except Exception:
+            ctx.live_claims[subject.ref] = {}
+    return ctx.live_claims[subject.ref].get(claim_id)
+
+
+def _candidate_claim(ctx: _Ctx, subject: search_index.Doc, claim_id: str, text: str, payload: dict):
+    """Indexed validity is trustworthy while the source's stamp still matches."""
+    if subject.ref not in ctx.unchanged_pages:
+        try:
+            stamp = (ctx.memory_path / "entities" / f"{subject.ref}.md").stat()
+            ctx.unchanged_pages[subject.ref] = subject.stamp == (stamp.st_mtime_ns, stamp.st_size)
+        except OSError:
+            ctx.unchanged_pages[subject.ref] = False
+    if ctx.unchanged_pages[subject.ref]:
+        return text, payload
+    live = _live_claim(ctx, subject, claim_id)
+    return (live.text, search_index.claim_payload(live)) if live is not None else None
 
 
 def _claim_hit(subject: search_index.Doc, text: str, payload: dict, tokens: list[str], score: float, label: str) -> SearchHit:
     snippet, offsets = snippet_window(text, tokens)
-    history = _is_history(payload)
     event = payload.get("predicate") in EVENT_PREDICATES
     ev = payload.get("evidence") or {}
     is_span = ev.get("kind") not in (None, "reasoning") and int(ev.get("start", -1)) >= 0
@@ -408,10 +437,10 @@ def _claim_hit(subject: search_index.Doc, text: str, payload: dict, tokens: list
         hash=(ev.get("hash") or None) if is_span else None,
         evidence_kind=ev.get("kind") or None,
         valid_from=payload.get("valid_from") or None,
-        # G141 R-PJB11: only history carries these, so `_claims_kind`'s sort
-        # and `claim_subject_hits` read a born-closed happening as current.
-        valid_to=(payload.get("valid_to") or None) if history else None,
-        superseded_by=(payload.get("superseded_by") or None) if history else None,
+        # Preserve closures on events too. An elapsed stated end is shown
+        # without waiting for expiry to write the same close into the page.
+        valid_to=read_valid_to(payload),
+        superseded_by=payload.get("superseded_by") or None,
         event_status=(payload.get("status") or None) if event else None,
         event_day=(payload.get("valid_from") or None) if event else None,
     )
@@ -428,6 +457,10 @@ def _lexical_claims(ctx: _Ctx) -> list[_Claim]:
         subject = subjects.get(doc_id)
         if subject is None or not payload.get("id"):
             continue
+        candidate = _candidate_claim(ctx, subject, payload["id"], text, payload)
+        if candidate is None:
+            continue
+        text, payload = candidate
         fields = [
             (text, 1.0, "name"),
             (subject.meta.get("name", ""), 0.9, "alias"),
@@ -456,12 +489,14 @@ def _claims_kind(ctx: _Ctx, lexical: list[_Claim], order: list[str], scores: dic
         subjects = ctx.reader.docs([doc_id for doc_id, _t, _p in rows.values()])
         for cid, (doc_id, text, payload) in rows.items():
             if doc_id in subjects:
-                hits[cid] = _claim_hit(subjects[doc_id], text, payload, ctx.tokens, 0.0, "semantic")
+                candidate = _candidate_claim(ctx, subjects[doc_id], cid, text, payload)
+                if candidate is not None:
+                    hits[cid] = _claim_hit(subjects[doc_id], *candidate, ctx.tokens, 0.0, "semantic")
     ranked = [hits[cid] for cid in order if cid in hits]
     # History after every current claim in every mode (G136 R10), applied
     # BEFORE the cut: fusion alone ties a lexical-only superseded claim with
     # the first semantic neighbour, since vector claims are current-only.
-    ranked.sort(key=lambda h: h.valid_to is not None)
+    ranked.sort(key=lambda h: not is_current(h))
     chosen = ranked[: ctx.per_kind]
     for hit in chosen:
         hit.score = scores.get(hit.id, hit.score)
@@ -826,10 +861,8 @@ def lexical_entity_hits(memory_path: Path, query: str, top_k: int = 8) -> list[d
 
 
 def claim_subject_hits(memory_path: Path, query: str, top_k: int = 8) -> list[dict]:
-    """R3 P2's third recall leg: current claims matched lexically, mapped to
+    """R3 P2's third recall leg: current beliefs and unsuperseded events mapped to
     the page they are about, deduplicated, best first."""
     resp = search(memory_path, query, kinds=("claim",), mode="prefix", per_kind=MAX_PER_KIND)
-    # Events are admitted whatever their validity (G141 §10.2): a project with
-    # a fresh happening is what the query is about.
-    subjects = _dedupe(h.subject_id for h in resp.results if not h.valid_to or h.event_status)
+    subjects = _dedupe(h.subject_id for h in resp.results if _votes_for_subject(h))
     return [{"entity_id": ref, "source": "claim", "score": 0.0} for ref in subjects][:top_k]

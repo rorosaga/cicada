@@ -60,7 +60,7 @@ from api.services import (
     turn_authorship,
     video_state,
 )
-from api.services.claims import Claim, Evidence, is_event, is_record, parse_claims
+from api.services.claims import Claim, Evidence, is_current, is_event, is_record, parse_claims
 from api.services.id_utils import resolve_entity_file
 
 # The Reader's cap (R-PB5). A Stop-hook episode is already capped at 100,000
@@ -255,7 +255,7 @@ class _Episodes:
 
 
 def _current(claim: Claim) -> bool:
-    return claim.valid_to is None and not claim.superseded_by
+    return is_current(claim)
 
 
 def _recency(claim: Claim) -> str:
@@ -526,10 +526,9 @@ def episode_citations(memory_path: Path, doc_id: str) -> EpisodeCitations | None
                 "authored_by": git_service.canonical_author(claim.authored_by), "observer": claim.observer,
             }
             if is_event(claim):
-                # G141 R-PJB11: a born-closed done happening's `valid_to` is its
-                # shape, not its end — it reads as a dated happening, and is
-                # "no longer current" only when something replaced it.
-                base.update(current=not claim.superseded_by, event_status=claim.status,
+                # G141: a dated happening is not an obsolete belief. Only
+                # a successor makes its citation an earlier event state.
+                base.update(current=not bool(claim.superseded_by), event_status=claim.status,
                             event_day=claim.valid_from)
             mine = [ev for ev in claim.evidence if ev.episode == doc_id]
             spans = [ev for ev in mine if ev.is_span()]

@@ -291,3 +291,33 @@ clarification naturally in the flow when the conversation touches its entity, an
 saved resources.
 
 ---
+
+**Current-claim reads (G118/G93, 2026-10-07).** The recall claim leg, implicit
+recall's claim lines and perspective's current block use `claims.is_current`.
+Unsuperseded dated events also vote for subject relevance: that leg returns
+page ids, never an assertion that the event is a current belief. Claim text in
+implicit recall remains current-only; history readers expose events with dates
+and state. Closure and successor metadata are preserved for every search hit.
+
+**Ask grounding (G93/G118, 2026-10-07).** `/ask` and `cicada_ask` use the same
+validity-aware context. Each structured claim sent to synthesis has its id,
+observer/trust, current flag, start, close, stated end and successor; historical
+rows explicitly say history, superseded or withdrawn. Metadata is assembled
+before text is clipped; raw claim fences never enter the prompt. Current
+questions receive current beliefs and unsuperseded events as dated progress,
+never as continuing states. Page prose remains explicitly labeled unversioned
+background that may be outdated; structured validity takes precedence. Sentences
+repeating a closed non-event literal are removed from current-question context. Explicit past/change
+language (including an as-of date) enables labeled history and adds the FTS
+history leg; this is an English intent heuristic, not a model classification.
+The synthesis rules require historical answers to state the validity dates and
+never repeat a closed belief as current. Citations recheck claim provenance
+against the loaded markdown. A deleted page is never revived from indexed text;
+Pages with only closed beliefs and no usable background return an honest gap
+without a synthesis call.
+The historical lexical leg removes question/date words before matching, warms
+a cold disposable index synchronously only when no usable index exists, honors
+the default freshness TTL on warm reads, and takes matching historical subjects
+before generic semantic neighbours. Prompt budgeting reserves claims from both
+sides of a change. Implicit recall rechecks each selected page's claims against
+markdown; every type's recall summary strips claim fences before truncation.

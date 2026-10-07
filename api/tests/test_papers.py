@@ -405,3 +405,28 @@ def test_a_deleted_file_takes_its_papers_edges_with_it(bank):
     _sync(bank, folder, [], deleted=["REFERENCES.md"])
     edges = yaml.safe_load((bank / "graph_edges.yaml").read_text(encoding="utf-8"))["edges"]
     assert not any(e["source"] in ("media-arxiv-2401-00001", BETA) for e in edges)
+
+
+@pytest.mark.parametrize("fields", [{"superseded_by": "clm_new"}, {"valid_from": "2099-01-01"},
+                                    {"expected_end": "2000-01-01"}])
+def test_paper_detail_uses_shared_currentness_for_both_tiers(bank, fields):
+    from api.services.claims import Claim, Evidence
+    text = "A synthetic calibration reference."
+    episode = "ep_2026-01-01_001"
+    markdown_parser.write(bank / "episodes" / f"{episode}.md", {}, text)
+    rows = [Claim(id="clm_why", predicate="saved-because", text=text, object=text,
+                  evidence=[Evidence(episode=episode, kind="user", start=0, end=len(text),
+                                     hash=evidence.body_hash(text))]),
+            Claim(id="clm_context", predicate="describes", text="World context", object="World context",
+                  source_trust="external")]
+    page = bank / "entities" / "paper-example.md"
+    fm = {"name": "Paper Example", "type": "media", "media": {"kind": "paper"}, "paper": {}}
+    markdown_parser.write(page, fm, write_claims("", rows))
+    assert papers.detail(bank, "paper-example")["why"]
+    assert papers.detail(bank, "paper-example")["context"] == "World context"
+    for row in rows:
+        for key, value in fields.items():
+            setattr(row, key, value)
+    markdown_parser.write(page, fm, write_claims("", rows))
+    assert papers.detail(bank, "paper-example")["why"] == []
+    assert papers.detail(bank, "paper-example")["context"] is None
