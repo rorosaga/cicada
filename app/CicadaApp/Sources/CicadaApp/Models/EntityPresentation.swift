@@ -51,8 +51,24 @@ enum EntityHeaderWords {
     /// The newest source's day when it is a readable past day more than `oldAfterDays` before `today`; a missing,
     /// invalid or future day is never old (G194 A2).
     static func oldDay(_ lastReferenced: String?, today: ISODay) -> ISODay? {
-        guard let day = ISODay(lastReferenced), today - day > oldAfterDays else { return nil }
+        guard let day = calendarDay(lastReferenced), today - day > oldAfterDays else { return nil }
         return day
+    }
+
+    /// A strict stored day (G194 fix round 1): `YYYY-MM-DD`, alone or before a time (`T` or a space), naming a day
+    /// the Gregorian calendar has. `ISODay` normalizes "2025-02-30" into Mar 2; the header must never show a day the
+    /// page did not name, so anything else is no day and the confidence words stay.
+    static func calendarDay(_ raw: String?) -> ISODay? {
+        guard let raw else { return nil }
+        let bytes = Array(raw.utf8)
+        let digits = [0, 1, 2, 3, 5, 6, 8, 9]
+        guard bytes.count >= 10, bytes[4] == UInt8(ascii: "-"), bytes[7] == UInt8(ascii: "-"),
+              digits.allSatisfy({ (UInt8(ascii: "0")...UInt8(ascii: "9")).contains(bytes[$0]) }),
+              bytes.count == 10 || bytes[10] == UInt8(ascii: "T") || bytes[10] == UInt8(ascii: " "),
+              let day = ISODay(raw) else { return nil }
+        func number(_ range: Range<Int>) -> Int { range.reduce(0) { $0 * 10 + Int(bytes[$1] - UInt8(ascii: "0")) } }
+        let civil = day.civil
+        return (civil.year, civil.month, civil.day) == (number(0..<4), number(5..<7), number(8..<10)) ? day : nil
     }
 
     /// "Feb 2025" in the viewer's language — the header's month (G194 A2); `nil` when the page is not old.

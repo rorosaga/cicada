@@ -71,6 +71,29 @@ final class EntityHeaderTests: XCTestCase {
         }
     }
 
+    /// Fix round 1 (review finding 1): an impossible calendar day is not a day. `ISODay` normalizes Feb 30 into
+    /// Mar 2; the header must not show a month the payload never named, so it keeps the confidence words.
+    func testAnImpossibleCalendarDayIsNeverShownAsAnotherDay() {
+        let en = Locale(identifier: "en_US")
+        let today = ISODay(year: 2026, month: 10, day: 7)
+        for day in ["2025-02-30", "2025-04-31", "2026-02-29", "2025-06-31", "2025-00-10", "2025-02-00",
+                    "2025-2-6", "20250206", "2025-02-06x", "2025/02/06", " 2025-02-06"] {
+            XCTAssertEqual(EntityHeaderWords.statusLine(status: .active, confidence: 0.92, lastReferenced: day,
+                                                        today: today, locale: en), "Active · very confident", day)
+            XCTAssertEqual(EntityHeaderWords.statusHelp(status: .active, confidence: 0.92, lastReferenced: day,
+                                                        today: today, locale: en), "Confidence 92 out of 100", day)
+        }
+        // A real leap day, and an instant on a real day, are still read.
+        XCTAssertEqual(EntityHeaderWords.statusLine(status: .active, confidence: 0.92, lastReferenced: "2024-02-29",
+                                                    today: today, locale: en), "Active · last mentioned Feb 2024")
+        XCTAssertEqual(EntityHeaderWords.statusHelp(status: .active, confidence: 0.92, lastReferenced: "2024-02-29",
+                                                    today: today, locale: en),
+                       "Confidence 92 out of 100 · last mentioned Feb 29, 2024")
+        XCTAssertEqual(EntityHeaderWords.statusLine(status: .active, confidence: 0.92,
+                                                    lastReferenced: "2025-02-06 10:00:00", today: today, locale: en),
+                       "Active · last mentioned Feb 2025")
+    }
+
     /// Today is the viewer's calendar day (DR-58: computed at read); the stored day is a calendar day with no zone.
     func testTodayIsTheViewersDayAtTheBoundary() {
         let now = ISO8601DateFormatter().date(from: "2026-05-07T09:00:00Z")!
