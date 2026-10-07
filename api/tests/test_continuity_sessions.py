@@ -74,7 +74,7 @@ def test_invalid_values_never_reach_the_file(env):
     assert "SENTINEL" not in text and "etc" not in text and "extra" not in text and "yesterday" not in text
     assert _get(env) == {"harness": "claude-code", "cwd_hash": cs.cwd_hash(sentinel), "started_at": _t(1)}
     assert _apply(env, {"started_at": _t(0)}, sid="../bad") == "error"
-    assert _apply(env, {"started_at": _t(0)}, harness="cursor") == "error"
+    assert _apply(env, {"started_at": _t(0)}, harness="unknown-harness") == "error"
 
 
 def test_unknown_keys_in_a_stored_file_are_dropped_on_read(env):

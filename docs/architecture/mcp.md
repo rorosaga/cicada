@@ -288,6 +288,44 @@ same way.
 same folder or hook-observed checkout as an earlier captured session receives a light history pointer inside the SessionStart note,
 even before Sleep. Rich working history is read on demand through `cicada_continue` when the person asks.
 
+**Cursor local IDE startup (1b-c, docs checked 2026-10-08).** The small registered adapter in
+`harness_integrations.LOCAL` supplies setup/status separately from transcript and engine providers.
+The [Cursor hook reference](https://cursor.com/docs/hooks) specifies a user-level v1
+`~/.cursor/hooks.json`, flat `sessionStart` command entries and `additional_context` output.
+`cursor_registry.py` merges/updates only the parsed Cicada command, preserving other hooks/keys;
+uninstall removes only its commands, leaving other configuration and the v1 header intact. Invalid,
+oversized (>256KB), symlinked or unknown-version files are untouched and require repair. Source
+installation adds the hook when `~/.cursor` already exists and `CICADA_RECALL` is not off; the app
+offers it separately under Remembers automatically. Release commands use the stable
+`cicada-hook cursor` / `cursor_registry` launcher verbs, not bundle paths. MCP uses its existing
+install link or [global MCP config](https://cursor.com/docs/mcp); enabling MCP never implies hook delivery.
+
+`api/hooks/cursor.py` is stdlib/run-by-path, accepts at most64KB of synthetic-schema-equivalent input,
+allowlists `sessionStart`, uses equal stable `conversation_id`/`session_id` (never generation id), and
+skips background/remote sessions. A single valid absolute `workspace_roots` entry supplies the cwd;
+the user-hook process cwd is `~/.cursor` and is never substituted. Missing/multiple/invalid roots get
+only the primer, without a continuity selection or git observation. Optional identity uses the same
+bounded D2 observer. The existing authenticated hook-context route/compositor keeps the light
+≤240-character pointer inside the whole≤1,800-token note; the hook maps `additionalContext` to
+`additional_context` and fails open with `{}` on empty/error/disabled/unsupported input. HTTP timeout
+is0.9s and the config timeout2s. Email (including the environment value), model fields, transcript
+pointer and arbitrary extras never leave the hook or enter its logs. Only the existing registry's
+ids/hashes/times are recorded; no episode is created. Pass the episode in the hint to
+`cicada_continue(session=…)` on demand, including when GUI MCP cwd is unknown.
+
+**Capability/status honesty.** `/agents/wiring` adds the Cursor row: `recall` is MCP *registration*
+state (live connectivity remains `/agents/live`); `autorecall` is startup hook *configuration* state;
+`autosave: n/a` and `capabilities.capture: unsupported` mean no automatic capture. Capabilities also
+label `startup: documented`, `surface: local-ide`, `verification: synthetic`. Recognised config-directory
+presence supplies `installed`, not an app binary/version probe. Current docs say startup is
+fire-and-forget: actual installed timing, first-prompt delivery, model tool choice and rendered UI
+remain unverified, with no claimed minimum Cursor build. CLI, cloud and remote delivery are not
+supported by this local IDE adapter. The docs' nullable common transcript pointer does not establish
+a trusted confined root, format or final-message ordering contract. **No Stop hook is installed, no
+Cursor transcript is read and `/capture/transcript` still rejects Cursor.** There is no response/tool
+accumulation fallback, followup message, artificial prompt or dynamic rule. Capture support requires
+a separate proved confinement/format contract and the existing sole backend reader.
+
 - **Identity (B2, D2).** Exact `sha256(cwd)[:16]` remains first. Only the stdlib harness-side hook may run
   the fixed `git -c core.fsmonitor=false rev-parse --path-format=absolute` pair with `--git-common-dir` and
   `--show-toplevel`, in the harness's supplied cwd. The pair shares a 100ms monotonic deadline (with a cleanup

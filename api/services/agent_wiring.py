@@ -57,7 +57,7 @@ from urllib.parse import quote
 import yaml
 
 from api.hooks import registry as hook_registry
-from api.services import runtime_layout
+from api.services import runtime_layout, harness_integrations
 from api.services.connections import base
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -360,9 +360,8 @@ def setup(harness: str, *, home: Path, memory_root: Path, repo: Path = REPO_ROOT
         return _prompt_setup(harness, [gemini_mcp_step(binary, memory_root=memory_root, repo=repo, python=python)],
                              note="Once it's done, start a new Gemini CLI session so it can see your memory. "
                                   "Gemini CLI conversations aren't saved into Cicada on their own yet.")
-    if harness == "cursor":
-        return {"harness": harness, "kind": "deeplink", "title": "Connect Cursor", "deeplink": cursor_deeplink(spec),
-                "note": "Cursor asks you to confirm. Then open a new chat so it can see your memory."}
+    if harness in harness_integrations.LOCAL:
+        return harness_integrations.LOCAL[harness].setup(home=home, repo=repo, python=python, spec=spec)
     if harness == "claude-desktop":
         return {"harness": harness, "kind": "config-merge", "title": "Connect the Claude app",
                 "config": {"path": CLAUDE_DESKTOP_CONFIG, "key": "mcpServers.cicada", "value": spec},
@@ -512,5 +511,6 @@ async def probe(*, home: Path, memory_root: Path, repo: Path = REPO_ROOT, python
     by_id = {h.id: h for h in HARNESSES}
     rows = [{**row, **autorecall_fields(by_id[row["id"]], home=home, repo=repo, python=python)}
             if row["installed"] else row for row in rows]
-    return {"agents": [*rows, *(_config_agent(a, home, resolve) for a in CONFIG_AGENT_BINARIES)], "python": python,
+    return {"agents": [*rows, *(_config_agent(a, home, resolve) for a in CONFIG_AGENT_BINARIES),
+                       *(adapter.wiring(home=home, repo=repo, python=python) for adapter in harness_integrations.LOCAL.values())], "python": python,
             "repo": str(repo), "memory": str(memory_root)}

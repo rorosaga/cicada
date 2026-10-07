@@ -129,6 +129,10 @@ extension Copy {
 
     // MARK: Remembers automatically (G149) — plain words; no prices, no token counts (DR-59)
     static let autoRecallGroup = "Remembers automatically"
+    static let autoRecallMixedDetail = "Cicada offers context in supported chats. Each row shows when it applies."
+    static let autoRecallStartupOn = "On for new local chats."
+    static let autoRecallStartupOff = "Off for new local chats."
+    static let autoRecallStartupStale = "Startup context needs an update."
     static let autoRecallTitle = "Add what Cicada knows to your chats"
     static let autoRecallDetail = "Before your agent answers, Cicada adds a short note about the people and projects you mention, so it doesn't have to think to ask. It only reads your memory and never saves anything."
     static let autoRecallChecking = "Checking the agents on this Mac…"

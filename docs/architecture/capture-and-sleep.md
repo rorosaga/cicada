@@ -33,7 +33,10 @@ Seven rails hold across all of them:
   only when the page gave no description of its own.
 - **Capture must not depend on a model deciding to call a tool** (G105). Every Claude Code and
   Codex session is captured by the harness's own `Stop` hook
-  (`api/hooks/capture.py` → `POST /capture/transcript`). **The flush (G110 gate A, owner ruling 2026-10-07):** the
+  (`api/hooks/capture.py` → `POST /capture/transcript`). Cursor's local IDE integration supplies startup
+  context/MCP only; automatic capture is unsupported, no Stop hook is registered and no Cursor transcript
+  is read (current nullable pointer has no proved confinement/format contract; `mcp.md`).
+  **The flush (G110 gate A, owner ruling 2026-10-07):** the
   same command is also registered under `PreCompact` and `SessionEnd` (install.sh step 5b, both harnesses; the app's
   Connect through `flushOn`). Stop stays the trigger (TODO ruling 7): a flush is the same idempotent request —
   `unchanged` after a Stop with no new turn — and it is the only capture of a turn the person interrupted (no Stop
