@@ -676,10 +676,11 @@ class SqliteVecIndexer:
                 parsed = markdown_parser.parse(filepath)
             except Exception:
                 continue
-            body = parsed.body.strip()
+            fm = parsed.frontmatter or {}
+            # Gate B2: the dropped-middle marker (the episode's own record) is blanked before chunking.
+            body = evidence.mask_gaps(parsed.body, evidence.gap_ranges(fm, parsed.body)).strip()
             if not body:
                 continue
-            fm = parsed.frontmatter or {}
             base_meta = {
                 "episode_id": str(fm.get("id", filepath.stem)),
                 "source": str(fm.get("source", "unknown")),
@@ -928,10 +929,11 @@ def _text_hash(text: str) -> str:
 
 
 def _chunk_episode_body(body: str) -> list[str]:
-    """Split an episode body into overlapping passages for embedding. A gap
-    marker (G110 gate B2) is blanked first, exactly as the lexical index blanks
-    it, so a chunk still finds its passage and never embeds Cicada's own line."""
-    body = evidence.mask_gaps(body).strip()
+    """Split an episode body into overlapping passages for embedding. The
+    caller blanks a gate-B2 gap marker first (``evidence.mask_gaps``), exactly
+    as the lexical index does, so a chunk still finds its passage and never
+    embeds Cicada's own line."""
+    body = body.strip()
     if not body:
         return []
     if len(body) <= EPISODE_CHUNK_CHARS:

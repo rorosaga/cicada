@@ -453,12 +453,8 @@ def gap_offset(body: str, capture_gap: dict | None) -> int | None:
     """The gap marker's stored offset (gate B2), only when the body really has a
     marker line there — the authoritative range, so marker-like words a person
     typed elsewhere are never cut."""
-    at = (capture_gap or {}).get("offset")
-    if not isinstance(at, int) or isinstance(at, bool) or not 0 <= at < len(body):
-        return None
-    end = body.find("\n", at)
-    return at if (at == 0 or body[at - 1] == "\n") and evidence.is_gap_line(body[at:None if end == -1 else end]) \
-        else None
+    ranges = evidence.gap_ranges({"capture_gap": capture_gap}, body)
+    return ranges[0][0] if ranges else None
 
 
 def split_turns(body: str, sidecar, tail, turn_count: int, *, gap_at: int | None = None) -> list[Turn]:

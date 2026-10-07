@@ -82,12 +82,12 @@ def _opt(value) -> str | None:
 
 
 def _asserted_focus(doc_id: str, text: str, start: int, end: int, hash: str | None, *,  # noqa: A002
-                    is_episode: bool, override: str | None = None) -> EpisodeFocus:
+                    is_episode: bool, override: str | None = None, gaps: tuple = ()) -> EpisodeFocus:
     status = evidence.span_status(text, end=end, hash=hash, appendable=is_episode)
     # R-LS7: the one kind decision — a folder file's declared authorship wins
     # over markers, exactly as the stored span's kind was minted.
-    kind = evidence.kind_for(doc_id, text, start, override)
-    if kind == evidence.GAP_KIND:
+    kind = evidence.kind_for(doc_id, text, start, override, gaps)
+    if kind == evidence.GAP_KIND or evidence.touches_gap(start, end, gaps):
         return EpisodeFocus(kind=kind)  # gate B2: Cicada's gap line is nobody's words — never highlighted
     if status == evidence.SPAN_STALE:
         return EpisodeFocus(kind=kind, stale=True)  # R-PB2: no offsets to wash
@@ -141,7 +141,9 @@ def episode_document(
 
     stamps = evidence.turn_stamps(fm) if is_episode else {}
     override = (str(fm.get("evidence_kind") or "") or None) if is_episode else None
-    spans = evidence.turns(text, page=not is_episode, stamps=stamps, override=override)
+    # Gate B2: the episode's own gap record, never the body's words.
+    gaps = evidence.gap_ranges(fm, text) if is_episode else ()
+    spans = evidence.turns(text, page=not is_episode, stamps=stamps, override=override, gaps=gaps)
     # Round 4 C4: an agent turn's model/effort is its sidecar entry at exactly
     # the turn's start (the entry the capture wrote); never on a person's turn.
     agents = {s.offset: s for s in agent_turns.stamps(fm) if s.speaker == "assistant"} if is_episode else {}
@@ -161,7 +163,7 @@ def episode_document(
     focus_model: EpisodeFocus | None = None
     if start is not None:
         focus_model = _asserted_focus(doc_id, text, start, end, hash, is_episode=is_episode,
-                                      override=override)
+                                      override=override, gaps=gaps)
     elif focus:
         focus_model = _derived_focus(memory_path, text, focus)
 

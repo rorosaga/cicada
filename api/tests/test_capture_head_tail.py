@@ -60,12 +60,15 @@ def test_the_body_is_head_marker_tail_and_every_offset_is_exact(roots, memory):
 
 def test_the_marker_is_never_anyones_words(roots, memory):
     r = _capture(roots, memory, _turns(40))
-    body = markdown_parser.parse(_episode(memory, r)).body
+    doc = markdown_parser.parse(_episode(memory, r))
+    body = doc.body
     _, marker, tail = _parts(body)
-    ev = evidence.verify(None, r.episode_id, marker[1:30], text=body)
+    gaps = evidence.gap_ranges(doc.frontmatter, body)                 # the episode's own record (fix round 2)
+    ev = evidence.verify(None, r.episode_id, marker[1:30], text=body, gaps=gaps)
     assert ev.kind == "reasoning"                         # degraded, and the claim is still written by its caller
-    assert evidence.verify(None, r.episode_id, "step 038 of the alpha-project", text=body).kind == "user"
-    assert evidence.verify(None, r.episode_id, "step 039 of the alpha-project", text=body).kind == "assistant"
+    assert evidence.verify(memory, r.episode_id, marker[1:30]).kind == "reasoning"   # read from disk
+    assert evidence.verify(None, r.episode_id, "step 038 of the alpha-project", text=body, gaps=gaps).kind == "user"
+    assert evidence.verify(None, r.episode_id, "step 039 of the alpha-project", text=body, gaps=gaps).kind == "assistant"
     assert evidence.is_gap_line(marker) and not evidence.is_gap_line("user: " + marker)
 
 

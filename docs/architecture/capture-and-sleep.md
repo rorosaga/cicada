@@ -65,15 +65,21 @@ Seven rails hold across all of them:
   move, so G118 spans into it stay exact) — then one marker line, `[Cicada: <k> turns from <t1> to <t2> were not
   kept]` (`evidence.gap_line`, the one spelling), then the TAIL: the latest turns within 40,000, starting on a
   multiple of `TAIL_BLOCK_TURNS` (10) so it advances in blocks of whole turns rather than on every Stop; the latest
-  turn is always kept. **The marker is Cicada's own line, never a speaker's, for every consumer** (fix round 1): it
-  is its own kind, `gap`, in evidence's one marker grammar (a WHOLE line only — the same words typed inside a person's
-  turn stay theirs), so it ends the turn before it; `speaker_kind`/`kind_for` answer `gap` inside it and no declared
-  authorship covers it; `verify` makes any span touching it `reasoning`; the Reader draws it as its own block
-  labelled "Not captured · Cicada's note", and turn numbering (`turn_at`) skips it; a focus on it never highlights;
-  the lexical index and the vector chunks blank it to spaces (`evidence.mask_gaps`, offsets kept) and a
-  search hit landing on it carries no span, kind or hash; Sleep's extraction receives it as a labelled
-  "(Cicada's note, not part of the conversation …)" line, never as conversation text; and `capture_gap.offset` is its
-  authoritative position, which the continuity reader uses to cut it from the head's last turn. The G118 sidecar and
+  turn is always kept. **The marker is Cicada's own line, never a speaker's, for every consumer** (fix rounds 1–2).
+  It is known ONLY from the episode's own record, never from its words: `evidence.gap_ranges(frontmatter, body)` takes
+  `capture_gap.offset` when the line there opens with `[Cicada: ` (even if edited since), else the one whole line that
+  spells the record's own marker (an older or shifted body), else nothing. An episode without `capture_gap` has no
+  gap, so a person who pastes marker-like words — and everything they wrote after — keeps them as theirs. Every reader
+  takes those ranges as `gaps`: inside one, `speaker_kind`/`kind_for` answer `gap` (no declared authorship covers it)
+  and a following line that opens no turn goes back to the speaker before it; `verify` makes any touching span
+  `reasoning` (read from disk it uses the episode's own record; Stage 1 passes it); the Reader draws the line as its
+  own block labelled "Not captured · Cicada's note" and `turn_at` skips it; a focus on it never highlights; the span
+  route answers `gap`; the lexical index blanks it to spaces (`mask_gaps`, offsets kept) and keeps the range in the
+  row's meta, so a hit on it carries no span, kind or hash; vector chunks are cut from the blanked body; Stage 1
+  blanks it on the WHOLE body before the production chunker slices (so no chunk can open on a fragment of it) and
+  tells each chunk that touches it in a separate note ahead of the conversation; an agent reading an entity's source
+  episodes (`cicada_sources`) sees Cicada's note in its place (`label_gaps`); and the continuity reader cuts it from
+  the head's last turn at the same range. The G118 sidecar and
   `tail_turns` are built from the head and the tail separately, so every offset stays exact around it. A reply's
   `model`/`effort` that only the stored sidecar knew is carried to the new sidecar only for the SAME reply — same time
   and the identical rendered text at its old offset — and remapped to wherever it sits now; a reply that slid onto an
