@@ -2440,7 +2440,7 @@ async def _run_stages(
     # `mentions` wave merges into the same graph_edges.yaml. Idempotent.
     try:
         from api.services.wikilink_resolver import materialize_wikilink_edges
-        n_mentions = materialize_wikilink_edges(memory_path, extracted)
+        n_mentions = materialize_wikilink_edges(memory_path, extracted, settings)
         logger.info(f"Stage 5.5: materialized {n_mentions} wikilink `mentions` edges")
     except Exception as e:
         logger.warning(f"Stage 5.5 wikilink materialization failed: {type(e).__name__}: {e}")

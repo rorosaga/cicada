@@ -379,3 +379,103 @@ def test_self_reference_wikilinks_mention_the_owner_never_the_old_duplicate(dupl
     assert not any(t == "user" for _, t in mentions)
     # The prose itself is never rewritten.
     assert "[[User]]" in (memory / "entities" / "gamma.md").read_text(encoding="utf-8")
+
+
+# --- fix round 2 -------------------------------------------------------------------------------
+
+EP2, TS2 = "ep_2026-09-21_001", "2026-09-21T10:00:00+00:00"
+
+
+def _batch(entities, relationships=(), ep=EP, ts=TS) -> list[dict]:
+    entities = [dict(e, source_episode=ep, source_episode_timestamp=ts) for e in entities]
+    rels = [dict(r, source_episode=ep, source_episode_timestamp=ts) for r in relationships]
+    return [{"episode_id": ep, "episode_timestamp": ts, "origin": "claude-export",
+             "entities": entities, "relationships": rels}]
+
+
+def _pages(memory: Path) -> list[dict]:
+    out = []
+    for path in sorted((memory / "entities").glob("*.md")):
+        page = markdown_parser.parse(path)
+        out.append({"id": path.stem, "frontmatter": page.frontmatter, "body": page.body})
+    return out
+
+
+def test_a_pending_company_named_yo_is_remembered_by_a_later_endpoint_only_batch(tmp_path, monkeypatch):
+    memory = _bank(tmp_path)
+    _owner_page(memory)
+    first = _batch([_entity("Yo", "company", EP, TS), _substantive("Gamma", "tool")], [_rel("Yo", "Gamma", "uses")])
+    second = _batch([_substantive("Delta", "tool")], [_rel("Yo", "Delta", "uses")], ep=EP2, ts=TS2)
+    _patch(monkeypatch, [first, second])
+    _episode(memory, EP, TS, "user: Yo is a startup that uses Gamma.\nassistant: Noted.")
+    asyncio.run(sleep_cycle.run(_settings(memory), cycle_id="g169_pending_1"))
+    (line,) = pending_store.load(memory)
+    assert (line.name, line.type) == ("Yo", "company")
+    assert owner_identity.self_references(_pages(memory), [], memory).reserved == frozenset({"yo"})
+
+    _episode(memory, EP2, TS2, "user: That startup also uses Delta.\nassistant: Noted.")
+    asyncio.run(sleep_cycle.run(_settings(memory), cycle_id="g169_pending_2"))
+    owner = markdown_parser.parse(memory / "entities" / f"{OWNER_ID}.md")
+    assert parse_claims(owner.body) == []
+    (line,) = pending_store.load(memory)
+    assert sorted((c["subject"], c["object"]) for c in line.held_claims) == [("yo", "delta"), ("yo", "gamma")]
+    edges_file = memory / "graph_edges.yaml"
+    edges = (yaml.safe_load(edges_file.read_text(encoding="utf-8")) or {}) if edges_file.exists() else {}
+    assert not any(OWNER_ID in (r["source"], r["target"]) for r in (edges.get("edges") or []))
+
+
+def test_a_pending_person_line_named_user_reserves_nothing(tmp_path):
+    memory = _bank(tmp_path)
+    pending_store.save(memory, [pending_store.PendingEntity(
+        name="User", type="person", description="", source_episode=EP, confidence=0.5, tags=[], history_entries=[])])
+    assert owner_identity.self_references([], [], memory).reserved == frozenset()
+
+
+@pytest.mark.parametrize("modern_first", [True, False])
+def test_mixed_summary_and_description_keep_both_once(modern_first, tmp_path, monkeypatch):
+    monkeypatch.setattr(entity_resolver.SqliteVecIndexer, "_rebuild_pending_index", lambda self, entries: None)
+    memory = _bank(tmp_path)
+    _owner_page(memory)
+    modern = _substantive("User", "person")
+    modern.pop("description")
+    modern["summary"] = "Builds Gamma."
+    legacy = _substantive("me", "person")
+    legacy["description"] = "Maintains Delta and coordinates the synthetic lab."
+    entries = [modern, legacy] if modern_first else [legacy, modern]
+    out = asyncio.run(entity_resolver.resolve(_batch(entries), _pages(memory), _settings(memory)))
+    conflict_resolver.apply_changes(out["changes"], memory)
+    body = markdown_parser.parse(memory / "entities" / f"{OWNER_ID}.md").body
+    assert body.count("Maintains Delta and coordinates the synthetic lab.") == 1, body
+    assert body.count("Builds Gamma.") == 1, body
+
+
+def test_merge_payload_keeps_every_distinct_summary_exactly_once():
+    a = {"name": "Gamma Board", "summary": "Builds Alpha.", "description": "Builds Alpha.", "key_facts": ["Builds Alpha."]}
+    b = {"name": "Gamma Boards", "description": "Maintains Delta for the lab."}
+    c = {"name": "Gamma Board.", "summary": "Coordinates Sigma."}
+    merged = entity_resolver._merge_entity_payload(entity_resolver._merge_entity_payload(a, b), c)
+    texts = [merged["summary"]] + merged["key_facts"]
+    for text in ("Builds Alpha.", "Maintains Delta for the lab.", "Coordinates Sigma."):
+        assert texts.count(text) == 1, (text, texts)
+    assert merged["summary"] == "Maintains Delta for the lab." == merged["description"]
+    # A summary-only merge keeps no description, so synthesis is not newly triggered.
+    assert entity_resolver._merge_entity_payload({"summary": "A."}, {"summary": "Bb."})["description"] == ""
+
+
+def test_claims_and_wikilinks_pick_the_same_owner_page_when_there_are_two(tmp_path, monkeypatch):
+    memory = _bank(tmp_path)
+    _owner_page(memory)
+    owner_identity.ensure_owner_entity(memory, "Beta Owner")
+    owner_identity.save_owner({"name": "Beta Owner", "entity_id": "beta-owner"})
+    gamma = _substantive("Gamma", "tool")
+    gamma["summary"] = "Used by [[User]]."
+    _patch(monkeypatch, [_batch([gamma], [_rel("User", "Gamma", "uses")])])
+    _episode(memory, EP, TS, "user: I use Gamma.\nassistant: Noted.")
+    settings = _settings(memory)
+    settings.observer_owner = OWNER_ID  # the settings rung outranks owner.json (R1)
+    asyncio.run(sleep_cycle.run(settings, cycle_id="g169_two_owners"))
+    owner = markdown_parser.parse(memory / "entities" / f"{OWNER_ID}.md")
+    assert any(c.subject == OWNER_ID and c.object == "gamma" for c in parse_claims(owner.body))
+    rows = yaml.safe_load((memory / "graph_edges.yaml").read_text(encoding="utf-8"))["edges"]
+    mentions = {(r["source"], r["target"]) for r in rows if r["label"] == "mentions"}
+    assert ("gamma", OWNER_ID) in mentions and ("gamma", "beta-owner") not in mentions

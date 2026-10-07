@@ -35,7 +35,7 @@ def extract_wikilinks(body: str) -> list[str]:
     return names
 
 
-def materialize_wikilink_edges(memory_path: Path, extracted: list[dict] | None = None) -> int:
+def materialize_wikilink_edges(memory_path: Path, extracted: list[dict] | None = None, settings=None) -> int:
     """Parse every entity body's wikilinks and merge them as `mentions` edges.
 
     Idempotent and additive. Returns the number of distinct `mentions` edges
@@ -44,8 +44,9 @@ def materialize_wikilink_edges(memory_path: Path, extracted: list[dict] | None =
     G169: a wikilink spelled like a self-reference (``[[User]]``, ``[[the user|them]]``,
     ``[[mí]]``) is the bank's owner when it is a speaker reference — the same
     qualified decision Stage 2 and the claims key by (``owner_identity.
-    SelfReferences``, built from the pages and ``extracted``, this batch's Stage-1
-    output) — never an old duplicate ``user`` page; a page that holds the name
+    SelfReferences``, built from the pages, the pending lines and ``extracted``,
+    this batch's Stage-1 output, with ``settings`` for the owner tie-break when a
+    bank holds two owner pages) — never an old duplicate ``user`` page; a page that holds the name
     (the company "Owner") keeps its links. The prose is never rewritten.
     """
     from api.services import owner_identity
@@ -64,7 +65,7 @@ def materialize_wikilink_edges(memory_path: Path, extracted: list[dict] | None =
             continue
         pages.append((filepath.stem, parsed.frontmatter or {}, parsed.body))
     refs = owner_identity.self_references(
-        [{"id": stem, "frontmatter": fm} for stem, fm, _ in pages], extracted, Path(memory_path))
+        [{"id": stem, "frontmatter": fm} for stem, fm, _ in pages], extracted, Path(memory_path), settings)
 
     new_edges: list[dict] = []
     seen: set[tuple[str, str]] = set()

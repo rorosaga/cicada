@@ -367,14 +367,17 @@ gives the name one — a holding line leaves the store only then.
 trailing-punctuation- and spacing-insensitive) feeds both the resolver and the prompts' wording
 (`self_reference_list`), so neither can name a form the other misses. A spelling is the person only when it is a
 **speaker reference** — one qualified decision, `owner_identity.SelfReferences`: the name is a person or carries
-no type (an edge or claim endpoint, a wikilink) **and** no non-person page, and no non-person entity in this batch,
-holds that exact name. So a company "Owner", a concept "I", a tool "Me", a company "Yo" keep their own facts,
+no type (an edge or claim endpoint, a wikilink) **and** no non-person page, no typed non-person pending line
+(`pending_store` — a company heard once is still that company when a later batch names it only as an endpoint), and
+no non-person entity in this batch holds that exact name. So a company "Owner", a concept "I", a tool "Me", a company "Yo" keep their own facts,
 edges, claims and held claims, while an old duplicate *person* page named "User" reserves nothing. Every step that
 keys a name builds it from the same inputs: Stage 2 merges a speaker-reference entity into the `owner: true` page
 under its name and type (speaker-reference aliases dropped; several such payloads union their key facts, links,
-questions and aliases, and a summary that lost the length contest becomes a key fact) and resolves speaker
+questions and aliases; each input's one effective summary — `summary`, else the legacy `description` — competes,
+the longer is the summary, and every other distinct one is kept once as a key fact) and resolves speaker
 endpoints to it; Sleep's claims (`claim_pipeline.subject_resolver`) and holds (`hold_page_less`'s `reserved`) and
-Stage 5.5's wikilink `mentions` (`materialize_wikilink_edges(memory_path, extracted)`: `[[User]]`, `[[the
+Stage 5.5's wikilink `mentions` (`materialize_wikilink_edges(memory_path, extracted, settings)` — the same
+`settings` owner tie-break when a bank holds two owner pages: `[[User]]`, `[[the
 user|…]]`, `[[mí]]` → the owner page, never an old duplicate; the prose is never rewritten) agree. With no owner
 page a speaker reference is dropped — never a page, a pending line or a "Who is User?" question. A link to the
 owner page, or to a speaker reference, is **not** the promotion rule's link to a high-confidence page (everything
@@ -385,6 +388,19 @@ keeps both prompts byte-identical. An older bank's `user` page is not migrated: 
 and folding it in is the dedup merge (`dedup_sweep` / `entity_merge`, loser `user`, winner the owner page) behind
 the person's explicit call — not built. Disclosed: a "User" Stage 1 types as a concept is not a speaker reference
 and becomes its own page.
+
+**Known limitations (G169, deferred — backlog):**
+- *A later collision re-binds earlier wikilinks.* Stage 5.5 re-reads every page's prose each cycle under that
+  cycle's decision. A page written when `[[Yo]]` meant the person gets `→ owner`; when a later batch introduces a
+  company "Yo", the unchanged page also gains `→ yo`, and both `mentions` edges persist (the non-claim edge merge is
+  additive). The fix is to bind a speaker wikilink to the owner when the prose is written (keeping its label), or to
+  remember the resolved identity per page revision — never to reinterpret unchanged prose with later type evidence.
+- *Synthesis drops additive fields (pre-existing).* When an update carries a `description`, Stage 3's synthesis
+  prompt (`conflict_resolver._synthesize_entity_update`) is given the description and history only, and its body
+  replaces the page's on an agent-only page — so the unioned key facts, links and open questions of a merged
+  payload (several self-references on the owner page included) do not reach the written page on that path. The
+  deterministic and human-edited paths keep them. The fix is to send the whole merged payload to synthesis, or to
+  merge the additive fields deterministically into its result.
 
 ### Temporal decay
 Absence of mention IS a signal, and **how often something came up sets how fast its absence

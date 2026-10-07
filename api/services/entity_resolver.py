@@ -513,26 +513,25 @@ def _merge_entity_payload(base: dict, incoming: dict) -> dict:
         float(incoming.get("confidence", 0.0) or 0.0),
     )
 
-    base_desc = (base.get("description") or "").strip()
-    incoming_desc = (incoming.get("description") or "").strip()
-    if len(incoming_desc) > len(base_desc):
-        merged["description"] = incoming_desc
-    else:
-        merged["description"] = base_desc
+    # One effective summary per input — `summary`, falling back to the legacy
+    # `description` (G169 review r2) — and the longer one is the merge's summary
+    # AND, when either input carried one, its description (synthesis runs on a
+    # `description`, so a summary-only merge still takes the deterministic path).
+    # Every other distinct one is still something said about it: kept, once, as a key fact.
+    base_text, incoming_text = _effective_summary(base), _effective_summary(incoming)
+    chosen = incoming_text if len(incoming_text) > len(base_text) else base_text
+    merged["summary"] = chosen
+    had_description = (base.get("description") or "").strip() or (incoming.get("description") or "").strip()
+    merged["description"] = chosen if had_description else ""
 
     # Additive fields are unions (G169 review): two extractions of one thing —
     # "User" and "me" both landing on the owner page — each carry their own facts,
     # links, questions and aliases, and the first payload's lists used to win whole.
-    base_summary = (base.get("summary") or "").strip()
-    incoming_summary = (incoming.get("summary") or "").strip()
-    if base_summary or incoming_summary:
-        merged["summary"] = incoming_summary if len(incoming_summary) > len(base_summary) else base_summary
-    shorter = min((base_summary or base_desc, incoming_summary or incoming_desc), key=len)
-    longer = max((base_summary or base_desc, incoming_summary or incoming_desc), key=len)
     key_facts = _union_text(base.get("key_facts"), incoming.get("key_facts"))
-    if shorter and shorter.lower() not in longer.lower():
-        # The summary that lost the length contest is still something said about it.
-        key_facts = _union_text(key_facts, [shorter])
+    folded = " ".join(chosen.split()).lower()
+    for text in (base_text, incoming_text, *_effective_summaries(base), *_effective_summaries(incoming)):
+        if text and " ".join(text.split()).lower() not in folded:
+            key_facts = _union_text(key_facts, [text])
     if key_facts:
         merged["key_facts"] = key_facts
     for field in ("open_questions", "aliases"):
@@ -560,6 +559,16 @@ def _merge_entity_payload(base: dict, incoming: dict) -> dict:
         incoming.get("source_episode_timestamp"),
     )
     return merged
+
+
+def _effective_summary(entity: dict) -> str:
+    """An input's one orientation line: ``summary``, else the legacy ``description``."""
+    return str(entity.get("summary") or entity.get("description") or "").strip()
+
+
+def _effective_summaries(entity: dict) -> tuple[str, ...]:
+    """Both orientation fields of one input, when it carries two different ones."""
+    return tuple(str(entity.get(k) or "").strip() for k in ("summary", "description"))
 
 
 def _union_text(*lists) -> list:

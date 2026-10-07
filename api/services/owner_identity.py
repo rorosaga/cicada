@@ -134,9 +134,11 @@ def _non_person(kind) -> bool:
 def self_references(pages: list[dict] | None, extracted: list[dict] | None = None,
                     memory_path: Path | None = None, settings=None) -> SelfReferences:
     """:class:`SelfReferences` for a bank's pages (``[{id, frontmatter}]``, Stage 2's
-    ``existing``) plus this batch's Stage-1 output. A page with no type reads as a
-    concept, as everywhere else; a batch entity reserves only when it is typed and
-    not a person."""
+    ``existing``) plus this batch's Stage-1 output plus the bank's pending lines
+    (``pending_store``, under ``memory_path``) — a name heard once as a company "Yo"
+    is still that company when a later batch names it only as an endpoint. A page
+    with no type reads as a concept, as everywhere else; a batch entity or pending
+    line reserves only when it is typed and not a person."""
     reserved: set[str] = set()
     for page in pages or []:
         fm = (page or {}).get("frontmatter") or {}
@@ -147,6 +149,17 @@ def self_references(pages: list[dict] | None, extracted: list[dict] | None = Non
         for entity in extraction.get("entities", []) or []:
             key = _self_key((entity or {}).get("name") or "")
             if key in SELF_REFERENCES and entity.get("type") and _non_person(entity.get("type")):
+                reserved.add(key)
+    if memory_path is not None:
+        from api.services import pending_store
+
+        try:
+            lines = pending_store.load(Path(memory_path))
+        except Exception:  # noqa: BLE001 - an unreadable store reserves nothing, never fails a cycle
+            lines = []
+        for line in lines:
+            key = _self_key(line.name)
+            if key in SELF_REFERENCES and line.type and _non_person(line.type):
                 reserved.add(key)
     return SelfReferences(owner_page_id(pages, memory_path, settings), frozenset(reserved))
 
