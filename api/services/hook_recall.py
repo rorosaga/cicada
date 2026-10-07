@@ -41,6 +41,7 @@ from api.services import (
     bank_registry, continuity, continuity_sessions, episode_ids, handshake, mcp_tools, recall_text, search_index,
     state_dictionary, telemetry, text_fold,
 )
+from api.services.claims import is_current, is_record, parse_claims
 
 # Budgets (R-H5, R-H6).
 PROMPT_BUDGET_S = 0.300
@@ -237,11 +238,23 @@ def current_claims(rows: list[tuple[str, dict]]) -> list[tuple[str, str | None]]
     true (R-H5). Closed and superseded claims are history, not recall, and a
     done happening is born closed (G141), so it drops out with them."""
     live = [(text, p) for text, p in rows
-            if text.strip() and isinstance(p, dict) and not p.get("valid_to") and not p.get("superseded_by")]
+            if text.strip() and isinstance(p, dict) and is_current(p)]
     live.sort(key=lambda r: (str(r[1].get("valid_from") or ""), float(r[1].get("confidence") or 0.0)),
               reverse=True)
     return [(clip(text, CLAIM_CHARS), str(p.get("valid_from") or "")[:10] or None)
             for text, p in live[:MAX_CLAIMS_PER_PAGE]]
+
+
+def _live_claim_rows(memory_path: Path, ref: str) -> list[tuple[str, dict]] | None:
+    """A bounded hook page read: old FTS metadata cannot undo a closure."""
+    from api.services import markdown_parser
+    try:
+        parsed = markdown_parser.parse(memory_path / "entities" / f"{ref}.md")
+        if parsed.frontmatter.get("status") == "dropped":
+            return None
+        return [(c.text, search_index.claim_payload(c)) for c in parse_claims(parsed.body) if not is_record(c)]
+    except Exception:
+        return None
 
 
 def _page_note(doc: search_index.Doc, claim_rows: list[tuple[str, dict]]) -> PageNote | None:
@@ -407,7 +420,10 @@ def prompt_context(memory_path: Path, prompt: str, *, recent: frozenset[str] = f
                 fresh.sort(key=lambda r: (-r[0], ranks.get(r[1].ref, len(ranks))))
         notes: list[PageNote] = []
         for _strength, doc in fresh:
-            note = _page_note(doc, reader.claims_of(doc.id))
+            claim_rows = _live_claim_rows(memory_path, doc.ref)
+            if claim_rows is None:
+                continue
+            note = _page_note(doc, claim_rows)
             if note is not None:
                 notes.append(note)
             if len(notes) == MAX_PAGES:

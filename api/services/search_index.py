@@ -68,7 +68,7 @@ DB_FILE = "search_index.db"
 # happening (R-PJB11); the bump rebuilds every index once (TODO ruling 3).
 # "4": G150 — backlog items are their own kind (`blg`); the bump rebuilds
 # every index once (TODO ruling 3).
-SCHEMA_VERSION = "4"
+SCHEMA_VERSION = "5"
 TOKENIZER = "unicode61 remove_diacritics 2"
 # Prefix indexes for 2-, 3- and 4-character prefixes: type-as-you-go queries
 # are mostly that short, and a prefix with no index is a range scan over
@@ -406,20 +406,7 @@ def _index_entity(conn, doc_key: str, f, fm: dict, body: str) -> None:
         if not text or is_record(claim):
             continue
         spans = [e for e in claim.evidence if e.is_span()]
-        first = spans[0] if spans else (claim.evidence[0] if claim.evidence else None)
-        payload = {
-            "id": claim.id,
-            "predicate": claim.predicate,
-            "object": claim.object,
-            "confidence": _float(claim.confidence),
-            "valid_from": claim.valid_from,
-            "valid_to": claim.valid_to,
-            "superseded_by": claim.superseded_by,
-            "observer": claim.observer,
-            "evidence": first.to_dict() if first else None,
-            # G141 R-PJB11: an event keeps its state beside its day.
-            "status": claim.status if is_event(claim) else None,
-        }
+        payload = claim_payload(claim)
         rowid = (doc_id << ROW_BITS) | n
         conn.execute(
             "INSERT INTO clm(rowid, title, aliases, keywords, payload) VALUES (?, ?, ?, ?, ?)",
@@ -432,6 +419,20 @@ def _index_entity(conn, doc_key: str, f, fm: dict, body: str) -> None:
                 "INSERT INTO claim_evidence(row, episode, s, e, kind, hash) VALUES (?, ?, ?, ?, ?, ?)",
                 (rowid, ev.episode, ev.start, ev.end, ev.kind, ev.hash),
             )
+
+
+def claim_payload(claim) -> dict:
+    """The same claim metadata for indexing and read-time freshness checks."""
+    spans = [e for e in claim.evidence if e.is_span()]
+    first = spans[0] if spans else (claim.evidence[0] if claim.evidence else None)
+    return {
+        "id": claim.id, "predicate": claim.predicate, "object": claim.object,
+        "confidence": _float(claim.confidence), "valid_from": claim.valid_from,
+        "valid_to": claim.valid_to, "superseded_by": claim.superseded_by,
+        "expected_end": claim.expected_end, "observer": claim.observer,
+        "evidence": first.to_dict() if first else None,
+        "status": claim.status if is_event(claim) else None,
+    }
 
 
 def _index_episode(conn, doc_key: str, f, fm: dict, body: str) -> None:
@@ -838,6 +839,7 @@ class Doc:
     kind: str
     ref: str
     meta: dict
+    stamp: tuple[int, int] | None = None
 
 
 class Reader:
@@ -851,6 +853,8 @@ class Reader:
         uri = db_path(memory_path).resolve().as_uri() + "?mode=rw"
         self.conn = sqlite3.connect(uri, uri=True, timeout=2.0, check_same_thread=False)
         self.conn.execute("PRAGMA query_only=ON")
+        # Claim rows and document stamps must share one read snapshot.
+        self.conn.execute("BEGIN")
 
     def close(self) -> None:
         self.conn.close()
@@ -938,8 +942,8 @@ class Reader:
         if not ids:
             return {}
         marks = ",".join("?" * len(ids))
-        rows = self.conn.execute(f"SELECT id, kind, ref, meta FROM docs WHERE id IN ({marks})", list(ids))
-        return {int(i): Doc(int(i), k, r, json.loads(m or "{}")) for i, k, r, m in rows}
+        rows = self.conn.execute(f"SELECT id, kind, ref, meta, mtime_ns, size FROM docs WHERE id IN ({marks})", list(ids))
+        return {int(i): Doc(int(i), k, r, json.loads(m or "{}"), (mt, sz)) for i, k, r, m, mt, sz in rows}
 
     def name_candidates(self, terms: list[str], limit: int, *, statuses: frozenset[str] | None = None,
                         skip_types: frozenset[str] = frozenset(),

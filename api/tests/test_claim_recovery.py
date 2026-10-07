@@ -658,3 +658,14 @@ def test_a_retraction_record_in_an_unreadable_but_loadable_page_still_excludes(b
                      f"  object: \"{escaped}\"\n", encoding="utf-8")   # unterminated, but its YAML loads
     _commit(bank, "Memory update 2026-10-03", ["entities/bob-example.md"], author="user")
     assert _counts(bank)["excluded"] == {"retracted": 1}
+
+
+def test_a_recovered_entry_is_never_current(bank):
+    """#216's one current-belief test: a recovered entry is history by its close and by its marker alone."""
+    from api.services.claims import is_current
+
+    old, successor = _recover_replaced(bank)
+    now = _claims_now(bank)
+    assert is_current(now[successor.id]) and not is_current(now[old.id])
+    stripped = Claim.from_dict({**now[old.id].to_dict(), "valid_to": None})
+    assert not is_current(stripped) and not is_current(stripped.to_dict())

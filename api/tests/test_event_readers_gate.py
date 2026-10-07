@@ -9,7 +9,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 READS = re.compile(r"parse_claims\(|claims_about\(|_lexical_claims|claim_subject_hits")
-CLOSED = re.compile(r"valid_to|superseded_by")
+CLOSED = re.compile(r"valid_to|superseded_by|\bis_current\(")
 KNOWS = re.compile(r"\bis_event\(|\bis_record\(|_is_history\(")
 EXEMPT = {
     "api/services/claims.py": "defines is_event/is_record",

@@ -9,7 +9,8 @@ that left every page is a hole in the record.
 dropped it, or its own stated end (``claim_expiry.stated_end``) when that came first, never before ``valid_from``; an
 entry that was already closed keeps its own ``valid_to``. It carries ``recovered_from: <removing commit>`` and
 ``recovered_by: claim_recovery``, and no writer reopens it (``claims.is_recovered_history``). So no single-valued
-conflict, obsolete belief or expired fact comes back as current through the record itself.
+conflict, obsolete belief or expired fact comes back as current — and every reader's ``claims.is_current`` takes it
+as history, by its close and by its marker alone.
 
 **Finding losses (git only).** Every first-parent commit that touched ``entities/`` is replayed with one
 ``git cat-file --batch``; an id in a page's fence before a commit and not after it is a removal, and the id's LAST

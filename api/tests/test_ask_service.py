@@ -400,9 +400,8 @@ def test_cold_index_falls_back_to_substring_over_disk(tmp_path):
     assert "FastAPI" in result["answer"]
 
 
-def test_citation_falls_back_to_index_text_when_file_missing(tmp_path):
-    """If the index points at an entity whose .md is gone, the citation degrades
-    to the indexed text (honest, no dangling file) instead of disappearing."""
+def test_a_missing_page_reports_a_gap_instead_of_citing_stale_index_text(tmp_path):
+    """A derived index cannot establish current validity after page deletion."""
     entities_dir = tmp_path / "entities"
     entities_dir.mkdir()
     # No fastapi.md written — file is missing on purpose.
@@ -421,9 +420,5 @@ def test_citation_falls_back_to_index_text_when_file_missing(tmp_path):
         tmp_path, "backend", top_k=6, retrieve_fn=retrieve_fn, llm_fn=llm_fn
     )
 
-    citations = result["citations"]
-    assert len(citations) == 1
-    cite = citations[0]
-    assert cite["entity_id"] == "fastapi"
-    assert cite["source_episodes"] == [], "missing file => no episodes, degrade honestly"
-    assert cite["snippet"], "snippet should fall back to the indexed text"
+    assert result["citations"] == []
+    assert result["gaps"] and result["used_entities"] == []
