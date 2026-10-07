@@ -1379,7 +1379,11 @@ def recall(ctx: ToolContext, query: str) -> str:
                 ep_lines.append(f"- [{ep_id}] {snippet}")
             output_parts.append("\n".join(ep_lines))
 
-    return Reply("\n\n".join(output_parts).strip() or f"No entities found matching '{query}'.", data=hints)
+    # G180: a graph with no page at all is an empty graph whether or not `entities/` was
+    # scaffolded; the text is unchanged, the refusal is typed (never matched on the sentence).
+    empty = not any(entities_dir.glob("*.md"))
+    return Reply("\n\n".join(output_parts).strip() or f"No entities found matching '{query}'.",
+                 code="empty_graph" if empty else None, data=hints)
 
 
 def _hub_files(memory_path: Path):

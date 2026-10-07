@@ -189,3 +189,57 @@ def test_help_with_json_is_one_envelope(tmp_path, args, topic):
 def test_help_in_text_mode_is_plain(tmp_path):
     proc = run_cli(["recall", "--help"], cli_env(tmp_path, None), cwd=_work(tmp_path))
     assert proc.returncode == 0 and proc.stdout.startswith("usage: cicada recall")
+
+
+# --- review round 2 -------------------------------------------------------------------------------
+
+def _scaffolded_empty_root(tmp_path):
+    """A real bank as `create_bank` scaffolds it: `entities/` exists and holds no page."""
+    from api.services import bank_registry
+
+    root = tmp_path / "scaffolded"
+    root.mkdir()
+    bank_registry.create_bank(root, "alpha", seed_owner=False)
+    bank_registry.activate_bank(root, "alpha")
+    entities = bank_registry.bank_dir(root, "alpha") / "entities"
+    assert entities.is_dir() and not any(entities.glob("*.md"))
+    return root
+
+
+def _absent_entities_root(tmp_path):
+    root = tmp_path / "bare"
+    root.mkdir()
+    return root
+
+
+def test_a_scaffolded_bank_with_no_pages_is_an_empty_graph(tmp_path):
+    proc = run_cli(["recall", "alpha", "--json"], cli_env(tmp_path, _scaffolded_empty_root(tmp_path)),
+                   cwd=_work(tmp_path))
+    out = envelope(proc)
+    assert proc.returncode == 1 and out["ok"] is False and out["code"] == "empty_graph"
+
+
+def test_an_existing_empty_entities_dir_keeps_its_stdio_text_and_is_typed(tmp_path):
+    (tmp_path / "entities").mkdir()
+    reply = mcp_tools.recall(mcp_tools.ToolContext(memory_path=lambda: tmp_path, session_id="s",
+                                                   harness="unknown"), "alpha")
+    assert reply == "No entities found matching 'alpha'."      # stdio text unchanged for this path
+    assert reply.code == "empty_graph"
+
+
+@pytest.mark.parametrize("make_root", [_absent_entities_root, _scaffolded_empty_root])
+@pytest.mark.parametrize("probe, warning", [({"memory_root": "ELSEWHERE"}, "root_mismatch"),
+                                            ({"status": 500}, "root_unverified")])
+def test_an_empty_graph_refusal_keeps_the_root_warning(tmp_path, make_root, probe, warning):
+    from _cli import health_server
+
+    root = make_root(tmp_path)
+    reported = str(tmp_path / "elsewhere") if probe.get("memory_root") else str(root)
+    with health_server(memory_root=reported, status=probe.get("status", 200)) as port:
+        env = cli_env(tmp_path, root, CICADA_PORT=str(port))
+        proc = run_cli(["recall", "alpha", "--json"], env, cwd=_work(tmp_path))
+        out = envelope(proc)
+        assert proc.returncode == 1 and out["code"] == "empty_graph" and out["ok"] is False
+        assert warning in out["warnings"]
+        text = run_cli(["recall", "alpha"], env, cwd=_work(tmp_path))
+        assert text.returncode == 1 and f"warning: {warning}" in text.stderr

@@ -383,8 +383,9 @@ the CLI.
     - `data` is the generated hints payload the body returns beside its text (`mcp_tools.Reply`, a `str` subclass
       carrying `code` and `data`, so stdio and remote send the same bytes). It is never parsed out of the text, where a
       memory's own words may contain a `cicada-hints` fence.
-    - An empty graph is a refusal: `ok: false`, `code: empty_graph`, exit 1, typed at the body's return site. No match
-      in a populated graph is still a success.
+    - An empty graph (no entity page at all, whether or not `entities/` was scaffolded) is a refusal: `ok: false`,
+      `code: empty_graph`, exit 1, typed at the body's return site. The root cross-check's warnings ride along, in the
+      envelope and on stderr in text mode. No match in a populated graph is still a success.
     - A missing vector index adds `warnings: ["degraded:vector"]`.
   - `status`: root path, source and verification; bank name, path and demo flag; the unconsolidated count; backend
     version and `writing`; the vector index state; distribution; the caller's folder.

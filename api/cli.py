@@ -282,10 +282,10 @@ def cmd_recall(boot: Boot, args) -> Result:
     from api.services import mcp_tools
 
     reply = mcp_tools.recall(_tool_context(boot), args.query)
+    warnings = _root_warnings(boot)            # a refusal keeps what the root cross-check found
     code = getattr(reply, "code", None)
     if code in REFUSAL_CODES:
-        return Result(text=str(reply), data=None, code=code)
-    warnings = _root_warnings(boot)
+        return Result(text=str(reply), data=None, warnings=warnings, code=code)
     if _vector_state(boot.pin.path) != "present":
         warnings.append("degraded:vector")
     return Result(text=str(reply), data=_recall_data(getattr(reply, "data", None)), warnings=warnings)
@@ -491,6 +491,8 @@ def _emit(as_json: bool, *, command, ok, code, bank, data, text, warnings) -> No
             sys.stderr.write(f"cicada: warning: {w}\n")
     else:
         sys.stderr.write(f"cicada: {text}\n")
+        for w in warnings:
+            sys.stderr.write(f"cicada: warning: {w}\n")
 
 
 def main(argv: list[str] | None = None) -> int:
