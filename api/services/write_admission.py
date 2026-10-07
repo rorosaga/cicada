@@ -313,6 +313,7 @@ async def run_admitted(memory_path, body: Callable[[], Awaitable[T]], *,
     lasts until the body's workers and commit are done. With ``refuse``, Sleep holding the pages raises it before
     ``body`` runs. ``body`` must not await a model call or a network fetch (do that first, then re-check inside)."""
     key = _key(memory_path)
+    _check_pin(key)
     context = contextvars.copy_context()
     done: concurrent.futures.Future = concurrent.futures.Future()
 
@@ -343,6 +344,21 @@ async def run_admitted(memory_path, body: Callable[[], Awaitable[T]], *,
         raise
 
 
+class WrongBank(RuntimeError):
+    """Admission was asked for a bank other than the one this request is pinned to: nothing is admitted or written."""
+
+
+def _check_pin(key: str) -> None:
+    """A request runs in one bank (G183(d), ``bank_registry.pin_request_bank``), and its transaction is admitted on that
+    bank: its body resolves ``settings.memory_path`` to the pin (the context is carried onto the writer loop), so
+    admitting any other bank would let Sleep open the pinned bank under a live write. Fail closed."""
+    from api.services import bank_registry
+
+    pin = bank_registry.pinned_bank()
+    if pin is not None and _key(pin.path) != key:
+        raise WrongBank("write admission asked for a bank other than the request's pinned bank")
+
+
 def _abandoned(done: concurrent.futures.Future) -> None:
     """A transaction whose caller went away still finishes; its failure is logged (by class), never lost silently."""
     if not done.cancelled() and done.exception() is not None:
@@ -352,12 +368,20 @@ def _abandoned(done: concurrent.futures.Future) -> None:
 
 def route(*, refuse: Callable[[], BaseException] | None = None):
     """An ``async`` backend route as one admitted transaction (:func:`run_admitted`) — the bank is its ``settings``
-    argument's ``memory_path``, resolved once. With ``refuse``, its 409 while Sleep holds the pages; without, a hold
+    argument's ``memory_path``: the request's pinned bank (``bank_binding`` pins it when the request starts; a call
+    outside a request is pinned here), so the admission, every write and the commit name one bank. With ``refuse``, its 409 while Sleep holds the pages; without, a hold
     that never refuses, for a route whose write changes shape inside instead (it asks :func:`holding`)."""
     def wrap(fn):
         @functools.wraps(fn)
         async def admitted_route(*args, **kwargs):
-            return await run_admitted(kwargs["settings"].memory_path, lambda: fn(*args, **kwargs), refuse=refuse)
+            settings = kwargs["settings"]
+            root = getattr(settings, "memory_root", None)
+            if root is not None:
+                from api.services import bank_registry
+
+                if bank_registry.pinned_bank() is None:   # called outside a request: pin now, once (G183(d))
+                    bank_registry.pin_request_bank(root)
+            return await run_admitted(settings.memory_path, lambda: fn(*args, **kwargs), refuse=refuse)
         admitted_route.__write_admission__ = "admitted" if refuse is not None else "held"
         return admitted_route
     return wrap

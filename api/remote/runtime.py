@@ -33,12 +33,13 @@ import time
 from collections import OrderedDict
 from datetime import date
 from pathlib import Path
+from urllib.parse import quote
 from typing import Callable
 
 from loguru import logger
 
 from api.remote import catalog
-from api.services import demo_guard, handshake, mcp_tools, telemetry, write_admission
+from api.services import bank_binding, demo_guard, handshake, mcp_tools, telemetry, write_admission
 
 HANDLE_RE = re.compile(r"^rc_([a-z0-9]{8})_(\d{4}-\d{2}-\d{2})(?:_([0-9a-f]{8}))?$")
 REFERENCE_HEADER = mcp_tools.REFERENCE_HEADER
@@ -271,14 +272,20 @@ class RemoteRuntime:
         self._write_lock = threading.Lock()  # R-R28: one remote write at a time
 
     def tool_context(self, connector: catalog.Connector, handle: str,
-                     memory_path: Path | None = None) -> mcp_tools.ToolContext:
+                     memory_path: Path | None = None, bank_name: str | None = None) -> mcp_tools.ToolContext:
         """``memory_path`` pins the bank for the whole call (G183 round 1): admission, the gate, every write and the
-        commit name ONE bank, so a bank switched mid-call is never written."""
+        commit name ONE bank, so a bank switched mid-call is never written. ``bank_name`` is that bank's name: a
+        backend POST the call makes (an inbox answer) names it in ``X-Cicada-Bank``, so the backend refuses it —
+        nothing written — if the active bank moved meanwhile, rather than answer in the other bank (G183 round 2)."""
+        headers = self._headers
+        if bank_name is not None:
+            def headers() -> dict[str, str]:
+                return {**self._headers(), bank_binding.HEADER: quote(bank_name, safe="")}
         return mcp_tools.ToolContext(
             memory_path=(lambda: memory_path) if memory_path is not None else self._memory_path,
             session_id=handle, harness=connector.harness,
             client_name=connector.last_client, skipped_inbox_ids=self.conversations.skipped(handle),
-            state_hint_sent=self.conversations.hint_sent(handle), post=self._post, headers=self._headers,
+            state_hint_sent=self.conversations.hint_sent(handle), post=self._post, headers=headers,
             backend_url=self._backend_url or _backend_url(), read_surface="remote",
             connector_id=connector.id, available=catalog.tool_names_for(connector.scopes),
             raw_excerpts="sources" in connector.scopes, sources_limit=SOURCES_LIMIT,
@@ -287,7 +294,8 @@ class RemoteRuntime:
 
     def call(self, connector: catalog.Connector, tool: str, arguments: dict | None) -> tuple[str, str]:
         writes = tool in catalog.WRITE_TOOLS and _writes_bank(tool, arguments)
-        memory_path = self._memory_path()   # resolved ONCE: admitted, gated, written and committed (G183 round 1)
+        # Resolved ONCE: admitted, gated, written, committed and named to the backend (G183 rounds 1–2).
+        memory_path, bank_name = self._resolve_bank()
         # G183: a write holds the bank's write admission from its "busy" answer through its commit, so a Sleep
         # window cannot open in between (R-R27's refusal is then the whole truth for the call). A tool that fetches
         # first (`SELF_ADMITTED`) is gated here on a stale answer and takes the hold itself around its write,
@@ -295,13 +303,13 @@ class RemoteRuntime:
         held = writes and tool not in SELF_ADMITTED
         try:
             with write_admission.shared(memory_path) if held else contextlib.nullcontext():
-                return self._call(connector, tool, arguments, writes, memory_path)
+                return self._call(connector, tool, arguments, writes, memory_path, bank_name)
         except write_admission.SleepHolding:
             self._record(connector, tool, "busy", BUSY_TEXT, memory_path)
             return BUSY_TEXT, "busy"
 
     def _call(self, connector: catalog.Connector, tool: str, arguments: dict | None,
-              writes: bool, memory_path: Path) -> tuple[str, str]:
+              writes: bool, memory_path: Path, bank_name: str | None = None) -> tuple[str, str]:
         today = self._today()
         if tool not in catalog.tool_names_for(connector.scopes):
             text, status = DENIED_TEXT, "denied"
@@ -314,7 +322,7 @@ class RemoteRuntime:
             text, status = CAPPED_TEXT, "capped"
         else:
             try:
-                text, status = self._run(connector, tool, dict(arguments or {}), today, memory_path), "ok"
+                text, status = self._run(connector, tool, dict(arguments or {}), today, memory_path, bank_name), "ok"
             except write_admission.SleepHolding:
                 raise   # the window opened during a self-admitted tool's fetch: `call` answers busy
             except Exception as exc:  # noqa: BLE001 — never a stack trace to a cloud app
@@ -323,7 +331,8 @@ class RemoteRuntime:
         self._record(connector, tool, status, text, memory_path)
         return text, status
 
-    def _run(self, connector: catalog.Connector, tool: str, args: dict, today: str, memory_path: Path) -> str:
+    def _run(self, connector: catalog.Connector, tool: str, args: dict, today: str, memory_path: Path,
+             bank_name: str | None = None) -> str:
         if tool == "cicada_handshake":
             primer, meta = handshake.load_or_build(
                 memory_path, variant=handshake.REMOTE_VARIANT, tools=catalog.tool_names_for(connector.scopes))
@@ -332,7 +341,7 @@ class RemoteRuntime:
             text = primer.replace(handshake.CONVERSATION_SLOT, mint_handle(connector.id, today))
             return text + self._reading_note(memory_path, connector)
         handle = resolve_handle(connector.id, args.get("conversation"), today)
-        ctx = self.tool_context(connector, handle, memory_path)
+        ctx = self.tool_context(connector, handle, memory_path, bank_name)
         if tool in catalog.WRITE_TOOLS:
             with self._write_lock:
                 text = _DISPATCH[tool](ctx, args)
@@ -342,6 +351,21 @@ class RemoteRuntime:
         if tool in catalog.READ_TOOLS:
             text = fence(cap(strip_unavailable(text, ctx.available or frozenset())))
         return text
+
+    def _resolve_bank(self) -> tuple[Path, str | None]:
+        """The call's bank and its name, from ONE registry read — the active bank (or this context's pin), the way a
+        request is pinned. A runtime given its own ``memory_path`` (a test's) has no name to send."""
+        if self._memory_path is not _memory_path:
+            return self._memory_path(), None
+        from api.config import get_settings
+        from api.services import bank_registry
+
+        root = get_settings().memory_root
+        pin = bank_registry.pinned_bank()
+        if pin is not None and pin.root == Path(root):
+            return pin.path, pin.name
+        name, path = bank_registry.current_active(root)
+        return path, name
 
     def _reading_note(self, memory_path: Path, connector: catalog.Connector) -> str:
         """G166: one per-request sentence after the primer when links wait for an

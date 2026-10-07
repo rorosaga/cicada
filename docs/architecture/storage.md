@@ -619,7 +619,12 @@ planned body, the answer sentence, the date (else the dedup-guarded fallback); a
 no hold (`media_ingestor.prepare_one`) and writes and commits inside one (`write_prepared`, the index checked again) —
 refused (409, nothing written) when Sleep holds the pages, since a page written inside the window could ride the
 batch commit under Sleep's author; a stdio save the backend refused is never written directly behind its back. The
-remote runtime resolves the bank once per call and admits, gates, writes and commits that one bank. **Disclosed
+remote runtime resolves the bank once per call and admits, gates, writes and commits that one bank; a backend POST it makes (an inbox answer) names that bank in
+`X-Cicada-Bank`, so the backend refuses it — nothing written — if the active bank moved meanwhile. An admitted
+backend transaction is admitted on the request's pinned bank (G177 `bank_binding`; `route()` pins a call made
+outside a request) and its context — the pin — rides onto the writer loop, so the admission, every write and the
+commit name one bank even if the person switches mid-transaction; admitting any other bank is refused
+(`WrongBank`, fail closed). **Disclosed
 exceptions (still probes or unadmitted):** `enrich-links` and `verify-sites` refuse up front only — once started they
 keep writing and committing after a window opens, and `verify-sites` writes frontmatter it parsed before its fetch, so
 it can overwrite an edit made meanwhile; the person's paper-details run checks before each request and before writing
