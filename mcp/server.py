@@ -11,9 +11,6 @@ import json
 import os
 import re
 import sys
-import uuid
-from dataclasses import dataclass
-from datetime import date
 from pathlib import Path
 
 # Allow importing sibling packages (api.services.vector_index) when run as a script
@@ -83,44 +80,14 @@ from api.services.mcp_tools import (  # noqa: E402,F401
 # NOTHING here reads a transcript. The only filesystem contact anywhere in
 # this feature is an isfile() check, and it lives in main(), not here.
 
-SESSION_UUID_RE = re.compile(
-    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+# G180: the parse lives in `api.services.session_identity`, shared with the `cicada`
+# command (which never mints); this server keeps G48's minting policy, re-exported
+# under its old names so every caller and test that patches them still lands.
+from api.services.session_identity import (  # noqa: E402
+    SESSION_UUID_RE,
+    SessionIdentity,
+    stdio_identity as resolve_session_identity,
 )
-
-
-@dataclass(frozen=True)
-class SessionIdentity:
-    session_id: str
-    harness: str
-    project_dir: str | None = None
-
-
-def resolve_session_identity(env: dict | None = None) -> SessionIdentity:
-    """Resolve this process's conversation identity. Pure — pass ``env`` in tests."""
-    env = os.environ if env is None else env
-
-    claude_id = (env.get("CLAUDE_CODE_SESSION_ID") or "").strip()
-    if SESSION_UUID_RE.match(claude_id):
-        return SessionIdentity(
-            session_id=claude_id,
-            harness="claude-code",
-            project_dir=(env.get("CLAUDE_PROJECT_DIR") or "").strip() or None,
-        )
-
-    explicit = (env.get("CICADA_SESSION_ID") or "").strip()
-    if explicit:
-        return SessionIdentity(
-            session_id=explicit,
-            harness=(env.get("CICADA_SESSION_HARNESS") or "").strip() or "unknown",
-            project_dir=(env.get("CLAUDE_PROJECT_DIR") or "").strip() or None,
-        )
-
-    return SessionIdentity(
-        session_id=f"ses_{date.today().isoformat()}_{uuid.uuid4().hex[:8]}",
-        harness="unknown",
-        project_dir=None,
-    )
-
 
 SESSION = resolve_session_identity()
 
@@ -1267,18 +1234,12 @@ def handle_continue(session=None, before=None) -> str:
     Explicit episode reads retain their ordinary history/paging behavior."""
     import os
 
-    from api.services import continuity, continuity_sessions
+    from api.services import local_tools   # the one body, shared with `cicada continue` (G180)
 
-    memory_path = get_memory_path()
     root = Path(os.environ.get("CICADA_MEMORY_PATH") or Path.home() / "cicada" / "memory")
-    bank_paths = continuity_sessions.bank_paths_for(root)
-    cwd = SESSION.project_dir or os.getcwd()
-    session = session.strip() if isinstance(session, str) and session.strip() else None
-    before = before.strip() if isinstance(before, str) and before.strip() else None
-    ctx = continuity.assemble(memory_path, bank_paths=bank_paths, harness=None, session_id=None, cwd=cwd,
-                              session=session, deadline=None, allow_full_parse=continuity.TOOL_UNREADABLE_PARSES,
-                              continue_identity=(SESSION.harness, SESSION.session_id))
-    return continuity.full_text(ctx, before=before)
+    return local_tools.continue_text(get_memory_path(), root=root, cwd=SESSION.project_dir or os.getcwd(),
+                                     session=session, before=before,
+                                     identity=(SESSION.harness, SESSION.session_id))
 
 
 def handle_pending(limit) -> str:

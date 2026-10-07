@@ -20,6 +20,10 @@ def inprocess(monkeypatch):
     from api.config import Settings, get_settings
 
     before = Settings.model_config.get("env_file")
+    # `cli.main` probes the backend's /healthz: never the default port, where a real backend may run.
+    from _cli import free_port
+
+    monkeypatch.setenv("CICADA_PORT", str(free_port()))
     monkeypatch.setenv("LITELLM_MODE", "PRODUCTION")
     monkeypatch.delenv("CICADA_MEMORY_ROOT", raising=False)
     yield
