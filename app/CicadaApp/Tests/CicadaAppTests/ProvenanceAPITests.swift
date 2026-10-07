@@ -6,6 +6,38 @@ import XCTest
 /// round-trips so a 304 keeps what the cache already holds.
 final class ProvenanceAPITests: XCTestCase {
 
+    func testSectionProvenanceDecodesServerIdentityRangesAndReasoning() throws {
+        let json = #"""
+        {"entityId":"alpha-project","pageBodyHash":"abcdef123456","sectionSchema":1,"sectionsPartial":false,
+         "sections":[{"key":"key_facts","title":"Key Facts","status":"partial","itemCount":2,
+          "recordedItems":1,"spanCount":0,"reasoningCount":1,"unmatchedRecords":1,"partial":false,
+          "items":[{"identity":"server-owned-item","text":"Synthetic fact 🐝.","bodyRanges":[[14,31]],
+            "ambiguous":false,"evidence":[{"evidence":{"episode":"ep_2026-10-07_001","start":-1,"end":-1,
+            "kind":"reasoning","hash":"123456abcdef"},"sourceTitle":"Synthetic conversation",
+            "conversationId":"session-example","sourceAvailable":true,"status":"not_checked","span":null}]}]}]}
+        """#
+        let value = try JSONDecoder().decode(EntityProvenance.self, from: Data(json.utf8))
+        XCTAssertEqual(value.pageBodyHash, "abcdef123456")
+        XCTAssertEqual(value.sectionSchema, 1)
+        XCTAssertFalse(value.sectionsPartial)
+        let section = try XCTUnwrap(value.sections.first)
+        XCTAssertEqual(section.recordedItems, 1)
+        XCTAssertEqual(section.unmatchedRecords, 1)
+        let item = try XCTUnwrap(section.items.first)
+        XCTAssertEqual(item.identity, "server-owned-item")
+        XCTAssertEqual(item.bodyRanges, [[14, 31]])
+        XCTAssertEqual(item.evidence.first?.evidence?.kind, .reasoning)
+        XCTAssertNil(item.evidence.first?.span)
+    }
+
+    func testOlderBackendHasNoSectionTokenOrRows() throws {
+        let value = try JSONDecoder().decode(EntityProvenance.self, from: Data(#"{"entityId":"alpha-project"}"#.utf8))
+        XCTAssertNil(value.pageBodyHash)
+        XCTAssertEqual(value.sectionSchema, 0)
+        XCTAssertTrue(value.sections.isEmpty)
+        XCTAssertFalse(value.sectionsPartial)
+    }
+
     override func tearDown() {
         MockURLProtocol.handler = nil
         super.tearDown()

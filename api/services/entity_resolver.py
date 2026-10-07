@@ -9,7 +9,7 @@ from loguru import logger
 from thefuzz import fuzz
 
 from api.config import Settings
-from api.services import engine_errors, json_parse
+from api.services import engine_errors, json_parse, section_provenance
 from api.services.clarification_manager import (
     CONFIDENCE_THRESHOLD,
     ClarificationManager,
@@ -489,6 +489,9 @@ def _merge_entity_payload(base: dict, incoming: dict) -> dict:
         base.get("source_episode_timestamp"),
         incoming.get("source_episode_timestamp"),
     )
+    merged[section_provenance.INPUTS] = section_provenance.merge_selected(
+        base, incoming, incoming_description=len(incoming_desc) > len(base_desc),
+    )
     return merged
 
 
@@ -950,5 +953,4 @@ def _infer_uncertainty_type(entity: dict) -> str:
     if not description or len(description) < 40:
         return "Insufficient context to classify"
     return "Ambiguous type or role"
-
 

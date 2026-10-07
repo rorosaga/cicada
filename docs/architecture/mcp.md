@@ -296,6 +296,14 @@ saved resources.
 
 ---
 
+**Prose item metadata (G118 sections, 1a-i).** `cicada_recall_detail` still returns
+the raw markdown, including compact scalar `section_provenance` frontmatter when
+present. The 150-bullet/80-episode fixture adds 10,739 bytes (approximately 2,685
+tokens by characters/4, not model usage); dense stress adds 22,518 bytes. Default
+elision remains a decision. This slice changes no MCP/perspective/CLI schema or
+handshake and performs no legacy passage search; API section counts are independent
+of current-claim coverage. Paid quote extraction is deferred, not part of this slice.
+
 **Current-claim reads (G118/G93, 2026-10-07).** The recall claim leg, implicit
 recall's claim lines and perspective's current block use `claims.is_current`.
 Unsuperseded dated events also vote for subject relevance: that leg returns

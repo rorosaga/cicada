@@ -7,6 +7,23 @@ a change makes this file wrong, update it in the same PR (repository paths below
 35 routers mounted in `api/main.py`, plus repo-context and maintenance endpoints. **Read the routers
 for the endpoint list** — it is not duplicated here. What is *not* derivable:
 
+**Prose provenance (G118 sections, 1a-i).** Existing `GET /entities/{id}/provenance`
+adds `sectionSchema: 1`, `pageBodyHash` of the same parsed body, `sections[]` and
+`sectionsPartial`. Section rows report item/recorded/span/reasoning/unmatched counts;
+items carry opaque identity, text, server-owned Unicode `bodyRanges`, ambiguity and
+expanded G118 evidence. Item states are tracked/partial/not_tracked/metadata_unavailable,
+independent of the unchanged current-claim totals. Source rows include availability,
+conversation/title, current/grown/stale/missing/unavailable/not_checked/gap and optional
+`span`. Only a checked span has wash coordinates: raw evidence coordinates are metadata,
+not permission to highlight; reasoning has no span. Source checks share the existing
+conversation body cache and cap; no derived search/backfill occurs here.
+
+New item rows are bounded to 128 KiB, with per-section `partial` and honest full counts
+if omitted; durable metadata is never truncated. There is no new endpoint/cursor/409.
+The ETag retains entities/episodes/git_head, author shape and current day, and adds
+`sections1`; server models and defaulted Swift decode ship together. R-PB11 still applies:
+asked on demand, cached in memory, not a Store domain or a new VersionVector component.
+
 **Auth.** Every endpoint except `GET /healthz`, `POST /capture/telegram`, an OAuth adapter's
 `GET /sources/connectors/{id}/callback`, and OpenRouter's sign-in landing
 `GET /connections/byok-openrouter/callback/<nonce>` (R-AG10 — gated by its own single-use, 10-minute nonce

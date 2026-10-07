@@ -243,6 +243,24 @@ then says the model wasn't shared.
 
 **Claim preservation (G148 regression):** Stage 5 rewrites prose with the stored `claims` fences removed from section parsing, then reattaches those fences unchanged. Rebuilding `Related` cannot remove beliefs before the claim pipeline reconciles them; synthesis output never authors a claims fence.
 
+**Item provenance (G118 sections, 1a-i).** After extraction, Summary/description and
+Key Facts receive transient source-episode `reasoning` records over the full stored body
+hash. This adds no prompt instructions, quotes, retries or calls. Stage 2 carries metadata
+with the fields it actually selects: base Summary/facts, and the longer chosen description.
+Its existing incoming-facts/links/questions drop and pending-store limitation are unchanged;
+earlier pending facts are not restored by provenance. Stage 5 records exact surviving items
+on create and fallback/human-safe updates. The B-update fixture retains A's Summary only
+when B supplies no new Summary (or one already contained); an appended Summary invalidates
+that one item's guard while A's facts keep their links.
+
+Sleep synthesis retains exact old items by identity, without changing its prompt/return shape.
+Rephrased items become unrecorded; incoming facts not supplied to synthesis cannot gain links.
+All refreshes share the existing atomic page write, locks and commit/rollback boundary.
+Inbox/merge selected-input hooks, other prose sections, Related claim navigation and rephrasing
+selection are later scope; existing preserved records still fail closed through exact guards.
+The paid quote prompt is **1a-ii (💸), deferred** until owner approval and a reviewed paired
+G148 usage/locate-rate pilot; the reasoning-only slice does not authorize that spend.
+
 An **engine-independent tail** runs on every exit path, idle nights included: the state-dictionary
 refresh, claim expiry (first in the clean-tree-guarded slot, its own `commit_paths` commit),
 follow-ups (G141 PJ-6, right after expiry, its own `cicada` commit), the exact-match source links (G61 S3-a, `source_links`,

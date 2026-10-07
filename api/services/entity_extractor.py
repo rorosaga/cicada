@@ -12,7 +12,7 @@ from loguru import logger
 from tqdm import tqdm
 
 from api.config import Settings
-from api.services import decay_policy, engine_errors, evidence
+from api.services import decay_policy, engine_errors, evidence, section_provenance
 from api.services.json_parse import parse_json_object
 
 EXTRACTION_SYSTEM_PROMPT = """You are an entity extraction system for a personal knowledge graph.
@@ -481,6 +481,7 @@ async def extract(
 
                 ep_origin = episode.get("origin", "unknown")
                 for entity in all_entities:
+                    section_provenance.attach(entity, ep_id, content)
                     entity["source_episode"] = ep_id
                     entity["source_episode_timestamp"] = episode.get("timestamp")
                     entity["origin"] = ep_origin

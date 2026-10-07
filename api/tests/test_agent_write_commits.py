@@ -3,6 +3,7 @@ page, and never escapes its bank or fails because git did."""
 from __future__ import annotations
 
 import asyncio
+import os
 import subprocess
 
 import pytest
@@ -63,7 +64,7 @@ def test_a_stdio_claim_written_mid_sleep_is_left_for_sleeps_own_commit(server, m
                         lambda url, headers: asked.append(url) or True)
     head = _git(memory, "rev-parse", "HEAD")
     out = srv.handle_write_claim("alpha-project", "uses", "sqlite-vec", None, None, None, None)
-    assert out.startswith("Recorded") and asked == ["http://127.0.0.1:8000"]
+    assert out.startswith("Recorded") and asked == [f"http://127.0.0.1:{os.environ.get('CICADA_PORT', '8000')}"]
     assert _git(memory, "rev-parse", "HEAD") == head
     assert "entities/alpha-project.md" in _git(memory, "status", "--porcelain")
 

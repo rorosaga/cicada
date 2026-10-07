@@ -166,6 +166,31 @@ is exact → whitespace-normalised → case-insensitive and **never fuzzy**; an 
 becomes `reasoning` and **the claim is still written — provenance never blocks memory**. Legacy
 claims carry no `evidence` and `to_dict` omits the empty key; there is no backfill.
 
+**Prose item links (G118 sections, 1a-i).** `section_provenance.py` stores optional
+schema-1 `section_provenance` frontmatter, without changing the YAML emitter:
+`sources: {s0: "<episode> <12-character source hash>"}` and
+`sections: {key_facts: {<12-character item key>: "<12-character text guard> s0:-1:-1:r"}}`.
+Each item/source value is one scalar; span tokens are `s0:<start>:<end>:<kind code>`.
+Codes `u/a/p/r/s/m` expand to user/assistant/page/reasoning/speaker/media. Reasoning
+has `-1:-1`; spans have `0 <= start < end`. No copied quotes, claim references,
+writer/cycle fields or stored `derived` rows. The source table deduplicates document/hash
+pairs, including multiple revisions of the same episode, and refresh prunes unused pairs.
+
+The item key hashes `_normalize_fact(text)` for lookup; the mandatory exact text guard
+prevents normalization from recertifying edited words. Summary is one item; list items
+include indented continuations. Duplicate/ambiguous normalized bullets are not attributed.
+Editing one of 120 bullets leaves 119 links; reordering preserves them. The server parses
+headings outside code fences, accumulates duplicate headings and supplies Unicode code-point
+body ranges. Claims never enter fingerprints; an unreadable claims fence makes its affected
+section's metadata unavailable. Unknown/malformed schemas survive writes and fail closed on read.
+No backfill: absent, changed or uninstrumented prose stays unrecorded; git retains prior records.
+
+The 150-bullet/80-episode plus Summary fixture measures **10,739 bytes / 238 YAML lines**;
+three spans per item and three revisions per episode measure **22,518 bytes / 398 lines**
+with the production emitter. Gates are 16 KiB primary, 32 KiB dense (no runtime link truncation).
+Raw agent detail still includes the metadata, approximately 2,685/5,630 added tokens by
+characters/4; this is an estimate, not model usage. Default detail elision remains a decision.
+
 **Events (G141).** Two predicates, `happened` (ongoing | done | dropped) and `milestone` (planned |
 done | missed | dropped), with four optional fields omitted when empty — `status` (as of
 `valid_from`), `target` (a milestone's planned date; expiry never reads it), `participants`

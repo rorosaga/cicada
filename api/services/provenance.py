@@ -48,6 +48,9 @@ from api.models.schemas import (
     ProvenancePage,
     ProvenanceSpan,
     ProvenanceTotals,
+    SectionEvidence,
+    SectionProvenance,
+    SectionProvenanceItem,
 )
 from api.services import (
     agent_turns,
@@ -57,6 +60,7 @@ from api.services import (
     git_service,
     inbox_context,
     markdown_parser,
+    section_provenance,
     turn_authorship,
     video_state,
 )
@@ -230,6 +234,7 @@ def _watch(memory_path: Path, doc_id: str, fm: dict) -> EpisodeWatch | None:
 # `best` is computed only for the rows that ship, so body reads stay bounded
 # by what is shown.
 MAX_PROVENANCE_CONVERSATIONS = 50
+MAX_SECTION_RESPONSE_BYTES = 128 * 1024
 
 
 class _Episodes:
@@ -428,6 +433,7 @@ def entity_provenance(
         pname = str((pdoc[0] if pdoc else {}).get("name") or doc_id)
         pages.append(ProvenancePage(entity_id=doc_id, name=pname, claim_count=len(claim_ids)))
 
+    sections, sections_partial = _sections(parsed, docs, shown)
     return EntityProvenance(
         entity_id=entity_id,
         entity_name=name,
@@ -439,7 +445,98 @@ def entity_provenance(
         totals=ProvenanceTotals(claims=len(current), with_span=with_span, legacy=legacy,
                                 conversations=len(rows)),
         commits_truncated=commits_truncated,
+        page_body_hash=evidence.body_hash(parsed.body),
+        sections=sections,
+        sections_partial=sections_partial,
     )
+
+
+def _section_evidence(ev: Evidence, docs: _Episodes, allowed: set[str]) -> SectionEvidence:
+    """Share page provenance reads; unchecked coordinates never become a wash."""
+    memory_path = docs._memory_path
+    path = evidence.source_path(memory_path, ev.episode)
+    is_episode = evidence.is_episode_id(ev.episode)
+    directory = memory_path / ('episodes' if is_episode else 'entities')
+    safe = path is not None and path.resolve().parent == directory.resolve()
+    indexed = docs.meta(ev.episode) if safe and is_episode else None
+    fm = indexed.frontmatter if indexed is not None else {}
+    row = SectionEvidence(
+        evidence=EvidenceModel(**ev.to_dict()),
+        source_available=safe,
+        source_title=str(fm.get('title') or ev.episode),
+        conversation_id=_opt(fm.get('session_id')) or _opt(fm.get('source_id')),
+        status='not_checked' if safe else 'missing',
+    )
+    if not safe:
+        return row
+    # Read only episodes in the shown conversation set, with a shared cap on
+    # unique document bodies. Existing cache hits cost no new read. Page spans
+    # are supported too, but share that same cap rather than escaping it.
+    if is_episode and ev.episode not in allowed:
+        return row
+    if ev.episode not in docs._bodies and len(docs._bodies) >= MAX_PROVENANCE_CONVERSATIONS:
+        return row
+    if is_episode:
+        text = docs.body(ev.episode)
+    else:
+        if ev.episode not in docs._bodies:
+            doc = evidence.source_document(memory_path, ev.episode)
+            docs._bodies[ev.episode] = doc[1] if doc else None
+        text = docs._bodies[ev.episode]
+    if text is None:
+        row.status = 'unavailable'
+        row.source_available = False
+        return row
+    row.status = evidence.span_status(text, end=ev.end, hash=ev.hash, appendable=is_episode)
+    if not ev.is_span():
+        return row  # reasoning opens a source without asserting a quotation
+    gaps = evidence.gap_ranges(fm, text) if is_episode else ()
+    if evidence.touches_gap(ev.start, ev.end, gaps):
+        row.status = 'gap'
+    elif row.status == evidence.SPAN_STALE or ev.end > len(text):
+        row.status = evidence.SPAN_STALE
+        row.span = _stale_model(text, ev)
+    else:
+        row.span = _span_model(text, ev.episode, ev.start, ev.end, hash=ev.hash, kind=ev.kind,
+                               grown=row.status == evidence.SPAN_GROWN)
+    return row
+
+
+def _sections(parsed, docs: _Episodes, shown: list[ProvenanceConversation]) -> tuple[list[SectionProvenance], bool]:
+    sp = section_provenance
+    raw = parsed.frontmatter.get(sp.FIELD)
+    records = sp.decode(raw)
+    matched = sp.matched(parsed.frontmatter, parsed.body)
+    unavailable = sp.unavailable_section(parsed.body)
+    allowed = {ep for conversation in shown for ep in conversation.episode_ids}
+    sections = []
+    used = 0
+    partial = False
+    for key, items in sp.scan(parsed.body).items():
+        links = matched.get(key, {})
+        if (raw is not None and records is None) or key == unavailable:
+            status = 'metadata_unavailable'
+            links = {}
+        else:
+            status = ('tracked' if len(links) == len(items) and links else 'partial' if links else 'not_tracked')
+        spans = sum(ev.is_span() for _, evs in links.values() for ev in evs)
+        reasoning = sum(ev.kind == 'reasoning' for _, evs in links.values() for ev in evs)
+        section = SectionProvenance(key=key, title=sp.TITLES[key], status=status, item_count=len(items),
+            recorded_items=len(links), span_count=spans, reasoning_count=reasoning,
+            unmatched_records=len((records or {}).get(key, {})) - len(links))
+        for item in items:
+            evs = links.get(item.key, ('', []))[1] if not item.ambiguous else []
+            row = SectionProvenanceItem(identity=f'{key}:{item.key}:{item.text_hash}:{item.ranges[0][0]}', text=item.text,
+                body_ranges=[list(pair) for pair in item.ranges], ambiguous=item.ambiguous,
+                evidence=[_section_evidence(ev, docs, allowed) for ev in evs])
+            size = len(row.model_dump_json(by_alias=True).encode('utf-8'))
+            if used + size > MAX_SECTION_RESPONSE_BYTES:
+                section.partial = partial = True
+                continue
+            used += size
+            section.items.append(row)
+        sections.append(section)
+    return sections, partial
 
 
 # The most entity pages one citations call parses (R-PB10). A page is parsed

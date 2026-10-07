@@ -805,6 +805,14 @@ Feed, the entity Content tab and the entity hero, all through `MediaPreview`/`He
 derived from the URL at read time (`VideoRef.resolve`), never read out of the page, so a bank never
 needs rewriting to teach the app a new one.
 
+**Prose provenance decode (G118 sections, 1a-i).** `Models/Provenance.swift` accepts
+the additive section/item rows, source evidence and server body token. Older backends
+default to no section rows/schema and a nil token. R-PB11 keeps this in the existing
+on-demand memory cache, without a new Store/VersionVector domain. This slice adds no
+disclosure or Reader UI. In 1b, the graph-node stub has no `pageBodyHash`: it must show
+no section controls until a full entity response supplies a matching non-nil token;
+nil tokens must never match. Server identity/ranges must not be recreated in Swift.
+
 **Provenance viewer (G118 slice 2).** Every claim carries evidence chips (`Views/Provenance/`): the
 label says who spoke ("You said", "<agent> replied", "From the page", "Inferred", "Mentioned here"
 for a legacy claim's name match found at read) — an agent's chip names its model when capture recorded one ("Claude
