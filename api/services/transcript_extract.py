@@ -21,7 +21,8 @@ The RULING (G105, 2026-09-03) is implemented literally:
   and ``.effort`` — cleaned by ``agent_turns`` (unknown values dropped) and
   carried on the agent turn only;
 * on what survives: fenced code stripped, secrets scrubbed, a per-turn cap
-  and a head-stable session cap (R6);
+  and a session cap (R6) that keeps the head and the tail and drops the
+  middle (G110 gate B2, ruling 2026-10-07: ``Conversation.gap``);
 * ``keep_assistant=False`` drops (b) — the owner's fallback if the assistant
   half proves noisy (R7).
 
@@ -29,10 +30,14 @@ The G48 rail is restated, not removed: tool output, code and secrets never
 enter a bank. This module never opens a file — it takes lines — so the
 only transcript read stays where R2 puts it (``transcript_capture``).
 
-A note Cicada's own recall hook added (G149) is never the person's words,
-whatever shape the harness stores it in (``recall_text.is_injection``,
-``_HOOK_OUTPUT_RE``): captured as "the person said", it would hand Sleep its
-own memory as new evidence (R-H12).
+A note Cicada's own hooks added (G149) is dropped only when the harness marks
+it as injected — a whole record that is not the person's (Claude Code's
+attachment/hook records and ``isMeta`` user records, Codex's non-user roles).
+Text inside the person's own block is their words, whatever it looks like: it
+is kept and counted (``note_like_turns``), and the next continuity note
+discloses the count (G110 T2b, gate C ruling 2026-10-07). G105 R5's
+tool-output rules — the ``<system-reminder>`` span strip and the first-tag
+skip — are a different rail and stay.
 
 Pure: no bank state, no LLM, no I/O. ``summary`` carries counts only so it
 can go straight into the ledger (R10).
@@ -55,10 +60,17 @@ HARNESSES = ("claude-code", "codex")
 #: ~2,000 chars is the ruling's per-turn cap: enough for a real question or
 #: a real answer, small enough that a pasted log cannot become an episode.
 TURN_CAP_CHARS = 2000
-#: Head-stable session cap (R6): the first turns are kept, later ones
-#: dropped and flagged, so an episode's byte offsets — which G118 spans
-#: point into — do not move between two hook firings on the same session.
+#: The session cap (R6), in characters of kept turn text. Under it every turn
+#: is kept. Over it (G110 gate B2, ruling 2026-10-07) the first
+#: ``HEAD_SHARE`` of it is the HEAD — the longest prefix that fits, so its
+#: offsets, which G118 spans point into, never move between two hook firings —
+#: and the rest is the TAIL: the latest turns, starting on a multiple of
+#: ``TAIL_BLOCK_TURNS`` so the tail advances in blocks of whole turns rather
+#: than on every Stop. The middle is dropped, counted, and marked in the body
+#: (``evidence.gap_line``). At the default that is a 60k head and a 40k tail.
 SESSION_CAP_CHARS = 100_000
+HEAD_SHARE = (3, 5)
+TAIL_BLOCK_TURNS = 10
 
 CODE_OMITTED = "[code omitted]"
 
@@ -69,10 +81,6 @@ CLAUDE_HARNESS_TAGS = frozenset({
     "task-notification", "command-name", "command-message", "command-args",
     "command-stdout", "local-command-stdout", "local-command-caveat",
     "system-reminder", "ide_opened_file", "ide_selection", "ide_diagnostics",
-    # G149 R-H12: tag names hook output could arrive under. Unverified here (no
-    # transcript is read, R2); a person never types them, so dropping them
-    # costs nothing.
-    "user-prompt-submit-hook", "session-start-hook",
 })
 CODEX_HARNESS_TAGS = frozenset({
     "environment_context", "user_instructions", "permissions",
@@ -81,10 +89,10 @@ CODEX_HARNESS_TAGS = frozenset({
 })
 
 _SYSTEM_REMINDER_RE = re.compile(r"<system-reminder>.*?</system-reminder>", re.DOTALL)
-# G149 R-H12: the same tags as a SPAN, stripped wherever it sits in a block,
-# like a system reminder. `_first_tag` reads only a block's first tag, so hook
-# output a harness appended after the person's prompt would otherwise be kept.
-_HOOK_OUTPUT_RE = re.compile(r"<(user-prompt-submit-hook|session-start-hook)>.*?</\1>", re.DOTALL)
+# G110 T2b: a line that opens like a Cicada note, past any leading tags — the
+# count `note_like_turns` keeps (the line itself is kept: the person's words).
+_NOTE_LINE_RE = re.compile(r"^\s*(?:<[A-Za-z_][A-Za-z0-9_-]*>\s*)*" + re.escape(recall_text.INJECTION_PREFIX),
+                           re.MULTILINE)
 _LEADING_TAG_RE = re.compile(r"^\s*<([A-Za-z_][A-Za-z0-9_-]*)")
 _FENCE_RE = re.compile(r"```.*?```", re.DOTALL)
 _OPEN_FENCE_RE = re.compile(r"```.*\Z", re.DOTALL)
@@ -105,6 +113,18 @@ class Turn:
 
 
 @dataclass
+class Gap:
+    """The dropped middle of an over-cap session (gate B2): ``turns[:after]``
+    is the head and ``turns[after:]`` the tail; ``dropped`` turns between them
+    were not kept, from ``first_at`` to ``last_at`` (raw stamps, either may be
+    ``None`` for untimed turns)."""
+    after: int
+    dropped: int
+    first_at: str | None
+    last_at: str | None
+
+
+@dataclass
 class Conversation:
     harness: str
     session_id: str | None
@@ -113,9 +133,10 @@ class Conversation:
     ended_at: str | None
     turns: list[Turn] = field(default_factory=list)
     summary: dict = field(default_factory=dict)
-    # G110: the time of the latest turn SEEN, kept or refused by the session
-    # cap — what a "N turns past the capture limit, until HH:MM" line reads.
+    # G110: the time of the latest turn SEEN, kept or dropped by the session cap.
     last_seen_at: str | None = None
+    # G110 gate B2: the dropped middle, when the session cap was hit.
+    gap: Gap | None = None
 
 
 # --- cleaning ----------------------------------------------------------------
@@ -159,11 +180,13 @@ class _Builder:
     """Turn assembly shared by both harnesses: R4's boundary rule, the
     final-reply-per-turn pending buffer, R6's cleaning order and caps."""
 
-    def __init__(self, harness: str, *, keep_assistant: bool, turn_cap: int, session_cap: int):
+    def __init__(self, harness: str, *, keep_assistant: bool, turn_cap: int, session_cap: int,
+                 tail_block: int | None = None):
         self.harness = harness
         self.keep_assistant = keep_assistant
         self.turn_cap = turn_cap
         self.session_cap = session_cap
+        self.tail_block = max(1, tail_block or TAIL_BLOCK_TURNS)
         self.turns: list[Turn] = []
         self.pending: list[tuple[str, str | None, str | None, str | None]] = []
         self.kept: Counter = Counter()
@@ -172,15 +195,13 @@ class _Builder:
         self.truncated_turns = 0
         self.scrubbed = 0
         self.session_cap_hit = False
-        # G110: turns refused by the session cap, and the latest time seen.
+        # G110: turns dropped by the session cap, and the latest time seen.
         self.refused_turns = 0
         self.last_seen_at: str | None = None
         # G110: kept person turns holding a line that opens like a Cicada note
         # (counted, never removed here — the person's words are kept).
         self.note_like_turns = 0
-        self.total_chars = 0
-        self.started_at: str | None = None
-        self.ended_at: str | None = None
+        self.gap: Gap | None = None
 
     # -- counting -------------------------------------------------------------
     def count_block(self, kind: str, n: int = 1) -> None:
@@ -232,24 +253,53 @@ class _Builder:
             self.truncated_turns += 1
         if ts:
             self.last_seen_at = ts
-        if self.total_chars + len(cleaned) > self.session_cap:
-            self.session_cap_hit = True
-            self.refused_turns += 1
-            return
+        # Every cleaned turn is held until `finish` (each is ≤ the per-turn cap):
+        # which ones the body keeps depends on the whole session (gate B2).
         self.turns.append(Turn(role=role, text=cleaned, ts=ts, model=model, effort=effort))
-        if role == "user" and any(line.lstrip().startswith(recall_text.INJECTION_PREFIX)
-                                  for line in cleaned.splitlines()):
-            # Counted on the cleaned text of a turn that was KEPT — what the body
-            # actually holds (review finding 9).
-            self.note_like_turns += 1
-        self.total_chars += len(cleaned)
-        self.kept[role] += 1
-        if ts:
-            self.started_at = self.started_at or ts
-            self.ended_at = ts
+
+    def _window(self) -> None:
+        """Gate B2: keep the head and the tail, drop and describe the middle."""
+        turns = self.turns
+        n = len(turns)
+        if sum(len(t.text) for t in turns) <= self.session_cap:
+            return
+        num, den = HEAD_SHARE
+        head_cap = self.session_cap * num // den
+        tail_cap = self.session_cap - head_cap
+        head = used = 0
+        while head < n - 1 and used + len(turns[head].text) <= head_cap:  # the head never takes the latest turn
+            used += len(turns[head].text)
+            head += 1
+        start = n
+        used = 0
+        while start > head and used + len(turns[start - 1].text) <= tail_cap:
+            used += len(turns[start - 1].text)
+            start -= 1
+        block = self.tail_block
+        start = -(-start // block) * block            # up to the next block boundary: never over the tail cap
+        start = max(head + 1, min(start, n - 1))       # the latest turn is always kept; something is dropped
+        middle = turns[head:start]
+        stamps = [t.ts for t in middle if t.ts]
+        self.gap = Gap(after=head, dropped=len(middle), first_at=stamps[0] if stamps else None,
+                       last_at=stamps[-1] if stamps else None)
+        self.session_cap_hit = True
+        self.refused_turns = len(middle)
+        self.turns = turns[:head] + turns[start:]
 
     def finish(self, session_id: str | None, cwd: str | None) -> Conversation:
         self.boundary()
+        self._window()
+        started_at = ended_at = None
+        for t in self.turns:
+            self.kept[t.role] += 1
+            if t.role == "user" and _NOTE_LINE_RE.search(t.text):
+                # Counted on the cleaned text of a turn that was KEPT — what the body
+                # actually holds (review finding 9).
+                self.note_like_turns += 1
+            if t.ts:
+                started_at = started_at or t.ts
+                ended_at = t.ts
+        self.started_at, self.ended_at = started_at, ended_at
         return Conversation(
             harness=self.harness,
             session_id=session_id,
@@ -258,6 +308,7 @@ class _Builder:
             ended_at=self.ended_at,
             turns=self.turns,
             last_seen_at=self.last_seen_at,
+            gap=self.gap,
             summary={
                 "kept": {"user": self.kept["user"], "assistant": self.kept["assistant"]},
                 "dropped_blocks": dict(self.dropped_blocks),
@@ -292,10 +343,12 @@ def extract_claude_code(
     keep_assistant: bool = True,
     turn_cap: int | None = None,
     session_cap: int | None = None,
+    tail_block: int | None = None,
 ) -> Conversation:
     """One Claude Code transcript (JSONL lines) → the ruling's conversation."""
     b = _Builder("claude-code", keep_assistant=keep_assistant, turn_cap=turn_cap or TURN_CAP_CHARS,
-                 session_cap=session_cap or SESSION_CAP_CHARS)  # read per call, so a test can pin a small cap
+                 session_cap=session_cap or SESSION_CAP_CHARS,  # read per call, so a test can pin a small cap
+                 tail_block=tail_block or TAIL_BLOCK_TURNS)
     session_id: str | None = None
     cwd: str | None = None
     for raw in lines:
@@ -343,9 +396,8 @@ def extract_claude_code(
             for bk in blocks:
                 if bk.get("type") != "text":
                     continue
-                text = _HOOK_OUTPUT_RE.sub("", _SYSTEM_REMINDER_RE.sub("", str(bk.get("text") or "")))
-                tag = _first_tag(text)
-                if tag in CLAUDE_HARNESS_TAGS or recall_text.is_injection(text):
+                text = _SYSTEM_REMINDER_RE.sub("", str(bk.get("text") or ""))
+                if _first_tag(text) in CLAUDE_HARNESS_TAGS:
                     tagged += 1
                     continue
                 if text.strip():
@@ -388,6 +440,7 @@ def extract_codex(
     keep_assistant: bool = True,
     turn_cap: int | None = None,
     session_cap: int | None = None,
+    tail_block: int | None = None,
 ) -> Conversation:
     """One Codex rollout (JSONL lines) → the same conversation shape.
 
@@ -397,7 +450,8 @@ def extract_codex(
     ``function_call_output`` its ``tool_result``; ``reasoning`` its thinking.
     """
     b = _Builder("codex", keep_assistant=keep_assistant, turn_cap=turn_cap or TURN_CAP_CHARS,
-                 session_cap=session_cap or SESSION_CAP_CHARS)  # read per call, so a test can pin a small cap
+                 session_cap=session_cap or SESSION_CAP_CHARS,  # read per call, so a test can pin a small cap
+                 tail_block=tail_block or TAIL_BLOCK_TURNS)
     session_id: str | None = None
     cwd: str | None = None
     ctx_model = ctx_effort = None
@@ -437,7 +491,7 @@ def extract_codex(
             if role == "user":
                 b.boundary()
                 kept = [t for t in texts
-                        if _first_tag(t) not in CODEX_HARNESS_TAGS and not recall_text.is_injection(t) and t.strip()]
+                        if _first_tag(t) not in CODEX_HARNESS_TAGS and t.strip()]
                 if not kept:
                     b.count_msg("harness_tag" if texts else "empty")
                     continue

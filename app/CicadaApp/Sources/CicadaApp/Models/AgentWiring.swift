@@ -41,13 +41,21 @@ struct AgentWiring: Codable, Hashable, Identifiable {
     let autorecall: String
     let autorecallOn: [AgentWiringStep]
     let autorecallOff: [AgentWiringStep]
+    /// G110 gate A — the capture hook's PreCompact/SessionEnd flush, apart from `connect` (the setup prompt runs
+    /// exactly `connect`) and from `autosave` (the Stop hook alone, so an install from before the flush reads on).
+    let flushOn: [AgentWiringStep]
+
+    /// What a Turn on / Connect for me runs: `connect`, plus the capture flush riding with it. Nothing when there is
+    /// nothing to connect — an agent already on is never offered the flush alone (install.sh adds it).
+    var turnOnSteps: [AgentWiringStep] { connect.isEmpty ? [] : connect + flushOn }
 
     init(id: String, installed: Bool, binary: String?, recall: String, autosave: String,
          connect: [AgentWiringStep], detail: String?, autorecall: String = "n/a",
-         autorecallOn: [AgentWiringStep] = [], autorecallOff: [AgentWiringStep] = []) {
+         autorecallOn: [AgentWiringStep] = [], autorecallOff: [AgentWiringStep] = [], flushOn: [AgentWiringStep] = []) {
         self.id = id; self.installed = installed; self.binary = binary; self.recall = recall
         self.autosave = autosave; self.connect = connect; self.detail = detail
         self.autorecall = autorecall; self.autorecallOn = autorecallOn; self.autorecallOff = autorecallOff
+        self.flushOn = flushOn
     }
 
     /// A missing `recall` reads as `unknown`, never `off`: `off` is the state
@@ -66,6 +74,8 @@ struct AgentWiring: Codable, Hashable, Identifiable {
         autorecall = (try? c.decodeIfPresent(String.self, forKey: .autorecall)) ?? "n/a"
         autorecallOn = (try? c.decodeIfPresent([AgentWiringStep].self, forKey: .autorecallOn)) ?? []
         autorecallOff = (try? c.decodeIfPresent([AgentWiringStep].self, forKey: .autorecallOff)) ?? []
+        // An older backend sends no flush: nothing extra runs.
+        flushOn = (try? c.decodeIfPresent([AgentWiringStep].self, forKey: .flushOn)) ?? []
     }
 }
 

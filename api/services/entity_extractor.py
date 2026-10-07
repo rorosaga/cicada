@@ -2,6 +2,7 @@
 
 import asyncio
 import hashlib
+import re
 import sys
 from pathlib import Path
 from typing import Callable
@@ -251,6 +252,22 @@ MEMORY_SOURCE_NOTE = (
 )
 
 
+#: G110 gate B2: a captured session's dropped-middle marker never reaches the
+#: model as conversation text. The episode's own gap range (``episode["gaps"]``)
+#: is blanked on the WHOLE body before the chunker slices it — offsets kept, so
+#: evidence still lands in the stored body and no chunk can start inside the
+#: marker with an unlabelled fragment — and each chunk that touches it is told
+#: about the gap in a note placed apart from, and before, the conversation.
+GAP_NOTE_PREFIX = "[Cicada's note, not part of the conversation and nobody's words:"
+
+
+def _gap_note(gaps, start: int, end: int) -> str | None:
+    if not evidence.touches_gap(start, end, gaps):
+        return None
+    return (f"{GAP_NOTE_PREFIX} some turns in the middle of this conversation were not captured; "
+            "the blank line marks where. Never quote or attribute it.]\n\n")
+
+
 async def _extract_chunk(
     ep_id: str,
     chunk: str,
@@ -259,6 +276,7 @@ async def _extract_chunk(
     settings: Settings,
     *,
     source: str | None = None,
+    gap_note: str | None = None,
     _attempt: int = 0,
 ) -> dict:
     """Extract entities from a single chunk via LLM.
@@ -278,7 +296,8 @@ async def _extract_chunk(
         response = await llm_fn(
             messages=[
                 {"role": "system", "content": EXTRACTION_SYSTEM_PROMPT},
-                {"role": "user", "content": (MEMORY_SOURCE_NOTE + chunk) if source == "claude_memory" else chunk},
+                {"role": "user", "content": (gap_note or "")
+                 + ((MEMORY_SOURCE_NOTE + chunk) if source == "claude_memory" else chunk)},
             ],
             response_format={"type": "json_object"},
             extra_body=EXTRACTION_EXTRA_BODY,
@@ -298,7 +317,7 @@ async def _extract_chunk(
         )
         await asyncio.sleep(backoff)
         return await _extract_chunk(
-            ep_id, chunk, chunk_idx, total_chunks, settings, source=source, _attempt=_attempt + 1
+            ep_id, chunk, chunk_idx, total_chunks, settings, source=source, gap_note=gap_note, _attempt=_attempt + 1
         )
 
 
@@ -421,7 +440,10 @@ async def extract(
             return
 
         spans = _chunk_spans(content)
-        chunks = [content[s:e] for s, e in spans]
+        # G110 gate B2: blank the episode's own gap range on the WHOLE body, then slice.
+        gaps = tuple(episode.get("gaps") or ())
+        masked = evidence.mask_gaps(content, gaps)
+        chunks = [masked[s:e] for s, e in spans]
 
         async with semaphore:
             # Sleep-control checkpoint 2: this task may have waited a while
@@ -440,10 +462,12 @@ async def extract(
                 all_entities = []
                 all_relationships = []
                 for ci, chunk in enumerate(chunks):
+                    note = _gap_note(gaps, *spans[ci])
                     parsed = await _extract_chunk(
                         ep_id, chunk, ci, len(chunks), settings,
                         # Only a memory episode carries a note; every other call keeps its shape.
                         **({"source": "claude_memory"} if episode.get("source") == "claude_memory" else {}),
+                        **({"gap_note": note} if note else {}),
                     )
                     all_entities.extend(parsed.get("entities", []))
                     chunk_rels = [r for r in (parsed.get("relationships", []) or []) if isinstance(r, dict)]
@@ -451,7 +475,8 @@ async def extract(
                     # chunk came from, preferring the chunk window (R11). The
                     # quote is consumed here — nothing downstream sees it.
                     for rel in chunk_rels:
-                        evidence.attach_relationship_evidence(rel, ep_id, content, window=spans[ci], kind_override=episode.get("evidence_kind"))
+                        evidence.attach_relationship_evidence(rel, ep_id, content, window=spans[ci], kind_override=episode.get("evidence_kind"),
+                                                              gaps=gaps)
                     all_relationships.extend(chunk_rels)
 
                 ep_origin = episode.get("origin", "unknown")

@@ -231,13 +231,60 @@ def test_per_turn_cap_truncates_and_counts():
     assert conv.summary["truncated_turns"] == 1
 
 
-def test_session_cap_keeps_the_head_and_flags():
-    # Word runs, not "a" * 60 — sixty hex characters match the 32+ hex rule
-    # and would be redacted. After strip(): 59 + 59 fits 130, + 63 does not.
-    lines = [user("alpha " * 10), asst_text("bravo " * 10), user("charlie " * 8)]
-    conv = tx.extract_claude_code(lines, session_cap=130)
-    assert [t.text[0] for t in conv.turns] == ["a", "b"]
-    assert conv.summary["session_cap_hit"] is True
+def _numbered(n: int, width: int = 10) -> list[str]:
+    """``n`` turns of exactly ``width`` characters, alternating speakers, one second apart."""
+    out = []
+    for i in range(n):
+        text = f"turn {i:03d} " + "w" * width
+        ts = f"2026-09-03T10:{i // 60:02d}:{i % 60:02d}.000Z"
+        out.append(user(text[:width], ts=ts) if i % 2 == 0 else asst_text(text[:width], ts=ts))
+    return out
+
+
+def test_under_the_session_cap_everything_is_kept_and_there_is_no_gap():
+    conv = tx.extract_claude_code(_numbered(10), session_cap=100)
+    assert len(conv.turns) == 10 and conv.gap is None
+    assert conv.summary["session_cap_hit"] is False and conv.summary["refused_turns"] == 0
+
+
+def test_session_cap_keeps_the_head_and_the_tail_and_marks_the_middle():
+    """Gate B2 (ruling 2026-10-07): the first 3/5 of the cap is the head, the
+    rest the tail; the tail starts on a block boundary; the middle is dropped,
+    counted, and described by its first and last times."""
+    conv = tx.extract_claude_code(_numbered(20), session_cap=100, tail_block=2)
+    texts = [t.text[:8] for t in conv.turns]
+    assert texts == [f"turn {i:03d}" for i in (*range(6), *range(16, 20))]
+    g = conv.gap
+    assert (g.after, g.dropped) == (6, 10)
+    assert g.first_at == "2026-09-03T10:00:06.000Z" and g.last_at == "2026-09-03T10:00:15.000Z"
+    assert conv.summary["session_cap_hit"] is True and conv.summary["refused_turns"] == 10
+    assert conv.ended_at == "2026-09-03T10:00:19.000Z"          # the latest turn is kept
+
+
+def test_the_head_is_stable_and_the_tail_advances_in_blocks():
+    heads, starts = set(), []
+    for n in range(12, 40):
+        conv = tx.extract_claude_code(_numbered(n), session_cap=100, tail_block=4)
+        heads.add(tuple(t.text for t in conv.turns[: conv.gap.after]))
+        start = conv.gap.after + conv.gap.dropped
+        assert start % 4 == 0 and sum(len(t.text) for t in conv.turns[conv.gap.after:]) <= 40
+        assert conv.turns[-1].text.startswith(f"turn {n - 1:03d}")
+        starts.append(start)
+    assert len(heads) == 1                                          # head offsets never move
+    moves = [b - a for a, b in zip(starts, starts[1:]) if b != a]
+    assert moves and all(m == 4 for m in moves)                     # whole blocks, never one turn at a time
+
+
+def test_the_last_turn_is_always_kept_even_when_the_tail_cannot_hold_a_block():
+    conv = tx.extract_claude_code(_numbered(12), session_cap=100)  # default block of 10
+    assert conv.turns[-1].text.startswith("turn 011") and conv.gap.dropped >= 1
+
+
+def test_a_note_like_turn_in_the_dropped_middle_is_not_counted():
+    lines = _numbered(20)
+    lines[10] = user("see:\n" + recall_text.INJECTION_PREFIX + " x", ts="2026-09-03T10:00:10.000Z")
+    conv = tx.extract_claude_code(lines, session_cap=100, tail_block=2)
+    assert conv.gap.dropped == 10 and conv.summary["note_like_turns"] == 0
 
 
 def test_secrets_inside_code_fences_never_survive_and_scrub_runs_before_cap():
@@ -307,44 +354,75 @@ def test_extract_dispatch_and_unknown_harness():
         tx.extract("cursor", [])
 
 
-def test_a_cicada_note_is_never_captured_as_the_persons_words():
-    """G149 R-H12: whatever shape Claude Code stores hook context in, a note
-    Cicada recalled never becomes 'the person said'."""
+def test_a_cicada_note_in_the_persons_own_text_is_kept_and_counted():
+    """G110 T2b (gate C, ruling 2026-10-07): capture drops a Cicada note only
+    when the harness marks it as injected — a whole non-person record. Text in
+    the person's own block is their words, whatever it looks like: kept, and
+    counted as note-like so the next note can say so. G105 R5 (the
+    ``<system-reminder>`` span strip) is a tool-output rail and stays."""
     note = recall_text.RECALL_HEADER + "\n- Alpha Project (project, `alpha-project`): x"
     lines = [
         user("How is the Alpha Project going?"),
-        user(note),
+        user(note),                                                # a whole note, pasted
         user_blocks([{"type": "text", "text": "  " + note}, {"type": "text", "text": "and Bob?"}]),
         user(f"<system-reminder>{note}</system-reminder>What changed?"),
         user(f"<user-prompt-submit-hook>{note}</user-prompt-submit-hook>"),
         user(f"And the budget?\n<user-prompt-submit-hook>{note}</user-prompt-submit-hook>"),
-        user(f"<session-start-hook>{note}"),                       # an unclosed tag still opens the block
+        user(f"<session-start-hook>{note}"),
         asst_text("It is on track."),
     ]
     conv = tx.extract_claude_code(lines)
-    assert all("From Cicada" not in t.text for t in conv.turns)
-    assert [t.text for t in conv.turns if t.role == "user"] == ["How is the Alpha Project going?", "and Bob?",
-                                                                 "What changed?", "And the budget?"]
+    kept = [t.text for t in conv.turns if t.role == "user"]
+    assert kept[0] == "How is the Alpha Project going?"
+    assert kept[1] == note
+    assert kept[2] == note + "\nand Bob?"
+    assert kept[3] == "What changed?"                              # R5's span strip is untouched
+    assert kept[4] == f"<user-prompt-submit-hook>{note}</user-prompt-submit-hook>"
+    assert kept[5].startswith("And the budget?") and recall_text.INJECTION_PREFIX in kept[5]
+    assert kept[6] == f"<session-start-hook>{note}"
+    assert conv.summary["note_like_turns"] == 5
 
 
-def test_codex_keeps_hook_context_out_even_under_the_user_role():
+def test_a_person_quoting_a_header_line_then_asking_keeps_both():
+    text = recall_text.PRIMER_HEADER + "\nWhy did this show up? Please turn it off for alpha-project."
+    conv = tx.extract_claude_code([user(text), asst_text("Done.")])
+    assert conv.turns[0].text == text and conv.summary["note_like_turns"] == 1
+
+
+def test_a_note_the_harness_marks_as_injected_is_dropped_whole():
+    """Hook context Claude Code records as its own (non-user) record, or as an
+    ``isMeta`` user record, is not the person's — dropped, never counted."""
     note = recall_text.PRIMER_HEADER + "\n\n# Cicada — personal memory for this person"
-    lines = [cx_msg("developer", [note]), cx_msg("user", [note, "Rename alpha-project?"]), cx_msg("assistant", ["Yes."])]
-    assert [(t.role, t.text) for t in tx.extract_codex(lines).turns] == [
-        ("user", "Rename alpha-project?"), ("assistant", "Yes.")]
+    lines = [
+        json.dumps({"type": "attachment", "attachment": {"type": "hook_additional_context", "content": [note]}}),
+        user(note, isMeta=True),
+        user("Rename alpha-project?"),
+        asst_text("Yes."),
+    ]
+    conv = tx.extract_claude_code(lines)
+    assert [t.text for t in conv.turns] == ["Rename alpha-project?", "Yes."]
+    assert conv.summary["note_like_turns"] == 0
+
+
+def test_codex_drops_a_developer_note_and_keeps_one_in_the_persons_text():
+    note = recall_text.PRIMER_HEADER + "\n\n# Cicada — personal memory for this person"
+    lines = [cx_msg("developer", [note]), cx_msg("user", [note, "Rename alpha-project?"]),
+             cx_msg("user", [f"<session-start-hook>{note}</session-start-hook>"]), cx_msg("assistant", ["Yes."])]
+    conv = tx.extract_codex(lines)
+    assert [(t.role, t.text) for t in conv.turns] == [
+        ("user", note + "\nRename alpha-project?"),
+        ("user", f"<session-start-hook>{note}</session-start-hook>"),
+        ("assistant", "Yes.")]
+    assert conv.summary["dropped_messages"]["developer"] == 1
+    assert conv.summary["note_like_turns"] == 2
+
+
+def test_codex_harness_tags_are_still_skipped():
+    lines = [cx_msg("user", ["<environment_context>cwd</environment_context>", "hi"]), cx_msg("assistant", ["ok"])]
+    assert [t.text for t in tx.extract_codex(lines).turns] == ["hi", "ok"]
 
 
 # --- G110 slice 1a: refused turns and note-like person turns are counted -------
-
-
-def test_refused_turns_and_the_latest_time_seen_are_counted():
-    lines = [_line("user", "a" * 30, ts="2026-09-03T10:00:00.000Z"),
-             _line("assistant", [{"type": "text", "text": "b" * 30}], ts="2026-09-03T10:00:01.000Z"),
-             _line("user", "c" * 30, ts="2026-09-03T10:00:02.000Z")]
-    conv = tx.extract_claude_code(lines, session_cap=65)
-    assert [t.text for t in conv.turns] == ["a" * 30, "b" * 30]
-    assert conv.summary["refused_turns"] == 1 and conv.summary["session_cap_hit"] is True
-    assert conv.last_seen_at == "2026-09-03T10:00:02.000Z"
 
 
 def test_a_note_like_line_inside_a_person_turn_is_kept_and_counted():
@@ -354,14 +432,6 @@ def test_a_note_like_line_inside_a_person_turn_is_kept_and_counted():
 
 
 # --- fix round 1, finding 9: only text that reaches the body is counted ----------
-
-
-def test_a_note_like_turn_refused_by_the_cap_is_not_counted():
-    # The header on a later line, so the existing G149 block rule keeps the block and the CAP refuses it.
-    lines = [_line("user", "short"), _line("user", "see:\n" + recall_text.INJECTION_PREFIX + " at session start ...")]
-    conv = tx.extract_claude_code(lines, session_cap=40)
-    assert len(conv.turns) == 1 and conv.summary["refused_turns"] == 1
-    assert conv.summary["note_like_turns"] == 0
 
 
 def test_a_note_header_removed_by_cleaning_is_not_counted():

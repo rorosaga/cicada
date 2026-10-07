@@ -577,7 +577,15 @@ def _episode_hit(ctx: _Ctx, ep: _Episode, score: float, chunk: str = "") -> Sear
         # R-LS7: a folder file's declared authorship wins over markers, as in
         # `evidence.kind_for` (every row here is an episode, whatever its stem).
         override = meta.get("evidence_kind")
-        kind = override if override in evidence.OVERRIDE_KINDS else evidence.speaker_kind(text, start)
+        gaps = tuple(tuple(g) for g in (meta.get("gaps") or []) if isinstance(g, list) and len(g) == 2)
+        kind = evidence.speaker_kind(text, start, gaps)
+        if kind == evidence.GAP_KIND or evidence.touches_gap(start, end, gaps):
+            # Gate B2: Cicada's dropped-middle line is nobody's words — no span,
+            # no kind, no hash (the index blanks it; this holds for any row that
+            # still carries it).
+            start = end = kind = None
+        elif override in evidence.OVERRIDE_KINDS:
+            kind = override
     snippet, offsets = snippet_window(src, ctx.tokens)
     return SearchHit(
         id=ep.doc.ref,

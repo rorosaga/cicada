@@ -190,6 +190,26 @@ else
   note "run ./install.sh to register it — sessions are not captured until then"
 fi
 
+# 12b. The capture flush (G110 gate A): the same command under PreCompact and SessionEnd. Stop alone
+#     decides whether sessions are captured, so absent (an install from before the flush) passes with a
+#     note; half-registered or stale is a failure, like the Stop hook's.
+F1=1; F2=1
+if [ -x "$VENV_PY" ]; then
+  "$VENV_PY" "$REPO/api/hooks/registry.py" status --settings "$CLAUDE_SETTINGS" --event PreCompact \
+    --command "$HOOK_CMD" >/dev/null 2>&1 && F1=0 || F1=$?
+  "$VENV_PY" "$REPO/api/hooks/registry.py" status --settings "$CLAUDE_SETTINGS" --event SessionEnd \
+    --command "$HOOK_CMD" >/dev/null 2>&1 && F2=0 || F2=$?
+fi
+if [ "$F1" -eq 0 ] && [ "$F2" -eq 0 ]; then
+  pass "Capture flush registered in $CLAUDE_SETTINGS (PreCompact, SessionEnd)"
+elif [ "$F1" -eq 1 ] && [ "$F2" -eq 1 ]; then
+  pass "Capture flush not registered — the Stop hook still captures every reply"
+  note "re-run ./install.sh to also save a turn interrupted before /compact, /clear or quitting"
+else
+  fail "Capture flush half-registered or stale in $CLAUDE_SETTINGS"
+  note "run ./install.sh to fix it"
+fi
+
 # 13. Implicit recall hooks (G149). Registered by install.sh unless CICADA_RECALL=off, and turned
 #     on or off in Settings → Agents. Absent is a choice, not a failure; half-registered or stale
 #     (a moved repo) is a failure, like the Stop hook's.

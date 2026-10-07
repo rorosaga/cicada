@@ -120,6 +120,22 @@ def hook_step(h: Harness, *, home: Path, repo: Path, python: str) -> dict:
                           "--command", hook_command(python, repo, h.id)], [f"~/{h.settings}"])
 
 
+#: G110 gate A (ruling 2026-10-07): the capture hook's best-effort flushes. Stop
+#: stays the trigger and alone decides ``autosave``, so an install from before
+#: the flush still reads ``on``; ``autosave_flush`` reports these two apart and
+#: ``flush_on`` carries their commands.
+FLUSH_EVENTS = ("PreCompact", "SessionEnd")
+
+
+def flush_steps(h: Harness, *, home: Path, repo: Path, python: str) -> list[dict]:
+    """install.sh's flush registrations: the Stop hook's own command under each
+    of :data:`FLUSH_EVENTS`."""
+    return [_step("flush", [*runtime_layout.registry_argv(python, repo), "install",
+                            "--settings", str(home / h.settings), "--event", event,
+                            "--command", hook_command(python, repo, h.id)], [f"~/{h.settings}"])
+            for event in FLUSH_EVENTS]
+
+
 GEMINI_SETTINGS = ".gemini/settings.json"
 
 
@@ -374,6 +390,17 @@ def _autosave(path: Path, command: str) -> str:
     return {"present": "on", "absent": "off", "stale": "stale"}[state]
 
 
+def _autosave_flush(path: Path, command: str) -> str:
+    """``on`` when both flushes are registered with the Stop hook's command,
+    ``off`` when neither is, ``stale`` otherwise (half, or a moved checkout)."""
+    try:
+        hook_registry.load(path)
+    except hook_registry.RegistryError:
+        return "invalid"
+    states = {hook_registry.status(path, event=event, command=command) for event in FLUSH_EVENTS}
+    return "on" if states == {"present"} else "off" if states == {"absent"} else "stale"
+
+
 RECALL_EVENTS = ("SessionStart", "UserPromptSubmit")
 
 
@@ -437,17 +464,24 @@ async def _harness(h: Harness, *, home: Path, memory_root: Path, repo: Path, pyt
     command = hook_command(python, repo, h.id)
     autosave = _autosave(settings_path, command)
     connect: list[dict] = []
+    flush = _autosave_flush(settings_path, command)
     if recall == "off":
         connect.append(mcp_step(h, binary, memory_root=memory_root, repo=repo, python=python))
     if autosave in ("off", "stale"):
         connect.append(hook_step(h, home=home, repo=repo, python=python))
+    # G110 gate A: the flush is its own list, not part of `connect` — the setup
+    # prompt runs exactly `connect` (C5) and four commands do not fit it. The app
+    # appends these to a Connect it is already running (`AgentWiring.turnOnSteps`),
+    # so an agent already on is never shown anything new; install.sh adds them too.
+    flush_on = flush_steps(h, home=home, repo=repo, python=python) if flush in ("off", "stale") else []
     detail = None
     if autosave == "invalid":
         detail = f"~/{h.settings} isn't valid JSON, so Cicada won't touch it."
     elif recall == "unknown":
         detail = "Couldn't check in time. Try again."
     return {"id": h.id, "installed": True, "binary": binary, "recall": recall,
-            "autosave": autosave, "connect": connect, "detail": detail}
+            "autosave": autosave, "autosave_flush": flush, "flush_on": flush_on, "connect": connect,
+            "detail": detail}
 
 
 CONFIG_AGENT_BINARIES = {"gemini-cli": "gemini", "opencode": "opencode", "hermes": "hermes", "openclaw": "openclaw"}

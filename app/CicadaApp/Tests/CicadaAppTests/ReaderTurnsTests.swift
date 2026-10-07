@@ -189,6 +189,9 @@ final class ReaderTurnsTests: XCTestCase {
         XCTAssertEqual(speaker("page", marker: "attachment [alpha-plan.pdf]"), Copy.Provenance.attached("alpha-plan.pdf"),
                        "an uploaded file's text is named by its file, never the person")
         XCTAssertEqual(speaker("page", marker: "attachment []"), "")
+        // G110 gate B2 — the dropped-middle marker is Cicada's own line, never anyone's, whatever marker it carries.
+        XCTAssertEqual(speaker("gap", marker: "gap"), Copy.Provenance.notCaptured)
+        XCTAssertNotEqual(speaker("gap"), Copy.you)
 
         // The mark beside a named agent follows the SAME precedence as its name.
         XCTAssertEqual(EvidenceSpeaker.agentOrigin(harness: "codex", origin: "codex"), "codex")

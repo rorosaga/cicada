@@ -29,7 +29,7 @@ from typing import Callable
 import numpy as np
 from loguru import logger
 
-from api.services import markdown_parser
+from api.services import evidence, markdown_parser
 from api.services import pending_store as _store
 # G141 PJ-0b (R-HP1): the pending store is its own module now. These two names
 # stay importable from here — entity_resolver, link_recon and the tests use them.
@@ -676,10 +676,11 @@ class SqliteVecIndexer:
                 parsed = markdown_parser.parse(filepath)
             except Exception:
                 continue
-            body = parsed.body.strip()
+            fm = parsed.frontmatter or {}
+            # Gate B2: the dropped-middle marker (the episode's own record) is blanked before chunking.
+            body = evidence.mask_gaps(parsed.body, evidence.gap_ranges(fm, parsed.body)).strip()
             if not body:
                 continue
-            fm = parsed.frontmatter or {}
             base_meta = {
                 "episode_id": str(fm.get("id", filepath.stem)),
                 "source": str(fm.get("source", "unknown")),
@@ -928,7 +929,10 @@ def _text_hash(text: str) -> str:
 
 
 def _chunk_episode_body(body: str) -> list[str]:
-    """Split an episode body into overlapping passages for embedding."""
+    """Split an episode body into overlapping passages for embedding. The
+    caller blanks a gate-B2 gap marker first (``evidence.mask_gaps``), exactly
+    as the lexical index does, so a chunk still finds its passage and never
+    embeds Cicada's own line."""
     body = body.strip()
     if not body:
         return []
