@@ -24,6 +24,8 @@ tests inject both.
 
 from __future__ import annotations
 
+import json
+import re
 from pathlib import Path
 from typing import Callable
 
@@ -31,7 +33,7 @@ from loguru import logger
 
 from api.config import Settings
 from api.services import json_parse, markdown_parser
-from api.services.claims import parse_claims
+from api.services.claims import current_day, is_current, is_event, is_record, parse_claims, stated_end, strip_claims_block
 
 RetrieveFn = Callable[[str, int], list[dict]]
 LlmFn = Callable[[str], str]
@@ -44,7 +46,7 @@ ASK_SYSTEM_PROMPT = """You answer questions using ONLY the retrieved memory cont
 This is a personal knowledge graph; the context is the ONLY source of truth you may use. \
 Do NOT use outside knowledge and do NOT invent facts.
 
-You are given a list of ENTITIES, each with an id, name, type, and body text.
+You are given ENTITIES with individually labeled claims and legacy body text.
 
 Rules:
 1. Ground every claim in the provided entities. If the context does not contain \
@@ -58,6 +60,13 @@ If you are confident and the context fully answers the question, ``gaps`` may be
 answer. Thin or tangential evidence => low confidence and a populated ``gaps`` list.
 5. If the context is irrelevant to the question, set a low confidence, give an \
 answer that admits you don't know, and explain the gap.
+6. Each structured claim carries its validity. Closed claims are history, NEVER \
+current beliefs: use them only for questions about the past, explicitly state \
+their dates and distinguish superseded or withdrawn assertions from facts. \
+For questions about now use only claims with current=true. If only history \
+supports a value, report that the current value is unknown. A dated event \
+describes what happened on its day, not a continuing state. Unversioned prose \
+is background; structured claim validity takes precedence over it.
 
 Return ONLY a JSON object with exactly these keys:
 {
@@ -73,6 +82,58 @@ def _snippet(body: str, limit: int = _SNIPPET_CHARS) -> str:
     return (text[:limit] + "…") if len(text) > limit else text
 
 
+def _wants_history(query: str) -> bool:
+    """Conservative, engine-free intent: default to current beliefs.
+
+    Explicit past/change language or an as-of date also permits labeled history.
+    No interpretation here ever converts a closed claim back into a current one.
+    """
+    return bool(re.search(
+        r"\b(history|historical|past|previously|previous|earlier|formerly|former|before|"
+        r"used to|as of|back then|changed?|happened|was|were|did|had|"
+        r"yesterday|last (?:week|month|year)|in \d{4})\b",
+        query, re.IGNORECASE,
+    ))
+
+
+def _claim_context(claim, all_claims: list) -> dict:
+    current = is_current(claim)
+    validity = "current" if current else "history"
+    successor = next((c for c in all_claims if c.id == claim.superseded_by), None)
+    if not current:
+        if successor is not None and is_record(successor):
+            validity += "; withdrawn"
+        elif claim.superseded_by:
+            validity += f"; superseded by {claim.superseded_by}"
+        elif claim.valid_to or stated_end(claim):
+            validity += f"; until {claim.valid_to or stated_end(claim)}"
+        else:
+            validity += f"; not yet current (from {claim.valid_from})"
+    out = {
+        "id": claim.id, "current": current, "validity": validity,
+        "valid_from": claim.valid_from, "valid_to": claim.valid_to,
+        "expected_end": stated_end(claim), "superseded_by": claim.superseded_by,
+        "observer": claim.observer, "context": claim.context,
+        "source_trust": claim.source_trust,
+    }
+    if is_event(claim):
+        out.update(event_day=claim.valid_from, event_status=claim.status)
+    # Clip TEXT only. The validity envelope always survives intact.
+    out["text"] = _snippet(claim.text, limit=320)
+    return out
+
+
+def _history_query(query: str) -> str:
+    """Question/temporal words are instructions, not words the old claim must contain."""
+    from api.services import text_fold
+    stop = set("what which who where how when did was were had does do is are the a an "
+               "this that use used to as of in on now current currently previously previous "
+               "earlier formerly former before history historical past changed change "
+               "happened last week month year yesterday".split())
+    query = re.sub(r"\b\d{4}(?:-\d{2}-\d{2})?\b", "", query)
+    return " ".join(t for t in text_fold.query_tokens(query) if t not in stop)
+
+
 def _load_entity(memory_path: Path, entity_id: str) -> dict | None:
     """Read an entity's markdown to back a citation. Returns None if missing."""
     filepath = memory_path / "entities" / f"{entity_id}.md"
@@ -83,6 +144,8 @@ def _load_entity(memory_path: Path, entity_id: str) -> dict | None:
     except Exception:
         return None
     fm = parsed.frontmatter or {}
+    if fm.get("status") == "dropped":
+        return None
     return {
         "entity_id": entity_id,
         "entity_name": str(fm.get("name", entity_id.replace("-", " ").title())),
@@ -146,7 +209,10 @@ def _substring_match(memory_path: Path, query: str, top_k: int) -> list[dict]:
             relevance += 10
         if any(q in t for t in tags):
             relevance += 5
-        if q in (parsed.body or "").lower():
+        body = strip_claims_block(parsed.body or "")
+        relevant_claims = [c for c in parse_claims(parsed.body or "")
+                           if not is_record(c) and (_wants_history(query) or is_current(c))]
+        if q in (body + "\n" + "\n".join(c.text for c in relevant_claims)).lower():
             relevance += 2
         if relevance <= 0:
             continue
@@ -171,7 +237,8 @@ def _substring_match(memory_path: Path, query: str, top_k: int) -> list[dict]:
     return [hit for _, hit in scored[:top_k]]
 
 
-def _retrieved_entities(memory_path: Path, hits: list[dict]) -> list[dict]:
+def _retrieved_entities(memory_path: Path, hits: list[dict], *, include_history: bool = False,
+                        query: str = "") -> list[dict]:
     """Map retrieval hits to loaded entity records, de-duped, order preserved."""
     out: list[dict] = []
     seen: set[str] = set()
@@ -183,27 +250,39 @@ def _retrieved_entities(memory_path: Path, hits: list[dict]) -> list[dict]:
         seen.add(eid)
         loaded = _load_entity(memory_path, eid)
         if loaded is None:
-            # Index points at an entity whose file is gone — fall back to the
-            # indexed text so the entity can still be cited/grounded.
-            loaded = {
-                "entity_id": eid,
-                "entity_name": str(meta.get("entity_name", eid)),
-                "file_path": str(meta.get("file_path", "")),
-                "snippet": _snippet(hit.get("text", "")),
-                "source_episodes": [],
-                "type": str(meta.get("type", "concept")),
-                "body": str(hit.get("text", "")),
-            }
+            # Indexed text has no trustworthy current validity after deletion.
+            continue
+        page_claims = parse_claims(loaded["body"])
+        eligible = [c for c in page_claims if not is_record(c) and (include_history or is_current(c))]
+        if page_claims and not eligible:
+            continue
+        words = set(re.findall(r"\w+", query.lower()))
+        eligible.sort(key=lambda c: -len(words & set(re.findall(r"\w+", c.text.lower()))))
+        if include_history:
+            current = [c for c in eligible if is_current(c)]
+            history = [c for c in eligible if not is_current(c)]
+            # Reserve representation for both sides of a change before the
+            # prompt budget is applied; a large current list cannot hide history.
+            eligible = [c for pair in zip(history, current) for c in pair] + history[len(current):] + current[len(history):]
+        loaded["claims"] = [_claim_context(c, page_claims) for c in eligible]
+        # On claim-bearing pages the structured facts ground current answers.
+        # A prose summary may still contain an older value with no validity.
+        loaded["context_body"] = (strip_claims_block(loaded["body"])
+                                  if include_history or not page_claims else "")
+        loaded["snippet"] = _snippet("\n".join(
+            [f"{c['validity']}: {c['text']}" for c in loaded["claims"]] or [loaded["context_body"]]))
         loaded["score"] = float(hit.get("score", 0.0) or 0.0)
         # Carry claim provenance from a claim-first hit so the citation can point
         # at claim_id + valid-window + observer (M5e). Absent for entity-only hits.
-        claim_prov = {
-            k: meta.get(k)
-            for k in ("claim_id", "observer", "context", "valid_from", "source_trust")
-            if meta.get(k) is not None
-        }
-        if claim_prov:
-            loaded["claim_provenance"] = claim_prov
+        cited = next((c for c in eligible if c.id == meta.get("claim_id")), None)
+        if cited is not None:
+            context = _claim_context(cited, page_claims)
+            loaded["snippet"] = _snippet(f"{context['validity']}: {context['text']}")
+            loaded["claim_provenance"] = {
+                "claim_id": cited.id, "observer": cited.observer, "context": cited.context,
+                "valid_from": cited.valid_from, "valid_to": cited.valid_to,
+                "superseded_by": cited.superseded_by, "source_trust": cited.source_trust,
+            }
         out.append(loaded)
     return out
 
@@ -211,16 +290,26 @@ def _retrieved_entities(memory_path: Path, hits: list[dict]) -> list[dict]:
 def _build_prompt(query: str, entities: list[dict]) -> str:
     blocks: list[str] = []
     for ent in entities:
-        body = ent.get("body", "") or ent.get("snippet", "")
+        body = ent.get("context_body", "")
+        claim_lines = []
+        remaining = 3000
+        for claim in ent.get("claims", []):
+            line = "claim: " + json.dumps(claim, ensure_ascii=False)
+            if len(line) > remaining:
+                break
+            claim_lines.append(line)
+            remaining -= len(line) + 1
         blocks.append(
             f"### entity_id: {ent['entity_id']}\n"
             f"name: {ent['entity_name']}\n"
             f"type: {ent.get('type', 'concept')}\n"
-            f"body:\n{body[:3000]}"
+            + "\n".join(claim_lines)
+            + (f"\nunversioned body:\n{body[:remaining]}" if body and remaining > 0 else "")
         )
     context = "\n\n".join(blocks)
     return (
         f"QUESTION:\n{query}\n\n"
+        f"CURRENT UTC DAY: {current_day().isoformat()}\n"
         f"RETRIEVED MEMORY CONTEXT ({len(entities)} entities):\n\n{context}"
     )
 
@@ -333,6 +422,8 @@ def build_claim_first_retrieve_fn(memory_path, *, embed_fn=None) -> RetrieveFn:
                 "observer": meta.get("observer"),
                 "context": meta.get("context"),
                 "valid_from": meta.get("valid_from"),
+                "valid_to": meta.get("valid_to"),
+                "superseded_by": meta.get("superseded_by"),
                 "source_trust": meta.get("source_trust"),
                 "predicate": meta.get("predicate"),
                 "object": meta.get("object"),
@@ -345,6 +436,20 @@ def build_claim_first_retrieve_fn(memory_path, *, embed_fn=None) -> RetrieveFn:
         except Exception as exc:  # noqa: BLE001
             logger.debug(f"claim search failed, falling back to entities: {exc}")
             claim_hits = []
+
+        if _wants_history(query):
+            from api.services import search_index, search_service
+            try:
+                search_index.ensure_fresh(memory_path, wait=True, max_age_s=0)
+                history = search_service.search(memory_path, _history_query(query), kinds=("claim",),
+                                                mode="prefix", per_kind=top_k)
+                claim_hits = [{"score": h.score, "text": h.name,
+                               "metadata": {"claim_id": h.id, "subject": h.subject_id,
+                                            "valid_from": h.valid_from, "valid_to": h.valid_to,
+                                            "superseded_by": h.superseded_by}}
+                              for h in history.results] + claim_hits
+            except Exception as exc:
+                logger.debug(f"ask history index unavailable ({type(exc).__name__})")
 
         if not claim_hits:
             # No claims in this bank (un-consolidated) — graceful entity fallback.
@@ -424,7 +529,8 @@ def answer_query(
         logger.warning(f"ask retrieval failed: {exc}")
         hits = []
 
-    entities = _retrieved_entities(memory_path, hits)
+    include_history = _wants_history(query)
+    entities = _retrieved_entities(memory_path, hits, include_history=include_history, query=query)
 
     # Cold-index degrade: the vector index found nothing, but entities may exist
     # on disk (fresh install before the index is built). Fall back to a
@@ -432,7 +538,7 @@ def answer_query(
     # same graceful pattern as routers/search.py.
     if not entities:
         fallback_hits = _substring_match(memory_path, query, top_k)
-        entities = _retrieved_entities(memory_path, fallback_hits)
+        entities = _retrieved_entities(memory_path, fallback_hits, include_history=include_history, query=query)
 
     # Honest-gap fast path: nothing to ground on => do NOT call the LLM, do NOT
     # hallucinate. This is the key auditable-synthesis behaviour.

@@ -297,3 +297,23 @@ recall's claim lines and perspective's current block use `claims.is_current`.
 Closed events are historical records of happenings, never current-claim recall
 votes; searching the past and `history=true` still expose them with dates and
 state. Closure and successor metadata are preserved for every search hit.
+
+**Ask grounding (G93/G118, 2026-10-07).** `/ask` and `cicada_ask` use the same
+validity-aware context. Each structured claim sent to synthesis has its id,
+observer/trust, current flag, start, close, stated end and successor; historical
+rows explicitly say history, superseded or withdrawn. Metadata is assembled
+before text is clipped; raw claim fences never enter the prompt. Current
+questions receive only current claims; a claim-bearing page's unversioned prose
+is omitted for these questions because it may repeat an older value. Legacy
+pages with no claims still ground answers in their prose. Explicit past/change
+language (including an as-of date) enables labeled history and adds the FTS
+history leg; this is an English intent heuristic, not a model classification.
+The synthesis rules require historical answers to state the validity dates and
+never repeat a closed belief as current. Citations recheck claim provenance
+against the loaded markdown. A deleted page is never revived from indexed text;
+only-history current questions return an honest gap without a synthesis call.
+The historical lexical leg removes question/date words before matching, warms
+a cold disposable index synchronously, and takes matching historical subjects
+before generic semantic neighbours. Prompt budgeting reserves claims from both
+sides of a change. Implicit recall rechecks each selected page's claims against
+markdown; every type's recall summary strips claim fences before truncation.
