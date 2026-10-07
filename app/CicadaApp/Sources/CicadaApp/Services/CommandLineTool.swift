@@ -70,22 +70,66 @@ enum CommandLineTool {
         return isRegular && fileManager.isExecutableFile(atPath: link.path) ? .elsewhere(link.path) : .blocked
     }
 
-    /// Links only when nothing works there yet; every other state is returned as it is.
+    /// What is at the link path, as install decides on it. Absent and dangling stay distinct (G180 review): only a
+    /// dangling symlink Settings saw may be replaced, and only if it is still that same symlink.
+    private enum Entry: Equatable {
+        case absent
+        case dangling(ino: UInt64, dev: Int32)
+        case present
+    }
+
+    private static func entry(_ path: String, fileManager: FileManager) -> Entry {
+        var info = stat()
+        guard lstat(path, &info) == 0 else { return errno == ENOENT ? .absent : .present }
+        if (info.st_mode & S_IFMT) == S_IFLNK, !fileManager.fileExists(atPath: path) {
+            return .dangling(ino: UInt64(info.st_ino), dev: Int32(info.st_dev))
+        }
+        return .present
+    }
+
+    /// Links only when nothing works there yet; every other state is returned as it is. Never deletes or replaces
+    /// an entry it did not see: an absent path gets `symlink(2)`, which fails rather than overwrite something that
+    /// appeared meanwhile (then the row re-reads and names it); a dangling link is moved aside atomically and
+    /// unlinked only if it is still the very symlink Settings saw (same inode) — anything else is put back. Nothing is
+    /// ever removed recursively.
     @discardableResult
     static func install(target: CommandLineToolTarget, home: URL, onPath: Bool,
                         fileManager: FileManager = .default) -> CommandLineToolState {
         let current = state(target: target, home: home, onPath: onPath, fileManager: fileManager)
         guard current == .notInstalled, case .available(let launcher) = target else { return current }
         let link = linkPath(home: home)
+        let observed = entry(link.path, fileManager: fileManager)
+        guard observed != .present else { return current }
         do {
             try fileManager.createDirectory(at: link.deletingLastPathComponent(), withIntermediateDirectories: true)
-            var info = stat()
-            if lstat(link.path, &info) == 0 { try fileManager.removeItem(at: link) }   // a dangling link
-            try fileManager.createSymbolicLink(at: link, withDestinationURL: launcher)
         } catch {
             return .failed(error.localizedDescription)
         }
+        if case .dangling(let ino, let dev) = observed,
+           !removeDangling(at: link, ino: ino, dev: dev, fileManager: fileManager) {
+            return state(target: target, home: home, onPath: onPath, fileManager: fileManager)   // fail closed
+        }
+        if symlink(launcher.path, link.path) != 0 {
+            let code = errno
+            // Something appeared at the path meanwhile: it is kept, and the row says what it is.
+            if code == EEXIST { return state(target: target, home: home, onPath: onPath, fileManager: fileManager) }
+            return .failed(String(cString: strerror(code)))
+        }
         return state(target: target, home: home, onPath: onPath, fileManager: fileManager)
+    }
+
+    /// Moves whatever is at `link` aside with `RENAME_EXCL`, then unlinks it only if it is the dangling symlink
+    /// Settings saw (same inode and device, still a symlink, still dangling). Otherwise it goes back where it was;
+    /// if that name was taken in the meantime it stays, untouched, beside it. True only when the link is gone.
+    private static func removeDangling(at link: URL, ino: UInt64, dev: Int32, fileManager: FileManager) -> Bool {
+        let aside = link.deletingLastPathComponent().appendingPathComponent(".cicada.\(UUID().uuidString).aside")
+        guard renamex_np(link.path, aside.path, UInt32(RENAME_EXCL)) == 0 else { return false }
+        var info = stat()
+        let same = lstat(aside.path, &info) == 0 && (info.st_mode & S_IFMT) == S_IFLNK
+            && UInt64(info.st_ino) == ino && Int32(info.st_dev) == dev && !fileManager.fileExists(atPath: aside.path)
+        if same, unlink(aside.path) == 0 { return true }
+        _ = renamex_np(aside.path, link.path, UInt32(RENAME_EXCL))
+        return false
     }
 
     /// This Mac, this runtime, this person's home — what the Settings row shows.

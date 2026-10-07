@@ -264,3 +264,119 @@ final class CLILauncherEndToEndTests: XCTestCase {
         return (process.terminationStatus, String(decoding: outData, as: UTF8.self), String(decoding: errData, as: UTF8.self))
     }
 }
+
+/// G180 packaging review, blocker 1 — an entry that appears at `~/.local/bin/cicada` between Settings' check and its
+/// link (another installer, a person's own script) is never deleted or replaced. `PublishingFileManager` publishes it
+/// right after the parent folder is created, the window the reviewer reproduced.
+final class CommandLineToolRaceTests: XCTestCase {
+    private var temp: URL!
+
+    override func setUpWithError() throws {
+        temp = FileManager.default.temporaryDirectory.appendingPathComponent("cli-race-\(UUID())").resolvingSymlinksInPath()
+        try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
+    }
+
+    override func tearDownWithError() throws { try? FileManager.default.removeItem(at: temp) }
+
+    private final class PublishingFileManager: FileManager {
+        var publish: (() throws -> Void)?
+        override func createDirectory(at url: URL, withIntermediateDirectories createIntermediates: Bool,
+                                      attributes: [FileAttributeKey: Any]? = nil) throws {
+            try super.createDirectory(at: url, withIntermediateDirectories: createIntermediates, attributes: attributes)
+            let once = publish
+            publish = nil
+            try once?()
+        }
+    }
+
+    private var home: URL { temp.appendingPathComponent("home") }
+    private var link: URL { CommandLineTool.linkPath(home: home) }
+
+    private func launcher() throws -> URL {
+        let url = temp.appendingPathComponent("release/bin/cicada")
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        FileManager.default.createFile(atPath: url.path, contents: Data("#!/bin/sh\n".utf8),
+                                       attributes: [.posixPermissions: 0o755])
+        return url
+    }
+
+    func testAForeignFileThatAppearsMeanwhileIsKept() throws {
+        let target = try launcher()
+        let fm = PublishingFileManager()
+        fm.publish = { FileManager.default.createFile(atPath: self.link.path, contents: Data("theirs\n".utf8)) }
+        let result = CommandLineTool.install(target: .available(target), home: home, onPath: true, fileManager: fm)
+        XCTAssertEqual(result, .blocked)
+        XCTAssertEqual(String(decoding: try Data(contentsOf: link), as: UTF8.self), "theirs\n")
+    }
+
+    func testAForeignFolderThatAppearsMeanwhileIsKeptWithItsContents() throws {
+        let target = try launcher()
+        let fm = PublishingFileManager()
+        fm.publish = {
+            try FileManager.default.createDirectory(at: self.link, withIntermediateDirectories: true)
+            FileManager.default.createFile(atPath: self.link.appendingPathComponent("payload").path,
+                                           contents: Data("keep me\n".utf8))
+        }
+        let result = CommandLineTool.install(target: .available(target), home: home, onPath: true, fileManager: fm)
+        XCTAssertEqual(result, .blocked)
+        XCTAssertEqual(String(decoding: try Data(contentsOf: link.appendingPathComponent("payload")), as: UTF8.self),
+                       "keep me\n")
+    }
+
+    func testAForeignWorkingLinkThatAppearsMeanwhileIsKept() throws {
+        let target = try launcher()
+        let other = temp.appendingPathComponent("other/cicada")
+        try FileManager.default.createDirectory(at: other.deletingLastPathComponent(), withIntermediateDirectories: true)
+        FileManager.default.createFile(atPath: other.path, contents: Data("#!/bin/sh\n".utf8),
+                                       attributes: [.posixPermissions: 0o755])
+        let fm = PublishingFileManager()
+        fm.publish = { try FileManager.default.createSymbolicLink(at: self.link, withDestinationURL: other) }
+        let result = CommandLineTool.install(target: .available(target), home: home, onPath: true, fileManager: fm)
+        XCTAssertEqual(result, .elsewhere(other.path))
+        XCTAssertEqual(try FileManager.default.destinationOfSymbolicLink(atPath: link.path), other.path)
+    }
+
+    private func danglingLink() throws {
+        try FileManager.default.createDirectory(at: link.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: temp.appendingPathComponent("gone"))
+    }
+
+    func testADanglingLinkSwappedForAFileMeanwhileIsNotReplaced() throws {
+        let target = try launcher()
+        try danglingLink()
+        let fm = PublishingFileManager()
+        fm.publish = {
+            try FileManager.default.removeItem(at: self.link)
+            FileManager.default.createFile(atPath: self.link.path, contents: Data("theirs\n".utf8))
+        }
+        let result = CommandLineTool.install(target: .available(target), home: home, onPath: true, fileManager: fm)
+        XCTAssertEqual(result, .blocked)
+        XCTAssertEqual(String(decoding: try Data(contentsOf: link), as: UTF8.self), "theirs\n")
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: link.deletingLastPathComponent().path),
+                       ["cicada"], "nothing left aside")
+    }
+
+    func testADanglingLinkSwappedForAnotherLinkMeanwhileFailsClosed() throws {
+        let target = try launcher()
+        try danglingLink()
+        let theirs = temp.appendingPathComponent("their-missing-tool")
+        let fm = PublishingFileManager()
+        fm.publish = {
+            try FileManager.default.removeItem(at: self.link)
+            try FileManager.default.createSymbolicLink(at: self.link, withDestinationURL: theirs)
+        }
+        let result = CommandLineTool.install(target: .available(target), home: home, onPath: true, fileManager: fm)
+        XCTAssertNotEqual(result, .installed(onPath: true))
+        XCTAssertEqual(try FileManager.default.destinationOfSymbolicLink(atPath: link.path), theirs.path,
+                       "a link that is not the one Settings saw is never replaced")
+    }
+
+    func testAnUnchangedDanglingLinkIsStillReplaced() throws {
+        let target = try launcher()
+        try danglingLink()
+        let result = CommandLineTool.install(target: .available(target), home: home, onPath: true,
+                                             fileManager: PublishingFileManager())
+        XCTAssertEqual(result, .installed(onPath: true))
+        XCTAssertEqual(try FileManager.default.destinationOfSymbolicLink(atPath: link.path), target.path)
+    }
+}
