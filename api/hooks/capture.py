@@ -69,6 +69,9 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).parent))
+from workspace_identity import observe_if_needed, remember  # stdlib sibling, run by path
+
 TIMEOUT_S = 3.0
 #: G110 gate A: a SessionEnd flush delays the session's exit, so its request
 #: gives up early and says so in the log (the backend finishes the write regardless).
@@ -167,6 +170,10 @@ def main(argv=None, *, stdin=None, environ=None, post=None, log_path=None, token
             "hook_event": payload.get("hook_event_name"),
         }
         effort = payload.get("effort")
+        workspace = observe_if_needed(fields["cwd"], home=home, environ=environ, harness=harness,
+                                      session_id=session_id)
+        if workspace is not None:
+            fields["workspace"] = workspace
         level = effort.get("level") if isinstance(effort, dict) else None
         if isinstance(level, str) and level.strip():
             # Round 4 D1 (C1): the reasoning effort of the reply this Stop fired
@@ -175,6 +182,8 @@ def main(argv=None, *, stdin=None, environ=None, post=None, log_path=None, token
             fields["effort"] = level.strip()[:32]
         body = json.dumps(fields).encode("utf-8")
         status, text = post(url, body, token, SESSION_END_TIMEOUT_S if event == "SessionEnd" else TIMEOUT_S)
+        if status == 200:
+            remember(home, harness, session_id, workspace, environ=environ)
         outcome = ""
         try:
             parsed = json.loads(text)

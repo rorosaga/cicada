@@ -207,7 +207,7 @@ def test_the_index_is_written_beside_the_registry_never_in_the_bank(bank):
     assert target.parent == continuity_sessions.continuity_home((bank,))
     assert target.name == f"{continuity_sessions.bank_file_id(bank)}.index.json"
     doc = json.loads(target.read_text())
-    assert doc["schema"] == 2 and "ep_2026-09-03_001.md" in doc["entries"]
+    assert doc["schema"] == 3 and "ep_2026-09-03_001.md" in doc["entries"]
     assert (target.stat().st_mode & 0o777) == 0o600
     assert not [p for p in bank.rglob("*") if "index" in p.name or p.name.endswith(".tmp")]
 
@@ -391,7 +391,7 @@ def test_old_path_index_is_replaced_even_without_readable_episodes(bank, monkeyp
     continuity.reset()
     snap = _refresh(bank)
     persisted = json.loads(target.read_text())
-    assert persisted["schema"] == 2
+    assert persisted["schema"] == 3
     assert cwd not in target.read_text() and "project_dir" not in target.read_text()
     if state == "populated":
         assert reads == [source] and snap.complete

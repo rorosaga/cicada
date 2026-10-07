@@ -256,7 +256,9 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   queue lives outside every bank.
 - **Continuity (G110, slice 1a/1b):** SessionStart carries a light pointer inside the whole 1,800-token note;
   previous working history is retrieved on demand via `cicada_continue`, from captured episodes over a disposable index;
-  workspace state is not checked; the registry outside every bank holds ids, a cwd hash and times only (`mcp.md`).
+  workspace state is not checked; the registry outside every bank holds ids, hashes and times only (`mcp.md`).
+  D2 permits the hook alone to observe git identity with a bounded fixed read-only pair; the backend only parses
+  supplied values, never inspects a declared workspace. Sibling workers never replace the root session's role (`mcp.md`).
 
 ### The app
 

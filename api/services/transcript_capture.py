@@ -170,11 +170,11 @@ def capture_meta(conv: Conversation, body: str) -> dict:
     return meta
 
 
-def _apply_meta(fm: dict, meta: dict, continues: str | None) -> bool:
+def _apply_meta(fm: dict, meta: dict, continues: str | None, workspace: dict | None = None) -> bool:
     """Write ``meta`` into ``fm`` (absent keys removed) and stamp
     ``continues`` once. True when anything changed. ``continues`` is never
     rewritten once set (plan C1: first write wins, bounded to one id)."""
-    before = {k: fm.get(k) for k in (*META_KEYS, "continues")}
+    before = {k: fm.get(k) for k in (*META_KEYS, "continues", "workspace_identity")}
     for key in META_KEYS:
         if key in meta:
             fm[key] = meta[key]
@@ -182,7 +182,13 @@ def _apply_meta(fm: dict, meta: dict, continues: str | None) -> bool:
             fm.pop(key, None)
     if continues and not fm.get("continues"):
         fm["continues"] = continues
-    return before != {k: fm.get(k) for k in (*META_KEYS, "continues")}
+    if workspace is not None:
+        from api.services import workspace_identity
+        if workspace_identity.current(workspace, fm.get("project_dir")):
+            fm["workspace_identity"] = workspace
+        else:
+            fm.pop("workspace_identity", None)
+    return before != {k: fm.get(k) for k in (*META_KEYS, "continues", "workspace_identity")}
 
 
 def _continues(memory_path: Path, harness: str, session_id: str, bank_paths) -> str | None:
@@ -493,6 +499,7 @@ def capture_transcript(
     effort: str | None = None,
     bank_paths: tuple | None = None,
     hook_event: str | None = None,
+    workspace=None,
 ) -> CaptureResult:
     """Validate (R2), extract, and write or update the session's one episode (R3).
 
@@ -543,6 +550,15 @@ def capture_transcript(
                 yield raw.decode("utf-8", "replace")
         conv = extract(harness, lines(), keep_assistant=keep_assistant)
     kept = conv.summary["kept"]
+    from api.services import workspace_identity
+    observed = workspace_identity.parse(cwd, workspace)
+    if observed and bank_paths is not None and conv.turns:
+        continuity_sessions.apply(memory_path, bank_paths=bank_paths, harness=harness, session_id=session_id,
+                                  events={"workspace_identity": observed}, deadline=None)
+    registry_workspace = None
+    if bank_paths is not None:
+        row = continuity_sessions.get(memory_path, harness, session_id, bank_paths=bank_paths) or {}
+        registry_workspace = row.get("workspace_identity") or {}
 
     episodes_dir = memory_path / "episodes"
     # Audit K01/A01: the process lock orders this backend's threads; the episode
@@ -578,7 +594,7 @@ def capture_transcript(
             }
             if cwd:
                 fm["project_dir"] = cwd
-            _apply_meta(fm, meta, continues)
+            _apply_meta(fm, meta, continues, registry_workspace)
             fm[EXTENT_KEY] = read_bytes
             _place_turns(fm, _agent_fields(_turn_sidecar(conv, body), None, effort, _last_offset(conv, body)))
             episode_id = episode_ids.create_episode(episodes_dir, fm, body)
@@ -597,7 +613,7 @@ def capture_transcript(
             logger.info(f"capture: {episode_id} already holds a later read of this {harness} session — kept")
             return CaptureResult("superseded", episode_id, kept["user"], kept["assistant"], conv.summary)
         if fm.get("content_hash") == content_hash:
-            if _apply_meta(fm, meta, continues):
+            if _apply_meta(fm, meta, continues, registry_workspace):
                 # G110: same body, same hash, same `processed` — only where
                 # capture stopped (or which episode it was pointed at) moved.
                 fm[EXTENT_KEY] = max(read_bytes, _stored_extent(fm) or 0)
@@ -619,7 +635,7 @@ def capture_transcript(
         fm.pop("processed_by", None)
         if cwd and not fm.get("project_dir"):
             fm["project_dir"] = cwd
-        _apply_meta(fm, meta, continues)
+        _apply_meta(fm, meta, continues, registry_workspace)
         fm[EXTENT_KEY] = read_bytes
         _place_turns(fm, _agent_fields(_turn_sidecar(conv, body), previous, effort, _last_offset(conv, body),
                                        previous_body=stored.body, chunks=_turn_chunks(conv)))
