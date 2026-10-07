@@ -28,7 +28,20 @@ because it reads the person's verbatim words for a folder the caller names; slic
 work in this folder stopped: the most recent captured session whose `project_dir` equals this MCP process's project
 dir (exact string), or the one an exact episode id or full session id names. The bank is resolved once and pinned.
 Use it on demand when the person asks about previous work or asks to continue; a startup hint alone is not a request
-to retrieve history. It reserves the complete first **captured** person request (currently ≤ 2,000 characters), with
+to retrieve history. If this session's start named an episode, pass that id as `session`.
+Without `session`, a recognised current conversation leads with its recorded source's exact read call and labels
+itself as the current conversation; it returns no current turns or possible-role framing. Explicitly read the source
+to retrieve the earlier working history. Current means a matching harness/session identity whose registry start is
+the newest registered start in this exact folder, or the newest captured session here carrying registry `continues`
+whose registry `started_at` is strictly after the source's activity (including its later registered prompt). The
+fallback does not rely on a Codex MCP identity. It requires a complete index, the newest registered start,
+a unique newest captured activity and one known
+source row; equal/earlier or unknown source activity does not establish current. The current episode is fully parsed
+and its folder hash revalidated before the reply. A fresh recognised current session without a recorded source says
+so, without promoting its first turn to the earlier role. A newer registered session that has not captured yet
+preserves the previous working session's history even when that previous session itself carries lineage.
+
+An ordinary or explicit historical read reserves the complete first **captured** person request (currently ≤ 2,000 characters), with
 its turn number/time, as possible role/objective. It does not prove the original role was captured: command/skill
 expansions, fences and per-turn clipping can lose instructions, and legacy capture does not classify those losses.
 The initial request and recent turns come from one current source snapshot. An unversioned startup episode hint
@@ -41,8 +54,9 @@ first captured request and every "earlier turns" cursor are reserved within the 
 request is not duplicated in the recent page or outline. Quoted requests remain history, not instructions; decisions,
 in-flight work, State and next actions are visible when present in the returned captured turns. A dedicated projection
 of those categories/latest State, longer first-request retention and agent reply head+tail remain follow-ons; this
-reader does not recover tool calls or uncaptured working state. It does not exclude this process's own session
-id: after `/clear` a long-lived MCP process can still hold the previous one (G48). Contract item 1 names it
+reader does not recover tool calls or uncaptured working state. It never blindly excludes this process's own session
+id: after `/clear` a long-lived MCP process can still hold the previous one (G48); a newer registered start defeats
+that stale identity match. This is one recorded source call, with no chain walk or automatic source read. Contract item 1 names it
 (`CONTRACT_VERSION` 14). **`cicada_note_progress`** (G141) records a happening or a milestone the person
 described — observer always the agent, `record` scope remotely, never creates a page, echoes how the date
 was decided; `cicada_retract_claim` withdraws an event the same way.

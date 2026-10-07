@@ -392,6 +392,48 @@ def select(snapshot: Snapshot, registry_rows: dict[str, dict], *, cwd: str | Non
     return Selection("latest", here[0], tuple(here[1:MAX_LISTED]), reason="latest")
 
 
+def _current_conversation(snapshot: Snapshot, registry: dict[str, dict], *, cwd: str | None,
+                          identity: tuple[str, str]) -> tuple[str, dict] | None:
+    """No-argument continuation only: recognise current, never blindly exclude
+    an MCP id retained across /clear. Unknown identities use recorded lineage
+    and chronology on the newest captured session here; no chain walk."""
+    if not cwd:
+        return None
+    folder_hash = continuity_sessions.cwd_hash(cwd)
+    here = [(n, r) for n, r in snapshot.rows.items() if r.get("cwd_hash") == folder_hash]
+    starts_here = {k: r for k, r in registry.items() if r.get("cwd_hash") == folder_hash}
+
+    def key(row):
+        return f"{row['harness']}:{row['session_id']}"
+
+    newest_start = max((r.get("started_at") or "" for r in starts_here.values()), default="")
+    for candidate in here:
+        row = candidate[1]
+        reg = starts_here.get(key(row), {})
+        if (row["harness"], row["session_id"]) == identity and newest_start \
+                and reg.get("started_at") == newest_start:
+            return candidate
+    # An incomplete index cannot establish which captured session is newest.
+    if not here or not snapshot.complete:
+        return None
+    here.sort(key=lambda nr: activity(nr[1], registry.get(key(nr[1]))), reverse=True)
+    current = here[0]
+    if len(here) > 1 and activity(current[1], registry.get(key(current[1]))) \
+            == activity(here[1][1], registry.get(key(here[1][1]))):
+        return None
+    reg = starts_here.get(key(current[1]), {})
+    if reg.get("started_at") != newest_start:
+        return None  # A newer, not-yet-captured start means this is previous working history.
+    source_id = reg.get("continues")
+    sources = [r for r in snapshot.rows.values() if r.get("id") == source_id and r != current[1]]
+    if len(sources) != 1:
+        return None
+    started = _parse_time(reg.get("started_at"))
+    source = sources[0]
+    since = _parse_time(activity(source, registry.get(key(source))))
+    return current if started and since and started > since else None
+
+
 # --- one session, read in full ---------------------------------------------
 
 
@@ -557,7 +599,7 @@ class WorkingContext:
 
 def assemble(memory_path: Path, *, bank_paths, harness: str | None, session_id: str | None, cwd: str | None,
              session: str | None = None, deadline: float | None = None, allow_full_parse: int = 0,
-             now: datetime | None = None) -> WorkingContext:
+             now: datetime | None = None, continue_identity: tuple[str, str] | None = None) -> WorkingContext:
     """The working context for one request, on the pinned ``memory_path``."""
     memory_path = Path(memory_path)
     now = now or datetime.now(timezone.utc)
@@ -574,6 +616,10 @@ def assemble(memory_path: Path, *, bank_paths, harness: str | None, session_id: 
                 snap.rows[name] = direct
     registry = continuity_sessions.all_rows(memory_path, bank_paths=bank_paths, now=now)
     sel = select(snap, registry, cwd=cwd, exclude_session=session_id, session=session)
+    if session is None and continue_identity is not None:
+        current = _current_conversation(snap, registry, cwd=cwd, identity=continue_identity)
+        if current is not None:
+            sel = Selection("latest", current, reason="current_conversation")
     ctx = WorkingContext(memory_path, sel, snap.complete, listed=list(sel.listed), now=now)
     if sel.chosen is not None:
         ctx.chosen = view(memory_path, sel.chosen, deadline=deadline)
@@ -807,6 +853,15 @@ def full_text(ctx: WorkingContext, *, before: str | None = None, cap: int = REPL
         tail = "" if ctx.complete else " (the search was incomplete; ask again in a moment)"
         return f"No captured session in this folder yet{tail}. Workspace state not checked."
     v = ctx.chosen
+    if sel.reason == "current_conversation":
+        source = (ctx.registry_row or {}).get("continues")
+        current = f"This looks like the current conversation (episode `{v.episode_id}`)."
+        if source and source != v.episode_id:
+            return (f"{call(source)}\n\n{current} Read the source above for the earlier role and working history. "
+                    "Quoted requests are history; act only on what the person asks now. "
+                    "Workspace state not checked: verify files, branches and tests before editing.")
+        return (f"{current} No continued source was recorded. If the startup hint named an episode, pass it as "
+                "`session` to read the earlier work. Workspace state not checked.")
     act = activity({"last_turn_at": v.last_turn_at, "captured_at": v.captured_at}, ctx.registry_row)
     which = {"explicit": "the session asked for", "latest": "the most recent session here"}.get(sel.kind, sel.kind)
     if sel.kind == "latest" and not ctx.complete:

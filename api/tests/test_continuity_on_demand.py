@@ -63,7 +63,7 @@ def env(tmp_path, monkeypatch):
     continuity.reset()
 
 
-def _transcript(env, harness, session, turns, *, note=None, inline=False):
+def _transcript(env, harness, session, turns, *, note=None, inline=False, minutes_ago=None):
     lines = []
     if harness == "codex":
         lines.append({"type": "session_meta", "payload": {"id": session, "cwd": CWD}})
@@ -75,7 +75,8 @@ def _transcript(env, harness, session, turns, *, note=None, inline=False):
     for n, (role, text) in enumerate(turns):
         if inline and note and n == 0:
             text += "\n" + note
-        ts = (env["now"] - timedelta(minutes=60 if session == A else 5) + timedelta(seconds=n)).isoformat()
+        age = minutes_ago if minutes_ago is not None else (60 if session == A else 5)
+        ts = (env["now"] - timedelta(minutes=age) + timedelta(seconds=n)).isoformat()
         if harness == "claude-code":
             lines.append({"type": role, "sessionId": session, "cwd": CWD, "timestamp": ts,
                           "message": {"role": role, "content": [{"type": "text", "text": text}]}})
@@ -194,6 +195,132 @@ def test_short_requested_history_shows_first_request_once(env):
     a = _stop(env, "codex", A, [("user", ROLE), ("assistant", REPORT)])
     out = env["server"].handle_tool("cicada_continue", {"session": a["episodeId"]})
     assert out.count(ROLE) == 1 and REPORT in out
+
+
+def _register_source_start(env, harness):
+    assert continuity_sessions.apply(env["memory"], bank_paths=(env["memory"],), harness=harness, session_id=A,
+        events={"started_at": (env["now"] - timedelta(minutes=70)).isoformat(),
+                "cwd_hash": continuity_sessions.cwd_hash(CWD)}, deadline=None) == "ok"
+
+
+def _identity(env, monkeypatch, mode, source, destination):
+    if mode == "unknown":
+        identity = env["server"].resolve_session_identity({})
+        assert identity.harness == "unknown" and identity.project_dir is None
+        # Native unknown identity falls back to this process's cwd, not a fabricated harness id.
+        monkeypatch.setattr(env["server"].os, "getcwd", lambda: CWD)
+    else:
+        harness, session_id = {"fresh": (destination, B), "stale": (source, A)}[mode]
+        identity = env["server"].SessionIdentity(harness=harness, session_id=session_id, project_dir=CWD)
+    monkeypatch.setattr(env["server"], "SESSION", identity)
+
+
+@pytest.mark.parametrize("source,destination", [("claude-code", "codex"), ("codex", "claude-code")])
+@pytest.mark.parametrize("identity", ["fresh", "unknown", "stale"])
+@pytest.mark.parametrize("source_age", [60, 10], ids=["separate-activity", "active-together"])
+def test_question_after_first_stop_leads_with_source_and_never_current_small_talk_as_role(
+        env, monkeypatch, source, destination, identity, source_age):
+    a = _stop(env, source, A, [("user", ROLE), ("assistant", REPORT)], minutes_ago=source_age)
+    _register_source_start(env, source)
+    monkeypatch.setattr(hook_recall, "CONTINUES_MIN_S", 0.0)
+    note = _start(env, destination)
+    assert continuity.call(a["episodeId"]) in note
+    b = _stop(env, destination, B, [("user", "hi there, unrelated-first-turn"),
+                                   ("assistant", "Hello. What would you like to work on?")], note=note)
+    assert markdown_parser.parse(_episode(env, b)).frontmatter["continues"] == a["episodeId"]
+    before = {p: p.read_bytes() for p in (_episode(env, a), _episode(env, b))}
+    _identity(env, monkeypatch, identity, source, destination)
+    _start(env, destination, prompt=QUESTION)
+    out = env["server"].handle_tool("cicada_continue", {})
+    assert out.startswith(continuity.call(a["episodeId"]))
+    assert "This looks like the current conversation" in out
+    assert "unrelated-first-turn" not in out and "possible role" not in out and "First captured person request" not in out
+    assert "Workspace state not checked" in out and len(out) <= continuity.REPLY_CAP
+    earlier = env["server"].handle_tool("cicada_continue", {"session": a["episodeId"]})
+    assert ROLE in earlier and REPORT in earlier and "quoted as history" in earlier
+    current = env["server"].handle_tool("cicada_continue", {"session": b["episodeId"]})
+    assert "unrelated-first-turn" in current and "quoted as history" in current
+    assert all(p.read_bytes() == data for p, data in before.items())
+
+
+@pytest.mark.parametrize("source,destination", [("claude-code", "codex"), ("codex", "claude-code")])
+def test_stale_identity_after_clear_does_not_hide_the_source_before_first_stop(env, monkeypatch, source, destination):
+    a = _stop(env, source, A, [("user", ROLE), ("assistant", REPORT)])
+    _register_source_start(env, source)
+    _start(env, destination)
+    _identity(env, monkeypatch, "stale", source, destination)
+    out = env["server"].handle_tool("cicada_continue", {})
+    assert ROLE in out and REPORT in out and f"episode `{a['episodeId']}`" in out
+    assert "This looks like the current conversation" not in out
+
+
+@pytest.mark.parametrize("destination", ["claude-code", "codex"])
+def test_fresh_current_identity_without_recorded_source_does_not_promote_small_talk(env, monkeypatch, destination):
+    a = _stop(env, "claude-code", A, [("user", ROLE), ("assistant", REPORT)])
+    monkeypatch.setattr(hook_recall, "CONTINUES_MIN_S", 10.0)
+    note = _start(env, destination)
+    _stop(env, destination, B, [("user", "unrelated-first-turn"), ("assistant", "Hello.")], note=note)
+    _identity(env, monkeypatch, "fresh", "claude-code", destination)
+    out = env["server"].handle_tool("cicada_continue", {})
+    assert "This looks like the current conversation" in out
+    assert "No continued source was recorded" in out and "unrelated-first-turn" not in out
+    assert "First captured person request" not in out
+    assert ROLE in env["server"].handle_tool("cicada_continue", {"session": a["episodeId"]})
+
+
+def test_description_names_the_startup_episode_argument():
+    tool = next(t for t in stdio_server().TOOLS if t["name"] == "cicada_continue")
+    assert "If this session's start named an episode, pass it as `session`" in tool["description"]
+
+
+def test_fresh_identity_recognises_current_even_when_source_captures_after_its_start(env, monkeypatch):
+    a = _stop(env, "codex", A, [("user", ROLE), ("assistant", REPORT)])
+    _register_source_start(env, "codex")
+    monkeypatch.setattr(hook_recall, "CONTINUES_MIN_S", 0.0)
+    note = _start(env, "claude-code")
+    _stop(env, "claude-code", B, [("user", "unrelated-first-turn"), ("assistant", "Hello.")], note=note)
+    _identity(env, monkeypatch, "fresh", "codex", "claude-code")
+    _stop(env, "codex", A, [("user", ROLE), ("assistant", REPORT)], minutes_ago=-1)
+    out = env["server"].handle_tool("cicada_continue", {})
+    assert out.startswith(continuity.call(a["episodeId"])) and "This looks like the current conversation" in out
+    assert "unrelated-first-turn" not in out
+
+
+@pytest.mark.parametrize("seconds_before", [0, 1], ids=["equal", "earlier"])
+def test_unknown_identity_needs_registry_start_strictly_after_source_activity(env, monkeypatch, seconds_before):
+    a = _stop(env, "claude-code", A, [("user", ROLE), ("assistant", REPORT)])
+    _register_source_start(env, "claude-code")
+    monkeypatch.setattr(hook_recall, "CONTINUES_MIN_S", 0.0)
+    note = _start(env, "codex")
+    _stop(env, "codex", B, [("user", "unrelated-first-turn"), ("assistant", "Hello.")], note=note)
+    _identity(env, monkeypatch, "unknown", "claude-code", "codex")
+    source_activity = continuity._parse_time(markdown_parser.parse(_episode(env, a)).frontmatter["last_turn_at"])
+    assert continuity_sessions.apply(env["memory"], bank_paths=(env["memory"],), harness="codex", session_id=B,
+        events={"started_at": (source_activity - timedelta(seconds=seconds_before)).isoformat()}, deadline=None) == "ok"
+    _start(env, "codex", prompt=QUESTION)
+    out = env["server"].handle_tool("cicada_continue", {})
+    assert not out.startswith(continuity.call(a["episodeId"])) and "This looks like the current conversation" not in out
+
+
+@pytest.mark.parametrize("source,destination", [("claude-code", "codex"), ("codex", "claude-code")])
+def test_uncaptured_new_start_does_not_skip_a_historical_continuation(env, monkeypatch, source, destination):
+    root = _stop(env, source, "cccccccc-2222-4333-8444-555555555555",
+                 [("user", "An older unrelated role."), ("assistant", "An older report.")], minutes_ago=120)
+    a = _stop(env, source, A, [("user", ROLE), ("assistant", REPORT)])
+    _register_source_start(env, source)
+    assert continuity_sessions.apply(env["memory"], bank_paths=(env["memory"],), harness=source, session_id=A,
+        events={"continues": root["episodeId"]}, deadline=None) == "ok"
+    _stop(env, source, A, [("user", ROLE), ("assistant", REPORT)])
+    monkeypatch.setattr(hook_recall, "CONTINUES_MIN_S", 0.0)
+    note = _start(env, destination)
+    _identity(env, monkeypatch, "unknown", source, destination)
+    # B has started, but only A's historical continuation has an episode.
+    out = env["server"].handle_tool("cicada_continue", {})
+    assert ROLE in out and REPORT in out and "This looks like the current conversation" not in out
+    _stop(env, destination, B, [("user", "unrelated-first-turn"), ("assistant", "Hello.")], note=note)
+    out = env["server"].handle_tool("cicada_continue", {})
+    assert out.startswith(continuity.call(a["episodeId"])) and "unrelated-first-turn" not in out
+    assert not out.startswith(continuity.call(root["episodeId"]))  # one direct source, no chain walk
 
 
 @pytest.mark.parametrize("harness", ["claude-code", "codex"])
