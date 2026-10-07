@@ -59,11 +59,11 @@ from api.services.entity_resolver import endpoint_id
 from api.services.id_utils import sanitize_id
 from api.services.pending_store import HoldOutcome, Release
 
-#: What Stage 1 writes for an endpoint that IS the person — its prompt speaks of
-#: "the user" (``entity_extractor.EXTRACTION_SYSTEM_PROMPT``). Closed on purpose
-#: (R-PJ17, R-CS2): only these, only onto a page marked ``owner: true``;
-#: whatever still misses is counted, and G141's M3 reads the count.
-OWNER_SURFACES = frozenset({"user", "the user", "me", "myself", "i"})
+#: What Stage 1 writes for an endpoint that IS the person (G169: one closed,
+#: language-aware set, ``owner_identity.SELF_REFERENCES``, shared with Stage 2).
+#: Only onto a page marked ``owner: true`` (R-PJ17, R-CS2); whatever still
+#: misses is counted, and G141's M3 reads the count.
+OWNER_SURFACES = owner_identity.SELF_REFERENCES
 
 #: G141 PJ-0b (R-HP2): the ids the owner surfaces key to when no owner page
 #: exists. Never held — R-CS2 never invents a `user` page, and a pending
@@ -73,25 +73,12 @@ _OWNER_SLUGS = frozenset(sanitize_id(s) for s in OWNER_SURFACES)
 
 
 def _owner_page_id(existing_entities: list[dict] | None, memory_path: Path, settings) -> str | None:
-    """The bank's ``owner: true`` page among Stage 2's ``existing`` list, or ``None``.
-
-    Two owner pages can exist (G117 R3's disclosed gap: re-onboarding under a
-    new display name writes a second page); the one ``owner_identity`` resolves
-    wins, else the first by id, so the answer never depends on file order."""
-    owners = sorted(
-        str(e.get("id")) for e in (existing_entities or [])
-        if isinstance(e, dict) and e.get("id") and (e.get("frontmatter") or {}).get("owner")
-    )
-    if len(owners) <= 1:
-        return owners[0] if owners else None
-    try:
-        resolved = owner_identity.resolve_observer(memory_path, settings)
-    except Exception:  # noqa: BLE001 - a tie-break is never worth a failed cycle
-        resolved = None
-    return resolved if resolved in owners else owners[0]
+    """The bank's ``owner: true`` page (``owner_identity.owner_page_id``)."""
+    return owner_identity.owner_page_id(existing_entities, memory_path, settings)
 
 
-def subject_resolver(name_to_id: dict[str, str] | None, owner_id: str | None) -> Callable[[str], str]:
+def subject_resolver(name_to_id: dict[str, str] | None, owner_id: str | None,
+                     refs: owner_identity.SelfReferences | None = None) -> Callable[[str], str]:
     """G141 PJ-0 (R-PJ17, R-CS1): the page id a claim endpoint's raw name keys to.
 
     The owner surfaces first (only when an owner page exists), then Stage 2's
@@ -99,17 +86,20 @@ def subject_resolver(name_to_id: dict[str, str] | None, owner_id: str | None) ->
     then ``sanitize_id``, the pre-PJ-0 key. Stage 2's decisions carry over
     whole, its fuzzy merges included (R-CS5)."""
     table = dict(name_to_id or {})
+    # G169: the qualified decision (``owner_identity.SelfReferences``); without one,
+    # every spelling is a speaker reference (no page or entity reserves it).
+    decision = refs if refs is not None else owner_identity.SelfReferences(owner_id)
 
     def resolve(name: str) -> str:
-        key = (name or "").strip().lower()
-        if owner_id and key in OWNER_SURFACES:
+        if owner_id and decision.is_speaker(name):
             return owner_id
-        return endpoint_id(key, table) or sanitize_id(name)
+        return endpoint_id((name or "").strip().lower(), table) or sanitize_id(name)
 
     return resolve
 
 
-def hold_page_less(offers: dict[str, list[Claim]], memory_path: Path) -> dict[str, HoldOutcome]:
+def hold_page_less(offers: dict[str, list[Claim]], memory_path: Path, *,
+                   reserved: frozenset[str] = frozenset()) -> dict[str, HoldOutcome]:
     """G141 PJ-0b — hold what Sleep heard about a name that has no page yet.
 
     The owner ruled (G141 DECIDE (c), 2026-09-23; R-PJ17) that an unpromoted
@@ -122,7 +112,8 @@ def hold_page_less(offers: dict[str, list[Claim]], memory_path: Path) -> dict[st
     Never held, and so counted as ``claims_page_less`` exactly as PJ-0 did:
     - a subject with no pending line (Stage 1 named the endpoint differently
       from the entity, or never listed it) — no fuzzy match over pending names;
-    - the owner surfaces (``_OWNER_SLUGS``, R-CS2);
+    - the owner surfaces (``_OWNER_SLUGS``, R-CS2) — unless a non-person page or
+      entity holds that name (``reserved``: the company "Yo" waits like any name, G169);
     - a claim already closed in its own batch — Stage 3 never tests an incoming
       claim's own validity (``reconcile_stage3``'s ``same_key_open``), so a
       closed claim released later could close an open one;
@@ -133,7 +124,7 @@ def hold_page_less(offers: dict[str, list[Claim]], memory_path: Path) -> dict[st
     eligible = {
         subject: [c for c in claims if c.valid_to is None and not is_event(c)]
         for subject, claims in offers.items()
-        if subject not in _OWNER_SLUGS
+        if subject not in _OWNER_SLUGS or subject in reserved
     }
     outcomes = pending_store.hold(memory_path, eligible)
     return {subject: outcomes.get(subject, HoldOutcome(0, 0)) for subject in offers}
@@ -199,7 +190,7 @@ def _credit_episodes(frontmatter: dict, episodes: list[str] | None) -> bool:
 
 def _settle_store(
     memory_path: Path, releases: list[Release], written: set[str],
-    offers: dict[str, list[Claim]], stage1_ids: set[str],
+    offers: dict[str, list[Claim]], stage1_ids: set[str], reserved: frozenset[str] = frozenset(),
 ) -> dict[str, int]:
     """G141 PJ-0b, after the write: release the lines whose page took their claims
     (R-HP4), then hold what is still page-less (R-HP2) — release first, so no
@@ -220,7 +211,9 @@ def _settle_store(
         )
     try:
         outcomes = hold_page_less(
-            {s: [c for c in claims if c.id in stage1_ids] for s, claims in offers.items()}, memory_path)
+            {s: [c for c in claims if c.id in stage1_ids] for s, claims in offers.items()}, memory_path,
+            # Only when a non-person name is spelled like a self-reference: the common call keeps its shape.
+            **({"reserved": reserved} if reserved else {}))
         counts["claims_held"] = sum(o.held for o in outcomes.values())
         counts["claims_hold_capped"] = sum(o.capped for o in outcomes.values())
     except Exception as e:  # noqa: BLE001 - unheld claims are counted page-less, never lost silently
@@ -319,9 +312,11 @@ def run_claim_pipeline(
     memory_path = Path(memory_path)
 
     # ---- Stage 1: emit claims from extraction ----
-    owner_id = _owner_page_id(existing_entities, memory_path, settings)
+    # G169: Stage 2's qualified self-reference decision, rebuilt from its own inputs.
+    refs = owner_identity.self_references(existing_entities, extracted, memory_path, settings)
+    owner_id = refs.owner_id
     incoming: list[Claim] = entities_to_claims(
-        extracted, memory_path, resolve_id=subject_resolver(name_to_id, owner_id))
+        extracted, memory_path, resolve_id=subject_resolver(name_to_id, owner_id, refs))
     incoming, relabelled = _relabel_event_labels(incoming)
     # Stage-1 only — never the person's extra_claims, never a released claim:
     # the only claims a hold ever takes (R-HP2).
@@ -400,7 +395,8 @@ def run_claim_pipeline(
             )
 
     # ---- G141 PJ-0b: settle the pending store — release, then hold (R-HP4, R-HP10) ----
-    hold = _settle_store(memory_path, releases, set(written_subjects), page_less_offers, stage1_ids)
+    hold = _settle_store(memory_path, releases, set(written_subjects), page_less_offers, stage1_ids,
+                         refs.reserved_slugs())
     claims_page_less = sum(len(claims) for claims in page_less_offers.values()) - hold["claims_held"]
 
     # ---- G61 phase 2 S1 (spec §5.2, plan R-AC33): a link the cited words contain ----

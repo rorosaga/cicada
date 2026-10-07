@@ -90,7 +90,12 @@ after a page's last section (`write_claims`, the one writer), so **every reader 
 sectioning** — `strip_claims_block` on the server, `EntityProse` in the app.
 Stage-5 prose rewrites use `preserve_claims_blocks` only to re-emit closed fences
 already read from disk, including unknown fields and malformed YAML; it never
-authors claims. Synthesis receives stripped prose before its input budget is applied.
+authors claims. Synthesis, contradiction detection, source-grounded rewriting,
+dedup judging (both pages), entity disambiguation and pattern/skill detection
+receive prose stripped by `strip_claims_block` before their input budgets are
+applied, so truncation cannot expose a fragment of a closed claims fence.
+MCP recall's related-page blurbs use the same strip-before-truncation rule;
+explicit full-page reads still expose the structured claims for agent reasoning.
 
 **Recovering claims a rewrite dropped (G148 follow-up) — only ever as closed history.** Before that fix a rewrite
 sectioned the raw body, so the fence rode in the last section and was rebuilt or lost; the claim pipeline, which runs
@@ -352,7 +357,10 @@ older Stop-hook episode's count — as no times. Round 4 (C2–C4):
   the same way when it is brand new (`seed_owner_if_brand_new`: no entity page, no episode). Because
   a bank now starts with one node, **the app's empty means "no node but the owner's"**
   (`hasNoContentBeyondOwner`: `FirstRunGate`'s graph input, the Graph's and Clusters' "Nothing here
-  yet"); the `/banks` `entityCount` of a new bank is 1.
+  yet"); the `/banks` `entityCount` of a new bank is 1. **"The user", "me", "yo" … are this page** (G169):
+  Sleep never writes a page for a speaker reference, routes every such entity, edge, claim and wikilink here
+  (a non-person page holding the name, a company "Owner", keeps its own), and its prompts call the person by
+  this page's `name` (`capture-and-sleep.md`, "Entity promotion").
 - `kept_on:` (G147) — the days the person answered *keep* to a decay question; each joins the page's
   mention weeks, so a kept page fades a little slower. Written only by the decay resolver, deduped,
   capped at 52. Not an episode id and never read as one.

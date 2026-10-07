@@ -725,6 +725,20 @@ DESCRIPTION LENGTH GUIDELINES (by entity type):
 Output ONLY the updated markdown body. Do not include YAML frontmatter, do not wrap in code fences, do not add commentary."""
 
 
+def _owner_line(name: str | None) -> str:
+    """G169 — the synthesis prompt's line naming the bank's owner (the same
+    convention as Stage 1's ``entity_extractor.owner_block``); empty without an
+    owner page."""
+    if not name:
+        return ""
+    from api.services.owner_identity import self_reference_list
+
+    return (
+        f'\n\nTHE OWNER: this memory belongs to "{name}". Wherever the existing body or the new information '
+        f'means them by {self_reference_list()}, write "{name}".'
+    )
+
+
 async def _synthesize_entity_update(
     entity_name: str,
     entity_type: str,
@@ -749,6 +763,12 @@ async def _synthesize_entity_update(
         new_history=json.dumps(new_history_entries) if new_history_entries else "[]",
         source_reference_date=source_reference_date or "unknown",
     )
+    try:
+        from api.services import owner_identity
+
+        prompt += _owner_line(owner_identity.owner_name(getattr(settings, "memory_path", None), settings))
+    except Exception:  # noqa: BLE001 - a missing name costs the line, never the merge
+        pass
     # Route through the provider factory (CQA-H3) so llm_mode="local" (ollama)
     # and consolidation_model overrides apply uniformly here too. completion
     # stays litellm.acompletion, so this is still awaited exactly as before.
@@ -856,9 +876,11 @@ async def _detect_contradiction(
     settings: Settings,
 ) -> dict | None:
     """Call the LLM to check whether existing and new descriptions contradict."""
+    from api.services.claims import strip_claims_block
+
     prompt = _CONTRADICTION_PROMPT.format(
         entity_name=entity_name,
-        existing_body=existing_body[:4000],
+        existing_body=strip_claims_block(existing_body)[:4000],
         new_description=new_description[:2000],
     )
     llm_fn = resolve_llm_fn(

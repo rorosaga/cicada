@@ -142,6 +142,28 @@ EXTRACTION GUIDELINES:
   several passages and no single passage states it, omit evidence_quote entirely. Never invent one:
   a quote that is not in the transcript is discarded and the relationship is recorded as inference."""
 
+def owner_block(name: str | None) -> str:
+    """G169 — appended to :data:`EXTRACTION_SYSTEM_PROMPT` when the bank has an
+    ``owner: true`` page: the prompt's "the user" is that person, and everything
+    the model writes calls them by the page's ``name``. Without an owner page the
+    prompt is unchanged (Stage 2 still never makes a page of a self-reference)."""
+    if not name:
+        return ""
+    from api.services.owner_identity import self_reference_list
+
+    return (
+        "\n\nTHE OWNER OF THIS MEMORY:\n"
+        f'- "the user" in these instructions is the person this memory belongs to: "{name}". In the transcript\n'
+        "  they write the user turns and speak of themselves in the first person, in any language.\n"
+        f"- In everything you write — entity names, relationship sources and targets, summaries, key_facts,\n"
+        f'  history entries, open questions — call them "{name}". When you mean them, never write\n'
+        f'  {self_reference_list()}; write "{name}" in a conversation in any language.\n'
+        f'- Their own facts go on one entity named exactly "{name}" (type person); never a second entity for them.\n'
+        "- A real company, product, tool or concept that happens to be called one of those words keeps its own\n"
+        "  name and type."
+    )
+
+
 # Max concurrent LLM calls — stay under rate limits
 MAX_CONCURRENCY = 10
 
@@ -277,6 +299,7 @@ async def _extract_chunk(
     *,
     source: str | None = None,
     gap_note: str | None = None,
+    owner: str | None = None,
     _attempt: int = 0,
 ) -> dict:
     """Extract entities from a single chunk via LLM.
@@ -295,7 +318,7 @@ async def _extract_chunk(
         )
         response = await llm_fn(
             messages=[
-                {"role": "system", "content": EXTRACTION_SYSTEM_PROMPT},
+                {"role": "system", "content": EXTRACTION_SYSTEM_PROMPT + owner_block(owner)},
                 {"role": "user", "content": (gap_note or "")
                  + ((MEMORY_SOURCE_NOTE + chunk) if source == "claude_memory" else chunk)},
             ],
@@ -317,7 +340,8 @@ async def _extract_chunk(
         )
         await asyncio.sleep(backoff)
         return await _extract_chunk(
-            ep_id, chunk, chunk_idx, total_chunks, settings, source=source, gap_note=gap_note, _attempt=_attempt + 1
+            ep_id, chunk, chunk_idx, total_chunks, settings, source=source, gap_note=gap_note, owner=owner,
+            _attempt=_attempt + 1,
         )
 
 
@@ -387,6 +411,13 @@ async def extract(
         bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]",
         leave=True,
     )
+    # G169: read once per extraction — what every chunk's prompt calls the person.
+    from api.services import owner_identity
+
+    try:
+        owner = owner_identity.owner_name(getattr(settings, "memory_path", None), settings)
+    except Exception:  # noqa: BLE001 - a missing name costs the prompt line, never the read
+        owner = None
     # R-E22: the per-episode reasons name the engine that actually ran.
     from api.services import engine_select
 
@@ -468,6 +499,7 @@ async def extract(
                         # Only a memory episode carries a note; every other call keeps its shape.
                         **({"source": "claude_memory"} if episode.get("source") == "claude_memory" else {}),
                         **({"gap_note": note} if note else {}),
+                        **({"owner": owner} if owner else {}),
                     )
                     all_entities.extend(parsed.get("entities", []))
                     chunk_rels = [r for r in (parsed.get("relationships", []) or []) if isinstance(r, dict)]

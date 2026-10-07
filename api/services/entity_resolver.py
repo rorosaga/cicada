@@ -9,7 +9,7 @@ from loguru import logger
 from thefuzz import fuzz
 
 from api.config import Settings
-from api.services import engine_errors, json_parse
+from api.services import engine_errors, json_parse, owner_identity
 from api.services.clarification_manager import (
     CONFIDENCE_THRESHOLD,
     ClarificationManager,
@@ -37,6 +37,15 @@ def endpoint_id(name: str, name_to_id: dict[str, str]) -> str | None:
         if fuzz.ratio(key, known_name) > 85:
             return known_id
     return None
+
+
+def _edge_endpoint(name: str, name_to_id: dict[str, str], refs: "owner_identity.SelfReferences") -> str | None:
+    """:func:`endpoint_id`, with a speaker reference keyed to the owner page (G169) —
+    and to nothing when the bank has none, never to a page named after a pronoun.
+    A name a non-person page or entity holds ("Owner" the company) is not one."""
+    if refs.is_speaker(name):
+        return refs.owner_id
+    return endpoint_id(name, name_to_id)
 
 
 async def resolve(
@@ -102,6 +111,21 @@ async def resolve(
         name = e["frontmatter"].get("name", e["id"].replace("-", " ").title())
         existing_by_name[name.lower()] = e
 
+    # G169: a speaker reference ("User", "the user", "me", "yo", "mí"...) is the
+    # bank's owner, never a page of its own. One qualified decision
+    # (`owner_identity.SelfReferences`), built from the same inputs by Sleep's
+    # claims (`claim_pipeline`) and wikilink edges (`wikilink_resolver`).
+    refs = owner_identity.self_references(existing, extracted, getattr(settings, "memory_path", None), settings)
+    owner_id = refs.owner_id
+    owner_entity = next((e for e in existing if e["id"] == owner_id), None) if owner_id else None
+    self_entities = [
+        entity for extraction in extracted for entity in extraction.get("entities", [])
+        if refs.is_speaker(entity.get("name", ""), entity.get("type"))
+    ]
+    if self_entities:
+        logger.info(f"Stage 2: {len(self_entities)} self-reference(s) "
+                    + ("merged into the owner page" if owner_entity else "dropped (this bank has no owner page)"))
+
     # Count mentions across episodes for promotion threshold
     mention_counts: Counter = Counter()
     episode_mentions: dict[str, set[str]] = {}  # entity_name -> set of episode_ids
@@ -119,6 +143,8 @@ async def resolve(
         per_episode_names: list[str] = []
         for entity in extraction.get("entities", []):
             name = entity["name"]
+            if refs.is_speaker(name, entity.get("type")):
+                continue
             mention_counts[name.lower()] += 1
             episode_mentions.setdefault(name.lower(), set()).add(episode_id)
             all_entities.append(entity)
@@ -175,6 +201,24 @@ async def resolve(
     # loop completes without cancelling. `cancelled` records whether it did.
     pending_actions: list[tuple[Callable, tuple, dict]] = []
     cancelled = False
+
+    # A self-reference's facts are the owner's: they land on the owner page, under
+    # its own name and type (a "User" concept must not retype or rename it). With
+    # no owner page they are dropped — never a `user` page, never a pending line,
+    # never a "Who is User?" question (R-CS2).
+    if owner_entity is not None:
+        owner_fm = owner_entity.get("frontmatter") or {}
+        for entity in self_entities:
+            _merge_into_update(
+                updates_by_id=resolved_updates,
+                existing_entity=owner_entity,
+                incoming={
+                    **entity,
+                    "name": owner_fm.get("name") or entity.get("name"),
+                    "type": "person",
+                    "aliases": [a for a in entity.get("aliases") or [] if not refs.is_speaker(a)],
+                },
+            )
 
     # Process more specific names first so "Bob Example" becomes the
     # canonical in-cycle entity and "Bob" can merge into it rather than
@@ -244,7 +288,7 @@ async def resolve(
 
         # New entity — check promotion threshold
         episodes_seen = len(episode_mentions.get(name_lower, set()))
-        linked_to_existing = _is_linked_to_existing(name, all_relationships, existing_by_name)
+        linked_to_existing = _is_linked_to_existing(name, all_relationships, existing_by_name, owner_id=owner_id, refs=refs)
 
         # Promote if the entity is already in pending from a previous cycle
         pending_entry = None
@@ -346,9 +390,10 @@ async def resolve(
     seen_edges: set[tuple[str, str, str]] = set()
     for rel in all_relationships:
         label = rel.get("label", "related to")
-        # Exact, then fuzzy — one rule, shared with Sleep's claims (G141 PJ-0).
-        source_id = endpoint_id(rel.get("source", ""), name_to_id)
-        target_id = endpoint_id(rel.get("target", ""), name_to_id)
+        # Self-references first (G169), then exact, then fuzzy — one rule,
+        # shared with Sleep's claims (G141 PJ-0, `claim_pipeline.subject_resolver`).
+        source_id = _edge_endpoint(rel.get("source", ""), name_to_id, refs)
+        target_id = _edge_endpoint(rel.get("target", ""), name_to_id, refs)
 
         if source_id and target_id and source_id != target_id:
             key = (source_id, target_id, label.lower())
@@ -399,6 +444,8 @@ async def resolve(
         # G141 PJ-0 (R-PJ17): the map the edges above resolved through, so
         # Stage 5.56's claims land on the same pages (`claim_pipeline`).
         "name_to_id": dict(name_to_id),
+        # G169: the qualified self-reference decision this stage keyed by.
+        "self_references": refs,
     }
 
 
@@ -466,12 +513,34 @@ def _merge_entity_payload(base: dict, incoming: dict) -> dict:
         float(incoming.get("confidence", 0.0) or 0.0),
     )
 
-    base_desc = (base.get("description") or "").strip()
-    incoming_desc = (incoming.get("description") or "").strip()
-    if len(incoming_desc) > len(base_desc):
-        merged["description"] = incoming_desc
-    else:
-        merged["description"] = base_desc
+    # One effective summary per input — `summary`, falling back to the legacy
+    # `description` (G169 review r2) — and the longer one is the merge's summary
+    # AND, when either input carried one, its description (synthesis runs on a
+    # `description`, so a summary-only merge still takes the deterministic path).
+    # Every other distinct one is still something said about it: kept, once, as a key fact.
+    base_text, incoming_text = _effective_summary(base), _effective_summary(incoming)
+    chosen = incoming_text if len(incoming_text) > len(base_text) else base_text
+    merged["summary"] = chosen
+    had_description = (base.get("description") or "").strip() or (incoming.get("description") or "").strip()
+    merged["description"] = chosen if had_description else ""
+
+    # Additive fields are unions (G169 review): two extractions of one thing —
+    # "User" and "me" both landing on the owner page — each carry their own facts,
+    # links, questions and aliases, and the first payload's lists used to win whole.
+    key_facts = _union_text(base.get("key_facts"), incoming.get("key_facts"))
+    folded = " ".join(chosen.split()).lower()
+    for text in (base_text, incoming_text, *_effective_summaries(base), *_effective_summaries(incoming)):
+        if text and " ".join(text.split()).lower() not in folded:
+            key_facts = _union_text(key_facts, [text])
+    if key_facts:
+        merged["key_facts"] = key_facts
+    for field in ("open_questions", "aliases"):
+        values = _union_text(base.get(field), incoming.get(field))
+        if values:
+            merged[field] = values
+    links = _union_links(base.get("links"), incoming.get("links"))
+    if links:
+        merged["links"] = links
 
     merged["tags"] = sorted(
         set(base.get("tags", []) or []) | set(incoming.get("tags", []) or [])
@@ -490,6 +559,42 @@ def _merge_entity_payload(base: dict, incoming: dict) -> dict:
         incoming.get("source_episode_timestamp"),
     )
     return merged
+
+
+def _effective_summary(entity: dict) -> str:
+    """An input's one orientation line: ``summary``, else the legacy ``description``."""
+    return str(entity.get("summary") or entity.get("description") or "").strip()
+
+
+def _effective_summaries(entity: dict) -> tuple[str, ...]:
+    """Both orientation fields of one input, when it carries two different ones."""
+    return tuple(str(entity.get(k) or "").strip() for k in ("summary", "description"))
+
+
+def _union_text(*lists) -> list:
+    """Every distinct string, first spelling and order kept (case-insensitive)."""
+    out: list = []
+    seen: set[str] = set()
+    for values in lists:
+        for value in values or []:
+            key = " ".join(str(value).split()).lower()
+            if key and key not in seen:
+                seen.add(key)
+                out.append(value)
+    return out
+
+
+def _union_links(*lists) -> list[dict]:
+    """Every distinct link by its URL, the first entry for a URL kept."""
+    out: list[dict] = []
+    seen: set[str] = set()
+    for values in lists:
+        for link in values or []:
+            url = str((link or {}).get("url") or "").strip() if isinstance(link, dict) else ""
+            if url and url not in seen:
+                seen.add(url)
+                out.append(link)
+    return out
 
 
 def _preferred_entity_name(
@@ -678,9 +783,14 @@ def _latest_timestamp(left: str | None, right: str | None) -> str | None:
 
 
 def _is_linked_to_existing(
-    name: str, relationships: list[dict], existing: dict[str, dict]
+    name: str, relationships: list[dict], existing: dict[str, dict], *, owner_id: str | None = None,
+    refs: "owner_identity.SelfReferences | None" = None,
 ) -> bool:
-    """Check if entity is linked to a high-confidence existing entity."""
+    """Check if entity is linked to a high-confidence existing entity.
+
+    The owner's page never counts (G169): everything the person talks about is
+    linked to them, so that link is no sign a first mention matters — the
+    promotion rule would otherwise promote every name on its first mention."""
     for rel in relationships:
         partner = None
         if rel.get("source", "").lower() == name.lower():
@@ -688,7 +798,12 @@ def _is_linked_to_existing(
         elif rel.get("target", "").lower() == name.lower():
             partner = rel.get("source", "").lower()
 
+        speaker = refs.is_speaker(partner) if refs is not None else owner_identity.is_self_reference(partner or "")
+        if partner and speaker:
+            continue
         if partner and partner in existing:
+            if owner_id and existing[partner]["id"] == owner_id:
+                continue
             confidence = existing[partner]["frontmatter"].get("confidence", 0)
             if confidence >= 0.6:
                 return True
@@ -806,12 +921,14 @@ async def _llm_judge_same_entity(
     settings: Settings,
 ) -> str:
     """One LLM call: same, different, or unsure."""
+    from api.services.claims import strip_claims_block
+
     if new_type and existing_type and new_type.lower() != existing_type.lower():
         return "different"
     prompt = _DISAMBIG_PROMPT.format(
         existing_name=existing_name,
         existing_type=existing_type or "unknown",
-        existing_body=(existing_body or "")[:2000] or "(empty)",
+        existing_body=strip_claims_block(existing_body)[:2000] or "(empty)",
         new_name=new_name,
         new_type=new_type or "unknown",
         new_description=(new_description or "")[:1500] or "(empty)",
