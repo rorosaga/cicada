@@ -361,21 +361,30 @@ name before it has a page is not lost (G141 PJ-0b): Stage 5.56 holds those claim
 the rest counted) and releases them onto the page, first and through Stage 3, in the cycle whose Stage 5
 gives the name one — a holding line leaves the store only then.
 
-**The owner is never a page of a pronoun (G169).** One closed, language-aware set of self-references
-(`owner_identity.SELF_REFERENCES`: "user", "the user", "me", "myself", "I", "the person", "the owner",
-"owner", "el usuario", "la usuaria", "usuario", "usuaria", "yo"; `is_self_reference` ignores case, outer
-quotes, trailing punctuation and spacing) is the bank's `owner: true` page everywhere Sleep keys a name: Stage 2
-merges a self-reference entity into the owner page under its own name and type (self-reference aliases dropped)
-and resolves a self-reference edge endpoint to it; Sleep's claims key through the same rule
-(`claim_pipeline.subject_resolver`), so a held claim that points at the person points at the owner page. With no
-owner page a self-reference is dropped — never a page, a pending line or a "Who is User?" question. A link to
-the owner page is **not** the promotion rule's link to a high-confidence page (everything the person mentions
-is linked to them). Stage 1's prompt gains an owner block (`entity_extractor.owner_block`) and the synthesis
-prompt an owner line (`conflict_resolver._owner_line`) naming the owner page's `name`, read once per extraction
-(`owner_identity.owner_name`), so prose says the name, never "the user"; a bank without an owner page keeps the
-prompts unchanged. An older bank that already holds a `user` page beside its owner page is not migrated: new
-self-references stop feeding it, and folding it in is the dedup merge (`dedup_sweep` / `entity_merge`, loser
-`user`, winner the owner page) behind the person's explicit call — not built.
+**The owner is never a page of a pronoun (G169).** One closed, language-aware list of self-reference spellings
+(`owner_identity.SELF_REFERENCE_FORMS`: "User", "the user", "I", "me", "myself", "the person", "the owner",
+"owner", "el usuario", "la usuaria", "usuario", "usuaria", "yo", "mí"; compared NFC, case-, outer-quote-,
+trailing-punctuation- and spacing-insensitive) feeds both the resolver and the prompts' wording
+(`self_reference_list`), so neither can name a form the other misses. A spelling is the person only when it is a
+**speaker reference** — one qualified decision, `owner_identity.SelfReferences`: the name is a person or carries
+no type (an edge or claim endpoint, a wikilink) **and** no non-person page, and no non-person entity in this batch,
+holds that exact name. So a company "Owner", a concept "I", a tool "Me", a company "Yo" keep their own facts,
+edges, claims and held claims, while an old duplicate *person* page named "User" reserves nothing. Every step that
+keys a name builds it from the same inputs: Stage 2 merges a speaker-reference entity into the `owner: true` page
+under its name and type (speaker-reference aliases dropped; several such payloads union their key facts, links,
+questions and aliases, and a summary that lost the length contest becomes a key fact) and resolves speaker
+endpoints to it; Sleep's claims (`claim_pipeline.subject_resolver`) and holds (`hold_page_less`'s `reserved`) and
+Stage 5.5's wikilink `mentions` (`materialize_wikilink_edges(memory_path, extracted)`: `[[User]]`, `[[the
+user|…]]`, `[[mí]]` → the owner page, never an old duplicate; the prose is never rewritten) agree. With no owner
+page a speaker reference is dropped — never a page, a pending line or a "Who is User?" question. A link to the
+owner page, or to a speaker reference, is **not** the promotion rule's link to a high-confidence page (everything
+the person mentions is linked to them). Stage 1's prompt gains an owner block (`entity_extractor.owner_block`) and
+the synthesis prompt an owner line (`conflict_resolver._owner_line`) naming the owner page's `name`, read once per
+extraction (`owner_identity.owner_name`), so prose says the name, never "the user"; a bank without an owner page
+keeps both prompts byte-identical. An older bank's `user` page is not migrated: speaker references stop feeding it,
+and folding it in is the dedup merge (`dedup_sweep` / `entity_merge`, loser `user`, winner the owner page) behind
+the person's explicit call — not built. Disclosed: a "User" Stage 1 types as a concept is not a speaker reference
+and becomes its own page.
 
 ### Temporal decay
 Absence of mention IS a signal, and **how often something came up sets how fast its absence

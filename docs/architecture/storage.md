@@ -353,8 +353,9 @@ older Stop-hook episode's count — as no times. Round 4 (C2–C4):
   a bank now starts with one node, **the app's empty means "no node but the owner's"**
   (`hasNoContentBeyondOwner`: `FirstRunGate`'s graph input, the Graph's and Clusters' "Nothing here
   yet"); the `/banks` `entityCount` of a new bank is 1. **"The user", "me", "yo" … are this page** (G169):
-  Sleep never writes a page for a self-reference, routes every such entity, edge and claim endpoint here, and
-  its prompts call the person by this page's `name` (`capture-and-sleep.md`, "Entity promotion").
+  Sleep never writes a page for a speaker reference, routes every such entity, edge, claim and wikilink here
+  (a non-person page holding the name, a company "Owner", keeps its own), and its prompts call the person by
+  this page's `name` (`capture-and-sleep.md`, "Entity promotion").
 - `kept_on:` (G147) — the days the person answered *keep* to a decay question; each joins the page's
   mention weeks, so a kept page fades a little slower. Written only by the decay resolver, deduped,
   capped at 52. Not an episode id and never read as one.

@@ -35,28 +35,45 @@ def extract_wikilinks(body: str) -> list[str]:
     return names
 
 
-def materialize_wikilink_edges(memory_path: Path) -> int:
+def materialize_wikilink_edges(memory_path: Path, extracted: list[dict] | None = None) -> int:
     """Parse every entity body's wikilinks and merge them as `mentions` edges.
 
     Idempotent and additive. Returns the number of distinct `mentions` edges
     emitted this run (pre-dedup count of resolved, non-self links).
+
+    G169: a wikilink spelled like a self-reference (``[[User]]``, ``[[the user|them]]``,
+    ``[[mí]]``) is the bank's owner when it is a speaker reference — the same
+    qualified decision Stage 2 and the claims key by (``owner_identity.
+    SelfReferences``, built from the pages and ``extracted``, this batch's Stage-1
+    output) — never an old duplicate ``user`` page; a page that holds the name
+    (the company "Owner") keeps its links. The prose is never rewritten.
     """
+    from api.services import owner_identity
+
     entities_dir = Path(memory_path) / "entities"
     if not entities_dir.exists():
         return 0
 
     name_index = build_name_index(entities_dir)
 
-    new_edges: list[dict] = []
-    seen: set[tuple[str, str]] = set()
+    pages: list[tuple[str, dict, str]] = []
     for filepath in sorted(entities_dir.glob("*.md")):
-        source_id = filepath.stem
         try:
-            body = markdown_parser.parse(filepath).body
+            parsed = markdown_parser.parse(filepath)
         except Exception:
             continue
+        pages.append((filepath.stem, parsed.frontmatter or {}, parsed.body))
+    refs = owner_identity.self_references(
+        [{"id": stem, "frontmatter": fm} for stem, fm, _ in pages], extracted, Path(memory_path))
+
+    new_edges: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+    for source_id, _fm, body in pages:
         for display in extract_wikilinks(body):
-            target_id = resolve_entity_id(entities_dir, display, name_index)
+            if refs.is_speaker(display):
+                target_id = refs.owner_id
+            else:
+                target_id = resolve_entity_id(entities_dir, display, name_index)
             if not target_id or target_id == source_id:
                 continue
             key = (source_id, target_id)

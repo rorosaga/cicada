@@ -149,14 +149,18 @@ def owner_block(name: str | None) -> str:
     prompt is unchanged (Stage 2 still never makes a page of a self-reference)."""
     if not name:
         return ""
+    from api.services.owner_identity import self_reference_list
+
     return (
         "\n\nTHE OWNER OF THIS MEMORY:\n"
         f'- "the user" in these instructions is the person this memory belongs to: "{name}". In the transcript\n'
-        "  they write the user turns and speak of themselves as I, me, myself — or, in Spanish, yo, mí, el usuario.\n"
-        f'- In everything you write — entity names, relationship sources and targets, summaries, key_facts,\n'
-        f'  history entries, open questions — call them "{name}". Never "User", "the user", "I", "me", "the person",\n'
-        f'  "the owner", "el usuario" or "yo"; write "{name}" in a conversation in any language.\n'
-        f'- Their own facts go on one entity named exactly "{name}" (type person); never a second entity for them.'
+        "  they write the user turns and speak of themselves in the first person, in any language.\n"
+        f"- In everything you write — entity names, relationship sources and targets, summaries, key_facts,\n"
+        f'  history entries, open questions — call them "{name}". When you mean them, never write\n'
+        f'  {self_reference_list()}; write "{name}" in a conversation in any language.\n'
+        f'- Their own facts go on one entity named exactly "{name}" (type person); never a second entity for them.\n'
+        "- A real company, product, tool or concept that happens to be called one of those words keeps its own\n"
+        "  name and type."
     )
 
 

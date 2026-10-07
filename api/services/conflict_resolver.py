@@ -731,9 +731,11 @@ def _owner_line(name: str | None) -> str:
     owner page."""
     if not name:
         return ""
+    from api.services.owner_identity import self_reference_list
+
     return (
         f'\n\nTHE OWNER: this memory belongs to "{name}". Wherever the existing body or the new information '
-        f'calls them "the user", "User", "I", "me", "the person", "the owner", "el usuario" or "yo", write "{name}".'
+        f'means them by {self_reference_list()}, write "{name}".'
     )
 
 
