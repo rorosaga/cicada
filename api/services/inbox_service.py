@@ -1670,6 +1670,10 @@ async def _conflict_synthesis(item_id: str, request: InboxResolveRequest, settin
             new_history_entries=[],
             source_reference_date=plan.today,
             settings=settings,
+            # G194 A1: the person's answer is said today; the page keeps the day it was last mentioned.
+            page_last_referenced=str(plan.entity.frontmatter.get("last_referenced") or "") or None,
+            source_dates_seen=[plan.today] if plan.today else None,
+            today=plan.today or None,
         )
     except Exception:  # noqa: BLE001 — the fallback below is the answer's floor
         new_body = None
@@ -1678,10 +1682,12 @@ async def _conflict_synthesis(item_id: str, request: InboxResolveRequest, settin
 
 def _synthesis_basis(item_id: str, request: InboxResolveRequest, plan: "_ConflictPlan") -> tuple:
     """Everything the prose was made from and for (fix round 2): the item and the person's pick, the entity and its
-    name and type, the planned body (claims written), the selected-answer sentence and the date. Prose is reused only
-    when every part is the same when the answer is written — a changed option label, item or page gets the fallback."""
+    name and type, the planned body (claims written), the selected-answer sentence, the date and the day the page was
+    last mentioned (G194 A1 puts it in the prompt). Prose is reused only when every part is the same when the answer is
+    written — a changed option label, item or page gets the fallback."""
     return (item_id, (request.option_key or "").strip(), (request.answer or "").strip(), plan.entity_id, plan.name,
-            str(plan.entity.frontmatter.get("type", "concept")), plan.entity.body, plan.sentence, plan.today)
+            str(plan.entity.frontmatter.get("type", "concept")), plan.entity.body, plan.sentence, plan.today,
+            str(plan.entity.frontmatter.get("last_referenced") or ""))
 
 
 @dataclass

@@ -95,7 +95,8 @@ def test_chunked_episode_offsets_are_into_the_whole_body_not_the_chunk(monkeypat
     async def fake(**kw):
         calls["n"] += 1
         chunk = kw["messages"][-1]["content"]
-        if chunk.startswith("user: alpha-project"):
+        # G194 A1: Cicada's date note leads the message, so the first chunk is found by its first line.
+        if "user: alpha-project uses sqlite-vec.\n" in chunk:
             return _resp({"entities": [], "relationships": []})
         return _resp({"entities": [], "relationships": [
             {"source": "alpha-project", "target": "sqlite-vec", "label": "uses",
@@ -178,4 +179,7 @@ def test_claude_memory_chunk_carries_the_source_note_others_do_not(monkeypatch):
            {"id": "ep_2026-09-01_002", "content": "user: placeholder", "timestamp": "2026-09-01T10:00:00+00:00",
             "origin": "claude-export", "source": "claude"}]
     asyncio.run(ex.extract(eps, Settings(litellm_model="m")))
-    assert sorted(s.startswith("[Source: claude_memory") for s in seen) == [False, True]
+    # G194 A1: the date note comes first; the memory note still precedes the conversation's words.
+    assert sorted(ex.MEMORY_SOURCE_NOTE in s for s in seen) == [False, True]
+    memory = next(s for s in seen if ex.MEMORY_SOURCE_NOTE in s)
+    assert memory.index(ex.MEMORY_SOURCE_NOTE) < memory.index("system: placeholder")
