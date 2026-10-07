@@ -73,22 +73,23 @@ def _f(prop: str, kind: str = "str", flag_name: str | None = None) -> Arg:
 
 
 ROWS: tuple[Row, ...] = (
-    # --- slice 1, unit 1 (exposed) ----------------------------------------------
+    # --- slice 1 (exposed) --------------------------------------------------------------
     Row(("recall",), "cicada_recall", "Search memory: pages, claims and conversations, fused.",
         (_p("query"),), exposed=True),
-    # --- slice 1, later units ------------------------------------------------------
-    Row(("get",), "cicada_recall_detail", "One page in full, or a range of its lines.",
+    Row(("get",), "cicada_recall_detail",
+        "One page in full, or a range of its lines (--from/--count, or ENTITY:START[:END]).",
         (_p("entity_id"),),
         options=(Option("--from", "int", "First line to show (1-based)."),
                  Option("--count", "int", "How many lines to show."),
-                 Option("--line-numbers", "bool", "Prefix each line with its number."))),
+                 Option("--line-numbers", "bool", "Prefix each line with its number.")), exposed=True),
     Row(("project",), "cicada_project", "Where one project stands.",
-        (_p("project"), _f("since"), _f("tz"))),
+        (_p("project"), _f("since"), _f("tz")), exposed=True),
     Row(("continue",), "cicada_continue", "Where the work in this folder stopped.",
-        (_f("session"), _f("before"))),
+        (_f("session"), _f("before")), exposed=True),
     Row(("save",), "cicada_save_episode", "Stage a note for the next Sleep (content `-` reads stdin).",
-        (_p("content"), _f("title")), mutates=True),
-    Row(("handshake",), "cicada_handshake", "The contract and the current state, for an agent arriving cold."),
+        (_p("content"), _f("title")), mutates=True, exposed=True),
+    Row(("handshake",), "cicada_handshake", "The contract and the current state, for an agent arriving cold.",
+        exposed=True),
     # --- slice 2 (proposed spellings) ----------------------------------------------
     Row(("ask",), "cicada_ask", "Answer a direct question from memory, with citations.",
         (_p("query"), _f("top_k", "int"))),
@@ -149,6 +150,36 @@ ROWS: tuple[Row, ...] = (
 )
 
 
+class Placeholder(str):
+    """A value to show as ``<name>`` in a spelled command, unquoted (``cicada get <entity-id>``)."""
+
+    def __new__(cls, name: str):
+        return super().__new__(cls, f"<{name}>")
+
+
+def spell(tool: str, **values) -> str:
+    """The command line that does what ``tool(**values)`` does, built from this table: positionals in
+    order, then flags, every concrete value shell-quoted so the line runs exactly as printed. A
+    generated reply spells its actions with this, never by hand (R12 by construction)."""
+    import shlex
+
+    row = by_tool()[tool]
+    words = ["cicada", *row.command]
+    flags: list[str] = []
+    for arg in row.args:
+        value = values.pop(arg.prop, None)
+        if value is None:
+            continue
+        rendered = value if isinstance(value, Placeholder) else shlex.quote(str(value))
+        if arg.positional:
+            words.append(rendered)
+        else:
+            flags += [arg.flag, rendered]
+    if values:
+        raise ValueError(f"{tool} has no argument {sorted(values)}")
+    return " ".join(words + flags)
+
+
 def rows() -> tuple[Row, ...]:
     return ROWS
 
@@ -185,4 +216,5 @@ def catalog() -> list[dict]:
     return out
 
 
-__all__ = ["Arg", "KINDS", "Option", "ROWS", "Row", "by_tool", "catalog", "exposed", "exposed_tools", "rows"]
+__all__ = ["Arg", "KINDS", "Option", "Placeholder", "ROWS", "Row", "by_tool", "catalog", "exposed", "exposed_tools",
+           "rows", "spell"]

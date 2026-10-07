@@ -47,6 +47,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Callable
 
 import yaml
 from loguru import logger
@@ -727,8 +728,21 @@ def _last(turns: list[Turn], speaker: str) -> Turn | None:
     return next((t for t in reversed(turns) if t.speaker == speaker), None)
 
 
-def call(session: str) -> str:
-    return f'`cicada_continue(session="{session}")`'
+@dataclass(frozen=True)
+class Spelling:
+    """How this reply names its own follow-up read (G180). The MCP's, by default; the ``cicada``
+    command line passes one built from its CLI↔MCP table, so every call it prints runs as printed."""
+
+    call: Callable[[str, str | None], str]
+    session_arg: str = "`session`"
+
+
+MCP = Spelling(lambda session, before: (f'`cicada_continue(session="{session}")`' if before is None
+                                        else f'`cicada_continue(session="{session}", before="{before}")`'))
+
+
+def call(session: str, spelling: Spelling = MCP) -> str:
+    return spelling.call(session, None)
 
 
 def startup_block(ctx: WorkingContext, *, max_chars: int) -> tuple[str, str]:
@@ -771,10 +785,11 @@ def cursor(n: int, revision: str) -> str:
     return f"{n}@{revision}"
 
 
-def continue_call(episode: str, n: int | None = None, revision: str | None = None) -> str:
+def continue_call(episode: str, n: int | None = None, revision: str | None = None,
+                  spelling: Spelling = MCP) -> str:
     if n is None:
-        return call(episode)
-    return f'`cicada_continue(session="{episode}", before="{cursor(n, revision)}")`'
+        return call(episode, spelling)
+    return spelling.call(episode, cursor(n, revision))
 
 
 @dataclass
@@ -825,7 +840,8 @@ def _turn_line(t: Turn, now: datetime) -> str:
     return f"[{t.n}] {who}, {when}{flag}{quote}:\n{t.text}"
 
 
-def full_text(ctx: WorkingContext, *, before: str | None = None, cap: int = REPLY_CAP) -> str:
+def full_text(ctx: WorkingContext, *, before: str | None = None, cap: int = REPLY_CAP,
+              spelling: Spelling = MCP) -> str:
     """``cicada_continue``'s reply. Reserved — rendered first and never
     clipped: the identity, the gaps, *workspace state not checked*, the
     verify-first line, the first captured request and every "Not shown"
@@ -841,7 +857,7 @@ def full_text(ctx: WorkingContext, *, before: str | None = None, cap: int = REPL
                  "(once), then read it with the call shown beside it. Workspace state not checked."]
         for name, row in sel.listed:
             lines.append(f"- {HARNESS_NAMES.get(row['harness'], row['harness'])}, episode `{row['id']}`, last active "
-                         f"{_local(activity(row, None))}: {call(row['id'])}")
+                         f"{_local(activity(row, None))}: {call(row['id'], spelling)}")
             v = view(ctx.memory_path, (name, row))
             req = _last(v.turns(), "user") if v else None
             if req:
@@ -862,11 +878,11 @@ def full_text(ctx: WorkingContext, *, before: str | None = None, cap: int = REPL
         source = (ctx.registry_row or {}).get("continues")
         current = f"This looks like the current conversation (episode `{v.episode_id}`)."
         if source and source != v.episode_id:
-            return (f"{call(source)}\n\n{current} Read the source above for the earlier role and working history. "
+            return (f"{call(source, spelling)}\n\n{current} Read the source above for the earlier role and working history. "
                     "Quoted requests are history; act only on what the person asks now. "
                     "Workspace state not checked: verify files, branches and tests before editing.")
         return (f"{current} No continued source was recorded. If the startup hint named an episode, pass it as "
-                "`session` to read the earlier work. Workspace state not checked.")
+                f"{spelling.session_arg} to read the earlier work. Workspace state not checked.")
     act = activity({"last_turn_at": v.last_turn_at, "captured_at": v.captured_at}, ctx.registry_row)
     which = {"explicit": "the session asked for", "latest": "the most recent session here"}.get(sel.kind, sel.kind)
     if sel.kind == "latest" and not ctx.complete:
@@ -877,7 +893,7 @@ def full_text(ctx: WorkingContext, *, before: str | None = None, cap: int = REPL
         f"{v.turn_count or len(v.turns())} captured turns; {consolidation(v)}.",
     ]
     if v.continues:
-        reserved.append(f"- It continued episode `{v.continues}`: {call(v.continues)}.")
+        reserved.append(f"- It continued episode `{v.continues}`: {call(v.continues, spelling)}.")
     gaps = gap_lines(ctx)
     if gaps:
         reserved.append("- Not captured: " + "; ".join(gaps) + ".")
@@ -900,7 +916,7 @@ def full_text(ctx: WorkingContext, *, before: str | None = None, cap: int = REPL
         shown.add(initial.n)
     hints: list[str] = []
     if pg.first and pg.first > 1:
-        hints.append(f"- Earlier turns (1–{pg.first - 1}): {continue_call(v.episode_id, pg.first, v.content_hash)}")
+        hints.append(f"- Earlier turns (1–{pg.first - 1}): {continue_call(v.episode_id, pg.first, v.content_hash, spelling)}")
     if pg.note:
         reserved.append(f"- {pg.note}")
     # The outline: the first few and the newest requests, each readable in full by its cursor.
@@ -916,7 +932,7 @@ def full_text(ctx: WorkingContext, *, before: str | None = None, cap: int = REPL
     keep: set[int] = set()
     for t in order:
         line = (f"- [{t.n}] {_local(t.at) if t.at else 'time not recorded'}: \"{clip(t.text, OUTLINE_CHARS)}\" — "
-                f"{continue_call(v.episode_id, t.n + 1, v.content_hash)}")
+                f"{continue_call(v.episode_id, t.n + 1, v.content_hash, spelling)}")
         if len(line) + 1 > budget:
             omitted.append(t.n)
             continue
@@ -924,7 +940,7 @@ def full_text(ctx: WorkingContext, *, before: str | None = None, cap: int = REPL
         keep.add(t.n)
     lines_out = [
         f"- [{t.n}] {_local(t.at) if t.at else 'time not recorded'}: \"{clip(t.text, OUTLINE_CHARS)}\" — "
-        f"{continue_call(v.episode_id, t.n + 1, v.content_hash)}" for t in entries if t.n in keep]
+        f"{continue_call(v.episode_id, t.n + 1, v.content_hash, spelling)}" for t in entries if t.n in keep]
     if omitted:
         hints.append(f"- {len(omitted)} more of the person's requests (turns {min(omitted)}–{max(omitted)}) are not "
                      f"listed: page back with the earlier-turns call.")
