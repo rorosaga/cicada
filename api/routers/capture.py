@@ -159,6 +159,8 @@ class TranscriptCaptureRequest(BaseModel):
     session_id: str
     transcript_path: str
     cwd: str | None = None
+    # Stop, or a PreCompact/SessionEnd flush (G110 gate A); free text on the
+    # wire (never refused: a capture must not fail on it), an enum in the ledger.
     hook_event: str | None = None
     # Round 4 C1: the Stop hook's `effort.level` for the reply it fired after —
     # validated by the capture writer (`agent_turns.clean_effort`), unknown dropped.
@@ -204,6 +206,7 @@ async def capture_transcript_endpoint(
             keep_assistant=settings.capture_assistant_replies,
             bank=memory_path.name,
             effort=req.effort,
+            hook_event=req.hook_event,
             # G110: the continuity registry's every-bank guard needs the root and
             # every configured bank — resolved once, off the event loop.
             bank_paths=continuity_sessions.bank_paths_for(settings.memory_root),

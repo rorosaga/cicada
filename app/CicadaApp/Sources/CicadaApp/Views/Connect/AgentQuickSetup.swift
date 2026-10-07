@@ -20,7 +20,7 @@ enum AgentQuickSetup {
         var out: [AgentQuickAction] = []
         if let wiring, wiring.id == catalogId, wiring.installed, !wiring.connect.isEmpty,
            !(wiring.recall == "on" && wiring.autosave == "on") {
-            out.append(.connectForMe(wiring.connect))
+            out.append(.connectForMe(wiring.turnOnSteps))
         }
         if AgentCatalog.setupHarnesses.contains(catalogId), setup?.kind == "prompt",
            let prompt = setup?.prompt, !prompt.isEmpty {

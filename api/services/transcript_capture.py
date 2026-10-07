@@ -375,8 +375,17 @@ def _find_session_episode(episodes_dir: Path, harness: str, session_id: str) -> 
     return None
 
 
+#: G110 gate A: the hook events capture runs under; the ledger names one of
+#: these or ``other``, never the raw string the hook forwarded.
+HOOK_EVENTS = ("Stop", "PreCompact", "SessionEnd")
+
+
+def hook_event_enum(raw) -> str:
+    return raw if isinstance(raw, str) and raw in HOOK_EVENTS else "other"
+
+
 def _record(harness: str, session_id: str, status: str, conv: Conversation | None, bank: str | None,
-            reason: str | None = None) -> None:
+            reason: str | None = None, event: str | None = None) -> None:
     """R10: one ``capture`` ledger row — ids, enums and counts only. Never a
     turn's text, a title, or the cwd: the ledger is machine-global and
     outside the bank. ``telemetry.record`` swallows its own failures, so this
@@ -403,6 +412,8 @@ def _record(harness: str, session_id: str, status: str, conv: Conversation | Non
         # G110: counts only.
         "refused_turns": summary.get("refused_turns", 0),
         "note_like_turns": summary.get("note_like_turns", 0),
+        # G110 gate A: which hook ran this capture (Stop, or a flush).
+        "event": hook_event_enum(event),
     }
     if reason:
         refs["reason"] = reason
@@ -421,6 +432,7 @@ def capture_transcript(
     bank: str | None = None,
     effort: str | None = None,
     bank_paths: tuple | None = None,
+    hook_event: str | None = None,
 ) -> CaptureResult:
     """Validate (R2), extract, and write or update the session's one episode (R3).
 
@@ -432,6 +444,10 @@ def capture_transcript(
 
     ``effort``: the Stop hook's ``effort.level`` for the reply it fired after
     (round 4 C1, R4B-3).
+
+    ``hook_event``: the hook that ran this capture — ``Stop``, or a
+    ``PreCompact``/``SessionEnd`` flush (G110 gate A); the ledger row names it
+    as an enum. The write is the same whichever event fired.
 
     G110 slice 1a: every write also records :func:`capture_meta` and, once,
     ``continues`` from the continuity registry (``bank_paths`` — the memory
@@ -446,12 +462,12 @@ def capture_transcript(
         # before the transcript is even validated, and recorded like every
         # other refusal. The router sends the session to a real bank first;
         # this is the guard for any caller that does not.
-        _record(harness, session_id, "refused", None, bank, "demo_bank")
+        _record(harness, session_id, "refused", None, bank, "demo_bank", event=hook_event)
         return CaptureResult("refused", None, 0, 0, {}, reason="demo_bank")
     try:
         path = validate_transcript_path(harness, session_id, transcript_path)
     except TranscriptRefused as exc:
-        _record(harness, session_id, "refused", None, bank, exc.reason)
+        _record(harness, session_id, "refused", None, bank, exc.reason, event=hook_event)
         return CaptureResult("refused", None, 0, 0, {}, reason=exc.reason)
 
     with path.open("r", encoding="utf-8", errors="replace") as fh:
@@ -464,7 +480,7 @@ def capture_transcript(
     # session, G104) and fences the update against Sleep's retirement.
     with _lock, episode_ids.episode_lock(episodes_dir):
         if not conv.turns:
-            _record(harness, session_id, "empty", conv, bank)
+            _record(harness, session_id, "empty", conv, bank, event=hook_event)
             return CaptureResult("empty", None, 0, 0, conv.summary)
 
         body = _body(conv)
@@ -497,7 +513,7 @@ def capture_transcript(
             episode_id = episode_ids.create_episode(episodes_dir, fm, body)
             path_out = episodes_dir / f"{episode_id}.md"
             _episode_cache[(str(episodes_dir.resolve()), harness, session_id)] = path_out
-            _record(harness, session_id, "created", conv, bank)
+            _record(harness, session_id, "created", conv, bank, event=hook_event)
             logger.info(f"capture: created {episode_id} from {harness} session ({len(conv.turns)} turns)")
             return CaptureResult("created", episode_id, kept["user"], kept["assistant"], conv.summary)
 
@@ -511,9 +527,9 @@ def capture_transcript(
                 # capture stopped (or which episode it was pointed at) moved.
                 _place_turns(fm, previous)
                 markdown_parser.write(existing, fm, stored.body)
-                _record(harness, session_id, "metadata", conv, bank)
+                _record(harness, session_id, "metadata", conv, bank, event=hook_event)
                 return CaptureResult("metadata", episode_id, kept["user"], kept["assistant"], conv.summary)
-            _record(harness, session_id, "unchanged", conv, bank)
+            _record(harness, session_id, "unchanged", conv, bank, event=hook_event)
             return CaptureResult("unchanged", episode_id, kept["user"], kept["assistant"], conv.summary)
 
         # R3: same file, same id, same original timestamp; new body, re-queued,
@@ -530,6 +546,6 @@ def capture_transcript(
         _apply_meta(fm, meta, continues)
         _place_turns(fm, _agent_fields(_turn_sidecar(conv, body), previous, effort, _last_offset(conv, body)))
         markdown_parser.write(existing, fm, body)
-        _record(harness, session_id, "updated", conv, bank)
+        _record(harness, session_id, "updated", conv, bank, event=hook_event)
         logger.info(f"capture: updated {episode_id} from {harness} session ({len(conv.turns)} turns), re-queued")
         return CaptureResult("updated", episode_id, kept["user"], kept["assistant"], conv.summary)

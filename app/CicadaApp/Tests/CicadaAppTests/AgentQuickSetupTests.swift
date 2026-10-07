@@ -106,4 +106,24 @@ final class AgentQuickSetupTests: XCTestCase {
                        ["claude-code", "codex", "gemini-cli", "cursor", "claude-desktop", "opencode", "hermes", "openclaw",
                         "claude", "chatgpt", "grok"])
     }
+
+    /// G110 gate A — the capture flush (`flushOn`) rides with a Connect the app is already running, never on its own:
+    /// an agent already on is shown nothing new, and an older backend (no `flushOn`) decodes to no flush.
+    func testTheCaptureFlushRidesWithConnectOnly() throws {
+        let mcp = AgentWiringStep(step: "mcp", display: "m", argv: ["/bin/claude"], touches: [])
+        let flush = AgentWiringStep(step: "flush", display: "f", argv: ["/py"], touches: [])
+        let fresh = AgentWiring(id: "claude-code", installed: true, binary: "/bin/claude", recall: "off", autosave: "off",
+                                connect: [mcp], detail: nil, flushOn: [flush])
+        XCTAssertEqual(fresh.turnOnSteps, [mcp, flush])
+        XCTAssertEqual(AgentQuickSetup.actions(catalogId: "claude-code", setup: nil, wiring: fresh), [.connectForMe([mcp, flush])])
+        let on = AgentWiring(id: "claude-code", installed: true, binary: "/bin/claude", recall: "on", autosave: "on",
+                             connect: [], detail: nil, flushOn: [flush])
+        XCTAssertEqual(on.turnOnSteps, [])
+        XCTAssertEqual(AgentQuickSetup.actions(catalogId: "claude-code", setup: nil, wiring: on), [])
+        let json = #"{"id":"codex","installed":true,"recall":"on","autosave":"on","autosaveFlush":"off","flushOn":[{"step":"flush","argv":["/py"]}]}"#
+        let decoded = try JSONDecoder().decode(AgentWiring.self, from: Data(json.utf8))
+        XCTAssertEqual(decoded.flushOn.map(\.step), ["flush"])
+        let older = try JSONDecoder().decode(AgentWiring.self, from: Data(#"{"id":"codex"}"#.utf8))
+        XCTAssertEqual(older.flushOn, [])
+    }
 }

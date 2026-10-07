@@ -3059,7 +3059,7 @@ class AgentWiringStep(CamelModel):
     ``display == shlex.join(argv)`` so the disclosure can never show one thing
     and run another; ``touches`` are ``~/``-relative (R-IA15)."""
 
-    step: Literal["mcp", "hook", "autorecall", "autorecall-off"]
+    step: Literal["mcp", "hook", "flush", "autorecall", "autorecall-off"]
     display: str
     argv: list[str]
     touches: list[str] = []
@@ -3078,6 +3078,10 @@ class AgentWiringRow(CamelModel):
     binary: Optional[str] = None
     recall: Literal["on", "off", "unknown"] = "off"
     autosave: Literal["on", "off", "stale", "invalid", "n/a"] = "n/a"
+    # G110 gate A: the PreCompact/SessionEnd capture flushes, apart from
+    # ``autosave`` (the Stop hook alone), so an install from before them reads on.
+    autosave_flush: Literal["on", "off", "stale", "invalid", "n/a"] = "n/a"
+    flush_on: list[AgentWiringStep] = []
     connect: list[AgentWiringStep] = []
     detail: Optional[str] = None
     autorecall: Literal["on", "off", "stale", "invalid", "n/a"] = "n/a"
