@@ -309,7 +309,7 @@ def _build_prompt(query: str, entities: list[dict]) -> str:
     context = "\n\n".join(blocks)
     return (
         f"QUESTION:\n{query}\n\n"
-        f"CURRENT UTC DAY: {current_day().isoformat()}\n"
+        f"CURRENT LOCAL DAY: {current_day().isoformat()}\n"
         f"RETRIEVED MEMORY CONTEXT ({len(entities)} entities):\n\n{context}"
     )
 

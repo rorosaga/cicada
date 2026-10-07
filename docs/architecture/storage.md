@@ -676,7 +676,8 @@ overhead, no growing fields.
 
 **Current beliefs and historical events (G118/G93, 2026-10-07).**
 `claims.is_current(claim, now=day)` is the shared read predicate for claim objects
-and index payloads: any `valid_to` or successor means closed, including a
+and index payloads, using the machine-local day shared by claim writers and
+conditional-response caches: any `valid_to` or successor means closed, including a
 born-closed happening. A future start is not current; stated ends are inclusive
 and reads stop presenting them as current even before the next expiry commit.
 The stated-end parser is shared with `claim_expiry`; milestone targets are not

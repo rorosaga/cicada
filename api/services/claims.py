@@ -34,7 +34,7 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 from typing import Any
 
 import yaml
@@ -313,8 +313,8 @@ def stated_end(claim) -> str | None:
 
 
 def current_day() -> date:
-    """One UTC clock for claim reads and their conditional-response caches."""
-    return datetime.now(timezone.utc).date()
+    """The machine-local day, matching claim writers and response caches."""
+    return date.today()
 
 
 def read_valid_to(claim) -> str | None:
@@ -327,7 +327,7 @@ def read_valid_to(claim) -> str | None:
 
 
 def is_current(claim, *, now: date | None = None) -> bool:
-    """Current belief at the UTC day, for a Claim or derived metadata.
+    """Current belief at the local day, for a Claim or derived metadata.
 
     Any valid_to is CLOSED, even a future date or a born-closed event. A
     successor also closes a marker-only legacy claim. Stated ends are inclusive;

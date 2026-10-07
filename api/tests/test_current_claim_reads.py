@@ -149,3 +149,45 @@ def test_perspective_history_labels_an_elapsed_stated_end_before_expiry_writes(t
     ctx = mcp_tools.ToolContext(memory_path=lambda: tmp_path, session_id=None, harness="codex")
     out = mcp_tools.get_perspective(ctx, "alpha-project", history=True)
     assert "ended at its stated end" in out and "2020-01-01 → 2020-02-01" in out
+
+
+@pytest.mark.parametrize("zone,instant", [
+    ("Europe/Madrid", "2026-10-07T22:30:00+00:00"),
+    ("America/Los_Angeles", "2026-10-08T01:30:00+00:00"),
+])
+def test_claim_read_day_matches_writer_at_local_midnight(monkeypatch, zone, instant):
+    import os
+    import time
+    from datetime import datetime
+
+    fixed = datetime.fromisoformat(instant)
+    class LocalDate(date):
+        @classmethod
+        def today(cls):
+            return fixed.astimezone().date()
+    class FrozenDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return fixed.astimezone(tz) if tz else fixed.astimezone().replace(tzinfo=None)
+
+    old_zone = os.environ.get("TZ")
+    monkeypatch.setenv("TZ", zone)
+    time.tzset()
+    try:
+        monkeypatch.setattr(claims, "date", LocalDate)
+        monkeypatch.setattr(claims, "datetime", FrozenDatetime)
+        writer_day = LocalDate.today()
+        assert writer_day != fixed.date(), "fixture must cross the UTC/local boundary"
+        new = Claim(id="clm_new", text="Current calibration", valid_from=writer_day.isoformat(),
+                    expected_end=writer_day.isoformat())
+        old = Claim(id="clm_old", text="Earlier calibration", valid_to=writer_day.isoformat(),
+                    superseded_by=new.id)
+        assert claims.current_day() == writer_day
+        assert claims.is_current(new) and not claims.is_current(old)
+        assert claims.read_valid_to(new) is None, "stated ends include the writer's whole local day"
+    finally:
+        if old_zone is None:
+            os.environ.pop("TZ", None)
+        else:
+            os.environ["TZ"] = old_zone
+        time.tzset()

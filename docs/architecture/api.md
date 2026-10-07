@@ -163,7 +163,7 @@ schedules one revalidation there. The queue's writes (`PUT|DELETE /videos/queue/
 ---
 
 **Claim-read clocks (G118/G93, 2026-10-07).** Entity provenance and episode
-citations include `validity2` and the shared current UTC day in their ETag
+citations include `validity2` and the shared current machine-local day in their ETag
 recipes. Closure semantics invalidate an older cached response; a stated end
 or future start changes currentness at midnight even if no page was edited.
 These are on-demand reads with in-memory caches, not Store domains, and add
