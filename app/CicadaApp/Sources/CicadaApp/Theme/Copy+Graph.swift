@@ -49,6 +49,9 @@ extension Copy {
 extension Copy.Graph {
     static func confidenceOutOf100(_ n: Int) -> String { "Confidence \(n) out of 100" }
     static let fadingReason = " · not mentioned lately, so it is fading"
+    /// G194 A2 — an old page's header and its `.help`; the month and day come from `RelativeDay`.
+    static func lastMentioned(_ month: String) -> String { "last mentioned \(month)" }
+    static func lastMentionedHelp(_ day: String) -> String { " · last mentioned \(day)" }
     /// G117 — the owner's own page.
     static func ownerName(_ name: String) -> String { "\(name) (you)" }
     static func backTo(_ name: String?) -> String { name.map { "‹ Back to \($0)" } ?? "‹ Back" }

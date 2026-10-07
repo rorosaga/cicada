@@ -43,13 +43,42 @@ enum EntityHeaderWords {
         }
     }
 
-    static func statusLine(status: EntityStatus, confidence: Double) -> String {
-        "\(status.word) · \(self.confidence(confidence))"
+    /// G194 D1 — a page whose newest source is more than this many days old is "old": its header says when it was
+    /// last mentioned instead of how confident Cicada is. The backend's `source_dates.OLD_AFTER_DAYS`, pinned by
+    /// `api/tests/test_g194_header_pin.py`.
+    static let oldAfterDays = 90
+
+    /// The newest source's day when it is a readable past day more than `oldAfterDays` before `today`; a missing,
+    /// invalid or future day is never old (G194 A2).
+    static func oldDay(_ lastReferenced: String?, today: ISODay) -> ISODay? {
+        guard let day = ISODay(lastReferenced), today - day > oldAfterDays else { return nil }
+        return day
     }
 
-    /// The number lives here, in `.help`, and never as a bare "%" (DR-59).
-    static func statusHelp(status: EntityStatus, confidence: Double) -> String {
-        let base = Copy.Graph.confidenceOutOf100(Int((confidence * 100).rounded()))
+    /// "Feb 2025" in the viewer's language — the header's month (G194 A2); `nil` when the page is not old.
+    static func lastMentionedMonth(_ lastReferenced: String?, today: ISODay,
+                                   locale: Locale = .autoupdatingCurrent) -> String? {
+        oldDay(lastReferenced, today: today).map { RelativeDay.monthYear($0, locale: locale) }
+    }
+
+    /// R-DG14, with G194 A2 (owner D4): an old page reads "Active · last mentioned Feb 2025" — the confidence word
+    /// is replaced, never appended, because a meta line is one line (DR-59) and confidence is not freshness.
+    static func statusLine(status: EntityStatus, confidence: Double, lastReferenced: String? = nil,
+                           today: ISODay = .today(), locale: Locale = .autoupdatingCurrent) -> String {
+        if let month = lastMentionedMonth(lastReferenced, today: today, locale: locale) {
+            return "\(status.word) · \(Copy.Graph.lastMentioned(month))"
+        }
+        return "\(status.word) · \(self.confidence(confidence))"
+    }
+
+    /// The number lives here, in `.help`, and never as a bare "%" (DR-59); an old page adds the absolute day it was
+    /// last mentioned (DR-58: the full date in `.help`).
+    static func statusHelp(status: EntityStatus, confidence: Double, lastReferenced: String? = nil,
+                           today: ISODay = .today(), locale: Locale = .autoupdatingCurrent) -> String {
+        var base = Copy.Graph.confidenceOutOf100(Int((confidence * 100).rounded()))
+        if let day = oldDay(lastReferenced, today: today) {
+            base += Copy.Graph.lastMentionedHelp(RelativeDay.absolute(day, today: today, locale: locale))
+        }
         return status == .decaying ? base + Copy.Graph.fadingReason : base
     }
 
