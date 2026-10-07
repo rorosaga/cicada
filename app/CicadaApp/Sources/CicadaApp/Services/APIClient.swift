@@ -67,8 +67,8 @@ struct MemoryBank: Codable, Identifiable {
     }
 
     /// Memberwise init (the `init(from:)` below suppresses the synthesized
-    /// one). `ActivateBank`'s optimistic apply needs to flip `active` on a
-    /// roster row before the server echoes the new roster back.
+    /// one). `Store.activateBank` flips `active` on a roster row when the
+    /// server's answer carries no roster it can read.
     init(name: String, active: Bool, entityCount: Int, episodeCount: Int,
          createdAt: String, description: String?, legacy: Bool = false, demo: Bool = false) {
         self.name = name; self.active = active
@@ -1355,6 +1355,10 @@ actor APIClient {
         if let token = Self.loadToken() {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
+        // G183(d) — a write names the bank it started in; the server refuses it when that bank is no longer active.
+        if let bank = BankScope.value(method: method) {
+            request.setValue(bank, forHTTPHeaderField: BankScope.header)
+        }
         return request
     }
 
@@ -1426,9 +1430,11 @@ actor APIClient {
         try await post("/banks/leave-demo")
     }
 
-    /// `POST /banks/{name}/activate` → switch the active bank.
-    func activateBank(name: String) async throws {
-        try await post("/banks/\(encodedBank(name))/activate")
+    /// `POST /banks/{name}/activate` → switch the active bank; answers the roster as the server then has it. A body
+    /// that will not decode is `nil`, never a failed switch — the server has already moved.
+    func activateBank(name: String) async throws -> BanksResponse? {
+        let data: Data = try await post("/banks/\(encodedBank(name))/activate")
+        return try? decoder.decode(BanksResponse.self, from: data)
     }
 
     /// `POST /banks/{name}/duplicate` `{newName}` → "save current under a name".

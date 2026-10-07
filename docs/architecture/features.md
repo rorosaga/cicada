@@ -54,7 +54,12 @@ discriminator (`decay`, `conflict`, `clarification`, `merge_suggestion`, `remova
 resolvable kinds with G113; `removal` is written by a live browser sync, not Sleep, at proposal
 time (G129 slice 2); `followup`, G141 PJ-6, by Sleep's engine-free tail), behind `GET /inbox` /
 `POST /inbox/{id}/resolve`. `api/routers/nudges.py` and `clarifications.py` are thin **deprecated**
-shims (they set `Deprecation: true`) kept only for external callers — the app calls `/inbox`.
+shims (they set `Deprecation: true`) kept only for external callers — the app calls `/inbox`. Every resolve door answers
+409 while Sleep holds the pages (`inbox_service.resolve`, G177/G183(a)), asked under the bank's write admission and held
+through the answer's commit, so a window waits for the answer (`storage.md`, "Write admission"); a conflict answer's
+prose rewrite is a model call made before admission and used only when the item, the pick and the page are what it
+was made for. Between a
+drain's batches it commits alone.
 
 **A count is what the inbox serves, never a count of files.** `load_inbox` skips a deferred item and
 one whose subject is archived, dropped or (for every kind but `clarification`) gone; those files stay
@@ -68,7 +73,19 @@ phrase ("6 months ago") so staleness is visible before choosing; `age_days` is d
 never stored. Legacy flat `options: [str]` still render.
 
 **Dedup + time.** Items are keyed `(entity_id, predicate)`. A second competing value **merges** into
-the open item as another option instead of writing a duplicate. Each Sleep,
+the open item as another option instead of writing a duplicate. **A predicate fold is asked once per pair per bank
+(G98/G115):** Stage 3 raises `normalization` only when a synonym in `_predicates.yaml` maps a label onto a *different*
+predicate — a label kept as its own slug (`uses dataset` → `uses-dataset`) is formatting, never a question. The
+reconciler raises one question per `(slug(raw), canonical)` pair *after* the pass, naming the claim each page keeps (a
+restatement that reinforced an existing claim names that claim) and listing the rest in `covered_claims`;
+`write_claim_nudges` merges a later batch's claims into the open item for the pair, and a pair the person answered
+"Correct fold" to (`_predicates.yaml` `confirmed_folds`) is never asked again. "Wrong fold" drops every synonym spelling
+of the pair and repoints every covered claim still on the canonical. The answer runs inside the request's write admission, as one
+page-and-git-lock section through its own `user` commit, the map written atomically (`storage.md`). The question is served on the first covered page still live
+(`_fold_anchor`), hidden only when every covered page is gone. The claim write itself never changes. A one-shot bank
+migration (`dedup_normalization_items`, marker `inbox/.deduped_normalization`) clears the items raised before the fix:
+an admitted transaction (G183) that defers while Sleep holds the pages, under the page and git locks, committing only
+the files it changed and restoring them — bytes and index entries as they were — on any failure. Each Sleep,
 `inbox_questions.refresh_open_questions` bumps re-mentioned options, auto-resolves questions the
 user answered organically, escalates a question whose every option has been silent for
 `inbox_stale_after_days` (90) by inserting "Neither anymore", and keeps deferred items out of
@@ -97,8 +114,9 @@ questions alone at full width; a click narrows them to the triage column and ope
 question drops under 440, and when neither the question's 440 nor the Reader's 360 fits they share the width, so
 nothing is pushed off-window. **One tap answers, and Undo is a send delay** (`ResolveGrace`, in the `Store`): the
 answer leaves `visibleInbox` at once and `POST /inbox/{id}/resolve` waits 5 s (`CicadaTiming.undoWindow`), sent
-early by the next answer, `ActivateBank` (before the bank moves), the window closing and quit (`.terminateLater`,
-≤ 3 s) — an undone answer makes no commit, claim or G113 event; a page switch does not send. Every kind renders in
+early by the next answer, `Store.activateBank` (before the switch is posted; a new answer is refused while it waits), the window closing and quit (`.terminateLater`,
+≤ 3 s) — an undone answer makes no commit, claim or G113 event; a page switch does not send. A refused answer comes
+back with a toast; one refused while Sleep holds the pages says Sleep is running (`SleepRefusal`, app.md *Sync engine*). Every kind renders in
 the card (`FocusCardVariant`), options come from the server (a follow-up's 30-day "not now" is its own option), the
 source is named in a person's words (`InboxSourceLine`, ids in `.help` only), an asserted span is washed and
 underlined and a found mention is semibold. Esc closes the Other… field, then the Reader, then the question; keys

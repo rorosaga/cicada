@@ -47,14 +47,17 @@ from api.services import (
     local_refs,
     logo_service,
     markdown_parser,
+    page_lock,
     repo_context,
     repo_observations,
     telemetry,
+    write_admission,
 )
 from api.services.claims import strip_claims_block
 from api.services.hub_builder import _one_line_summary
 from api.services.id_utils import build_name_index, resolve_entity_id
 from api.services.wikilink_resolver import extract_wikilinks
+from api.services.sleep_refusal import SleepWriting
 
 router = APIRouter()
 
@@ -188,28 +191,45 @@ PICTURE_BUSY = "Sleep is updating your memory — try the picture again in a mom
 #: One picture write at a time in this process (`projects._write_lock`'s reason): an upload and a quick "Use initials"
 #: would otherwise both read the page, and the second rewrite — or its `_drop_uploads` — would land between the first's
 #: write and its commit, leaving that commit to stage a file that is already gone.
-_PICTURE_LOCK = asyncio.Lock()
+_PICTURE_LOCK = write_admission.TransactionLock()   # taken inside admitted transactions (writer loop)
 
 
 SOURCE_BUSY = "Sleep is updating your memory — try the source change again in a moment."
 
 
-def _source_guard() -> None:
-    """G61 S3-a review — the person's source writes wait for Sleep like the picture's (same reason): a page frontmatter
-    rewrite between Sleep's read and its commit would be lost or swept into the cycle's commit under a model's name."""
-    from api.services import sleep_cycle
-
-    if sleep_cycle.is_writing():
-        raise HTTPException(409, SOURCE_BUSY)
+PAGE_BUSY = "Sleep is updating your memory — try again in a moment."
 
 
-def _picture_guard() -> None:
-    """G146 plan R-PE8 — 409 while Sleep runs (`projects._guard`'s reason): Sleep rewrites the same pages, and a picture
-    written between its read and its commit would be lost or swept into the cycle's commit under a model's name."""
-    from api.services import sleep_cycle
+def _admits(busy: str):
+    """The route's write admission (G183): 409 with ``busy`` when Sleep holds the pages, asked once the hold is taken
+    and held through the route's write and its commit — so a window cannot open between them. The person's source,
+    picture, decay-class and repo-link writes (G61 S3-a, G146 R-PE8, G177/G183(a)): a frontmatter rewrite between
+    Sleep's read and its commit would be lost or swept into the cycle's commit under a model's name."""
+    return write_admission.route(refuse=lambda: SleepWriting(busy))
 
-    if sleep_cycle.is_writing():
-        raise HTTPException(409, PICTURE_BUSY)
+
+def _rewrite_page_and_commit(memory_path: Path, entity_id: str, mutate, message: str) -> dict:
+    """One page's frontmatter rewrite and its commit as ONE page-lock section, in a worker thread (G183(a)): read,
+    ``mutate(frontmatter)``, write, then the scoped synchronous commit — so no other page writer (an agent's claim, a
+    dedup merge) can take the person's change into its own commit between the write and the commit. Nothing here is
+    awaited, so the thread-re-entrant lock never spans the event loop. An edit already on the page is committed apart
+    first, unauthored (``commit_touched_sync``'s ``before`` — the inbox's P1-3 mechanism). Returns the frontmatter."""
+    rel = f"entities/{entity_id}.md"
+    page = memory_path / rel
+    with page_lock.page_lock(memory_path):   # under the route's admission (`_admits`): no window opens here
+        if not page.exists():
+            raise HTTPException(404, f"Entity {entity_id} not found")
+        tracked = (memory_path / ".git").exists()
+        before = None
+        if tracked:
+            before = {rel: page.read_bytes()} if rel in git_service.dirty_paths_sync(memory_path, rel) else {}
+        parsed = markdown_parser.parse(page)
+        fm = parsed.frontmatter
+        mutate(fm)
+        markdown_parser.write(page, fm, parsed.body)
+        if tracked:
+            git_service.commit_touched_sync(memory_path, message, [rel], before=before)
+    return fm
 
 
 def _entity_page(settings: Settings, entity_id: str) -> Path:
@@ -246,11 +266,11 @@ async def get_entity_picture(entity_id: str, request: Request, settings: Setting
 
 
 @router.post("/entities/{entity_id}/picture", response_model=EntityPictureResponse)
+@_admits(PICTURE_BUSY)
 async def set_entity_picture(entity_id: str, file: UploadFile, settings: Settings = Depends(get_settings)):
     """C11 — the person's own picture for this page (G146; round-4 decision 9). Kept in the bank at
     `assets/pictures/<id>.<png|jpg>` and committed alone as `Cicada-Author: user` (plan R-PE1, R-PE8). The app sends it
     already shrunk; the server only bounds it (R-PE2)."""
-    _picture_guard()
     _entity_page(settings, entity_id)
     data = await file.read(entity_picture.MAX_UPLOAD_BYTES + 1)
     async with _PICTURE_LOCK:
@@ -265,9 +285,9 @@ async def set_entity_picture(entity_id: str, file: UploadFile, settings: Setting
 
 
 @router.post("/entities/{entity_id}/picture/initials", response_model=EntityPictureResponse)
+@_admits(PICTURE_BUSY)
 async def use_entity_initials(entity_id: str, settings: Settings = Depends(get_settings)):
     """C11 / F-12 — "Use initials instead": the person's choice, kept (plan R-PE4)."""
-    _picture_guard()
     _entity_page(settings, entity_id)
     async with _PICTURE_LOCK:
         write = await asyncio.to_thread(entity_picture.write_initials, settings.memory_path, entity_id,
@@ -277,10 +297,10 @@ async def use_entity_initials(entity_id: str, settings: Settings = Depends(get_s
 
 
 @router.delete("/entities/{entity_id}/picture", response_model=EntityPictureResponse)
+@_admits(PICTURE_BUSY)
 async def clear_entity_picture(entity_id: str, settings: Settings = Depends(get_settings)):
     """C11 — back to what was detected (plan R-PE4): the person's upload or initials go; nothing to clear commits
     nothing."""
-    _picture_guard()
     _entity_page(settings, entity_id)
     async with _PICTURE_LOCK:
         write = await asyncio.to_thread(entity_picture.write_clear, settings.memory_path, entity_id)
@@ -394,6 +414,7 @@ async def get_entity_commit_diff(
 
 
 @router.put("/entities/{entity_id}/decay", response_model=EntityResponse)
+@_admits(PAGE_BUSY)
 async def update_entity_decay(
     entity_id: str,
     request: EntityDecayUpdate,
@@ -407,16 +428,8 @@ async def update_entity_decay(
     untouched, and ``version`` is deliberately NOT bumped: choosing how fast a
     belief fades is a policy decision about the page, not a revision of its
     content. Commits scoped to this one file — trigger ``user/companion_app``,
-    ``Cicada-Author: user``.
+    ``Cicada-Author: user``. 409 while Sleep holds the pages (G177).
     """
-    entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
-    if not entity_path.exists():
-        raise HTTPException(404, f"Entity {entity_id} not found")
-
-    parsed = markdown_parser.parse(entity_path)
-    parsed.frontmatter.update(decay_policy.frontmatter_fields(request.decay_class))
-    markdown_parser.write(entity_path, parsed.frontmatter, parsed.body)
-
     message = git_service.build_commit_message(
         f"Set decay class {date.today().isoformat()}",
         [
@@ -427,9 +440,9 @@ async def update_entity_decay(
     )
     # Scoped, never ``git add -A``: a decay override must not sweep an unrelated
     # dirty file in memory/ into this commit.
-    await git_service.commit_paths(
-        settings.memory_path, message, [f"entities/{entity_id}.md"]
-    )
+    fields = decay_policy.frontmatter_fields(request.decay_class)
+    await run_in_threadpool(
+        _rewrite_page_and_commit, settings.memory_path, entity_id, lambda fm: fm.update(fields), message)
 
     return await get_entity(entity_id, settings=settings)
 
@@ -626,6 +639,7 @@ def _repo_input_to_frontmatter(r: RepoInput) -> dict:
 
 
 @router.patch("/entities/{entity_id}/repos", response_model=RepoDeclarationList)
+@_admits(PAGE_BUSY)
 async def update_entity_repos(
     entity_id: str,
     request: RepoUpdateRequest,
@@ -637,29 +651,24 @@ async def update_entity_repos(
     empty list, so an entity that never declared a repo stays byte-identical.
     Every other frontmatter key and the body are left untouched. Commits via
     the same structured-commit-message + git_service pattern as every other
-    Cicada write: trigger ``user/companion_app``, ``Cicada-Author: user``.
-    Answers the declarations, like ``GET`` — never a probe.
+    Cicada write: trigger ``user/companion_app``, ``Cicada-Author: user`` —
+    scoped to this one page, never ``git add -A`` (G183(a)). 409 while Sleep
+    holds the pages (G177). Answers the declarations, like ``GET`` — never a probe.
     """
-    entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
-    if not entity_path.exists():
-        raise HTTPException(404, f"Entity {entity_id} not found")
+    repos = [_repo_input_to_frontmatter(r) for r in request.repos]
 
-    parsed = markdown_parser.parse(entity_path)
-    fm = parsed.frontmatter
-
-    if not request.repos:
-        fm.pop("repos", None)
-    else:
-        fm["repos"] = [_repo_input_to_frontmatter(r) for r in request.repos]
-
-    markdown_parser.write(entity_path, fm, parsed.body)
+    def mutate(fm: dict) -> None:
+        if repos:
+            fm["repos"] = repos
+        else:
+            fm.pop("repos", None)
 
     message = git_service.build_commit_message(
         f"Update repo links {date.today().isoformat()}",
         [f"entities/{entity_id}.md: updated (trigger: user/companion_app)"],
         authors=["user"],
     )
-    await git_service.commit_changes(settings.memory_path, message)
+    fm = await run_in_threadpool(_rewrite_page_and_commit, settings.memory_path, entity_id, mutate, message)
 
     return _declarations_payload(entity_id, _repo_declarations(fm))
 
@@ -748,6 +757,7 @@ async def get_entity_paper(entity_id: str, settings: Settings = Depends(get_sett
 
 
 @router.post("/entities/{entity_id}/sources", response_model=EntitySourceList)
+@_admits(SOURCE_BUSY)
 async def add_entity_source(
     entity_id: str,
     request: EntitySourceCreate,
@@ -758,7 +768,6 @@ async def add_entity_source(
     G61 phase 2 S1 (plan R-AC21, R-AC27): the person's ``access``/``accepted``/
     ``only_me`` ride along, and a value the record does not allow is a 400 with
     ``fact_sources.InvalidSource``'s message — never a silently dropped field."""
-    _source_guard()
     entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
     if not entity_path.exists():
         raise HTTPException(404, f"Entity {entity_id} not found")
@@ -785,6 +794,7 @@ async def add_entity_source(
 
 
 @router.post("/entities/{entity_id}/sources/change", response_model=EntitySourceList)
+@_admits(SOURCE_BUSY)
 async def change_entity_source(
     entity_id: str,
     request: EntitySourceChange,
@@ -796,7 +806,6 @@ async def change_entity_source(
     ``newRef``/``newPredicate`` replaces the entry; ``remove`` drops it and leaves a ``sources_removed``
     tombstone so no machine writer puts it back. 404: no page, or nothing under that key; 400: a value the
     record does not allow. Commits alone as ``user`` (``user/companion_app``), like the other source writes."""
-    _source_guard()
     entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
     if not entity_path.exists():
         raise HTTPException(404, f"Entity {entity_id} not found")
@@ -828,13 +837,13 @@ async def change_entity_source(
 
 
 @router.delete("/entities/{entity_id}/sources/{index}", response_model=EntitySourceList)
+@_admits(SOURCE_BUSY)
 async def delete_entity_source(
     entity_id: str,
     index: int,
     settings: Settings = Depends(get_settings),
 ):
     """Remove the source at ``index`` (0-based, file order)."""
-    _source_guard()
     entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
     if not entity_path.exists():
         raise HTTPException(404, f"Entity {entity_id} not found")

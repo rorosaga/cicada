@@ -31,7 +31,7 @@ major="$(sw_vers -productVersion | cut -d. -f1)"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
-say "Finding the latest release of $REPO…"
+say "Finding the latest release of ${REPO}…"
 curl -fsSL -H "Accept: application/vnd.github+json" "$API" -o "$WORK/release.json" \
   || die "Couldn't reach GitHub. Check your connection and try again."
 latest_url="$(/usr/bin/python3 -c 'import json,sys
@@ -44,7 +44,7 @@ d=json.load(open(sys.argv[1])); print(d["version"], d["url"], d["sha256"])' "$WO
 [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "The release names an odd version ($version) — nothing was installed."
 [[ "$url" == https://* ]] || [ -n "${CICADA_RELEASE_API:-}" ] || die "The release's download isn't https — nothing was installed."
 
-say "Downloading Cicada $version…"
+say "Downloading Cicada ${version}…"
 curl -fL --progress-bar --url "$url" -o "$WORK/Cicada.zip" || die "The download failed."
 got="$(shasum -a 256 "$WORK/Cicada.zip" | cut -d' ' -f1)"
 [ "$got" = "$sha" ] || die "The download doesn't match the release's checksum — nothing was installed."

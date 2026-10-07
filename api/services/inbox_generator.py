@@ -111,6 +111,58 @@ def _open_decay_items(inbox_dir: Path) -> dict[str, Path]:
     return out
 
 
+def _open_fold_items(inbox_dir: Path) -> dict[tuple[str, str], Path]:
+    """``{(raw_slug, canonical): oldest open normalization item}`` — one scan.
+
+    G98/G115: a fold is one question per pair per bank, whichever page or claim
+    raised it, so the key is the pair (:func:`predicates.fold_key`), never the
+    entity. A deferred item is still open."""
+    out: dict[tuple[str, str], Path] = {}
+    for filepath in sorted(inbox_dir.glob("inbox-*.md")):
+        try:
+            fm = markdown_parser.parse(filepath).frontmatter
+        except Exception:
+            continue
+        if str(fm.get("kind", "")) != "normalization":
+            continue
+        if str(fm.get("status", "pending") or "pending") != "pending":
+            continue
+        key = predicates.fold_key(str(fm.get("raw_predicate") or ""), str(fm.get("canonical_predicate") or ""))
+        if key[0] and key[1]:
+            out.setdefault(key, filepath)
+    return out
+
+
+def fold_claims(fm: dict) -> list[tuple[str, str]]:
+    """Every ``(entity_id, claim_id)`` a normalization item covers: the claim
+    that opened it, then the ones later batches folded the same way
+    (``covered_claims``), in order, no repeats. A "wrong fold" answer repoints
+    all of them (:func:`inbox_service._resolve_normalization`)."""
+    out: list[tuple[str, str]] = []
+    rows = [{"entity_id": fm.get("entity_id"), "claim_id": fm.get("claim_id")},
+            *[r for r in (fm.get("covered_claims") or []) if isinstance(r, dict)]]
+    for row in rows:
+        pair = (str(row.get("entity_id") or "").strip(), str(row.get("claim_id") or "").strip())
+        if pair[0] and pair[1] and pair not in out:
+            out.append(pair)
+    return out
+
+
+def _cover_fold(path: Path, refs: list[tuple[str, str]], today: str) -> None:
+    """Record more claims folded by an already-open pair, instead of a new item."""
+    parsed = markdown_parser.parse(path)
+    fm = parsed.frontmatter
+    have = fold_claims(fm)
+    fresh = [r for r in refs if r not in have]
+    if not fresh:
+        return
+    covered = [r for r in (fm.get("covered_claims") or []) if isinstance(r, dict)]
+    covered += [{"entity_id": e, "claim_id": c} for e, c in fresh]
+    fm["covered_claims"] = covered
+    fm["updated_date"] = today
+    markdown_parser.write(path, fm, parsed.body)
+
+
 def decay_claim_ids(fm: dict) -> list[str]:
     """Every claim a decay item covers: the one that opened it (``claim_id``)
     then the ones its later refreshes named (``claim_ids``), in order, no
@@ -399,12 +451,20 @@ def write_claim_nudges(
     inbox item, **reusing the same ``inbox-NNN`` allocator** so it never collides
     with the legacy entity-path nudges written earlier in the same Stage 5.
 
-    Returns ``{"written": n, "merged": m, "skipped_multi_valued": s}`` —
+    Returns ``{"written": n, "merged": m, "skipped_multi_valued": s,
+    "skipped_confirmed_folds": f}`` —
     ``written`` counts inbox items newly created, ``merged`` counts conflict
     nudges folded into an already-open item on the same ``(entity, predicate)``
-    key instead of spawning a duplicate, and ``skipped_multi_valued`` counts
-    conflict nudges dropped by the G98 rule below. A subject without an entity
+    key (and fold nudges recorded on the open question for their pair) instead
+    of spawning a duplicate, ``skipped_multi_valued`` counts conflict nudges
+    dropped by the G98 rule below, and ``skipped_confirmed_folds`` counts fold
+    nudges for a pair the person already confirmed. A subject without an entity
     page still gets a nudge (the page may be promoted next cycle).
+
+    **A predicate fold is deduplicated by pair (G98/G115).** One question per
+    ``(raw -> canonical)`` pair per bank: a later claim folded the same way is
+    added to the open item's ``covered_claims``, and a pair the person confirmed
+    (``_predicates.yaml`` ``confirmed_folds``) writes nothing.
 
     **Decay is deduplicated by entity.** A ``decay_nudge`` is one question about
     the page ("Still tracking X?"), however many of its claims are fading, and
@@ -417,7 +477,7 @@ def write_claim_nudges(
     """
     budget = decay_budget if decay_budget is not None else DecayBudget()
     if not nudges:
-        return {"written": 0, "merged": 0, "skipped_multi_valued": 0}
+        return {"written": 0, "merged": 0, "skipped_multi_valued": 0, "skipped_confirmed_folds": 0}
     inbox_dir = memory_path / "inbox"
     entities_dir = memory_path / "entities"
     inbox_dir.mkdir(parents=True, exist_ok=True)
@@ -430,6 +490,10 @@ def write_claim_nudges(
         n.get("action") == "decay_nudge" for n in nudges
     ) else {}
     admitted = _admit_decay(nudges, open_decay, budget)
+    has_folds = any(n.get("action") == "normalization_audit" for n in nudges)
+    open_folds = _open_fold_items(inbox_dir) if has_folds else {}
+    confirmed = predicates.confirmed_folds(memory_path) if has_folds else {}
+    skipped_confirmed = 0
     turned_away: set[str] = set()
     lowest: dict[str, float] = {}   # entity -> lowest confidence seen this call
     today = str(date.today())
@@ -472,6 +536,22 @@ def write_claim_nudges(
             kind, priority, required = "divergence", 0.5, "choice"
             title = f"I'm reading something different about {entity_name}"
         elif action == "normalization_audit":
+            # G98/G115: one question per (raw -> canonical) pair per bank. A pair
+            # the person confirmed is never asked again; a pair with an open
+            # question gains this claim on it (merged), never a second file.
+            fold = predicates.fold_key(
+                str(nudge.get("raw_predicate") or ""), str(nudge.get("canonical_predicate") or "")
+            )
+            known = bool(fold[0] and fold[1])  # a legacy nudge may carry no pair
+            if known and fold[0] == fold[1]:
+                continue
+            if known and confirmed.get(fold[0]) == fold[1]:
+                skipped_confirmed += 1
+                continue
+            if known and fold in open_folds:
+                _cover_fold(open_folds[fold], fold_claims({**nudge, "entity_id": entity_id}), today)
+                merged += 1
+                continue
             kind, priority, required = "normalization", 0.3, "choice"
             title = f"Confirm a predicate fold for {entity_name}"
         elif action == "decay_nudge":
@@ -524,6 +604,12 @@ def write_claim_nudges(
             "raw_predicate": nudge.get("raw_predicate"),
             "canonical_predicate": nudge.get("canonical_predicate"),
         }
+        if kind == "normalization" and nudge.get("covered_claims"):
+            # G98/G115: the other claims Stage 3 kept under this fold, repointed too on "wrong fold".
+            frontmatter["covered_claims"] = [
+                {"entity_id": e, "claim_id": c}
+                for e, c in fold_claims({**nudge, "entity_id": entity_id})[1:]
+            ]
         body = nudge.get("conflict_context") or (
             f"{entity_name} hasn't been mentioned recently; confidence dropped to "
             f"{float(nudge.get('new_confidence', 0) or 0):.2f}."
@@ -535,10 +621,13 @@ def write_claim_nudges(
         if kind == "decay":
             open_decay[entity_id] = inbox_dir / f"{item_id}.md"
             budget.written += 1
+        elif kind == "normalization" and known:
+            open_folds[fold] = inbox_dir / f"{item_id}.md"
 
     budget.refreshed += decay_refreshed
     budget.deferred |= {e for e in turned_away if e not in open_decay}
-    return {"written": written, "merged": merged, "skipped_multi_valued": skipped_multi}
+    return {"written": written, "merged": merged, "skipped_multi_valued": skipped_multi,
+            "skipped_confirmed_folds": skipped_confirmed}
 
 
 def _write_graph_edges(memory_path: Path, new_edges: list[dict]) -> None:

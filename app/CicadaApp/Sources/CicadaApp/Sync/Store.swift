@@ -22,8 +22,14 @@ final class Store {
     // MARK: Snapshots
 
     var bank: String = "default" {
-        didSet { if oldValue != bank { onBankChanged?() } }
+        didSet {
+            if publishesBankScope { BankScope.onScreen = bank }
+            if oldValue != bank { onBankChanged?() }
+        }
     }
+    /// The app's own Store (the one talking to `APIClient`) is the fallback bank every unbound write names
+    /// (`BankScope.onScreen`, G183(d)); a test's Store never touches that process-wide value.
+    @ObservationIgnored private let publishesBankScope: Bool
     var graph = Snapshot<GraphResponse>()
     var inbox = Snapshot<[InboxItem]>()
     var banks = Snapshot<BanksResponse>()
@@ -55,6 +61,17 @@ final class Store {
     /// races the server-side delete, the item is still in `inbox.value` and
     /// un-hiding it here would flash the card back for one refresh cycle.
     var hiddenInboxIds: Set<String> = []
+
+    /// G183(d) — the one bank switch in flight (`Store.activateBank`), reserved before its first await and released
+    /// only by the switch that owns it (`generation`). While it is set every bank-scoped write is held back
+    /// (`refusesWriteWhileSwitching`), and a second switch is refused.
+    var bankSwitch: BankSwitch?
+    /// The bank a switch is waiting on — the switcher's quiet in-progress state.
+    var switchingBank: String? { bankSwitch?.target }
+    @ObservationIgnored var bankSwitchGeneration = 0
+    /// The last bank `refresh`'s own fan-out moved to while a switch was in flight (an SSE `version` that saw the
+    /// server move): a different one means the server has moved past this switch, and its roster decides.
+    @ObservationIgnored var bankSeenDuringSwitch: String?
 
     /// R-DL5 — `entityNames`' memo (`Models/EntityNames.swift`). Ignored by observation: it is a cache, and the
     /// getter already reads `graph`, which is what views must track.
@@ -178,8 +195,10 @@ final class Store {
     init(cache: SnapshotCache = SnapshotCache(), api: any SyncAPI = APIClient.shared) {
         self.cache = cache
         self.api = api
+        self.publishesBankScope = api is APIClient
         self.engine = SyncEngine(api: api)
         self.engine.attach(store: self)
+        if publishesBankScope { BankScope.onScreen = bank }
     }
 
     // MARK: - Hydration
@@ -239,8 +258,8 @@ final class Store {
                 if let active = roster.value.active, !active.isEmpty { bank = active }
             }
         }
-        // R-DI3 — a held answer belongs to the bank it was made in. `ActivateBank` sends it before
-        // the switch; a switch that arrives from elsewhere (another client moved the roster) drops
+        // R-DI3 — a held answer belongs to the bank it was made in. `Store.activateBank` sends it before
+        // the switch (and refuses a new one while it waits); a switch that arrives from elsewhere (another client moved the roster) drops
         // it with a word rather than post it into the wrong bank.
         if let held = heldResolve, held.bank != bank {
             graceTask?.cancel()
@@ -321,6 +340,7 @@ final class Store {
             await refreshOne(.banks, \.banks) { [api] etag in try await api.fetchBanks(etag: etag) }
             if let active = banks.value?.active, !active.isEmpty, active != previous {
                 Self.logger.notice("bank switched \(previous, privacy: .public) → \(active, privacy: .public)")
+                if bankSwitch != nil { bankSeenDuringSwitch = active }
                 // Hydrate the target bank explicitly — re-reading the roster
                 // here would race the debounced write we just queued.
                 await hydrate(bank: active)
@@ -513,7 +533,8 @@ final class Store {
             stage: event.stage,
             totalStages: event.totalStages,
             cycleId: event.cycleId,
-            error: event.error
+            error: event.error,
+            writing: event.writing
         )
         status.value = snapshot
         pushStatus(snapshot)
@@ -538,8 +559,19 @@ final class Store {
     ///
     /// Returns whether the request landed, so callers can reset per-row UI
     /// state (a spinner, a dimmed card) instead of leaving it stuck.
+    ///
+    /// G183(d) — while a bank switch is in flight nothing is sent (`refusesWriteWhileSwitching`): the server may
+    /// already be on the new bank while the Store still shows the old one, so a write would land in the wrong bank.
+    /// `duringSwitch` is the switch's own drain of the old bank's answers (R-DI3), sent before it posts.
     @discardableResult
-    func perform(_ mutation: any Mutation) async -> Bool {
+    func perform(_ mutation: any Mutation, duringSwitch: Bool = false) async -> Bool {
+        if !duringSwitch, refusesWriteWhileSwitching() { return false }
+        // G183(d) — bound at admission: the request names the bank this mutation started in (an enclosing binding —
+        // a held answer's own bank — wins), so one that outlives a switch is refused by the server, not misfiled.
+        return await BankScope.bound(to: BankScope.origin ?? bank) { await admitted(mutation) }
+    }
+
+    private func admitted(_ mutation: any Mutation) async -> Bool {
         await mutation.optimistic(self)
         do {
             try await mutation.request(api)
@@ -550,7 +582,9 @@ final class Store {
             await mutation.rollback(self)
             // R-SR11 — the person stopped it: no toast. The reconcile below shares the cancelled task, so its
             // requests end at once; the next SSE `version` event is what brings the domains back in line.
-            if !(SyncCancellation.isCancellation(error) || Task.isCancelled) { toast = mutation.failureMessage }
+            if !(SyncCancellation.isCancellation(error) || Task.isCancelled) {
+                toast = BankScope.isMismatch(error) ? Copy.memorySwitched : mutation.failureMessage
+            }
             Self.logger.debug("mutation failed: \(String(describing: error))")
             // The rollback restores what this mutation changed, but it cannot
             // know what else moved while the request was in flight (an SSE

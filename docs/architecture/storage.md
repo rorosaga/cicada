@@ -101,7 +101,19 @@ page is deleted, `graph_edges.yaml` and every other page's `related:`, `[[wikili
 source `entity:` links and claims whose subject or node object named it are repointed (`repoint_references`), the
 loser's name joins the winner's `aliases`, and the result lists the paths it wrote. The inbox's
 rename-to-the-cleaner-slug branch repoints the same references (`rename_references`), and every inbox note lands above
-the fence. `episodes/` is never rewritten.
+the fence. `episodes/` is never rewritten. **The dedup sweep commits its own merges (G183(e)):** `POST
+/maintenance/dedup-sweep` with `dryRun: false` runs each merge as one transaction under the page lock **and** the bank's
+git write lock, from its footprint check through its commit or recovery (never across the judge's model call). The
+footprint — `entity_merge.merge_footprint`: winner, loser, `graph_edges.yaml` when an edge names the loser, and every page
+naming the loser, found by `_repoint_page`, the same matcher `repoint_references` writes with — is known before any write.
+The merge is refused untouched when a footprint path is unsafe to put back (`skippedUnsafe`: unmerged index stages, a
+symlink, not a regular file) or dirty (`skippedDirty`), so nothing another writer left uncommitted is ever committed as
+`cicada`. Only the footprint is snapshotted (bytes, permission bits, stage-0 index entry or absence). The merge must write
+only inside it; the paths it wrote whose bytes changed are committed — `Dedup sweep <date>`, `<path>: updated|removed
+(merged, trigger: maintenance/dedup-sweep)`, `Cicada-Author: cicada`, `Cicada-Engine:` the judge's engine. A failed merge
+or commit gets the footprint back as found, never HEAD's version, and nothing outside it is read or written (`failed`);
+a write outside the footprint, a put-back that cannot be done, or a HEAD that moved inside the transaction stops the
+sweep (`recoveryFailed`). `repoint_edges` leaves an untouched graph alone. A dry run writes and commits nothing.
 
 **Evidence spans (G118) — spans, not copies.** Every claim written since that slice carries
 `evidence: [{episode, start, end, kind, hash}]`. `start`/`end` are character offsets into the source
@@ -377,7 +389,9 @@ pages in focus in the last 14 days, people, recent conversations (G140, schema v
 every remote scope set. Contract item 3 names `cicada_note_progress` (G141 PJ-3a; remotely only when the
 connection holds it). Delivered four ways: the MCP `initialize` result's
 `instructions` (which Claude Code truncates), the `cicada_handshake` tool, `GET /handshake`, and the
-SessionStart hook's `additionalContext` under a "From Cicada" header (G149). Contract item 8 tells an
+SessionStart hook's `additionalContext` under a "From Cicada" header (G149). Since G110 slice 1a that whole
+SessionStart note — header, primer, the continuity block, the reading sentence — is measured as one string inside the
+1,800 tokens (`recall_text.compose_note`); the primer is built with a 300-token reserve when a block rides beside it. Contract item 8 tells an
 agent what a "From Cicada" note is. **R12: a primer naming an
 argument the schema rejects is a bug** — every argument it names must exist in the tool schema.
 `SKILL.md` points at the generated text rather than restating the contract — one prose source.
@@ -441,6 +455,25 @@ lifespan and a bank switch warm it in the background. The caller always passes t
 tiers 0–2), fuses it with the stored vectors in `mode=hybrid`, and **never embeds in `mode=prefix`**.
 **The query is never logged**: not by loguru, and not by uvicorn's access log (`api/main.py` strips the
 query string of `/search` and `/conversations/recent`, G136 R22).
+
+### Continuity index and session registry (G110 slice 1a)
+`$CICADA_HOME/continuity/<bank-id>.index.json` is a **derived, disposable** map of every `ep_*.md` to `(mtime_ns, size, row)`, where a
+row is the head scalars of a Stop-hook episode (`id`, `harness`, `session_id`, `project_dir`, `captured_at`,
+`last_turn_at`, `processed`, `processed_by`) read from at most 16 KB up to the first `turns:` key — never a full parse
+inside a hook. It lives **beside the registry, never inside a bank** (G110 fix round 2: proving that git ignored an
+in-bank file proved unreliable, so nothing is written there and no git runs on this path). It shares the registry's
+guarded home, no-follow regular-file opens and 0600 files; its lock is `<bank-id>.index.lock` beside it; with no safe
+home, contention or any I/O failure it stays in process memory. Its rows keep `capture_kind`, so a persisted index
+decodes after a restart. An older in-bank `continuity_index.json` is ignored, never read and never deleted. A wrong schema or malformed row is rebuilt; it is never an error and never an authoritative absence.
+
+The **continuity registry** (`api/services/continuity_sessions.py`, `$CICADA_HOME/continuity/<bank slug>-<hash8>.json`)
+is outside every bank — `continuity_home` refuses a `CICADA_HOME` that resolves (symlinks followed) inside the memory
+root or any configured bank. One row per harness session: the harness, `sha256(cwd)[:16]` (never the path),
+`started_at` (earliest), `last_prompt_at` (latest), `continues` (one episode id, first write wins). Ids, a hash and
+times only; monotone merges; one bounded `flock` transaction per request; 30-day expiry, ≤ 1,000 rows, files 0600.
+Every registry, lock and index file is opened without following a symlink in its final component and refused unless
+it is a regular file (`continuity_sessions.open_regular`), so a planted link can never redirect a read, a write or a
+`chmod` into a bank.
 
 ### Telemetry ledger (`~/.cicada/telemetry/`)
 Append-only JSONL, machine-global, **never in a bank or git**. `CICADA_TELEMETRY=off` disables it.
@@ -566,13 +599,71 @@ under its own author (R-B5).
 keeps one write whole but not two (both reported `written`, one survived). `page_lock.page_lock(bank)` — the same
 cross-process, re-entrant `flock` as `episode_lock` (`episode_ids.dir_lock`), on the bank directory itself — is held
 by `agentic_write.write_claim`/`retract_claim`, `progress`'s event writers, `fact_sources`' source writers and
-`paper_metadata`'s page updates, and by the MCP's page-writing tools (`write_claim`, `retract_claim`, `note_progress`,
+`paper_metadata`'s page updates, the dedup sweep's merges (each across its commit), the app's decay-class and
+repo-link rewrites, the inbox's normalization answer (its covered pages, `_predicates.yaml` — written atomically — and
+the item, re-read under the lock, through its own `user` commit, inside the answer's write admission and with git's
+write lock held throughout; G98/G115), and by the MCP's page-writing tools (`write_claim`, `retract_claim`, `note_progress`,
 `add_source`, `change_source`, `record_check`, `record_read`, and `record_watch` around its record) across the write
 **and its commit**. Nothing waits on a network call under it: such a tool asks Sleep before it takes the lock and
 reuses the answer, and `record_watch`'s link save and queue credit stay outside. Some holders are `async` routes and
-the inbox's follow-up resolver, which wait on the event loop — one page operation is milliseconds. **Order:** the page
-lock, then the git write lock (inside the commit), then `episode_lock` — never the reverse. **Not under it yet:**
-Sleep's own page writes (agent commits already defer to its write window) and the inbox's other resolvers.
+the inbox's follow-up resolver, which wait on the event loop — one page operation is milliseconds. **Order:** the write
+admission (below), then the page lock, then the git write lock (inside the commit), then `episode_lock` — never the
+reverse. **Not under it yet:**
+Sleep's own page writes (they run inside the write window, which every guarded writer now waits out or refuses) and
+the inbox's other resolvers.
+**Write admission (G183):** the window guards are an admission, not a bare check. `write_admission` is one per-bank
+admission: an in-process count of holders plus an `flock` (`LOCK_SH` per holder) always on
+`$CICADA_HOME/sleep/<bank>/admission.lock` (outside the bank — the bank's stable identity, so scaffolding git under a
+live holder does not move admission) and also on the bank's `.git` path when it has one (nothing created, a different
+inode from the page lock's; processes that do not share `CICADA_HOME` still meet on a git bank), so the stdio MCP
+server, another process, is admitted too. A lock that exists but cannot be opened **fails closed**: the writer gets
+`AdmissionUnavailable`, and Sleep does not open its window. A guarded writer asks `is_writing()` only once it holds
+admission and keeps the hold through its page writes and its own commit: synchronous code in a worker thread uses
+`admitted()` (refuses with the writer's own 409 or sentence) or `shared()` + `holding()` (a writer whose answer changes
+shape: folder and Wispr Flow syncs, skill pages, the stdio MCP tools whose in-window write stays uncommitted for
+Sleep); **async code uses `run_admitted()` / `route()`**, which runs the transaction on the *writer loop* — one
+long-lived loop in a daemon thread, in a copy of the caller's context — with the flock taken off any loop: neither a
+cancelled request nor its loop's teardown cancels the transaction, so its hold lasts until its threadpool workers and
+its commit are done; a hold that lands after its waiter is gone releases itself in the worker thread (no callback on a
+loop that may be closed); the backend's shutdown drains live transactions (30 s) before the process goes; and no
+request loop waits on a flock (a lint keeps `shared()`/`admitted()` out of every `async def`). Sleep **sets its flag first, then waits** (`wait_for_writers`, off the loop): every writer that saw the window
+shut took its hold before the flag, so it finishes its write and commit before Sleep reads a page, and every later one
+sees the flag and refuses. The flip runs at the run's start, at a drain batch's Stage 2 and at the tail; closing the
+window takes nothing. The wait is **bounded and honest**: logged past 5 s; past 60 s (or with an unopenable lock) it
+answers False and **Sleep reads and writes nothing** — at a batch's Stage 2 the drain stops as a `busy` pause (the
+batch's conversations wait, the frozen work is kept for Continue; a scheduled run's `busy` pause is the schedule's to
+replace), at the run's start nothing is flushed or read, and the tail is skipped. A timed-out wait is never treated as
+an open window. **No admission spans a model call or a network fetch:** the dedup sweep takes it per merge (before the
+page lock, through the commit or the put-back, `may_write` asked once inside; only a stale answer before each judge
+call); an inbox conflict answer synthesizes its prose before admission and, admitted, re-plans on the page as it is
+then, using the prose only if every input it was made for is unchanged — the item, the pick, the entity, the
+planned body, the answer sentence, the date (else the dedup-guarded fallback); a link save
+(`POST /sources/save`, `cicada_save_url`, a remote `cicada_record_watch`'s save, the reading ask's save) fetches with
+no hold (`media_ingestor.prepare_one`) and writes and commits inside one (`write_prepared`, the index checked again) —
+refused (409, nothing written) when Sleep holds the pages, since a page written inside the window could ride the
+batch commit under Sleep's author; a stdio save the backend refused is never written directly behind its back. The
+remote runtime resolves the bank once per call and admits, gates, writes and commits that one bank; a backend POST it makes (an inbox answer) names that bank in
+`X-Cicada-Bank`, so the backend refuses it — nothing written — if the active bank moved meanwhile. An admitted
+backend transaction is admitted on the request's pinned bank (G177 `bank_binding`; `route()` pins a call made
+outside a request) and its context — the pin — rides onto the writer loop, so the admission, every write and the
+commit name one bank even if the person switches mid-transaction; admitting any other bank is refused
+(`WrongBank`, fail closed). **Disclosed
+exceptions (still probes or unadmitted):** `enrich-links` and `verify-sites` refuse up front only — once started they
+keep writing and committing after a window opens, and `verify-sites` writes frontmatter it parsed before its fetch, so
+it can overwrite an edit made meanwhile; the person's paper-details run checks before each request and before writing
+a response and stops, but the pages it wrote before the window stay uncommitted until its end commit and can ride a
+batch commit; batch intake (upload, RSS, bookmarks, Safari tabs, feed polls, connector syncs, Telegram saves) creates
+new media pages between fetches without admission, so a page written inside a window can ride a batch commit; the
+one-shot bank migrations at boot and activation are not admitted (activation is refused only during a person-started
+drain), except the predicate-fold clean-up (`dedup_normalization_items`, G98/G115), an admitted transaction that defers
+with no marker while Sleep holds the pages. Inside a
+window a stdio agent's claim still writes and rides the batch commit (in-window attribution is a DECIDE); Sleep's own
+stages take no page lock. `GET /state`'s refresh of `_state.md` (a cursor that commits alone) runs inside admission
+and is skipped while Sleep holds the pages — the file is served as it is, and the run's tail refreshes it.
+`test_write_admission_sites.py` is the inventory: every non-GET route, every GET whose code names a write, every
+MCP tool and every bank migration `run_bank_migrations` runs is classified (admitted, held, per-write, probe, intake,
+capture, registry, outside, sleep, banks, migration, none) with its reason, and the admitted ones are checked to take
+admission in their code.
 
 **Entity-level provenance uses `git blame`** enriched with parsed commit metadata; repo-level
 history uses `git log`. **No changelog in frontmatter** — git handles all history, zero storage

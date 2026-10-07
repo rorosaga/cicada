@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import re
 from collections import Counter
+from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -29,6 +30,8 @@ from api.services import (
     telemetry,
 )
 from api.services.id_utils import resolve_entity_file, sanitize_id
+from api.services.inbox_generator import fold_claims
+from api.services.sleep_refusal import SleepWriting
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +77,16 @@ def _item_from_file(
     parsed = markdown_parser.parse(filepath)
     fm = parsed.frontmatter
     kind = str(fm.get("kind", "decay"))
+    if kind == "normalization" and context is not None:
+        # Served on a live covered page when its opener is archived or gone — a
+        # read-time projection; the file keeps its opener (G98/G115).
+        anchor = _fold_anchor(context.memory_path, fm)
+        if anchor != str(fm.get("entity_id", "") or ""):
+            page = context.entity(anchor)
+            name = str((page.frontmatter.get("name") if page is not None else None) or anchor)
+            claim = next((c for e, c in fold_claims(fm) if e == anchor), None)
+            fm = {**fm, "entity_id": anchor, "entity_name": name, "claim_id": claim,
+                  "title": f"Confirm a predicate fold for {name}"}
     required_input = str(fm.get("required_input", "") or _required_input_for(kind))
     now = today or str(date.today())
     entity_id = str(fm.get("entity_id", "") or "")
@@ -298,6 +311,22 @@ def _hidden(
     return _subject_gone(memory_path, entity_id, kind)
 
 
+def _fold_anchor(memory_path: Path, fm: dict) -> str:
+    """The page a predicate-fold question is served on (G98/G115 review round 1).
+
+    One question covers a pair across pages (``covered_claims``), so it is not
+    tied to the page that happened to open it: the first covered page that is
+    still live answers for it, and the opener only when none is — then the
+    usual subject rule hides it. Every other kind keeps its ``entity_id``."""
+    entity_id = str(fm.get("entity_id", "") or "")
+    if str(fm.get("kind", "") or "") != "normalization":
+        return entity_id
+    for eid, _cid in fold_claims(fm):
+        if not _subject_gone(memory_path, eid, "normalization"):
+            return eid
+    return entity_id
+
+
 def served_counts(memory_path: Path) -> tuple[int, dict[str, int]]:
     """How many items :func:`load_inbox` serves, in total and by kind.
 
@@ -318,7 +347,7 @@ def served_counts(memory_path: Path) -> tuple[int, dict[str, int]]:
             return len(items), dict(Counter(i.kind.value for i in items))
         kind = str(fm["kind"])
         if _hidden(
-            memory_path, kind=kind, entity_id=str(fm.get("entity_id", "") or ""),
+            memory_path, kind=kind, entity_id=_fold_anchor(memory_path, fm),
             remind_after=_opt_str(fm.get("remind_after")), today=today,
         ):
             continue
@@ -882,10 +911,36 @@ def _emit_resolution(
         logger.debug("resolution ledger write failed", exc_info=True)
 
 
+#: G177/G183(a) — the answer every resolve door (``/inbox``, and the deprecated
+#: ``/nudges`` and ``/clarifications``) gives while Sleep holds the pages.
+SLEEP_BUSY = "Sleep is updating your memory — try answering again in a moment."
+
+
 async def resolve(
     item_id: str, request: InboxResolveRequest, settings: Settings
 ) -> dict:
-    """Resolve an inbox item by routing on its ``kind``. Returns a status dict."""
+    """Resolve an inbox item by routing on its ``kind``. Returns a status dict.
+
+    409 while Sleep holds the pages (``sleep_cycle.is_writing``, G177): an answer
+    rewrites entity pages and the item itself, and one written between a batch's
+    read and its commit would be lost or swept into that commit under the
+    model's name. A defer too — the item file rides the same ``git add -A``.
+    Between a drain's batches it goes through and commits alone. Asked once the
+    bank's write admission is held (G183), and held through the answer's writes
+    and its commit: a window cannot open in between."""
+    from api.services import write_admission
+
+    # An early answer only (the admitted pass asks again): no model call is spent while Sleep holds the pages.
+    if write_admission.probe():
+        raise SleepWriting(SLEEP_BUSY)
+    synthesis = await _conflict_synthesis(item_id, request, settings)   # the model call, outside admission
+    return await write_admission.run_admitted(
+        settings.memory_path, lambda: _resolve_admitted(item_id, request, settings, synthesis),
+        refuse=lambda: SleepWriting(SLEEP_BUSY))
+
+
+async def _resolve_admitted(item_id: str, request: InboxResolveRequest, settings: Settings,
+                            synthesis: "_Synthesis | None" = None) -> dict:
     path = _inbox_dir(settings.memory_path) / f"{item_id}.md"
     if not path.exists():
         raise HTTPException(404, f"Inbox item {item_id} not found")
@@ -934,21 +989,22 @@ async def resolve(
     before = await _git_service.snapshot_dirty(settings.memory_path)
     extra_lines: list[str] = []
     emit_extra: dict = {}
+    committed = False   # a resolver that commits inside its own page-lock section says so
     if kind == "decay":
         entity_id, skipped = await _resolve_decay(path, parsed, request, settings)
     elif kind == "removal":
         entity_id, skipped = await _resolve_removal(path, parsed, request, settings)
     elif kind == "conflict":
         entity_id, skipped, extra_lines = await _resolve_conflict(
-            path, parsed, request, settings
+            path, parsed, request, settings, synthesis
         )
     elif kind == "divergence":
         entity_id, skipped, extra_lines = await _resolve_divergence(
             path, parsed, request, settings, item_id
         )
     elif kind == "normalization":
-        entity_id, skipped, extra_lines = await _resolve_normalization(
-            path, parsed, request, settings, item_id
+        entity_id, skipped, extra_lines, committed = await _resolve_normalization(
+            path, parsed, request, settings, item_id, label
         )
     elif kind in ("clarification", "merge_suggestion"):
         entity_id, skipped, extra_lines = await _resolve_clarification(
@@ -982,17 +1038,18 @@ async def resolve(
         change = "status active"
     elif kind == "removal" and label == "remove":
         change = "status archived"
-    await git_service.commit_resolution(
-        settings.memory_path,
-        entity_id,
-        f"inbox/{kind}/resolved:{label}",
-        extra_lines,
-        change=change,
-        # The item file the answer retired; the page and every manifest line's
-        # file are read from the manifest itself — nothing else is committed.
-        paths=[path.relative_to(settings.memory_path).as_posix()],
-        before=before,
-    )
+    if not committed:
+        await git_service.commit_resolution(
+            settings.memory_path,
+            entity_id,
+            f"inbox/{kind}/resolved:{label}",
+            extra_lines,
+            change=change,
+            # The item file the answer retired; the page and every manifest line's
+            # file are read from the manifest itself — nothing else is committed.
+            paths=[path.relative_to(settings.memory_path).as_posix()],
+            before=before,
+        )
     # G53 (R4) — the pending count just changed; refresh the projection
     # cheaply (repo blocks are the app's last look, never a git run) and commit it
     # alone as `cicada`. Best-effort: a projection failure never fails a
@@ -1372,7 +1429,7 @@ def _close_today(old, *, by, today: str) -> None:
     old.valid_to = today
 
 
-async def _resolve_conflict(path, parsed, request, settings) -> tuple[str, bool, list[str]]:
+def _conflict_plan(path, parsed, request, settings) -> "_ConflictPlan":
     """Claim-aware conflict adjudication (§2.4).
 
     The chosen option decides what happens in the ``claims`` block FIRST — a
@@ -1388,13 +1445,12 @@ async def _resolve_conflict(path, parsed, request, settings) -> tuple[str, bool,
     (409) with the page untouched and the question kept.
     """
     from api.services.claims import Claim, MalformedClaimsBlockError, parse_claims, write_claims
-    from api.services.conflict_resolver import _synthesize_entity_update
 
     fm_item = parsed.frontmatter
     entity_id = str(fm_item.get("entity_id", "") or "")
 
     if request.action == "skip":
-        return entity_id, True, []
+        return _ConflictPlan(entity_id, skipped=True)
 
     # Legacy pre-G60 conflict items carry neither `options` nor `question` —
     # there is nothing to pick from, so the strict "optionKey or answer
@@ -1421,8 +1477,7 @@ async def _resolve_conflict(path, parsed, request, settings) -> tuple[str, bool,
         # exist — Stage 3 already kept every value open, so dismissing touches
         # no claim. Its G113 R3 grade is `overruled`, and that is right: the
         # belief overruled is the extractor's "these values conflict".
-        path.unlink()
-        return entity_id, False, []
+        return _ConflictPlan(entity_id, unlink=True)
 
     predicate_raw = str(fm_item.get("predicate", "") or "description")
     entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
@@ -1453,8 +1508,7 @@ async def _resolve_conflict(path, parsed, request, settings) -> tuple[str, bool,
 
     if not entity_path.exists():
         # Nothing to write into; clear the question rather than stranding it.
-        path.unlink()
-        return entity_id, False, extra_lines
+        return _ConflictPlan(entity_id, unlink=True, extra_lines=extra_lines)
 
     entity = markdown_parser.parse(entity_path)
     fm = entity.frontmatter
@@ -1574,20 +1628,96 @@ async def _resolve_conflict(path, parsed, request, settings) -> tuple[str, bool,
 
     entity.body = write_claims(entity.body, claim_list)
 
+    return _ConflictPlan(entity_id, extra_lines=extra_lines, entity_path=entity_path, entity=entity,
+                         claim_list=claim_list, sentence=sentence, name=name, today=today)
+
+
+async def _conflict_synthesis(item_id: str, request: InboxResolveRequest, settings: Settings) -> "_Synthesis | None":
+    """The conflict answer's prose rewrite — the one model call an inbox answer makes — run BEFORE the bank's write
+    admission is taken (G183 round 1: no admission spans a model call). It plans the answer on the page and item as
+    they are now and synthesizes from that; the admitted pass plans again and uses the prose only when every input
+    it was made from and for is unchanged (``_synthesis_basis``: item, pick, entity, body, sentence, date) —
+    otherwise the safe fallback, never prose made for another answer or another page.
+    None for anything that is not a conflict answer with a sentence, and for any plan this pass cannot make (the
+    admitted pass raises it properly)."""
+    if (request.action or "").strip().lower() in ("defer", "remind_later", "skip"):
+        return None
+    path = _inbox_dir(settings.memory_path) / f"{item_id}.md"
+    try:
+        parsed = markdown_parser.parse(path)
+        if str(parsed.frontmatter.get("kind", "decay")) != "conflict":
+            return None
+        plan = _conflict_plan(path, parsed, request, settings)
+    except Exception:  # noqa: BLE001 — a 4xx/409 is the admitted pass's to raise
+        return None
+    if plan.entity is None or not plan.sentence:
+        return None
+    from api.services import conflict_resolver
+
+    try:
+        new_body = await conflict_resolver._synthesize_entity_update(
+            entity_name=plan.name,
+            entity_type=plan.entity.frontmatter.get("type", "concept"),
+            existing_body=plan.entity.body,
+            new_description=plan.sentence,
+            new_history_entries=[],
+            source_reference_date=plan.today,
+            settings=settings,
+        )
+    except Exception:  # noqa: BLE001 — the fallback below is the answer's floor
+        new_body = None
+    return _Synthesis(basis=_synthesis_basis(item_id, request, plan), new_body=new_body) if new_body else None
+
+
+def _synthesis_basis(item_id: str, request: InboxResolveRequest, plan: "_ConflictPlan") -> tuple:
+    """Everything the prose was made from and for (fix round 2): the item and the person's pick, the entity and its
+    name and type, the planned body (claims written), the selected-answer sentence and the date. Prose is reused only
+    when every part is the same when the answer is written — a changed option label, item or page gets the fallback."""
+    return (item_id, (request.option_key or "").strip(), (request.answer or "").strip(), plan.entity_id, plan.name,
+            str(plan.entity.frontmatter.get("type", "concept")), plan.entity.body, plan.sentence, plan.today)
+
+
+@dataclass
+class _Synthesis:
+    basis: tuple    # `_synthesis_basis` of the plan the prose was synthesized from
+    new_body: str
+
+
+@dataclass
+class _ConflictPlan:
+    entity_id: str
+    skipped: bool = False
+    unlink: bool = False
+    extra_lines: list = field(default_factory=list)
+    entity_path: Path | None = None
+    entity: object = None
+    claim_list: list = field(default_factory=list)
+    sentence: str = ""
+    name: str = ""
+    today: str = ""
+
+
+async def _resolve_conflict(path, parsed, request, settings, synthesis: "_Synthesis | None" = None,
+                            ) -> tuple[str, bool, list[str]]:
+    """Claim-aware conflict adjudication, written inside the bank's write admission. ``synthesis`` is the prose
+    rewrite made before admission (:func:`_conflict_synthesis`); it is used only when the answer planned now has the
+    same inputs it was made for (:func:`_synthesis_basis`) — no model call is made here."""
+    from api.services.claims import write_claims
+
+    plan = _conflict_plan(path, parsed, request, settings)
+    if plan.skipped:
+        return plan.entity_id, True, []
+    if plan.unlink:
+        path.unlink()
+        return plan.entity_id, False, plan.extra_lines
+    entity, sentence, claim_list = plan.entity, plan.sentence, plan.claim_list
+    fm, today, entity_path = entity.frontmatter, plan.today, plan.entity_path
+    entity_id, extra_lines = plan.entity_id, plan.extra_lines
+
     new_body = None
     if sentence:
-        try:
-            new_body = await _synthesize_entity_update(
-                entity_name=name,
-                entity_type=fm.get("type", "concept"),
-                existing_body=entity.body,
-                new_description=sentence,
-                new_history_entries=[],
-                source_reference_date=today,
-                settings=settings,
-            )
-        except Exception:
-            new_body = None
+        if synthesis is not None and synthesis.basis == _synthesis_basis(path.stem, request, plan):
+            new_body = synthesis.new_body
         if not new_body:
             # Safe fallback: dedup guard instead of blind append.
             new_body = (
@@ -1685,49 +1815,108 @@ async def _resolve_divergence(path, parsed, request, settings, item_id: str) -> 
     return entity_id, False, [f"entities/{entity_id}.md: updated (source: {path.stem}, trigger: inbox/divergence/resolved)"]
 
 
-async def _resolve_normalization(path, parsed, request, settings, item_id: str) -> tuple[str, bool, list[str]]:
+async def _resolve_normalization(path, parsed, request, settings, item_id: str,
+                                 label: str) -> tuple[str, bool, list[str], bool]:
     """G113 slice 3: confirm/reject a predicate fold `claim_reconciler` already
-    applied. `0` (correct fold) does nothing to the bank — the fold already
-    happened at extraction time, so the resolve is a pure acknowledgement.
-    `1` (wrong fold) is the substantive branch: it un-merges the raw label
-    from `_predicates.yaml`'s synonym map, adds it as its own canonical
-    predicate (R4 — never delete the entity's history, just stop folding the
-    label going forward), and repoints the one claim the nudge was raised for
-    back onto the raw (now canonical) predicate.
+    applied. `0` (correct fold) leaves every claim and the synonym map as they
+    are — the fold already happened at extraction time — and records the pair
+    in `_predicates.yaml`'s `confirmed_folds`, so Sleep never asks about it
+    again (G98/G115: one question per pair per bank). `1` (wrong fold) is the
+    substantive branch: it un-merges the raw label from the synonym map, adds it
+    as its own canonical predicate (R4 — never delete the entity's history,
+    just stop folding the label going forward), and repoints every claim the
+    question covers (the one that opened it plus `covered_claims`) back onto
+    the raw (now canonical) predicate.
+
+    The answer is ONE page-lock section in a worker thread, inside the request's
+    write admission, from re-reading the item, the map and the pages through its
+    own `user` commit (G98/G115 review rounds 1–2, G183): another page writer
+    cannot take the person's repoint into its own commit, two answers cannot lose
+    each other's map edit, and Sleep cannot open its window in between. Returns
+    ``(entity_id, skipped, extra_lines, committed)`` — committed here, so
+    :func:`resolve` does not commit it again.
     """
-    from api.services.claims import MalformedClaimsBlockError, parse_claims, write_claims
+    import asyncio
 
-    fm = parsed.frontmatter
-    entity_id = _opt_str(fm.get("entity_id")) or ""
-    key = (request.option_key or "").strip()
+    entity_id = _opt_str(parsed.frontmatter.get("entity_id")) or ""
     if request.action == "skip":
-        return entity_id, True, []
-    extra: list[str] = []
-    if key == "1":  # wrong fold — keep the raw predicate separate
-        import yaml
+        return entity_id, True, [], False
+    entity_id = await asyncio.to_thread(_answer_normalization, path, request, settings, label)
+    return entity_id, False, [], True
 
+
+def _answer_normalization(path: Path, request, settings, label: str) -> str:
+    """The body of :func:`_resolve_normalization`. It runs inside :func:`resolve`'s
+    admitted transaction (G183 — the coded refusal was given there, and a window
+    cannot open under the hold), then holds the bank's page lock and git's write
+    lock (the documented order: admission → page → git) from the re-read through
+    its commit, so its dirty snapshot never waits for git between other writers."""
+    from api.services import git_service, page_lock
+    from api.services.claims import MalformedClaimsBlockError, parse_claims, write_claims
+    memory = settings.memory_path
+    with page_lock.page_lock(memory), git_service.write_lock(memory):
+        if not path.exists():
+            raise HTTPException(404, f"Inbox item {path.stem} not found")
+        fm = markdown_parser.parse(path).frontmatter   # as it is now, not as the request first read it
+        entity_id = _opt_str(fm.get("entity_id")) or ""
+        key = (request.option_key or "").strip()
         raw = _opt_str(fm.get("raw_predicate")) or ""
-        # `predicates` is already imported at module scope; local imports here
-        # match `_resolve_conflict`'s style (`Claim`/`write_claims` imported
-        # locally too) so a divergence/normalization resolve never becomes a
-        # hard module-load dependency for the rest of this file.
         raw_slug = predicates._slugify_predicate(raw)
-        if raw_slug:
-            runtime = settings.memory_path / predicates.RUNTIME_FILE
-            data = predicates._read_runtime_map(settings.memory_path)
-            syn = {str(k): v for k, v in (data.get("synonyms") or {}).items()}
-            for k in list(syn):
-                if k.strip().lower() in (raw.strip().lower(), raw_slug):
-                    syn.pop(k)
-            canonical = [str(c) for c in (data.get("canonical") or [])]
-            if raw_slug not in canonical:
-                canonical.append(raw_slug)
-            data["synonyms"], data["canonical"] = syn, canonical
-            runtime.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
-            extra.append(f"{predicates.RUNTIME_FILE}: updated (source: {path.stem}, trigger: inbox/normalization/resolved)")
-            entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
-            claim_id = _opt_str(fm.get("claim_id"))
-            if entity_path.exists() and claim_id:
+        # An item from before the pair was persisted: the fold it asks about is
+        # the one the map applies now — never repoint a claim on a guess.
+        canonical = _opt_str(fm.get("canonical_predicate")) or (predicates.load_normalizer(memory)(raw) if raw else "")
+        is_fold = bool(raw_slug and canonical and raw_slug != canonical)
+        refs = fold_claims(fm)
+        item_rel = path.relative_to(memory).as_posix()
+        pages = list(dict.fromkeys(f"entities/{e}.md" for e, _ in refs))
+        tracked = (memory / ".git").exists()
+        before = None
+        if tracked:
+            owned = [predicates.RUNTIME_FILE, item_rel, *pages]
+            before = {rel: ((memory / rel).read_bytes() if (memory / rel).is_file() else None)
+                      for rel in git_service.dirty_paths_sync(memory, *owned)}
+        manifest = f"{predicates.RUNTIME_FILE}: updated (source: {path.stem}, trigger: inbox/normalization/resolved)"
+        extra: list[str] = []
+
+        if key == "0" and is_fold:
+            def confirm(data: dict) -> bool:
+                confirmed = data.get("confirmed_folds")
+                confirmed = dict(confirmed) if isinstance(confirmed, dict) else {}
+                if confirmed.get(raw_slug) == canonical:
+                    return False
+                confirmed[raw_slug] = canonical
+                data["confirmed_folds"] = confirmed
+                return True
+
+            if predicates.update_runtime_map(memory, confirm):
+                extra.append(manifest)
+        elif key == "1" and is_fold:  # wrong fold — keep the raw predicate separate
+            def split(data: dict) -> bool:
+                # Every spelling the normalizer folds onto this pair goes, the
+                # way the pair was deduplicated (`predicates.fold_key`): a key
+                # whose slug is the raw label's and which maps to the questioned
+                # canonical — never another label's fold.
+                syn = {str(k): v for k, v in (data.get("synonyms") or {}).items()}
+                for k in list(syn):
+                    if predicates.fold_key(k, str(syn[k])) == (raw_slug, canonical):
+                        syn.pop(k)
+                canon = [str(c) for c in (data.get("canonical") or [])]
+                if raw_slug not in canon:
+                    canon.append(raw_slug)
+                data["synonyms"], data["canonical"] = syn, canon
+                if isinstance(data.get("confirmed_folds"), dict):
+                    data["confirmed_folds"].pop(raw_slug, None)
+                return True
+
+            predicates.update_runtime_map(memory, split)
+            extra.append(manifest)
+            by_entity: dict[str, set[str]] = {}
+            for eid, cid in refs:
+                by_entity.setdefault(eid, set()).add(cid)
+            for eid, claim_ids in by_entity.items():
+                entity_path = memory / "entities" / f"{eid}.md"
+                if not entity_path.exists():
+                    continue
                 entity = markdown_parser.parse(entity_path)
                 try:
                     claims = parse_claims(entity.body)
@@ -1735,16 +1924,21 @@ async def _resolve_normalization(path, parsed, request, settings, item_id: str) 
                     claims = []
                 hit = False
                 for c in claims:
-                    if c.id == claim_id:
+                    # A covered claim is repointed only while it still carries the
+                    # folded predicate — never one an answer has since moved.
+                    if c.id in claim_ids and c.predicate == canonical:
                         c.predicate = raw_slug
                         hit = True
                 if hit:
                     efm = entity.frontmatter
                     efm["version"] = int(efm.get("version", 1) or 1) + 1
                     markdown_parser.write(entity_path, efm, write_claims(entity.body, claims))
-                    extra.append(f"entities/{entity_id}.md: updated (source: {path.stem}, trigger: inbox/normalization/resolved)")
-    path.unlink(missing_ok=True)
-    return entity_id, False, extra
+                    extra.append(f"entities/{eid}.md: updated (source: {path.stem}, trigger: inbox/normalization/resolved)")
+        path.unlink(missing_ok=True)
+        if tracked:
+            git_service.commit_resolution_sync(memory, entity_id, f"inbox/normalization/resolved:{label}", extra,
+                                               paths=[item_rel], before=before)
+    return entity_id
 
 
 async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, bool, list[str]]:

@@ -358,3 +358,20 @@ def test_resolve_inbox_posts_removal_keys_unchanged(server, monkeypatch):
     server.handle_resolve_inbox("inbox-001", "remove", None, False, None)
     assert posted["path"] == "/inbox/inbox-001/resolve"
     assert posted["payload"] == {"action": "resolve", "optionKey": "remove"}
+
+
+def test_resolve_inbox_says_sleep_is_busy_on_a_409_not_that_the_backend_is_down(server, monkeypatch):
+    """G183(a): the backend refuses an answer inside Sleep's write window; the agent hears the backend's sentence."""
+    import io
+    import json
+    import urllib.error
+
+    def busy(path: str, payload: dict) -> dict:
+        body = io.BytesIO(json.dumps({"detail": "Sleep is updating your memory — try answering again in a moment."})
+                          .encode())
+        raise urllib.error.HTTPError("http://127.0.0.1/inbox", 409, "Conflict", {}, body)
+
+    monkeypatch.setattr(server, "_backend_post", busy)
+    out = server.handle_resolve_inbox("inbox-001", "b", None, False, None)
+    assert "Sleep is updating your memory" in out
+    assert "backend running" not in out

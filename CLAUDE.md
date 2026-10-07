@@ -190,7 +190,10 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   page reads run once per drain. A plan limit is a pause, not a failure. **Ruling 4: a scheduled run never uses a Claude or
   ChatGPT plan**; on a metered engine it spends with no limit Cicada sets, said in words. Continue-after-reset is opt-in,
   off (ruling 15).
-- **The write window (G177):** `sleep_cycle.is_writing()` is the one predicate behind every "Sleep is running" refusal.
+- **The write window (G177):** `sleep_cycle.is_writing()` is the one predicate behind every "Sleep is running" refusal,
+  read only through `write_admission` (G183): a writer holds it shared through its own commit (async: `run_admitted`),
+  Sleep sets its flag then waits holders out — past the bound it pauses, never reads; order admission → page → git;
+  never held across a model call or a fetch.
 - **Entity promotion:** a first mention stays in the index; a page needs 2+ conversations, >3 exchanges, or a link to a
   high-confidence page. Claims about a name with no page yet are held (`pending_store`), never lost.
 - **Temporal decay is a signal:** at most one week charged per cycle (ruling 1), paced by how many weeks a page came up
@@ -242,6 +245,9 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   login-walled page.
 - **Video (G162):** Cicada never downloads a video or derives a stream; a video's state is derived, never stored; the
   queue lives outside every bank.
+- **Continuity (G110, slice 1a):** a session started in the same folder is told, at SessionStart, where the last one
+  there stopped — assembled on demand from captured episodes over a disposable index, inside the whole 1,800-token note;
+  workspace state is not checked; the registry outside every bank holds ids, a cwd hash and times only (`mcp.md`).
 
 ### The app
 

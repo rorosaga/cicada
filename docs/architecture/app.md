@@ -49,7 +49,10 @@ pending; the server's 15 s `ping` retries it while connected (`Store.retryPendin
 heartbeats until the next version event re-arms it — a version event comes only when the vector moves, so before audit
 2026-10-05 P2-7 a failed refresh stayed stale on a healthy stream). View models are
 thin projections and **never blank** — always last-known-good. Writes go through a `Mutation`:
-optimistic apply, rollback with a toast on failure. **The graph receives deltas, not a full
+optimistic apply, rollback with a toast on failure. A Sleep-window refusal (`SleepRefusal`: a 409 with `code: "sleep_writing"`,
+or from an older backend one of its exact known opening sentences — never "sleep" anywhere in the body) toasts "Sleep is running — try again when it finishes." from an inbox answer (`InboxResolve`) and
+the entity card's Fades chip (`DecayChangeFailure`, which until G177 failed silently); any other failure keeps its own
+words, never a 409's raw detail. **The graph receives deltas, not a full
 re-layout**, so d3 node positions survive a Sleep cycle or a live edit.
 
 **A late answer never lands in the wrong place** (audit 2026-10-02 A03/A05/A06). `Store.entity(_:)` compares the
@@ -82,7 +85,9 @@ bar** centred — the memory-bank selector (`BankSwitcher`, moved from the Graph
 app, `SingleBankSwitcherTests` — the palette's "Switch to <bank>" row and the intake card's switch act on the same
 `BanksViewModel` in the same window) and "Search your memory ⌘K", which opens the find palette through
 `AppRouter.requestPalette()`; and the visible page's `?` at the right (`HelpContent.page`), one per window. macOS 26's
-toolbar platter is hidden (`ChromeToolbarItem`). **Settings is a panel inside this window (DR-33)**: ⌘,
+toolbar platter is hidden (`ChromeToolbarItem`). The rail starts under the titlebar band (2026-10-05) and wraps the content: the content's top-leading
+corner is a rounded join at `CicadaTheme.contentCornerRadius` (`radiusLarge`, fixed) drawn by the rail's own fill
+(`RailCornerFillet`, 2026-10-06). **Settings is a panel inside this window (DR-33)**: ⌘,
 (`ShellCommands`, which opens the window first if none is) and the gear open it over a scrim — 880 × 620 at 1×,
 inset ≥ 40 pt — with a `bgPane` sidebar that starts with a `CicadaSearchField` and groups its rows as Cicada ·
 Customize · Engines & keys (`SettingsGroup`, G139) — Cicada: General · You · Privacy & data · Memory · Sleep;
@@ -91,8 +96,8 @@ page's own header with an `esc` keycap and a close ×. It is modal: the shell un
 scrim click close it. `AppRouter.openSettings(_:row:)` is the one door (`SettingsSectionLink`, the gear, ⌘,), every
 hand-off to a page closes it, and `cicada.settingsSection` is only its remembered selection — the `Settings{}` scene
 and its cross-window seeds are gone. Privacy & data exports a bank and moves one to `<root>/.trash/`, but never
-switches banks (that is the command bar's); Memory has no "Look for duplicates" until the dedup endpoint stops
-blocking the event loop and commits what it merges (R-O17). Memory also holds
+switches banks (that is the command bar's); Memory has no "Look for duplicates" yet (R-O17) — the dedup endpoint
+now runs off the event loop and commits what it merges (G183(e)), so the button is the remaining half. Memory also holds
 G147's *How things fade*: pace suggestions from the person's own "Still tracking…?" answers
 (Apply · Not now — the latter per viewer) and each chosen per-type pace (Reset). Search is `SettingsIndex` over `QuickMatch` — the
 palette's one ranker — and landing always selects, scrolls, washes (the selected fill and the focus ring) and
@@ -142,7 +147,10 @@ covers the shell and off-tab; Reduce Motion or Low Power make it gentler, never 
 crossfades the same composition in 1.2 s. Under it, "What would you like to remember?" as a `PageTitle` — text never
 sits on paint — then the palette's own `FindPanelBody` in `.page` placement in a 640 pt block: a second
 `FindPaletteModel` sharing the one Ask and keeping no recents; ⌘K on Home focuses it, a pasted `http(s)` link offers
-*Save this link*. Below it, in one 760 pt column: Getting started (while it lasts), Today (one row to Sources:
+*Save this link*. The headline, the field and the blocks scroll as one page (owner 2026-10-06), under macOS 26's soft top scroll edge
+(`softTopScrollEdge()`), so no card is cut under the field; the first block sits one 24 pt block gap below it, and with
+results showing the page pins to the window (never `scrollDisabled`, which the results' own scroll could inherit) and
+the results fill it, with no animation. Below it, in one 760 pt column: Getting started (while it lasts), Today (one row to Sources:
 captured today, UTC, with the three busiest origins' marks, names and counts), Needs you (the Inbox's kind glyph,
 question and age, *Open Inbox* at the label's right, landing in STATE 1) and Last read (the newest Sleep commit, its
 pages as `Tag`s) — each number once, each a link to the page that owns it; the waiting count links to Sleep, never a
@@ -407,8 +415,13 @@ the demo scenario's real wire, `app/CicadaApp/Tests/fixtures/projects-demo.json`
   the links, Add a note. The third column is one slot: the Reader, else a backlog item, else an entity's card.
 - **Writes** are `ProjectWrite` mutations through `Store.perform`: painted where the answer is known (a thread settled
   or restated, a milestone done, renamed or added, a withdrawal), rolled back with the server's own 409/422 sentence
-  (a 400's or 404's detail is never shown — it names ids), disabled while Sleep runs; nothing relative is sent as a
-  value. L · M · D are key presses on the focused project (the Inbox's O / L precedent), never menu key equivalents.
+  (a 400's or 404's detail is never shown — it names ids), disabled while Sleep holds the pages; nothing relative is
+  sent as a value. `ProjectWriteGate.blocked` (Projects, Backlog) reads `sleep.writing` from `/status` and the SSE `sleep` event —
+  the server's own refusal predicate, so a person-started drain gives the controls back between its batches (G177) —
+  and falls back to `status == "running"` when an older backend sends no `writing`. `ProjectWriteGate.sleepRunning`
+  (the whole run) stays on the search-model switch, whose route refuses while any run goes, and on what stops the
+  backend (the background install, Restart to update and the updater's cached check), since that ends a drain between
+  batches too. L · M · D are key presses on the focused project (the Inbox's O / L precedent), never menu key equivalents.
 
 **Sleep page — the study room (G125 v4, Track Z).** The room and the worm are Aseprite sprite sheets; to watch every
 animation, open `app/CicadaApp/Art/sprites/bookworm-2026-10-01/preview.html` in a browser (*The sprite art and its
@@ -583,6 +596,40 @@ by name, the id in `.help`). The app-level `SleepViewModel` empties its queue, r
 (`Store.onBankChanged`). `PriceLintTests` keeps `$` and token literals out of every other Sleep
 file.
 A refused bank switch shows the server's own 409 sentence (`BankSwitchFailure`), from every door: the switcher, the demo's enter and leave (`DemoMode.leaveToast`) and an active bank's rename.
+**A write is bound to the bank it started in (G183(d)); the switch around it is one serialized transition.**
+*The safety net is the server's.* Every request runs in one bank, pinned when it starts (a switch while it awaits a
+lock or a commit leaves it finishing there), and a write names the bank it STARTED in: `APIClient` sends it on every
+POST/PUT/PATCH/DELETE (`X-Cicada-Bank`, `BankScope`), and the server refuses a write whose bank is no longer active
+before its handler runs (`bank_mismatch`; both in api.md). The bank named is a `@TaskLocal` origin, captured at the
+person's action, before anything is awaited: `Store.bankTask` captures the bank on screen synchronously and starts the
+work bound to it (the schedule, the reading options, the reserve, Getting started's schedule question, the Safari tab
+and bookmark imports, a feed or calendar removal, a backlog add, a picture's initials or removal); a picture upload
+captures it before its detached preparation and builds its write from it (`PictureActions.upload(…, bank:)`, the drop
+too); the Fades chip, Fade pace and the owner save capture it before their task; `Store.perform` binds the bank at
+admission unless an enclosing binding already named one (so work queued across a switch keeps its own); a held answer
+carries its own bank; a folder or Wispr Flow scan binds the bank whose configuration and manifest it read; and
+`SleepViewModel.updateSchedule` / `updateRunOptions` honour an enclosing origin. Work that binds nothing names the bank
+on screen at send time (`BankScope.onScreen`, kept by the app's `Store`) — during a switch still the old bank while the
+server is on the new one, so it too is refused rather than misfiled; such work started in A that first sends after
+the app reached B would name B (the binding rule above is what prevents that, site by site). On `bank_mismatch`
+`Store.perform` rolls back and toasts "Memory switched — try that again" (the Fades chip and Fade pace say the same).
+*The UX is the Store's.* `Store.switchBank` is the one transition for every route that changes the active bank: a
+switch by name (`Store.activateBank`, reached by the switcher, the find palette and the intake card through
+`BanksViewModel.activate`), entering the demo (`LiveSetupEffects.createDemoBank`) and leaving it (`DemoMode.liveExit`).
+It reserves `Store.bankSwitch` (a generation and the target) before its first await, so a second switch from any door
+is refused with "Switching memory — try again in a moment." and never interleaved. It sends the held answer and waits
+for every answer already accepted — queued by the next tap or on the wire — so each lands in the bank it was made in
+(R-DI3); an answer is never dropped by the switch, a late one is refused by the server and its question reopens, and
+the "sent" callback runs only for an answer that landed. While the switch waits, new `Store.perform` writes, a new
+inbox answer, the Fades chip and Fade pace are refused with the switching words; other direct writes are not held by
+the Store — the server's check covers them. On the answer the Store moves to the bank the returned roster names and
+hydrates it from cache, unless `refresh`'s fan-out saw the server move somewhere else meanwhile
+(`bankSeenDuringSwitch`; then the server's roster decides and the older answer is never shown); it reconciles the
+roster, releases writes (only the owning generation clears the marker) and reconciles the other domains. A failure
+changes nothing and is said by its door. The switcher keeps the current name while it waits, disabled at 45 % with
+"Switching to <bank>…" in `.help` (DR-41) — no spinner, no animation (DR-60). **Not covered:** reads are not
+bank-bound — a GET answered by the new bank during the switch can be painted and cached under the old one until the
+next reconcile (re-review finding 3, left open).
 
 **Mascot states (G107).** `BookwormState` gained `reading` for this page only —
 `deriveSleepPageMood` returns it where the menu bar's `deriveBookwormState` returns `.curious`, and
@@ -796,17 +843,35 @@ mode, logs in `~/.cicada/logs`). `CICADA_PORT` (default 8000; the app also reads
 by the app, the backend, the MCP server, the hooks and the launchers. The bundled git is first on the backend's
 `PATH`; the app's own repo reads try the person's git first and the bundled one last.
 
-**Releases (G182 phase 4).** `make release VERSION=x.y.z` (`scripts/release/release.sh`, the owner's command, never an
-agent's) works in a temporary worktree: it bumps `VERSION`, `api/pyproject.toml` and uv.lock's project line on `dev`,
-merges `dev` into `main` with a merge commit, tags `vX.Y.Z`, and pushes dev, main and the tag in one atomic push
-(`--dry-run` pushes nothing). The tag starts `.github/workflows/release.yml` on `macos-26` (arm64, Xcode 26): it builds
-`bundle.sh --release --with-backend` with the commit count as the build number, runs `smoke-test.sh` on the result,
-zips it with `ditto -c -k --keepParent`, signs the zip's bytes with Ed25519 (`scripts/release/sign_update.py`, private
-key in the `CICADA_UPDATE_SIGNING_KEY` secret, verified against the committed `update-public-key.txt` before
-anything is published), writes `latest.json` (`latest_json.py`: version, build, versioned asset URL, size, sha256,
-signature, notes URL) and publishes a GitHub Release with generated notes. A push to `ci/release-dry-run` or a manual
-run does everything but publish and uploads the files as an artifact. The app carries the public key and the repo
-(`CicadaUpdatePublicKey`, `CicadaUpdateRepo` in Info.plist) for the updater.
+**Releases (G182 phase 4; TODO ruling 19).** A release is a `dev` → `main` PR, and merging it is the release. `VERSION`
+is the one version: `scripts/release/check_version.py` holds `api/pyproject.toml`, uv.lock's `cicada-api` entry, the
+built app's `CFBundleShortVersionString` and `latest.json` to it, and judges it against the remote's `v*` tags (already
+tagged → publish nothing; not greater than the latest → fail). The owner's two commands open PRs and nothing else
+(`scripts/release/release.sh`; never pushes `main`, never tags, never force-pushes; `--dry-run`): `make release
+VERSION=x.y.z` bumps the version files on `release/vx.y.z` off `origin/dev` and opens its PR to `dev`; `make release-pr`
+opens `dev` → `main` "Release vX.Y.Z". `.github/workflows/release-check.yml` fails a PR to `main` whose head isn't this
+repo's `dev` or whose `VERSION` CI would not publish. A push to `main` runs `.github/workflows/release.yml` (one
+concurrency group per commit, so a run never cancels or replaces another commit's): a **plan** job on ubuntu (stamps
+agree, tags decide), a **build** job on `macos-26` (arm64, Xcode 26) — `bundle.sh --release --with-backend` with the
+commit count as the build number, the Info.plist version check, `smoke-test.sh`, a `ditto -c -k --keepParent` zip, its
+Ed25519 signature (`scripts/release/sign_update.py`, private key in the `CICADA_UPDATE_SIGNING_KEY` secret, verified
+against the committed `update-public-key.txt`), `latest.json` (`latest_json.py`: version, build, versioned asset URL,
+size, sha256, signature, notes URL) and `Cicada-macos-arm64.zip`, the same bytes under a stable name the website links
+as `releases/latest/download/Cicada-macos-arm64.zip` — and a **publish** job, the only one with write access
+(`scripts/release/publish.sh`): the version judged again against the live tags (a re-run reuses a stale plan) and the
+commit checked to still be main's tip (only the tip publishes; a superseded run ends green and deletes only its own
+draft, so of two release merges in flight only the newer ships), a draft release at the merged commit created through
+the REST API and owned by the id in its response (never rediscovered through the lagging releases list; two drafts may
+share a tag), all four assets uploaded to that id with notes (`release-notes-header.md` + notes generated since the
+previous tag), the draft read back by id (tag, target, every asset's name and size), main's tip checked again, then
+published by a PATCH that spells out `tag_name` and `target_commitish` (one that omits `tag_name` drops the tag) —
+GitHub creates the tag only then — and marked latest only when it is the highest version; the release must then read
+back public under `vX.Y.Z` and the remote tag must point at the merged commit, else the run fails loudly and touches
+nothing. A failure before publication deletes the id it created and nothing else (a draft has no tag, so no tag is
+touched); a published release is never touched again. A push to `ci/release-dry-run` or a manual run off `main` does
+everything but publish and uploads the files as an artifact; a re-run or a manual run on `main` re-attempts an untagged
+`VERSION` only while main's tip is still its commit (a fix ships as a new release PR). The app carries the public key
+and the repo (`CicadaUpdatePublicKey`, `CicadaUpdateRepo` in Info.plist) for the updater.
 
 **Installing and updating a release (G182 phase 5).** Testers install with
 `curl -fsSL https://raw.githubusercontent.com/rorosaga/cicada/main/scripts/install-release.sh | bash`: it reads the

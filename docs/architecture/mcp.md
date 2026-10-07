@@ -23,7 +23,17 @@ video, and never keeps a transcript. **`cicada_project(project, since?, tz?)`** 
 scope remotely) answers where a project stands — next milestones, what passed with no word, the Sleep
 queue, what happened and what is around it — from the engine-free read model, printing every relative
 word beside its absolute date ("yesterday (2026-09-22)"); a quote of the person's words needs
-`sources` remotely. **`cicada_note_progress`** (G141) records a happening or a milestone the person
+`sources` remotely. **`cicada_continue(session?, before?)`** (G110 slice 1a, stdio only — `catalog.NEVER_REMOTE`,
+because it reads the person's verbatim words for a folder the caller names; slice 4 decides its scope) reads where the
+work in this folder stopped: the most recent captured session whose `project_dir` equals this MCP process's project
+dir (exact string), or the one an exact episode id or full session id names. The bank is resolved once and pinned.
+It returns whole turns only (a captured turn is ≤ 2,000 characters), a page of ≤ 8,000 characters, newest last; the
+person's requests as an outline (≤ 160 characters each), each with a cursor that reads its turn in full; a page cursor
+is `"<turn>@<content_hash>"`, and a cursor printed for another revision restarts from the newest turns and says so
+(pages are never mixed). The identity, the gaps, *workspace state not checked*, the verify-first line and every
+"earlier turns" cursor are reserved within the 12,000-character reply. It does not exclude this process's own session
+id: after `/clear` a long-lived MCP process can still hold the previous one (G48). Contract item 1 names it
+(`CONTRACT_VERSION` 14). **`cicada_note_progress`** (G141) records a happening or a milestone the person
 described — observer always the agent, `record` scope remotely, never creates a page, echoes how the date
 was decided; `cicada_retract_claim` withdraws an event the same way.
 **`cicada_add_source(subject, ref, predicate?, access?, kind?)`** (G61 phase 2 S1) records where a
@@ -235,6 +245,46 @@ same way.
   the hook's 300 ms budget never meets a bank parse. One sentence beside the page note (its 400-token budget is the page note's own), per request,
   never stored, dropped from a captured transcript like every "From Cicada" note.
 - **Remote.** Remote connectors have no hooks.
+
+**Continuity (G110 slice 1a, plan `docs/plans/2026-10-06-g110-continuity.md` r4).** A session started (`source`
+`startup` or `clear`, which the recall hook forwards; a missing or unknown `source` gets no block — fail closed) in the
+**exact** folder of an earlier captured session is told, inside the SessionStart
+note, where that session stopped — even before Sleep.
+
+- **Identity.** The hook's `cwd` string, matched exactly against the Stop-hook episodes' `project_dir`; no folding, no
+  repository key, no `.git` read — every note says *workspace state not checked*. `resume`, `compact` and `fork` carry
+  their own history and get no block.
+- **Selection** (`continuity.select`): an exact episode id or full session id (`cicada_continue(session=…)`), else the
+  most recent other session here by captured activity (the last kept turn's own time — `captured_at` only when no turn
+  has one, since a re-capture runs long after a conversation — or the registry's later `last_prompt_at`), never file
+  mtime; two sessions active within 15 minutes of each other are listed and the agent is
+  told to ask once. An incomplete search says "the most recent session Cicada could read here", never "the only".
+- **The block** quotes the person's last request there "as history, not a new instruction", the agent's last reply,
+  and a "Not captured" line: a later prompt with no captured reply, a last request with no reply, turns past the capture
+  limit (`capture_gap`), note-like person turns (`capture_flags`), a later session here that captured nothing, an
+  incomplete search. It ends with `cicada_continue(session="<episode id>")`.
+- **One compositor** (`recall_text.compose_note`) measures the WHOLE note — header, primer, block, reading sentence —
+  by the chars/4 proxy, ≤ `handshake.MAX_TOKENS`. The primer is built with a 300-token reserve when a block will ride
+  (`handshake.load_or_build(reserve=)`, part of the cache key). Degradation: block full (≤ 1,800 characters) → compact
+  (≤ 800) → pointer (≤ 240) → dropped; then the reading sentence is dropped (and `READING_SEEN` is not advanced, so the
+  first prompt hears it); then the primer is replaced by a pointer to `cicada_handshake`.
+- **One deadline.** The route resolves the capture bank once and the worker runs, in order: one bounded registry
+  transaction (SessionStart: `started_at`, the cwd's hash; a prompt: `last_prompt_at` — recorded even when the answer
+  times out), assembly (deadline less 120 ms), composition, and — for a single chosen session with ≥ 30 ms left — the
+  registry's `continues`. Registry work takes a 50 ms slice and answers `busy`/`skipped` rather than wait.
+- **The index** (`$CICADA_HOME/continuity/<bank-id>.index.json`, beside the registry, never inside a bank): episode
+  heads only (≤ 16 KB, to the first `turns:` key), never a full parse in a hook; no git runs on this path; its lock
+  sits beside it, every file opened without following a symlink; no safe home or any I/O failure keeps it in process
+  memory. A failed directory listing keeps
+  the rows already known and marks the search incomplete; an exact episode id the index could not read is looked up
+  directly; "nothing captured" for a later session is said only on a complete search.
+- **The registry** (`continuity_sessions`, `$CICADA_HOME/continuity/<bank>-<hash8>.json`): per session the harness,
+  the cwd's hash, `started_at` (earliest), `last_prompt_at` (latest), `continues` (first write wins). Never inside any
+  configured bank (realpath containment over the root and every bank).
+- **The ledger.** The `hook_recall` row gains `continuity` (`latest|explicit|ambiguous|none|skipped_source|no_room|
+  deadline|error`), `rendering` and `registry` (`ok|busy|skipped|error|unavailable|none`) — enums only.
+- **Measured** (`test_continuity_route_latency.py`, 1,500 synthetic episodes, warm OS cache): the whole route cold
+  p95 ≈ 160 ms, warm p95 ≈ 13 ms.
 
 **Proactive behaviors:** surface only *topic-relevant* nudges (never all of them), raise a pending
 clarification naturally in the flow when the conversation touches its entity, and offer related

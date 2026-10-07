@@ -23,8 +23,9 @@ from api.models.schemas import (
     MaintenanceNudgePair,
     SearchIndexStatus,
 )
-from api.services import search_index
+from api.services import search_index, write_admission
 from api.services.dedup_sweep import dedup_sweep
+from api.services.sleep_refusal import SleepWriting
 
 router = APIRouter()
 
@@ -48,13 +49,29 @@ async def run_dedup_sweep(
 
     ``dry_run`` (default true) never writes: candidate pairs the judge would
     merge come back under ``proposed`` instead of being merged. Set
-    ``dry_run: false`` to actually perform the high-confidence merges.
+    ``dry_run: false`` to actually perform the high-confidence merges — each
+    one its own ``cicada`` commit of exactly the paths it wrote or removed
+    (``Dedup sweep <date>``, trigger ``maintenance/dedup-sweep``; G183(e)).
+
+    409 while Sleep holds the pages (G177's ``is_writing``), a dry run too —
+    it reads the pages a batch is rewriting. A window that opens mid-sweep
+    stops the merging (``stoppedForSleep``). Off the event loop: the judge is
+    a model call per pair.
     """
-    report = dedup_sweep(
-        settings.memory_path,
+    from api.services import write_admission
+
+    # An early answer only: the judge is a model call per pair, so the sweep never holds admission across it — each
+    # merge takes it for its own transaction and asks `may_write` again there (G183).
+    if write_admission.probe():
+        raise SleepWriting("a Sleep cycle is running and writes the same pages — retry when it finishes")
+    memory_path = settings.memory_path   # resolved once (the split-brain rule)
+    report = await run_in_threadpool(
+        dedup_sweep,
+        memory_path,
         settings,
         dry_run=request.dry_run,
         limit=request.limit,
+        may_write=lambda: not write_admission.holding(),
     )
     return MaintenanceDedupSweepResponse(
         dry_run=request.dry_run,
@@ -71,6 +88,11 @@ async def run_dedup_sweep(
             MaintenanceNudgePair(a=a, b=b) for a, b in report.get("nudged", [])
         ],
         skipped_rejected=report.get("skipped_rejected", 0),
+        stopped_for_sleep=report.get("stopped_for_sleep", False),
+        skipped_dirty=[MaintenanceMergePair(loser=l, winner=w) for l, w in report.get("skipped_dirty", [])],
+        skipped_unsafe=[MaintenanceMergePair(loser=l, winner=w) for l, w in report.get("skipped_unsafe", [])],
+        failed=[MaintenanceMergePair(loser=l, winner=w) for l, w in report.get("failed", [])],
+        recovery_failed=report.get("recovery_failed", False),
     )
 
 
@@ -96,13 +118,14 @@ async def run_enrich_links(
     Warm a bulk-imported bank with ``?limit=50`` a few times; each run
     reports ``remaining`` so the drain is visible.
     """
-    from api.services import agent_engine, engine_select, link_enrichment, sleep_cycle
+    from api.services import agent_engine, engine_select, link_enrichment, write_admission
 
     if _enrich_lock.locked():
         raise HTTPException(409, "a link backfill is already running — retry when it finishes")
-    if sleep_cycle.is_writing():
-        raise HTTPException(
-            409,
+    # An early answer, not admission: the backfill makes a model call and a fetch per link, which no admission may
+    # span (G183) — a window that opens mid-run is disclosed in docs/architecture/storage.md.
+    if write_admission.probe():
+        raise SleepWriting(
             "a Sleep cycle is running and writes the same media pages — retry when it finishes",
         )
     if not settings.link_enrich_enabled:
@@ -129,7 +152,7 @@ async def run_enrich_links(
 
 # --- Sources linked to their own page (G61 S3-a, D8) ---------------------------------------------------------
 
-_links_lock = asyncio.Lock()
+_links_lock = write_admission.TransactionLock()   # taken inside admitted transactions (writer loop)
 
 
 @router.post("/maintenance/link-sources")
@@ -140,26 +163,31 @@ async def link_sources(settings: Settings = Depends(get_settings)):
     while Sleep runs or another call runs. Counts only in the body."""
     from datetime import date
 
-    from api.services import git_service, sleep_cycle, source_links
+    from api.services import git_service, sleep_cycle, source_links, write_admission
 
     if _links_lock.locked():
         raise HTTPException(409, "a source-link pass is already running — retry when it finishes")
-    if sleep_cycle.is_writing():
-        raise HTTPException(409, "a Sleep cycle is running and writes the same pages — retry when it finishes")
-    async with _links_lock:
-        memory_path = settings.memory_path
-        skip: frozenset[str] = frozenset()
-        if (memory_path / ".git").exists():
-            skip = await sleep_cycle._dirty_paths(memory_path)
-        report = await asyncio.to_thread(source_links.backfill, memory_path, skip)
-        if report.paths and (memory_path / ".git").exists():
-            try:
-                await git_service.commit_paths(
-                    memory_path,
-                    source_links.commit_message(report, date.today(), "maintenance/source-links"), report.paths)
-            except Exception:
-                await asyncio.to_thread(source_links.restore, memory_path, report)
-                raise HTTPException(500, "the links could not be committed; nothing was changed")
+    memory_path = settings.memory_path
+    # Engine-free and bounded, so the pass holds the bank's write admission through its commit (G183).
+    busy = lambda: SleepWriting("a Sleep cycle is running and writes the same pages — retry when it finishes")  # noqa: E731
+
+    async def transaction():
+        async with _links_lock:
+            skip: frozenset[str] = frozenset()
+            if (memory_path / ".git").exists():
+                skip = await sleep_cycle._dirty_paths(memory_path)
+            report = await asyncio.to_thread(source_links.backfill, memory_path, skip)
+            if report.paths and (memory_path / ".git").exists():
+                try:
+                    await git_service.commit_paths(
+                        memory_path,
+                        source_links.commit_message(report, date.today(), "maintenance/source-links"), report.paths)
+                except Exception:
+                    await asyncio.to_thread(source_links.restore, memory_path, report)
+                    raise HTTPException(500, "the links could not be committed; nothing was changed")
+            return report
+
+    report = await write_admission.run_admitted(memory_path, transaction, refuse=busy)
     return {"linked": report.linked, "pages": len(report.paths)}
 
 
@@ -184,14 +212,16 @@ async def verify_sites(
     only in the body: never a host, a page or a reason."""
     from datetime import date
 
-    from api.services import demo_guard, git_service, sleep_cycle, site_sources
+    from api.services import demo_guard, git_service, sleep_cycle, site_sources, write_admission
 
     if demo_guard.is_demo(settings.memory_path):
         raise HTTPException(409, "this is the demo memory, made up for the tour — there are no real sites to check")
     if _sites_lock.locked():
         raise HTTPException(409, "a site check is already running — retry when it finishes")
-    if sleep_cycle.is_writing():
-        raise HTTPException(409, "a Sleep cycle is running and writes the same pages — retry when it finishes")
+    # An early answer, not admission: the check fetches up to `budget` sites, which no admission may span (G183) —
+    # a window that opens mid-run is disclosed in docs/architecture/storage.md.
+    if write_admission.probe():
+        raise SleepWriting("a Sleep cycle is running and writes the same pages — retry when it finishes")
     async with _sites_lock:
         memory_path = settings.memory_path
         skip: frozenset[str] = frozenset()
@@ -247,12 +277,12 @@ async def rebuild_search_index(settings: Settings = Depends(get_settings)):
     """Rebuild the derived index now. 409 while a Sleep cycle runs (it rebuilds
     the same file) or while another rebuild runs; a failure is a plain 503 —
     search keeps working from the frontmatter cache (G136)."""
-    from api.services import sleep_cycle
+    from api.services import write_admission
 
     if _index_lock.locked():
         raise HTTPException(409, "A rebuild is already running.")
-    if sleep_cycle.is_writing():
-        raise HTTPException(409, "A Sleep cycle is running and rebuilds the index itself.")
+    if write_admission.probe():   # a derived index, never a page: a probe is enough
+        raise SleepWriting("A Sleep cycle is running and rebuilds the index itself.")
     # Resolved once: a bank switch mid-rebuild must not make the status below
     # describe a different bank than the one just rebuilt (the split-brain rule).
     memory_path = settings.memory_path

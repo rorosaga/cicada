@@ -595,4 +595,24 @@ final class SleepViewModelTests: XCTestCase {
         store.applySleepEvent(event)
         XCTAssertEqual(fired, 2, "a cleared pause refetches too")
     }
+    /// G177 — the live event carries the write window into the status the write controls read, and an event from an
+    /// older backend (no `writing`) leaves the gate on `running`.
+    func test_theSleepEventCarriesTheWriteWindow() throws {
+        let store = idleStore()
+        let between = try JSONDecoder().decode(SleepEventPayload.self,
+                                               from: Data(#"{"status":"running","stage":1,"totalStages":5,"writing":false}"#.utf8))
+        XCTAssertEqual(between.writing, false)
+        store.applySleepEvent(between)
+        XCTAssertEqual(store.status.value?.sleep.writing, false)
+        XCTAssertFalse(ProjectWriteGate.blocked(store.status.value))
+        var inside = between
+        inside.writing = true
+        store.applySleepEvent(inside)
+        XCTAssertTrue(ProjectWriteGate.blocked(store.status.value))
+        let older = try JSONDecoder().decode(SleepEventPayload.self,
+                                             from: Data(#"{"status":"running","stage":1,"totalStages":5}"#.utf8))
+        XCTAssertNil(older.writing)
+        store.applySleepEvent(older)
+        XCTAssertTrue(ProjectWriteGate.blocked(store.status.value))
+    }
 }

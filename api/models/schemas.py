@@ -2075,6 +2075,9 @@ class StatusSleep(CamelModel):
     total_stages: int = 5
     cycle_id: Optional[str] = None
     error: Optional[str] = None
+    # G177 — Sleep holds the bank's pages right now (`sleep_cycle.is_writing`). The app's write controls key off
+    # this, not `status`: a person-started drain is `running` for hours but accepts writes between its batches.
+    writing: bool = False
 
 
 class StatusInbox(CamelModel):
@@ -2185,7 +2188,7 @@ class SleepDebtResponse(CamelModel):
 
 class SleepDrainStop(CamelModel):
     """Why a person-started run stopped before it read everything it froze.
-    ``reason``: ``cancelled | plan_limit | engine | bank_switched | error``.
+    ``reason``: ``cancelled | plan_limit | engine | bank_switched | error | reserve | busy``.
     ``sentence`` is a plain sentence (the vendor's own for a plan limit) and
     ``resets_at`` the vendor's unix reset time when one was measured — never
     estimated (G107)."""
@@ -3463,6 +3466,19 @@ class MaintenanceDedupSweepResponse(CamelModel):
     # rejected pair never re-reaches the judge at all, so it is neither
     # merged, proposed, nor nudged.
     skipped_rejected: int = 0
+    # G183(e) — Sleep's write window opened mid-sweep, so the merging stopped
+    # there; the pairs after it were not judged. Retry when Sleep finishes.
+    stopped_for_sleep: bool = False
+    # G183(e) fix round 1 — merges refused because they would change a path
+    # another writer left uncommitted (put back untouched; retried next sweep),
+    # merges whose write or commit failed and were put back exactly, and
+    # whether a put-back itself failed (the sweep stopped there).
+    skipped_dirty: list[MaintenanceMergePair] = []
+    # Fix round 2 — merges refused because a path they would write could not be
+    # put back exactly (unmerged index stages, a symlink, not a regular file).
+    skipped_unsafe: list[MaintenanceMergePair] = []
+    failed: list[MaintenanceMergePair] = []
+    recovery_failed: bool = False
 
 
 class MaintenanceEnrichLinksResponse(CamelModel):

@@ -701,6 +701,21 @@ async def dirty_paths(memory_path: Path) -> frozenset[str]:
     `porcelain_status`'s empty string, so an unreadable tree never reads as a
     clean one."""
     out = await _run_git(memory_path, "status", "--porcelain", "-z", "--untracked-files=all")
+    return _parse_status_z(out)
+
+
+def dirty_paths_sync(memory_path, *pathspec: str) -> frozenset[str]:
+    """:func:`dirty_paths` for a sync writer, under the bank's write lock (a
+    writer that already holds it re-enters), optionally narrowed to
+    ``pathspec``. Staged, modified and untracked paths all count."""
+    memory_path = Path(memory_path)
+    with write_lock(memory_path):
+        out = _git_sync(memory_path, "status", "--porcelain", "-z", "--untracked-files=all",
+                        *(("--", *pathspec) if pathspec else ()))
+    return _parse_status_z(out)
+
+
+def _parse_status_z(out: str) -> frozenset[str]:
     records = out.split("\0")
     dirty: set[str] = set()
     i = 0
@@ -1566,6 +1581,23 @@ async def commit_resolution(
     (``before``, from :func:`snapshot_dirty`) is committed first on its own,
     with no author claimed (:func:`commit_touched_sync`).
     """
+    await asyncio.to_thread(commit_resolution_sync, memory_path, entity_id, trigger, extra_lines,
+                            change=change, paths=paths, before=before)
+
+
+def commit_resolution_sync(
+    memory_path: Path,
+    entity_id: str,
+    trigger: str,
+    extra_lines: list[str] | None = None,
+    *,
+    change: str = "updated",
+    paths: list[str] | None = None,
+    before: dict[str, bytes | None] | None = None,
+) -> None:
+    """:func:`commit_resolution` for a resolver that already holds the bank's
+    page lock in a worker thread and commits inside it (G98/G115: a
+    normalization answer's pages, map and item are one critical section)."""
     date_str = date.today().isoformat()
     # trigger is "inbox/<kind>/resolved[:<label>]" — tag the kind into the
     # subject so the dashboard can distinguish a conflict adjudication from a
@@ -1591,8 +1623,8 @@ async def commit_resolution(
     message = build_commit_message(subject, body_lines, authors=["user"])
     touched = [line.split(": ", 1)[0].strip() for line in body_lines if ": " in line]
     touched += list(paths or [])
-    await asyncio.to_thread(commit_touched_sync, memory_path, message, touched, before=before,
-                            kept_subject=f"Uncommitted edit kept apart {date_str}", kept_trigger="inbox/kept-apart")
+    commit_touched_sync(memory_path, message, touched, before=before,
+                        kept_subject=f"Uncommitted edit kept apart {date_str}", kept_trigger="inbox/kept-apart")
 
 
 # G147 — the manifest line `commit_resolution` writes for a decay answer. Its

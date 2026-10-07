@@ -53,6 +53,61 @@ final class MutationTests: XCTestCase {
         XCTAssertEqual(api.writes, ["resolveInbox:b:archive:nil:nil"])
     }
 
+    /// G177/G183 — while Sleep holds the pages the resolve route answers 409 with a sentence naming Sleep; the card
+    /// still comes back, and the toast says why instead of the generic words.
+    func testInboxResolveRefusedWhileSleepWritesSaysSo() async throws {
+        let api = FakeSyncAPI()
+        let store = Store(cache: tempCache(), api: api)
+        store.inbox.value = try inboxItems(["a", "b"])
+        api.replies[.inbox] = .notModified
+        api.writeError = APIError.httpError(409, #"{"detail":"Sleep is updating your memory — try answering again in a moment."}"#)
+        let ok = await store.perform(InboxResolve(id: "b", action: "archive"))
+        XCTAssertFalse(ok)
+        XCTAssertEqual(store.visibleInbox.map(\.id), ["a", "b"], "the rollback stays")
+        XCTAssertEqual(store.toast, Copy.sleepIsRunning)
+    }
+
+    /// A 409 that is not Sleep's (a page's claims block will not parse) keeps the generic words — its detail names
+    /// page ids (DR-54).
+    func testInboxResolveOtherConflictKeepsTheGenericWords() async throws {
+        let api = FakeSyncAPI()
+        let store = Store(cache: tempCache(), api: api)
+        store.inbox.value = try inboxItems(["a"])
+        api.replies[.inbox] = .notModified
+        api.writeError = APIError.httpError(409, #"{"detail":"claims block on alpha-project will not parse"}"#)
+        _ = await store.perform(InboxResolve(id: "a", action: "archive"))
+        XCTAssertEqual(store.toast, "Couldn't resolve that item — reverted")
+    }
+
+    /// G177 review finding 3 — the stable code decides; an older backend's refusal is known by its exact opening words
+    /// only, never by "sleep" anywhere in the body (a page id can say it).
+    func testSleepRefusalKeysOffTheCodeThenTheKnownSentences() {
+        func conflict(_ body: String) -> APIError { .httpError(409, body) }
+        XCTAssertTrue(SleepRefusal.matches(conflict(#"{"code":"sleep_writing","detail":"Anything at all"}"#)))
+        XCTAssertTrue(SleepRefusal.matches(conflict(#"{"detail":"Sleep is updating your memory — try answering again in a moment."}"#)))
+        XCTAssertTrue(SleepRefusal.matches(conflict(#"{"detail":"Sleep is writing this project, try again in a moment"}"#)))
+        XCTAssertTrue(SleepRefusal.matches(conflict(#"{"detail":"Sleep is running — try again when it finishes"}"#)))
+        XCTAssertTrue(SleepRefusal.matches(conflict(#"{"detail":"a Sleep cycle is running and writes the same pages — retry when it finishes"}"#)))
+
+        XCTAssertFalse(SleepRefusal.matches(conflict(#"{"detail":"Cannot resolve inbox-001: the claims block in entities/sleep-study.md is malformed."}"#)))
+        XCTAssertFalse(SleepRefusal.matches(conflict(#"{"detail":"claims block on sleep-study will not parse"}"#)))
+        XCTAssertFalse(SleepRefusal.matches(conflict(#"{"detail":"'sleep-hygiene' has an unreadable claims block; repair it before merging"}"#)))
+        XCTAssertFalse(SleepRefusal.matches(conflict(#"{"code":"other","detail":"x","note":"Sleep is running"}"#)), "an extra field is not the detail")
+        XCTAssertFalse(SleepRefusal.matches(conflict("Sleep is running — not JSON")), "a body that is not the envelope")
+        XCTAssertFalse(SleepRefusal.matches(APIError.httpError(400, #"{"code":"sleep_writing","detail":"x"}"#)), "409 only")
+        XCTAssertFalse(SleepRefusal.matches(nil))
+    }
+
+    /// The entity card's Fades chip: a refusal while Sleep writes says so; anything else says the change did not land.
+    func testDecayChangeFailureWords() {
+        XCTAssertEqual(DecayChangeFailure.message(APIError.httpError(409, #"{"detail":"Sleep is updating your memory — try again in a moment."}"#)),
+                       Copy.sleepIsRunning)
+        XCTAssertEqual(DecayChangeFailure.message(APIError.httpError(404, #"{"detail":"Entity alpha-project not found"}"#)),
+                       Copy.Graph.fadesNotChanged)
+        XCTAssertEqual(DecayChangeFailure.message(APIError.serverUnreachable), Copy.Graph.fadesNotChanged)
+        XCTAssertFalse(Copy.Graph.fadesNotChanged.isEmpty)
+    }
+
     /// `skip` keeps the item in the queue by design — nothing is hidden.
     func testInboxSkipDoesNotHideTheCard() async throws {
         let api = FakeSyncAPI()
@@ -188,18 +243,75 @@ final class MutationTests: XCTestCase {
 
     // MARK: - Banks
 
-    /// The bank swap is instant (target bank's cached snapshots), and a failed
-    /// activate puts the previous bank — data and roster flag — back.
-    func testActivateBankSwapsImmediatelyAndRollsBack() async throws {
+    /// G183(d) — the switch waits for the server: nothing in the Store moves while `POST /banks/{name}/activate` is
+    /// in flight (a request made meanwhile still reads the bank the server is on), only a quiet "switching" marker;
+    /// once the server confirms, the target bank hydrates from its cache and the roster flag moves.
+    func testActivateBankWaitsForTheServerThenHydrates() async throws {
+        let (store, api) = try await twoBankStore()
+        api.gateWrites = true
+        let inFlight = Task { await store.activateBank("B") }
+        await api.waitForParkedWrite()
+
+        XCTAssertEqual(store.bank, "A", "the bank does not move before the server answers")
+        XCTAssertEqual(store.inbox.value?.map(\.id), ["a1"])
+        XCTAssertEqual(store.banks.value?.active, "A")
+        XCTAssertEqual(store.switchingBank, "B", "the switcher shows a quiet in-progress state")
+
+        // The server has switched by the time the reconcile asks for the roster.
+        api.replies[.banks] = .value(try JSONDecoder().decode(
+            BanksResponse.self,
+            from: Data(#"{"banks":[{"name":"A"},{"name":"B","active":true}],"active":"B"}"#.utf8)))
+        api.releaseWriteGate()
+        let ok = await inFlight.value
+        XCTAssertTrue(ok)
+        XCTAssertEqual(store.bank, "B")
+        XCTAssertEqual(store.inbox.value?.map(\.id), ["b1", "b2"], "B's cached inbox hydrates on the confirmation")
+        XCTAssertEqual(store.banks.value?.active, "B")
+        XCTAssertEqual(store.banks.value?.banks.first(where: { $0.name == "B" })?.active, true)
+        XCTAssertNil(store.switchingBank)
+    }
+
+    /// A refused switch (409 while Sleep reads) changes nothing at all and says the server's own sentence.
+    func testActivateBankRefusedLeavesTheStoreUntouched() async throws {
+        let (store, api) = try await twoBankStore()
+        let sentence = "Cicada is reading — stop it first, or wait for it to finish, then switch."
+        api.writeError = APIError.httpError(409, #"{"detail":"\#(sentence)"}"#)
+        api.gateWrites = true
+        let inFlight = Task { await store.activateBank("B") }
+        await api.waitForParkedWrite()
+        XCTAssertEqual(store.bank, "A")
+        api.releaseWriteGate()
+        let ok = await inFlight.value
+
+        XCTAssertFalse(ok)
+        XCTAssertEqual(store.bank, "A")
+        XCTAssertEqual(store.inbox.value?.map(\.id), ["a1"])
+        XCTAssertEqual(store.banks.value?.active, "A")
+        XCTAssertEqual(store.banks.value?.banks.first(where: { $0.name == "A" })?.active, true)
+        XCTAssertNil(store.switchingBank)
+        XCTAssertEqual(store.toast, sentence)
+    }
+
+    /// Any other failure keeps the old words.
+    func testActivateBankFailureKeepsTheGenericWords() async throws {
+        let (store, api) = try await twoBankStore()
+        api.failWrites = true
+        let ok = await store.activateBank("B")
+        XCTAssertFalse(ok)
+        XCTAssertEqual(store.bank, "A")
+        XCTAssertEqual(store.toast, "Couldn't switch project — reverted")
+    }
+
+    /// Bank A active with one cached inbox item, bank B cached with two; every reconcile answers 304 for the inbox so
+    /// what the tests observe is what the mutation did.
+    private func twoBankStore() async throws -> (Store, FakeSyncAPI) {
         let cache = tempCache()
         let roster: BanksResponse = try JSONDecoder().decode(
             BanksResponse.self,
             from: Data(#"{"banks":[{"name":"A","active":true},{"name":"B"}],"active":"A"}"#.utf8))
-        let inboxA = try inboxItems(["a1"])
-        let inboxB = try inboxItems(["b1", "b2"])
         await cache.save(roster, etag: "\"r\"", domain: .banks, bank: Store.rosterBank)
-        await cache.save(inboxA, etag: "\"ia\"", domain: .inbox, bank: "A")
-        await cache.save(inboxB, etag: "\"ib\"", domain: .inbox, bank: "B")
+        await cache.save(try inboxItems(["a1"]), etag: "\"ia\"", domain: .inbox, bank: "A")
+        await cache.save(try inboxItems(["b1", "b2"]), etag: "\"ib\"", domain: .inbox, bank: "B")
         await cache.flush()
 
         let api = FakeSyncAPI()
@@ -208,29 +320,8 @@ final class MutationTests: XCTestCase {
         await store.hydrate()
         XCTAssertEqual(store.bank, "A")
         XCTAssertEqual(store.inbox.value?.map(\.id), ["a1"])
-
-        // The reconcile that follows (success or failure) must not overwrite
-        // the hydrated inbox with the fake's default fixture.
         api.replies[.inbox] = .notModified
-        api.gateWrites = true
-        let inFlight = Task { await store.perform(ActivateBank(name: "B")) }
-        await api.waitForParkedWrite()
-
-        XCTAssertEqual(store.bank, "B", "the swap happens before the POST is answered")
-        XCTAssertEqual(store.inbox.value?.map(\.id), ["b1", "b2"], "B's cached inbox is already on screen")
-        XCTAssertEqual(store.banks.value?.active, "B")
-        XCTAssertEqual(store.banks.value?.banks.first(where: { $0.name == "B" })?.active, true)
-
-        // Now fail it: everything must go back to A.
-        api.failWrites = true
-        api.releaseWriteGate()
-        let ok = await inFlight.value
-        XCTAssertFalse(ok)
-
-        XCTAssertEqual(store.bank, "A")
-        XCTAssertEqual(store.inbox.value?.map(\.id), ["a1"], "A's snapshots are re-hydrated")
-        XCTAssertEqual(store.banks.value?.active, "A")
-        XCTAssertEqual(store.toast, "Couldn't switch project — reverted")
+        return (store, api)
     }
 
     /// While Consolidate reads, the server refuses a switch with a sentence written for the person (G163);
@@ -240,7 +331,7 @@ final class MutationTests: XCTestCase {
         let store = Store(cache: tempCache(), api: api)
         let sentence = "Cicada is reading — stop it first, or wait for it to finish, then switch."
         api.writeError = APIError.httpError(409, #"{"detail":"\#(sentence)"}"#)
-        let ok = await store.perform(ActivateBank(name: "B"))
+        let ok = await store.activateBank("B")
         XCTAssertFalse(ok)
         XCTAssertEqual(store.toast, sentence)
     }
@@ -343,7 +434,7 @@ final class MutationTests: XCTestCase {
             from: Data(#"{"banks":[{"name":"A"},{"name":"B","active":true}],"active":"B"}"#.utf8)))
         api.calls.removeAll()
 
-        let ok = await store.perform(ActivateBank(name: "B"))
+        let ok = await store.activateBank("B")
         XCTAssertTrue(ok)
         // `.askHistory` (G52) has no server endpoint to reconcile against —
         // `Store.refresh` skips it explicitly — so it never generates an API

@@ -57,7 +57,7 @@ enum UpdateFailureMarker {
 
 /// G182 — "is Sleep writing right now?", asked of the backend itself at hand-off rather than read from the Store's
 /// cached status (which is nil before the first poll). Busy means `status == "running"` — the gate the app's own
-/// write controls use (`ProjectWriteGate`), wider than G177's `writing` because installing stops the backend and
+/// write controls once used (`ProjectWriteGate.sleepRunning` now), wider than G177's `writing` because installing stops the backend and
 /// would cut a drain between batches too — or `writing == true`. No answer at all (nothing listening, or no reply in
 /// time) means no cycle is running there; an answer that can't be read is treated as busy.
 enum SleepProbe {

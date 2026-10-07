@@ -24,6 +24,7 @@ from pydantic import BaseModel
 from api.config import Settings, get_settings
 from api.routers.capture import refuse_capture_into_demo
 from api.services import agent_methods, skill_catalog, skill_pages
+from api.services.sleep_refusal import SleepWriting
 
 router = APIRouter()
 
@@ -89,7 +90,7 @@ async def post_skill_page(skill: str, settings: Settings = Depends(get_settings)
         raise HTTPException(404, "That skill isn't one your agent can be asked to use.")
     result = await skill_pages.ensure(settings.memory_path, skill, catalog=catalog)
     if result.state == "busy":
-        raise HTTPException(409, SLEEP_BUSY)
+        raise SleepWriting(SLEEP_BUSY)
     if result.state == "demo":
         raise HTTPException(409, "This is the demo memory, so nothing is added to it.")
     return {"id": result.entity_id, "state": result.state}

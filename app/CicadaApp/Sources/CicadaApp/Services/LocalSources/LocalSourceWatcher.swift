@@ -282,7 +282,10 @@ final class LocalSourceWatcher {
         syncing.insert(channel)
         lastStarted[channel] = .now
         lights.publish(.syncing, error: nil, for: channel)
-        await runFolderSync(folder, root: root, resolve: resolve)
+        // G183(d): every batch of this scan names the bank whose folders and manifest it read — a scan that outlives
+        // a switch is refused by the server, never written into the other bank.
+        let origin = bank
+        await BankScope.bound(to: origin) { await runFolderSync(folder, root: root, resolve: resolve) }
         syncing.remove(channel)
         guard let again = dirty.removeValue(forKey: channel),
               let latest = folders.first(where: { $0.id == folder.id }) else { return }
@@ -515,7 +518,8 @@ final class LocalSourceWatcher {
         syncing.insert(channel)
         lastStarted[channel] = .now
         lights.publish(.syncing, error: nil, for: channel)
-        await runWisprSync()
+        let origin = bank   // G183(d): the cursor is this bank's
+        await BankScope.bound(to: origin) { await runWisprSync() }
         syncing.remove(channel)
         // A write that landed mid-pass is read now, through the floor like any other
         // change, instead of waiting for Wispr Flow's next write (review r1).

@@ -46,7 +46,16 @@ Seven rails hold across all of them:
   the hook. Secrets scrubbed, per-turn and per-session caps applied. **One episode
   per session** — a later Stop rewrites it in place and flips `processed: false`, never two
   episodes for one conversation (G104). Cicada's own `claude -p` and `codex exec` spawns run with
-  `CICADA_CAPTURE=off`. **Recall is the same move (G149):** the harness's `SessionStart` and
+  `CICADA_CAPTURE=off`. **Where capture stopped (G110 slice 1a).** Every write also records, outside
+  `content_hash` and before `turns`: `last_turn_at` (the last kept turn's own time), `turn_count`, `tail_turns`
+  (the last 8 kept turns as `{offset, speaker, at?}`, exact offsets into the body — the G118 sidecar stops at 500
+  and skips untimed turns), `capture_gap` (`{dropped_turns, last_seen_at}`, only while the head-stable session cap
+  refuses turns) and `capture_flags` (`{note_like_turns}`, kept person turns holding a line that opens like a
+  Cicada note — counted and kept, never removed for that), plus `continues`: the one episode id the continuity
+  registry says Cicada pointed this session at, stamped once and never rewritten. An unchanged body whose metadata
+  moved (a newly refused turn, a late `continues`) is rewritten in place under `episode_lock` with the same body,
+  hash and `processed` state — status `metadata`, nothing re-queued. The capture ledger row gains the two counts.
+  **Recall is the same move (G149):** the harness's `SessionStart` and
   `UserPromptSubmit` hooks (`api/hooks/recall.py` → `POST /capture/hook-context`) put Cicada's note
   in front of the model: the primer at session start, and the pages a message names on every
   prompt. Recall therefore no longer depends on a model calling `cicada_recall`. The prompt travels
@@ -220,12 +229,21 @@ batches, filed, requeued, skipped, active, finished, `stop{reason, sentence, res
 never an estimate, G107), the entity/episode counters as the run's running sums, `episodesQueued` the frozen total,
 `episodeCap` the batch size of the run in progress (0 with none), `batchSize` the configured one, always served, `readByOrigin` cumulative; the SSE `sleep` event gains a compact `drain`. **The write window
 (G177):** `sleep_cycle.is_writing()` is the one predicate behind every "Sleep is running" refusal that guards a page
-(projects, entities, backlog, local sources, memory, maintenance, the remote connector's writes, paper details) and behind
+(projects, entities — the decay class and repo links since G183(a) —, the inbox's every resolve door, backlog, local
+sources, memory, maintenance — the dedup sweep since G183(e) —, the remote connector's writes, paper details) and behind
 `GET /sleep/status`'s `writing`, which MCP's `_backend_sleep_running` and `BACKLOG_SLEEPING` read. A plain or scheduled cycle
 holds the bank for its whole run, as before; a drain holds it only from a batch's Stage 2 (which loads the pages Stage 5
 rewrites) through its commit, plus the run's start and its tail. Stage 1's engine calls and the gaps between batches touch no
 page, so the *server* accepts page writes there and a stdio agent's claim **commits alone under its own harness** there instead of being
-swept by the next batch's `git add -A` under the Sleep author. A claim written *inside* a window still stands uncommitted
+swept by the next batch's `git add -A` under the Sleep author. The refusal is asked **under admission** (G183,
+`write_admission`): a guarded writer asks it holding the bank's write admission and keeps the hold through its own
+commit (an async writer's transaction runs on the writer loop, so neither a cancelled request nor its loop's teardown can drop it early); Sleep opens
+a window (the run's start, a batch's Stage 2, the tail) by setting its flag and then waiting, off the loop, until no
+holder is left — so a writer that saw the window shut commits before Sleep reads a page, and every later one refuses.
+The wait is bounded: past 60 s Sleep reads nothing — the drain stops as a `busy` pause, a run's start reads nothing,
+the tail is skipped. Order is admission → page → git; no admission spans a model call or a fetch. Not covered, and
+disclosed in `storage.md`, "Write admission": `enrich-links`, `verify-sites`, the paper-details run and batch intake.
+A claim written *inside* a window still stands uncommitted
 and rides that batch's commit (minutes, the pre-drain exposure); bank switching, export and delete still answer 409 for the
 whole run (the run is pinned to its bank), and `activate`'s sentence is shown as the toast. A batch that commits with the
 plan's breaker tripped stops the drain only while frozen ids are still waiting; with none left it is a finished run (the
@@ -240,7 +258,7 @@ note is logged, the link backfill still runs).
 - **Past nights groups by run:** history rows carry `drainId`/`batch`/`batches` and a `run` summary (from `runs.json`; a paused run dropped without a Continue — a fresh Consolidate, an empty Continue, End, the schedule's replacement — is `ended` with its pause closed, and a restart records its open `restart` pause), and `GET /sleep/runs/{id}` (ETag) sums by `refs.drain_id` over every `llm_call` — models with the ledger's own stage names, plan windows per batch (a reset between two batches is never averaged away), pages touched. `SleepEnginePreview.billing` (`plan|charged|local`) lets the app word the spend without naming a provider.
 
 **Disclosed asymmetries (not fixed here):** Stage 5.57's `recommends` person credit reads only the last batch's changes;
-Home's "Last read" shows the last batch's pages. Details › Last cycle's cost line and "took" row still come from the newest history commit (one batch) — the run's own totals are in Past nights' run row. **Pause and a hard plan rejection mid-batch still discard the batch in progress** (no journal of paid answers — the tail must say "the part it was reading is read again", never "read and kept"). A scheduled drain pins its bank for hours (the same 409 as any run) and, on a metered engine, has no ceiling Cicada sets. The **app's own** Projects, Backlog and Fade-pace controls still key off `sleep.status == "running"` (`ProjectWriteGate`; `/status` does not carry `writing`), so they stay disabled, saying "Sleep is running", for the whole drain although the server would accept a write between batches. After a stop, Details says how many stay filed and never a batch count (the wire's `batches` is the plan); a cancelled or plan-paused strip and tail retire with the backend's cancel window and the vendor's reset time respectively. A drain on a consumer plan is the largest plan spend Cicada makes; the "leave room" reserve covers every window the engine reports (the 5-hour and the weekly one alike), is a line and not a guarantee, and a window the engine never reports is served `enforced: false`.
+Home's "Last read" shows the last batch's pages. Details › Last cycle's cost line and "took" row still come from the newest history commit (one batch) — the run's own totals are in Past nights' run row. **Pause and a hard plan rejection mid-batch still discard the batch in progress** (no journal of paid answers — the tail must say "the part it was reading is read again", never "read and kept"). A scheduled drain pins its bank for hours (the same 409 as any run) and, on a metered engine, has no ceiling Cicada sets. The **app's own** Projects and Backlog controls key off `writing` (`ProjectWriteGate`; `/status` and the SSE `sleep` event carry it, and the sync version's `sleep` component moves when it flips), so they are disabled, saying "Sleep is running", only inside a batch's write window and come back between batches; an older backend without the field falls back to `running`. After a stop, Details says how many stay filed and never a batch count (the wire's `batches` is the plan); a cancelled or plan-paused strip and tail retire with the backend's cancel window and the vendor's reset time respectively. A drain on a consumer plan is the largest plan spend Cicada makes; the "leave room" reserve covers every window the engine reports (the 5-hour and the weekly one alike), is a line and not a guarantee, and a window the engine never reports is served `enforced: false`.
 
 ### Entity promotion
 Entities are NOT extracted from every mention — that pollutes the graph. First mention stays in the

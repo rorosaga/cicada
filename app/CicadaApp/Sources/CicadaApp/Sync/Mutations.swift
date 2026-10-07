@@ -9,9 +9,10 @@ import Foundation
 /// the follow-up refresh of `refreshDomains` (or, for the connection paths, a
 /// `fresh: true` probe the view model already owns).
 ///
-/// `optimistic`/`rollback` are `async` (the brief's sketch had them sync)
-/// because `ActivateBank` has to `await store.hydrate(bank:)` to swap the
-/// target bank's cached snapshots in — everything else awaits nothing.
+/// `optimistic`/`rollback` are `async` (the brief's sketch had them sync):
+/// a held answer's send and a hydrate are awaited inside some of them. A bank
+/// switch is not a `Mutation` — it is the serialized `Store.activateBank`
+/// transition (G183(d)), which holds every `perform` while it waits.
 @MainActor
 protocol Mutation {
     func optimistic(_ store: Store) async
@@ -57,6 +58,7 @@ struct InboxResolve: Mutation {
     var remindDays: Int? = nil
     var mergeTarget: String? = nil
     var mergeSurvivor: String? = nil
+    private let failure = MutationMemo<any Error>()
 
     /// `skip` deliberately keeps the item in the queue — nothing to hide.
     /// `defer` DOES hide: the server sets `remind_after`, so the card is gone
@@ -68,17 +70,57 @@ struct InboxResolve: Mutation {
     }
 
     func request(_ api: any SyncAPI) async throws {
-        try await api.resolveInbox(id: id, action: action, answer: answer,
-                                   optionKey: optionKey, remindDays: remindDays,
-                                   mergeTarget: mergeTarget, mergeSurvivor: mergeSurvivor)
+        do {
+            try await api.resolveInbox(id: id, action: action, answer: answer,
+                                       optionKey: optionKey, remindDays: remindDays,
+                                       mergeTarget: mergeTarget, mergeSurvivor: mergeSurvivor)
+        } catch {
+            failure.value = error
+            throw error
+        }
     }
 
     func rollback(_ store: Store) async {
         store.hiddenInboxIds.remove(id)
     }
 
-    var failureMessage: String { "Couldn't resolve that item — reverted" }
+    /// G177/G183 — a refusal while Sleep holds the pages says so; every other failure keeps the generic words (a
+    /// malformed-claims 409's detail names page ids, DR-54).
+    var failureMessage: String {
+        SleepRefusal.matches(failure.value) ? Copy.sleepIsRunning : "Couldn't resolve that item — reverted"
+    }
     var refreshDomains: Set<SyncDomain> { [.inbox] }
+}
+
+/// A refusal because Sleep holds the pages (`sleep_cycle.is_writing`): a 409 whose envelope carries
+/// `code: "sleep_writing"` (`api/services/sleep_refusal.py`, G177). An older backend sends no code, so its refusals
+/// are known by their exact opening words only — never by "sleep" anywhere in the body, since the other 409s (a claims
+/// block that will not parse, a merge) name pages whose ids can say it (review finding 3).
+enum SleepRefusal {
+    static let code = "sleep_writing"
+    /// The opening words of every Sleep-window refusal the backend sent before the code existed.
+    static let legacyOpenings = [
+        "Sleep is updating your memory", "Sleep is writing", "Sleep is running",
+        "a Sleep cycle is running", "A Sleep cycle is running", "Cicada is tidying up your memory right now",
+    ]
+
+    static func matches(_ error: (any Error)?) -> Bool {
+        guard case .httpError(409, let body)? = error as? APIError,
+              let data = body.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
+        if let code = object["code"] as? String { return code == Self.code }
+        guard let detail = object["detail"] as? String else { return false }
+        return legacyOpenings.contains { detail.hasPrefix($0) }
+    }
+}
+
+/// The entity card's Fades chip: Sleep's refusal in the app's words, any other failure as "not changed" — a 404's or
+/// a 400's detail names ids (DR-54).
+enum DecayChangeFailure {
+    static func message(_ error: any Error) -> String {
+        if BankScope.isMismatch(error) { return Copy.memorySwitched }
+        return SleepRefusal.matches(error) ? Copy.sleepIsRunning : Copy.Graph.fadesNotChanged
+    }
 }
 
 // MARK: - Connections
@@ -413,59 +455,6 @@ struct UnsubscribeCalendar: Mutation {
 }
 
 // MARK: - Banks
-
-/// Switch the active memory bank. The optimistic apply swaps `store.bank` and
-/// re-hydrates every domain from *that bank's* disk cache, so the whole app
-/// repaints on the new bank before the POST is even sent.
-///
-/// Domains the target bank has never cached come back empty rather than
-/// showing the previous bank's data (`Store.hydrate`'s reset-on-miss rule) —
-/// an honest empty state for the ~one round-trip until the reconcile lands.
-struct ActivateBank: Mutation {
-    let name: String
-    private let memo = MutationMemo<(bank: String, roster: BanksResponse?)>()
-    private let failure = MutationMemo<any Error>()
-
-    init(name: String) { self.name = name }
-
-    func optimistic(_ store: Store) async {
-        // DR-42 (R-DI3) — a held answer is sent before the bank moves: the POST goes to the bank that
-        // is active on the server, and `hydrate` clears every hide. Every switch path is this mutation.
-        await store.flushHeld()
-        memo.value = (store.bank, store.banks.value)
-        store.bank = name
-        // Instant swap from cache. Must happen before the roster flag below:
-        // `hydrate(bank:)` leaves `.banks` alone, but ordering it first keeps
-        // the "paint the new bank, then mark it active" reading obvious.
-        await store.hydrate(bank: name)
-        if let roster = store.banks.value {
-            store.banks.value = BanksResponse(
-                banks: roster.banks.map { $0.settingActive($0.name == name) },
-                active: name
-            )
-        }
-    }
-
-    func request(_ api: any SyncAPI) async throws {
-        do { try await api.activateBank(name: name) }
-        catch { failure.value = error; throw error }
-    }
-
-    func rollback(_ store: Store) async {
-        guard let previous = memo.value else { return }
-        store.bank = previous.bank
-        await store.hydrate(bank: previous.bank)
-        store.banks.value = previous.roster
-    }
-
-    var failureMessage: String { BankSwitchFailure.message(failure.value) }
-    /// Every domain, not just `.banks`. `Store.refresh`'s own bank-switch
-    /// fan-out keys off `active != previous`, and `optimistic` already moved
-    /// `store.bank`, so that branch can never fire here — this mutation owns
-    /// the post-switch reconcile itself. `refresh` walks `SyncDomain.allCases`
-    /// with `.banks` first, exactly as `refreshAll` does.
-    var refreshDomains: Set<SyncDomain> { Set(SyncDomain.allCases) }
-}
 
 /// A refused switch in words. While Consolidate reads, the run is pinned to its bank, so the server answers
 /// 409 with a sentence written for the person ("Cicada is reading — stop it first, …"); every other failure

@@ -44,7 +44,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
-from api.services import sleep_debt, sleep_scheduler, state_dictionary, sync_service
+from api.services import sleep_debt, sleep_scheduler, state_dictionary, sync_service, write_admission
 
 router = APIRouter()
 
@@ -68,7 +68,15 @@ async def get_state(
     # the same helper Sleep's tail uses, so a read never rewrites the file
     # just because the two writers named different connection lists. The
     # helper commits only when it wrote, and never raises on a normal bank.
-    await state_dictionary.refresh_and_commit(memory_path, settings, force=refresh)
+    #
+    # The refresh writes and commits `_state.md` (a cursor): one admitted transaction (G183 round 2). While Sleep
+    # holds the pages it is skipped and the file is served as it is — the run's tail refreshes it, and a write here
+    # could ride the batch commit under Sleep's author.
+    async def refresh_cursor() -> None:
+        if not write_admission.holding():
+            await state_dictionary.refresh_and_commit(memory_path, settings, force=refresh)
+
+    await write_admission.run_admitted(memory_path, refresh_cursor)
     etag = sync_service.etag_for(
         memory_path, "entities", "inbox", "episodes", "git_head", extra=f"state={_state_mtime_ns(settings)}"
     )

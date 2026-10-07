@@ -1,0 +1,42 @@
+# G182 — the release PR check (TODO ruling 19). Nothing but a release reaches main: a PR to main must come from this
+# repo's `dev`, and carry a VERSION that every stamp agrees on, that has no tag yet and that is greater than the
+# latest release — exactly what release.yml will publish when the PR is merged.
+name: Release PR
+
+on:
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  release-pr:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: The head branch is dev
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+        run: |
+          [ "$HEAD_REF" = "dev" ] && [ "$HEAD_REPO" = "$GITHUB_REPOSITORY" ] && exit 0
+          echo "::error::Only a release reaches main: open the PR from dev (make release-pr), not from $HEAD_REPO:$HEAD_REF."
+          exit 1
+
+      - uses: actions/checkout@v4
+
+      - name: Every version stamp agrees
+        run: python3 scripts/release/check_version.py agree
+
+      - name: VERSION is new and greater than the latest release
+        run: |
+          set -euo pipefail
+          git ls-remote --tags --refs origin 'refs/tags/v*' > "$RUNNER_TEMP/tags.txt"
+          python3 scripts/release/check_version.py plan < "$RUNNER_TEMP/tags.txt" > "$RUNNER_TEMP/plan.txt"
+          cat "$RUNNER_TEMP/plan.txt"
+          version="$(sed -n 's/^version=//p' "$RUNNER_TEMP/plan.txt")"
+          status="$(sed -n 's/^status=//p' "$RUNNER_TEMP/plan.txt")"
+          [ "$status" = "new" ] && { echo "Merging this releases v$version."; exit 0; }
+          echo "::error::v$version is already released. Bump it first: make release VERSION=x.y.z"
+          exit 1

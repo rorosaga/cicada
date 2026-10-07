@@ -29,7 +29,6 @@ the human-protection rule must be deterministic and auditable.
 
 from __future__ import annotations
 
-import re
 from datetime import date, datetime, timedelta
 from typing import Callable
 
@@ -351,7 +350,11 @@ def _divergence_nudge(existing: Claim, new: Claim) -> dict:
     }
 
 
-def _normalization_audit_nudge(raw_label: str, canonical: str, claim: Claim) -> dict:
+def _normalization_audit_nudge(raw_label: str, canonical: str, claim: Claim,
+                               covered: list[Claim] | None = None) -> dict:
+    """One fold question for a pair: ``claim`` opens it, ``covered`` are the
+    other claims the pass kept under the same fold (``covered_claims``, the
+    refs a "wrong fold" answer repoints)."""
     return {
         "id": claim.subject,
         "action": "normalization_audit",
@@ -369,6 +372,8 @@ def _normalization_audit_nudge(raw_label: str, canonical: str, claim: Claim) -> 
         # re-deriving it from the (already-folded) claim on disk.
         "raw_predicate": raw_label,
         "canonical_predicate": canonical,
+        "covered_claims": [{"entity_id": c.subject, "claim_id": c.id} for c in covered or []
+                           if (c.subject, c.id) != (claim.subject, claim.id)],
     }
 
 
@@ -532,6 +537,55 @@ def _reconcile_milestone(new, slot, settings, *, today, nudges, audit) -> None:
 # --------------------------------------------------------------------------- #
 
 
+def _place_claim(new: Claim, slot: list[Claim], settings, today: str, cardinality_fn: CardinalityFn,
+                 nudges: list[dict], audit: list[dict]) -> Claim | None:
+    """One non-event incoming claim against its subject's slot (the K table).
+    Returns the claim the page keeps for it — ``new``, or the existing claim a
+    restatement reinforced — or ``None`` when it is not stored (a conflict to
+    ask about, or rejected)."""
+    same_key_open = [c for c in slot if open_(c) and K(c) == K(new)]
+
+    if not same_key_open:
+        slot.append(_stamp_new(new, settings, today=today))
+        return new
+
+    single = cardinality_fn(new.predicate)
+
+    if not single:
+        # Multi-valued: coexist unless an exact-object duplicate exists.
+        dup = next((c for c in same_key_open if same_object(c, new)), None)
+        if dup is None:
+            slot.append(_stamp_new(new, settings, today=today))
+            return new
+        _reinforce(dup, new)
+        return dup
+
+    # Single-valued: ≤1 open per slot.
+    existing = same_key_open[0]
+    if same_object(existing, new):
+        _reinforce(existing, new)
+        return existing
+
+    action = trust_decision(new, existing)
+    if action == "SUPERSEDE":
+        _close(existing, by=_stamp_new(new, settings, today=today))
+        slot.append(new)
+        audit.append({"action": "supersede", "closed": existing.id, "by": new.id})
+        return new
+    if action == "COEXIST_FLAG":
+        slot.append(_stamp_new(new, settings, today=today, status_note="shadowed_by_human"))
+        nudges.append(_divergence_nudge(existing, new))
+        return new
+    if action == "CONFLICT_NUDGE":
+        nudges.append(_conflict_nudge(existing, new, today))
+    elif action == "REJECT":
+        audit.append({"action": "rejected", "kept": existing.id, "dropped": new.id})
+    elif action == "KEEP_BOTH":
+        slot.append(_stamp_new(new, settings, today=today))
+        return new
+    return None
+
+
 def reconcile_stage3(
     incoming_claims: list[Claim],
     existing_claims_by_subject: dict[str, list[Claim]],
@@ -592,7 +646,8 @@ def reconcile_stage3(
     nudges: list[dict] = []
     audit: list[dict] = []
     referenced_subjects: set[str] = set()
-    audited_folds: set[tuple[str, str]] = set()
+    # (raw_slug, canonical) -> the raw label first seen and every claim kept for it
+    folds: dict[tuple[str, str], dict] = {}
     # G141 rule 1: an existing happening absorbs at most one incoming claim per
     # pass, so two distinct happenings quoting one sentence never collapse.
     absorbed: set[str] = set()
@@ -617,53 +672,23 @@ def reconcile_stage3(
             continue
 
         # Mandatory normalization-audit nudge on any auto-folded predicate.
+        # G98/G115: a fold is a label mapped onto a DIFFERENT predicate. The
+        # label's own slug is the normalizer's keep-as-is fallback ("uses
+        # dataset" -> "uses-dataset"), a formatting change, never a question.
+        # One question per pair, raised after the pass so it names every claim
+        # the pages keep for it — a reinforced restatement keeps the OLD id.
         raw_label = getattr(new, "predicate_raw", None)
+        kept = _place_claim(new, slot, settings, today, cardinality_fn, nudges, audit)
         if raw_label:
-            raw_norm = re.sub(r"\s+", " ", str(raw_label).strip().lower())
-            canonical = new.predicate
-            if raw_norm and raw_norm != canonical:
-                fold_key = (raw_norm, canonical)
-                if fold_key not in audited_folds:
-                    audited_folds.add(fold_key)
-                    nudges.append(_normalization_audit_nudge(str(raw_label), canonical, new))
+            raw_slug = predicates._slugify_predicate(str(raw_label))
+            if raw_slug and raw_slug != new.predicate:
+                entry = folds.setdefault((raw_slug, new.predicate), {"raw": str(raw_label), "kept": []})
+                if kept is not None and all(k is not kept for k in entry["kept"]):
+                    entry["kept"].append(kept)
 
-        same_key_open = [c for c in slot if open_(c) and K(c) == K(new)]
-
-        if not same_key_open:
-            slot.append(_stamp_new(new, settings, today=today))
-            continue
-
-        single = cardinality_fn(new.predicate)
-
-        if not single:
-            # Multi-valued: coexist unless an exact-object duplicate exists.
-            dup = next((c for c in same_key_open if same_object(c, new)), None)
-            if dup is None:
-                slot.append(_stamp_new(new, settings, today=today))
-            else:
-                _reinforce(dup, new)
-            continue
-
-        # Single-valued: ≤1 open per slot.
-        existing = same_key_open[0]
-        if same_object(existing, new):
-            _reinforce(existing, new)
-            continue
-
-        action = trust_decision(new, existing)
-        if action == "SUPERSEDE":
-            _close(existing, by=_stamp_new(new, settings, today=today))
-            slot.append(new)
-            audit.append({"action": "supersede", "closed": existing.id, "by": new.id})
-        elif action == "COEXIST_FLAG":
-            slot.append(_stamp_new(new, settings, today=today, status_note="shadowed_by_human"))
-            nudges.append(_divergence_nudge(existing, new))
-        elif action == "CONFLICT_NUDGE":
-            nudges.append(_conflict_nudge(existing, new, today))
-        elif action == "REJECT":
-            audit.append({"action": "rejected", "kept": existing.id, "dropped": new.id})
-        elif action == "KEEP_BOTH":
-            slot.append(_stamp_new(new, settings, today=today))
+    for (_raw_slug, canonical), entry in folds.items():
+        if entry["kept"]:   # nothing stored under the fold (rejected, or a conflict asked) — nothing to ask
+            nudges.append(_normalization_audit_nudge(entry["raw"], canonical, entry["kept"][0], entry["kept"][1:]))
 
     if decay:
         _decay_claims(reconciled, referenced_subjects, settings, nudges, today, decay_class_fn, subject_fn)
