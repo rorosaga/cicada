@@ -576,3 +576,133 @@ def test_a_pair_question_is_hidden_once_every_covered_page_is_gone(tmp_path):
     inbox_generator.write_claim_nudges([_fold("alpha-project", "clm_a"), _fold("beta-baseline", "clm_b")], memory)
     assert inbox_service.served_counts(memory) == (0, {})
     assert [i for i in inbox_service.load_inbox(memory) if i.kind.value == "normalization"] == []
+
+
+# ---------------------------------------------------------------- the migration is admitted and recoverable (review round 1, #4/#5)
+
+
+def _migration_bank(tmp_path):
+    memory = _bank(tmp_path)
+    _git(memory, "init", "-q")
+    _git(memory, "config", "user.email", "t@example.com")
+    _git(memory, "config", "user.name", "t")
+    _write_item(memory, 1, "alpha-project", "clm_1", "uses dataset", "uses-dataset")
+    _write_item(memory, 2, "alpha-project", "clm_2", "built with", "uses")
+    _write_item(memory, 3, "beta-baseline", "clm_3", "Built With", "uses")
+    _git(memory, "add", "-A")
+    _git(memory, "commit", "-qm", "sleep")
+    return memory
+
+
+def _tree(memory):
+    return {p.relative_to(memory).as_posix(): p.read_bytes()
+            for p in memory.rglob("*") if p.is_file() and ".git" not in p.parts}
+
+
+def test_migration_waits_for_sleep_and_marks_nothing(tmp_path, monkeypatch):
+    from api.services import sleep_cycle
+    from api.services.inbox_migration import dedup_normalization_items
+
+    memory = _migration_bank(tmp_path)
+    before = _tree(memory)
+    monkeypatch.setattr(sleep_cycle, "is_writing", lambda: True)
+    assert dedup_normalization_items(memory) == 0
+    assert _tree(memory) == before
+    monkeypatch.setattr(sleep_cycle, "is_writing", lambda: False)
+    assert dedup_normalization_items(memory) == 2   # the next activation does it
+
+
+def test_migration_rechecks_sleep_once_it_holds_the_lock(tmp_path, monkeypatch):
+    from api.services import page_lock, sleep_cycle
+    from api.services.inbox_migration import dedup_normalization_items
+
+    memory = _migration_bank(tmp_path)
+    before = _tree(memory)
+    monkeypatch.setattr(sleep_cycle, "is_writing", lambda: page_lock.held(memory))
+    assert dedup_normalization_items(memory) == 0
+    assert _tree(memory) == before
+
+
+def test_migration_waits_for_an_answer_and_plans_on_what_it_left(tmp_path):
+    from api.services import git_service, page_lock
+    from api.services.inbox_migration import dedup_normalization_items
+
+    memory = _migration_bank(tmp_path)
+    holding, release = threading.Event(), threading.Event()
+
+    def answer():   # an inbox answer retiring inbox-002 under the page lock
+        with page_lock.page_lock(memory):
+            holding.set()
+            release.wait(5)
+            (memory / "inbox" / "inbox-002.md").unlink()
+            git_service.commit_touched_sync(memory, git_service.build_commit_message(
+                "Inbox resolution", ["inbox/inbox-002.md: removed (trigger: test)"], authors=["user"]),
+                ["inbox/inbox-002.md"])
+
+    t = threading.Thread(target=answer)
+    t.start()
+    holding.wait(5)
+    result: list[int] = []
+    m = threading.Thread(target=lambda: result.append(dedup_normalization_items(memory)))
+    m.start()
+    time.sleep(0.2)
+    release.set()
+    t.join(5)
+    m.join(5)
+    assert result == [1]   # only the slug-only item: inbox-003 is now the pair's only question
+    assert sorted(p.stem for p in (memory / "inbox").glob("inbox-*.md")) == ["inbox-003"]
+    assert _git(memory, "status", "--porcelain", "--untracked-files=no").strip() == ""
+
+
+def test_a_failed_commit_restores_everything_and_the_retry_completes(tmp_path, monkeypatch):
+    from api.services import git_service, inbox_migration
+
+    memory = _migration_bank(tmp_path)
+    before = _tree(memory)
+
+    def broken(*a, **kw):
+        raise git_service.GitError("simulated commit failure")
+
+    monkeypatch.setattr(git_service, "commit_touched_sync", broken)
+    monkeypatch.setattr(git_service, "commit_paths_sync", broken)
+    assert inbox_migration.dedup_normalization_items(memory) == 0
+    assert _tree(memory) == before                      # every deleted / rewritten file is back
+    assert _git(memory, "status", "--porcelain").strip() == ""
+    monkeypatch.undo()
+    assert inbox_migration.dedup_normalization_items(memory) == 2
+    assert (memory / "inbox" / ".deduped_normalization").exists()
+    assert _git(memory, "status", "--porcelain", "inbox/inbox-001.md", "inbox/inbox-003.md").strip() == ""
+    assert "inbox/inbox-001.md" not in _git(memory, "ls-files")
+
+
+def test_a_failure_part_way_through_restores_what_was_already_changed(tmp_path, monkeypatch):
+    from api.services import inbox_migration
+
+    memory = _migration_bank(tmp_path)
+    before = _tree(memory)
+    real_write = markdown_parser.write
+
+    def failing_write(path, fm, body):
+        if Path(path).name == "inbox-002.md":
+            raise OSError("disk full")
+        return real_write(path, fm, body)
+
+    monkeypatch.setattr(markdown_parser, "write", failing_write)
+    assert inbox_migration.dedup_normalization_items(memory) == 0
+    assert _tree(memory) == before
+    assert not (memory / "inbox" / ".deduped_normalization").exists()
+
+
+def test_a_marker_that_cannot_be_written_never_raises(tmp_path, monkeypatch):
+    from api.services import inbox_migration
+
+    memory = _migration_bank(tmp_path)
+    real = Path.write_text
+
+    def no_marker(self, *a, **kw):
+        if self.name == ".deduped_normalization":
+            raise OSError("read-only")
+        return real(self, *a, **kw)
+
+    monkeypatch.setattr(Path, "write_text", no_marker)
+    assert inbox_migration.dedup_normalization_items(memory) == 2

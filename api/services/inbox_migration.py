@@ -388,75 +388,116 @@ def dedup_normalization_items(memory_path: Path) -> int:
     question and its claim is untouched; the rest are grouped by their
     ``(raw -> canonical)`` pair, the oldest kept (it keeps its age) with every
     sibling's claims folded into its ``covered_claims``. An item carrying no
-    pair is left alone. Its own marker; commits scoped to ``inbox/`` only.
+    pair is left alone. Its own marker.
 
-    Never raises. Returns the number of files removed.
+    **Admitted and isolated (review round 1).** It deletes inbox files, so it
+    runs only while Sleep is not writing — asked before, and again once it holds
+    the bank's page lock and then git's write lock (the documented order), so an
+    inbox answer or a bank activation racing it waits and it plans on what that
+    left. A busy bank is deferred with no marker: the next activation or boot
+    does it. **A transaction:** every file it will delete or rewrite is
+    snapshotted first; a failure while changing them or committing restores
+    them byte for byte (and their index entries), and the marker is written only
+    after the commit. Never raises. Returns the number of files removed.
     """
+    memory_path = Path(memory_path)
+    inbox = memory_path / "inbox"
+    if not inbox.exists() or (inbox / _FOLD_DEDUP_MARKER).exists():
+        return 0
+    try:
+        return _dedup_normalization_locked(memory_path, inbox)
+    except Exception as e:
+        logger.error(f"Predicate-fold inbox cleanup FAILED — inbox/ restored as it was: {e}")
+        return 0
+
+
+def _plan_fold_cleanup(inbox: Path) -> tuple[list[Path], dict[Path, tuple[dict, str]]]:
+    """What the cleanup would do, read now: files to delete, survivors to rewrite."""
     from api.services.inbox_generator import fold_claims
     from api.services.predicates import fold_key
 
-    memory_path = Path(memory_path)
-    inbox = memory_path / "inbox"
-    if not inbox.exists():
-        return 0
-    marker = inbox / _FOLD_DEDUP_MARKER
-    if marker.exists():
-        return 0
-
-    try:
-        removed = 0
-        groups: dict[tuple[str, str], list[Path]] = {}
-        for filepath in sorted(inbox.glob("inbox-*.md")):
-            try:
-                fm = markdown_parser.parse(filepath).frontmatter
-            except Exception:
-                continue
-            if str(fm.get("kind", "") or "") != "normalization":
-                continue
-            if str(fm.get("status", "pending") or "pending") != "pending":
-                continue
-            key = fold_key(str(fm.get("raw_predicate") or ""), str(fm.get("canonical_predicate") or ""))
-            if not (key[0] and key[1]):
-                continue
-            if key[0] == key[1]:
-                filepath.unlink()
-                removed += 1
-                continue
-            groups.setdefault(key, []).append(filepath)
-
-        today = str(date.today())
-        for members in groups.values():
-            if len(members) < 2:
-                continue
-            survivor, duplicates = members[0], members[1:]
-            parsed = markdown_parser.parse(survivor)
-            fm = parsed.frontmatter
-            covered = fold_claims(fm)
-            for dup in duplicates:
-                try:
-                    dup_fm = markdown_parser.parse(dup).frontmatter
-                except Exception:
-                    dup_fm = {}
-                covered += [c for c in fold_claims(dup_fm) if c not in covered]
-            extra = [{"entity_id": e, "claim_id": c} for e, c in covered[1:]]
-            if extra:
-                fm["covered_claims"] = extra
-            fm["updated_date"] = today
-            markdown_parser.write(survivor, fm, parsed.body)
-            for dup in duplicates:
-                dup.unlink()
-                removed += 1
-    except Exception as e:
-        logger.error(f"Predicate-fold inbox cleanup FAILED — leaving inbox/ as it is: {e}")
-        return 0
-
-    if removed:
+    deletes: list[Path] = []
+    rewrites: dict[Path, tuple[dict, str]] = {}
+    groups: dict[tuple[str, str], list[tuple[Path, dict, str]]] = {}
+    for filepath in sorted(inbox.glob("inbox-*.md")):
         try:
-            _commit_dedup(memory_path, removed)
-        except Exception as e:
-            # Same contract as dedup_open_items: no marker on a failed commit.
-            logger.warning(f"Predicate-fold inbox cleanup commit skipped: {e}")
-            return removed
+            parsed = markdown_parser.parse(filepath)
+        except Exception:
+            continue
+        fm = parsed.frontmatter
+        if str(fm.get("kind", "") or "") != "normalization":
+            continue
+        if str(fm.get("status", "pending") or "pending") != "pending":
+            continue
+        key = fold_key(str(fm.get("raw_predicate") or ""), str(fm.get("canonical_predicate") or ""))
+        if not (key[0] and key[1]):
+            continue
+        if key[0] == key[1]:
+            deletes.append(filepath)
+            continue
+        groups.setdefault(key, []).append((filepath, fm, parsed.body))
 
-    marker.write_text("v1")
-    return removed
+    today = str(date.today())
+    for members in groups.values():
+        if len(members) < 2:
+            continue
+        (survivor, fm, body), duplicates = members[0], members[1:]
+        covered = fold_claims(fm)
+        for _dup, dup_fm, _ in duplicates:
+            covered += [c for c in fold_claims(dup_fm) if c not in covered]
+        fm = dict(fm)
+        extra = [{"entity_id": e, "claim_id": c} for e, c in covered[1:]]
+        if extra:
+            fm["covered_claims"] = extra
+        fm["updated_date"] = today
+        rewrites[survivor] = (fm, body)
+        deletes += [dup for dup, _, _ in duplicates]
+    return deletes, rewrites
+
+
+def _dedup_normalization_locked(memory_path: Path, inbox: Path) -> int:
+    from api.services import page_lock, sleep_cycle
+
+    marker = inbox / _FOLD_DEDUP_MARKER
+    if sleep_cycle.is_writing():
+        logger.info("Predicate-fold inbox cleanup deferred: Sleep is writing this bank")
+        return 0
+    with page_lock.page_lock(memory_path), git_service.write_lock(memory_path):
+        # Re-asked once both locks are held: a window can open while this waited.
+        if sleep_cycle.is_writing():
+            logger.info("Predicate-fold inbox cleanup deferred: Sleep is writing this bank")
+            return 0
+        if marker.exists():
+            return 0
+        deletes, rewrites = _plan_fold_cleanup(inbox)
+        owned = list(dict.fromkeys([*deletes, *rewrites]))
+        snapshot = {p: p.read_bytes() for p in owned}
+        tracked = (memory_path / ".git").exists()
+        try:
+            for path, (fm, body) in rewrites.items():
+                markdown_parser.write(path, fm, body)
+            for path in deletes:
+                path.unlink()
+            if owned and tracked:
+                _commit_dedup(memory_path, len(deletes))
+        except BaseException:
+            _restore(memory_path, snapshot, tracked)
+            raise
+        try:
+            marker.write_text("v1")
+        except OSError as e:
+            # The cleanup is committed; the next run finds nothing to do and marks it.
+            logger.warning(f"Predicate-fold inbox cleanup marker not written: {e}")
+        return len(deletes)
+
+
+def _restore(memory_path: Path, snapshot: dict[Path, bytes], tracked: bool) -> None:
+    """Put every file the cleanup touched back as it was, and its index entry."""
+    for path, data in snapshot.items():
+        path.write_bytes(data)
+    if tracked and snapshot:
+        rels = [p.relative_to(memory_path).as_posix() for p in snapshot]
+        try:
+            git_service._git_sync(memory_path, "reset", "-q", "--", *rels)
+        except Exception as e:   # the files are back; a stale index entry is the next status's to show
+            logger.warning(f"Predicate-fold inbox cleanup: index not reset: {e}")
