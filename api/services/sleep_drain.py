@@ -272,9 +272,10 @@ def classify_episode(exc: BaseException) -> tuple[str, str | None]:
     conversation), else ``("content", reason)`` with a ``UNREAD_REASONS`` enum. Only
     classes that clearly belong to the conversation park it (an empty or unparseable
     answer, a provider request timeout, a context-window overflow, a content refusal).
-    An unnamed CLI rejection defaults to content, including an all-rejected batch;
-    generic unclassified errors on EVERY conversation retain the engine guard
-    (``sleep_cycle._run_stages``). A drain's batch hooks override the
+    An unnamed CLI rejection is tentatively content; ``sleep_cycle._run_stages``
+    requires a healthy read in the batch, or a sole previously attempted retry
+    with filed work in this run. Otherwise an all-rejected batch retains the
+    engine guard, just like generic unclassified failures. A drain's batch hooks override the
     CLI-timeout default for each episode that already timed out on an earlier leg,
     so it can receive its second conversation attempt and be parked."""
     from api.services import json_parse
@@ -308,7 +309,7 @@ def classify_episode(exc: BaseException) -> tuple[str, str | None]:
                         engine_errors.EngineConnectionLost, engine_errors.EngineTimeout)):
         return "pause", None
     if isinstance(exc, engine_errors.EngineFailed):
-        # No positive engine diagnosis: retain retry-then-park for this input.
+        # Tentative input failure; the batch must establish healthy-read evidence.
         return "content", "other"
     if isinstance(exc, (engine_errors.EngineProtocolError, json_parse.EmptyResponse)):
         return "content", "empty_answer"

@@ -2290,6 +2290,14 @@ async def _run_stages(
         resets, kind = guard.stop_values()
         reserve_stop = sleep_drain.DrainStop("reserve", sleep_reserve.SENTENCE, resets, kind)
 
+    # An unnamed rejection can be the input's fault only with evidence that
+    # the engine works. A sole retry may use this run's already-filed work:
+    # its first attempt ran beside a healthy input. Fresh ids and all-failing
+    # multi-input retries cannot borrow evidence from an earlier batch.
+    unnamed_content = live is not None and (bool(live.read) or (
+        len(episodes) == 1 and bool(batch.ds.filed_ids)
+        and batch.ds.attempts.get(episodes[0]["id"], 0) > 0))
+
     # Resumable queue — hard stop if EVERY episode failed Stage 1 (wrong
     # model id, exhausted credits, total outage). Abort with the queue
     # untouched instead of running the rest of the pipeline on nothing and
@@ -2301,10 +2309,10 @@ async def _run_stages(
             i: r for i, r in unread_content.items() if i in live.failed} if live is not None else {})
     if (episodes and not extracted and live is not None and not pause_class and not _ae_breaker()
             and unread_content and all(i in live.failed for i in unread_content)
-            # A positively reported but unnamed CLI rejection remains input-class,
-            # including a singleton batch. Generic unobserved "other" failures
-            # retain the existing whole-engine guard below.
-            and all(r != "other" or i in live.unnamed_failed for i, r in unread_content.items())):
+            # Without healthy-read evidence, unnamed CLI failures retain the
+            # whole-engine guard below and charge no conversation attempts.
+            and all(r != "other" or (i in live.unnamed_failed and unnamed_content)
+                    for i, r in unread_content.items())):
         # Every conversation failed for ITS OWN reasons (empty answers, timeouts): not an
         # engine failure — nothing to commit, no error, each one gets its retry or is parked.
         _state.progress = f"{label}Could not read {len(unread_content)} conversation(s)"

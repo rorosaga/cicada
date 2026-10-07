@@ -280,9 +280,13 @@ observed id that times out again can receive its second conversation attempt and
 when multiple ids time out together or the batch has no healthy neighbor. A newly affected id still pauses first;
 its discarded leg retains observations but charges no content attempt. Connection loss always pauses and never
 charges a timeout/content attempt.
-An unnamed `EngineFailed` during extraction is content `other`: it gets the normal next-batch retry-then-park,
-including a singleton or all-unnamed batch, without discarding healthy reads. The existing guard for generic
-unobserved failures on every conversation remains. An unnamed failure escaping a later stage is an error with a
+An unnamed `EngineFailed` during extraction is content `other` only when another conversation was read in the
+same batch. It then gets the normal next-batch retry-then-park without discarding healthy reads. A lone retry
+may use already-filed work in this run plus its existing attempt as that evidence. When nothing was read and
+every input failed unnamed, a fresh singleton or a multi-input batch stops as `engine/needs_fix`: no new content
+attempts, no parking, and no calls beyond that batch. Earlier successful batches do not exempt a fresh or
+multi-input failing batch from this guard. Generic unobserved failures on every conversation retain the same
+engine guard. An unnamed failure escaping a later stage is an error with a
 trimmed diagnosis (up to 300 characters), not a transient pause or a promise that retrying will fix it.
 A positively transient error escaping a later stage pauses with reason `engine`, no `error`,
 reset time or auto-continue. The frozen ids and prior committed batches stay intact; Continue resumes the same run

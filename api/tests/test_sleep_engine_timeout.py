@@ -183,12 +183,15 @@ def test_two_persistent_timeouts_in_a_mixed_batch_each_park_and_drain_finishes(t
     assert git(memory, "status", "--porcelain") == ""
 
 
-@pytest.mark.parametrize("count", [1, 6])
+@pytest.mark.parametrize("count", [2, 6])
 def test_unnamed_conversation_rejection_retries_then_parks_without_discarding_healthy_reads(
         tmp_path, monkeypatch, count):
     ids = episode_ids(count)
     memory = seed_bank(tmp_path, ids)
-    bad = ids[3] if count == 6 else ids[0]
+    # With two inputs the rejected input retries alone, after a healthy read
+    # demonstrably worked in this run. An initial all-failing singleton cannot
+    # provide that evidence and is covered by the engine-outage test below.
+    bad = ids[3] if count == 6 else ids[1]
     _, calls, backoffs = fake_engine(monkeypatch, ids, {bad: engine_errors.EngineFailed("your prompt was flagged")})
     state = run(memory)
     assert state.drain.finished and state.error is None
@@ -198,6 +201,57 @@ def test_unnamed_conversation_rejection_retries_then_parks_without_discarding_he
     assert calls == {bad: 4, **{i: 1 for i in ids if i != bad}}
     assert backoffs == [2, 2]
     assert git(memory, "status", "--porcelain") == ""
+
+
+@pytest.mark.parametrize("count", [1, 6])
+@pytest.mark.parametrize("concurrency", [1, 3])
+def test_all_unnamed_calls_fail_pauses_engine_without_charging_or_parking(
+        tmp_path, monkeypatch, count, concurrency):
+    ids = episode_ids(count)
+    memory = seed_bank(tmp_path, ids)
+    _, calls, _ = fake_engine(monkeypatch, ids, dict.fromkeys(
+        ids, engine_errors.EngineFailed("unknown")))
+    monkeypatch.setattr(entity_extractor, "MAX_CONCURRENCY", concurrency)
+    state = run(memory)
+    rec = sleep_paused.get_paused(memory)
+    assert rec is not None and rec["reason"] == "engine"
+    assert rec["engine_kind"] == "needs_fix" and rec["can_continue"]
+    assert rec["attempts"] == {} and rec["timeout_attempts"] == {}
+    assert rec["filed"] == 0 and rec["committed_batches"] == 0
+    assert rec["frozen_ids"] == ids and not state.drain.finished
+    assert state.drain.parked == {} and sleep_parked.ids(memory) == set()
+    assert calls == dict.fromkeys(ids[:2], 2), "no id beyond the first batch called"
+    assert waiting(memory) == ids and git(memory, "status", "--porcelain") == ""
+    assert sleep_runs.get(memory, "sleep_timeout")["state"] == "paused"
+
+
+def test_unnamed_engine_outage_after_a_healthy_batch_does_not_charge_fresh_ids(tmp_path, monkeypatch):
+    ids = episode_ids(6)
+    memory = seed_bank(tmp_path, ids)
+    _, calls, _ = fake_engine(monkeypatch, ids, dict.fromkeys(
+        ids[2:], engine_errors.EngineFailed("unknown")))
+    state = run(memory)
+    rec = sleep_paused.get_paused(memory)
+    assert rec is not None and rec["reason"] == "engine" and rec["engine_kind"] == "needs_fix"
+    assert rec["filed"] == 2 and rec["committed_batches"] == 1
+    assert rec["attempts"] == {} and state.drain.parked == {}
+    assert sleep_parked.ids(memory) == set() and waiting(memory) == ids[2:]
+    assert calls == {**dict.fromkeys(ids[:2], 1), **dict.fromkeys(ids[2:4], 2)}
+    assert git(memory, "status", "--porcelain") == ""
+
+
+def test_all_unnamed_retries_need_a_healthy_read_in_the_batch_unless_alone(tmp_path, monkeypatch):
+    ids = episode_ids(3)
+    memory = seed_bank(tmp_path, ids)
+    _, calls, _ = fake_engine(monkeypatch, ids, dict.fromkeys(
+        ids[1:], engine_errors.EngineFailed("unknown")))
+    state = run(memory, cap=3)
+    rec = sleep_paused.get_paused(memory)
+    assert rec is not None and rec["reason"] == "engine" and rec["engine_kind"] == "needs_fix"
+    assert rec["filed"] == 1 and rec["attempts"] == dict.fromkeys(ids[1:], 1)
+    assert state.drain.parked == {} and sleep_parked.ids(memory) == set()
+    assert calls == {ids[0]: 1, **dict.fromkeys(ids[1:], 4)}
+    assert waiting(memory) == ids[1:] and git(memory, "status", "--porcelain") == ""
 
 
 def test_doomed_batch_does_not_start_waiting_stage_one_calls(tmp_path, monkeypatch):
