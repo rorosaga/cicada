@@ -88,6 +88,9 @@ claim key but is never a graph satellite, a legend row or an edge colour. `gener
 particular context" and is never a facet: a satellite needs two real contexts. The claims fence sits
 after a page's last section (`write_claims`, the one writer), so **every reader strips it before
 sectioning** — `strip_claims_block` on the server, `EntityProse` in the app.
+Stage-5 prose rewrites use `preserve_claims_blocks` only to re-emit closed fences
+already read from disk, including unknown fields and malformed YAML; it never
+authors claims. Synthesis receives stripped prose before its input budget is applied.
 
 **A merge keeps both claim sets (audit 2026-10-05 P1-1).** `entity_merge.merge_entities` — the dedup sweep's and
 the inbox's one merge primitive — carries every claim the loser held into the winner's fence: re-subjected to the

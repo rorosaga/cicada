@@ -735,6 +735,9 @@ async def _synthesize_entity_update(
     settings: Settings,
 ) -> str | None:
     """Call the LLM to merge an existing entity body with new extraction info."""
+    from api.services.claims import strip_claims_block
+
+    existing_body = strip_claims_block(existing_body)
     if not existing_body.strip() and not new_description.strip():
         return None
 
