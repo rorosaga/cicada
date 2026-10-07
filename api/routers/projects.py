@@ -44,6 +44,7 @@ from api.services.claim_reconciler import is_human
 from api.services.claims import HAPPENED, MILESTONE, Claim, MalformedClaimsBlockError, is_event, parse_claims
 from api.services.id_utils import resolve_entity_file
 from api.services.transclusion_resolver import claim_to_model
+from api.services.sleep_refusal import SleepWriting
 
 router = APIRouter()
 
@@ -124,7 +125,7 @@ async def get_project_timeline(project_id: str, request: Request, response: Resp
 # One write at a time in this process: two quick taps (Done, then Not right)
 # would otherwise read the same page and the second rewrite would drop the
 # first's claim before either commit ran.
-_write_lock = asyncio.Lock()
+_write_lock = write_admission.TransactionLock()   # taken inside admitted transactions (writer loop)
 BUSY = "Sleep is writing this project, try again in a moment"
 TWO_DAYS = "Say one day, or pick it with the date chip"
 OUT_OF_RANGE = "That day is outside what Cicada can date — pick it with the date chip"
@@ -135,12 +136,12 @@ def _now() -> datetime:
     return datetime.now(when.zone(_tz()))
 
 
-def _busy() -> HTTPException:
-    return HTTPException(409, BUSY)
+def _busy() -> SleepWriting:
+    return SleepWriting(BUSY)
 
 
-#: The route's write admission (G183): 409 while Sleep holds the pages, asked once the hold is taken and held — in
-#: the transaction's own task, through this process's one-write lock and the commit — so a window cannot open between.
+#: The route's write admission (G183): 409 while Sleep holds the pages, asked once the hold is taken and held — on
+#: the writer loop, through this process's one-write lock and the commit — so a window cannot open between.
 _admitted = write_admission.route(refuse=_busy)
 
 

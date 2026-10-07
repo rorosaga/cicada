@@ -316,3 +316,33 @@ def test_every_failing_transaction_releases_exactly_once(bank, window, monkeypat
     with pytest.raises((ValueError, write_admission.AdmissionUnavailable, write_admission.SleepHolding)):
         asyncio.run(write_admission.run_admitted(bank, body, refuse=write_admission.SleepHolding))
     assert write_admission.holders(bank) == 0 and len(calls) == 1
+
+
+#: Module-level asyncio locks that are only ever taken on the request loop, outside any admitted transaction.
+REQUEST_LOOP_LOCKS = {("api/routers/maintenance.py", "_enrich_lock"), ("api/routers/maintenance.py", "_sites_lock"),
+                      ("api/routers/maintenance.py", "_index_lock")}
+
+
+def test_a_module_with_admitted_writers_takes_no_loop_bound_lock():
+    """Merge with G177: admitted bodies run on the writer loop while a caller may hold the same lock from its own loop;
+    an asyncio.Lock there never wakes. Such locks are `write_admission.TransactionLock`."""
+    import ast
+
+    root = Path(__file__).resolve().parents[2]
+    offenders = []
+    for base in ("api",):
+        for path in sorted((root / base).rglob("*.py")):
+            rel = path.relative_to(root).as_posix()
+            if "/tests/" in rel or ".venv" in rel:
+                continue
+            text = path.read_text()
+            if not any(k in text for k in ("run_admitted(", "write_admission.route(", "_admits(")):
+                continue
+            for node in ast.parse(text).body:
+                if (isinstance(node, ast.Assign) and isinstance(node.value, ast.Call)
+                        and isinstance(node.value.func, ast.Attribute) and node.value.func.attr == "Lock"
+                        and isinstance(node.value.func.value, ast.Name) and node.value.func.value.id == "asyncio"):
+                    for t in node.targets:
+                        if isinstance(t, ast.Name) and (rel, t.id) not in REQUEST_LOOP_LOCKS:
+                            offenders.append(f"{rel}:{t.id}")
+    assert offenders == []

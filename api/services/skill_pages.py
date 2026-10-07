@@ -54,7 +54,7 @@ from api.services.skill_tag import AGENT_SKILL_TAG, is_agent_skill
 
 __all__ = ["AGENT_SKILL_TAG", "PageResult", "page_id", "lookup", "ensure"]
 
-_LOCK = asyncio.Lock()
+_LOCK = write_admission.TransactionLock()   # taken inside admitted transactions (writer loop)
 _ADOPTABLE_TYPES = frozenset({"tool", "concept", "skill"})
 
 

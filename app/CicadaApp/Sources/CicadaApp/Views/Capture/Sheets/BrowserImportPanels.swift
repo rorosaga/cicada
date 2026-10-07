@@ -229,7 +229,7 @@ struct SafariTabsPanel: View {
         guard let bytes, stage == .ready else { return }
         stage = .importing
         let devices = Array(selected).sorted()
-        task = Task { @MainActor in
+        task = store.bankTask {   // G183(d): bound to the bank the import was asked for in
             let m = SyncSafariTabs(db: bytes.db, wal: bytes.wal, devices: devices)
             let ok = await store.perform(m)
             guard !Task.isCancelled else { return }
@@ -332,7 +332,7 @@ struct BookmarkFolderPanel: View {
         guard let data, stage == .ready else { return }
         stage = .importing
         let folders = selection.requestFolders
-        task = Task { @MainActor in
+        task = store.bankTask {   // G183(d): bound to the bank the import was asked for in
             let m = SyncBrowserBookmarks(chromeData: browser == .chrome ? data : nil, safariData: browser == .safari ? data : nil, folders: folders)
             let ok = await store.perform(m)
             guard !Task.isCancelled else { return }

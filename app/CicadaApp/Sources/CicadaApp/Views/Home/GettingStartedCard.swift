@@ -432,7 +432,7 @@ struct GettingStartedCard: View {
     /// The one writer is `updateSchedule`; the question is answered only when
     /// the write landed, so a failure asks again rather than pretend.
     private func answer(_ mode: ScheduleMode) {
-        Task {
+        store.bankTask {
             if await sleepVM.updateSchedule(ScheduleChoice.config(for: mode, current: sleepVM.schedule)) {
                 GettingStartedState.setScheduleAsked(bank: store.bank)
                 runner.checklistChanged()

@@ -57,6 +57,7 @@ from api.services import (
 from api.services.connectors import ADAPTERS
 from api.services.media_ingestor import MAX_BATCH, RawItem
 from api.routers.capture import refuse_capture_into_demo
+from api.services.sleep_refusal import SleepWriting
 
 router = APIRouter()
 
@@ -128,7 +129,7 @@ async def save_source(
             item, memory_path, client, media_ingestor.load_url_index(memory_path))
     return await write_admission.run_admitted(
         memory_path, lambda: _write_saved_source(memory_path, item, prepared, request),
-        refuse=lambda: HTTPException(409, SAVE_BUSY))
+        refuse=lambda: SleepWriting(SAVE_BUSY))
 
 
 #: A single save while Sleep holds the pages (G183 round 2).

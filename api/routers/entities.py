@@ -57,6 +57,7 @@ from api.services.claims import strip_claims_block
 from api.services.hub_builder import _one_line_summary
 from api.services.id_utils import build_name_index, resolve_entity_id
 from api.services.wikilink_resolver import extract_wikilinks
+from api.services.sleep_refusal import SleepWriting
 
 router = APIRouter()
 
@@ -190,7 +191,7 @@ PICTURE_BUSY = "Sleep is updating your memory — try the picture again in a mom
 #: One picture write at a time in this process (`projects._write_lock`'s reason): an upload and a quick "Use initials"
 #: would otherwise both read the page, and the second rewrite — or its `_drop_uploads` — would land between the first's
 #: write and its commit, leaving that commit to stage a file that is already gone.
-_PICTURE_LOCK = asyncio.Lock()
+_PICTURE_LOCK = write_admission.TransactionLock()   # taken inside admitted transactions (writer loop)
 
 
 SOURCE_BUSY = "Sleep is updating your memory — try the source change again in a moment."
@@ -204,7 +205,7 @@ def _admits(busy: str):
     and held through the route's write and its commit — so a window cannot open between them. The person's source,
     picture, decay-class and repo-link writes (G61 S3-a, G146 R-PE8, G177/G183(a)): a frontmatter rewrite between
     Sleep's read and its commit would be lost or swept into the cycle's commit under a model's name."""
-    return write_admission.route(refuse=lambda: HTTPException(409, busy))
+    return write_admission.route(refuse=lambda: SleepWriting(busy))
 
 
 def _rewrite_page_and_commit(memory_path: Path, entity_id: str, mutate, message: str) -> dict:

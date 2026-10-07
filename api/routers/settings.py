@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from api.config import Settings, get_settings
 from api.models.schemas import OwnerSettingsResponse, OwnerUpdateRequest
 from api.services import git_service, owner_identity, write_admission
+from api.services.sleep_refusal import SleepWriting
 
 router = APIRouter(prefix="/settings")
 
@@ -29,7 +30,7 @@ async def get_owner(settings: Settings = Depends(get_settings)) -> OwnerSettings
 
 @router.put("/owner", response_model=OwnerSettingsResponse)
 # The owner's page is one Stage 5 rewrites: admitted like every page writer (G183 round 1), held through its commit.
-@write_admission.route(refuse=lambda: HTTPException(409, "Sleep is updating your memory — try again in a moment."))
+@write_admission.route(refuse=lambda: SleepWriting("Sleep is updating your memory — try again in a moment."))
 async def put_owner(
     req: OwnerUpdateRequest, settings: Settings = Depends(get_settings)
 ) -> OwnerSettingsResponse:

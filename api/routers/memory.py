@@ -14,13 +14,14 @@ from fastapi import APIRouter, Body, Depends, HTTPException
 
 from api.config import Settings, get_settings
 from api.models.schemas import DecayTuningResponse
-from api.services import decay_tuning, git_service
+from api.services import decay_tuning, git_service, write_admission
+from api.services.sleep_refusal import SleepWriting
 
 router = APIRouter()
 
 # One read-merge-write at a time in this process: two quick clicks (Apply,
 # then Reset) must not both read the old file and drop each other's change.
-_write_lock = asyncio.Lock()
+_write_lock = write_admission.TransactionLock()   # taken inside admitted transactions (writer loop)
 BUSY = "Sleep is running — try again when it finishes"
 
 
@@ -57,5 +58,5 @@ async def put_decay_tuning(
                 )
                 await git_service.commit_paths(settings.memory_path, message, [decay_tuning.FILE])
 
-    await write_admission.run_admitted(settings.memory_path, transaction, refuse=lambda: HTTPException(409, BUSY))
+    await write_admission.run_admitted(settings.memory_path, transaction, refuse=lambda: SleepWriting(BUSY))
     return DecayTuningResponse(**await decay_tuning.overview(settings.memory_path))

@@ -34,13 +34,14 @@ from api.models.schemas import (BacklogImportRequest, BacklogImportResponse, Bac
                                 BacklogItemPatch, BacklogItemSummary, BacklogLink, BacklogListResponse,
                                 BacklogNoteCreate, BacklogNoteModel)
 from api.services import backlog, backlog_import, git_service, handshake, sync_service, when, write_admission
+from api.services.sleep_refusal import SleepWriting
 
 router = APIRouter()
 
 # One write at a time in this process (the `routers/projects.py` reason): two
 # quick taps would read the same file before either commit ran. Across
 # processes the item file's own lock holds (`backlog._locked`).
-_write_lock = asyncio.Lock()
+_write_lock = write_admission.TransactionLock()   # taken inside admitted transactions (writer loop)
 BUSY = "Sleep is writing memory right now, try again in a moment"
 TRIGGER = "user/companion_app"
 
@@ -54,12 +55,12 @@ def _now() -> datetime:
     return datetime.now(when.zone(_tz()))
 
 
-def _busy() -> HTTPException:
-    return HTTPException(409, BUSY)
+def _busy() -> SleepWriting:
+    return SleepWriting(BUSY)
 
 
-#: The route's write admission (G183): 409 while Sleep holds the pages, asked once the hold is taken and held — in
-#: the transaction's own task, through this process's one-write lock and the commit — so a window cannot open between.
+#: The route's write admission (G183): 409 while Sleep holds the pages, asked once the hold is taken and held — on
+#: the writer loop, through this process's one-write lock and the commit — so a window cannot open between.
 _admitted = write_admission.route(refuse=_busy)
 
 

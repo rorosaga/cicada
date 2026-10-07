@@ -300,7 +300,12 @@ def is_writing() -> bool:
     and the gaps between batches touch no page, so the app's writes and an
     agent's claim commit alone under their own author there, never swept into a
     batch commit under the Sleep model's."""
-    state = get_sleep_state()   # through the accessor: the route guards' tests substitute it
+    return writing_of(get_sleep_state())   # through the accessor: the route guards' tests substitute it
+
+
+def writing_of(state) -> bool:
+    """``is_writing`` for a state already in hand — the sync version and the SSE tick read the one they were given,
+    so ``/status``, the `sleep` component and the event never disagree with the refusals (G177)."""
     return state.status == "running" and (not getattr(state, "drain_run", False) or getattr(state, "writing", False))
 
 

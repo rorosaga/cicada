@@ -226,14 +226,44 @@ async def _acquire_off_loop(key: str) -> list[int]:
         raise
 
 
+class TransactionLock:
+    """An async lock any event loop may wait on — for a lock taken INSIDE an admitted transaction (a route's one-write
+    lock). Transactions run on the writer loop while a caller (or a test) may hold the same lock from its own loop; an
+    ``asyncio.Lock`` binds to one loop and is woken without a thread-safe call from another, so it would never wake.
+    A ``threading.Lock`` polled without blocking any loop; cancellation-safe (a waiter that is cancelled never holds
+    it). Contention is two quick taps on one route, so the poll's few milliseconds are invisible."""
+
+    _POLL_S = 0.005
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+
+    def locked(self) -> bool:
+        return self._lock.locked()
+
+    async def acquire(self) -> bool:
+        while not self._lock.acquire(blocking=False):
+            await asyncio.sleep(self._POLL_S)
+        return True
+
+    def release(self) -> None:
+        self._lock.release()
+
+    async def __aenter__(self) -> None:
+        await self.acquire()
+
+    async def __aexit__(self, *exc) -> None:
+        self.release()
+
+
 # --- The writer loop: where every async admitted transaction runs (fix round 2, finding 4) -----------------------
 #
 # A shield keeps a cancelled request from cancelling its transaction, but not the request loop's own teardown, which
 # cancels every task on it — the transaction's `finally` then released the hold while its threadpool worker still
 # wrote. So transactions run on one long-lived loop in a daemon thread that nothing tears down: a request's loop
 # going away cancels only its wait, and the hold is released when the transaction — workers and commit — is done.
-# The caller's context (a pinned bank, …) is carried into the task. The loop-bound primitives a body uses (its route's
-# asyncio.Lock) are only ever used inside transactions, so they bind to this loop alone.
+# The caller's context (the request's pinned bank, …) is carried into the task. A lock a body takes is a
+# `TransactionLock`, never an asyncio.Lock: another loop may hold it (a lint keeps it so).
 
 _WRITER: tuple[asyncio.AbstractEventLoop, threading.Thread] | None = None
 _WRITER_GUARD = threading.Lock()

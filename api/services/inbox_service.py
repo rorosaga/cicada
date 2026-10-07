@@ -30,6 +30,7 @@ from api.services import (
     telemetry,
 )
 from api.services.id_utils import resolve_entity_file, sanitize_id
+from api.services.sleep_refusal import SleepWriting
 
 logger = logging.getLogger(__name__)
 
@@ -904,11 +905,11 @@ async def resolve(
 
     # An early answer only (the admitted pass asks again): no model call is spent while Sleep holds the pages.
     if write_admission.probe():
-        raise HTTPException(409, SLEEP_BUSY)
+        raise SleepWriting(SLEEP_BUSY)
     synthesis = await _conflict_synthesis(item_id, request, settings)   # the model call, outside admission
     return await write_admission.run_admitted(
         settings.memory_path, lambda: _resolve_admitted(item_id, request, settings, synthesis),
-        refuse=lambda: HTTPException(409, SLEEP_BUSY))
+        refuse=lambda: SleepWriting(SLEEP_BUSY))
 
 
 async def _resolve_admitted(item_id: str, request: InboxResolveRequest, settings: Settings,

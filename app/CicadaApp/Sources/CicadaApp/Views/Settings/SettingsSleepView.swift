@@ -120,7 +120,7 @@ struct SettingsSleepView: View {
             minute: comps.minute ?? 0,
             intervalHours: intervalHours
         )
-        Task { @MainActor in
+        store.bankTask {   // G183(d): bound to the bank this schedule was chosen in
             await sleepVM.updateSchedule(new)
             await store.refresh([.status])   // R-O10: the next run is the server's to say
         }

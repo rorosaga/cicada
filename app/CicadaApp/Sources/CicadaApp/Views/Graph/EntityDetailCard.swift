@@ -785,13 +785,21 @@ struct EntityDetailCard: View {
 
     private func setDecay(_ option: DecayClass) {
         guard option != entity.decayClass else { return }
+        guard !store.refusesWriteWhileSwitching() else { return }   // G183(d): the page may be the other bank's
+        let origin = store.bank
         pendingDecayClass = option  // optimistic: the chip flips immediately
         Task {
             do {
-                _ = try await APIClient.shared.setDecayClass(entityId: entity.id, option)
+                _ = try await BankScope.bound(to: origin) {
+                    try await APIClient.shared.setDecayClass(entityId: entity.id, option)
+                }
                 await graphVM.reloadEntity(id: entity.id)
             } catch {
-                // Leave the server's value in place rather than lying about it.
+                // Leave the server's value in place rather than lying about it, and say why (G177/G183: a 409 while
+                // Sleep holds the pages names Sleep; the chip's siblings toast through the Store the same way).
+                if !(SyncCancellation.isCancellation(error) || Task.isCancelled) {
+                    store.toast = DecayChangeFailure.message(error)
+                }
             }
             pendingDecayClass = nil
         }

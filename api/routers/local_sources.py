@@ -52,6 +52,7 @@ from api.services import (
     write_admission,
 )
 from api.routers.capture import refuse_capture_into_demo
+from api.services.sleep_refusal import SleepWriting
 
 router = APIRouter()
 
@@ -94,8 +95,8 @@ async def _reapply_authorship(memory_path, folder: dict) -> list[str]:
 # new page Sleep's `git add -A` would sweep under the model's name. Adding a folder is a person's click, so asking again
 # in a minute is the honest answer; asked under the bank's write admission, held through the commit (G183).
 @router.post("/sources/folders", response_model=FolderRecord, dependencies=_DEMO_GATE)
-@write_admission.route(refuse=lambda: HTTPException(
-    409, "Cicada is tidying up your memory right now — add the folder again in a minute."))
+@write_admission.route(refuse=lambda: SleepWriting(
+    "Cicada is tidying up your memory right now — add the folder again in a minute."))
 async def register_folder(req: FolderRegisterRequest, settings: Settings = Depends(get_settings)):
     memory_path = settings.memory_path
     device = local_refs.current_device_id()
@@ -314,7 +315,7 @@ async def sync_tab_groups(req: TabGroupsSyncRequest, settings: Settings = Depend
 
 
 @router.post("/sources/contacts-local/sync", response_model=ContactsLocalSyncResponse, dependencies=_DEMO_GATE)
-@write_admission.route(refuse=lambda: HTTPException(409, contacts_local.SLEEP_REFUSAL))
+@write_admission.route(refuse=lambda: SleepWriting(contacts_local.SLEEP_REFUSAL))
 async def sync_contacts_local(req: ContactsLocalSyncRequest, settings: Settings = Depends(get_settings)):
     """G154 (round 4): enrich the person pages Cicada already has from the address book the app read. 409 while Sleep
     runs (this writes entity pages Stage 5 rewrites); 413 above ``contacts_local.MAX_CONTACTS``; 422 for a payload the

@@ -73,6 +73,7 @@ def test_a_page_writing_route_refuses_inside_the_write_window(bank, monkeypatch,
     resp = getattr(TestClient(main.app), method)(path, json=body)
     assert resp.status_code == 409, resp.text
     assert "Sleep" in resp.json()["detail"]
+    assert resp.json()["code"] == "sleep_writing", "the stable code the app keys off (G177 review finding 4)"
     assert _git(bank, "status", "--porcelain") == "", "nothing written"
     assert _git(bank, "rev-parse", "HEAD") == head
 
