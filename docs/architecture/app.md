@@ -85,9 +85,12 @@ bar** centred — the memory-bank selector (`BankSwitcher`, moved from the Graph
 app, `SingleBankSwitcherTests` — the palette's "Switch to <bank>" row and the intake card's switch act on the same
 `BanksViewModel` in the same window) and "Search your memory ⌘K", which opens the find palette through
 `AppRouter.requestPalette()`; and the visible page's `?` at the right (`HelpContent.page`), one per window. macOS 26's
-toolbar platter is hidden (`ChromeToolbarItem`). The rail starts under the titlebar band (2026-10-05) and wraps the content: the content's top-leading
-corner is a rounded join at `CicadaTheme.contentCornerRadius` (`radiusLarge`, fixed) drawn by the rail's own fill
-(`RailCornerFillet`, 2026-10-06). **Settings is a panel inside this window (DR-33)**: ⌘,
+toolbar platter is hidden (`ChromeToolbarItem`). The rail starts under the titlebar band (2026-10-05), and the band and the rail are one L-shaped frame
+on the rail's surface (owner 2026-10-07): `CicadaTheme.titlebarBackground(for:)` is the window colour
+`syncWindowChrome` sets (`windowBackground` stays `bgBase` for `AccentInk`), and the page host is a panel
+(`shellContentPanel()`, `ShellContentPanel`) whose top-leading corner alone is rounded at
+`CicadaTheme.contentCornerRadius` (`radiusLarge`, fixed) and clips what scrolls up into the band.
+`RailCornerSnapshotTests` writes it offscreen on request. **Settings is a panel inside this window (DR-33)**: ⌘,
 (`ShellCommands`, which opens the window first if none is) and the gear open it over a scrim — 880 × 620 at 1×,
 inset ≥ 40 pt — with a `bgPane` sidebar that starts with a `CicadaSearchField` and groups its rows as Cicada ·
 Customize · Engines & keys (`SettingsGroup`, G139) — Cicada: General · You · Privacy & data · Memory · Sleep;

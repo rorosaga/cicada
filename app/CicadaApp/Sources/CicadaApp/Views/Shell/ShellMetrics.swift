@@ -65,3 +65,24 @@ extension View {
             .accessibilityHidden(chrome.itemsHidden)
     }
 }
+
+/// The page is a panel inside one L-shaped chrome (owner 2026-10-07, picked over a rounded rail): the titlebar band takes
+/// the rail's surface (`CicadaTheme.titlebarBackground`), and the page host's top-leading corner alone is rounded at
+/// `contentCornerRadius`. The page's own `bgBase` fills the shape and the shape clips what the page holds, so the corner
+/// shows the chrome and nothing a page scrolls up draws over the band. A fill and a clip — never a shadow or glass.
+struct ShellContentPanel: ViewModifier {
+    static var shape: UnevenRoundedRectangle {
+        UnevenRoundedRectangle(topLeadingRadius: CicadaTheme.contentCornerRadius, style: .continuous)
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .background(alignment: .top) { Self.shape.fill(CicadaTheme.background) }
+            .clipShape(Self.shape)
+    }
+}
+
+extension View {
+    /// The one door for the page host's panel shape (`ShellContentPanel`).
+    func shellContentPanel() -> some View { modifier(ShellContentPanel()) }
+}
