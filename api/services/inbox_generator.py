@@ -148,15 +148,16 @@ def fold_claims(fm: dict) -> list[tuple[str, str]]:
     return out
 
 
-def _cover_fold(path: Path, entity_id: str, claim_id: str, today: str) -> None:
-    """Record one more claim folded by an already-open pair, instead of a new item."""
+def _cover_fold(path: Path, refs: list[tuple[str, str]], today: str) -> None:
+    """Record more claims folded by an already-open pair, instead of a new item."""
     parsed = markdown_parser.parse(path)
     fm = parsed.frontmatter
-    pair = (entity_id, claim_id)
-    if not (entity_id and claim_id) or pair in fold_claims(fm):
+    have = fold_claims(fm)
+    fresh = [r for r in refs if r not in have]
+    if not fresh:
         return
     covered = [r for r in (fm.get("covered_claims") or []) if isinstance(r, dict)]
-    covered.append({"entity_id": entity_id, "claim_id": claim_id})
+    covered += [{"entity_id": e, "claim_id": c} for e, c in fresh]
     fm["covered_claims"] = covered
     fm["updated_date"] = today
     markdown_parser.write(path, fm, parsed.body)
@@ -548,7 +549,7 @@ def write_claim_nudges(
                 skipped_confirmed += 1
                 continue
             if known and fold in open_folds:
-                _cover_fold(open_folds[fold], entity_id, str(nudge.get("claim_id") or ""), today)
+                _cover_fold(open_folds[fold], fold_claims({**nudge, "entity_id": entity_id}), today)
                 merged += 1
                 continue
             kind, priority, required = "normalization", 0.3, "choice"
@@ -603,6 +604,12 @@ def write_claim_nudges(
             "raw_predicate": nudge.get("raw_predicate"),
             "canonical_predicate": nudge.get("canonical_predicate"),
         }
+        if kind == "normalization" and nudge.get("covered_claims"):
+            # G98/G115: the other claims Stage 3 kept under this fold, repointed too on "wrong fold".
+            frontmatter["covered_claims"] = [
+                {"entity_id": e, "claim_id": c}
+                for e, c in fold_claims({**nudge, "entity_id": entity_id})[1:]
+            ]
         body = nudge.get("conflict_context") or (
             f"{entity_name} hasn't been mentioned recently; confidence dropped to "
             f"{float(nudge.get('new_confidence', 0) or 0):.2f}."

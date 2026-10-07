@@ -105,10 +105,11 @@ def test_a_canonical_label_written_as_words_is_not_a_fold(tmp_path):
     assert _fold_nudges(nudges) == []
 
 
-def test_ten_conversations_before_and_after(tmp_path):
+def test_twelve_conversations_before_and_after(tmp_path):
     """The trial's shape: ten conversations of long-tail labels plus two real
-    folds of one pair. Before the fix every long-tail label raised a question;
-    now only the real pair does, once."""
+    folds of one pair. Before the fix every multi-word long-tail label raised a
+    question (9 here: eight long-tail labels and the pair); now only the real
+    pair does, once."""
     memory = _bank(tmp_path)
     rows = _SLUG_ONLY + [
         ("Alpha Project", "built with", "Example Lib"),
@@ -332,3 +333,82 @@ def test_bank_migrations_run_the_fold_cleanup(tmp_path):
     _write_item(memory, 1, "alpha-project", "clm_1", "uses dataset", "uses-dataset")
     run_bank_migrations(memory)
     assert not (memory / "inbox" / "inbox-001.md").exists()
+
+
+# ---------------------------------------------------------------- same-batch coverage (review round 1, #1)
+
+_OLD_CLAIM_PAGE = """---
+name: Alpha Project
+type: project
+status: active
+version: 1
+---
+# Alpha Project
+
+```claims
+- id: clm_old
+  subject: alpha-project
+  predicate: uses
+  object: example-lib
+  observer: agent
+  context: general
+  source_trust: agent_extracted
+  epistemic: explicit
+  confidence: 0.6
+  valid_from: '2025-12-01'
+  recorded_at: '2025-12-01'
+  authored_by: test-model
+```
+"""
+
+
+def test_one_batch_two_pages_and_a_reinforced_claim_are_all_covered_and_all_repointed(tmp_path):
+    from types import SimpleNamespace
+
+    from api.services import claim_pipeline
+
+    memory = _bank(tmp_path)
+    (memory / "entities" / "alpha-project.md").write_text(_OLD_CLAIM_PAGE)
+    markdown_parser.write(memory / "entities" / "beta-baseline.md",
+                          {"name": "Beta Baseline", "type": "project", "status": "active", "version": 1},
+                          "# Beta Baseline\n")
+    extracted = [
+        # restates the claim already on the page: reinforced, the incoming id is discarded
+        {"episode_id": "2026-02-01-001", "origin": "chatgpt", "relationships": [
+            {**_rel("Alpha Project", "built with", "Example Lib", "2026-02-01-001"),
+             "source_episode_timestamp": "2026-02-01T10:00:00"}]},
+        {"episode_id": "2026-02-02-001", "origin": "chatgpt", "relationships": [
+            {**_rel("Alpha Project", "Built  With", "Other Lib", "2026-02-02-001"),
+             "source_episode_timestamp": "2026-02-02T10:00:00"},
+            {**_rel("Beta Baseline", "built with", "Example Lib", "2026-02-02-001"),
+             "source_episode_timestamp": "2026-02-02T10:00:00"}]},
+    ]
+    settings = SimpleNamespace(memory_path=memory, litellm_model="test-model", archive_threshold=0.2,
+                               decay_nudge_threshold=0.4)
+    result = claim_pipeline.run_claim_pipeline(extracted, [], memory, settings, now_date="2026-02-03", decay=False)
+    folds = _fold_nudges(result["nudges"])
+    assert len(folds) == 1
+
+    def retained(eid):
+        page = (memory / "entities" / f"{eid}.md").read_text()
+        return {c.id for c in parse_claims(page) if c.predicate == "uses"}
+
+    alpha, beta = retained("alpha-project"), retained("beta-baseline")
+    assert "clm_old" in alpha and len(alpha) == 2 and len(beta) == 1
+    refs = [(folds[0]["id"], folds[0]["claim_id"])] + [
+        (r["entity_id"], r["claim_id"]) for r in folds[0].get("covered_claims") or []]
+    assert sorted(refs) == sorted([("alpha-project", c) for c in alpha] + [("beta-baseline", c) for c in beta])
+
+    inbox_generator.write_claim_nudges(result["nudges"], memory)
+    (path, _), = _items(memory)
+    _git(memory, "init", "-q")
+    _git(memory, "config", "user.email", "t@example.com")
+    _git(memory, "config", "user.name", "t")
+    _git(memory, "add", ".")
+    _git(memory, "commit", "-q", "-m", "sleep")
+    asyncio.run(inbox_service.resolve(path.stem, InboxResolveRequest(action="resolve", option_key="1"),
+                                      _ResolveSettings(memory)))
+    assert retained("alpha-project") == set() and retained("beta-baseline") == set()
+    for eid, ids in (("alpha-project", alpha), ("beta-baseline", beta)):
+        page = (memory / "entities" / f"{eid}.md").read_text()
+        assert {c.id for c in parse_claims(page) if c.predicate == "built-with"} == ids
