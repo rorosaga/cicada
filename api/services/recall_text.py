@@ -53,3 +53,40 @@ def reading_line(waiting: int, *, record: bool = True) -> str:
     return (f"{waiting} {noun} {'is' if waiting == 1 else 'are'} waiting in Cicada's reading queue for an agent "
             "to read (ones the person asked about, and pages from sites they allowed). Once their own request is "
             f"done (or if it is about those links), `cicada_reading_queue(limit)` lists what is waiting{tail}.")
+
+
+#: G110: what the SessionStart note says when even the primer cannot fit — a
+#: pointer to the tool that serves it whole. R12: the tool takes no argument.
+PRIMER_FALLBACK = "Cicada's primer did not fit here; `cicada_handshake` returns it."
+
+
+def compose_note(header: str, primer: str, *, block_for=None, reading: str | None = None,
+                 max_tokens: int) -> tuple[str, str, bool]:
+    """The whole SessionStart ``additionalContext`` (G110 slice 1a, plan C4),
+    measured as the FINAL string by the chars/4 proxy (handshake R10).
+
+    Parts, in order: ``header``, ``primer``, the continuity block, the reading
+    sentence, joined by blank lines. ``block_for(max_chars)`` returns the
+    largest rendering that fits (``(text, rendering)``; ``("", "none")`` when
+    none does). Degradation: the block shrinks to fit beside the reading
+    sentence and is dropped when nothing fits; then the reading sentence is
+    dropped; then the note is ``header`` + :data:`PRIMER_FALLBACK`.
+
+    Returns ``(text, rendering, reading_kept)``."""
+    limit = max_tokens * 4 + 3          # len // 4 <= max_tokens
+
+    def join(*parts):
+        return "\n\n".join(p for p in parts if p)
+
+    base = join(header, primer)
+    tail = [reading] if reading else []
+    room = limit - len(join(base, *tail)) - 2
+    text, rendering = ("", "none")
+    if block_for is not None and room > 0:
+        text, rendering = block_for(room)
+    note = join(base, text, *tail)
+    if len(note) <= limit:
+        return note, rendering if text else "none", bool(reading)
+    if len(base) <= limit:
+        return base, "none", False
+    return join(header, PRIMER_FALLBACK), "none", False

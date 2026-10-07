@@ -40,7 +40,9 @@ from pathlib import Path
 
 from loguru import logger
 
-from api.services import agent_turns, demo_guard, episode_ids, episode_staging, markdown_parser, session_stats, telemetry
+from api.services import (
+    agent_turns, continuity_sessions, demo_guard, episode_ids, episode_staging, markdown_parser, session_stats, telemetry,
+)
 from api.services.transcript_extract import HARNESSES, Conversation, extract
 
 #: 256 MiB. The largest transcript seen on the author's machine during the
@@ -119,9 +121,83 @@ def validate_transcript_path(harness: str, session_id: str, raw_path: str) -> Pa
     return path
 
 
+#: G110 slice 1a: how many final turns carry exact offsets in `tail_turns`.
+TAIL_TURNS = 8
+#: G110: the capture metadata this writer owns, kept out of `content_hash` and
+#: always before `turns` (which stays the last key, R-PB4), so the continuity
+#: index reads them from an episode's head.
+META_KEYS = ("last_turn_at", "turn_count", "capture_gap", "capture_flags", "tail_turns")
+
+
+def capture_meta(conv: Conversation, body: str) -> dict:
+    """Where capture stopped, for the next session (G110 slice 1a, plan C7):
+
+    * ``last_turn_at`` — the last KEPT turn's own time (absent when untimed);
+    * ``turn_count`` — kept turns;
+    * ``tail_turns`` — the last ``TAIL_TURNS`` kept turns as ``{offset,
+      speaker, at?}`` with exact offsets into the body (``_body``'s join), so a
+      reader never guesses turn boundaries from text — the G118 sidecar stops
+      at 500 entries and skips untimed turns;
+    * ``capture_gap`` — only while the session cap refused turns: how many and
+      the latest time seen;
+    * ``capture_flags`` — only when a kept person turn holds a line that opens
+      like a Cicada note (counted, kept, disclosed)."""
+    meta: dict = {}
+    if conv.turns and conv.turns[-1].ts:
+        meta["last_turn_at"] = _utc(conv.turns[-1].ts)
+    meta["turn_count"] = len(conv.turns)
+    refused = int(conv.summary.get("refused_turns") or 0)
+    if refused:
+        gap: dict = {"dropped_turns": refused}
+        if conv.last_seen_at:
+            gap["last_seen_at"] = _utc(conv.last_seen_at)
+        meta["capture_gap"] = gap
+    note_like = int(conv.summary.get("note_like_turns") or 0)
+    if note_like:
+        meta["capture_flags"] = {"note_like_turns": note_like}
+    offsets: list[int] = []
+    at = 0
+    for t in conv.turns:
+        offsets.append(at)
+        at += len(f"{t.role}: {t.text}") + 1
+    tail = []
+    for i in range(max(0, len(conv.turns) - TAIL_TURNS), len(conv.turns)):
+        entry = {"offset": offsets[i], "speaker": conv.turns[i].role}
+        if conv.turns[i].ts:
+            entry["at"] = _utc(conv.turns[i].ts)
+        tail.append(entry)
+    meta["tail_turns"] = tail
+    return meta
+
+
+def _apply_meta(fm: dict, meta: dict, continues: str | None) -> bool:
+    """Write ``meta`` into ``fm`` (absent keys removed) and stamp
+    ``continues`` once. True when anything changed. ``continues`` is never
+    rewritten once set (plan C1: first write wins, bounded to one id)."""
+    before = {k: fm.get(k) for k in (*META_KEYS, "continues")}
+    for key in META_KEYS:
+        if key in meta:
+            fm[key] = meta[key]
+        else:
+            fm.pop(key, None)
+    if continues and not fm.get("continues"):
+        fm["continues"] = continues
+    return before != {k: fm.get(k) for k in (*META_KEYS, "continues")}
+
+
+def _continues(memory_path: Path, harness: str, session_id: str, bank_paths) -> str | None:
+    """The one episode Cicada pointed this session at (registry ``continues``),
+    or None. Read only when the caller passed the configured banks (the
+    registry's every-bank guard needs them)."""
+    if bank_paths is None:
+        return None
+    row = continuity_sessions.get(memory_path, harness, session_id, bank_paths=bank_paths) or {}
+    return row.get("continues") or None
+
+
 @dataclass
 class CaptureResult:
-    status: str  # created | updated | unchanged | empty | refused
+    status: str  # created | updated | unchanged | metadata | empty | refused
     episode_id: str | None
     turns_user: int
     turns_assistant: int
@@ -285,6 +361,9 @@ def _record(harness: str, session_id: str, status: str, conv: Conversation | Non
         "truncated_turns": summary.get("truncated_turns", 0),
         "scrubbed": summary.get("scrubbed", 0),
         "session_cap_hit": summary.get("session_cap_hit", False),
+        # G110: counts only.
+        "refused_turns": summary.get("refused_turns", 0),
+        "note_like_turns": summary.get("note_like_turns", 0),
     }
     if reason:
         refs["reason"] = reason
@@ -302,6 +381,7 @@ def capture_transcript(
     keep_assistant: bool,
     bank: str | None = None,
     effort: str | None = None,
+    bank_paths: tuple | None = None,
 ) -> CaptureResult:
     """Validate (R2), extract, and write or update the session's one episode (R3).
 
@@ -313,6 +393,13 @@ def capture_transcript(
 
     ``effort``: the Stop hook's ``effort.level`` for the reply it fired after
     (round 4 C1, R4B-3).
+
+    G110 slice 1a: every write also records :func:`capture_meta` and, once,
+    ``continues`` from the continuity registry (``bank_paths`` — the memory
+    root and every bank, which the registry's guard needs; ``None`` skips the
+    lookup). An unchanged body whose metadata moved (a turn refused by the cap,
+    a late ``continues``) is rewritten in place with the same body, hash and
+    ``processed`` state — status ``metadata``, nothing re-queued.
     """
     if demo_guard.is_demo(memory_path):
         # G141 capture-side track (R-CS12): a demo bank holds only made-up
@@ -345,6 +432,8 @@ def capture_transcript(
         content_hash = hashlib.sha256(body.encode()).hexdigest()[:12]
         existing = _find_session_episode(episodes_dir, harness, session_id)
         now = episode_ids.utc_now_iso()
+        meta = capture_meta(conv, body)
+        continues = _continues(memory_path, harness, session_id, bank_paths)
 
         if existing is None:
             timestamp = _utc(conv.started_at)
@@ -364,6 +453,7 @@ def capture_transcript(
             }
             if cwd:
                 fm["project_dir"] = cwd
+            _apply_meta(fm, meta, continues)
             _place_turns(fm, _agent_fields(_turn_sidecar(conv, body), None, effort, _last_offset(conv, body)))
             episode_id = episode_ids.create_episode(episodes_dir, fm, body)
             path_out = episodes_dir / f"{episode_id}.md"
@@ -372,10 +462,18 @@ def capture_transcript(
             logger.info(f"capture: created {episode_id} from {harness} session ({len(conv.turns)} turns)")
             return CaptureResult("created", episode_id, kept["user"], kept["assistant"], conv.summary)
 
-        fm = dict(markdown_parser.parse(existing).frontmatter)
+        stored = markdown_parser.parse(existing)
+        fm = dict(stored.frontmatter)
         previous = fm.get("turns")
         episode_id = str(fm.get("id") or existing.stem)
         if fm.get("content_hash") == content_hash:
+            if _apply_meta(fm, meta, continues):
+                # G110: same body, same hash, same `processed` — only where
+                # capture stopped (or which episode it was pointed at) moved.
+                _place_turns(fm, previous)
+                markdown_parser.write(existing, fm, stored.body)
+                _record(harness, session_id, "metadata", conv, bank)
+                return CaptureResult("metadata", episode_id, kept["user"], kept["assistant"], conv.summary)
             _record(harness, session_id, "unchanged", conv, bank)
             return CaptureResult("unchanged", episode_id, kept["user"], kept["assistant"], conv.summary)
 
@@ -390,6 +488,7 @@ def capture_transcript(
         fm.pop("processed_by", None)
         if cwd and not fm.get("project_dir"):
             fm["project_dir"] = cwd
+        _apply_meta(fm, meta, continues)
         _place_turns(fm, _agent_fields(_turn_sidecar(conv, body), previous, effort, _last_offset(conv, body)))
         markdown_parser.write(existing, fm, body)
         _record(harness, session_id, "updated", conv, bank)
