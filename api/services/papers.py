@@ -52,7 +52,7 @@ from api.services import (
     markdown_parser,
     media_ingestor,
 )
-from api.services.claims import Claim, MalformedClaimsBlockError, parse_claims, write_claims
+from api.services.claims import Claim, MalformedClaimsBlockError, is_current, parse_claims, write_claims
 from api.services.id_utils import sanitize_id
 
 KIND = "paper"
@@ -861,7 +861,7 @@ def detail(memory_path: Path, entity_id: str) -> dict | None:
     docs: dict[str, tuple[dict, str] | None] = {}
     names: dict[str, str] = {}
     why: list[dict] = []
-    open_why = sorted((c for c in claims if c.predicate in WHY_PREDICATES and not c.valid_to),
+    open_why = sorted((c for c in claims if c.predicate in WHY_PREDICATES and is_current(c)),
                       key=lambda c: (_WHY_ORDER[c.predicate], c.id))
     for c in open_why:
         for ev in c.evidence:
@@ -888,7 +888,7 @@ def detail(memory_path: Path, entity_id: str) -> dict | None:
                 "stale": bool(ev.hash) and ev.hash != evidence.body_hash(text),
             })
     describes = next((c for c in claims if c.predicate == "describes" and c.source_trust == "external"
-                      and not c.valid_to), None)
+                      and is_current(c)), None)
     return {
         "entity_id": entity_id,
         "title": str(paper.get("title") or fm.get("name") or entity_id),

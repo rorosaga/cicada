@@ -694,6 +694,7 @@ or missing pages are rechecked against markdown once per request, so a rebuildin
 or stale index cannot label an already closed claim as current.
 The claim-list endpoint, transclusion and graph claim projections share the
 same currentness predicate rather than maintaining separate open-window tests.
+The paper card applies it to both personal reasons and external context too.
 
 **Time-dependent projection lag.** Read-time claim checks and provenance ETags
 use the writers' machine-local day. The persisted graph edges, graph observer
