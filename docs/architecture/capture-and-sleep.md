@@ -246,8 +246,9 @@ then says the model wasn't shared.
 **Item provenance (G118 sections, 1a-i).** After extraction, Summary/description and
 Key Facts receive transient source-episode `reasoning` records over the full stored body
 hash. This adds no prompt instructions, quotes, retries or calls. Stage 2 carries metadata
-with the fields it actually selects: base Summary/facts, and the longer chosen description.
-Its existing incoming-facts/links/questions drop and pending-store limitation are unchanged;
+with the fields it actually selects. After G169, it follows the chosen effective Summary,
+its description copy, the fact union, and orientation text retained as facts; only exact
+selected text receives the original source record. The pending-store limitation remains;
 earlier pending facts are not restored by provenance. Stage 5 records exact surviving items
 on create and fallback/human-safe updates. The B-update fixture retains A's Summary only
 when B supplies no new Summary (or one already contained); an appended Summary invalidates
@@ -256,6 +257,9 @@ that one item's guard while A's facts keep their links.
 Sleep synthesis retains exact old items by identity, without changing its prompt/return shape.
 Rephrased items become unrecorded; incoming facts not supplied to synthesis cannot gain links.
 All refreshes share the existing atomic page write, locks and commit/rollback boundary.
+An open claims fence can hide sections from the original or final body: refresh preserves
+their stored records and guards, reporting unavailable metadata until the body is readable.
+Closed claim fences exclude their machine text even if the claims YAML is malformed or repeated.
 Inbox/merge selected-input hooks, other prose sections, Related claim navigation and rephrasing
 selection are later scope; existing preserved records still fail closed through exact guards.
 The paid quote prompt is **1a-ii (💸), deferred** until owner approval and a reviewed paired

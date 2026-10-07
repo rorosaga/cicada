@@ -186,8 +186,13 @@ prevents normalization from recertifying edited words. Summary is one item; list
 include indented continuations. Duplicate/ambiguous normalized bullets are not attributed.
 Editing one of 120 bullets leaves 119 links; reordering preserves them. The server parses
 headings outside code fences, accumulates duplicate headings and supplies Unicode code-point
-body ranges. Claims never enter fingerprints; an unreadable claims fence makes its affected
-section's metadata unavailable. Unknown/malformed schemas survive writes and fail closed on read.
+body ranges. Claims never enter fingerprints. A claims fence still open at end of the body
+makes its opening section and any hidden stored sections unavailable. Refresh preserves
+those records with their original guards if either the original or final body cannot be
+read; repairing the fence restores only exact matches, without renewing attribution.
+Closed malformed or repeated claim fences do not make prose unavailable. Empty/missing
+sections with stored records report zero current items and unmatched-record counts.
+Unknown/malformed schemas survive writes and fail closed on read.
 No backfill: absent, changed or uninstrumented prose stays unrecorded; git retains prior records.
 
 The 150-bullet/80-episode plus Summary fixture measures **10,739 bytes / 238 YAML lines**;

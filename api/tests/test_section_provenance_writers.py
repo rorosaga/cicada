@@ -51,15 +51,17 @@ def test_extraction_records_reasoning_from_full_body_without_more_calls_or_promp
     assert all(x['evidence'] == [evidence.reasoning(A, hash=evidence.body_hash(body)).to_dict()] for x in records)
 
 
-def test_stage2_tracks_selected_description_and_base_summary_facts_only():
+def test_stage2_tracks_g169_selected_summary_and_unioned_facts():
     base = entity(description='Short.')
     incoming = entity('Incoming Summary.', ['Dropped incoming fact.'], ep=B, description='Longer new description.')
     merged = er._merge_entity_payload(base, incoming)
-    assert merged['key_facts'] == ['Original fact.']
-    assert merged['summary'] == 'Example project.'
-    assert merged['description'] == 'Longer new description.'
-    assert {(r['field'], r['evidence'][0]['episode']) for r in merged[sp.INPUTS]} == {
-        ('summary', A), ('key_facts', A), ('description', B)}
+    assert merged['key_facts'] == ['Original fact.', 'Dropped incoming fact.', 'Example project.', 'Short.', 'Longer new description.']
+    assert merged['summary'] == merged['description'] == 'Incoming Summary.'
+    assert {(r['field'], r['text'], r['evidence'][0]['episode']) for r in merged[sp.INPUTS]} == {
+        ('summary', 'Incoming Summary.', B), ('description', 'Incoming Summary.', B),
+        ('key_facts', 'Original fact.', A), ('key_facts', 'Dropped incoming fact.', B),
+        ('key_facts', 'Example project.', A), ('key_facts', 'Short.', A),
+        ('key_facts', 'Longer new description.', B)}
 
 
 @pytest.mark.parametrize('human', [False, True])
@@ -123,3 +125,33 @@ def test_raw_claim_fence_and_atomic_failure_keep_body_metadata_together(tmp_path
     assert path.read_bytes() == before
     cr.apply_changes([{'id': 'alpha-project', 'action': 'update', 'entity': entity('', ['New fact.'], ep=B)}], tmp_path)
     assert fence in page(tmp_path).body
+
+
+@pytest.mark.parametrize('mode', ['fallback', 'human_safe', 'synthesis'])
+@pytest.mark.parametrize('fences', ['```claims\ninvalid: [\n```', '```claims\n[]\n```\n\n```claims\n[]\n```',
+                                 '```claims\nunfinished'])
+def test_sleep_update_keeps_records_for_sections_it_cannot_read(tmp_path, mode, fences):
+    cr.apply_changes([{'id': 'alpha-project', 'action': 'create', 'entity': entity(facts=['One.', 'Two.'])}], tmp_path)
+    path = tmp_path / 'entities' / 'alpha-project.md'
+    parsed = page(tmp_path)
+    before = sp.decode(parsed.frontmatter[sp.FIELD])
+    original_body = parsed.body
+    # Open case swallows Key Facts; closed cases follow them.
+    broken = (original_body.replace('## Key Facts', fences + '\n\n## Key Facts')
+              if fences.endswith('unfinished') else original_body + '\n\n' + fences)
+    if mode == 'human_safe':
+        parsed.frontmatter['human_edited'] = True
+    md.write(path, parsed.frontmatter, broken)
+    update = entity('', ['New fact.'], ep=B)
+    assert not cr._entity_summary(update), 'B carries no new Summary (critique finding 3)'
+    change = {'id': 'alpha-project', 'action': 'update', 'entity': update}
+    if mode == 'synthesis':
+        change['synthesized_body'] = original_body
+    cr.apply_changes([change], tmp_path)
+    current = page(tmp_path)
+    stored = sp.decode(current.frontmatter[sp.FIELD])
+    for key, records in before.items():
+        assert all(stored.get(key, {}).get(item) == value for item, value in records.items())
+    if not fences.endswith('unfinished'):
+        assert all(sp.matched(current.frontmatter, current.body)[key].get(item) == value
+                   for key, records in before.items() for item, value in records.items())

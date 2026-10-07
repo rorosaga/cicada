@@ -38,6 +38,20 @@ final class ProvenanceAPITests: XCTestCase {
         XCTAssertFalse(value.sectionsPartial)
     }
 
+    func testEmptyAndUnavailableSectionsKeepUnmatchedRecordCounts() throws {
+        let json = #"""
+        {"entityId":"alpha-project","sectionSchema":1,"sections":[
+          {"key":"summary","title":"Summary","status":"metadata_unavailable","itemCount":0,
+           "recordedItems":0,"spanCount":0,"reasoningCount":0,"unmatchedRecords":1,"items":[]},
+          {"key":"key_facts","title":"Key Facts","status":"not_tracked","itemCount":0,
+           "recordedItems":0,"spanCount":0,"reasoningCount":0,"unmatchedRecords":2,"items":[]}]}
+        """#
+        let value = try JSONDecoder().decode(EntityProvenance.self, from: Data(json.utf8))
+        XCTAssertEqual(value.sections.map(\.status), ["metadata_unavailable", "not_tracked"])
+        XCTAssertEqual(value.sections.map(\.unmatchedRecords), [1, 2])
+        XCTAssertTrue(value.sections.allSatisfy { $0.itemCount == 0 && $0.items.isEmpty })
+    }
+
     override func tearDown() {
         MockURLProtocol.handler = nil
         super.tearDown()

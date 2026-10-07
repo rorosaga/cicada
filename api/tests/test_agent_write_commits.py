@@ -3,7 +3,6 @@ page, and never escapes its bank or fails because git did."""
 from __future__ import annotations
 
 import asyncio
-import os
 import subprocess
 
 import pytest

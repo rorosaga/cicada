@@ -7,7 +7,8 @@ struct VersionVector: Codable, Equatable {
     static let mapping: [String: Set<SyncDomain>] = [
         // G118 item provenance remains on-demand (R-PB11), using the existing
         // entities/episodes/git_head ETag and its memory cache. No Store domain
-        // or new component mapping; sections1 ships with Provenance decoding.
+        // or new component mapping; sections2 includes empty/unavailable rows
+        // in the existing defaulted Provenance decoding contract.
         // `sourcesOverview` (G124 R7) rides `entities`, `episodes` and
         // `sources` — the three components its ETag is computed from. `.inbox`
         // rides `entities` and `episodes` too (G97 / G115 R3): `GET /inbox`

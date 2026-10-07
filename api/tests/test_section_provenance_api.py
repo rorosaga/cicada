@@ -3,7 +3,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from api import config, main
-from api.services import bank_index, evidence, markdown_parser as md, provenance, section_provenance as sp
+from api.services import bank_index, evidence, markdown_parser as md, provenance, section_provenance as sp, sync_service
 from api.services.claims import Evidence
 
 EP = 'ep_2026-10-07_001'
@@ -114,6 +114,12 @@ def test_section_response_overflow_is_honest_and_does_not_mutate_records(bank, m
 
 def test_route_ship_together_camel_payload_etag_shape_and_conditional_get(bank, monkeypatch):
     monkeypatch.setenv('CICADA_MEMORY_PATH', str(bank))
+    shapes = []
+    original_etag = sync_service.etag_for
+    def capture_etag(*args, **kwargs):
+        shapes.append(kwargs.get('extra', ''))
+        return original_etag(*args, **kwargs)
+    monkeypatch.setattr(sync_service, 'etag_for', capture_etag)
     config.get_settings.cache_clear()
     try:
         with TestClient(main.app) as client:
@@ -121,6 +127,7 @@ def test_route_ship_together_camel_payload_etag_shape_and_conditional_get(bank, 
             first = client.get(url)
             assert first.status_code == 200, first.text
             data = first.json()
+            assert '|sections2|' in shapes[-1]
             assert data['pageBodyHash'] == evidence.body_hash(BODY) and data['sections'][0]['recordedItems'] == 1
             assert 'bodyRanges' in data['sections'][0]['items'][0]
             etag = first.headers['etag']
@@ -143,3 +150,38 @@ def test_ambiguous_duplicate_items_have_distinct_server_row_identities(bank):
     assert len({item.identity for item in facts.items}) == len(facts.items)
     assert sum(item.ambiguous for item in facts.items) == 2
     assert all(not item.evidence for item in facts.items if item.ambiguous)
+
+
+@pytest.mark.parametrize('fences', ['```claims\ninvalid: [\n```', '```claims\n[]\n```\n\n```claims\n[]\n```'])
+def test_closed_claim_fences_do_not_make_prose_metadata_unavailable(bank, fences):
+    path = bank / 'entities' / 'alpha-project.md'
+    parsed = md.parse(path)
+    md.write(path, parsed.frontmatter, parsed.body + '\n\n' + fences)
+    assert [(s.status, s.recorded_items) for s in read(bank).sections] == [('tracked', 1), ('tracked', 2)]
+
+
+def test_open_claim_fence_reports_hidden_section_records_and_recovers_after_refresh(bank):
+    path = bank / 'entities' / 'alpha-project.md'
+    parsed = md.parse(path)
+    broken = parsed.body.replace('\n\n## Key Facts', '\n\n```claims\nunfinished\n\n## Key Facts')
+    md.write(path, parsed.frontmatter, broken)
+    summary, facts = read(bank).sections
+    assert summary.status == facts.status == 'metadata_unavailable'
+    assert (summary.recorded_items, summary.unmatched_records) == (0, 1)
+    assert (facts.item_count, facts.recorded_items, facts.unmatched_records) == (0, 0, 2)
+    sp.refresh(parsed.frontmatter, broken, broken, {})
+    repaired = broken.replace('```claims\nunfinished', '```claims\nunfinished\n```')
+    md.write(path, parsed.frontmatter, repaired)
+    assert [(s.status, s.recorded_items) for s in read(bank).sections] == [('tracked', 1), ('tracked', 2)]
+
+
+@pytest.mark.parametrize('replacement', ['', '## Key Facts\n\n'])
+def test_missing_or_empty_section_exposes_unmatched_records(bank, replacement):
+    path = bank / 'entities' / 'alpha-project.md'
+    parsed = md.parse(path)
+    md.write(path, parsed.frontmatter, parsed.body.split('## Key Facts')[0] + replacement)
+    summary, facts = read(bank).sections
+    assert summary.status == 'tracked'
+    assert (facts.key, facts.status, facts.item_count, facts.recorded_items, facts.unmatched_records) == (
+        'key_facts', 'not_tracked', 0, 0, 2)
+    assert facts.items == []

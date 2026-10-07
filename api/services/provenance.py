@@ -507,14 +507,18 @@ def _sections(parsed, docs: _Episodes, shown: list[ProvenanceConversation]) -> t
     raw = parsed.frontmatter.get(sp.FIELD)
     records = sp.decode(raw)
     matched = sp.matched(parsed.frontmatter, parsed.body)
-    unavailable = sp.unavailable_section(parsed.body)
+    unavailable = sp.unavailable_sections(parsed.body, records or {})
     allowed = {ep for conversation in shown for ep in conversation.episode_ids}
     sections = []
     used = 0
     partial = False
-    for key, items in sp.scan(parsed.body).items():
+    current_sections = sp.scan(parsed.body)
+    for key, stored in (records or {}).items():
+        if stored:
+            current_sections.setdefault(key, [])
+    for key, items in current_sections.items():
         links = matched.get(key, {})
-        if (raw is not None and records is None) or key == unavailable:
+        if (raw is not None and records is None) or key in unavailable:
             status = 'metadata_unavailable'
             links = {}
         else:

@@ -11,17 +11,21 @@ for the endpoint list** — it is not duplicated here. What is *not* derivable:
 adds `sectionSchema: 1`, `pageBodyHash` of the same parsed body, `sections[]` and
 `sectionsPartial`. Section rows report item/recorded/span/reasoning/unmatched counts;
 items carry opaque identity, text, server-owned Unicode `bodyRanges`, ambiguity and
-expanded G118 evidence. Item states are tracked/partial/not_tracked/metadata_unavailable,
+expanded G118 evidence. Section statuses are tracked/partial/not_tracked/metadata_unavailable,
 independent of the unchanged current-claim totals. Source rows include availability,
 conversation/title, current/grown/stale/missing/unavailable/not_checked/gap and optional
 `span`. Only a checked span has wash coordinates: raw evidence coordinates are metadata,
 not permission to highlight; reasoning has no span. Source checks share the existing
 conversation body cache and cap; no derived search/backfill occurs here.
+Empty or missing sections with stored records remain visible as zero-item `not_tracked`
+rows with `unmatchedRecords`. Sections hidden by an open claims fence instead report
+`metadata_unavailable`; a closed fence's invalid claim data does not hide prose links.
 
 New item rows are bounded to 128 KiB, with per-section `partial` and honest full counts
 if omitted; durable metadata is never truncated. There is no new endpoint/cursor/409.
 The ETag retains entities/episodes/git_head, author shape and current day, and adds
-`sections1`; server models and defaulted Swift decode ship together. R-PB11 still applies:
+`sections2` (including zero-item/unavailable rows); server models and defaulted Swift decode
+ship together. R-PB11 still applies:
 asked on demand, cached in memory, not a Store domain or a new VersionVector component.
 
 **Auth.** Every endpoint except `GET /healthz`, `POST /capture/telegram`, an OAuth adapter's

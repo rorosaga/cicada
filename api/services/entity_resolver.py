@@ -559,7 +559,7 @@ def _merge_entity_payload(base: dict, incoming: dict) -> dict:
         incoming.get("source_episode_timestamp"),
     )
     merged[section_provenance.INPUTS] = section_provenance.merge_selected(
-        base, incoming, incoming_description=len(incoming_desc) > len(base_desc),
+        base, incoming, merged,
     )
     return merged
 

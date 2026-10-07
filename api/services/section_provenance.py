@@ -11,7 +11,7 @@ from collections import Counter
 from dataclasses import dataclass, replace
 
 from api.services import entity_body, evidence
-from api.services.claims import Evidence, FENCE_UNREADABLE, fence_state
+from api.services.claims import Evidence
 
 FIELD = 'section_provenance'
 INPUTS = '_section_inputs'  # transient, never serialized into a page
@@ -40,8 +40,11 @@ def _item(text: str, ranges: tuple) -> Item:
     return Item(evidence.body_hash(entity_body._normalize_fact(text)), evidence.body_hash(text), text, ranges)
 
 
-def _fragments(body: str) -> tuple[dict, str | None]:
-    """Raw section fragments plus the actual last heading, ignoring fences."""
+def _fragments(body: str) -> tuple[dict, str | None, bool]:
+    """Raw sections, actual last heading, and whether a claims fence is still open.
+
+    Closed claim contents are excluded regardless of their YAML validity.
+    """
     fragments: dict[str, list[list[tuple[int, str, bool]]]] = {}
     title = None
     lines = None
@@ -77,7 +80,7 @@ def _fragments(body: str) -> tuple[dict, str | None]:
             lines.append((offset, raw, was_fenced or marker is not None))
         offset += len(raw)
 
-    return fragments, title
+    return fragments, title, claims
 
 
 def scan(body: str) -> dict[str, list[Item]]:
@@ -86,7 +89,7 @@ def scan(body: str) -> dict[str, list[Item]]:
     Summary is one item. A top-level bullet and its indented continuation
     form one item. Claims never enter fingerprints; offsets index RAW body.
     """
-    fragments, _ = _fragments(body)
+    fragments, _, _ = _fragments(body)
 
     result = {}
     for key, chunks in fragments.items():
@@ -130,10 +133,20 @@ def scan(body: str) -> dict[str, list[Item]]:
 
 
 def unavailable_section(body: str) -> str | None:
-    if fence_state(body) != FENCE_UNREADABLE:
-        return None
-    opening = re.search(r'^```claims[ \t]*\r?$', body, re.MULTILINE)
-    return _fragments(body[:opening.start()])[1] if opening else None
+    _, title, open_claims = _fragments(body)
+    return title if open_claims else None
+
+
+def unavailable_sections(body: str, stored_sections=()) -> set[str]:
+    """An open claims fence hides its own section and possibly stored later ones.
+
+    The opening can be under a custom heading or before all headings, so a
+    missing canonical opening title does not mean the rest of the page is readable.
+    """
+    fragments, title, open_claims = _fragments(body)
+    if not open_claims:
+        return set()
+    return ({title} if title else set()) | (set(stored_sections) - fragments.keys())
 
 
 def decode(raw) -> dict | None:
@@ -224,7 +237,10 @@ def attach(entity: dict, episode_id: str, body: str) -> None:
     ev = evidence.reasoning(episode_id, hash=evidence.body_hash(body)).to_dict()
     for field in ('summary', 'description', 'key_facts'):
         values = entity.get(field) or []
-        if field != 'key_facts':
+        if field == 'key_facts':
+            if not isinstance(values, list):
+                continue
+        else:
             values = [values]
         for value in values:
             if isinstance(value, str) and value.strip():
@@ -232,21 +248,31 @@ def attach(entity: dict, episode_id: str, body: str) -> None:
     entity[INPUTS] = records
 
 
-def merge_selected(base: dict, incoming: dict, *, incoming_description: bool) -> list[dict]:
-    """Follow current Stage-2 fields; never union facts it actually discards."""
-    return [record for record in base.get(INPUTS, []) if record['field'] != 'description'] + [
-        record for record in (incoming if incoming_description else base).get(INPUTS, [])
-        if record['field'] == 'description']
+def merge_selected(base: dict, incoming: dict, selected: dict) -> list[dict]:
+    """Follow Stage 2's actual selected text, including G169's summary-to-fact carry."""
+    inputs = base.get(INPUTS, []) + incoming.get(INPUTS, [])
+    records = []
+    for field in ('summary', 'description', 'key_facts'):
+        values = selected.get(field) or []
+        if field != 'key_facts':
+            values = [values]
+        elif not isinstance(values, list):
+            continue
+        for value in values:
+            if isinstance(value, str):
+                records.extend({**record, 'field': field} for record in inputs if record['text'] == value.strip())
+    return records
 
 
 def refresh(frontmatter: dict, original_body: str, body: str, entity: dict, *, synthesized: bool = False) -> None:
     """Filter links by exact CURRENT old items plus selected incoming text.
 
-    Never repair an unmatched guard. No raw record survives a writer just
-    because the resulting text happens to match an obsolete pre-edit value.
+    Never repair an unmatched guard. Inaccessible sections retain their raw
+    records and guards; readable sections cannot resurrect obsolete pre-edit links.
     """
     raw = frontmatter.get(FIELD)
-    if raw is not None and decode(raw) is None:
+    decoded = decode(raw)
+    if raw is not None and decoded is None:
         return  # preserve unknown/malformed metadata without recertification
     old = matched(frontmatter, original_body)
     incoming = {}
@@ -264,10 +290,11 @@ def refresh(frontmatter: dict, original_body: str, body: str, entity: dict, *, s
                 value = Evidence(**ev)
                 if value not in entry[1]:
                     entry[1].append(value)
-    records = {}
-    unavailable = unavailable_section(body)
+    decoded = decoded or {}
+    unavailable = unavailable_sections(original_body, decoded) | unavailable_sections(body, decoded)
+    records = {section: items for section, items in decoded.items() if section in unavailable}
     for section, items in scan(body).items():
-        if section == unavailable:
+        if section in unavailable:
             continue
         for item in items:
             if item.ambiguous:

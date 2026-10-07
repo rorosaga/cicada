@@ -105,3 +105,42 @@ def test_unreadable_fence_uses_actual_last_heading_not_dictionary_insertion_orde
     assert sp.unavailable_section(body) == 'summary'
     custom = '## Summary\nFirst.\n\n## Custom Notes\nHuman note.\n\n```claims\nunfinished'
     assert sp.unavailable_section(custom) is None
+
+
+@pytest.mark.parametrize('fences', ['```claims\ninvalid: [\n```', '```claims\n[]\n```\n\n```claims\n[]\n```'])
+def test_closed_claim_fences_keep_prose_links_on_read_and_refresh(fences):
+    body = '## Summary\nExample.\n\n## Key Facts\n- One.\n- Two.'
+    fm = {sp.FIELD: recorded(body)}
+    before = sp.decode(fm[sp.FIELD])
+    body += '\n\n' + fences
+    assert sp.unavailable_section(body) is None
+    assert sp.matched(fm, body) == before
+    sp.refresh(fm, body, body, {})
+    assert sp.decode(fm[sp.FIELD]) == before
+
+
+@pytest.mark.parametrize('opening', ['summary', 'custom', 'before_headings'])
+def test_open_claim_fence_keeps_hidden_records_and_repair_restores_exact_links(opening):
+    body = '## Summary\nExample.\n\n## Key Facts\n- One.\n- Two.'
+    fm = {sp.FIELD: recorded(body)}
+    before = sp.decode(fm[sp.FIELD])
+    if opening == 'before_headings':
+        broken = '```claims\nunfinished\n' + body
+    else:
+        prefix = '\n\n## Custom Notes\nHuman note.' if opening == 'custom' else ''
+        broken = body.replace('\n\n## Key Facts', prefix + '\n\n```claims\nunfinished\n\n## Key Facts')
+    sp.refresh(fm, broken, broken, {})
+    assert sp.decode(fm[sp.FIELD]) == before
+    repaired = broken.replace('```claims\nunfinished', '```claims\nunfinished\n```')
+    assert sp.matched(fm, repaired) == before
+    # A writer must also preserve what the original body hid when its output is readable.
+    sp.refresh(fm, broken, repaired, {})
+    assert sp.matched(fm, repaired) == before
+    edited = repaired.replace('- One.', '- Human edit.')
+    assert len(sp.matched(fm, edited)['key_facts']) == 1
+
+
+def test_attach_does_not_iterate_string_key_facts_per_character():
+    entity = {'summary': 'Example.', 'key_facts': 'One malformed fact.'}
+    sp.attach(entity, EP, 'user: Synthetic source.')
+    assert [row['field'] for row in entity[sp.INPUTS]] == ['summary']
