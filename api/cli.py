@@ -28,6 +28,7 @@ import contextvars
 import io
 import json
 import os
+import re
 import sys
 from contextlib import contextmanager, redirect_stdout
 from dataclasses import dataclass, field
@@ -241,11 +242,25 @@ def _check_bank(boot: Boot, wanted: str | None) -> None:
 
 # --- commands -----------------------------------------------------------------------------------
 
+def _identity():
+    from api.services import session_identity
+
+    return session_identity.cli_identity()
+
+
+def _project_dir(boot: Boot) -> str | None:
+    """The folder a CLI write or `continue` is about: the harness's project dir when it names one,
+    else the caller's working folder (recorded before the bootstrap, never used for configuration)."""
+    return _identity().project_dir or boot.caller_cwd
+
+
 def _tool_context(boot: Boot):
     from api.services import mcp_tools
 
-    path = boot.pin.path
-    return mcp_tools.ToolContext(memory_path=lambda: path, session_id="", harness="unknown",
+    path, ident = boot.pin.path, _identity()
+    # Ruling 21: no id from the harness → no session at all (never minted); a named harness is kept.
+    return mcp_tools.ToolContext(memory_path=lambda: path, session_id=ident.session_id or "",
+                                 harness=ident.harness or "unknown", project_dir=_project_dir(boot),
                                  read_surface="cli", available=cli_map.exposed_tools(),
                                  headers=lambda: {"Content-Type": "application/json", **_backend_headers()},
                                  backend_url=boot.backend_url)
@@ -347,8 +362,132 @@ def cmd_commands(boot: Boot | None, args) -> Result:
     return Result(text=text, data={"commands": catalog})
 
 
+def _typed(reply, data=None, warnings=None) -> Result:
+    """A body's reply as a Result: its typed refusal (``Reply.code``) decides ok/exit; never its sentence."""
+    code = getattr(reply, "code", None)
+    payload = getattr(reply, "data", None) if data is None else data
+    return Result(text=str(reply), data=None if code in REFUSAL_CODES else payload,
+                  warnings=list(warnings or []), code=code)
+
+
+_RANGE = re.compile(r"^(?P<base>.+?):(?P<start>\d+)(?::(?P<end>\d+))?$")
+
+
+def _slice(text: str, start: int | None, count: int | None, numbered: bool) -> tuple[str, dict]:
+    lines = text.splitlines()
+    total = len(lines)
+    first = 1 if start is None else start
+    if first < 1 or (count is not None and count < 1):
+        raise UsageError("--from and --count must be 1 or more")
+    if first > max(total, 1):
+        raise UsageError(f"the page has {total} lines; --from {first} is past its end")
+    last = total if count is None else min(total, first + count - 1)
+    shown = lines[first - 1:last]
+    if numbered:
+        shown = [f"{n}: {line}" for n, line in enumerate(shown, first)]
+    return "\n".join(shown), {"from": first, "count": len(shown), "total_lines": total}
+
+
+def cmd_get(boot: Boot, args) -> Result:
+    """The page, read literally first — a name or a legacy stem may contain a colon — and only when
+    that finds nothing, as the ``ENTITY:START[:END]`` shorthand (lines START to END, 1-based)."""
+    from api.services import mcp_tools
+
+    ctx = _tool_context(boot)
+    start, count = args.__dict__.get("from"), args.count
+    reply = mcp_tools.recall_detail(ctx, args.entity_id)
+    if getattr(reply, "code", None) == "not_found" and (m := _RANGE.match(args.entity_id)):
+        if start is not None or count is not None:
+            raise UsageError("give the line range once: ENTITY:START[:END] or --from/--count")
+        start = int(m.group("start"))
+        if m.group("end") is not None:
+            end = int(m.group("end"))
+            if end < start:
+                raise UsageError("the range ends before it starts")
+            count = end - start + 1
+        if start < 1:
+            raise UsageError("lines are numbered from 1")
+        reply = mcp_tools.recall_detail(ctx, m.group("base"))
+    if getattr(reply, "code", None) in REFUSAL_CODES:
+        return _typed(reply, warnings=_root_warnings(boot))
+    numbered = bool(getattr(args, "line_numbers", False))
+    if start is None and count is None and not numbered:
+        total = len(str(reply).splitlines())                # the whole page, byte for byte
+        return Result(text=str(reply), data={**(reply.data or {}), "from": 1, "count": total, "total_lines": total},
+                      warnings=_root_warnings(boot))
+    text, window = _slice(str(reply), start, count, numbered)
+    return Result(text=text, data={**(reply.data or {}), **window}, warnings=_root_warnings(boot))
+
+
+def cmd_project(boot: Boot, args) -> Result:
+    from api.services import mcp_tools
+
+    reply = mcp_tools.project(_tool_context(boot), args.project, args.since, args.tz)
+    return _typed(reply, warnings=_root_warnings(boot))
+
+
+def _continue_spelling():
+    from api.services import continuity
+
+    return continuity.Spelling(
+        call=lambda session, before: "`" + cli_map.spell("cicada_continue", session=session, before=before) + "`",
+        session_arg="`--session`")
+
+
+def cmd_continue(boot: Boot, args) -> Result:
+    from api.services import local_tools
+
+    ident = _identity()
+    # Whatever the harness gave — possibly nothing: the shared body still applies the current-conversation
+    # rules for an unknown identity (#229), exactly as for cicada_continue.
+    reply = local_tools.continue_text(boot.pin.path, root=boot.root, cwd=_project_dir(boot),
+                                      identity=(ident.harness, ident.session_id), session=args.session,
+                                      before=args.before, spelling=_continue_spelling())
+    return _typed(reply, warnings=_root_warnings(boot))
+
+
+NO_SESSION_LINE = ("No session id came from this shell, so this note is not grouped with a conversation "
+                   "(set CICADA_SESSION_ID and CICADA_SESSION_HARNESS to group it).")
+
+
+def cmd_save(boot: Boot, args) -> Result:
+    """The one write: Awake capture through the MCP's own body — scrub, dedup by hash, ``episode_lock``,
+    an atomic create, the demo refusal — into the pinned bank. Like every Awake capture it takes no
+    write admission (``write_admission``: capture is allowed while Sleep runs). A backend that serves
+    another memory root refuses it before anything is written."""
+    from api.services import mcp_tools
+
+    if boot.probe.get("state") == "mismatch":
+        raise Refusal("root_mismatch", "The app's backend uses a different memory folder than this command. "
+                                       "Nothing was saved; check `cicada status`.")
+    ctx = _tool_context(boot)
+    reply = mcp_tools.save_episode(ctx, args.content, args.title)
+    warnings = _root_warnings(boot)
+    text = str(reply)
+    if getattr(reply, "code", None) not in REFUSAL_CODES and not ctx.session_id \
+            and (reply.data or {}).get("episode_id"):
+        warnings.append("no_session")
+        text = f"{text}\n{NO_SESSION_LINE}"
+    result = _typed(reply, warnings=warnings)
+    result.text = text
+    return result
+
+
+def cmd_handshake(boot: Boot, args) -> Result:
+    from api.services import handshake, state_dictionary
+
+    names = frozenset(r.name for r in cli_map.exposed())
+    text = handshake.build_cli(state_dictionary.read_state(boot.pin.path), commands=names, bank=boot.pin.name,
+                               tz=handshake.local_timezone())
+    handshake.record("cli", {"variant": handshake.CLI_VARIANT}, bank=boot.pin.path.name,
+                     harness=_identity().harness)
+    return Result(text=text, data={"tokens_est": len(text) // 4}, warnings=_root_warnings(boot))
+
+
 #: name → (handler, needs a bank). A test may swap a handler.
-COMMANDS: dict[str, Callable] = {"recall": cmd_recall, "status": cmd_status, "commands": cmd_commands}
+COMMANDS: dict[str, Callable] = {"recall": cmd_recall, "get": cmd_get, "project": cmd_project,
+                                 "continue": cmd_continue, "save": cmd_save, "handshake": cmd_handshake,
+                                 "status": cmd_status, "commands": cmd_commands}
 _NO_BOOT = {"commands"}
 
 
@@ -495,6 +634,24 @@ def _emit(as_json: bool, *, command, ok, code, bank, data, text, warnings) -> No
             sys.stderr.write(f"cicada: warning: {w}\n")
 
 
+def _validate(command: str, args) -> None:
+    """Checks that need no memory, before the bootstrap. ``save -`` reads the text from stdin here."""
+    if command == "recall" and not args.query.strip():
+        raise UsageError("the query is empty")
+    if command == "get" and not args.entity_id.strip():
+        raise UsageError("the entity is empty")
+    if command == "project" and not args.project.strip():
+        raise UsageError("the project is empty")
+    if command == "save":
+        if args.content == "-":
+            try:
+                args.content = sys.stdin.read()
+            except (OSError, UnicodeDecodeError, ValueError):
+                raise UsageError("could not read the text from stdin") from None
+        if not args.content.strip():
+            raise UsageError("there is nothing to save")
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     as_json = _wants_json(argv)
@@ -523,8 +680,7 @@ def main(argv: list[str] | None = None) -> int:
         if not args.command:
             raise UsageError("a command is required (try `cicada --help`)")
         command = " ".join(w for w in (args.command, getattr(args, "verb", None)) if w)
-        if command == "recall" and not args.query.strip():
-            raise UsageError("the query is empty")
+        _validate(command, args)
     except UsageError as exc:
         if as_json:
             _emit(True, command=command, ok=False, code="usage", bank=None, data=None, text=str(exc), warnings=[])
@@ -549,6 +705,10 @@ def main(argv: list[str] | None = None) -> int:
                 _check_bank(boot, args.bank if args.bank is not None else os.environ.get("CICADA_BANK"))
                 boot.probe = probe_backend(boot.backend_url, boot.root)
                 result = boot.ctx.run(handler, boot, args)
+    except UsageError as exc:                  # a check that needed the page (a `get` range past its end)
+        _emit(as_json, command=command, ok=False, code="usage", bank=bank_name, data=None, text=str(exc),
+              warnings=[])
+        return EXIT_CODES["usage"]
     except Refusal as exc:
         _emit(as_json, command=command, ok=False, code=exc.code, bank=bank_name, data=None, text=str(exc),
               warnings=[])

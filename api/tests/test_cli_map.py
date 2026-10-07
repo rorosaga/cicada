@@ -88,9 +88,25 @@ def test_no_generic_dispatcher_row():
         assert not any(a.prop in {"tool", "name", "arguments"} and a.positional for a in row.args), row.name
 
 
-def test_unit_one_exposes_recall_status_and_commands_only():
-    assert {r.name for r in cli_map.exposed()} == {"recall", "status", "commands"}
-    assert cli_map.exposed_tools() == frozenset({"cicada_recall"})
+def test_slice_one_exposes_its_eight_commands_only():
+    assert {r.name for r in cli_map.exposed()} == {"recall", "get", "project", "continue", "save", "handshake",
+                                                   "status", "commands"}
+    assert cli_map.exposed_tools() == frozenset({"cicada_recall", "cicada_recall_detail", "cicada_project",
+                                                 "cicada_continue", "cicada_save_episode", "cicada_handshake"})
+
+
+def test_spell_renders_a_command_line_the_parser_accepts():
+    import shlex
+
+    from api import cli
+
+    line = cli_map.spell("cicada_continue", session="ep_2026-09-03_001", before="3@abcdef012345")
+    assert line == "cicada continue --session ep_2026-09-03_001 --before 3@abcdef012345"
+    tricky = cli_map.spell("cicada_save_episode", content="it's $HOME; rm -rf x", title="A b")
+    words = shlex.split(tricky)
+    args = cli.build_parser().parse_args(words[1:])
+    assert args.content == "it's $HOME; rm -rf x" and args.title == "A b"
+    assert cli_map.spell("cicada_recall_detail", entity_id=cli_map.Placeholder("entity-id")) == "cicada get <entity-id>"
 
 
 def test_catalog_lists_every_row_with_its_mirror():

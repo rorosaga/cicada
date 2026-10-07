@@ -457,7 +457,7 @@ the CLI.
     it.
   - MCP tool names keep their `cicada_` prefix. Grouping them is the lean-MCP slice, with the old names kept as aliases.
   - No row takes a tool name: there is no generic dispatcher.
-- **Commands in this unit.**
+- **Commands (slice 1: units 1 and 2).**
   - `recall <query>`: the MCP body's text.
     - `data` is the generated hints payload the body returns beside its text (`mcp_tools.Reply`, a `str` subclass
       carrying `code` and `data`, so stdio and remote send the same bytes). It is never parsed out of the text, where a
@@ -469,6 +469,42 @@ the CLI.
   - `status`: root path, source and verification; bank name, path and demo flag; the unconsolidated count; backend
     version and `writing`; the vector index state; distribution; the caller's folder.
   - `commands`: the full table in `data.commands`, with `exposed` per row.
+  - `get <entity>`: `cicada_recall_detail`'s page, verbatim, with `data: {entity_id, type, status, from, count,
+    total_lines}`.
+    - Bounded reads: `--from N` / `--count N` / `--line-numbers`, or the shorthand `ENTITY:START[:END]` (lines START
+      to END, 1-based).
+    - The argument is read **literally first**: a display name or legacy stem containing a colon (`Alpha: Beta`)
+      always reaches its page, and the shorthand is tried only when the literal finds nothing.
+    - A bad range is exit 2. An unknown entity is `not_found`, exit 1.
+  - `project <project> [--since --tz]`: `cicada_project`'s body. Its "open a page" action is spelled
+    `cicada get <entity-id>` (`project_text.render(detail_call=…)`), and progress and backlog actions are gated off.
+    No project, a dropped project, or a page that is not a project is `not_found`, exit 1.
+  - `continue [--session --before]`: G110's on-demand working-context read, one body shared with
+    `cicada_continue` (`api/services/local_tools.continue_text`, never imported by `api/remote`).
+    - The same selection and current-conversation rules apply. The folder is the harness's project dir, else the
+      caller's working folder. The caller's own `(harness, session id)` is always passed, either part possibly unknown: `continue_text` requires it, so a no-argument read always applies #229's current-conversation rules (exact match, else the newest session's lineage and chronology), with nothing minted or stored.
+    - Every follow-up read it prints is spelled through `continuity.Spelling` (`cicada continue --session …
+      --before …`, shell-quoted) and runs as printed. The MCP keeps its literal calls by default.
+  - `save <text|-> [--title]`: the one write. It is Awake capture through `cicada_save_episode`'s own body: scrub, dedup
+    by hash, `episode_lock`, atomic create, demo refusal (exit 4), into the pinned bank.
+    - Like every Awake capture it takes **no** write admission (capture is allowed while Sleep runs;
+      `write_admission`).
+    - A backend that serves another memory root refuses it, exit 3, nothing written. An unverified backend saves with
+      a warning.
+    - Provenance comes from the harness (`session_identity.cli_identity`, never minted, ruling 21):
+      `session_id`/`harness` only when given, `project_dir` the folder above, `source: cli` (with `origin: mcp`, G9's
+      closed vocabulary), default title `Agent note`.
+    - With no session id the reply says so (`warnings: ["no_session"]`). A duplicate is `ok: true, code: duplicate`.
+      A read-only bank is exit 5.
+  - `handshake`: `handshake.build_cli`, a primer like the remote one that names only the commands the CLI holds,
+    spelled from `cli_map.spell`. It sits within the same ≤1,800-token aim, is built per call (never cached), and its
+    ledger row has `delivery: "cli"`.
+- **Spelling.** Generated actions (recall's hints, the state cursor, project's page action, continue's reads, the
+  primer) are spelled by `cli_map.spell(tool, **values)` from the table, with every concrete value shell-quoted. A test
+  parses each printed command back through the real parser. Memory's own text is never respelled.
+- **Identity.** `api/services/session_identity.py` parses `CLAUDE_CODE_SESSION_ID` (strict UUID, `CLAUDE_PROJECT_DIR`)
+  then `CICADA_SESSION_ID`/`CICADA_SESSION_HARNESS`. `stdio_identity` is G48's minting policy, re-exported by
+  `mcp/server.py` as `resolve_session_identity`. `cli_identity` never mints and keeps a harness named without an id.
 - **Gating.** `_hints_block` has a `can_open_hub` argument and names no action when the caller holds neither the detail
   tool nor the hub tool. Recall drops the state cursor's `next_tool` when the caller lacks `cicada_handshake`.
   `render_question` (`can_answer`) drops `skip=true if unanswered` for a caller without `cicada_resolve_inbox`, and
@@ -476,5 +512,6 @@ the CLI.
   every tool, and remote always holds the handshake and holds the hub tool whenever it holds recall, so both are
   byte-identical. Memory's own text is returned untouched (a page quoting a tool name or command-looking code stays as
   written).
-- **Not yet built:** `get`, `project`, `continue`, `save`, `handshake`, session identity, the release launcher, the
-  Settings button, the skill and the overhead measurement. The full slice and its later units are in the G180 row.
+- **Not yet built:** the release launcher (`~/.cicada/bin/cicada`) and its end-to-end test, the Settings button, the
+  skill's generated CLI block, and the overhead and latency measurement. The full slice and its later units are in the
+  G180 row.
