@@ -418,7 +418,7 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /sources/contacts-local/sync": (ADMITTED, None),
     "POST /capture/telegram": (INTAKE, None),
     "POST /capture/transcript": (CAPTURE, None),
-    "POST /capture/hook-context": (NONE, None),
+    "POST /capture/hook-context": (OUTSIDE, None),   # G110: may refresh the continuity index in $CICADA_HOME
     "PUT /sources/connectors/{connector_id}/credentials": (OUTSIDE, None),
     "DELETE /sources/connectors/{connector_id}/credentials": (OUTSIDE, None),
     "POST /sources/connectors/{connector_id}/authorize": (OUTSIDE, None),
@@ -466,6 +466,9 @@ TOOLS: dict[str, tuple[str, str | None]] = {
     "cicada_save_episode": (CAPTURE, None),
     "cicada_mark_processed": (CAPTURE, None),                   # an episode's cursor, revision-checked (A01)
     "cicada_video_claim": (OUTSIDE, None),
+    # G110: reads the bank's transcript episodes only (projection + paging); its metadata index and session registry
+    # live in $CICADA_HOME/continuity, outside every bank — a reader, never a bank write.
+    "cicada_continue": (NONE, None),
     **{t: (NONE, None) for t in (
         "cicada_handshake", "cicada_recall", "cicada_recall_detail", "cicada_open_hub", "cicada_get_perspective",
         "cicada_check_nudges", "cicada_timeline", "cicada_project", "cicada_sources", "cicada_ask",
