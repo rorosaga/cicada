@@ -876,9 +876,11 @@ async def _detect_contradiction(
     settings: Settings,
 ) -> dict | None:
     """Call the LLM to check whether existing and new descriptions contradict."""
+    from api.services.claims import strip_claims_block
+
     prompt = _CONTRADICTION_PROMPT.format(
         entity_name=entity_name,
-        existing_body=existing_body[:4000],
+        existing_body=strip_claims_block(existing_body)[:4000],
         new_description=new_description[:2000],
     )
     llm_fn = resolve_llm_fn(

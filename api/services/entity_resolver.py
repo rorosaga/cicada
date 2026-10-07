@@ -921,12 +921,14 @@ async def _llm_judge_same_entity(
     settings: Settings,
 ) -> str:
     """One LLM call: same, different, or unsure."""
+    from api.services.claims import strip_claims_block
+
     if new_type and existing_type and new_type.lower() != existing_type.lower():
         return "different"
     prompt = _DISAMBIG_PROMPT.format(
         existing_name=existing_name,
         existing_type=existing_type or "unknown",
-        existing_body=(existing_body or "")[:2000] or "(empty)",
+        existing_body=strip_claims_block(existing_body)[:2000] or "(empty)",
         new_name=new_name,
         new_type=new_type or "unknown",
         new_description=(new_description or "")[:1500] or "(empty)",
