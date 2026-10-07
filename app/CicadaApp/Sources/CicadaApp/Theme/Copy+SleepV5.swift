@@ -69,6 +69,8 @@ extension Copy {
         static let continueWhenItResets = "Continue when your plan resets."
         static let pausedEngineLead = "Paused. The engine stopped answering."
         static let pausedEngineFixLead = "Paused. The engine needs a look."
+        static let readingStoppedLead = "Reading stopped."
+        static let readingStoppedTail = "See what needs a fix in Details, then try again."
         static func continueToTryAgain(filed: Int, frozen: Int, _ locale: Locale = .autoupdatingCurrent) -> String {
             "Continue to try again. \(filedOf(filed, frozen, locale))."
         }
@@ -442,6 +444,7 @@ extension Copy {
         SleepV5.pausedOverageLead, SleepV5.resetsContinue("after 2:00 PM"), SleepV5.resetsThenContinue("Tue 2:00 PM"),
         SleepV5.continueWhenItResets, SleepV5.pausedEngineLead, SleepV5.continueToTryAgain(filed: 98, frozen: 287),
         SleepV5.pausedEngineFixLead, SleepV5.continueWhenFixed(filed: 98, frozen: 287),
+        SleepV5.readingStoppedLead, SleepV5.readingStoppedTail,
         SleepV5.restartLead, SleepV5.restartTail(filed: 98, frozen: 287), SleepV5.bankSwitchedLead,
         SleepV5.bankSwitchedTail, SleepV5.filedLead(286), SleepV5.parkedLine(1),
         SleepV5.pauseHelp, SleepV5.endRunHelp, SleepV5.optionsIntro(waiting: 287, batchSize: 25),

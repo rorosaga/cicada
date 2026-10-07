@@ -582,7 +582,11 @@ model-not-found pauses retain "The engine needs a look" and "Continue when it is
 kind retain that fix guidance. Details shows the backend's diagnosis (DR-59), including the sign-in/model fix or a
 trimmed transient failure detail. For a timeout, the diagnosis says the interrupted part is read again. The existing
 `sleep` version component includes kind and diagnosis and maps to `.status` in `VersionVector`; a changed SSE kind
-refetches the paused record. An engine pause never implies automatic continuation. **One
+refetches the paused record. An engine pause never implies automatic continuation.
+An engine connection loss uses the transient pause/Continue machinery. Neither an engine pause nor a genuine
+failure renders an exception class, CLI command or raw diagnosis in the page's sentence or worm answers. A failure
+instead says "Reading stopped" / "See what needs a fix in Details, then try again", in warning tone (DR-7, DR-59);
+the existing Last cycle rows retain the full diagnosis (DR-37/48). **One
 primary at a time (DR-40):** Consolidate / Pause (a drain's cancel, "Pausing…") / Continue (named for the manual engine; held while a weekly limit's
 reset is ahead) with *End this run* beside it. `SleepViewModel.continueRun()` is the only sender of `{"continue": true}`; **every other door goes
 through `triggerManually()`, which routes to the Sleep page while a run is paused** (`AppRouter.routeToSleep`), and the menu bar, the intake card's

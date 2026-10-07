@@ -229,6 +229,13 @@ reset time or auto-continue. The frozen ids and prior committed batches stay int
 and reads the interrupted batch again. An empty/unparseable extraction answer still gets the conversation
 retry-then-park rule. Authentication, model and plan errors are never retried by this policy; calls outside drains
 retain their existing policy.
+**Connectivity (owner, 2026-10-07):** failed CLI transport diagnostics (routing discovery, exhausted reconnect
+warnings, DNS, refused/reset connections and offline/network errors) become `EngineConnectionLost`, a retryable
+`EngineFailed` subtype. The existing one-retry/2-second policy then pauses with Continue; repeated connectivity
+loss never consumes an episode's timeout/parking attempt. Detection includes empty/non-JSON failed output and
+the reading engine's connection-retry metadata. Completed turns that recovered from reconnect warnings remain
+successful; sign-out, model, quota and billing diagnoses outrank old reconnect notices. Raw diagnostics remain
+available in Details, while the page speaks provider-neutral pause/fix copy.
 An id another writer marked processed meanwhile is `skipped`, and a bank switch between batches stops the run (`bank_switched`; `activate`, `demo`,
 `leave-demo` and the active bank's rename answer **409** while `SleepState.drain_run`). **A scheduled cycle drains too**
 (ruling 16: both scheduler entry points pass `drain=True`) but with `user_triggered=False`, so automatic engine

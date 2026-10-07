@@ -235,7 +235,7 @@ private func sentenceLead(_ ctx: RoomContext) -> SentenceLine {
         let numeral = "\(count(ctx.read)) of \(count(ctx.total))"
         return SentenceLine(lead: "Reading \(numeral).", numeral: numeral)                      // L3
     case .error:
-        return SentenceLine(lead: "The last cycle failed.", tone: .danger)                      // L6
+        return SentenceLine(lead: Copy.SleepV5.readingStoppedLead, tone: .warning)               // L6 (DR-7, DR-59)
     case .digesting:
         if let drain = ctx.drain, drain.finished, drain.filed > 0 {                              // V5
             let numeral = count(drain.filed)
@@ -289,8 +289,9 @@ private func sentenceTail(_ ctx: RoomContext) -> SentenceTail? {
         }
         return SentenceTail(text: stage(ctx).detail)
     }
-    if case .error = ctx.mood, let clause = sentenceClause(ctx.cycleError) {                     // T3
-        return SentenceTail(text: clause, tone: .danger, action: .openDetails(.lastCycle))
+    if case .error = ctx.mood {                                                                 // T3
+        return SentenceTail(text: Copy.SleepV5.readingStoppedTail, tone: .warning,
+                            action: .openDetails(.lastCycle))
     }
     if ctx.cancelled {                                                                           // T4
         if let drain = ctx.drain {                                                               // T4b (G163)

@@ -126,6 +126,31 @@ final class SleepV5WireTests: XCTestCase {
 // MARK: - The sentence ladder
 
 final class SleepV5RoomSentenceTests: XCTestCase {
+    func test_engineFailuresAndPausesNeverSpeakRawDiagnosesOutsideDetails() {
+        for diagnosis in ["EngineFailed: `codex exec` failed: workspace routing discovery failed",
+                          "EngineUnavailable: `claude -p` did not return the JSON envelope",
+                          "ValueError: invalid configuration"] {
+            var context = RoomContext(mood: .error, scheduleMode: "manual", locale: V5Fixture.en)
+            context.cycleError = diagnosis
+            context.engineDetail = diagnosis
+            context.lastEngine = "codex-cli"
+            let line = roomSentence(context)
+            XCTAssertEqual(line.lead, "Reading stopped.")
+            XCTAssertEqual(line.tail, "See what needs a fix in Details, then try again.")
+            XCTAssertEqual(line.action, .openDetails(.lastCycle))
+            XCTAssertEqual(LastCycleRow.rows(pageError: diagnosis, cancelled: false, capped: false,
+                                             indexWarning: nil, status: nil).first?.text, diagnosis)
+            XCTAssertFalse(wormAnswers(context).contains { $0.spoken.contains(diagnosis) })
+            for kind in ["transient", "needs_fix"] {
+                context.paused = SleepPausedRun(reason: "engine", sentence: diagnosis, engineKind: kind)
+                let pausedLine = roomSentence(context)
+                XCTAssertFalse(pausedLine.spoken.contains(diagnosis))
+                XCTAssertEqual(pausedLine.action, .openDetails(.lastCycle))
+                XCTAssertFalse(wormAnswers(context).contains { $0.spoken.contains(diagnosis) })
+            }
+        }
+    }
+
     func test_aTimeoutPauseSaysItCanBeTriedAgainAndOffersContinue() throws {
         let diagnosis = "The engine timed out. Continue to try again; the part it was reading will be read again."
         let paused = try JSONDecoder().decode(SleepPausedRun.self, from: Data(
