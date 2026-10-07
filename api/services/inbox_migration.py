@@ -483,6 +483,11 @@ def _dedup_normalization_locked(memory_path: Path, inbox: Path) -> int:
         # unauthored (`commit_touched_sync`'s `before`); nothing else in inbox/ is its.
         before = ({rel: (memory_path / rel).read_bytes() for rel in git_service.dirty_paths_sync(memory_path, *rels)}
                   if owned and tracked else None)
+        index = _index_entries(memory_path, rels) if owned and tracked else {}
+        if any(stage != "0" for _mode, _sha, stage in index.values()):
+            logger.info("Predicate-fold inbox cleanup deferred: an inbox item it would change is mid-merge")
+            return 0
+        head = _head(memory_path) if owned and tracked else None
         try:
             for path, (fm, body) in rewrites.items():
                 markdown_parser.write(path, fm, body)
@@ -491,7 +496,7 @@ def _dedup_normalization_locked(memory_path: Path, inbox: Path) -> int:
             if owned and tracked:
                 git_service.commit_touched_sync(memory_path, _dedup_message(len(deletes)), rels, before=before)
         except BaseException:
-            _restore(memory_path, snapshot, tracked)
+            _restore(memory_path, snapshot, index if tracked else None, head)
             raise
         try:
             marker.write_text("v1")
@@ -501,13 +506,51 @@ def _dedup_normalization_locked(memory_path: Path, inbox: Path) -> int:
         return len(deletes)
 
 
-def _restore(memory_path: Path, snapshot: dict[Path, bytes], tracked: bool) -> None:
-    """Put every file the cleanup touched back as it was, and its index entry."""
+def _index_entries(memory_path: Path, rels: list[str]) -> dict[str, tuple[str, str, str]]:
+    """``{rel: (mode, blob, stage)}`` for each owned path the index holds now — a
+    path it does not hold is absent. Read before the transaction, so a rollback
+    puts back exactly what was staged (never HEAD's entry in its place)."""
+    out: dict[str, tuple[str, str, str]] = {}
+    for record in git_service._git_sync(memory_path, "ls-files", "--stage", "-z", "--", *rels).split("\0"):
+        if not record:
+            continue
+        meta, rel = record.split("\t", 1)
+        mode, sha, stage = meta.split()
+        out[rel] = (mode, sha, stage)
+    return out
+
+
+def _head(memory_path: Path) -> str | None:
+    try:
+        return git_service._git_sync(memory_path, "rev-parse", "-q", "--verify", "HEAD").strip() or None
+    except Exception:
+        return None   # an unborn branch
+
+
+def _restore(memory_path: Path, snapshot: dict[Path, bytes],
+             index: dict[str, tuple[str, str, str]] | None, head: str | None) -> None:
+    """Put every file the cleanup touched back as it was — its bytes, and its
+    index entry exactly as captured before the transaction (or its absence).
+
+    HEAD is never moved back. The one commit that can have landed before a
+    failure is the kept-apart one: it holds only edits that were already
+    uncommitted on these files, never the cleanup's own change, and it stays —
+    with the restored index the tree reads as before, relative to it."""
     for path, data in snapshot.items():
         path.write_bytes(data)
-    if tracked and snapshot:
-        rels = [p.relative_to(memory_path).as_posix() for p in snapshot]
-        try:
-            git_service._git_sync(memory_path, "reset", "-q", "--", *rels)
-        except Exception as e:   # the files are back; a stale index entry is the next status's to show
-            logger.warning(f"Predicate-fold inbox cleanup: index not reset: {e}")
+    if index is None or not snapshot:
+        return
+    try:
+        for path in snapshot:
+            rel = path.relative_to(memory_path).as_posix()
+            if rel in index:
+                mode, sha, _stage = index[rel]
+                git_service._git_sync(memory_path, "update-index", "--add", "--cacheinfo", f"{mode},{sha},{rel}")
+            else:
+                git_service._git_sync(memory_path, "update-index", "--force-remove", "--", rel)
+    except Exception as e:   # the files are back; a stale index entry is the next status's to show
+        logger.warning(f"Predicate-fold inbox cleanup: index not restored: {e}")
+    moved = _head(memory_path)
+    if moved != head:
+        logger.warning("Predicate-fold inbox cleanup failed after keeping earlier uncommitted inbox edits apart "
+                       "in their own commit; that commit stands, the cleanup's change does not")

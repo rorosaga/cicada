@@ -763,3 +763,45 @@ def test_a_window_opening_during_the_answers_snapshot_refuses_and_writes_nothing
     assert window["open"]
     assert _tree(memory) == before
     assert _git(memory, "rev-parse", "HEAD") == head
+
+
+def _index(memory, *rels):
+    return _git(memory, "ls-files", "--stage", "--", *rels)
+
+
+@pytest.mark.parametrize("touches_index", [False, True])
+def test_a_failed_cleanup_restores_each_owned_index_entry_as_it_was(tmp_path, monkeypatch, touches_index):
+    from api.services import git_service, inbox_migration
+
+    memory = _migration_bank(tmp_path)
+    # a staged pre-existing change on the survivor, plus an unstaged one on top
+    survivor = memory / "inbox" / "inbox-002.md"
+    survivor.write_text(survivor.read_text() + "\nstaged note\n")
+    _git(memory, "add", "inbox/inbox-002.md")
+    survivor.write_text(survivor.read_text() + "\nworking-only note\n")
+    # an untracked pair of its own: survivor rewritten, duplicate deleted — never in the index
+    _write_item(memory, 7, "gamma-store", "clm_7", "worked at", "works-at")
+    _write_item(memory, 8, "delta-paper", "clm_8", "Worked At", "works-at")
+    owned = ["inbox/inbox-001.md", "inbox/inbox-002.md", "inbox/inbox-003.md", "inbox/inbox-007.md",
+             "inbox/inbox-008.md"]
+    index_before, tree_before = _index(memory, *owned), _tree(memory)
+    head = _git(memory, "rev-parse", "HEAD")
+    assert "inbox-007" not in index_before and "inbox-008" not in index_before
+
+    real_git = git_service._git_sync
+
+    def failing_commit(memory_path, message, paths, **kw):
+        if touches_index:   # fail after staging, the way a real `git commit` failure would
+            real_git(memory_path, "add", "-A", "--", *[p for p in paths if (memory_path / p).exists()])
+        raise git_service.GitError("simulated commit failure")
+
+    monkeypatch.setattr(git_service, "commit_touched_sync", failing_commit)
+    assert inbox_migration.dedup_normalization_items(memory) == 0
+    assert _tree(memory) == tree_before
+    assert _index(memory, *owned) == index_before          # the staged blob, and absence, exactly as they were
+    assert _git(memory, "rev-parse", "HEAD") == head
+    assert not (memory / "inbox" / ".deduped_normalization").exists()
+
+    monkeypatch.undo()
+    assert inbox_migration.dedup_normalization_items(memory) == 3
+    assert (memory / "inbox" / ".deduped_normalization").exists()
