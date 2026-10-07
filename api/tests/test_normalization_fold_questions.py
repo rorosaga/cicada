@@ -543,3 +543,36 @@ def test_wrong_fold_on_one_spelling_stops_every_spelling_of_the_pair(tmp_path):
     assert claims[0].predicate == "built-with"
     _, nudges, _ = reconcile_stage3(claims, {}, _Settings(memory), decay=False)
     assert _fold_nudges(nudges) == []
+
+
+# ---------------------------------------------------------------- a shared question stays visible (review round 1, #7)
+
+
+@pytest.mark.parametrize("opener_fate", ["archived", "gone"])
+def test_a_pair_question_stays_visible_when_its_opener_is_archived_or_gone(tmp_path, opener_fate):
+    memory = _bank(tmp_path)
+    for eid, name in (("alpha-project", "Alpha Project"), ("beta-baseline", "Beta Baseline")):
+        markdown_parser.write(memory / "entities" / f"{eid}.md",
+                              {"name": name, "type": "project", "status": "active", "version": 1}, f"# {name}\n")
+    inbox_generator.write_claim_nudges([_fold("alpha-project", "clm_a")], memory)
+    assert inbox_service.served_counts(memory) == (1, {"normalization": 1})
+    alpha = memory / "entities" / "alpha-project.md"
+    if opener_fate == "archived":
+        parsed = markdown_parser.parse(alpha)
+        markdown_parser.write(alpha, {**parsed.frontmatter, "status": "archived"}, parsed.body)
+    else:
+        alpha.unlink()
+    out = inbox_generator.write_claim_nudges([_fold("beta-baseline", "clm_b")], memory)
+    assert out["written"] == 0 and out["merged"] == 1
+    items = [i for i in inbox_service.load_inbox(memory) if i.kind.value == "normalization"]
+    assert len(items) == 1
+    assert items[0].entity_id == "beta-baseline" and items[0].entity_name == "Beta Baseline"
+    assert "Beta Baseline" in items[0].title
+    assert inbox_service.served_counts(memory) == (1, {"normalization": 1})
+
+
+def test_a_pair_question_is_hidden_once_every_covered_page_is_gone(tmp_path):
+    memory = _bank(tmp_path)
+    inbox_generator.write_claim_nudges([_fold("alpha-project", "clm_a"), _fold("beta-baseline", "clm_b")], memory)
+    assert inbox_service.served_counts(memory) == (0, {})
+    assert [i for i in inbox_service.load_inbox(memory) if i.kind.value == "normalization"] == []

@@ -29,6 +29,7 @@ from api.services import (
     telemetry,
 )
 from api.services.id_utils import resolve_entity_file, sanitize_id
+from api.services.inbox_generator import fold_claims
 from api.services.sleep_refusal import SleepWriting
 
 logger = logging.getLogger(__name__)
@@ -75,6 +76,16 @@ def _item_from_file(
     parsed = markdown_parser.parse(filepath)
     fm = parsed.frontmatter
     kind = str(fm.get("kind", "decay"))
+    if kind == "normalization" and context is not None:
+        # Served on a live covered page when its opener is archived or gone — a
+        # read-time projection; the file keeps its opener (G98/G115).
+        anchor = _fold_anchor(context.memory_path, fm)
+        if anchor != str(fm.get("entity_id", "") or ""):
+            page = context.entity(anchor)
+            name = str((page.frontmatter.get("name") if page is not None else None) or anchor)
+            claim = next((c for e, c in fold_claims(fm) if e == anchor), None)
+            fm = {**fm, "entity_id": anchor, "entity_name": name, "claim_id": claim,
+                  "title": f"Confirm a predicate fold for {name}"}
     required_input = str(fm.get("required_input", "") or _required_input_for(kind))
     now = today or str(date.today())
     entity_id = str(fm.get("entity_id", "") or "")
@@ -299,6 +310,22 @@ def _hidden(
     return _subject_gone(memory_path, entity_id, kind)
 
 
+def _fold_anchor(memory_path: Path, fm: dict) -> str:
+    """The page a predicate-fold question is served on (G98/G115 review round 1).
+
+    One question covers a pair across pages (``covered_claims``), so it is not
+    tied to the page that happened to open it: the first covered page that is
+    still live answers for it, and the opener only when none is — then the
+    usual subject rule hides it. Every other kind keeps its ``entity_id``."""
+    entity_id = str(fm.get("entity_id", "") or "")
+    if str(fm.get("kind", "") or "") != "normalization":
+        return entity_id
+    for eid, _cid in fold_claims(fm):
+        if not _subject_gone(memory_path, eid, "normalization"):
+            return eid
+    return entity_id
+
+
 def served_counts(memory_path: Path) -> tuple[int, dict[str, int]]:
     """How many items :func:`load_inbox` serves, in total and by kind.
 
@@ -319,7 +346,7 @@ def served_counts(memory_path: Path) -> tuple[int, dict[str, int]]:
             return len(items), dict(Counter(i.kind.value for i in items))
         kind = str(fm["kind"])
         if _hidden(
-            memory_path, kind=kind, entity_id=str(fm.get("entity_id", "") or ""),
+            memory_path, kind=kind, entity_id=_fold_anchor(memory_path, fm),
             remind_after=_opt_str(fm.get("remind_after")), today=today,
         ):
             continue
@@ -1742,8 +1769,6 @@ def _answer_normalization(path: Path, request, settings, label: str) -> str:
     (then git's write lock inside the commit — the documented order)."""
     from api.services import git_service, page_lock, sleep_cycle
     from api.services.claims import MalformedClaimsBlockError, parse_claims, write_claims
-    from api.services.inbox_generator import fold_claims
-
     memory = settings.memory_path
     with page_lock.page_lock(memory):
         # Re-asked once the lock is held: a window can open while this waited for it.
