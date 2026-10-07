@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Cicada session-capture hook (G105 R1, R2, R8, R14).
 
-Registered by ``install.sh`` under ``hooks.Stop`` in ``~/.claude/settings.json``
-(and ``~/.codex/hooks.json`` when Codex is installed) as::
+Registered by ``install.sh`` under ``hooks.Stop`` — and, as a flush,
+``hooks.PreCompact`` and ``hooks.SessionEnd`` (G110 gate A) — in
+``~/.claude/settings.json`` (and ``~/.codex/hooks.json`` when Codex is installed) as::
 
     "<venv python>" "<repo>/api/hooks/capture.py" --harness claude-code
 

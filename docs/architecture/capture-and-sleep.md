@@ -33,7 +33,17 @@ Seven rails hold across all of them:
   only when the page gave no description of its own.
 - **Capture must not depend on a model deciding to call a tool** (G105). Every Claude Code and
   Codex session is captured by the harness's own `Stop` hook
-  (`api/hooks/capture.py` → `POST /capture/transcript`). **The backend reads the transcript**, and
+  (`api/hooks/capture.py` → `POST /capture/transcript`). **The flush (G110 gate A, owner ruling 2026-10-07):** the
+  same command is also registered under `PreCompact` and `SessionEnd` (install.sh step 5b, both harnesses; the app's
+  Connect through `flushOn`). Stop stays the trigger (TODO ruling 7): a flush is the same idempotent request —
+  `unchanged` after a Stop with no new turn — and it is the only capture of a turn the person interrupted (no Stop
+  fires) before compacting, clearing or quitting, which the next continuity note then discloses as "its last request
+  has no captured reply". A SessionEnd flush posts with a 1.2 s client timeout inside the harness's 1.5 s SessionEnd
+  budget (the backend finishes the write regardless). Every `~/.cicada/logs/capture.log` line names its event
+  (`<harness> <sid8> Stop|PreCompact|SessionEnd|other …`), so ruling 7's revisit signal — a Stop `error:` line — is
+  never confused with a flush's; the capture ledger row carries the same enum as `event`. `autosave` in
+  `/agents/wiring` stays the Stop hook alone, so an install from before the flush is never shown as broken; `make doctor`
+  passes an absent flush with a note and fails only a half-registered or stale one. **The backend reads the transcript**, and
   only after the path resolves under the harness root as `<session_id>.jsonl` within the size cap —
   anything else is refused unread. `transcript_extract.py` keeps only the person's turns and the
   agent's final reply per turn; tool calls, thinking, file dumps and harness-injected text are
@@ -43,24 +53,47 @@ Seven rails hold across all of them:
   `turn_context.payload.effort`, and for the last reply the Stop hook's stdin `effort.level`). Both
   are cleaned by `agent_turns` (an effort is one of `minimal|low|medium|high|xhigh|max`, and
   anything else is dropped). They ride the sidecar on agent entries only; the transcript wins over
-  the hook. Secrets scrubbed, per-turn and per-session caps applied. **One episode
+  the hook. Secrets scrubbed, per-turn and per-session caps applied. **The session cap keeps the head and the tail
+  (G110 gate B2, owner ruling 2026-10-07).** Under `SESSION_CAP_CHARS` (100,000 characters of kept turn text) every
+  turn is kept. Over it the body is the HEAD — the longest prefix within 60,000 (3/5 of the cap; its offsets never
+  move, so G118 spans into it stay exact) — then one marker line, `[Cicada: <k> turns from <t1> to <t2> were not
+  kept]` (`evidence.gap_line`, the one spelling), then the TAIL: the latest turns within 40,000, starting on a
+  multiple of `TAIL_BLOCK_TURNS` (10) so it advances in blocks of whole turns rather than on every Stop; the latest
+  turn is always kept. The marker opens no turn and is nobody's words: a span that touches it is `reasoning`
+  (`evidence.verify`), and the continuity reader strips it from the head's last turn. The G118 sidecar and
+  `tail_turns` are built from the head and the tail separately, so every offset stays exact around it. **The G104
+  costs the ruling accepted, stated plainly:** (1) while an over-cap session is active, every Stop with a new turn
+  changes the body and re-queues the episode for a whole-body re-extraction — no `metadata` short-cut, unlike the
+  head-only cap it replaced; (2) when the tail slides, a claim quoting a turn that slid out is re-extracted as
+  `reasoning`, and an existing span into the old tail (or into the 60–100k region, once the cap is first crossed)
+  reads `stale` — the claim is still written; (3) more `body_revision` mismatches between Sleep's read and its
+  retirement while the session runs; (4) the person's words in the dropped middle leave the bank (they are disclosed
+  in `capture_gap` and the continuity note, never kept). **One episode
   per session** — a later Stop rewrites it in place and flips `processed: false`, never two
   episodes for one conversation (G104). Cicada's own `claude -p` and `codex exec` spawns run with
   `CICADA_CAPTURE=off`. **Where capture stopped (G110 slice 1a).** Every write also records, outside
   `content_hash` and before `turns`: `last_turn_at` (the last kept turn's own time), `turn_count`, `tail_turns`
   (the last 8 kept turns as `{offset, speaker, at?}`, exact offsets into the body — the G118 sidecar stops at 500
-  and skips untimed turns), `capture_gap` (`{dropped_turns, last_seen_at}`, only while the head-stable session cap
-  refuses turns) and `capture_flags` (`{note_like_turns}`, kept person turns holding a line that opens like a
+  and skips untimed turns), `capture_gap` (`{dropped_turns, first_dropped_at?, last_dropped_at?}`, only while the
+  session cap drops the middle; an episode captured before gate B2 may still carry the older
+  `{dropped_turns, last_seen_at}`, which the continuity note reads as "turns past the limit") and `capture_flags` (`{note_like_turns}`, kept person turns holding a line that opens like a
   Cicada note — counted and kept, never removed for that), plus `continues`: the one episode id the continuity
   registry says Cicada pointed this session at, stamped once and never rewritten. An unchanged body whose metadata
-  moved (a newly refused turn, a late `continues`) is rewritten in place under `episode_lock` with the same body,
+  moved (a late `continues`) is rewritten in place under `episode_lock` with the same body,
   hash and `processed` state — status `metadata`, nothing re-queued. The capture ledger row gains the two counts.
   **Recall is the same move (G149):** the harness's `SessionStart` and
   `UserPromptSubmit` hooks (`api/hooks/recall.py` → `POST /capture/hook-context`) put Cicada's note
   in front of the model: the primer at session start, and the pages a message names on every
   prompt. Recall therefore no longer depends on a model calling `cicada_recall`. The prompt travels
-  in a JSON body and is never logged, and `transcript_extract` drops any block opening with
-  `recall_text.INJECTION_PREFIX`, so a recalled note is never captured back as the person's words.
+  in a JSON body and is never logged. **What capture drops of a note (G110 gate C, owner ruling 2026-10-07:
+  harness-marked only):** a Cicada note is dropped only when the harness records it as a whole record that is not the
+  person's — Claude Code's attachment/hook records and `isMeta` user records, Codex's non-user roles — which is how
+  Claude Code documents hook context. Text inside the person's own block is kept as their words, whatever it looks like
+  (a pasted note, a quoted header line, a `<session-start-hook>` tag): it is counted in `capture_flags.note_like_turns`
+  (a line that opens with `recall_text.INJECTION_PREFIX`, past any leading tags) and the next continuity note
+  discloses the count. The textual `is_injection` deletion and the hook-tag span/first-tag rules were removed for
+  person text; G105 R5's tool-output rules — the `<system-reminder>` span strip and the first-tag skip for harness tags —
+  are a different rail and stay.
 - **Transcripts under `~/.claude/` are never read anywhere else.** The MCP seam and the resume path
   only ever `isfile()` them to answer "is this session still resumable"; that answer is computed
   per request and never persisted.

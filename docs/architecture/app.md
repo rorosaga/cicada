@@ -238,10 +238,14 @@ time'), a timeout is `unknown`) and *auto-save* (the G105 Stop hook, via `api/ho
 unparseable settings file is `invalid`, never `off`), *auto-recall* (G149: `autorecall`
 = `on|off|stale|invalid|n/a` for the recall hooks, with `autorecallOn` / `autorecallOff` argv kept apart from
 `connect`: onboarding's *Connect for me* for Claude Code and Codex runs `connect` and then `autorecallOn` (every command
-shown before the click), and Settings → Agents → *Remembers automatically* keeps its own click), plus the exact
-argv install.sh would run. The **app** runs them, only after the person's click (spec decision 14, D-1), with
+shown before the click), and Settings → Agents → *Remembers automatically* keeps its own click), *the capture
+flush* (G110 gate A: `autosaveFlush` = `on|off|stale|invalid|n/a` for the capture command under `PreCompact` and
+`SessionEnd`, with `flushOn` argv kept apart from `connect` — the setup prompt runs exactly `connect` and four commands
+do not fit it; `autosave` stays the Stop hook alone, so an install from before the flush still reads on; the app
+appends `flushOn` only to a Connect it is already running, `AgentWiring.turnOnSteps`, and install.sh registers it),
+plus the exact argv install.sh would run. The **app** runs them, only after the person's click (spec decision 14, D-1), with
 `CICADA_CAPTURE=off`, behind an allowlist pinned to its own checkout (which also accepts the recall hook's two
-events and `registry.py uninstall --hook recall`); the backend never writes a harness root. `GET /agents/setup?harness=` (round 4 C5, G76's in-app half) serves what to hand an
+events, the capture command under `Stop`, `PreCompact` and `SessionEnd` only, and `registry.py uninstall --hook recall`); the backend never writes a harness root. `GET /agents/setup?harness=` (round 4 C5, G76's in-app half) serves what to hand an
 agent instead of running anything:
 
 - for Claude Code, Codex and Gemini CLI, a plain prompt (≤ 1,200 characters) that names the exact
