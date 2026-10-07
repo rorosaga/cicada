@@ -1,0 +1,93 @@
+{
+  "fresh": [
+    {
+      "source_id": "synthetic:alpha:one",
+      "day": -3,
+      "turns": [
+        "alpha-project uses sqlite-tool.",
+        "alpha-project status planning.",
+        "The first discussion records the initial design.",
+        "beta-project runs-on primary-machine."
+      ]
+    },
+    {
+      "source_id": "synthetic:alpha:two",
+      "day": -2,
+      "turns": [
+        "alpha-project uses sqlite-tool.",
+        "alpha-project status planning.",
+        "A separate discussion confirms the same design.",
+        "beta-project runs-on primary-machine."
+      ]
+    }
+  ],
+  "continued": {
+    "source_id": "synthetic:alpha:one",
+    "day": -3,
+    "turns": [
+      "alpha-project uses sqlite-tool.",
+      "alpha-project status planning.",
+      "The first discussion records the initial design.",
+      "alpha-project uses queue-tool.",
+      "beta-project runs-on primary-machine."
+    ]
+  },
+  "revised": {
+    "source_id": "synthetic:alpha:one",
+    "day": -3,
+    "turns": [
+      "alpha-project uses sqlite-tool.",
+      "alpha-project status building.",
+      "The status was corrected; the planning statement was removed.",
+      "alpha-project uses queue-tool.",
+      "beta-project runs-on primary-machine."
+    ]
+  },
+  "during_read": "alpha-project uses shell-tool.",
+  "recovery": [
+    {
+      "source_id": "synthetic:recovery:one",
+      "day": 0,
+      "turns": [
+        "alpha-project uses archive-tool.",
+        "Recovery conversation one.",
+        "alpha-project status building."
+      ]
+    },
+    {
+      "source_id": "synthetic:recovery:two",
+      "day": 0,
+      "turns": [
+        "alpha-project uses archive-tool.",
+        "Recovery conversation two.",
+        "alpha-project status building."
+      ]
+    },
+    {
+      "source_id": "synthetic:recovery:three",
+      "day": 0,
+      "turns": [
+        "alpha-project uses archive-tool.",
+        "Recovery conversation three.",
+        "alpha-project status building."
+      ]
+    },
+    {
+      "source_id": "synthetic:recovery:four",
+      "day": 0,
+      "turns": [
+        "alpha-project uses archive-tool.",
+        "Recovery conversation four.",
+        "alpha-project status building."
+      ]
+    }
+  ],
+  "temporal": {
+    "source_id": "synthetic:beta:changed",
+    "day": 0,
+    "turns": [
+      "beta-project runs-on secondary-machine.",
+      "The work moved to a new phase on this day."
+    ]
+  }
+}
