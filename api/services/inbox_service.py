@@ -1766,12 +1766,16 @@ async def _resolve_normalization(path, parsed, request, settings, item_id: str,
 
 def _answer_normalization(path: Path, request, settings, label: str) -> str:
     """The body of :func:`_resolve_normalization`, holding the bank's page lock
-    (then git's write lock inside the commit — the documented order)."""
+    then git's write lock (the documented order) throughout. Sleep's window is
+    asked once both are held and again after the dirty snapshot, before any write."""
     from api.services import git_service, page_lock, sleep_cycle
     from api.services.claims import MalformedClaimsBlockError, parse_claims, write_claims
     memory = settings.memory_path
-    with page_lock.page_lock(memory):
-        # Re-asked once the lock is held: a window can open while this waited for it.
+    # Page lock, then git's write lock (the documented order), both held from the
+    # re-read through the commit — so the dirty snapshot below never waits for git
+    # after the last admission check (review round 2).
+    with page_lock.page_lock(memory), git_service.write_lock(memory):
+        # Re-asked once the locks are held: a window can open while this waited for them.
         if sleep_cycle.is_writing():
             raise SleepWriting(SLEEP_BUSY)
         if not path.exists():
@@ -1794,6 +1798,9 @@ def _answer_normalization(path: Path, request, settings, label: str) -> str:
             owned = [predicates.RUNTIME_FILE, item_rel, *pages]
             before = {rel: ((memory / rel).read_bytes() if (memory / rel).is_file() else None)
                       for rel in git_service.dirty_paths_sync(memory, *owned)}
+        # And once more after the snapshot, before the first write.
+        if sleep_cycle.is_writing():
+            raise SleepWriting(SLEEP_BUSY)
         manifest = f"{predicates.RUNTIME_FILE}: updated (source: {path.stem}, trigger: inbox/normalization/resolved)"
         extra: list[str] = []
 

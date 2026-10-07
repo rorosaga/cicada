@@ -589,8 +589,8 @@ lock, then the git write lock (inside the commit), then `episode_lock` — never
 Sleep's own page writes (agent commits already defer to its write window) and the inbox's other resolvers.
 **Residual race (disclosed, G183):** the window guards are an admission check, not isolation, and admission is **not
 atomic**. The sweep re-asks `is_writing()` once it holds the page lock and again once it holds the git write lock, the
-decay/repo routes and the normalization answer once they hold the page lock, an inbox answer after its awaited
-snapshot — each before writing. But
+decay/repo routes once they hold the page lock, the normalization answer once it holds the page and git locks (kept
+through its commit) and again after its dirty snapshot, an inbox answer after its awaited snapshot — each before writing. But
 Sleep enters its window (`_state.writing = True`, then Stage 2 loads the pages) without either lock, so a window that
 opens *after* a writer's last check overlaps everything that writer does next, and there is no time bound on that: the
 exposure is the rest of its transaction — the sweep's footprint scan, merge, commit and any recovery, plus waits for a

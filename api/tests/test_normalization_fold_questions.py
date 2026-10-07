@@ -734,3 +734,32 @@ def test_migration_commits_only_its_own_files_and_keeps_others_edits_apart(tmp_p
     kept = _git(memory, "log", "-1", "--format=%B", "--grep=^Uncommitted edit kept apart")
     assert "inbox/inbox-002.md" in kept and "Cicada-Author" not in kept
     assert _git(memory, "status", "--porcelain", "--untracked-files=no").split() == ["M", "inbox/inbox-009.md"]
+
+
+# ---------------------------------------------------------------- review round 2
+
+
+def test_a_window_opening_during_the_answers_snapshot_refuses_and_writes_nothing(tmp_path, monkeypatch):
+    from api.services import git_service, sleep_cycle
+    from api.services.sleep_refusal import SleepWriting
+
+    memory, item_id = _resolvable_bank(tmp_path)
+    before = _tree(memory)
+    head = _git(memory, "rev-parse", "HEAD")
+    window = {"open": False}
+    real_dirty = git_service.dirty_paths_sync
+
+    def snapshot_then_window_opens(memory_path, *pathspec):
+        out = real_dirty(memory_path, *pathspec)
+        if pathspec:   # the answer's owned-path snapshot, not resolve()'s first look
+            window["open"] = True
+        return out
+
+    monkeypatch.setattr(git_service, "dirty_paths_sync", snapshot_then_window_opens)
+    monkeypatch.setattr(sleep_cycle, "is_writing", lambda: window["open"])
+    with pytest.raises(SleepWriting):
+        asyncio.run(inbox_service.resolve(item_id, InboxResolveRequest(action="resolve", option_key="1"),
+                                          _ResolveSettings(memory)))
+    assert window["open"]
+    assert _tree(memory) == before
+    assert _git(memory, "rev-parse", "HEAD") == head
