@@ -370,6 +370,7 @@ def _put_back(path: Path, was: _Found) -> None:
 
 def _default_judge_fn(settings):  # pragma: no cover - needs a real model
     from api.services import json_parse
+    from api.services.claims import strip_claims_block
     from api.services.providers import resolve_llm_fn
     llm = resolve_llm_fn(settings, model=settings.effective_consolidation_model, stage="dedup")
 
@@ -378,7 +379,8 @@ def _default_judge_fn(settings):  # pragma: no cover - needs a real model
             "Are these two knowledge-graph entity pages the SAME real-world thing? "
             "Reply JSON {\"verdict\":\"same|different|unsure\",\"confidence\":0..1,"
             "\"winner\":\"<id to keep>\"}.\n\n"
-            f"PAGE A (id={a_id}):\n{a_body[:2500]}\n\nPAGE B (id={b_id}):\n{b_body[:2500]}"
+            f"PAGE A (id={a_id}):\n{strip_claims_block(a_body)[:2500]}\n\n"
+            f"PAGE B (id={b_id}):\n{strip_claims_block(b_body)[:2500]}"
         )
         resp = llm(messages=[{"role": "user", "content": prompt}],
                    response_format={"type": "json_object"})

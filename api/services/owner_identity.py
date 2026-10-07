@@ -24,6 +24,8 @@ is what keeps a bank's claim lineage from forking — the exact failure mode
 from __future__ import annotations
 
 import json
+import unicodedata
+from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
@@ -53,6 +55,165 @@ DEFAULT_SUMMARY = "The main person this memory belongs to."
 # known, so `ensure_owner_entity` adopts it (renames it, keeps its id and its
 # claims) instead of writing a second owner page beside it. Dropped on adoption.
 PLACEHOLDER_KEY = "owner_placeholder"
+
+
+#: G169 — what a conversation or an extraction calls the person when it does not
+#: use their name: Stage 1 writes "User" or "the user"; a transcript says "me" or
+#: "I"; a Spanish one says "el usuario", "yo" or "mí". The ONE list: the resolver's
+#: set below and the prompts' wording (``entity_extractor.owner_block``,
+#: ``conflict_resolver._owner_line``) are both built from it. Closed on purpose
+#: (R-PJ17, R-CS2). Not "you" — in a transcript that is the assistant speaking to
+#: the person, and in an export it is as often a title; not "mi" — a brand as often
+#: as an unaccented "mí".
+SELF_REFERENCE_FORMS = (
+    "User", "the user", "I", "me", "myself", "the person", "the owner", "owner",
+    "el usuario", "la usuaria", "usuario", "usuaria", "yo", "mí",
+)
+
+
+def _self_key(name: str) -> str:
+    """A name as the self-reference set compares it: NFC (so a composed and a
+    decomposed "mí" agree), inner spacing collapsed, lower-cased, outer quotes and
+    trailing punctuation dropped."""
+    text = unicodedata.normalize("NFC", str(name or ""))
+    return " ".join(text.split()).lower().strip(" \"'`.,;:!?")
+
+
+SELF_REFERENCES = frozenset(_self_key(f) for f in SELF_REFERENCE_FORMS)
+
+
+def self_reference_list() -> str:
+    """:data:`SELF_REFERENCE_FORMS` as prompt text — '"User", "the user", … or "mí"' —
+    so a prompt can never name a form the resolver does not route, or miss one."""
+    quoted = [f'"{f}"' for f in SELF_REFERENCE_FORMS]
+    return ", ".join(quoted[:-1]) + " or " + quoted[-1]
+
+
+def is_self_reference(name: str) -> bool:
+    """Is ``name`` SPELLED like one of :data:`SELF_REFERENCE_FORMS`? Spelling only —
+    whether it IS the person is :class:`SelfReferences`' question (a company called
+    "Owner" is spelled like one and is not)."""
+    return _self_key(name) in SELF_REFERENCES
+
+
+@dataclass(frozen=True)
+class SelfReferences:
+    """G169 — the one qualified decision: is this name the person speaking?
+
+    A name spelled like a self-reference is a SPEAKER reference — the bank's
+    owner — only when (a) it is a person or carries no type (an edge or claim
+    endpoint, a wikilink) and (b) no non-person page, and no non-person entity in
+    the batch, holds that exact name: a company "Owner", a concept "I", a tool
+    "Me", a company "Yo" keep their own facts, edges and claims. An old duplicate
+    PERSON page named "User" reserves nothing, so the person's words stop feeding
+    it. Built once from the same inputs by every step that keys a name — Stage 2's
+    entities, edges and promotion, Sleep's claims and holds, the wikilink edges —
+    so they can never disagree."""
+
+    owner_id: str | None
+    reserved: frozenset[str] = frozenset()
+
+    def is_speaker(self, name: str, kind: str | None = None) -> bool:
+        key = _self_key(name)
+        if key not in SELF_REFERENCES or key in self.reserved:
+            return False
+        return not kind or str(kind).strip().lower() == "person"
+
+    def owner_for(self, name: str, kind: str | None = None) -> str | None:
+        """The owner page a speaker reference keys to (``None`` without one)."""
+        return self.owner_id if self.is_speaker(name, kind) else None
+
+    def reserved_slugs(self) -> frozenset[str]:
+        return frozenset(sanitize_id(k) for k in self.reserved)
+
+
+def _non_person(kind) -> bool:
+    return str(kind or "concept").strip().lower() != "person"
+
+
+def self_references(pages: list[dict] | None, extracted: list[dict] | None = None,
+                    memory_path: Path | None = None, settings=None) -> SelfReferences:
+    """:class:`SelfReferences` for a bank's pages (``[{id, frontmatter}]``, Stage 2's
+    ``existing``) plus this batch's Stage-1 output plus the bank's pending lines
+    (``pending_store``, under ``memory_path``) — a name heard once as a company "Yo"
+    is still that company when a later batch names it only as an endpoint. A page
+    with no type reads as a concept, as everywhere else; a batch entity or pending
+    line reserves only when it is typed and not a person."""
+    reserved: set[str] = set()
+    for page in pages or []:
+        fm = (page or {}).get("frontmatter") or {}
+        key = _self_key(fm.get("name") or "")
+        if key in SELF_REFERENCES and not fm.get("owner") and _non_person(fm.get("type")):
+            reserved.add(key)
+    for extraction in extracted or []:
+        for entity in extraction.get("entities", []) or []:
+            key = _self_key((entity or {}).get("name") or "")
+            if key in SELF_REFERENCES and entity.get("type") and _non_person(entity.get("type")):
+                reserved.add(key)
+    if memory_path is not None:
+        from api.services import pending_store
+
+        try:
+            lines = pending_store.load(Path(memory_path))
+        except Exception:  # noqa: BLE001 - an unreadable store reserves nothing, never fails a cycle
+            lines = []
+        for line in lines:
+            key = _self_key(line.name)
+            if key in SELF_REFERENCES and line.type and _non_person(line.type):
+                reserved.add(key)
+    return SelfReferences(owner_page_id(pages, memory_path, settings), frozenset(reserved))
+
+
+def owner_page_id(existing: list[dict] | None, memory_path: Path | None, settings=None) -> str | None:
+    """The bank's ``owner: true`` page among Stage 2's ``existing`` list, or ``None``.
+
+    Two owner pages can exist (G117 R3's disclosed gap: re-onboarding under a
+    new display name writes a second page); the one :func:`resolve_observer`
+    answers with wins, else the first by id, so the answer never depends on file
+    order."""
+    owners = sorted(
+        str(e.get("id")) for e in (existing or [])
+        if isinstance(e, dict) and e.get("id") and (e.get("frontmatter") or {}).get("owner")
+    )
+    if len(owners) <= 1:
+        return owners[0] if owners else None
+    try:
+        resolved = resolve_observer(memory_path, settings)
+    except Exception:  # noqa: BLE001 - a tie-break is never worth a failed cycle
+        resolved = None
+    return resolved if resolved in owners else owners[0]
+
+
+def owner_name(memory_path: Path | None, settings=None) -> str | None:
+    """The ``name`` on this bank's ``owner: true`` page, or ``None`` without one —
+    what Sleep's prompts call the person (G169). The page :func:`resolve_observer`
+    names is read first (one file); only when that is not the owner page is the
+    bank scanned."""
+    if memory_path is None:
+        return None
+    entities_dir = Path(memory_path) / "entities"
+
+    def _name(path: Path) -> str | None:
+        try:
+            fm = markdown_parser.parse(path).frontmatter
+        except Exception:  # noqa: BLE001 - an unreadable page is no owner
+            return None
+        name = str(fm.get("name") or "").strip()
+        return name if fm.get("owner") is True and name else None
+
+    try:
+        first = entities_dir / f"{resolve_observer(memory_path, settings)}.md"
+    except Exception:  # noqa: BLE001
+        first = None
+    if first is not None and first.is_file():
+        name = _name(first)
+        if name:
+            return name
+    found = [(p.stem, n) for p in sorted(entities_dir.glob("*.md")) if (n := _name(p))]
+    if not found:
+        return None
+    winner = owner_page_id([{"id": i, "frontmatter": {"owner": True}} for i, _ in found], memory_path, settings)
+    return dict(found).get(winner)
 
 
 def owner_json_path() -> Path:

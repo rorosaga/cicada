@@ -52,7 +52,7 @@ def rewrite_entity_from_sources(memory_path: Path, entity_id: str, settings, *,
                                 stage="rewrite")
 
     resp = llm_fn(messages=[{"role": "user",
-                             "content": _PROMPT.format(page=par.body[:4000], sources=sources)}],
+                             "content": _PROMPT.format(page=strip_claims_block(par.body)[:4000], sources=sources)}],
                   response_format={"type": "json_object"})
     txt = resp["choices"][0]["message"]["content"]
     parsed = json_parse.parse_json_object_or(txt, {})

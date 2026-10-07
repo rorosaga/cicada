@@ -36,3 +36,12 @@ its hash. `CICADA_SIGN_IDENTITY` overrides the choice (`-` forces ad hoc). The c
 
 Grants given to the last ad-hoc build do not carry over: macOS asks once more after the first build signed with
 Cicada Local, and from then on a rebuild keeps them. This is a local signature, not a Gatekeeper-trusted one.
+
+## The auto-updater waits out Sleep
+
+`auto-update.sh` asks the backend (`GET /sleep/status`, 3 s, the bearer token from `$CICADA_HOME/api_token`, port
+`$CICADA_PORT` or 8000) before it fetches. A running cycle, an open write window or an unfinished drain (paused
+included) logs `deferred: Sleep is running` and changes nothing — no fast-forward, restart, app build or stamp move; the
+next tick retries. An unreachable backend, a missing token or an unreadable answer proceeds as before.
+`CICADA_AUTOUPDATE_FORCE=1` skips the check. The backend restarts only when runtime code moved (`api` outside
+`api/tests`, `mcp`, the dependency files); a test-only or benchmark-only merge never restarts it.
