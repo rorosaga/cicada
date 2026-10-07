@@ -304,15 +304,17 @@ validity-aware context. Each structured claim sent to synthesis has its id,
 observer/trust, current flag, start, close, stated end and successor; historical
 rows explicitly say history, superseded or withdrawn. Metadata is assembled
 before text is clipped; raw claim fences never enter the prompt. Current
-questions receive only current claims; a claim-bearing page's unversioned prose
-is omitted for these questions because it may repeat an older value. Legacy
-pages with no claims still ground answers in their prose. Explicit past/change
+questions receive current beliefs and unsuperseded events as dated progress,
+never as continuing states. Page prose remains explicitly labeled unversioned
+background that may be outdated; structured validity takes precedence. Sentences
+repeating a closed non-event literal are removed from current-question context. Explicit past/change
 language (including an as-of date) enables labeled history and adds the FTS
 history leg; this is an English intent heuristic, not a model classification.
 The synthesis rules require historical answers to state the validity dates and
 never repeat a closed belief as current. Citations recheck claim provenance
 against the loaded markdown. A deleted page is never revived from indexed text;
-only-history current questions return an honest gap without a synthesis call.
+Pages with only closed beliefs and no usable background return an honest gap
+without a synthesis call.
 The historical lexical leg removes question/date words before matching, warms
 a cold disposable index synchronously, and takes matching historical subjects
 before generic semantic neighbours. Prompt budgeting reserves claims from both

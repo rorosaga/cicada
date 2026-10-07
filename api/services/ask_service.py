@@ -61,11 +61,11 @@ answer. Thin or tangential evidence => low confidence and a populated ``gaps`` l
 5. If the context is irrelevant to the question, set a low confidence, give an \
 answer that admits you don't know, and explain the gap.
 6. Each structured claim carries its validity. Closed claims are history, NEVER \
-current beliefs: use them only for questions about the past, explicitly state \
+current beliefs: use closed beliefs only for questions about the past, explicitly state \
 their dates and distinguish superseded or withdrawn assertions from facts. \
-For questions about now use only claims with current=true. If only history \
+For current beliefs use only claims with current=true. If only history \
 supports a value, report that the current value is unknown. A dated event \
-describes what happened on its day, not a continuing state. Unversioned prose \
+may ground recent progress when labeled with its day, never a continuing state. Unversioned prose \
 is background; structured claim validity takes precedence over it.
 
 Return ONLY a JSON object with exactly these keys:
@@ -211,7 +211,7 @@ def _substring_match(memory_path: Path, query: str, top_k: int) -> list[dict]:
             relevance += 5
         body = strip_claims_block(parsed.body or "")
         relevant_claims = [c for c in parse_claims(parsed.body or "")
-                           if not is_record(c) and (_wants_history(query) or is_current(c))]
+                           if not is_record(c) and (_wants_history(query) or is_current(c) or (is_event(c) and not c.superseded_by))]
         if q in (body + "\n" + "\n".join(c.text for c in relevant_claims)).lower():
             relevance += 2
         if relevance <= 0:
@@ -237,6 +237,21 @@ def _substring_match(memory_path: Path, query: str, top_k: int) -> list[dict]:
     return [hit for _, hit in scored[:top_k]]
 
 
+def _background(body: str, rows: list, *, include_history: bool) -> str:
+    """Keep useful prose, excluding sentences that repeat an obsolete literal."""
+    prose = strip_claims_block(body)
+    if include_history:
+        return prose
+    obsolete = [c for c in rows if not is_record(c) and not is_event(c) and not is_current(c)]
+    sentences = re.split(r"(?<=[.!?])\s+|\n", prose)
+    def repeats(sentence: str) -> bool:
+        return any((c.text and c.text.casefold() in sentence.casefold()) or
+                   (c.object_kind == "literal" and c.object and
+                    re.search(r"(?<!\w)" + re.escape(c.object) + r"(?!\w)", sentence, re.IGNORECASE))
+                   for c in obsolete)
+    return "\n".join(s for s in sentences if not repeats(s))
+
+
 def _retrieved_entities(memory_path: Path, hits: list[dict], *, include_history: bool = False,
                         query: str = "") -> list[dict]:
     """Map retrieval hits to loaded entity records, de-duped, order preserved."""
@@ -253,9 +268,7 @@ def _retrieved_entities(memory_path: Path, hits: list[dict], *, include_history:
             # Indexed text has no trustworthy current validity after deletion.
             continue
         page_claims = parse_claims(loaded["body"])
-        eligible = [c for c in page_claims if not is_record(c) and (include_history or is_current(c))]
-        if page_claims and not eligible:
-            continue
+        eligible = [c for c in page_claims if not is_record(c) and (include_history or is_current(c) or (is_event(c) and not c.superseded_by))]
         words = set(re.findall(r"\w+", query.lower()))
         eligible.sort(key=lambda c: -len(words & set(re.findall(r"\w+", c.text.lower()))))
         if include_history:
@@ -265,10 +278,9 @@ def _retrieved_entities(memory_path: Path, hits: list[dict], *, include_history:
             # prompt budget is applied; a large current list cannot hide history.
             eligible = [c for pair in zip(history, current) for c in pair] + history[len(current):] + current[len(history):]
         loaded["claims"] = [_claim_context(c, page_claims) for c in eligible]
-        # On claim-bearing pages the structured facts ground current answers.
-        # A prose summary may still contain an older value with no validity.
-        loaded["context_body"] = (strip_claims_block(loaded["body"])
-                                  if include_history or not page_claims else "")
+        loaded["context_body"] = _background(loaded["body"], page_claims, include_history=include_history)
+        if not eligible and not loaded["context_body"].strip():
+            continue
         loaded["snippet"] = _snippet("\n".join(
             [f"{c['validity']}: {c['text']}" for c in loaded["claims"]] or [loaded["context_body"]]))
         loaded["score"] = float(hit.get("score", 0.0) or 0.0)
@@ -304,7 +316,7 @@ def _build_prompt(query: str, entities: list[dict]) -> str:
             f"name: {ent['entity_name']}\n"
             f"type: {ent.get('type', 'concept')}\n"
             + "\n".join(claim_lines)
-            + (f"\nunversioned body:\n{body[:remaining]}" if body and remaining > 0 else "")
+            + (f"\nunversioned background — may be outdated; never contradict current=true claims:\n{body[:remaining]}" if body and remaining > 0 else "")
         )
     context = "\n\n".join(blocks)
     return (

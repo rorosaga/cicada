@@ -66,7 +66,7 @@ def test_ask_about_the_past_keeps_individually_labeled_history(tmp_path, query):
 
 
 def test_ask_now_with_only_history_reports_a_gap_without_a_model_call(tmp_path):
-    hit = _bank(tmp_path, current=False)
+    hit = _bank(tmp_path, current=False, prose="")
     seen = []
     result = _answer(tmp_path, hit, "alpha-project", seen)
     assert seen == [] and result["citations"] == [] and result["gaps"]
@@ -104,3 +104,28 @@ def test_default_history_retrieval_finds_a_bank_with_only_closed_claims(tmp_path
     hits = retrieve("What method did alpha-project use previously?", 6)
     assert hits and hits[0]["metadata"]["entity_id"] == "alpha-project"
     assert hits[0]["metadata"]["claim_id"] == "clm_old"
+
+
+@pytest.mark.parametrize("current", [True, False])
+def test_current_questions_keep_useful_prose_even_on_claim_bearing_pages(tmp_path, current):
+    hit = _bank(tmp_path, current=current, prose="Alpha's calibration method is amber. The project evaluates calibration stability.")
+    seen = []
+    _answer(tmp_path, hit, "What's the latest on alpha-project?", seen)
+    assert seen and "The project evaluates calibration stability." in seen[0]
+    assert "unversioned background" in seen[0] and "may be outdated" in seen[0]
+    assert "amber" not in seen[0]
+
+
+def test_latest_project_context_keeps_done_progress_as_a_dated_event(tmp_path):
+    hit = _bank(tmp_path)
+    page = tmp_path / "entities" / "alpha-project.md"
+    parsed = markdown_parser.parse(page)
+    rows = parse_claims(parsed.body) + [Claim(id="clm_done", subject="alpha-project", predicate="happened",
+        text="Calibration completed.", status="done", valid_from="2026-02-02", valid_to="2026-02-02")]
+    markdown_parser.write(page, parsed.frontmatter, write_claims(parsed.body, rows))
+    seen = []
+    _answer(tmp_path, hit, "What's the latest on alpha-project?", seen)
+    event = next(json.loads(line.removeprefix("claim: ")) for line in seen[0].splitlines()
+                 if line.startswith("claim: ") and '"id": "clm_done"' in line)
+    assert event["current"] is False and event["event_status"] == "done"
+    assert event["event_day"] == event["valid_to"] == "2026-02-02"
