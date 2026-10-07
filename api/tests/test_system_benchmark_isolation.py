@@ -16,7 +16,8 @@ def test_child_environment_is_allowlisted(tmp_path, monkeypatch):
     assert env['CICADA_HOME'] == str(tmp_path / 'home')
     assert env['CICADA_MEMORY_PATH'] == str(tmp_path / 'bank')
     assert env['CICADA_CAPTURE'] == 'off'
-    assert env['PYTHON_DOTENV_DISABLED'] == '1'  # load_dotenv only; home .env is refused
+    assert env['LITELLM_MODE'] == 'PRODUCTION'
+    assert 'PYTHON_DOTENV_DISABLED' not in env
     assert env['PYTHONHASHSEED'] == '0'
     assert 'OPENAI_API_KEY' not in env and 'CODEX_HOME' not in env
     assert env['CICADA_ALLOW_CONNECTOR_FETCH'] == 'off'
@@ -137,3 +138,22 @@ def test_dot_dot_config_cannot_hide_bank_containment(tmp_path, capsys):
                  '--clock', '2040-01-01T12:00:00Z', '--model', 'deterministic-v1',
                  '--effort', 'low', '--validate-only']) == 2
     assert 'config must be outside' in capsys.readouterr().err
+
+
+def test_backend_import_does_not_attempt_dotenv_loading(tmp_path):
+    import subprocess
+    import sys
+    bank, home = prepare_paths('temp', 'temp', parent=tmp_path)
+    code = '''
+import dotenv
+
+def forbidden(*args, **kwargs):
+    raise AssertionError('benchmark attempted an import-time dotenv load')
+
+dotenv.load_dotenv = forbidden
+import litellm
+'''
+    proc = subprocess.run([sys.executable, '-P', '-c', code], cwd=home,
+                          env=isolated_env(bank, home, 'fake'), capture_output=True,
+                          text=True, timeout=30)
+    assert proc.returncode == 0, proc.stderr

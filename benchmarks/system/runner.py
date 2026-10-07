@@ -58,7 +58,7 @@ def isolated_env(bank: Path, home: Path, engine: str) -> dict[str, str]:
         'HOME': str(home), 'CICADA_HOME': str(home),
         'CICADA_MEMORY_PATH': str(bank), 'CICADA_CAPTURE': 'off',
         'CICADA_LLM_MODE': 'codex' if engine == 'codex' else 'local',
-        'CICADA_EMBEDDING_MODE': 'local', 'PYTHON_DOTENV_DISABLED': '1',
+        'CICADA_EMBEDDING_MODE': 'local', 'LITELLM_MODE': 'PRODUCTION',
         'CICADA_ALLOW_CONNECTOR_FETCH': 'off', 'CICADA_ALLOW_FEED_FETCH': 'off',
         'CICADA_ALLOW_LOGO_FETCH': 'off', 'CICADA_TELEMETRY': 'off',
         'GIT_CONFIG_NOSYSTEM': '1', 'GIT_CONFIG_GLOBAL': os.devnull,

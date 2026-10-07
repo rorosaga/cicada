@@ -32,8 +32,9 @@ is required each time. Config, expected answers, judge output and manifests rema
 outside banks. The child uses an allowlisted environment, isolated HOME/CICADA_HOME,
 capture/fetch/telemetry off and provider keys absent. Explicit workload settings
 use `_env_file=None`; the home refuses `.env`, so default read-service settings
-cannot load a home dotenv file. `PYTHON_DOTENV_DISABLED` suppresses incidental
-`load_dotenv` calls; it does not control Pydantic's `dotenv_values` reader. The child
+cannot load a home dotenv file. `LITELLM_MODE=PRODUCTION` disables the transport
+library's import-time `load_dotenv` call. `PYTHON_DOTENV_DISABLED` is not used: the
+installed dotenv reader does not honor it. The child
 uses `python -P` with the repository on `PYTHONPATH`, preventing reusable-home
 packages from shadowing repository code. `PYTHONHASHSEED=0` pins set iteration. It never reads/copies a developer's bank, settings or credentials.
 
