@@ -209,12 +209,17 @@ def test_divergence_both_keeps_both_with_context(memory):
     assert c["clm_2026-08-01_b2"].context and c["clm_2026-08-01_b2"].context != "general"
 
 
-def test_normalization_correct_fold_only_unlinks(memory):
-    before = (memory / RUNTIME_FILE).read_text()
+def test_normalization_correct_fold_changes_nothing_but_remembers_the_pair(memory):
+    before = yaml.safe_load((memory / RUNTIME_FILE).read_text())
     run(inbox_service.resolve("inbox-011", InboxResolveRequest(action="resolve", option_key="0"), _Settings(memory)))
     assert not (memory / "inbox" / "inbox-011.md").exists()
-    assert (memory / RUNTIME_FILE).read_text() == before
+    after = yaml.safe_load((memory / RUNTIME_FILE).read_text())
+    # G98/G115: the vocabulary and the claim are untouched; only the
+    # confirmation is kept, so Sleep never asks about this pair again.
+    assert after["synonyms"] == before["synonyms"] and after["canonical"] == before["canonical"]
+    assert after["confirmed_folds"] == {"uses-stack": "built-with"}
     assert _claims(memory)["clm_2026-08-01_c3"].predicate == "built-with"
+    assert "_predicates.yaml" in _resolution_commit(memory)
 
 
 def test_normalization_wrong_fold_splits_predicate(memory):

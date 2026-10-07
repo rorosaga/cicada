@@ -702,3 +702,55 @@ def test_get_state_inside_the_window_serves_the_file_and_writes_nothing(tmp_path
     assert calls == [1], "no refresh while Sleep holds the pages"
     assert subprocess.run(["git", "-C", str(memory), "rev-parse", "HEAD"], capture_output=True,
                                         text=True).stdout == head
+
+
+# --- G98/G115: the one-shot bank migrations (boot and every bank activation) -----------------------------------------
+
+#: Not routes, but writers: what `bank_migrations.run_bank_migrations` runs at boot and on `POST /banks/{name}/activate`.
+MIGRATION = ("migration: a one-shot, marker-guarded rewrite at boot or bank activation, not admitted — activation is "
+             "refused only during a person-started drain, so a plain or scheduled cycle can overlap it (disclosed)")
+MIGRATIONS: dict[str, tuple[str, str | None]] = {
+    "dedup_normalization_items": (ADMITTED, "api.services.inbox_migration._dedup_normalization_locked"),
+    "migrate_to_inbox": (MIGRATION, None),
+    "dedup_open_items": (MIGRATION, None),
+    "dedup_decay_items": (MIGRATION, None),
+    "backfill_decay_classes": (MIGRATION, None),
+    "backfill_decay_watermarks": (MIGRATION, None),
+    "backfill_export_origins": (MIGRATION, None),
+    "repair_paper_contexts": (MIGRATION, None),
+    "rewrite_placeholder_summaries": (MIGRATION, None),
+    "repair_paper_claim_text": (MIGRATION, None),
+    # the paused run's sidecar and its re-armed job live outside every bank
+    "sleep_paused.recover_after_restart": (OUTSIDE, None),
+    "sleep_autocontinue.rearm_after_restart": (OUTSIDE, None),
+}
+
+
+def _migration_calls() -> set[str]:
+    import inspect
+
+    from api.services import bank_migrations
+
+    out = set()
+    for node in ast.walk(ast.parse(inspect.getsource(bank_migrations.run_bank_migrations))):
+        if isinstance(node, ast.Call):
+            f = node.func
+            if isinstance(f, ast.Name) and f.id != "Path":
+                out.add(f.id)
+            elif isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name) and f.value.id != "logger":
+                out.add(f"{f.value.id}.{f.attr}")
+    return out
+
+
+def test_every_bank_migration_is_classified():
+    found = _migration_calls()
+    assert sorted(found - set(MIGRATIONS)) == [], "an unclassified bank migration: add it to MIGRATIONS with its class"
+    assert sorted(set(MIGRATIONS) - found) == [], "a stale MIGRATIONS entry"
+
+
+@pytest.mark.parametrize("name", sorted(k for k, (c, _) in MIGRATIONS.items() if c == ADMITTED))
+def test_an_admitted_migration_takes_admission_in_its_code(name):
+    _cls, via = MIGRATIONS[name]
+    src = _src(_resolve(via))
+    assert "write_admission.admitted(" in src, f"{name} is classified admitted but its code takes no admission"
+    assert "SleepHolding" in src, f"{name} is classified admitted but never defers when Sleep holds the pages"

@@ -275,15 +275,18 @@ def dedup_open_items(memory_path: Path) -> int:
     return removed
 
 
-def _commit_dedup(memory_path: Path, removed: int) -> None:
-    """Commit the dedup scoped to ONLY inbox/ (never ``git add -A``), under the
-    bank's write lock (F2-back R-B1)."""
-    message = git_service.build_commit_message(
+def _dedup_message(removed: int) -> str:
+    return git_service.build_commit_message(
         "Collapse duplicate open inbox questions",
         [f"inbox/: {removed} duplicate item(s) merged into their oldest sibling (trigger: inbox/dedup)"],
         authors=["cicada"],
     )
-    git_service.commit_paths_sync(memory_path, message, ["inbox"])
+
+
+def _commit_dedup(memory_path: Path, removed: int) -> None:
+    """Commit the dedup scoped to ONLY inbox/ (never ``git add -A``), under the
+    bank's write lock (F2-back R-B1)."""
+    git_service.commit_paths_sync(memory_path, _dedup_message(removed), ["inbox"])
 
 
 _DECAY_DEDUP_MARKER = ".deduped_decay"
@@ -373,3 +376,186 @@ def dedup_decay_items(memory_path: Path) -> int:
 
     marker.write_text("v1")
     return removed
+
+
+_FOLD_DEDUP_MARKER = ".deduped_normalization"
+
+
+def dedup_normalization_items(memory_path: Path) -> int:
+    """Clear the predicate-fold questions Sleep raised before G98/G115. Idempotent.
+
+    Until then Stage 3 raised "Confirm a predicate fold" for a label's own slug
+    (``uses dataset`` -> ``uses-dataset``, a formatting change, no fold at all)
+    and once per claim for a real fold. Every ``status: pending`` normalization
+    item whose two sides are the same slug is deleted — it never asked a real
+    question and its claim is untouched; the rest are grouped by their
+    ``(raw -> canonical)`` pair, the oldest kept (it keeps its age) with every
+    sibling's claims folded into its ``covered_claims``. An item carrying no
+    pair is left alone. Its own marker.
+
+    **Admitted and isolated (review round 1, G183).** It deletes inbox files, so
+    it is a write-admitted transaction: it takes the bank's write admission
+    (refused while Sleep holds the pages, and a window cannot open under it),
+    then the page lock, then git's write lock — the documented order — through
+    its commit, so an inbox answer racing it waits and it plans on what that
+    left. A busy bank (or an admission lock that cannot be opened) is deferred
+    with no marker: the next activation or boot does it. **A transaction:** every file it will delete or rewrite is
+    snapshotted first; a failure while changing them or committing restores
+    them byte for byte (and their index entries), and the marker is written only
+    after the commit. It commits exactly the files it changed — an uncommitted
+    edit already on one is committed apart first, unauthored; any other inbox
+    edit stays uncommitted. Never raises. Returns the number of files removed.
+    """
+    memory_path = Path(memory_path)
+    inbox = memory_path / "inbox"
+    if not inbox.exists() or (inbox / _FOLD_DEDUP_MARKER).exists():
+        return 0
+    try:
+        return _dedup_normalization_locked(memory_path, inbox)
+    except Exception as e:
+        logger.error(f"Predicate-fold inbox cleanup FAILED — inbox/ restored as it was: {e}")
+        return 0
+
+
+def _plan_fold_cleanup(inbox: Path) -> tuple[list[Path], dict[Path, tuple[dict, str]]]:
+    """What the cleanup would do, read now: files to delete, survivors to rewrite."""
+    from api.services.inbox_generator import fold_claims
+    from api.services.predicates import fold_key
+
+    deletes: list[Path] = []
+    rewrites: dict[Path, tuple[dict, str]] = {}
+    groups: dict[tuple[str, str], list[tuple[Path, dict, str]]] = {}
+    for filepath in sorted(inbox.glob("inbox-*.md")):
+        try:
+            parsed = markdown_parser.parse(filepath)
+        except Exception:
+            continue
+        fm = parsed.frontmatter
+        if str(fm.get("kind", "") or "") != "normalization":
+            continue
+        if str(fm.get("status", "pending") or "pending") != "pending":
+            continue
+        key = fold_key(str(fm.get("raw_predicate") or ""), str(fm.get("canonical_predicate") or ""))
+        if not (key[0] and key[1]):
+            continue
+        if key[0] == key[1]:
+            deletes.append(filepath)
+            continue
+        groups.setdefault(key, []).append((filepath, fm, parsed.body))
+
+    today = str(date.today())
+    for members in groups.values():
+        if len(members) < 2:
+            continue
+        (survivor, fm, body), duplicates = members[0], members[1:]
+        covered = fold_claims(fm)
+        for _dup, dup_fm, _ in duplicates:
+            covered += [c for c in fold_claims(dup_fm) if c not in covered]
+        fm = dict(fm)
+        extra = [{"entity_id": e, "claim_id": c} for e, c in covered[1:]]
+        if extra:
+            fm["covered_claims"] = extra
+        fm["updated_date"] = today
+        rewrites[survivor] = (fm, body)
+        deletes += [dup for dup, _, _ in duplicates]
+    return deletes, rewrites
+
+
+def _dedup_normalization_locked(memory_path: Path, inbox: Path) -> int:
+    """Admission (refused while Sleep holds the pages), then the page lock, then
+    git's write lock — the documented order — held through the commit (G183)."""
+    from api.services import page_lock, write_admission
+
+    marker = inbox / _FOLD_DEDUP_MARKER
+    try:
+        with write_admission.admitted(memory_path), page_lock.page_lock(memory_path), \
+                git_service.write_lock(memory_path):
+            return _dedup_normalization_admitted(memory_path, marker, inbox)
+    except write_admission.SleepHolding:
+        logger.info("Predicate-fold inbox cleanup deferred: Sleep is writing this bank")
+        return 0
+
+
+def _dedup_normalization_admitted(memory_path: Path, marker: Path, inbox: Path) -> int:
+    if marker.exists():
+        return 0
+    deletes, rewrites = _plan_fold_cleanup(inbox)
+    owned = list(dict.fromkeys([*deletes, *rewrites]))
+    snapshot = {p: p.read_bytes() for p in owned}
+    tracked = (memory_path / ".git").exists()
+    rels = [p.relative_to(memory_path).as_posix() for p in owned]
+    # An uncommitted edit already on a file it changes is committed apart first,
+    # unauthored (`commit_touched_sync`'s `before`); nothing else in inbox/ is its.
+    before = ({rel: (memory_path / rel).read_bytes() for rel in git_service.dirty_paths_sync(memory_path, *rels)}
+              if owned and tracked else None)
+    index = _index_entries(memory_path, rels) if owned and tracked else {}
+    if any(stage != "0" for _mode, _sha, stage in index.values()):
+        logger.info("Predicate-fold inbox cleanup deferred: an inbox item it would change is mid-merge")
+        return 0
+    head = _head(memory_path) if owned and tracked else None
+    try:
+        for path, (fm, body) in rewrites.items():
+            markdown_parser.write(path, fm, body)
+        for path in deletes:
+            path.unlink()
+        if owned and tracked:
+            git_service.commit_touched_sync(memory_path, _dedup_message(len(deletes)), rels, before=before)
+    except BaseException:
+        _restore(memory_path, snapshot, index if tracked else None, head)
+        raise
+    try:
+        marker.write_text("v1")
+    except OSError as e:
+        # The cleanup is committed; the next run finds nothing to do and marks it.
+        logger.warning(f"Predicate-fold inbox cleanup marker not written: {e}")
+    return len(deletes)
+
+
+def _index_entries(memory_path: Path, rels: list[str]) -> dict[str, tuple[str, str, str]]:
+    """``{rel: (mode, blob, stage)}`` for each owned path the index holds now — a
+    path it does not hold is absent. Read before the transaction, so a rollback
+    puts back exactly what was staged (never HEAD's entry in its place)."""
+    out: dict[str, tuple[str, str, str]] = {}
+    for record in git_service._git_sync(memory_path, "ls-files", "--stage", "-z", "--", *rels).split("\0"):
+        if not record:
+            continue
+        meta, rel = record.split("\t", 1)
+        mode, sha, stage = meta.split()
+        out[rel] = (mode, sha, stage)
+    return out
+
+
+def _head(memory_path: Path) -> str | None:
+    try:
+        return git_service._git_sync(memory_path, "rev-parse", "-q", "--verify", "HEAD").strip() or None
+    except Exception:
+        return None   # an unborn branch
+
+
+def _restore(memory_path: Path, snapshot: dict[Path, bytes],
+             index: dict[str, tuple[str, str, str]] | None, head: str | None) -> None:
+    """Put every file the cleanup touched back as it was — its bytes, and its
+    index entry exactly as captured before the transaction (or its absence).
+
+    HEAD is never moved back. The one commit that can have landed before a
+    failure is the kept-apart one: it holds only edits that were already
+    uncommitted on these files, never the cleanup's own change, and it stays —
+    with the restored index the tree reads as before, relative to it."""
+    for path, data in snapshot.items():
+        path.write_bytes(data)
+    if index is None or not snapshot:
+        return
+    try:
+        for path in snapshot:
+            rel = path.relative_to(memory_path).as_posix()
+            if rel in index:
+                mode, sha, _stage = index[rel]
+                git_service._git_sync(memory_path, "update-index", "--add", "--cacheinfo", f"{mode},{sha},{rel}")
+            else:
+                git_service._git_sync(memory_path, "update-index", "--force-remove", "--", rel)
+    except Exception as e:   # the files are back; a stale index entry is the next status's to show
+        logger.warning(f"Predicate-fold inbox cleanup: index not restored: {e}")
+    moved = _head(memory_path)
+    if moved != head:
+        logger.warning("Predicate-fold inbox cleanup failed after keeping earlier uncommitted inbox edits apart "
+                       "in their own commit; that commit stands, the cleanup's change does not")

@@ -73,7 +73,19 @@ phrase ("6 months ago") so staleness is visible before choosing; `age_days` is d
 never stored. Legacy flat `options: [str]` still render.
 
 **Dedup + time.** Items are keyed `(entity_id, predicate)`. A second competing value **merges** into
-the open item as another option instead of writing a duplicate. Each Sleep,
+the open item as another option instead of writing a duplicate. **A predicate fold is asked once per pair per bank
+(G98/G115):** Stage 3 raises `normalization` only when a synonym in `_predicates.yaml` maps a label onto a *different*
+predicate — a label kept as its own slug (`uses dataset` → `uses-dataset`) is formatting, never a question. The
+reconciler raises one question per `(slug(raw), canonical)` pair *after* the pass, naming the claim each page keeps (a
+restatement that reinforced an existing claim names that claim) and listing the rest in `covered_claims`;
+`write_claim_nudges` merges a later batch's claims into the open item for the pair, and a pair the person answered
+"Correct fold" to (`_predicates.yaml` `confirmed_folds`) is never asked again. "Wrong fold" drops every synonym spelling
+of the pair and repoints every covered claim still on the canonical. The answer runs inside the request's write admission, as one
+page-and-git-lock section through its own `user` commit, the map written atomically (`storage.md`). The question is served on the first covered page still live
+(`_fold_anchor`), hidden only when every covered page is gone. The claim write itself never changes. A one-shot bank
+migration (`dedup_normalization_items`, marker `inbox/.deduped_normalization`) clears the items raised before the fix:
+an admitted transaction (G183) that defers while Sleep holds the pages, under the page and git locks, committing only
+the files it changed and restoring them — bytes and index entries as they were — on any failure. Each Sleep,
 `inbox_questions.refresh_open_questions` bumps re-mentioned options, auto-resolves questions the
 user answered organically, escalates a question whose every option has been silent for
 `inbox_stale_after_days` (90) by inserting "Neither anymore", and keeps deferred items out of

@@ -600,7 +600,9 @@ keeps one write whole but not two (both reported `written`, one survived). `page
 cross-process, re-entrant `flock` as `episode_lock` (`episode_ids.dir_lock`), on the bank directory itself — is held
 by `agentic_write.write_claim`/`retract_claim`, `progress`'s event writers, `fact_sources`' source writers and
 `paper_metadata`'s page updates, the dedup sweep's merges (each across its commit), the app's decay-class and
-repo-link rewrites, and by the MCP's page-writing tools (`write_claim`, `retract_claim`, `note_progress`,
+repo-link rewrites, the inbox's normalization answer (its covered pages, `_predicates.yaml` — written atomically — and
+the item, re-read under the lock, through its own `user` commit, inside the answer's write admission and with git's
+write lock held throughout; G98/G115), and by the MCP's page-writing tools (`write_claim`, `retract_claim`, `note_progress`,
 `add_source`, `change_source`, `record_check`, `record_read`, and `record_watch` around its record) across the write
 **and its commit**. Nothing waits on a network call under it: such a tool asks Sleep before it takes the lock and
 reuses the answer, and `record_watch`'s link save and queue credit stay outside. Some holders are `async` routes and
@@ -651,13 +653,17 @@ keep writing and committing after a window opens, and `verify-sites` writes fron
 it can overwrite an edit made meanwhile; the person's paper-details run checks before each request and before writing
 a response and stops, but the pages it wrote before the window stay uncommitted until its end commit and can ride a
 batch commit; batch intake (upload, RSS, bookmarks, Safari tabs, feed polls, connector syncs, Telegram saves) creates
-new media pages between fetches without admission, so a page written inside a window can ride a batch commit. Inside a
+new media pages between fetches without admission, so a page written inside a window can ride a batch commit; the
+one-shot bank migrations at boot and activation are not admitted (activation is refused only during a person-started
+drain), except the predicate-fold clean-up (`dedup_normalization_items`, G98/G115), an admitted transaction that defers
+with no marker while Sleep holds the pages. Inside a
 window a stdio agent's claim still writes and rides the batch commit (in-window attribution is a DECIDE); Sleep's own
 stages take no page lock. `GET /state`'s refresh of `_state.md` (a cursor that commits alone) runs inside admission
 and is skipped while Sleep holds the pages — the file is served as it is, and the run's tail refreshes it.
-`test_write_admission_sites.py` is the inventory: every non-GET route, every GET whose code names a write, and every
-MCP tool is classified (admitted, held, per-write, probe, intake, capture, registry, outside, sleep, banks, none) with its reason,
-and the admitted ones are checked to take admission in their code.
+`test_write_admission_sites.py` is the inventory: every non-GET route, every GET whose code names a write, every
+MCP tool and every bank migration `run_bank_migrations` runs is classified (admitted, held, per-write, probe, intake,
+capture, registry, outside, sleep, banks, migration, none) with its reason, and the admitted ones are checked to take
+admission in their code.
 
 **Entity-level provenance uses `git blame`** enriched with parsed commit metadata; repo-level
 history uses `git log`. **No changelog in frontmatter** — git handles all history, zero storage

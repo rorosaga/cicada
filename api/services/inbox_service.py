@@ -30,6 +30,7 @@ from api.services import (
     telemetry,
 )
 from api.services.id_utils import resolve_entity_file, sanitize_id
+from api.services.inbox_generator import fold_claims
 from api.services.sleep_refusal import SleepWriting
 
 logger = logging.getLogger(__name__)
@@ -76,6 +77,16 @@ def _item_from_file(
     parsed = markdown_parser.parse(filepath)
     fm = parsed.frontmatter
     kind = str(fm.get("kind", "decay"))
+    if kind == "normalization" and context is not None:
+        # Served on a live covered page when its opener is archived or gone — a
+        # read-time projection; the file keeps its opener (G98/G115).
+        anchor = _fold_anchor(context.memory_path, fm)
+        if anchor != str(fm.get("entity_id", "") or ""):
+            page = context.entity(anchor)
+            name = str((page.frontmatter.get("name") if page is not None else None) or anchor)
+            claim = next((c for e, c in fold_claims(fm) if e == anchor), None)
+            fm = {**fm, "entity_id": anchor, "entity_name": name, "claim_id": claim,
+                  "title": f"Confirm a predicate fold for {name}"}
     required_input = str(fm.get("required_input", "") or _required_input_for(kind))
     now = today or str(date.today())
     entity_id = str(fm.get("entity_id", "") or "")
@@ -300,6 +311,22 @@ def _hidden(
     return _subject_gone(memory_path, entity_id, kind)
 
 
+def _fold_anchor(memory_path: Path, fm: dict) -> str:
+    """The page a predicate-fold question is served on (G98/G115 review round 1).
+
+    One question covers a pair across pages (``covered_claims``), so it is not
+    tied to the page that happened to open it: the first covered page that is
+    still live answers for it, and the opener only when none is — then the
+    usual subject rule hides it. Every other kind keeps its ``entity_id``."""
+    entity_id = str(fm.get("entity_id", "") or "")
+    if str(fm.get("kind", "") or "") != "normalization":
+        return entity_id
+    for eid, _cid in fold_claims(fm):
+        if not _subject_gone(memory_path, eid, "normalization"):
+            return eid
+    return entity_id
+
+
 def served_counts(memory_path: Path) -> tuple[int, dict[str, int]]:
     """How many items :func:`load_inbox` serves, in total and by kind.
 
@@ -320,7 +347,7 @@ def served_counts(memory_path: Path) -> tuple[int, dict[str, int]]:
             return len(items), dict(Counter(i.kind.value for i in items))
         kind = str(fm["kind"])
         if _hidden(
-            memory_path, kind=kind, entity_id=str(fm.get("entity_id", "") or ""),
+            memory_path, kind=kind, entity_id=_fold_anchor(memory_path, fm),
             remind_after=_opt_str(fm.get("remind_after")), today=today,
         ):
             continue
@@ -962,6 +989,7 @@ async def _resolve_admitted(item_id: str, request: InboxResolveRequest, settings
     before = await _git_service.snapshot_dirty(settings.memory_path)
     extra_lines: list[str] = []
     emit_extra: dict = {}
+    committed = False   # a resolver that commits inside its own page-lock section says so
     if kind == "decay":
         entity_id, skipped = await _resolve_decay(path, parsed, request, settings)
     elif kind == "removal":
@@ -975,8 +1003,8 @@ async def _resolve_admitted(item_id: str, request: InboxResolveRequest, settings
             path, parsed, request, settings, item_id
         )
     elif kind == "normalization":
-        entity_id, skipped, extra_lines = await _resolve_normalization(
-            path, parsed, request, settings, item_id
+        entity_id, skipped, extra_lines, committed = await _resolve_normalization(
+            path, parsed, request, settings, item_id, label
         )
     elif kind in ("clarification", "merge_suggestion"):
         entity_id, skipped, extra_lines = await _resolve_clarification(
@@ -1010,17 +1038,18 @@ async def _resolve_admitted(item_id: str, request: InboxResolveRequest, settings
         change = "status active"
     elif kind == "removal" and label == "remove":
         change = "status archived"
-    await git_service.commit_resolution(
-        settings.memory_path,
-        entity_id,
-        f"inbox/{kind}/resolved:{label}",
-        extra_lines,
-        change=change,
-        # The item file the answer retired; the page and every manifest line's
-        # file are read from the manifest itself — nothing else is committed.
-        paths=[path.relative_to(settings.memory_path).as_posix()],
-        before=before,
-    )
+    if not committed:
+        await git_service.commit_resolution(
+            settings.memory_path,
+            entity_id,
+            f"inbox/{kind}/resolved:{label}",
+            extra_lines,
+            change=change,
+            # The item file the answer retired; the page and every manifest line's
+            # file are read from the manifest itself — nothing else is committed.
+            paths=[path.relative_to(settings.memory_path).as_posix()],
+            before=before,
+        )
     # G53 (R4) — the pending count just changed; refresh the projection
     # cheaply (repo blocks are the app's last look, never a git run) and commit it
     # alone as `cicada`. Best-effort: a projection failure never fails a
@@ -1786,49 +1815,108 @@ async def _resolve_divergence(path, parsed, request, settings, item_id: str) -> 
     return entity_id, False, [f"entities/{entity_id}.md: updated (source: {path.stem}, trigger: inbox/divergence/resolved)"]
 
 
-async def _resolve_normalization(path, parsed, request, settings, item_id: str) -> tuple[str, bool, list[str]]:
+async def _resolve_normalization(path, parsed, request, settings, item_id: str,
+                                 label: str) -> tuple[str, bool, list[str], bool]:
     """G113 slice 3: confirm/reject a predicate fold `claim_reconciler` already
-    applied. `0` (correct fold) does nothing to the bank — the fold already
-    happened at extraction time, so the resolve is a pure acknowledgement.
-    `1` (wrong fold) is the substantive branch: it un-merges the raw label
-    from `_predicates.yaml`'s synonym map, adds it as its own canonical
-    predicate (R4 — never delete the entity's history, just stop folding the
-    label going forward), and repoints the one claim the nudge was raised for
-    back onto the raw (now canonical) predicate.
+    applied. `0` (correct fold) leaves every claim and the synonym map as they
+    are — the fold already happened at extraction time — and records the pair
+    in `_predicates.yaml`'s `confirmed_folds`, so Sleep never asks about it
+    again (G98/G115: one question per pair per bank). `1` (wrong fold) is the
+    substantive branch: it un-merges the raw label from the synonym map, adds it
+    as its own canonical predicate (R4 — never delete the entity's history,
+    just stop folding the label going forward), and repoints every claim the
+    question covers (the one that opened it plus `covered_claims`) back onto
+    the raw (now canonical) predicate.
+
+    The answer is ONE page-lock section in a worker thread, inside the request's
+    write admission, from re-reading the item, the map and the pages through its
+    own `user` commit (G98/G115 review rounds 1–2, G183): another page writer
+    cannot take the person's repoint into its own commit, two answers cannot lose
+    each other's map edit, and Sleep cannot open its window in between. Returns
+    ``(entity_id, skipped, extra_lines, committed)`` — committed here, so
+    :func:`resolve` does not commit it again.
     """
-    from api.services.claims import MalformedClaimsBlockError, parse_claims, write_claims
+    import asyncio
 
-    fm = parsed.frontmatter
-    entity_id = _opt_str(fm.get("entity_id")) or ""
-    key = (request.option_key or "").strip()
+    entity_id = _opt_str(parsed.frontmatter.get("entity_id")) or ""
     if request.action == "skip":
-        return entity_id, True, []
-    extra: list[str] = []
-    if key == "1":  # wrong fold — keep the raw predicate separate
-        import yaml
+        return entity_id, True, [], False
+    entity_id = await asyncio.to_thread(_answer_normalization, path, request, settings, label)
+    return entity_id, False, [], True
 
+
+def _answer_normalization(path: Path, request, settings, label: str) -> str:
+    """The body of :func:`_resolve_normalization`. It runs inside :func:`resolve`'s
+    admitted transaction (G183 — the coded refusal was given there, and a window
+    cannot open under the hold), then holds the bank's page lock and git's write
+    lock (the documented order: admission → page → git) from the re-read through
+    its commit, so its dirty snapshot never waits for git between other writers."""
+    from api.services import git_service, page_lock
+    from api.services.claims import MalformedClaimsBlockError, parse_claims, write_claims
+    memory = settings.memory_path
+    with page_lock.page_lock(memory), git_service.write_lock(memory):
+        if not path.exists():
+            raise HTTPException(404, f"Inbox item {path.stem} not found")
+        fm = markdown_parser.parse(path).frontmatter   # as it is now, not as the request first read it
+        entity_id = _opt_str(fm.get("entity_id")) or ""
+        key = (request.option_key or "").strip()
         raw = _opt_str(fm.get("raw_predicate")) or ""
-        # `predicates` is already imported at module scope; local imports here
-        # match `_resolve_conflict`'s style (`Claim`/`write_claims` imported
-        # locally too) so a divergence/normalization resolve never becomes a
-        # hard module-load dependency for the rest of this file.
         raw_slug = predicates._slugify_predicate(raw)
-        if raw_slug:
-            runtime = settings.memory_path / predicates.RUNTIME_FILE
-            data = predicates._read_runtime_map(settings.memory_path)
-            syn = {str(k): v for k, v in (data.get("synonyms") or {}).items()}
-            for k in list(syn):
-                if k.strip().lower() in (raw.strip().lower(), raw_slug):
-                    syn.pop(k)
-            canonical = [str(c) for c in (data.get("canonical") or [])]
-            if raw_slug not in canonical:
-                canonical.append(raw_slug)
-            data["synonyms"], data["canonical"] = syn, canonical
-            runtime.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
-            extra.append(f"{predicates.RUNTIME_FILE}: updated (source: {path.stem}, trigger: inbox/normalization/resolved)")
-            entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
-            claim_id = _opt_str(fm.get("claim_id"))
-            if entity_path.exists() and claim_id:
+        # An item from before the pair was persisted: the fold it asks about is
+        # the one the map applies now — never repoint a claim on a guess.
+        canonical = _opt_str(fm.get("canonical_predicate")) or (predicates.load_normalizer(memory)(raw) if raw else "")
+        is_fold = bool(raw_slug and canonical and raw_slug != canonical)
+        refs = fold_claims(fm)
+        item_rel = path.relative_to(memory).as_posix()
+        pages = list(dict.fromkeys(f"entities/{e}.md" for e, _ in refs))
+        tracked = (memory / ".git").exists()
+        before = None
+        if tracked:
+            owned = [predicates.RUNTIME_FILE, item_rel, *pages]
+            before = {rel: ((memory / rel).read_bytes() if (memory / rel).is_file() else None)
+                      for rel in git_service.dirty_paths_sync(memory, *owned)}
+        manifest = f"{predicates.RUNTIME_FILE}: updated (source: {path.stem}, trigger: inbox/normalization/resolved)"
+        extra: list[str] = []
+
+        if key == "0" and is_fold:
+            def confirm(data: dict) -> bool:
+                confirmed = data.get("confirmed_folds")
+                confirmed = dict(confirmed) if isinstance(confirmed, dict) else {}
+                if confirmed.get(raw_slug) == canonical:
+                    return False
+                confirmed[raw_slug] = canonical
+                data["confirmed_folds"] = confirmed
+                return True
+
+            if predicates.update_runtime_map(memory, confirm):
+                extra.append(manifest)
+        elif key == "1" and is_fold:  # wrong fold — keep the raw predicate separate
+            def split(data: dict) -> bool:
+                # Every spelling the normalizer folds onto this pair goes, the
+                # way the pair was deduplicated (`predicates.fold_key`): a key
+                # whose slug is the raw label's and which maps to the questioned
+                # canonical — never another label's fold.
+                syn = {str(k): v for k, v in (data.get("synonyms") or {}).items()}
+                for k in list(syn):
+                    if predicates.fold_key(k, str(syn[k])) == (raw_slug, canonical):
+                        syn.pop(k)
+                canon = [str(c) for c in (data.get("canonical") or [])]
+                if raw_slug not in canon:
+                    canon.append(raw_slug)
+                data["synonyms"], data["canonical"] = syn, canon
+                if isinstance(data.get("confirmed_folds"), dict):
+                    data["confirmed_folds"].pop(raw_slug, None)
+                return True
+
+            predicates.update_runtime_map(memory, split)
+            extra.append(manifest)
+            by_entity: dict[str, set[str]] = {}
+            for eid, cid in refs:
+                by_entity.setdefault(eid, set()).add(cid)
+            for eid, claim_ids in by_entity.items():
+                entity_path = memory / "entities" / f"{eid}.md"
+                if not entity_path.exists():
+                    continue
                 entity = markdown_parser.parse(entity_path)
                 try:
                     claims = parse_claims(entity.body)
@@ -1836,16 +1924,21 @@ async def _resolve_normalization(path, parsed, request, settings, item_id: str) 
                     claims = []
                 hit = False
                 for c in claims:
-                    if c.id == claim_id:
+                    # A covered claim is repointed only while it still carries the
+                    # folded predicate — never one an answer has since moved.
+                    if c.id in claim_ids and c.predicate == canonical:
                         c.predicate = raw_slug
                         hit = True
                 if hit:
                     efm = entity.frontmatter
                     efm["version"] = int(efm.get("version", 1) or 1) + 1
                     markdown_parser.write(entity_path, efm, write_claims(entity.body, claims))
-                    extra.append(f"entities/{entity_id}.md: updated (source: {path.stem}, trigger: inbox/normalization/resolved)")
-    path.unlink(missing_ok=True)
-    return entity_id, False, extra
+                    extra.append(f"entities/{eid}.md: updated (source: {path.stem}, trigger: inbox/normalization/resolved)")
+        path.unlink(missing_ok=True)
+        if tracked:
+            git_service.commit_resolution_sync(memory, entity_id, f"inbox/normalization/resolved:{label}", extra,
+                                               paths=[item_rel], before=before)
+    return entity_id
 
 
 async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, bool, list[str]]:
