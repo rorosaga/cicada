@@ -121,7 +121,8 @@ Seven rails hold across all of them:
   `{dropped_turns, last_seen_at}`, which the requested continuity read labels "turns past the limit"),
   `reply_gaps` (`[{offset, omitted_chars}]`, kept clipped agent replies only) and `capture_flags`
   (`first_request_clipped: true` when the cleaned first person request exceeded 16k; `note_like_turns`, kept person turns holding a line that opens like a
-  Cicada note — counted and kept, never removed for that), plus `continues`: the one episode id the continuity
+  Cicada note — counted and kept, never removed for that), optional `workspace_identity` (hook-observed family,
+  checkout and cwd hashes plus time; B2, `mcp.md`), plus `continues`: the one episode id the continuity
   registry says Cicada pointed this session at, stamped once and never rewritten. An unchanged body whose metadata
   moved (a late `continues`) is rewritten in place under `episode_lock` with the same body,
   hash and `processed` state — status `metadata`, nothing re-queued. The capture ledger row gains the two counts.

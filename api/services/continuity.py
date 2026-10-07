@@ -12,10 +12,10 @@ projection: every answer is assembled when it is asked for, from
   parses;
 * the continuity registry (``continuity_sessions``) — ids, a cwd hash, times.
 
-Identity is a hash of the **exact** ``cwd`` string the harness's hook reports,
-which capture stores as ``project_dir`` only in the episode. No folding, no prefix matching, no
-repository key, no ``.git`` read: every note says the workspace state was not
-checked.
+Identity starts with the **exact** cwd hash; D2's hook-observed git hashes add
+same-checkout association and related-checkout choices, never lexical worktree
+matching or task authority. The backend only parses supplied values: no git or
+workspace reads here. Every note says workspace state was not checked.
 
 **The index** (``$CICADA_HOME/continuity/<bank-id>.index.json``, beside the
 registry, never inside a bank) maps every ``ep_*.md`` to
@@ -52,9 +52,9 @@ from typing import Callable
 import yaml
 from loguru import logger
 
-from api.services import continuity_sessions, episode_ids, evidence, markdown_parser
+from api.services import continuity_sessions, episode_ids, evidence, markdown_parser, workspace_identity
 
-SCHEMA = 2
+SCHEMA = 3
 #: The index file's suffix in the continuity home: ``<bank-id>.index.json``.
 INDEX_SUFFIX = ".index.json"
 #: A larger index file is not read (it is rebuilt from the heads instead).
@@ -133,6 +133,9 @@ def _row(fm: dict, *, persisted: bool = False) -> dict | str | None:
         if cwd:
             row["cwd_hash"] = continuity_sessions.cwd_hash(cwd)
     row["processed"] = fm.get("processed") is True
+    workspace = workspace_identity.clean(fm.get("workspace_identity"))
+    if workspace and workspace.get("family_hash") and workspace["cwd_hash"] == row.get("cwd_hash"):
+        row["workspace_identity"] = workspace
     if not row.get("session_id") or row.get("harness") not in continuity_sessions.HARNESSES:
         return UNREADABLE
     if not episode_ids.EPISODE_ID_RE.match(str(row.get("id") or "")):
@@ -359,7 +362,7 @@ def activity(row: dict, registry_row: dict | None) -> str:
 
 
 def select(snapshot: Snapshot, registry_rows: dict[str, dict], *, cwd: str | None, exclude_session: str | None,
-           session: str | None = None) -> Selection:
+           session: str | None = None, workspace: dict | None = None) -> Selection:
     """The total selection of plan C1: an exact ``session`` (episode id or full
     session id), else the most recent other session in this exact folder; two
     active within ``ACTIVE_WINDOW_MIN`` of each other is a question, never a
@@ -380,6 +383,17 @@ def select(snapshot: Snapshot, registry_rows: dict[str, dict], *, cwd: str | Non
     folder_hash = continuity_sessions.cwd_hash(cwd)
     here = [(n, r) for n, r in snapshot.rows.items()
             if r.get("cwd_hash") == folder_hash and r.get("session_id") != exclude_session]
+    match = "latest"
+    if not here and workspace:
+        here = [(n, r) for n, r in snapshot.rows.items() if r.get("session_id") != exclude_session
+                and workspace_identity.same_checkout(workspace, r.get("workspace_identity"))]
+        match = "same_checkout"
+        if not here:
+            related = [(n, r) for n, r in snapshot.rows.items() if r.get("session_id") != exclude_session
+                       and (r.get("workspace_identity") or {}).get("family_hash") == workspace.get("family_hash")]
+            related.sort(key=lambda nr: activity(nr[1], reg(nr[1])), reverse=True)
+            if related:
+                return Selection("ambiguous", None, tuple(related[:MAX_LISTED]), reason="related_checkouts")
     if not here:
         return Selection("none", None, reason="none_here")
     here.sort(key=lambda nr: activity(nr[1], reg(nr[1])), reverse=True)
@@ -390,11 +404,11 @@ def select(snapshot: Snapshot, registry_rows: dict[str, dict], *, cwd: str | Non
             close = [nr for nr in here[:MAX_LISTED]
                      if (t := _parse_time(activity(nr[1], reg(nr[1])))) and (a - t).total_seconds() <= ACTIVE_WINDOW_MIN * 60]
             return Selection("ambiguous", None, tuple(close), reason="active_together")
-    return Selection("latest", here[0], tuple(here[1:MAX_LISTED]), reason="latest")
+    return Selection("latest", here[0], tuple(here[1:MAX_LISTED]), reason=match)
 
 
 def _current_conversation(snapshot: Snapshot, registry: dict[str, dict], *, cwd: str | None,
-                          identity: tuple[str, str]) -> tuple[str, dict] | None:
+                          identity: tuple[str, str], workspace: dict | None = None) -> tuple[str, dict] | None:
     """No-argument continuation only: recognise current, never blindly exclude
     an MCP id retained across /clear. Unknown identities use recorded lineage
     and chronology on the newest captured session here; no chain walk."""
@@ -403,6 +417,12 @@ def _current_conversation(snapshot: Snapshot, registry: dict[str, dict], *, cwd:
     folder_hash = continuity_sessions.cwd_hash(cwd)
     here = [(n, r) for n, r in snapshot.rows.items() if r.get("cwd_hash") == folder_hash]
     starts_here = {k: r for k, r in registry.items() if r.get("cwd_hash") == folder_hash}
+    if workspace:
+        starts_here.update({k: r for k, r in registry.items()
+                            if workspace_identity.same_checkout(workspace, r.get("workspace_identity"))})
+    if not here and workspace:
+        here = [(n, r) for n, r in snapshot.rows.items()
+                if workspace_identity.same_checkout(workspace, r.get("workspace_identity"))]
 
     def key(row):
         return f"{row['harness']}:{row['session_id']}"
@@ -501,6 +521,9 @@ def view(memory_path: Path, chosen: tuple[str, dict], *, deadline: float | None 
     if cwd is not None and not isinstance(cwd, str):
         return None
     if (continuity_sessions.cwd_hash(cwd) if cwd else None) != row.get("cwd_hash"):
+        return None
+    current_row = _row(fm)
+    if not isinstance(current_row, dict) or current_row.get("workspace_identity") != row.get("workspace_identity"):
         return None
     return SessionView(
         filename=name, episode_id=str(fm["id"]), harness=str(fm["harness"]), session_id=str(fm["session_id"]),
@@ -607,6 +630,20 @@ class WorkingContext:
     listed: list = field(default_factory=list)            # (filename, row) of other sessions shown
     later_starts: list = field(default_factory=list)      # registry rows: sessions started here after, nothing captured
     now: datetime | None = None
+    workspace: dict | None = None
+
+
+def _caller_workspace(registry, cwd, now) -> dict | None:
+    """Newest fresh cwd-bound hook observation; never probe the caller's folder."""
+    values = [v for row in registry.values()
+              if (v := workspace_identity.clean(row.get("workspace_identity"))) and cwd
+              and v["cwd_hash"] == workspace_identity.digest(cwd)]
+    if not values:
+        return None
+    latest = max(v["observed_at"] for v in values)
+    newest = [v for v in values if v["observed_at"] == latest]
+    keys = {(v.get("family_hash"), v.get("checkout_hash")) for v in newest}
+    return workspace_identity.current(newest[0], cwd, now=now) if len(keys) == 1 else None
 
 
 def assemble(memory_path: Path, *, bank_paths, harness: str | None, session_id: str | None, cwd: str | None,
@@ -627,12 +664,13 @@ def assemble(memory_path: Path, *, bank_paths, harness: str | None, session_id: 
             if isinstance(direct, dict):
                 snap.rows[name] = direct
     registry = continuity_sessions.all_rows(memory_path, bank_paths=bank_paths, now=now)
-    sel = select(snap, registry, cwd=cwd, exclude_session=session_id, session=session)
+    workspace = _caller_workspace(registry, cwd, now)
+    sel = select(snap, registry, cwd=cwd, exclude_session=session_id, session=session, workspace=workspace)
     if session is None and continue_identity is not None:
-        current = _current_conversation(snap, registry, cwd=cwd, identity=continue_identity)
+        current = _current_conversation(snap, registry, cwd=cwd, identity=continue_identity, workspace=workspace)
         if current is not None:
             sel = Selection("latest", current, reason="current_conversation")
-    ctx = WorkingContext(memory_path, sel, snap.complete, listed=list(sel.listed), now=now)
+    ctx = WorkingContext(memory_path, sel, snap.complete, listed=list(sel.listed), now=now, workspace=workspace)
     if sel.chosen is not None:
         ctx.chosen = view(memory_path, sel.chosen, deadline=deadline)
         if ctx.chosen is None:
@@ -764,15 +802,17 @@ def startup_block(ctx: WorkingContext, *, max_chars: int) -> tuple[str, str]:
     limit = min(POINTER_CHARS, max_chars)
     if ctx.selection.kind == "ambiguous":
         ids = ", ".join(f"`{row['id']}`" for _, row in ctx.selection.listed)
-        text = (f"### Recent sessions in this folder\nHistory: {ids}. For previous-work questions: "
+        heading = "Related checkouts" if ctx.selection.reason == "related_checkouts" else "Recent sessions in this folder"
+        text = (f"### {heading}\nHistory: {ids}. For previous-work questions: "
                 "`cicada_continue()`; ask which one to continue. Workspace state not checked.")
         if len(text) > limit:
-            text = ("### Recent sessions in this folder\nSeveral histories match. For questions about previous work, "
+            text = (f"### {heading}\nSeveral histories match. For questions about previous work, "
                     "`cicada_continue()` lists the choices. Workspace state not checked.")
         return (text, "ambiguous") if len(text) <= limit else ("", "none")
     if ctx.chosen is None:
         return "", "none"
-    text = ("### Where the last session in this folder stopped\nFor questions about previous work, "
+    heading = "Earlier work in this checkout" if ctx.selection.reason == "same_checkout" else "Where the last session in this folder stopped"
+    text = (f"### {heading}\nFor questions about previous work, "
             f"captured history: {call(ctx.chosen.episode_id)}. Workspace state not checked.")
     if not ctx.complete:
         text += " Search incomplete."
@@ -867,6 +907,14 @@ def full_text(ctx: WorkingContext, *, before: str | None = None, cap: int = REPL
     now = ctx.now or datetime.now(timezone.utc)
     sel = ctx.selection
     if sel.kind == "ambiguous":
+        if sel.reason == "related_checkouts":
+            lines = ["# Related checkouts — history, not this session's role",
+                     "Other harness-observed checkouts have captured histories. Ask which history to read; "
+                     "no task or role was adopted. Workspace state not checked."]
+            if not ctx.complete:
+                lines.append("Search incomplete: a history in this checkout may not have been readable.")
+            lines += [f"- Episode `{row['id']}`: {call(row['id'])}" for _, row in sel.listed]
+            return "\n".join(lines)[:cap]
         lines = ["# Recent sessions here — which one to continue is the person's call",
                  "Two or more sessions here were active at about the same time. Ask the person which one to continue "
                  "(once), then read it with the call shown beside it. Workspace state not checked."]
@@ -907,6 +955,12 @@ def full_text(ctx: WorkingContext, *, before: str | None = None, cap: int = REPL
         f"- {which}; revision `{v.content_hash}`; last active {_local(act)} ({_age(act, now)} ago); "
         f"{v.turn_count or len(v.turns())} captured turns; {consolidation(v)}.",
     ]
+    if sel.reason == "same_checkout":
+        reserved.append("- Matched by harness-observed git checkout identity, not backend verification of workspace state.")
+    source_workspace = sel.chosen[1].get("workspace_identity") if sel.chosen else None
+    if sel.kind == "explicit" and ctx.workspace and source_workspace \
+            and not workspace_identity.same_checkout(ctx.workspace, source_workspace):
+        reserved.append("- This history is from a different observed checkout; the explicit episode selects it, not a shared role.")
     if v.continues:
         reserved.append(f"- It continued episode `{v.continues}`: {call(v.continues, spelling)}.")
     gaps = gap_lines(ctx)
