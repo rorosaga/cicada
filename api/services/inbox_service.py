@@ -955,6 +955,7 @@ async def resolve(
         raise SleepWriting(SLEEP_BUSY)
     extra_lines: list[str] = []
     emit_extra: dict = {}
+    committed = False   # a resolver that commits inside its own page-lock section says so
     if kind == "decay":
         entity_id, skipped = await _resolve_decay(path, parsed, request, settings)
     elif kind == "removal":
@@ -968,8 +969,8 @@ async def resolve(
             path, parsed, request, settings, item_id
         )
     elif kind == "normalization":
-        entity_id, skipped, extra_lines = await _resolve_normalization(
-            path, parsed, request, settings, item_id
+        entity_id, skipped, extra_lines, committed = await _resolve_normalization(
+            path, parsed, request, settings, item_id, label
         )
     elif kind in ("clarification", "merge_suggestion"):
         entity_id, skipped, extra_lines = await _resolve_clarification(
@@ -1003,17 +1004,18 @@ async def resolve(
         change = "status active"
     elif kind == "removal" and label == "remove":
         change = "status archived"
-    await git_service.commit_resolution(
-        settings.memory_path,
-        entity_id,
-        f"inbox/{kind}/resolved:{label}",
-        extra_lines,
-        change=change,
-        # The item file the answer retired; the page and every manifest line's
-        # file are read from the manifest itself — nothing else is committed.
-        paths=[path.relative_to(settings.memory_path).as_posix()],
-        before=before,
-    )
+    if not committed:
+        await git_service.commit_resolution(
+            settings.memory_path,
+            entity_id,
+            f"inbox/{kind}/resolved:{label}",
+            extra_lines,
+            change=change,
+            # The item file the answer retired; the page and every manifest line's
+            # file are read from the manifest itself — nothing else is committed.
+            paths=[path.relative_to(settings.memory_path).as_posix()],
+            before=before,
+        )
     # G53 (R4) — the pending count just changed; refresh the projection
     # cheaply (repo blocks are the app's last look, never a git run) and commit it
     # alone as `cicada`. Best-effort: a projection failure never fails a
@@ -1706,7 +1708,8 @@ async def _resolve_divergence(path, parsed, request, settings, item_id: str) -> 
     return entity_id, False, [f"entities/{entity_id}.md: updated (source: {path.stem}, trigger: inbox/divergence/resolved)"]
 
 
-async def _resolve_normalization(path, parsed, request, settings, item_id: str) -> tuple[str, bool, list[str]]:
+async def _resolve_normalization(path, parsed, request, settings, item_id: str,
+                                 label: str) -> tuple[str, bool, list[str], bool]:
     """G113 slice 3: confirm/reject a predicate fold `claim_reconciler` already
     applied. `0` (correct fold) leaves every claim and the synonym map as they
     are — the fold already happened at extraction time — and records the pair
@@ -1717,74 +1720,115 @@ async def _resolve_normalization(path, parsed, request, settings, item_id: str) 
     just stop folding the label going forward), and repoints every claim the
     question covers (the one that opened it plus `covered_claims`) back onto
     the raw (now canonical) predicate.
-    """
-    import yaml
 
+    The answer is ONE page-lock section in a worker thread, from re-reading the
+    item, the map and the pages through its own `user` commit (G98/G115 review
+    round 1): another page writer cannot take the person's repoint into its own
+    commit, and two answers cannot lose each other's map edit. Returns
+    ``(entity_id, skipped, extra_lines, committed)`` — committed here, so
+    :func:`resolve` does not commit it again.
+    """
+    import asyncio
+
+    entity_id = _opt_str(parsed.frontmatter.get("entity_id")) or ""
+    if request.action == "skip":
+        return entity_id, True, [], False
+    entity_id = await asyncio.to_thread(_answer_normalization, path, request, settings, label)
+    return entity_id, False, [], True
+
+
+def _answer_normalization(path: Path, request, settings, label: str) -> str:
+    """The body of :func:`_resolve_normalization`, holding the bank's page lock
+    (then git's write lock inside the commit — the documented order)."""
+    from api.services import git_service, page_lock, sleep_cycle
     from api.services.claims import MalformedClaimsBlockError, parse_claims, write_claims
     from api.services.inbox_generator import fold_claims
 
-    fm = parsed.frontmatter
-    entity_id = _opt_str(fm.get("entity_id")) or ""
-    key = (request.option_key or "").strip()
-    if request.action == "skip":
-        return entity_id, True, []
-    extra: list[str] = []
-    raw = _opt_str(fm.get("raw_predicate")) or ""
-    canonical = _opt_str(fm.get("canonical_predicate")) or ""
-    # `predicates` is already imported at module scope; `yaml`/claims imports
-    # stay local, matching `_resolve_conflict`, so a normalization resolve never
-    # becomes a hard module-load dependency for the rest of this file.
-    raw_slug = predicates._slugify_predicate(raw)
-    runtime = settings.memory_path / predicates.RUNTIME_FILE
-    manifest = f"{predicates.RUNTIME_FILE}: updated (source: {path.stem}, trigger: inbox/normalization/resolved)"
-    if key == "0" and raw_slug and canonical and raw_slug != canonical:
-        data = predicates._read_runtime_map(settings.memory_path)
-        confirmed = dict(data.get("confirmed_folds") or {}) if isinstance(data.get("confirmed_folds"), dict) else {}
-        if confirmed.get(raw_slug) != canonical:
-            confirmed[raw_slug] = canonical
-            data["confirmed_folds"] = confirmed
-            runtime.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
+    memory = settings.memory_path
+    with page_lock.page_lock(memory):
+        # Re-asked once the lock is held: a window can open while this waited for it.
+        if sleep_cycle.is_writing():
+            raise SleepWriting(SLEEP_BUSY)
+        if not path.exists():
+            raise HTTPException(404, f"Inbox item {path.stem} not found")
+        fm = markdown_parser.parse(path).frontmatter   # as it is now, not as the request first read it
+        entity_id = _opt_str(fm.get("entity_id")) or ""
+        key = (request.option_key or "").strip()
+        raw = _opt_str(fm.get("raw_predicate")) or ""
+        raw_slug = predicates._slugify_predicate(raw)
+        # An item from before the pair was persisted: the fold it asks about is
+        # the one the map applies now — never repoint a claim on a guess.
+        canonical = _opt_str(fm.get("canonical_predicate")) or (predicates.load_normalizer(memory)(raw) if raw else "")
+        is_fold = bool(raw_slug and canonical and raw_slug != canonical)
+        refs = fold_claims(fm)
+        item_rel = path.relative_to(memory).as_posix()
+        pages = list(dict.fromkeys(f"entities/{e}.md" for e, _ in refs))
+        tracked = (memory / ".git").exists()
+        before = None
+        if tracked:
+            owned = [predicates.RUNTIME_FILE, item_rel, *pages]
+            before = {rel: ((memory / rel).read_bytes() if (memory / rel).is_file() else None)
+                      for rel in git_service.dirty_paths_sync(memory, *owned)}
+        manifest = f"{predicates.RUNTIME_FILE}: updated (source: {path.stem}, trigger: inbox/normalization/resolved)"
+        extra: list[str] = []
+
+        if key == "0" and is_fold:
+            def confirm(data: dict) -> bool:
+                confirmed = data.get("confirmed_folds")
+                confirmed = dict(confirmed) if isinstance(confirmed, dict) else {}
+                if confirmed.get(raw_slug) == canonical:
+                    return False
+                confirmed[raw_slug] = canonical
+                data["confirmed_folds"] = confirmed
+                return True
+
+            if predicates.update_runtime_map(memory, confirm):
+                extra.append(manifest)
+        elif key == "1" and is_fold:  # wrong fold — keep the raw predicate separate
+            def split(data: dict) -> bool:
+                syn = {str(k): v for k, v in (data.get("synonyms") or {}).items()}
+                for k in list(syn):
+                    if k.strip().lower() in (raw.strip().lower(), raw_slug):
+                        syn.pop(k)
+                canon = [str(c) for c in (data.get("canonical") or [])]
+                if raw_slug not in canon:
+                    canon.append(raw_slug)
+                data["synonyms"], data["canonical"] = syn, canon
+                if isinstance(data.get("confirmed_folds"), dict):
+                    data["confirmed_folds"].pop(raw_slug, None)
+                return True
+
+            predicates.update_runtime_map(memory, split)
             extra.append(manifest)
-    elif key == "1" and raw_slug:  # wrong fold — keep the raw predicate separate
-        data = predicates._read_runtime_map(settings.memory_path)
-        syn = {str(k): v for k, v in (data.get("synonyms") or {}).items()}
-        for k in list(syn):
-            if k.strip().lower() in (raw.strip().lower(), raw_slug):
-                syn.pop(k)
-        canon = [str(c) for c in (data.get("canonical") or [])]
-        if raw_slug not in canon:
-            canon.append(raw_slug)
-        data["synonyms"], data["canonical"] = syn, canon
-        if isinstance(data.get("confirmed_folds"), dict):
-            data["confirmed_folds"].pop(raw_slug, None)
-        runtime.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
-        extra.append(manifest)
-        by_entity: dict[str, set[str]] = {}
-        for eid, cid in fold_claims(fm):
-            by_entity.setdefault(eid, set()).add(cid)
-        for eid, claim_ids in by_entity.items():
-            entity_path = settings.memory_path / "entities" / f"{eid}.md"
-            if not entity_path.exists():
-                continue
-            entity = markdown_parser.parse(entity_path)
-            try:
-                claims = parse_claims(entity.body)
-            except MalformedClaimsBlockError:
-                claims = []
-            hit = False
-            for c in claims:
-                # A covered claim is repointed only while it still carries the
-                # folded predicate — never one an answer has since moved.
-                if c.id in claim_ids and (not canonical or c.predicate == canonical):
-                    c.predicate = raw_slug
-                    hit = True
-            if hit:
-                efm = entity.frontmatter
-                efm["version"] = int(efm.get("version", 1) or 1) + 1
-                markdown_parser.write(entity_path, efm, write_claims(entity.body, claims))
-                extra.append(f"entities/{eid}.md: updated (source: {path.stem}, trigger: inbox/normalization/resolved)")
-    path.unlink(missing_ok=True)
-    return entity_id, False, extra
+            by_entity: dict[str, set[str]] = {}
+            for eid, cid in refs:
+                by_entity.setdefault(eid, set()).add(cid)
+            for eid, claim_ids in by_entity.items():
+                entity_path = memory / "entities" / f"{eid}.md"
+                if not entity_path.exists():
+                    continue
+                entity = markdown_parser.parse(entity_path)
+                try:
+                    claims = parse_claims(entity.body)
+                except MalformedClaimsBlockError:
+                    claims = []
+                hit = False
+                for c in claims:
+                    # A covered claim is repointed only while it still carries the
+                    # folded predicate — never one an answer has since moved.
+                    if c.id in claim_ids and c.predicate == canonical:
+                        c.predicate = raw_slug
+                        hit = True
+                if hit:
+                    efm = entity.frontmatter
+                    efm["version"] = int(efm.get("version", 1) or 1) + 1
+                    markdown_parser.write(entity_path, efm, write_claims(entity.body, claims))
+                    extra.append(f"entities/{eid}.md: updated (source: {path.stem}, trigger: inbox/normalization/resolved)")
+        path.unlink(missing_ok=True)
+        if tracked:
+            git_service.commit_resolution_sync(memory, entity_id, f"inbox/normalization/resolved:{label}", extra,
+                                               paths=[item_rel], before=before)
+    return entity_id
 
 
 async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, bool, list[str]]:

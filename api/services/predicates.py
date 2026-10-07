@@ -114,6 +114,39 @@ def _read_runtime_map(memory_path: Path) -> dict:
     return data if isinstance(data, dict) else {}
 
 
+def update_runtime_map(memory_path: Path, mutate: Callable[[dict], bool]) -> bool:
+    """Read-modify-write ``<memory>/_predicates.yaml`` as one critical section.
+
+    G98/G115: an inbox answer writes the map (a confirmed fold, a split one),
+    and two answers that both read before either wrote lost one of them. The
+    bank's page lock (cross-process, re-entrant — a caller already holding it
+    re-enters) spans the read and the write, and the write is atomic (temp
+    file + ``os.replace``), so a reader never sees half a map. ``mutate``
+    edits the map in place and returns whether it changed anything; nothing
+    is written when it returns False. Returns what ``mutate`` returned.
+    """
+    import os
+    import tempfile
+
+    from api.services.page_lock import page_lock
+
+    memory_path = Path(memory_path)
+    with page_lock(memory_path):
+        data = _read_runtime_map(memory_path)
+        if not mutate(data):
+            return False
+        text = yaml.safe_dump(data, allow_unicode=True, sort_keys=False)
+        fd, tmp = tempfile.mkstemp(prefix=".predicates-", suffix=".tmp", dir=memory_path)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(text)
+            os.replace(tmp, memory_path / RUNTIME_FILE)
+        except BaseException:
+            Path(tmp).unlink(missing_ok=True)
+            raise
+        return True
+
+
 def load_normalizer(memory_path: Path) -> NormalizeFn:
     """Build a ``normalize_predicate(label) -> canonical`` closure for a memory dir.
 

@@ -412,3 +412,101 @@ def test_one_batch_two_pages_and_a_reinforced_claim_are_all_covered_and_all_repo
     for eid, ids in (("alpha-project", alpha), ("beta-baseline", beta)):
         page = (memory / "entities" / f"{eid}.md").read_text()
         assert {c.id for c in parse_claims(page) if c.predicate == "built-with"} == ids
+
+
+# ---------------------------------------------------------------- the answer is one critical section (review round 1, #2)
+
+import threading  # noqa: E402
+import time  # noqa: E402
+
+import pytest  # noqa: E402
+
+
+def _two_pair_bank(tmp_path):
+    memory, first = _resolvable_bank(tmp_path)
+    inbox_generator.write_claim_nudges(
+        [_fold("bob-example", "clm_w", raw="worked at", canonical="works-at")], memory)
+    _git(memory, "add", ".")
+    _git(memory, "commit", "-q", "-m", "sleep 2")
+    second = next(p.stem for p, fm in _items(memory) if fm["raw_predicate"] == "worked at")
+    return memory, first, second
+
+
+def test_two_confirmations_at_once_both_survive(tmp_path, monkeypatch):
+    memory, first, second = _two_pair_bank(tmp_path)
+    real_read = predicates._read_runtime_map
+
+    def slow_read(memory_path):
+        data = real_read(memory_path)
+        time.sleep(0.2)   # both answers would have read the map before either wrote it
+        return data
+
+    monkeypatch.setattr(predicates, "_read_runtime_map", slow_read)
+
+    errors: list[BaseException] = []
+
+    def answer(item_id):   # each on its own thread and event loop, like two processes
+        try:
+            asyncio.run(inbox_service.resolve(item_id, InboxResolveRequest(action="resolve", option_key="0"),
+                                              _ResolveSettings(memory)))
+        except BaseException as exc:  # noqa: BLE001 — surfaced below
+            errors.append(exc)
+
+    threads = [threading.Thread(target=answer, args=(i,)) for i in (first, second)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(20)
+    assert errors == []
+    assert predicates.confirmed_folds(memory) == {"built-with": "uses", "worked-at": "works-at"}
+    assert _git(memory, "status", "--porcelain").strip() == ""
+
+
+def test_a_competing_page_writer_never_commits_the_persons_repoint(tmp_path, monkeypatch):
+    from api.services import git_service, page_lock
+
+    memory, item_id = _resolvable_bank(tmp_path)
+    beta = memory / "entities" / "beta-baseline.md"
+    real_commit = git_service.commit_touched_sync
+    competitor: list[threading.Thread] = []
+
+    def other_writer():
+        with page_lock.page_lock(memory):
+            beta.write_text(beta.read_text() + "\nAn agent's note.\n")
+            real_commit(memory, git_service.build_commit_message(
+                "Agent write", ["entities/beta-baseline.md: updated (trigger: agent)"], authors=["claude-code"]),
+                ["entities/beta-baseline.md"])
+
+    def commit_with_a_rival(memory_path, message, paths, **kw):
+        if "Inbox resolution" in message and not competitor:
+            t = threading.Thread(target=other_writer)
+            competitor.append(t)
+            t.start()
+            time.sleep(0.3)   # the rival is at the page lock while the answer is still uncommitted
+        return real_commit(memory_path, message, paths, **kw)
+
+    monkeypatch.setattr(git_service, "commit_touched_sync", commit_with_a_rival)
+    asyncio.run(inbox_service.resolve(item_id, InboxResolveRequest(action="resolve", option_key="1"),
+                                      _ResolveSettings(memory)))
+    competitor[0].join(5)
+    agent_commit = _git(memory, "log", "-1", "--format=%H", "--grep=^Agent write").strip()
+    assert agent_commit
+    assert "predicate: built-with" not in _git(memory, "show", agent_commit)
+    person = _git(memory, "log", "-1", "--format=%H", "--grep=^Inbox resolution").strip()
+    shown = _git(memory, "show", person)
+    assert "Cicada-Author: user" in shown and "beta-baseline.md" in shown
+
+
+def test_a_window_opening_while_the_answer_waited_refuses_and_writes_nothing(tmp_path, monkeypatch):
+    from api.services import page_lock, sleep_cycle
+    from api.services.sleep_refusal import SleepWriting
+
+    memory, item_id = _resolvable_bank(tmp_path)
+    before = {p: p.read_bytes() for p in memory.rglob("*") if p.is_file() and ".git" not in p.parts}
+    # Sleep's window opens after the answer's first checks, while it waits for the page lock.
+    monkeypatch.setattr(sleep_cycle, "is_writing", lambda: page_lock.held(memory))
+    with pytest.raises(SleepWriting):
+        asyncio.run(inbox_service.resolve(item_id, InboxResolveRequest(action="resolve", option_key="1"),
+                                          _ResolveSettings(memory)))
+    after = {p: p.read_bytes() for p in memory.rglob("*") if p.is_file() and ".git" not in p.parts}
+    assert after == before

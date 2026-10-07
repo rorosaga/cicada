@@ -579,7 +579,8 @@ keeps one write whole but not two (both reported `written`, one survived). `page
 cross-process, re-entrant `flock` as `episode_lock` (`episode_ids.dir_lock`), on the bank directory itself — is held
 by `agentic_write.write_claim`/`retract_claim`, `progress`'s event writers, `fact_sources`' source writers and
 `paper_metadata`'s page updates, the dedup sweep's merges (each across its commit), the app's decay-class and
-repo-link rewrites, and by the MCP's page-writing tools (`write_claim`, `retract_claim`, `note_progress`,
+repo-link rewrites, the inbox's normalization answer (its covered pages, `_predicates.yaml` — written atomically — and
+the item, re-read under the lock, through its own `user` commit; G98/G115), and by the MCP's page-writing tools (`write_claim`, `retract_claim`, `note_progress`,
 `add_source`, `change_source`, `record_check`, `record_read`, and `record_watch` around its record) across the write
 **and its commit**. Nothing waits on a network call under it: such a tool asks Sleep before it takes the lock and
 reuses the answer, and `record_watch`'s link save and queue credit stay outside. Some holders are `async` routes and
@@ -588,7 +589,8 @@ lock, then the git write lock (inside the commit), then `episode_lock` — never
 Sleep's own page writes (agent commits already defer to its write window) and the inbox's other resolvers.
 **Residual race (disclosed, G183):** the window guards are an admission check, not isolation, and admission is **not
 atomic**. The sweep re-asks `is_writing()` once it holds the page lock and again once it holds the git write lock, the
-decay/repo routes once they hold the page lock, an inbox answer after its awaited snapshot — each before writing. But
+decay/repo routes and the normalization answer once they hold the page lock, an inbox answer after its awaited
+snapshot — each before writing. But
 Sleep enters its window (`_state.writing = True`, then Stage 2 loads the pages) without either lock, so a window that
 opens *after* a writer's last check overlaps everything that writer does next, and there is no time bound on that: the
 exposure is the rest of its transaction — the sweep's footprint scan, merge, commit and any recovery, plus waits for a
