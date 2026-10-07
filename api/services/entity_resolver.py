@@ -336,6 +336,7 @@ async def resolve(
                 "source_episodes": [entity.get("source_episode", "")] if entity.get("source_episode") else [],
                 "source_episode_timestamp": entity.get("source_episode_timestamp"),
                 "source_episode_timestamps": [entity.get("source_episode_timestamp")] if entity.get("source_episode_timestamp") else [],
+                "source_episode_days": _source_days(entity),
                 "trigger": "sleep/promotion",
             }
             # Deferred (same reasoning as the "same"-match branch above).
@@ -631,6 +632,13 @@ def _dedupe_history_entries(entries: list[dict]) -> list[dict]:
     return out
 
 
+def _source_days(entity: dict) -> list[str]:
+    """G194: the conversation's day as Stage 1 resolved it (timestamp, else the id's date) — prompt-only metadata
+    for Stage 3's merge and contradiction prompts; nothing writes it to a page."""
+    day = entity.get("source_episode_day")
+    return [str(day)] if day else []
+
+
 def _append_change_source(change: dict, entity: dict) -> None:
     episode_id = entity.get("source_episode", "")
     if episode_id:
@@ -643,6 +651,11 @@ def _append_change_source(change: dict, entity: dict) -> None:
         timestamps = change.setdefault("source_episode_timestamps", [])
         if timestamp not in timestamps:
             timestamps.append(timestamp)
+
+    for day in _source_days(entity):
+        days = change.setdefault("source_episode_days", [])
+        if day not in days:
+            days.append(day)
 
     change["source_episode"] = episode_id or change.get("source_episode", "")
     latest = _latest_timestamp(
@@ -670,6 +683,7 @@ def _merge_into_update(
             "source_episodes": [incoming.get("source_episode", "")] if incoming.get("source_episode") else [],
             "source_episode_timestamp": incoming.get("source_episode_timestamp"),
             "source_episode_timestamps": [incoming.get("source_episode_timestamp")] if incoming.get("source_episode_timestamp") else [],
+            "source_episode_days": _source_days(incoming),
             "trigger": "sleep/extraction",
         }
         updates_by_id[entity_id] = current

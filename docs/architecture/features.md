@@ -22,7 +22,10 @@ posts `backgroundClicked` and `escape` and takes `setSelectedNode` (a neutral ri
 place (`GraphMessage`, `GraphJS`) and tested on both sides — none of them touches the simulation.
 
 **The entity card (DS-3a).** One component, `EntityDetailCard` — the Graph's column, Clusters' card. Header:
-the type as a `Tag`, status and confidence in words ("Active · very confident", the number in `.help`), the
+the type as a `Tag`, status and confidence in words ("Active · very confident", the number in `.help`) — or, when
+the page's `lastReferenced` is more than 90 days before the viewer's today, the status and when it was last mentioned
+("Active · last mentioned Feb 2025", G194 A2: the confidence word is replaced, the number and the full day go to
+`.help`; app-only, from the existing field, no payload or ETag change), the
 name, the page's Summary, Back ⌘[ and ×; text tabs Content · Perspectives · History · Timeline with counts once
 known. Content: Rendered/Source and Copy; the page; its folder or repository in words; What Cicada knows (R-FX11
 pages); Where this came from; Look it up at — each G61 source's fact ("For uses"), how it can be read (the

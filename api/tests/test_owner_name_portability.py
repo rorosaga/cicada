@@ -155,6 +155,8 @@ _PROMPT_PROPER_NOUNS = frozenset(
         "Links", "Questions", "Skill", "Related", "Relationships", "Source",
         # generic technologies, named as EXAMPLES of a tool/concept
         "Postgres", "SQLite", "Mongo", "MongoDB", "GitHub", "Python", "Docker",
+        # calendar words in G194's TIME examples ("In February 2025, …", "met on Monday")
+        "February", "Monday",
     }
 )
 

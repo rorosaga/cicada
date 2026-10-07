@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// The entity column's header (Direction D, §10 Entity card; R-DG14 … R-DG16). Top to bottom: Back ⌘[ when the
-/// trail has somewhere to go; the type as a `Tag` with its dot (DR-44), the status and confidence in words, and ×;
+/// trail has somewhere to go; the type as a `Tag` with its dot (DR-44), the status and confidence in words — or, for
+/// a page whose newest source is over 90 days old, the status and "last mentioned <Mon YYYY>" (G194 A2) — and ×;
 /// the logo and the name — the detail heading, in the display face (DR-16, DR-17); the page's Summary, links
 /// still tappable; then the text tabs with counts (DR-45). It replaced tinted capsules, a confidence bar with a
 /// bare "%", a 40 pt logo and underline tabs.
@@ -29,6 +30,9 @@ struct EntityCardHeader: View {
     var onShowOnGraph: (() -> Void)? = nil
     /// A fact that names a page opens it (the card's wikilink navigation).
     var onOpenEntity: ((String) -> Void)? = nil
+    /// G194 A2 — the day an old page is measured against; `nil` is the viewer's today, read at render (DR-58).
+    /// Only tests and review renders pin it.
+    var today: ISODay? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -42,11 +46,13 @@ struct EntityCardHeader: View {
             }
             HStack(spacing: CicadaTheme.spacingSM) {
                 Tag(text: entity.type.label, dot: CicadaTheme.entityColor(for: entity.type))
-                Text(EntityHeaderWords.statusLine(status: entity.status, confidence: entity.confidence))
+                Text(EntityHeaderWords.statusLine(status: entity.status, confidence: entity.confidence,
+                                                  lastReferenced: entity.lastReferenced, today: today ?? .today()))
                     .font(CicadaTheme.metaFont)
                     .foregroundStyle(CicadaTheme.textTertiary)
                     .lineLimit(1)
-                    .help(EntityHeaderWords.statusHelp(status: entity.status, confidence: entity.confidence))
+                    .help(EntityHeaderWords.statusHelp(status: entity.status, confidence: entity.confidence,
+                                                       lastReferenced: entity.lastReferenced, today: today ?? .today()))
                 Spacer(minLength: 0)
                 if let onShowOnGraph {
                     IconButton(systemName: "point.3.connected.trianglepath.dotted", help: Copy.People.showOnGraphHelp,
