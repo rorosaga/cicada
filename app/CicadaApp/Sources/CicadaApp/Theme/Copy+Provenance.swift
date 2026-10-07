@@ -38,6 +38,9 @@ extension Copy {
         static let setupMessage = "Setup message"
         static let unlabelledMessage = "Unlabelled message"
         static let someoneElse = "Someone else"
+        /// G110 gate B2 — the line Cicada writes where a long conversation's middle was not kept: its own note,
+        /// never anyone's words.
+        static let notCaptured = "Not captured · Cicada's note"
         static let fromThePage = "From the page"
         /// A quote an agent reported from a page (G166): Cicada never had the page and cannot check it, so the label
         /// says whose reading it is.

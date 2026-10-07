@@ -170,8 +170,11 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   harness's own Stop hook; the backend reads a transcript only when it resolves under the harness root as
   `<session_id>.jsonl` within the size cap. Only the person's turns and the agent's final reply are kept, plus each agent
   turn's model and effort. **One episode per session** (G104). Cicada's own `claude -p` / `codex exec` spawns run with
-  `CICADA_CAPTURE=off`. Recall is the same move (G149): the SessionStart/UserPromptSubmit hooks inject Cicada's note; a
-  recalled note is never captured back as the person's words.
+  `CICADA_CAPTURE=off`. Stop is the trigger; PreCompact and SessionEnd run the same hook as a best-effort, idempotent
+  flush, each log line tagged with its event (G110 gate A). Over the session cap the head and the latest turns are kept
+  around one marker line (G110 gate B2; its G104 costs in `capture-and-sleep.md`). Recall is the same move (G149): the
+  SessionStart/UserPromptSubmit hooks inject Cicada's note; a note the harness records as a separate non-person record
+  is never captured, and one that arrives inside the person's own text is kept, counted and disclosed (G110 gate C).
 - **Transcripts under `~/.claude/` are never read anywhere else** — the MCP seam and resume only `isfile()` them.
 - **One id rule** (`episode_ids`): max-suffix+1 per date, aware UTC timestamps; `processed_by` says who flipped it.
   A new episode never replaces a file (`create_episode`); dedup, edits and Sleep's revision-checked retirement share

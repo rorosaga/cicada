@@ -28,28 +28,13 @@ from pathlib import Path
 from loguru import logger
 
 from api.services import git_service, markdown_parser
-from api.services.claims import Claim, MalformedClaimsBlockError, parse_claims, write_claims
+from api.services.claims import Claim, MalformedClaimsBlockError, parse_claims, stated_end, write_claims
 
 TRIGGER = "sleep/expiry"
 AUTHOR = "cicada"
 # A page with neither string cannot hold a stated end: skip it without a
 # parse (most of a bank, every night).
 _NEEDLES = ("expected_end:", "predicate: due")
-
-
-def stated_end(claim: Claim) -> str | None:
-    """The claim's own end as ``YYYY-MM-DD``, or ``None``. A ``due`` object
-    that is not a date ("next-friday") is not an end — derived here at
-    expiry time, never stamped onto the claim (Q-R6)."""
-    candidates = (claim.expected_end, claim.object if claim.predicate == "due" else None)
-    for raw in candidates:
-        if not raw:
-            continue
-        try:
-            return date.fromisoformat(str(raw).strip()[:10]).isoformat()
-        except ValueError:
-            continue
-    return None
 
 
 def closing_date(claim: Claim) -> str | None:

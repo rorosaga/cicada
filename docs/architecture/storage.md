@@ -92,6 +92,38 @@ Stage-5 prose rewrites use `preserve_claims_blocks` only to re-emit closed fence
 already read from disk, including unknown fields and malformed YAML; it never
 authors claims. Synthesis receives stripped prose before its input budget is applied.
 
+**Recovering claims a rewrite dropped (G148 follow-up) — only ever as closed history.** Before that fix a rewrite
+sectioned the raw body, so the fence rode in the last section and was rebuilt or lost; the claim pipeline, which runs
+after the prose writes, then kept only what it could still read. `python -m api.services.claim_recovery --bank <path>
+[--plan <file>] [--apply]` finds the holes from git alone: it replays every first-parent commit that touched
+`entities/`; an id in a page's fence before a commit and not after it is a removal, an id on any page at HEAD is no
+loss, and the id's **last** removal decides. **A recovered entry is never a current belief:** it comes back closed —
+`valid_to` the removal commit's day, or its own stated end (`claim_expiry.stated_end`) when earlier, never before
+`valid_from`; an entry already closed keeps its own — and marked `recovered_from: <removing commit>`,
+`recovered_by: claim_recovery` (`Claim` fields, omitted when unset). **No writer reopens it:** every writer that
+clears `valid_to` asks `claims.is_recovered_history` first (a test lists them — the decay `keep_active` verdict leaves
+it untouched; a paper/folder sync that re-sends the same deterministic id asserts a fresh entry beside it), and
+every reader's `claims.is_current` takes it as history by its close and by `recovered_by` alone. Excluded, each needing positive evidence to pass:
+the removal's writer (`person_edit`, `merged`, `inbox_resolution`, `other_writer`, and `unproven_writer` — a `Sleep
+cycle` subject whose `Cicada-Author`s are not all models or `cicada`); `unreadable_fence` (the page's fence was
+unterminated, repeated or unparseable at any version read — `claims.fence_state`), `unreadable_elsewhere` (an
+unreadable HEAD page is read as YAML decodes it — `claims.loose_claim_entries`, every fence to its close or the next
+opening — so an escaped or quoted id still counts as present and a `retracts` record there still excludes; a page
+whose YAML will not load at all makes absence unprovable and excludes every candidate); `retracted` (a `retracts` record named it at ANY version read);
+`merged` (a `<id>-from-` copy), `page_gone`, `page_archived` (at the removal or now); and `not_rewrite` — the bug's
+signature is required: the section that held the fence when the page is sectioned raw must have had its fence-stripped
+prose rewritten. What is left is classed `replaced` (a current claim on the page shares subject and predicate — and
+object unless the vocabulary marks it single-valued — or a HEAD claim `supersedes` it), `closed_history` (every
+dropped copy was already closed) or `no_current_replacement` (a belief current when dropped with no successor: listed by
+id and page only, **never written** — the person decides). The dry run (default) prints counts by class and reason and
+writes ids, paths, commits and classes — never claim text. `--apply` writes the first two classes: each entry as the
+YAML held it (unknown fields kept), appended by `claims.append_claim_entries` without re-rendering any entry already in
+the fence or the frontmatter (`markdown_parser.write_document`), spans checked with `evidence.span_status` (one that no
+longer locates becomes `reasoning`), under admission → page lock → git's write lock. The CLI is its own process, so it
+also asks the backend's `/sleep/status` and **refuses on any answer but a clear `writing: false`** (no backend, an auth
+or server error, a malformed body). A dirty or unreadable page is skipped; one `Recover dropped claims <date>` commit
+of only the pages written, `Cicada-Author: cicada`, put back from HEAD on failure. A re-run finds nothing.
+
 **A merge keeps both claim sets (audit 2026-10-05 P1-1).** `entity_merge.merge_entities` — the dedup sweep's and
 the inbox's one merge primitive — carries every claim the loser held into the winner's fence: re-subjected to the
 winner, a node object that named the loser repointed, and its observer, trust, sessions, evidence, validity and
@@ -141,8 +173,8 @@ done | missed | dropped), with four optional fields omitted when empty — `stat
 sentence — no wikilinks in YAML) and `date_basis` (stated | turn | episode | person | written). A
 done happening is **born closed** (`valid_to == valid_from`), so every reader that treats open as
 current stays right; the history readers call `claims.is_event` (a grep gate enforces it). Events are
-not records: they stay in FTS and citations, where they read as dated happenings, never 'no longer
-current'. A milestone's slot is `(subject, milestone, slug)` across observers — the slug is its
+not records: they stay in FTS and citations, where they read as dated happenings,
+never 'no longer current'. A milestone's slot is `(subject, milestone, slug)` across observers — the slug is its
 `object`, never its `context`. Event cardinality is multi and lives in code. **Only `progress.py`
 writes an event**: `write_claim` refuses the predicates, `claim_pipeline` relabels a stray label.
 Dates are decided by `when.py`'s closed table; nothing relative is stored. `companion_app` is a
@@ -545,7 +577,7 @@ importer),
   turn), the
   literal **`user`** for manual/companion-app writes, **`unknown`** for legacy untrailered commits,
   and **`cicada`** for system maintenance with no model and no user in the loop (the one-shot
-  migrations, the split-out decay commit, the `State snapshot` commit, the `Expiry` and `Follow-ups` commits). Built by
+  migrations, the split-out decay commit, the `State snapshot` commit, the `Expiry` and `Follow-ups` commits, the `Recover dropped claims` commit). Built by
   `git_service.build_commit_message(...)`, parsed by `_parse_authors`.
   `git_service.author_identity` buckets a harness label (and `agent`) as kind `harness`, which the app
   names and marks as that app; the pre-G135 `mcp-agentic-write` claim placeholder reads as `agent`
@@ -673,3 +705,33 @@ history uses `git log`. **No changelog in frontmatter** — git handles all hist
 overhead, no growing fields.
 
 ---
+
+**Current beliefs and historical events (G118/G93, 2026-10-07).**
+`claims.is_current(claim, now=day)` is the shared read predicate for claim objects
+and index payloads, using the machine-local day shared by claim writers and
+conditional-response caches: any `valid_to` or successor means closed, including a
+born-closed happening. A future start is not current; stated ends are inclusive
+and reads stop presenting them as current even before the next expiry commit.
+The stated-end parser is shared with `claim_expiry`; milestone targets are not
+expiry dates. History remains in markdown, FTS and provenance. Search keeps
+closure metadata and sorts current claims first; closed events keep their day
+and state and render as past events or earlier states. Episode citations keep
+unsuperseded events visible (`current: true` means no obsolete-belief styling
+on that wire contract); a successor marks an earlier event state. Vector claim reads recheck the candidate page,
+so a stale vector cannot resurrect a closed claim or a deleted page. The FTS
+schema version is 5 (stated-end metadata); the cache rebuilds automatically.
+FTS candidate claims use a single read snapshot of payload and document stamp.
+Matching `(mtime_ns, size)` stamps avoid reparsing on every keystroke; changed
+or missing pages are rechecked against markdown once per request, so a rebuilding
+or stale index cannot label an already closed claim as current.
+The claim-list endpoint, transclusion and graph claim projections share the
+same currentness predicate rather than maintaining separate open-window tests.
+The paper card applies it to both personal reasons and external context too.
+
+**Time-dependent projection lag.** Read-time claim checks and provenance ETags
+use the writers' machine-local day. The persisted graph edges, graph observer
+overlay cache and vector membership evaluate starts and stated ends when built:
+time alone may leave them behind until the next Sleep or sync (normally at most
+one Sleep). A paused Sleep delays that refresh. Read-time vector checks still
+exclude expired results, but cannot add a previously future claim until sync.
+The graph's Store-domain ETag remains tied to its existing version vector.

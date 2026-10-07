@@ -332,7 +332,8 @@ def _anchor(bank: _Bank, claim: Claim) -> _Anchor | None:
     if span is not None:
         stamps = evidence.turn_stamps(fm)
         if stamps:
-            turn = evidence.turn_at(bank.episode_text(ep) or "", span.start, stamps)
+            text = bank.episode_text(ep) or ""
+            turn = evidence.turn_at(text, span.start, stamps, evidence.gap_ranges(fm, text))
             instant = when.parse_instant((turn or {}).get("ts"))
             basis = "turn" if instant else "episode"
     if instant is None:

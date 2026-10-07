@@ -89,3 +89,34 @@ def test_cicada_cli_spawns_carry_capture_off(monkeypatch):
 def test_hook_module_imports_nothing_from_api(tmp_path):
     src = Path(hook.__file__).read_text()
     assert "from api" not in src and "import api" not in src
+
+
+# --- G110 gate A (ruling 2026-10-07): PreCompact and SessionEnd also flush ------
+
+
+def test_every_log_line_names_the_event_that_fired_it(tmp_path):
+    """Ruling 7's revisit signal is a Stop `error:` line; the flushes' lines are
+    tagged with their own event so they never read as Stop's."""
+    for event in ("Stop", "PreCompact", "SessionEnd"):
+        rc, calls, log = _run(tmp_path, {**PAYLOAD, "hook_event_name": event})
+        assert rc == 0 and calls[-1][1]["hook_event"] == event
+        assert log.read_text().strip().splitlines()[-1].split(" ")[1:4] == ["claude-code", SID[:8], event]
+
+
+def test_a_session_end_flush_posts_inside_the_harness_s_short_budget(tmp_path):
+    _, calls, _ = _run(tmp_path, {**PAYLOAD, "hook_event_name": "SessionEnd"})
+    assert calls[0][3] == hook.SESSION_END_TIMEOUT_S < 1.5
+    _, calls, _ = _run(tmp_path, {**PAYLOAD, "hook_event_name": "PreCompact"})
+    assert calls[0][3] == hook.TIMEOUT_S
+
+
+def test_a_flush_with_no_transcript_path_is_skipped_and_tagged(tmp_path):
+    payload = {k: v for k, v in PAYLOAD.items() if k != "transcript_path"}
+    rc, calls, log = _run(tmp_path, {**payload, "hook_event_name": "SessionEnd"})
+    line = log.read_text().strip().splitlines()[-1]
+    assert rc == 0 and calls == [] and "SessionEnd skipped: no transcript_path" in line
+
+
+def test_an_unknown_event_name_is_logged_as_other(tmp_path):
+    _, _, log = _run(tmp_path, {**PAYLOAD, "hook_event_name": "Bogus event; rm -rf"})
+    assert " other http 200" in log.read_text() and "rm -rf" not in log.read_text()

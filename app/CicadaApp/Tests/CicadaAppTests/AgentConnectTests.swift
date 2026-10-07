@@ -30,8 +30,8 @@ final class AgentConnectTests: XCTestCase {
     }
 
     private func hookStep(settings: String = "/Users/x/.claude/settings.json", harness: String = "claude-code",
-                          command: String? = nil) -> AgentWiringStep {
-        let argv = [python, root.path + "/api/hooks/registry.py", "install", "--settings", settings, "--event", "Stop",
+                          command: String? = nil, event: String = "Stop") -> AgentWiringStep {
+        let argv = [python, root.path + "/api/hooks/registry.py", "install", "--settings", settings, "--event", event,
                     "--command", command ?? hookCommand(harness)]
         return AgentWiringStep(step: "hook", display: argv.joined(separator: " "), argv: argv, touches: ["~/.claude/settings.json"])
     }
@@ -41,6 +41,23 @@ final class AgentConnectTests: XCTestCase {
         XCTAssertTrue(AgentConnectPolicy.isAllowed(hookStep().argv, runtime: .developer(codeRoot: root), binaries: [claude]))
         XCTAssertTrue(AgentConnectPolicy.isAllowed(hookStep(settings: "/Users/x/.codex/hooks.json", harness: "codex").argv,
                                                    runtime: .developer(codeRoot: root), binaries: [claude]))
+    }
+
+    /// G110 gate A — the capture command is also allowed under PreCompact and SessionEnd (a best-effort flush),
+    /// and only the capture command: the recall command is refused there, and the capture command anywhere else.
+    func testTheCaptureFlushEventsAreAllowedForTheCaptureCommandOnly() {
+        let dev = CicadaRuntime.developer(codeRoot: root)
+        for event in ["PreCompact", "SessionEnd"] {
+            XCTAssertTrue(AgentConnectPolicy.isAllowed(hookStep(event: event).argv, runtime: dev, binaries: [claude]), event)
+            XCTAssertTrue(AgentConnectPolicy.isAllowed(hookStep(settings: "/Users/x/.codex/hooks.json", harness: "codex",
+                                                                event: event).argv, runtime: dev, binaries: [claude]), event)
+            let recall = "\"\(python)\" \"\(root.path)/api/hooks/recall.py\" --harness claude-code"
+            XCTAssertFalse(AgentConnectPolicy.isAllowed(hookStep(command: recall, event: event).argv, runtime: dev,
+                                                        binaries: [claude]), event)
+        }
+        for event in ["SessionStart", "UserPromptSubmit", "PostCompact", "Notification"] {
+            XCTAssertFalse(AgentConnectPolicy.isAllowed(hookStep(event: event).argv, runtime: dev, binaries: [claude]), event)
+        }
     }
 
     /// The hook command runs on every agent turn: it must be install.sh's

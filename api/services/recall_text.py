@@ -37,8 +37,8 @@ def question_line(name: str, item_id: str, entity_id: str, question: str) -> str
 
 
 #: G166: the header of a note that only says links are waiting for an agent to
-#: read. Same prefix as every other note, so ``is_injection`` drops it from a
-#: captured transcript.
+#: read. Same prefix as every other note, so capture counts it when it arrives
+#: inside the person's own text (``note_like_turns``, G110 T2b).
 READING_HEADER = INJECTION_PREFIX + " by Cicada's hook, not typed by them) — a reading request:"
 
 

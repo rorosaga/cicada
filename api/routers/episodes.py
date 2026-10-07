@@ -64,7 +64,8 @@ async def get_episode_span(
     # R-LS7: a folder file's declared authorship; R-LS2: which turn, from the
     # episode's `turns` sidecar (R-PB4) — both read from the one parse above.
     override = str(fm.get("evidence_kind") or "") or None
-    turn = evidence.turn_at(text, start, evidence.turn_stamps(fm)) if is_episode else None
+    gaps = evidence.gap_ranges(fm, text) if is_episode else ()   # gate B2: from the episode's own record
+    turn = evidence.turn_at(text, start, evidence.turn_stamps(fm), gaps) if is_episode else None
     return EpisodeSpan(
         episode=episode_id,
         text=text[start:end],
@@ -75,7 +76,7 @@ async def get_episode_span(
         length=len(text),
         stale=status == evidence.SPAN_STALE,
         grown=status == evidence.SPAN_GROWN,
-        kind=evidence.kind_for(episode_id, text, start, override),
+        kind=evidence.kind_for(episode_id, text, start, override, gaps),
         # G140 Q-R9: seconds into the video for a span on a timed `video [m:ss]:`
         # line — the same marker grammar and override as `kind`, so `t` is set
         # exactly where `kind` is `media`.
@@ -137,7 +138,11 @@ async def get_episode_citations(
     written. 404 for an unknown or non-bare id.
     """
     memory_path = settings.memory_path
-    etag = sync_service.etag_for(memory_path, "episodes", "entities", extra=f"citations|{episode_id}|{git_service.AUTHOR_SHAPE}|{video_state.VIDEO_SHAPE}")
+    from api.services import claims
+    etag = sync_service.etag_for(
+        memory_path, "episodes", "entities",
+        extra=f"citations|{episode_id}|{git_service.AUTHOR_SHAPE}|{video_state.VIDEO_SHAPE}|validity2|{claims.current_day()}",
+    )
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
     result = await run_in_threadpool(provenance.episode_citations, memory_path, episode_id)

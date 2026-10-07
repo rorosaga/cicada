@@ -309,6 +309,13 @@ enum CicadaTheme {
         NSColor(mode == .dark ? Dark.bgBase : Light.bgBase)
     }
 
+    /// The AppKit window colour, which is what the transparent titlebar band shows: the rail's surface, so band and rail
+    /// read as one frame around the page panel (owner 2026-10-07). `windowBackground` stays `bgBase` — `AccentInk`
+    /// measures the accent against the page, not the band.
+    static func titlebarBackground(for mode: AppColorScheme) -> NSColor {
+        NSColor(mode == .dark ? Dark.bgRail : Light.bgRail)
+    }
+
     /// Timeline dot hue per commit change type (entity History tab). Replaces
     /// `HistoryChangeType.color`, which returned a hex STRING that the view
     /// re-parsed — a model has no business naming a colour.
@@ -516,10 +523,10 @@ enum CicadaTheme {
     static let radiusXS: CGFloat = 4               // keycaps, the span wash
     static let radiusLarge: CGFloat = 16           // the focus card, the Settings panel, error and empty cards
 
-    /// The rounded join where the content meets the rail and the titlebar band (owner 2026-10-06): one fixed radius,
-    /// `radiusLarge`, like every radius here (DR-12 — padding scales with uiScale, radii do not). A decorative join, not a
-    /// concentric pair: the corner sits a whole rail width in from the window's edge and under the titlebar, so it
-    /// shares no centre with the window's own corner.
+    /// The page panel's rounded top-leading corner, where it meets the rail and the titlebar band (owner 2026-10-06;
+    /// drawn by `ShellContentPanel`, 2026-10-07): one fixed radius, `radiusLarge`, like every radius here (DR-12 — padding scales with
+    /// uiScale, radii do not). Decorative, not concentric: the corner sits a whole rail width in from the window's edge
+    /// and under the titlebar, so it shares no centre with the window's own corner.
     static let contentCornerRadius: CGFloat = radiusLarge
 
     /// DR-12 — every rounded rectangle is continuous. New code draws through this; the

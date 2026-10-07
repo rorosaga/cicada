@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Cicada session-capture hook (G105 R1, R2, R8, R14).
 
-Registered by ``install.sh`` under ``hooks.Stop`` in ``~/.claude/settings.json``
-(and ``~/.codex/hooks.json`` when Codex is installed) as::
+Registered by ``install.sh`` under ``hooks.Stop`` — and, as a flush,
+``hooks.PreCompact`` and ``hooks.SessionEnd`` (G110 gate A) — in
+``~/.claude/settings.json`` (and ``~/.codex/hooks.json`` when Codex is installed) as::
 
     "<venv python>" "<repo>/api/hooks/capture.py" --harness claude-code
 
@@ -21,6 +22,21 @@ every reply, and the endpoint is idempotent by content hash (R3), so the LAST
 Stop of a session is the session's end however it ended — volume is cost,
 never noise.
 
+G110 gate A (ruling 2026-10-07): the same script is ALSO registered under
+``PreCompact`` and ``SessionEnd`` as a best-effort flush. Stop stays the
+trigger; a flush is the same idempotent request (``unchanged`` after a Stop
+with no new turn), and it is the only capture of a turn the person interrupted
+— no Stop fires — before compacting, clearing or quitting. A SessionEnd flush
+bounds its REQUEST with :data:`SESSION_END_TIMEOUT_S` (a socket timeout, not a
+whole-process deadline). Claude Code's SessionEnd budget is 1.5 s by default
+but is raised to the largest per-hook ``timeout`` in the settings files, and
+Cicada registers 5 s (``registry.DEFAULT_TIMEOUT_S``) — so a slow exit is
+bounded by that request timeout plus interpreter start, not by 1.5 s. A
+concurrent or delayed capture never overwrites a newer one: the writer refuses
+a read of fewer transcript bytes than the episode stores (``superseded``).
+Every log line names its event, so ruling 7's revisit
+signal (a Stop ``error:`` line) never mixes with a flush's.
+
 Stdlib only, run by path: a hook has no cwd guarantee and no venv on its
 ``sys.path``, so nothing here imports ``api.*`` (R14).
 
@@ -36,8 +52,8 @@ Codex (R9): its Stop payload is unverified, so a payload without
 — nothing breaks, and that log line is the verification signal.
 
 One line per firing goes to ``~/.cicada/logs/capture.log`` (0600): a
-timestamp, the harness, the first 8 characters of the session id, and the
-outcome — plus, when the demo memory was open, the name of the bank the
+timestamp, the harness, the first 8 characters of the session id, the event
+(``Stop`` | ``PreCompact`` | ``SessionEnd`` | ``other``), and the outcome — plus, when the demo memory was open, the name of the bank the
 session was saved into (G141 capture-side track) — never a path, never
 content. The token comes from
 ``~/.cicada/api_token``, never from an env-embedded key.
@@ -54,6 +70,11 @@ import urllib.request
 from pathlib import Path
 
 TIMEOUT_S = 3.0
+#: G110 gate A: a SessionEnd flush delays the session's exit, so its request
+#: gives up early and says so in the log (the backend finishes the write regardless).
+SESSION_END_TIMEOUT_S = 1.2
+#: The events this script is registered under; anything else logs as ``other``.
+EVENTS = ("Stop", "PreCompact", "SessionEnd")
 LOG_MAX_BYTES = 1024 * 1024
 
 
@@ -108,7 +129,7 @@ def main(argv=None, *, stdin=None, environ=None, post=None, log_path=None, token
             harness = argv[argv.index("--harness") + 1]
         except IndexError:
             pass
-    tag = f"{harness} ?"
+    tag = f"{harness} ? ?"
     try:
         if str(environ.get("CICADA_CAPTURE", "")).strip().lower() == "off":
             _log(log_path, f"{tag} skipped: CICADA_CAPTURE=off")
@@ -122,7 +143,9 @@ def main(argv=None, *, stdin=None, environ=None, post=None, log_path=None, token
             _log(log_path, f"{tag} skipped: stdin is not an object")
             return 0
         session_id = str(payload.get("session_id") or "")
-        tag = f"{harness} {session_id[:8] or '?'}"
+        event = str(payload.get("hook_event_name") or "")
+        event = event if event in EVENTS else "other"
+        tag = f"{harness} {session_id[:8] or '?'} {event}"
         transcript_path = payload.get("transcript_path")
         if not session_id or not transcript_path:
             _log(log_path, f"{tag} skipped: no transcript_path")
@@ -151,7 +174,7 @@ def main(argv=None, *, stdin=None, environ=None, post=None, log_path=None, token
             # not. Only this one field is added; the backend validates it.
             fields["effort"] = level.strip()[:32]
         body = json.dumps(fields).encode("utf-8")
-        status, text = post(url, body, token, TIMEOUT_S)
+        status, text = post(url, body, token, SESSION_END_TIMEOUT_S if event == "SessionEnd" else TIMEOUT_S)
         outcome = ""
         try:
             parsed = json.loads(text)

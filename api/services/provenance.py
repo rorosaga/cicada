@@ -60,7 +60,7 @@ from api.services import (
     turn_authorship,
     video_state,
 )
-from api.services.claims import Claim, Evidence, is_event, is_record, parse_claims
+from api.services.claims import Claim, Evidence, is_current, is_event, is_record, parse_claims
 from api.services.id_utils import resolve_entity_file
 
 # The Reader's cap (R-PB5). A Stop-hook episode is already capped at 100,000
@@ -82,11 +82,13 @@ def _opt(value) -> str | None:
 
 
 def _asserted_focus(doc_id: str, text: str, start: int, end: int, hash: str | None, *,  # noqa: A002
-                    is_episode: bool, override: str | None = None) -> EpisodeFocus:
+                    is_episode: bool, override: str | None = None, gaps: tuple = ()) -> EpisodeFocus:
     status = evidence.span_status(text, end=end, hash=hash, appendable=is_episode)
     # R-LS7: the one kind decision — a folder file's declared authorship wins
     # over markers, exactly as the stored span's kind was minted.
-    kind = evidence.kind_for(doc_id, text, start, override)
+    kind = evidence.kind_for(doc_id, text, start, override, gaps)
+    if kind == evidence.GAP_KIND or evidence.touches_gap(start, end, gaps):
+        return EpisodeFocus(kind=kind)  # gate B2: Cicada's gap line is nobody's words — never highlighted
     if status == evidence.SPAN_STALE:
         return EpisodeFocus(kind=kind, stale=True)  # R-PB2: no offsets to wash
     return EpisodeFocus(start=start, end=end, kind=kind, grown=status == evidence.SPAN_GROWN)
@@ -139,7 +141,9 @@ def episode_document(
 
     stamps = evidence.turn_stamps(fm) if is_episode else {}
     override = (str(fm.get("evidence_kind") or "") or None) if is_episode else None
-    spans = evidence.turns(text, page=not is_episode, stamps=stamps, override=override)
+    # Gate B2: the episode's own gap record, never the body's words.
+    gaps = evidence.gap_ranges(fm, text) if is_episode else ()
+    spans = evidence.turns(text, page=not is_episode, stamps=stamps, override=override, gaps=gaps)
     # Round 4 C4: an agent turn's model/effort is its sidecar entry at exactly
     # the turn's start (the entry the capture wrote); never on a person's turn.
     agents = {s.offset: s for s in agent_turns.stamps(fm) if s.speaker == "assistant"} if is_episode else {}
@@ -159,7 +163,7 @@ def episode_document(
     focus_model: EpisodeFocus | None = None
     if start is not None:
         focus_model = _asserted_focus(doc_id, text, start, end, hash, is_episode=is_episode,
-                                      override=override)
+                                      override=override, gaps=gaps)
     elif focus:
         focus_model = _derived_focus(memory_path, text, focus)
 
@@ -255,7 +259,7 @@ class _Episodes:
 
 
 def _current(claim: Claim) -> bool:
-    return claim.valid_to is None and not claim.superseded_by
+    return is_current(claim)
 
 
 def _recency(claim: Claim) -> str:
@@ -526,10 +530,9 @@ def episode_citations(memory_path: Path, doc_id: str) -> EpisodeCitations | None
                 "authored_by": git_service.canonical_author(claim.authored_by), "observer": claim.observer,
             }
             if is_event(claim):
-                # G141 R-PJB11: a born-closed done happening's `valid_to` is its
-                # shape, not its end — it reads as a dated happening, and is
-                # "no longer current" only when something replaced it.
-                base.update(current=not claim.superseded_by, event_status=claim.status,
+                # G141: a dated happening is not an obsolete belief. Only
+                # a successor makes its citation an earlier event state.
+                base.update(current=not bool(claim.superseded_by), event_status=claim.status,
                             event_day=claim.valid_from)
             mine = [ev for ev in claim.evidence if ev.episode == doc_id]
             spans = [ev for ev in mine if ev.is_span()]

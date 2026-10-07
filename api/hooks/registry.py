@@ -13,6 +13,11 @@ moved UPDATES the path rather than adding a second hook (portability: the
 registered command embeds the venv and repo paths, both of which move with
 the checkout).
 
+G110 gate A registers the capture script under ``PreCompact`` and
+``SessionEnd`` too (a best-effort flush; Stop stays the trigger). Entries are
+per event, so the same command under three events is three entries, and
+``uninstall --hook capture`` removes all of them.
+
 G149 adds the recall hook (``api/hooks/recall.py``, registered under
 ``SessionStart`` and ``UserPromptSubmit``). Each script is owned by its own
 marker (:data:`MARKERS`), so installing one never collapses the other, and

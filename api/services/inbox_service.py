@@ -1143,7 +1143,12 @@ async def _resolve_decay(path, parsed, request, settings) -> tuple[str, bool]:
         claim_ids = set(decay_claim_ids(parsed.frontmatter))
         body = entity.body
         if claim_ids:
-            from api.services.claims import MalformedClaimsBlockError, parse_claims, write_claims
+            from api.services.claims import (
+                MalformedClaimsBlockError,
+                is_recovered_history,
+                parse_claims,
+                write_claims,
+            )
 
             try:
                 claims = parse_claims(body)
@@ -1156,7 +1161,9 @@ async def _resolve_decay(path, parsed, request, settings) -> tuple[str, bool]:
                 claims = None
             if claims:
                 for c in claims:
-                    if c.id in claim_ids:
+                    # G148: a recovered entry is history the person's verdict cannot reopen — the decay item may
+                    # predate the drop, and the fact's current successor is what "still true" speaks for.
+                    if c.id in claim_ids and not is_recovered_history(c):
                         c.confidence = max(float(c.confidence or 0), 0.6)
                         if c.valid_to and not c.superseded_by:
                             c.valid_to = None  # faded, not replaced — reopen it

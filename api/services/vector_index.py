@@ -29,7 +29,7 @@ from typing import Callable
 import numpy as np
 from loguru import logger
 
-from api.services import markdown_parser
+from api.services import evidence, markdown_parser
 from api.services import pending_store as _store
 # G141 PJ-0b (R-HP1): the pending store is its own module now. These two names
 # stay importable from here — entity_resolver, link_recon and the tests use them.
@@ -621,7 +621,8 @@ class SqliteVecIndexer:
         partial model switch that is two embeds, never one in the wrong space.
         Same graceful degrade as :meth:`_search_kind`: a missing db, a missing
         table or a failed embed gives empty lists, never a raise. No
-        archived-tier or superseded filtering happens here — the caller ranks.
+        archived-tier filtering happens here — the caller ranks. Claim hits
+        are checked against their current markdown before they leave the index.
         """
         out: dict[str, list[dict]] = {kind: [] for kind in top_k_by_kind}
         if not top_k_by_kind or not self.db_path.exists():
@@ -640,6 +641,8 @@ class SqliteVecIndexer:
                     )
         finally:
             conn.close()
+        if "claims" in out:
+            out["claims"] = self._current_claim_hits(out["claims"])
         return out
 
     def _search_kind(self, kind: str, query: str, top_k: int) -> list[dict]:
@@ -673,10 +676,11 @@ class SqliteVecIndexer:
                 parsed = markdown_parser.parse(filepath)
             except Exception:
                 continue
-            body = parsed.body.strip()
+            fm = parsed.frontmatter or {}
+            # Gate B2: the dropped-middle marker (the episode's own record) is blanked before chunking.
+            body = evidence.mask_gaps(parsed.body, evidence.gap_ranges(fm, parsed.body)).strip()
             if not body:
                 continue
-            fm = parsed.frontmatter or {}
             base_meta = {
                 "episode_id": str(fm.get("id", filepath.stem)),
                 "source": str(fm.get("source", "unknown")),
@@ -796,7 +800,7 @@ class SqliteVecIndexer:
         post-filter/pivot axes (mirrors the ``claims``-kind metadata in the D2
         index spec).
         """
-        from api.services.claims import parse_claims
+        from api.services.claims import is_current, parse_claims
 
         if not self.entities_dir.exists():
             return 0
@@ -807,7 +811,7 @@ class SqliteVecIndexer:
             except Exception:
                 continue
             for claim in parse_claims(parsed.body):
-                if claim.valid_to is not None:
+                if not is_current(claim):
                     continue  # only currently-valid claims are indexed
                 text = (claim.text or "").strip()
                 if not text:
@@ -826,6 +830,8 @@ class SqliteVecIndexer:
                         "source_trust": claim.source_trust,
                         "confidence": float(claim.confidence),
                         "valid_from": claim.valid_from,
+                        "valid_to": claim.valid_to,
+                        "expected_end": claim.expected_end,
                         "superseded_by": claim.superseded_by,
                         "origin": claim.origin,
                         "file_path": str(filepath),
@@ -871,7 +877,7 @@ class SqliteVecIndexer:
         finally:
             conn.close()
         filtered: list[dict] = []
-        for r in results:
+        for r in self._current_claim_hits(results):
             meta = r.get("metadata", {})
             if observer is not None and meta.get("observer") != observer:
                 continue
@@ -882,6 +888,39 @@ class SqliteVecIndexer:
             filtered.append(r)
         return filtered[:top_k]
 
+    def _current_claim_hits(self, results: list[dict]) -> list[dict]:
+        """A derived vector can outlive a closure or edit; markdown decides now.
+
+        Read each candidate page once. Never follow an indexed absolute path
+        outside this bank, and never revive a deleted page from indexed text.
+        """
+        from api.services.claims import is_current, parse_claims
+        from api.services.id_utils import resolve_entity_file
+
+        pages: dict[Path, dict] = {}
+        out = []
+        for hit in results:
+            meta = hit.get("metadata") or {}
+            raw = meta.get("file_path")
+            page = (self.entities_dir / Path(raw).name if raw else
+                    resolve_entity_file(self.memory_path, str(meta.get("subject") or "")))
+            if page is None:
+                continue
+            if page not in pages:
+                try:
+                    parsed = markdown_parser.parse(page)
+                    pages[page] = ({} if parsed.frontmatter.get("status") == "dropped" else
+                                   {c.id: c for c in parse_claims(parsed.body)})
+                except Exception:
+                    pages[page] = {}
+            claim = pages[page].get(meta.get("claim_id"))
+            if claim is None or not is_current(claim):
+                continue
+            out.append({**hit, "text": claim.text,
+                        "metadata": {**meta, **claim.to_dict(), "claim_id": claim.id,
+                                     "file_path": str(page)}})
+        return out
+
 
 def _text_hash(text: str) -> str:
     """The identity of an embedded text: what a sync compares to decide whether
@@ -890,7 +929,10 @@ def _text_hash(text: str) -> str:
 
 
 def _chunk_episode_body(body: str) -> list[str]:
-    """Split an episode body into overlapping passages for embedding."""
+    """Split an episode body into overlapping passages for embedding. The
+    caller blanks a gate-B2 gap marker first (``evidence.mask_gaps``), exactly
+    as the lexical index does, so a chunk still finds its passage and never
+    embeds Cicada's own line."""
     body = body.strip()
     if not body:
         return []

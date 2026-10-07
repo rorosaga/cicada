@@ -1013,7 +1013,9 @@ class EpisodeTurn(CamelModel):
     """One turn of a document (G118 slice 2, design §4.8.1) — offsets into the
     evidence text, never a copy of it. See ``evidence.TurnSpan``: ``role`` is
     ``user`` | ``assistant`` | ``speaker`` (a note-taker's ``speaker:<label>:``
-    line, R-LS7) | ``media`` (a timed ``video [m:ss]:`` line, G140) | ``page``;
+    line, R-LS7) | ``media`` (a timed ``video [m:ss]:`` line, G140) | ``page``
+    | ``gap`` (G110 gate B2: Cicada's dropped-middle line in a long captured
+    session — nobody's words);
     ``marker`` is the word as written (``None`` for a marker-less block);
     ``ts``/``speaker`` exist only where the episode stores a ``turns`` sidecar
     entry for this turn; ``t`` = seconds into the video for a media turn
@@ -1213,7 +1215,8 @@ class EpisodeCitation(CamelModel):
     ``evidence`` is the stored entry for a span or reasoning row, ``None`` for
     a derived one. ``start``/``end`` are what to wash — the asserted offsets,
     a derived name match, or ``None`` (reasoning, no match, or ``stale``:
-    R-PB2). ``current`` is false for a superseded or closed claim."""
+    R-PB2). ``current`` is false for a superseded or closed belief; dated events
+    stay visible unless superseded (G141)."""
 
     claim_id: str
     subject_id: str
@@ -1230,8 +1233,7 @@ class EpisodeCitation(CamelModel):
     stale: bool = False
     grown: bool = False
     derived: bool = False
-    # G141 R-PJB11 — an event cited here is a dated happening: `current` is
-    # false only when something replaced it, never for a born-closed done one.
+    # G141 — born-closed events remain visible unless superseded.
     event_status: Optional[str] = None
     event_day: Optional[str] = None
     # G162: on a `media` row only — how faithful the video's words are.
@@ -1727,9 +1729,7 @@ class SearchHit(CamelModel):
     valid_from: str | None = None
     valid_to: str | None = None
     superseded_by: str | None = None
-    # G141 R-PJB11 — an event claim hit: its status and day. Its `valid_to` /
-    # `superseded_by` are sent only when something replaced it, so a
-    # born-closed done happening never renders as history.
+    # G141 — an event claim hit keeps its status, day and closure metadata.
     event_status: str | None = None
     event_day: str | None = None
 
@@ -3061,7 +3061,7 @@ class AgentWiringStep(CamelModel):
     ``display == shlex.join(argv)`` so the disclosure can never show one thing
     and run another; ``touches`` are ``~/``-relative (R-IA15)."""
 
-    step: Literal["mcp", "hook", "autorecall", "autorecall-off"]
+    step: Literal["mcp", "hook", "flush", "autorecall", "autorecall-off"]
     display: str
     argv: list[str]
     touches: list[str] = []
@@ -3080,6 +3080,10 @@ class AgentWiringRow(CamelModel):
     binary: Optional[str] = None
     recall: Literal["on", "off", "unknown"] = "off"
     autosave: Literal["on", "off", "stale", "invalid", "n/a"] = "n/a"
+    # G110 gate A: the PreCompact/SessionEnd capture flushes, apart from
+    # ``autosave`` (the Stop hook alone), so an install from before them reads on.
+    autosave_flush: Literal["on", "off", "stale", "invalid", "n/a"] = "n/a"
+    flush_on: list[AgentWiringStep] = []
     connect: list[AgentWiringStep] = []
     detail: Optional[str] = None
     autorecall: Literal["on", "off", "stale", "invalid", "n/a"] = "n/a"
