@@ -357,3 +357,13 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+
+def disable_dotenv() -> None:
+    """G180: build every later ``Settings`` from the environment alone. The ``cicada`` command
+    runs in an agent's project folder, and ``env_file: ".env"`` is relative to the cwd, so that
+    project's own ``.env`` (or one in ``CICADA_HOME``) would otherwise steer the memory root and
+    the engine. The command publishes its one resolved root into the environment first
+    (``api/cli.py``'s bootstrap), then calls this."""
+    Settings.model_config["env_file"] = None
+    get_settings.cache_clear()

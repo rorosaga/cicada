@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import re
 import sys
+from datetime import date
 from pathlib import Path
 from typing import Callable
 
@@ -12,7 +13,7 @@ from loguru import logger
 from tqdm import tqdm
 
 from api.config import Settings
-from api.services import decay_policy, engine_errors, evidence
+from api.services import decay_policy, engine_errors, evidence, source_dates
 from api.services.json_parse import parse_json_object
 
 EXTRACTION_SYSTEM_PROMPT = """You are an entity extraction system for a personal knowledge graph.
@@ -106,6 +107,23 @@ WEBSITE (optional, company, tool or project ONLY) — the entity's own official 
 - Emit it ONLY when the transcript states it, or you are certain it is that entity's own site.
 - An origin URL only ("https://example.com"): never a profile, an article, a repository host or a social page.
 - Omit it when unsure. A guess is worse than nothing: it is checked against the site itself and removed when wrong.
+
+TIME (every conversation is written up as of its own date):
+- A note before the conversation gives the date it took place and today's date. Write what it says as of the
+  conversation's date, never as of today.
+- When the note says the conversation is older than 90 days, every statement that can change (a role, a status,
+  a plan, a current focus, an intention) names its month and year — "In February 2025, the user was considering …"
+  — and is never presented as current.
+- Plans, intentions and states of mind ("considering", "planning", "interested in", "wants", "hopes") always name
+  the month and year they were stated, whatever the conversation's age.
+- Never write words that only make sense relative to when the page is read: "currently", "now", "recently",
+  "this week", "soon", "next month".
+- Resolve a relative time phrase against the conversation's date, in the direction the sentence states it: a
+  past-tense "met on Monday" is the Monday before the conversation. When the day or the direction is unclear, name
+  the conversation's month and year instead of guessing a day.
+- Keep every explicit date the conversation states exactly as stated: the date something happened is not the date
+  of the conversation, and one never replaces the other.
+- history_entries: the date the event happened when it is stated, otherwise the conversation's date.
 
 EXTRACTION GUIDELINES:
 - Extract entities that are meaningful to the user's life, work, or goals. Skip trivial mentions.
@@ -299,6 +317,7 @@ async def _extract_chunk(
     *,
     source: str | None = None,
     gap_note: str | None = None,
+    date_note: str | None = None,
     owner: str | None = None,
     _attempt: int = 0,
 ) -> dict:
@@ -319,7 +338,9 @@ async def _extract_chunk(
         response = await llm_fn(
             messages=[
                 {"role": "system", "content": EXTRACTION_SYSTEM_PROMPT + owner_block(owner)},
-                {"role": "user", "content": (gap_note or "")
+                # Cicada's notes first (the gap, then the date — G194 A1), the conversation last. The model sees
+                # this message only; evidence is verified against the stored body, so offsets never move.
+                {"role": "user", "content": (gap_note or "") + (date_note or "")
                  + ((MEMORY_SOURCE_NOTE + chunk) if source == "claude_memory" else chunk)},
             ],
             response_format={"type": "json_object"},
@@ -340,7 +361,8 @@ async def _extract_chunk(
         )
         await asyncio.sleep(backoff)
         return await _extract_chunk(
-            ep_id, chunk, chunk_idx, total_chunks, settings, source=source, gap_note=gap_note, owner=owner,
+            ep_id, chunk, chunk_idx, total_chunks, settings, source=source, gap_note=gap_note, date_note=date_note,
+            owner=owner,
             _attempt=_attempt + 1,
         )
 
@@ -357,8 +379,13 @@ async def extract(
     on_episode_failed: Callable[[dict, BaseException], None] | None = None,
     on_episode_skipped: Callable[[dict], None] | None = None,
     stop_check: Callable[[], bool] | None = None,
+    today: date | None = None,
 ) -> list[dict]:
     """Extract entities and relationships from unprocessed episodes (parallel).
+
+    ``today`` (G194 A1): the day every chunk's date note calls today — fixed once for the whole fan-out, so a run
+    that crosses midnight tells every conversation the same thing. ``None`` is the machine-local day
+    (``claims.current_day``), the day claim readers use.
 
     ``cancel_check`` (sleep-control): an optional zero-arg predicate polled at
     the natural per-episode checkpoints in this fan-out — before an episode
@@ -397,6 +424,9 @@ async def extract(
     reserve line or an engine interruption) said stop starting new reads. Reads
     already running finish either way; the caller decides whether to discard the batch.
     """
+    from api.services.claims import current_day
+
+    today = today or current_day()
     semaphore = asyncio.Semaphore(MAX_CONCURRENCY)
     results: list[dict | None] = [None] * len(episodes)
     success = 0
@@ -475,6 +505,9 @@ async def extract(
         gaps = tuple(episode.get("gaps") or ())
         masked = evidence.mask_gaps(content, gaps)
         chunks = [masked[s:e] for s, e in spans]
+        # G194 A1: every chunk is told when the conversation took place and what day it is now.
+        ep_day = source_dates.episode_day(episode)
+        date_note = source_dates.date_note(ep_day, today)
 
         async with semaphore:
             # Sleep-control checkpoint 2: this task may have waited a while
@@ -499,6 +532,7 @@ async def extract(
                         # Only a memory episode carries a note; every other call keeps its shape.
                         **({"source": "claude_memory"} if episode.get("source") == "claude_memory" else {}),
                         **({"gap_note": note} if note else {}),
+                        **({"date_note": date_note} if date_note else {}),
                         **({"owner": owner} if owner else {}),
                     )
                     all_entities.extend(parsed.get("entities", []))
@@ -515,6 +549,9 @@ async def extract(
                 for entity in all_entities:
                     entity["source_episode"] = ep_id
                     entity["source_episode_timestamp"] = episode.get("timestamp")
+                    # G194 fix 1: the day the date note gave (timestamp, else the id's date) rides along for Stage
+                    # 3's prompts only — never written, so no stored timestamp is invented from an id.
+                    entity["source_episode_day"] = ep_day.isoformat() if ep_day else None
                     entity["origin"] = ep_origin
                     sanitize_decay_class(entity)
                     sanitize_website(entity)

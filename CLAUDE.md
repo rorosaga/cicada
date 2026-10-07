@@ -243,6 +243,9 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 
 - The handshake rides `initialize`; recall fuses vectors, words and claims. **An agent's write carries provenance** (the
   harness as `Cicada-Author`, the session trailer) and an agent withdraws only what it wrote.
+- **The CLI (G180, ruling 21)** is a second door onto the same bodies: in-process from one bootstrap that reads no
+  `.env` (the root resolved once, canonical, pinned with the bank; `--bank` asserts, never selects), names from one
+  tested CLI↔MCP table (`cli_map`), one JSON envelope, no generic dispatcher (`mcp.md`).
 - **The remote connector (G135)** is off by default, serves only MCP on its own listener, through a tunnel **the person**
   runs; capability tokens are hashed, scoped (`sources` gates every verbatim word of the person's), expiring and
   revocable; a remote claim is never the person's own words.

@@ -43,13 +43,58 @@ enum EntityHeaderWords {
         }
     }
 
-    static func statusLine(status: EntityStatus, confidence: Double) -> String {
-        "\(status.word) · \(self.confidence(confidence))"
+    /// G194 D1 — a page whose newest source is more than this many days old is "old": its header says when it was
+    /// last mentioned instead of how confident Cicada is. The backend's `source_dates.OLD_AFTER_DAYS`, pinned by
+    /// `api/tests/test_g194_header_pin.py`.
+    static let oldAfterDays = 90
+
+    /// The newest source's day when it is a readable past day more than `oldAfterDays` before `today`; a missing,
+    /// invalid or future day is never old (G194 A2).
+    static func oldDay(_ lastReferenced: String?, today: ISODay) -> ISODay? {
+        guard let day = calendarDay(lastReferenced), today - day > oldAfterDays else { return nil }
+        return day
     }
 
-    /// The number lives here, in `.help`, and never as a bare "%" (DR-59).
-    static func statusHelp(status: EntityStatus, confidence: Double) -> String {
-        let base = Copy.Graph.confidenceOutOf100(Int((confidence * 100).rounded()))
+    /// A strict stored day (G194 fix round 1): `YYYY-MM-DD`, alone or before a time (`T` or a space), naming a day
+    /// the Gregorian calendar has. `ISODay` normalizes "2025-02-30" into Mar 2; the header must never show a day the
+    /// page did not name, so anything else is no day and the confidence words stay.
+    static func calendarDay(_ raw: String?) -> ISODay? {
+        guard let raw else { return nil }
+        let bytes = Array(raw.utf8)
+        let digits = [0, 1, 2, 3, 5, 6, 8, 9]
+        guard bytes.count >= 10, bytes[4] == UInt8(ascii: "-"), bytes[7] == UInt8(ascii: "-"),
+              digits.allSatisfy({ (UInt8(ascii: "0")...UInt8(ascii: "9")).contains(bytes[$0]) }),
+              bytes.count == 10 || bytes[10] == UInt8(ascii: "T") || bytes[10] == UInt8(ascii: " "),
+              let day = ISODay(raw) else { return nil }
+        func number(_ range: Range<Int>) -> Int { range.reduce(0) { $0 * 10 + Int(bytes[$1] - UInt8(ascii: "0")) } }
+        let civil = day.civil
+        return (civil.year, civil.month, civil.day) == (number(0..<4), number(5..<7), number(8..<10)) ? day : nil
+    }
+
+    /// "Feb 2025" in the viewer's language — the header's month (G194 A2); `nil` when the page is not old.
+    static func lastMentionedMonth(_ lastReferenced: String?, today: ISODay,
+                                   locale: Locale = .autoupdatingCurrent) -> String? {
+        oldDay(lastReferenced, today: today).map { RelativeDay.monthYear($0, locale: locale) }
+    }
+
+    /// R-DG14, with G194 A2 (owner D4): an old page reads "Active · last mentioned Feb 2025" — the confidence word
+    /// is replaced, never appended, because a meta line is one line (DR-59) and confidence is not freshness.
+    static func statusLine(status: EntityStatus, confidence: Double, lastReferenced: String? = nil,
+                           today: ISODay = .today(), locale: Locale = .autoupdatingCurrent) -> String {
+        if let month = lastMentionedMonth(lastReferenced, today: today, locale: locale) {
+            return "\(status.word) · \(Copy.Graph.lastMentioned(month))"
+        }
+        return "\(status.word) · \(self.confidence(confidence))"
+    }
+
+    /// The number lives here, in `.help`, and never as a bare "%" (DR-59); an old page adds the absolute day it was
+    /// last mentioned (DR-58: the full date in `.help`).
+    static func statusHelp(status: EntityStatus, confidence: Double, lastReferenced: String? = nil,
+                           today: ISODay = .today(), locale: Locale = .autoupdatingCurrent) -> String {
+        var base = Copy.Graph.confidenceOutOf100(Int((confidence * 100).rounded()))
+        if let day = oldDay(lastReferenced, today: today) {
+            base += Copy.Graph.lastMentionedHelp(RelativeDay.absolute(day, today: today, locale: locale))
+        }
         return status == .decaying ? base + Copy.Graph.fadingReason : base
     }
 
