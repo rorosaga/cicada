@@ -103,6 +103,11 @@ enum RelativeDay {
         format(day, template: "EEEE", locale: locale)
     }
 
+    /// "Feb 2025" — an old page's header (G194 A2): a month, never a relative word.
+    static func monthYear(_ day: ISODay, locale: Locale = .autoupdatingCurrent) -> String {
+        format(day, template: "yMMM", locale: locale)
+    }
+
     /// "Sep" — the band's month labels.
     static func month(_ day: ISODay, locale: Locale = .autoupdatingCurrent) -> String {
         format(day, template: "MMM", locale: locale)

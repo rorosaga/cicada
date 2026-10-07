@@ -243,6 +243,30 @@ then says the model wasn't shared.
 
 **Claim preservation (G148 regression):** Stage 5 rewrites prose with the stored `claims` fences removed from section parsing, then reattaches those fences unchanged. Rebuilding `Related` cannot remove beliefs before the claim pipeline reconciles them; synthesis output never authors a claims fence.
 
+**Dates in the prompts (G194 A1, 2026-10-07).** Every model call that writes about a conversation is told when it was
+said and what day it is now (`api/services/source_dates.py`).
+- **Stage 1.** Every chunk, and its one retry, opens with Cicada's date note, after the gap note when there is one. The
+  note gives the conversation's own day (its `timestamp`, else the date in its id: the same rule as a claim's
+  `valid_from`) and today, which is fixed once per `extract()` run. For a conversation older than `OLD_AFTER_DAYS` (90),
+  the note names the month and year to write it as of. An undated conversation gets no note, and nothing is guessed.
+  The system prompt's TIME rules say:
+  - write as of the conversation's date;
+  - name the month and year for anything changeable from old material, and for every plan or intention;
+  - never use "currently" or "recently";
+  - resolve relative phrases in the direction the sentence states;
+  - keep explicitly stated dates.
+- **Merge and contradiction.** The synthesis prompt (both callers: Stage 3 and an inbox conflict answer) gets today, the
+  page's `last_referenced` and every day the new information was said. "Newer" means a later date, not a later read.
+  Those days are the ones Stage 1 resolved (a conversation's timestamp, else its id's date: `source_episode_day` on the
+  extracted entity, `source_episode_days` on Stage 2's change). They are prompt-only: `last_referenced` and `created`
+  still come from the stored timestamps, and no timestamp is invented from an id.
+  The contradiction prompt dates both descriptions.
+- **What this changes, and what it does not.** The note is in the model's message only, never in a stored body, so G118
+  offsets and hashes do not move. A quote of the note itself degrades to `reasoning`. **This is prompt guidance:** no code
+  path checks or rewrites what the model returns, and pages written before it keep their present-tense prose. The
+  code-level floor (A3), the one-off pass over old pages (B) and intention claims (C) are deferred, with their open
+  blockers listed in the G194 plan.
+
 An **engine-independent tail** runs on every exit path, idle nights included: the state-dictionary
 refresh, claim expiry (first in the clean-tree-guarded slot, its own `commit_paths` commit),
 follow-ups (G141 PJ-6, right after expiry, its own `cicada` commit), the exact-match source links (G61 S3-a, `source_links`,
