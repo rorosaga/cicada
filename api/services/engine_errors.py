@@ -81,7 +81,8 @@ class EngineFailed(EngineError):
 
     The spec (§9, "still unverified") could not produce a real 429/quota
     envelope on demand, so an unrecognised failure is logged in full and given
-    one retry rather than being silently mapped onto a class it may not be.
+    one extraction retry rather than being silently mapped onto a class it may
+    not be. Retry eligibility is not evidence of a transient engine outage.
     """
 
 
@@ -112,3 +113,8 @@ def is_connectivity_error(message: str) -> bool:
 #: again), ``EngineUnavailable``, ``EngineExhausted`` and
 #: ``EngineModelNotFound`` (all of which need a human, not a second attempt).
 RETRYABLE: tuple[type[Exception], ...] = (EngineTimeout, EngineProtocolError, EngineFailed)
+
+#: Positively diagnosed interruptions eligible for a drain pause and the
+#: later-stage seam retry. An unnamed failure retains extraction's legacy
+#: retry, but cannot promise that continuing will fix an account or input.
+TRANSIENT: tuple[type[Exception], ...] = (EngineTimeout, EngineProtocolError, EngineConnectionLost)

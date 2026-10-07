@@ -215,20 +215,25 @@ conversation that fails **for its own reasons** (an empty answer, a provider req
 goes first in the very next batch for **one more try and is then parked**; a failure that is the **engine's** (signed out,
 throttled, exhausted, model not found) stops the run after the batch commits what it read and is never counted against a
 conversation. **Transient CLI engine failures (G171/G163):** extraction already retries each call once (10 s after
-`EngineTimeout`, 2 s after `EngineFailed` or `EngineProtocolError`); other CLI calls inside a drain use the same
-one-retry bound at the provider seam, releasing the concurrency permit during backoff. An exhausted `EngineTimeout`
-or `EngineFailed` in extraction initially discards the whole batch before Stage 2, including successful reads in a
-mixed batch. Once doomed, the batch starts no further Stage-1 calls; calls already in flight finish. The sidecar
-persists timeout observations by episode across Continue and process restarts. If the same episode times out again
-on Continue and it is the only timeout in that batch, its second failed read parks it (`timed_out`) and healthy
-neighbors can be filed. Timeouts spread across multiple episodes in a batch remain an engine interruption, even
-on repeated Continues, without charging conversation attempts or parking those episodes. A newly affected episode
-also pauses first. An `EngineFailed` retains its trimmed diagnosis (up to 300 characters).
-A transient error escaping a later stage (`engine_errors.RETRYABLE`) pauses with reason `engine`, no `error`,
+`EngineTimeout`, 2 s after `EngineFailed` or `EngineProtocolError`). Retry eligibility alone does not diagnose an
+outage: `TRANSIENT` names only `EngineTimeout`, `EngineConnectionLost` and `EngineProtocolError`. Other CLI calls
+inside a drain retry only those positive diagnoses once at the provider seam, releasing the concurrency permit
+during backoff. A first exhausted extraction timeout discards the batch before Stage 2, including successful
+reads in a mixed batch. Once doomed, the batch starts no further Stage-1 calls; calls already in flight finish.
+The sidecar persists timeout observations by episode across Continue and process restarts. Each previously
+observed id that times out again can receive its second conversation attempt and be parked (`timed_out`), even
+when multiple ids time out together or the batch has no healthy neighbor. A newly affected id still pauses first;
+its discarded leg retains observations but charges no content attempt. Connection loss always pauses and never
+charges a timeout/content attempt.
+An unnamed `EngineFailed` during extraction is content `other`: it gets the normal next-batch retry-then-park,
+including a singleton or all-unnamed batch, without discarding healthy reads. The existing guard for generic
+unobserved failures on every conversation remains. An unnamed failure escaping a later stage is an error with a
+trimmed diagnosis (up to 300 characters), not a transient pause or a promise that retrying will fix it.
+A positively transient error escaping a later stage pauses with reason `engine`, no `error`,
 reset time or auto-continue. The frozen ids and prior committed batches stay intact; Continue resumes the same run
 and reads the interrupted batch again. An empty/unparseable extraction answer still gets the conversation
-retry-then-park rule. Authentication, model and plan errors are never retried by this policy; calls outside drains
-retain their existing policy.
+retry-then-park rule. Positively identified authentication, model and plan errors are never retried by this policy;
+an unclassified extraction rejection retains its legacy call retry. Calls outside drains retain their existing policy.
 **Connectivity (owner, 2026-10-07):** failed CLI transport diagnostics (routing discovery, exhausted reconnect
 warnings, DNS, refused/reset connections and offline/network errors) become `EngineConnectionLost`, a retryable
 `EngineFailed` subtype. The existing one-retry/2-second policy then pauses with Continue; repeated connectivity
@@ -236,6 +241,9 @@ loss never consumes an episode's timeout/parking attempt. Detection includes emp
 the reading engine's connection-retry metadata. Completed turns that recovered from reconnect warnings remain
 successful; sign-out, model, quota and billing diagnoses outrank old reconnect notices. Raw diagnostics remain
 available in Details, while the page speaks provider-neutral pause/fix copy.
+Routing-discovery authorization/account errors and the reading engine's authentication/login and low-credit
+diagnoses are explicitly non-transient. Failed-turn warning events only inform connectivity detection, not model,
+auth or quota matching; a timeout stays a timeout despite an unrelated unsupported-config warning.
 An id another writer marked processed meanwhile is `skipped`, and a bank switch between batches stops the run (`bank_switched`; `activate`, `demo`,
 `leave-demo` and the active bank's rename answer **409** while `SleepState.drain_run`). **A scheduled cycle drains too**
 (ruling 16: both scheduler entry points pass `drain=True`) but with `user_triggered=False`, so automatic engine

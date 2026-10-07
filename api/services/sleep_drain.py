@@ -77,6 +77,7 @@ class BatchLive:
     pause_sentence: str | None = None
     transient_stop: DrainStop | None = None           # discard this batch before its first write
     timeouts: set[str] = field(default_factory=set)    # compare episode-specific failures across Continues
+    unnamed_failed: set[str] = field(default_factory=set)  # CLI rejected this input without a classified cause
     sort_done: int = 0
     sort_total: int | None = None
     decide_done: int = 0
@@ -251,7 +252,7 @@ def classify(exc: BaseException, breaker_sentence: str | None = None,
 
         return DrainStop("plan_limit", (breaker_sentence or str(exc)).strip(), resets,
                          breaker_kind or agent_engine.limit_kind_of(exc))
-    if isinstance(exc, engine_errors.RETRYABLE):
+    if isinstance(exc, engine_errors.TRANSIENT):
         cause = "The engine timed out." if isinstance(exc, engine_errors.EngineTimeout) else "The engine stopped answering."
         if isinstance(exc, engine_errors.EngineFailed) and str(exc).strip():
             cause += " " + str(exc).strip()[:300]
@@ -259,19 +260,22 @@ def classify(exc: BaseException, breaker_sentence: str | None = None,
                          transient=True)
     if isinstance(exc, (engine_errors.EngineUnavailable, engine_errors.EngineModelNotFound)):
         return DrainStop("engine", str(exc).strip(), None)
+    if isinstance(exc, engine_errors.EngineFailed):
+        return DrainStop("error", f"{type(exc).__name__}: {str(exc).strip()[:300]}")
     return DrainStop("error", f"{type(exc).__name__}: {exc}", None)
 
 
 def classify_episode(exc: BaseException) -> tuple[str, str | None]:
     """One conversation's failure: ``("pause", None)`` when it is the engine's
-    (throttled, exhausted, unavailable, model not found, a CLI timeout or unnamed failure, a
+    (throttled, exhausted, unavailable, model not found, a CLI timeout or connection loss, a
     provider 5xx or refused request, the network — never counted against the
     conversation), else ``("content", reason)`` with a ``UNREAD_REASONS`` enum. Only
     classes that clearly belong to the conversation park it (an empty or unparseable
-    answer, a provider request timeout, a context-window overflow, a content refusal); an unrecognised
-    failure is content here, but a batch where EVERY conversation failed with one is
-    the engine's (``sleep_cycle._run_stages``). A drain's batch hooks override the
-    CLI-timeout default for an isolated episode that already timed out on an earlier leg,
+    answer, a provider request timeout, a context-window overflow, a content refusal).
+    An unnamed CLI rejection defaults to content, including an all-rejected batch;
+    generic unclassified errors on EVERY conversation retain the engine guard
+    (``sleep_cycle._run_stages``). A drain's batch hooks override the
+    CLI-timeout default for each episode that already timed out on an earlier leg,
     so it can receive its second conversation attempt and be parked."""
     from api.services import json_parse
 
@@ -301,9 +305,11 @@ def classify_episode(exc: BaseException) -> tuple[str, str | None]:
         pass
     if isinstance(exc, (engine_errors.EngineThrottled, engine_errors.EngineExhausted,
                         engine_errors.EngineUnavailable, engine_errors.EngineModelNotFound,
-                        engine_errors.EngineFailed, engine_errors.EngineTimeout)):
-        # EngineFailed: the CLI reported an error it could not name — after its own retry.
+                        engine_errors.EngineConnectionLost, engine_errors.EngineTimeout)):
         return "pause", None
+    if isinstance(exc, engine_errors.EngineFailed):
+        # No positive engine diagnosis: retain retry-then-park for this input.
+        return "content", "other"
     if isinstance(exc, (engine_errors.EngineProtocolError, json_parse.EmptyResponse)):
         return "content", "empty_answer"
     if isinstance(exc, ValueError):        # includes json.JSONDecodeError

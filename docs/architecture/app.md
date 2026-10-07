@@ -182,6 +182,9 @@ the connected agents, asks `TourOffer` and lands on Home. *Set up later* and *Tr
 remain; export reminders (`ExportWaits`) ask for notification permission only when a delay is chosen. Getting started
 continues on Home — the first read (*Read now*, G125 R10's second narrow amendment, only inside the card) and "Keep
 reading on its own?" asked once of a person still on `manual`, its options gated by ruling 4.
+The first-read failure row uses the same calm “Reading stopped” / “See what needs a fix in Details, then try again”
+copy as Sleep (DR-7/59), never a raw server sentence. Its one Details action (DR-40) stages Sleep's Last cycle
+section through `AppRouter`; Sleep consumes it once on appear/change, expands Details and scrolls to the diagnosis.
 
 **Settings → Engines: the engine picker (G122, Track E; moved by G139 A3).** A row of cards with real marks — Auto,
 Claude plan, ChatGPT plan, OpenRouter, Ollama (tagged *Local*), API key — over the connections registry's candidates writes

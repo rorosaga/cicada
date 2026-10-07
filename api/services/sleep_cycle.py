@@ -2003,11 +2003,11 @@ def _batch_hooks(live: "sleep_drain.BatchLive", guard, ds: "sleep_drain.DrainSta
 
         if isinstance(exc, engine_errors.EngineTimeout):
             live.timeouts.add(ep["id"])
-            if len(live.timeouts) > 1 or not ds.timeout_attempts.get(ep["id"]):
+            if not ds.timeout_attempts.get(ep["id"]):
                 live.engine_failed.add(ep["id"])
                 live.transient_stop = live.transient_stop or sleep_drain.classify(exc)
             else:
-                # A sole episode timed out on a previous leg too: let the batch
+                # This episode timed out on a previous leg too: let the batch
                 # file its healthy reads and give this episode its second attempt.
                 live.failed[ep["id"]] = "timed_out"
             return
@@ -2016,10 +2016,12 @@ def _batch_hooks(live: "sleep_drain.BatchLive", guard, ds: "sleep_drain.DrainSta
             live.engine_failed.add(ep["id"])
             live.pause_class = True
             live.pause_sentence = live.pause_sentence or str(exc).strip()[:300]
-            if isinstance(exc, engine_errors.RETRYABLE):
+            if isinstance(exc, engine_errors.TRANSIENT):
                 live.transient_stop = live.transient_stop or sleep_drain.classify(exc)
         else:
             live.failed[ep["id"]] = reason or "other"
+            if isinstance(exc, engine_errors.EngineFailed):
+                live.unnamed_failed.add(ep["id"])
 
     def skipped(ep: dict) -> None:
         live.skipped.add(ep["id"])
@@ -2253,14 +2255,14 @@ async def _run_stages(
         for ep_id in live.timeouts:
             batch.ds.timeout_attempts[ep_id] = batch.ds.timeout_attempts.get(ep_id, 0) + 1
         if live.transient_stop is not None:
-            # Different ids failing in this batch are an engine problem, even
-            # when they also failed on a previous leg. Never park an outage.
+            # A newly affected id or a positive connection interruption dooms
+            # this leg. Keep per-id observations but discard its content work.
             for ep_id in live.timeouts:
                 live.failed.pop(ep_id, None)
             live.engine_failed.update(live.timeouts)
             return _StageOutcome(stop=live.transient_stop)
         for ep_id in live.timeouts:
-            # The same isolated id failed across legs. _fold charges its second
+            # Each repeated id failed across legs. _fold charges its second
             # content attempt and parks it, allowing this drain to finish.
             batch.ds.attempts[ep_id] = max(batch.ds.attempts.get(ep_id, 0),
                                           batch.ds.timeout_attempts[ep_id] - 1)
@@ -2299,10 +2301,10 @@ async def _run_stages(
             i: r for i, r in unread_content.items() if i in live.failed} if live is not None else {})
     if (episodes and not extracted and live is not None and not pause_class and not _ae_breaker()
             and unread_content and all(i in live.failed for i in unread_content)
-            # An unrecognised failure on EVERY conversation is far likelier the engine's (an
-            # outage, a bad model parameter) than each conversation's: that falls through to the
-            # engine stop below — nothing parked, no attempt counted, the queue left as it was.
-            and "other" not in unread_content.values()):
+            # A positively reported but unnamed CLI rejection remains input-class,
+            # including a singleton batch. Generic unobserved "other" failures
+            # retain the existing whole-engine guard below.
+            and all(r != "other" or i in live.unnamed_failed for i, r in unread_content.items())):
         # Every conversation failed for ITS OWN reasons (empty answers, timeouts): not an
         # engine failure — nothing to commit, no error, each one gets its retry or is parked.
         _state.progress = f"{label}Could not read {len(unread_content)} conversation(s)"

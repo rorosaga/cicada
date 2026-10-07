@@ -86,6 +86,62 @@ def test_completed_reply_after_reconnection_is_success(mode):
     check(mode, CliResult(0, "\n".join(json.dumps(e) for e in events), "connection reset"))
 
 
+@pytest.mark.parametrize("shape", ["events", "empty", "plain"])
+@pytest.mark.parametrize("reconnecting", [False, True])
+@pytest.mark.parametrize("mode,message,expected", [
+    ("codex", "workspace routing discovery unauthorized (401)", engine_errors.EngineUnavailable),
+    ("codex", "selected workspace missing from routing discovery", engine_errors.EngineUnavailable),
+    ("codex", "workspace routing requires a ChatGPT account id", engine_errors.EngineUnavailable),
+    ("agent", 'API Error: 401 {"type":"authentication_error"} Please run /login', engine_errors.EngineUnavailable),
+    ("agent", "API Error: 402 credit balance is too low", engine_errors.EngineExhausted),
+])
+def test_known_account_failures_are_not_transient_even_after_reconnection(mode, message, expected, shape, reconnecting):
+    result = failed(mode, message, shape)
+    if reconnecting:
+        result = CliResult(result.rc, result.stdout, result.stderr + "\nReconnecting... 2/5")
+    with pytest.raises(expected):
+        check(mode, result)
+
+
+@pytest.mark.parametrize("warning", ["reasoning summary is not supported", "config value does not exist",
+                                    "401 unauthorized", "rate limit notice", "unknown model"])
+@pytest.mark.parametrize("rc", [1, 124])
+def test_codex_nuisance_warnings_do_not_become_auth_model_or_quota_failures(warning, rc):
+    event = {"type": "item.completed", "item": {"type": "error", "message": warning}}
+    result = CliResult(rc, json.dumps(event), "")
+    with pytest.raises(engine_errors.EngineTimeout if rc == 124 else engine_errors.EngineProtocolError):
+        check("codex", result)
+
+
+@pytest.mark.parametrize("mode", ["agent", "codex"])
+@pytest.mark.parametrize("is_async", [False, True])
+def test_unnamed_later_stage_failure_has_no_seam_retry_or_transient_promise(
+        mode, is_async, monkeypatch, agent_runner):
+    from api.services import sleep_drain
+
+    ds = sleep_drain.DrainState("sleep_unknown", frozen_ids=["ep1"])
+    sleep_drain.register_batch("sleep_unknown_b001", ds)
+    runner = agent_runner(failed(mode, "account could not be used"), failed(mode, "account could not be used"))
+    backoffs = []
+    async def sleep(delay):
+        backoffs.append(delay)
+
+    monkeypatch.setattr(asyncio, "sleep", sleep)
+    monkeypatch.setattr("time.sleep", lambda delay: backoffs.append(delay))
+    fn = providers.resolve_llm_fn(Settings(_env_file=None, llm_mode=mode), stage="skills", runner=runner,
+                                  scope="sleep:sleep_unknown_b001", sink=lambda e: None, is_async=is_async)
+    try:
+        with pytest.raises(engine_errors.EngineFailed) as caught:
+            result = fn(messages=[{"role": "user", "content": "alpha-project"}])
+            if is_async:
+                asyncio.run(result)
+        stop = sleep_drain.classify(caught.value)
+        assert stop.reason == "error" and not stop.transient and "Continue" not in stop.sentence
+        assert len(runner.calls) == ds.calls == 1 and backoffs == []
+    finally:
+        sleep_drain.unregister_batch("sleep_unknown_b001")
+
+
 @pytest.mark.parametrize("mode", ["agent", "codex"])
 def test_repeated_extraction_connection_loss_never_parks_and_recovers_on_continue(tmp_path, monkeypatch, mode):
     from types import SimpleNamespace

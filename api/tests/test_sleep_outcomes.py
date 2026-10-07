@@ -57,7 +57,8 @@ def _client(cfg):
     (json_parse.EmptyResponse("empty"), ("content", "empty_answer")),
     (ValueError("no JSON object found"), ("content", "unparseable")),
     (json.JSONDecodeError("bad", "{", 1), ("content", "unparseable")),
-    (engine_errors.EngineFailed("x"), ("pause", None)),
+    (engine_errors.EngineFailed("x"), ("content", "other")),
+    (engine_errors.EngineConnectionLost("x"), ("pause", None)),
     (OSError("connection reset"), ("pause", None)),
     (RuntimeError("anything else"), ("content", "other")),
 ])

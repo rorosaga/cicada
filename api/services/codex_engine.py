@@ -103,6 +103,8 @@ _LOGGED_OUT_MARKERS = (
     "401 unauthorized", "missing bearer", "not logged in", "sign in again", "log in again",
     "refresh token was already used", "refresh token was revoked", "refresh_token_expired",
     "refresh_token_reused", "refresh_token_invalidated",
+    "routing discovery unauthorized", "unauthorized (401)",
+    "selected workspace missing from routing discovery", "workspace routing requires a chatgpt account id",
 )
 _NOT_FOUND_MARKERS = ("model_not_found", "model not found", "does not exist", "is not supported",
                       "unknown model")
@@ -215,9 +217,17 @@ def check(result: CliResult, parsed: ExecResult) -> None:
     # stays successful, even when its reply discusses being offline.
     transport = " ".join([reason, result.stderr or "", *parsed.warnings,
                           result.stdout or "" if parsed.json_lines == 0 else ""])
-    blob = transport.lower()
+    # Warnings can identify an interrupted connection, but a config notice is
+    # not proof that the selected model, account or plan failed.
+    blob = f"{reason} {result.stderr or ''} {result.stdout or '' if parsed.json_lines == 0 else ''}".lower()
     if any(m in blob for m in _LOGGED_OUT_MARKERS):
         raise engine_errors.EngineUnavailable(SIGNED_OUT)
+    if result.rc == 124:
+        if any(m in blob for m in _LIMIT_MARKERS):
+            raise engine_errors.EngineThrottled(f"ChatGPT plan limit reached: {reason[:200]}")
+        if engine_errors.is_connectivity_error(transport):
+            raise engine_errors.EngineConnectionLost(f"`codex exec` lost the connection: {transport.strip()[:300]}")
+        raise engine_errors.EngineTimeout(f"`codex exec` timed out: {(result.stderr or '').strip()[:200]}")
     if any(m in blob for m in _NOT_FOUND_MARKERS):
         raise engine_errors.EngineModelNotFound(f"the ChatGPT plan rejected the model: {reason[:200]}")
     if any(m in blob for m in _SCHEMA_MARKERS):
@@ -226,8 +236,6 @@ def check(result: CliResult, parsed: ExecResult) -> None:
         raise engine_errors.EngineThrottled(f"ChatGPT plan limit reached: {reason[:200]}")
     if engine_errors.is_connectivity_error(transport):
         raise engine_errors.EngineConnectionLost(f"`codex exec` lost the connection: {transport.strip()[:300]}")
-    if result.rc == 124:
-        raise engine_errors.EngineTimeout(f"`codex exec` timed out: {(result.stderr or '').strip()[:200]}")
     if parsed.json_lines == 0:
         raise engine_errors.EngineUnavailable(
             f"`codex exec` produced no events (rc {result.rc}): "

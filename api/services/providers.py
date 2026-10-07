@@ -588,7 +588,8 @@ def resolve_llm_fn(
         # a drain retry here, rather than replaying the whole paid batch. Other
         # workloads retain their existing retry policy. Every actual attempt
         # passes through _agent_invoke's ledger and call counter separately.
-        if attempt or stage == "extraction" or sleep_drain.drain_for(agent_engine_cycle_id()) is None:
+        if (attempt or stage == "extraction" or not isinstance(exc, engine_errors.TRANSIENT)
+                or sleep_drain.drain_for(agent_engine_cycle_id()) is None):
             return None
         delay = 10 if isinstance(exc, engine_errors.EngineTimeout) else 2
         logger.warning(f"Sleep engine call timed out or failed; retrying once in {delay}s")

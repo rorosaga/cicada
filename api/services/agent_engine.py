@@ -133,8 +133,10 @@ _RATE_LIMIT_MARKERS = ("rate limit", "rate_limit", "too many requests", "overloa
 _LOGGED_OUT_MARKERS = (
     "not logged in", "not authenticated", "claude auth login",
     "invalid api key", "oauth token has expired", "session expired",
+    "authentication_error", "please run /login", "api error: 401",
 )
 _NOT_FOUND_MARKERS = ("model not found", "unknown model", "no such model")
+_BILLING_MARKERS = ("billing_error", "credit balance", "api error: 402")
 
 _STATE_LOCK = threading.Lock()
 _BREAKER: dict[str, str | None] = {"reason": None}
@@ -429,7 +431,7 @@ def _classify_error(
         return engine_errors.EngineExhausted(
             "Claude plan budget is exhausted for this window — Sleep stopped with the queue intact."
         )
-    if any(marker in blob for marker in _LOGGED_OUT_MARKERS):
+    if status == 401 or any(marker in blob for marker in _LOGGED_OUT_MARKERS):
         return engine_errors.EngineUnavailable(
             "Claude Code is signed out — run `claude auth login`, then trigger Sleep again."
         )
@@ -441,7 +443,7 @@ def _classify_error(
     # markers — a billing retry means the plan is spent (not a transient),
     # a rate-limit/overloaded retry means throttled whatever the prose says.
     retried = {r.error for r in (stream.retries if stream is not None else [])}
-    if "billing_error" in retried:
+    if status == 402 or "billing_error" in retried or any(marker in blob for marker in _BILLING_MARKERS):
         return engine_errors.EngineExhausted(
             "Claude plan usage is used up for now — Sleep stopped with the queue intact."
         )
@@ -481,19 +483,20 @@ def parse_envelope(result: CliResult, stream: agent_stream.StreamResult | None =
     transport = " ".join([result.stderr or "", result.stdout or "" if stream.json_lines == 0 else "",
                           *(r.error or "" for r in stream.retries)])
     connection_lost = engine_errors.is_connectivity_error(transport)
+    account_failure = any(marker in transport.lower() for marker in (*_LOGGED_OUT_MARKERS, *_BILLING_MARKERS))
     if result.rc == 124:
         if any(r.error in _THROTTLE_RETRY_ERRORS for r in stream.retries):
             return _raise(engine_errors.EngineThrottled(
                 "Claude plan throttled — the CLI was still retrying a rate limit when Sleep's "
                 "time limit for the call ran out."
             ))
-        if connection_lost:
+        if connection_lost or account_failure:
             return _raise(_classify_error({"result": transport.strip()}, result, stream))
         return _raise(engine_errors.EngineTimeout(
             f"`claude -p` timed out: {(result.stderr or '').strip()[:200]}"
         ))
     text = (result.stdout or "").strip()
-    if connection_lost and (not text or stream.json_lines == 0 or stream.envelope is None):
+    if (connection_lost or account_failure) and (not text or stream.json_lines == 0 or stream.envelope is None):
         return _raise(_classify_error({"result": transport.strip()}, result, stream))
     if not text and result.rc == 0:
         # The CLI ran and exited cleanly and said nothing: an empty answer, not a

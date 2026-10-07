@@ -1,4 +1,4 @@
-"""G171/G163: pause transient trouble; park a repeated isolated episode timeout."""
+"""G171/G163: pause positive transients; park repeated per-episode failures."""
 from __future__ import annotations
 
 import asyncio
@@ -39,6 +39,8 @@ def fake_engine(monkeypatch, ids, failures):
         ep_id = next(i for i in ids if i in messages[-1]["content"])
         calls[ep_id] += 1
         failure = failures.get(ep_id)
+        if isinstance(failure, BaseException):
+            raise failure
         if failure is not None and (failure == "persistent" or calls[ep_id] == 1):
             raise engine_errors.EngineTimeout("engine call exceeded its time budget")
         return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(
@@ -147,17 +149,55 @@ def test_timeouts_move_to_different_episodes_across_continues_remain_engine_paus
     assert state.error is None and waiting(memory) == ids
 
 
-def test_timeouts_spread_over_multiple_episodes_never_park_the_batch_as_bad_content(tmp_path, monkeypatch):
+def test_two_repeated_timeouts_each_park_even_without_a_healthy_neighbor(tmp_path, monkeypatch):
     ids = episode_ids(2)
     memory = seed_bank(tmp_path, ids)
     _, calls, _ = fake_engine(monkeypatch, ids, dict.fromkeys(ids, "persistent"))
     run(memory)
     state = run(memory, continue_from=sleep_paused.get_paused(memory))
-    rec = sleep_paused.get_paused(memory)
-    assert rec is not None and rec["reason"] == "engine" and rec["timeout_attempts"] == dict.fromkeys(ids, 2)
-    assert rec["attempts"] == {} and sleep_parked.ids(memory) == set()
+    assert sleep_paused.get_paused(memory) is None
+    assert state.drain.finished and state.drain.parked == dict.fromkeys(ids, "timed_out")
     assert waiting(memory) == ids and state.error is None
+    assert all(v["attempts"] == 2 for v in sleep_parked.valid(memory).values())
     assert calls == dict.fromkeys(ids, 4)
+
+
+@pytest.mark.parametrize("concurrency", [1, 3])
+def test_two_persistent_timeouts_in_a_mixed_batch_each_park_and_drain_finishes(tmp_path, monkeypatch, concurrency):
+    ids = episode_ids(6)
+    memory = seed_bank(tmp_path, ids)
+    bad = ids[2:4]
+    _, calls, _ = fake_engine(monkeypatch, ids, dict.fromkeys(bad, "persistent"))
+    monkeypatch.setattr(entity_extractor, "MAX_CONCURRENCY", concurrency)
+    state = run(memory, cap=3)
+    for _ in range(3):
+        rec = sleep_paused.get_paused(memory)
+        if rec is None:
+            break
+        state = run(memory, cap=3, continue_from=rec)
+    assert state.drain.finished and state.error is None
+    assert state.drain.parked == dict.fromkeys(bad, "timed_out")
+    assert state.drain.filed == 4 and waiting(memory) == bad
+    assert sleep_paused.get_paused(memory) is None
+    assert all(sleep_parked.valid(memory)[i]["attempts"] >= 2 for i in bad)
+    assert git(memory, "status", "--porcelain") == ""
+
+
+@pytest.mark.parametrize("count", [1, 6])
+def test_unnamed_conversation_rejection_retries_then_parks_without_discarding_healthy_reads(
+        tmp_path, monkeypatch, count):
+    ids = episode_ids(count)
+    memory = seed_bank(tmp_path, ids)
+    bad = ids[3] if count == 6 else ids[0]
+    _, calls, backoffs = fake_engine(monkeypatch, ids, {bad: engine_errors.EngineFailed("your prompt was flagged")})
+    state = run(memory)
+    assert state.drain.finished and state.error is None
+    assert state.drain.parked == {bad: "other"} and state.drain.filed == count - 1
+    assert sleep_paused.get_paused(memory) is None and waiting(memory) == [bad]
+    assert sleep_parked.valid(memory)[bad]["attempts"] == 2
+    assert calls == {bad: 4, **{i: 1 for i in ids if i != bad}}
+    assert backoffs == [2, 2]
+    assert git(memory, "status", "--porcelain") == ""
 
 
 def test_doomed_batch_does_not_start_waiting_stage_one_calls(tmp_path, monkeypatch):
@@ -174,9 +214,9 @@ def test_doomed_batch_does_not_start_waiting_stage_one_calls(tmp_path, monkeypat
     assert calls == {ids[0]: 4, **dict.fromkeys(ids[1:], 1)}
 
 
-def test_unknown_cli_failure_keeps_its_trimmed_diagnosis():
+def test_connection_loss_keeps_its_trimmed_diagnosis():
     diagnosis = "temporary CLI configuration failure " + "x" * 400
-    stop = sleep_drain.classify(engine_errors.EngineFailed(diagnosis))
+    stop = sleep_drain.classify(engine_errors.EngineConnectionLost(diagnosis))
     assert stop.reason == "engine" and stop.transient
     assert diagnosis[:300] in stop.sentence and diagnosis not in stop.sentence
 
@@ -205,7 +245,8 @@ def test_explicit_scheduled_cli_transient_pause_is_replaceable_after_six_hours(t
     assert sleep_paused.schedule_may_replace(rec, now=1000 + sleep_paused.ENGINE_RETRY_S)
 
 
-@pytest.mark.parametrize("error", engine_errors.RETRYABLE)
+@pytest.mark.parametrize("error", [engine_errors.EngineTimeout, engine_errors.EngineProtocolError,
+                                  engine_errors.EngineConnectionLost])
 def test_a_transient_error_escaping_a_later_stage_pauses(tmp_path, monkeypatch, error):
     ids = episode_ids(2)
     memory = seed_bank(tmp_path, ids)
@@ -220,6 +261,23 @@ def test_a_transient_error_escaping_a_later_stage_pauses(tmp_path, monkeypatch, 
     assert rec is not None and rec["reason"] == "engine" and rec["can_continue"]
     assert rec["frozen_ids"] == ids and rec["filed"] == 0
     assert state.error is None and waiting(memory) == ids
+    assert git(memory, "status", "--porcelain") == ""
+
+
+def test_unnamed_later_stage_failure_ends_with_diagnosis_and_no_retry_promise(tmp_path, monkeypatch):
+    ids = episode_ids(2)
+    memory = seed_bank(tmp_path, ids)
+    install(monkeypatch)
+
+    async def fail(*a, **kw):
+        raise engine_errors.EngineFailed("account could not be used")
+
+    monkeypatch.setattr("api.services.skill_extractor.detect_patterns", fail)
+    state = run(memory)
+    assert sleep_paused.get_paused(memory) is None
+    assert state.error == "EngineFailed: account could not be used"
+    assert not state.drain.finished and waiting(memory) == ids
+    assert "Continue" not in sleep_drain.classify(engine_errors.EngineFailed("unknown")).sentence
     assert git(memory, "status", "--porcelain") == ""
 
 
