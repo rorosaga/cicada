@@ -20,6 +20,7 @@ CLOCK_MODULES = (
     'owner_identity', 'hub_builder', 'entity_extractor', 'entity_resolver',
     'skill_extractor', 'vector_index', 'search_index', 'ask_service',
     'mcp_tools', 'sleep_debt', 'sleep_progress', 'sleep_run_prefs',
+    'decay_policy', 'turn_authorship',
 )
 
 
@@ -117,7 +118,14 @@ class Runtime:
                 return response
             return async_call if asynchronous else call
 
-        factory = self.fake.resolve if self.fake else pin
+        def fake_completion(settings, **kwargs):
+            asynchronous = kwargs.get('is_async')
+            if asynchronous is None:
+                asynchronous = inspect.iscoroutinefunction(kwargs.get('completion'))
+            kwargs['completion'] = self.fake.completion(stage=kwargs.get('stage'), is_async=asynchronous)
+            return original_factory(settings, **kwargs)
+
+        factory = fake_completion if self.fake else pin
         # Replace existing imported aliases as well as dynamic factory imports.
         for module in [providers, *modules]:
             if getattr(module, 'resolve_llm_fn', None) is original_factory:
@@ -175,11 +183,19 @@ class Runtime:
     @contextmanager
     def frozen(self):
         clock = self.clock
-        class FrozenDate(date):
+        class DateType(type):
+            def __instancecheck__(cls, value):
+                return isinstance(value, date)
+
+        class DatetimeType(type):
+            def __instancecheck__(cls, value):
+                return isinstance(value, datetime)
+
+        class FrozenDate(date, metaclass=DateType):
             @classmethod
             def today(cls):
                 return clock.date()
-        class FrozenDatetime(datetime):
+        class FrozenDatetime(datetime, metaclass=DatetimeType):
             @classmethod
             def now(cls, tz=None):
                 return clock.astimezone(tz) if tz else clock.replace(tzinfo=None)

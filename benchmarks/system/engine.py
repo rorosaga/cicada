@@ -70,21 +70,20 @@ class FakeEngine:
     def arm(self, mode, skills_call=1):
         self.mode, self.remaining = mode, skills_call
 
-    def resolve(self, settings, *, stage=None, completion=None, is_async=None, **kwargs):
-        import inspect
-        asynchronous = is_async if is_async is not None else inspect.iscoroutinefunction(completion)
+    def completion(self, *, stage=None, is_async=False):
+        """Transport stub injected beneath the real production provider wrapper."""
 
-        def call(*, messages, **unused):
+        def call(*, model, messages, **unused):
             import time
             from api.services import agent_engine, engine_errors, sleep_cycle
 
             start = time.perf_counter()
-            event = {'stage': stage, 'model': settings.litellm_model, 'tokens': None,
+            event = {'stage': stage, 'model': model, 'tokens': None,
                      'ok': False, 'retry': False, 'scope': agent_engine.current_scope()}
             self.calls.append(event)
             try:
                 text = messages[-1]['content']
-                agent_engine.record_model_used(settings.litellm_model)
+                agent_engine.record_model_used(model)
                 if stage == 'skills' and self.mode:
                     self.remaining -= 1
                     if self.remaining <= 0:
@@ -132,7 +131,7 @@ class FakeEngine:
         async def async_call(**kwargs):
             return call(**kwargs)
 
-        return async_call if asynchronous else call
+        return async_call if is_async else call
 
 
 def embed(texts, *, is_query=False):

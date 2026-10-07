@@ -17,39 +17,48 @@ api/.venv/bin/python -m benchmarks.system.runner \
   --preset small --engine fake
 ```
 
-The last stdout line identifies the manifest. It is stored in a separate sibling
-`<bank-name>_results` directory (0600 JSON), never inside the bank. Failures also
+The last stdout line identifies the manifest. It is stored under the marked
+benchmark home in `results/` (0600 JSON), never inside the bank or next to an
+explicit bank. Failures also
 produce a manifest and a nonzero exit. A failed integrity assertion is not a score.
 The config has only `batch_size` (2 for small) and the embedding model. `--validate-only`
 prepares marked directories and validates arguments without importing the backend.
 
 `temp` creates a fresh directory and writes an ownership marker. Explicit paths
 require the exact `_bench.yaml` / `_bench_home.yaml` marker; symlinks and overlapping
-bank/home paths are refused. Internal model-cache symlinks in the home are permitted only when their targets stay within that home; bank symlinks are always refused. The small workload requires an empty marked bank.
+bank/home paths are refused after symlink checks and canonical resolution. Internal model-cache symlinks in the home are permitted only when their targets stay within that home; bank symlinks are always refused. The small workload requires an empty marked bank.
 Home can be reused for separately provisioned plan sign-in/model cache; a fresh bank
 is required each time. Config, expected answers, judge output and manifests remain
 outside banks. The child uses an allowlisted environment, isolated HOME/CICADA_HOME,
-capture/fetch/telemetry off, provider keys absent and dotenv disabled. Its working
-directory is the isolated home, so Pydantic's default `.env` cannot find the repo's
-configuration. It never reads/copies a developer's bank, settings or credentials.
+capture/fetch/telemetry off and provider keys absent. Explicit workload settings
+use `_env_file=None`; the home refuses `.env`, so default read-service settings
+cannot load a home dotenv file. `PYTHON_DOTENV_DISABLED` suppresses incidental
+`load_dotenv` calls; it does not control Pydantic's `dotenv_values` reader. The child
+uses `python -P` with the repository on `PYTHONPATH`, preventing reusable-home
+packages from shadowing repository code. `PYTHONHASHSEED=0` pins set iteration. It never reads/copies a developer's bank, settings or credentials.
 
 ## Production coverage and controls
 
 Input sentences and dated turns come from `fixtures/conversations.json`; held-out
 questions/gold are a separate file that neither the fake engine nor production
 stager receives. The fake engine understands a small sentence grammar and returns
-extractions from the **actual input**, not gold summaries. It substitutes
-`providers.resolve_llm_fn` at the existing engine boundary. Feature-hash embeddings
+extractions from the **actual input**, not gold summaries. It injects the existing
+`completion=` transport seam beneath `providers.resolve_llm_fn`; the real local
+route binds the model and emits telemetry events and drain call accounting. Feature-hash embeddings
 replace only the embedding provider and are named `fake-hash-v1` in index metadata.
-No stage is replaced or bypassed; an accidental network connection fails closed.
+All five stage functions run. Recovery faults below are diagnostics; an accidental
+network connection fails closed.
 
 The workload uses `episode_staging.stage`, the production `sleep_cycle.run(drain=True)`
 entry point, all five stages, the real tail, commits, sqlite-vec and FTS5. It checks
 unchanged import, continued/revised identity, revision during extraction, pending
 retirement, a dated single-valued `runs-on` change with history, a manual correction
-and fixed-clock expiry. Recovery injections at the engine seam stop **within batch
-two** after batch one commits: plan throttle, cooperative cancellation, unavailable
-engine. Continue reloads the actual `sleep_paused` sidecar, retaining the run id.
+and fixed-clock expiry. **Diagnostic recovery injections** in the fake completion
+stop **within batch two** after batch one commits: a manually tripped pause breaker
+and synthetic throttle, cooperative cancellation, and an unavailable-engine error.
+These check Sleep's stop/resume handling; the local fake route does not verify the
+subscription transport, its semaphore, or its breaker checks. The manifest labels
+this limitation explicitly. Continue reloads the actual `sleep_paused` sidecar, retaining the run id.
 Checks include retained claim ids, coverage of processed conversations by evidence,
 no duplicate claim ids, author/session trailers and `_state.md` committing alone.
 
@@ -73,7 +82,8 @@ from a correct abstention sentence. This harness does not claim a model leaderbo
 
 `runtime.Runtime.frozen` replaces only imported `date`/`datetime` attributes at
 benchmark service boundaries; the manifest lists every covered module. Dependencies
-are preloaded before the first run. The fixed clock advances deliberately by one
+are preloaded before the first run. Delegating instance checks keep real date and
+datetime values (including YAML frontmatter scalars) recognizable by production. The fixed clock advances deliberately by one
 day for idle-tail expiry. Production code gets no new global clock setting. Real
 monotonic timers, file mtimes, plan-limit/transport clocks and telemetry measurement
 clocks stay real. Scope is a single isolated child, not concurrent benchmark runs

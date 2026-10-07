@@ -8,7 +8,12 @@ from benchmarks.system.runner import REPO, prepare_paths
 
 
 def test_small_preset_runs_production_pipeline_offline(tmp_path):
-    bank, home = prepare_paths('temp', 'temp')
+    bank, home = prepare_paths('temp', 'temp', parent=tmp_path)
+    # A reusable home must never shadow the repository packages.
+    for name in ("api", "benchmarks"):
+        package = home / name
+        package.mkdir()
+        (package / "__init__.py").write_text("raise RuntimeError('shadow package imported')\n")
     proc = subprocess.run([
         sys.executable, '-m', 'benchmarks.system.runner',
         '--bank-dir', str(bank), '--home', str(home),
@@ -16,11 +21,18 @@ def test_small_preset_runs_production_pipeline_offline(tmp_path):
         '--clock', '2026-10-06T12:00:00+00:00',
         '--model', 'deterministic-v1', '--effort', 'low', '--preset', 'small',
     ], cwd=REPO, capture_output=True, text=True, timeout=120)
-    assert proc.returncode == 0, proc.stderr[-12000:]
-    result_path = Path(json.loads(proc.stdout.strip().splitlines()[-1])['manifest'])
+    lines = proc.stdout.strip().splitlines()
+    assert lines, proc.stderr[-12000:]
+    result_path = Path(json.loads(lines[-1])['manifest'])
     assert not result_path.is_relative_to(bank)
+    assert result_path.is_relative_to(home)
+    assert not bank.with_name(bank.name + '_results').exists()
     result = json.loads(result_path.read_text())
+    assert proc.returncode == 0, {'integrity': result['integrity'], 'failures': result['failures']}
     assert result['engine']['kind'] == 'fake'
+    assert result['engine']['production_route'] == 'local-with-fake-completion'
+    assert result['diagnostics']['recovery_injections']['subscription_transport_verified'] is False
+    assert result['diagnostics']['recovery_injections']['kinds'] == ['pause', 'cancel', 'failure']
     assert result['grading']['method'] == 'structural-exact-and-evidence'
     assert result['integrity'] and all(result['integrity'].values()), result['integrity']
     required = {'no_lost_claims', 'owned_commits', 'idempotent_reimport',

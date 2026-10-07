@@ -14,7 +14,7 @@ import sys
 import time
 import uuid
 
-from .runner import MARKER, REPO, _no_symlinks
+from .runner import REPO, _no_symlinks, prepare_paths
 
 FIXTURES = Path(__file__).parent / 'fixtures'
 
@@ -181,6 +181,7 @@ async def execute(args, manifest):
     settings = Settings(_env_file=None, CICADA_MEMORY_PATH=str(bank),
                         llm_mode='codex' if args['engine'] == 'codex' else 'local',
                         litellm_model=args['model'], consolidation_model=args['model'],
+                        ollama_model=args['model'],
                         litellm_disambiguation_model=args['model'],
                         codex_model=args['model'], codex_disambiguation_model=args['model'],
                         codex_reasoning_effort=args['effort'],
@@ -192,6 +193,7 @@ async def execute(args, manifest):
     for name in ('LITELLM_MODEL', 'CONSOLIDATION_MODEL', 'LITELLM_DISAMBIGUATION_MODEL',
                  'CODEX_MODEL', 'CODEX_DISAMBIGUATION_MODEL'):
         os.environ['CICADA_' + name] = args['model']
+    os.environ['CICADA_OLLAMA_MODEL'] = args['model']
     os.environ['CICADA_CODEX_REASONING_EFFORT'] = args['effort']
     os.environ['CICADA_EMBEDDING_MODEL_LOCAL'] = args['config']['embedding_model']
     fake = FakeEngine() if args['engine'] == 'fake' else None
@@ -331,14 +333,11 @@ async def execute(args, manifest):
 def main():
     args = json.loads(sys.stdin.read())
     bank, home = Path(args['bank_dir']), Path(args['home'])
-    # Defend the child entry point as well as the public launcher.
-    for path, marker in ((bank, '_bench.yaml'), (home, '_bench_home.yaml')):
-        _no_symlinks(path, allow_internal=marker == '_bench_home.yaml')
-        if json.loads((path / marker).read_text()) != {'kind': MARKER}:
-            raise ValueError('missing benchmark ownership marker')
+    # Defend the child entry point with the launcher's canonical ownership checks.
+    bank, home = prepare_paths(str(bank), str(home))
     if os.environ.get('CICADA_HOME') != str(home) or os.environ.get('HOME') != str(home) or os.environ.get('CICADA_CAPTURE') != 'off':
         raise ValueError('launch through the isolated system runner')
-    output = bank.with_name(bank.name + '_results')
+    output = home / 'results'
     _no_symlinks(output)
     output.mkdir(mode=0o700, exist_ok=True)
     path = output / (uuid.uuid4().hex + '.json')
@@ -350,9 +349,13 @@ def main():
         'code_hashes': {str(p.relative_to(REPO)): hashlib.sha256(p.read_bytes()).hexdigest()
                         for p in [*Path(__file__).parent.glob('*.py'), REPO / 'api/services/claims.py', REPO / 'api/services/conflict_resolver.py']},
         'system': {'os': platform.platform(), 'machine': platform.machine(), 'processor': platform.processor(), 'cpu_count': os.cpu_count()},
-        'engine': {'kind': args['engine'], 'production_route': 'codex' if args['engine'] == 'codex' else 'local-with-fake-provider', 'auth': 'none' if args['engine'] == 'fake' else 'subscription-only',
+        'engine': {'kind': args['engine'], 'production_route': 'codex' if args['engine'] == 'codex' else 'local-with-fake-completion', 'auth': 'none' if args['engine'] == 'fake' else 'subscription-only',
                    'model': args['model'], 'effort': args['effort']},
         'engine_stage_pins': {'consolidation': args['model'], 'disambiguation': args['model'], 'answers': args['model'], 'judge': None},
+        'diagnostics': {'recovery_injections': {
+            'kinds': ['pause', 'cancel', 'failure'] if args['engine'] == 'fake' else [],
+            'subscription_transport_verified': False,
+            'scope': 'Sleep resume after synthetic stage faults; not subscription breaker or semaphore validation'}},
         'embedding_model': args['config']['embedding_model'], 'settings': args['config'],
         'clock': {'initial': args['clock'], 'scope': 'benchmark-service-boundaries'},
         'dataset_hashes': {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(FIXTURES.glob('*.json'))},

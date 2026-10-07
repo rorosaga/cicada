@@ -23,26 +23,29 @@ def _no_symlinks(path: Path, *, allow_internal: bool = False) -> None:
                 raise ValueError('benchmark directories must not contain an escaping symlink')
 
 
-def _owned(value: str, marker: str) -> Path:
+def _owned(value: str, marker: str, *, parent: Path | None = None) -> Path:
     if value == 'temp':
-        path = Path(tempfile.mkdtemp(prefix='cicada_bench_')).resolve()
+        path = Path(tempfile.mkdtemp(prefix='cicada_bench_', dir=parent)).resolve()
         (path / marker).write_text(json.dumps({'kind': MARKER}) + '\n')
     else:
         path = Path(value).expanduser().absolute()
         _no_symlinks(path, allow_internal=marker == '_bench_home.yaml')
+        path = path.resolve(strict=True)
         try:
             data = json.loads((path / marker).read_text())
         except (OSError, ValueError) as exc:
             raise ValueError(f'path requires a runner-owned {marker} marker (use temp)') from exc
         if data != {'kind': MARKER}:
             raise ValueError(f'invalid {marker} ownership marker')
+    if marker == '_bench_home.yaml' and (path / '.env').exists():
+        raise ValueError('benchmark home must not contain .env')
     return path
 
 
-def prepare_paths(bank_dir: str, home_dir: str) -> tuple[Path, Path]:
+def prepare_paths(bank_dir: str, home_dir: str, *, parent: Path | None = None) -> tuple[Path, Path]:
     # Validate an explicit bank first: refusal has no import or home side effect.
-    bank = _owned(bank_dir, '_bench.yaml')
-    home = _owned(home_dir, '_bench_home.yaml')
+    bank = _owned(bank_dir, '_bench.yaml', parent=parent)
+    home = _owned(home_dir, '_bench_home.yaml', parent=parent)
     if bank == home or bank.is_relative_to(home) or home.is_relative_to(bank):
         raise ValueError('bank and benchmark home must be disjoint directories')
     return bank, home
@@ -60,7 +63,7 @@ def isolated_env(bank: Path, home: Path, engine: str) -> dict[str, str]:
         'CICADA_ALLOW_LOGO_FETCH': 'off', 'CICADA_TELEMETRY': 'off',
         'GIT_CONFIG_NOSYSTEM': '1', 'GIT_CONFIG_GLOBAL': os.devnull,
         'HF_HUB_OFFLINE': '1', 'TRANSFORMERS_OFFLINE': '1',
-        'PYTHONPATH': str(REPO),
+        'PYTHONPATH': str(REPO), 'PYTHONHASHSEED': '0',
     })
     return env
 
@@ -90,6 +93,7 @@ def main(argv: list[str] | None = None) -> int:
         bank, home = prepare_paths(args.bank_dir, args.home)
         config_path = args.config.expanduser().absolute()
         _no_symlinks(config_path)
+        config_path = config_path.resolve(strict=True)
         if config_path.is_relative_to(bank) or config_path.is_relative_to(home):
             raise ValueError('config must be outside both bank and home')
         config = json.loads(config_path.read_text())
@@ -109,7 +113,7 @@ def main(argv: list[str] | None = None) -> int:
         # No private state is consulted to populate credentials. The later pilot
         # must sign in explicitly in this isolated home using Cicada's adapter.
         return subprocess.run(
-            [sys.executable, '-m', 'benchmarks.system.workload'],
+            [sys.executable, '-P', '-m', 'benchmarks.system.workload'],
             input=json.dumps(launch), text=True, cwd=home,
             env=isolated_env(bank, home, args.engine), check=False,
         ).returncode
