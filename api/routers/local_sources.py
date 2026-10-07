@@ -49,6 +49,7 @@ from api.services import (
     sync_state,
     tab_groups,
     wispr_flow,
+    write_admission,
 )
 from api.routers.capture import refuse_capture_into_demo
 from api.services.sleep_refusal import SleepWriting
@@ -80,9 +81,9 @@ async def _reapply_authorship(memory_path, folder: dict) -> list[str]:
     paths = list(moved["paths"])
     if not moved["touched"]:
         return paths
-    from api.services import sleep_cycle
+    from api.services import write_admission
 
-    if sleep_cycle.is_writing():
+    if write_admission.holding():   # its callers hold the bank's write admission through their commit (G183)
         folder_source.set_flags(memory_path, folder["id"], papers_pending=True)
         return paths + [f"sources/{folder_source.FOLDERS_FILENAME}"]
     current = folder_source.get_folder(memory_path, folder["id"]) or folder
@@ -90,17 +91,14 @@ async def _reapply_authorship(memory_path, folder: dict) -> list[str]:
     return paths + list(report["paths"])
 
 
+# L final review (finding 5): `ensure_project` writes a project page — `paths:` onto one Stage 5 may be rewriting, or a
+# new page Sleep's `git add -A` would sweep under the model's name. Adding a folder is a person's click, so asking again
+# in a minute is the honest answer; asked under the bank's write admission, held through the commit (G183).
 @router.post("/sources/folders", response_model=FolderRecord, dependencies=_DEMO_GATE)
+@write_admission.route(refuse=lambda: SleepWriting(
+    "Cicada is tidying up your memory right now — add the folder again in a minute."))
 async def register_folder(req: FolderRegisterRequest, settings: Settings = Depends(get_settings)):
     memory_path = settings.memory_path
-    from api.services import sleep_cycle
-
-    if sleep_cycle.is_writing():
-        # L final review (finding 5): `ensure_project` writes a project page —
-        # `paths:` onto one Stage 5 may be rewriting, or a new page Sleep's
-        # `git add -A` would sweep under the model's name. Adding a folder is a
-        # person's click, so asking again in a minute is the honest answer.
-        raise SleepWriting("Cicada is tidying up your memory right now — add the folder again in a minute.")
     device = local_refs.current_device_id()
     name = req.label if req.project_name is None else req.project_name
     project_id, created = await run_in_threadpool(
@@ -126,6 +124,7 @@ async def register_folder(req: FolderRegisterRequest, settings: Settings = Depen
 
 
 @router.put("/sources/folders/{folder_id}", response_model=FolderRecord, dependencies=_DEMO_GATE)
+@write_admission.route()   # held, never refused: the paper step waits while Sleep holds the pages (R-LS17)
 async def update_folder(folder_id: str, req: FolderUpdateRequest, settings: Settings = Depends(get_settings)):
     memory_path = settings.memory_path
     folder = folder_source.update(
@@ -156,6 +155,7 @@ async def remove_folder(folder_id: str, settings: Settings = Depends(get_setting
 
 
 @router.post("/sources/folders/{folder_id}/sync", response_model=FolderSyncResponse, dependencies=_DEMO_GATE)
+@write_admission.route()   # held, never refused: capture is never gated, the paper step waits (R-LS17, G183)
 async def sync_folder(
     folder_id: str,
     req: FolderSyncRequest,
@@ -195,9 +195,7 @@ async def sync_folder(
     paths = list(staged.paths)
     registry_moved = bool(staged.paths)  # ``sync`` stamped ``last_sync``
     paper_work = bool(staged.touched or staged.tombstoned_sources)
-    from api.services import sleep_cycle
-
-    if sleep_cycle.is_writing():
+    if write_admission.holding():
         # R-LS17: Stage 5 may be rewriting the same pages; the episodes are
         # staged, the paper step waits for the next sync or the Sleep tail.
         if paper_work and not folder.get("papers_pending"):
@@ -249,6 +247,7 @@ async def put_wispr_settings(req: WisprFlowSettings, settings: Settings = Depend
 
 
 @router.post("/capture/local-source/wispr-flow", response_model=WisprFlowCaptureResponse, dependencies=_DEMO_GATE)
+@write_admission.route()   # held, never refused: the episodes always stage, the to-do claims wait (G183)
 async def capture_wispr_flow(req: WisprFlowPayload, settings: Settings = Depends(get_settings)):
     """Stage what the app read from Wispr Flow (R-N1). 409 while the source is off
     for this memory — the app only posts when it is on, so a 409 means the two
@@ -262,12 +261,10 @@ async def capture_wispr_flow(req: WisprFlowPayload, settings: Settings = Depends
     # `by_alias=False` is load-bearing: `CamelModel` sets `serialize_by_alias=True`, so a bare
     # `model_dump()` returns `deletedMeetingIds`/`deletedNoteIds` and `ingest` (which reads the
     # snake_case keys) would silently never tombstone anything. `test_the_routes` pins it.
-    from api.services import sleep_cycle
-
     # L final review (finding 5): a to-do claim lands on the owner's page, which
     # Stage 5 rewrites — while a cycle runs the episodes stage now and the
     # claims wait for the next sync or the Sleep tail (the R-LS17 rule).
-    sleeping = sleep_cycle.is_writing()
+    sleeping = write_admission.holding()
     report = await run_in_threadpool(wispr_flow.ingest, memory_path, req.model_dump(by_alias=False), current,
                                      defer_todos=sleeping)
     sync_state.record_sync(memory_path, wispr_flow.CHANNEL_ID, count=report.pop("live"))
@@ -318,16 +315,13 @@ async def sync_tab_groups(req: TabGroupsSyncRequest, settings: Settings = Depend
 
 
 @router.post("/sources/contacts-local/sync", response_model=ContactsLocalSyncResponse, dependencies=_DEMO_GATE)
+@write_admission.route(refuse=lambda: SleepWriting(contacts_local.SLEEP_REFUSAL))
 async def sync_contacts_local(req: ContactsLocalSyncRequest, settings: Settings = Depends(get_settings)):
     """G154 (round 4): enrich the person pages Cicada already has from the address book the app read. 409 while Sleep
     runs (this writes entity pages Stage 5 rewrites); 413 above ``contacts_local.MAX_CONTACTS``; 422 for a payload the
     backend cannot trust. One ``user`` commit per sync (trigger ``capture/contacts``), scoped to the pages it changed —
     an unchanged address book commits nothing."""
     memory_path = settings.memory_path
-    from api.services import sleep_cycle
-
-    if sleep_cycle.is_writing():
-        raise SleepWriting(contacts_local.SLEEP_REFUSAL)
     if len(req.contacts) > contacts_local.MAX_CONTACTS:
         raise HTTPException(413, f"at most {contacts_local.MAX_CONTACTS} contacts per sync")
     try:

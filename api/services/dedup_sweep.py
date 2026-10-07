@@ -8,8 +8,10 @@ computes the merge's footprint before any write, refuses a merge whose
 footprint is dirty or cannot be put back exactly, commits only the merge's own
 changed paths (``cicada``), and puts a failed merge's footprint back as it was
 found; one that cannot be put back stops the sweep (``recovery_failed``).
-``may_write`` is asked before every judge call and again under each lock: once
-Sleep's write window opens, the sweep stops (``stopped_for_sleep``)."""
+``may_write`` is asked before every judge call and again once the merge holds
+the bank's write admission (G183), which it keeps through its commit: once
+Sleep's write window opens, the sweep stops (``stopped_for_sleep``), and a
+window never opens mid-merge."""
 from __future__ import annotations
 import logging
 import os
@@ -19,7 +21,8 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import Callable
-from api.services import entity_merge, git_service, markdown_parser, merge_rejections, page_lock, telemetry
+from api.services import (entity_merge, git_service, markdown_parser, merge_rejections, page_lock, telemetry,
+                          write_admission)
 from api.services.entity_merge import merge_entities
 
 logger = logging.getLogger(__name__)
@@ -231,20 +234,20 @@ def _merge_and_commit(memory_path: Path, loser: str, winner: str, engine: str | 
     wrote outside its footprint, a failed put-back, or a HEAD that moved inside
     the transaction raises :class:`RecoveryFailed`.
 
-    ``may_write`` is re-asked once the page lock and again once the git lock is
-    held (``STOPPED``). Sleep's window transition takes neither lock (its
-    commits do take the git write lock), so admission is not atomic — disclosed in ``docs/architecture/storage.md``, "Residual race"."""
+    The whole transaction holds the bank's write admission (G183), taken first
+    (admission → page → git): ``may_write`` is asked once it is held
+    (``STOPPED``), and a Sleep window cannot open until the merge has committed
+    or been put back — Sleep sets its flag and then waits for this hold."""
     memory_path = Path(memory_path)
-    with page_lock.page_lock(memory_path):
+    with write_admission.shared(memory_path):
         if may_write is not None and not may_write():
             return STOPPED
-        if not (memory_path / ".git").exists():
-            merge_entities(memory_path, loser_id=loser, winner_id=winner)
-            return MERGED
-        with git_service.write_lock(memory_path):
-            if may_write is not None and not may_write():
-                return STOPPED
-            return _merge_transaction(memory_path, loser, winner, engine)
+        with page_lock.page_lock(memory_path):
+            if not (memory_path / ".git").exists():
+                merge_entities(memory_path, loser_id=loser, winner_id=winner)
+                return MERGED
+            with git_service.write_lock(memory_path):
+                return _merge_transaction(memory_path, loser, winner, engine)
 
 
 def _merge_transaction(memory_path: Path, loser: str, winner: str, engine: str | None) -> str:

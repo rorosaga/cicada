@@ -237,6 +237,11 @@ def _pinned(root: Path) -> PinnedBank | None:
     return pin if pin is not None and pin.root == Path(root) else None
 
 
+def pinned_bank() -> PinnedBank | None:
+    """This context's pin, whatever its root — write admission checks it names the bank it admits (G183)."""
+    return _PINNED.get()
+
+
 def current_active(root: Path) -> tuple[str, Path]:
     """``(name, dir)`` of the active bank from ONE registry read, ignoring any pin — what a request is pinned to.
 

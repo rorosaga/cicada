@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import re
 from collections import Counter
+from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -924,11 +925,22 @@ async def resolve(
     rewrites entity pages and the item itself, and one written between a batch's
     read and its commit would be lost or swept into that commit under the
     model's name. A defer too — the item file rides the same ``git add -A``.
-    Between a drain's batches it goes through and commits alone."""
-    from api.services import sleep_cycle
+    Between a drain's batches it goes through and commits alone. Asked once the
+    bank's write admission is held (G183), and held through the answer's writes
+    and its commit: a window cannot open in between."""
+    from api.services import write_admission
 
-    if sleep_cycle.is_writing():
+    # An early answer only (the admitted pass asks again): no model call is spent while Sleep holds the pages.
+    if write_admission.probe():
         raise SleepWriting(SLEEP_BUSY)
+    synthesis = await _conflict_synthesis(item_id, request, settings)   # the model call, outside admission
+    return await write_admission.run_admitted(
+        settings.memory_path, lambda: _resolve_admitted(item_id, request, settings, synthesis),
+        refuse=lambda: SleepWriting(SLEEP_BUSY))
+
+
+async def _resolve_admitted(item_id: str, request: InboxResolveRequest, settings: Settings,
+                            synthesis: "_Synthesis | None" = None) -> dict:
     path = _inbox_dir(settings.memory_path) / f"{item_id}.md"
     if not path.exists():
         raise HTTPException(404, f"Inbox item {item_id} not found")
@@ -975,11 +987,6 @@ async def resolve(
     from api.services import git_service as _git_service
 
     before = await _git_service.snapshot_dirty(settings.memory_path)
-    # Re-asked after the await and before any page write: a window can open while
-    # the snapshot was read (G183(a) round 1). Sleep takes no page lock, so a
-    # window opening after this still overlaps the answer — storage.md says so.
-    if sleep_cycle.is_writing():
-        raise SleepWriting(SLEEP_BUSY)
     extra_lines: list[str] = []
     emit_extra: dict = {}
     committed = False   # a resolver that commits inside its own page-lock section says so
@@ -989,7 +996,7 @@ async def resolve(
         entity_id, skipped = await _resolve_removal(path, parsed, request, settings)
     elif kind == "conflict":
         entity_id, skipped, extra_lines = await _resolve_conflict(
-            path, parsed, request, settings
+            path, parsed, request, settings, synthesis
         )
     elif kind == "divergence":
         entity_id, skipped, extra_lines = await _resolve_divergence(
@@ -1422,7 +1429,7 @@ def _close_today(old, *, by, today: str) -> None:
     old.valid_to = today
 
 
-async def _resolve_conflict(path, parsed, request, settings) -> tuple[str, bool, list[str]]:
+def _conflict_plan(path, parsed, request, settings) -> "_ConflictPlan":
     """Claim-aware conflict adjudication (§2.4).
 
     The chosen option decides what happens in the ``claims`` block FIRST — a
@@ -1438,13 +1445,12 @@ async def _resolve_conflict(path, parsed, request, settings) -> tuple[str, bool,
     (409) with the page untouched and the question kept.
     """
     from api.services.claims import Claim, MalformedClaimsBlockError, parse_claims, write_claims
-    from api.services.conflict_resolver import _synthesize_entity_update
 
     fm_item = parsed.frontmatter
     entity_id = str(fm_item.get("entity_id", "") or "")
 
     if request.action == "skip":
-        return entity_id, True, []
+        return _ConflictPlan(entity_id, skipped=True)
 
     # Legacy pre-G60 conflict items carry neither `options` nor `question` —
     # there is nothing to pick from, so the strict "optionKey or answer
@@ -1471,8 +1477,7 @@ async def _resolve_conflict(path, parsed, request, settings) -> tuple[str, bool,
         # exist — Stage 3 already kept every value open, so dismissing touches
         # no claim. Its G113 R3 grade is `overruled`, and that is right: the
         # belief overruled is the extractor's "these values conflict".
-        path.unlink()
-        return entity_id, False, []
+        return _ConflictPlan(entity_id, unlink=True)
 
     predicate_raw = str(fm_item.get("predicate", "") or "description")
     entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
@@ -1503,8 +1508,7 @@ async def _resolve_conflict(path, parsed, request, settings) -> tuple[str, bool,
 
     if not entity_path.exists():
         # Nothing to write into; clear the question rather than stranding it.
-        path.unlink()
-        return entity_id, False, extra_lines
+        return _ConflictPlan(entity_id, unlink=True, extra_lines=extra_lines)
 
     entity = markdown_parser.parse(entity_path)
     fm = entity.frontmatter
@@ -1624,20 +1628,96 @@ async def _resolve_conflict(path, parsed, request, settings) -> tuple[str, bool,
 
     entity.body = write_claims(entity.body, claim_list)
 
+    return _ConflictPlan(entity_id, extra_lines=extra_lines, entity_path=entity_path, entity=entity,
+                         claim_list=claim_list, sentence=sentence, name=name, today=today)
+
+
+async def _conflict_synthesis(item_id: str, request: InboxResolveRequest, settings: Settings) -> "_Synthesis | None":
+    """The conflict answer's prose rewrite — the one model call an inbox answer makes — run BEFORE the bank's write
+    admission is taken (G183 round 1: no admission spans a model call). It plans the answer on the page and item as
+    they are now and synthesizes from that; the admitted pass plans again and uses the prose only when every input
+    it was made from and for is unchanged (``_synthesis_basis``: item, pick, entity, body, sentence, date) —
+    otherwise the safe fallback, never prose made for another answer or another page.
+    None for anything that is not a conflict answer with a sentence, and for any plan this pass cannot make (the
+    admitted pass raises it properly)."""
+    if (request.action or "").strip().lower() in ("defer", "remind_later", "skip"):
+        return None
+    path = _inbox_dir(settings.memory_path) / f"{item_id}.md"
+    try:
+        parsed = markdown_parser.parse(path)
+        if str(parsed.frontmatter.get("kind", "decay")) != "conflict":
+            return None
+        plan = _conflict_plan(path, parsed, request, settings)
+    except Exception:  # noqa: BLE001 — a 4xx/409 is the admitted pass's to raise
+        return None
+    if plan.entity is None or not plan.sentence:
+        return None
+    from api.services import conflict_resolver
+
+    try:
+        new_body = await conflict_resolver._synthesize_entity_update(
+            entity_name=plan.name,
+            entity_type=plan.entity.frontmatter.get("type", "concept"),
+            existing_body=plan.entity.body,
+            new_description=plan.sentence,
+            new_history_entries=[],
+            source_reference_date=plan.today,
+            settings=settings,
+        )
+    except Exception:  # noqa: BLE001 — the fallback below is the answer's floor
+        new_body = None
+    return _Synthesis(basis=_synthesis_basis(item_id, request, plan), new_body=new_body) if new_body else None
+
+
+def _synthesis_basis(item_id: str, request: InboxResolveRequest, plan: "_ConflictPlan") -> tuple:
+    """Everything the prose was made from and for (fix round 2): the item and the person's pick, the entity and its
+    name and type, the planned body (claims written), the selected-answer sentence and the date. Prose is reused only
+    when every part is the same when the answer is written — a changed option label, item or page gets the fallback."""
+    return (item_id, (request.option_key or "").strip(), (request.answer or "").strip(), plan.entity_id, plan.name,
+            str(plan.entity.frontmatter.get("type", "concept")), plan.entity.body, plan.sentence, plan.today)
+
+
+@dataclass
+class _Synthesis:
+    basis: tuple    # `_synthesis_basis` of the plan the prose was synthesized from
+    new_body: str
+
+
+@dataclass
+class _ConflictPlan:
+    entity_id: str
+    skipped: bool = False
+    unlink: bool = False
+    extra_lines: list = field(default_factory=list)
+    entity_path: Path | None = None
+    entity: object = None
+    claim_list: list = field(default_factory=list)
+    sentence: str = ""
+    name: str = ""
+    today: str = ""
+
+
+async def _resolve_conflict(path, parsed, request, settings, synthesis: "_Synthesis | None" = None,
+                            ) -> tuple[str, bool, list[str]]:
+    """Claim-aware conflict adjudication, written inside the bank's write admission. ``synthesis`` is the prose
+    rewrite made before admission (:func:`_conflict_synthesis`); it is used only when the answer planned now has the
+    same inputs it was made for (:func:`_synthesis_basis`) — no model call is made here."""
+    from api.services.claims import write_claims
+
+    plan = _conflict_plan(path, parsed, request, settings)
+    if plan.skipped:
+        return plan.entity_id, True, []
+    if plan.unlink:
+        path.unlink()
+        return plan.entity_id, False, plan.extra_lines
+    entity, sentence, claim_list = plan.entity, plan.sentence, plan.claim_list
+    fm, today, entity_path = entity.frontmatter, plan.today, plan.entity_path
+    entity_id, extra_lines = plan.entity_id, plan.extra_lines
+
     new_body = None
     if sentence:
-        try:
-            new_body = await _synthesize_entity_update(
-                entity_name=name,
-                entity_type=fm.get("type", "concept"),
-                existing_body=entity.body,
-                new_description=sentence,
-                new_history_entries=[],
-                source_reference_date=today,
-                settings=settings,
-            )
-        except Exception:
-            new_body = None
+        if synthesis is not None and synthesis.basis == _synthesis_basis(path.stem, request, plan):
+            new_body = synthesis.new_body
         if not new_body:
             # Safe fallback: dedup guard instead of blind append.
             new_body = (
@@ -1748,10 +1828,11 @@ async def _resolve_normalization(path, parsed, request, settings, item_id: str,
     question covers (the one that opened it plus `covered_claims`) back onto
     the raw (now canonical) predicate.
 
-    The answer is ONE page-lock section in a worker thread, from re-reading the
-    item, the map and the pages through its own `user` commit (G98/G115 review
-    round 1): another page writer cannot take the person's repoint into its own
-    commit, and two answers cannot lose each other's map edit. Returns
+    The answer is ONE page-lock section in a worker thread, inside the request's
+    write admission, from re-reading the item, the map and the pages through its
+    own `user` commit (G98/G115 review rounds 1–2, G183): another page writer
+    cannot take the person's repoint into its own commit, two answers cannot lose
+    each other's map edit, and Sleep cannot open its window in between. Returns
     ``(entity_id, skipped, extra_lines, committed)`` — committed here, so
     :func:`resolve` does not commit it again.
     """
@@ -1765,19 +1846,15 @@ async def _resolve_normalization(path, parsed, request, settings, item_id: str,
 
 
 def _answer_normalization(path: Path, request, settings, label: str) -> str:
-    """The body of :func:`_resolve_normalization`, holding the bank's page lock
-    then git's write lock (the documented order) throughout. Sleep's window is
-    asked once both are held and again after the dirty snapshot, before any write."""
-    from api.services import git_service, page_lock, sleep_cycle
+    """The body of :func:`_resolve_normalization`. It runs inside :func:`resolve`'s
+    admitted transaction (G183 — the coded refusal was given there, and a window
+    cannot open under the hold), then holds the bank's page lock and git's write
+    lock (the documented order: admission → page → git) from the re-read through
+    its commit, so its dirty snapshot never waits for git between other writers."""
+    from api.services import git_service, page_lock
     from api.services.claims import MalformedClaimsBlockError, parse_claims, write_claims
     memory = settings.memory_path
-    # Page lock, then git's write lock (the documented order), both held from the
-    # re-read through the commit — so the dirty snapshot below never waits for git
-    # after the last admission check (review round 2).
     with page_lock.page_lock(memory), git_service.write_lock(memory):
-        # Re-asked once the locks are held: a window can open while this waited for them.
-        if sleep_cycle.is_writing():
-            raise SleepWriting(SLEEP_BUSY)
         if not path.exists():
             raise HTTPException(404, f"Inbox item {path.stem} not found")
         fm = markdown_parser.parse(path).frontmatter   # as it is now, not as the request first read it
@@ -1798,9 +1875,6 @@ def _answer_normalization(path: Path, request, settings, label: str) -> str:
             owned = [predicates.RUNTIME_FILE, item_rel, *pages]
             before = {rel: ((memory / rel).read_bytes() if (memory / rel).is_file() else None)
                       for rel in git_service.dirty_paths_sync(memory, *owned)}
-        # And once more after the snapshot, before the first write.
-        if sleep_cycle.is_writing():
-            raise SleepWriting(SLEEP_BUSY)
         manifest = f"{predicates.RUNTIME_FILE}: updated (source: {path.stem}, trigger: inbox/normalization/resolved)"
         extra: list[str] = []
 

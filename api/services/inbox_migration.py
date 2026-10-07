@@ -393,12 +393,13 @@ def dedup_normalization_items(memory_path: Path) -> int:
     sibling's claims folded into its ``covered_claims``. An item carrying no
     pair is left alone. Its own marker.
 
-    **Admitted and isolated (review round 1).** It deletes inbox files, so it
-    runs only while Sleep is not writing — asked before, and again once it holds
-    the bank's page lock and then git's write lock (the documented order), so an
-    inbox answer or a bank activation racing it waits and it plans on what that
-    left. A busy bank is deferred with no marker: the next activation or boot
-    does it. **A transaction:** every file it will delete or rewrite is
+    **Admitted and isolated (review round 1, G183).** It deletes inbox files, so
+    it is a write-admitted transaction: it takes the bank's write admission
+    (refused while Sleep holds the pages, and a window cannot open under it),
+    then the page lock, then git's write lock — the documented order — through
+    its commit, so an inbox answer racing it waits and it plans on what that
+    left. A busy bank (or an admission lock that cannot be opened) is deferred
+    with no marker: the next activation or boot does it. **A transaction:** every file it will delete or rewrite is
     snapshotted first; a failure while changing them or committing restores
     them byte for byte (and their index entries), and the marker is written only
     after the commit. It commits exactly the files it changed — an uncommitted
@@ -461,49 +462,53 @@ def _plan_fold_cleanup(inbox: Path) -> tuple[list[Path], dict[Path, tuple[dict, 
 
 
 def _dedup_normalization_locked(memory_path: Path, inbox: Path) -> int:
-    from api.services import page_lock, sleep_cycle
+    """Admission (refused while Sleep holds the pages), then the page lock, then
+    git's write lock — the documented order — held through the commit (G183)."""
+    from api.services import page_lock, write_admission
 
     marker = inbox / _FOLD_DEDUP_MARKER
-    if sleep_cycle.is_writing():
+    try:
+        with write_admission.admitted(memory_path), page_lock.page_lock(memory_path), \
+                git_service.write_lock(memory_path):
+            return _dedup_normalization_admitted(memory_path, marker, inbox)
+    except write_admission.SleepHolding:
         logger.info("Predicate-fold inbox cleanup deferred: Sleep is writing this bank")
         return 0
-    with page_lock.page_lock(memory_path), git_service.write_lock(memory_path):
-        # Re-asked once both locks are held: a window can open while this waited.
-        if sleep_cycle.is_writing():
-            logger.info("Predicate-fold inbox cleanup deferred: Sleep is writing this bank")
-            return 0
-        if marker.exists():
-            return 0
-        deletes, rewrites = _plan_fold_cleanup(inbox)
-        owned = list(dict.fromkeys([*deletes, *rewrites]))
-        snapshot = {p: p.read_bytes() for p in owned}
-        tracked = (memory_path / ".git").exists()
-        rels = [p.relative_to(memory_path).as_posix() for p in owned]
-        # An uncommitted edit already on a file it changes is committed apart first,
-        # unauthored (`commit_touched_sync`'s `before`); nothing else in inbox/ is its.
-        before = ({rel: (memory_path / rel).read_bytes() for rel in git_service.dirty_paths_sync(memory_path, *rels)}
-                  if owned and tracked else None)
-        index = _index_entries(memory_path, rels) if owned and tracked else {}
-        if any(stage != "0" for _mode, _sha, stage in index.values()):
-            logger.info("Predicate-fold inbox cleanup deferred: an inbox item it would change is mid-merge")
-            return 0
-        head = _head(memory_path) if owned and tracked else None
-        try:
-            for path, (fm, body) in rewrites.items():
-                markdown_parser.write(path, fm, body)
-            for path in deletes:
-                path.unlink()
-            if owned and tracked:
-                git_service.commit_touched_sync(memory_path, _dedup_message(len(deletes)), rels, before=before)
-        except BaseException:
-            _restore(memory_path, snapshot, index if tracked else None, head)
-            raise
-        try:
-            marker.write_text("v1")
-        except OSError as e:
-            # The cleanup is committed; the next run finds nothing to do and marks it.
-            logger.warning(f"Predicate-fold inbox cleanup marker not written: {e}")
-        return len(deletes)
+
+
+def _dedup_normalization_admitted(memory_path: Path, marker: Path, inbox: Path) -> int:
+    if marker.exists():
+        return 0
+    deletes, rewrites = _plan_fold_cleanup(inbox)
+    owned = list(dict.fromkeys([*deletes, *rewrites]))
+    snapshot = {p: p.read_bytes() for p in owned}
+    tracked = (memory_path / ".git").exists()
+    rels = [p.relative_to(memory_path).as_posix() for p in owned]
+    # An uncommitted edit already on a file it changes is committed apart first,
+    # unauthored (`commit_touched_sync`'s `before`); nothing else in inbox/ is its.
+    before = ({rel: (memory_path / rel).read_bytes() for rel in git_service.dirty_paths_sync(memory_path, *rels)}
+              if owned and tracked else None)
+    index = _index_entries(memory_path, rels) if owned and tracked else {}
+    if any(stage != "0" for _mode, _sha, stage in index.values()):
+        logger.info("Predicate-fold inbox cleanup deferred: an inbox item it would change is mid-merge")
+        return 0
+    head = _head(memory_path) if owned and tracked else None
+    try:
+        for path, (fm, body) in rewrites.items():
+            markdown_parser.write(path, fm, body)
+        for path in deletes:
+            path.unlink()
+        if owned and tracked:
+            git_service.commit_touched_sync(memory_path, _dedup_message(len(deletes)), rels, before=before)
+    except BaseException:
+        _restore(memory_path, snapshot, index if tracked else None, head)
+        raise
+    try:
+        marker.write_text("v1")
+    except OSError as e:
+        # The cleanup is committed; the next run finds nothing to do and marks it.
+        logger.warning(f"Predicate-fold inbox cleanup marker not written: {e}")
+    return len(deletes)
 
 
 def _index_entries(memory_path: Path, rels: list[str]) -> dict[str, tuple[str, str, str]]:

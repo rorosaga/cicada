@@ -14,15 +14,16 @@ source writes, ``paper_metadata``'s page updates, ``entity_merge`` (the dedup
 sweep holds it across each merge's commit too), the app's decay-class and
 repo-link rewrites, and the inbox's normalization answer (its pages, the
 predicate map and its commit — G98/G115). The MCP tools hold it across the write AND its
-``agent_commits.commit_write``, so a page is committed as the writer left it. **Lock order:** this lock, then git's
+``agent_commits.commit_write``, so a page is committed as the writer left it. **Lock order:** the bank's write
+admission (``write_admission``, G183) first, then this lock, then git's
 per-bank write lock (taken inside the commit), then ``episode_lock`` — never
 the reverse; nothing that holds the git write lock or ``episode_lock`` may ask
 for this one. **Hold it short:** one page operation and its commit — never a
 network call, a Sleep probe or a Sleep stage. ``flock`` waits without a
 timeout, and some holders are ``async`` backend routes and the inbox's
 follow-up resolver, which wait on the event loop. **Not here yet:** Sleep's own
-page writes (they run inside the write window every agent commit already
-defers to) and the inbox's other resolvers — disclosed in
+page writes (they run inside the write window, which every guarded writer waits
+out or refuses through ``write_admission``) and the inbox's other resolvers — disclosed in
 ``docs/architecture/storage.md``.
 
 The lock is an ``flock`` on the bank directory itself (``entities/`` may not

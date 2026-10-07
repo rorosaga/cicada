@@ -498,21 +498,6 @@ def test_a_competing_page_writer_never_commits_the_persons_repoint(tmp_path, mon
     assert "Cicada-Author: user" in shown and "beta-baseline.md" in shown
 
 
-def test_a_window_opening_while_the_answer_waited_refuses_and_writes_nothing(tmp_path, monkeypatch):
-    from api.services import page_lock, sleep_cycle
-    from api.services.sleep_refusal import SleepWriting
-
-    memory, item_id = _resolvable_bank(tmp_path)
-    before = {p: p.read_bytes() for p in memory.rglob("*") if p.is_file() and ".git" not in p.parts}
-    # Sleep's window opens after the answer's first checks, while it waits for the page lock.
-    monkeypatch.setattr(sleep_cycle, "is_writing", lambda: page_lock.held(memory))
-    with pytest.raises(SleepWriting):
-        asyncio.run(inbox_service.resolve(item_id, InboxResolveRequest(action="resolve", option_key="1"),
-                                          _ResolveSettings(memory)))
-    after = {p: p.read_bytes() for p in memory.rglob("*") if p.is_file() and ".git" not in p.parts}
-    assert after == before
-
-
 # ---------------------------------------------------------------- rejecting a pair rejects its spellings (review round 1, #3)
 
 
@@ -611,17 +596,6 @@ def test_migration_waits_for_sleep_and_marks_nothing(tmp_path, monkeypatch):
     assert _tree(memory) == before
     monkeypatch.setattr(sleep_cycle, "is_writing", lambda: False)
     assert dedup_normalization_items(memory) == 2   # the next activation does it
-
-
-def test_migration_rechecks_sleep_once_it_holds_the_lock(tmp_path, monkeypatch):
-    from api.services import page_lock, sleep_cycle
-    from api.services.inbox_migration import dedup_normalization_items
-
-    memory = _migration_bank(tmp_path)
-    before = _tree(memory)
-    monkeypatch.setattr(sleep_cycle, "is_writing", lambda: page_lock.held(memory))
-    assert dedup_normalization_items(memory) == 0
-    assert _tree(memory) == before
 
 
 def test_migration_waits_for_an_answer_and_plans_on_what_it_left(tmp_path):
@@ -739,32 +713,6 @@ def test_migration_commits_only_its_own_files_and_keeps_others_edits_apart(tmp_p
 # ---------------------------------------------------------------- review round 2
 
 
-def test_a_window_opening_during_the_answers_snapshot_refuses_and_writes_nothing(tmp_path, monkeypatch):
-    from api.services import git_service, sleep_cycle
-    from api.services.sleep_refusal import SleepWriting
-
-    memory, item_id = _resolvable_bank(tmp_path)
-    before = _tree(memory)
-    head = _git(memory, "rev-parse", "HEAD")
-    window = {"open": False}
-    real_dirty = git_service.dirty_paths_sync
-
-    def snapshot_then_window_opens(memory_path, *pathspec):
-        out = real_dirty(memory_path, *pathspec)
-        if pathspec:   # the answer's owned-path snapshot, not resolve()'s first look
-            window["open"] = True
-        return out
-
-    monkeypatch.setattr(git_service, "dirty_paths_sync", snapshot_then_window_opens)
-    monkeypatch.setattr(sleep_cycle, "is_writing", lambda: window["open"])
-    with pytest.raises(SleepWriting):
-        asyncio.run(inbox_service.resolve(item_id, InboxResolveRequest(action="resolve", option_key="1"),
-                                          _ResolveSettings(memory)))
-    assert window["open"]
-    assert _tree(memory) == before
-    assert _git(memory, "rev-parse", "HEAD") == head
-
-
 def _index(memory, *rels):
     return _git(memory, "ls-files", "--stage", "--", *rels)
 
@@ -805,3 +753,92 @@ def test_a_failed_cleanup_restores_each_owned_index_entry_as_it_was(tmp_path, mo
     monkeypatch.undo()
     assert inbox_migration.dedup_normalization_items(memory) == 3
     assert (memory / "inbox" / ".deduped_normalization").exists()
+
+
+# ---------------------------------------------------------------- inside write admission (G183 integration)
+
+
+def _sleep_tries_to_open_its_window(memory):
+    """Sleep's side, from another thread: set nothing, just ask whether the bank is free within 0.2 s."""
+    from api.services import write_admission
+
+    out: list[bool] = []
+    t = threading.Thread(target=lambda: out.append(write_admission.wait_for_writers(memory, give_up_after=0.2)))
+    t.start()
+    t.join(5)
+    return out[0]
+
+
+def test_an_answer_while_sleep_holds_the_pages_is_refused_with_nothing_written(tmp_path, monkeypatch):
+    from api.services import sleep_cycle
+    from api.services.sleep_refusal import SleepWriting
+
+    memory, item_id = _resolvable_bank(tmp_path)
+    before, head = _tree(memory), _git(memory, "rev-parse", "HEAD")
+    monkeypatch.setattr(sleep_cycle, "is_writing", lambda: True)
+    with pytest.raises(SleepWriting):
+        asyncio.run(inbox_service.resolve(item_id, InboxResolveRequest(action="resolve", option_key="1"),
+                                          _ResolveSettings(memory)))
+    assert _tree(memory) == before and _git(memory, "rev-parse", "HEAD") == head
+
+
+def test_the_answer_holds_admission_and_both_locks_from_its_snapshot_through_its_commit(tmp_path, monkeypatch):
+    from api.services import git_service, page_lock, write_admission
+
+    memory, item_id = _resolvable_bank(tmp_path)
+    seen: dict[str, tuple] = {}
+    real_dirty, real_commit = git_service.dirty_paths_sync, git_service.commit_touched_sync
+
+    def dirty(memory_path, *pathspec):
+        if pathspec:   # the answer's owned-path snapshot
+            seen["snapshot"] = (write_admission.holders(memory), page_lock.held(memory),
+                                _sleep_tries_to_open_its_window(memory))
+        return real_dirty(memory_path, *pathspec)
+
+    def commit(memory_path, message, paths, **kw):
+        if "Inbox resolution" in message:
+            seen["commit"] = (write_admission.holders(memory), page_lock.held(memory),
+                              _sleep_tries_to_open_its_window(memory))
+        return real_commit(memory_path, message, paths, **kw)
+
+    monkeypatch.setattr(git_service, "dirty_paths_sync", dirty)
+    monkeypatch.setattr(git_service, "commit_touched_sync", commit)
+    out = asyncio.run(inbox_service.resolve(item_id, InboxResolveRequest(action="resolve", option_key="1"),
+                                            _ResolveSettings(memory)))
+    assert out["status"] == "resolved"
+    # held, under the page lock, and Sleep could not open its window at either point
+    assert seen == {"snapshot": (1, True, False), "commit": (1, True, False)}
+    assert write_admission.holders(memory) == 0
+
+
+def test_the_cleanup_holds_admission_through_its_commit_and_sleep_waits_it_out(tmp_path, monkeypatch):
+    from api.services import git_service, inbox_migration, page_lock, write_admission
+
+    memory = _migration_bank(tmp_path)
+    seen = []
+    real = git_service.commit_touched_sync
+
+    def commit(memory_path, message, paths, **kw):
+        seen.append((write_admission.holders(memory), page_lock.held(memory), _sleep_tries_to_open_its_window(memory)))
+        return real(memory_path, message, paths, **kw)
+
+    monkeypatch.setattr(git_service, "commit_touched_sync", commit)
+    assert inbox_migration.dedup_normalization_items(memory) == 2
+    assert seen == [(1, True, False)]
+    assert write_admission.holders(memory) == 0
+    assert write_admission.wait_for_writers(memory, give_up_after=0.2) is True
+
+
+def test_an_unopenable_admission_defers_the_cleanup(tmp_path, monkeypatch):
+    from api.services import inbox_migration, write_admission
+
+    memory = _migration_bank(tmp_path)
+    before = _tree(memory)
+
+    def unavailable(key):
+        raise write_admission.AdmissionUnavailable(13, "cannot open")
+
+    monkeypatch.setattr(write_admission, "_open_locks", unavailable)
+    assert inbox_migration.dedup_normalization_items(memory) == 0
+    assert _tree(memory) == before
+    assert not (memory / "inbox" / ".deduped_normalization").exists()

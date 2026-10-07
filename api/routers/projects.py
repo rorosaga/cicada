@@ -39,7 +39,7 @@ from api.models.schemas import (HappeningCreate, MilestoneCreate, MilestonePatch
                                 ProjectTimeline, ProjectWriteResponse, ThreadSettle, WithdrawRequest)
 from api.services import (bank_index, episode_scrub, git_service, handshake, markdown_parser, owner_identity,
                           progress, project_timeline, search_index, sync_service, telemetry,
-                          turn_authorship, when)
+                          turn_authorship, when, write_admission)
 from api.services.claim_reconciler import is_human
 from api.services.claims import HAPPENED, MILESTONE, Claim, MalformedClaimsBlockError, is_event, parse_claims
 from api.services.id_utils import resolve_entity_file
@@ -125,7 +125,7 @@ async def get_project_timeline(project_id: str, request: Request, response: Resp
 # One write at a time in this process: two quick taps (Done, then Not right)
 # would otherwise read the same page and the second rewrite would drop the
 # first's claim before either commit ran.
-_write_lock = asyncio.Lock()
+_write_lock = write_admission.TransactionLock()   # taken inside admitted transactions (writer loop)
 BUSY = "Sleep is writing this project, try again in a moment"
 TWO_DAYS = "Say one day, or pick it with the date chip"
 OUT_OF_RANGE = "That day is outside what Cicada can date — pick it with the date chip"
@@ -136,11 +136,13 @@ def _now() -> datetime:
     return datetime.now(when.zone(_tz()))
 
 
-def _guard() -> None:
-    from api.services import sleep_cycle
+def _busy() -> SleepWriting:
+    return SleepWriting(BUSY)
 
-    if sleep_cycle.is_writing():
-        raise SleepWriting(BUSY)
+
+#: The route's write admission (G183): 409 while Sleep holds the pages, asked once the hold is taken and held — on
+#: the writer loop, through this process's one-write lock and the commit — so a window cannot open between.
+_admitted = write_admission.route(refuse=_busy)
 
 
 def _on(raw: str | None, today: date) -> date:
@@ -238,8 +240,8 @@ def _observer(memory_path: Path, settings: Settings) -> str:
 
 
 @router.post("/projects/{project_id}/milestones", response_model=ProjectWriteResponse)
+@_admitted
 async def add_milestone(project_id: str, body: MilestoneCreate, settings: Settings = Depends(get_settings)):
-    _guard()
     mp = settings.memory_path
     stem = _project_stem(mp, project_id)
     async with _write_lock:
@@ -256,13 +258,13 @@ async def add_milestone(project_id: str, body: MilestoneCreate, settings: Settin
 
 
 @router.patch("/projects/{project_id}/milestones/{slug}", response_model=ProjectWriteResponse)
+@_admitted
 async def change_milestone(project_id: str, slug: str, body: MilestonePatch,
                            settings: Settings = Depends(get_settings)):
     """A move, a new state, a rename — or a move and a rename together (the
     name first, so the new state carries it). A read-compat `due-<date>` is
     promoted by its first touch (`progress.advance`), and a name sent with it
     renames the milestone that promotion opened."""
-    _guard()
     mp = settings.memory_path
     stem = _project_stem(mp, project_id)
     async with _write_lock:
@@ -298,6 +300,7 @@ async def change_milestone(project_id: str, slug: str, body: MilestonePatch,
 
 
 @router.post("/projects/{project_id}/happenings", response_model=ProjectWriteResponse)
+@_admitted
 async def log_happening(project_id: str, body: HappeningCreate, settings: Settings = Depends(get_settings)):
     """The Log. R-PJB15: one time phrase is cut from wherever it sits and
     becomes the day (basis `stated`); two are refused, as is a vaguer time word
@@ -305,7 +308,6 @@ async def log_happening(project_id: str, body: HappeningCreate, settings: Settin
     The companion episode keeps the words verbatim, and the claim cites it as
     a `user` span (R-PJ18: a span, not a copy). Everything is validated before
     the episode is written, so a refusal writes nothing."""
-    _guard()
     mp = settings.memory_path
     stem = _project_stem(mp, project_id)
     text = " ".join((body.text or "").split())
@@ -356,12 +358,12 @@ async def log_happening(project_id: str, body: HappeningCreate, settings: Settin
 
 
 @router.post("/projects/{project_id}/threads/{claim_id}", response_model=ProjectWriteResponse)
+@_admitted
 async def settle_thread(project_id: str, claim_id: str, body: ThreadSettle,
                         settings: Settings = Depends(get_settings)):
     """An open thread's answer. Done/dropped writes its own born-closed
     happening that settles the thread; "still going" restates it, which folds
     into the thread (rule 2) and moves `recorded_at` — the quiet clock resets."""
-    _guard()
     mp = settings.memory_path
     stem = _project_stem(mp, project_id)
     if body.status not in ("done", "ongoing", "dropped"):
@@ -385,12 +387,12 @@ async def settle_thread(project_id: str, claim_id: str, body: ThreadSettle,
 
 
 @router.post("/projects/{project_id}/withdraw", response_model=ProjectWriteResponse)
+@_admitted
 async def withdraw_happening(project_id: str, body: WithdrawRequest, settings: Settings = Depends(get_settings)):
     """"Not right". R-PJB28: happenings only — withdrawing a milestone state
     could leave its slot with no open head. When the claim was not the
     person's own, the withdrawal is an `overruled` verdict (G113, R-PJB24):
     one ids-and-enums ledger row, never the sentence."""
-    _guard()
     mp = settings.memory_path
     stem = _project_stem(mp, project_id)
     async with _write_lock:

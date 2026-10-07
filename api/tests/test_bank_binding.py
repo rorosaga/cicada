@@ -153,7 +153,10 @@ def test_a_switch_while_a_request_waits_on_its_lock_leaves_it_in_its_own_bank(tw
 
     root = two_banks
     beta = bank_registry.bank_dir(root, "beta")
-    entered = asyncio.Event()
+    import threading
+
+    # A thread-safe signal (G183): the route's admitted body runs on the write-admission writer loop, not this one.
+    entered = threading.Event()
     original_page = entities._entity_page
 
     def observed_page(settings, entity_id):
@@ -172,7 +175,7 @@ def test_a_switch_while_a_request_waits_on_its_lock_leaves_it_in_its_own_bank(tw
             upload = asyncio.create_task(c.post("/entities/bob-example/picture",
                                                 headers={bank_binding.HEADER: "default"},
                                                 files={"file": ("probe.png", PNG, "image/png")}))
-            await asyncio.wait_for(entered.wait(), 5)
+            assert await asyncio.to_thread(entered.wait, 5)
             bank_registry.activate_bank(root, "beta")          # the switch, while the request waits on the lock
             entities._PICTURE_LOCK.release()
             response = await upload
