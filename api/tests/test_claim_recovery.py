@@ -302,3 +302,14 @@ def test_a_failed_commit_puts_the_pages_back(bank, monkeypatch):
         claim_recovery.apply(bank)
     assert (bank / "entities" / "alpha-project.md").read_bytes() == before
     assert _git(bank, "status", "--porcelain") == ""
+
+
+def test_sleep_is_asked_while_the_admission_is_held(bank):
+    from api.services import write_admission
+
+    c1, c2 = _claim(1), _claim(2)
+    _seed(bank, [c1, c2])
+    _drop_by_sleep(bank, keep=[c1])
+    seen: list[int] = []
+    claim_recovery.apply(bank, sleep_holding=lambda: seen.append(write_admission.holders(bank)) or False)
+    assert seen == [1], "the answer must hold until the commit: a window cannot open under a shared holder"
