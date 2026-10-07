@@ -100,11 +100,15 @@ after the prose writes, then kept only what it could still read. `python -m api.
 loss, and the id's **last** removal decides. **A recovered entry is never a current belief:** it comes back closed —
 `valid_to` the removal commit's day, or its own stated end (`claim_expiry.stated_end`) when earlier, never before
 `valid_from`; an entry already closed keeps its own — and marked `recovered_from: <removing commit>`,
-`recovered_by: claim_recovery` (`Claim` fields, omitted when unset). Excluded, each needing positive evidence to pass:
+`recovered_by: claim_recovery` (`Claim` fields, omitted when unset). **No writer reopens it:** every writer that
+clears `valid_to` asks `claims.is_recovered_history` first (a test lists them — the decay `keep_active` verdict leaves
+it untouched; a paper/folder sync that re-sends the same deterministic id asserts a fresh entry beside it). Excluded, each needing positive evidence to pass:
 the removal's writer (`person_edit`, `merged`, `inbox_resolution`, `other_writer`, and `unproven_writer` — a `Sleep
 cycle` subject whose `Cicada-Author`s are not all models or `cicada`); `unreadable_fence` (the page's fence was
 unterminated, repeated or unparseable at any version read — `claims.fence_state`), `unreadable_elsewhere` (an
-unreadable HEAD page whose bytes name the id); `retracted` (a `retracts` record named it at ANY version read);
+unreadable HEAD page is read as YAML decodes it — `claims.loose_claim_entries`, every fence to its close or the next
+opening — so an escaped or quoted id still counts as present and a `retracts` record there still excludes; a page
+whose YAML will not load at all makes absence unprovable and excludes every candidate); `retracted` (a `retracts` record named it at ANY version read);
 `merged` (a `<id>-from-` copy), `page_gone`, `page_archived` (at the removal or now); and `not_rewrite` — the bug's
 signature is required: the section that held the fence when the page is sectioned raw must have had its fence-stripped
 prose rewritten. What is left is classed `replaced` (a current claim on the page shares subject and predicate — and

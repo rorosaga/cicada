@@ -275,18 +275,24 @@ def test_a_page_deleted_since_is_left_alone(bank):
 # --- unreadable fences ---------------------------------------------------------------------------------------------
 
 
-def test_an_unterminated_fence_is_never_written_to(bank):
+@pytest.mark.parametrize("trapped,expected", [
+    ("lost", {"candidates": 0}),                      # the id is still there, trapped: not a loss
+    ("other", {"excluded": {"unreadable_fence": 1}}),  # the fence cannot be written to: excluded
+])
+def test_an_unterminated_fence_is_never_written_to(bank, trapped, expected):
     c1, c2 = _claim(1), _claim(2)
     _seed(bank, [c1, c2])
     _drop(bank, [c1, _restated(c2, 9)])
     path = bank / PAGE
     text = path.read_text(encoding="utf-8")
-    path.write_text(text[:text.rindex("```")] + f"- id: {c2.id}\n  text: trapped\n", encoding="utf-8")
+    trapped_id = c2.id if trapped == "lost" else "clm_other"
+    path.write_text(text[:text.rindex("```")] + f"- id: {trapped_id}\n  text: trapped\n", encoding="utf-8")
     _commit(bank, "Memory update 2026-10-03", [PAGE], author="user")
-    trapped = path.read_bytes()
-    assert _counts(bank)["excluded"] == {"unreadable_fence": 1}
+    before = path.read_bytes()
+    counts = _counts(bank)
+    assert {k: counts[k] for k in expected} == expected
     assert claim_recovery.apply(bank).recovered == 0
-    assert path.read_bytes() == trapped
+    assert path.read_bytes() == before
 
 
 def test_an_unreadable_page_elsewhere_that_names_the_id_blocks_recovery(bank):
@@ -531,3 +537,124 @@ def test_two_concurrent_applies_restore_once(bank):
     assert sorted(results) == [0, 1]
     assert _git(bank, "rev-list", "--count", f"{head}..HEAD").strip() == "1"
     assert [c.id for c in _claims_now(bank).values()].count(c2.id) == 1
+
+
+# --- fix round 2: later writers never reopen recovered history; unreadable pages are read as YAML ---------------
+
+
+class _InboxSettings:
+    def __init__(self, memory_path: Path):
+        self.memory_path = memory_path
+        self.inbox_defer_days = 30
+        self.litellm_model = "test-model"
+        self.inbox_stale_after_days = 90
+
+
+def _recover_replaced(bank: Path) -> tuple[Claim, Claim]:
+    c1, c2 = _claim(1), _claim(2)
+    _seed(bank, [c1, c2])
+    successor = _restated(c2, 9)
+    _drop(bank, [c1, successor])
+    assert claim_recovery.apply(bank).recovered == 1
+    assert _claims_now(bank)[c2.id].recovered_by == "claim_recovery"
+    return c2, successor
+
+
+def test_a_decay_keep_active_never_reopens_a_recovered_entry(bank):
+    import asyncio
+
+    from api.models.schemas import InboxResolveRequest
+    from api.services import inbox_service
+
+    old, successor = _recover_replaced(bank)
+    (bank / "inbox").mkdir()
+    (bank / "inbox" / "inbox-030.md").write_text(
+        f"---\nkind: decay\nrequired_input: choice\nstatus: pending\npriority: 0.3\nentity_id: alpha-project\n"
+        f"entity_name: Alpha Project\ntitle: Still true?\ncreated_date: 2026-10-01\nclaim_id: {old.id}\n"
+        f"trigger: sleep/decay\n---\n", encoding="utf-8")
+    _commit(bank, "Sleep cycle 2026-10-01", ["inbox/inbox-030.md"])
+    before = raw_claim_entries((bank / PAGE).read_text(encoding="utf-8"))
+
+    asyncio.run(inbox_service.resolve("inbox-030", InboxResolveRequest(action="keep_active"), _InboxSettings(bank)))
+
+    now = _claims_now(bank)
+    assert now[old.id].valid_to == DROP_DAY and now[old.id].recovered_by == "claim_recovery", "still history"
+    assert now[successor.id].valid_to is None, "the current successor is what stays current"
+    assert [e for e in raw_claim_entries((bank / PAGE).read_text(encoding="utf-8")) if e["id"] == old.id] == \
+        [e for e in before if e["id"] == old.id], "the recovered entry is not touched at all"
+
+
+def test_a_paper_sync_asserts_afresh_and_never_reopens_a_recovered_entry(bank):
+    from api.services import papers
+
+    cid = papers.claim_id("alpha-project", "annotates", "tool-2", "agent", "notes")
+    old = _claim(2, id=cid, predicate="annotates", origin=papers.ORIGIN)
+    _seed(bank, [_claim(1), old])
+    _drop(bank, [_claim(1), _claim(9, predicate="annotates", object="tool-2")])
+    assert claim_recovery.apply(bank).recovered == 1
+    desired = _claim(2, id=cid, predicate="annotates", origin=papers.ORIGIN, valid_from=None,
+                     evidence=[evidence.reasoning(EP)], source_episodes=[EP])
+
+    assert papers.apply_claims(bank / PAGE, EP, [desired], "2026-10-05") is True
+    copies = [c for c in parse_claims(markdown_parser.parse(bank / PAGE).body, strict=True) if c.id == cid]
+    assert [(c.valid_to, c.recovered_by) for c in copies] == [(DROP_DAY, "claim_recovery"), (None, None)], \
+        "the history stays closed; the source's assertion is a fresh entry"
+    assert papers.apply_claims(bank / PAGE, EP, [desired], "2026-10-06") is False, "a re-sync matches the fresh one"
+
+
+def test_every_reopen_in_the_code_consults_the_recovered_history_test():
+    """A writer that clears `valid_to` must first ask `claims.is_recovered_history` (G148): recovered history is
+    never reopened, by any writer, however it learned the id."""
+    import re as _re
+
+    root = Path(__file__).resolve().parents[2]
+    reopen = _re.compile(r"\.valid_to\s*=\s*None\b")
+    sites = []
+    for path in sorted((root / "api").rglob("*.py")) + sorted((root / "mcp").rglob("*.py")):
+        rel = path.relative_to(root).as_posix()
+        if "/tests/" in rel or ".venv" in rel:
+            continue
+        text = path.read_text(encoding="utf-8")
+        if reopen.search(text):
+            sites.append(rel)
+            assert "is_recovered_history" in text, f"{rel} reopens a claim without asking is_recovered_history"
+    assert sites == ["api/services/inbox_service.py", "api/services/papers.py"], sites
+
+
+def test_an_escaped_id_in_a_readable_yaml_of_an_unreadable_page_counts_as_present(bank):
+    c1, c2 = _claim(1), _claim(2)
+    _seed(bank, [c1, c2])
+    _drop(bank, [c1, _restated(c2, 9)])
+    escaped = "".join(f"\\u{ord(ch):04x}" for ch in c2.id)
+    other = bank / "entities" / "bob-example.md"   # two fences: unreadable for a writer, both still YAML
+    other.write_text(f"---\nid: bob-example\n---\n\n```claims\n- id: x-1\n  text: one\n```\n\n"
+                     f"```claims\n- id: \"{escaped}\"\n  text: two\n```\n", encoding="utf-8")
+    _commit(bank, "Memory update 2026-10-03", ["entities/bob-example.md"], author="user")
+    assert c2.id not in other.read_text(encoding="utf-8")
+    assert _counts(bank)["candidates"] == 0, "the id is on a page — trapped, not lost"
+    assert claim_recovery.apply(bank).recovered == 0
+
+
+def test_an_unreadable_page_whose_yaml_will_not_load_blocks_every_recovery(bank):
+    c1, c2 = _claim(1), _claim(2)
+    _seed(bank, [c1, c2])
+    _drop(bank, [c1, _restated(c2, 9)])
+    escaped = "".join(f"\\u{ord(ch):04x}" for ch in c2.id)
+    other = bank / "entities" / "bob-example.md"
+    other.write_text(f"---\nid: bob-example\n---\n\n```claims\n- id: \"{escaped}\"\n  text: [unclosed\n```\n",
+                     encoding="utf-8")
+    _commit(bank, "Memory update 2026-10-03", ["entities/bob-example.md"], author="user")
+    assert _counts(bank)["excluded"] == {"unreadable_elsewhere": 1}, "presence cannot be proven: fail closed"
+    assert claim_recovery.apply(bank).recovered == 0
+
+
+def test_a_retraction_record_in_an_unreadable_but_loadable_page_still_excludes(bank):
+    c1, c2 = _claim(1), _claim(2)
+    _seed(bank, [c1, c2])
+    _drop(bank, [c1, _restated(c2, 9)])
+    escaped = "".join(f"\\u{ord(ch):04x}" for ch in c2.id)
+    other = bank / "entities" / "bob-example.md"
+    other.write_text(f"---\nid: bob-example\n---\n\n```claims\n- id: r-1\n  text: why\n  predicate: retracts\n"
+                     f"  object: \"{escaped}\"\n", encoding="utf-8")   # unterminated, but its YAML loads
+    _commit(bank, "Memory update 2026-10-03", ["entities/bob-example.md"], author="user")
+    assert _counts(bank)["excluded"] == {"retracted": 1}

@@ -508,6 +508,15 @@ def preserve_claims_blocks(original: str, rewritten: str) -> str:
     return "\n\n".join(part for part in (prose, *blocks) if part) + "\n"
 
 
+def is_recovered_history(claim) -> bool:
+    """Was this entry put back by ``claim_recovery`` (G148 follow-up)? Such an entry is the record of a belief a Sleep
+    rewrite dropped, restored CLOSED — history, never a current belief. No writer reopens it, whatever it learned the id
+    from (a decay verdict raised before the drop, a source sync's deterministic id): a fresh assertion is a new entry,
+    and a "still true" verdict leaves it as it is. Every writer that clears ``valid_to`` asks this first (a test
+    enforces it)."""
+    return bool(getattr(claim, "recovered_by", None))
+
+
 # G148 follow-up — what a writer that must not re-render a fence needs (`claim_recovery`): the fence's structure checked
 # apart from its YAML, its raw entries, and an append that leaves every existing byte where it was.
 _FENCE_OPEN_RE = re.compile(r"^```claims[ \t]*\r?$", re.MULTILINE)
@@ -530,6 +539,34 @@ def fence_state(body: str) -> str:
     except MalformedClaimsBlockError:
         return FENCE_UNREADABLE
     return FENCE_OK
+
+
+_FENCE_CLOSE_RE = re.compile(r"^```[ \t]*\r?$", re.MULTILINE)
+
+
+def loose_claim_entries(body: str) -> list[dict] | None:
+    """Every entry in EVERY ```claims fence the page holds — each read from its opening to its closing fence, or to
+    the next opening or the end of the page when it has none — as YAML decodes it (escapes, quoting and aliases
+    resolved). For a reader that must know which ids an unreadable page still holds; never for a writer. ``None``
+    when any fence's YAML will not load as a list of mappings: what that page holds cannot be known."""
+    body = body or ""
+    entries: list[dict] = []
+    openings = list(_FENCE_OPEN_RE.finditer(body))
+    for i, opening in enumerate(openings):
+        start = opening.end() + 1
+        limit = openings[i + 1].start() if i + 1 < len(openings) else len(body)
+        close = _FENCE_CLOSE_RE.search(body, start, limit)
+        payload = body[start:close.start() if close else limit]
+        try:
+            loaded = yaml.load(payload, Loader=_SAFE_LOADER)  # noqa: S506 — a SAFE loader
+        except yaml.YAMLError:
+            return None
+        if loaded is None:
+            continue
+        if not isinstance(loaded, list) or not all(isinstance(e, dict) for e in loaded):
+            return None
+        entries.extend(dict(e) for e in loaded)
+    return entries
 
 
 def raw_claim_entries(body: str) -> list[dict]:

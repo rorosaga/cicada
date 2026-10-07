@@ -8,7 +8,8 @@ that left every page is a hole in the record.
 **Nothing comes back as a current belief.** A recovered entry is restored CLOSED: ``valid_to`` is the day the rewrite
 dropped it, or its own stated end (``claim_expiry.stated_end``) when that came first, never before ``valid_from``; an
 entry that was already closed keeps its own ``valid_to``. It carries ``recovered_from: <removing commit>`` and
-``recovered_by: claim_recovery``. So no single-valued conflict, obsolete belief or expired fact can be reopened.
+``recovered_by: claim_recovery``, and no writer reopens it (``claims.is_recovered_history``). So no single-valued
+conflict, obsolete belief or expired fact comes back as current through the record itself.
 
 **Finding losses (git only).** Every first-parent commit that touched ``entities/`` is replayed with one
 ``git cat-file --batch``; an id in a page's fence before a commit and not after it is a removal, and the id's LAST
@@ -20,7 +21,9 @@ removal decides (several pages in one commit count as one removal each). An id o
   ``other_writer`` (not a ``Sleep cycle …`` subject), ``unproven_writer`` (a Sleep subject whose authors are not all
   models or ``cicada`` — an agent's label, ``unknown``, or none);
 * ``unreadable_fence``: the page's fence was unterminated, repeated or unparseable at any version read, or is now;
-  ``unreadable_elsewhere``: another page's fence is unreadable at HEAD and its bytes name the id (absence unproven);
+  an unreadable HEAD page is read as YAML decodes it (``claims.loose_claim_entries``), so an id it holds — escaped or
+  quoted — is present and a ``retracts`` record it holds excludes; ``unreadable_elsewhere``: some page's YAML will not
+  load at all, so absence cannot be proven and every candidate is excluded;
 * ``retracted``: a ``retracts`` record named the id at any version read (an incarnation restated after a withdrawal
   is excluded too — the history cannot tell them apart), or the entry is itself such a record;
 * ``merged``: a ``<id>-from-<loser>`` copy is at HEAD; ``page_gone``; ``page_archived`` (``archived``/``dropped``
@@ -74,6 +77,7 @@ from api.services.claims import (
     append_claim_entries,
     event_cardinality,
     fence_state,
+    loose_claim_entries,
     raw_claim_entries,
     strip_claims_block,
 )
@@ -148,6 +152,16 @@ class _Version:
     frontmatter: dict
     body: str                      # as markdown_parser.parse returns it: fence included, stripped
     entries: list[dict] | None     # None: the fence is unterminated, repeated or unparseable
+    loose: list[dict] | None = None   # an unreadable fence's entries as YAML decodes them; None: will not load
+
+    def markers(self) -> set[str]:
+        """The ids a ``retracts`` record on this version names — read loosely when the fence is unreadable."""
+        rows = self.entries if self.entries is not None else (self.loose or [])
+        return {str(e.get("object")) for e in rows if e.get("predicate") == RETRACT_PREDICATE and e.get("object")}
+
+    def ids(self) -> set[str]:
+        rows = self.entries if self.entries is not None else (self.loose or [])
+        return {str(e.get("id")) for e in rows if e.get("id") is not None}
 
     @property
     def status(self) -> str:
@@ -177,7 +191,7 @@ def _version(text: str | None) -> _Version | None:
             [Claim.from_dict(e) for e in entries]   # a field that cannot convert is as unreadable as bad YAML
     except (MalformedClaimsBlockError, TypeError, ValueError):
         entries = None
-    return _Version(text, fm, body, entries)
+    return _Version(text, fm, body, entries, loose_claim_entries(body) if entries is None else None)
 
 
 def _rewrote_the_fence_section(before: _Version, after: _Version | None) -> bool:
@@ -304,11 +318,14 @@ def _head(bank: Path) -> str:
 class _Head:
     present: set[str]
     pages: dict[str, _Version]
-    unreadable_raw: list[str]
+    retracted: set[str]
+    opaque: bool = False   # some page's fence is unreadable AND its YAML will not load: presence cannot be proven
 
 
 def _head_state(bank: Path, blobs: _Blobs) -> _Head:
-    state = _Head(set(), {}, [])
+    """Which ids every HEAD page holds. An unreadable fence is read as YAML decodes it (an escaped or quoted id is
+    still that id); one whose YAML will not load makes the whole bank's absence unprovable."""
+    state = _Head(set(), {}, set())
     for path in _git_read(bank, "ls-tree", "-r", "--name-only", "HEAD", "--", "entities").splitlines():
         if not _PAGE_RE.match(path):
             continue
@@ -316,9 +333,10 @@ def _head_state(bank: Path, blobs: _Blobs) -> _Head:
         if version is None:
             continue
         state.pages[path] = version
-        if version.entries is None:
-            state.unreadable_raw.append(version.raw)
-        state.present.update(str(e.get("id") or "") for e in version.entries or [])
+        if version.entries is None and version.loose is None:
+            state.opaque = True
+        state.present.update(version.ids())
+        state.retracted.update(version.markers())
     return state
 
 
@@ -345,7 +363,7 @@ def analyze(bank) -> Plan:
                         continue
                     if version.entries is None:
                         ever_unreadable.add(path)
-                    retracted.update(c.object for c in version.claims() if c.predicate == RETRACT_PREDICATE)
+                    retracted.update(version.markers())
                 if before is None or before.entries is None or (after is not None and after.entries is None):
                     continue   # trapped in a fence nobody can read — not proven removed
                 kept = {str(e.get("id") or "") for e in after.entries} if after is not None else set()
@@ -366,6 +384,7 @@ def analyze(bank) -> Plan:
         if not last:
             return plan
         now = _head_state(bank, blobs)
+        retracted |= now.retracted
     finally:
         blobs.close()
     for cid, removals in last.items():
@@ -388,7 +407,7 @@ def _exclusion(bank: Path, cid: str, removal: _Removal, now: _Head, retracted: s
     page = now.pages.get(removal.page)
     if removal.page in ever_unreadable or (page is not None and page.entries is None):
         return "unreadable_fence"
-    if any(cid in raw for raw in now.unreadable_raw):
+    if now.opaque:
         return "unreadable_elsewhere"
     if cid in retracted or any(e.get("predicate") == RETRACT_PREDICATE for e in removal.entries):
         return "retracted"
