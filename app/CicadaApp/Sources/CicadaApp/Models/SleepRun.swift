@@ -4,7 +4,7 @@ import Foundation
 // the paused run, the reading options, the per-conversation queue, a whole run's detail and the
 // reserve line. Every field decodes leniently, the `SleepDrainSSE` pattern: an older backend, or
 // one that adds a key, reads as no news and never fails the status it rides on. Ids, counts and
-// enums only; the one text a record carries is the vendor's own sentence for a plan stop.
+// enums only, plus the pause's plan or engine diagnosis.
 
 /// The reserve line ("Leave room in my plan") and which plan windows it can hold. `enforced` is
 /// `true` only for a window the engine reported, `false` for one it should have reported and did
@@ -93,7 +93,7 @@ struct SleepPausedRun: Codable, Equatable {
     var runId: String
     var startedBy: String
     var reason: String
-    /// The vendor's own sentence for a plan stop; `nil` otherwise.
+    /// The pause's diagnosis: a plan's own sentence, or an engine interruption/fix.
     var sentence: String?
     /// The vendor's unix reset time — `nil` when none was given, never guessed.
     var resetsAt: Int?

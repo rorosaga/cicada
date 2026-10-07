@@ -53,6 +53,7 @@ class DrainStop:
     sentence: str = ""
     resets_at: int | None = None
     limit: str | None = None
+    transient: bool = False                         # internal: a recoverable engine interruption
 
     def to_wire(self) -> dict:
         return {"reason": self.reason, "sentence": self.sentence or None,
@@ -74,6 +75,7 @@ class BatchLive:
     skipped: set[str] = field(default_factory=set)           # never started: the reserve line said stop
     pause_class: bool = False                                # some failure was the engine's, not the conversation's
     pause_sentence: str | None = None
+    transient_stop: DrainStop | None = None           # discard this batch before its first write
     sort_done: int = 0
     sort_total: int | None = None
     decide_done: int = 0
@@ -238,8 +240,8 @@ def classify(exc: BaseException, breaker_sentence: str | None = None,
     A plan limit (throttled, exhausted, overage) is not a failure — the person
     presses Consolidate again after the reset — so it carries the breaker's
     sentence (the vendor's, with the reset time in it) when one was tripped,
-    else the error's own. An unusable engine is an ``engine`` stop, anything else
-    ``error``."""
+    else the error's own. An exhausted transient or unusable engine is an
+    ``engine`` stop; anything unexpected is ``error``."""
     resets = getattr(exc, "resets_at", None)
     resets = resets if isinstance(resets, int) and not isinstance(resets, bool) else breaker_resets_at
     if isinstance(exc, (engine_errors.EngineThrottled, engine_errors.EngineExhausted)):
@@ -247,6 +249,10 @@ def classify(exc: BaseException, breaker_sentence: str | None = None,
 
         return DrainStop("plan_limit", (breaker_sentence or str(exc)).strip(), resets,
                          breaker_kind or agent_engine.limit_kind_of(exc))
+    if isinstance(exc, engine_errors.RETRYABLE):
+        cause = "The engine timed out." if isinstance(exc, engine_errors.EngineTimeout) else "The engine stopped answering."
+        return DrainStop("engine", cause + " Continue to try again; the part it was reading will be read again.",
+                         transient=True)
     if isinstance(exc, (engine_errors.EngineUnavailable, engine_errors.EngineModelNotFound)):
         return DrainStop("engine", str(exc).strip(), None)
     return DrainStop("error", f"{type(exc).__name__}: {exc}", None)
@@ -254,11 +260,11 @@ def classify(exc: BaseException, breaker_sentence: str | None = None,
 
 def classify_episode(exc: BaseException) -> tuple[str, str | None]:
     """One conversation's failure: ``("pause", None)`` when it is the engine's
-    (throttled, exhausted, unavailable, model not found, an unnamed CLI failure, a
+    (throttled, exhausted, unavailable, model not found, a CLI timeout or unnamed failure, a
     provider 5xx or refused request, the network — never counted against the
     conversation), else ``("content", reason)`` with a ``UNREAD_REASONS`` enum. Only
     classes that clearly belong to the conversation park it (an empty or unparseable
-    answer, a timeout, a context-window overflow, a content refusal); an unrecognised
+    answer, a provider request timeout, a context-window overflow, a content refusal); an unrecognised
     failure is content here, but a batch where EVERY conversation failed with one is
     the engine's (``sleep_cycle._run_stages``)."""
     from api.services import json_parse
@@ -289,11 +295,9 @@ def classify_episode(exc: BaseException) -> tuple[str, str | None]:
         pass
     if isinstance(exc, (engine_errors.EngineThrottled, engine_errors.EngineExhausted,
                         engine_errors.EngineUnavailable, engine_errors.EngineModelNotFound,
-                        engine_errors.EngineFailed)):
+                        engine_errors.EngineFailed, engine_errors.EngineTimeout)):
         # EngineFailed: the CLI reported an error it could not name — after its own retry.
         return "pause", None
-    if isinstance(exc, engine_errors.EngineTimeout):
-        return "content", "timed_out"
     if isinstance(exc, (engine_errors.EngineProtocolError, json_parse.EmptyResponse)):
         return "content", "empty_answer"
     if isinstance(exc, ValueError):        # includes json.JSONDecodeError

@@ -67,9 +67,9 @@ extension Copy {
         static func resetsContinue(_ when: String) -> String { "Resets \(when). Continue when you like." }
         static func resetsThenContinue(_ when: String) -> String { "Resets \(when). Continue then." }
         static let continueWhenItResets = "Continue when your plan resets."
-        static let pausedEngineLead = "Paused. The engine needs a look."
-        static func continueWhenFixed(filed: Int, frozen: Int, _ locale: Locale = .autoupdatingCurrent) -> String {
-            "Continue when it is fixed. \(filedOf(filed, frozen, locale))."
+        static let pausedEngineLead = "Paused. The engine stopped answering."
+        static func continueToTryAgain(filed: Int, frozen: Int, _ locale: Locale = .autoupdatingCurrent) -> String {
+            "Continue to try again. \(filedOf(filed, frozen, locale))."
         }
         static let restartLead = "Cicada restarted while reading."
         static func restartTail(filed: Int, frozen: Int, _ locale: Locale = .autoupdatingCurrent) -> String {
@@ -436,7 +436,7 @@ extension Copy {
         SleepV5.continueWhenYouLike(filed: 98, frozen: 287), SleepV5.continuesAfter("3:40 PM", filed: 98, frozen: 287),
         SleepV5.willContinueBySelf("3:40 PM"), SleepV5.pausedPlanWindowLead, SleepV5.pausedPlanWeeklyLead,
         SleepV5.pausedOverageLead, SleepV5.resetsContinue("after 2:00 PM"), SleepV5.resetsThenContinue("Tue 2:00 PM"),
-        SleepV5.continueWhenItResets, SleepV5.pausedEngineLead, SleepV5.continueWhenFixed(filed: 98, frozen: 287),
+        SleepV5.continueWhenItResets, SleepV5.pausedEngineLead, SleepV5.continueToTryAgain(filed: 98, frozen: 287),
         SleepV5.restartLead, SleepV5.restartTail(filed: 98, frozen: 287), SleepV5.bankSwitchedLead,
         SleepV5.bankSwitchedTail, SleepV5.filedLead(286), SleepV5.parkedLine(1),
         SleepV5.pauseHelp, SleepV5.endRunHelp, SleepV5.optionsIntro(waiting: 287, batchSize: 25),

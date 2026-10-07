@@ -574,8 +574,12 @@ manifest. The ImageRenderer hook produces light/dark Mascot panes, including unk
 (`SleepProviderNeutralLintTests`: no provider or model named in a literal under `Views/Sleep`/`Views/Intake` outside the files that render the
 person's own choice) and journal-honest (no "read and kept": a Pause reads the part in progress again). The **paused run** (`SleepPausedRun`, on
 `GET /sleep/status` and in brief on the SSE event, where a present `null` means none) outranks every idle rung of the sentence — Paused / Paused to
-leave room in your plan / Your plan window is full / The engine needs a look / Cicada restarted while reading — with what is filed and, when armed
-(ruling 15), "Continues after 3:40 PM" (one locale-aware formatter, `sleepClockWords`); the mood is `.reading`, never an error or a cheer. **One
+leave room in your plan / Your plan window is full / The engine stopped answering / Cicada restarted while reading — with what is filed and, when armed
+(ruling 15), "Continues after 3:40 PM" (one locale-aware formatter, `sleepClockWords`); the mood is `.reading`, never an error or a cheer.
+An engine pause includes transient timeouts: its tail says "Continue to try again" with the filed count, and Details
+shows the backend's diagnosis (DR-59). For a timeout, that diagnosis says the interrupted part is read again;
+authentication pauses still show their sign-in fix. The lead never implies a permanent configuration fault or
+automatic continuation. **One
 primary at a time (DR-40):** Consolidate / Pause (a drain's cancel, "Pausing…") / Continue (named for the manual engine; held while a weekly limit's
 reset is ahead) with *End this run* beside it. `SleepViewModel.continueRun()` is the only sender of `{"continue": true}`; **every other door goes
 through `triggerManually()`, which routes to the Sleep page while a run is paused** (`AppRouter.routeToSleep`), and the menu bar, the intake card's

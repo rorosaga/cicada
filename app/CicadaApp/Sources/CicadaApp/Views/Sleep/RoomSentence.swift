@@ -406,7 +406,7 @@ private func pausedTail(_ paused: SleepPausedRun, _ ctx: RoomContext) -> Sentenc
         return SentenceTail(text: ctx.resetWhen.map(Copy.SleepV5.resetsThenContinue) ?? Copy.SleepV5.continueWhenItResets,
                             action: .openDetails(.lastCycle))
     case "engine":
-        return SentenceTail(text: Copy.SleepV5.continueWhenFixed(filed: filed, frozen: frozen, locale),
+        return SentenceTail(text: Copy.SleepV5.continueToTryAgain(filed: filed, frozen: frozen, locale),
                             tone: .warning, action: .openDetails(.lastCycle))
     case "restart":
         return SentenceTail(text: Copy.SleepV5.restartTail(filed: filed, frozen: frozen, locale))

@@ -211,10 +211,19 @@ ChatGPT pre-flight's used-up sentence, whose snapshot `resets_at` rides along vi
 (`agent_engine.breaker_resets_at`) ride `drain.stop`, `error` stays null, and the run does **not** continue itself after the
 reset unless the person switched on *Continue after a plan reset* (off by default, ruling 15, below) — otherwise the person presses Continue. A cancel is the
 existing cooperative one: a batch before Stage 5 is discarded (its paid reads are lost and it is read again next time — the API's cancel message says so), one already writing commits, then the loop stops. A
-conversation that fails **for its own reasons** (an empty answer, a timeout, an unparseable reply — `sleep_drain.classify_episode`)
+conversation that fails **for its own reasons** (an empty answer, a provider request timeout, an unparseable reply — `sleep_drain.classify_episode`)
 goes first in the very next batch for **one more try and is then parked**; a failure that is the **engine's** (signed out,
 throttled, exhausted, model not found) stops the run after the batch commits what it read and is never counted against a
-conversation. An id another writer marked processed meanwhile is `skipped`, and a bank switch between batches stops the run (`bank_switched`; `activate`, `demo`,
+conversation. **Transient CLI engine failures (G171/G163):** extraction already retries each call once (10 s after
+`EngineTimeout`, 2 s after `EngineFailed` or `EngineProtocolError`); other CLI calls inside a drain use the same
+one-retry bound at the provider seam, releasing the concurrency permit during backoff. An exhausted `EngineTimeout`
+or `EngineFailed` in extraction discards the whole batch before Stage 2, including successful reads in a mixed batch;
+a transient error escaping a later stage (`engine_errors.RETRYABLE`) also pauses with reason `engine`, no `error`,
+reset time or auto-continue. The frozen ids and prior committed batches stay intact; no episode attempt is charged
+or parked for that interruption. Continue resumes the same run and reads the interrupted batch again. An
+empty/unparseable extraction answer still gets the conversation retry-then-park rule. Authentication, model and
+plan errors are never retried by this policy; calls outside drains retain their existing policy.
+An id another writer marked processed meanwhile is `skipped`, and a bank switch between batches stops the run (`bank_switched`; `activate`, `demo`,
 `leave-demo` and the active bank's rename answer **409** while `SleepState.drain_run`). **A scheduled cycle drains too**
 (ruling 16: both scheduler entry points pass `drain=True`) but with `user_triggered=False`, so ruling 4 holds — it never uses
 a plan; on a metered engine it spends until the queue is empty, with no limit Cicada sets, and the engine menu and Details

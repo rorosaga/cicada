@@ -126,6 +126,24 @@ final class SleepV5WireTests: XCTestCase {
 // MARK: - The sentence ladder
 
 final class SleepV5RoomSentenceTests: XCTestCase {
+    func test_aTimeoutPauseSaysItCanBeTriedAgainAndOffersContinue() {
+        let diagnosis = "The engine timed out. Continue to try again; the part it was reading will be read again."
+        let paused = SleepPausedRun(reason: "engine", sentence: diagnosis, filed: 3, frozen: 9)
+        let page = SleepPageModel.resolve(
+            status: nil, sse: nil, queued: [], schedule: ScheduleConfig(mode: "manual", hour: 3, minute: 0),
+            enginePreview: nil, history: [], storeStatus: nil, queueLoad: .loaded(count: 6),
+            justFinishedAt: nil, intakeInFlight: false, paused: paused, now: V5Fixture.now, locale: V5Fixture.en)
+        let line = V5Fixture.sentence(page)
+        XCTAssertEqual(line.lead, "Paused. The engine stopped answering.")
+        XCTAssertEqual(line.tail, "Continue to try again. 3 of 9 filed.")
+        XCTAssertTrue(page.paused?.canContinue == true)
+        XCTAssertFalse(page.consolidateEnabled)
+        let rows = LastCycleRow.runRows(drain: nil, paused: paused, run: nil, detail: nil, parkedCount: 0,
+                                        runBilling: nil, reserveValue: nil, locale: V5Fixture.en)
+        XCTAssertEqual(rows.first { $0.kind == .paused }?.text, diagnosis)
+        XCTAssertNil(page.autoContinueWhen)
+    }
+
     func test_everyV5SentenceFitsAndPromisesNothingUntrue() {
         for sentence in Copy.sleepV5Sentences where !sentence.isEmpty {
             for word in V5Fixture.journalWords {
@@ -147,7 +165,7 @@ final class SleepV5RoomSentenceTests: XCTestCase {
                      Copy.SleepV5.pausedByYouTail(filed: 74, frozen: 287),
                      Copy.SleepV5.continueWhenYouLike(filed: 98, frozen: 287),
                      Copy.SleepV5.continuesAfter("3:40 PM", filed: 98, frozen: 287),
-                     Copy.SleepV5.resetsContinue("after 2:00 PM"), Copy.SleepV5.continueWhenFixed(filed: 98, frozen: 287),
+                     Copy.SleepV5.resetsContinue("after 2:00 PM"), Copy.SleepV5.continueToTryAgain(filed: 98, frozen: 287),
                      Copy.SleepV5.restartTail(filed: 98, frozen: 287), Copy.SleepV5.bankSwitchedTail]
         for tail in tails { XCTAssertLessThanOrEqual(tail.count, SentenceLine.maxTail, tail) }
     }
@@ -166,8 +184,8 @@ final class SleepV5RoomSentenceTests: XCTestCase {
         XCTAssertEqual(window.lead, "Paused. Your plan window is full.")
 
         let engine = V5Fixture.sentence(V5Fixture.page(try V5Fixture.paused("engine")))
-        XCTAssertEqual(engine.lead, "Paused. The engine needs a look.")
-        XCTAssertEqual(engine.tail, "Continue when it is fixed. 3 of 9 filed.")
+        XCTAssertEqual(engine.lead, "Paused. The engine stopped answering.")
+        XCTAssertEqual(engine.tail, "Continue to try again. 3 of 9 filed.")
 
         let restart = V5Fixture.sentence(V5Fixture.page(try V5Fixture.paused("restart")))
         XCTAssertEqual(restart.lead, "Cicada restarted while reading.")

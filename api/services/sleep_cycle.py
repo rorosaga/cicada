@@ -1453,7 +1453,9 @@ async def _run_batch(
                 stop = sleep_drain.classify(
                     exc, agent_engine.breaker_reason(), agent_engine.breaker_resets_at(),
                     agent_engine.breaker_kind())
-                if stop.reason != "plan_limit":
+                if stop.transient:
+                    logger.warning(f"Sleep batch {batch_cycle_id} paused: {stop.sentence}")
+                elif stop.reason != "plan_limit":
                     logger.error(f"Sleep batch {batch_cycle_id} failed: {exc}")
                     logger.exception("Full traceback:")
                 return _StageOutcome(raised=exc, stop=stop)
@@ -1471,14 +1473,15 @@ async def _run_batch(
 
 
 def _apply_drain_stop(ds: "sleep_drain.DrainState", stop: "sleep_drain.DrainStop") -> None:
-    """Turn a stop into what the status route shows. A plan limit, the reserve line
-    and a cancel are pauses, not failures (no ``error``); an unusable engine, a moved
-    bank and anything unexpected fail the run exactly like a failed cycle does."""
+    """Turn a stop into what the status route shows. A plan limit, the reserve line,
+    a transient engine interruption and a cancel are pauses, not failures (no
+    ``error``); an unusable engine, a moved bank and anything unexpected still
+    carry the diagnostic error of a failed cycle."""
     ds.stop = stop
     ds.finished = False
     where = (f"Stopped after batch {ds.committed_batches} of {ds.batches} — "
              if ds.committed_batches else "")
-    if stop.reason in ("plan_limit", "reserve"):
+    if stop.reason in ("plan_limit", "reserve") or stop.transient:
         _state.error = None
         _state.engine_detail = stop.sentence or _state.engine_detail
         _state.progress = f"{where}{stop.sentence}".strip() or "Stopped at the plan's limit"
@@ -2000,6 +2003,10 @@ def _batch_hooks(live: "sleep_drain.BatchLive", guard) -> dict:
             live.engine_failed.add(ep["id"])
             live.pause_class = True
             live.pause_sentence = live.pause_sentence or str(exc).strip()[:300]
+            from api.services import engine_errors
+
+            if isinstance(exc, engine_errors.RETRYABLE):
+                live.transient_stop = live.transient_stop or sleep_drain.classify(exc)
         else:
             live.failed[ep["id"]] = reason or "other"
 
@@ -2231,6 +2238,12 @@ async def _run_stages(
     # cycle is not a failure and must not be reported as one.
     if _state.cancel_requested:
         return _cycle_cancelled()
+
+    if live is not None and live.transient_stop is not None:
+        # Extraction exhausted its call retry. Even a mixed batch stays entirely
+        # queued: no pages have been read or written yet, and engine trouble must
+        # neither consume an episode attempt nor turn a last batch into "finished".
+        return _StageOutcome(stop=live.transient_stop)
 
     # A drain's per-conversation outcomes (Sleep page v5): who could not be read and why,
     # and whether the ENGINE is what failed (never counted against a conversation).

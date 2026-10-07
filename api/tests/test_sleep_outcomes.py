@@ -52,7 +52,7 @@ def _client(cfg):
     (engine_errors.EngineOverage("x"), ("pause", None)),
     (engine_errors.EngineUnavailable("x"), ("pause", None)),
     (engine_errors.EngineModelNotFound("x"), ("pause", None)),
-    (engine_errors.EngineTimeout("x"), ("content", "timed_out")),
+    (engine_errors.EngineTimeout("x"), ("pause", None)),
     (engine_errors.EngineProtocolError("x"), ("content", "empty_answer")),
     (json_parse.EmptyResponse("empty"), ("content", "empty_answer")),
     (ValueError("no JSON object found"), ("content", "unparseable")),
