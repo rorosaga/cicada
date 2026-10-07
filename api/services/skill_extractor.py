@@ -146,6 +146,7 @@ def _format_existing(existing: list[dict], changes: list[dict]) -> str:
     An installed agent skill's page (``tags: [agent-skill]``, ``skill_tag``) is
     left out: it is a tool the person chose, and the extractor must never mistake
     it for a pattern it found."""
+    from api.services.claims import strip_claims_block
     from api.services.skill_tag import is_agent_skill
 
     existing = [e for e in existing if not is_agent_skill(e.get("frontmatter"))]
@@ -162,6 +163,6 @@ def _format_existing(existing: list[dict], changes: list[dict]) -> str:
         fm = entity_data.get("frontmatter", {}) or {}
         name = fm.get("name", entity_data.get("id", "unknown"))
         etype = fm.get("type", "unknown")
-        body = (entity_data.get("body") or "")[:EXISTING_BODY_CHAR_BUDGET]
+        body = strip_claims_block(entity_data.get("body"))[:EXISTING_BODY_CHAR_BUDGET]
         lines.append(f"### {name} ({etype})\n{body}")
     return "\n\n".join(lines) if lines else "(none)"

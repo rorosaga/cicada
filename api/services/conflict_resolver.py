@@ -908,9 +908,11 @@ async def _detect_contradiction(
     """Call the LLM to check whether existing and new descriptions contradict.
 
     G194 A1: both descriptions carry the day they were said, and the prompt carries today."""
+    from api.services.claims import strip_claims_block
+
     prompt = _CONTRADICTION_PROMPT.format(
         entity_name=entity_name,
-        existing_body=existing_body[:4000],
+        existing_body=strip_claims_block(existing_body)[:4000],
         new_description=new_description[:2000],
         today=source_dates.describe(today or date.today()),
         existing_as_of=source_dates.describe(existing_as_of),

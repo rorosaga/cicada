@@ -1222,6 +1222,8 @@ def recall(ctx: ToolContext, query: str) -> str:
     Pass 1 (this tool): summaries + proactive nudges/clarifications.
     Pass 2: cicada_recall_detail for the full page of a specific entity.
     """
+    from api.services.claims import strip_claims_block
+
     memory_path = ctx.memory_path()
     entities_dir = memory_path / "entities"
 
@@ -1331,7 +1333,7 @@ def recall(ctx: ToolContext, query: str) -> str:
             r_fm, r_body = parse_frontmatter(related_path.read_text(encoding="utf-8"))
             hop_blurbs.append(
                 f"- **{r_fm.get('name', related_id)}** (via [[{fm.get('name', eid)}]]): "
-                f"{r_body[:240].strip()}"
+                f"{strip_claims_block(r_body)[:240].strip()}"
             )
     if hop_blurbs:
         output_parts.append("**Related (one hop out):**\n" + "\n".join(hop_blurbs))
