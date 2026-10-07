@@ -492,9 +492,10 @@ def strip_claims_block(body: str) -> str:
 def preserve_claims_blocks(original: str, rewritten: str) -> str:
     """Reattach the authoritative fences unchanged after a prose-only rewrite.
 
-    Keep raw blocks (including unknown fields and malformed hand edits), rather
-    than parse/reserialize them. A synthesis response cannot author claims.
+    Keep raw closed fences (including unknown fields and malformed YAML), rather
+    than parse/reserialize them. Unclosed fences are outside this helper.
+    A synthesis response cannot author claims.
     """
-    blocks = [match.group(0).rstrip() for match in _CLAIMS_BLOCK_RE.finditer(original or "")]
+    blocks = [match.group(0) for match in _CLAIMS_BLOCK_RE.finditer(original or "")]
     prose = strip_claims_block(rewritten)
     return "\n\n".join(part for part in (prose, *blocks) if part) + "\n"
