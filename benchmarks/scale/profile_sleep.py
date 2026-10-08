@@ -127,6 +127,8 @@ def main() -> None:
     ap.add_argument("--bank", required=True, type=Path)
     ap.add_argument("--batch", type=int, default=25)
     ap.add_argument("--profile", type=Path)
+    ap.add_argument("--drain", type=int, default=0,
+                    help="run a drain over this many batches (decay charged in the last only, as in production)")
     ap.add_argument("--watch", nargs="*", default=[], help="extra module:function timers beside WATCH")
     a = ap.parse_args()
     bank = a.bank.resolve()
@@ -181,7 +183,11 @@ def main() -> None:
     queued = len(sleep_cycle._get_unprocessed_episodes(bank))
 
     async def one_batch():
-        await sleep_cycle.run(settings, "sleep_scale_probe", user_triggered=True, drain=False)
+        if a.drain:
+            ids = sorted(e["id"] for e in sleep_cycle._get_unprocessed_episodes(bank))[:a.drain * a.batch]
+            await sleep_cycle.run(settings, "sleep_scale_probe", user_triggered=True, drain=True, only_ids=ids)
+        else:
+            await sleep_cycle.run(settings, "sleep_scale_probe", user_triggered=True, drain=False)
 
     with runtime:
         started = time.perf_counter()
@@ -205,6 +211,7 @@ def main() -> None:
         "owner_bytes_before": before, "owner_bytes_after": owner_page.stat().st_size,
         "model_calls": collections.Counter(c["stage"] for c in fake.calls),
         "stages_ms": {k: round(v) for k, v in stages.items()},
+        "batches_ms": [round(t["wall_seconds"] * 1000) for t in runtime.timings if t["stage"] == "batch"],
         "counters": {k: {"calls": meter.calls[k], "ms": round(meter.ms[k])} for k in sorted(meter.calls)},
     }
     print(json.dumps(out, indent=1, default=str))
