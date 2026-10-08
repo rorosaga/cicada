@@ -77,11 +77,12 @@ def rewrite_entity_from_sources(memory_path: Path, entity_id: str, settings, *,
     # Human-safe merge: never lose human sections or the claims block. Convert the
     # LLM's new body to the STRUCTURED new_fields shape via sections_to_fields
     # (a raw sections dict merges nothing).
-    human = bool(par.frontmatter.get("human_edited"))
+    existing_sections = entity_body.parse_sections(strip_claims_block(par.body))
+    human = entity_body.has_human_prose(par.frontmatter, existing_sections)
     new_sections = entity_body.parse_sections(strip_claims_block(new_body))
     new_fields = entity_body.sections_to_fields(new_sections)
     merged = entity_body.merge_sections_human_safe(
-        entity_body.parse_sections(strip_claims_block(par.body)), new_fields, human_edited=human)
+        existing_sections, new_fields, human_edited=human)
     # Preserve any non-canonical sections the model produced.
     for title, content in new_sections.items():
         if title and title not in entity_body.CANONICAL_SECTIONS and title not in merged:

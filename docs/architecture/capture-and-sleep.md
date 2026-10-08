@@ -278,9 +278,20 @@ selected text receives the original source record. Carry unions unique evidence 
 selected field/text, so repeated mentions cannot multiply identical records when Summary
 and description share the same words. The pending-store limitation remains; earlier pending
 facts are not restored by provenance. Stage 5 records exact surviving items
-on create and fallback/human-safe updates. The B-update fixture retains A's Summary only
-when B supplies no new Summary (or one already contained); an appended Summary invalidates
-that one item's guard while A's facts keep their links.
+on create and fallback/human-safe updates. The B-update fixture keeps A's usable Summary
+and its exact guard; a distinct incoming orientation goes into explicitly undated History
+background, without fabricated provenance. A's facts keep their links.
+
+**Summary growth (G194).** Deterministic create/update/dedup merges use one 600-Unicode-character,
+single-paragraph budget (`summary_policy`). An existing usable orientation stays exact;
+distinct incoming prose and displaced oversized/multi-paragraph prose are retained in History
+as `Undated background`, with indented continuations preserved across later merges. No page-level
+date is assigned to that mixed context. An unusable machine orientation gets a complete conservative
+identity/unknown-role sentence, never character clipping. Stage-5 synthesis output is bounded too;
+this does not change the synthesis gate or add model calls. Human Summary is exempt and never
+extended or rewritten; incoming context is added outside it. Human flags and custom sections are
+honored by both entity merge and source rewrite. This is a structural floor, not semantic synthesis:
+short fragments/stale prose still need the planned orientation and dated-prose repair.
 
 Sleep synthesis retains exact old items by identity, without changing its prompt/return shape.
 Rephrased items become unrecorded; incoming facts not supplied to synthesis cannot gain links.

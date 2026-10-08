@@ -365,6 +365,7 @@ def apply_changes(changes: list[dict], memory_path) -> None:
                 related=[],
                 links=entity.get("links", []) or [],
                 open_questions=entity.get("open_questions", []) or [],
+                name=frontmatter['name'], entity_type=entity_type,
             )
             section_provenance.refresh(frontmatter, "", body, entity)
             markdown_parser.write(filepath, frontmatter, body)
@@ -435,6 +436,8 @@ def apply_changes(changes: list[dict], memory_path) -> None:
 
             synthesized_body = change.get("synthesized_body")
             new_fields = {
+                'name': parsed.frontmatter.get('name', entity_id),
+                'type': parsed.frontmatter.get('type', 'concept'),
                 "summary": _entity_summary(new_entity),
                 "key_facts": new_entity.get("key_facts", []) or [],
                 "history_entries": new_entity.get("history_entries", []) or [],
@@ -461,6 +464,11 @@ def apply_changes(changes: list[dict], memory_path) -> None:
                     prose_body, str(parsed.frontmatter.get("type", "concept"))
                 )
                 sections = entity_body.merge_sections_fallback(sections, new_fields)
+            if not human_edited:
+                sections = entity_body.bound_summary(
+                    sections, previous=raw_sections.get('Summary', ''),
+                    name=str(parsed.frontmatter.get('name', entity_id)),
+                    entity_type=str(parsed.frontmatter.get('type', 'concept')))
             parsed.frontmatter["layout_version"] = 2
 
             # Related reconciler — rebuild the ## Related block from the
@@ -506,12 +514,7 @@ def _is_human_edited(frontmatter: dict, sections: dict[str, str]) -> bool:
     (a heading the agent pipeline never emits). On such a page the agent merge is
     additive-only and the LLM synthesis rewrite is suppressed.
     """
-    if bool((frontmatter or {}).get("human_edited", False)):
-        return True
-    for title in (sections or {}).keys():
-        if title and title not in entity_body.CANONICAL_SECTIONS:
-            return True
-    return False
+    return entity_body.has_human_prose(frontmatter or {}, sections or {})
 
 
 def _entity_summary(entity: dict) -> str:
