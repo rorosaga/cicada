@@ -397,7 +397,8 @@ def cmd_get(boot: Boot, args) -> Result:
     start, count = args.__dict__.get("from"), args.count
     numbered = bool(getattr(args, "line_numbers", False))
     # A bounded read slices the whole page; an unbounded one is the tool's own reply (F5: an over-budget fence elided).
-    reply = mcp_tools.recall_detail(ctx, args.entity_id, whole=start is not None or count is not None or numbered)
+    reply = mcp_tools.recall_detail(ctx, args.entity_id, start=getattr(args, "start", None),
+                                    whole=start is not None or count is not None or numbered)
     if getattr(reply, "code", None) == "not_found" and (m := _RANGE.match(args.entity_id)):
         if start is not None or count is not None:
             raise UsageError("give the line range once: ENTITY:START[:END] or --from/--count")

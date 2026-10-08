@@ -167,7 +167,12 @@ TOOLS = [
                 "entity_id": {
                     "type": "string",
                     "description": "The entity ID (e.g. 'alpha-project') or entity name from a cicada_recall result.",
-                }
+                },
+                "start": {
+                    "type": "integer",
+                    "description": "The first line to return. A long page comes in parts; each part names the next "
+                                   "call. Omit for the beginning.",
+                },
             },
             "required": ["entity_id"],
         },
@@ -931,7 +936,7 @@ def handle_tool(name: str, arguments: dict) -> str:
     if name == "cicada_recall":
         return handle_recall(arguments.get("query", ""))
     elif name == "cicada_recall_detail":
-        return handle_recall_detail(arguments.get("entity_id", ""))
+        return handle_recall_detail(arguments.get("entity_id", ""), arguments.get("start"))
     elif name == "cicada_save_episode":
         return handle_save_episode(
             arguments.get("content", ""),
@@ -1095,8 +1100,8 @@ def handle_recall(query: str) -> str:
         _STATE_HINT_SENT = ctx.state_hint_sent
 
 
-def handle_recall_detail(entity_id: str) -> str:
-    return mcp_tools.recall_detail(_ctx(), entity_id)
+def handle_recall_detail(entity_id: str, start=None) -> str:
+    return mcp_tools.recall_detail(_ctx(), entity_id, start=mcp_tools.line_number(start))
 
 
 def handle_open_hub(hub: str) -> str:

@@ -1623,31 +1623,46 @@ def open_hub(ctx: ToolContext, hub: str) -> str:
     return f"Hub '{hub}' not found."
 
 
-#: Characters a whole-page read may return before its claims fence is elided (F5). A 3,500-claim page was 3.1 M
-#: characters — past any client's tool-output limit — while its prose and frontmatter stay well under this.
+#: Characters one whole-page read returns before the page comes in parts (F5): a 3,500-claim page was 3.1 M characters,
+#: past any client's tool-output limit. A remote caller's parts fit its connector's 24,000-character result cap.
 RECALL_DETAIL_BUDGET = 60_000
+REMOTE_DETAIL_BUDGET = 20_000
 
 
-def _elide_fence(ctx: ToolContext, text: str) -> str:
-    """The page with an over-budget ```claims fence replaced by one line: how many beliefs it holds and the tools
-    that return the relevant ones (they rank; this read cannot). The fence's position in the page is kept."""
-    from api.services import claims as claims_mod
-
-    match = claims_mod._CLAIMS_BLOCK_RE.search(text)
-    if match is None:
-        return text
-    held = [c for c in claims_mod.parse_claims(text) if not claims_mod.is_record(c)]
-    current = sum(1 for c in held if claims_mod.is_current(c))
-    how = ("`--from`/`--count` read the whole page in parts" if ctx.is_cli
-           else "`cicada_recall` with a topic, or `cicada_ask`, returns the ones that matter")
-    line = (f"_This page holds {current:,} current beliefs ({len(held):,} in all), too many to show whole here; "
-            f"{how}._\n")
-    return text[:match.start()] + line + text[match.end():]
+def line_number(value) -> int | None:
+    """A tool argument as a 1-based line number; ``None`` when absent or not a whole number."""
+    try:
+        return None if value is None or isinstance(value, bool) else int(value)
+    except (TypeError, ValueError):
+        return None
 
 
-def recall_detail(ctx: ToolContext, entity_id: str, *, whole: bool = False) -> str:
-    """Return the full entity page for one entity (Pass 2). Over :data:`RECALL_DETAIL_BUDGET` its claims fence is
-    elided (:func:`_elide_fence`) unless ``whole`` — the command line's bounded read, which slices the page itself."""
+def _page_part(ctx: ToolContext, page_id: str, text: str, start: int | None) -> str | Reply:
+    """Lines ``start``.. of the page, as many whole lines as fit the caller's budget (at least one), then one line
+    naming the range and the exact call for the next part — so every byte of the page, its claims' ids, evidence and
+    history included, stays reachable through this tool (review round 1)."""
+    lines = text.splitlines(keepends=True)
+    total = len(lines)
+    first = 1 if start is None else int(start)
+    if first < 1 or first > max(total, 1):
+        return Reply(f"The page '{page_id}' has {total} lines; start must be 1 to {total}.", code="out_of_range")
+    budget = REMOTE_DETAIL_BUDGET if ctx.is_remote else RECALL_DETAIL_BUDGET
+    last, size = first - 1, 0
+    while last < total and (last == first - 1 or size + len(lines[last]) <= budget):
+        size += len(lines[last])
+        last += 1
+    part = "".join(lines[first - 1:last])
+    if last >= total:
+        return f"{part}\n— lines {first}–{last} of {total}, the end of the page."
+    following = (_cli_spell("cicada_recall_detail", entity_id=page_id, start=last + 1) if ctx.is_cli
+                 else f'cicada_recall_detail(entity_id="{page_id}", start={last + 1})')
+    return f"{part}\n— lines {first}–{last} of {total}; the rest: {following}"
+
+
+def recall_detail(ctx: ToolContext, entity_id: str, *, start: int | None = None, whole: bool = False) -> str:
+    """Return the full entity page for one entity (Pass 2). A page over the caller's budget, or any read given a
+    ``start`` line, comes in parts (:func:`_page_part`); ``whole`` — the command line's bounded read, which slices the
+    page itself — always returns it all."""
     memory_path = ctx.memory_path()
     entities_dir = memory_path / "entities"
     if not entity_id:
@@ -1670,8 +1685,11 @@ def recall_detail(ctx: ToolContext, entity_id: str, *, whole: bool = False) -> s
             telemetry.record_read(cid, surface=ctx.read_surface, bank=memory_path.name)
             text = path.read_text(encoding="utf-8")
             fm = parse_frontmatter(text)[0]
-            if not whole and len(text) > RECALL_DETAIL_BUDGET:
-                text = _elide_fence(ctx, text)
+            budget = REMOTE_DETAIL_BUDGET if ctx.is_remote else RECALL_DETAIL_BUDGET
+            if not whole and (start is not None or len(text) > budget):
+                text = _page_part(ctx, path.stem, text, start)
+                if isinstance(text, Reply):
+                    return text
             return Reply(text, data={"entity_id": path.stem, "type": fm.get("type"), "status": fm.get("status")})
 
     return Reply(f"Entity '{entity_id}' not found.", code="not_found")
