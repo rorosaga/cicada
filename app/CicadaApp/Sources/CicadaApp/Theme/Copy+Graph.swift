@@ -68,6 +68,12 @@ extension Copy.Graph {
     static let rendered = "Rendered"
     static let source = "Source"
     static let copyMarkdown = "Copy markdown"
+    /// F4 — the line in place of a claims block too large to draw in Source.
+    static func sourceFolded(bytes: Int) -> String {
+        let size = ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
+        return "The rest of the file is its claims block (\(size)), not drawn here. Perspectives lists those beliefs; "
+            + "Copy markdown copies the whole file."
+    }
     static let copyPath = "Copy path"
     static let folder = "Folder"
     static let folderNotFound = "This folder isn't on this Mac."

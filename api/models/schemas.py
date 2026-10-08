@@ -502,8 +502,12 @@ class EntityResponse(CamelModel):
     version: int
     markdown_content: str
     # Verbatim file content (frontmatter + body) for the Source view in the
-    # companion app — transparency over reconstruction.
+    # companion app — transparency over reconstruction. F4: empty with
+    # ``raw_omitted`` when the page is larger than the inline bound; the app
+    # then reads ``GET /entities/{id}/raw``. ``markdown_content`` is the prose
+    # without the claims fence (the claims are ``/claims``).
     raw_markdown: str = ""
+    raw_omitted: bool = False
     history: list[EntityHistoryEntry]
     # Structured media metadata for ``type: media`` entities (G11); ``None`` for
     # every other entity. Populated from the nested ``media:`` frontmatter block.
@@ -1843,6 +1847,13 @@ class ContextEpisodeExcerpt(CamelModel):
     episode_id: str
     timestamp: str
     excerpt: str
+
+
+class EntityRawResponse(CamelModel):
+    """F4 — ``GET /entities/{id}/raw``: the page file verbatim."""
+
+    id: str
+    raw_markdown: str
 
 
 class EntityContextResponse(CamelModel):

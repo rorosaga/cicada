@@ -88,6 +88,27 @@ enum EntityProse {
     }
 }
 
+/// F4 — what the Source view draws. A page small enough is drawn whole; a larger one (an owner-sized page, ~2.6 MB, nearly
+/// all of it claims fence) is drawn verbatim up to its first claims fence, with the rest's size in words — one `Text`
+/// of megabytes stalls the card, and its beliefs are already the Perspectives tab.
+enum SourceText {
+    static let drawLimit = 256 * 1024
+
+    static func shown(_ raw: String, limit: Int = drawLimit) -> (text: String, foldedBytes: Int?) {
+        let total = raw.utf8.count
+        guard total > limit else { return (raw, nil) }
+        var bytes = raw
+        let cut: Int = bytes.withUTF8 { buffer in
+            guard let base = buffer.baseAddress else { return limit }
+            let needle = Array("\n```claims".utf8)
+            let hit = needle.withUnsafeBytes { memmem(base, buffer.count, $0.baseAddress, $0.count) }
+            return hit.map { base.distance(to: $0.assumingMemoryBound(to: UInt8.self)) + 1 } ?? limit
+        }
+        let head = String(decoding: raw.utf8.prefix(min(cut, limit)), as: UTF8.self)
+        return (head, total - head.utf8.count)
+    }
+}
+
 /// `EntityProse.stripClaimsFence` over the page's UTF-8 bytes: `memmem`/`memchr` find the fences, and only the few
 /// lines that might open or close one become strings.
 private struct FenceScan {

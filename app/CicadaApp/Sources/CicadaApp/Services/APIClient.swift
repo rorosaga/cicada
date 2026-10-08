@@ -1477,6 +1477,13 @@ actor APIClient {
         return try await get("/entities/\(encodedID(id))")
     }
 
+    /// F4 — `GET /entities/{id}/raw`: the page verbatim, for the Source view and Copy when the card's payload left it
+    /// out (`Entity.rawOmitted`). On demand only; never a Store domain.
+    func fetchEntityRaw(id: String) async throws -> String {
+        let response: EntityRaw = try await get("/entities/\(encodedID(id))/raw")
+        return response.rawMarkdown
+    }
+
     /// `PUT /entities/{id}/decay` (G66 §1.7) — the user's decay override.
     /// The backend writes the class plus its mapped numeric rate and commits as
     /// `Cicada-Author: user`, then returns the refreshed entity. Errors

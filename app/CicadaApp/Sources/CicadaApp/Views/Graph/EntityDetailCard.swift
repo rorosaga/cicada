@@ -46,6 +46,8 @@ struct EntityDetailCard: View {
     // keys; the perspective tab filters to valid claims itself.
     @State private var claims: [Claim] = []
     @State private var claimsLoaded = false
+    /// F4 — the verbatim file, fetched for Source or Copy when the card's payload left it out (`rawOmitted`).
+    @State private var fetchedRaw: String?
     /// What every tab shows from `claims`, derived once per load off the main actor (`ClaimDigest`).
     @State private var digest = ClaimDigest.empty
     /// R-DG23 — the Timeline tab's open rows, and the one a belief's clock asked for.
@@ -169,7 +171,7 @@ struct EntityDetailCard: View {
         if let navigation { navigation.navigate(id) } else { graphVM.pushEntity(id: id) }
     }
 
-    private var isStub: Bool { entity.rawMarkdown.isEmpty }
+    private var isStub: Bool { entity.isStub }
 
     /// F-12 (R-PE16) — a person's facts, derived from what the card already loaded; nothing for any other type.
     private var personFacts: [PersonFact] {
@@ -281,7 +283,15 @@ struct EntityDetailCard: View {
             commitDiffs = [:]
             loadingCommits = []
             diffErrors = []
-            sources = (try? await APIClient.shared.fetchEntitySources(entityId: entity.id)) ?? []
+            fetchedRaw = nil
+            // The page and its sources at once: the full page used to wait for `/sources` before it was asked for.
+            async let sourcesFetch = APIClient.shared.fetchEntitySources(entityId: entity.id)
+            // §5.7 — the card opened on the graph-node stub, whose `markdownContent` is the server's short `summary`
+            // (already rendered above, so there is never an empty card). Upgrade it to the full entity through the
+            // Store's memoised cache; the swap lands via `graphVM.selectedEntity`/`entities`, which is what feeds
+            // this view its `entity`.
+            await graphVM.loadFullEntity(id: entity.id)
+            sources = (try? await sourcesFetch) ?? []
             // Gated on what the graph-node STUB already knows (task 7 review
             // r1): the card opens on a stub whose `media` is nil, and the
             // full-entity swap below keeps the same `.task(id:)`, so a check
@@ -290,13 +300,6 @@ struct EntityDetailCard: View {
             if Self.wantsPaperDetail(type: entity.type, media: entity.media) {
                 paperDetail = try? await APIClient.shared.fetchPaperDetail(id: entity.id)
             }
-            // §5.7 — the card opened on the graph-node stub, whose
-            // `markdownContent` is the server's short `summary` (already
-            // rendered above, so there is never an empty card). Upgrade it to
-            // the full entity through the Store's memoised cache; the swap
-            // lands via `graphVM.selectedEntity`/`entities`, which is what
-            // feeds this view its `entity`.
-            await graphVM.loadFullEntity(id: entity.id)
             // Location and directory pages declare a folder. The backend names the path only;
             // the app lists it, so any macOS prompt names Cicada (the ~/Library rail).
             if Self.listsFolder(entity.type) {
@@ -323,9 +326,7 @@ struct EntityDetailCard: View {
                 set: { if let view = $0 { showRawMarkdown = view == .source } }))
                 .padding(.leading, -CicadaTheme.scaled(TextTabs<EntityBodyView>.horizontalPadding))
             Spacer(minLength: 0)
-            IconButton(systemName: "doc.on.doc", help: Copy.Graph.copyMarkdown) {
-                AppPasteboard.copy(buildFullMarkdown())
-            }
+            IconButton(systemName: "doc.on.doc", help: Copy.Graph.copyMarkdown) { copyMarkdown() }
         }
     }
 
@@ -622,7 +623,7 @@ struct EntityDetailCard: View {
     /// R-FX11 — media pages have their own card (a paper's lists its why).
     private var showsBeliefs: Bool {
         entity.type != .media
-            && EntityProse.showsBeliefs(markdown: entity.markdownContent, isStub: entity.rawMarkdown.isEmpty)
+            && EntityProse.showsBeliefs(markdown: entity.markdownContent, isStub: entity.isStub)
     }
 
     private var renderedMarkdownView: some View {
@@ -646,20 +647,52 @@ struct EntityDetailCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    @ViewBuilder
     private var rawMarkdownView: some View {
         // Prefer the verbatim file from the API (transparency: this is the
         // exact markdown on disk, frontmatter included). The reconstruction
         // below only covers placeholder entities that haven't fully loaded.
-        let source = entity.rawMarkdown.isEmpty ? buildFullMarkdown() : entity.rawMarkdown
-
-        return Text(source)
-            .font(CicadaTheme.monoFont)
-            .foregroundStyle(CicadaTheme.textSecondary)
-            .textSelection(.enabled)
-            .frame(maxWidth: .infinity, alignment: .leading)
+        if entity.rawOmitted, fetchedRaw == nil {
+            ProgressView().controlSize(.small)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .task(id: entity.id) { await loadRaw() }
+        } else {
+            let shown = SourceText.shown(fetchedRaw ?? (entity.rawMarkdown.isEmpty ? buildFullMarkdown() : entity.rawMarkdown))
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+                Text(shown.text)
+                    .font(CicadaTheme.monoFont)
+                    .foregroundStyle(CicadaTheme.textSecondary)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                if let folded = shown.foldedBytes {
+                    Text(Copy.Graph.sourceFolded(bytes: folded))
+                        .font(CicadaTheme.metaFont)
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
             .padding(CicadaTheme.spacingMD)
             .background(CicadaTheme.shape(CicadaTheme.cornerRadius).fill(CicadaTheme.bgFocus))
             .ringed(.resting, in: CicadaTheme.shape(CicadaTheme.cornerRadius))
+        }
+    }
+
+    /// F4 — the file the payload withheld, once per card.
+    private func loadRaw() async {
+        guard entity.rawOmitted, fetchedRaw == nil else { return }
+        let id = entity.id
+        let raw = try? await APIClient.shared.fetchEntityRaw(id: id)
+        guard !Task.isCancelled, id == entity.id else { return }
+        fetchedRaw = raw ?? buildFullMarkdown()
+    }
+
+    /// Copy takes the whole file, fetching it first when the payload withheld it.
+    private func copyMarkdown() {
+        guard entity.rawOmitted, fetchedRaw == nil else { return AppPasteboard.copy(fetchedRaw ?? buildFullMarkdown()) }
+        Task {
+            await loadRaw()
+            AppPasteboard.copy(fetchedRaw ?? buildFullMarkdown())
+        }
     }
 
     /// R-DG21 / DR-39 — secondary detail starts collapsed; each viewer's choice is remembered.

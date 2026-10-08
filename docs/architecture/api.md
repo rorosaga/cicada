@@ -117,6 +117,11 @@ schedules one revalidation there. The queue's writes (`PUT|DELETE /videos/queue/
 
 **Endpoint traps worth knowing before you touch them:**
 
+- `GET /entities/{id}` and `/entities/{id}/context` serve `markdownContent` **without the claims fence** (F4: the
+  claims are `/claims`; an owner-sized page shipped its 2.5 MB fence twice per card open). `rawMarkdown` is the file
+  verbatim only up to `RAW_INLINE_MAX_BYTES` (256 KiB); above it it is empty with `rawOmitted: true`, and the Source
+  view and Copy read `GET /entities/{id}/raw`. A client must not take an empty `rawMarkdown` as "a graph stub" when
+  `rawOmitted` is set (`Entity.isStub`). Neither is a Store domain: no ETag, no `VersionVector` mapping.
 - `GET /entities/{id}/history/{commit}/diff` — a file's FIRST commit has no parent, so `git show`
   diffs it against the empty tree and it comes back all-adds; a MERGE commit needs `--first-parent`,
   else git emits a combined (`--cc`) `@@@` diff the parser can't read and the endpoint silently

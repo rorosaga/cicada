@@ -20,6 +20,7 @@ from api.models.schemas import (
     EntityMedia,
     EntityPictureResponse,
     EntityReadRequest,
+    EntityRawResponse,
     EntityReadResponse,
     EntityResponse,
     EntitySource,
@@ -61,6 +62,11 @@ from api.services.sleep_refusal import SleepWriting
 
 router = APIRouter()
 
+#: F4 — a page larger than this is not inlined in ``GET /entities/{id}``'s ``raw_markdown``; the Source view asks
+#: ``GET /entities/{id}/raw`` for it. Every page but an owner-sized one is far below it (the largest others measured
+#: ~70 KB); the owner's is ~2.6 MB, 96% of it the claims fence the card already reads from ``/claims``.
+RAW_INLINE_MAX_BYTES = 256 * 1024
+
 # G59: bound concurrent first-fetches so opening a graph full of new companies
 # can't fan out into dozens of simultaneous outbound requests.
 _LOGO_FETCH_SEMAPHORE = asyncio.Semaphore(4)
@@ -93,8 +99,10 @@ async def get_entity(
         fm, alpha=alpha, floor=floor, tuning=decay_tuning.load(settings.memory_path)
     )
     # C11 (G146) — the page's picture, resolved at read like everything else on this card (plan R-PE5).
+    page_stat = entity_path.stat()
     picture, picture_inputs = entity_picture.resolve_page(
-        settings.memory_path, entity_id, fm, parsed.body, page_mtime=entity_path.stat().st_mtime)
+        settings.memory_path, entity_id, fm, parsed.body, page_mtime=page_stat.st_mtime)
+    raw_omitted = page_stat.st_size > RAW_INLINE_MAX_BYTES
 
     return EntityResponse(
         id=entity_id,
@@ -110,8 +118,11 @@ async def get_entity(
         tags=fm.get("tags", []),
         related=fm.get("related", []),
         version=fm.get("version", 1),
-        markdown_content=parsed.body,
-        raw_markdown=entity_path.read_text(encoding="utf-8"),
+        # F4: prose only — the fence is machine data the card reads from `/claims`, and on the owner's page it was
+        # 2.5 MB shipped twice per open.
+        markdown_content=strip_claims_block(parsed.body),
+        raw_markdown="" if raw_omitted else entity_path.read_text(encoding="utf-8"),
+        raw_omitted=raw_omitted,
         history=history,
         media=_build_media_block(fm, parsed.body),
         is_owner=bool(fm.get("owner")),
@@ -124,6 +135,17 @@ async def get_entity(
         picture_source=picture.source,
         picture_inputs=PictureInputsModel(**picture_inputs.to_fields()),
     )
+
+
+@router.get("/entities/{entity_id}/raw", response_model=EntityRawResponse)
+async def get_entity_raw(entity_id: str, settings: Settings = Depends(get_settings)):
+    """F4 — the page verbatim (frontmatter, prose and claims fence), for the Source view and Copy when
+    ``GET /entities/{id}`` left ``raw_markdown`` out (``raw_omitted``). Read on demand only; not a Store domain."""
+    entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
+    if not entity_path.exists():
+        raise HTTPException(404, f"Entity {entity_id} not found")
+    text = await run_in_threadpool(entity_path.read_text, encoding="utf-8")
+    return EntityRawResponse(id=entity_id, raw_markdown=text)
 
 
 @router.post("/entities/{entity_id}/read", response_model=EntityReadResponse)
@@ -905,7 +927,7 @@ async def get_entity_context(
         type=str(fm.get("type", "concept") or "concept"),
         status=str(fm.get("status", "active") or "active"),
         confidence=float(fm.get("confidence", 0.5) or 0.0),
-        markdown_content=parsed.body,
+        markdown_content=strip_claims_block(parsed.body),
         hubs=hubs,
         neighbors=neighbors,
         episodes=episodes,
