@@ -327,6 +327,9 @@ def run_claim_pipeline(
     # would have had it existed when they were heard (R-HP6): a newer
     # single-valued claim supersedes them, where the other order would ask.
     existing_by_subject = _load_existing_claims_by_subject(memory_path)
+    # What each page holds now, by value: the reconciler edits claims in place (decay, supersede), so the write-back
+    # compares against this to render only the pages that changed (F6, benchmarks/scale).
+    as_read = {subject: [c.to_dict() for c in claims] for subject, claims in existing_by_subject.items()}
     releases, released, credit = _releases(memory_path, name_to_id, existing_by_subject)
     incoming = released + incoming
     # G61 S1 reads this as "newly written by this pass" — true of a released claim too (R-HP8).
@@ -375,6 +378,12 @@ def run_claim_pipeline(
             page_less_subjects.append(subject)
             page_less_claim_ids.extend(c.id for c in claims)
             page_less_offers[subject] = claims
+            continue
+        if not credit.get(subject) and [c.to_dict() for c in claims] == as_read.get(subject):
+            # Nothing to write: the fence would re-render to the bytes already on disk. Counted as before.
+            subjects_written += 1
+            written_subjects.append(subject)
+            claims_written += len(claims)
             continue
         try:
             parsed = markdown_parser.parse(filepath)
