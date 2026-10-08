@@ -45,6 +45,9 @@ struct EngineQuickMenuModel: Equatable {
     let showsRuling: Bool
     /// Set while `CICADA_LLM_MODE` pins the engine: said above the rows, which then choose nothing.
     var pinnedNote: String? = nil
+    /// Set while a run reads on the engine it started with and the choice now resolves to another: the change
+    /// waits for the next start or Continue, said above the rows (never naming either engine).
+    var runNote: String? = nil
     /// 2026-09-28 — a model's list price per million tokens ("$0.40 / $1.60"), by model id, for the
     /// picker; and the sentence that says what the two figures are.
     var modelPrices: [String: String] = [:]
@@ -138,6 +141,7 @@ struct EngineQuickMenuModel: Equatable {
             previews: previews,
             showsRuling: response.preview.map { $0.manual.engine != $0.scheduled.engine } ?? false,
             pinnedNote: response.isPinnedByEnvironment ? Copy.EngineMenu.pinnedByEnvironment(response.mode) : nil,
+            runNote: response.runKeepsEngine ? Copy.EngineMenu.runKeepsEngine : nil,
             modelPrices: prices,
             pricesNote: prices.isEmpty ? nil : Copy.SleepUsage.perMillionNote,
             lastCycleLine: CycleUsageText.lastCycleLine(response.candidates, preferring: manualCard, locale: locale),
@@ -246,8 +250,8 @@ struct EngineQuickMenu: View {
                 .padding(.horizontal, CicadaTheme.spacingSM)
                 .padding(.top, CicadaTheme.spacingSM)
                 .padding(.bottom, CicadaTheme.spacingXS)
-            if let pinned = model.pinnedNote {
-                Text(pinned)
+            ForEach([model.pinnedNote, model.runNote].compactMap { $0 }, id: \.self) { note in
+                Text(note)
                     .font(CicadaTheme.metaFont)
                     .foregroundStyle(CicadaTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)

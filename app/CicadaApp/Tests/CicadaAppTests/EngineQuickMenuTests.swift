@@ -51,6 +51,44 @@ final class EngineQuickMenuTests: XCTestCase {
         XCTAssertTrue(EngineQuickMenuModel.from(pinned).rows.contains { $0.isSelectable })
     }
 
+    /// A run reads on the engine it resolved at its start; a choice made meanwhile waits for the next start or
+    /// Continue. The menu says so — in words that name neither engine (provider-neutral copy).
+    func testARunThatKeepsItsEngineIsSaidAndNamesNoEngine() {
+        var body = response(mode: "agent")
+        XCTAssertNil(EngineQuickMenuModel.from(body).runNote)
+        body.runKeepsEngine = true
+        XCTAssertEqual(EngineQuickMenuModel.from(body).runNote, Copy.EngineMenu.runKeepsEngine)
+        for name in ["Claude", "ChatGPT", "Ollama", "OpenRouter", "sonnet"] {
+            XCTAssertFalse(Copy.EngineMenu.runKeepsEngine.contains(name), name)
+        }
+    }
+
+    func testRunKeepsEngineDecodesAndDefaultsToFalse() throws {
+        let base = #"{"mode":"agent","model":"sonnet","disambiguationModel":"","source":"prefs","candidates":[]"#
+        let old = try JSONDecoder().decode(SleepEngineResponse.self, from: Data((base + "}").utf8))
+        XCTAssertFalse(old.runKeepsEngine, "an older backend sends nothing: no note")
+        let new = try JSONDecoder().decode(SleepEngineResponse.self,
+                                           from: Data((base + #","runKeepsEngine":true}"#).utf8))
+        XCTAssertTrue(new.runKeepsEngine)
+    }
+
+    /// A `PUT /sleep/engine` from curl, an agent or the CLI moves only the vector's `engine` component; the page's
+    /// engine response follows it without a revisit — once it has been read, and never over a write on the wire.
+    func testTheEngineResponseReloadsWhenTheEngineComponentMoves() {
+        func vector(_ engine: String, bank: String = "main", sleep: String = "idle:") -> VersionVector {
+            VersionVector(version: engine + bank + sleep, components: ["engine": engine, "bank": bank, "sleep": sleep])
+        }
+        XCTAssertTrue(SleepEngineRefresh.shouldReload(old: vector("1"), new: vector("2"), loaded: true, saving: false))
+        XCTAssertTrue(SleepEngineRefresh.shouldReload(old: vector("1"), new: vector("1", bank: "other"),
+                                                      loaded: true, saving: false))
+        XCTAssertFalse(SleepEngineRefresh.shouldReload(old: vector("1"), new: vector("1", sleep: "running:x"),
+                                                       loaded: true, saving: false), "a Sleep tick alone is not it")
+        XCTAssertFalse(SleepEngineRefresh.shouldReload(old: vector("1"), new: vector("2"), loaded: false, saving: false))
+        XCTAssertFalse(SleepEngineRefresh.shouldReload(old: vector("1"), new: vector("2"), loaded: true, saving: true))
+        XCTAssertFalse(SleepEngineRefresh.shouldReload(old: nil, new: vector("2"), loaded: true, saving: false),
+                       "the first vector after launch: the page's own load answers it")
+    }
+
     // MARK: The button (R-HS8)
 
     func testTheButtonNamesWhatACycleYouStartWouldRun() {

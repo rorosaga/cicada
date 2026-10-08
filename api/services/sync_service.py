@@ -250,7 +250,28 @@ def components(memory_path: Path, *, sleep_state=None) -> dict[str, str]:
         # batches with no status change, and `/status` has no ETag of its own to move.
         "sleep": (f"{getattr(sleep_state, 'status', 'idle')}:{getattr(sleep_state, 'cycle_id', '') or ''}"
                   f"{_writing_token(sleep_state)}{_paused_token(mp)}"),
+        # The Sleep engine choice lives in `$CICADA_HOME/connections.json`, outside every bank, so a
+        # `PUT /sleep/engine` from anywhere but the app's own menu (curl, an agent, the CLI) moved nothing
+        # and the Sleep page kept naming the old engine until it was reopened. The app reloads its engine
+        # response (not a Store domain) when this moves. While a run of this bank reads, the engine it
+        # pinned at its start rides along, so the page learns when a run starts or ends on another engine.
+        "engine": _engine_token(mp, sleep_state),
     }
+
+
+def _engine_token(mp: Path, sleep_state) -> str:
+    from api.services.auth import cicada_home
+    from api.services.connections.registry import PREFS_FILE_NAME
+
+    try:
+        st = (cicada_home() / PREFS_FILE_NAME).stat()
+        token = f"{st.st_mtime_ns}.{st.st_size}"
+    except OSError:
+        token = "0"
+    ds = getattr(sleep_state, "drain", None) if getattr(sleep_state, "status", None) == "running" else None
+    if ds is not None and getattr(ds, "memory_path", None) in (None, mp) and getattr(ds, "engine_label", None):
+        token += f":{ds.engine_label}/{getattr(ds, 'engine_shown', None) or ''}"
+    return token
 
 
 def _writing_token(sleep_state) -> str:

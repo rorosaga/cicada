@@ -107,10 +107,14 @@ struct SleepEngineResponse: Codable, Hashable {
     /// Sleep page v5 — "Leave room in my plan": the line, its choices, whether it applies to the engine a run you
     /// start would use, and which windows the last run could enforce. `nil` on an older backend.
     var reserve: SleepReserveStatus? = nil
+    /// A run of this bank is reading on the engine it resolved at its start or Continue, which is not what the
+    /// choice above resolves to now — the change applies from the next start or Continue. Absent on an older
+    /// backend → false.
+    var runKeepsEngine: Bool = false
 
     enum CodingKeys: String, CodingKey {
         case mode, model, disambiguationModel, source, candidates, preview, allowOverage
-        case selected, provider, providers, reserve
+        case selected, provider, providers, reserve, runKeepsEngine
     }
 
     init(
@@ -147,6 +151,7 @@ struct SleepEngineResponse: Codable, Hashable {
         provider = (try? c.decodeIfPresent(String.self, forKey: .provider)) ?? nil
         providers = ((try? c.decodeIfPresent([SleepEngineProvider].self, forKey: .providers)) ?? nil) ?? []
         reserve = (try? c.decodeIfPresent(SleepReserveStatus.self, forKey: .reserve)) ?? nil
+        runKeepsEngine = ((try? c.decodeIfPresent(Bool.self, forKey: .runKeepsEngine)) ?? nil) ?? false
     }
 }
 

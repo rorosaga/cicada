@@ -38,6 +38,7 @@ struct ContentView: View {
     @Environment(InboxViewModel.self) private var inboxVM
     @Environment(Store.self) private var store
     @Environment(SleepViewModel.self) private var sleepVM
+    @Environment(SleepEngineViewModel.self) private var sleepEngineVM
     @Environment(ConnectionsViewModel.self) private var connectionsVM
     /// G126 R9 — consumes a Settings → Integrations "Import in Feed →"
     /// hand-off by switching the rail's own selection.
@@ -121,6 +122,13 @@ struct ContentView: View {
         .onChange(of: store.version) { old, new in
             guard VideoRefresh.shouldRevalidate(old: old, new: new), videoStateCache.wantsReads else { return }
             Task { await videoStateCache.revalidate() }
+        }
+        // The engine choice changed somewhere else (or a run started or ended on another engine): the Sleep page's
+        // button, lamp and answers follow it without a revisit.
+        .onChange(of: store.version) { old, new in
+            guard SleepEngineRefresh.shouldReload(old: old, new: new, loaded: sleepEngineVM.response != nil,
+                                                  saving: sleepEngineVM.isSaving) else { return }
+            Task { await sleepEngineVM.load() }
         }
         // A cached hover preview has no validator, so any change to the
         // bank's episodes or entities forgets them (final review): `/inbox`

@@ -146,6 +146,7 @@ class DrainState:
     auto_used: int = 0                                    # automatic continues this run has used (ruling 15)
     engine_label: str | None = None                       # the engine the run resolved once, and its model
     engine_model: str | None = None
+    engine_shown: str | None = None                       # its model as the Sleep page shows one (`engine_select.shown_model`)
     guard: object | None = None                           # sleep_reserve.ReserveGuard, when a line is set
     ended_mono: float | None = None
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)

@@ -1,6 +1,8 @@
 """Stage 2: Entity Resolution & Deduplication."""
 
 import asyncio
+import functools
+import re
 from collections import Counter
 from typing import Callable
 
@@ -1039,11 +1041,17 @@ _STOPWORD_TOKENS = {
 }
 
 
-def _name_tokens(name: str) -> set[str]:
-    """Lowercased content tokens from an entity name, stopwords removed."""
-    import re
-    raw = re.findall(r"[\w'-]+", (name or "").lower())
-    return {t for t in raw if t and t not in _STOPWORD_TOKENS and len(t) >= 2}
+_NAME_TOKEN_RE = re.compile(r"[\w'-]+")
+
+
+@functools.lru_cache(maxsize=65536)
+def _name_tokens(name: str) -> frozenset[str]:
+    """Lowercased content tokens from an entity name, stopwords removed.
+
+    Memoised: Stage 2 asks it of every page in the bank for every name a batch extracted
+    (``_existing_llm_candidates``) — ~10^5–10^6 regex runs on a large bank, on the event loop."""
+    raw = _NAME_TOKEN_RE.findall((name or "").lower())
+    return frozenset(t for t in raw if t and t not in _STOPWORD_TOKENS and len(t) >= 2)
 
 
 def _share_content_token(a: str, b: str) -> bool:

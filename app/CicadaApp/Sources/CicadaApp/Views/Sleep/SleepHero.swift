@@ -435,6 +435,15 @@ struct SleepControlRow: View {
                         .foregroundStyle(CicadaTheme.textTertiary)
                 }
             }
+            // A choice made while a run reads (here, in Settings, or by an agent) waits for the next start or
+            // Continue; the button already names the new choice, so the row says the run is not using it yet.
+            if sleepVM.isRunning, engineVM.response?.runKeepsEngine == true {
+                Text(Copy.EngineMenu.runKeepsEngine)
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             if showsOptionsLink {
                 TextButton(title: Copy.SleepV5.readingOptions, inline: true) { optionsOpen = true }
             }

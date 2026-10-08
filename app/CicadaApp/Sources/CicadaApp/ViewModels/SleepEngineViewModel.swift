@@ -73,3 +73,19 @@ final class SleepEngineViewModel {
         await set(mode: write.mode, model: write.model, disambiguationModel: nil)
     }
 }
+
+/// When the engine response is asked for again without a visit: the sync vector's `engine` component moved — the
+/// stored choice (`$CICADA_HOME/connections.json`, outside every bank, so a `PUT /sleep/engine` from curl, an agent
+/// or the CLI moves nothing else) or the engine a reading run pinned at its start — or the bank changed. Not a Store
+/// domain (no `VersionVector` mapping); an unmapped component still reaches `store.version`, as `VideoRefresh`'s does.
+/// Before this, the Sleep page kept naming the old engine until it was reopened.
+enum SleepEngineRefresh {
+    static let components = ["engine", "bank"]
+
+    /// `loaded`: the response was asked for once (a model nobody has read stays unread). A write on the wire is
+    /// answered by its own echo, so a reload then could only race it.
+    static func shouldReload(old: VersionVector?, new: VersionVector?, loaded: Bool, saving: Bool) -> Bool {
+        guard loaded, !saving, let old, let new else { return false }
+        return components.contains { old.components[$0] != new.components[$0] }
+    }
+}

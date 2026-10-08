@@ -445,19 +445,19 @@
       "disposition": "uninstrumented_guarded"
     },
     {
-      "function": "generate",
+      "function": "_generate_sync",
       "method": "write",
       "frontmatter": "frontmatter",
       "disposition": "uninstrumented_guarded"
     },
     {
-      "function": "generate",
+      "function": "_generate_sync",
       "method": "write",
       "frontmatter": "frontmatter",
       "disposition": "uninstrumented_guarded"
     },
     {
-      "function": "generate",
+      "function": "_generate_sync",
       "method": "write",
       "frontmatter": "frontmatter",
       "disposition": "uninstrumented_guarded"
