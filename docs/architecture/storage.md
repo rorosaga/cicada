@@ -200,6 +200,10 @@ guards and selected incoming fact records. Rephrased Summary and date-prefixed r
 are unrecorded. The prose-repair dry run preserves raw claims fences and unknown metadata in
 scratch candidates only; it has no bank apply phase (see `capture-and-sleep.md`).
 
+The bounded writer selects provenance from the actual surviving Summary/facts: an exact carried
+fact kept as Summary retains its source rows there, and a displaced orientation already retained
+as a fact gets no duplicate History copy. Normalization alone cannot certify changed text.
+
 The 150-bullet/80-episode plus Summary fixture measures **10,739 bytes / 238 YAML lines**;
 three spans per item and three revisions per episode measure **22,518 bytes / 398 lines**
 with the production emitter. Gates are 16 KiB primary, 32 KiB dense (no runtime link truncation).

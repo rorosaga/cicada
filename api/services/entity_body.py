@@ -130,7 +130,10 @@ def has_human_prose(frontmatter: dict, sections: dict[str, str]) -> bool:
 def _background(sections: dict[str, str], text: str) -> None:
     # Never assign one page-level date to a paragraph assembled across episodes.
     text = (text or '').strip()
-    if text:
+    # Stage 2 can already have retained this orientation as a Key Fact. Keep
+    # that exact item and its guard; never add a second History copy.
+    fact_keys = {_normalize_fact(item) for item in _bullet_lines(sections.get('Key Facts', ''))}
+    if text and _normalize_fact(text) not in fact_keys:
         event = 'Undated background: ' + text.replace('\n', '\n  ')
         sections['History'] = _merge_history_bullets(sections.get('History', ''), [{'event': event}])
 
@@ -159,7 +162,17 @@ def _normalize_fact(text: str) -> str:
 
 
 def _bullets_block(items: list[str]) -> str:
-    return "\n".join(f"- {it}" for it in items if it.strip())
+    # A carried orientation can have several lines/paragraphs. Indent fresh
+    # continuation lines so the next union/read treats the complete text as
+    # one item. Existing indentation is stable across repeated merges.
+    blocks = []
+    for item in items:
+        if not item.strip():
+            continue
+        lines = item.split('\n')
+        lines[1:] = [line if not line or line[:1].isspace() else '  ' + line for line in lines[1:]]
+        blocks.append('- ' + '\n'.join(lines))
+    return '\n'.join(blocks)
 
 
 def _history_sort_key(line: str):
@@ -291,6 +304,12 @@ def compose_body_v2(
 
     if summary:
         sections = bound_summary(sections, name=name, entity_type=entity_type)
+        facts = _bullet_lines(sections.get('Key Facts', ''))
+        facts = [item for item in facts if _normalize_fact(item) != _normalize_fact(sections['Summary'])]
+        if facts:
+            sections['Key Facts'] = _bullets_block(facts)
+        else:
+            sections.pop('Key Facts', None)
     return render_sections(sections)
 
 
@@ -317,11 +336,12 @@ def merge_sections_fallback(existing: dict[str, str], new_fields: dict, *,
         elif old_summary or new_summary:
             merged['Summary'] = summary_policy.fallback(
                 name=str(new_fields.get('name') or ''), entity_type=str(new_fields.get('type') or ''))
-    for text in (old_summary, new_summary):
-        if text and _normalize_fact(text) not in _normalize_fact(merged.get('Summary', '')):
-            _background(merged, text)
-
     new_facts = list(new_fields.get("key_facts", []) or [])
+    # Existing prose (including human facts) remains untouched. Only suppress
+    # an incoming copy of the retained orientation; its source row can follow
+    # the exact Summary through the writer's selected-input mapping.
+    new_facts = [item for item in new_facts
+                 if _normalize_fact(str(item)) != _normalize_fact(merged.get('Summary', ''))]
     if new_facts or merged.get("Key Facts"):
         facts = _merge_facts(merged.get("Key Facts", ""), new_facts)
         if facts:
@@ -344,6 +364,12 @@ def merge_sections_fallback(existing: dict[str, str], new_fields: dict, *,
         oq = _merge_open_questions(merged.get("Open Questions", ""), new_oq)
         if oq:
             merged["Open Questions"] = oq
+
+    # Do this after fact union so same-name carry from Stage 2 takes precedence
+    # over introducing an unrecorded History duplicate.
+    for text in (old_summary, new_summary):
+        if text and _normalize_fact(text) not in _normalize_fact(merged.get('Summary', '')):
+            _background(merged, text)
 
     return merged
 

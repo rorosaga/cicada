@@ -377,7 +377,8 @@ def apply_changes(changes: list[dict], memory_path) -> None:
                 open_questions=entity.get("open_questions", []) or [],
                 name=frontmatter['name'], entity_type=entity_type,
             )
-            section_provenance.refresh(frontmatter, "", body, entity)
+            section_provenance.refresh(frontmatter, "", body,
+                _selected_page_inputs(entity, entity_body.parse_sections(body)))
             markdown_parser.write(filepath, frontmatter, body)
 
         elif action == "update" and filepath.exists():
@@ -490,10 +491,13 @@ def apply_changes(changes: list[dict], memory_path) -> None:
                 sections.pop("Related", None)
 
             final_body = preserve_claims_blocks(original_body, entity_body.render_sections(sections))
+            legacy_synthesis = bool(synthesized_body and not human_edited
+                                    and not change.get('section_aware_synthesis'))
             section_provenance.refresh(
-                parsed.frontmatter, original_body, final_body, new_entity,
-                synthesized=bool(synthesized_body and not human_edited
-                                 and not change.get('section_aware_synthesis')),
+                parsed.frontmatter, original_body, final_body,
+                new_entity if legacy_synthesis else _selected_page_inputs(
+                    new_entity, sections, parsed.frontmatter, original_body),
+                synthesized=legacy_synthesis,
             )
             markdown_parser.write(filepath, parsed.frontmatter, final_body)
 
@@ -514,6 +518,38 @@ def apply_changes(changes: list[dict], memory_path) -> None:
 
 
 # ---------- Helpers ----------
+
+
+def _selected_page_inputs(entity: dict, sections: dict[str, str],
+                          frontmatter: dict | None = None, original_body: str = '') -> dict:
+    """Follow exact input text to the one item the bounded writer retained.
+
+    Same-name resolution may move Summary to facts; bounded composition may
+    retain that text as Summary instead. Reuse the existing exact carry helper,
+    never invent a source or recertify rephrased/uninstrumented text.
+    """
+    scanned = section_provenance.scan(entity_body.render_sections(sections))
+    selected = {
+        'summary': next((i.text for i in scanned.get('summary', []) if not i.ambiguous), ''),
+        'key_facts': [i.text for i in scanned.get('key_facts', []) if not i.ambiguous],
+    }
+    # Only currently matched old guards can follow an exact item between the
+    # two supported sections. Unmatched/unknown records never enter this map.
+    old_records = []
+    matched = section_provenance.matched(frontmatter or {}, original_body)
+    for field in ('summary', 'key_facts'):
+        for item in section_provenance.scan(original_body).get(field, []):
+            proof = matched.get(field, {}).get(item.key)
+            if proof and not item.ambiguous:
+                old_records.append({'field': field, 'text': item.text,
+                                    'evidence': [ev.to_dict() for ev in proof[1]]})
+    try:
+        selected[section_provenance.INPUTS] = section_provenance.merge_selected(
+            {section_provenance.INPUTS: old_records}, entity, selected)
+    except (KeyError, TypeError, ValueError, AttributeError):
+        selected[section_provenance.INPUTS] = section_provenance.merge_selected(
+            {section_provenance.INPUTS: old_records}, {}, selected)
+    return selected
 
 
 def _is_human_edited(frontmatter: dict, sections: dict[str, str]) -> bool:

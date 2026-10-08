@@ -280,12 +280,19 @@ and description share the same words. The pending-store limitation remains; earl
 facts are not restored by provenance. Stage 5 records exact surviving items
 on create and fallback/human-safe updates. The B-update fixture keeps A's usable Summary
 and its exact guard; a distinct incoming orientation goes into explicitly undated History
-background, without fabricated provenance. A's facts keep their links.
+background when it is not already retained as a fact, without fabricated provenance. A's facts keep their links.
 
 **Summary growth (G194).** Deterministic create/update/dedup merges use one 600-Unicode-character,
 single-paragraph budget (`summary_policy`). An existing usable orientation stays exact;
 distinct incoming prose and displaced oversized/multi-paragraph prose are retained in History
-as `Undated background`, with indented continuations preserved across later merges. No page-level
+as `Undated background` unless the complete orientation is already retained as a Key Fact.
+Same-name batch carry (#241) therefore keeps one bounded Summary plus distinct carried facts,
+without a second History copy. Incoming facts matching the retained Summary are suppressed;
+existing facts/human prose are never removed for this purpose. Exact input evidence follows the
+surviving Summary or fact via `section_provenance.merge_selected`, without recertifying changed
+text. Multiline carried facts receive stable continuation indentation so later merges retain
+their complete content; a changed exact text guard is unrecorded, never recertified by normalization.
+Indented continuations survive later merges. No page-level
 date is assigned to that mixed context. An unusable machine orientation gets a complete conservative
 identity/unknown-role sentence, never character clipping. Stage-5 synthesis output is bounded too;
 this does not change the synthesis gate or add model calls. Human Summary is exempt and never

@@ -68,11 +68,15 @@ def compose(existing_body: str, fields: dict, summary: str) -> str:
     prose = claims.strip_claims_block(existing_body)
     sections = entity_body.upgrade_legacy_to_v2(prose, str(fields.get('type', 'concept')))
     original = dict(sections)
-    sections = entity_body.merge_sections_fallback(sections, fields)
-    old = sections.get('Summary', '')
-    if old.strip() != summary.strip():
-        entity_body._background(sections, old)
-    sections['Summary'] = summary.strip()
+    old = sections.pop('Summary', '')
+    # Compose against the actual replacement, so neither the interim old
+    # Summary nor the incoming one suppresses a fact we ultimately retain.
+    sections = entity_body.merge_sections_fallback(sections, {**fields, 'summary': summary.strip()})
+    selected_key = entity_body._normalize_fact(summary)
+    incoming = str(fields.get('summary') or fields.get('description') or '').strip()
+    for text in (old, incoming):
+        if text and entity_body._normalize_fact(text) not in selected_key:
+            entity_body._background(sections, text)
     # Canonical sections can still contain free prose from legacy writers.
     # Preserve it and append only new items during an orientation-only rewrite.
     for title in ('Key Facts', 'History', 'Links', 'Open Questions'):
