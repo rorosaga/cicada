@@ -24,7 +24,9 @@ place (`GraphMessage`, `GraphJS`) and tested on both sides — none of them touc
 **Layout on a push (item 6, 2026-10-08).** A data push relaxes only the nodes it brings: every settled node is held
 where it is for that layout (`holdSettled`/`releaseHolds` in graph.js — never over a drag's or focus mode's pin, and
 released when the layout ends), and a push that brings no node (a rename, a confidence, a removal) starts no layout.
-So Sleep's batches update the graph live without moving what was there, and a push that lands while the page is
+A push that lands before a layout ends (running, or held while the page is hidden) joins it — its nodes keep moving
+and it keeps its heat — and a full push rebinds a drag in progress to the live node. So Sleep's batches update the
+graph live without moving what was there, and a push that lands while the page is
 hidden no longer replays whole-graph motion on return. Only a first paint (and a filter change) lays out everything.
 Measured in WebKit at 2,000 nodes (`GraphWebKitBenchTests`, opt-in): draw 1–2 ms, a tick 7 ms, a cold layout 135
 ticks; 20 new pages settle in 112 ticks with 0 settled nodes moved. Per-type zones are the existing `typeClusterPositions`

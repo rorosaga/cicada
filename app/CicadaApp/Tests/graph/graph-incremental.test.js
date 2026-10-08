@@ -142,5 +142,70 @@ check("a cold layout still lays out every node", () => {
     sim.stop();
 });
 
+// ---- Review r1 #2: a push never cancels a layout that has not finished ----
+
+check("a rename before a cold layout's first tick lets the layout finish", () => {
+    const t = loadGraph();
+    t.call("updateGraph", synthetic(SIZES.small));
+    t.get("simulation").stop();
+    const before = positions(t);
+    t.call("updateGraphDelta", { added: [], updated: [{ id: "c1", name: "Renamed" }], removed: [] });
+    assert.ok(t.get("simulation").alpha() > 0.9, `the cold layout keeps its heat (${t.get("simulation").alpha()})`);
+    run(t);
+    assert.ok(maxMove(before, t) > 50, "the nodes were laid out");
+});
+
+check("a newcomer pushed while hidden, then a rename, still finds its place on return", () => {
+    const t = settled();
+    t.call("setGraphActive", false);
+    const graph = synthetic(SIZES.small);
+    const add = newcomers(1, ["c1"]);
+    t.call("updateGraphDelta", { added: add.nodes, updated: [], removed: [], links: [...graph.links, ...add.links] });
+    const before = positions(t);
+    const seeded = before.get("new0");
+    t.call("updateGraphDelta", { added: [], updated: [{ id: "c1", name: "Renamed" }], removed: [] });
+    t.call("setGraphActive", true);
+    run(t);
+    const n = t.get("visibleNodes").find((x) => x.id === "new0");
+    assert.ok(Math.hypot(n.x - seeded[0], n.y - seeded[1]) > 1, "the newcomer moved into its layout");
+    before.delete("new0");
+    assert.strictEqual(maxMove(before, t), 0, "settled nodes still held");
+});
+
+check("a second push of newcomers keeps the first ones moving", () => {
+    const t = settled();
+    const graph = synthetic(SIZES.small);
+    const first = newcomers(1, ["c2"]);
+    t.call("updateGraphDelta", { added: first.nodes, updated: [], removed: [], links: [...graph.links, ...first.links] });
+    const seeded = positions(t).get("new0");
+    const second = { nodes: [{ id: "later0", name: "Later", type: "concept", status: "active", confidence: 0.6 }],
+                     links: [{ source: "later0", target: "c3" }] };
+    t.call("updateGraphDelta", { added: second.nodes, updated: [], removed: [],
+                                  links: [...graph.links, ...first.links, ...second.links] });
+    const n = t.get("visibleNodes").find((x) => x.id === "new0");
+    assert.ok(n.fx == null, "the first newcomer is not held by the second layout");
+    run(t);
+    assert.ok(Math.hypot(n.x - seeded[0], n.y - seeded[1]) > 1, "and it settled");
+});
+
+// ---- Review r1 #3: a full push during a drag ----
+
+check("a full push during a drag leaves no pin once the drag ends", () => {
+    const t = settled();
+    t.get("draggingNode = nodes.find(n => n.id === 'c1'); draggingNode.fx = draggingNode.x; draggingNode.fy = draggingNode.y; pressStart = { moved: true };");
+    const data = synthetic(SIZES.small);
+    data.nodes.push({ id: "new-example", name: "New Example", type: "concept" });
+    data.links.push({ source: "new-example", target: "c1" });
+    t.call("updateGraph", data);
+    run(t);
+    const live = t.get("nodes.find(n => n.id === 'c1')");
+    assert.strictEqual(t.get("draggingNode"), live, "the drag follows the live node");
+    t.call("onMouseUp", {});
+    t.get("simulation").stop();
+    assert.strictEqual(t.get("draggingNode"), null);
+    assert.ok(live.fx == null && live.fy == null, `no orphan pin (fx ${live.fx})`);
+    assert.strictEqual(t.get("layoutHolds.size"), 0);
+});
+
 if (failures) { console.log(`${failures} failure(s)`); process.exit(1); }
 console.log("graph-incremental: all passed");

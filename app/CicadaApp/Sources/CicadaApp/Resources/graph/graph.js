@@ -674,6 +674,20 @@ function updateGraph(dataStr) {
         }
     }
 
+    // Review r1 #3: a full push replaces every node object. A drag in progress follows the live object for its id
+    // (its pin moves with it), so no later hold or release acts on a replaced one; a drag whose node left ends.
+    if (draggingNode) {
+        const live = nodes.find(n => n.id === draggingNode.id);
+        if (live) {
+            live.x = draggingNode.x; live.y = draggingNode.y;
+            live.fx = draggingNode.fx; live.fy = draggingNode.fy;
+            live.vx = 0; live.vy = 0;
+            draggingNode = live;
+        } else {
+            cancelInteraction();
+        }
+    }
+
     rebuildVisible();
     rebuildNeighborsIndex();
     // Item 6: on a canvas that already has a layout, only the newcomers move (`relax`); a first paint lays out all.
@@ -1093,6 +1107,9 @@ function clampSpeedForce() {
 // layout's own: it ends with that layout (d3's "end", or the next startSimulation), and it never takes over a pin
 // someone else set (a drag, focus mode) nor clears one when it ends.
 let layoutHolds = new Map();
+// The ids the current layout relaxes (null = every node). Review r1 #2: a push that arrives before that layout ends
+// (alpha still above alphaMin, running or held while the page is hidden) adds to it instead of replacing it.
+let layoutRelax = null;
 
 function holdSettled(relax) {
     for (const n of visibleNodes) {
@@ -1118,8 +1135,20 @@ function releaseHolds() {
 // `relax`: the ids that may move (null = all, a first layout). An empty set starts no layout — nothing moves, the
 // simulation is rebuilt over the new arrays and left at rest.
 function startSimulation({ reheat = 1.0, relax = null } = {}) {
+    // An unfinished layout's work carries over: its nodes keep moving and it keeps its heat. A push that brings
+    // nothing new then simply continues it; one that brings newcomers joins them to it.
+    const current = simulation ? simulation.alpha() : 0;
+    const unfinished = Boolean(simulation) && typeof current === "number" && current >= simulation.alphaMin();
+    const bringsWork = relax === null || relax.size > 0;
+    if (unfinished) {
+        const carried = current;
+        if (relax === null || layoutRelax === null) relax = null;
+        else relax = new Set([...layoutRelax, ...relax]);
+        reheat = bringsWork ? Math.max(carried, reheat) : carried;
+    }
     if (simulation) simulation.stop();
     releaseHolds();
+    layoutRelax = relax;
     assignIsolateSlots();
 
     simulation = d3.forceSimulation(visibleNodes)
@@ -1165,7 +1194,7 @@ function startSimulation({ reheat = 1.0, relax = null } = {}) {
         .force("hubGravity", hubGravityForce(0.05))
         .force("clampSpeed", clampSpeedForce())
         .on("tick", () => { tickInitialFit(); scheduleRedraw(); })
-        .on("end", () => { simulation.stop(); releaseHolds(); });
+        .on("end", () => { simulation.stop(); releaseHolds(); layoutRelax = null; });
 
     if (relax && relax.size === 0) {
         simulation.alpha(0).stop();
