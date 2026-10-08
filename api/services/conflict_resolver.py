@@ -12,8 +12,8 @@ from tqdm import tqdm
 from api.config import Settings
 from api.models.schemas import DecayClass
 from api.services import (
-    decay_policy, decay_tuning, engine_errors, entity_body, episode_time, fact_sources, json_parse, markdown_parser,
-    section_provenance, source_dates,
+    alias_policy, decay_policy, decay_tuning, engine_errors, entity_body, episode_time, fact_sources, json_parse,
+    markdown_parser, section_provenance, source_dates,
 )
 from api.services.providers import resolve_llm_fn
 
@@ -365,7 +365,9 @@ def apply_changes(changes: list[dict], memory_path) -> None:
                 **decay_policy.frontmatter_fields(decay_class),
                 "source_episodes": _change_source_episodes(change),
                 "tags": entity.get("tags", []) or [],
-                "aliases": entity.get("aliases", []) or [],
+                # A reference ("the lock", "my app") is not a name: kept, it would draw this page to every judge
+                # call those common words recur in (`alias_policy`).
+                "aliases": alias_policy.keep(entity.get("aliases", []) or []),
                 "related": [],
                 "version": 1,
                 "layout_version": 2,
@@ -434,7 +436,8 @@ def apply_changes(changes: list[dict], memory_path) -> None:
                 parsed.frontmatter["tags"] = sorted(existing_tags | set(new_tags))
 
             # Merge new aliases
-            new_aliases = new_entity.get("aliases", []) or []
+            # Only Sleep's NEW aliases are filtered: what the page already lists (a hand-added one too) stays.
+            new_aliases = alias_policy.keep(new_entity.get("aliases", []) or [])
             if new_aliases or parsed.frontmatter.get("aliases"):
                 existing_aliases = parsed.frontmatter.get("aliases", []) or []
                 merged_aliases = list(existing_aliases)

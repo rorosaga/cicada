@@ -265,7 +265,8 @@ then says the model wasn't shared.
    (bounded concurrency, decisions in order; a recorded alias brings its page to the judge; see below).
 3. **Conflict resolution & pruning** — contradictions detected, recency wins, old state archived;
    temporal decay applied.
-4. **Pattern detection & skill extraction** — recurring patterns distilled into skill entities.
+4. **Pattern detection & skill extraction** — recurring patterns distilled into skill entities, each written only
+   with the conversations it came from (see *A skill page carries its conversations*).
 5. **Nudge generation, clarification queue & versioning** — snapshot, git commit.
 
 **Claim preservation (G148 regression):** Stage 5 rewrites prose with the stored `claims` fences removed from section parsing, then reattaches those fences unchanged. Rebuilding `Related` cannot remove beliefs before the claim pipeline reconciles them; synthesis output never authors a claims fence.
@@ -551,6 +552,42 @@ same-type alias holder judged (first `same` stops); a name with no shared word w
 usually 1 call; one that shares a word and names its alias holder usually costs fewer calls than before, because the
 holder is judged first. A judge call with no alias candidate gets the prompt it always got, byte for byte. Link recon
 (`match_existing`) does not read aliases.
+
+**A reference is not recorded as a new alias (2026-10-08, narrowed in fix round 1).** An alias is another NAME for the
+thing; a phrase that only points at it inside one conversation ("the lock", "this project", "la base") is not.
+`alias_policy.is_reference` is deliberately narrow: two or more words, all lowercase, no digit, the first an article or
+demonstrative (English or Spanish). Titles and names keep a capital at least at the start ("La casa de papel", "The
+Economist"), a number makes a name ("The 100", "El 47"), and a possessive ("my mom", "mi mamá") is how the person
+refers to one thing consistently, so none of those is a reference. It is used in ONE place: `apply_changes` drops
+references from the aliases Sleep adds (a create's, and only the new ones of an update); what a page already lists —
+a person's merge records the losing page's name there — stays, and the #249 alias index reads every alias as before. A
+real name typed all lowercase and article-led is the accepted false positive: it is only not recorded as a new alias,
+and a lowercase spelling of a page's own name already matches by name. The extraction prompt no longer shows `"the db"`
+as an example alias and says a part, product, dataset, format or version of a thing is not its alias. An alias that is
+another page's name is not removed by anything automatic: it may be the lead for a merge. For an existing bank,
+`python -m api.scripts.repair_skills_aliases --bank <path>` (dry run; `--list` shows what would go; `--apply` for one
+`cicada` commit) removes a reference only when the page's git history PROVES Sleep wrote it: the commit that last added it is a Sleep
+cycle commit carrying Sleep's own `<page>: create (source: …` line. A Sleep commit runs `git add -A`, so an update
+line, or a page it merely swept up, cannot rule out the person's uncommitted hand edit in the same cycle: those are
+kept and counted as `alias_references_unproven` (`--list` shows them for the person to remove by hand). Anything any
+other writer added — a person's merge included — is counted and kept.
+
+**A skill page carries its conversations (G112 (1), 2026-10-08).** Stage 4 answers `{name, description,
+evidence_entities, confidence}`; the old writer kept only the name and description, so every skill page was born
+with `source_episodes: []`, `created` = the cycle's day, no section provenance and no `related`, was written only
+when absent (a pattern found again never moved its page), and decayed with zero mention weeks. Now
+`skill_grounding.ground` matches each evidence name, without a model, to this batch's conversations (Stage 1's names,
+Stage 2's `name_to_id`, the changes' own sources), keeps those where two of the named entities came up together (every conversation of the one, when only one of them
+came up in the batch), and hands `apply_changes` an ordinary `create`/`update` change: dates from those
+conversations, the Summary's section provenance citing each as `reasoning` (an inference, never a quotation), a
+`draws on` edge to each evidence page, and its own commit line with `source:`, `sessions:` and `trigger: sleep/skills`.
+A skill with no evidence in the batch is not written (logged as a count) — it fails the detection prompt's own
+contract, and a later batch that shows it writes it. A name that is already a `skill` page updates that page (sources
+merged, last mention moved, a decaying page recovered, and Stage 3's decay of it this batch dropped; its prose is not
+touched, so re-detections do not pile undated History bullets); a page of another
+type, an installed agent skill's page, a dropped page, or a page another change of the batch writes is left alone.
+`skills_detected` counts the grounded skills. No contradiction check runs on a skill update (it would be a paid call).
+The same repair script grounds the existing unsourced skill pages from the Sleep commit that created each one.
 
 **The engine's own runtime is never a page.** The `claude -p` CLI still tells the model its cwd, platform and shell despite `--system-prompt` (probed 2.1.x; `--exclude-dynamic-system-prompt-sections` is ignored with it), so the extraction prompt says that is not conversation content and Stage 2 drops, with a text-free debug line, any entity named for `$CICADA_HOME` or a path under it (`agent_engine.is_runtime_path`; the scratch dir is one).
 

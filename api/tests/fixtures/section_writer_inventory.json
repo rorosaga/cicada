@@ -457,12 +457,6 @@
       "disposition": "uninstrumented_guarded"
     },
     {
-      "function": "_generate_sync",
-      "method": "write",
-      "frontmatter": "frontmatter",
-      "disposition": "uninstrumented_guarded"
-    },
-    {
       "function": "write_claim_nudges",
       "method": "write",
       "frontmatter": "frontmatter",
@@ -780,6 +774,14 @@
       "function": "_write_page",
       "method": "write",
       "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    }
+  ],
+  "services/skill_alias_repair.py": [
+    {
+      "function": "apply",
+      "method": "write",
+      "frontmatter": "new_fm",
       "disposition": "uninstrumented_guarded"
     }
   ],

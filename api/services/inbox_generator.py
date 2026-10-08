@@ -6,9 +6,8 @@ from pathlib import Path
 
 import yaml
 
-from api.services import decay_policy, inbox_questions, markdown_parser, predicates
+from api.services import inbox_questions, markdown_parser, predicates
 from api.services.conflict_resolver import apply_changes
-from api.services.id_utils import sanitize_id
 
 # Options with no claim behind them (the synthetic "both"/"neither" rows) always
 # sort last, so a merged-in competing value lands among the real answers.
@@ -317,6 +316,9 @@ def _generate_sync(
 ) -> None:
     """Generate inbox items, apply entity changes, persist relationships.
 
+    ``skills`` are Stage 4's GROUNDED changes (``skill_grounding.ground``): written by the same
+    ``apply_changes`` as every other page, with a ``draws on`` edge to each evidence page (G112).
+
     A ``decay_nudge`` is deduplicated against the OPEN decay items — an entity
     that already has one is refreshed, not asked about again — and new ones
     draw on ``decay_budget`` (the cycle's cap, shared with
@@ -327,8 +329,11 @@ def _generate_sync(
     entities_dir = memory_path / "entities"
     inbox_dir.mkdir(parents=True, exist_ok=True)
 
-    # Apply entity file changes (create, update, archive, decay)
-    apply_changes(changes, memory_path)
+    # Apply entity file changes (create, update, archive, decay), the grounded skills last
+    apply_changes([*changes, *skills], memory_path)
+    if skills:
+        from api.services import skill_grounding
+        relationships = [*(relationships or []), *skill_grounding.edges(skills)]
 
     # Persist relationships to graph_edges.yaml (merge with existing)
     if relationships:
@@ -425,30 +430,6 @@ def _generate_sync(
 
     # An entity a lower-confidence sibling nudge already opened is not deferred.
     budget.deferred |= {e for e in turned_away if e not in open_decay}
-
-    # Create skill entities — sanitize_id keeps skills in lockstep with the
-    # entity path so names like "AI/ML project framing" don't try to write to
-    # a non-existent `ai/` subdirectory and crash Stage 5.
-    for skill in skills:
-        skill_id = sanitize_id(skill["name"])
-        skill_path = entities_dir / f"{skill_id}.md"
-        if not skill_path.exists():
-            frontmatter = {
-                "name": skill["name"],
-                "type": "skill",
-                "status": "active",
-                "confidence": skill.get("confidence", 0.5),
-                "created": str(date.today()),
-                "last_referenced": str(date.today()),
-                **decay_policy.frontmatter_fields(
-                    decay_policy.default_class_for("skill")
-                ),
-                "source_episodes": [],
-                "tags": [],
-                "related": [],
-                "version": 1,
-            }
-            markdown_parser.write(skill_path, frontmatter, skill.get("description", ""))
 
 
 def write_claim_nudges(

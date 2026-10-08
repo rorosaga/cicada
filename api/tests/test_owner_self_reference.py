@@ -329,9 +329,9 @@ def test_several_self_references_merge_every_fact_onto_the_owner_page(tmp_path, 
     memory = _bank(tmp_path)
     _owner_page(memory)
     a, b = _substantive("User", "person"), _substantive("me", "person")
-    a.update(summary="Builds tools.", key_facts=["Prefers Gamma."], aliases=["the dev"],
+    a.update(summary="Builds tools.", key_facts=["Prefers Gamma."], aliases=["Dev A"],
              links=[{"url": "https://example.com/a", "title": "A", "note": "a"}], open_questions=["Which lab?"])
-    b.update(summary="Lives by the sea.", key_facts=["Maintains Delta.", "Prefers Gamma."], aliases=["the dev", "AO"],
+    b.update(summary="Lives by the sea.", key_facts=["Maintains Delta.", "Prefers Gamma."], aliases=["Dev A", "AO"],
              links=[{"url": "https://example.com/b", "title": "B", "note": "b"}], open_questions=["Which city?"],
              source_episode="ep_2026-09-21_001")
     page = markdown_parser.parse(memory / "entities" / f"{OWNER_ID}.md")
@@ -345,7 +345,7 @@ def test_several_self_references_merge_every_fact_onto_the_owner_page(tmp_path, 
                  "Which lab?", "Which city?", "Lives by the sea."):
         assert text in written.body, text
     assert written.body.count("Prefers Gamma.") == 1
-    assert written.frontmatter["aliases"] == ["the dev", "AO"]
+    assert written.frontmatter["aliases"] == ["Dev A", "AO"]
     assert written.frontmatter["name"] == OWNER_NAME
     assert set(written.frontmatter["source_episodes"]) == {EP, "ep_2026-09-21_001"}
 
