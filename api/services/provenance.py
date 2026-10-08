@@ -56,6 +56,7 @@ from api.services import (
     agent_turns,
     bank_index,
     episode_ids,
+    episode_time,
     evidence,
     git_service,
     inbox_context,
@@ -441,7 +442,9 @@ def entity_provenance(
             available=any(e[3] for e in group["episodes"]),
         )
         rows.append(row)
-        stamps = [stamp for e in group["episodes"] if (stamp := _said(e[0], e[1]))]
+        # #242: a memory export entry is facts, not activity — its date is the summary's, never when it was said.
+        stamps = [stamp for e in group["episodes"]
+                  if episode_time.counts_as_activity(e[2]) and (stamp := _said(e[0], e[1]))]
         if stamps:
             said[id(row)] = (min(stamps, key=episode_ids.timestamp_sort_key),
                              max(stamps, key=episode_ids.timestamp_sort_key))

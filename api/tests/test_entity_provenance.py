@@ -422,3 +422,27 @@ def test_first_and_last_said_cover_every_conversation_not_only_the_fifty_shown(t
     newest = max((f"2026-0{1 + n % 8}-{10 + n % 18:02d}", n) for n in range(60))
     assert out.totals.last_said.startswith(newest[0])
     assert out.last_conversation.episode_id.startswith(f"ep_{newest[0]}")
+
+
+def test_a_memory_export_entry_never_dates_when_a_page_was_said(tmp_path):
+    """#242 ("facts yes, activity no"): a memory export entry carries facts but its date is the summary's, so the
+    card's "Known since" / "Last mentioned" come from real conversations only. It still counts as a conversation that
+    fed the page."""
+    memory = tmp_path / "memory"
+    (memory / "episodes").mkdir(parents=True)
+    (memory / "entities").mkdir()
+    _episode(memory, "ep_2024-05-01_001", "user: alpha-project", timestamp="2024-05-01T09:00:00+00:00",
+             source_id="conv-real", origin="chatgpt-export")
+    _episode(memory, "ep_2026-10-05_001", "system: alpha-project and everything else",
+             timestamp="2026-10-05T09:00:00+00:00", source="claude_memory", title="Claude Memory — Conversation Context")
+    _episode(memory, "ep_2022-01-01_001", "system: an old summary of alpha-project", source="claude_memory")
+    claims = [Claim(id=f"clm_{i}", text=f"alpha-project fact {i}", subject="alpha-project", source_episodes=[ep])
+              for i, ep in enumerate(["ep_2024-05-01_001", "ep_2026-10-05_001", "ep_2022-01-01_001"])]
+    markdown_parser.write(memory / "entities" / "alpha-project.md", {"name": "Alpha Project", "type": "project"},
+                          write_claims("## Summary\nAlpha.\n", claims))
+    bank_index.invalidate()
+    out = provenance.entity_provenance(memory, memory / "entities" / "alpha-project.md")
+    assert out.totals.conversations == 3
+    assert out.totals.first_said == "2024-05-01T09:00:00+00:00"
+    assert out.totals.last_said == "2024-05-01T09:00:00+00:00"
+    assert out.first_conversation.episode_id == out.last_conversation.episode_id == "ep_2024-05-01_001"

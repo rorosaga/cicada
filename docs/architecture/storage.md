@@ -237,7 +237,8 @@ asserted `start/end/hash` or derived `focus=<entity>`), `GET /entities/{id}/prov
 trailer-only `git log` of the page — ETag includes `git_head` — conversations grouped by
 `session_id`/`source_id`, the best quote per conversation — the 50 rows with the most claims —, coverage over current
 claims, and `totals.firstSaid`/`lastSaid` with `firstConversation`/`lastConversation`: when the earliest and newest of
-*every* conversation was said, an episode's `timestamp` else its id's day, G194's basis; the person card's facts read
+*every* conversation was said, an episode's `timestamp` else its id's day, G194's basis — a memory export entry
+(`episode_time.counts_as_activity`, #242) still counts as a conversation but never dates one; the person card's facts read
 these, never the page's `created`/`last_referenced`, which are write dates), and `GET
 /episodes/{id}/citations` (every claim citing the document, by a raw-text prefilter over
 `entities/` — no index dependency). `/ask` citations also carry `claimId` + `evidence`, read from
