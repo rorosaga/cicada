@@ -11,8 +11,8 @@ Stage 1 found — no new writer, no model call:
 
 * **Evidence.** Each ``evidence_entities`` name is matched, without a model, to the conversations of THIS batch it was
   extracted from (Stage 1's names, Stage 2's ``name_to_id``, the change's own ``source_episodes``). The conversations
-  kept are those where at least two of the named entities came up together (one when the skill names one), which is
-  what the detection prompt was asked to see. A skill none of whose evidence came up in this batch is written
+  kept are those where at least two of the named entities came up together — or, when only one of the named
+  entities came up in this batch at all (however many the skill names), every conversation that one came up in. A skill none of whose evidence came up in this batch is written
   NOWHERE: it fails the prompt's own contract ("clear evidence from multiple conversations"), and a later batch that
   shows the pattern with evidence writes it then.
 * **Dates.** ``created`` / ``last_referenced`` come from those conversations' timestamps (``apply_changes``'s
@@ -21,7 +21,9 @@ Stage 1 found — no new writer, no model call:
   skill is an inference across them, never a quotation of one (G118 R6).
 * **Related.** Each evidence entity with a page gets a ``draws on`` edge, so ``related`` names it.
 * **Again.** A skill whose name is already a ``type: skill`` page updates that page — sources merged,
-  last mention moved, a decaying page recovered — instead of being a silent no-op. A page of another type, an
+  last mention moved, a decaying page recovered — instead of being a silent no-op. Its prose is not touched: a
+  re-detection is evidence, not new text, and a paraphrased description fed to the merge would pile one undated
+  History bullet per batch onto the page. A page of another type, an
   installed agent skill's page (``skill_tag``), a dropped page, or a page another change of this batch already
   writes is left alone.
 """
@@ -178,12 +180,12 @@ def ground(
             "id": skill_id,
             "action": action,
             "entity": {
-                "name": name, "type": "skill", "summary": description, "description": description,
-                "confidence": confidence, "tags": [], "aliases": [],
-                section_provenance.INPUTS: [
-                    {"field": "summary", "text": description, "evidence": rows},
-                    {"field": "description", "text": description, "evidence": rows},
-                ] if rows else [],
+                "name": name, "type": "skill", "confidence": confidence, "tags": [], "aliases": [],
+                **({"summary": description, "description": description,
+                    section_provenance.INPUTS: [
+                        {"field": "summary", "text": description, "evidence": rows},
+                        {"field": "description", "text": description, "evidence": rows},
+                    ] if rows else []} if action == "create" else {}),
             },
             "source_episode": chosen[-1],
             "source_episodes": chosen,

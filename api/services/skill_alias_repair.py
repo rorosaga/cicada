@@ -9,18 +9,25 @@ Two repairs, both deterministic (no model, no network), both counted without a p
 Each such page was born in one Sleep batch commit, and that commit names the conversations the batch read (their
 ``episodes/`` files and the ``source:`` of its other lines). The skill was detected over exactly those. The repair
 narrows them to the conversations in which the pages the skill's own text names came up — two of them together
-where it names two or more, as Stage 4 now does (``skill_grounding``) — and writes ``source_episodes``, ``created``
+when two or more of them came up in the batch, as Stage 4 now does (``skill_grounding``) — and writes ``source_episodes``, ``created``
 (the earliest of their days), ``last_referenced`` (the latest) and ``related``. The silence clock is not moved:
 ``decayed_through`` keeps the day Cicada learned the skill, so an older ``last_referenced`` charges no back-dated
 decay (TODO ruling 1). The body is not touched. A page whose batch or evidence cannot be found is counted and left
 as it is: what to do with it (keep, archive) is the person's call, not this tool's.
 
-**References recorded as aliases.** ``alias_policy.is_reference`` ("the lock", "my app"): removed from ``aliases``.
+**References Sleep recorded as aliases.** ``alias_policy.is_reference`` ("the lock", "this project") — removed only
+when the page's git history shows a Sleep commit (subject "Sleep cycle …", ``git_service._cycle_kind``) is where the
+alias first appeared on the page. An alias first written by anything else — the person's inbox merge (which records the
+losing page's name), a hand edit, a dedup, an agent — or not found in the history at all is the person's or unknown,
+and stays (``alias_references_kept``). Who added an alias is not stored anywhere but git, and only git's record is
+proof; a guess that deletes a merge the person made is worse than one more judge call. ``--list`` prints, for the
+person's own terminal, each page id and the aliases ``--apply`` would remove — never paste it into the repo or a PR.
+
 An alias that is another page's name is COUNTED only (``alias_names_other_page``) — it may be a wrong alias or the
 lead for a merge, and only the person can tell.
 
-Refuses like the claims-fence conversion (``api.scripts.migrate_claims_jsonl``): while Sleep holds the pages or the backend cannot say clearly that no run is
-in progress; a page with uncommitted changes, or written after the survey, is skipped. Order: write admission →
+Refuses like the claims-fence conversion (``api.scripts.migrate_claims_jsonl``): while Sleep holds the pages or the
+backend cannot say clearly that no run is in progress; a page with uncommitted changes, or written after the survey, is skipped. Order: write admission →
 page lock → git.
 """
 from __future__ import annotations
@@ -59,11 +66,13 @@ class Survey:
     skill_no_evidence: int = 0
     alias_pages: int = 0
     alias_references: int = 0
+    alias_references_kept: int = 0
     alias_names_other_page: int = 0
     dirty: int = 0
     repaired: int = 0
     committed: bool = False
     _todo: dict[Path, tuple[str, dict]] = field(default_factory=dict, repr=False)
+    _removals: dict[str, list[str]] = field(default_factory=dict, repr=False)
 
     def counts(self) -> dict:
         return {k: v for k, v in self.__dict__.items() if not k.startswith("_")}
@@ -79,6 +88,33 @@ def _batch_episodes(memory_path: Path, rel: str) -> set[str]:
     except git_service.GitError:
         return set()
     return {ep for ep in _EP_RE.findall(shown) if (memory_path / "episodes" / f"{ep}.md").is_file()}
+
+
+def _sleep_added(memory_path: Path, rel: str, candidates: list[str]) -> set[str]:
+    """The ``candidates`` last ADDED to ``rel`` by a Sleep cycle commit (absent before it, listed after it). An alias
+    re-added by someone else after Sleep, never committed, or unreadable in the history is not returned."""
+    try:
+        log = git_service._git_sync(memory_path, "log", "--reverse", "--format=%H%x1f%s", "--", rel)
+    except git_service.GitError:
+        return set()
+    keys = {c.lower(): c for c in candidates}
+    adder: dict[str, bool] = {}           # alias -> was its latest addition a Sleep cycle commit
+    before: set[str] = set()
+    for line in log.splitlines():
+        if "\x1f" not in line:
+            continue
+        sha, subject = line.split("\x1f", 1)
+        try:
+            split = markdown_parser.split_frontmatter(git_service._git_sync(memory_path, "show", f"{sha}:{rel}"))
+            listed = (markdown_parser.load_yaml(split[0]) or {}).get("aliases") if split else None
+        except Exception:
+            listed = None   # deleted or unreadable at this commit: nothing is listed
+        now = {str(a).lower() for a in listed} if isinstance(listed, list) else set()
+        for key in keys:
+            if key in now and key not in before:
+                adder[key] = git_service._cycle_kind(subject) == "sleep"
+        before = now
+    return {keys[k] for k, by_sleep in adder.items() if by_sleep and k in before}
 
 
 def _named(text: str, labels: list[str]) -> bool:
@@ -170,15 +206,17 @@ def survey(memory_path) -> Survey:
 
         aliases = fm.get("aliases")
         if isinstance(aliases, list) and aliases:
-            kept = alias_policy.keep(aliases)
-            dropped = len(aliases) - len(kept)
-            for alias in kept:
+            for alias in alias_policy.keep(aliases):
                 if names.get(alias.strip().lower(), stem) != stem:
                     result.alias_names_other_page += 1
-            if dropped:
+            references = [a for a in aliases if isinstance(a, str) and alias_policy.is_reference(a)]
+            by_sleep = _sleep_added(memory_path, rel, references) if references and has_git else set()
+            result.alias_references_kept += len(references) - len(by_sleep)
+            if by_sleep:
                 result.alias_pages += 1
-                result.alias_references += dropped
-                new["aliases"] = kept
+                result.alias_references += len(by_sleep)
+                new["aliases"] = [a for a in aliases if a not in by_sleep]
+                result._removals[stem] = sorted(by_sleep)
                 changed = True
 
         if str(fm.get("type") or "") == "skill" and not is_agent_skill(fm):

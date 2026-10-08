@@ -553,29 +553,35 @@ usually 1 call; one that shares a word and names its alias holder usually costs 
 holder is judged first. A judge call with no alias candidate gets the prompt it always got, byte for byte. Link recon
 (`match_existing`) does not read aliases.
 
-**A reference is never an alias (2026-10-08).** An alias is another NAME for the thing; a phrase that only points at it
-inside one conversation ("the lock", "this project", "my app", "la base") is not. `alias_policy.is_reference` — two or
-more words, the first an article, demonstrative or possessive (English or Spanish), no capital letter after it — is the
-one rule: `apply_changes` never records one (a create's aliases, and only the NEW aliases of an update; what a page
-already lists stays), and `_alias_index` never offers a page to the judge for one, so an existing bank stops paying for
-them at once. "The Economist" and "La Liga" are names and stay. The extraction prompt no longer shows `"the db"` as an
-example alias and says a part, product, dataset, format or version of a thing is not its alias. An alias that is
-another page's name is not removed by anything automatic: it may be the lead for a merge, and the judge already
-treats it as a lead, never a decision. `python -m api.scripts.repair_skills_aliases --bank <path>` (dry run; `--apply`
-for one `cicada` commit) removes references from an existing bank and counts the cross-page aliases.
+**A reference is not recorded as a new alias (2026-10-08, narrowed in fix round 1).** An alias is another NAME for the
+thing; a phrase that only points at it inside one conversation ("the lock", "this project", "la base") is not.
+`alias_policy.is_reference` is deliberately narrow: two or more words, all lowercase, no digit, the first an article or
+demonstrative (English or Spanish). Titles and names keep a capital at least at the start ("La casa de papel", "The
+Economist"), a number makes a name ("The 100", "El 47"), and a possessive ("my mom", "mi mamá") is how the person
+refers to one thing consistently, so none of those is a reference. It is used in ONE place: `apply_changes` drops
+references from the aliases Sleep adds (a create's, and only the new ones of an update); what a page already lists —
+a person's merge records the losing page's name there — stays, and the #249 alias index reads every alias as before. A
+real name typed all lowercase and article-led is the accepted false positive: it is only not recorded as a new alias,
+and a lowercase spelling of a page's own name already matches by name. The extraction prompt no longer shows `"the db"`
+as an example alias and says a part, product, dataset, format or version of a thing is not its alias. An alias that is
+another page's name is not removed by anything automatic: it may be the lead for a merge. For an existing bank,
+`python -m api.scripts.repair_skills_aliases --bank <path>` (dry run; `--list` shows what would go; `--apply` for one
+`cicada` commit) removes a reference only when the page's git history shows a Sleep cycle commit added it last;
+anything the person (or any other writer) added is counted and kept.
 
 **A skill page carries its conversations (G112 (1), 2026-10-08).** Stage 4 answers `{name, description,
 evidence_entities, confidence}`; the old writer kept only the name and description, so every skill page was born
 with `source_episodes: []`, `created` = the cycle's day, no section provenance and no `related`, was written only
 when absent (a pattern found again never moved its page), and decayed with zero mention weeks. Now
 `skill_grounding.ground` matches each evidence name, without a model, to this batch's conversations (Stage 1's names,
-Stage 2's `name_to_id`, the changes' own sources), keeps those where two of the named entities came up together (one
-when only one is named), and hands `apply_changes` an ordinary `create`/`update` change: dates from those
+Stage 2's `name_to_id`, the changes' own sources), keeps those where two of the named entities came up together (every conversation of the one, when only one of them
+came up in the batch), and hands `apply_changes` an ordinary `create`/`update` change: dates from those
 conversations, the Summary's section provenance citing each as `reasoning` (an inference, never a quotation), a
 `draws on` edge to each evidence page, and its own commit line with `source:`, `sessions:` and `trigger: sleep/skills`.
 A skill with no evidence in the batch is not written (logged as a count) — it fails the detection prompt's own
 contract, and a later batch that shows it writes it. A name that is already a `skill` page updates that page (sources
-merged, last mention moved, a decaying page recovered, and Stage 3's decay of it this batch dropped); a page of another
+merged, last mention moved, a decaying page recovered, and Stage 3's decay of it this batch dropped; its prose is not
+touched, so re-detections do not pile undated History bullets); a page of another
 type, an installed agent skill's page, a dropped page, or a page another change of the batch writes is left alone.
 `skills_detected` counts the grounded skills. No contradiction check runs on a skill update (it would be a paid call).
 The same repair script grounds the existing unsourced skill pages from the Sleep commit that created each one.

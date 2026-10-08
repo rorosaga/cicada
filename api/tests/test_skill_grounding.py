@@ -104,6 +104,12 @@ def test_a_pattern_found_again_updates_its_page_instead_of_a_silent_no_op(tmp_pa
     assert fm["source_episodes"] == [EP1, EP2] and fm["version"] == 2
     assert fm["status"] == "active" and fm["confidence"] >= 0.3
     assert set(fm["related"]) == {"alpha-tool", "beta-project"}
+    # A re-detection is evidence, not new text: a paraphrase never piles an undated History bullet onto the page.
+    paraphrase = {**SKILL, "description": "Reads the tracker before any planning."}
+    _write(bank, skill_grounding.ground([paraphrase], [], _extracted(), bank))
+    body = _fm(bank, "checks-the-tracker-first").body
+    assert "History" not in body and "Reads the tracker before any planning." not in body
+    assert "Before planning, reads the tracker." in body
 
 
 def test_a_name_held_by_another_kind_of_page_is_left_alone(tmp_path):
