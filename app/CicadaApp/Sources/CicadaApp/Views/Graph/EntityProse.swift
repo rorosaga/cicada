@@ -99,25 +99,29 @@ enum RawFile {
 }
 
 /// F4 — reads `/entities/{id}/raw` for one card. `text` only ever holds a successful read; a failure sets `failed`
-/// and leaves `text` nil, so the next attempt asks again.
+/// and leaves `text` nil, so the next attempt asks again. Every ask while a read is in flight awaits that same read
+/// (review r2 B2: Copy pressed while Source was reading used to return at once and report a failure that never
+/// happened).
 @MainActor @Observable
 final class RawFileLoader {
     private(set) var text: String?
     private(set) var failed = false
-    private var loading = false
+    @ObservationIgnored private var inFlight: Task<Void, Never>?
 
-    func load(_ id: String, fetch: (String) async throws -> String) async {
-        guard text == nil, !loading else { return }
-        loading = true
+    func load(_ id: String, fetch: @escaping (String) async throws -> String) async {
+        guard text == nil else { return }
+        if let inFlight { return await inFlight.value }
         failed = false
-        defer { loading = false }
-        do {
-            let raw = try await fetch(id)
-            guard !Task.isCancelled else { return }
-            text = raw
-        } catch {
-            if !Task.isCancelled { failed = true }
+        let read = Task { @MainActor in
+            do {
+                self.text = try await fetch(id)
+            } catch {
+                self.failed = true
+            }
         }
+        inFlight = read
+        await read.value
+        inFlight = nil
     }
 }
 

@@ -26,6 +26,27 @@ final class RawFileTests: XCTestCase {
         XCTAssertEqual(RawFile.verbatim(entity, fetched: loader.text), whole)
     }
 
+    /// Review r2 B2: Copy pressed while Source's read is still in flight waits for that read — it never reads "no file"
+    /// and reports a failure that did not happen.
+    @MainActor
+    func testASecondAskWaitsForTheReadInFlight() async throws {
+        let entity = try page(raw: "---\nname: Alpha\n---\nAlpha.\n", omitted: true)
+        let whole = "---\nname: Alpha\n---\nAlpha.\n\n```claims\n- id: a\n```\n"
+        let loader = RawFileLoader()
+        var calls = 0
+        let fetch: @Sendable (String) async throws -> String = { _ in
+            try await Task.sleep(for: .milliseconds(150))
+            return whole
+        }
+        let source = Task { await loader.load(entity.id) { calls += 1; return try await fetch($0) } }
+        try await Task.sleep(for: .milliseconds(20))
+        await loader.load(entity.id) { calls += 1; return try await fetch($0) }       // what Copy does
+        XCTAssertEqual(RawFile.verbatim(entity, fetched: loader.text), whole, "the second ask saw the file")
+        XCTAssertFalse(loader.failed)
+        await source.value
+        XCTAssertEqual(calls, 1, "one read, shared")
+    }
+
     /// An inline file is the file; a withheld one's head is never mistaken for the whole file.
     func testOnlyAWholeFileIsVerbatim() throws {
         let small = try page(raw: "---\nname: Alpha\n---\nAlpha.\n", omitted: false)
