@@ -7,9 +7,12 @@ point ``CICADA_BUNDLED_MODELS`` there. Each model directory holds ``model.onnx``
 pooling, whether vectors are normalised and the instructions a query and a document
 each carry (e5's ``query: `` / ``passage: ``), so this module needs no per-model code.
 
-A developer checkout has no bundled model (the variable is unset) and keeps
-EmbeddingGemma through sentence-transformers; a bank records the model it was
-built with and is always queried with that model (``providers.resolve_embed_fn_for_model``).
+A developer checkout has no app bundle (the variable is unset): ``make embedding-model``
+fetches the release's same pinned files (``scripts/fetch-embedding-model.sh``, pins in
+``scripts/release/inputs.env``) into ``$CICADA_HOME/models``, and the model is found
+there. Without that step a checkout keeps EmbeddingGemma through sentence-transformers.
+A bank records the model it was built with and is always queried with that model
+(``providers.resolve_embed_fn_for_model``); a model change rebuilds its index.
 """
 from __future__ import annotations
 
@@ -42,9 +45,15 @@ class ModelSpec:
 
 def model_dirs(environ=os.environ) -> list[Path]:
     """Where bundled models live: ``CICADA_BUNDLED_MODELS`` (set only by a release
-    app's launchers). Empty in a developer checkout."""
+    app's launchers), else ``$CICADA_HOME/models`` — where a developer checkout's
+    ``make embedding-model`` puts them. Only directories holding a manifest count, so
+    the larger model's download beside them is never mistaken for one."""
     raw = (environ.get(BUNDLED_MODELS_ENV) or "").strip()
-    return [Path(raw)] if raw else []
+    if raw:
+        return [Path(raw)]
+    from api.services import runtime_layout
+
+    return [runtime_layout.cicada_home(environ) / "models"]
 
 
 def _read_spec(directory: Path) -> ModelSpec | None:

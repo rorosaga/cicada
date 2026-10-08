@@ -126,3 +126,33 @@ def test_the_cached_query_embedder_never_imports_sentence_transformers(monkeypat
         assert isinstance(fn, onnx_embedder.OnnxEmbedder) and mid == onnx_embedder.DEFAULT_ID
     finally:
         providers.clear_embed_cache()
+
+
+# --- A developer checkout runs the same small model (fix/dev-embeddings) ------------------------------------
+
+def test_a_checkout_finds_the_model_fetched_into_its_home(monkeypatch, tmp_path):
+    """`make embedding-model` puts the release's pinned files under $CICADA_HOME/models; with no
+    CICADA_BUNDLED_MODELS (a checkout), that folder is where the model is found."""
+    monkeypatch.delenv("CICADA_BUNDLED_MODELS", raising=False)
+    monkeypatch.setenv("CICADA_HOME", str(tmp_path / "home"))
+    assert onnx_embedder.available() == [], "nothing fetched yet: nothing found"
+    _model(tmp_path / "home" / "models")
+    (tmp_path / "home" / "models" / "google--embeddinggemma-300m").mkdir()  # the larger model's download: no manifest
+    assert [s.id for s in onnx_embedder.available()] == [onnx_embedder.DEFAULT_ID]
+    assert onnx_embedder.default_model().path == tmp_path / "home" / "models" / "multilingual-e5-small"
+
+
+def test_a_release_looks_only_where_its_launchers_point(monkeypatch, tmp_path):
+    monkeypatch.setenv("CICADA_HOME", str(tmp_path / "home"))
+    _model(tmp_path / "home" / "models")
+    monkeypatch.setenv("CICADA_BUNDLED_MODELS", str(tmp_path / "app-models"))
+    assert onnx_embedder.available() == [], "the app's own folder, never a copy under the home"
+
+
+def test_a_checkout_with_the_model_builds_fresh_banks_with_it(monkeypatch, tmp_path):
+    monkeypatch.delenv("CICADA_BUNDLED_MODELS", raising=False)
+    monkeypatch.delenv("CICADA_EMBEDDING_MODEL_LOCAL", raising=False)
+    monkeypatch.setenv("CICADA_EMBEDDING_MODE", "local")
+    monkeypatch.setenv("CICADA_HOME", str(tmp_path))
+    _model(tmp_path / "models")
+    assert Settings().resolved_embedding_model == onnx_embedder.DEFAULT_ID
