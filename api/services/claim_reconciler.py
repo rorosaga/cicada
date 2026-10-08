@@ -35,7 +35,7 @@ from typing import Callable
 from loguru import logger
 
 from api.models.schemas import DecayClass
-from api.services import decay_policy, inbox_questions, predicates
+from api.services import decay_policy, episode_time, inbox_questions, predicates
 from api.services.claims import HAPPENED, MILESTONE, Claim, Evidence, event_cardinality, is_event, is_record
 
 # A cardinality oracle: predicate -> True (single-valued) | False (multi-valued).
@@ -727,6 +727,8 @@ def _decay_claims(
     archive_threshold = float(getattr(settings, "archive_threshold", 0.2) or 0.2)
     nudge_threshold = float(getattr(settings, "decay_nudge_threshold", 0.4) or 0.4)
     alpha, floor = decay_policy.spacing_params(settings)
+    # A memory export entry restates a claim without the claim coming up (`episode_time`).
+    untimed = episode_time.untimed_ids(getattr(settings, "memory_path", None))
 
     for subject, claims in reconciled.items():
         if subject in referenced_subjects:
@@ -761,7 +763,7 @@ def _decay_claims(
             # one heard in a single burst — weeks from what the claim already
             # records, plus the subject's kept weeks.
             spacing = decay_policy.stability(
-                decay_policy.claim_mention_weeks(c, about.kept_on), alpha=alpha, floor=floor
+                decay_policy.claim_mention_weeks(c, about.kept_on, untimed=untimed), alpha=alpha, floor=floor
             )
             amount = (base * factor * multiplier * about.type_multiplier * spacing
                       * (charged_days / 7.0))

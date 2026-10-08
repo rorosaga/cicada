@@ -299,6 +299,8 @@ said and what day it is now (`api/services/source_dates.py`).
   note gives the conversation's own day (its `timestamp`, else the date in its id: the same rule as a claim's
   `valid_from`) and today, which is fixed once per `extract()` run. For a conversation older than `OLD_AFTER_DAYS` (90),
   the note names the month and year to write it as of. An undated conversation gets no note, and nothing is guessed.
+  A memory export entry gets `source_dates.summary_note` instead: its date is when the summary was edited, never a
+  day to date a fact to, and nothing in it is written as current or recent (the 90-day rule does not apply).
   The system prompt's TIME rules say:
   - write as of the conversation's date;
   - name the month and year for anything changeable from old material, and for every plan or intention;
@@ -508,6 +510,13 @@ count). **An import is not silence:** a page or claim a cycle creates or referen
 episodes keeps that date as its content date (`last_referenced`, `valid_from`) but gets
 `decayed_through` = the cycle's date, so silence counts from when Cicada learned it and a
 multi-cycle drain of a backdated export never charges or archives what it just read.
+**A memory export entry is facts, not activity** (owner, 2026-10-08). A `source: claude_memory` episode is a summary
+of the person dated by the export entry's `updated_at`, not by when anything in it came up. `episode_time` is the one
+predicate: such an episode is no week in `w` (page, claim and card alike), and Stage 1 hands Stage 2 its entities
+with no timestamp or day and `untimed: true`. A change made only of memory entries creates a page with **no
+`last_referenced`** (`created` and `decayed_through` are the cycle's day), and on an existing page moves neither
+`last_referenced` nor `decayed_through` and recovers no status; its facts, claims (with their `valid_from`) and
+`source_episodes` are written as usual. Any real conversation in the same change dates it as before.
 Below 0.2 → `status: archived` (the page stays in `entities/`); below 0.4 → a decay nudge.
 Mentioned again → promoted back at `confidence = max(current, 0.6)`. Evergreen entities skip all
 decay math. **Confidence does not rank recall:** search puts archived pages last and otherwise ranks

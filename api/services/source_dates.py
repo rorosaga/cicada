@@ -79,6 +79,16 @@ def date_note(day: date | None, today: date) -> str | None:
     return note + "]\n\n"
 
 
+def summary_note(day: date | None, today: date) -> str:
+    """The line put before every chunk of a memory export entry instead of :func:`date_note` ("facts yes, activity
+    no", owner 2026-10-08): its date is when the summary was last edited, not when anything in it was said or
+    happened, so neither the day nor the 90-day "as of" rule applies to what it describes."""
+    edited = f"last edited {day.isoformat()}" if day is not None else "of unknown date"
+    return (f"{DATE_NOTE_PREFIX} this is an assistant's summary about the person, {edited}; today is "
+            f"{today.isoformat()}. Its date says when the summary was written, not when anything in it was said or "
+            "happened: never date a fact to it, and never write anything from it as current or recent.]\n\n")
+
+
 def describe(day) -> str:
     """A day for a prompt line: the ISO day, or ``unknown`` — never a guess."""
     parsed = parse_day(day)

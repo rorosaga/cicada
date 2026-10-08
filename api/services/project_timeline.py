@@ -36,7 +36,7 @@ from api.models.schemas import (
     TimelineFact, TimelineItem, TimelineParticipant, TimelineQuote, TimelineWindow,
 )
 from api.services import (
-    bank_index, claim_expiry, entity_body, evidence, inbox_context, project_state,
+    bank_index, claim_expiry, entity_body, episode_time, evidence, inbox_context, project_state,
     search_index, session_stats, turn_authorship, when,
 )
 from api.services.claim_reconciler import is_human
@@ -236,6 +236,17 @@ class _Bank:
             hit = self._ep_keys[ep] = (episode_ids.timestamp_sort_key(ts), when.parse_instant(ts))
         return hit
 
+    def timed(self, ep: str) -> bool:
+        """An episode of this bank whose date is a mention's — never a memory export entry ("facts yes,
+        activity no", owner 2026-10-08: its date is the summary's, not when anything in it came up)."""
+        f = self.episodes.get(ep)
+        return f is not None and episode_time.counts_as_activity(f.frontmatter)
+
+    def untimed_only(self, claim: Claim) -> bool:
+        """Every episode the claim cites in this bank is a memory export entry: a fact with no activity day."""
+        eps = [e for e in _claim_episodes(claim) if e in self.episodes]
+        return bool(eps) and not any(self.timed(e) for e in eps)
+
     def charge(self) -> bool:
         self.scanned += 1
         if self.scanned > MAX_SCAN_PAGES:
@@ -319,9 +330,13 @@ class _Anchor:
 
 def _anchor(bank: _Bank, claim: Claim) -> _Anchor | None:
     """§6.1: the earliest evidence episode, else `source_episodes[0]`, else
-    `valid_from` alone. The turn's own time wins over the episode's (G118)."""
-    spans = [e for e in claim.evidence if e.is_span() and e.episode in bank.episodes]
-    candidates = [e.episode for e in spans] or [ep for ep in claim.source_episodes if ep in bank.episodes]
+    `valid_from` alone. The turn's own time wins over the episode's (G118).
+    A memory export entry is never an anchor: a claim cited only by one is a
+    fact with no day here, and its `valid_from` (the export's date) is not used."""
+    if bank.untimed_only(claim):
+        return None
+    spans = [e for e in claim.evidence if e.is_span() and bank.timed(e.episode)]
+    candidates = [e.episode for e in spans] or [ep for ep in claim.source_episodes if bank.timed(ep)]
     if not candidates:
         day = _day(claim.valid_from)
         return _Anchor(None, day, None, "day", None) if day else None
@@ -403,7 +418,7 @@ def _neighbours(bank: _Bank, tree: list[str], owner: str | None,
     def add(member: str, claim: Claim, phrase: str) -> None:
         row = out.setdefault(member, {"count": 0, "last": None, "phrases": Counter()})
         row["count"] += 1
-        day = _day(claim.valid_from)
+        day = None if bank.untimed_only(claim) else _day(claim.valid_from)
         if day and (row["last"] is None or day > row["last"]):
             row["last"] = day
         row["phrases"][phrase] += 1
@@ -951,7 +966,7 @@ def _activity(bank: _Bank, claims: list[Claim]) -> list[ActivityDay]:
         for sid in c.all_session_ids():
             eps += bank.session_episodes(sid)
         for ep in eps:
-            if ep in seen or ep not in bank.episodes:
+            if ep in seen or not bank.timed(ep):
                 continue
             seen.add(ep)
             day = _ep_day(bank, ep)
