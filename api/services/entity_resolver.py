@@ -1191,6 +1191,13 @@ async def _find_llm_candidate_match(
     return _pick_match(new_name, judged)
 
 
+#: How many names per concurrent slot ``_Lookahead`` takes ahead of the loop.
+#: A name's own calls stay sequential, so while the loop waits on a name with a
+#: long candidate list the other slots keep working on names further ahead; the
+#: window bounds what a cancel can waste (judgments taken but never used).
+LOOKAHEAD_NAMES_PER_SLOT = 4
+
+
 def _lookahead_plan(
     ordered_entities: list[tuple[str, dict]], existing_by_name: dict[str, dict],
 ) -> list[tuple[dict, list[dict]] | None]:
@@ -1223,12 +1230,12 @@ class _Lookahead:
     name's candidates are still judged one after another with the first-``same``
     exit (the very calls the serial loop made); different names overlap, at most
     ``concurrency`` calls in flight (the gate the loop's own inline calls share).
-    At most ``2 × concurrency`` names are taken ahead of the loop's position, so
+    At most ``LOOKAHEAD_NAMES_PER_SLOT × concurrency`` names are taken ahead of the loop's position, so
     a cancel or a plan limit wastes a bounded number of calls.
 
     ``plan[i]`` is ``(entity, candidates)`` for the i-th name in the loop's
     order, or ``None`` when the loop would make no existing-page call for it
-    (a direct match, an alias, no candidate) or might settle it on an in-cycle
+    (a direct match, no candidate) or might settle it on an in-cycle
     create first — those are left to the loop, exactly as before.
     ``close`` starts nothing more and waits out the calls in flight: a call is
     never interrupted (a plan call runs in a worker thread), and none outlives
@@ -1243,7 +1250,7 @@ class _Lookahead:
         self._settings = settings
         self._cache = cache
         self.gate = asyncio.Semaphore(concurrency)
-        self._window = 2 * concurrency
+        self._window = LOOKAHEAD_NAMES_PER_SLOT * concurrency
         self._tasks: dict[int, asyncio.Task] = {}
         self._dropped: list[asyncio.Task] = []
         self._next = 0

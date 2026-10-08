@@ -261,7 +261,8 @@ then says the model wasn't shared.
 
 ### Sleep — 5-stage nightly batch
 1. **Entity & relationship extraction** — LLM over episode chunks, structured output.
-2. **Entity resolution & dedup** — fuzzy match, embedding similarity, LLM disambiguation.
+2. **Entity resolution & dedup** — exact name, fuzzy match, embedding similarity, LLM disambiguation
+   (bounded concurrency, decisions in order; see below).
 3. **Conflict resolution & pruning** — contradictions detected, recency wins, old state archived;
    temporal decay applied.
 4. **Pattern detection & skill extraction** — recurring patterns distilled into skill entities.
@@ -514,6 +515,19 @@ history, an unclaimed `website`/`decay_class` proposal and its G118 item records
 pending parks one line carrying the merged history and tags; the line keeps the strongest mention's episode. Before
 this fix those extractions were dropped whole: a 25-conversation batch credited 1 episode. Claims and edges were never
 affected, because they are projected from every extraction's relationships through `name_to_id`.
+
+**Stage 2's judge calls overlap, its decisions do not (2026-10-08).** After the name and fuzzy matches, Stage 2 asks
+the disambiguation judge once per (name, same-type page sharing a name token), first `same` wins. Those calls used to
+run one after another — on a ~1,900-page bank a 25-conversation batch made 500–830 of them at ~4 s each, 40–56 minutes
+of a batch. The judgments against pages on disk depend only on the name and the bank, so `entity_resolver._Lookahead`
+takes them ahead of the per-name loop: at most `sleep_resolve_concurrency` calls in flight
+(`CICADA_SLEEP_RESOLVE_CONCURRENCY`, default 3; 1 is the serial loop), and on a plan engine still under the
+process-wide `agent_max_concurrency` cap Stage 1 runs under; at most `LOOKAHEAD_NAMES_PER_SLOT` (4) names per slot
+ahead of the loop. A name's own candidates stay sequential with the first-`same` exit, and everything that depends on
+the loop — a direct match to an in-cycle create, an in-cycle create as a candidate — is still decided inline, in
+order, so every decision and every call is the serial loop's. A cancel or a plan limit starts no new call and waits
+out the ones in flight (a plan call is never interrupted); the engine error is still what `resolve` raises, so the
+drain pauses as before.
 
 **The engine's own runtime is never a page.** The `claude -p` CLI still tells the model its cwd, platform and shell despite `--system-prompt` (probed 2.1.x; `--exclude-dynamic-system-prompt-sections` is ignored with it), so the extraction prompt says that is not conversation content and Stage 2 drops, with a text-free debug line, any entity named for `$CICADA_HOME` or a path under it (`agent_engine.is_runtime_path`; the scratch dir is one).
 
