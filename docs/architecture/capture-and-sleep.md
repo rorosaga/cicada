@@ -291,9 +291,24 @@ identity/unknown-role sentence, never character clipping. Stage-5 synthesis outp
 this does not change the synthesis gate or add model calls. Human Summary is exempt and never
 extended or rewritten; incoming context is added outside it. Human flags and custom sections are
 honored by both entity merge and source rewrite. This is a structural floor, not semantic synthesis:
-short fragments/stale prose still need the planned orientation and dated-prose repair.
+short fragments/stale prose still need orientation and dated-prose repair.
 
-Sleep synthesis retains exact old items by identity, without changing its prompt/return shape.
+**Opt-in orientation synthesis (G194).** `CICADA_SUMMARY_SYNTHESIS_ENABLED` defaults to false.
+Off preserves the legacy description/history gate and its call count. On uses effective Summary
+(then description) and all incoming structured fields, skips human/custom pages before a call,
+and requests one bounded JSON Summary. Facts-only updates need one merge call; Summary/description
+updates also run the existing contradiction check. `entity_orientation` passes dated inputs and
+only structurally current claims (`claims.is_current`, excluding withdrawal records). Prose is
+labeled unverified background; old statements and intentions must name their own date, never a
+page-wide last-reference date. Input over 24,000 characters and invalid output take the deterministic
+fallback without a retry. Engine failures/cancellation retain the existing propagation contract.
+Composition changes only Summary and deterministically unions the complete non-Summary sections,
+even ones the model did not rewrite. Replaced orientation remains undated background. Exact carried
+facts retain or acquire exact G118 guards; a rephrased orientation remains unrecorded. The inbox
+caller shares this builder and retains its existing pre-call snapshot/write-time fence. The switch
+requires owner review of benchmark call counts; fake timing does not estimate provider latency.
+
+Legacy Sleep synthesis retains exact old items by identity, without changing its prompt/return shape.
 Rephrased items become unrecorded; incoming facts not supplied to synthesis cannot gain links.
 All refreshes share the existing atomic page write, locks and commit/rollback boundary.
 Any open code fence can hide sections from the original or final body: refresh preserves

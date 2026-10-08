@@ -40,6 +40,38 @@ def _page(memory) -> str:
     return (memory / "entities" / "alpha-project.md").read_text()
 
 
+def test_opt_in_inbox_uses_shared_orientation_builder(memory, monkeypatch):
+    from api.config import Settings
+    from api.services import entity_body
+    monkeypatch.setenv('CICADA_MEMORY_PATH', str(memory))
+    seen = []
+    async def completion(**kw):
+        seen.append(kw['messages'][-1]['content'])
+        assert write_admission.holders(memory) == 0
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(
+            content='{"summary": "A synthetic project using local storage."}'))])
+    monkeypatch.setattr(conflict_resolver.litellm, 'acompletion', completion)
+    settings = Settings(_env_file=None, summary_synthesis_enabled=True)
+    assert asyncio.run(inbox_service.resolve('conflict-review',
+        InboxResolveRequest(action='choose', option_key='a'), settings))['status'] == 'resolved'
+    assert len(seen) == 1 and 'SECTION-AWARE ORIENTATION' in seen[0]
+    assert entity_body.parse_sections(markdown_parser.parse(
+        memory / 'entities/alpha-project.md').body)['Summary'] == 'A synthetic project using local storage.'
+
+
+def test_opt_in_inbox_skips_human_before_call(memory, monkeypatch):
+    page = memory / 'entities/alpha-project.md'
+    parsed = markdown_parser.parse(page)
+    parsed.frontmatter['human_edited'] = True
+    markdown_parser.write(page, parsed.frontmatter, parsed.body)
+    async def synth(**kwargs):
+        raise AssertionError('human page must skip model call')
+    monkeypatch.setattr(conflict_resolver, '_synthesize_entity_update', synth)
+    settings = SimpleNamespace(memory_path=memory, summary_synthesis_enabled=True)
+    assert asyncio.run(inbox_service.resolve('conflict-review',
+        InboxResolveRequest(action='choose', option_key='a'), settings))['status'] == 'resolved'
+
+
 def test_the_model_call_holds_no_admission_and_its_prose_is_used(memory, monkeypatch):
     seen = []
 

@@ -106,7 +106,14 @@ async def resolve_and_prune(
         new_entity = change.get("entity", {}) or {}
         new_desc = (new_entity.get("description") or "").strip()
         new_history = new_entity.get("history_entries", []) or []
-        if not new_desc and not new_history:
+        section_aware = getattr(settings, 'summary_synthesis_enabled', False)
+        if section_aware:
+            new_desc = _entity_summary(new_entity)
+            if _is_human_edited(existing_entity.get('frontmatter', {}),
+                                entity_body.parse_sections(existing_entity.get('body', ''))):
+                continue
+        if not new_desc and not new_history and not (section_aware and any(
+                new_entity.get(k) for k in ('key_facts', 'links', 'open_questions'))):
             continue
 
         existing_body = existing_entity.get("body", "")
@@ -129,9 +136,12 @@ async def resolve_and_prune(
                 page_last_referenced=page_said,
                 source_dates_seen=change_days,
                 today=cycle_day,
+                new_fields=new_entity if section_aware else None,
             )
             if synthesized:
                 change["synthesized_body"] = synthesized
+                if section_aware:
+                    change['section_aware_synthesis'] = True
         except engine_errors.EngineError:
             # G74(a), M2: an ENGINE failure is not "nothing to synthesize" —
             # flattening it here let a partial throttle silently skip
@@ -482,7 +492,8 @@ def apply_changes(changes: list[dict], memory_path) -> None:
             final_body = preserve_claims_blocks(original_body, entity_body.render_sections(sections))
             section_provenance.refresh(
                 parsed.frontmatter, original_body, final_body, new_entity,
-                synthesized=bool(synthesized_body and not human_edited),
+                synthesized=bool(synthesized_body and not human_edited
+                                 and not change.get('section_aware_synthesis')),
             )
             markdown_parser.write(filepath, parsed.frontmatter, final_body)
 
@@ -795,6 +806,7 @@ async def _synthesize_entity_update(
     page_last_referenced: str | None = None,
     source_dates_seen: list[str] | None = None,
     today: str | None = None,
+    new_fields: dict | None = None,
 ) -> str | None:
     """Call the LLM to merge an existing entity body with new extraction info.
 
@@ -802,6 +814,35 @@ async def _synthesize_entity_update(
     said, so "newer" means a later date rather than a later read, and old material is written as of its own date.
     A missing day reads ``unknown`` — never guessed. Prompt guidance only; what is written is unchanged."""
     from api.services.claims import strip_claims_block
+    from api.services import entity_orientation
+
+    if getattr(settings, 'summary_synthesis_enabled', False):
+        fields = dict(new_fields or {'summary': new_description, 'history_entries': new_history_entries})
+        fields.update(name=entity_name, type=entity_type)
+        data = entity_orientation.context(
+            existing_body, name=entity_name, entity_type=entity_type, fields=fields,
+            today=today or date.today().isoformat(),
+            source_dates=source_dates_seen or ([source_reference_date] if source_reference_date else []))
+        try:
+            from api.services import owner_identity
+            data['owner_instruction'] = _owner_line(owner_identity.owner_name(
+                getattr(settings, 'memory_path', None), settings))
+        except Exception:  # a missing owner costs the instruction, never the update
+            pass
+        prompt = entity_orientation.bounded_prompt(data)
+        if prompt is None:
+            return None
+        llm_fn = resolve_llm_fn(settings, model=settings.effective_consolidation_model,
+                                completion=litellm.acompletion, stage='merge')
+        response = await llm_fn(messages=[{'role': 'user', 'content': prompt}])
+        try:
+            result = json.loads(response.choices[0].message.content or '')
+        except (ValueError, TypeError):
+            return None
+        summary = result.get('summary') if isinstance(result, dict) else None
+        if not entity_orientation.valid_summary(summary):
+            return None
+        return entity_orientation.compose(existing_body, fields, summary)
 
     existing_body = strip_claims_block(existing_body)
     if not existing_body.strip() and not new_description.strip():

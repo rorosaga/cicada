@@ -85,6 +85,9 @@ class Settings(BaseSettings):
     # ``effective_consolidation_model``.
     consolidation_model: str = ""             # CICADA_CONSOLIDATION_MODEL
 
+    # G194: opt-in until the owner reviews the synthetic call/timing results.
+    summary_synthesis_enabled: bool = False  # CICADA_SUMMARY_SYNTHESIS_ENABLED
+
     # Optional OpenRouter attribution headers, attached by the provider factory
     # ONLY when the resolved model id starts with "openrouter/". Both empty (the
     # default) => no headers attached, so the default path is untouched.
