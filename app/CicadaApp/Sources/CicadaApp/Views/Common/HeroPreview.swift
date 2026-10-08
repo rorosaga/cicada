@@ -431,25 +431,11 @@ private struct LocationHero: View {
     }
 
     private func mapView(_ coordinate: CLLocationCoordinate2D) -> some View {
-        Map(initialPosition: .region(
-            MKCoordinateRegion(
-                center: coordinate,
-                span: MKCoordinateSpan(latitudeDelta: 0.08, longitudeDelta: 0.08)
-            )
-        )) {
-            Marker(entity.name, coordinate: coordinate)
-        }
-        .frame(maxWidth: .infinity)
-        .frame(height: HeroPreview.maxHeight)
-        .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadius))
-        .overlay(
-            RoundedRectangle(cornerRadius: CicadaTheme.cornerRadius)
-                .stroke(CicadaTheme.border, lineWidth: 1)
-        )
-        .overlay(alignment: .bottomTrailing) {
-            openInMapsButton(coordinate)
-                .padding(CicadaTheme.spacingSM)
-        }
+        LocationMap(name: entity.name, coordinate: coordinate)
+            .overlay(alignment: .bottomTrailing) {
+                openInMapsButton(coordinate)
+                    .padding(CicadaTheme.spacingSM)
+            }
     }
 
     private func openInMapsButton(_ coordinate: CLLocationCoordinate2D) -> some View {
@@ -540,5 +526,30 @@ private struct LocationHero: View {
         }
         guard let lat, let lon else { return nil }
         return CLLocationCoordinate2D(latitude: lat, longitude: lon)
+    }
+}
+
+/// A location page's map (`LocationHero`): one pin, the region around it.
+struct LocationMap: View {
+    let name: String
+    let coordinate: CLLocationCoordinate2D
+
+    var body: some View {
+        Map(initialPosition: .region(
+            MKCoordinateRegion(
+                center: coordinate,
+                span: MKCoordinateSpan(latitudeDelta: 0.08, longitudeDelta: 0.08)
+            )
+        ), interactionModes: []) {
+            Marker(name, coordinate: coordinate)
+        }
+        .allowsHitTesting(false)
+        .frame(maxWidth: .infinity)
+        .frame(height: HeroPreview.maxHeight)
+        .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadius))
+        .overlay(
+            RoundedRectangle(cornerRadius: CicadaTheme.cornerRadius)
+                .stroke(CicadaTheme.border, lineWidth: 1)
+        )
     }
 }

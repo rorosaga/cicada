@@ -33,7 +33,9 @@ stated `access`, else a path or repo is "A file on this Mac" and an app "An app"
 this endpoint), who added it with their mark, "You chose to use this" / "Only you know this", no check line
 until G61 S3 serves one, and the page's open inbox question with Open in Inbox; Details (collapsed, remembered):
 tags, related, dates, how it fades. Beliefs are rows — the sentence, its evidence chip and its age, the rest in
-`.help`. A page with thousands of beliefs stays usable: what the tabs show from the claims is derived once per load,
+`.help`. A location page's map is a picture of where it is, never a scroll trap: it takes no pointer events, so
+the column scrolls with the pointer over it, and *Open in Maps* is the way to pan (`LocationMap`). A page with
+thousands of beliefs stays usable: what the tabs show from the claims is derived once per load,
 off the main actor (`ClaimDigest`), Perspectives builds its rows lazily, and a belief list grows twenty rows per
 "Show N more" (`BeliefPaging`), never all at once. History: Show in conversation (straight to the Reader when one conversation maps here) and What
 changed. Timeline: contested beliefs inline; a belief's clock opens its own.
