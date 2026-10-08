@@ -68,6 +68,9 @@ extension Copy.Graph {
     static let rendered = "Rendered"
     static let source = "Source"
     static let copyMarkdown = "Copy markdown"
+    /// The person hero's two-line Summary (F-12): a click shows all of it.
+    static let showWholeSummary = "Show the whole summary"
+    static let showLess = "Show less"
     /// #244 — the History tab past its first page.
     static let olderChanges = "Older changes"
     static let olderChangesFailed = "Couldn't read older changes."

@@ -60,7 +60,9 @@ fill; `PictureStore` holds uploads, Contacts photos and thumbnails by URL (the b
 to a provider), `LogoStore` the logos. Any editable picture opens the image picker on a click, takes a dropped image,
 dims under a camera on hover and offers "Use initials instead" / "Remove picture" on right-click; the app shrinks the
 picture (ImageIO, ≤ 512 px) and `EntityPictureWrite` paints the answer before the server gives it. A `person` opens
-with mock C's top (F-12): an 88 pt picture, the name at 24, the Summary as a standfirst, the picture's source line and a
+with mock C's top (F-12): an 88 pt picture, the name at 24, the Summary as a two-line standfirst (a click unfolds it and the header grows; *Show less* folds it —
+a capped Summary or name is never selectable, since a selectable field opens over its neighbours on a click), the
+picture's source line and a
 facts strip whose every cell comes from something the card loaded (`PersonFacts`; Known since, Last mentioned and
 Conversations are when the conversations were said, over all of them — `/provenance`'s `totals` — with the page's own
 dates only as a fallback); then the tabs, and in Content two

@@ -55,6 +55,39 @@ final class AppScaleRenderTests: XCTestCase {
             .background(CicadaTheme.bgBase)
             .environment(\.colorScheme, mode == .dark ? .dark : .light)
             try write(fold, width: 504, to: dir, file: "source-fold-\(mode == .dark ? "dark" : "light").png")
+            // The owner's header bug: the person Summary folded and unfolded, the facts strip below it; and a non-person
+            // header with a long name. Nothing may draw over what follows.
+            let longSummary = String(repeating: "A long summary sentence about the person and their work. ", count: 7)
+            let person = Entity(id: "bob-example", name: "Bob Example", type: .person, status: .active, confidence: 0.9,
+                                created: "2024-04-02", lastReferenced: "2026-09-30", decayRate: 0.05, sourceEpisodes: [],
+                                tags: [], related: [], version: 1, markdownContent: "## Summary\n" + longSummary,
+                                history: [])
+            let facts = [PersonFact(kind: .knownSince, label: Copy.People.knownSince, value: "Apr 2, 2024 · 2 years"),
+                         PersonFact(kind: .lastMentioned, label: Copy.People.lastMentioned, value: "Sep 30")]
+            for expanded in [false, true] {
+                let hero = PersonHero(entity: person, summary: longSummary, isStub: false, inputs: nil, facts: facts,
+                                      summaryExpanded: expanded)
+                    .padding(CicadaTheme.spacingLG)
+                    .frame(width: 560)
+                    .background(CicadaTheme.bgBase)
+                    .environment(store)
+                    .environment(\.colorScheme, mode == .dark ? .dark : .light)
+                try write(hero, width: 560, to: dir,
+                          file: "person-summary-\(expanded ? "expanded" : "collapsed")-\(mode == .dark ? "dark" : "light").png")
+            }
+            let project = Entity(id: "alpha-project", name: String(repeating: "Alpha Project Example ", count: 5),
+                                 type: .project, status: .active, confidence: 0.9, created: "2024-04-02",
+                                 lastReferenced: "2026-09-30", decayRate: 0.05, sourceEpisodes: [], tags: [], related: [],
+                                 version: 1, markdownContent: "## Summary\n" + longSummary, history: [])
+            let header = EntityCardHeader(
+                entity: project, summary: longSummary, isStub: false, canGoBack: false, backTargetName: nil,
+                onBack: {}, showsClose: true, onClose: {}, tabs: EntityTabs.tabs(claims: [], historyCount: 3),
+                selection: .constant(.content), inset: EntityCardStyle.column.inset)
+                .frame(width: 560)
+                .background(CicadaTheme.bgBase)
+                .environment(store)
+                .environment(\.colorScheme, mode == .dark ? .dark : .light)
+            try write(header, width: 560, to: dir, file: "project-header-\(mode == .dark ? "dark" : "light").png")
             // #244 — the History tab's last row: idle, reading, failed.
             let older = VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
                 OlderChangesRow(phase: .idle) {}
