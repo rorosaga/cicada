@@ -1301,6 +1301,13 @@ class _Lookahead:
         judged = await task
         if self._error is not None:
             raise self._error
+        entity, candidates = self._plan[index]
+        if len(judged) < len(candidates) and not any(decision == "same" for _, decision in judged):
+            # Stopped between this name's candidates (a cancel): the loop is on this
+            # name, and the serial loop always finished the name it was on — so
+            # finish it here, never decide it on half its judgments.
+            judged += await _judge_candidates(entity, candidates[len(judged):], self._cache, self._settings,
+                                              gate=self.gate)
         self._fill(index + 1)
         return judged
 

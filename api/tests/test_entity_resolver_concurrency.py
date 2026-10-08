@@ -201,3 +201,21 @@ def test_every_conversation_is_still_credited_under_concurrency(bank, monkeypatc
     (change,) = out["changes"]
     assert change["id"] == "garnet-harbor-works" and change["action"] == "update"
     assert sorted(change["source_episodes"]) == [f"ep_2026-10-01_00{n}" for n in range(1, 5)]
+
+
+def test_a_cancel_mid_name_still_finishes_the_name_the_loop_is_on(bank, monkeypatch):
+    """The serial loop never stopped inside a name's candidates; the lookahead stops between them on a cancel,
+    so the name the loop is waiting on is finished inline — never decided on half its judgments."""
+    pages = [_page("Lumen Mosaic", "concept"), _page("Lumen Nectar", "concept"), _page("Lumen Onyx", "concept")]
+    extracted = [{"episode_id": "ep_2026-10-01_003", "relationships": [],
+                  "entities": [_entity("Lumen", "concept", "ep_2026-10-01_003")]}]
+    cancelled = {"now": False}
+
+    def verdict(new, existing):
+        cancelled["now"] = True  # the cancel arrives during the name's first call
+        return "same" if existing == "Lumen Onyx" else "different"
+
+    out, judge = _run(bank, monkeypatch, 3, judge=_Judge(verdict=verdict), batch=(pages, extracted),
+                      cancel_check=lambda: cancelled["now"])
+    assert [p[1] for p in judge.pairs] == ["Lumen Mosaic", "Lumen Nectar", "Lumen Onyx"]
+    assert out["name_to_id"]["lumen"] == "lumen-onyx"
