@@ -342,7 +342,8 @@ def test_the_route_serves_camel_case_and_404s_the_unknown(client_bank):
     assert missing.status_code == 404
     data = ok.json()
     assert data["entityId"] == "alpha-project" and data["inferredCount"] == 1
-    assert data["totals"] == {"claims": 5, "withSpan": 3, "legacy": 1, "conversations": 3}
+    assert data["totals"] == {"claims": 5, "withSpan": 3, "legacy": 1, "conversations": 3,
+                              "firstSaid": "2026-08-01T09:00:00+00:00", "lastSaid": "2026-09-02T10:00:00+00:00"}
     assert data["conversations"][0]["claimCount"] == 2
     assert "mentionOffsets" in data["conversations"][0]["best"] and data["commitsTruncated"] is False
 
@@ -390,3 +391,34 @@ def test_a_hand_broken_page_reads_as_empty_not_a_500(client_bank):
     assert resp.status_code == 200, resp.text
     data = resp.json()
     assert data["entityId"] == "alpha-project" and data["totals"]["claims"] == 0
+
+
+def test_first_and_last_said_cover_every_conversation_not_only_the_fifty_shown(tmp_path):
+    """The person card's "Known since" / "Last mentioned" (G194's basis: the conversation's own time, else its id's
+    day): over every conversation that fed the page, while `conversations` stays capped at 50 by claim count."""
+    memory = tmp_path / "memory"
+    (memory / "episodes").mkdir(parents=True)
+    (memory / "entities").mkdir()
+    claims = []
+    # The oldest conversation has no timestamp: its day comes from its id. It has one claim, so it is never shown.
+    _episode(memory, "ep_2023-04-02_001", "user: alpha-project started", origin="chatgpt-export")
+    claims.append(Claim(id="clm_old", text="alpha-project started", subject="alpha-project",
+                        source_episodes=["ep_2023-04-02_001"]))
+    for n in range(60):
+        ep = f"ep_2026-0{1 + n % 8}-{10 + n % 18:02d}_{n:03d}"
+        _episode(memory, ep, "user: alpha-project again", timestamp=f"{ep[3:13]}T08:{n % 60:02d}:00+00:00",
+                 source_id=f"conv-{n}", origin="chatgpt-export", harness="codex" if n == 7 else None)
+        for k in range(2):
+            claims.append(Claim(id=f"clm_{n}_{k}", text=f"alpha-project fact {n} {k}", subject="alpha-project",
+                                source_episodes=[ep]))
+    markdown_parser.write(memory / "entities" / "alpha-project.md", {"name": "Alpha Project", "type": "project"},
+                          write_claims("## Summary\nAlpha.\n", claims))
+    bank_index.invalidate()
+    out = provenance.entity_provenance(memory, memory / "entities" / "alpha-project.md")
+    assert len(out.conversations) == 50 and out.totals.conversations == 61
+    assert "ep_2023-04-02_001" not in {c.episode_id for c in out.conversations}
+    assert out.totals.first_said == "2023-04-02"
+    assert out.first_conversation.episode_id == "ep_2023-04-02_001"
+    newest = max((f"2026-0{1 + n % 8}-{10 + n % 18:02d}", n) for n in range(60))
+    assert out.totals.last_said.startswith(newest[0])
+    assert out.last_conversation.episode_id.startswith(f"ep_{newest[0]}")

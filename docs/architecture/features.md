@@ -44,7 +44,9 @@ to a provider), `LogoStore` the logos. Any editable picture opens the image pick
 dims under a camera on hover and offers "Use initials instead" / "Remove picture" on right-click; the app shrinks the
 picture (ImageIO, ≤ 512 px) and `EntityPictureWrite` paints the answer before the server gives it. A `person` opens
 with mock C's top (F-12): an 88 pt picture, the name at 24, the Summary as a standfirst, the picture's source line and a
-facts strip whose every cell comes from something the card loaded (`PersonFacts`); then the tabs, and in Content two
+facts strip whose every cell comes from something the card loaded (`PersonFacts`; Known since, Last mentioned and
+Conversations are when the conversations were said, over all of them — `/provenance`'s `totals` — with the page's own
+dates only as a fallback); then the tabs, and in Content two
 columns — beliefs signed with who wrote them (`SignedLine`: harness, model and effort from the captured turn), Where
 this came from, the page behind a remembered disclosure — beside *How you know <name>* (`PersonMapLayout`, the graph's
 own edges) and *What's happening* (`PersonHappenings`, from `ProjectsCache`). Every other type keeps this header with a

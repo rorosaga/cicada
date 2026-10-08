@@ -61,6 +61,7 @@ from api.services import (
     inbox_context,
     markdown_parser,
     section_provenance,
+    source_dates,
     turn_authorship,
     video_state,
 )
@@ -270,6 +271,15 @@ class _Episodes:
         return self._bodies[ep_id]
 
 
+def _said(timestamp: str, ep_id: str) -> str | None:
+    """When an episode was said: its ``timestamp``, else the day in its id — ``source_dates.episode_day``'s rule
+    (G194), so the card and Sleep's prompts date a conversation the same way. ``None`` when neither is known."""
+    if timestamp:
+        return timestamp
+    day = source_dates.parse_day(ep_id)
+    return day.isoformat() if day else None
+
+
 def _current(claim: Claim) -> bool:
     return is_current(claim)
 
@@ -410,6 +420,7 @@ def entity_provenance(
         group["episodes"].append((str(efm.get("timestamp") or ""), ep_id, efm, indexed is not None))
 
     rows: list[ProvenanceConversation] = []
+    said: dict[int, tuple[str, str]] = {}   # id(row) -> (first, last) said, over every conversation
     for group in groups.values():
         # By instant, never by string (G114 R2): a bank holds naive, `Z` and
         # `+00:00` stamps side by side, and lexical order across them is wrong.
@@ -417,7 +428,7 @@ def entity_provenance(
         ep_ids = [e[1] for e in group["episodes"]]
         first, last = group["episodes"][0], group["episodes"][-1]
         members = set(ep_ids)
-        rows.append(ProvenanceConversation(
+        row = ProvenanceConversation(
             conversation_id=group["id"],
             episode_id=last[1],
             episode_ids=ep_ids,
@@ -428,7 +439,15 @@ def entity_provenance(
             timestamp=last[0] or None,
             claim_count=sum(1 for eps in cited.values() if eps & members),
             available=any(e[3] for e in group["episodes"]),
-        ))
+        )
+        rows.append(row)
+        stamps = [stamp for e in group["episodes"] if (stamp := _said(e[0], e[1]))]
+        if stamps:
+            said[id(row)] = (min(stamps, key=episode_ids.timestamp_sort_key),
+                             max(stamps, key=episode_ids.timestamp_sort_key))
+    dated = [r for r in rows if id(r) in said]
+    first = min(dated, key=lambda r: episode_ids.timestamp_sort_key(said[id(r)][0]), default=None)
+    last = max(dated, key=lambda r: episode_ids.timestamp_sort_key(said[id(r)][1]), default=None)
     rows.sort(key=lambda r: (r.claim_count, episode_ids.timestamp_sort_key(r.timestamp)), reverse=True)
     shown = rows[:MAX_PROVENANCE_CONVERSATIONS]
     for row in shown:
@@ -450,7 +469,11 @@ def entity_provenance(
         pages=pages,
         inferred_count=inferred,
         totals=ProvenanceTotals(claims=len(current), with_span=with_span, legacy=legacy,
-                                conversations=len(rows)),
+                                conversations=len(rows),
+                                first_said=said[id(first)][0] if first else None,
+                                last_said=said[id(last)][1] if last else None),
+        first_conversation=first.model_copy(update={"best": None}) if first else None,
+        last_conversation=last.model_copy(update={"best": None}) if last else None,
         commits_truncated=commits_truncated,
         page_body_hash=evidence.body_hash(parsed.body),
         sections=sections,

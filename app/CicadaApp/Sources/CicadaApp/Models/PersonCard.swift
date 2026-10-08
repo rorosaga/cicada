@@ -43,16 +43,24 @@ enum PersonFacts {
             cells.append(valueCell(.role, Copy.People.role, claim))
         }
         let conversations = (provenance?.conversations ?? []).sorted { ($0.timestamp ?? "") < ($1.timestamp ?? "") }
-        if let created = ISODay(entity.created), created <= today {
-            let first = conversations.first
+        // When it was said (G194's basis, over every conversation), not when a page was written: the owner page is
+        // seeded on the bank's first day and Sleep only moves its dates forward. The page's own dates stand when the
+        // server sends none (an older backend, or a page no conversation fed).
+        let totals = provenance?.totals
+        let firstSaid = said(totals?.firstSaid, timeZone: timeZone)
+        let lastSaid = said(totals?.lastSaid, timeZone: timeZone)
+        let created = [ISODay(entity.created), firstSaid].compactMap { $0 }.min()
+        if let created, created <= today {
+            let first = provenance?.firstConversation ?? conversations.first
             cells.append(PersonFact(kind: .knownSince, label: Copy.People.knownSince,
                                     value: "\(RelativeDay.absolute(created, today: today, locale: locale)) · \(Copy.People.span(days: today - created))",
                                     line: first.flatMap(app).map(Copy.People.firstIn),
                                     marks: first.flatMap(origin).map { [$0] } ?? []))
         }
-        if let last = ISODay(entity.lastReferenced) {
-            let latest = conversations.last
-            let line = [latest.flatMap(app), clock(latest?.timestamp, locale: locale, timeZone: timeZone)].compactMap { $0 }
+        if let last = lastSaid ?? ISODay(entity.lastReferenced) {
+            let latest = provenance?.lastConversation ?? conversations.last
+            let stamp = lastSaid != nil ? totals?.lastSaid : latest?.timestamp
+            let line = [latest.flatMap(app), clock(stamp, locale: locale, timeZone: timeZone)].compactMap { $0 }
             cells.append(PersonFact(kind: .lastMentioned, label: Copy.People.lastMentioned,
                                     value: RelativeDay.phrase(last, today: today, locale: locale),
                                     line: line.isEmpty ? nil : line.joined(separator: " · "),
@@ -62,8 +70,9 @@ enum PersonFacts {
             var seen = Set<String>()
             let marks = conversations.compactMap(origin).filter { seen.insert($0).inserted }.prefix(maxMarks)
             let pages = provenance?.pages.count ?? 0
+            // `conversations` is the 50 shown, ranked by claims; the total is the honest count.
             cells.append(PersonFact(kind: .conversations, label: Copy.People.conversations,
-                                    value: UsageFormat.count(conversations.count),
+                                    value: UsageFormat.count(max(totals?.conversations ?? 0, conversations.count)),
                                     line: pages > 0 ? Copy.People.pages(pages) : nil, marks: Array(marks)))
         }
         if picture?.source == .contacts {
@@ -92,6 +101,15 @@ enum PersonFacts {
             }
         }
         return nil
+    }
+
+    /// The calendar day a conversation was said: a timestamp's day where the reader is, a bare day as written.
+    static func said(_ iso: String?, timeZone: TimeZone) -> ISODay? {
+        guard let iso else { return nil }
+        guard iso.contains("T"), let date = InboxAge.date(iso) else { return ISODay(iso) }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        return ISODay.today(now: date, calendar: calendar)
     }
 
     /// A conversation's time of day, only when it has one (a day-only stamp says nothing about the clock).

@@ -68,6 +68,37 @@ final class PersonFactsTests: XCTestCase {
         XCTAssertFalse(cells(claims: []).contains { $0.kind == .conversations }, "no provenance, no count")
     }
 
+    /// The header's dates are when the conversations were said, over every one of them — never the page's write
+    /// dates (the owner page is seeded on the bank's first day and only moves forward) or the 50 rows shown.
+    func testDatesAndCountComeFromEveryConversationNotThePagesWriteDates() {
+        let shown = [ProvenanceConversation(episodeId: "ep_2026-05-01_001", origin: "chatgpt-export",
+                                            timestamp: "2026-05-01T09:00:00Z")]
+        let provenance = EntityProvenance(
+            entityId: "owner-example", conversations: shown,
+            totals: ProvenanceTotals(conversations: 1519, firstSaid: "2023-04-02", lastSaid: "2026-09-23T22:10:00Z"),
+            firstConversation: ProvenanceConversation(episodeId: "ep_2023-04-02_001", origin: "claude-export"),
+            lastConversation: ProvenanceConversation(episodeId: "ep_2026-09-23_004", harness: "codex",
+                                                     timestamp: "2026-09-23T22:10:00Z"))
+        let owner = Entity(id: "owner-example", name: "Owner Example", type: .person, status: .active, confidence: 1,
+                           created: "2026-09-23", lastReferenced: "2026-09-24", decayRate: 0, sourceEpisodes: [],
+                           tags: [], related: [], version: 1, markdownContent: "## Summary\nThe owner.", history: [])
+        let facts = cells(claims: [], entity: owner, provenance: provenance)
+        let known = facts.first { $0.kind == .knownSince }
+        XCTAssertEqual(known?.value, "Apr 2, 2023 · 3 years")
+        XCTAssertEqual(known?.line, "first in Claude")
+        let last = facts.first { $0.kind == .lastMentioned }
+        XCTAssertEqual(last?.value, "Yesterday")
+        XCTAssertTrue(last?.line?.hasPrefix("Codex · 10:10") ?? false, last?.line ?? "nil")
+        XCTAssertEqual(facts.first { $0.kind == .conversations }?.value, UsageFormat.count(1519))
+    }
+
+    /// An older backend sends no dates: the page's own dates stand, as before.
+    func testWithoutSaidDatesThePagesDatesStand() {
+        let facts = cells(claims: [], provenance: provenance)
+        XCTAssertEqual(facts.first { $0.kind == .knownSince }?.value, "Mar 12 · 6 months")
+        XCTAssertEqual(facts.first { $0.kind == .lastMentioned }?.value, "Today")
+    }
+
     func testASpanReadsInPlainUnits() {
         XCTAssertEqual(Copy.People.span(days: 1), "1 day")
         XCTAssertEqual(Copy.People.span(days: 20), "2 weeks")

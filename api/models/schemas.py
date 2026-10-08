@@ -1190,6 +1190,11 @@ class ProvenanceTotals(CamelModel):
     with_span: int = 0
     legacy: int = 0
     conversations: int = 0
+    #: When the earliest and the newest of ALL ``conversations`` were said — an episode's ``timestamp``, else the
+    #: day in its id (G194's basis) — so the person card's "Known since" / "Last mentioned" never read the page's
+    #: write dates or the 50 rows shown.
+    first_said: Optional[str] = None
+    last_said: Optional[str] = None
 
 
 class SectionEvidence(CamelModel):
@@ -1244,6 +1249,10 @@ class EntityProvenance(CamelModel):
     section_schema: int = 1
     sections: list[SectionProvenance] = []
     sections_partial: bool = False
+    #: The conversations ``totals.first_said`` / ``last_said`` come from (their app leads the card's line), whether or
+    #: not they are among the 50 shown; ``best`` is never filled on these.
+    first_conversation: Optional[ProvenanceConversation] = None
+    last_conversation: Optional[ProvenanceConversation] = None
 
 
 class EpisodeCitation(CamelModel):

@@ -235,7 +235,10 @@ same marker lines `speaker_kind` reads — `speaker:<label>:` included, role `sp
 role the `evidence.kind_for` answer, so an `evidence_kind` override relabels every turn — and an
 asserted `start/end/hash` or derived `focus=<entity>`), `GET /entities/{id}/provenance` (contributors from claim `authored_by` plus one
 trailer-only `git log` of the page — ETag includes `git_head` — conversations grouped by
-`session_id`/`source_id`, the best quote per conversation, coverage over current claims), and `GET
+`session_id`/`source_id`, the best quote per conversation — the 50 rows with the most claims —, coverage over current
+claims, and `totals.firstSaid`/`lastSaid` with `firstConversation`/`lastConversation`: when the earliest and newest of
+*every* conversation was said, an episode's `timestamp` else its id's day, G194's basis; the person card's facts read
+these, never the page's `created`/`last_referenced`, which are write dates), and `GET
 /episodes/{id}/citations` (every claim citing the document, by a raw-text prefilter over
 `entities/` — no index dependency). `/ask` citations also carry `claimId` + `evidence`, read from
 the cited page rather than the index. Every claim on the wire is built by one function,
