@@ -216,15 +216,22 @@ struct ProvenanceTotals: Codable, Hashable {
     let withSpan: Int
     let legacy: Int
     let conversations: Int
+    /// When the earliest and the newest of all `conversations` were said (an episode's timestamp, else its id's day —
+    /// G194's basis), never the page's write dates; nil from an older backend.
+    let firstSaid: String?
+    let lastSaid: String?
 
-    init(claims: Int = 0, withSpan: Int = 0, legacy: Int = 0, conversations: Int = 0) {
+    init(claims: Int = 0, withSpan: Int = 0, legacy: Int = 0, conversations: Int = 0, firstSaid: String? = nil,
+         lastSaid: String? = nil) {
         self.claims = claims
         self.withSpan = withSpan
         self.legacy = legacy
         self.conversations = conversations
+        self.firstSaid = firstSaid
+        self.lastSaid = lastSaid
     }
 
-    enum CodingKeys: String, CodingKey { case claims, withSpan, legacy, conversations }
+    enum CodingKeys: String, CodingKey { case claims, withSpan, legacy, conversations, firstSaid, lastSaid }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -232,6 +239,8 @@ struct ProvenanceTotals: Codable, Hashable {
         withSpan = try c.decodeIfPresent(Int.self, forKey: .withSpan) ?? 0
         legacy = try c.decodeIfPresent(Int.self, forKey: .legacy) ?? 0
         conversations = try c.decodeIfPresent(Int.self, forKey: .conversations) ?? 0
+        firstSaid = try c.decodeIfPresent(String.self, forKey: .firstSaid)
+        lastSaid = try c.decodeIfPresent(String.self, forKey: .lastSaid)
     }
 }
 
@@ -319,12 +328,16 @@ struct EntityProvenance: Codable, Hashable {
     let sectionSchema: Int
     let sections: [SectionProvenance]
     let sectionsPartial: Bool
+    /// The conversations `totals.firstSaid` / `lastSaid` come from, shown or not (the 50 rows are ranked by claims).
+    let firstConversation: ProvenanceConversation?
+    let lastConversation: ProvenanceConversation?
 
     init(entityId: String, entityName: String = "", entityType: String = "",
          contributors: [ProvenanceContributor] = [], conversations: [ProvenanceConversation] = [],
          pages: [ProvenancePage] = [], inferredCount: Int = 0, totals: ProvenanceTotals = ProvenanceTotals(),
          commitsTruncated: Bool = false, pageBodyHash: String? = nil, sectionSchema: Int = 0,
-         sections: [SectionProvenance] = [], sectionsPartial: Bool = false) {
+         sections: [SectionProvenance] = [], sectionsPartial: Bool = false,
+         firstConversation: ProvenanceConversation? = nil, lastConversation: ProvenanceConversation? = nil) {
         self.entityId = entityId
         self.entityName = entityName
         self.entityType = entityType
@@ -338,11 +351,14 @@ struct EntityProvenance: Codable, Hashable {
         self.sectionSchema = sectionSchema
         self.sections = sections
         self.sectionsPartial = sectionsPartial
+        self.firstConversation = firstConversation
+        self.lastConversation = lastConversation
     }
 
     enum CodingKeys: String, CodingKey {
         case entityId, entityName, entityType, contributors, conversations, pages, inferredCount, totals
         case commitsTruncated, pageBodyHash, sectionSchema, sections, sectionsPartial
+        case firstConversation, lastConversation
     }
 
     init(from decoder: Decoder) throws {
@@ -360,6 +376,8 @@ struct EntityProvenance: Codable, Hashable {
         sectionSchema = try c.decodeIfPresent(Int.self, forKey: .sectionSchema) ?? 0
         sections = try c.decodeIfPresent([SectionProvenance].self, forKey: .sections) ?? []
         sectionsPartial = try c.decodeIfPresent(Bool.self, forKey: .sectionsPartial) ?? false
+        firstConversation = try c.decodeIfPresent(ProvenanceConversation.self, forKey: .firstConversation)
+        lastConversation = try c.decodeIfPresent(ProvenanceConversation.self, forKey: .lastConversation)
     }
 }
 

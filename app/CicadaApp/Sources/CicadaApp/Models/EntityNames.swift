@@ -36,4 +36,14 @@ extension Store {
         entityNamesMemo = (stamp, nodes.count, names)
         return names
     }
+
+    /// R-PP7 — `ProjectsModel.peopleIndex` for the graph snapshot the Store holds, once per snapshot.
+    var projectPeople: [String: [PersonMark]] {
+        let stamp = graph.loadedAt
+        let count = graph.value?.nodes.count ?? 0
+        if let memo = projectPeopleMemo, memo.stamp == stamp, memo.count == count { return memo.people }
+        let people = ProjectsModel.peopleIndex(graph.value)
+        projectPeopleMemo = (stamp, count, people)
+        return people
+    }
 }

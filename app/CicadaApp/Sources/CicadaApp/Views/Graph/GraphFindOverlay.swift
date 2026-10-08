@@ -16,7 +16,11 @@ struct GraphFindOverlay: View {
     @State private var highlighted = 0
     @State private var hovered: String?
 
-    private var hits: [GraphViewModel.SearchHit] { graphVM.searchHits(query, limit: GraphFind.hitLimit) }
+    /// Ranked when the words or the graph change — never on a hover, which re-renders this view and used to re-rank
+    /// every node on the canvas each time the pointer crossed a row.
+    @State private var hits: [GraphViewModel.SearchHit] = []
+
+    private func rank() { hits = graphVM.searchHits(query, limit: GraphFind.hitLimit) }
     private var hasQuery: Bool { !SearchAllMemoryRow.trimmed(query).isEmpty }
 
     var body: some View {
@@ -31,7 +35,11 @@ struct GraphFindOverlay: View {
         }
         .frame(width: CicadaTheme.scaled(Self.width))
         .floatingSurface(in: CicadaTheme.shape(CicadaTheme.cornerRadius))
-        .onChange(of: query) { _, _ in highlighted = 0 }
+        .onChange(of: query, initial: true) { _, _ in
+            highlighted = 0
+            rank()
+        }
+        .onChange(of: graphVM.nodes.count) { _, _ in rank() }
     }
 
     private var results: some View {

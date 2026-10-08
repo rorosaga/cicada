@@ -1477,6 +1477,13 @@ actor APIClient {
         return try await get("/entities/\(encodedID(id))")
     }
 
+    /// F4 — `GET /entities/{id}/raw`: the page verbatim, for the Source view and Copy when the card's payload left it
+    /// out (`Entity.rawOmitted`). On demand only; never a Store domain.
+    func fetchEntityRaw(id: String) async throws -> String {
+        let response: EntityRaw = try await get("/entities/\(encodedID(id))/raw")
+        return response.rawMarkdown
+    }
+
     /// `PUT /entities/{id}/decay` (G66 §1.7) — the user's decay override.
     /// The backend writes the class plus its mapped numeric rate and commits as
     /// `Cicada-Author: user`, then returns the refreshed entity. Errors
@@ -1552,10 +1559,12 @@ actor APIClient {
         return try decoder.decode(EntityPictureAnswer.self, from: data)
     }
 
-    func fetchEntityHistory(id: String, includeDiff: Bool = false) async throws -> [EntityHistoryEntry] {
+    func fetchEntityHistory(id: String, includeDiff: Bool = false, skip: Int = 0) async throws -> [EntityHistoryEntry] {
         // FastAPI query params use the snake_case Python name (not the
         // camelCase body/response alias), so this is include_diff, not includeDiff.
-        let suffix = includeDiff ? "?include_diff=true" : ""
+        // #244: `skip` reads the changes older than the newest N.
+        let query = (includeDiff ? ["include_diff=true"] : []) + (skip > 0 ? ["skip=\(skip)"] : [])
+        let suffix = query.isEmpty ? "" : "?" + query.joined(separator: "&")
         return try await get("/entities/\(encodedID(id))/history\(suffix)")
     }
 

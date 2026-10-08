@@ -3,7 +3,7 @@ import SwiftUI
 
 /// F-12 (G146 plan R-PE16) — mock C's top of a person's card: the picture at 88 pt (a button: pick, drop, right-click),
 /// the name in the display face at 24 (C-09 had 28, R-09 22 — 24 keeps the display role and matches Home's headline),
-/// the Summary as a two-line standfirst, where the picture came from, and the facts strip.
+/// the Summary as a two-line standfirst (a click shows all of it), where the picture came from, and the facts strip.
 struct PersonHero: View {
     let entity: Entity
     let summary: String?
@@ -11,6 +11,8 @@ struct PersonHero: View {
     let inputs: PictureInputs?
     let facts: [PersonFact]
     var onOpenEntity: ((String) -> Void)? = nil
+    /// Whether the Summary starts expanded (renders and tests; the card always starts folded).
+    var summaryExpanded = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
@@ -18,14 +20,14 @@ struct PersonHero: View {
                 EntityPicture(id: entity.id, name: entity.name, type: .person, size: 88, held: entity.pictureRef,
                               heldInputs: inputs, editing: .hero)
                 VStack(alignment: .leading, spacing: CicadaTheme.scaled(6)) {
+                    // Wraps rather than truncates: a selectable name cut short opened over what follows on a click.
                     Text(entity.isOwner ? Copy.Graph.ownerName(entity.name) : entity.name)
                         .font(CicadaTheme.displayFont(size: 24))
                         .tracking(CicadaTheme.displayTracking(size: 24))
                         .foregroundStyle(CicadaTheme.textPrimary)
-                        .lineLimit(2)
                         .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
-                    if let summary { EntitySummaryText(text: summary, isStub: isStub, lineLimit: 2) }
+                    if let summary { EntitySummaryText(text: summary, isStub: isStub, lineLimit: 2, expanded: summaryExpanded) }
                     PictureSourceLine(id: entity.id, name: entity.name, type: .person, held: entity.pictureRef,
                                       inputs: inputs)
                 }

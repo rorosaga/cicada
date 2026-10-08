@@ -187,6 +187,21 @@ else
   ok "venv ready"
 fi
 
+# --- 2b. On-device embedding model ---
+# The release app's own small model (pins in scripts/release/inputs.env, each file
+# sha256-checked) into ${CICADA_HOME:-~/.cicada}/models, where the backend finds it.
+hdr "2b. Search model"
+if [ -f "${CICADA_HOME:-$HOME/.cicada}/models/multilingual-e5-small/cicada-model.json" ]; then
+  ok "search model present"
+else
+  step "Fetching the on-device search model (~130 MB, once)"
+  if run bash "$REPO/scripts/fetch-embedding-model.sh"; then
+    ok "search model ready"
+  else
+    warn "Could not fetch the search model — search will match words only until 'make embedding-model' succeeds"
+  fi
+fi
+
 # --- 3. Memory tree + git ---
 hdr "3. Memory directory"
 for sub in entities nudges clarifications inbox episodes hubs sources leann; do
@@ -249,8 +264,8 @@ fi
 
 # Memory path + embedding default always present.
 ensure_env CICADA_MEMORY_PATH "$MEMORY_PATH"
-ensure_env CICADA_EMBEDDING_MODE "openai"
-ensure_env CICADA_EMBEDDING_MODEL "text-embedding-3-small"
+# Search embeds on this Mac with the model step 2b fetched: no key, no account, no spend.
+ensure_env CICADA_EMBEDDING_MODE "local"
 # LiteLLM defaults sourced from the example.
 ensure_env CICADA_LITELLM_MODEL "gpt-5.4-mini"
 ensure_env CICADA_LITELLM_DISAMBIGUATION_MODEL "gpt-5.4-nano"
@@ -274,17 +289,10 @@ prompt_key() {
   if [ -n "$entered" ]; then ok "$key saved"; else warn "$key skipped"; fi
 }
 
-prompt_key OPENAI_API_KEY "needed for openai embeddings; blank = local embedding fallback (~250MB)"
+prompt_key OPENAI_API_KEY "optional, for an OpenAI sleep-cycle model"
 prompt_key ANTHROPIC_API_KEY "optional, for an Anthropic sleep-cycle model"
 ensure_env GEMINI_API_KEY ""
 
-# If no OpenAI key ended up set, flip the embedding mode to local explicitly.
-if [ "$DRY_RUN" -eq 0 ] && [ -z "$(env_value OPENAI_API_KEY)" ]; then
-  if grep -qE '^CICADA_EMBEDDING_MODE=openai$' "$ENV_FILE"; then
-    warn "No OpenAI key — local embeddings will be used. Install the extra with:"
-    warn "  uv sync --extra local --directory api   (~250MB incl. torch, ~90MB model on first build)"
-  fi
-fi
 ok "api/.env ready"
 
 # --- 5. Register MCP server ---

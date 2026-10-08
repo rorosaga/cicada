@@ -45,6 +45,8 @@ extension Copy {
         static func showMore(_ n: Int) -> String { "Show \(UsageFormat.count(n)) more" }
         static func firstName(_ name: String) -> String { name.split(separator: " ").first.map(String.init) ?? name }
         static func howYouKnow(_ name: String) -> String { "How you know \(firstName(name))" }
+        /// The same map on the owner's own page: their connections, not how they know themselves.
+        static let whatYouAreConnectedTo = "What you're connected to"
         static func connected(_ n: Int) -> String {
             n == 1 ? "Connected to 1 page in your memory." : "Connected to \(UsageFormat.count(n)) pages in your memory."
         }

@@ -97,7 +97,11 @@ check("an inactive graph cancels queued frames and pulse timers and draws nothin
 check("a data push while inactive leaves the simulation suspended, not running", () => {
     const t = setup();
     t.call("setGraphActive", false);
-    t.call("updateGraph", synthetic(SIZES.small));
+    // A push with something to lay out (item 6: a push of nodes already on the canvas starts no layout at all).
+    const graph = synthetic(SIZES.small);
+    graph.nodes.push({ id: "newcomer", name: "Newcomer", type: "concept", status: "active", confidence: 0.6 });
+    graph.links.push({ source: "newcomer", target: "c1" });
+    t.call("updateGraph", graph);
     assert.strictEqual(t.get("simSuspended"), true);
     assert.strictEqual(t.frames.length, 0);
 });

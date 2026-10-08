@@ -98,8 +98,10 @@ struct FeedListColumn: View {
             }
             .padding(.horizontal, CicadaTheme.scaled(10))
         case .list:
+            // Once per render, not once per row: it reads every saved item.
+            let showsRelevance = viewModel.scoresAreInformative
             ForEach(viewModel.visible) { item in
-                FeedListRow(item: item, style: style, showsRelevance: viewModel.scoresAreInformative,
+                FeedListRow(item: item, style: style, showsRelevance: showsRelevance,
                             selected: item.id == viewModel.columns.openId, now: now) { open(item) }
                     .id(item.id)
             }

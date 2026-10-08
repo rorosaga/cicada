@@ -260,7 +260,11 @@ same marker lines `speaker_kind` reads — `speaker:<label>:` included, role `sp
 role the `evidence.kind_for` answer, so an `evidence_kind` override relabels every turn — and an
 asserted `start/end/hash` or derived `focus=<entity>`), `GET /entities/{id}/provenance` (contributors from claim `authored_by` plus one
 trailer-only `git log` of the page — ETag includes `git_head` — conversations grouped by
-`session_id`/`source_id`, the best quote per conversation, coverage over current claims), and `GET
+`session_id`/`source_id`, the best quote per conversation — the 50 rows with the most claims —, coverage over current
+claims, and `totals.firstSaid`/`lastSaid` with `firstConversation`/`lastConversation`: when the earliest and newest of
+*every* conversation was said, an episode's `timestamp` else its id's day, G194's basis — a memory export entry
+(`episode_time.counts_as_activity`, #242) still counts as a conversation but never dates one; the person card's facts read
+these, never the page's `created`/`last_referenced`, which are write dates), and `GET
 /episodes/{id}/citations` (every claim citing the document, by a raw-text prefilter over
 `entities/` — no index dependency). `/ask` citations also carry `claimId` + `evidence`, read from
 the cited page rather than the index. Every claim on the wire is built by one function,
@@ -507,12 +511,19 @@ argument the schema rejects is a bug** — every argument it names must exist in
 
 ### sqlite-vec (vector index)
 `api/services/vector_index.py`. Embeddings are **stored, not recomputed at query time**, so search
-is one in-process ANN lookup. Default backend is EmbeddingGemma-300M (768-dim, on-device) with
-asymmetric query/document prompts — in a developer checkout. A release app (G182) bundles the int8 ONNX export of
+is one in-process ANN lookup. A release app (G182) bundles the int8 ONNX export of
 `intfloat/multilingual-e5-small` (384-dim, ~100 languages, `query: ` / `passage: ` prompts from its manifest, mean
 pooling, no torch; owner 2026-10-06 chose it over the English-only `bge-small-en-v1.5`; `api/services/onnx_embedder.py`,
-found through `CICADA_BUNDLED_MODELS`)
-and a fresh bank there is built with it unless `CICADA_EMBEDDING_MODEL_LOCAL` names another; a bank built with it is
+found through `CICADA_BUNDLED_MODELS`). **A developer checkout runs the same model** (fix/dev-embeddings, 2026-10-08):
+`make embedding-model` (and `install.sh` step 2b) runs `scripts/fetch-embedding-model.sh`, the one reader of the model
+pins in `scripts/release/inputs.env` — the release build calls it too, so there is no second copy of the pins — into
+`$CICADA_HOME/models`, where `onnx_embedder` looks when `CICADA_BUNDLED_MODELS` is unset; onnxruntime and tokenizers are
+in the developer set at the release lock's versions. Without that step a checkout falls back to EmbeddingGemma-300M
+(768-dim, sentence-transformers + torch, gated) with asymmetric prompts. Measured on an M4 Pro (24 GB), 2,500 synthetic
+pages of 150–260 words: e5-small ONNX 39 s, 785 MB peak RSS, 2 ms a query; EmbeddingGemma-300M on torch 98 s on the CPU
+(2.0 GB peak) and 53–116 s on the GPU (≈4.4 GB of GPU memory), 25–30 ms a query. The ONNX embedder runs one text at a
+time (`_BATCH = 1`): as fast as 32 per run at half the peak memory.
+A fresh bank is built with the small model unless `CICADA_EMBEDDING_MODEL_LOCAL` names another; a bank built with it is
 queried with it (the recorded model, as for every bank). **Each bank's vectors are built with its own model**
 (`embedding_models.build_model`, G182 phase 3): the person's choice for that bank (Settings → Memory → Search model,
 kept in `$CICADA_HOME/embedding-models.json`, outside every bank), else the model its index already records when this
@@ -531,6 +542,15 @@ changed texts, removes deleted ones and refreshes a page's metadata in place wit
 table, a pre-`hash` schema, another model (recorded per kind as `model:<kind>`) or another width rebuilds
 that table in full, and an embed that fails leaves the previous index untouched. Sleep runs the blocking
 sync through `asyncio.to_thread`, never on the event loop.
+**A failing embedder is said, not swallowed (fix/dev-embeddings).** `api/services/embedding_health.py` classifies an
+embed failure — `credits` (402, or a 429 that says the quota is spent), `rate_limited`, `auth` (401/403), `unreachable`,
+`unavailable` (5xx), `model_missing` — into one provider-neutral sentence. Sleep's index step reports that sentence once
+(not one raw HTTP error per kind) and records the kind per bank in `$CICADA_HOME/embedding-health.json` (the bank's
+path, the model id, the kind, a time — never text; outside every bank); a failed query embed in search is recorded too
+(search still answers on words, `mode: lexical`). The next sync that leaves every table up to date clears it. After a
+restart `/sleep/status` shows the remembered sentence as its `indexWarning` (the Sleep page's Details render it),
+`/healthz` carries `embeddingModel` and `embeddingProblem` (an enum), and `make doctor` fails on it with the fix. An
+unrecognised failure (a locked index, a bug) keeps its raw per-kind warning and is not recorded.
 **A query is embedded with its table's model (audit 2026-10-05 P2-4).** The kinds are re-synced one after another, so
 after a model switch one table can hold the new model's vectors and another the old one's; the bank-wide `model` stamp
 only names whichever kind was rebuilt last. `_query_embed_fn(kind)` reads `model:<kind>` (falling back to the bank-wide

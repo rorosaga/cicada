@@ -1,7 +1,7 @@
 # The release app's Python dependencies (G182). The developer environment is
 # api/pyproject.toml + api/uv.lock and keeps sentence-transformers and torch;
-# this set is the same list WITHOUT them (no torch in a fresh install), plus the
-# ONNX embedder's runtime and the CA bundle the bundled Python needs for HTTPS.
+# this set is the same list WITHOUT them (no torch in a fresh install), with numpy
+# and the CA bundle the bundled Python needs for HTTPS named explicitly.
 # test_release_build.py holds this list to pyproject's. Recompile the lock with
 #   scripts/release/lock-requirements.sh
 apscheduler>=3.10
@@ -19,7 +19,9 @@ sqlite-vec>=0.1.9
 thefuzz[speedup]>=0.22.1
 tqdm>=4.66.0
 uvicorn[standard]>=0.44.0
-# Release-only: the bundled embedding model's runtime (api/services/onnx_embedder.py)
+# The bundled embedding model's runtime (api/services/onnx_embedder.py); the developer set
+# carries it too, so a checkout runs the same model (`make embedding-model`). numpy and certifi
+# are transitive there.
 numpy
 onnxruntime
 tokenizers

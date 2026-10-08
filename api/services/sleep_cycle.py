@@ -1956,6 +1956,8 @@ def _sync_vector_indexes(memory_path: Path) -> list[str]:
     """Sync the entity, episode and claims vector indexes; blocking, so the
     cycle calls it through ``asyncio.to_thread``. Returns one warning per
     failed step — never raises."""
+    from api.services import embedding_health
+
     warnings: list[str] = []
     try:
         from api.services.vector_index import SqliteVecIndexer
@@ -1965,6 +1967,11 @@ def _sync_vector_indexes(memory_path: Path) -> list[str]:
         logger.warning(warning)
         return [warning]
 
+    # A failure the embedder caused (out of credits, throttled, a missing model…) is one
+    # plain sentence for the whole step — every kind fails the same way — and is remembered
+    # per bank, so the Sleep page and doctor still show it after a restart. Anything else
+    # keeps its raw per-kind warning.
+    embed_kind: str | None = None
     # M5e: the claims index is derived from the in-page ```claims blocks so
     # claim-first /ask + get_perspective reflect the post-Sleep belief state.
     # Only currently-valid claims are indexed.
@@ -1976,9 +1983,18 @@ def _sync_vector_indexes(memory_path: Path) -> list[str]:
         try:
             step()
         except Exception as e:
-            warning = f"{label} index rebuild failed: {type(e).__name__}: {e}"
-            logger.warning(f"vector {warning}")
-            warnings.append(warning)
+            kind = embedding_health.classify(e)
+            logger.warning(f"vector {label} index rebuild failed: {type(e).__name__}"
+                           + (f" (embedder: {kind})" if kind else f": {e}"))
+            if kind:
+                embed_kind = embed_kind or kind
+            else:
+                warnings.append(f"{label} index rebuild failed: {type(e).__name__}: {e}")
+    if embed_kind:
+        embedding_health.record(memory_path, indexer.model_name, embed_kind)
+        warnings.insert(0, embedding_health.sentence(embed_kind))
+    elif not warnings:
+        embedding_health.clear(memory_path)
     return warnings
 
 

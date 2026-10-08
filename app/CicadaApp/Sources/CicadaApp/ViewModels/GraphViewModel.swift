@@ -25,6 +25,12 @@ final class GraphViewModel {
     private(set) var entities: [Entity] = []
     private(set) var nodes: [GraphNode] = []
     private(set) var edges: [GraphEdge] = []
+    /// Per-snapshot lookups the entity card reads on every render, rebuilt only when `syncFromStore` replaces
+    /// `nodes`/`edges`: a person card scanned 2,000 nodes and 5,000 edges per render for its map, its projects and
+    /// each fact's type (`OwnerScaleBenchTests`).
+    @ObservationIgnored private var nodeIndex: [String: GraphNode] = [:]
+    @ObservationIgnored private var personMaps: [String: PersonMap] = [:]
+    @ObservationIgnored private var personProjects: [String: [String]] = [:]
     /// Distinct observer wire-strings present in the graph (from `GET /graph`'s
     /// top-level `observers` roster). Drives the §3 observer filter bar.
     private(set) var observerRoster: [String] = []
@@ -186,6 +192,7 @@ final class GraphViewModel {
             // that belongs to a different bank entirely.
             nodes = []
             edges = []
+            resetGraphMemos()
             entities = []
             observerRoster = []
             contextRoster = []
@@ -240,7 +247,40 @@ final class GraphViewModel {
             )
         }
         edges = response.links
+        resetGraphMemos()
         schedulePush(response)
+    }
+
+    private func resetGraphMemos() {
+        nodeIndex = Dictionary(nodes.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        personMaps = [:]
+        personProjects = [:]
+    }
+
+    /// A node by id, from the snapshot's index. Reads `nodes` so a view that asks re-renders when it changes.
+    func node(_ id: String) -> GraphNode? {
+        _ = nodes
+        return nodeIndex[id]
+    }
+
+    /// `PersonMapLayout.make` for this snapshot, computed once per person.
+    func personMap(_ personId: String) -> PersonMap {
+        _ = nodes
+        _ = edges
+        if let hit = personMaps[personId] { return hit }
+        let map = PersonMapLayout.make(personId: personId, nodes: nodes, edges: edges)
+        personMaps[personId] = map
+        return map
+    }
+
+    /// `PersonMapLayout.projects` for this snapshot, computed once per person.
+    func personProjectIds(_ personId: String) -> [String] {
+        _ = nodes
+        _ = edges
+        if let hit = personProjects[personId] { return hit }
+        let ids = PersonMapLayout.projects(personId: personId, nodes: nodes, edges: edges)
+        personProjects[personId] = ids
+        return ids
     }
 
     // MARK: - Push preparation (§5.6)

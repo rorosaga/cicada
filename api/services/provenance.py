@@ -56,15 +56,17 @@ from api.services import (
     agent_turns,
     bank_index,
     episode_ids,
+    episode_time,
     evidence,
     git_service,
     inbox_context,
     markdown_parser,
     section_provenance,
+    source_dates,
     turn_authorship,
     video_state,
 )
-from api.services.claims import Claim, Evidence, is_current, is_event, is_record, parse_claims
+from api.services.claims import Claim, Evidence, is_current, is_event, is_record, parse_claims, served_prose
 from api.services.id_utils import resolve_entity_file
 
 # The Reader's cap (R-PB5). A Stop-hook episode is already capped at 100,000
@@ -270,6 +272,15 @@ class _Episodes:
         return self._bodies[ep_id]
 
 
+def _said(timestamp: str, ep_id: str) -> str | None:
+    """When an episode was said: its ``timestamp``, else the day in its id — ``source_dates.episode_day``'s rule
+    (G194), so the card and Sleep's prompts date a conversation the same way. ``None`` when neither is known."""
+    if timestamp:
+        return timestamp
+    day = source_dates.parse_day(ep_id)
+    return day.isoformat() if day else None
+
+
 def _current(claim: Claim) -> bool:
     return is_current(claim)
 
@@ -410,6 +421,7 @@ def entity_provenance(
         group["episodes"].append((str(efm.get("timestamp") or ""), ep_id, efm, indexed is not None))
 
     rows: list[ProvenanceConversation] = []
+    said: dict[int, tuple[str, str]] = {}   # id(row) -> (first, last) said, over every conversation
     for group in groups.values():
         # By instant, never by string (G114 R2): a bank holds naive, `Z` and
         # `+00:00` stamps side by side, and lexical order across them is wrong.
@@ -417,7 +429,7 @@ def entity_provenance(
         ep_ids = [e[1] for e in group["episodes"]]
         first, last = group["episodes"][0], group["episodes"][-1]
         members = set(ep_ids)
-        rows.append(ProvenanceConversation(
+        row = ProvenanceConversation(
             conversation_id=group["id"],
             episode_id=last[1],
             episode_ids=ep_ids,
@@ -428,7 +440,17 @@ def entity_provenance(
             timestamp=last[0] or None,
             claim_count=sum(1 for eps in cited.values() if eps & members),
             available=any(e[3] for e in group["episodes"]),
-        ))
+        )
+        rows.append(row)
+        # #242: a memory export entry is facts, not activity — its date is the summary's, never when it was said.
+        stamps = [stamp for e in group["episodes"]
+                  if episode_time.counts_as_activity(e[2]) and (stamp := _said(e[0], e[1]))]
+        if stamps:
+            said[id(row)] = (min(stamps, key=episode_ids.timestamp_sort_key),
+                             max(stamps, key=episode_ids.timestamp_sort_key))
+    dated = [r for r in rows if id(r) in said]
+    first = min(dated, key=lambda r: episode_ids.timestamp_sort_key(said[id(r)][0]), default=None)
+    last = max(dated, key=lambda r: episode_ids.timestamp_sort_key(said[id(r)][1]), default=None)
     rows.sort(key=lambda r: (r.claim_count, episode_ids.timestamp_sort_key(r.timestamp)), reverse=True)
     shown = rows[:MAX_PROVENANCE_CONVERSATIONS]
     for row in shown:
@@ -440,7 +462,9 @@ def entity_provenance(
         pname = str((pdoc[0] if pdoc else {}).get("name") or doc_id)
         pages.append(ProvenancePage(entity_id=doc_id, name=pname, claim_count=len(claim_ids)))
 
-    sections, sections_partial = _sections(parsed, docs, shown)
+    # F4: `/entities` serves the prose without the claims fence; the hash and the section ranges describe that text.
+    served, to_served = served_prose(parsed.body)
+    sections, sections_partial = _sections(parsed, docs, shown, to_served)
     return EntityProvenance(
         entity_id=entity_id,
         entity_name=name,
@@ -450,9 +474,13 @@ def entity_provenance(
         pages=pages,
         inferred_count=inferred,
         totals=ProvenanceTotals(claims=len(current), with_span=with_span, legacy=legacy,
-                                conversations=len(rows)),
+                                conversations=len(rows),
+                                first_said=said[id(first)][0] if first else None,
+                                last_said=said[id(last)][1] if last else None),
+        first_conversation=first.model_copy(update={"best": None}) if first else None,
+        last_conversation=last.model_copy(update={"best": None}) if last else None,
         commits_truncated=commits_truncated,
-        page_body_hash=evidence.body_hash(parsed.body),
+        page_body_hash=evidence.body_hash(served),
         sections=sections,
         sections_partial=sections_partial,
     )
@@ -509,7 +537,8 @@ def _section_evidence(ev: Evidence, docs: _Episodes, allowed: set[str]) -> Secti
     return row
 
 
-def _sections(parsed, docs: _Episodes, shown: list[ProvenanceConversation]) -> tuple[list[SectionProvenance], bool]:
+def _sections(parsed, docs: _Episodes, shown: list[ProvenanceConversation],
+              to_served=lambda offset: offset) -> tuple[list[SectionProvenance], bool]:
     sp = section_provenance
     raw = parsed.frontmatter.get(sp.FIELD)
     records = sp.decode(raw)
@@ -538,7 +567,7 @@ def _sections(parsed, docs: _Episodes, shown: list[ProvenanceConversation]) -> t
         for item in items:
             evs = links.get(item.key, ('', []))[1] if not item.ambiguous else []
             row = SectionProvenanceItem(identity=f'{key}:{item.key}:{item.text_hash}:{item.ranges[0][0]}', text=item.text,
-                body_ranges=[list(pair) for pair in item.ranges], ambiguous=item.ambiguous,
+                body_ranges=_served_ranges(item.ranges, to_served), ambiguous=item.ambiguous,
                 evidence=[_section_evidence(ev, docs, allowed) for ev in evs])
             size = len(row.model_dump_json(by_alias=True).encode('utf-8'))
             if used + size > MAX_SECTION_RESPONSE_BYTES:
@@ -548,6 +577,19 @@ def _sections(parsed, docs: _Episodes, shown: list[ProvenanceConversation]) -> t
             section.items.append(row)
         sections.append(section)
     return sections, partial
+
+
+def _served_ranges(ranges, to_served) -> list[list[int]]:
+    """An item's ranges in the served prose. A range that would not keep its length there — it touches or crosses a
+    removed claims block — cannot describe the item's text honestly, so the item's ranges are withheld (empty: not
+    locatable in the served body) rather than shortened (review r2 B1)."""
+    out = []
+    for start, end in ranges:
+        a, b = to_served(start), to_served(end)
+        if a is None or b is None or b - a != end - start:
+            return []
+        out.append([a, b])
+    return out
 
 
 # The most entity pages one citations call parses (R-PB10). A page is parsed

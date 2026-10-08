@@ -46,8 +46,9 @@ You can follow along, or run the steps yourself. You need a Mac with macOS 14 or
    instead. If `~/cicada` exists but has no `install.sh` (an older install may have put only a
    `memory` folder there), stop and ask the person what to do. Never move or delete it.
 3. **Install the background service:** `cd ~/cicada && ./install.sh`
-   It is safe to run again. It does five things:
+   It is safe to run again. It does six things:
    - sets up Python
+   - fetches the on-device search model (about 130 MB, once; the same pinned files the release app ships)
    - creates the memory folder
    - starts Cicada's background service
    - registers Cicada with Claude Code

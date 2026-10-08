@@ -20,6 +20,7 @@ from api.models.schemas import (
     EntityMedia,
     EntityPictureResponse,
     EntityReadRequest,
+    EntityRawResponse,
     EntityReadResponse,
     EntityResponse,
     EntitySource,
@@ -54,13 +55,18 @@ from api.services import (
     telemetry,
     write_admission,
 )
-from api.services.claims import strip_claims_block
+from api.services.claims import claims_block_start, served_prose, strip_claims_block
 from api.services.hub_builder import _one_line_summary
 from api.services.id_utils import build_name_index, resolve_entity_id
 from api.services.wikilink_resolver import extract_wikilinks
 from api.services.sleep_refusal import SleepWriting
 
 router = APIRouter()
+
+#: F4 — above this a page's ``raw_markdown`` stops at its first claims fence (``raw_omitted``); the Source view and
+#: Copy ask ``GET /entities/{id}/raw`` for the whole file. Every page but an owner-sized one is far below it (the largest others measured
+#: ~70 KB); the owner's is ~2.6 MB, 96% of it the claims fence the card already reads from ``/claims``.
+RAW_INLINE_MAX_BYTES = 256 * 1024
 
 # G59: bound concurrent first-fetches so opening a graph full of new companies
 # can't fan out into dozens of simultaneous outbound requests.
@@ -95,8 +101,15 @@ async def get_entity(
         untimed=episode_time.untimed_ids(settings.memory_path),
     )
     # C11 (G146) — the page's picture, resolved at read like everything else on this card (plan R-PE5).
+    page_stat = entity_path.stat()
     picture, picture_inputs = entity_picture.resolve_page(
-        settings.memory_path, entity_id, fm, parsed.body, page_mtime=entity_path.stat().st_mtime)
+        settings.memory_path, entity_id, fm, parsed.body, page_mtime=page_stat.st_mtime)
+    raw = entity_path.read_text(encoding="utf-8")
+    raw_omitted = False
+    if page_stat.st_size > RAW_INLINE_MAX_BYTES and (fence := claims_block_start(raw)) is not None:
+        # Review r1 #4: withhold only the fence. The frontmatter and prose stay verbatim, so every frontmatter reader
+        # (a location's declared lat/lon, a media block) keeps its input; Source and Copy read `/raw` for the rest.
+        raw, raw_omitted = raw[:fence], True
 
     return EntityResponse(
         id=entity_id,
@@ -112,8 +125,11 @@ async def get_entity(
         tags=fm.get("tags", []),
         related=fm.get("related", []),
         version=fm.get("version", 1),
-        markdown_content=parsed.body,
-        raw_markdown=entity_path.read_text(encoding="utf-8"),
+        # F4: prose only — the fence is machine data the card reads from `/claims`, and on the owner's page it was
+        # 2.5 MB shipped twice per open.
+        markdown_content=served_prose(parsed.body)[0],
+        raw_markdown=raw,
+        raw_omitted=raw_omitted,
         history=history,
         history_truncated=history_truncated,
         media=_build_media_block(fm, parsed.body),
@@ -127,6 +143,17 @@ async def get_entity(
         picture_source=picture.source,
         picture_inputs=PictureInputsModel(**picture_inputs.to_fields()),
     )
+
+
+@router.get("/entities/{entity_id}/raw", response_model=EntityRawResponse)
+async def get_entity_raw(entity_id: str, settings: Settings = Depends(get_settings)):
+    """F4 — the page verbatim (frontmatter, prose and claims fence), for the Source view and Copy when
+    ``GET /entities/{id}`` left ``raw_markdown`` out (``raw_omitted``). Read on demand only; not a Store domain."""
+    entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
+    if not entity_path.exists():
+        raise HTTPException(404, f"Entity {entity_id} not found")
+    text = await run_in_threadpool(entity_path.read_text, encoding="utf-8")
+    return EntityRawResponse(id=entity_id, raw_markdown=text)
 
 
 @router.post("/entities/{entity_id}/read", response_model=EntityReadResponse)
@@ -911,7 +938,7 @@ async def get_entity_context(
         type=str(fm.get("type", "concept") or "concept"),
         status=str(fm.get("status", "active") or "active"),
         confidence=float(fm.get("confidence", 0.5) or 0.0),
-        markdown_content=parsed.body,
+        markdown_content=served_prose(parsed.body)[0],
         hubs=hubs,
         neighbors=neighbors,
         episodes=episodes,

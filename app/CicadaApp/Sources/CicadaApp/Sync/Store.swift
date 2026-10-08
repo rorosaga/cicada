@@ -76,6 +76,8 @@ final class Store {
     /// R-DL5 — `entityNames`' memo (`Models/EntityNames.swift`). Ignored by observation: it is a cache, and the
     /// getter already reads `graph`, which is what views must track.
     @ObservationIgnored var entityNamesMemo: (stamp: Date?, count: Int, names: EntityNames)?
+    /// `projectPeople`'s memo, the same way: the Projects page read every graph edge on each render.
+    @ObservationIgnored var projectPeopleMemo: (stamp: Date?, count: Int, people: [String: [PersonMark]])?
 
     /// C11 (G146 plan R-PE10) — picture writes painted before the graph snapshot carries them, keyed `bank/id`, and the
     /// snapshot's pictures by id, memoised like `entityNamesMemo` (`Sync/PictureOverrides.swift`).
