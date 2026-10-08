@@ -192,18 +192,20 @@ def _week_of(value) -> str | None:
     return f"{year}-W{week:02d}"
 
 
-def mention_weeks(episode_refs, kept_on=()) -> int:
+def mention_weeks(episode_refs, kept_on=(), *, untimed=frozenset()) -> int:
     """Distinct ISO weeks among episode ids (``ep_<date>_<n>``, G114) and kept dates.
 
     An id that does not parse — a legacy stem, an impossible date — is still a
     mention: all of them together count ONCE as an unknown week (R-FD2), so a
     legacy page gets bounded credit, never zero and never one week per id.
+    An id in ``untimed`` (a memory export entry, ``episode_time``) is no week at
+    all: its date is the summary's, not a mention's.
     """
     weeks: set[str] = set()
     unknown = False
     for ref in _as_list(episode_refs):
         stem = str(ref or "").strip()
-        if not stem:
+        if not stem or stem in untimed:
             continue
         parsed = episode_ids.parse_episode_id(stem)
         week = _week_of(parsed[0]) if parsed else None
@@ -274,11 +276,13 @@ def effective(
     alpha: float = SPACING_ALPHA,
     floor: float = SPACING_FLOOR,
     tuning: dict[str, float] | None = None,
+    untimed=frozenset(),
 ) -> EffectiveDecay:
-    """``base x f(w) x pace`` for one page's frontmatter. Never raises."""
+    """``base x f(w) x pace`` for one page's frontmatter. Never raises.
+    ``untimed``: the bank's memory-export episode ids (``episode_time.untimed_ids``)."""
     fm = fm or {}
     cls, base = resolve(fm)
-    weeks = mention_weeks(fm.get("source_episodes"), kept_dates(fm))
+    weeks = mention_weeks(fm.get("source_episodes"), kept_dates(fm), untimed=untimed)
     factor = stability(weeks, alpha=alpha, floor=floor)
     pace = float((tuning or {}).get(entity_type(fm), 1.0))
     rate = 0.0 if cls is DecayClass.evergreen else base * factor * pace
@@ -360,7 +364,7 @@ def class_lookup(memory_path) -> Callable[[str], DecayClass]:
     return lambda entity_id: subject(entity_id).decay_class
 
 
-def claim_mention_weeks(claim, kept_on=()) -> int:
+def claim_mention_weeks(claim, kept_on=(), *, untimed=frozenset()) -> int:
     """Distinct ISO weeks a claim was stated or restated in (R-FD4): its
     ``source_episodes`` and the ``ep_*`` documents its evidence cites (a ``page``
     span cites an entity, not a conversation), plus the subject's kept weeks.
@@ -372,4 +376,4 @@ def claim_mention_weeks(claim, kept_on=()) -> int:
         doc = str(getattr(ev, "episode", "") or "")
         if doc.startswith("ep_"):
             refs.append(doc)
-    return mention_weeks(refs, kept_on)
+    return mention_weeks(refs, kept_on, untimed=untimed)

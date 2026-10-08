@@ -13,7 +13,7 @@ from loguru import logger
 from tqdm import tqdm
 
 from api.config import Settings
-from api.services import decay_policy, engine_errors, evidence, section_provenance, source_dates
+from api.services import decay_policy, engine_errors, episode_time, evidence, section_provenance, source_dates
 from api.services.json_parse import parse_json_object
 
 EXTRACTION_SYSTEM_PROMPT = """You are an entity extraction system for a personal knowledge graph.
@@ -509,7 +509,10 @@ async def extract(
         chunks = [masked[s:e] for s, e in spans]
         # G194 A1: every chunk is told when the conversation took place and what day it is now.
         ep_day = source_dates.episode_day(episode)
-        date_note = source_dates.date_note(ep_day, today)
+        # "Facts yes, activity no" (owner 2026-10-08): a memory export entry's date is the summary's, not a
+        # mention's — its pages keep the facts and the source, never its date as when the thing came up.
+        untimed = not episode_time.counts_as_activity(episode)
+        date_note = source_dates.summary_note(ep_day, today) if untimed else source_dates.date_note(ep_day, today)
 
         async with semaphore:
             # Sleep-control checkpoint 2: this task may have waited a while
@@ -551,10 +554,12 @@ async def extract(
                 for entity in all_entities:
                     section_provenance.attach(entity, ep_id, content)
                     entity["source_episode"] = ep_id
-                    entity["source_episode_timestamp"] = episode.get("timestamp")
+                    entity["source_episode_timestamp"] = None if untimed else episode.get("timestamp")
                     # G194 fix 1: the day the date note gave (timestamp, else the id's date) rides along for Stage
                     # 3's prompts only — never written, so no stored timestamp is invented from an id.
-                    entity["source_episode_day"] = ep_day.isoformat() if ep_day else None
+                    entity["source_episode_day"] = ep_day.isoformat() if ep_day and not untimed else None
+                    if untimed:
+                        entity["untimed"] = True
                     entity["origin"] = ep_origin
                     sanitize_decay_class(entity)
                     sanitize_website(entity)

@@ -278,17 +278,78 @@ then says the model wasn't shared.
 **Item provenance (G118 sections, 1a-i).** After extraction, Summary/description and
 Key Facts receive transient source-episode `reasoning` records over the full stored body
 hash. This adds no prompt instructions, quotes, retries or calls. Stage 2 carries metadata
-with the fields it actually selects. After G169, it follows the chosen effective Summary,
+with the fields it actually selects, from every same-name extraction in the batch (see *Entity promotion*). After G169, it follows the chosen effective Summary,
 its description copy, the fact union, and orientation text retained as facts; only exact
 selected text receives the original source record. Carry unions unique evidence rows per
 selected field/text, so repeated mentions cannot multiply identical records when Summary
 and description share the same words. The pending-store limitation remains; earlier pending
 facts are not restored by provenance. Stage 5 records exact surviving items
-on create and fallback/human-safe updates. The B-update fixture retains A's Summary only
-when B supplies no new Summary (or one already contained); an appended Summary invalidates
-that one item's guard while A's facts keep their links.
+on create and fallback/human-safe updates. The B-update fixture keeps A's usable Summary
+and its exact guard; a distinct incoming orientation goes into explicitly undated History
+background when it is not already retained as a fact, without fabricated provenance. A's facts keep their links.
 
-Sleep synthesis retains exact old items by identity, without changing its prompt/return shape.
+**Summary growth (G194).** Deterministic create/update/dedup merges use one 600-Unicode-character,
+single-paragraph budget (`summary_policy`). An existing usable orientation stays exact;
+distinct incoming prose and displaced oversized/multi-paragraph prose are retained in History
+as `Undated background` unless the complete orientation is already retained as a Key Fact.
+Same-name batch carry (#241) therefore keeps one bounded Summary plus distinct carried facts,
+without a second History copy. Incoming facts matching the retained Summary are suppressed;
+existing facts/human prose are never removed for this purpose. Exact input evidence follows the
+surviving Summary or fact via `section_provenance.merge_selected`, without recertifying changed
+text. Multiline carried facts receive stable continuation indentation so later merges retain
+their complete content; a changed exact text guard is unrecorded, never recertified by normalization.
+Indented continuations survive later merges. No page-level
+date is assigned to that mixed context. An unusable machine orientation gets a complete conservative
+identity/unknown-role sentence, never character clipping. Stage-5 synthesis output is bounded too;
+this does not change the synthesis gate or add model calls. Human Summary is exempt and never
+extended or rewritten; incoming context is added outside it. Human flags and custom sections are
+honored by both entity merge and source rewrite. This is a structural floor, not semantic synthesis:
+short fragments/stale prose still need orientation and dated-prose repair.
+
+**Opt-in orientation synthesis (G194).** `CICADA_SUMMARY_SYNTHESIS_ENABLED` defaults to false.
+Off preserves the legacy description/history gate and its call count. On uses effective Summary
+(then description) and all incoming structured fields, skips human/custom pages before a call,
+and requests one bounded JSON Summary. Facts-only updates need one merge call; Summary/description
+updates also run the existing contradiction check. `entity_orientation` passes dated inputs and
+only structurally current claims (`claims.is_current`, excluding withdrawal records). Prose is
+labeled unverified background; old statements and intentions must name their own date, never a
+page-wide last-reference date. Input over 24,000 characters and invalid output take the deterministic
+fallback without a retry. Engine failures/cancellation retain the existing propagation contract.
+Composition changes only Summary and deterministically unions the complete non-Summary sections,
+even ones the model did not rewrite. Replaced orientation remains undated background. Exact carried
+facts retain or acquire exact G118 guards; a rephrased orientation remains unrecorded. The inbox
+caller shares this builder and retains its existing pre-call snapshot/write-time fence. The switch
+requires owner review of benchmark call counts; fake timing does not estimate provider latency.
+
+**Person-started prose repair, candidates only (G194 B).**
+`scripts/repair_entity_prose.py --bank <bank> --scratch <outside-bank-directory>` inventories
+up to 20 pages without model calls. Repeat `--entity-id` to select a stratified pilot;
+otherwise pages are sorted by id. `--generate` additionally requires explicit `--engine`,
+`--model`, `--max-calls` and `--token-budget`; it never selects a fallback engine. Each invocation
+reserves UTF-8 input bytes + 1,024 envelope tokens + requested output tokens, reports reservations
+(not measured charges), and caps calls. Output-token limits are passed to the provider; the
+engine-independent hard limit is calls. Resume caps apply per invocation; review total spend
+across invocations in the preserved `run-<id>.json` manifests. Each call reservation is checkpointed
+before generation. Configuration/bootstrap lives in scratch, with `.env` disabled.
+The tool rejects overlapping paths and symlinks, reads a clean existing bank, and writes only
+0700 scratch directories / 0600 candidate JSON and a manifest. It never scaffolds, indexes,
+commits or applies a bank change. `source_rewrite.generate_prose_candidates` shares the same
+orientation builder; the older automatic source-rewrite writer remains a separate entry point.
+
+Human/custom/unreadable/corrupt pages, missing linked episodes and context over 24,000 characters
+are deferred before calls. All known page/claim source episodes are dated separately and read in
+full; no oldest-first clipping silently excludes recent evidence. The tool cannot recover source
+credit already lost by earlier writers. Candidate edits may only prefix a unique existing fact
+or history item with an absolute date from a named source containing the exact original wording.
+Other wording and all raw claim fences survive. Changed prose loses its exact G118 guard;
+unknown metadata is preserved without certification. Page/source hashes are checked again after
+generation, and dirty/changed inputs are deferred. Cached output requires matching input, engine,
+prompt-version and candidate hashes. Invalid output uses no retry; engine failure checkpoints
+earlier candidates and stops. Only manifest entries marked `candidate` or `cached` are eligible
+for review; older scratch files may be stale. There is no apply API/flag. The owner-bank pilot,
+semantic grounding/readability review and any checked apply are orchestrator work after the drain.
+
+Legacy Sleep synthesis retains exact old items by identity, without changing its prompt/return shape.
 Rephrased items become unrecorded; incoming facts not supplied to synthesis cannot gain links.
 All refreshes share the existing atomic page write, locks and commit/rollback boundary.
 Any open code fence can hide sections from the original or final body: refresh preserves
@@ -305,6 +366,8 @@ said and what day it is now (`api/services/source_dates.py`).
   note gives the conversation's own day (its `timestamp`, else the date in its id: the same rule as a claim's
   `valid_from`) and today, which is fixed once per `extract()` run. For a conversation older than `OLD_AFTER_DAYS` (90),
   the note names the month and year to write it as of. An undated conversation gets no note, and nothing is guessed.
+  A memory export entry gets `source_dates.summary_note` instead: its date is when the summary was edited, never a
+  day to date a fact to, and nothing in it is written as current or recent (the 90-day rule does not apply).
   The system prompt's TIME rules say:
   - write as of the conversation's date;
   - name the month and year for anything changeable from old material, and for every plan or intention;
@@ -441,6 +504,17 @@ name before it has a page is not lost (G141 PJ-0b): Stage 5.56 holds those claim
 the rest counted) and releases them onto the page, first and through Stage 3, in the cycle whose Stage 5
 gives the name one — a holding line leaves the store only then.
 
+**Every mention in a batch is credited (2026-10-08).** Several conversations in one batch can name an entity by the
+same lower-cased name. Stage 2 judges and promotes the name once, on its strongest extraction (first on a confidence
+tie). Every other extraction of that name is then folded into the resulting change, whether that is an update, an
+in-cycle create or a create made by promotion. The fold goes through the same `_merge_entity_payload` /
+`_append_change_source` seam the owner merge (G169) uses, so each conversation lands in `source_episodes`, its
+timestamp and day reach `last_referenced` and the Stage 3 prompts, and its facts, links, questions, aliases, tags,
+history, an unclaimed `website`/`decay_class` proposal and its G118 item records all survive. A name that stays
+pending parks one line carrying the merged history and tags; the line keeps the strongest mention's episode. Before
+this fix those extractions were dropped whole: a 25-conversation batch credited 1 episode. Claims and edges were never
+affected, because they are projected from every extraction's relationships through `name_to_id`.
+
 **The engine's own runtime is never a page.** The `claude -p` CLI still tells the model its cwd, platform and shell despite `--system-prompt` (probed 2.1.x; `--exclude-dynamic-system-prompt-sections` is ignored with it), so the extraction prompt says that is not conversation content and Stage 2 drops, with a text-free debug line, any entity named for `$CICADA_HOME` or a path under it (`agent_engine.is_runtime_path`; the scratch dir is one).
 
 **The owner is never a page of a pronoun (G169).** One closed, language-aware list of self-reference spellings
@@ -503,6 +577,13 @@ count). **An import is not silence:** a page or claim a cycle creates or referen
 episodes keeps that date as its content date (`last_referenced`, `valid_from`) but gets
 `decayed_through` = the cycle's date, so silence counts from when Cicada learned it and a
 multi-cycle drain of a backdated export never charges or archives what it just read.
+**A memory export entry is facts, not activity** (owner, 2026-10-08). A `source: claude_memory` episode is a summary
+of the person dated by the export entry's `updated_at`, not by when anything in it came up. `episode_time` is the one
+predicate: such an episode is no week in `w` (page, claim and card alike), and Stage 1 hands Stage 2 its entities
+with no timestamp or day and `untimed: true`. A change made only of memory entries creates a page with **no
+`last_referenced`** (`created` and `decayed_through` are the cycle's day), and on an existing page moves neither
+`last_referenced` nor `decayed_through` and recovers no status; its facts, claims (with their `valid_from`) and
+`source_episodes` are written as usual. Any real conversation in the same change dates it as before.
 Below 0.2 → `status: archived` (the page stays in `entities/`); below 0.4 → a decay nudge.
 Mentioned again → promoted back at `confidence = max(current, 0.6)`. Evergreen entities skip all
 decay math. **Confidence does not rank recall:** search puts archived pages last and otherwise ranks

@@ -423,6 +423,9 @@ the demo scenario's real wire, `app/CicadaApp/Tests/fixtures/projects-demo.json`
 - **The list:** text tabs Active · Quiet · All (resting projects only under All); sub-projects indented under a shown
   parent; each row's where-it-stands line, a mini `progressFill` bar, the next milestone or "No plan yet", people from
   the graph's `person` neighbours (never the owner), the compact age; "still indexing" while the server says `partial`.
+  A row's section comes from `lastMomentDay`, the newest anchor day of a claim about the project tree; a memory export
+  entry is never an anchor or an activity day (`episode_time`, owner 2026-10-08), so a project known only from one
+  reads Resting / "Nothing heard" while its facts stay on the page.
 - **The band** (`BandLayout`, pure, the approved mock's coordinates): `progressFill` from the first moment up to a
   "You, today" marker in `textPrimary`; done milestones filled inside the green, planned ones hollow on the track, a
   closed `due` slashed ("passed, no word on how it went"), a moved one's dashed ghost and bracket; happenings as neutral
