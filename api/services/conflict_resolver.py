@@ -317,6 +317,10 @@ def apply_changes(changes: list[dict], memory_path) -> None:
         leave=True,
         disable=len(changes) == 0,
     )
+    # `graph_edges.yaml`, read once on the first update that needs it: nothing in this loop writes it
+    # (`inbox_generator.generate` merges new edges after), and it grows with the bank — one read per merged entity
+    # was most of a Sleep batch on a 2,000-page bank.
+    edges_by_entity: dict[str, list[dict]] | None = None
     for change in changes:
         write_progress.update(1)
         entity_id = change["id"]
@@ -465,7 +469,9 @@ def apply_changes(changes: list[dict], memory_path) -> None:
 
             # Related reconciler — rebuild the ## Related block from the
             # related slug list + graph_edges.yaml so wikilinks stay in sync.
-            related_block = _reconcile_related(entity_id, parsed.frontmatter, memory_path)
+            if edges_by_entity is None:
+                edges_by_entity = _edges_by_entity(memory_path)
+            related_block = _reconcile_related(entity_id, parsed.frontmatter, memory_path, edges_by_entity)
             if related_block:
                 sections["Related"] = related_block
             else:
@@ -519,35 +525,38 @@ def _entity_summary(entity: dict) -> str:
     return str(entity.get("summary") or entity.get("description") or "").strip()
 
 
-def _reconcile_related(entity_id: str, frontmatter: dict, memory_path) -> str:
+def _edges_by_entity(memory_path) -> dict[str, list[dict]]:
+    """``graph_edges.yaml`` as each entity's edges, in file order: its own as written, an inbound one mirrored so the
+    block reads naturally (a self-loop counts once, as its own). ``{}`` without a file, or when any row cannot be read
+    — the per-entity read this replaces dropped every edge then too."""
+    edges_file = Path(memory_path) / "graph_edges.yaml"
+    by_entity: dict[str, list[dict]] = {}
+    if not edges_file.exists():
+        return by_entity
+    try:
+        data = markdown_parser.load_yaml(edges_file.read_text(encoding="utf-8")) or {}
+        for edge in data.get("edges", []) or []:
+            source, target = edge.get("source"), edge.get("target")
+            if isinstance(source, str):
+                by_entity.setdefault(source, []).append(edge)
+            if isinstance(target, str) and target != source:
+                by_entity.setdefault(target, []).append({
+                    "source": target, "target": edge.get("source", ""), "label": edge.get("label", ""),
+                })
+    except Exception:
+        return {}
+    return by_entity
+
+
+def _reconcile_related(entity_id: str, frontmatter: dict, memory_path, edges_by_entity: dict[str, list[dict]]) -> str:
     """Rebuild the ``## Related`` block from `related` slugs + graph_edges.yaml.
 
-    Related is a derived view — graph_edges.yaml is canonical. Display names
-    are read only for the ids actually referenced, so per-entity cost stays
-    proportional to its degree.
+    Related is a derived view — graph_edges.yaml is canonical, read once per write pass (:func:`_edges_by_entity`).
+    Display names are read only for the ids actually referenced, so per-entity cost stays proportional to its degree.
     """
-    import yaml
-
     memory_path = Path(memory_path)
     related_slugs = frontmatter.get("related", []) or []
-
-    edges: list[dict] = []
-    edges_file = memory_path / "graph_edges.yaml"
-    if edges_file.exists():
-        try:
-            data = yaml.safe_load(edges_file.read_text(encoding="utf-8")) or {}
-            for edge in data.get("edges", []) or []:
-                if edge.get("source") == entity_id:
-                    edges.append(edge)
-                elif edge.get("target") == entity_id:
-                    # Mirror inbound edges so the block reads naturally.
-                    edges.append({
-                        "source": entity_id,
-                        "target": edge.get("source", ""),
-                        "label": edge.get("label", ""),
-                    })
-        except Exception:
-            edges = []
+    edges = list(edges_by_entity.get(entity_id, ()))
 
     referenced = {str(e.get("target", "")) for e in edges} | {str(s) for s in related_slugs}
     id_to_name: dict[str, str] = {}

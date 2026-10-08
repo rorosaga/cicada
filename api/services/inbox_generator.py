@@ -637,7 +637,7 @@ def _write_graph_edges(memory_path: Path, new_edges: list[dict]) -> None:
     existing_edges: list[dict] = []
     if edges_file.exists():
         try:
-            data = yaml.safe_load(edges_file.read_text(encoding="utf-8")) or {}
+            data = markdown_parser.load_yaml(edges_file.read_text(encoding="utf-8")) or {}
             existing_edges = data.get("edges", [])
         except Exception:
             existing_edges = []

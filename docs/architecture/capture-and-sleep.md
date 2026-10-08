@@ -269,6 +269,8 @@ then says the model wasn't shared.
 
 **Claim preservation (G148 regression):** Stage 5 rewrites prose with the stored `claims` fences removed from section parsing, then reattaches those fences unchanged. Rebuilding `Related` cannot remove beliefs before the claim pipeline reconciles them; synthesis output never authors a claims fence.
 
+**`Related` reads the edges once:** `apply_changes` builds each entity's edges from `graph_edges.yaml` on the first update that needs them and reuses them for every page that pass merges (nothing in the pass writes the file); every reader of that file uses `markdown_parser.load_yaml`, the libyaml safe loader. The file grows with the claims; on a 2,000-page synthetic bank one pure-Python read cost ~3.8 s and was paid once per merged entity (`benchmarks/scale`).
+
 **Item provenance (G118 sections, 1a-i).** After extraction, Summary/description and
 Key Facts receive transient source-episode `reasoning` records over the full stored body
 hash. This adds no prompt instructions, quotes, retries or calls. Stage 2 carries metadata

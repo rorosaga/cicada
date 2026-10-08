@@ -11,7 +11,7 @@ from api.models.schemas import GraphLink, GraphNode, GraphResponse
 from api.services import bank_index, claim_contexts, decay_policy, entity_picture, logo_service, predicates
 from api.services.claims import is_current, parse_claims, strip_claims_block
 from api.services.id_utils import sanitize_id
-from api.services.markdown_parser import parse
+from api.services.markdown_parser import load_yaml, parse
 
 _SUMMARY_RE = re.compile(r"^##\s+Summary\s*$", re.IGNORECASE | re.MULTILINE)
 
@@ -559,7 +559,7 @@ def regenerate_edges_from_claims(memory_path: Path) -> int:
     preserved: list[dict] = []
     if edges_file.exists():
         try:
-            data = yaml.safe_load(edges_file.read_text(encoding="utf-8")) or {}
+            data = load_yaml(edges_file.read_text(encoding="utf-8")) or {}
         except Exception:
             data = {}
         for edge in data.get("edges", []) or []:
@@ -623,7 +623,7 @@ def upsert_claim_edges(memory_path: Path, page_ids) -> bool:
     edges: list[dict] = []
     if edges_file.exists():
         try:
-            data = yaml.safe_load(edges_file.read_text(encoding="utf-8")) or {}
+            data = load_yaml(edges_file.read_text(encoding="utf-8")) or {}
         except Exception:
             return False
         if not isinstance(data, dict):
@@ -652,7 +652,7 @@ def _load_edges(memory_path: Path) -> list[GraphLink]:
     if not edges_file.exists():
         return []
     try:
-        data = yaml.safe_load(edges_file.read_text(encoding="utf-8")) or {}
+        data = load_yaml(edges_file.read_text(encoding="utf-8")) or {}
     except Exception:
         return []
     return [
