@@ -18,7 +18,14 @@ final class LocationMapScrollTests: XCTestCase {
         let host = NSHostingView(rootView: card.frame(width: 400, height: 500))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 500), styleMask: [.borderless],
                               backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
         window.contentView = host
+        // The map must not outlive the test: a live MapKit view keeps drawing (and asking for tiles) on the main
+        // thread for the rest of the run, which starves the suite's wall-clock tests.
+        defer {
+            window.contentView = nil
+            window.close()
+        }
         host.layoutSubtreeIfNeeded()
         RunLoop.main.run(until: Date().addingTimeInterval(0.2))
         let scroll = try XCTUnwrap(Self.find(NSScrollView.self, in: host), "the card is an NSScrollView")
