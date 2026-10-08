@@ -60,6 +60,11 @@ enum AgentSteps {
         case .deeplink:
             out.append((Copy.agentStepOpenCursor, setups[entry.id]?.note ?? Copy.agentStepCursorHow, false,
                         [.openCursor], nil, false))
+            let recall = recallSteps(for: wiring)
+            if !recall.isEmpty {
+                let detail = wiring?.capabilities["startup"] == "documented" ? Copy.agentStepStartupHow : Copy.agentStepRecallHow
+                out.append((Copy.autoRecallGroup, detail, false, [.autoRecall(recall)], nil, false))
+            }
         case .claude:
             out.append((Copy.agentStepClaudeApp, Copy.agentStepClaudeAppHow, false, [.setUpClaude], nil, false))
             out.append((Copy.agentStepClaudeWeb, setups["claude"]?.display.last ?? Copy.agentNeedsReach, true,

@@ -3127,6 +3127,8 @@ class AgentWiringRow(CamelModel):
     autorecall: Literal["on", "off", "stale", "invalid", "n/a"] = "n/a"
     autorecall_on: list[AgentWiringStep] = []
     autorecall_off: list[AgentWiringStep] = []
+    # Integration support/evidence, separate from MCP registration and hook config.
+    capabilities: dict[str, str] = {}
 
 
 class AgentWiringResponse(CamelModel):

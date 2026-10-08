@@ -90,6 +90,7 @@ extension Copy {
     /// R-OB12 — said on the step whose click also turns it on.
     static let agentStepAlsoRecalls = "It also turns on Remembers automatically; undo that in \(settings) → \(agents)."
     static let agentStepRecallHow = "Before your agent answers, Cicada adds a short note about who and what you mention. Undo it in \(settings) → \(agents)."
+    static let agentStepStartupHow = "Cicada offers context when a new local chat starts. Automatic saving is unsupported. Undo it in \(settings) → \(agents)."
 
     // MARK: F-05 (Task 5)
     static let whoReadsSubline = "A reader turns what came in into pages about people, projects and ideas. Change it any time on the Sleep page."

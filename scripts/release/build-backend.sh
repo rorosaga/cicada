@@ -221,12 +221,12 @@ exec "$CICADA_PYTHON" "$CICADA_BACKEND_DIR/app/mcp/server.py" "$@"
 EOF
 cat > "$OUT/bin/cicada-hook" <<'EOF'
 #!/bin/sh
-# cicada-hook capture|recall|registry [args] — the harness hooks (G105, G149) and
+# cicada-hook capture|recall|registry|cursor|cursor_registry [args] — local hooks and
 # the hook registry the app runs to install them.
 . "$(dirname "$0")/cicada-env"
 case "$1" in
-  capture|recall|registry) name="$1"; shift ;;
-  *) echo "usage: cicada-hook capture|recall|registry [args]" >&2; exit 2 ;;
+  capture|recall|registry|cursor|cursor_registry) name="$1"; shift ;;
+  *) echo "usage: cicada-hook capture|recall|registry|cursor|cursor_registry [args]" >&2; exit 2 ;;
 esac
 exec "$CICADA_PYTHON" "$CICADA_BACKEND_DIR/app/api/hooks/$name.py" "$@"
 EOF

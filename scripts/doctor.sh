@@ -231,6 +231,21 @@ else
   note "run ./install.sh (or Settings → Agents → Update) to fix them"
 fi
 
+# Local Cursor startup is independent of MCP connectivity. No capture claim.
+if [ -d "$HOME/.cursor" ] && [ -x "$VENV_PY" ]; then
+  CURSOR_STATE=0
+  "$VENV_PY" "$REPO/api/hooks/cursor_registry.py" status --settings "${CURSOR_HOOKS:-$HOME/.cursor/hooks.json}" \
+    >/dev/null 2>&1 || CURSOR_STATE=$?
+  if [ "$CURSOR_STATE" -eq 0 ]; then
+    pass "Cursor sessionStart hook configured (installed delivery unverified)"
+  elif [ "$CURSOR_STATE" -eq 1 ]; then
+    pass "Cursor startup hook off — Settings → Agents turns it on"
+  else
+    fail "Cursor startup hook stale or invalid — repair hooks.json or use Settings → Agents → Update"
+  fi
+  note "Cursor MCP connectivity is separate; automatic capture unsupported"
+fi
+
 echo
 if [ "$FAILURES" -eq 0 ]; then
   printf '\033[32m%s\033[0m\n' "All checks passed."
