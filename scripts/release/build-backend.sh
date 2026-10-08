@@ -149,27 +149,10 @@ EOF
 ok "git $(env GIT_EXEC_PATH="$OUT/git/libexec/git-core" "$OUT/git/bin/git" --version | awk '{print $3}')"
 
 # --- 5. The embedding model ------------------------------------------------------
+# The same script a developer checkout runs (`make embedding-model`): one reader of the pins.
 step "Embedding model ($MODEL_ID)…"
-MODEL_OUT="$OUT/models/$MODEL_DIR_NAME"
-mkdir -p "$MODEL_OUT"
-while IFS=: read -r src dest sha; do
-  [ -n "$src" ] || continue
-  cp "$(fetch "https://huggingface.co/$MODEL_REPO/resolve/$MODEL_REVISION/$src" "$sha" \
-    "model-$MODEL_DIR_NAME-$MODEL_REVISION-$dest")" "$MODEL_OUT/$dest"
-done <<< "$MODEL_FILES"
-cat > "$MODEL_OUT/cicada-model.json" <<EOF
-{
-  "id": "$MODEL_ID",
-  "dimensions": 384,
-  "pooling": "mean",
-  "normalize": true,
-  "max_tokens": 512,
-  "query_prefix": "query: ",
-  "document_prefix": "passage: ",
-  "source": "https://huggingface.co/$MODEL_REPO/tree/$MODEL_REVISION",
-  "license": "MIT (intfloat/multilingual-e5-small)"
-}
-EOF
+MODEL_OUT="$(CICADA_RELEASE_CACHE="$CACHE" /bin/bash "$REPO/scripts/fetch-embedding-model.sh" "$OUT/models")" \
+  || die "the embedding model could not be fetched"
 ok "$(du -sh "$MODEL_OUT" | cut -f1)"
 
 # --- 6. Launchers ---------------------------------------------------------------
@@ -200,7 +183,7 @@ cat > "$OUT/manifest.json" <<EOF
   "git": "$GIT_VERSION",
   "git_source": "$GIT_URL",
   "embedding_model": "$MODEL_ID",
-  "embedding_model_source": "https://huggingface.co/$MODEL_REPO/tree/$MODEL_REVISION",
+  "embedding_model_source": "$MODEL_SOURCE",
   "commit": "$(cd "$REPO" && git rev-parse HEAD 2>/dev/null || echo unknown)"
 }
 EOF

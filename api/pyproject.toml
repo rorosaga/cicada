@@ -12,6 +12,7 @@ dependencies = [
     "litellm>=1.83.4",
     "loguru>=0.7.3",
     "mcp>=2.2,<3",
+    "onnxruntime>=1.23.2",
     "pydantic>=2.12.5",
     "pydantic-settings>=2.13.1",
     "python-multipart>=0.0.24",
@@ -19,6 +20,7 @@ dependencies = [
     "sentence-transformers>=5.0.0",
     "sqlite-vec>=0.1.9",
     "thefuzz[speedup]>=0.22.1",
+    "tokenizers>=0.22.2",
     "tqdm>=4.66.0",
     "uvicorn[standard]>=0.44.0",
 ]

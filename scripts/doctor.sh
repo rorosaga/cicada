@@ -39,6 +39,27 @@ else
   note "start it: ./install.sh  (or check logs/backend.err.log)"
 fi
 
+# 1a. Search embeddings: the active bank's model and, when its embedder last failed, why
+#     (/healthz carries an enum, never a message; the sentences mirror api/services/embedding_health.py).
+if [ -n "$HEALTH_JSON" ]; then
+  EMB_MODEL=$(printf '%s' "$HEALTH_JSON" | sed -n 's/.*"embeddingModel": *"\([^"]*\)".*/\1/p')
+  EMB_PROBLEM=$(printf '%s' "$HEALTH_JSON" | sed -n 's/.*"embeddingProblem": *"\([^"]*\)".*/\1/p')
+  case "$EMB_PROBLEM" in
+    "") pass "Search embeddings working (${EMB_MODEL:-model not recorded yet})" ;;
+    credits) fail "Search embeddings failing: the embedding service says the account is out of credits"
+             note "add credits, or set CICADA_EMBEDDING_MODE=local and run 'make embedding-model'" ;;
+    rate_limited) fail "Search embeddings failing: the embedding service is limiting requests"
+                  note "the next Sleep retries; search matches words only until then" ;;
+    auth) fail "Search embeddings failing: the embedding service didn't accept the key"
+          note "check the key in api/.env, or set CICADA_EMBEDDING_MODE=local and run 'make embedding-model'" ;;
+    unreachable|unavailable) fail "Search embeddings failing: the embedding service couldn't be reached"
+                             note "the next Sleep retries; search matches words only until then" ;;
+    model_missing) fail "Search embeddings failing: the search model isn't installed"
+                   note "run 'make embedding-model'" ;;
+    *) fail "Search embeddings failing ($EMB_PROBLEM)" ;;
+  esac
+fi
+
 # 1b. Bearer-token auth: /status must accept the token in $CICADA_HOME/api_token.
 if [ -r "$TOKEN_FILE" ]; then
   if curl -fsS -H "Authorization: Bearer $(cat "$TOKEN_FILE")" "http://127.0.0.1:$PORT/status" >/dev/null 2>&1; then

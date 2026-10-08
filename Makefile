@@ -9,13 +9,14 @@ ABLATIONS ?= default promotion_1 promotion_3 decay_aggressive decay_loose
 
 INSTALL_FLAGS ?=
 
-.PHONY: help install cli doctor app run-app install-app release-app release release-pr dev login-item no-login-item backfill-structural rebuild-episodes table1 table3 table3-sleep table3-sleep-smoke ablation ablation-smoke eval all-safe all-full
+.PHONY: help install cli doctor embedding-model app run-app install-app release-app release release-pr dev login-item no-login-item backfill-structural rebuild-episodes table1 table3 table3-sleep table3-sleep-smoke ablation ablation-smoke eval all-safe all-full
 
 help:
 	@printf '%s\n' \
 	  'Targets:' \
 	  '  make install               # plug-and-play install (install.sh)' \
 	  '  make doctor                # health checks (scripts/doctor.sh)' \
+	  '  make embedding-model       # fetch the on-device search model the release app ships (~130 MB, once)' \
 	  '  make install-app           # release-build, install ~/Applications/Cicada.app' \
 	  '  make dev                   # rebuild (debug) + reinstall + relaunch the app — the devloop command' \
 	  '  make release-app           # build the installable app with its backend (G182; nothing installed)' \
@@ -51,6 +52,11 @@ cli:
 
 doctor:
 	bash scripts/doctor.sh
+
+# The release app's own search model (pinned + sha256-checked in scripts/release/inputs.env) into
+# $${CICADA_HOME:-~/.cicada}/models: a checkout then embeds as a release does — onnxruntime, no torch.
+embedding-model:
+	bash scripts/fetch-embedding-model.sh
 
 # Build the macOS app as a proper .app bundle (NOT `swift run`, which produces
 # a bundle-less executable whose window never becomes key — that breaks graph
