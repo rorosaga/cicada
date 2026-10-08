@@ -16,12 +16,22 @@ decay (TODO ruling 1). The body is not touched. A page whose batch or evidence c
 as it is: what to do with it (keep, archive) is the person's call, not this tool's.
 
 **References Sleep recorded as aliases.** ``alias_policy.is_reference`` ("the lock", "this project") — removed only
-when the page's git history shows a Sleep commit (subject "Sleep cycle …", ``git_service._cycle_kind``) is where the
-alias first appeared on the page. An alias first written by anything else — the person's inbox merge (which records the
-losing page's name), a hand edit, a dedup, an agent — or not found in the history at all is the person's or unknown,
-and stays (``alias_references_kept``). Who added an alias is not stored anywhere but git, and only git's record is
-proof; a guess that deletes a merge the person made is worse than one more judge call. ``--list`` prints, for the
-person's own terminal, each page id and the aliases ``--apply`` would remove — never paste it into the repo or a PR.
+when the page's git history PROVES Sleep wrote it: the commit that last added the alias is a Sleep cycle commit whose
+body carries Sleep's own ``<page>: create (source: …`` line, so the page did not exist before Sleep wrote it and no
+one else's edit can be in that version. Everything else stays (``alias_references_kept``):
+
+* an alias first written by anything but a Sleep cycle — the person's inbox merge (which records the losing page's
+  name), a hand edit committed on its own, a dedup, an agent — or never committed, or unreadable in the history;
+* an alias added in a Sleep cycle commit that UPDATED the page or merely swept it up (``alias_references_unproven``,
+  a subset of kept). A Sleep commit runs ``git add -A`` (``sleep_cycle._finalize``), so a page the person edited by
+  hand and left uncommitted is committed under Sleep's subject; even Sleep's own update line cannot tell Sleep's
+  merge from the person's edit of the same page in the same cycle (the precedent: ``claim_recovery`` excludes a hand
+  edit a Sleep commit swept up). When both may have touched it, the alias stays.
+
+Who added an alias is stored nowhere but git; a guess that deletes something the person typed is worse than one more
+judge call. ``--list`` prints, for the person's own terminal, each page id with the aliases ``--apply`` would remove
+(``removals``) and the unproven ones it keeps (``unproven``, for the person to remove by hand if they agree) — never
+paste it into the repo or a PR.
 
 An alias that is another page's name is COUNTED only (``alias_names_other_page``) — it may be a wrong alias or the
 lead for a merge, and only the person can tell.
@@ -67,12 +77,14 @@ class Survey:
     alias_pages: int = 0
     alias_references: int = 0
     alias_references_kept: int = 0
+    alias_references_unproven: int = 0
     alias_names_other_page: int = 0
     dirty: int = 0
     repaired: int = 0
     committed: bool = False
     _todo: dict[Path, tuple[str, dict]] = field(default_factory=dict, repr=False)
     _removals: dict[str, list[str]] = field(default_factory=dict, repr=False)
+    _unproven: dict[str, list[str]] = field(default_factory=dict, repr=False)
 
     def counts(self) -> dict:
         return {k: v for k, v in self.__dict__.items() if not k.startswith("_")}
@@ -90,20 +102,33 @@ def _batch_episodes(memory_path: Path, rel: str) -> set[str]:
     return {ep for ep in _EP_RE.findall(shown) if (memory_path / "episodes" / f"{ep}.md").is_file()}
 
 
-def _sleep_added(memory_path: Path, rel: str, candidates: list[str]) -> set[str]:
-    """The ``candidates`` last ADDED to ``rel`` by a Sleep cycle commit (absent before it, listed after it). An alias
-    re-added by someone else after Sleep, never committed, or unreadable in the history is not returned."""
+def _sleep_created(body: str, rel: str) -> bool:
+    """Does this Sleep commit's body carry Sleep's OWN create line for ``rel`` (``sleep_cycle._finalize``:
+    ``<path>: create (source: …``)? A page a Sleep commit merely swept up with ``git add -A`` gets a porcelain line
+    without ``source:``, and an update line cannot tell Sleep's merge from the person's uncommitted edit of the same
+    page in the same cycle."""
+    prefix = f"{rel}: create (source: "
+    return any(line.strip().startswith(prefix) for line in body.splitlines())
+
+
+def _sleep_added(memory_path: Path, rel: str, candidates: list[str]) -> tuple[set[str], set[str]]:
+    """``(proven, unproven)`` among ``candidates`` still on ``rel``, by the commit that last ADDED each (absent before
+    it, listed after it). Proven: that commit is a Sleep cycle that CREATED the page — the page did not exist before
+    Sleep wrote it, so nobody else's edit can be in it. Unproven: a Sleep cycle commit that updated or swept up the
+    page — the person may have typed the alias and Sleep's ``git add -A`` committed it. Anything else (a person's
+    merge, a hand edit committed on its own, an agent, never committed, unreadable) is neither: it is not Sleep's."""
     try:
-        log = git_service._git_sync(memory_path, "log", "--reverse", "--format=%H%x1f%s", "--", rel)
+        log = git_service._git_sync(memory_path, "log", "--reverse", "--format=%H%x1f%s%x1f%B%x1e", "--", rel)
     except git_service.GitError:
-        return set()
+        return set(), set()
     keys = {c.lower(): c for c in candidates}
-    adder: dict[str, bool] = {}           # alias -> was its latest addition a Sleep cycle commit
+    adder: dict[str, str] = {}           # alias -> "proven" | "unproven" | "other", for its LATEST addition
     before: set[str] = set()
-    for line in log.splitlines():
-        if "\x1f" not in line:
+    for record in log.split("\x1e"):
+        parts = record.strip("\n").split("\x1f", 2)
+        if len(parts) != 3:
             continue
-        sha, subject = line.split("\x1f", 1)
+        sha, subject, body = parts
         try:
             split = markdown_parser.split_frontmatter(git_service._git_sync(memory_path, "show", f"{sha}:{rel}"))
             listed = (markdown_parser.load_yaml(split[0]) or {}).get("aliases") if split else None
@@ -112,9 +137,14 @@ def _sleep_added(memory_path: Path, rel: str, candidates: list[str]) -> set[str]
         now = {str(a).lower() for a in listed} if isinstance(listed, list) else set()
         for key in keys:
             if key in now and key not in before:
-                adder[key] = git_service._cycle_kind(subject) == "sleep"
+                if git_service._cycle_kind(subject) != "sleep":
+                    adder[key] = "other"
+                else:
+                    adder[key] = "proven" if _sleep_created(body, rel) else "unproven"
         before = now
-    return {keys[k] for k, by_sleep in adder.items() if by_sleep and k in before}
+    current = {k: v for k, v in adder.items() if k in before}
+    return ({keys[k] for k, v in current.items() if v == "proven"},
+            {keys[k] for k, v in current.items() if v == "unproven"})
 
 
 def _named(text: str, labels: list[str]) -> bool:
@@ -210,8 +240,12 @@ def survey(memory_path) -> Survey:
                 if names.get(alias.strip().lower(), stem) != stem:
                     result.alias_names_other_page += 1
             references = [a for a in aliases if isinstance(a, str) and alias_policy.is_reference(a)]
-            by_sleep = _sleep_added(memory_path, rel, references) if references and has_git else set()
+            by_sleep, unproven = (_sleep_added(memory_path, rel, references) if references and has_git
+                                  else (set(), set()))
             result.alias_references_kept += len(references) - len(by_sleep)
+            result.alias_references_unproven += len(unproven)
+            if unproven:
+                result._unproven[stem] = sorted(unproven)
             if by_sleep:
                 result.alias_pages += 1
                 result.alias_references += len(by_sleep)

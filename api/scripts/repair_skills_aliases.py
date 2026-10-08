@@ -5,8 +5,8 @@ run by the person, never automatically (G112 / G118; ``api.services.skill_alias_
     api/.venv/bin/python -m api.scripts.repair_skills_aliases --bank <path> --apply   # one `cicada` commit
     api/.venv/bin/python -m api.scripts.repair_skills_aliases --bank <path> --list    # + page ids and aliases to drop
 
-``--list`` (dry run only) adds ``removals``: each page id and the aliases ``--apply`` would remove, so the person can
-check them first. It prints words of the bank: for the person's own terminal, never for the repo, a PR or a log.
+``--list`` (dry run only) adds ``removals`` (each page id and the aliases ``--apply`` would remove) and ``unproven``
+(the ones it keeps because a person's edit cannot be ruled out), so the person can check them first. It prints words of the bank: for the person's own terminal, never for the repo, a PR or a log.
 
 The bank is named explicitly; nothing is resolved from the environment's active bank. Prints one JSON object of counts
 (never a page name or a word of the bank). Exit 0 done, 2 not a bank, 3 refused because Sleep is running or holds the
@@ -40,6 +40,7 @@ def main(argv=None) -> int:
         out = result.counts()
         if args.list:
             out["removals"] = result._removals
+            out["unproven"] = result._unproven
         print(json.dumps(out, ensure_ascii=False))
         return 0
     try:

@@ -2426,10 +2426,12 @@ async def _run_stages(
             episode_cooccurrences=episode_cooccurrences,
         )
     # G112 (1): an answer becomes a page only with the conversations it came from — Stage 4's
-    # evidence matched to this batch, no model call; the rest is logged and not written.
+    # evidence matched to this batch, no model call; the rest is logged and not written. It reads
+    # every page's frontmatter (the name index), so it runs off the event loop like the rest (#250).
     from api.services import skill_grounding
-    skill_changes = skill_grounding.ground(
-        skills, changes, extracted, memory_path, name_to_id=resolved_result.get("name_to_id"),
+    skill_changes = await asyncio.to_thread(
+        skill_grounding.ground, skills, changes, extracted, memory_path,
+        name_to_id=resolved_result.get("name_to_id"),
     ) if skills else []
     changes = skill_grounding.without_decay_of(changes, skill_changes)
     logger.info(f"Stage 4 complete: {len(skills)} skills detected, {len(skill_changes)} grounded")

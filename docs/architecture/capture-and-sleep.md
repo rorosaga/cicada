@@ -566,8 +566,11 @@ and a lowercase spelling of a page's own name already matches by name. The extra
 as an example alias and says a part, product, dataset, format or version of a thing is not its alias. An alias that is
 another page's name is not removed by anything automatic: it may be the lead for a merge. For an existing bank,
 `python -m api.scripts.repair_skills_aliases --bank <path>` (dry run; `--list` shows what would go; `--apply` for one
-`cicada` commit) removes a reference only when the page's git history shows a Sleep cycle commit added it last;
-anything the person (or any other writer) added is counted and kept.
+`cicada` commit) removes a reference only when the page's git history PROVES Sleep wrote it: the commit that last added it is a Sleep
+cycle commit carrying Sleep's own `<page>: create (source: …` line. A Sleep commit runs `git add -A`, so an update
+line, or a page it merely swept up, cannot rule out the person's uncommitted hand edit in the same cycle: those are
+kept and counted as `alias_references_unproven` (`--list` shows them for the person to remove by hand). Anything any
+other writer added — a person's merge included — is counted and kept.
 
 **A skill page carries its conversations (G112 (1), 2026-10-08).** Stage 4 answers `{name, description,
 evidence_entities, confidence}`; the old writer kept only the name and description, so every skill page was born
