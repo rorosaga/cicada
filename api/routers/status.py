@@ -16,6 +16,7 @@ from api.models.schemas import (
 )
 from api.services import (
     bank_index,
+    embedding_health,
     env_overrides,
     git_service,
     inbox_service,
@@ -54,7 +55,18 @@ async def healthz(request: Request, settings: Settings = Depends(get_settings)):
         memory_path=str(memory_path),
         memory_root=str(settings.memory_root),
         leann_present=_leann_present(memory_path),
+        embedding_model=_embedding_model(memory_path, settings),
+        embedding_problem=(embedding_health.problem(memory_path) or {}).get("kind"),
     )
+
+
+def _embedding_model(memory_path: Path, settings: Settings) -> str | None:
+    try:
+        from api.services import embedding_models
+
+        return embedding_models.recorded_model(memory_path) or embedding_models.build_model(memory_path, settings)
+    except Exception:  # noqa: BLE001 — a liveness probe never fails over a label
+        return None
 
 
 def _count_md(directory: Path) -> int:

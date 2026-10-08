@@ -221,6 +221,7 @@ def _vector_legs(ctx: _Ctx, embed_fn) -> dict[str, list[dict]] | None:
         want["claims"] = ctx.per_kind * 2
     if "episode" in ctx.kinds:
         want["episodes"] = ctx.per_kind * 2
+    indexer = None
     try:
         from api.services.vector_index import SqliteVecIndexer
 
@@ -228,6 +229,11 @@ def _vector_legs(ctx: _Ctx, embed_fn) -> dict[str, list[dict]] | None:
         legs = indexer.search_kinds(ctx.q, want)
     except Exception as exc:  # never the query text in a log (K9)
         logger.debug(f"search_service: vector legs unavailable ({type(exc).__name__})")
+        from api.services import embedding_health
+
+        kind = embedding_health.classify(exc)
+        if kind:  # the embedder failed: say so where the person looks, not only in a debug line
+            embedding_health.record(ctx.memory_path, getattr(indexer, "model_name", None), kind)
         return None
     return legs if any(legs.values()) else None
 

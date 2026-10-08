@@ -2175,6 +2175,11 @@ class HealthResponse(CamelModel):
     memory_root: str
     # True when any LEANN index sidecar (<name>.meta.json) exists on disk.
     leann_present: bool
+    # The model the active bank's index records (else the one a build would use), and the
+    # kind of its last unresolved embedding failure (``embedding_health.KINDS``) — enums
+    # only, never a message, so doctor can say why search fell back to words.
+    embedding_model: Optional[str] = None
+    embedding_problem: Optional[str] = None
 
 
 # --- Sleep ---

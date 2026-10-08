@@ -207,6 +207,17 @@ async def cancel_sleep():
     )
 
 
+def _remembered_embedding_problem(state, settings: Settings) -> str | None:
+    """After a restart the last cycle's warning is gone from memory; an embedder that was
+    failing still is (out of credits does not heal itself), so its sentence stands in."""
+    if state.status == "running":
+        return None
+    from api.services import embedding_health
+
+    problem = embedding_health.problem(settings.memory_path)
+    return embedding_health.sentence(problem["kind"]) if problem else None
+
+
 @router.get("/sleep/status", response_model=SleepStatusResponse)
 async def sleep_status(settings: Settings = Depends(get_settings)):
     state = get_sleep_state()
@@ -224,7 +235,7 @@ async def sleep_status(settings: Settings = Depends(get_settings)):
         started_at=state.started_at,
         progress=state.progress,
         error=state.error,
-        index_warning=state.index_warning,
+        index_warning=state.index_warning or _remembered_embedding_problem(state, settings),
         stage=state.stage,
         total_stages=state.total_stages,
         episodes_total=state.episodes_total,
