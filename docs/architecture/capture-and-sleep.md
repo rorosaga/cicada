@@ -272,7 +272,7 @@ then says the model wasn't shared.
 **Item provenance (G118 sections, 1a-i).** After extraction, Summary/description and
 Key Facts receive transient source-episode `reasoning` records over the full stored body
 hash. This adds no prompt instructions, quotes, retries or calls. Stage 2 carries metadata
-with the fields it actually selects. After G169, it follows the chosen effective Summary,
+with the fields it actually selects, from every same-name extraction in the batch (see *Entity promotion*). After G169, it follows the chosen effective Summary,
 its description copy, the fact union, and orientation text retained as facts; only exact
 selected text receives the original source record. Carry unions unique evidence rows per
 selected field/text, so repeated mentions cannot multiply identical records when Summary
@@ -434,6 +434,17 @@ name before it has a page is not lost (G141 PJ-0b): Stage 5.56 holds those claim
 `<bank>/pending_entities.jsonl` (`api/services/pending_store.py`: spans, not copies; at most 50 per name,
 the rest counted) and releases them onto the page, first and through Stage 3, in the cycle whose Stage 5
 gives the name one — a holding line leaves the store only then.
+
+**Every mention in a batch is credited (2026-10-08).** Several conversations in one batch can name an entity by the
+same lower-cased name. Stage 2 judges and promotes the name once, on its strongest extraction (first on a confidence
+tie). Every other extraction of that name is then folded into the resulting change, whether that is an update, an
+in-cycle create or a create made by promotion. The fold goes through the same `_merge_entity_payload` /
+`_append_change_source` seam the owner merge (G169) uses, so each conversation lands in `source_episodes`, its
+timestamp and day reach `last_referenced` and the Stage 3 prompts, and its facts, links, questions, aliases, tags,
+history, an unclaimed `website`/`decay_class` proposal and its G118 item records all survive. A name that stays
+pending parks one line carrying the merged history and tags; the line keeps the strongest mention's episode. Before
+this fix those extractions were dropped whole: a 25-conversation batch credited 1 episode. Claims and edges were never
+affected, because they are projected from every extraction's relationships through `name_to_id`.
 
 **The engine's own runtime is never a page.** The `claude -p` CLI still tells the model its cwd, platform and shell despite `--system-prompt` (probed 2.1.x; `--exclude-dynamic-system-prompt-sections` is ignored with it), so the extraction prompt says that is not conversation content and Stage 2 drops, with a text-free debug line, any entity named for `$CICADA_HOME` or a path under it (`agent_engine.is_runtime_path`; the scratch dir is one).
 
