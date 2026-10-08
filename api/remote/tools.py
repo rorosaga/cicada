@@ -66,7 +66,9 @@ REMOTE_TOOLS: dict[str, dict] = {t["name"]: t for t in (
           read_only=True),
     _tool("cicada_recall_detail",
           "Return one page of the person's memory in full, by id or by name.",
-          {"entity_id": {"type": "string", "description": "The page id or name, for example 'alpha-project'."}},
+          {"entity_id": {"type": "string", "description": "The page id or name, for example 'alpha-project'."},
+           "start": {"type": "integer", "description": "The first line to return. A long page comes in parts; each "
+                                                     "part names the next call. Omit for the beginning."}},
           ("entity_id",), read_only=True),
     _tool("cicada_get_perspective",
           "Return the facts currently believed about one subject — optionally only one observer's view "

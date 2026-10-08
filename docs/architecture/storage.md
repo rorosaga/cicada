@@ -195,6 +195,15 @@ sections with stored records report zero current items and unmatched-record coun
 Unknown/malformed schemas survive writes and fail closed on read.
 No backfill: absent, changed or uninstrumented prose stays unrecorded; git retains prior records.
 
+G194's opt-in orientation writer composes facts deterministically, retaining exact surviving
+guards and selected incoming fact records. Rephrased Summary and date-prefixed repair items
+are unrecorded. The prose-repair dry run preserves raw claims fences and unknown metadata in
+scratch candidates only; it has no bank apply phase (see `capture-and-sleep.md`).
+
+The bounded writer selects provenance from the actual surviving Summary/facts: an exact carried
+fact kept as Summary retains its source rows there, and a displaced orientation already retained
+as a fact gets no duplicate History copy. Normalization alone cannot certify changed text.
+
 The 150-bullet/80-episode plus Summary fixture measures **10,739 bytes / 238 YAML lines**;
 three spans per item and three revisions per episode measure **22,518 bytes / 398 lines**
 with the production emitter. Gates are 16 KiB primary, 32 KiB dense (no runtime link truncation).
@@ -756,8 +765,13 @@ MCP tool and every bank migration `run_bank_migrations` runs is classified (admi
 capture, registry, outside, sleep, banks, migration, none) with its reason, and the admitted ones are checked to take
 admission in their code.
 
-**Entity-level provenance uses `git blame`** enriched with parsed commit metadata; repo-level
-history uses `git log`. **No changelog in frontmatter** — git handles all history, zero storage
+**Entity-level history is one `git log` over the page** (`git_service.entity_history`, newest first, bounded
+by `MAX_PROVENANCE_COMMITS`): every commit that touched it, enriched with parsed commit metadata — the same commits
+the provenance strip counts. It replaced `git blame` plus one `git log -1` per surviving commit (1.0–1.7 s on a
+3,500–6,000-claim page, ~30 ms now; `benchmarks/scale`). Past the cap nothing the page still shows is lost:
+every commit whose lines survive (the creation row and its conversation) is added after the window from
+`git blame --incremental` and one batched `git log`, `EntityResponse.history_truncated` says older touches were
+left out, and `GET /entities/{id}/history?skip=N` reads them (review round 1). Repo-level history uses `git log`. **No changelog in frontmatter** — git handles all history, zero storage
 overhead, no growing fields.
 
 ---

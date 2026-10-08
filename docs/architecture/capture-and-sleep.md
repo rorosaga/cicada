@@ -269,6 +269,12 @@ then says the model wasn't shared.
 
 **Claim preservation (G148 regression):** Stage 5 rewrites prose with the stored `claims` fences removed from section parsing, then reattaches those fences unchanged. Rebuilding `Related` cannot remove beliefs before the claim pipeline reconciles them; synthesis output never authors a claims fence.
 
+**`Related` reads the edges once:** `apply_changes` builds each entity's edges from `graph_edges.yaml` on the first update that needs them and reuses them for every page that pass merges (nothing in the pass writes the file); every reader of that file uses `markdown_parser.load_yaml`, the libyaml safe loader. The file grows with the claims; on a 2,000-page synthetic bank one pure-Python read cost ~3.8 s and was paid once per merged entity (`benchmarks/scale`).
+
+**The claim write-back renders only changed pages:** `run_claim_pipeline` keeps each page's claims as read (by value — the reconciler edits claims in place) and skips the parse/render/write of every page whose reconciled claims equal them and that gains no episode credit; such a page still counts as written. On a 2,000-page synthetic bank ~1,940 of 2,006 renders per batch were byte-identical (8 s).
+
+**The question refresh reads only what it asks about:** Stage 5.56's `refresh_open_questions` (and its idle-cycle twin) gets `claim_pipeline.claims_on_demand`, which parses a subject's page the first time an open conflict question names it, instead of every page's claims (a full-bank pass a batch).
+
 **Item provenance (G118 sections, 1a-i).** After extraction, Summary/description and
 Key Facts receive transient source-episode `reasoning` records over the full stored body
 hash. This adds no prompt instructions, quotes, retries or calls. Stage 2 carries metadata
@@ -278,11 +284,72 @@ selected text receives the original source record. Carry unions unique evidence 
 selected field/text, so repeated mentions cannot multiply identical records when Summary
 and description share the same words. The pending-store limitation remains; earlier pending
 facts are not restored by provenance. Stage 5 records exact surviving items
-on create and fallback/human-safe updates. The B-update fixture retains A's Summary only
-when B supplies no new Summary (or one already contained); an appended Summary invalidates
-that one item's guard while A's facts keep their links.
+on create and fallback/human-safe updates. The B-update fixture keeps A's usable Summary
+and its exact guard; a distinct incoming orientation goes into explicitly undated History
+background when it is not already retained as a fact, without fabricated provenance. A's facts keep their links.
 
-Sleep synthesis retains exact old items by identity, without changing its prompt/return shape.
+**Summary growth (G194).** Deterministic create/update/dedup merges use one 600-Unicode-character,
+single-paragraph budget (`summary_policy`). An existing usable orientation stays exact;
+distinct incoming prose and displaced oversized/multi-paragraph prose are retained in History
+as `Undated background` unless the complete orientation is already retained as a Key Fact.
+Same-name batch carry (#241) therefore keeps one bounded Summary plus distinct carried facts,
+without a second History copy. Incoming facts matching the retained Summary are suppressed;
+existing facts/human prose are never removed for this purpose. Exact input evidence follows the
+surviving Summary or fact via `section_provenance.merge_selected`, without recertifying changed
+text. Multiline carried facts receive stable continuation indentation so later merges retain
+their complete content; a changed exact text guard is unrecorded, never recertified by normalization.
+Indented continuations survive later merges. No page-level
+date is assigned to that mixed context. An unusable machine orientation gets a complete conservative
+identity/unknown-role sentence, never character clipping. Stage-5 synthesis output is bounded too;
+this does not change the synthesis gate or add model calls. Human Summary is exempt and never
+extended or rewritten; incoming context is added outside it. Human flags and custom sections are
+honored by both entity merge and source rewrite. This is a structural floor, not semantic synthesis:
+short fragments/stale prose still need orientation and dated-prose repair.
+
+**Opt-in orientation synthesis (G194).** `CICADA_SUMMARY_SYNTHESIS_ENABLED` defaults to false.
+Off preserves the legacy description/history gate and its call count. On uses effective Summary
+(then description) and all incoming structured fields, skips human/custom pages before a call,
+and requests one bounded JSON Summary. Facts-only updates need one merge call; Summary/description
+updates also run the existing contradiction check. `entity_orientation` passes dated inputs and
+only structurally current claims (`claims.is_current`, excluding withdrawal records). Prose is
+labeled unverified background; old statements and intentions must name their own date, never a
+page-wide last-reference date. Input over 24,000 characters and invalid output take the deterministic
+fallback without a retry. Engine failures/cancellation retain the existing propagation contract.
+Composition changes only Summary and deterministically unions the complete non-Summary sections,
+even ones the model did not rewrite. Replaced orientation remains undated background. Exact carried
+facts retain or acquire exact G118 guards; a rephrased orientation remains unrecorded. The inbox
+caller shares this builder and retains its existing pre-call snapshot/write-time fence. The switch
+requires owner review of benchmark call counts; fake timing does not estimate provider latency.
+
+**Person-started prose repair, candidates only (G194 B).**
+`scripts/repair_entity_prose.py --bank <bank> --scratch <outside-bank-directory>` inventories
+up to 20 pages without model calls. Repeat `--entity-id` to select a stratified pilot;
+otherwise pages are sorted by id. `--generate` additionally requires explicit `--engine`,
+`--model`, `--max-calls` and `--token-budget`; it never selects a fallback engine. Each invocation
+reserves UTF-8 input bytes + 1,024 envelope tokens + requested output tokens, reports reservations
+(not measured charges), and caps calls. Output-token limits are passed to the provider; the
+engine-independent hard limit is calls. Resume caps apply per invocation; review total spend
+across invocations in the preserved `run-<id>.json` manifests. Each call reservation is checkpointed
+before generation. Configuration/bootstrap lives in scratch, with `.env` disabled.
+The tool rejects overlapping paths and symlinks, reads a clean existing bank, and writes only
+0700 scratch directories / 0600 candidate JSON and a manifest. It never scaffolds, indexes,
+commits or applies a bank change. `source_rewrite.generate_prose_candidates` shares the same
+orientation builder; the older automatic source-rewrite writer remains a separate entry point.
+
+Human/custom/unreadable/corrupt pages, missing linked episodes and context over 24,000 characters
+are deferred before calls. All known page/claim source episodes are dated separately and read in
+full; no oldest-first clipping silently excludes recent evidence. The tool cannot recover source
+credit already lost by earlier writers. Candidate edits may only prefix a unique existing fact
+or history item with an absolute date from a named source containing the exact original wording.
+Other wording and all raw claim fences survive. Changed prose loses its exact G118 guard;
+unknown metadata is preserved without certification. Page/source hashes are checked again after
+generation, and dirty/changed inputs are deferred. Cached output requires matching input, engine,
+prompt-version and candidate hashes. Invalid output uses no retry; engine failure checkpoints
+earlier candidates and stops. Only manifest entries marked `candidate` or `cached` are eligible
+for review; older scratch files may be stale. There is no apply API/flag. The owner-bank pilot,
+semantic grounding/readability review and any checked apply are orchestrator work after the drain.
+
+Legacy Sleep synthesis retains exact old items by identity, without changing its prompt/return shape.
 Rephrased items become unrecorded; incoming facts not supplied to synthesis cannot gain links.
 All refreshes share the existing atomic page write, locks and commit/rollback boundary.
 Any open code fence can hide sections from the original or final body: refresh preserves

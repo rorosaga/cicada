@@ -789,59 +789,73 @@ async def get_entity_history(
     memory_path: Path,
     *,
     include_diff: bool = False,
+    skip: int = 0,
 ) -> list[EntityHistoryEntry]:
-    """Build entity history from git blame — field-level provenance grouped by commit.
+    """:func:`entity_history`'s rows, for a caller that serves the plain list."""
+    rows, _ = await entity_history(entity_id, memory_path, include_diff=include_diff, skip=skip)
+    return rows
 
-    Each entry carries the authoring agent (from the commit's ``Cicada-Author:``
-    trailer; "unknown" when absent) and the commit hash. When ``include_diff`` is
-    set, each entry also carries the per-commit add/remove diff for this entity
-    file (opt-in so the default response stays small — backlog A1).
+
+_HISTORY_FORMAT = "--format=%x1e%H%x1f%ad%x1f%s%x1f%b"
+_BLAME_HEADER = re.compile(r"^([0-9a-f]{40}) \d+ \d+ \d+$", re.MULTILINE)
+
+
+async def entity_history(
+    entity_id: str,
+    memory_path: Path,
+    *,
+    include_diff: bool = False,
+    skip: int = 0,
+) -> tuple[list[EntityHistoryEntry], bool]:
+    """``(rows, truncated)``: every commit that touched ``entities/<entity_id>.md``, newest first, with field-level
+    provenance, and whether older touching commits were left out.
+
+    ONE ``git log`` over the path, at most :data:`MAX_PROVENANCE_COMMITS` rows after ``skip`` — the rule
+    ``entity_commit_authors`` serves the provenance strip, so the History tab and "N changes by" count the same
+    commits. It replaced ``git blame`` plus one ``git log -1`` per surviving commit: 1.0 s on a 3,500-claim page, 1.7 s
+    at 6,000, against ~30 ms (benchmarks/scale). Past the cap (review round 1) nothing the page still shows is lost:
+    every commit whose lines survive — the creation row and its conversation, say — is added after the window from
+    ``git blame --incremental`` and one batched ``git log``, and ``truncated`` says older touches were left out; they
+    are reachable with ``skip``. Each entry carries the authoring agent (from the commit's ``Cicada-Author:`` trailer;
+    "unknown" when absent) and the commit hash; ``include_diff`` adds the per-commit diff for this file (opt-in so the
+    default response stays small — backlog A1).
     """
     entity_file = f"entities/{entity_id}.md"
     entity_path = memory_path / entity_file
 
     if not entity_path.exists():
-        return []
+        return [], False
 
-    # git blame with porcelain format for structured parsing
+    limit = MAX_PROVENANCE_COMMITS
     try:
-        blame_output = await _run_git(
-            memory_path, "blame", "--porcelain", entity_file
+        log_output = await _run_git(
+            memory_path, "log", f"-n{limit + 1}", f"--skip={max(0, int(skip))}",
+            _HISTORY_FORMAT, "--date=short", "--", entity_file,
         )
     except GitError:
-        return []
-
-    # Extract unique commit hashes from blame output
-    commit_hashes: list[str] = []
-    seen: set[str] = set()
-    for line in blame_output.splitlines():
-        match = re.match(r"^([0-9a-f]{40})\s", line)
-        if match:
-            h = match.group(1)
-            if h not in seen and not h.startswith("0000000"):
-                seen.add(h)
-                commit_hashes.append(h)
-
-    # For each unique commit, get date + structured message
-    entries: list[EntityHistoryEntry] = []
-    for commit_hash in commit_hashes:
+        return [], False
+    records = log_output.split("\x1e")[1:]
+    truncated = len(records) > limit
+    records = records[:limit]
+    if truncated and not skip:
+        shown = {r.split("\x1f", 1)[0].strip() for r in records}
         try:
-            log_output = await _run_git(
-                memory_path,
-                "log", "-1", f"--format=%ad|%s|%b", "--date=short", commit_hash,
-            )
+            blame = await _run_git(memory_path, "blame", "--incremental", "--", entity_file)
+            survivors = [h for h in dict.fromkeys(_BLAME_HEADER.findall(blame))
+                         if h not in shown and not h.startswith("0000000")]
+            if survivors:
+                older = await _run_git(memory_path, "log", "--no-walk=sorted", _HISTORY_FORMAT, "--date=short",
+                                       *survivors, "--")
+                records += older.split("\x1e")[1:]
         except GitError:
+            pass   # the window still stands; `truncated` already says it is partial
+
+    entries: list[EntityHistoryEntry] = []
+    for record in records:
+        parts = record.split("\x1f", 3)
+        if len(parts) < 4:
             continue
-
-        line = log_output.strip()
-        if not line:
-            continue
-
-        parts = line.split("|", 2)
-        date = parts[0] if len(parts) > 0 else ""
-        subject = parts[1] if len(parts) > 1 else ""
-        body = parts[2] if len(parts) > 2 else ""
-
+        commit_hash, date, subject, body = parts[0].strip(), parts[1].strip(), parts[2], parts[3].rstrip("\n")
         change_type = _infer_change_type(subject, body, entity_id)
         description = _build_description(subject, body, entity_id)
         authors = _parse_authors(body)
@@ -875,7 +889,7 @@ async def get_entity_history(
             sessions=sessions,
         ))
 
-    return entries
+    return entries, truncated
 
 
 # G118 slice 2 (R-PB6): enough history for "N changes by <author>" on the

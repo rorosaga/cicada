@@ -395,7 +395,10 @@ def cmd_get(boot: Boot, args) -> Result:
 
     ctx = _tool_context(boot)
     start, count = args.__dict__.get("from"), args.count
-    reply = mcp_tools.recall_detail(ctx, args.entity_id)
+    numbered = bool(getattr(args, "line_numbers", False))
+    # A bounded read slices the whole page; an unbounded one is the tool's own reply (F5: an over-budget fence elided).
+    reply = mcp_tools.recall_detail(ctx, args.entity_id, start=getattr(args, "start", None),
+                                    whole=start is not None or count is not None or numbered)
     if getattr(reply, "code", None) == "not_found" and (m := _RANGE.match(args.entity_id)):
         if start is not None or count is not None:
             raise UsageError("give the line range once: ENTITY:START[:END] or --from/--count")
@@ -407,10 +410,9 @@ def cmd_get(boot: Boot, args) -> Result:
             count = end - start + 1
         if start < 1:
             raise UsageError("lines are numbered from 1")
-        reply = mcp_tools.recall_detail(ctx, m.group("base"))
+        reply = mcp_tools.recall_detail(ctx, m.group("base"), whole=True)
     if getattr(reply, "code", None) in REFUSAL_CODES:
         return _typed(reply, warnings=_root_warnings(boot))
-    numbered = bool(getattr(args, "line_numbers", False))
     if start is None and count is None and not numbered:
         total = len(str(reply).splitlines())                # the whole page, byte for byte
         return Result(text=str(reply), data={**(reply.data or {}), "from": 1, "count": total, "total_lines": total},

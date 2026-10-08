@@ -19,6 +19,8 @@ from __future__ import annotations
 
 import re
 
+from api.services import summary_policy
+
 CANONICAL_SECTIONS = [
     "Summary",
     "Key Facts",
@@ -103,15 +105,53 @@ def render_sections(sections: dict[str, str]) -> str:
 
 
 def _bullet_lines(content: str) -> list[str]:
-    """Return the bullet lines (``- ...``) of a section body, text only."""
+    """Top-level bullet items, including their indented continuations."""
     lines: list[str] = []
+    indent = 0
     for raw in (content or "").splitlines():
         stripped = raw.strip()
-        if stripped.startswith("- "):
+        depth = len(raw) - len(raw.lstrip())
+        if lines and depth > indent:
+            lines[-1] += '\n' + raw
+        elif stripped.startswith(("- ", "* ")):
+            indent = depth
             lines.append(stripped[2:].strip())
-        elif stripped.startswith("* "):
-            lines.append(stripped[2:].strip())
+        elif lines and not stripped:
+            lines[-1] += '\n'
+    lines = [line.rstrip() for line in lines]
     return lines
+
+
+def has_human_prose(frontmatter: dict, sections: dict[str, str]) -> bool:
+    return bool(frontmatter.get('human_edited')) or any(
+        title and title not in CANONICAL_SECTIONS for title in sections)
+
+
+def _background(sections: dict[str, str], text: str) -> None:
+    # Never assign one page-level date to a paragraph assembled across episodes.
+    text = (text or '').strip()
+    # Stage 2 can already have retained this orientation as a Key Fact. Keep
+    # that exact item and its guard; never add a second History copy.
+    fact_keys = {_normalize_fact(item) for item in _bullet_lines(sections.get('Key Facts', ''))}
+    if text and _normalize_fact(text) not in fact_keys:
+        event = 'Undated background: ' + text.replace('\n', '\n  ')
+        sections['History'] = _merge_history_bullets(sections.get('History', ''), [{'event': event}])
+
+
+def bound_summary(sections: dict[str, str], *, previous: str = '', name: str = '',
+                  entity_type: str = '') -> dict[str, str]:
+    """Bound generated/legacy machine prose, retaining displaced text in History."""
+    sections = dict(sections)
+    lead = sections.pop('', '').strip()
+    candidate = sections.get('Summary', '').strip()
+    candidate = '\n\n'.join(part for part in (lead, candidate) if part)
+    if summary_policy.usable(candidate):
+        sections['Summary'] = candidate
+    else:
+        sections['Summary'] = previous if summary_policy.usable(previous) else summary_policy.fallback(
+            name=name, entity_type=entity_type)
+        _background(sections, candidate)
+    return sections
 
 
 def _normalize_fact(text: str) -> str:
@@ -122,7 +162,17 @@ def _normalize_fact(text: str) -> str:
 
 
 def _bullets_block(items: list[str]) -> str:
-    return "\n".join(f"- {it}" for it in items if it.strip())
+    # A carried orientation can have several lines/paragraphs. Indent fresh
+    # continuation lines so the next union/read treats the complete text as
+    # one item. Existing indentation is stable across repeated merges.
+    blocks = []
+    for item in items:
+        if not item.strip():
+            continue
+        lines = item.split('\n')
+        lines[1:] = [line if not line or line[:1].isspace() else '  ' + line for line in lines[1:]]
+        blocks.append('- ' + '\n'.join(lines))
+    return '\n'.join(blocks)
 
 
 def _history_sort_key(line: str):
@@ -224,6 +274,7 @@ def compose_body_v2(
     related: list[tuple[str, str]],
     links: list[dict],
     open_questions: list[str],
+    *, name: str = '', entity_type: str = '',
 ) -> str:
     """Build a fresh v2 body from extracted fields (Stage-1 create path)."""
     sections: dict[str, str] = {}
@@ -251,15 +302,24 @@ def compose_body_v2(
     if oq:
         sections["Open Questions"] = oq
 
+    if summary:
+        sections = bound_summary(sections, name=name, entity_type=entity_type)
+        facts = _bullet_lines(sections.get('Key Facts', ''))
+        facts = [item for item in facts if _normalize_fact(item) != _normalize_fact(sections['Summary'])]
+        if facts:
+            sections['Key Facts'] = _bullets_block(facts)
+        else:
+            sections.pop('Key Facts', None)
     return render_sections(sections)
 
 
-def merge_sections_fallback(existing: dict[str, str], new_fields: dict) -> dict[str, str]:
+def merge_sections_fallback(existing: dict[str, str], new_fields: dict, *,
+                            human_edited: bool = False) -> dict[str, str]:
     """Non-LLM section-aware merge used when synthesis is unavailable.
 
     Union Key Facts / Links / Open Questions, append+dedupe History, keep the
-    existing Summary if no new summary is supplied (else integrate by
-    appending a sentence rather than replacing). Never raw-appends a blob.
+    existing usable Summary. Distinct orientations are retained as explicitly
+    undated background, never concatenated. Human Summary is exempt and exact.
 
     ``new_fields`` keys (all optional): ``summary``, ``key_facts``,
     ``history_entries``, ``links``, ``open_questions``.
@@ -267,15 +327,21 @@ def merge_sections_fallback(existing: dict[str, str], new_fields: dict) -> dict[
     merged = dict(existing or {})
 
     new_summary = str(new_fields.get("summary", "") or "").strip()
-    if new_summary:
-        old_summary = (merged.get("Summary", "") or "").strip()
-        if not old_summary:
-            merged["Summary"] = new_summary
-        elif _normalize_fact(new_summary) not in _normalize_fact(old_summary):
-            # Append as a follow-on sentence — no raw paragraph stacking.
-            merged["Summary"] = (old_summary.rstrip() + " " + new_summary).strip()
-
+    old_summary = merged.get('Summary', '')
+    if not human_edited:
+        if summary_policy.usable(old_summary):
+            merged['Summary'] = old_summary
+        elif summary_policy.usable(new_summary):
+            merged['Summary'] = new_summary
+        elif old_summary or new_summary:
+            merged['Summary'] = summary_policy.fallback(
+                name=str(new_fields.get('name') or ''), entity_type=str(new_fields.get('type') or ''))
     new_facts = list(new_fields.get("key_facts", []) or [])
+    # Existing prose (including human facts) remains untouched. Only suppress
+    # an incoming copy of the retained orientation; its source row can follow
+    # the exact Summary through the writer's selected-input mapping.
+    new_facts = [item for item in new_facts
+                 if _normalize_fact(str(item)) != _normalize_fact(merged.get('Summary', ''))]
     if new_facts or merged.get("Key Facts"):
         facts = _merge_facts(merged.get("Key Facts", ""), new_facts)
         if facts:
@@ -299,6 +365,12 @@ def merge_sections_fallback(existing: dict[str, str], new_fields: dict) -> dict[
         if oq:
             merged["Open Questions"] = oq
 
+    # Do this after fact union so same-name carry from Stage 2 takes precedence
+    # over introducing an unrecorded History duplicate.
+    for text in (old_summary, new_summary):
+        if text and _normalize_fact(text) not in _normalize_fact(merged.get('Summary', '')):
+            _background(merged, text)
+
     return merged
 
 
@@ -309,13 +381,13 @@ def merge_sections_human_safe(
 
     On an agent-only page (``human_edited=False``) this is the normal
     :func:`merge_sections_fallback` (union Key Facts / Links / Open Questions,
-    additive Summary, dedupe History).
+    bounded Summary, dedupe History).
 
     On a **human-edited** page (``human_edited=True`` — the frontmatter carries
     ``human_edited: true``, or the page has non-canonical hand-added headings) the
     merge is **additive only**: every existing section (canonical or not) is
-    preserved verbatim, and the agent may only ADD a deduped bullet / append a
-    follow-on Summary sentence — it may never replace or drop an existing line.
+    preserved, with Summary exact. Incoming orientation goes into History; it
+    may never replace or extend the person's Summary.
     This is the prose-level mirror of the Stage-3 ``COEXIST_FLAG`` rule (an agent
     may not regenerate-away human prose any more than it may close a human claim).
     """
@@ -331,7 +403,7 @@ def merge_sections_human_safe(
         if title not in CANONICAL_SECTIONS and title != ""
     }
 
-    merged = merge_sections_fallback(existing, new_fields)
+    merged = merge_sections_fallback(existing, new_fields, human_edited=True)
 
     # Re-assert the human sections verbatim — they are never rewritten.
     for title, content in human_sections.items():

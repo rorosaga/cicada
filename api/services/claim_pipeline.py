@@ -248,6 +248,32 @@ def _load_existing_claims_by_subject(memory_path: Path) -> dict[str, list[Claim]
     return by_subject
 
 
+class _ClaimsOnDemand:
+    """``{subject_id: [Claim]}`` read page by page on first ask — the same parse as
+    :func:`_load_existing_claims_by_subject` for the one page asked about. For a reader that looks up a few subjects
+    (Stage 5.56's question refresh) instead of every page in the bank (F7, benchmarks/scale)."""
+
+    def __init__(self, memory_path: Path):
+        self._dir = Path(memory_path) / "entities"
+        self._read: dict[str, list[Claim]] = {}
+
+    def get(self, subject, default=None):
+        subject = str(subject or "")
+        if subject not in self._read:
+            path = self._dir / f"{subject}.md"
+            if not subject or "/" in subject or "\\" in subject or subject.startswith(".") or not path.is_file():
+                return default
+            try:
+                self._read[subject] = parse_claims(markdown_parser.parse(path).body)
+            except Exception:
+                return default
+        return self._read[subject]
+
+
+def claims_on_demand(memory_path: Path) -> _ClaimsOnDemand:
+    return _ClaimsOnDemand(memory_path)
+
+
 def _relabel_event_labels(claims: list[Claim]) -> tuple[list[Claim], int]:
     """R-PJB12: a Stage-1 relationship labelled like an event predicate becomes
     `relates-to` — only progress.py writes events (G141 §5.1), and a projected
@@ -327,6 +353,9 @@ def run_claim_pipeline(
     # would have had it existed when they were heard (R-HP6): a newer
     # single-valued claim supersedes them, where the other order would ask.
     existing_by_subject = _load_existing_claims_by_subject(memory_path)
+    # What each page holds now, by value: the reconciler edits claims in place (decay, supersede), so the write-back
+    # compares against this to render only the pages that changed (F6, benchmarks/scale).
+    as_read = {subject: [c.to_dict() for c in claims] for subject, claims in existing_by_subject.items()}
     releases, released, credit = _releases(memory_path, name_to_id, existing_by_subject)
     incoming = released + incoming
     # G61 S1 reads this as "newly written by this pass" — true of a released claim too (R-HP8).
@@ -375,6 +404,12 @@ def run_claim_pipeline(
             page_less_subjects.append(subject)
             page_less_claim_ids.extend(c.id for c in claims)
             page_less_offers[subject] = claims
+            continue
+        if not credit.get(subject) and [c.to_dict() for c in claims] == as_read.get(subject):
+            # Nothing to write: the fence would re-render to the bytes already on disk. Counted as before.
+            subjects_written += 1
+            written_subjects.append(subject)
+            claims_written += len(claims)
             continue
         try:
             parsed = markdown_parser.parse(filepath)

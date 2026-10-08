@@ -119,15 +119,18 @@ def test_a_create_b_fact_only_update_keeps_a_summary_precondition(tmp_path, huma
     assert {ev.episode for _, evs in matched['key_facts'].values() for ev in evs} == {A, B}
 
 
-def test_b_new_summary_invalidates_only_summary_while_a_facts_stay(tmp_path):
+def test_b_new_summary_keeps_a_orientation_and_guards_while_retaining_b_background(tmp_path):
     cr.apply_changes([{'id': 'alpha-project', 'action': 'create', 'entity': entity()}], tmp_path)
     cr.apply_changes([{'id': 'alpha-project', 'action': 'update', 'entity': entity('Different Summary.', ['New fact.'], ep=B)}], tmp_path)
     p = page(tmp_path)
     assert 'Different Summary.' in p.body
-    assert not links(p).get('summary')
+    assert len(links(p)['summary']) == 1
+    assert {ev.episode for _, evs in links(p)['summary'].values() for ev in evs} == {A}
     assert len(links(p)['key_facts']) == 2
-    summary, facts = provenance.entity_provenance(tmp_path, tmp_path / 'entities' / 'alpha-project.md').sections
-    assert summary.recorded_items == summary.reasoning_count == 0
+    sections = provenance.entity_provenance(tmp_path, tmp_path / 'entities' / 'alpha-project.md').sections
+    summary, facts = sections[:2]
+    assert sections[2].recorded_items == 0  # No guard is invented for prefixed background.
+    assert summary.recorded_items == summary.reasoning_count == 1
     assert facts.recorded_items == facts.reasoning_count == 2
 
 

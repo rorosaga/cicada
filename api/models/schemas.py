@@ -510,6 +510,9 @@ class EntityResponse(CamelModel):
     raw_markdown: str = ""
     raw_omitted: bool = False
     history: list[EntityHistoryEntry]
+    # Review round 1: more touching commits than `MAX_PROVENANCE_COMMITS` — `history` is the newest ones plus every
+    # commit whose lines survive; the rest via `GET /entities/{id}/history?skip=N`. Additive (an older client ignores it).
+    history_truncated: bool = False
     # Structured media metadata for ``type: media`` entities (G11); ``None`` for
     # every other entity. Populated from the nested ``media:`` frontmatter block.
     media: Optional[EntityMedia] = None
