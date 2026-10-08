@@ -46,8 +46,8 @@ struct EntityDetailCard: View {
     // keys; the perspective tab filters to valid claims itself.
     @State private var claims: [Claim] = []
     @State private var claimsLoaded = false
-    /// F4 — the verbatim file, fetched for Source or Copy when the card's payload left it out (`rawOmitted`).
-    @State private var fetchedRaw: String?
+    /// F4 — the verbatim file, fetched for Source or Copy when the card's payload withheld its fence (`rawOmitted`).
+    @State private var rawFile = RawFileLoader()
     /// What every tab shows from `claims`, derived once per load off the main actor (`ClaimDigest`).
     @State private var digest = ClaimDigest.empty
     /// R-DG23 — the Timeline tab's open rows, and the one a belief's clock asked for.
@@ -283,7 +283,7 @@ struct EntityDetailCard: View {
             commitDiffs = [:]
             loadingCommits = []
             diffErrors = []
-            fetchedRaw = nil
+            rawFile = RawFileLoader()
             // The page and its sources at once: the full page used to wait for `/sources` before it was asked for.
             async let sourcesFetch = APIClient.shared.fetchEntitySources(entityId: entity.id)
             // §5.7 — the card opened on the graph-node stub, whose `markdownContent` is the server's short `summary`
@@ -652,12 +652,23 @@ struct EntityDetailCard: View {
         // Prefer the verbatim file from the API (transparency: this is the
         // exact markdown on disk, frontmatter included). The reconstruction
         // below only covers placeholder entities that haven't fully loaded.
-        if entity.rawOmitted, fetchedRaw == nil {
-            ProgressView().controlSize(.small)
+        if entity.rawOmitted, rawFile.text == nil {
+            if rawFile.failed {
+                // Review r1 #5: a failed read is said, never replaced by a reconstruction shown as the file.
+                HStack(spacing: CicadaTheme.spacingSM) {
+                    Text(Copy.Graph.sourceUnavailable)
+                        .font(CicadaTheme.metaFont)
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                    NeutralButton(title: Copy.Graph.retry) { Task { await loadRaw() } }
+                }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .task(id: entity.id) { await loadRaw() }
+            } else {
+                ProgressView().controlSize(.small)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .task(id: entity.id) { await loadRaw() }
+            }
         } else {
-            let shown = SourceText.shown(fetchedRaw ?? (entity.rawMarkdown.isEmpty ? buildFullMarkdown() : entity.rawMarkdown))
+            let shown = SourceText.shown(RawFile.verbatim(entity, fetched: rawFile.text) ?? buildFullMarkdown())
             VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                 Text(shown.text)
                     .font(CicadaTheme.monoFont)
@@ -677,21 +688,24 @@ struct EntityDetailCard: View {
         }
     }
 
-    /// F4 — the file the payload withheld, once per card.
+    /// F4 — the file the payload withheld, once per card; a failure stays a failure (Retry asks again).
     private func loadRaw() async {
-        guard entity.rawOmitted, fetchedRaw == nil else { return }
-        let id = entity.id
-        let raw = try? await APIClient.shared.fetchEntityRaw(id: id)
-        guard !Task.isCancelled, id == entity.id else { return }
-        fetchedRaw = raw ?? buildFullMarkdown()
+        guard entity.rawOmitted else { return }
+        await rawFile.load(entity.id) { try await APIClient.shared.fetchEntityRaw(id: $0) }
     }
 
-    /// Copy takes the whole file, fetching it first when the payload withheld it.
+    /// Copy takes the whole file. For a withheld file that is the fetched one or nothing — never a reconstruction,
+    /// which would drop the claims fence and every frontmatter key it does not know (review r1 #5).
     private func copyMarkdown() {
-        guard entity.rawOmitted, fetchedRaw == nil else { return AppPasteboard.copy(fetchedRaw ?? buildFullMarkdown()) }
+        if let text = RawFile.verbatim(entity, fetched: rawFile.text) { return AppPasteboard.copy(text) }
+        guard entity.rawOmitted else { return AppPasteboard.copy(buildFullMarkdown()) }
         Task {
             await loadRaw()
-            AppPasteboard.copy(fetchedRaw ?? buildFullMarkdown())
+            if let text = RawFile.verbatim(entity, fetched: rawFile.text) {
+                AppPasteboard.copy(text)
+            } else {
+                store.toast = Copy.Graph.copyFailed
+            }
         }
     }
 

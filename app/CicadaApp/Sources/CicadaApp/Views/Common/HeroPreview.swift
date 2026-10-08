@@ -374,7 +374,7 @@ private struct CompactSiteHero: View {
 // `.location`). Results are cached in-memory per entity id (`resolveCache`)
 // so re-renders (tab switches, scroll, parent re-layout) never re-geocode.
 
-private struct LocationHero: View {
+struct LocationHero: View {
     let entity: Entity
 
     @State private var coordinate: CLLocationCoordinate2D?
@@ -490,7 +490,7 @@ private struct LocationHero: View {
     /// a nested block. No backend support for these keys exists today — this
     /// only pays off if frontmatter is hand-edited or a future backend adds
     /// them — so it degrades to `nil` (→ geocoding) whenever absent.
-    private static func declaredCoordinate(from raw: String) -> CLLocationCoordinate2D? {
+    static func declaredCoordinate(from raw: String) -> CLLocationCoordinate2D? {
         guard !raw.isEmpty else { return nil }
         let lines = raw.components(separatedBy: "\n")
         var fmLines: [String] = []

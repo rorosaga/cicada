@@ -552,6 +552,38 @@ def strip_claims_block(body: str) -> str:
     return _CLAIMS_BLOCK_RE.sub("", body or "").strip()
 
 
+def claims_block_start(text: str) -> int | None:
+    """Where the first closed ```claims fence starts in ``text``, or ``None``."""
+    m = _CLAIMS_BLOCK_RE.search(text or "")
+    return m.start() if m else None
+
+
+def served_prose(body: str):
+    """``strip_claims_block(body)`` and the map from an offset in ``body`` to the same character in it (F4).
+
+    ``GET /entities/{id}`` serves the stripped prose, so whatever describes positions in "the page body" for a client
+    (`/provenance`'s ``pageBodyHash`` and section ``bodyRanges``) must describe that text: one rule, here. The map
+    returns ``None`` for an offset inside a removed fence; an offset at a fence's edge maps to where the fence was.
+    """
+    body = body or ""
+    removed = [m.span() for m in _CLAIMS_BLOCK_RE.finditer(body)]
+    joined = _CLAIMS_BLOCK_RE.sub("", body)
+    lead = len(joined) - len(joined.lstrip())
+    served = joined.strip()
+
+    def to_served(offset: int) -> int | None:
+        shift = 0
+        for start, end in removed:
+            if offset <= start:
+                break
+            if offset < end:
+                return None
+            shift += end - start
+        return min(max(offset - shift - lead, 0), len(served))
+
+    return served, to_served
+
+
 def preserve_claims_blocks(original: str, rewritten: str) -> str:
     """Reattach the authoritative fences unchanged after a prose-only rewrite.
 

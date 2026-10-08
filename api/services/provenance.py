@@ -65,7 +65,7 @@ from api.services import (
     turn_authorship,
     video_state,
 )
-from api.services.claims import Claim, Evidence, is_current, is_event, is_record, parse_claims
+from api.services.claims import Claim, Evidence, is_current, is_event, is_record, parse_claims, served_prose
 from api.services.id_utils import resolve_entity_file
 
 # The Reader's cap (R-PB5). A Stop-hook episode is already capped at 100,000
@@ -459,7 +459,9 @@ def entity_provenance(
         pname = str((pdoc[0] if pdoc else {}).get("name") or doc_id)
         pages.append(ProvenancePage(entity_id=doc_id, name=pname, claim_count=len(claim_ids)))
 
-    sections, sections_partial = _sections(parsed, docs, shown)
+    # F4: `/entities` serves the prose without the claims fence; the hash and the section ranges describe that text.
+    served, to_served = served_prose(parsed.body)
+    sections, sections_partial = _sections(parsed, docs, shown, to_served)
     return EntityProvenance(
         entity_id=entity_id,
         entity_name=name,
@@ -475,7 +477,7 @@ def entity_provenance(
         first_conversation=first.model_copy(update={"best": None}) if first else None,
         last_conversation=last.model_copy(update={"best": None}) if last else None,
         commits_truncated=commits_truncated,
-        page_body_hash=evidence.body_hash(parsed.body),
+        page_body_hash=evidence.body_hash(served),
         sections=sections,
         sections_partial=sections_partial,
     )
@@ -532,7 +534,8 @@ def _section_evidence(ev: Evidence, docs: _Episodes, allowed: set[str]) -> Secti
     return row
 
 
-def _sections(parsed, docs: _Episodes, shown: list[ProvenanceConversation]) -> tuple[list[SectionProvenance], bool]:
+def _sections(parsed, docs: _Episodes, shown: list[ProvenanceConversation],
+              to_served=lambda offset: offset) -> tuple[list[SectionProvenance], bool]:
     sp = section_provenance
     raw = parsed.frontmatter.get(sp.FIELD)
     records = sp.decode(raw)
@@ -561,7 +564,7 @@ def _sections(parsed, docs: _Episodes, shown: list[ProvenanceConversation]) -> t
         for item in items:
             evs = links.get(item.key, ('', []))[1] if not item.ambiguous else []
             row = SectionProvenanceItem(identity=f'{key}:{item.key}:{item.text_hash}:{item.ranges[0][0]}', text=item.text,
-                body_ranges=[list(pair) for pair in item.ranges], ambiguous=item.ambiguous,
+                body_ranges=_served_ranges(item.ranges, to_served), ambiguous=item.ambiguous,
                 evidence=[_section_evidence(ev, docs, allowed) for ev in evs])
             size = len(row.model_dump_json(by_alias=True).encode('utf-8'))
             if used + size > MAX_SECTION_RESPONSE_BYTES:
@@ -571,6 +574,16 @@ def _sections(parsed, docs: _Episodes, shown: list[ProvenanceConversation]) -> t
             section.items.append(row)
         sections.append(section)
     return sections, partial
+
+
+def _served_ranges(ranges, to_served) -> list[list[int]]:
+    """An item's ranges in the served prose; a range inside a removed fence (never prose) is dropped."""
+    out = []
+    for start, end in ranges:
+        a, b = to_served(start), to_served(end)
+        if a is not None and b is not None and b > a:
+            out.append([a, b])
+    return out
 
 
 # The most entity pages one citations call parses (R-PB10). A page is parsed

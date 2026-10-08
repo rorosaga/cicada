@@ -54,7 +54,7 @@ from api.services import (
     telemetry,
     write_admission,
 )
-from api.services.claims import strip_claims_block
+from api.services.claims import claims_block_start, strip_claims_block
 from api.services.hub_builder import _one_line_summary
 from api.services.id_utils import build_name_index, resolve_entity_id
 from api.services.wikilink_resolver import extract_wikilinks
@@ -62,8 +62,8 @@ from api.services.sleep_refusal import SleepWriting
 
 router = APIRouter()
 
-#: F4 — a page larger than this is not inlined in ``GET /entities/{id}``'s ``raw_markdown``; the Source view asks
-#: ``GET /entities/{id}/raw`` for it. Every page but an owner-sized one is far below it (the largest others measured
+#: F4 — above this a page's ``raw_markdown`` stops at its first claims fence (``raw_omitted``); the Source view and
+#: Copy ask ``GET /entities/{id}/raw`` for the whole file. Every page but an owner-sized one is far below it (the largest others measured
 #: ~70 KB); the owner's is ~2.6 MB, 96% of it the claims fence the card already reads from ``/claims``.
 RAW_INLINE_MAX_BYTES = 256 * 1024
 
@@ -102,7 +102,12 @@ async def get_entity(
     page_stat = entity_path.stat()
     picture, picture_inputs = entity_picture.resolve_page(
         settings.memory_path, entity_id, fm, parsed.body, page_mtime=page_stat.st_mtime)
-    raw_omitted = page_stat.st_size > RAW_INLINE_MAX_BYTES
+    raw = entity_path.read_text(encoding="utf-8")
+    raw_omitted = False
+    if page_stat.st_size > RAW_INLINE_MAX_BYTES and (fence := claims_block_start(raw)) is not None:
+        # Review r1 #4: withhold only the fence. The frontmatter and prose stay verbatim, so every frontmatter reader
+        # (a location's declared lat/lon, a media block) keeps its input; Source and Copy read `/raw` for the rest.
+        raw, raw_omitted = raw[:fence], True
 
     return EntityResponse(
         id=entity_id,
@@ -121,7 +126,7 @@ async def get_entity(
         # F4: prose only — the fence is machine data the card reads from `/claims`, and on the owner's page it was
         # 2.5 MB shipped twice per open.
         markdown_content=strip_claims_block(parsed.body),
-        raw_markdown="" if raw_omitted else entity_path.read_text(encoding="utf-8"),
+        raw_markdown=raw,
         raw_omitted=raw_omitted,
         history=history,
         media=_build_media_block(fm, parsed.body),

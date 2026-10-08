@@ -88,6 +88,39 @@ enum EntityProse {
     }
 }
 
+/// F4 — the page file verbatim, when the card has it: the inline `rawMarkdown`, or for a page whose fence the payload
+/// withheld (`rawOmitted`, where `rawMarkdown` stops at the fence) only the file fetched from `/raw`. Nil means "not in
+/// hand" — a caller never substitutes a reconstruction for a withheld file.
+enum RawFile {
+    static func verbatim(_ entity: Entity, fetched: String?) -> String? {
+        if entity.rawOmitted { return fetched }
+        return entity.rawMarkdown.isEmpty ? nil : entity.rawMarkdown
+    }
+}
+
+/// F4 — reads `/entities/{id}/raw` for one card. `text` only ever holds a successful read; a failure sets `failed`
+/// and leaves `text` nil, so the next attempt asks again.
+@MainActor @Observable
+final class RawFileLoader {
+    private(set) var text: String?
+    private(set) var failed = false
+    private var loading = false
+
+    func load(_ id: String, fetch: (String) async throws -> String) async {
+        guard text == nil, !loading else { return }
+        loading = true
+        failed = false
+        defer { loading = false }
+        do {
+            let raw = try await fetch(id)
+            guard !Task.isCancelled else { return }
+            text = raw
+        } catch {
+            if !Task.isCancelled { failed = true }
+        }
+    }
+}
+
 /// F4 — what the Source view draws. A page small enough is drawn whole; a larger one (an owner-sized page, ~2.6 MB, nearly
 /// all of it claims fence) is drawn verbatim up to its first claims fence, with the rest's size in words — one `Text`
 /// of megabytes stalls the card, and its beliefs are already the Perspectives tab.

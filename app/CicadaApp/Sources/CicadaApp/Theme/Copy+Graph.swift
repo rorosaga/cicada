@@ -68,6 +68,9 @@ extension Copy.Graph {
     static let rendered = "Rendered"
     static let source = "Source"
     static let copyMarkdown = "Copy markdown"
+    /// F4 — Source and Copy when `/entities/{id}/raw` could not be read.
+    static let sourceUnavailable = "Couldn't read this page's file."
+    static let copyFailed = "Couldn't copy: the page's file could not be read."
     /// F4 — the line in place of a claims block too large to draw in Source.
     static func sourceFolded(bytes: Int) -> String {
         let size = ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)

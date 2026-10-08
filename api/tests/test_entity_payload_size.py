@@ -51,7 +51,71 @@ def test_a_page_too_large_to_inline_is_served_on_demand(tmp_path, monkeypatch):
     raw = (memory / "entities" / "owner-example.md").read_text(encoding="utf-8")   # after the lifespan's migrations
     assert len(raw.encode()) > 2_000
     data = page.json()
-    assert data["rawMarkdown"] == "" and data["rawOmitted"] is True
+    assert data["rawOmitted"] is True
+    assert raw.startswith(data["rawMarkdown"]) and "```claims" not in data["rawMarkdown"] and data["rawMarkdown"]
     assert len(page.content) < 2_000, "the card's payload is the prose, not the fence"
     assert source.status_code == 200 and source.json() == {"id": "owner-example", "rawMarkdown": raw}
     assert missing.status_code == 404
+
+
+def _page_with_prose_after_the_fence(memory: Path, pad: int = 0) -> Path:
+    body = write_claims("## Summary\nAlpha location.\n\n## Key Facts\n- A synthetic place.\n",
+                        [Claim(id="clm_example", text="A synthetic belief.", subject="alpha-location", predicate="is-a",
+                               object="location")])
+    body += "\n## Key Facts\n- After the claims fence.\n" + (f"\n<!-- {'x' * pad} -->\n" if pad else "")
+    page = memory / "entities" / "alpha-location.md"
+    markdown_parser.write(page, {"name": "Alpha Location", "type": "location", "created": "2024-01-01",
+                                 "last_referenced": "2024-01-01", "lat": 10.0, "lon": 20.0}, body)
+    bank_index.invalidate()
+    return page
+
+
+def test_provenance_hashes_and_ranges_the_body_the_card_is_served(tmp_path, monkeypatch):
+    """Review r1 #1: `pageBodyHash` and every section item's `bodyRanges` describe the exact `markdownContent`
+    `/entities` serves — the prose without the fence — including an item after a closed claims fence."""
+    from api.services import evidence
+
+    client, memory = _client(tmp_path, monkeypatch, claims=1)
+    _page_with_prose_after_the_fence(memory)
+    with client:
+        page = client.get("/entities/alpha-location").json()
+        prov = client.get("/entities/alpha-location/provenance").json()
+    body = page["markdownContent"]
+    assert "```claims" not in body
+    assert prov["pageBodyHash"] == evidence.body_hash(body)
+    items = [item for section in prov["sections"] for item in section["items"]]
+    assert any(item["text"] == "After the claims fence." for item in items)
+    for item in items:
+        assert "".join(body[a:b] for a, b in item["bodyRanges"]) == item["text"], item
+
+
+def test_a_withheld_file_still_carries_its_frontmatter_and_prose(tmp_path, monkeypatch):
+    """Review r1 #4: a page too large to inline keeps everything before its first claims fence verbatim in
+    `rawMarkdown` — frontmatter readers (a location's declared lat/lon, a media block) never lose their input."""
+    monkeypatch.setattr(entities_router, "RAW_INLINE_MAX_BYTES", 2_000)
+    client, memory = _client(tmp_path, monkeypatch, claims=1)
+    _page_with_prose_after_the_fence(memory, pad=5_000)
+    with client:
+        page = client.get("/entities/alpha-location").json()
+    raw = (memory / "entities" / "alpha-location.md").read_text(encoding="utf-8")
+    assert page["rawOmitted"] is True
+    assert raw.startswith(page["rawMarkdown"]) and "```claims" not in page["rawMarkdown"]
+    assert "lat: 10.0" in page["rawMarkdown"] and "lon: 20.0" in page["rawMarkdown"]
+
+
+def test_the_served_prose_map_follows_every_fence():
+    from api.services.claims import served_prose, strip_claims_block
+
+    one = "```claims\n- id: a\n```\n"
+    for body in ["Alpha.\n\n" + one + "Beta after.\n", one + "\nBeta first.\n", "A\n" + one + "B\n" + one + "C tail\n",
+                 "No fence at all.\n"]:
+        served, to_served = served_prose(body)
+        assert served == strip_claims_block(body)
+        for word in ("Alpha.", "Beta after.", "Beta first.", "C tail", "No fence at all.", "A\n", "B\n"):
+            at = body.find(word)
+            if at < 0 or word not in served:
+                continue
+            start, end = to_served(at), to_served(at + len(word))
+            assert served[start:end] == word.strip() or served[start:end] == word, (body, word)
+        if "```claims" in body:
+            assert to_served(body.index("- id: a")) is None
