@@ -176,10 +176,16 @@ async def resolve(
     for existing_name, existing_data in existing_by_name.items():
         name_to_id[existing_name] = existing_data["id"]
 
-    # Deduplicate entities by exact normalized name (keep the strongest extraction).
+    # Deduplicate entities by exact normalized name: the strongest extraction
+    # (first on ties) is judged and promoted for the name. Every other one is
+    # kept beside it and folded into whatever that judgment produces — each is a
+    # conversation that mentioned the page, with its own facts and G118 evidence,
+    # and used to be dropped whole, credit included.
     best_by_name: dict[str, dict] = {}
+    extractions_by_name: dict[str, list[dict]] = {}
     for entity in all_entities:
         name_lower = entity["name"].lower()
+        extractions_by_name.setdefault(name_lower, []).append(entity)
         current = best_by_name.get(name_lower)
         if current is None or entity.get("confidence", 0) > current.get("confidence", 0):
             best_by_name[name_lower] = entity
@@ -248,6 +254,7 @@ async def resolve(
             cancelled = True
             break
         name = entity["name"]
+        siblings = [e for e in extractions_by_name.get(name_lower, []) if e is not entity]
         match = _find_direct_candidate_match(
             new_entity=entity,
             existing_by_name=existing_by_name,
@@ -274,19 +281,15 @@ async def resolve(
                 {"entity_name": name, "confidence": float(entity.get("confidence", 0.0) or 0.0)},
             ))
 
-            if candidate["source"] == "existing":
-                _merge_into_update(
-                    updates_by_id=resolved_updates,
-                    existing_entity=candidate["data"],
-                    incoming=entity,
-                )
-            else:
-                create_change = resolved_creates[candidate["id"]]
-                create_change["entity"] = _merge_entity_payload(
-                    create_change.get("entity", {}) or {},
-                    entity,
-                )
-                _append_change_source(create_change, entity)
+            for incoming in (entity, *siblings):
+                if candidate["source"] == "existing":
+                    _merge_into_update(
+                        updates_by_id=resolved_updates,
+                        existing_entity=candidate["data"],
+                        incoming=incoming,
+                    )
+                else:
+                    _merge_into_create(resolved_creates[candidate["id"]], incoming)
             continue
 
         ambiguous_match = match is not None and match["decision"] == "unsure"
@@ -344,6 +347,8 @@ async def resolve(
                 "source_episode_days": _source_days(entity),
                 "trigger": "sleep/promotion",
             }
+            for sibling in siblings:
+                _merge_into_create(resolved_creates[entity_id], sibling)
             # Deferred (same reasoning as the "same"-match branch above).
             pending_actions.append((
                 clarifier.check_organic_resolution,
@@ -373,16 +378,21 @@ async def resolve(
                 ))
 
             if indexer is not None:
+                # One pending line per name: what every mention said rides on it
+                # (the line keeps the strongest mention's episode, as before).
+                parked = entity
+                for sibling in siblings:
+                    parked = _merge_entity_payload(parked, sibling)
                 pending_actions.append((
                     indexer.index_pending_entity,
                     (PendingEntity(
                         name=name,
                         type=entity.get("type", "concept"),
-                        description=entity.get("description", "") or "",
+                        description=parked.get("description", "") or "",
                         source_episode=entity.get("source_episode", ""),
                         confidence=confidence,
-                        tags=list(entity.get("tags", []) or []),
-                        history_entries=list(entity.get("history_entries", []) or []),
+                        tags=list(parked.get("tags", []) or []),
+                        history_entries=list(parked.get("history_entries", []) or []),
                     ),),
                     {},
                 ))
@@ -514,6 +524,11 @@ def _merge_entity_payload(base: dict, incoming: dict) -> dict:
     )
     if not merged.get("type") or merged.get("type") == "concept":
         merged["type"] = incoming.get("type", merged.get("type", "concept"))
+    # A proposal only the other input made is still proposed (both re-pass their
+    # rails where they are written: `agent_class`, `fact_sources.propose_site`).
+    for field in ("website", "decay_class"):
+        if not merged.get(field) and incoming.get(field):
+            merged[field] = incoming[field]
     merged["confidence"] = max(
         float(base.get("confidence", 0.0) or 0.0),
         float(incoming.get("confidence", 0.0) or 0.0),
@@ -642,6 +657,12 @@ def _source_days(entity: dict) -> list[str]:
     for Stage 3's merge and contradiction prompts; nothing writes it to a page."""
     day = entity.get("source_episode_day")
     return [str(day)] if day else []
+
+
+def _merge_into_create(change: dict, incoming: dict) -> None:
+    """Fold one more extraction into an in-cycle create: its payload and its credit."""
+    change["entity"] = _merge_entity_payload(change.get("entity", {}) or {}, incoming)
+    _append_change_source(change, incoming)
 
 
 def _append_change_source(change: dict, entity: dict) -> None:
