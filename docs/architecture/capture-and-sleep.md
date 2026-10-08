@@ -269,6 +269,12 @@ then says the model wasn't shared.
 
 **Claim preservation (G148 regression):** Stage 5 rewrites prose with the stored `claims` fences removed from section parsing, then reattaches those fences unchanged. Rebuilding `Related` cannot remove beliefs before the claim pipeline reconciles them; synthesis output never authors a claims fence.
 
+**`Related` reads the edges once:** `apply_changes` builds each entity's edges from `graph_edges.yaml` on the first update that needs them and reuses them for every page that pass merges (nothing in the pass writes the file); every reader of that file uses `markdown_parser.load_yaml`, the libyaml safe loader. The file grows with the claims; on a 2,000-page synthetic bank one pure-Python read cost ~3.8 s and was paid once per merged entity (`benchmarks/scale`).
+
+**The claim write-back renders only changed pages:** `run_claim_pipeline` keeps each page's claims as read (by value — the reconciler edits claims in place) and skips the parse/render/write of every page whose reconciled claims equal them and that gains no episode credit; such a page still counts as written. On a 2,000-page synthetic bank ~1,940 of 2,006 renders per batch were byte-identical (8 s).
+
+**The question refresh reads only what it asks about:** Stage 5.56's `refresh_open_questions` (and its idle-cycle twin) gets `claim_pipeline.claims_on_demand`, which parses a subject's page the first time an open conflict question names it, instead of every page's claims (a full-bank pass a batch).
+
 **Item provenance (G118 sections, 1a-i).** After extraction, Summary/description and
 Key Facts receive transient source-episode `reasoning` records over the full stored body
 hash. This adds no prompt instructions, quotes, retries or calls. Stage 2 carries metadata

@@ -77,8 +77,9 @@ ROWS: tuple[Row, ...] = (
     Row(("recall",), "cicada_recall", "Search memory: pages, claims and conversations, fused.",
         (_p("query"),), exposed=True),
     Row(("get",), "cicada_recall_detail",
-        "One page in full, or a range of its lines (--from/--count, or ENTITY:START[:END]).",
-        (_p("entity_id"),),
+        "One page in full (a long one in parts: --start), or a range of its lines (--from/--count, or "
+        "ENTITY:START[:END]).",
+        (_p("entity_id"), _f("start", "int")),
         options=(Option("--from", "int", "First line to show (1-based)."),
                  Option("--count", "int", "How many lines to show."),
                  Option("--line-numbers", "bool", "Prefix each line with its number.")), exposed=True),

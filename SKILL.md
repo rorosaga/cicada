@@ -28,7 +28,7 @@ it).
 | Command | What it does |
 |---|---|
 | `cicada recall "<query>"` | Search memory: pages, claims and conversations, fused. |
-| `cicada get <entity-id>` | One page in full, or a range of its lines (--from/--count, or ENTITY:START[:END]). |
+| `cicada get <entity-id>` | One page in full (a long one in parts: --start), or a range of its lines (--from/--count, or ENTITY:START[:END]). |
 | `cicada project <project>` | Where one project stands. |
 | `cicada continue` | Where the work in this folder stopped. |
 | `cicada save "<content>"` | Stage a note for the next Sleep (content `-` reads stdin). |
@@ -36,7 +36,7 @@ it).
 | `cicada status` | Which memory this command uses, and whether the app's backend agrees. |
 | `cicada commands` | Every command, and the MCP tool each one mirrors. |
 
-- **Options:** get: `--from`, `--count`, `--line-numbers`; project: `--since`, `--tz`; continue: `--session`, `--before`; save: `--title`. `get` also takes `<entity-id>:<start>[:<end>]`; `save` reads the
+- **Options:** get: `--start`, `--from`, `--count`, `--line-numbers`; project: `--since`, `--tz`; continue: `--session`, `--before`; save: `--title`. `get` also takes `<entity-id>:<start>[:<end>]`; `save` reads the
   text from stdin when it is `-`.
 - **`--json`** (before or after the command) prints one envelope: `{schema, command, ok, code, bank, data,
   text, warnings, version}`. `text` is what the matching MCP tool says; `data` is the structured part.

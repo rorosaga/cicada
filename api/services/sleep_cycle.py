@@ -661,12 +661,12 @@ async def _refresh_questions_safely(memory_path: Path, settings: Settings) -> No
     """
     try:
         from api.services import inbox_questions
-        from api.services.claim_pipeline import _load_existing_claims_by_subject
+        from api.services.claim_pipeline import claims_on_demand
 
         today = str(datetime.now().date())
         refresh = inbox_questions.refresh_open_questions(
             memory_path,
-            _load_existing_claims_by_subject(memory_path),
+            claims_on_demand(memory_path),
             today,
             stale_after_days=settings.inbox_stale_after_days,
         )
@@ -2492,11 +2492,11 @@ async def _run_stages(
         # AFTER write_claim_nudges so this cycle's new competing values are
         # already merged into their open question.
         from api.services import inbox_questions
-        from api.services.claim_pipeline import _load_existing_claims_by_subject
+        from api.services.claim_pipeline import claims_on_demand
 
         refresh = inbox_questions.refresh_open_questions(
             memory_path,
-            _load_existing_claims_by_subject(memory_path),
+            claims_on_demand(memory_path),
             str(datetime.now().date()),
             stale_after_days=settings.inbox_stale_after_days,
         )

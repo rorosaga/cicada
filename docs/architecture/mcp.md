@@ -9,7 +9,13 @@ handshake as `instructions`. On query: check `memory/inbox/` for relevant pendin
 vector index → search the markdown graph → follow wikilinks for relational depth → progressive
 disclosure (cluster pages → entity pages → episodic sources).
 Recall prose summaries, including related-page blurbs, strip closed claims fences
-before truncation; `cicada_recall_detail` returns the complete page for structured reads.
+before truncation; `cicada_recall_detail` returns the complete page for structured reads. A page over the
+caller's budget (`RECALL_DETAIL_BUDGET` 60,000 characters; `REMOTE_DETAIL_BUDGET` 20,000 on the remote connector,
+under its 24,000-character result cap) comes in consecutive line ranges: each part is whole lines and ends with
+one line naming its range and the exact next call (`start=<line>`), so every byte — claim ids, evidence, old
+history — stays reachable through the tool under the default scopes (a 3,500-claim page was 3.1 M characters,
+past any client's limit; eliding its fence instead lost the ids an agent needs to withdraw its own claim, review
+round 1). `cicada get --start N` is the same; `--from`/`--count`/`--line-numbers` slice the whole page.
 
 **Recall (G140).** Three legs fused by one RRF (`search_service.rrf_fuse`): the stored vectors, the
 FTS lexical leg (names, aliases and prose, word by word), and current claims mapped to their
@@ -508,7 +514,7 @@ the CLI.
     version and `writing`; the vector index state; distribution; the caller's folder.
   - `commands`: the full table in `data.commands`, with `exposed` per row.
   - `get <entity>`: `cicada_recall_detail`'s page, verbatim, with `data: {entity_id, type, status, from, count,
-    total_lines}`.
+    total_lines}` (over the budget it comes in parts, as for the tool; a bounded read below slices the whole page).
     - Bounded reads: `--from N` / `--count N` / `--line-numbers`, or the shorthand `ENTITY:START[:END]` (lines START
       to END, 1-based).
     - The argument is read **literally first**: a display name or legacy stem containing a colon (`Alpha: Beta`)
