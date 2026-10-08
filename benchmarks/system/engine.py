@@ -108,13 +108,19 @@ class FakeEngine:
                 elif stage == 'conflict':
                     payload = {'has_unresolvable_contradiction': False}
                 elif stage == 'merge':
-                    # Synthesis output is prose. Claim reconciliation remains the
-                    # real production writer; never emit a precomputed claims block.
-                    existing = text.partition('EXISTING PAGE BODY:\n')[2].partition('\n\nNEW INFORMATION TO INTEGRATE:')[0]
-                    from api.services import claims, entity_body
-                    sections = entity_body.parse_sections(claims.strip_claims_block(existing))
-                    sections['Summary'] = sections.get('Summary', '') + '\n' + text.partition('Description: ')[2].partition('\nNew history')[0]
-                    payload = entity_body.render_sections(sections)
+                    if 'SECTION-AWARE ORIENTATION' in text:
+                        data = json.loads(text.partition('\nINPUT:\n')[2])
+                        payload = {'summary': data['incoming'].get('summary')
+                                   or data['existing_sections'].get('Summary')
+                                   or "This entity's present role is unknown."}
+                    else:
+                        # Legacy synthesis output is prose. Claim reconciliation
+                        # remains the production writer; never emit a claims block.
+                        existing = text.partition('EXISTING PAGE BODY:\n')[2].partition('\n\nNEW INFORMATION TO INTEGRATE:')[0]
+                        from api.services import claims, entity_body
+                        sections = entity_body.parse_sections(claims.strip_claims_block(existing))
+                        sections['Summary'] = sections.get('Summary', '') + '\n' + text.partition('Description: ')[2].partition('\nNew history')[0]
+                        payload = entity_body.render_sections(sections)
                 elif stage in ('ask', 'answer_control'):
                     payload = answer(text)
                 else:

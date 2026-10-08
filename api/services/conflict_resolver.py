@@ -106,7 +106,14 @@ async def resolve_and_prune(
         new_entity = change.get("entity", {}) or {}
         new_desc = (new_entity.get("description") or "").strip()
         new_history = new_entity.get("history_entries", []) or []
-        if not new_desc and not new_history:
+        section_aware = getattr(settings, 'summary_synthesis_enabled', False)
+        if section_aware:
+            new_desc = _entity_summary(new_entity)
+            if _is_human_edited(existing_entity.get('frontmatter', {}),
+                                entity_body.parse_sections(existing_entity.get('body', ''))):
+                continue
+        if not new_desc and not new_history and not (section_aware and any(
+                new_entity.get(k) for k in ('key_facts', 'links', 'open_questions'))):
             continue
 
         existing_body = existing_entity.get("body", "")
@@ -129,9 +136,12 @@ async def resolve_and_prune(
                 page_last_referenced=page_said,
                 source_dates_seen=change_days,
                 today=cycle_day,
+                new_fields=new_entity if section_aware else None,
             )
             if synthesized:
                 change["synthesized_body"] = synthesized
+                if section_aware:
+                    change['section_aware_synthesis'] = True
         except engine_errors.EngineError:
             # G74(a), M2: an ENGINE failure is not "nothing to synthesize" —
             # flattening it here let a partial throttle silently skip
@@ -369,8 +379,10 @@ def apply_changes(changes: list[dict], memory_path) -> None:
                 related=[],
                 links=entity.get("links", []) or [],
                 open_questions=entity.get("open_questions", []) or [],
+                name=frontmatter['name'], entity_type=entity_type,
             )
-            section_provenance.refresh(frontmatter, "", body, entity)
+            section_provenance.refresh(frontmatter, "", body,
+                _selected_page_inputs(entity, entity_body.parse_sections(body)))
             markdown_parser.write(filepath, frontmatter, body)
 
         elif action == "update" and filepath.exists():
@@ -444,6 +456,8 @@ def apply_changes(changes: list[dict], memory_path) -> None:
 
             synthesized_body = change.get("synthesized_body")
             new_fields = {
+                'name': parsed.frontmatter.get('name', entity_id),
+                'type': parsed.frontmatter.get('type', 'concept'),
                 "summary": _entity_summary(new_entity),
                 "key_facts": new_entity.get("key_facts", []) or [],
                 "history_entries": new_entity.get("history_entries", []) or [],
@@ -470,6 +484,11 @@ def apply_changes(changes: list[dict], memory_path) -> None:
                     prose_body, str(parsed.frontmatter.get("type", "concept"))
                 )
                 sections = entity_body.merge_sections_fallback(sections, new_fields)
+            if not human_edited:
+                sections = entity_body.bound_summary(
+                    sections, previous=raw_sections.get('Summary', ''),
+                    name=str(parsed.frontmatter.get('name', entity_id)),
+                    entity_type=str(parsed.frontmatter.get('type', 'concept')))
             parsed.frontmatter["layout_version"] = 2
 
             # Related reconciler — rebuild the ## Related block from the
@@ -481,9 +500,13 @@ def apply_changes(changes: list[dict], memory_path) -> None:
                 sections.pop("Related", None)
 
             final_body = preserve_claims_blocks(original_body, entity_body.render_sections(sections))
+            legacy_synthesis = bool(synthesized_body and not human_edited
+                                    and not change.get('section_aware_synthesis'))
             section_provenance.refresh(
-                parsed.frontmatter, original_body, final_body, new_entity,
-                synthesized=bool(synthesized_body and not human_edited),
+                parsed.frontmatter, original_body, final_body,
+                new_entity if legacy_synthesis else _selected_page_inputs(
+                    new_entity, sections, parsed.frontmatter, original_body),
+                synthesized=legacy_synthesis,
             )
             markdown_parser.write(filepath, parsed.frontmatter, final_body)
 
@@ -506,6 +529,38 @@ def apply_changes(changes: list[dict], memory_path) -> None:
 # ---------- Helpers ----------
 
 
+def _selected_page_inputs(entity: dict, sections: dict[str, str],
+                          frontmatter: dict | None = None, original_body: str = '') -> dict:
+    """Follow exact input text to the one item the bounded writer retained.
+
+    Same-name resolution may move Summary to facts; bounded composition may
+    retain that text as Summary instead. Reuse the existing exact carry helper,
+    never invent a source or recertify rephrased/uninstrumented text.
+    """
+    scanned = section_provenance.scan(entity_body.render_sections(sections))
+    selected = {
+        'summary': next((i.text for i in scanned.get('summary', []) if not i.ambiguous), ''),
+        'key_facts': [i.text for i in scanned.get('key_facts', []) if not i.ambiguous],
+    }
+    # Only currently matched old guards can follow an exact item between the
+    # two supported sections. Unmatched/unknown records never enter this map.
+    old_records = []
+    matched = section_provenance.matched(frontmatter or {}, original_body)
+    for field in ('summary', 'key_facts'):
+        for item in section_provenance.scan(original_body).get(field, []):
+            proof = matched.get(field, {}).get(item.key)
+            if proof and not item.ambiguous:
+                old_records.append({'field': field, 'text': item.text,
+                                    'evidence': [ev.to_dict() for ev in proof[1]]})
+    try:
+        selected[section_provenance.INPUTS] = section_provenance.merge_selected(
+            {section_provenance.INPUTS: old_records}, entity, selected)
+    except (KeyError, TypeError, ValueError, AttributeError):
+        selected[section_provenance.INPUTS] = section_provenance.merge_selected(
+            {section_provenance.INPUTS: old_records}, {}, selected)
+    return selected
+
+
 def _is_human_edited(frontmatter: dict, sections: dict[str, str]) -> bool:
     """Detect a page the human authored/edited (rule 3c, §8).
 
@@ -515,12 +570,7 @@ def _is_human_edited(frontmatter: dict, sections: dict[str, str]) -> bool:
     (a heading the agent pipeline never emits). On such a page the agent merge is
     additive-only and the LLM synthesis rewrite is suppressed.
     """
-    if bool((frontmatter or {}).get("human_edited", False)):
-        return True
-    for title in (sections or {}).keys():
-        if title and title not in entity_body.CANONICAL_SECTIONS:
-            return True
-    return False
+    return entity_body.has_human_prose(frontmatter or {}, sections or {})
 
 
 def _entity_summary(entity: dict) -> str:
@@ -801,6 +851,7 @@ async def _synthesize_entity_update(
     page_last_referenced: str | None = None,
     source_dates_seen: list[str] | None = None,
     today: str | None = None,
+    new_fields: dict | None = None,
 ) -> str | None:
     """Call the LLM to merge an existing entity body with new extraction info.
 
@@ -808,6 +859,35 @@ async def _synthesize_entity_update(
     said, so "newer" means a later date rather than a later read, and old material is written as of its own date.
     A missing day reads ``unknown`` — never guessed. Prompt guidance only; what is written is unchanged."""
     from api.services.claims import strip_claims_block
+    from api.services import entity_orientation
+
+    if getattr(settings, 'summary_synthesis_enabled', False):
+        fields = dict(new_fields or {'summary': new_description, 'history_entries': new_history_entries})
+        fields.update(name=entity_name, type=entity_type)
+        data = entity_orientation.context(
+            existing_body, name=entity_name, entity_type=entity_type, fields=fields,
+            today=today or date.today().isoformat(),
+            source_dates=source_dates_seen or ([source_reference_date] if source_reference_date else []))
+        try:
+            from api.services import owner_identity
+            data['owner_instruction'] = _owner_line(owner_identity.owner_name(
+                getattr(settings, 'memory_path', None), settings))
+        except Exception:  # a missing owner costs the instruction, never the update
+            pass
+        prompt = entity_orientation.bounded_prompt(data)
+        if prompt is None:
+            return None
+        llm_fn = resolve_llm_fn(settings, model=settings.effective_consolidation_model,
+                                completion=litellm.acompletion, stage='merge')
+        response = await llm_fn(messages=[{'role': 'user', 'content': prompt}])
+        try:
+            result = json.loads(response.choices[0].message.content or '')
+        except (ValueError, TypeError):
+            return None
+        summary = result.get('summary') if isinstance(result, dict) else None
+        if not entity_orientation.valid_summary(summary):
+            return None
+        return entity_orientation.compose(existing_body, fields, summary)
 
     existing_body = strip_claims_block(existing_body)
     if not existing_body.strip() and not new_description.strip():

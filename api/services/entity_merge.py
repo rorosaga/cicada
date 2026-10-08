@@ -402,11 +402,12 @@ def merge_entities(memory_path: Path, loser_id: str, winner_id: str,
     # the loser's sections via sections_to_fields (a raw sections dict merges nothing).
     # Both bodies are merged claims-stripped so a fence can never end up
     # mid-section; the claims are re-attached below as one block.
-    human = bool(wfm.get("human_edited"))
+    winner_sections = entity_body.parse_sections(strip_claims_block(wpar.body))
+    human = entity_body.has_human_prose(wfm, winner_sections)
     loser_sections = entity_body.parse_sections(strip_claims_block(lpar.body))
     loser_fields = entity_body.sections_to_fields(loser_sections)
     merged_sections = entity_body.merge_sections_human_safe(
-        entity_body.parse_sections(strip_claims_block(wpar.body)), loser_fields, human_edited=human)
+        winner_sections, loser_fields, human_edited=human)
     # Preserve any non-canonical (human-authored) loser sections too — the
     # structured merge only carries the canonical fields. If the winner
     # already has a same-titled custom section with different content,

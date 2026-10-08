@@ -1661,6 +1661,13 @@ async def _conflict_synthesis(item_id: str, request: InboxResolveRequest, settin
         return None
     from api.services import conflict_resolver
 
+    if getattr(settings, 'summary_synthesis_enabled', False):
+        from api.services import entity_body
+        from api.services.claims import strip_claims_block
+        if entity_body.has_human_prose(plan.entity.frontmatter, entity_body.parse_sections(
+                strip_claims_block(plan.entity.body))):
+            return None
+
     try:
         new_body = await conflict_resolver._synthesize_entity_update(
             entity_name=plan.name,
