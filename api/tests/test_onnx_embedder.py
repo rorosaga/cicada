@@ -156,3 +156,25 @@ def test_a_checkout_with_the_model_builds_fresh_banks_with_it(monkeypatch, tmp_p
     monkeypatch.setenv("CICADA_HOME", str(tmp_path))
     _model(tmp_path / "models")
     assert Settings().resolved_embedding_model == onnx_embedder.DEFAULT_ID
+
+
+def test_texts_are_run_one_at_a_time_so_padding_never_inflates_memory(tmp_path):
+    """Measured on an M4 Pro, 2,500 synthetic pages with e5-small: one text per run embeds as fast as 32 per run
+    (63.8 vs 63.7 pages/s) at half the peak memory (785 vs 1,737 MB) — a batch pads every text to its longest."""
+    spec = onnx_embedder.ModelSpec(id="m", path=tmp_path, dimensions=2, pooling="cls", normalize=True,
+                                   max_tokens=8, query_prefix="")
+    emb = onnx_embedder.OnnxEmbedder(spec)
+    sizes = []
+
+    class Tok:
+        def encode_batch(self, batch):
+            sizes.append(len(batch))
+            return [_Enc(3) for _ in batch]
+
+    class Sess:
+        def run(self, _out, feed):
+            return [np.ones((feed["input_ids"].shape[0], 3, 2), dtype=np.float32)]
+
+    emb._tokenizer, emb._session = Tok(), Sess()
+    assert emb(["a", "b", "c"]).shape == (3, 2)
+    assert sizes == [1, 1, 1]

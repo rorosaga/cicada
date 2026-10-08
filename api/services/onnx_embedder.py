@@ -28,7 +28,9 @@ BUNDLED_MODELS_ENV = "CICADA_BUNDLED_MODELS"
 MANIFEST = "cicada-model.json"
 #: The id a release app's fresh bank is built with.
 DEFAULT_ID = "intfloat/multilingual-e5-small"
-_BATCH = 32
+#: One text per run: a batch pads every text to its longest. Measured (M4 Pro, 2,500 synthetic pages, e5-small):
+#: 63.8 pages/s at 785 MB peak against 63.7 pages/s at 1,737 MB with 32 per run.
+_BATCH = 1
 
 
 @dataclass(frozen=True)
