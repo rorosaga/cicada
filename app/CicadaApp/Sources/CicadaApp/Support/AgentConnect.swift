@@ -98,6 +98,13 @@ enum AgentConnectPolicy {
     /// accepts only the checkout's venv commands and a release only its launchers.
     static func isAllowed(_ argv: [String], runtime: CicadaRuntime, binaries: Set<String>) -> Bool {
         guard let head = argv.first else { return false }
+        // Cursor's flat registry can touch only this user's global hooks.json,
+        // never a project hook, stop registration or arbitrary command.
+        if argv.count >= 2, Array(argv[0...1]) == runtime.cursorRegistryArgv {
+            let settings = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".cursor/hooks.json").path
+            if argv == runtime.cursorRegistryArgv + ["uninstall", "--settings", settings] { return true }
+            return argv == runtime.cursorRegistryArgv + ["install", "--settings", settings, "--command", runtime.cursorHookCommand]
+        }
         if binaries.contains(head), ["claude", "codex"].contains(URL(fileURLWithPath: head).lastPathComponent) {
             let mcp = runtime.mcpCommand
             guard argv.count >= 6, Array(argv[1...3]) == ["mcp", "add", "cicada"],

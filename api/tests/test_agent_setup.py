@@ -70,7 +70,8 @@ def test_a_cli_the_backend_cannot_find_is_named_bare():
 
 def test_cursor_gets_its_install_link_with_the_server_inside():
     setup = _setup("cursor")
-    assert (setup["kind"], setup.get("prompt"), setup.get("argv")) == ("deeplink", None, None)
+    assert (setup["kind"], setup.get("prompt")) == ("deeplink", None)
+    assert len(setup["argv"]) == 1 and setup["argv"][0][1].endswith("/api/hooks/cursor_registry.py")
     link = setup["deeplink"]
     assert link.startswith("cursor://anysphere.cursor-deeplink/mcp/install?name=cicada&config=")
     assert json.loads(base64.b64decode(unquote(link.split("config=", 1)[1]))) == SPEC

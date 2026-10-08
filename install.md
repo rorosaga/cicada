@@ -53,6 +53,14 @@ You can follow along, or run the steps yourself. You need a Mac with macOS 14 or
    - registers Cicada with Claude Code
    - turns on saving each Claude Code (and Codex) conversation into Cicada
 
+   If `~/.cursor` already exists, it also merges Cicada's user-level `sessionStart` hook into
+   `~/.cursor/hooks.json` (unless `CICADA_RECALL=off`). This adds startup context only; automatic
+   Cursor capture is unsupported. Add MCP separately with Settings → Agents → Open in Cursor.
+   Remembers automatically turns the startup hook on/off independently; `./install.sh --uninstall`
+   removes only Cicada's hook entries. `make doctor` reports configuration separately from connectivity.
+   Invalid hook JSON is left unchanged. The local IDE path follows the
+   [Cursor hook reference](https://cursor.com/docs/hooks); actual first-prompt timing is unverified.
+
    When an agent runs it, it never asks for or prints an API key. If you want to use a key, add it
    later in the app.
 4. **Build and open the app:** `cd ~/cicada && make install-app && open ~/Applications/Cicada.app`

@@ -46,14 +46,14 @@ from pathlib import Path
 
 from loguru import logger
 
-from api.services import episode_ids, workspace_identity
+from api.services import episode_ids, workspace_identity, harness_integrations
 
 EXPIRES_AFTER_DAYS = 30
 MAX_ROWS = 1000
 MAX_BYTES = 1_048_576
 #: How long a call with no deadline waits for the lock (the capture path).
 UNBOUNDED_WAIT_S = 1.0
-HARNESSES = ("claude-code", "codex")
+HARNESSES = ("claude-code", "codex", *harness_integrations.LOCAL)
 STATUSES = ("ok", "busy", "skipped", "error", "unavailable")
 
 _SESSION_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{7,127}$")   # transcript_capture's rule

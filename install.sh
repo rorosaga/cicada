@@ -41,6 +41,7 @@ CLAUDE_SKILLS_DIR="${CLAUDE_SKILLS_DIR:-$HOME/.claude/skills}"
 CLAUDE_CLI="${CLAUDE_CLI:-claude}"
 CLAUDE_SETTINGS="${CLAUDE_SETTINGS:-$HOME/.claude/settings.json}"
 CODEX_HOOKS="${CODEX_HOOKS:-$HOME/.codex/hooks.json}"
+CURSOR_HOOKS="${CURSOR_HOOKS:-$HOME/.cursor/hooks.json}"
 
 API_DIR="$REPO/api"
 VENV="$API_DIR/.venv"
@@ -55,6 +56,7 @@ ENV_EXAMPLE="$API_DIR/.env.example"
 MCP_SERVER="$REPO/mcp/server.py"
 HOOK_SCRIPT="$REPO/api/hooks/capture.py"
 HOOKS_REGISTRY="$REPO/api/hooks/registry.py"
+CURSOR_REGISTRY="$REPO/api/hooks/cursor_registry.py"
 # The registered command, quoted per path so a space in $HOME survives the
 # harness's `sh -c`. One function so install, uninstall and doctor agree.
 hook_command() { printf '"%s" "%s" --harness %s' "$VENV_PY" "$HOOK_SCRIPT" "$1"; }
@@ -132,6 +134,7 @@ if [ "$DO_UNINSTALL" -eq 1 ]; then
     step "Removing the session-capture and recall hooks"
     run "$VENV_PY" "$HOOKS_REGISTRY" uninstall --settings "$CLAUDE_SETTINGS" || true
     [ -f "$CODEX_HOOKS" ] && { run "$VENV_PY" "$HOOKS_REGISTRY" uninstall --settings "$CODEX_HOOKS" || true; }
+    [ -f "$CURSOR_HOOKS" ] && { run "$VENV_PY" "$CURSOR_REGISTRY" uninstall --settings "$CURSOR_HOOKS" || true; }
     ok "Capture and recall hooks removed (if they existed)"
   else
     warn "venv missing — remove the api/hooks/capture.py and api/hooks/recall.py entries from $CLAUDE_SETTINGS by hand"
@@ -373,6 +376,15 @@ else
       fi
     done
     warn "Codex runs a new hook only once you trust it: at its next start choose \"Trust all and continue\" (or /hooks)"
+  fi
+fi
+
+# Cursor user-level startup delivery only; MCP and capture capability are separate.
+if [ -d "$HOME/.cursor" ] && [ "$(printf '%s' "${CICADA_RECALL:-}" | tr '[:upper:]' '[:lower:]')" != "off" ]; then
+  if run "$VENV_PY" "$CURSOR_REGISTRY" install --settings "$CURSOR_HOOKS"; then
+    ok "Cursor sessionStart context registered (MCP setup separate; automatic capture unsupported)"
+  else
+    warn "Cursor hooks config needs repair — unchanged; use Settings → Agents or fix $CURSOR_HOOKS"
   fi
 fi
 

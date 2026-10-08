@@ -17,10 +17,10 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 from loguru import logger
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from api.config import Settings, get_settings
-from api.services import bank_registry, continuity_sessions, demo_guard, episode_ids, hook_recall
+from api.services import bank_registry, continuity_sessions, demo_guard, episode_ids, hook_recall, harness_integrations
 from api.services.telegram_capture import (
     TELEGRAM_WEBHOOK_SECRET_ENV,
     ensure_webhook_secret,
@@ -245,13 +245,20 @@ class HookContextRequest(BaseModel):
     newer harness invents still answers 200 (normalized in the handler)."""
 
     event: Literal["session_start", "user_prompt_submit"]
-    harness: Literal["claude-code", "codex"]
+    harness: Literal[*continuity_sessions.HARNESSES]
     session_id: str = Field(..., min_length=1, max_length=200)
     cwd: str | None = Field(None, max_length=4096)
     prompt: str | None = Field(None, max_length=hook_recall.PROMPT_MAX_CHARS)
     model: str | None = Field(None, max_length=200)
     source: Any = None
     workspace: Any = None
+
+    @model_validator(mode="after")
+    def supported_event(self):
+        adapter = harness_integrations.LOCAL.get(self.harness)
+        if adapter and self.event not in adapter.EVENTS:
+            raise ValueError("Event unsupported by this startup integration")
+        return self
 
 
 @router.post("/capture/hook-context")

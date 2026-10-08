@@ -335,7 +335,7 @@ def test_the_three_new_agents_are_read_only_rows(tmp_path):
 
 def test_the_row_order_keeps_gemini_where_it_was(tmp_path):
     ids = [row["id"] for row in _probe(tmp_path)["agents"]]
-    assert ids == ["claude-code", "codex", "gemini-cli", "opencode", "hermes", "openclaw"]
+    assert ids == ["claude-code", "codex", "gemini-cli", "opencode", "hermes", "openclaw", "cursor"]
 
 
 def test_no_config_probe_reaches_library_or_anything_of_claude_code_s():

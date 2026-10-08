@@ -53,10 +53,16 @@ private struct AutoRecallRow: View {
                     Text(AutoRecall.name(agent.id))
                         .font(CicadaTheme.font(size: 13, weight: .medium))
                         .foregroundStyle(CicadaTheme.textPrimary)
-                    Text(failure ?? AutoRecall.detail(state))
+                    Text(failure ?? AutoRecall.detail(agent))
                         .font(CicadaTheme.captionFont)
                         .foregroundStyle(failure == nil ? CicadaTheme.textSecondary : CicadaTheme.warning)
                         .fixedSize(horizontal: false, vertical: true)
+                    if agent.capabilities["capture"] == "unsupported" {
+                        Text("Startup context only. " + Copy.agentNoAutosave)
+                            .font(CicadaTheme.captionFont)
+                            .foregroundStyle(CicadaTheme.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
                 Spacer(minLength: CicadaTheme.scaled(16))
                 if let action {

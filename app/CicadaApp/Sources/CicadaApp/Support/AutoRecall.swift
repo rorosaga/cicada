@@ -61,13 +61,26 @@ enum AutoRecall {
         }
     }
 
+    static func detail(_ agent: AgentWiring) -> String {
+        let state = state(of: agent)
+        guard agent.capabilities["startup"] == "documented" else { return detail(state) }
+        switch state {
+        case .on: return Copy.autoRecallStartupOn
+        case .off: return Copy.autoRecallStartupOff
+        case .needsUpdate: return Copy.autoRecallStartupStale
+        case .unreadable, .unavailable: return Copy.autoRecallUnreadable
+        }
+    }
+
     /// The group's one lead line (DR-38): still checking, the backend not
     /// answering, no agent that can, or what the group does. A fetch that never
     /// answered reads as the backend waiting, never as "no agent can".
     static func lead(loaded: Bool, wiring: AgentWiringResponse?) -> String {
         if !loaded { return Copy.autoRecallChecking }
         guard let wiring else { return Copy.foundBackendDown }
-        return rows(wiring).isEmpty ? Copy.autoRecallNone : Copy.autoRecallDetail
+        let agents = rows(wiring)
+        if agents.isEmpty { return Copy.autoRecallNone }
+        return agents.contains { $0.capabilities["startup"] == "documented" } ? Copy.autoRecallMixedDetail : Copy.autoRecallDetail
     }
 
     static func name(_ id: String) -> String { OriginIconography.label(for: id) }
@@ -78,6 +91,7 @@ enum AutoRecall {
         Copy.autoRecallNone, Copy.autoRecallOn, Copy.autoRecallOff, Copy.autoRecallStale, Copy.autoRecallUnreadable,
         Copy.autoRecallTurnOn, Copy.autoRecallTurnOff, Copy.autoRecallUpdate, Copy.autoRecallWorking,
         Copy.autoRecallWorkingHelp, Copy.autoRecallCodexTrust, Copy.autoRecallChanges(["~/.claude/settings.json"]),
+        Copy.autoRecallMixedDetail, Copy.autoRecallStartupOn, Copy.autoRecallStartupOff, Copy.autoRecallStartupStale,
     ]
 }
 
