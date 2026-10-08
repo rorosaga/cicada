@@ -148,3 +148,34 @@ def test_the_command_dry_runs_by_default_and_prints_counts_only(bank, tmp_path):
     missing = subprocess.run([sys.executable, "-m", "api.scripts.migrate_claims_jsonl", "--bank",
                               str(tmp_path / "nowhere")], cwd=repo, env=env, capture_output=True, text=True)
     assert missing.returncode == 2
+
+
+def test_the_converter_never_rediffs_a_fuzzed_or_hand_written_legacy_fence():
+    """Every legacy fence the fuzz and the hand-written YAML forms produce converts to lines that read back as the
+    same claims and raw entries, and a writer re-rendering the result changes nothing."""
+    import random
+
+    from api.tests.test_claims_jsonl import _fuzz_text
+
+    rng = random.Random(8)
+    for case in range(300):
+        rows = [Claim(id=f"clm_{case}_{i}", text=_fuzz_text(rng), subject=_fuzz_text(rng)[:30],
+                      predicate=_fuzz_text(rng)[:20], object=_fuzz_text(rng), confidence=rng.choice([0.0, 0.5, 1e-7]),
+                      valid_from=rng.choice([None, "2026-10-08", _fuzz_text(rng)[:12]]),
+                      evidence=[Evidence(episode="ep_2026-10-08_001", start=1, end=9, kind="user",
+                                         hash=_fuzz_text(rng)[:12])] if rng.random() < 0.5 else [])
+                for i in range(rng.randint(1, 4))]
+        legacy = FM.format(name="Fuzz") + PROSE + "\n" + legacy_fence(rows) + "\n"
+        out = mig.convert_document(legacy)
+        assert out is not None, case
+        assert claims.parse_claims(out, strict=True) == claims.parse_claims(legacy, strict=True), case
+        assert claims.strip_claims_block(out) == claims.strip_claims_block(legacy), case
+        body = out.split("---\n", 2)[2]
+        assert claims.write_claims(body, claims.parse_claims(body, strict=True)) == body, case
+    hand = FM.format(name="Hand") + PROSE + "\n```claims\n- id: a\n  text: unquoted date\n  valid_from: 2026-10-01\n" \
+        "  confidence: 1\n  source_episodes: [ep_2026-10-01_001]\n  extra: {nested: [1, 2]}\n- id: b\n  text: 'x: y'\n```\n"
+    out = mig.convert_document(hand)
+    assert claims.parse_claims(out, strict=True) == claims.parse_claims(hand, strict=True)
+    assert claims.raw_claim_entries(out)[0] == {"id": "a", "text": "unquoted date", "valid_from": "2026-10-01",
+                                                "confidence": 1, "source_episodes": ["ep_2026-10-01_001"],
+                                                "extra": {"nested": [1, 2]}}

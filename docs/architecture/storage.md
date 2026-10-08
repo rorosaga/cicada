@@ -125,9 +125,9 @@ every reader's `claims.is_current` takes it as history by its close and by `reco
 the removal's writer (`person_edit`, `merged`, `inbox_resolution`, `other_writer`, and `unproven_writer` — a `Sleep
 cycle` subject whose `Cicada-Author`s are not all models or `cicada`); `unreadable_fence` (the page's fence was
 unterminated, repeated or unparseable at any version read — `claims.fence_state`), `unreadable_elsewhere` (an
-unreadable HEAD page is read as YAML decodes it — `claims.loose_claim_entries`, every fence to its close or the next
+unreadable HEAD page is read as its payload decodes (JSON Lines or legacy YAML) — `claims.loose_claim_entries`, every fence to its close or the next
 opening — so an escaped or quoted id still counts as present and a `retracts` record there still excludes; a page
-whose YAML will not load at all makes absence unprovable and excludes every candidate); `retracted` (a `retracts` record named it at ANY version read);
+whose payload will not load at all makes absence unprovable and excludes every candidate); `retracted` (a `retracts` record named it at ANY version read);
 `merged` (a `<id>-from-` copy), `page_gone`, `page_archived` (at the removal or now); and `not_rewrite` — the bug's
 signature is required: the section that held the fence when the page is sectioned raw must have had its fence-stripped
 prose rewritten. What is left is classed `replaced` (a current claim on the page shares subject and predicate — and
@@ -135,7 +135,7 @@ object unless the vocabulary marks it single-valued — or a HEAD claim `superse
 dropped copy was already closed) or `no_current_replacement` (a belief current when dropped with no successor: listed by
 id and page only, **never written** — the person decides). The dry run (default) prints counts by class and reason and
 writes ids, paths, commits and classes — never claim text. `--apply` writes the first two classes: each entry as the
-YAML held it (unknown fields kept), appended by `claims.append_claim_entries` without re-rendering any entry already in
+fence held it (unknown fields kept), in the fence's own form,, appended by `claims.append_claim_entries` without re-rendering any entry already in
 the fence or the frontmatter (`markdown_parser.write_document`), spans checked with `evidence.span_status` (one that no
 longer locates becomes `reasoning`), under admission → page lock → git's write lock. The CLI is its own process, so it
 also asks the backend's `/sleep/status` and **refuses on any answer but a clear `writing: false`** (no backend, an auth
