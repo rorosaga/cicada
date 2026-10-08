@@ -42,6 +42,7 @@ from api.services import (
     decay_policy,
     decay_tuning,
     entity_picture,
+    episode_time,
     fact_sources,
     git_service,
     local_refs,
@@ -90,7 +91,8 @@ async def get_entity(
     # pace Sleep does not charge. Read time only; nothing is stored.
     alpha, floor = decay_policy.spacing_params(settings)
     effective = decay_policy.effective(
-        fm, alpha=alpha, floor=floor, tuning=decay_tuning.load(settings.memory_path)
+        fm, alpha=alpha, floor=floor, tuning=decay_tuning.load(settings.memory_path),
+        untimed=episode_time.untimed_ids(settings.memory_path),
     )
     # C11 (G146) — the page's picture, resolved at read like everything else on this card (plan R-PE5).
     picture, picture_inputs = entity_picture.resolve_page(

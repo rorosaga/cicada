@@ -12,7 +12,7 @@ from tqdm import tqdm
 from api.config import Settings
 from api.models.schemas import DecayClass
 from api.services import (
-    decay_policy, decay_tuning, engine_errors, entity_body, fact_sources, json_parse, markdown_parser,
+    decay_policy, decay_tuning, engine_errors, entity_body, episode_time, fact_sources, json_parse, markdown_parser,
     section_provenance, source_dates,
 )
 from api.services.providers import resolve_llm_fn
@@ -211,6 +211,8 @@ async def resolve_and_prune(
         # bank path has none.
         memory_path = getattr(settings, "memory_path", None)
         tuning = decay_tuning.load(memory_path) if memory_path else {}
+    # A memory export entry is no week a page came up in (`episode_time`), here as on the card.
+    untimed = episode_time.untimed_ids(getattr(settings, "memory_path", None)) if decay else frozenset()
     decay_candidates = [e for e in existing if e["id"] not in referenced_ids] if decay else []
     decay_progress = tqdm(
         total=len(decay_candidates),
@@ -233,7 +235,7 @@ async def resolve_and_prune(
             continue
 
         confidence = fm.get("confidence", 0.5)
-        effective = decay_policy.effective(fm, alpha=alpha, floor=floor, tuning=tuning)
+        effective = decay_policy.effective(fm, alpha=alpha, floor=floor, tuning=tuning, untimed=untimed)
         decay_class, decay_rate = effective.decay_class, effective.rate
         if decay_class is DecayClass.evergreen:
             # An artifact, not a belief: it does not become less true by going

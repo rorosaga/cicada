@@ -85,3 +85,35 @@ def test_a_claim_cited_by_both_is_anchored_by_the_conversation(tmp_path):
     _project(memory, [c])
     tl = project_timeline.build(memory, "alpha-project", tz_name=TZ)
     assert tl.moment_days == ["2023-05-10"]
+
+
+# --------------------------------------------------------------------------- decay pacing (G147 mention weeks)
+
+
+def test_a_memory_entry_is_not_a_week_the_page_came_up_in():
+    from api.services import decay_policy
+
+    refs = ["ep_2023-05-10_001", "ep_2026-09-20_001"]
+    assert decay_policy.mention_weeks(refs) == 2
+    assert decay_policy.mention_weeks(refs, untimed={"ep_2026-09-20_001"}) == 1
+    fm = {"type": "project", "source_episodes": refs}
+    assert decay_policy.effective(fm, untimed={"ep_2026-09-20_001"}).mention_weeks == 1
+    c = _claim("clm_x", "ep_2026-09-20_001", "2026-09-20")
+    c.evidence = [Evidence(kind="assistant", episode="ep_2026-09-20_001", start=0, end=4, hash="0" * 12)]
+    assert decay_policy.claim_mention_weeks(c) == 1
+    assert decay_policy.claim_mention_weeks(c, untimed={"ep_2026-09-20_001"}) == 0
+
+
+def test_the_entity_card_serves_the_pace_without_the_memory_week(tmp_path):
+    import asyncio
+    import types
+
+    from api.routers import entities as entities_router
+
+    memory = _bank(tmp_path, git=False)
+    _ep(memory, CONV_EP, "2023-05-10T10:00:00Z", source="claude")
+    _ep(memory, MEMORY_EP, "2026-09-20T10:00:00Z", source="claude_memory")
+    _entity(memory, "alpha-project", type="project", source_episodes=[CONV_EP, MEMORY_EP])
+    bank_index.invalidate()
+    resp = asyncio.run(entities_router.get_entity("alpha-project", settings=types.SimpleNamespace(memory_path=memory)))
+    assert resp.decay.mention_weeks == 1
