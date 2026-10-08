@@ -39,6 +39,8 @@ class Rig:
         self.home = tmp / "home"
         self.calls = tmp / "calls.log"
         self.status_file = tmp / "status.json"
+        self.curl_exit = ""
+        self.http_500 = False
         self.bin.mkdir()
         self.home.mkdir()
         self.calls.write_text("")
@@ -63,6 +65,11 @@ class Rig:
         _stub(self.bin / "pgrep", "exit 1\n")
         _stub(self.bin / "curl", '''
             echo "curl $*" >> "$CALLS"
+            [ -n "$CURL_EXIT" ] && exit "$CURL_EXIT"
+            if [ -n "$HTTP_500" ]; then
+              case " $* " in *" -sf "*|*" -fs "*|*" -f "*) exit 22 ;; esac
+              echo "internal error"; exit 0
+            fi
             [ -f "$STATUS_FILE" ] || exit 7
             cat "$STATUS_FILE"
             ''')
@@ -92,7 +99,8 @@ class Rig:
     def run(self, **extra_env: str) -> subprocess.CompletedProcess:
         env = {**os.environ, "PATH": f"{self.bin}:/usr/bin:/bin:/usr/sbin:/sbin:{os.environ['PATH']}",
                "CALLS": str(self.calls), "STATUS_FILE": str(self.status_file), "CICADA_HOME": str(self.home),
-               "CICADA_PORT": "49177", **extra_env}
+               "CICADA_PORT": "49177", "CURL_EXIT": self.curl_exit,
+               "HTTP_500": "1" if self.http_500 else "", **extra_env}
         env.pop("CICADA_AUTOUPDATE_FORCE", None) if "CICADA_AUTOUPDATE_FORCE" not in extra_env else None
         return subprocess.run(["bash", str(self.repo / "scripts/dev/auto-update.sh")], cwd=self.repo, env=env,
                               capture_output=True, text=True, timeout=60)
@@ -180,7 +188,7 @@ def test_status_call_is_bounded_and_authenticated(rig):
     rig.sleep_status()
     rig.run()
     curl = [ln for ln in rig.called().splitlines() if ln.startswith("curl")][0]
-    assert "-m 3" in curl and "127.0.0.1:49177/sleep/status" in curl and "Bearer tok" in curl
+    assert "-m 10" in curl and "127.0.0.1:49177/sleep/status" in curl and "Bearer tok" in curl
 
 
 def test_idle_proceeds_and_restarts_for_api_runtime_change(rig):
@@ -201,12 +209,40 @@ def test_unreachable_backend_proceeds(rig):
     assert "kickstart -k" in rig.called()
 
 
-def test_unparseable_status_proceeds(rig):
-    new = rig.push_change("api/app.py")
+def test_unparseable_status_defers(rig):
+    rig.push_change("api/app.py")
     rig.status_file.write_text("<html>not json")
     (rig.home / "api_token").write_text("tok\n")
+    _assert_deferred(rig)
+
+
+def test_timeout_defers(rig):
+    rig.push_change("api/app.py")
+    (rig.home / "api_token").write_text("tok\n")
+    rig.curl_exit = "28"   # a busy backend that did not answer in time
+    _assert_deferred(rig)
+
+
+def test_other_curl_failure_defers(rig):
+    rig.push_change("api/app.py")
+    (rig.home / "api_token").write_text("tok\n")
+    rig.curl_exit = "56"
+    _assert_deferred(rig)
+
+
+def test_connection_refused_proceeds(rig):
+    new = rig.push_change("api/app.py")
+    (rig.home / "api_token").write_text("tok\n")
+    rig.curl_exit = "7"
     assert rig.run().returncode == 0
     assert rig.head() == new
+
+
+def test_http_500_defers(rig):
+    rig.push_change("api/app.py")
+    (rig.home / "api_token").write_text("tok\n")
+    rig.http_500 = True
+    _assert_deferred(rig)
 
 
 def test_missing_token_file_proceeds_without_asking(rig):

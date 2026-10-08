@@ -33,13 +33,17 @@ git diff --quiet && git diff --cached --quiet || { log "skip: tracked changes on
 
 # Ask the backend before anything moves: the running process lazily imports modules
 # from this checkout, so a fast-forward under it mixes versions, and a restart kills
-# the batch in progress. Unreachable, no token, or an unreadable answer: nothing to
-# protect, proceed.
+# the batch in progress. Only "nothing is listening" (curl exit 7) or no token means
+# nothing to protect. A slow backend (timeout), any other failure, an HTTP error or an
+# unreadable answer is a busy one: defer and retry next tick.
 sleep_busy() {
   local token body port="${CICADA_PORT:-8000}"
   token="$(tr -d '[:space:]' < "${CICADA_HOME:-$HOME/.cicada}/api_token" 2>/dev/null)" || return 1
   [ -n "$token" ] || return 1
-  body="$(curl -s -m 3 -H "Authorization: Bearer $token" "http://127.0.0.1:$port/sleep/status" 2>/dev/null)" || return 1
+  local rc=0
+  body="$(curl -sf -m 10 -H "Authorization: Bearer $token" "http://127.0.0.1:$port/sleep/status" 2>/dev/null)" || rc=$?
+  [ "$rc" = 7 ] && return 1
+  [ "$rc" = 0 ] || return 0
   printf '%s' "$body" | /usr/bin/python3 -c '
 import json, sys
 try:
@@ -47,7 +51,7 @@ try:
     d = b.get("drain") if isinstance(b.get("drain"), dict) else {}
     busy = b.get("status") == "running" or b.get("writing") is True or (d.get("active") is True and d.get("finished") is not True) or isinstance(b.get("paused"), dict)
 except Exception:
-    busy = False
+    busy = True
 sys.exit(0 if busy else 1)' 2>/dev/null
 }
 if [ "${CICADA_AUTOUPDATE_FORCE:-}" != "1" ] && sleep_busy; then
