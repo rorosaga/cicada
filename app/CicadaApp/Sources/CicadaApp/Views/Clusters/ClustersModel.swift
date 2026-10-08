@@ -107,7 +107,7 @@ enum ClustersModel {
     /// F-11 — a tile's one line in words: the page's Summary, else the graph's preview. Never tags, a percentage or a
     /// confidence (the owner: "no tags, no percentages").
     static func line(_ e: Entity) -> String? {
-        guard let text = EntityHeaderWords.summary(markdown: e.markdownContent, isStub: e.rawMarkdown.isEmpty) else {
+        guard let text = EntityHeaderWords.summary(markdown: e.markdownContent, isStub: e.isStub) else {
             return nil
         }
         let first = ExcerptText.clean(text).split(whereSeparator: \.isNewline).first.map(String.init) ?? ""

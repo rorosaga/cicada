@@ -35,3 +35,32 @@ enum HistoryTabState {
         return fetched.isEmpty ? .empty : .entries(fetched)
     }
 }
+
+/// #244 — the History tab past the served window. `GET /entities/{id}` carries an entity's newest `window` changes
+/// (plus older commits that still own lines) and `historyTruncated` when there are more; `GET
+/// /entities/{id}/history?skip=N` reads the changes older than the newest N. "Older changes" asks for the next page.
+struct HistoryPaging: Equatable {
+    /// `git_service.MAX_PROVENANCE_COMMITS`, pinned by `api/tests/test_history_window_pin.py`.
+    static let window = 500
+
+    private(set) var hasMore: Bool
+    private(set) var nextSkip: Int
+
+    init(truncated: Bool) {
+        hasMore = truncated
+        nextSkip = Self.window
+    }
+
+    /// One page came back: it moves the cursor by what it held; a short page is the last.
+    mutating func received(_ page: [EntityHistoryEntry]) {
+        nextSkip += page.count
+        hasMore = page.count >= Self.window
+    }
+
+    /// The rows shown newest first, then the older ones, each commit once (the served page may already carry an
+    /// older commit that still owns lines).
+    static func merge(_ shown: [EntityHistoryEntry], older: [EntityHistoryEntry]) -> [EntityHistoryEntry] {
+        var seen = Set(shown.map(\.commitHash).filter { !$0.isEmpty })
+        return shown + older.filter { $0.commitHash.isEmpty || seen.insert($0.commitHash).inserted }
+    }
+}

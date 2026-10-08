@@ -68,6 +68,21 @@ extension Copy.Graph {
     static let rendered = "Rendered"
     static let source = "Source"
     static let copyMarkdown = "Copy markdown"
+    /// The person hero's two-line Summary (F-12): a click shows all of it.
+    static let showWholeSummary = "Show the whole summary"
+    static let showLess = "Show less"
+    /// #244 — the History tab past its first page.
+    static let olderChanges = "Older changes"
+    static let olderChangesFailed = "Couldn't read older changes."
+    /// F4 — Source and Copy when `/entities/{id}/raw` could not be read.
+    static let sourceUnavailable = "Couldn't read this page's file."
+    static let copyFailed = "Couldn't copy: the page's file could not be read."
+    /// F4 — the line in place of a claims block too large to draw in Source.
+    static func sourceFolded(bytes: Int) -> String {
+        let size = ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
+        return "The rest of the file is its claims block (\(size)), not drawn here. Perspectives lists those beliefs; "
+            + "Copy markdown copies the whole file."
+    }
     static let copyPath = "Copy path"
     static let folder = "Folder"
     static let folderNotFound = "This folder isn't on this Mac."

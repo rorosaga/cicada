@@ -741,6 +741,12 @@ struct EntityDecay: Codable, Equatable {
     }
 }
 
+/// F4 — `GET /entities/{id}/raw`.
+struct EntityRaw: Decodable {
+    let id: String
+    let rawMarkdown: String
+}
+
 struct Entity: Identifiable, Codable {
     let id: String
     var name: String
@@ -762,8 +768,15 @@ struct Entity: Identifiable, Codable {
     var version: Int
     var markdownContent: String
     /// Verbatim file content (frontmatter + body) from the API; empty when
-    /// only the placeholder graph node has loaded.
+    /// only the placeholder graph node has loaded, or when the page is too large
+    /// to inline (`rawOmitted`, F4) — then `GET /entities/{id}/raw` serves it.
     var rawMarkdown: String = ""
+    /// F4 — the server left `rawMarkdown` out because the page is larger than its inline bound (an owner-sized page:
+    /// ~2.6 MB, nearly all claims fence). A full page either way; never a graph stub.
+    var rawOmitted: Bool = false
+
+    /// The graph node's preview, not the page: no verbatim file and none withheld.
+    var isStub: Bool { rawMarkdown.isEmpty && !rawOmitted }
     /// Directory path declared in a location entity's frontmatter (issue #7).
     /// Optional — only present once the backend surfaces `path:` on the
     /// EntityResponse; nil for non-location entities and for locations that
@@ -775,6 +788,8 @@ struct Entity: Identifiable, Codable {
     /// `rawMarkdown` frontmatter, see `init`).
     var media: MediaBlock? = nil
     var history: [EntityHistoryEntry]
+    /// #244 — `history` is the newest `HistoryPaging.window` changes and there are older ones (`?skip=N`).
+    var historyTruncated: Bool = false
     /// G117 — mirrors `GraphNode.isOwner` (same `owner:` frontmatter key) on
     /// the detail response, so `EntityDetailCard` can render "Name (you)"
     /// without a second lookup against `/graph`. Additive/decode-tolerant.
@@ -818,7 +833,7 @@ struct Entity: Identifiable, Codable {
     enum CodingKeys: String, CodingKey {
         case id, name, type, status, confidence, created, lastReferenced
         case decayRate, decayClass, decay, sourceEpisodes, tags, related, version
-        case markdownContent, rawMarkdown, path, media, history, isOwner
+        case markdownContent, rawMarkdown, rawOmitted, path, media, history, historyTruncated, isOwner
         case pictureURL = "picture", pictureSource, pictureInputs
     }
 
@@ -842,6 +857,7 @@ struct Entity: Identifiable, Codable {
         version = try c.decodeIfPresent(Int.self, forKey: .version) ?? 0
         markdownContent = try c.decodeIfPresent(String.self, forKey: .markdownContent) ?? ""
         rawMarkdown = try c.decodeIfPresent(String.self, forKey: .rawMarkdown) ?? ""
+        rawOmitted = try c.decodeIfPresent(Bool.self, forKey: .rawOmitted) ?? false
         path = try c.decodeIfPresent(String.self, forKey: .path)
         // Prefer the backend-surfaced `media` block; if absent (older backend
         // that drops the nested block), reconstruct it from the `media:` YAML
@@ -854,6 +870,7 @@ struct Entity: Identifiable, Codable {
             media = nil
         }
         history = try c.decodeIfPresent([EntityHistoryEntry].self, forKey: .history) ?? []
+        historyTruncated = try c.decodeIfPresent(Bool.self, forKey: .historyTruncated) ?? false
         isOwner = try c.decodeIfPresent(Bool.self, forKey: .isOwner) ?? false
         pictureURL = (try? c.decodeIfPresent(String.self, forKey: .pictureURL)) ?? nil
         pictureSource = (try? c.decodeIfPresent(String.self, forKey: .pictureSource)) ?? nil

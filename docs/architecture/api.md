@@ -117,6 +117,16 @@ schedules one revalidation there. The queue's writes (`PUT|DELETE /videos/queue/
 
 **Endpoint traps worth knowing before you touch them:**
 
+- `GET /entities/{id}` and `/entities/{id}/context` serve `markdownContent` **without the claims fence** (F4: the
+  claims are `/claims`; an owner-sized page shipped its 2.5 MB fence twice per card open). `/provenance`'s
+  `pageBodyHash` and section `bodyRanges` describe that same served text (`claims.served_prose` maps the offsets; a
+  ```` ```claims ```` example inside another code fence is literal code and stays, as the section scanner reads it; an
+  item whose range would cross a removed block gets no ranges rather than shortened ones).
+  `rawMarkdown` is the whole file up to `RAW_INLINE_MAX_BYTES` (256 KiB); above it (and only when the file has a
+  closed fence) it is the file verbatim *up to its first claims fence* with `rawOmitted: true` — every frontmatter
+  reader keeps its input — and the Source view and Copy read `GET /entities/{id}/raw` for the whole file. A client
+  never treats that head as the file, and never substitutes a reconstruction when `/raw` fails (`RawFile`).
+  Neither is a Store domain: no ETag, no `VersionVector` mapping.
 - `GET /entities/{id}/history/{commit}/diff` — a file's FIRST commit has no parent, so `git show`
   diffs it against the empty tree and it comes back all-adds; a MERGE commit needs `--first-parent`,
   else git emits a combined (`--cc`) `@@@` diff the parser can't read and the endpoint silently

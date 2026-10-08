@@ -21,6 +21,18 @@ a time — find, Legend, Reader, column; another node swaps the column in place 
 posts `backgroundClicked` and `escape` and takes `setSelectedNode` (a neutral ring), read and spelled in one
 place (`GraphMessage`, `GraphJS`) and tested on both sides — none of them touches the simulation.
 
+**Layout on a push (item 6, 2026-10-08).** A data push relaxes only the nodes it brings: every settled node is held
+where it is for that layout (`holdSettled`/`releaseHolds` in graph.js — never over a drag's or focus mode's pin, and
+released when the layout ends), and a push that brings no node (a rename, a confidence, a removal) starts no layout.
+A push that lands before a layout ends (running, or held while the page is hidden) joins it — its nodes keep moving
+and it keeps its heat — and a full push rebinds a drag in progress to the live node. So Sleep's batches update the
+graph live without moving what was there, and a push that lands while the page is
+hidden no longer replays whole-graph motion on return. Only a first paint (and a filter change) lays out everything.
+Measured in WebKit at 2,000 nodes (`GraphWebKitBenchTests`, opt-in): draw 1–2 ms, a tick 7 ms, a cold layout 135
+ticks; 20 new pages settle in 112 ticks with 0 settled nodes moved. Per-type zones are the existing `typeClusterPositions`
+anchors; `graph-zones.bench.js` measures their strength (no overlap at rest at any strength; stronger = more separate
+zones, same settle time).
+
 **The entity card (DS-3a).** One component, `EntityDetailCard` — the Graph's column, Clusters' card. Header:
 the type as a `Tag`, status and confidence in words ("Active · very confident", the number in `.help`) — or, when
 the page's `lastReferenced` is more than 90 days before the viewer's today, the status and when it was last mentioned
@@ -33,8 +45,13 @@ stated `access`, else a path or repo is "A file on this Mac" and an app "An app"
 this endpoint), who added it with their mark, "You chose to use this" / "Only you know this", no check line
 until G61 S3 serves one, and the page's open inbox question with Open in Inbox; Details (collapsed, remembered):
 tags, related, dates, how it fades. Beliefs are rows — the sentence, its evidence chip and its age, the rest in
-`.help`. History: Show in conversation (straight to the Reader when one conversation maps here) and What
-changed. Timeline: contested beliefs inline; a belief's clock opens its own.
+`.help`. A location page's map is a picture of where it is, never a scroll trap: it takes no pointer events, so
+the column scrolls with the pointer over it, and *Open in Maps* is the way to pan (`LocationMap`). A page with
+thousands of beliefs stays usable: what the tabs show from the claims is derived once per load,
+off the main actor (`ClaimDigest`), Perspectives builds its rows lazily, and a belief list grows twenty rows per
+"Show N more" (`BeliefPaging`), never all at once. History: newest first, Show in conversation (straight to the Reader when one conversation maps here) and What
+changed; when the page left older changes out (`historyTruncated`, #244) its last row is *Older changes*, which reads
+the next page with `?skip=N` (`HistoryPaging`; the window is pinned to `MAX_PROVENANCE_COMMITS` by a test). Timeline: contested beliefs inline; a belief's clock opens its own.
 
 **Pictures and the person card (G146, round 4).** Every entity avatar is `EntityPicture` over the one picture
 precedence (`entity_picture.resolve` and its Swift twin `EntityPictureResolver`, one fixture): the person's own upload
@@ -43,11 +60,15 @@ fill; `PictureStore` holds uploads, Contacts photos and thumbnails by URL (the b
 to a provider), `LogoStore` the logos. Any editable picture opens the image picker on a click, takes a dropped image,
 dims under a camera on hover and offers "Use initials instead" / "Remove picture" on right-click; the app shrinks the
 picture (ImageIO, ≤ 512 px) and `EntityPictureWrite` paints the answer before the server gives it. A `person` opens
-with mock C's top (F-12): an 88 pt picture, the name at 24, the Summary as a standfirst, the picture's source line and a
-facts strip whose every cell comes from something the card loaded (`PersonFacts`); then the tabs, and in Content two
+with mock C's top (F-12): an 88 pt picture, the name at 24, the Summary as a two-line standfirst (a click unfolds it and the header grows; *Show less* folds it —
+a capped Summary or name is never selectable, since a selectable field opens over its neighbours on a click), the
+picture's source line and a
+facts strip whose every cell comes from something the card loaded (`PersonFacts`; Known since, Last mentioned and
+Conversations are when the conversations were said, over all of them — `/provenance`'s `totals` — with the page's own
+dates only as a fallback); then the tabs, and in Content two
 columns — beliefs signed with who wrote them (`SignedLine`: harness, model and effort from the captured turn), Where
-this came from, the page behind a remembered disclosure — beside *How you know <name>* (`PersonMapLayout`, the graph's
-own edges) and *What's happening* (`PersonHappenings`, from `ProjectsCache`). Every other type keeps this header with a
+this came from, the page behind a remembered disclosure — beside *How you know <name>* (*What you're connected to* on the owner's own page, by its `owner` flag;
+`PersonMapLayout`, the graph's own edges) and *What's happening* (`PersonHappenings`, from `ProjectsCache`). Every other type keeps this header with a
 40 pt picture. In Clusters a person's card may grow to 1024 units; the header adds "Show on the graph".
 
 ### 2/3. Unified inbox (`memory/inbox/`)

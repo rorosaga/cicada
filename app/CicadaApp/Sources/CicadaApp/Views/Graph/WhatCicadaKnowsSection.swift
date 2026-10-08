@@ -7,6 +7,8 @@ import SwiftUI
 struct WhatCicadaKnowsSection: View {
     let claims: [Claim]
     var onOpenTimeline: (Claim) -> Void = { _ in }
+    /// A page at a time (`BeliefPaging`): a summary-only page can carry thousands of beliefs.
+    @State private var shown = BeliefPaging.step
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
@@ -14,12 +16,18 @@ struct WhatCicadaKnowsSection: View {
             Text(Copy.Beliefs.caption)
                 .font(CicadaTheme.metaFont)
                 .foregroundStyle(CicadaTheme.textTertiary)
-            VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
-                ForEach(claims) { claim in
+            LazyVStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
+                ForEach(claims.prefix(shown)) { claim in
                     BeliefRow(claim: claim) { onOpenTimeline(claim) }
                 }
             }
             .padding(.horizontal, -CicadaTheme.scaled(10))
+            if let more = BeliefPaging.more(shown: shown, total: claims.count) {
+                TextButton(title: Copy.People.showMore(more)) {
+                    Instant.run { shown = BeliefPaging.next(shown: shown, total: claims.count) }
+                }
+                .padding(.leading, -CicadaTheme.scaled(10))
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
