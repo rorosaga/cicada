@@ -18,21 +18,16 @@ enum EntityProse {
     /// The markdown with every ```claims block removed. An unterminated fence
     /// hides everything after it: showing machine YAML as prose is the defect
     /// this exists to prevent, and nothing prose-like follows a claims fence.
+    ///
+    /// Line semantics as before (a fence opens on a line that starts with ``` and
+    /// trims to ```claims, closes on a line that trims to ```), but found by search
+    /// instead of splitting every line: an owner-sized page is 2.6 MB and ~110k
+    /// lines, almost all of them inside the fence, and the card read its Summary
+    /// through this on every render (21 ms → under 1 ms in a debug build).
     static func stripClaimsFence(_ markdown: String) -> String {
-        var kept: [String] = []
-        var inFence = false
-        for line in markdown.components(separatedBy: "\n") {
-            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            if inFence {
-                if trimmed == fence { inFence = false }
-                continue
-            }
-            if line.hasPrefix(fence), trimmed == fence + "claims" {
-                inFence = true
-                continue
-            }
-            kept.append(line)
-        }
+        var text = markdown
+        let kept: [String]? = text.withUTF8 { FenceScan(bytes: $0).keptRuns() }
+        guard let kept else { return markdown.trimmingCharacters(in: .whitespacesAndNewlines) }
         return kept.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
@@ -90,5 +85,73 @@ enum EntityProse {
         guard !isStub else { return false }
         let rest = stripSection(named: "## Summary", from: stripClaimsFence(markdown))
         return rest.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+}
+
+/// `EntityProse.stripClaimsFence` over the page's UTF-8 bytes: `memmem`/`memchr` find the fences, and only the few
+/// lines that might open or close one become strings.
+private struct FenceScan {
+    let bytes: UnsafeBufferPointer<UInt8>
+    private static let open = Array("```claims".utf8)
+    private static let tick = Array("```".utf8)
+    private static let newline = UInt8(ascii: "\n")
+
+    /// Kept runs of whole lines, each without the newline that ends its last line — joined by "\n" they are exactly
+    /// the kept lines joined by "\n" — or nil when there is no fence to look at.
+    func keptRuns() -> [String]? {
+        let length = bytes.count
+        guard find(Self.open, from: 0) != nil else { return nil }
+        var kept: [String] = []
+        var runStart = 0        // a line start: the first line of the current kept run
+        var scan = 0            // a line start: where to look for the next opening
+        var hasTail = true      // the run from `runStart` holds at least one line
+        while scan < length, let at = find(Self.open, from: scan) {
+            let opening = line(around: at, floor: scan)
+            let words = string(opening.start, opening.end)
+            guard words.hasPrefix("```"), words.trimmingCharacters(in: .whitespacesAndNewlines) == "```claims" else {
+                scan = opening.end + 1
+                continue
+            }
+            if opening.start > runStart { kept.append(string(runStart, opening.start - 1)) }
+            var search = opening.end + 1
+            var closed: (start: Int, end: Int)?
+            while search < length, let mark = find(Self.tick, from: search) {
+                let candidate = line(around: mark, floor: search)
+                if string(candidate.start, candidate.end).trimmingCharacters(in: .whitespacesAndNewlines) == "```" {
+                    closed = candidate
+                    break
+                }
+                search = candidate.end + 1
+            }
+            guard let closed, closed.end < length else {
+                hasTail = false   // unterminated, or the closing line is the last: nothing follows
+                break
+            }
+            runStart = closed.end + 1
+            scan = runStart
+        }
+        if hasTail { kept.append(string(runStart, length)) }
+        return kept
+    }
+
+    private func find(_ needle: [UInt8], from: Int) -> Int? {
+        guard from < bytes.count, let base = bytes.baseAddress else { return nil }
+        return needle.withUnsafeBytes { n -> Int? in
+            guard let hit = memmem(base + from, bytes.count - from, n.baseAddress, n.count) else { return nil }
+            return base.distance(to: hit.assumingMemoryBound(to: UInt8.self))
+        }
+    }
+
+    /// The line holding `index`, never reaching back before `floor` (itself a line start).
+    private func line(around index: Int, floor: Int) -> (start: Int, end: Int) {
+        var start = index
+        while start > floor, bytes[start - 1] != Self.newline { start -= 1 }
+        guard let base = bytes.baseAddress,
+              let hit = memchr(base + index, Int32(Self.newline), bytes.count - index) else { return (start, bytes.count) }
+        return (start, base.distance(to: hit.assumingMemoryBound(to: UInt8.self)))
+    }
+
+    private func string(_ start: Int, _ end: Int) -> String {
+        String(decoding: UnsafeBufferPointer(rebasing: bytes[start..<max(start, end)]), as: UTF8.self)
     }
 }

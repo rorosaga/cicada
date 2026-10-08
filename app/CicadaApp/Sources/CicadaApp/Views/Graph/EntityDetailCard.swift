@@ -46,6 +46,8 @@ struct EntityDetailCard: View {
     // keys; the perspective tab filters to valid claims itself.
     @State private var claims: [Claim] = []
     @State private var claimsLoaded = false
+    /// What every tab shows from `claims`, derived once per load off the main actor (`ClaimDigest`).
+    @State private var digest = ClaimDigest.empty
     /// R-DG23 — the Timeline tab's open rows, and the one a belief's clock asked for.
     @State private var expandedKeys: Set<BeliefKey> = []
     @State private var requestedKey: BeliefKey?
@@ -172,8 +174,9 @@ struct EntityDetailCard: View {
     /// F-12 (R-PE16) — a person's facts, derived from what the card already loaded; nothing for any other type.
     private var personFacts: [PersonFact] {
         guard entity.type == .person else { return [] }
-        return PersonFacts.cells(entity: entity, claims: claimsLoaded ? claims : [], provenance: provenanceState.value,
-                                 names: store.entityNames, typeOf: { id in graphVM.nodes.first { $0.id == id }?.type },
+        return PersonFacts.cells(entity: entity, claims: claimsLoaded ? digest.current : [],
+                                 provenance: provenanceState.value,
+                                 names: store.entityNames, typeOf: { id in graphVM.node(id)?.type },
                                  picture: store.picture(for: entity.id, held: entity.pictureRef),
                                  docs: EvidenceDocIndex.from(provenanceState.value), today: ISODay.today())
     }
@@ -196,7 +199,7 @@ struct EntityDetailCard: View {
                 isStub: isStub,
                 canGoBack: canGoBack, backTargetName: backTargetName, onBack: goBack,
                 showsClose: showsCloseButton, onClose: close,
-                tabs: EntityTabs.tabs(claims: claimsLoaded ? claims : nil,
+                tabs: EntityTabs.tabs(digest: claimsLoaded ? digest : nil,
                                       historyCount: EntityTabs.historyCount(embedded: entity.history, fetched: fetchedHistory)),
                 selection: $selectedTab,
                 inset: style.inset,
@@ -368,7 +371,7 @@ struct EntityDetailCard: View {
 
     private var personMain: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingCard) {
-            PersonBeliefsSection(claims: validClaims) { claim in openTimeline(for: claim) }
+            PersonBeliefsSection(ordered: digest.newestFirst) { claim in openTimeline(for: claim) }
             WhereThisCameFromSection(entityId: entity.id, state: provenanceState)
             personPage
             // `.id` — the add field's draft belongs to one page (as in `standardContent`).
@@ -382,9 +385,7 @@ struct EntityDetailCard: View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingCard) {
             PersonMapSection(personId: entity.id, name: entity.name, isOwner: entity.isOwner,
                              navigate: { navigate(to: $0) }, showOnGraph: showOnGraph)
-            PersonHappeningsSection(personId: entity.id,
-                                    projectIds: PersonMapLayout.projects(personId: entity.id, nodes: graphVM.nodes,
-                                                                         edges: graphVM.edges))
+            PersonHappeningsSection(personId: entity.id, projectIds: graphVM.personProjectIds(entity.id))
         }
     }
 
@@ -973,11 +974,13 @@ struct EntityDetailCard: View {
                     .font(CicadaTheme.font(size: 13))
                     .foregroundStyle(CicadaTheme.textTertiary)
             } else {
-                ForEach(PerspectiveGroups.divergences(claims)) { d in divergenceBlock(d) }
-                ForEach(PerspectiveGroups.of(claims)) { group in
+                ForEach(digest.divergences) { d in divergenceBlock(d) }
+                ForEach(digest.groups) { group in
                     VStack(alignment: .leading, spacing: CicadaTheme.scaled(6)) {
                         SectionLabel(PerspectiveGroups.heading(group))
-                        VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
+                        // Lazy: an owner-sized page holds thousands of beliefs, and a plain stack laid every row out
+                        // at once (~2.7 ms a row in a debug build) before the tab could draw.
+                        LazyVStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
                             ForEach(group.claims) { claim in
                                 BeliefRow(claim: claim) { openTimeline(for: claim) }
                             }
@@ -1023,7 +1026,7 @@ struct EntityDetailCard: View {
             if !claimsLoaded {
                 ProgressView().controlSize(.small).frame(maxWidth: .infinity, alignment: .center)
             } else {
-                let keys = TimelineKeys.rows(claims: claims, requested: requestedKey)
+                let keys = TimelineKeys.rows(contested: digest.contested, requested: requestedKey)
                 if keys.isEmpty {
                     VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
                         Text(Copy.Graph.noContested).font(CicadaTheme.font(size: 13)).foregroundStyle(CicadaTheme.textSecondary)
@@ -1032,7 +1035,7 @@ struct EntityDetailCard: View {
                 } else {
                     SectionLabel(TimelineKeys.heading(contested: contestedKeys.count))
                     ForEach(keys) { key in
-                        TimelineKeyRow(key: key, summary: TimelineKeys.summary(key, claims: claims),
+                        TimelineKeyRow(key: key, summary: digest.summary(key),
                                        expanded: expandedKeys.contains(key)) {
                             if expandedKeys.contains(key) { expandedKeys.remove(key) } else { expandedKeys.insert(key) }
                         }
@@ -1050,10 +1053,10 @@ struct EntityDetailCard: View {
 
     // MARK: - Claim derivations
 
-    private var validClaims: [Claim] { claims.filter { $0.isValid } }
+    private var validClaims: [Claim] { digest.current }
 
     /// (predicate, context) keys with ≥2 claims over time (valid + superseded).
-    private var contestedKeys: [BeliefKey] { EntityTabs.contested(claims) }
+    private var contestedKeys: [BeliefKey] { digest.contested }
 
     private func loadClaimsIfNeeded() async {
         guard !claimsLoaded else { return }
@@ -1061,7 +1064,11 @@ struct EntityDetailCard: View {
         let fetched = try? await APIClient.shared.fetchClaims(subject: entity.id, includeSuperseded: true)
         // DS-3a — a load cancelled by a swap or a close must not read as "no beliefs" (R-DG16's counts).
         guard !Task.isCancelled else { return }
-        claims = fetched ?? []
+        let loaded = fetched ?? []
+        let derived = await Task.detached(priority: .userInitiated) { ClaimDigest(loaded) }.value
+        guard !Task.isCancelled else { return }
+        claims = loaded
+        digest = derived
         claimsLoaded = true
     }
 

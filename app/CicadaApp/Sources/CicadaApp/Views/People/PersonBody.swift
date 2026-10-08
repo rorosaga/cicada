@@ -95,14 +95,15 @@ struct PersonColumnsLayout: Layout {
     }
 }
 
-/// F-12 — "What Cicada believes · N, newest first": four signed rows, then "Show N more".
+/// F-12 — "What Cicada believes · N, newest first": four signed rows, then "Show N more" a page at a time. The rows
+/// arrive ordered (`ClaimDigest.newestFirst`), so a render never re-sorts thousands of beliefs; and "more" reveals
+/// `BeliefPaging.step` rows, never all of an owner-sized page at once (~2.7 ms a row to lay out in a debug build).
 struct PersonBeliefsSection: View {
-    let claims: [Claim]
+    let ordered: [Claim]
     var onOpenTimeline: (Claim) -> Void = { _ in }
-    @State private var showAll = false
+    @State private var shown = PersonBeliefs.collapsed
 
     var body: some View {
-        let ordered = PersonBeliefs.ordered(claims)
         if !ordered.isEmpty {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                 HStack {
@@ -110,15 +111,15 @@ struct PersonBeliefsSection: View {
                     Spacer(minLength: 0)
                     Text(Copy.People.newestFirst).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
                 }
-                VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
-                    ForEach(showAll ? ordered : Array(ordered.prefix(PersonBeliefs.collapsed))) { claim in
+                LazyVStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
+                    ForEach(ordered.prefix(shown)) { claim in
                         BeliefRow(claim: claim, onOpenTimeline: { onOpenTimeline(claim) }, signed: true)
                     }
                 }
                 .padding(.horizontal, -CicadaTheme.scaled(10))
-                if !showAll, ordered.count > PersonBeliefs.collapsed {
-                    TextButton(title: Copy.People.showMore(ordered.count - PersonBeliefs.collapsed)) {
-                        Instant.run { showAll = true }
+                if let more = BeliefPaging.more(shown: shown, total: ordered.count) {
+                    TextButton(title: Copy.People.showMore(more)) {
+                        Instant.run { shown = BeliefPaging.next(shown: shown, total: ordered.count) }
                     }
                     .padding(.leading, -CicadaTheme.scaled(10))
                 }
@@ -140,7 +141,7 @@ struct PersonMapSection: View {
     @Environment(GraphViewModel.self) private var graphVM
 
     var body: some View {
-        let map = PersonMapLayout.make(personId: personId, nodes: graphVM.nodes, edges: graphVM.edges)
+        let map = graphVM.personMap(personId)
         if !map.nodes.isEmpty {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                 GlyphSectionLabel(glyph: "point.3.connected.trianglepath.dotted", type: .hub,

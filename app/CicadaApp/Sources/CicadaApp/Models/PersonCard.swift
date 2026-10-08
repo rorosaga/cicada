@@ -29,17 +29,24 @@ enum PersonFacts {
                       today: ISODay, locale: Locale = .autoupdatingCurrent,
                       timeZone: TimeZone = .autoupdatingCurrent) -> [PersonFact] {
         var cells: [PersonFact] = []
-        let current = claims.filter(\.isValid).sorted { $0.validFrom > $1.validFrom }
+        /// The newest current belief with one of `predicates` — one pass, no sort of every belief per render.
+        func latest(_ predicates: Set<String>) -> Claim? {
+            var best: Claim?
+            for claim in claims where predicates.contains(claim.predicate) && claim.isCurrent(on: today) {
+                if best == nil || claim.validFrom > best!.validFrom { best = claim }
+            }
+            return best
+        }
         func valueCell(_ kind: PersonFact.Kind, _ label: String, _ claim: Claim) -> PersonFact {
             let page = names.name(for: claim.object) != nil ? claim.object : nil
             return PersonFact(kind: kind, label: label, value: names.display(claim.object), valueEntity: page,
                               valueType: page.flatMap(typeOf),
                               line: evidenceLine(claim, docs: docs, locale: locale, timeZone: timeZone))
         }
-        if let claim = current.first(where: { worksAt.contains($0.predicate) }) {
+        if let claim = latest(worksAt) {
             cells.append(valueCell(.worksAt, Copy.People.worksAt, claim))
         }
-        if let claim = role.lazy.compactMap({ predicate in current.first { $0.predicate == predicate } }).first {
+        if let claim = role.lazy.compactMap({ latest([$0]) }).first {
             cells.append(valueCell(.role, Copy.People.role, claim))
         }
         let conversations = (provenance?.conversations ?? []).sorted { ($0.timestamp ?? "") < ($1.timestamp ?? "") }
@@ -160,13 +167,34 @@ enum SignedLine {
     }
 }
 
+/// A long list of beliefs grows a page at a time: "Show N more" reveals the next `step` rows, never thousands at once.
+enum BeliefPaging {
+    static let step = 20
+
+    /// How many the next "Show N more" reveals, or nil when everything is shown.
+    static func more(shown: Int, total: Int) -> Int? {
+        total > shown ? min(step, total - shown) : nil
+    }
+
+    static func next(shown: Int, total: Int) -> Int { min(total, shown + step) }
+}
+
 /// F-12 — "What Cicada believes · N, newest first": current beliefs by when they were written, else when they became
 /// true; four, then "Show N more".
 enum PersonBeliefs {
     static let collapsed = 4
 
-    static func ordered(_ claims: [Claim]) -> [Claim] {
-        claims.filter(\.isValid).sorted { key($0) > key($1) }
+    static func ordered(_ claims: [Claim], today: ISODay = .today()) -> [Claim] {
+        newestFirst(claims.filter { $0.isCurrent(on: today) })
+    }
+
+    /// Already-current beliefs, newest first. Each key is read once, not once per comparison (88 ms → a few on an
+    /// owner-sized page); ties keep page order, as the old comparison sort happened to for this data.
+    static func newestFirst(_ current: [Claim]) -> [Claim] {
+        current.enumerated()
+            .map { (key: key($0.element), index: $0.offset, claim: $0.element) }
+            .sorted { $0.key != $1.key ? $0.key > $1.key : $0.index < $1.index }
+            .map(\.claim)
     }
 
     private static func key(_ claim: Claim) -> String {

@@ -233,9 +233,12 @@ struct AuthorPill: View {
 /// at click time) rather than re-deriving its own convention, so a claim's
 /// wikilink and an entity body's wikilink for the same name can never resolve
 /// to two different ids.
+/// Compiled once: every belief row renders through `renderWikilinks`, and an owner-sized page has thousands.
+private let wikilinkPattern = try? NSRegularExpression(pattern: "\\[\\[([^\\[\\]|]+)(?:\\|([^\\[\\]]+))?\\]\\]")
+
 func renderWikilinks(_ text: String) -> AttributedString {
     var result = AttributedString()
-    guard let regex = try? NSRegularExpression(pattern: "\\[\\[([^\\[\\]|]+)(?:\\|([^\\[\\]]+))?\\]\\]") else {
+    guard let regex = wikilinkPattern else {
         var plain = AttributedString(text)
         plain.foregroundColor = CicadaTheme.textPrimary
         return plain
