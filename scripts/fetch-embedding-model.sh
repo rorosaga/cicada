@@ -40,6 +40,11 @@ fetch() {
   printf '%s' "$path"
 }
 
+# Both feed an `rm -rf` below: an unset or empty value, or a name that is a path, stops here — before anything is deleted.
+: "${MODELS:?the models folder is empty}" "${MODEL_DIR_NAME:?MODEL_DIR_NAME is unset in $INPUTS}"
+case "$MODEL_DIR_NAME" in
+  */*|.|..|.*) die "MODEL_DIR_NAME must be a plain folder name, not '$MODEL_DIR_NAME'" ;;
+esac
 OUT="$MODELS/$MODEL_DIR_NAME"
 # Staged beside the destination and swapped in whole, so a stopped run never leaves a half model the embedder finds.
 STAGE="$MODELS/.$MODEL_DIR_NAME.partial"

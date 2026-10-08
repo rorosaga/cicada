@@ -191,3 +191,10 @@ def test_doctor_passes_a_healthy_embedder(tmp_path):
     out = _doctor(tmp_path, {"status": "ok", "embeddingMode": "local", "embeddingModel": "intfloat/x",
                              "embeddingProblem": None})
     assert "✓ Search embeddings" in out and "intfloat/x" in out
+
+
+def test_the_missing_model_sentence_fits_where_it_runs():
+    checkout = embedding_health.sentence("model_missing", {})
+    release = embedding_health.sentence("model_missing", {"CICADA_DISTRIBUTION": "release"})
+    assert "make embedding-model" in checkout
+    assert "make" not in release and "checkout" not in release and "Settings" in release

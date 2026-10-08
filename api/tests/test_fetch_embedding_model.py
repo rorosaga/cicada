@@ -91,3 +91,17 @@ def test_make_and_install_fetch_the_model():
     install = (ROOT / "install.sh").read_text(encoding="utf-8")
     assert "fetch-embedding-model.sh" in install
     assert 'ensure_env CICADA_EMBEDDING_MODE "openai"' not in install, "a fresh checkout embeds on this Mac"
+
+
+def test_an_empty_or_unsafe_model_folder_name_deletes_nothing(tmp_path):
+    """MODEL_DIR_NAME feeds `rm -rf "$MODELS/$MODEL_DIR_NAME"`: unset, empty or a path, the script stops first."""
+    dest = tmp_path / "models"
+    keep = dest / "google--embeddinggemma-300m" / "kept.bin"
+    keep.parent.mkdir(parents=True)
+    keep.write_bytes(b"x")
+    for bad in ('MODEL_DIR_NAME=""', 'MODEL_DIR_NAME=".."', 'MODEL_DIR_NAME="a/b"'):
+        inputs = _inputs(tmp_path)
+        inputs.write_text(re.sub(r'^MODEL_DIR_NAME="[^"]*"', bad, inputs.read_text(), flags=re.M))
+        done = _run(tmp_path, inputs, dest)
+        assert done.returncode != 0, bad
+        assert keep.exists() and list(dest.iterdir()) == [keep.parent], bad
