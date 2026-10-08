@@ -789,32 +789,69 @@ async def get_entity_history(
     memory_path: Path,
     *,
     include_diff: bool = False,
+    skip: int = 0,
 ) -> list[EntityHistoryEntry]:
-    """Every commit that touched ``entities/<entity_id>.md``, newest first, with field-level provenance.
+    """:func:`entity_history`'s rows, for a caller that serves the plain list."""
+    rows, _ = await entity_history(entity_id, memory_path, include_diff=include_diff, skip=skip)
+    return rows
 
-    ONE ``git log`` over the path (bounded by :data:`MAX_PROVENANCE_COMMITS`) — the rule ``entity_commit_authors``
-    serves the provenance strip, so the History tab and "N changes by" count the same commits. It replaced ``git
-    blame`` plus one ``git log -1`` per surviving commit: 1.0 s on a 3,500-claim page, 1.7 s at 6,000, against ~30 ms
-    (benchmarks/scale). Each entry carries the authoring agent (from the commit's ``Cicada-Author:`` trailer;
-    "unknown" when absent) and the commit hash. When ``include_diff`` is set, each entry also carries the per-commit
-    add/remove diff for this entity file (opt-in so the default response stays small — backlog A1).
+
+_HISTORY_FORMAT = "--format=%x1e%H%x1f%ad%x1f%s%x1f%b"
+_BLAME_HEADER = re.compile(r"^([0-9a-f]{40}) \d+ \d+ \d+$", re.MULTILINE)
+
+
+async def entity_history(
+    entity_id: str,
+    memory_path: Path,
+    *,
+    include_diff: bool = False,
+    skip: int = 0,
+) -> tuple[list[EntityHistoryEntry], bool]:
+    """``(rows, truncated)``: every commit that touched ``entities/<entity_id>.md``, newest first, with field-level
+    provenance, and whether older touching commits were left out.
+
+    ONE ``git log`` over the path, at most :data:`MAX_PROVENANCE_COMMITS` rows after ``skip`` — the rule
+    ``entity_commit_authors`` serves the provenance strip, so the History tab and "N changes by" count the same
+    commits. It replaced ``git blame`` plus one ``git log -1`` per surviving commit: 1.0 s on a 3,500-claim page, 1.7 s
+    at 6,000, against ~30 ms (benchmarks/scale). Past the cap (review round 1) nothing the page still shows is lost:
+    every commit whose lines survive — the creation row and its conversation, say — is added after the window from
+    ``git blame --incremental`` and one batched ``git log``, and ``truncated`` says older touches were left out; they
+    are reachable with ``skip``. Each entry carries the authoring agent (from the commit's ``Cicada-Author:`` trailer;
+    "unknown" when absent) and the commit hash; ``include_diff`` adds the per-commit diff for this file (opt-in so the
+    default response stays small — backlog A1).
     """
     entity_file = f"entities/{entity_id}.md"
     entity_path = memory_path / entity_file
 
     if not entity_path.exists():
-        return []
+        return [], False
 
+    limit = MAX_PROVENANCE_COMMITS
     try:
         log_output = await _run_git(
-            memory_path, "log", f"-n{MAX_PROVENANCE_COMMITS}",
-            "--format=%x1e%H%x1f%ad%x1f%s%x1f%b", "--date=short", "--", entity_file,
+            memory_path, "log", f"-n{limit + 1}", f"--skip={max(0, int(skip))}",
+            _HISTORY_FORMAT, "--date=short", "--", entity_file,
         )
     except GitError:
-        return []
+        return [], False
+    records = log_output.split("\x1e")[1:]
+    truncated = len(records) > limit
+    records = records[:limit]
+    if truncated and not skip:
+        shown = {r.split("\x1f", 1)[0].strip() for r in records}
+        try:
+            blame = await _run_git(memory_path, "blame", "--incremental", "--", entity_file)
+            survivors = [h for h in dict.fromkeys(_BLAME_HEADER.findall(blame))
+                         if h not in shown and not h.startswith("0000000")]
+            if survivors:
+                older = await _run_git(memory_path, "log", "--no-walk=sorted", _HISTORY_FORMAT, "--date=short",
+                                       *survivors, "--")
+                records += older.split("\x1e")[1:]
+        except GitError:
+            pass   # the window still stands; `truncated` already says it is partial
 
     entries: list[EntityHistoryEntry] = []
-    for record in log_output.split("\x1e")[1:]:
+    for record in records:
         parts = record.split("\x1f", 3)
         if len(parts) < 4:
             continue
@@ -852,7 +889,7 @@ async def get_entity_history(
             sessions=sessions,
         ))
 
-    return entries
+    return entries, truncated
 
 
 # G118 slice 2 (R-PB6): enough history for "N changes by <author>" on the

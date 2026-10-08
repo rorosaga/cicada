@@ -110,3 +110,24 @@ def test_cli_get_pages_with_start_and_a_bounded_read_still_slices_the_whole_page
     part = envelope(run_cli(["get", "owner-example", "--from", "1", "--count", str(total), "--json"],
                             _env(tmp_path, memory), cwd=_work(tmp_path)))
     assert part["text"] == "\n".join(page.splitlines())
+
+
+def test_through_the_remote_runtime_every_part_is_ok_and_under_its_cap(tmp_path):
+    from api.remote.runtime import MAX_RESULT_CHARS, RemoteRuntime
+    from api.tests.test_remote_runtime import _connector
+
+    memory = _bank(tmp_path, git=False)
+    _big_page(memory, n=200)
+    connector = _connector(app="codex")
+    runtime = RemoteRuntime(memory_path=lambda: memory, backend_url="http://127.0.0.1:9", headers=lambda: {},
+                            sleep_running=lambda: False)
+    seen, args = "", {"entity_id": "owner-example"}
+    for _ in range(50):
+        text, status = runtime.call(connector, "cicada_recall_detail", args)
+        assert status == "ok" and len(text) <= MAX_RESULT_CHARS, (status, len(text))
+        seen += text
+        match = _NEXT.search(text)
+        if match is None:
+            break
+        args = {"entity_id": "owner-example", "start": int(match.group(1))}
+    assert "end of the page" in seen and TARGET in seen and ANCIENT in seen

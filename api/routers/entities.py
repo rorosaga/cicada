@@ -83,7 +83,7 @@ async def get_entity(
 
     parsed = markdown_parser.parse(entity_path)
     fm = parsed.frontmatter
-    history = await git_service.get_entity_history(entity_id, settings.memory_path)
+    history, history_truncated = await git_service.entity_history(entity_id, settings.memory_path)
     decay_class, decay_rate = decay_policy.resolve(fm)
     # G147 — the pace the decay pass actually charges, from the SAME function
     # (`decay_policy.effective`, plan R-FD11), so the card can never describe a
@@ -113,6 +113,7 @@ async def get_entity(
         markdown_content=parsed.body,
         raw_markdown=entity_path.read_text(encoding="utf-8"),
         history=history,
+        history_truncated=history_truncated,
         media=_build_media_block(fm, parsed.body),
         is_owner=bool(fm.get("owner")),
         decay=EntityDecay(
@@ -381,19 +382,22 @@ def _build_media_block(frontmatter: dict, body: str) -> EntityMedia | None:
 async def get_entity_history(
     entity_id: str,
     include_diff: bool = False,
+    skip: int = 0,
     settings: Settings = Depends(get_settings),
 ):
     """Entity history with per-commit author attribution.
 
     Pass ``?include_diff=true`` to inline the added/removed diff for each commit
-    (opt-in so the default response stays small — backlog A1).
+    (opt-in so the default response stays small — backlog A1). ``?skip=N`` reads
+    the touching commits older than the newest N — the rows the card leaves out
+    when ``history_truncated`` (review round 1).
     """
     entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
     if not entity_path.exists():
         raise HTTPException(404, f"Entity {entity_id} not found")
 
     return await git_service.get_entity_history(
-        entity_id, settings.memory_path, include_diff=include_diff
+        entity_id, settings.memory_path, include_diff=include_diff, skip=max(0, skip)
     )
 
 

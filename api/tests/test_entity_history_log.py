@@ -47,7 +47,7 @@ def test_history_lists_every_commit_that_touched_the_page_newest_first(repo):
     assert all(len(e.commit_hash) == 40 for e in history)
 
 
-def test_history_is_one_git_call_and_bounded(repo, monkeypatch):
+def test_history_is_one_git_call_under_the_cap_and_bounded_past_it(repo, monkeypatch):
     _three_commits(repo)
     calls = []
     original = git_service._run_git
@@ -57,9 +57,14 @@ def test_history_is_one_git_call_and_bounded(repo, monkeypatch):
         return await original(memory_path, *args)
 
     monkeypatch.setattr(git_service, "_run_git", counting)
+    run(git_service.get_entity_history("alpha-project", repo))
+    assert calls == ["log"]
+    calls.clear()
     monkeypatch.setattr(git_service, "MAX_PROVENANCE_COMMITS", 2)
     history = run(git_service.get_entity_history("alpha-project", repo))
-    assert calls == ["log"]
+    # Past the cap, blame finds which commits still author lines; both survivors are already in the window (the
+    # creating commit's only line was rewritten), so no third call.
+    assert calls == ["log", "blame"]
     assert [e.author for e in history] == ["model-b", "user"]
 
 
@@ -67,3 +72,67 @@ def test_history_of_a_page_outside_git_is_empty(tmp_path):
     (tmp_path / "entities").mkdir()
     (tmp_path / "entities" / "alpha-project.md").write_text("x\n")
     assert run(git_service.get_entity_history("alpha-project", tmp_path)) == []
+
+
+def _long_history(repo, extra: int = 1):
+    """One persistent line written by the creating commit, a second line rewritten by every later commit — past
+    MAX_PROVENANCE_COMMITS (the review's round-1 reproduction, with the real cap)."""
+    import subprocess
+
+    stream = bytearray()
+    for i in range(git_service.MAX_PROVENANCE_COMMITS + extra):
+        content = f"---\nname: Alpha Project\ntype: project\n---\n\n## Summary\nPersistent original statement.\nState {i}.\n".encode()
+        message = git_service.build_commit_message(
+            f"Synthetic update {i}",
+            ["entities/alpha-project.md: created (sessions: ses_initial)" if i == 0 else
+             "entities/alpha-project.md: updated"], authors=["seed-author" if i == 0 else "update-author"]).encode()
+        stream.extend(f"commit refs/heads/synthetic\ncommitter Synthetic <probe@example.com> {1767225600 + i} +0000\n"
+                      f"data {len(message)}\n".encode())
+        stream.extend(message + b"\nM 100644 inline entities/alpha-project.md\n")
+        stream.extend(f"data {len(content)}\n".encode() + content + b"\n")
+    subprocess.run(["git", "-C", str(repo), "symbolic-ref", "HEAD", "refs/heads/synthetic"], check=True)
+    subprocess.run(["git", "-C", str(repo), "fast-import", "--quiet"], input=bytes(stream), check=True)
+    subprocess.run(["git", "-C", str(repo), "reset", "--hard", "-q"], check=True)
+
+
+def test_past_the_cap_every_surviving_commit_stays_and_the_cut_is_said(repo):
+    _long_history(repo)
+    rows, truncated = run(git_service.entity_history("alpha-project", repo))
+    assert truncated is True
+    created = [e for e in rows if e.change_type == "created"]
+    assert len(created) == 1
+    assert created[0].author == "seed-author" and created[0].sessions == ["ses_initial"]
+    assert rows[-1].commit_hash == created[0].commit_hash          # newest first, the survivor last
+    assert len(rows) == git_service.MAX_PROVENANCE_COMMITS + 1
+    assert len({e.commit_hash for e in rows}) == len(rows)
+    # The plain list the card and the History route serve keeps the creation row too.
+    assert created[0].commit_hash in {e.commit_hash for e in run(git_service.get_entity_history("alpha-project", repo))}
+
+
+def test_older_rows_are_reachable_with_skip(repo):
+    _long_history(repo, extra=3)
+    newest, truncated = run(git_service.entity_history("alpha-project", repo))
+    older, more = run(git_service.entity_history("alpha-project", repo, skip=git_service.MAX_PROVENANCE_COMMITS))
+    assert truncated is True and more is False
+    assert [e.description for e in older] == ["entities/alpha-project.md: updated"] * 2 + [
+        "entities/alpha-project.md: created (sessions: ses_initial)"]
+    assert not {e.commit_hash for e in older} & {e.commit_hash for e in newest[:git_service.MAX_PROVENANCE_COMMITS]}
+
+
+def test_under_the_cap_nothing_is_flagged(repo):
+    _three_commits(repo)
+    rows, truncated = run(git_service.entity_history("alpha-project", repo))
+    assert truncated is False and len(rows) == 3
+
+
+def test_the_card_and_the_history_route_carry_the_flag_and_the_skip(repo, monkeypatch):
+    from api.routers import entities as entities_router
+
+    _long_history(repo)
+    settings = type("S", (), {"memory_path": repo})()
+    monkeypatch.setattr(entities_router.decay_policy, "spacing_params", lambda s: (0.5, 0.1))
+    card = run(entities_router.get_entity("alpha-project", settings))
+    assert card.history_truncated is True
+    older = run(entities_router.get_entity_history("alpha-project", skip=git_service.MAX_PROVENANCE_COMMITS,
+                                                   settings=settings))
+    assert [e.change_type for e in older] == ["created"]
