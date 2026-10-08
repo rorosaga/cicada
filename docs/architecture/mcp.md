@@ -9,7 +9,10 @@ handshake as `instructions`. On query: check `memory/inbox/` for relevant pendin
 vector index → search the markdown graph → follow wikilinks for relational depth → progressive
 disclosure (cluster pages → entity pages → episodic sources).
 Recall prose summaries, including related-page blurbs, strip closed claims fences
-before truncation; `cicada_recall_detail` returns the complete page for structured reads.
+before truncation; `cicada_recall_detail` returns the complete page for structured reads — except that a page
+over `RECALL_DETAIL_BUDGET` (60,000 characters) has its claims fence replaced by one line giving the count of
+current and all beliefs and naming `cicada_recall` / `cicada_ask` (a 3,500-claim page was 3.1 M characters, past
+any client's tool-output limit). `cicada get` with `--from`/`--count`/`--line-numbers` slices the whole page.
 
 **Recall (G140).** Three legs fused by one RRF (`search_service.rrf_fuse`): the stored vectors, the
 FTS lexical leg (names, aliases and prose, word by word), and current claims mapped to their
@@ -508,7 +511,7 @@ the CLI.
     version and `writing`; the vector index state; distribution; the caller's folder.
   - `commands`: the full table in `data.commands`, with `exposed` per row.
   - `get <entity>`: `cicada_recall_detail`'s page, verbatim, with `data: {entity_id, type, status, from, count,
-    total_lines}`.
+    total_lines}` (over the budget its fence is elided, as for the tool; a bounded read below slices the whole page).
     - Bounded reads: `--from N` / `--count N` / `--line-numbers`, or the shorthand `ENTITY:START[:END]` (lines START
       to END, 1-based).
     - The argument is read **literally first**: a display name or legacy stem containing a colon (`Alpha: Beta`)

@@ -1623,8 +1623,31 @@ def open_hub(ctx: ToolContext, hub: str) -> str:
     return f"Hub '{hub}' not found."
 
 
-def recall_detail(ctx: ToolContext, entity_id: str) -> str:
-    """Return the full entity page for one entity (Pass 2)."""
+#: Characters a whole-page read may return before its claims fence is elided (F5). A 3,500-claim page was 3.1 M
+#: characters — past any client's tool-output limit — while its prose and frontmatter stay well under this.
+RECALL_DETAIL_BUDGET = 60_000
+
+
+def _elide_fence(ctx: ToolContext, text: str) -> str:
+    """The page with an over-budget ```claims fence replaced by one line: how many beliefs it holds and the tools
+    that return the relevant ones (they rank; this read cannot). The fence's position in the page is kept."""
+    from api.services import claims as claims_mod
+
+    match = claims_mod._CLAIMS_BLOCK_RE.search(text)
+    if match is None:
+        return text
+    held = [c for c in claims_mod.parse_claims(text) if not claims_mod.is_record(c)]
+    current = sum(1 for c in held if claims_mod.is_current(c))
+    how = ("`--from`/`--count` read the whole page in parts" if ctx.is_cli
+           else "`cicada_recall` with a topic, or `cicada_ask`, returns the ones that matter")
+    line = (f"_This page holds {current:,} current beliefs ({len(held):,} in all), too many to show whole here; "
+            f"{how}._\n")
+    return text[:match.start()] + line + text[match.end():]
+
+
+def recall_detail(ctx: ToolContext, entity_id: str, *, whole: bool = False) -> str:
+    """Return the full entity page for one entity (Pass 2). Over :data:`RECALL_DETAIL_BUDGET` its claims fence is
+    elided (:func:`_elide_fence`) unless ``whole`` — the command line's bounded read, which slices the page itself."""
     memory_path = ctx.memory_path()
     entities_dir = memory_path / "entities"
     if not entity_id:
@@ -1647,6 +1670,8 @@ def recall_detail(ctx: ToolContext, entity_id: str) -> str:
             telemetry.record_read(cid, surface=ctx.read_surface, bank=memory_path.name)
             text = path.read_text(encoding="utf-8")
             fm = parse_frontmatter(text)[0]
+            if not whole and len(text) > RECALL_DETAIL_BUDGET:
+                text = _elide_fence(ctx, text)
             return Reply(text, data={"entity_id": path.stem, "type": fm.get("type"), "status": fm.get("status")})
 
     return Reply(f"Entity '{entity_id}' not found.", code="not_found")
