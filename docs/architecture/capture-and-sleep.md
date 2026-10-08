@@ -354,7 +354,7 @@ Rephrased items become unrecorded; incoming facts not supplied to synthesis cann
 All refreshes share the existing atomic page write, locks and commit/rollback boundary.
 Any open code fence can hide sections from the original or final body: refresh preserves
 their stored records and guards, reporting unavailable metadata until the body is readable.
-Closed claim fences exclude their machine text even if the claims YAML is malformed or repeated.
+Closed claim fences exclude their machine text even if the claims payload (JSON Lines, or legacy YAML) is malformed or repeated.
 Inbox/merge selected-input hooks, other prose sections, Related claim navigation and rephrasing
 selection are later scope; existing preserved records still fail closed through exact guards.
 The paid quote prompt is **1a-ii (💸), deferred** until owner approval and a reviewed paired

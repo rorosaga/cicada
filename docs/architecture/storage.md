@@ -80,6 +80,22 @@ spacing factor and the per-type pace (see Temporal decay).
 ### Claims, evidence and provenance
 
 **Claims** are the machine-legible half: typed predicates, bi-temporal validity, observer and trust.
+
+**The fence is JSON Lines (DECIDE-1, owner 2026-10-08).** A page's claims live in one ` ```claims ` fence, one claim
+per line, each line `claims._jsonl_line(Claim.to_dict())` — the one encoder every writer uses (a raw writer passes its
+mapping); `[]` when the page has none. JSON escapes every character a line splitter splits on (NEL, LINE and PARAGRAPH
+SEPARATOR included), so a claim is always exactly one line of the page. The reader is dual
+(`claims.load_fence_payload`): a fence whose first non-blank line opens an object is JSON Lines, anything else the
+legacy YAML list, read exactly as before. A writer that re-renders a fence (`write_claims`) emits JSON Lines, so a
+legacy page converts on its first write; `append_claim_entries`, which must not re-render, appends in the fence's own
+form. `python -m api.scripts.migrate_claims_jsonl --bank <path>` reports counts (a dry run); `--apply` converts every
+remaining legacy fence in one `cicada` commit — never automatically, never while Sleep runs. Its own process cannot see
+Sleep's flag, so it asks the backend and fails closed like claim recovery: only a 200 saying `writing: false` and not
+`running` lets it write (no backend refuses too); a page with uncommitted changes, or written again during the run, is
+left out of the commit for its own writer. Why: PyYAML builds every
+node in Python even on the C loader (~150 µs a claim: 0.5 s for a 3,500-claim page, ~3 s for a 2,000-page bank's
+claims, paid by every full-bank reader); a JSON line is ~3 µs (`benchmarks/scale`). Spans are unaffected: a `page`
+evidence offset points into the body with the fence stripped, which is the same text in either form.
 A predicate the vocabulary marks multi-valued (`predicates.cardinality`) never opens a conflict.
 
 **Contexts and the fence (F1).** `context` is an open vocabulary whose *shape* is pinned by
@@ -89,7 +105,7 @@ particular context" and is never a facet: a satellite needs two real contexts. T
 after a page's last section (`write_claims`, the one writer), so **every reader strips it before
 sectioning** — `strip_claims_block` on the server, `EntityProse` in the app.
 Stage-5 prose rewrites use `preserve_claims_blocks` only to re-emit closed fences
-already read from disk, including unknown fields and malformed YAML; it never
+already read from disk, including unknown fields and unreadable payloads; it never
 authors claims. Synthesis, contradiction detection, source-grounded rewriting,
 dedup judging (both pages), entity disambiguation and pattern/skill detection
 receive prose stripped by `strip_claims_block` before their input budgets are
@@ -112,9 +128,9 @@ every reader's `claims.is_current` takes it as history by its close and by `reco
 the removal's writer (`person_edit`, `merged`, `inbox_resolution`, `other_writer`, and `unproven_writer` — a `Sleep
 cycle` subject whose `Cicada-Author`s are not all models or `cicada`); `unreadable_fence` (the page's fence was
 unterminated, repeated or unparseable at any version read — `claims.fence_state`), `unreadable_elsewhere` (an
-unreadable HEAD page is read as YAML decodes it — `claims.loose_claim_entries`, every fence to its close or the next
+unreadable HEAD page is read as its payload decodes (JSON Lines or legacy YAML) — `claims.loose_claim_entries`, every fence to its close or the next
 opening — so an escaped or quoted id still counts as present and a `retracts` record there still excludes; a page
-whose YAML will not load at all makes absence unprovable and excludes every candidate); `retracted` (a `retracts` record named it at ANY version read);
+whose payload will not load at all makes absence unprovable and excludes every candidate); `retracted` (a `retracts` record named it at ANY version read);
 `merged` (a `<id>-from-` copy), `page_gone`, `page_archived` (at the removal or now); and `not_rewrite` — the bug's
 signature is required: the section that held the fence when the page is sectioned raw must have had its fence-stripped
 prose rewritten. What is left is classed `replaced` (a current claim on the page shares subject and predicate — and
@@ -122,7 +138,7 @@ object unless the vocabulary marks it single-valued — or a HEAD claim `superse
 dropped copy was already closed) or `no_current_replacement` (a belief current when dropped with no successor: listed by
 id and page only, **never written** — the person decides). The dry run (default) prints counts by class and reason and
 writes ids, paths, commits and classes — never claim text. `--apply` writes the first two classes: each entry as the
-YAML held it (unknown fields kept), appended by `claims.append_claim_entries` without re-rendering any entry already in
+fence held it (unknown fields kept), in the fence's own form, appended by `claims.append_claim_entries` without re-rendering any entry already in
 the fence or the frontmatter (`markdown_parser.write_document`), spans checked with `evidence.span_status` (one that no
 longer locates becomes `reasoning`), under admission → page lock → git's write lock. The CLI is its own process, so it
 also asks the backend's `/sleep/status` and **refuses on any answer but a clear `writing: false`** (no backend, an auth

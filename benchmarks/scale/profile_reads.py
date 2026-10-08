@@ -90,9 +90,10 @@ def main() -> None:
         m = claims._CLAIMS_BLOCK_RE.search(parsed.body)
         f, w, _ = timed(lambda: claims._CLAIMS_BLOCK_RE.search(parsed.body))
         row(area, "  of which fence regex", f, w)
-        import yaml
-        f, w, loaded = timed(lambda: yaml.load(m.group("payload"), Loader=claims._SAFE_LOADER), reps=3)
-        row(area, "  of which yaml.load (CSafeLoader)", f, w)
+        load = getattr(claims, "load_fence_payload", None) or (
+            lambda text: __import__("yaml").load(text, Loader=claims._SAFE_LOADER))
+        f, w, loaded = timed(lambda: load(m.group("payload")), reps=3)
+        row(area, "  of which the fence load (YAML or JSON Lines)", f, w)
         f, w, _ = timed(lambda: [claims.Claim.from_dict(d) for d in loaded])
         row(area, "  of which Claim.from_dict", f, w)
         current = [c for c in cl if not claims.is_record(c) and not claims.is_event(c)]

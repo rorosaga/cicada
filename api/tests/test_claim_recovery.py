@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from api.services import claim_recovery, evidence, git_service, markdown_parser, write_admission
+from api.services import claim_recovery, claims, evidence, git_service, markdown_parser, write_admission
 from api.services.claims import RETRACT_PREDICATE, Claim, parse_claims, raw_claim_entries, write_claims
 
 EP = "ep_2026-10-01_001"
@@ -286,7 +286,8 @@ def test_an_unterminated_fence_is_never_written_to(bank, trapped, expected):
     path = bank / PAGE
     text = path.read_text(encoding="utf-8")
     trapped_id = c2.id if trapped == "lost" else "clm_other"
-    path.write_text(text[:text.rindex("```")] + f"- id: {trapped_id}\n  text: trapped\n", encoding="utf-8")
+    trapped_entry = claims._jsonl_line({"id": trapped_id, "text": "trapped"})       # the fence's own form
+    path.write_text(text[:text.rindex("```")] + trapped_entry + "\n", encoding="utf-8")
     _commit(bank, "Memory update 2026-10-03", [PAGE], author="user")
     before = path.read_bytes()
     counts = _counts(bank)

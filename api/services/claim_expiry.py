@@ -34,7 +34,9 @@ TRIGGER = "sleep/expiry"
 AUTHOR = "cicada"
 # A page with neither string cannot hold a stated end: skip it without a
 # parse (most of a bank, every night).
-_NEEDLES = ("expected_end:", "predicate: due")
+# A page's raw text holds one of these when a claim on it can expire — both fence forms (the legacy YAML list and JSON
+# Lines, ``claims.load_fence_payload``), so the scan skips every other page without parsing it.
+_NEEDLES = ("expected_end:", "predicate: due", '"expected_end":', '"predicate": "due"')
 
 
 def closing_date(claim: Claim) -> str | None:
