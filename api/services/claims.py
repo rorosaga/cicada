@@ -553,21 +553,56 @@ def strip_claims_block(body: str) -> str:
 
 
 def claims_block_start(text: str) -> int | None:
-    """Where the first closed ```claims fence starts in ``text``, or ``None``."""
-    m = _CLAIMS_BLOCK_RE.search(text or "")
-    return m.start() if m else None
+    """Where the first real closed ```claims block starts in ``text`` (not a literal example inside another code
+    fence, `served_prose`'s rule), or ``None``."""
+    text = text or ""
+    unfenced = _unfenced_line_starts(text)
+    return next((m.start() for m in _CLAIMS_BLOCK_RE.finditer(text) if m.start() in unfenced), None)
+
+
+# A Markdown code-fence line, as `section_provenance` reads one (up to three spaces, then ``` or ~~~ and an info string).
+_ANY_FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
+
+
+def _unfenced_line_starts(body: str) -> set[int]:
+    """Offsets of the lines that start outside every code fence — the only places a claims block can open.
+
+    The same walk as `section_provenance._fragments`: a fence closes on a line of its own character, at least as long
+    and with no info string. A ```claims line inside a ~~~~ block is that block's literal content, not a claims block.
+    """
+    starts: set[int] = set()
+    fence = None
+    offset = 0
+    for raw in body.splitlines(keepends=True):
+        line = raw.rstrip("\r\n")
+        marker = _ANY_FENCE_RE.match(line)
+        if fence is None:
+            starts.add(offset)
+            if marker:
+                fence = marker[1]
+        elif marker and marker[1][0] == fence[0] and len(marker[1]) >= len(fence) and not marker[2].strip():
+            fence = None
+        offset += len(raw)
+    return starts
 
 
 def served_prose(body: str):
-    """``strip_claims_block(body)`` and the map from an offset in ``body`` to the same character in it (F4).
+    """The page's prose as `GET /entities/{id}` serves it, and the map from an offset in ``body`` to that text (F4).
 
-    ``GET /entities/{id}`` serves the stripped prose, so whatever describes positions in "the page body" for a client
-    (`/provenance`'s ``pageBodyHash`` and section ``bodyRanges``) must describe that text: one rule, here. The map
-    returns ``None`` for an offset inside a removed fence; an offset at a fence's edge maps to where the fence was.
+    Every claims block is removed — but only a real one: a ```claims example inside another code fence is literal
+    code and stays, as the section scanner keeps it (review r2 B1). Whatever describes positions in "the page body"
+    for a client (`/provenance`'s ``pageBodyHash`` and section ``bodyRanges``) describes this text: one rule, here.
+    The map returns ``None`` for an offset inside a removed block; an offset at a block's edge maps to where it was.
     """
     body = body or ""
-    removed = [m.span() for m in _CLAIMS_BLOCK_RE.finditer(body)]
-    joined = _CLAIMS_BLOCK_RE.sub("", body)
+    unfenced = _unfenced_line_starts(body)
+    removed = [m.span() for m in _CLAIMS_BLOCK_RE.finditer(body) if m.start() in unfenced]
+    parts, cursor = [], 0
+    for start, end in removed:
+        parts.append(body[cursor:start])
+        cursor = end
+    parts.append(body[cursor:])
+    joined = "".join(parts)
     lead = len(joined) - len(joined.lstrip())
     served = joined.strip()
 

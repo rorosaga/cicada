@@ -55,7 +55,7 @@ from api.services import (
     telemetry,
     write_admission,
 )
-from api.services.claims import claims_block_start, strip_claims_block
+from api.services.claims import claims_block_start, served_prose, strip_claims_block
 from api.services.hub_builder import _one_line_summary
 from api.services.id_utils import build_name_index, resolve_entity_id
 from api.services.wikilink_resolver import extract_wikilinks
@@ -127,7 +127,7 @@ async def get_entity(
         version=fm.get("version", 1),
         # F4: prose only — the fence is machine data the card reads from `/claims`, and on the owner's page it was
         # 2.5 MB shipped twice per open.
-        markdown_content=strip_claims_block(parsed.body),
+        markdown_content=served_prose(parsed.body)[0],
         raw_markdown=raw,
         raw_omitted=raw_omitted,
         history=history,
@@ -934,7 +934,7 @@ async def get_entity_context(
         type=str(fm.get("type", "concept") or "concept"),
         status=str(fm.get("status", "active") or "active"),
         confidence=float(fm.get("confidence", 0.5) or 0.0),
-        markdown_content=strip_claims_block(parsed.body),
+        markdown_content=served_prose(parsed.body)[0],
         hubs=hubs,
         neighbors=neighbors,
         episodes=episodes,

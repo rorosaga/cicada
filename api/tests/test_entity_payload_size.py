@@ -119,3 +119,44 @@ def test_the_served_prose_map_follows_every_fence():
             assert served[start:end] == word.strip() or served[start:end] == word, (body, word)
         if "```claims" in body:
             assert to_served(body.index("- id: a")) is None
+
+
+def test_a_literal_claims_example_inside_a_code_block_stays_prose(tmp_path, monkeypatch):
+    """Review r2 B1: a ```claims example inside a ~~~~ code block is literal code — the section scanner keeps it in
+    the item — so the served prose keeps it too, and the item's ranges index exactly its text. The handlers are called
+    directly: the app's startup migrations would rewrite this page (the storage parser reads the example as claims)."""
+    import asyncio
+
+    from api.services import evidence, provenance
+
+    memory = tmp_path / "memory"
+    (memory / "entities").mkdir(parents=True)
+    (memory / "episodes").mkdir()
+    monkeypatch.setenv("CICADA_MEMORY_PATH", str(memory))
+    config.get_settings.cache_clear()
+    body = ("## Summary\nExample output:\n\n~~~~\n```claims\n- id: literal\n```\n~~~~\n\n## Key Facts\n- Later.\n")
+    page_path = memory / "entities" / "alpha-example.md"
+    markdown_parser.write(page_path, {"name": "Alpha Example", "type": "concept", "created": "2024-01-01",
+                                      "last_referenced": "2024-01-01"}, body)
+    bank_index.invalidate()
+    page = asyncio.run(entities_router.get_entity("alpha-example", config.get_settings()))
+    prov = provenance.entity_provenance(memory, page_path)
+    served = page.markdown_content
+    assert "~~~~\n```claims\n- id: literal\n```\n~~~~" in served
+    assert prov.page_body_hash == evidence.body_hash(served)
+    items = [item for section in prov.sections for item in section.items]
+    assert any("```claims" in item.text for item in items)
+    for item in items:
+        assert "".join(served[a:b] for a, b in item.body_ranges) == item.text, item
+
+
+def test_a_range_that_would_cross_a_removed_block_is_withheld_not_shortened():
+    from api.services.provenance import _served_ranges
+
+    def to_served(offset):          # a 10-character block removed at [20, 30)
+        return None if 20 < offset < 30 else (offset - 10 if offset >= 30 else offset)
+
+    assert _served_ranges([(0, 15)], to_served) == [[0, 15]]
+    assert _served_ranges([(0, 15), (30, 40)], to_served) == [[0, 15], [20, 30]]
+    assert _served_ranges([(10, 40)], to_served) == [], "crossing the block: withheld"
+    assert _served_ranges([(22, 25)], to_served) == [], "inside the block: withheld"

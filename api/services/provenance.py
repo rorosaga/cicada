@@ -580,12 +580,15 @@ def _sections(parsed, docs: _Episodes, shown: list[ProvenanceConversation],
 
 
 def _served_ranges(ranges, to_served) -> list[list[int]]:
-    """An item's ranges in the served prose; a range inside a removed fence (never prose) is dropped."""
+    """An item's ranges in the served prose. A range that would not keep its length there — it touches or crosses a
+    removed claims block — cannot describe the item's text honestly, so the item's ranges are withheld (empty: not
+    locatable in the served body) rather than shortened (review r2 B1)."""
     out = []
     for start, end in ranges:
         a, b = to_served(start), to_served(end)
-        if a is not None and b is not None and b > a:
-            out.append([a, b])
+        if a is None or b is None or b - a != end - start:
+            return []
+        out.append([a, b])
     return out
 
 
