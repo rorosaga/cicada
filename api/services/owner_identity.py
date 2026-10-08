@@ -184,6 +184,11 @@ def owner_page_id(existing: list[dict] | None, memory_path: Path | None, setting
     return resolved if resolved in owners else owners[0]
 
 
+def _owner_fm_name(fm: dict) -> str | None:
+    name = str((fm or {}).get("name") or "").strip()
+    return name if (fm or {}).get("owner") is True and name else None
+
+
 def owner_name(memory_path: Path | None, settings=None) -> str | None:
     """The ``name`` on this bank's ``owner: true`` page, or ``None`` without one —
     what Sleep's prompts call the person (G169). The page :func:`resolve_observer`
@@ -198,8 +203,7 @@ def owner_name(memory_path: Path | None, settings=None) -> str | None:
             fm = markdown_parser.parse(path).frontmatter
         except Exception:  # noqa: BLE001 - an unreadable page is no owner
             return None
-        name = str(fm.get("name") or "").strip()
-        return name if fm.get("owner") is True and name else None
+        return _owner_fm_name(fm)
 
     try:
         first = entities_dir / f"{resolve_observer(memory_path, settings)}.md"
@@ -209,7 +213,12 @@ def owner_name(memory_path: Path | None, settings=None) -> str | None:
         name = _name(first)
         if name:
             return name
-    found = [(p.stem, n) for p in sorted(entities_dir.glob("*.md")) if (n := _name(p))]
+    # The stat-cached frontmatter every other scan reads: Sleep asks ~21 times a batch, and a fresh parse of every
+    # page each time was 42k parses a batch on a 2,000-page bank (F8, benchmarks/scale).
+    from api.services import bank_index
+
+    found = [(f.stem, n) for f in sorted(bank_index.files(Path(memory_path), "entities"), key=lambda f: f.path.name)
+             if f.path.suffix == ".md" and (n := _owner_fm_name(f.frontmatter))]
     if not found:
         return None
     winner = owner_page_id([{"id": i, "frontmatter": {"owner": True}} for i, _ in found], memory_path, settings)
