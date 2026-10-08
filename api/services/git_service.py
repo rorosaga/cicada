@@ -790,12 +790,14 @@ async def get_entity_history(
     *,
     include_diff: bool = False,
 ) -> list[EntityHistoryEntry]:
-    """Build entity history from git blame — field-level provenance grouped by commit.
+    """Every commit that touched ``entities/<entity_id>.md``, newest first, with field-level provenance.
 
-    Each entry carries the authoring agent (from the commit's ``Cicada-Author:``
-    trailer; "unknown" when absent) and the commit hash. When ``include_diff`` is
-    set, each entry also carries the per-commit add/remove diff for this entity
-    file (opt-in so the default response stays small — backlog A1).
+    ONE ``git log`` over the path (bounded by :data:`MAX_PROVENANCE_COMMITS`) — the rule ``entity_commit_authors``
+    serves the provenance strip, so the History tab and "N changes by" count the same commits. It replaced ``git
+    blame`` plus one ``git log -1`` per surviving commit: 1.0 s on a 3,500-claim page, 1.7 s at 6,000, against ~30 ms
+    (benchmarks/scale). Each entry carries the authoring agent (from the commit's ``Cicada-Author:`` trailer;
+    "unknown" when absent) and the commit hash. When ``include_diff`` is set, each entry also carries the per-commit
+    add/remove diff for this entity file (opt-in so the default response stays small — backlog A1).
     """
     entity_file = f"entities/{entity_id}.md"
     entity_path = memory_path / entity_file
@@ -803,45 +805,20 @@ async def get_entity_history(
     if not entity_path.exists():
         return []
 
-    # git blame with porcelain format for structured parsing
     try:
-        blame_output = await _run_git(
-            memory_path, "blame", "--porcelain", entity_file
+        log_output = await _run_git(
+            memory_path, "log", f"-n{MAX_PROVENANCE_COMMITS}",
+            "--format=%x1e%H%x1f%ad%x1f%s%x1f%b", "--date=short", "--", entity_file,
         )
     except GitError:
         return []
 
-    # Extract unique commit hashes from blame output
-    commit_hashes: list[str] = []
-    seen: set[str] = set()
-    for line in blame_output.splitlines():
-        match = re.match(r"^([0-9a-f]{40})\s", line)
-        if match:
-            h = match.group(1)
-            if h not in seen and not h.startswith("0000000"):
-                seen.add(h)
-                commit_hashes.append(h)
-
-    # For each unique commit, get date + structured message
     entries: list[EntityHistoryEntry] = []
-    for commit_hash in commit_hashes:
-        try:
-            log_output = await _run_git(
-                memory_path,
-                "log", "-1", f"--format=%ad|%s|%b", "--date=short", commit_hash,
-            )
-        except GitError:
+    for record in log_output.split("\x1e")[1:]:
+        parts = record.split("\x1f", 3)
+        if len(parts) < 4:
             continue
-
-        line = log_output.strip()
-        if not line:
-            continue
-
-        parts = line.split("|", 2)
-        date = parts[0] if len(parts) > 0 else ""
-        subject = parts[1] if len(parts) > 1 else ""
-        body = parts[2] if len(parts) > 2 else ""
-
+        commit_hash, date, subject, body = parts[0].strip(), parts[1].strip(), parts[2], parts[3].rstrip("\n")
         change_type = _infer_change_type(subject, body, entity_id)
         description = _build_description(subject, body, entity_id)
         authors = _parse_authors(body)

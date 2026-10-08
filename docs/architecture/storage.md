@@ -752,8 +752,10 @@ MCP tool and every bank migration `run_bank_migrations` runs is classified (admi
 capture, registry, outside, sleep, banks, migration, none) with its reason, and the admitted ones are checked to take
 admission in their code.
 
-**Entity-level provenance uses `git blame`** enriched with parsed commit metadata; repo-level
-history uses `git log`. **No changelog in frontmatter** — git handles all history, zero storage
+**Entity-level history is one `git log` over the page** (`git_service.get_entity_history`, newest first, bounded
+by `MAX_PROVENANCE_COMMITS`): every commit that touched it, enriched with parsed commit metadata — the same commits
+the provenance strip counts. It replaced `git blame` plus one `git log -1` per surviving commit (1.0–1.7 s on a
+3,500–6,000-claim page, ~30 ms now; `benchmarks/scale`). Repo-level history uses `git log`. **No changelog in frontmatter** — git handles all history, zero storage
 overhead, no growing fields.
 
 ---
