@@ -248,6 +248,32 @@ def _load_existing_claims_by_subject(memory_path: Path) -> dict[str, list[Claim]
     return by_subject
 
 
+class _ClaimsOnDemand:
+    """``{subject_id: [Claim]}`` read page by page on first ask — the same parse as
+    :func:`_load_existing_claims_by_subject` for the one page asked about. For a reader that looks up a few subjects
+    (Stage 5.56's question refresh) instead of every page in the bank (F7, benchmarks/scale)."""
+
+    def __init__(self, memory_path: Path):
+        self._dir = Path(memory_path) / "entities"
+        self._read: dict[str, list[Claim]] = {}
+
+    def get(self, subject, default=None):
+        subject = str(subject or "")
+        if subject not in self._read:
+            path = self._dir / f"{subject}.md"
+            if not subject or "/" in subject or "\\" in subject or subject.startswith(".") or not path.is_file():
+                return default
+            try:
+                self._read[subject] = parse_claims(markdown_parser.parse(path).body)
+            except Exception:
+                return default
+        return self._read[subject]
+
+
+def claims_on_demand(memory_path: Path) -> _ClaimsOnDemand:
+    return _ClaimsOnDemand(memory_path)
+
+
 def _relabel_event_labels(claims: list[Claim]) -> tuple[list[Claim], int]:
     """R-PJB12: a Stage-1 relationship labelled like an event predicate becomes
     `relates-to` — only progress.py writes events (G141 §5.1), and a projected
