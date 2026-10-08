@@ -662,19 +662,22 @@ function updateGraph(dataStr) {
 
     // 2. seed positions: reuse previous for known nodes; place genuinely-new
     // nodes near their hub or type anchor.
+    const fresh = new Set();
     for (const n of nodes) {
         const p = prevPositions.get(n.id);
         if (p) {
-            n.x = p.x; n.y = p.y; n.vx = p.vx || 0; n.vy = p.vy || 0;
+            n.x = p.x; n.y = p.y; n.vx = 0; n.vy = 0;
         } else {
             const s = seedPositionFor(n);
             n.x = s.x; n.y = s.y; n.vx = 0; n.vy = 0;
+            fresh.add(n.id);
         }
     }
 
     rebuildVisible();
     rebuildNeighborsIndex();
-    startSimulation({ reheat: hadPrev ? 0.3 : 1.0 });
+    // Item 6: on a canvas that already has a layout, only the newcomers move (`relax`); a first paint lays out all.
+    startSimulation(hadPrev ? { reheat: 0.3, relax: fresh } : { reheat: 1.0 });
     if (!hadPrev) armInitialFit();
 
     if (focusNodeId) { computeFocusSet(); applyFocusPinning(); }
@@ -775,12 +778,13 @@ function updateGraphDelta(dataStr) {
     computeDegree();
     buildHubIndex();
 
+    const fresh = new Set();
     for (const a of added) {
         const n = nodes.find(x => x.id === a.id);
         if (!n || n.x != null) continue;
         const p = prevPositions.get(n.id);
-        if (p) { n.x = p.x; n.y = p.y; n.vx = p.vx || 0; n.vy = p.vy || 0; }
-        else { const s = seedPositionFor(n); n.x = s.x; n.y = s.y; n.vx = 0; n.vy = 0; }
+        if (p) { n.x = p.x; n.y = p.y; n.vx = 0; n.vy = 0; }
+        else { const s = seedPositionFor(n); n.x = s.x; n.y = s.y; n.vx = 0; n.vy = 0; fresh.add(n.id); }
     }
 
     // Keep the position cache current for the touched nodes, so a later FULL
@@ -793,16 +797,11 @@ function updateGraphDelta(dataStr) {
 
     rebuildVisible();
     rebuildNeighborsIndex();
-    // Always a low reheat: a delta by definition sits on a settled layout.
-    // G109 (disclosed, phase 2): even a NO-OP delta still moves a packed core —
-    // bench `deltaNoop*`: 31 / 80 wu mean, 173 / 573 max on the medium / dense
-    // synthetic (was ~1,000 / 1,200 mean before phase 1). The value here is a
-    // real lever on medium density (0.1 -> 19 / 60) but not on dense (0.1 ->
-    // 73 / 340): the residual there is the never-alpha-scaled forceCollide
-    // re-resolving a core the alpha-scaled forces re-compress on every reheat.
-    // Retune with phase 2's settle criterion + a collide lever, measured in-app;
-    // the number stays until then (plan rulings R8/R10).
-    startSimulation({ reheat: 0.3 });
+    // Item 6 (2026-10-08): a delta relaxes only the nodes it brings; every settled node is held where it is
+    // (`holdSettled`) and a delta that brings none starts no layout at all. It used to reheat the whole graph at
+    // 0.3, which on the dense bench moved the settled core 80 wu mean / 573 max for a delta that changed nothing —
+    // and a push that landed while the page was hidden replayed that motion when the person came back.
+    startSimulation({ reheat: 0.3, relax: fresh });
 
     if (focusNodeId) { computeFocusSet(); applyFocusPinning(); }
     scheduleRedraw();
@@ -1090,8 +1089,37 @@ function clampSpeedForce() {
     };
 }
 
-function startSimulation({ reheat = 1.0 } = {}) {
+// Item 6 — the settled nodes a layout of newcomers holds still, id -> the {x, y} it pinned them at. A hold is the
+// layout's own: it ends with that layout (d3's "end", or the next startSimulation), and it never takes over a pin
+// someone else set (a drag, focus mode) nor clears one when it ends.
+let layoutHolds = new Map();
+
+function holdSettled(relax) {
+    for (const n of visibleNodes) {
+        if (relax.has(n.id) || n.fx != null || n.x == null) continue;
+        n.fx = n.x; n.fy = n.y;
+        layoutHolds.set(n.id, { x: n.x, y: n.y });
+    }
+}
+
+function releaseHolds() {
+    if (!layoutHolds.size) return;
+    const byId = new Map(nodes.map(n => [n.id, n]));
+    for (const [id, p] of layoutHolds) {
+        const n = byId.get(id);
+        if (!n || n.fx !== p.x || n.fy !== p.y) continue;           // moved on by a drag: not ours any more
+        if (draggingNode && draggingNode.id === id) continue;
+        if (focusNodeId && focusSet && !focusSet.has(id)) continue;  // focus mode wants it pinned
+        n.fx = null; n.fy = null; n.vx = 0; n.vy = 0;
+    }
+    layoutHolds.clear();
+}
+
+// `relax`: the ids that may move (null = all, a first layout). An empty set starts no layout — nothing moves, the
+// simulation is rebuilt over the new arrays and left at rest.
+function startSimulation({ reheat = 1.0, relax = null } = {}) {
     if (simulation) simulation.stop();
+    releaseHolds();
     assignIsolateSlots();
 
     simulation = d3.forceSimulation(visibleNodes)
@@ -1137,8 +1165,13 @@ function startSimulation({ reheat = 1.0 } = {}) {
         .force("hubGravity", hubGravityForce(0.05))
         .force("clampSpeed", clampSpeedForce())
         .on("tick", () => { tickInitialFit(); scheduleRedraw(); })
-        .on("end", () => { simulation.stop(); });
+        .on("end", () => { simulation.stop(); releaseHolds(); });
 
+    if (relax && relax.size === 0) {
+        simulation.alpha(0).stop();
+        return;
+    }
+    if (relax) holdSettled(relax);
     simulation.alpha(reheat).restart();
     holdIfInactive();
 }
@@ -1204,7 +1237,7 @@ function applyFocusPinning() {
         const inFocus = !focusSet || focusSet.has(n.id);
         if (focusNodeId && !inFocus) {
             if (n.x != null) { n.fx = n.x; n.fy = n.y; }
-        } else if (!draggingNode || draggingNode.id !== n.id) {
+        } else if ((!draggingNode || draggingNode.id !== n.id) && !layoutHolds.has(n.id)) {
             n.fx = null; n.fy = null;
         }
     }

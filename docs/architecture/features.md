@@ -21,6 +21,16 @@ a time — find, Legend, Reader, column; another node swaps the column in place 
 posts `backgroundClicked` and `escape` and takes `setSelectedNode` (a neutral ring), read and spelled in one
 place (`GraphMessage`, `GraphJS`) and tested on both sides — none of them touches the simulation.
 
+**Layout on a push (item 6, 2026-10-08).** A data push relaxes only the nodes it brings: every settled node is held
+where it is for that layout (`holdSettled`/`releaseHolds` in graph.js — never over a drag's or focus mode's pin, and
+released when the layout ends), and a push that brings no node (a rename, a confidence, a removal) starts no layout.
+So Sleep's batches update the graph live without moving what was there, and a push that lands while the page is
+hidden no longer replays whole-graph motion on return. Only a first paint (and a filter change) lays out everything.
+Measured in WebKit at 2,000 nodes (`GraphWebKitBenchTests`, opt-in): draw 1–2 ms, a tick 7 ms, a cold layout 135
+ticks; 20 new pages settle in 112 ticks with 0 settled nodes moved. Per-type zones are the existing `typeClusterPositions`
+anchors; `graph-zones.bench.js` measures their strength (no overlap at rest at any strength; stronger = more separate
+zones, same settle time).
+
 **The entity card (DS-3a).** One component, `EntityDetailCard` — the Graph's column, Clusters' card. Header:
 the type as a `Tag`, status and confidence in words ("Active · very confident", the number in `.help`) — or, when
 the page's `lastReferenced` is more than 90 days before the viewer's today, the status and when it was last mentioned
