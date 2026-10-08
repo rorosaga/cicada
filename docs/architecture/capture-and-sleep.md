@@ -266,6 +266,30 @@ then says the model wasn't shared.
 
 **Claim preservation (G148 regression):** Stage 5 rewrites prose with the stored `claims` fences removed from section parsing, then reattaches those fences unchanged. Rebuilding `Related` cannot remove beliefs before the claim pipeline reconciles them; synthesis output never authors a claims fence.
 
+**Item provenance (G118 sections, 1a-i).** After extraction, Summary/description and
+Key Facts receive transient source-episode `reasoning` records over the full stored body
+hash. This adds no prompt instructions, quotes, retries or calls. Stage 2 carries metadata
+with the fields it actually selects. After G169, it follows the chosen effective Summary,
+its description copy, the fact union, and orientation text retained as facts; only exact
+selected text receives the original source record. Carry unions unique evidence rows per
+selected field/text, so repeated mentions cannot multiply identical records when Summary
+and description share the same words. The pending-store limitation remains; earlier pending
+facts are not restored by provenance. Stage 5 records exact surviving items
+on create and fallback/human-safe updates. The B-update fixture retains A's Summary only
+when B supplies no new Summary (or one already contained); an appended Summary invalidates
+that one item's guard while A's facts keep their links.
+
+Sleep synthesis retains exact old items by identity, without changing its prompt/return shape.
+Rephrased items become unrecorded; incoming facts not supplied to synthesis cannot gain links.
+All refreshes share the existing atomic page write, locks and commit/rollback boundary.
+Any open code fence can hide sections from the original or final body: refresh preserves
+their stored records and guards, reporting unavailable metadata until the body is readable.
+Closed claim fences exclude their machine text even if the claims YAML is malformed or repeated.
+Inbox/merge selected-input hooks, other prose sections, Related claim navigation and rephrasing
+selection are later scope; existing preserved records still fail closed through exact guards.
+The paid quote prompt is **1a-ii (💸), deferred** until owner approval and a reviewed paired
+G148 usage/locate-rate pilot; the reasoning-only slice does not authorize that spend.
+
 **Dates in the prompts (G194 A1, 2026-10-07).** Every model call that writes about a conversation is told when it was
 said and what day it is now (`api/services/source_dates.py`).
 - **Stage 1.** Every chunk, and its one retry, opens with Cicada's date note, after the gap note when there is one. The

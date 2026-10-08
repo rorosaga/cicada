@@ -12,7 +12,8 @@ from tqdm import tqdm
 from api.config import Settings
 from api.models.schemas import DecayClass
 from api.services import (
-    decay_policy, decay_tuning, engine_errors, entity_body, fact_sources, json_parse, markdown_parser, source_dates,
+    decay_policy, decay_tuning, engine_errors, entity_body, fact_sources, json_parse, markdown_parser,
+    section_provenance, source_dates,
 )
 from api.services.providers import resolve_llm_fn
 
@@ -365,6 +366,7 @@ def apply_changes(changes: list[dict], memory_path) -> None:
                 links=entity.get("links", []) or [],
                 open_questions=entity.get("open_questions", []) or [],
             )
+            section_provenance.refresh(frontmatter, "", body, entity)
             markdown_parser.write(filepath, frontmatter, body)
 
         elif action == "update" and filepath.exists():
@@ -469,10 +471,12 @@ def apply_changes(changes: list[dict], memory_path) -> None:
             else:
                 sections.pop("Related", None)
 
-            markdown_parser.write(
-                filepath, parsed.frontmatter,
-                preserve_claims_blocks(original_body, entity_body.render_sections(sections))
+            final_body = preserve_claims_blocks(original_body, entity_body.render_sections(sections))
+            section_provenance.refresh(
+                parsed.frontmatter, original_body, final_body, new_entity,
+                synthesized=bool(synthesized_body and not human_edited),
             )
+            markdown_parser.write(filepath, parsed.frontmatter, final_body)
 
         elif action in ("decay", "decay_nudge", "archive") and filepath.exists():
             parsed = markdown_parser.parse(filepath)
