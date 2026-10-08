@@ -95,6 +95,24 @@ def engine_label(settings: Settings) -> str:
     return ENGINE_LABELS.get(mode, "litellm")
 
 
+def shown_model(settings) -> str:
+    """The model a resolved engine is shown running — the Sleep page's engine line and a run's pinned pair
+    (``DrainState.engine_shown``), one rule so the two compare. Unlike :func:`author_model` (provenance), a
+    local engine shows its own model and an unpicked ChatGPT-plan model reads as the plan's default."""
+    engine = engine_label(settings)
+    if engine == "claude-cli":
+        from api.services import agent_engine
+
+        return agent_engine.model_for_stage(settings, None)
+    if engine == "codex-cli":
+        from api.services import codex_engine
+
+        return codex_engine.model_for_stage(settings, None) or "default model"
+    if engine == "ollama":
+        return str(getattr(settings, "ollama_model", "") or "")
+    return str(getattr(settings, "litellm_model", "") or "")
+
+
 def author_model(settings) -> str:
     """R-E22: the model to stamp on work this engine did when nothing better
     was recorded (a claim's ``authored_by``, a link-backfill fallback). The

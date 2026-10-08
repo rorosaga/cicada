@@ -28,6 +28,8 @@ extension Copy {
         static let plansAndKeys = "Plans & keys ›"
         static let autoPrefix = "Auto"
         static func signInFirst(_ label: String) -> String { "Sign in on Plans & keys to use your \(label)" }
+        /// A run resolves its engine once and keeps it; a change made while it reads waits (never names an engine).
+        static let runKeepsEngine = "This run keeps the engine it started with. Your choice applies when a run starts or continues."
     }
 
     /// What a cycle cost (2026-09-28 ruling, TODO ruling 12): the Sleep page's Details and its engine

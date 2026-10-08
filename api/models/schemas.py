@@ -2844,6 +2844,9 @@ class SleepEngineResponse(CamelModel):
     # the engine a run you start would use, and which windows are enforced (from the last
     # run's observations; ``null`` = nothing could tell yet).
     reserve: Optional["SleepReserveStatus"] = None
+    # A run of this bank is reading on the engine it resolved at its start or Continue, and that is not
+    # what the choice above resolves to now: the change applies from the next start or Continue.
+    run_keeps_engine: bool = False
 
 
 class SleepReserveStatus(CamelModel):

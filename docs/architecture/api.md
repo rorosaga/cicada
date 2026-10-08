@@ -65,6 +65,11 @@ the `sleep` component carry it too, so the app's write controls follow a drain's
 null outside an engine pause); legacy engine records default to `needs_fix`. The paused `sleep` component hashes
 the kind and diagnosis, and its existing `VersionVector.swift` mapping to `.status` ships with the wire change.
 The compact kind participates in SSE equality so a different engine diagnosis category refetches the full record.
+The `engine` component (2026-10-08) is `<connections.json mtime_ns>.<size>`, plus `:<engine>/<model>` while a run of the
+bank reads (the pair it pinned at its start): `$CICADA_HOME/connections.json` is outside every bank, so a
+`PUT /sleep/engine` that did not come from the app moved nothing. No `VersionVector` mapping — the app's
+`SleepEngineRefresh` reloads `GET /sleep/engine` on it; that body's `runKeepsEngine` is true while such a run reads on
+an engine other than the one its kind (manual or scheduled) resolves to now.
 
 **A request runs in one bank, and a write only in the bank it was made in (`bank_binding`, G183(d)).** One
 app-wide dependency (`bank_binding.require_same_bank`, beside `require_token` in `api/main.py`) does two things:

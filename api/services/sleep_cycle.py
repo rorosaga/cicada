@@ -1671,6 +1671,7 @@ async def _drain(
     ds.engine_label = engine_lbl
     try:
         ds.engine_model = engine_select.author_model(resolved[0])
+        ds.engine_shown = engine_select.shown_model(resolved[0])
     except Exception:  # noqa: BLE001 - a settings stand-in names no model
         ds.engine_model = None
     if continue_from:
@@ -2365,7 +2366,10 @@ async def _run_stages(
         _say(f"Paused: {WINDOW_BUSY}")
         return _StageOutcome(stop=sleep_drain.DrainStop("busy", WINDOW_BUSY))
     # (A plain cycle opened its window at the run's start.) The pages Stage 5 rewrites are read from here.
-    existing = _load_existing_entities(memory_path)
+    # Every page in the bank, parsed: off the event loop, as is everything Stage 5 reads or writes
+    # below — on the loop each step froze every request (`GET /sleep/status` measured at seconds
+    # per batch on a 3,600-page bank) for as long as it ran.
+    existing = await asyncio.to_thread(_load_existing_entities, memory_path)
     from api.services.entity_resolver import resolve
     if decay_only:
         resolved_result = {"changes": [], "relationships": [], "episode_cooccurrences": {}, "name_to_id": {}}
@@ -2456,7 +2460,7 @@ async def _run_stages(
     # `mentions` wave merges into the same graph_edges.yaml. Idempotent.
     try:
         from api.services.wikilink_resolver import materialize_wikilink_edges
-        n_mentions = materialize_wikilink_edges(memory_path, extracted, settings)
+        n_mentions = await asyncio.to_thread(materialize_wikilink_edges, memory_path, extracted, settings)
         logger.info(f"Stage 5.5: materialized {n_mentions} wikilink `mentions` edges")
     except Exception as e:
         logger.warning(f"Stage 5.5 wikilink materialization failed: {type(e).__name__}: {e}")
@@ -2467,7 +2471,7 @@ async def _run_stages(
     # it mentions never cross the 2-conversation threshold.
     try:
         from api.services.media_ingestor import inject_media_edges
-        n_media = inject_media_edges(memory_path, changes)
+        n_media = await asyncio.to_thread(inject_media_edges, memory_path, changes)
         logger.info(f"Stage 5.55: injected {n_media} media `about` edges")
     except Exception as e:
         logger.warning(f"Stage 5.55 media edge injection failed: {type(e).__name__}: {e}")
@@ -2487,8 +2491,8 @@ async def _run_stages(
     try:
         from api.services.claim_pipeline import run_claim_pipeline
         from api.services.inbox_generator import write_claim_nudges
-        claim_result = run_claim_pipeline(
-            extracted, existing, memory_path, settings,
+        claim_result = await asyncio.to_thread(
+            run_claim_pipeline, extracted, existing, memory_path, settings,
             # G141 PJ-0: Stage 2's own map, so a claim lands where its edge did.
             name_to_id=resolved_result.get("name_to_id"),
             **decay_kw,
@@ -2499,8 +2503,8 @@ async def _run_stages(
         _state.claims_released = int(claim_result.get("claims_released", 0) or 0)
         _state.claims_hold_capped = int(claim_result.get("claims_hold_capped", 0) or 0)
         _state.claims_waiting = int(claim_result.get("claims_waiting", 0) or 0)
-        nudge_result = write_claim_nudges(
-            claim_result.get("nudges", []), memory_path, decay_budget=decay_budget
+        nudge_result = await asyncio.to_thread(
+            write_claim_nudges, claim_result.get("nudges", []), memory_path, decay_budget=decay_budget
         )
 
         # G60 §2.3 — re-score the OPEN questions against the freshly-written
@@ -2510,12 +2514,15 @@ async def _run_stages(
         from api.services import inbox_questions
         from api.services.claim_pipeline import claims_on_demand
 
-        refresh = inbox_questions.refresh_open_questions(
-            memory_path,
-            claims_on_demand(memory_path),
-            str(datetime.now().date()),
-            stale_after_days=settings.inbox_stale_after_days,
-        )
+        def _refresh_questions():
+            return inbox_questions.refresh_open_questions(
+                memory_path,
+                claims_on_demand(memory_path),
+                str(datetime.now().date()),
+                stale_after_days=settings.inbox_stale_after_days,
+            )
+
+        refresh = await asyncio.to_thread(_refresh_questions)
         _state.questions_refreshed = refresh["bumped"] + refresh["escalated"]
         _state.organic_resolutions = refresh["organic_resolutions"]
         organic_resolution_paths = set(refresh.get("resolved_paths") or [])
@@ -2554,7 +2561,7 @@ async def _run_stages(
     # Deterministic, no LLM; gives small LLMs a filesystem traversal path.
     try:
         from api.services.hub_builder import regenerate_hubs_and_index
-        hub_result = regenerate_hubs_and_index(memory_path, settings)
+        hub_result = await asyncio.to_thread(regenerate_hubs_and_index, memory_path, settings)
         logger.info(f"Stage 5.6: regenerated {hub_result['hub_count']} hubs + _index.md")
     except Exception as e:
         logger.warning(f"Stage 5.6 hub generation failed: {type(e).__name__}: {e}")
@@ -2588,7 +2595,7 @@ async def _run_stages(
     # with no claims yet, so seeded/legacy edge graphs are not wiped (M5e).
     try:
         from api.services.graph_builder import regenerate_edges_from_claims
-        n_edges = regenerate_edges_from_claims(memory_path)
+        n_edges = await asyncio.to_thread(regenerate_edges_from_claims, memory_path)
         if n_edges:
             logger.info(f"Stage 5.7: regenerated {n_edges} valid-only claim edges")
     except Exception as e:
@@ -2603,7 +2610,7 @@ async def _run_stages(
     extracted_ids = {r["episode_id"] for r in extracted if r.get("episode_id")}
     processed_episodes = [ep for ep in episodes if ep["id"] in extracted_ids]
     requeued = len(episodes) - len(processed_episodes)
-    _state.episodes_processed = _mark_episodes_processed(processed_episodes)
+    _state.episodes_processed = await asyncio.to_thread(_mark_episodes_processed, processed_episodes)
     _state.episodes_requeued = requeued
     if requeued:
         logger.warning(

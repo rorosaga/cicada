@@ -353,3 +353,64 @@ def test_an_unpriced_model_leaves_the_caption_source_empty(client, monkeypatch):
     monkeypatch.setattr(cycle_usage, "list_price_per_million", lambda m: (None, None))
     cards = {c["id"]: c for c in client.get("/sleep/engine").json()["candidates"]}
     assert cards["openrouter"]["usage"] is None and cards["openrouter"]["modelPrices"] == {}
+
+
+# --------------------------------------------------------------------------- #
+# The Sleep page follows an engine change it did not make, and says when a run keeps its own
+# --------------------------------------------------------------------------- #
+
+
+@pytest.fixture
+def idle_sleep_state():
+    from api.services import sleep_cycle
+
+    s = sleep_cycle.get_sleep_state()
+    s.status, s.drain = "idle", None
+    yield s
+    s.status, s.drain = "idle", None
+
+
+def test_a_put_from_outside_the_app_moves_the_engine_sync_component(client, idle_sleep_state):
+    """`connections.json` sits outside every bank: before the `engine` component, a PUT from curl,
+    an agent or the CLI moved nothing the app watches, and the Sleep page named the old engine."""
+    before = client.get("/sync/version").json()["components"]["engine"]
+    assert client.put("/sleep/engine", json={"mode": "local", "model": "llama3.1"}).status_code == 200
+    after = client.get("/sync/version").json()["components"]["engine"]
+    assert after != before
+
+
+def test_the_engine_component_carries_a_reading_runs_pinned_engine(client, idle_sleep_state, tmp_path):
+    from api.services import sleep_drain
+
+    idle = client.get("/sync/version").json()["components"]["engine"]
+    ds = sleep_drain.DrainState(drain_id="sleep_x", memory_path=config.get_settings().memory_path)
+    ds.engine_label, ds.engine_shown = "claude-cli", "sonnet"
+    idle_sleep_state.status, idle_sleep_state.drain = "running", ds
+    running = client.get("/sync/version").json()["components"]["engine"]
+    assert running != idle and running.endswith(":claude-cli/sonnet")
+    ds.memory_path = tmp_path / "another-bank"   # a lingering run of another bank says nothing here
+    assert client.get("/sync/version").json()["components"]["engine"] == idle
+
+
+def test_run_keeps_engine_while_a_run_reads_on_another_engine(client, idle_sleep_state):
+    from api.services import sleep_drain
+
+    assert client.put("/sleep/engine", json={"mode": "local", "model": "llama3.1"}).status_code == 200
+    body = client.get("/sleep/engine").json()
+    assert body["runKeepsEngine"] is False, "nothing is running"
+    manual, scheduled = body["preview"]["manual"], body["preview"]["scheduled"]
+
+    ds = sleep_drain.DrainState(drain_id="sleep_x", memory_path=config.get_settings().memory_path)
+    ds.engine_label, ds.engine_shown = "claude-cli", "sonnet"   # what the run resolved at its start
+    idle_sleep_state.status, idle_sleep_state.drain = "running", ds
+    assert client.get("/sleep/engine").json()["runKeepsEngine"] is True
+
+    ds.engine_label, ds.engine_shown = manual["engine"], manual["model"]
+    assert client.get("/sleep/engine").json()["runKeepsEngine"] is False, "the run already uses the choice"
+
+    ds.started_by = "schedule"   # a scheduled run is compared with the scheduled line (ruling 4)
+    differs = (scheduled["engine"], scheduled["model"]) != (manual["engine"], manual["model"])
+    assert client.get("/sleep/engine").json()["runKeepsEngine"] is differs
+
+    ds.engine_label = None   # reserved, not yet resolved
+    assert client.get("/sleep/engine").json()["runKeepsEngine"] is False

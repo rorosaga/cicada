@@ -211,7 +211,13 @@ opens that home's files — `codex app-server` answers plan, limit and models.
 `EngineChooser` is the component (`EngineCard` wraps it for onboarding); the Sleep page's quick engine
 menu (beside Consolidate) reads and writes the same `PUT /sleep/engine` through the same
 `SleepEngineViewModel` and the same write rule (`EngineWrite`), and shows both previews — "When you
-start a cycle" / "Scheduled cycles", the one wording app-wide. The Claude plan's old *Use for Sleep* switch moved here too —
+start a cycle" / "Scheduled cycles", the one wording app-wide. **A change made elsewhere reaches the page** (2026-10-08):
+the sync vector's `engine` component (the prefs file's stamp, plus the engine a reading run pinned at its start) moves on a
+`PUT /sleep/engine` from curl, an agent or the CLI, and `SleepEngineRefresh` reloads `SleepEngineViewModel` — not a
+Store domain, no `VersionVector` mapping, like `VideoRefresh`; before, the page named the old engine until reopened. A
+run keeps the engine it resolved at its start or Continue; while the choice now resolves to another, `runKeepsEngine`
+puts one provider-neutral sentence under the Consolidate row and in the menu (*This run keeps the engine it started
+with…*), naming neither engine. The Claude plan's old *Use for Sleep* switch moved here too —
 same `use_for_sleep` pref, same endpoint — but `engine_select.resolve_llm_mode` reads that pref only
 when the chosen mode is `byok`, so it shows only while the API key card is chosen, as *Use my Claude
 plan when I start a cycle*, and a flip reloads the chooser's preview. Plans & keys is credentials

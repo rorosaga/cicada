@@ -1,5 +1,6 @@
 """Stage 5: Inbox Generation, Clarification Queue & Versioning."""
 
+import asyncio
 from datetime import date
 from pathlib import Path
 
@@ -295,6 +296,19 @@ def merge_options_into(path: Path, new_options: list[dict], today: str) -> bool:
 
 
 async def generate(
+    changes: list[dict],
+    skills: list[dict],
+    memory_path: Path,
+    relationships: list[dict] | None = None,
+    decay_budget: DecayBudget | None = None,
+) -> None:
+    """Stage 5's page writes, in a worker thread: every line below is file I/O and YAML over the
+    pages a batch touched (the whole bank in a drain's decay batch), and on the event loop it froze
+    every request — ``GET /sleep/status`` included — for seconds per batch."""
+    await asyncio.to_thread(_generate_sync, changes, skills, memory_path, relationships, decay_budget)
+
+
+def _generate_sync(
     changes: list[dict],
     skills: list[dict],
     memory_path: Path,

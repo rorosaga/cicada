@@ -266,17 +266,31 @@ def _preview(resolved: Settings, why: str) -> SleepEnginePreview:
     off of is exactly what ``sleep_cycle``/``providers`` would use, so this
     can never drift from what actually runs."""
     engine = engine_select.engine_label(resolved)
-    if engine == "claude-cli":
-        model = agent_engine.model_for_stage(resolved, None)
-    elif engine == "codex-cli":
-        # R-E17: an unpicked model reads as the plan's own default, named in
-        # words — the id is only known once a cycle's pre-flight asks.
-        model = codex_engine.model_for_stage(resolved, None) or "default model"
-    elif engine == "ollama":
-        model = resolved.ollama_model
-    else:
-        model = resolved.litellm_model
+    # R-E17: an unpicked ChatGPT-plan model reads as the plan's own default, named in words — the id
+    # is only known once a cycle's pre-flight asks. One rule with a run's pinned pair (`run_keeps_engine`).
+    model = engine_select.shown_model(resolved)
     return SleepEnginePreview(engine=engine, model=model, why=why, billing=billing_for(engine))
+
+
+def run_keeps_engine(settings: Settings, previews: SleepEnginePreviews) -> bool:
+    """A run of this bank is reading on an engine other than the one it would resolve now.
+
+    A run resolves its engine once, at its start or Continue, and keeps it ("Auto" must not land on
+    another, paid, engine at batch 9), so a choice written while it reads applies from the next start or
+    Continue. The page says so rather than showing the new engine beside a run that is not using it.
+    Compared against the preview of the run's own kind: a scheduled run against the scheduled line."""
+    from api.services.sleep_cycle import get_sleep_state
+
+    state = get_sleep_state()
+    if state.status != "running":
+        return False
+    ds = state.drain
+    if ds is None or getattr(ds, "memory_path", None) not in (None, settings.memory_path):
+        return False
+    if not getattr(ds, "engine_label", None):
+        return False   # reserved, not yet resolved
+    now = previews.scheduled if getattr(ds, "started_by", "user") == "schedule" else previews.manual
+    return (ds.engine_label, getattr(ds, "engine_shown", None)) != (now.engine, now.model)
 
 
 #: How a run on an engine is billed, from its id alone (Sleep page v5). No provider is named:
@@ -351,6 +365,7 @@ async def build_response(settings: Settings, reg) -> SleepEngineResponse:
         source=source, candidates=candidates, preview=preview, allow_overage=allow_overage,
         selected=selected_card(mode, model), provider=provider, providers=providers,
         reserve=_reserve_status(settings, reg, preview.manual.engine),
+        run_keeps_engine=run_keeps_engine(settings, preview),
     )
 
 

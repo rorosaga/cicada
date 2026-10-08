@@ -403,7 +403,10 @@ the Sleep page, Home's and the intake card's *Read now*, the menu-bar worm) — 
 **once** ("Auto" must not flip to another, paid, engine at batch 9) and reads them in batches of
 `sleep_max_episodes_per_cycle` (default 25; Reading options can make it 10, 25 or 50 — the setting keeps its name and now means *how often progress is saved*). Each
 batch is a whole pipeline under its own `<drain id>_b<nnn>` cycle id, breaker scope, models ledger and clock, and **Stage 5
-files and commits it** (`Sleep cycle <date> (batch k of n)`, `sleep_run` refs gain `drain_id`/`batch`/`batches`, ids and
+files and commits it** (**off the event loop**, 2026-10-08: Stage 2's page load, `inbox_generator.generate`'s page
+writes, Stages 5.5–5.56, 5.6, 5.7 and the processed flags each run in `asyncio.to_thread`; on the loop they froze every
+request — `GET /sleep/status` measured at ~4 s on a synthetic 3,600-page bank and ~11 s on the owner's — for as long as
+they ran; `entity_resolver._name_tokens` is memoised for the same reason) (`Sleep cycle <date> (batch k of n)`, `sleep_run` refs gain `drain_id`/`batch`/`batches`, ids and
 ints only), so a cancel or a plan stop loses at most the batch in progress and the next Consolidate continues with what is
 left. A plan limit (`EngineThrottled`/`Exhausted`/`Overage`, the breaker tripped by a swallowed per-episode throttle, or the
 ChatGPT pre-flight's used-up sentence, whose snapshot `resets_at` rides along via `codex_engine.last_limit_resets_at`) is a **pause, not a failure**: the vendor's own sentence and reset time
