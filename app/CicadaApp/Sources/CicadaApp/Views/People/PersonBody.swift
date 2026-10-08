@@ -43,6 +43,58 @@ struct SignedLineView: View {
     }
 }
 
+/// F-12 (R-PE17) — a person's Content: two columns when the card is at least 880 units wide (540 + 28 + 312), one
+/// below — each under DR-36's 760. A layout rather than `ViewThatFits` over fixed frames: that pair centred a column
+/// whose child came back wider than the column, which drew the owner's beliefs off the card's left edge; here each
+/// column is offered its width and placed at its leading edge, and both are measured once, not once per branch.
+struct PersonColumns<Main: View, Aside: View>: View {
+    let main: Main
+    let aside: Aside
+
+    var body: some View {
+        PersonColumnsLayout(main: CicadaTheme.scaled(540), aside: CicadaTheme.scaled(312),
+                            gap: CicadaTheme.spacingCard) {
+            main
+            aside
+        }
+    }
+}
+
+struct PersonColumnsLayout: Layout {
+    let main: CGFloat
+    let aside: CGFloat
+    let gap: CGFloat
+
+    private func sideBySide(_ width: CGFloat) -> Bool { width >= main + gap + aside }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard subviews.count == 2 else { return .zero }
+        let width = proposal.width ?? main + gap + aside
+        if sideBySide(width) {
+            let a = subviews[0].sizeThatFits(ProposedViewSize(width: main, height: nil))
+            let b = subviews[1].sizeThatFits(ProposedViewSize(width: aside, height: nil))
+            return CGSize(width: width, height: max(a.height, b.height))
+        }
+        let a = subviews[0].sizeThatFits(ProposedViewSize(width: width, height: nil))
+        let b = subviews[1].sizeThatFits(ProposedViewSize(width: width, height: nil))
+        return CGSize(width: width, height: a.height + gap + b.height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard subviews.count == 2 else { return }
+        if sideBySide(bounds.width) {
+            subviews[0].place(at: bounds.origin, proposal: ProposedViewSize(width: main, height: nil))
+            subviews[1].place(at: CGPoint(x: bounds.minX + main + gap, y: bounds.minY),
+                              proposal: ProposedViewSize(width: aside, height: nil))
+        } else {
+            let first = ProposedViewSize(width: bounds.width, height: nil)
+            let height = subviews[0].sizeThatFits(first).height
+            subviews[0].place(at: bounds.origin, proposal: first)
+            subviews[1].place(at: CGPoint(x: bounds.minX, y: bounds.minY + height + gap), proposal: first)
+        }
+    }
+}
+
 /// F-12 — "What Cicada believes · N, newest first": four signed rows, then "Show N more".
 struct PersonBeliefsSection: View {
     let claims: [Claim]

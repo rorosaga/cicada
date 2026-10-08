@@ -362,18 +362,8 @@ struct EntityDetailCard: View {
 
     // MARK: - A person's Content (F-12, R-PE17)
 
-    /// Two columns when the card is at least 880 units wide (540 + 28 + 312), one below — each under DR-36's 760.
     private var personContent: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(alignment: .top, spacing: CicadaTheme.spacingCard) {
-                personMain.frame(width: CicadaTheme.scaled(540))
-                personAside.frame(width: CicadaTheme.scaled(312))
-            }
-            VStack(alignment: .leading, spacing: CicadaTheme.spacingCard) {
-                personMain
-                personAside
-            }
-        }
+        PersonColumns(main: personMain, aside: personAside)
     }
 
     private var personMain: some View {
@@ -1226,38 +1216,57 @@ struct FlowLayout: Layout {
     var spacing: CGFloat = 6
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let result = layout(subviews: subviews, in: proposal.width ?? .infinity)
-        return result.size
+        FlowRows.layout(subviews, maxWidth: proposal.width ?? .infinity, spacing: spacing).size
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let positions = layout(subviews: subviews, in: bounds.width)
-        for (index, subview) in subviews.enumerated() {
-            let pt = positions.points[index]
-            subview.place(at: CGPoint(x: bounds.minX + pt.x, y: bounds.minY + pt.y), proposal: .unspecified)
-        }
+        FlowRows.place(subviews, in: bounds, spacing: spacing)
+    }
+}
+
+/// The one wrapping rule behind `FlowLayout` and `ClaimFooterFlow`: items flow left to right and wrap when the width
+/// is used up, and an item wider than a whole row is offered the row's width (so a `lineLimit(1)` label truncates)
+/// instead of its ideal width. A flow never reports or draws wider than it was offered: the owner's page drew its
+/// whole main column off the card's left edge when one flow did (a fixed-width column centres what overflows it).
+enum FlowRows {
+    struct Result {
+        var size: CGSize
+        var frames: [CGRect]
     }
 
-    private func layout(subviews: Subviews, in maxWidth: CGFloat) -> (size: CGSize, points: [CGPoint]) {
-        var points: [CGPoint] = []
+    static func layout(_ subviews: Layout.Subviews, maxWidth: CGFloat, spacing: CGFloat) -> Result {
+        var frames: [CGRect] = []
         var x: CGFloat = 0
         var y: CGFloat = 0
         var rowHeight: CGFloat = 0
         var totalWidth: CGFloat = 0
 
         for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
+            var size = subview.sizeThatFits(.unspecified)
+            if size.width > maxWidth {
+                size = subview.sizeThatFits(ProposedViewSize(width: maxWidth, height: nil))
+                size.width = min(size.width, maxWidth)
+            }
             if x + size.width > maxWidth, x > 0 {
                 x = 0
                 y += rowHeight + spacing
                 rowHeight = 0
             }
-            points.append(CGPoint(x: x, y: y))
+            frames.append(CGRect(origin: CGPoint(x: x, y: y), size: size))
             rowHeight = max(rowHeight, size.height)
             x += size.width + spacing
             totalWidth = max(totalWidth, x - spacing)
         }
-        return (CGSize(width: totalWidth, height: y + rowHeight), points)
+        return Result(size: CGSize(width: totalWidth, height: y + rowHeight), frames: frames)
+    }
+
+    static func place(_ subviews: Layout.Subviews, in bounds: CGRect, spacing: CGFloat) {
+        let frames = layout(subviews, maxWidth: bounds.width, spacing: spacing).frames
+        for (index, subview) in subviews.enumerated() {
+            let frame = frames[index]
+            subview.place(at: CGPoint(x: bounds.minX + frame.minX, y: bounds.minY + frame.minY),
+                          proposal: ProposedViewSize(frame.size))
+        }
     }
 }
 
