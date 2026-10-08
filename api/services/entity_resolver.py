@@ -11,7 +11,9 @@ from loguru import logger
 from thefuzz import fuzz
 
 from api.config import Settings
-from api.services import agent_engine, engine_errors, entity_body, json_parse, owner_identity, section_provenance
+from api.services import (
+    agent_engine, alias_policy, engine_errors, entity_body, json_parse, owner_identity, section_provenance,
+)
 from api.services.clarification_manager import (
     CONFIDENCE_THRESHOLD,
     ClarificationManager,
@@ -810,6 +812,8 @@ def _alias_index(existing_by_name: dict[str, dict]) -> dict[str, list[dict]]:
     index: dict[str, list[dict]] = {}
     for page in existing_by_name.values():
         for alias in _page_aliases(page):
+            if alias_policy.is_reference(alias):
+                continue  # "the lock" names nothing on its own; a lead from it is a wasted judge call
             holders = index.setdefault(alias.lower(), [])
             if all(held["id"] != page["id"] for held in holders):
                 holders.append(page)

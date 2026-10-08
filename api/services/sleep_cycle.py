@@ -2425,8 +2425,15 @@ async def _run_stages(
             settings,
             episode_cooccurrences=episode_cooccurrences,
         )
-    logger.info(f"Stage 4 complete: {len(skills)} skills detected")
-    _state.skills_detected = len(skills)
+    # G112 (1): an answer becomes a page only with the conversations it came from — Stage 4's
+    # evidence matched to this batch, no model call; the rest is logged and not written.
+    from api.services import skill_grounding
+    skill_changes = skill_grounding.ground(
+        skills, changes, extracted, memory_path, name_to_id=resolved_result.get("name_to_id"),
+    ) if skills else []
+    changes = skill_grounding.without_decay_of(changes, skill_changes)
+    logger.info(f"Stage 4 complete: {len(skills)} skills detected, {len(skill_changes)} grounded")
+    _state.skills_detected = len(skill_changes)
     _state.stage = 4
 
     # Sleep control — the LAST safe point: one more check before Stage 5
@@ -2452,7 +2459,7 @@ async def _run_stages(
     # One allowance of NEW decay questions for the whole cycle, drawn on by the
     # entity path here and the claim path in Stage 5.56 (the cap is a setting).
     decay_budget = DecayBudget(getattr(settings, "decay_inbox_cap_per_cycle", 10))
-    await generate(changes, skills, memory_path, relationships=resolved_edges,
+    await generate(changes, skill_changes, memory_path, relationships=resolved_edges,
                    decay_budget=decay_budget)
 
     # Stage 5.5: Materialize entity-body wikilinks as `mentions` edges so the
@@ -2661,7 +2668,8 @@ async def _run_stages(
     await _finalize(
         memory_path,
         cycle_id,
-        changes,
+        # A skill's line names its conversations and their sessions like any page's (G112).
+        [*changes, *skill_changes],
         settings,
         organic_resolution_paths=organic_resolution_paths,
         # This batch's own clock (`_run_batch`); a plain cycle's is its run's.

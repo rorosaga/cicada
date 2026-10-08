@@ -25,7 +25,7 @@ Output valid JSON with this exact structure:
     {
       "name": "Entity Name",
       "type": "person|project|company|concept|tool|skill|location|directory",
-      "aliases": ["Mongo", "the db"],
+      "aliases": ["Mongo"],
       "summary": "1-3 sentence orientation. See SUMMARY LENGTH BY TYPE below.",
       "key_facts": ["atomic fact", "another atomic fact"],
       "history_entries": [
@@ -140,8 +140,10 @@ EXTRACTION GUIDELINES:
 - Confidence reflects how certain you are about the entity's attributes, not how important it is.
 - If an entity is mentioned but you lack context to classify it confidently (e.g., a bare name
   with no role), still extract it but set confidence below 0.5.
-- aliases: list any alternate surface forms used for the entity ("Mongo" for MongoDB,
-  "the database", a nickname). Leave empty if there is only one name.
+- aliases: other NAMES the same thing goes by ("Mongo" for MongoDB, an acronym, a nickname). Never a
+  reference that only makes sense inside this conversation ("the database", "this project", "my app",
+  "the new format"), and never the name of a part, product, dataset, file format or version of the
+  entity — that is a different thing. Leave empty if there is only one name.
 - Use wikilinks `[[Entity Name]]` inside summary and key_facts to reference other entities.
   Do NOT fabricate links bullets — those come only from real URLs in the source.
 - Entity types must be exactly one of: person, project, company, concept, tool, skill, location, directory.
