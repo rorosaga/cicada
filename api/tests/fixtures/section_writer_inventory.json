@@ -65,6 +65,14 @@
       "disposition": "uninstrumented_guarded"
     }
   ],
+  "services/claims_jsonl_migration.py": [
+    {
+      "function": "apply",
+      "method": "write_document",
+      "frontmatter": "converted",
+      "disposition": "preserve_frontmatter_guarded"
+    }
+  ],
   "services/claim_seeder.py": [
     {
       "function": "seed_claims_from_edges",
