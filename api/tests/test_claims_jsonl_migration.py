@@ -6,8 +6,11 @@ the pages or runs; never on a page with uncommitted changes; never automatically
 """
 from __future__ import annotations
 
+import http.server
 import json
+import socket
 import subprocess
+import threading
 from pathlib import Path
 
 import pytest
@@ -122,6 +125,126 @@ def test_a_page_with_uncommitted_changes_is_left_for_its_own_writer(bank):
     assert "entities/alpha-project.md" not in _git(bank, "show", "--name-only", "--format=", "HEAD")
 
 
+def test_a_page_written_after_the_survey_is_left_for_its_own_writer(bank, monkeypatch):
+    """A writer that takes neither admission nor the page lock (review B1: Sleep's decay rewriting frontmatter) lands
+    between the survey and the conversion: the page is skipped, so its change is never swept into this commit."""
+    page = bank / "entities" / "alpha-project.md"
+    real_survey = mig.survey
+
+    def survey_then_a_write(memory_path):
+        result = real_survey(memory_path)
+        page.write_text(page.read_text(encoding="utf-8").replace("status: active", "status: decaying"),
+                        encoding="utf-8")
+        return result
+
+    monkeypatch.setattr(mig, "survey", survey_then_a_write)
+    result = mig.apply(bank, sleep_running=lambda: False)
+    written = page.read_text(encoding="utf-8")
+    assert result.dirty == 1 and result.converted == 1
+    assert "status: decaying" in written and not claims.is_jsonl_payload(
+        claims._CLAIMS_BLOCK_RE.search(written).group("payload"))
+    assert _git(bank, "show", "--name-only", "--format=", "HEAD").split() == ["entities/beta-project.md"]
+    assert _git(bank, "status", "--porcelain").strip() == "M entities/alpha-project.md"
+
+
+def test_a_page_written_after_its_conversion_is_left_out_of_the_commit(bank, monkeypatch):
+    """The same writer landing between the conversion and the commit: the page keeps both changes, uncommitted, for its
+    own writer to commit; the migration commits only what it alone wrote."""
+    page = bank / "entities" / "alpha-project.md"
+    real_write = mig.markdown_parser.write_document
+
+    def write_then_a_write(path, text):
+        real_write(path, text)
+        if path.name == page.name:
+            path.write_text(text.replace("status: active", "status: decaying"), encoding="utf-8")
+
+    monkeypatch.setattr(mig.markdown_parser, "write_document", write_then_a_write)
+    result = mig.apply(bank, sleep_running=lambda: False)
+    assert result.dirty == 1 and result.converted == 1
+    text = page.read_text(encoding="utf-8")
+    assert "status: decaying" in text and claims.is_jsonl_payload(claims._CLAIMS_BLOCK_RE.search(text).group("payload"))
+    assert _git(bank, "show", "--name-only", "--format=", "HEAD").split() == ["entities/beta-project.md"]
+    assert _git(bank, "status", "--porcelain").strip() == "M entities/alpha-project.md"
+
+
+# --- the command's Sleep check fails closed (review B1) -----------------------------------------------------------
+
+
+def _serve(status: int, body: bytes):
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802 — the stdlib's name
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *_a):
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server
+
+
+def _free_port() -> int:
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+@pytest.mark.parametrize("status,body", [
+    (401, b'{"detail": "missing or invalid bearer token"}'),
+    (403, b"{}"),
+    (500, b"oops"),
+    (200, b"not json"),
+    (200, b"[]"),
+    (200, b'{"status": "idle"}'),
+    (200, b'{"status": "idle", "writing": "false"}'),
+    (200, b'{"status": "idle", "writing": true}'),
+    (200, b'{"status": "running", "writing": false}'),
+])
+def test_the_command_refuses_unless_the_backend_clearly_says_sleep_is_idle(bank, tmp_path, monkeypatch, status,
+                                                                            body):
+    from api.scripts import migrate_claims_jsonl as cmd
+
+    monkeypatch.setenv("CICADA_HOME", str(tmp_path / "home" / ".cicada"))
+    monkeypatch.delenv("CICADA_API_TOKEN", raising=False)
+    before, head = _snapshot(bank), _git(bank, "rev-parse", "HEAD")
+    server = _serve(status, body)
+    monkeypatch.setenv("CICADA_PORT", str(server.server_address[1]))
+    try:
+        assert cmd.backend_running() is True
+        assert cmd.main(["--bank", str(bank), "--apply"]) == 3
+    finally:
+        server.shutdown()
+    assert _snapshot(bank) == before and _git(bank, "rev-parse", "HEAD") == head
+
+
+def test_the_command_refuses_when_no_backend_answers(bank, tmp_path, monkeypatch):
+    """A wrong ``CICADA_PORT`` looks exactly like a stopped backend, so neither is taken as "no run"."""
+    from api.scripts import migrate_claims_jsonl as cmd
+
+    monkeypatch.setenv("CICADA_HOME", str(tmp_path / "home" / ".cicada"))
+    monkeypatch.setenv("CICADA_PORT", str(_free_port()))
+    before = _snapshot(bank)
+    assert cmd.main(["--bank", str(bank), "--apply"]) == 3
+    assert _snapshot(bank) == before
+
+
+def test_the_command_proceeds_only_on_a_clear_idle_answer(bank, tmp_path, monkeypatch):
+    from api.scripts import migrate_claims_jsonl as cmd
+
+    monkeypatch.setenv("CICADA_HOME", str(tmp_path / "home" / ".cicada"))
+    server = _serve(200, b'{"status": "idle", "writing": false}')
+    monkeypatch.setenv("CICADA_PORT", str(server.server_address[1]))
+    try:
+        assert cmd.backend_running() is False
+        assert cmd.main(["--bank", str(bank), "--apply"]) == 0
+    finally:
+        server.shutdown()
+    assert "maintenance/claims-jsonl" in _git(bank, "log", "-1", "--format=%B")
+
+
 def test_it_never_runs_automatically():
     services = Path(mig.__file__).parent
     callers = [p.name for p in [*services.glob("*.py"), *(services.parent / "routers").glob("*.py"),
@@ -133,8 +256,9 @@ def test_it_never_runs_automatically():
 def test_the_command_dry_runs_by_default_and_prints_counts_only(bank, tmp_path):
     import sys
 
+    server = _serve(200, b'{"status": "idle", "writing": false}')
     env = {"PATH": "/usr/bin:/bin", "HOME": str(tmp_path / "home"), "CICADA_HOME": str(tmp_path / "home" / ".cicada"),
-           "CICADA_PORT": "9", "CICADA_TELEMETRY": "off"}
+           "CICADA_PORT": str(server.server_address[1]), "CICADA_TELEMETRY": "off"}
     repo = Path(__file__).resolve().parents[2]
     before = _snapshot(bank)
     dry = subprocess.run([sys.executable, "-m", "api.scripts.migrate_claims_jsonl", "--bank", str(bank)],
@@ -148,6 +272,7 @@ def test_the_command_dry_runs_by_default_and_prints_counts_only(bank, tmp_path):
     missing = subprocess.run([sys.executable, "-m", "api.scripts.migrate_claims_jsonl", "--bank",
                               str(tmp_path / "nowhere")], cwd=repo, env=env, capture_output=True, text=True)
     assert missing.returncode == 2
+    server.shutdown()
 
 
 def test_the_converter_never_rediffs_a_fuzzed_or_hand_written_legacy_fence():

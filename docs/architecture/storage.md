@@ -89,7 +89,10 @@ SEPARATOR included), so a claim is always exactly one line of the page. The read
 legacy YAML list, read exactly as before. A writer that re-renders a fence (`write_claims`) emits JSON Lines, so a
 legacy page converts on its first write; `append_claim_entries`, which must not re-render, appends in the fence's own
 form. `python -m api.scripts.migrate_claims_jsonl --bank <path>` reports counts (a dry run); `--apply` converts every
-remaining legacy fence in one `cicada` commit — never automatically, never while Sleep runs. Why: PyYAML builds every
+remaining legacy fence in one `cicada` commit — never automatically, never while Sleep runs. Its own process cannot see
+Sleep's flag, so it asks the backend and fails closed like claim recovery: only a 200 saying `writing: false` and not
+`running` lets it write (no backend refuses too); a page with uncommitted changes, or written again during the run, is
+left out of the commit for its own writer. Why: PyYAML builds every
 node in Python even on the C loader (~150 µs a claim: 0.5 s for a 3,500-claim page, ~3 s for a 2,000-page bank's
 claims, paid by every full-bank reader); a JSON line is ~3 µs (`benchmarks/scale`). Spans are unaffected: a `page`
 evidence offset points into the body with the fence stripped, which is the same text in either form.
@@ -135,7 +138,7 @@ object unless the vocabulary marks it single-valued — or a HEAD claim `superse
 dropped copy was already closed) or `no_current_replacement` (a belief current when dropped with no successor: listed by
 id and page only, **never written** — the person decides). The dry run (default) prints counts by class and reason and
 writes ids, paths, commits and classes — never claim text. `--apply` writes the first two classes: each entry as the
-fence held it (unknown fields kept), in the fence's own form,, appended by `claims.append_claim_entries` without re-rendering any entry already in
+fence held it (unknown fields kept), in the fence's own form, appended by `claims.append_claim_entries` without re-rendering any entry already in
 the fence or the frontmatter (`markdown_parser.write_document`), spans checked with `evidence.span_status` (one that no
 longer locates becomes `reasoning`), under admission → page lock → git's write lock. The CLI is its own process, so it
 also asks the backend's `/sleep/status` and **refuses on any answer but a clear `writing: false`** (no backend, an auth

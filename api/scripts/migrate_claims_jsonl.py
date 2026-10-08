@@ -5,23 +5,23 @@
 
 The bank is named explicitly; nothing is resolved from the environment's active bank. Prints one JSON object of counts
 (never a page name or a claim's words). Exit 0 done, 2 not a bank, 3 refused because Sleep is running or holds the
-pages — run it again after the drain. Asks the local backend (``CICADA_PORT``) whether a run is in progress, the way the
-stdio MCP server asks before it commits: no backend answering means no run; a backend too slow to answer counts as one.
+pages — run it again after the drain. Asks the local backend (``CICADA_PORT``) whether a run is in progress and FAILS
+CLOSED, as claim recovery does: only an HTTP 200 whose JSON says ``writing: false`` and a status other than ``running``
+lets it write. No backend, a wrong port, an auth or server error, a timeout or a malformed answer all refuse — this
+process cannot see Sleep's flag, and the backend's answer is the only guard against a run.
 """
 from __future__ import annotations
 
 import argparse
 import json
 import os
-import socket
 import sys
-import urllib.error
 import urllib.request
 from pathlib import Path
 
 
 def backend_running(environ=None) -> bool:
-    """Is the local backend running Sleep (``status: running``) or holding the pages (``writing``)?"""
+    """Could Sleep be running or holding the pages? ``True`` unless the backend clearly says it is idle."""
     from api.cli import _backend_headers
     from api.services import runtime_layout
 
@@ -29,15 +29,13 @@ def backend_running(environ=None) -> bool:
     url = f"{runtime_layout.backend_url(environ)}/sleep/status"
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     try:
-        with opener.open(urllib.request.Request(url, headers=_backend_headers(environ)), timeout=2) as resp:
+        with opener.open(urllib.request.Request(url, headers=_backend_headers(environ)), timeout=4) as resp:
+            if resp.status != 200:
+                return True
             body = json.loads(resp.read().decode("utf-8"))
-    except (TimeoutError, socket.timeout):
+    except Exception:  # noqa: BLE001 — any failure is "cannot establish that Sleep is idle"
         return True
-    except urllib.error.HTTPError:
-        return False
-    except urllib.error.URLError as exc:
-        return isinstance(exc.reason, (TimeoutError, socket.timeout))
-    return bool(body.get("writing")) or body.get("status") == "running"
+    return not (isinstance(body, dict) and body.get("writing") is False and body.get("status") != "running")
 
 
 def main(argv=None) -> int:

@@ -13,9 +13,11 @@ at the same text. A page is converted only when the result reads back as the sam
 same raw entries; otherwise it is counted and left alone. A page whose fence is unreadable, repeated or unterminated
 (``fence_state``) is counted and never rewritten.
 
-**When it refuses.** While Sleep holds the pages or the backend reports a run (asked over loopback, as the stdio MCP
-server asks before it commits; a backend too slow to answer counts as running), and for a page with uncommitted
-changes (counted, skipped: a commit commits alone, under its true author). It holds the bank's write admission (shared,
+**When it refuses.** While Sleep holds the pages or the backend cannot say clearly that no run is in progress (asked
+over loopback, failing closed like claim recovery: the command's process cannot see Sleep's flag), and for a page with
+uncommitted changes (counted, skipped: a commit commits alone, under its true author) — including one written after the
+survey by a writer that takes neither admission nor the page lock: a page whose text is not the text surveyed is
+skipped. It holds the bank's write admission (shared,
 cross-process, so Sleep cannot open its window meanwhile), then the page lock, then git's write lock inside the commit
 — the documented order.
 """
@@ -52,7 +54,7 @@ class Survey:
     dirty: int = 0
     converted: int = 0
     committed: bool = False
-    _todo: list[Path] = field(default_factory=list, repr=False)
+    _todo: list[tuple[Path, str]] = field(default_factory=list, repr=False)
 
     def counts(self) -> dict:
         return {k: v for k, v in self.__dict__.items() if not k.startswith("_")}
@@ -115,7 +117,7 @@ def survey(memory_path) -> Survey:
         if convert_document(text) is None:
             result.not_equivalent += 1
             continue
-        result._todo.append(path)
+        result._todo.append((path, text))
     return result
 
 
@@ -123,19 +125,25 @@ def apply(memory_path, *, sleep_running: Callable[[], bool]) -> Survey:
     """Convert every convertible legacy fence and commit them in ONE commit authored ``cicada``. Raises
     :class:`SleepRunning` before writing anything when Sleep holds the pages or a run is in progress."""
     memory_path = Path(memory_path)
-    written: list[str] = []
+    written: list = []
     with write_admission.admitted(memory_path, refuse=lambda: SleepRunning("Sleep is holding this bank's pages")):
         if sleep_running():
             raise SleepRunning("a Sleep run is in progress; convert after it ends")
         with page_lock.page_lock(memory_path):
             result = survey(memory_path)
-            for path in result._todo:
-                converted = convert_document(path.read_text(encoding="utf-8"))
-                if converted is None:          # changed since the survey: leave it for the next run
-                    result.not_equivalent += 1
+            for path, surveyed in result._todo:
+                text = path.read_text(encoding="utf-8")
+                if text != surveyed:           # written since the survey: an uncommitted change, its writer's to commit
+                    result.dirty += 1
                     continue
+                converted = convert_document(text)
                 markdown_parser.write_document(path, converted)
-                written.append(f"entities/{path.name}")
+                written.append((path, converted))
+            # Written again since the conversion: left out of this commit. The page already holds JSON Lines (every
+            # writer emits them), so its own writer's commit carries the change under its true author.
+            changed = [p for p, converted in written if p.read_text(encoding="utf-8") != converted]
+            result.dirty += len(changed)
+            written = [f"entities/{p.name}" for p, _ in written if p not in changed]
             result.converted = len(written)
             if written and (memory_path / ".git").exists():
                 message = git_service.build_commit_message(
