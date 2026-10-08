@@ -345,6 +345,7 @@ async def resolve(
                 "source_episode_timestamp": entity.get("source_episode_timestamp"),
                 "source_episode_timestamps": [entity.get("source_episode_timestamp")] if entity.get("source_episode_timestamp") else [],
                 "source_episode_days": _source_days(entity),
+                "untimed": bool(entity.get("untimed")),
                 "trigger": "sleep/promotion",
             }
             for sibling in siblings:
@@ -683,6 +684,8 @@ def _append_change_source(change: dict, entity: dict) -> None:
         if day not in days:
             days.append(day)
 
+    # Only memory export entries in the change: its facts are new, but nothing came up ("facts yes, activity no").
+    change["untimed"] = bool(change.get("untimed")) and bool(entity.get("untimed"))
     change["source_episode"] = episode_id or change.get("source_episode", "")
     latest = _latest_timestamp(
         change.get("source_episode_timestamp"),
@@ -710,6 +713,7 @@ def _merge_into_update(
             "source_episode_timestamp": incoming.get("source_episode_timestamp"),
             "source_episode_timestamps": [incoming.get("source_episode_timestamp")] if incoming.get("source_episode_timestamp") else [],
             "source_episode_days": _source_days(incoming),
+            "untimed": bool(incoming.get("untimed")),
             "trigger": "sleep/extraction",
         }
         updates_by_id[entity_id] = current

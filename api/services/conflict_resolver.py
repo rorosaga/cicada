@@ -202,7 +202,8 @@ async def resolve_and_prune(
     # that is not the person's).
     learned_on = now.date().isoformat()
     for change in resolved:
-        if change.get("action") in ("create", "update"):
+        # A memory export entry alone restarts no clock on a page that already exists (`episode_time`).
+        if change.get("action") == "create" or (change.get("action") == "update" and not change.get("untimed")):
             change["decayed_through"] = learned_on
     alpha, floor = decay_policy.spacing_params(settings)
     if tuning is None:
@@ -342,7 +343,8 @@ def apply_changes(changes: list[dict], memory_path) -> None:
                 "status": "active",
                 "confidence": entity.get("confidence", 0.5),
                 "created": created_date,
-                "last_referenced": last_referenced,
+                # Heard only in a memory export entry: never mentioned in a conversation, so no last mention.
+                **({} if change.get("untimed") else {"last_referenced": last_referenced}),
                 # Silence counts from when Cicada learned it, not from the
                 # (possibly months-old) episode date — see `resolve_and_prune`.
                 "decayed_through": change.get("decayed_through") or str(date.today()),
@@ -373,24 +375,29 @@ def apply_changes(changes: list[dict], memory_path) -> None:
 
         elif action == "update" and filepath.exists():
             parsed = markdown_parser.parse(filepath)
-            parsed.frontmatter["last_referenced"] = _max_date(
-                str(parsed.frontmatter.get("last_referenced", "")) or None,
-                _latest_change_date(change),
-            ) or str(date.today())
+            # A memory export entry alone is no re-mention ("facts yes, activity no", `episode_time`): its facts
+            # and source land below, but the last mention, the silence clock and the status stay.
+            mentioned = not change.get("untimed")
+            if mentioned:
+                parsed.frontmatter["last_referenced"] = _max_date(
+                    str(parsed.frontmatter.get("last_referenced", "")) or None,
+                    _latest_change_date(change),
+                ) or str(date.today())
             parsed.frontmatter["version"] = parsed.frontmatter.get("version", 1) + 1
             # A re-mention (even of old episodes) restarts the silence clock at
             # this cycle; never moved backwards.
-            parsed.frontmatter["decayed_through"] = _max_date(
-                _extract_date_string(parsed.frontmatter.get("decayed_through")),
-                change.get("decayed_through") or str(date.today()),
-            )
+            if mentioned:
+                parsed.frontmatter["decayed_through"] = _max_date(
+                    _extract_date_string(parsed.frontmatter.get("decayed_through")),
+                    change.get("decayed_through") or str(date.today()),
+                )
 
             # Recovery (G66 §1.6): a re-mention is the counter-signal to decay.
             # CLAUDE.md has always promised "if mentioned again: promoted back,
             # confidence restored" — before this, only `last_referenced` moved.
             # `dropped` is deliberately excluded: the user dismissed that entity
             # and it is never resurfaced.
-            if str(parsed.frontmatter.get("status", "active")) in ("decaying", "archived"):
+            if mentioned and str(parsed.frontmatter.get("status", "active")) in ("decaying", "archived"):
                 parsed.frontmatter["status"] = "active"
                 parsed.frontmatter["confidence"] = max(
                     float(parsed.frontmatter.get("confidence", 0.0) or 0.0),
