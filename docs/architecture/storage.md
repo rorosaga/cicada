@@ -80,6 +80,19 @@ spacing factor and the per-type pace (see Temporal decay).
 ### Claims, evidence and provenance
 
 **Claims** are the machine-legible half: typed predicates, bi-temporal validity, observer and trust.
+
+**The fence is JSON Lines (DECIDE-1, owner 2026-10-08).** A page's claims live in one ` ```claims ` fence, one claim
+per line, each line `claims._jsonl_line(Claim.to_dict())` — the one encoder every writer uses (a raw writer passes its
+mapping); `[]` when the page has none. JSON escapes every character a line splitter splits on (NEL, LINE and PARAGRAPH
+SEPARATOR included), so a claim is always exactly one line of the page. The reader is dual
+(`claims.load_fence_payload`): a fence whose first non-blank line opens an object is JSON Lines, anything else the
+legacy YAML list, read exactly as before. A writer that re-renders a fence (`write_claims`) emits JSON Lines, so a
+legacy page converts on its first write; `append_claim_entries`, which must not re-render, appends in the fence's own
+form. `python -m api.scripts.migrate_claims_jsonl --bank <path>` reports counts (a dry run); `--apply` converts every
+remaining legacy fence in one `cicada` commit — never automatically, never while Sleep runs. Why: PyYAML builds every
+node in Python even on the C loader (~150 µs a claim: 0.5 s for a 3,500-claim page, ~3 s for a 2,000-page bank's
+claims, paid by every full-bank reader); a JSON line is ~3 µs (`benchmarks/scale`). Spans are unaffected: a `page`
+evidence offset points into the body with the fence stripped, which is the same text in either form.
 A predicate the vocabulary marks multi-valued (`predicates.cardinality`) never opens a conflict.
 
 **Contexts and the fence (F1).** `context` is an open vocabulary whose *shape* is pinned by
@@ -89,7 +102,7 @@ particular context" and is never a facet: a satellite needs two real contexts. T
 after a page's last section (`write_claims`, the one writer), so **every reader strips it before
 sectioning** — `strip_claims_block` on the server, `EntityProse` in the app.
 Stage-5 prose rewrites use `preserve_claims_blocks` only to re-emit closed fences
-already read from disk, including unknown fields and malformed YAML; it never
+already read from disk, including unknown fields and unreadable payloads; it never
 authors claims. Synthesis, contradiction detection, source-grounded rewriting,
 dedup judging (both pages), entity disambiguation and pattern/skill detection
 receive prose stripped by `strip_claims_block` before their input budgets are

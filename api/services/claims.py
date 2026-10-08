@@ -10,27 +10,26 @@ This module is the foundation only (M5a): the schema + the in-page block
 parser/writer. It is deliberately NOT wired into ``/ask``, MCP, or the Sleep
 cycle yet — those are later milestones.
 
-Block format (chosen here, load-bearing for round-trip):
+Block format (load-bearing for round-trip) — JSON Lines, one serialized :class:`Claim` per line (DECIDE-1, owner
+2026-10-08):
 
     ```claims
-    - id: clm_2026-05-05_009
-      text: "Cicada's semantic index is built on sqlite-vec."
-      subject: cicada
-      predicate: uses
-      object: sqlite-vec
-      observer: agent
-      context: engineering
-      ...
+    {"id": "clm_2026-05-05_009", "text": "Cicada's semantic index is built on sqlite-vec.", "subject": "cicada", ...}
+    {"id": "clm_2026-05-05_010", ...}
     ```
 
-The YAML payload is a **list** of mappings, each a serialized :class:`Claim`.
-An empty claims list still emits the fence with an empty list (``[]``) so the
-machine layer is visibly present and round-trips. All prose surrounding the
-fence is preserved verbatim by :func:`write_claims`.
+Every writer renders a line with :func:`_jsonl_line` (``Claim.to_dict`` for a claim, the raw mapping for a raw
+writer). The reader is dual (:func:`load_fence_payload`): a fence whose first non-blank line starts with ``{`` is JSON
+Lines; anything else is the legacy YAML list the fence held before, read exactly as before. An empty claims list still
+emits ``[]`` so the machine layer is visibly present and round-trips. All prose surrounding the fence is preserved
+verbatim by :func:`write_claims`. Why: PyYAML builds every node in Python even on the C loader — ~150 µs a claim, 0.5 s
+for a 3,500-claim page — against ~3 µs for a JSON line (benchmarks/scale). ``api.scripts.migrate_claims_jsonl``
+converts a bank's legacy fences in one commit, only when the person runs it.
 """
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
@@ -435,6 +434,37 @@ class MalformedClaimsBlockError(ValueError):
     """
 
 
+#: What JSON leaves raw but a line splitter splits on (``str.splitlines``: NEL, LINE and PARAGRAPH SEPARATOR); JSON
+#: already escapes every other one (all below U+0020). Escaped, a claim is always exactly one line of the page.
+_LINE_BREAKERS = {"\u0085": "\\u0085", "\u2028": "\\u2028", "\u2029": "\\u2029"}
+
+
+def _jsonl_line(entry: Any) -> str:
+    """One fence entry as one JSON line — the one encoder every claims writer uses. ``default=str`` turns a value a
+    YAML fence decoded to a date into the string ``Claim.from_dict`` would have made of it (``_opt_str``)."""
+    line = json.dumps(entry, ensure_ascii=False, default=str)
+    for raw, escaped in _LINE_BREAKERS.items():
+        line = line.replace(raw, escaped)
+    return line
+
+
+def is_jsonl_payload(payload: str) -> bool:
+    """Is this fence payload JSON Lines (first non-blank line opens an object)? Else it is the legacy YAML list."""
+    for line in (payload or "").split("\n"):
+        stripped = line.strip()
+        if stripped:
+            return stripped.startswith("{")
+    return False
+
+
+def load_fence_payload(payload: str) -> Any:
+    """The dual reader: a JSON Lines payload as the list of its decoded lines, a legacy one as YAML decodes it.
+    Raises ``yaml.YAMLError`` or ``ValueError`` (a line that is not JSON) — the callers' "malformed" signal."""
+    if is_jsonl_payload(payload):
+        return [json.loads(line) for line in payload.split("\n") if line.strip()]
+    return yaml.load(payload, Loader=_SAFE_LOADER)  # noqa: S506 — a SAFE loader
+
+
 def parse_claims(body: str, *, strict: bool = False) -> list[Claim]:
     """Extract the claims from the ` ```claims ` block in ``body``.
 
@@ -452,11 +482,11 @@ def parse_claims(body: str, *, strict: bool = False) -> list[Claim]:
         return []
     payload = match.group("payload")
     try:
-        loaded = yaml.load(payload, Loader=_SAFE_LOADER)  # noqa: S506 — a SAFE loader
-    except yaml.YAMLError as exc:
+        loaded = load_fence_payload(payload)
+    except (yaml.YAMLError, ValueError) as exc:
         if strict:
-            raise MalformedClaimsBlockError(f"YAML error in ```claims block: {exc}") from exc
-        logger.warning(f"malformed ```claims block (YAML error), ignoring: {exc}")
+            raise MalformedClaimsBlockError(f"unreadable ```claims block: {exc}") from exc
+        logger.warning(f"malformed ```claims block, ignoring: {exc}")
         return []
     if loaded is None:
         return []
@@ -496,17 +526,10 @@ def parse_claims(body: str, *, strict: bool = False) -> list[Claim]:
 
 
 def _render_claims_block(claims: list[Claim]) -> str:
-    """Render the fenced ```claims block for ``claims`` (no trailing newline)."""
-    payload = [c.to_dict() for c in claims]
-    yaml_str = yaml.dump(
-        payload,
-        default_flow_style=False,
-        sort_keys=False,
-        allow_unicode=True,
-    ).strip()
-    if not yaml_str or yaml_str == "[]":
-        yaml_str = "[]"
-    return f"```{CLAIMS_FENCE_LANG}\n{yaml_str}\n```"
+    """Render the fenced ```claims block for ``claims`` (no trailing newline): one JSON line per claim, ``[]`` when
+    there is none."""
+    lines = "\n".join(_jsonl_line(c.to_dict()) for c in claims) or "[]"
+    return f"```{CLAIMS_FENCE_LANG}\n{lines}\n```"
 
 
 def write_claims(body: str, claims: list[Claim]) -> str:
@@ -614,8 +637,8 @@ def loose_claim_entries(body: str) -> list[dict] | None:
         close = _FENCE_CLOSE_RE.search(body, start, limit)
         payload = body[start:close.start() if close else limit]
         try:
-            loaded = yaml.load(payload, Loader=_SAFE_LOADER)  # noqa: S506 — a SAFE loader
-        except yaml.YAMLError:
+            loaded = load_fence_payload(payload)
+        except (yaml.YAMLError, ValueError):
             return None
         if loaded is None:
             continue
@@ -633,20 +656,28 @@ def raw_claim_entries(body: str) -> list[dict]:
         return []
     if state != FENCE_OK:
         raise MalformedClaimsBlockError("the ```claims fence is unterminated, repeated or unparseable")
-    loaded = yaml.load(_CLAIMS_BLOCK_RE.search(body).group("payload"), Loader=_SAFE_LOADER)  # noqa: S506
+    loaded = load_fence_payload(_CLAIMS_BLOCK_RE.search(body).group("payload"))
     return [dict(entry) for entry in loaded or []]
 
 
 def append_claim_entries(document: str, entries: list[dict]) -> str:
     """Append raw entries to the one fence without re-rendering the entries already there (their bytes, unknown
     fields included, are kept), or add a fence after the prose when there is none. Works on a whole page document.
-    Raises :class:`MalformedClaimsBlockError` when the result would not read back as exactly the old entries followed
-    by ``entries`` (an unreadable fence, a flow-style or oddly indented list)."""
+    The new entries take the fence's own form: JSON lines (:func:`_jsonl_line`) for a JSON Lines fence or a new one,
+    the legacy YAML list for a fence ``migrate_claims_jsonl`` has not converted yet — re-rendering it to append would
+    break the promise this function exists for. Raises :class:`MalformedClaimsBlockError` when the result would not
+    read back as exactly the old entries followed by ``entries`` (an unreadable fence, a flow-style or oddly indented
+    list)."""
     if not entries:
         return document
     before = raw_claim_entries(document)
-    rendered = yaml.dump(entries, default_flow_style=False, sort_keys=False, allow_unicode=True).strip()
     match = _CLAIMS_BLOCK_RE.search(document)
+    legacy = match is not None and match.group("payload").strip() not in ("", "[]") \
+        and not is_jsonl_payload(match.group("payload"))
+    if legacy:
+        rendered = yaml.dump(entries, default_flow_style=False, sort_keys=False, allow_unicode=True).strip()
+    else:
+        rendered = "\n".join(_jsonl_line(e) for e in entries)
     if match is None:
         stripped = document.rstrip()
         out = f"{stripped}\n\n```{CLAIMS_FENCE_LANG}\n{rendered}\n```\n" if stripped else \
@@ -658,6 +689,11 @@ def append_claim_entries(document: str, entries: list[dict]) -> str:
         elif not payload.endswith("\n"):
             payload += "\n"
         out = document[:match.start("payload")] + payload + rendered + "\n" + document[match.end("payload"):]
-    if raw_claim_entries(out) != [*before, *entries]:
+    if _as_read(raw_claim_entries(out)) != _as_read([*before, *entries]):
         raise MalformedClaimsBlockError("appending would change the entries already in the fence")
     return out
+
+
+def _as_read(entries: list) -> list:
+    """Entries as a JSON line reads them back (a YAML date becomes the string ``Claim.from_dict`` makes of it)."""
+    return [json.loads(_jsonl_line(e)) for e in entries]

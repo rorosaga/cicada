@@ -72,11 +72,17 @@ LEGACY_FENCE = """```claims
 ```"""
 
 
-def test_a_legacy_fence_round_trips_byte_identical():
+def test_a_legacy_fence_reads_the_same_and_its_json_lines_round_trip_byte_identical():
+    """R7's promise in the JSON Lines fence (DECIDE-1): the legacy YAML reads as the same claims, the first write
+    converts it once, and every later re-render is byte-identical — no field a legacy claim lacks is added."""
     body = "# Bob Example\n\nSome prose.\n\n" + LEGACY_FENCE + "\n"
     claims = parse_claims(body, strict=True)
     assert len(claims) == 2
-    assert write_claims(body, claims) == body
+    once = write_claims(body, claims)
+    assert parse_claims(once, strict=True) == claims
+    assert write_claims(once, parse_claims(once, strict=True)) == once
+    for key in ("status", "target", "participants", "date_basis", "expected_end"):
+        assert f'"{key}"' not in once
 
 
 def test_event_fields_round_trip_and_junk_is_dropped():
