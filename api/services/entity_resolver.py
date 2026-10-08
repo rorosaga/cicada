@@ -9,7 +9,7 @@ from loguru import logger
 from thefuzz import fuzz
 
 from api.config import Settings
-from api.services import agent_engine, engine_errors, json_parse, owner_identity, section_provenance
+from api.services import agent_engine, engine_errors, entity_body, json_parse, owner_identity, section_provenance
 from api.services.clarification_manager import (
     CONFIDENCE_THRESHOLD,
     ClarificationManager,
@@ -112,6 +112,7 @@ async def resolve(
         if agent_engine.is_runtime_path(str(name)):
             continue  # an old leaked page: never a merge target, endpoint or judge candidate
         existing_by_name[name.lower()] = e
+    aliases = _alias_index(existing_by_name)
 
     # G169: a speaker reference ("User", "the user", "me", "yo", "mí"...) is the
     # bank's owner, never a page of its own. One qualified decision
@@ -240,6 +241,13 @@ async def resolve(
         reverse=True,
     )
 
+    # What a name an alias brings to its page was connected to in this batch:
+    # the judge's context for "same thing, or another thing with the same letters?".
+    connections = {
+        name_lower: _batch_connections(name_lower, all_relationships, episode_mentions, episode_cooccurrences, refs)
+        for name_lower, _ in best_by_name.items() if name_lower.strip() in aliases
+    }
+
     total_names = len(ordered_entities)
     if progress_callback is not None:
         progress_callback(0, total_names)
@@ -248,8 +256,9 @@ async def resolve(
     # decision is still made here, in this order (``_Lookahead``).
     concurrency = max(1, int(getattr(settings, "sleep_resolve_concurrency", 1) or 1))
     lookahead = (
-        _Lookahead(_lookahead_plan(ordered_entities, existing_by_name), settings=settings,
-                   cache=llm_match_cache, concurrency=concurrency, cancel_check=cancel_check)
+        _Lookahead(_lookahead_plan(ordered_entities, existing_by_name, aliases), settings=settings,
+                   cache=llm_match_cache, concurrency=concurrency, cancel_check=cancel_check,
+                   connections=connections)
         if concurrency > 1 else None
     )
     try:
@@ -279,6 +288,8 @@ async def resolve(
                     created_by_id=resolved_creates,
                     cache=llm_match_cache,
                     settings=settings,
+                    aliases=aliases,
+                    connections=connections.get(name_lower, ""),
                     prejudged=await lookahead.take(done_names) if lookahead is not None else None,
                     gate=lookahead.gate if lookahead is not None else None,
                 )
@@ -780,6 +791,68 @@ def _find_direct_candidate_match(
     return None
 
 
+def _page_aliases(page: dict) -> list[str]:
+    values = (page.get("frontmatter") or {}).get("aliases")
+    if isinstance(values, str):
+        values = [values]
+    if not isinstance(values, list):
+        return []
+    return [text for text in (str(v or "").strip() for v in values) if text]
+
+
+def _alias_index(existing_by_name: dict[str, dict]) -> dict[str, list[dict]]:
+    """``alias.lower() -> the pages listing it`` (frontmatter ``aliases``, which Stage 5
+    unions from every extraction merged into the page and a manual merge fills with the
+    loser's name). A hit makes the page a judge candidate, never a decision: one page
+    holding an alias today says nothing about the next thing with those letters."""
+    index: dict[str, list[dict]] = {}
+    for page in existing_by_name.values():
+        for alias in _page_aliases(page):
+            holders = index.setdefault(alias.lower(), [])
+            if all(held["id"] != page["id"] for held in holders):
+                holders.append(page)
+    return index
+
+
+#: The most connections of each kind a judge call is shown for one name.
+ALIAS_CONTEXT_CONNECTIONS = 12
+
+
+def _batch_connections(
+    name_lower: str,
+    relationships: list[dict],
+    episode_mentions: dict[str, set[str]],
+    episode_cooccurrences: dict[str, list[str]],
+    refs: "owner_identity.SelfReferences",
+) -> str:
+    """What ``name_lower`` was connected to in this batch, as bullet lines: its
+    relationships, then the names mentioned in the same conversations. A speaker
+    reference is left out (everything the person mentions is linked to them).
+    Built before the loop from the extractions alone, so a judgment that reads it
+    is still a function of the name and the bank (``_Lookahead``)."""
+    edges: list[str] = []
+    for rel in relationships:
+        source, target = str(rel.get("source") or ""), str(rel.get("target") or "")
+        label = str(rel.get("label") or "related to")
+        if source.lower() == name_lower and target and not refs.is_speaker(target):
+            line = f"- {label} {target}"
+        elif target.lower() == name_lower and source and not refs.is_speaker(source):
+            line = f"- {source} {label} it"
+        else:
+            continue
+        if line not in edges:
+            edges.append(line)
+    alongside: list[str] = []
+    for episode_id in sorted(episode_mentions.get(name_lower, ())):
+        for other in episode_cooccurrences.get(episode_id, ()):
+            if other.lower() != name_lower and other not in alongside:
+                alongside.append(other)
+    lines = edges[:ALIAS_CONTEXT_CONNECTIONS]
+    if alongside:
+        lines.append("- mentioned alongside: " + ", ".join(alongside[:ALIAS_CONTEXT_CONNECTIONS]))
+    return "\n".join(lines)
+
+
 def _create_duplicate_clarification(
     clarifier: ClarificationManager,
     entity: dict,
@@ -841,6 +914,32 @@ def _candidate_description(candidate: dict) -> str:
         if lines:
             return description + "\n" + "\n".join(lines)
     return description
+
+
+#: The order a page's sections are shown to the judge for an alias candidate:
+#: what it is and what it is connected to before its timeline, so the judge's
+#: 2,000-character cut never drops them behind a long history.
+_ALIAS_CONTEXT_SECTIONS = ("", "Summary", "Key Facts", "Related", "History", "Links", "Open Questions")
+
+
+def _alias_page_context(page: dict) -> str:
+    """The page as the judge sees it when an alias brought it: its other names on
+    record, then summary, key facts and connections ahead of the rest."""
+    from api.services.claims import strip_claims_block
+
+    fm = page.get("frontmatter") or {}
+    sections = entity_body.parse_sections(strip_claims_block(page.get("body", "") or ""))
+    parts: list[str] = []
+    names = [str(fm.get("name") or ""), *_page_aliases(page)]
+    others = [n for n in dict.fromkeys(names[1:]) if n and n != names[0]]
+    if others:
+        parts.append("Other names on record: " + ", ".join(others))
+    order = [*_ALIAS_CONTEXT_SECTIONS, *(t for t in sections if t not in _ALIAS_CONTEXT_SECTIONS)]
+    for title in order:
+        text = (sections.get(title) or "").strip()
+        if text:
+            parts.append(f"## {title}\n{text}" if title else text)
+    return "\n\n".join(parts)
 
 
 def _latest_timestamp(left: str | None, right: str | None) -> str | None:
@@ -954,7 +1053,7 @@ def _share_content_token(a: str, b: str) -> bool:
 _DISAMBIG_PROMPT = """You are deciding whether two entity entries from a personal knowledge graph refer to the same real-world thing.
 
 Both entries have overlapping names (for example a bare first name and that same first name with a surname) but the existing one was built from different conversations, so you need to look at the descriptions and decide whether merging them would be correct.
-
+{alias_note}
 ENTITY A (existing in graph)
 Name: {existing_name}
 Type: {existing_type}
@@ -965,7 +1064,7 @@ ENTITY B (new extraction)
 Name: {new_name}
 Type: {new_type}
 Description:
-{new_description}
+{new_description}{new_connections}
 
 Guidelines:
 - Say SAME only when the descriptions clearly point at the same real person, project, company, concept, tool, deadline, skill, or location. Shared last names alone are not enough. Shared first names alone are definitely not enough.
@@ -978,6 +1077,13 @@ Respond with JSON only:
 {{"decision": "same" | "different" | "unsure", "reason": "one short sentence"}}
 """
 
+# An alias hit is a lead, never a decision (2026-10-08): acronyms, short forms
+# and first names are shared by different things, so the judge is told the
+# page recorded the name and asked to decide on the context.
+_ALIAS_NOTE = """
+Entity A's page already lists "{new_name}" among the other names it goes by (its aliases), so the names need not share a word. That is a lead, not proof: acronyms, short forms and first names are often shared by different things. Say SAME only when B's description and connections fit A's; say DIFFERENT when they point at something else; say UNSURE when there is too little to tell.
+"""
+
 
 async def _llm_judge_same_entity(
     new_name: str,
@@ -987,8 +1093,16 @@ async def _llm_judge_same_entity(
     existing_type: str,
     existing_body: str,
     settings: Settings,
+    *,
+    recorded_alias: bool = False,
+    new_connections: str = "",
 ) -> str:
-    """One LLM call: same, different, or unsure."""
+    """One LLM call: same, different, or unsure.
+
+    ``recorded_alias``: the page already lists ``new_name`` among its aliases —
+    the prompt says so, and that an alias is a lead, not proof
+    (``_ALIAS_NOTE``); ``new_connections`` is what the name was connected to in
+    the batch. Without them the prompt is the plain one, byte for byte."""
     from api.services.claims import strip_claims_block
 
     if new_type and existing_type and new_type.lower() != existing_type.lower():
@@ -1000,6 +1114,8 @@ async def _llm_judge_same_entity(
         new_name=new_name,
         new_type=new_type or "unknown",
         new_description=(new_description or "")[:1500] or "(empty)",
+        alias_note=_ALIAS_NOTE.format(new_name=new_name) if recorded_alias else "",
+        new_connections=f"\nConnections in its conversations:\n{new_connections[:800]}" if new_connections else "",
     )
     # Stage 2 disambiguation has its own dedicated model so we can route the
     # judge to a cheaper/faster model without downgrading the rest of Sleep.
@@ -1040,20 +1156,31 @@ async def _llm_judge_same_entity(
         return "unsure"
 
 
-def _existing_llm_candidates(new_entity: dict, existing_by_name: dict[str, dict]) -> list[dict]:
+def _existing_llm_candidates(
+    new_entity: dict, existing_by_name: dict[str, dict], aliases: dict[str, list[dict]] | None = None,
+) -> list[dict]:
     """The pages on disk the judge weighs ``new_entity`` against, in judging order.
 
-    Same-type pages that share a content token with the name and are not already a
-    strict-fuzz match. A function of the name and the bank alone — nothing the
-    per-name loop decides changes it — which is what lets ``resolve`` judge these
-    ahead of the loop (``_Lookahead``)."""
+    First the same-type pages that list the name among their ``aliases`` (marked
+    ``alias``; they need share no word with it — an acronym, a short form), then
+    the same-type pages that share a content token with the name and are not
+    already a strict-fuzz match. A function of the name and the bank alone —
+    nothing the per-name loop decides changes it — which is what lets ``resolve``
+    judge these ahead of the loop (``_Lookahead``)."""
     new_name = new_entity.get("name") or ""
-    if not new_name or not _name_tokens(new_name):
-        return []
-    new_name_lower = new_name.lower()
     new_type = (new_entity.get("type") or "concept").lower()
     candidates: list[dict] = []
+    for page in (aliases or {}).get(new_name.strip().lower(), ()) if new_name else ():
+        candidate = {"source": "existing", "id": page["id"], "data": page, "alias": True}
+        if _candidate_type(candidate) == new_type:
+            candidates.append(candidate)
+    if not new_name or not _name_tokens(new_name):
+        return candidates
+    new_name_lower = new_name.lower()
+    held = {candidate["id"] for candidate in candidates}
     for existing_name_lower, existing_data in existing_by_name.items():
+        if existing_data["id"] in held:
+            continue
         candidate = {"source": "existing", "id": existing_data["id"], "data": existing_data}
         if _candidate_type(candidate) != new_type:
             continue
@@ -1095,12 +1222,15 @@ async def _judge_candidates(
     *,
     gate: asyncio.Semaphore | None = None,
     stop: Callable[[], bool] | None = None,
+    connections: str = "",
 ) -> list[tuple[dict, str]]:
     """Judge ``candidates`` in order, one call each, stopping at the first ``same``.
 
     Returns ``(candidate, decision)`` per candidate judged. ``gate`` bounds the
     calls in flight across every name ``resolve`` is judging; ``stop`` is polled
-    before each call so a cancel or a plan limit starts nothing new."""
+    before each call so a cancel or a plan limit starts nothing new. A candidate an
+    alias brought is judged with the alias note, the page's context first
+    (``_alias_page_context``) and the name's ``connections`` in the batch."""
     new_name = new_entity.get("name") or ""
     new_name_lower = new_name.lower()
     new_type = (new_entity.get("type") or "concept").lower()
@@ -1122,6 +1252,9 @@ async def _judge_candidates(
                 existing_body=_candidate_description(candidate),
                 settings=settings,
             )
+            if candidate.get("alias"):
+                kwargs.update(existing_body=_alias_page_context(candidate["data"]), recorded_alias=True,
+                              new_connections=connections)
             if gate is None:
                 decision = await _llm_judge_same_entity(**kwargs)
             else:
@@ -1161,6 +1294,8 @@ async def _find_llm_candidate_match(
     cache: dict[tuple[str, str], str],
     settings: Settings,
     *,
+    aliases: dict[str, list[dict]] | None = None,
+    connections: str = "",
     prejudged: list[tuple[dict, str]] | None = None,
     gate: asyncio.Semaphore | None = None,
 ) -> dict | None:
@@ -1168,7 +1303,8 @@ async def _find_llm_candidate_match(
 
     Candidates are same-type entities that share at least one content token with
     the new entity's name and do not already fall under the strict-fuzz match:
-    the pages on disk first, then the in-cycle creates. Returns the first SAME
+    the pages on disk first — those listing the name among their ``aliases``
+    ahead of the rest — then the in-cycle creates. Returns the first SAME
     match; otherwise the first UNSURE match so the caller can create a
     clarification instead of inventing a new page.
 
@@ -1177,12 +1313,13 @@ async def _find_llm_candidate_match(
     exit); only the in-cycle creates are then judged here.
     """
     new_name = new_entity.get("name") or ""
-    if not new_name or not _name_tokens(new_name):
+    if not new_name:
         return None
 
     if prejudged is None:
         judged = await _judge_candidates(
-            new_entity, _existing_llm_candidates(new_entity, existing_by_name), cache, settings, gate=gate)
+            new_entity, _existing_llm_candidates(new_entity, existing_by_name, aliases), cache, settings,
+            gate=gate, connections=connections)
     else:
         judged = list(prejudged)
     if not any(decision == "same" for _, decision in judged):
@@ -1200,6 +1337,7 @@ LOOKAHEAD_NAMES_PER_SLOT = 4
 
 def _lookahead_plan(
     ordered_entities: list[tuple[str, dict]], existing_by_name: dict[str, dict],
+    aliases: dict[str, list[dict]] | None = None,
 ) -> list[tuple[dict, list[dict]] | None]:
     """What ``_Lookahead`` may judge ahead: per name in the loop's order, its
     existing-page candidates — or ``None`` where the loop makes no existing-page
@@ -1214,7 +1352,7 @@ def _lookahead_plan(
         entry: tuple[dict, list[dict]] | None = None
         if (_find_direct_candidate_match(entity, existing_by_name, {}) is None
                 and not any(name_lower == other or fuzz.ratio(name_lower, other) > 85 for other in earlier)):
-            candidates = _existing_llm_candidates(entity, existing_by_name)
+            candidates = _existing_llm_candidates(entity, existing_by_name, aliases)
             if candidates:
                 entry = (entity, candidates)
         plan.append(entry)
@@ -1244,8 +1382,9 @@ class _Lookahead:
 
     def __init__(self, plan: list[tuple[dict, list[dict]] | None], *, settings: Settings,
                  cache: dict[tuple[str, str], str], concurrency: int,
-                 cancel_check: Callable[[], bool] | None = None):
+                 cancel_check: Callable[[], bool] | None = None, connections: dict[str, str] | None = None):
         self._plan = plan
+        self._connections = connections or {}
         self._cancel_check = cancel_check
         self._settings = settings
         self._cache = cache
@@ -1281,7 +1420,7 @@ class _Lookahead:
             # The loop's cache is shared safely: names are deduplicated before the
             # loop, so no two names write the same ``(name, candidate)`` key.
             return await _judge_candidates(entity, candidates, self._cache, self._settings,
-                                           gate=self.gate, stop=self._stop)
+                                           gate=self.gate, stop=self._stop, connections=self._connections_of(entity))
         except BaseException as exc:
             if self._error is None and not isinstance(exc, asyncio.CancelledError):
                 self._error = exc
@@ -1307,9 +1446,12 @@ class _Lookahead:
             # name, and the serial loop always finished the name it was on — so
             # finish it here, never decide it on half its judgments.
             judged += await _judge_candidates(entity, candidates[len(judged):], self._cache, self._settings,
-                                              gate=self.gate)
+                                              gate=self.gate, connections=self._connections_of(entity))
         self._fill(index + 1)
         return judged
+
+    def _connections_of(self, entity: dict) -> str:
+        return self._connections.get(str(entity.get("name") or "").lower(), "")
 
     def discard(self, index: int) -> None:
         """The loop settled ``index`` without its judgments (a direct match to an

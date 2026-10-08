@@ -262,7 +262,7 @@ then says the model wasn't shared.
 ### Sleep — 5-stage nightly batch
 1. **Entity & relationship extraction** — LLM over episode chunks, structured output.
 2. **Entity resolution & dedup** — exact name, fuzzy match, embedding similarity, LLM disambiguation
-   (bounded concurrency, decisions in order; see below).
+   (bounded concurrency, decisions in order; a recorded alias brings its page to the judge; see below).
 3. **Conflict resolution & pruning** — contradictions detected, recency wins, old state archived;
    temporal decay applied.
 4. **Pattern detection & skill extraction** — recurring patterns distilled into skill entities.
@@ -528,6 +528,26 @@ the loop — a direct match to an in-cycle create, an in-cycle create as a candi
 order, so every decision and every call is the serial loop's. A cancel or a plan limit starts no new call and waits
 out the ones in flight (a plan call is never interrupted); the engine error is still what `resolve` raises, so the
 drain pauses as before.
+
+**An alias brings its page to the judge, never a decision (2026-10-08).** The judge's candidates used to be only the
+same-type pages sharing a content word with the name, and Stage 2 never read a page's `aliases`, so a short form or
+acronym the bank had already recorded for a page (no shared word) never met it and became a duplicate page or pending
+line. Now a same-type page that lists the name among its `aliases` (`entity_resolver._alias_index`) is a candidate
+whether or not a word is shared, and is judged **first**, ahead of the token-sharing pages. It is not settled on the
+alias: a first name recorded on one person page, or letters a different thing also uses, is exactly the case the
+owner ruled out, so no page, a person page least of all, is merged on the alias alone. Instead that call carries the context
+Cicada already has: a note that the page records this name and that an alias is a lead, not proof
+(`_ALIAS_NOTE`); the page's other names, then its summary, key facts and `## Related` ahead of its history, so the
+2,000-character cut keeps them (`_alias_page_context`); and what the name was connected to in the batch — its
+relationships and the names mentioned in the same conversations, speaker references left out (`_batch_connections`).
+`same` merges and folds every same-name extraction (every conversation credited); `unsure` files the usual "Possible
+duplicate of …" inbox item for the person; `different` moves on to the token-sharing pages, then to a page of its own
+or a pending line, as before. An alias two pages share puts both in front of the judge. The context is built before
+the loop from the batch and the bank, so the lookahead still decides exactly as the serial loop. Calls: one per
+same-type alias holder judged (first `same` stops); a name with no shared word went from 0 calls and a duplicate to
+usually 1 call; one that shares a word and names its alias holder usually costs fewer calls than before, because the
+holder is judged first. A judge call with no alias candidate gets the prompt it always got, byte for byte. Link recon
+(`match_existing`) does not read aliases.
 
 **The engine's own runtime is never a page.** The `claude -p` CLI still tells the model its cwd, platform and shell despite `--system-prompt` (probed 2.1.x; `--exclude-dynamic-system-prompt-sections` is ignored with it), so the extraction prompt says that is not conversation content and Stage 2 drops, with a text-free debug line, any entity named for `$CICADA_HOME` or a path under it (`agent_engine.is_runtime_path`; the scratch dir is one).
 
