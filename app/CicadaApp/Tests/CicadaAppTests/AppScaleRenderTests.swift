@@ -55,6 +55,17 @@ final class AppScaleRenderTests: XCTestCase {
             .background(CicadaTheme.bgBase)
             .environment(\.colorScheme, mode == .dark ? .dark : .light)
             try write(fold, width: 504, to: dir, file: "source-fold-\(mode == .dark ? "dark" : "light").png")
+            // #244 — the History tab's last row: idle, reading, failed.
+            let older = VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
+                OlderChangesRow(phase: .idle) {}
+                OlderChangesRow(phase: .loading) {}
+                OlderChangesRow(phase: .failed) {}
+            }
+            .padding(CicadaTheme.spacingLG)
+            .frame(width: 504)
+            .background(CicadaTheme.bgBase)
+            .environment(\.colorScheme, mode == .dark ? .dark : .light)
+            try write(older, width: 504, to: dir, file: "history-older-\(mode == .dark ? "dark" : "light").png")
         }
     }
 

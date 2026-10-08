@@ -68,6 +68,9 @@ extension Copy.Graph {
     static let rendered = "Rendered"
     static let source = "Source"
     static let copyMarkdown = "Copy markdown"
+    /// #244 — the History tab past its first page.
+    static let olderChanges = "Older changes"
+    static let olderChangesFailed = "Couldn't read older changes."
     /// F4 — Source and Copy when `/entities/{id}/raw` could not be read.
     static let sourceUnavailable = "Couldn't read this page's file."
     static let copyFailed = "Couldn't copy: the page's file could not be read."

@@ -84,6 +84,11 @@ struct EntityDetailCard: View {
     /// mistaken for "fetched successfully, and it was empty" (see
     /// `HistoryTabState.error`).
     @State private var historyLoadFailed = false
+    /// #244 — changes older than the served window, read a page at a time by "Older changes".
+    @State private var olderHistory: [EntityHistoryEntry] = []
+    @State private var historyPaging: HistoryPaging?
+    @State private var olderLoading = false
+    @State private var olderFailed = false
 
     /// G66 — the decay class the user just picked, shown immediately while the
     /// PUT is in flight. Cleared once the reload lands (or on failure, so the
@@ -284,6 +289,9 @@ struct EntityDetailCard: View {
             loadingCommits = []
             diffErrors = []
             rawFile = RawFileLoader()
+            olderHistory = []
+            historyPaging = nil
+            olderFailed = false
             // The page and its sources at once: the full page used to wait for `/sources` before it was asked for.
             async let sourcesFetch = APIClient.shared.fetchEntitySources(entityId: entity.id)
             // §5.7 — the card opened on the graph-node stub, whose `markdownContent` is the server's short `summary`
@@ -883,7 +891,7 @@ struct EntityDetailCard: View {
             .frame(maxWidth: .infinity)
             .padding(CicadaTheme.spacingXXL)
         case .entries(let rows):
-            historyList(rows)
+            historyList(HistoryPaging.merge(rows, older: olderHistory))
         }
     }
 
@@ -893,7 +901,8 @@ struct EntityDetailCard: View {
     /// `FromConversationButton` out of the expand button).
     private func historyList(_ rows: [EntityHistoryEntry]) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            ForEach(rows.reversed(), id: \.id) { entry in
+            // Newest first, as `git log` serves it (#244; the old blame order was reversed here).
+            ForEach(rows, id: \.id) { entry in
                 HStack(alignment: .top, spacing: CicadaTheme.spacingMD) {
                     Circle()
                         .strokeBorder(CicadaTheme.textTertiary, lineWidth: 1.5)
@@ -940,8 +949,38 @@ struct EntityDetailCard: View {
                     Spacer(minLength: 0)
                 }
             }
+            olderChangesRow
         }
         .modifier(EntityTabInsets(style: style))
+    }
+
+    private var paging: HistoryPaging { historyPaging ?? HistoryPaging(truncated: entity.historyTruncated) }
+
+    @ViewBuilder
+    private var olderChangesRow: some View {
+        if paging.hasMore {
+            OlderChangesRow(phase: olderLoading ? .loading : (olderFailed ? .failed : .idle)) { loadOlderHistory() }
+        }
+    }
+
+    private func loadOlderHistory() {
+        guard !olderLoading else { return }
+        var next = paging
+        let id = entity.id
+        olderLoading = true
+        olderFailed = false
+        Task {
+            defer { olderLoading = false }
+            do {
+                let page = try await APIClient.shared.fetchEntityHistory(id: id, skip: next.nextSkip)
+                guard id == entity.id else { return }
+                next.received(page)
+                olderHistory += page
+                historyPaging = next
+            } catch {
+                if id == entity.id { olderFailed = true }
+            }
+        }
     }
 
     private func isExpanded(_ entry: EntityHistoryEntry) -> Bool {
@@ -1331,3 +1370,32 @@ enum FlowRows {
 // by `TranscludingMarkdownView` / `MarkdownBody`. Removed so nobody "fixes
 // markdown" here and sees no effect; all entity-body rendering now flows
 // through `MarkdownBody`.
+
+/// #244 — the History tab's last row while the served page left older changes out: "Older changes" as a text button
+/// (DR-40), a small spinner while it reads, and a failure in words with Retry. Never a count it does not know.
+struct OlderChangesRow: View {
+    enum Phase { case idle, loading, failed }
+
+    let phase: Phase
+    let action: () -> Void
+
+    var body: some View {
+        Group {
+            switch phase {
+            case .loading:
+                ProgressView().controlSize(.small)
+            case .failed:
+                HStack(spacing: CicadaTheme.spacingSM) {
+                    Text(Copy.Graph.olderChangesFailed)
+                        .font(CicadaTheme.metaFont)
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                    TextButton(title: Copy.Graph.retry, action: action)
+                }
+            case .idle:
+                TextButton(title: Copy.Graph.olderChanges, action: action)
+                    .padding(.leading, -CicadaTheme.scaled(10))
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}

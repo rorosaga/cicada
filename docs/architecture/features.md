@@ -49,8 +49,9 @@ tags, related, dates, how it fades. Beliefs are rows — the sentence, its evide
 the column scrolls with the pointer over it, and *Open in Maps* is the way to pan (`LocationMap`). A page with
 thousands of beliefs stays usable: what the tabs show from the claims is derived once per load,
 off the main actor (`ClaimDigest`), Perspectives builds its rows lazily, and a belief list grows twenty rows per
-"Show N more" (`BeliefPaging`), never all at once. History: Show in conversation (straight to the Reader when one conversation maps here) and What
-changed. Timeline: contested beliefs inline; a belief's clock opens its own.
+"Show N more" (`BeliefPaging`), never all at once. History: newest first, Show in conversation (straight to the Reader when one conversation maps here) and What
+changed; when the page left older changes out (`historyTruncated`, #244) its last row is *Older changes*, which reads
+the next page with `?skip=N` (`HistoryPaging`; the window is pinned to `MAX_PROVENANCE_COMMITS` by a test). Timeline: contested beliefs inline; a belief's clock opens its own.
 
 **Pictures and the person card (G146, round 4).** Every entity avatar is `EntityPicture` over the one picture
 precedence (`entity_picture.resolve` and its Swift twin `EntityPictureResolver`, one fixture): the person's own upload

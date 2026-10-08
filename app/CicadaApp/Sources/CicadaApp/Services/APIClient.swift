@@ -1559,10 +1559,12 @@ actor APIClient {
         return try decoder.decode(EntityPictureAnswer.self, from: data)
     }
 
-    func fetchEntityHistory(id: String, includeDiff: Bool = false) async throws -> [EntityHistoryEntry] {
+    func fetchEntityHistory(id: String, includeDiff: Bool = false, skip: Int = 0) async throws -> [EntityHistoryEntry] {
         // FastAPI query params use the snake_case Python name (not the
         // camelCase body/response alias), so this is include_diff, not includeDiff.
-        let suffix = includeDiff ? "?include_diff=true" : ""
+        // #244: `skip` reads the changes older than the newest N.
+        let query = (includeDiff ? ["include_diff=true"] : []) + (skip > 0 ? ["skip=\(skip)"] : [])
+        let suffix = query.isEmpty ? "" : "?" + query.joined(separator: "&")
         return try await get("/entities/\(encodedID(id))/history\(suffix)")
     }
 

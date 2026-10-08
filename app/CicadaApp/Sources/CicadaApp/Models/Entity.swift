@@ -788,6 +788,8 @@ struct Entity: Identifiable, Codable {
     /// `rawMarkdown` frontmatter, see `init`).
     var media: MediaBlock? = nil
     var history: [EntityHistoryEntry]
+    /// #244 — `history` is the newest `HistoryPaging.window` changes and there are older ones (`?skip=N`).
+    var historyTruncated: Bool = false
     /// G117 — mirrors `GraphNode.isOwner` (same `owner:` frontmatter key) on
     /// the detail response, so `EntityDetailCard` can render "Name (you)"
     /// without a second lookup against `/graph`. Additive/decode-tolerant.
@@ -831,7 +833,7 @@ struct Entity: Identifiable, Codable {
     enum CodingKeys: String, CodingKey {
         case id, name, type, status, confidence, created, lastReferenced
         case decayRate, decayClass, decay, sourceEpisodes, tags, related, version
-        case markdownContent, rawMarkdown, rawOmitted, path, media, history, isOwner
+        case markdownContent, rawMarkdown, rawOmitted, path, media, history, historyTruncated, isOwner
         case pictureURL = "picture", pictureSource, pictureInputs
     }
 
@@ -868,6 +870,7 @@ struct Entity: Identifiable, Codable {
             media = nil
         }
         history = try c.decodeIfPresent([EntityHistoryEntry].self, forKey: .history) ?? []
+        historyTruncated = try c.decodeIfPresent(Bool.self, forKey: .historyTruncated) ?? false
         isOwner = try c.decodeIfPresent(Bool.self, forKey: .isOwner) ?? false
         pictureURL = (try? c.decodeIfPresent(String.self, forKey: .pictureURL)) ?? nil
         pictureSource = (try? c.decodeIfPresent(String.self, forKey: .pictureSource)) ?? nil
