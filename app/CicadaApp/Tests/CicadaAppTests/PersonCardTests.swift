@@ -70,6 +70,13 @@ final class PersonCardTests: XCTestCase {
     }
 
     /// R-PE17 — the owner first, at the top; then the busiest; hubs and facets are never neighbours.
+    /// The map on the owner's own page is the owner's connections: "How you know <name>" asks how you know yourself.
+    /// Found by the page's owner flag (the "(you)" path), never by name.
+    func testTheMapOnYourOwnPageIsWhatYouAreConnectedTo() {
+        XCTAssertEqual(PersonMapLayout.title(name: "Bob Example", isOwner: false), "How you know Bob")
+        XCTAssertEqual(PersonMapLayout.title(name: "Bob Example", isOwner: true), "What you're connected to")
+    }
+
     func testTheMapPutsYouOnTopThenTheBusiest() {
         let map = PersonMapLayout.make(personId: "leo-example", nodes: graph.nodes, edges: graph.edges)
         XCTAssertEqual(map.total, 6)

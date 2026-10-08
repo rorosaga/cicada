@@ -197,6 +197,12 @@ enum PersonMapLayout {
     static let limit = 6
     static let radius = 0.38
 
+    /// The section's title: how you know someone, or — on the owner's own page (its `owner` flag, never a name) —
+    /// what you are connected to; the map is the same graph edges either way.
+    static func title(name: String, isOwner: Bool) -> String {
+        isOwner ? Copy.People.whatYouAreConnectedTo : Copy.People.howYouKnow(name)
+    }
+
     static func make(personId: String, nodes: [GraphNode], edges: [GraphEdge], limit: Int = limit) -> PersonMap {
         let pages = pageIndex(nodes)
         let (order, labels) = neighbours(personId, edges: edges, pages: pages)

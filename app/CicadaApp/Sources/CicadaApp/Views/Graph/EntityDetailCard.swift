@@ -380,8 +380,8 @@ struct EntityDetailCard: View {
 
     private var personAside: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingCard) {
-            PersonMapSection(personId: entity.id, name: entity.name, navigate: { navigate(to: $0) },
-                             showOnGraph: showOnGraph)
+            PersonMapSection(personId: entity.id, name: entity.name, isOwner: entity.isOwner,
+                             navigate: { navigate(to: $0) }, showOnGraph: showOnGraph)
             PersonHappeningsSection(personId: entity.id,
                                     projectIds: PersonMapLayout.projects(personId: entity.id, nodes: graphVM.nodes,
                                                                          edges: graphVM.edges))

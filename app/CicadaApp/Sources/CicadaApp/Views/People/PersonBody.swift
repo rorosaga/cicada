@@ -127,11 +127,13 @@ struct PersonBeliefsSection: View {
     }
 }
 
-/// F-12 / R-PE17 — "How you know <name>": the person's picture at the centre, up to six neighbours around it on neutral
-/// wells with hue rings, each a button into its card; one plain sentence and "Show on the graph ›" under it.
+/// F-12 / R-PE17 — "How you know <name>" ("What you're connected to" on the owner's own page): the person's picture at
+/// the centre, up to six neighbours around it on neutral wells with hue rings, each a button into its card; one plain
+/// sentence and "Show on the graph ›" under it.
 struct PersonMapSection: View {
     let personId: String
     let name: String
+    var isOwner = false
     let navigate: (String) -> Void
     let showOnGraph: () -> Void
 
@@ -142,7 +144,7 @@ struct PersonMapSection: View {
         if !map.nodes.isEmpty {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                 GlyphSectionLabel(glyph: "point.3.connected.trianglepath.dotted", type: .hub,
-                                  text: Copy.People.howYouKnow(name))
+                                  text: PersonMapLayout.title(name: name, isOwner: isOwner))
                 GeometryReader { geo in
                     ZStack {
                         Canvas { context, size in

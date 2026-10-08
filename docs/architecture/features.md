@@ -48,8 +48,8 @@ facts strip whose every cell comes from something the card loaded (`PersonFacts`
 Conversations are when the conversations were said, over all of them — `/provenance`'s `totals` — with the page's own
 dates only as a fallback); then the tabs, and in Content two
 columns — beliefs signed with who wrote them (`SignedLine`: harness, model and effort from the captured turn), Where
-this came from, the page behind a remembered disclosure — beside *How you know <name>* (`PersonMapLayout`, the graph's
-own edges) and *What's happening* (`PersonHappenings`, from `ProjectsCache`). Every other type keeps this header with a
+this came from, the page behind a remembered disclosure — beside *How you know <name>* (*What you're connected to* on the owner's own page, by its `owner` flag;
+`PersonMapLayout`, the graph's own edges) and *What's happening* (`PersonHappenings`, from `ProjectsCache`). Every other type keeps this header with a
 40 pt picture. In Clusters a person's card may grow to 1024 units; the header adds "Show on the graph".
 
 ### 2/3. Unified inbox (`memory/inbox/`)
