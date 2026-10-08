@@ -173,71 +173,10 @@ EOF
 ok "$(du -sh "$MODEL_OUT" | cut -f1)"
 
 # --- 6. Launchers ---------------------------------------------------------------
-# The app writes ~/.cicada/bin/cicada-{backend,mcp,hook} pointing at these; agents
-# and launchd only ever see the stable ~/.cicada/bin paths.
+# The app writes ~/.cicada/bin/cicada-{backend,mcp,hook,python} and `cicada` pointing at these; agents
+# and launchd only ever see the stable ~/.cicada/bin paths. One writer, shared with the tests (G180).
 step "Launchers…"
-cat > "$OUT/bin/cicada-env" <<'EOF'
-# Sourced by the launchers beside it, never run. $0 is the launcher's own path
-# inside Cicada.app (the ~/.cicada/bin shims exec it by absolute path).
-CICADA_BACKEND_DIR="$(cd "$(dirname "$0")/.." && pwd -P)"
-export CICADA_BACKEND_DIR
-# An agent's own Python settings must never steer the bundled interpreter.
-unset PYTHONHOME PYTHONSTARTUP VIRTUAL_ENV
-export CICADA_DISTRIBUTION=release
-: "${CICADA_HOME:=$HOME/.cicada}"; export CICADA_HOME
-: "${CICADA_PORT:=8000}"; export CICADA_PORT
-export CICADA_BUNDLED_MODELS="$CICADA_BACKEND_DIR/models"
-CICADA_PYTHON="$CICADA_BACKEND_DIR/python/bin/python3.12"
-PYTHONPATH="$CICADA_BACKEND_DIR/app"
-# The optional larger search model's runtime, installed from Settings outside the signed app;
-# sitecustomize.py appends it AFTER the bundled packages, so it never shadows one of them.
-CICADA_EXTRAS_SITE="$CICADA_HOME/extras/site-packages"; export CICADA_EXTRAS_SITE
-# Bytecode is cached outside the signed app (nothing may be written inside it).
-PYTHONPYCACHEPREFIX="$CICADA_HOME/cache/pycache"
-export PYTHONPATH PYTHONPYCACHEPREFIX PYTHONNOUSERSITE=1 PYTHONUTF8=1
-: "${SSL_CERT_FILE:=$CICADA_BACKEND_DIR/python/lib/python3.12/site-packages/certifi/cacert.pem}"; export SSL_CERT_FILE
-# The bundled git comes first for everything the backend runs (a Mac without the
-# developer tools has only Apple's install-prompt shim at /usr/bin/git).
-PATH="$CICADA_BACKEND_DIR/bin:$PATH"; export PATH
-EOF
-cat > "$OUT/bin/git" <<'EOF'
-#!/bin/sh
-# The bundled git, with its helper and template paths set for this call only.
-d="$(cd "$(dirname "$0")/.." && pwd -P)/git"
-GIT_EXEC_PATH="$d/libexec/git-core" GIT_TEMPLATE_DIR="$d/share/git-core/templates" exec "$d/bin/git" "$@"
-EOF
-cat > "$OUT/bin/cicada-backend" <<'EOF'
-#!/bin/sh
-# The backend: uvicorn on 127.0.0.1:$CICADA_PORT (default 8000).
-. "$(dirname "$0")/cicada-env"
-cd "$CICADA_BACKEND_DIR/app" || exit 1
-exec "$CICADA_PYTHON" -m uvicorn api.main:app --host 127.0.0.1 --port "$CICADA_PORT" "$@"
-EOF
-cat > "$OUT/bin/cicada-mcp" <<'EOF'
-#!/bin/sh
-# The stdio MCP server every agent registers.
-. "$(dirname "$0")/cicada-env"
-exec "$CICADA_PYTHON" "$CICADA_BACKEND_DIR/app/mcp/server.py" "$@"
-EOF
-cat > "$OUT/bin/cicada-hook" <<'EOF'
-#!/bin/sh
-# cicada-hook capture|recall|registry|cursor|cursor_registry [args] — local hooks and
-# the hook registry the app runs to install them.
-. "$(dirname "$0")/cicada-env"
-case "$1" in
-  capture|recall|registry|cursor|cursor_registry) name="$1"; shift ;;
-  *) echo "usage: cicada-hook capture|recall|registry|cursor|cursor_registry [args]" >&2; exit 2 ;;
-esac
-exec "$CICADA_PYTHON" "$CICADA_BACKEND_DIR/app/api/hooks/$name.py" "$@"
-EOF
-cat > "$OUT/bin/cicada-python" <<'EOF'
-#!/bin/sh
-# The bundled interpreter with Cicada's environment (diagnostics, the agent install script).
-. "$(dirname "$0")/cicada-env"
-exec "$CICADA_PYTHON" "$@"
-EOF
-chmod 755 "$OUT"/bin/{git,cicada-backend,cicada-mcp,cicada-hook,cicada-python}
-chmod 644 "$OUT/bin/cicada-env"
+/bin/bash "$HERE/write-launchers.sh" "$OUT/bin"
 ok "bin/: $(ls "$OUT/bin" | tr '\n' ' ')"
 
 # --- 7. Bytecode, manifest, cleanup --------------------------------------------------

@@ -20,7 +20,7 @@ from pathlib import Path
 DISTRIBUTION_ENV = "CICADA_DISTRIBUTION"
 DEFAULT_PORT = 8000
 #: The launchers the app writes into ``$CICADA_HOME/bin`` (release only).
-LAUNCHERS = ("cicada-backend", "cicada-mcp", "cicada-hook", "cicada-python")
+LAUNCHERS = ("cicada-backend", "cicada-mcp", "cicada-hook", "cicada-python", "cicada")
 
 
 def is_release(environ=os.environ) -> bool:

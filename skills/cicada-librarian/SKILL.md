@@ -35,6 +35,8 @@ server's `instructions`); this skill covers only the consolidation loop.
   Use for anything worth remembering: decisions, facts, plans.
 - `cicada_save_url(url, note?)` — save a link (article, repo, bookmark).
   Cicada fetches and indexes it.
+- From a shell, `cicada save "<content>" --title "<title>"` stages the same episode
+  as `cicada_save_episode`; claims stay on the MCP tools until the command line has them.
 - **Video**: when the person asks you to read or watch a video they saved (or
   hands you a Cicada prompt for their video queue), use a video skill or tools
   of your own. Cicada never downloads or watches a video itself; a skill whose

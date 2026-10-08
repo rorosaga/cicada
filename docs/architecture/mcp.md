@@ -550,6 +550,23 @@ the CLI.
   every tool, and remote always holds the handshake and holds the hub tool whenever it holds recall, so both are
   byte-identical. Memory's own text is returned untouched (a page quoting a tool name or command-looking code stays as
   written).
-- **Not yet built:** the release launcher (`~/.cicada/bin/cicada`) and its end-to-end test, the Settings button, the
-  skill's generated CLI block, and the overhead and latency measurement. The full slice and its later units are in the
-  G180 row.
+- **Packaging (unit 3).**
+  - A release's inner launcher `bin/cicada` comes from `scripts/release/write-launchers.sh`, which
+    `build-backend.sh` calls. It sources `cicada-env`, then runs `exec "$CICADA_PYTHON" -P -m api.cli "$@"` with no
+    `cd`, so the caller's folder is kept.
+  - The app's `LauncherInstaller` writes the stable `~/.cicada/bin/cicada` beside the other four.
+    `runtime_layout.LAUNCHERS` and `CicadaRuntime.launcherNames` list it.
+  - A developer checkout has `scripts/cicada`. `make cli` / `./install.sh --cli` (`scripts/install-cli.sh`) link
+    `~/.local/bin/cicada` to it.
+  - The app's Settings → General *Install the command-line tool* links `~/.local/bin/cicada` to the runtime's own
+    launcher (`app.md`). The script and the button share the never-replace rules.
+  - A Swift end-to-end test runs outer shim → inner launcher → CLI in a synthetic bundle: caller's folder kept, a
+    moved app exits 127 with the repair sentence, and the next rewrite works.
+- **The usage skill.** `SKILL.md`'s *From a shell* block sits between `cicada-cli:begin/end` markers and is generated
+  by `cli_map.skill_block()` (`cli_map.write_skill_block("SKILL.md")` rewrites it; a test fails on drift).
+  - It teaches the exposed short commands, `--json` and the envelope, the exit codes, session grouping, what is
+    MCP-only, and the fallback `"${CICADA_HOME:-$HOME/.cicada}/bin/cicada"`.
+  - Every command in it parses with the real parser (R12 for the CLI half). The retained MCP instructions are checked
+    against the MCP schemas (R12 for the MCP half).
+  - `handshake.build_cli`'s prelude names the same fallback, and stays within 1,800 tokens.
+- **Not yet built:** the overhead and latency measurement (T9). Its later slices are in the G180 row.

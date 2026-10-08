@@ -21,7 +21,7 @@ struct CicadaRuntime: Equatable, Sendable {
     static let portDefaultsKey = "cicada.port"
     static let distributionInfoKey = "CicadaDistribution"
     /// The launchers `LauncherInstaller` writes into `binDir`, one per entry point under `backend/bin`.
-    static let launcherNames = ["cicada-backend", "cicada-mcp", "cicada-hook", "cicada-python"]
+    static let launcherNames = ["cicada-backend", "cicada-mcp", "cicada-hook", "cicada-python", "cicada"]
 
     let distribution: Distribution
     /// The `.app` this process runs from, standardized.

@@ -123,7 +123,7 @@ Once a Developer ID is in place this step disappears.
 **Where things live on a tester's Mac:** the app in `~/Applications/Cicada.app`; memory in `~/cicada/memory`; Cicada's
 own files in `~/.cicada` (the launchers in `~/.cicada/bin`, logs in `~/.cicada/logs` — `backend.log`, `update.log` —,
 the bytecode cache in `cache/pycache`, the optional larger search model's runtime in `extras/` and weights in
-`models/`, and the updater's one-shot notes `update-failed.json` / `update-deferred.json`). Agents and hooks run `~/.cicada/bin/cicada-*`, which the app re-points at
+`models/`, and the updater's one-shot notes `update-failed.json` / `update-deferred.json`). Agents and hooks run `~/.cicada/bin/cicada-*` (and agents with a shell, `~/.cicada/bin/cicada`, G180), which the app re-points at
 itself each time it opens, so moving or updating the app never breaks them.
 
 **Updates.** A release app checks GitHub's latest release on launch and every six hours while Settings → General →

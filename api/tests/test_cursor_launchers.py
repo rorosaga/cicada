@@ -17,8 +17,9 @@ def test_source_and_release_registry_executes_and_noop_hook_fails_open(tmp_path,
            "CICADA_MEMORY_PATH":str(tmp_path/"bank"), "CICADA_PORT":"49178",
            "CICADA_DISTRIBUTION":"release" if release else ""}
     if release:
-        build = (ROOT/'scripts/release/build-backend.sh').read_text()
-        script = build.split('cat > "$OUT/bin/cicada-hook" <<\'EOF\'\n', 1)[1].split('\nEOF',1)[0]
+        # G180: the release launchers are written by one script that build-backend.sh calls.
+        build = (ROOT/'scripts/release/write-launchers.sh').read_text()
+        script = build.split('cat > "$BIN/cicada-hook" <<\'EOF\'\n', 1)[1].split('\nEOF',1)[0]
         binary = tmp_path/'bin'; binary.mkdir()
         (binary/'cicada-env').write_text(f"CICADA_PYTHON='{sys.executable}'\nCICADA_BACKEND_DIR='{tmp_path}/backend'\n")
         hooks = tmp_path/'backend/app/api'; hooks.mkdir(parents=True)

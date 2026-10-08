@@ -9,7 +9,7 @@ ABLATIONS ?= default promotion_1 promotion_3 decay_aggressive decay_loose
 
 INSTALL_FLAGS ?=
 
-.PHONY: help install doctor app run-app install-app release-app release release-pr dev login-item no-login-item backfill-structural rebuild-episodes table1 table3 table3-sleep table3-sleep-smoke ablation ablation-smoke eval all-safe all-full
+.PHONY: help install cli doctor app run-app install-app release-app release release-pr dev login-item no-login-item backfill-structural rebuild-episodes table1 table3 table3-sleep table3-sleep-smoke ablation ablation-smoke eval all-safe all-full
 
 help:
 	@printf '%s\n' \
@@ -44,6 +44,10 @@ help:
 
 install:
 	bash install.sh $(INSTALL_FLAGS)
+
+# G180 — link ~/.local/bin/cicada to this checkout's `scripts/cicada` (no admin; never replaces a working link).
+cli:
+	@scripts/install-cli.sh
 
 doctor:
 	bash scripts/doctor.sh
