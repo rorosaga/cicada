@@ -15,7 +15,7 @@ final class LocationMapScrollTests: XCTestCase {
                 Color.gray.frame(height: 2_000)
             }
         }
-        let host = NSHostingView(rootView: card.frame(width: 400, height: 500))
+        let host = NSHostingView(rootView: AnyView(card.frame(width: 400, height: 500)))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 500), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -23,8 +23,10 @@ final class LocationMapScrollTests: XCTestCase {
         // The map must not outlive the test: a live MapKit view keeps drawing (and asking for tiles) on the main
         // thread for the rest of the run, which starves the suite's wall-clock tests.
         defer {
+            host.rootView = AnyView(EmptyView())
             window.contentView = nil
             window.close()
+            RunLoop.main.run(until: Date().addingTimeInterval(0.5))   // MapKit winds down inside this test
         }
         host.layoutSubtreeIfNeeded()
         RunLoop.main.run(until: Date().addingTimeInterval(0.2))
