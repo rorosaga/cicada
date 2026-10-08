@@ -22,6 +22,15 @@ def _words(s: str) -> int:
     return len((s or "").split())
 
 
+def generate_prose_candidates(memory_path: Path, scratch: Path, **kwargs) -> dict:
+    """G194 person-started dry run, sharing the bounded orientation builder.
+
+    Separate from the legacy bank writer below: this path has no apply phase.
+    """
+    from api.services.prose_repair import run
+    return run(memory_path, scratch, **kwargs)
+
+
 def rewrite_entity_from_sources(memory_path: Path, entity_id: str, settings, *,
                                 corpus_path: Path | None = None, llm_fn=None,
                                 max_source_chars: int = 12000) -> dict:

@@ -50,7 +50,7 @@ Do not regenerate facts, history, links or questions; they are retained by code.
 "source_id": "..."}]. Edit only the provided existing item ids, using its same
 facts and a date explicitly grounded in that named source. The text must be
 exactly "YYYY-MM-DD: " followed by the original item text, which must occur
-verbatim in that source. Skip already dated items. No deletions or new
+verbatim in that source. Skip already dated or multiline items. No deletions or new
 items. Do not change Summary using unsupported conclusions. An empty edit list
 is allowed. Items with no adequate source remain untouched.
 """
@@ -67,11 +67,22 @@ def compose(existing_body: str, fields: dict, summary: str) -> str:
     """Replace only Summary, retaining the complete deterministic merge."""
     prose = claims.strip_claims_block(existing_body)
     sections = entity_body.upgrade_legacy_to_v2(prose, str(fields.get('type', 'concept')))
+    original = dict(sections)
     sections = entity_body.merge_sections_fallback(sections, fields)
     old = sections.get('Summary', '')
     if old.strip() != summary.strip():
         entity_body._background(sections, old)
     sections['Summary'] = summary.strip()
+    # Canonical sections can still contain free prose from legacy writers.
+    # Preserve it and append only new items during an orientation-only rewrite.
+    for title in ('Key Facts', 'History', 'Links', 'Open Questions'):
+        text = original.get(title, '')
+        if any(line.strip() and not line[:1].isspace() and not line.startswith(('- ', '* '))
+               for line in text.splitlines()):
+            seen = {entity_body._normalize_fact(i) for i in entity_body._bullet_lines(text)}
+            additions = [i for i in entity_body._bullet_lines(sections.get(title, ''))
+                         if entity_body._normalize_fact(i) not in seen]
+            sections[title] = text + ('\n' + entity_body._bullets_block(additions) if additions else '')
     return claims.preserve_claims_blocks(existing_body, entity_body.render_sections(sections))
 
 

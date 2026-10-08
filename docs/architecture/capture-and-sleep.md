@@ -308,6 +308,34 @@ facts retain or acquire exact G118 guards; a rephrased orientation remains unrec
 caller shares this builder and retains its existing pre-call snapshot/write-time fence. The switch
 requires owner review of benchmark call counts; fake timing does not estimate provider latency.
 
+**Person-started prose repair, candidates only (G194 B).**
+`scripts/repair_entity_prose.py --bank <bank> --scratch <outside-bank-directory>` inventories
+up to 20 pages without model calls. Repeat `--entity-id` to select a stratified pilot;
+otherwise pages are sorted by id. `--generate` additionally requires explicit `--engine`,
+`--model`, `--max-calls` and `--token-budget`; it never selects a fallback engine. Each invocation
+reserves UTF-8 input bytes + 1,024 envelope tokens + requested output tokens, reports reservations
+(not measured charges), and caps calls. Output-token limits are passed to the provider; the
+engine-independent hard limit is calls. Resume caps apply per invocation; review total spend
+across invocations in the preserved `run-<id>.json` manifests. Each call reservation is checkpointed
+before generation. Configuration/bootstrap lives in scratch, with `.env` disabled.
+The tool rejects overlapping paths and symlinks, reads a clean existing bank, and writes only
+0700 scratch directories / 0600 candidate JSON and a manifest. It never scaffolds, indexes,
+commits or applies a bank change. `source_rewrite.generate_prose_candidates` shares the same
+orientation builder; the older automatic source-rewrite writer remains a separate entry point.
+
+Human/custom/unreadable/corrupt pages, missing linked episodes and context over 24,000 characters
+are deferred before calls. All known page/claim source episodes are dated separately and read in
+full; no oldest-first clipping silently excludes recent evidence. The tool cannot recover source
+credit already lost by earlier writers. Candidate edits may only prefix a unique existing fact
+or history item with an absolute date from a named source containing the exact original wording.
+Other wording and all raw claim fences survive. Changed prose loses its exact G118 guard;
+unknown metadata is preserved without certification. Page/source hashes are checked again after
+generation, and dirty/changed inputs are deferred. Cached output requires matching input, engine,
+prompt-version and candidate hashes. Invalid output uses no retry; engine failure checkpoints
+earlier candidates and stops. Only manifest entries marked `candidate` or `cached` are eligible
+for review; older scratch files may be stale. There is no apply API/flag. The owner-bank pilot,
+semantic grounding/readability review and any checked apply are orchestrator work after the drain.
+
 Legacy Sleep synthesis retains exact old items by identity, without changing its prompt/return shape.
 Rephrased items become unrecorded; incoming facts not supplied to synthesis cannot gain links.
 All refreshes share the existing atomic page write, locks and commit/rollback boundary.

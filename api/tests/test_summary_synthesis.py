@@ -98,6 +98,13 @@ def test_context_dates_and_closed_claims():
     assert orientation.compose(result, {}, 'A notes prototype. Its present status is unknown.') == result
 
 
+def test_non_summary_free_prose_survives_composition():
+    raw = '## Summary\nA project.\n\n## Key Facts\nContext before bullets.\n- Original fact.\n\n## History\nAn undated paragraph.\n- 2024-01-15: Prototype.'
+    result = orientation.compose(raw, {'key_facts': ['New fact.']}, 'A notes project.')
+    assert 'Context before bullets.\n- Original fact.' in result
+    assert 'An undated paragraph.\n- 2024-01-15: Prototype.' in result
+
+
 def test_large_context_is_not_clipped_or_called(tmp_path, monkeypatch):
     calls = []
     async def fake(**kwargs):

@@ -195,6 +195,11 @@ sections with stored records report zero current items and unmatched-record coun
 Unknown/malformed schemas survive writes and fail closed on read.
 No backfill: absent, changed or uninstrumented prose stays unrecorded; git retains prior records.
 
+G194's opt-in orientation writer composes facts deterministically, retaining exact surviving
+guards and selected incoming fact records. Rephrased Summary and date-prefixed repair items
+are unrecorded. The prose-repair dry run preserves raw claims fences and unknown metadata in
+scratch candidates only; it has no bank apply phase (see `capture-and-sleep.md`).
+
 The 150-bullet/80-episode plus Summary fixture measures **10,739 bytes / 238 YAML lines**;
 three spans per item and three revisions per episode measure **22,518 bytes / 398 lines**
 with the production emitter. Gates are 16 KiB primary, 32 KiB dense (no runtime link truncation).
