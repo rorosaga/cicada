@@ -169,6 +169,11 @@ class Settings(BaseSettings):
 
     # Sleep cycle thresholds
     sleep_promotion_threshold: int = 2
+    # Stage 2's judge calls in flight at once (a batch's names judged against the
+    # pages on disk, ahead of the per-name loop; every decision is still made in
+    # order). 1 = one call after another. A plan engine is further capped,
+    # process-wide, by `agent_max_concurrency`, which Stage 1 already runs under.
+    sleep_resolve_concurrency: int = 3              # CICADA_SLEEP_RESOLVE_CONCURRENCY
     decay_nudge_threshold: float = 0.4
     archive_threshold: float = 0.2
 

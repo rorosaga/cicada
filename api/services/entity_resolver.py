@@ -65,10 +65,10 @@ async def resolve(
     Returns dict with 'changes' (entity updates) and 'relationships' (resolved edges).
 
     ``cancel_check`` (sleep-control): an optional zero-arg predicate polled at
-    the top of every iteration of the per-name judging loop below — the long
-    sequential LLM-judge loop the whole Stage exists to run. Once it starts
-    returning ``True``, the loop stops taking new names (no further judge
-    calls spent) and this returns whatever it has accumulated so far; the
+    the top of every iteration of the per-name judging loop below, and before
+    every judge call taken ahead of it (``sleep_resolve_concurrency``). Once it
+    starts returning ``True``, no new judge call starts — the ones in flight
+    finish, never interrupted — and this returns whatever it has accumulated so far; the
     caller (``sleep_cycle._run_stages``) discards a partial result like this
     entirely on a cancelled cycle, so returning early rather than raising
     keeps this function's contract simple. ``None`` (the default, and every
@@ -243,160 +243,181 @@ async def resolve(
     total_names = len(ordered_entities)
     if progress_callback is not None:
         progress_callback(0, total_names)
-    for done_names, (name_lower, entity) in enumerate(ordered_entities):
-        if progress_callback is not None and done_names:
-            progress_callback(done_names, total_names)
-        # Sleep-control checkpoint: the long sequential loop the task calls
-        # out by name. Checked BEFORE each name's own (possibly LLM-calling)
-        # judge — never mid-judge — so a cancel stops taking new names
-        # without ever interrupting one already in flight.
-        if cancel_check is not None and cancel_check():
-            cancelled = True
-            break
-        name = entity["name"]
-        siblings = [e for e in extractions_by_name.get(name_lower, []) if e is not entity]
-        match = _find_direct_candidate_match(
-            new_entity=entity,
-            existing_by_name=existing_by_name,
-            created_by_id=resolved_creates,
-        )
-        if match is None:
-            match = await _find_llm_candidate_match(
+    # The judge calls against pages on disk run ahead of this loop, bounded
+    # (``sleep_resolve_concurrency``; 1 is the plain serial loop). Every
+    # decision is still made here, in this order (``_Lookahead``).
+    concurrency = max(1, int(getattr(settings, "sleep_resolve_concurrency", 1) or 1))
+    lookahead = (
+        _Lookahead(_lookahead_plan(ordered_entities, existing_by_name), settings=settings,
+                   cache=llm_match_cache, concurrency=concurrency, cancel_check=cancel_check)
+        if concurrency > 1 else None
+    )
+    try:
+        for done_names, (name_lower, entity) in enumerate(ordered_entities):
+            if progress_callback is not None and done_names:
+                progress_callback(done_names, total_names)
+            # Sleep-control checkpoint. Checked BEFORE each name's own (possibly
+            # LLM-calling) judge — never mid-judge — so a cancel stops taking new
+            # names without ever interrupting a call already in flight (the
+            # lookahead polls the same predicate before each of its calls).
+            if cancel_check is not None and cancel_check():
+                cancelled = True
+                break
+            name = entity["name"]
+            siblings = [e for e in extractions_by_name.get(name_lower, []) if e is not entity]
+            match = _find_direct_candidate_match(
                 new_entity=entity,
                 existing_by_name=existing_by_name,
                 created_by_id=resolved_creates,
-                cache=llm_match_cache,
-                settings=settings,
+            )
+            if match is not None and lookahead is not None:
+                lookahead.discard(done_names)
+            if match is None:
+                match = await _find_llm_candidate_match(
+                    new_entity=entity,
+                    existing_by_name=existing_by_name,
+                    created_by_id=resolved_creates,
+                    cache=llm_match_cache,
+                    settings=settings,
+                    prejudged=await lookahead.take(done_names) if lookahead is not None else None,
+                    gate=lookahead.gate if lookahead is not None else None,
+                )
+
+            if match is not None and match["decision"] == "same":
+                candidate = match["candidate"]
+                name_to_id[name_lower] = candidate["id"]
+                # Deferred (see the transactional-Stage-2 docstring above): this
+                # can DELETE an inbox item, which must never happen for a name
+                # whose match a cancellation is about to discard.
+                pending_actions.append((
+                    clarifier.check_organic_resolution,
+                    (),
+                    {"entity_name": name, "confidence": float(entity.get("confidence", 0.0) or 0.0)},
+                ))
+
+                for incoming in (entity, *siblings):
+                    if candidate["source"] == "existing":
+                        _merge_into_update(
+                            updates_by_id=resolved_updates,
+                            existing_entity=candidate["data"],
+                            incoming=incoming,
+                        )
+                    else:
+                        _merge_into_create(resolved_creates[candidate["id"]], incoming)
+                continue
+
+            ambiguous_match = match is not None and match["decision"] == "unsure"
+
+            # New entity — check promotion threshold
+            episodes_seen = len(episode_mentions.get(name_lower, set()))
+            linked_to_existing = _is_linked_to_existing(name, all_relationships, existing_by_name, owner_id=owner_id, refs=refs)
+
+            # Promote if the entity is already in pending from a previous cycle
+            pending_entry = None
+            if indexer is not None:
+                try:
+                    pending_entry = indexer.pending_by_name(name)
+                except Exception:
+                    pending_entry = None
+
+            substantively_discussed = _is_substantively_discussed(
+                entity,
+                in_episode_relationship_count=in_episode_relationship_count,
             )
 
-        if match is not None and match["decision"] == "same":
-            candidate = match["candidate"]
-            name_to_id[name_lower] = candidate["id"]
-            # Deferred (see the transactional-Stage-2 docstring above): this
-            # can DELETE an inbox item, which must never happen for a name
-            # whose match a cancellation is about to discard.
-            pending_actions.append((
-                clarifier.check_organic_resolution,
-                (),
-                {"entity_name": name, "confidence": float(entity.get("confidence", 0.0) or 0.0)},
-            ))
+            should_promote = (
+                episodes_seen >= settings.sleep_promotion_threshold
+                or linked_to_existing
+                or pending_entry is not None
+                or substantively_discussed
+            )
 
-            for incoming in (entity, *siblings):
-                if candidate["source"] == "existing":
-                    _merge_into_update(
-                        updates_by_id=resolved_updates,
-                        existing_entity=candidate["data"],
-                        incoming=incoming,
-                    )
-                else:
-                    _merge_into_create(resolved_creates[candidate["id"]], incoming)
-            continue
-
-        ambiguous_match = match is not None and match["decision"] == "unsure"
-
-        # New entity — check promotion threshold
-        episodes_seen = len(episode_mentions.get(name_lower, set()))
-        linked_to_existing = _is_linked_to_existing(name, all_relationships, existing_by_name, owner_id=owner_id, refs=refs)
-
-        # Promote if the entity is already in pending from a previous cycle
-        pending_entry = None
-        if indexer is not None:
-            try:
-                pending_entry = indexer.pending_by_name(name)
-            except Exception:
-                pending_entry = None
-
-        substantively_discussed = _is_substantively_discussed(
-            entity,
-            in_episode_relationship_count=in_episode_relationship_count,
-        )
-
-        should_promote = (
-            episodes_seen >= settings.sleep_promotion_threshold
-            or linked_to_existing
-            or pending_entry is not None
-            or substantively_discussed
-        )
-
-        if ambiguous_match:
-            pending_actions.append((
-                _create_duplicate_clarification,
-                (),
-                {"clarifier": clarifier, "entity": entity, "candidate": match["candidate"]},
-            ))
-
-        if should_promote and not ambiguous_match:
-            entity_id = sanitize_id(name)
-            name_to_id[name_lower] = entity_id
-            if pending_entry is not None:
-                merged_history = list(entity.get("history_entries", []) or [])
-                for h in pending_entry.history_entries or []:
-                    if h not in merged_history:
-                        merged_history.append(h)
-                if merged_history:
-                    entity["history_entries"] = merged_history
-            resolved_creates[entity_id] = {
-                "id": entity_id,
-                "action": "create",
-                "entity": entity,
-                "existing": None,
-                "source_episode": entity.get("source_episode", ""),
-                "source_episodes": [entity.get("source_episode", "")] if entity.get("source_episode") else [],
-                "source_episode_timestamp": entity.get("source_episode_timestamp"),
-                "source_episode_timestamps": [entity.get("source_episode_timestamp")] if entity.get("source_episode_timestamp") else [],
-                "source_episode_days": _source_days(entity),
-                "untimed": bool(entity.get("untimed")),
-                "trigger": "sleep/promotion",
-            }
-            for sibling in siblings:
-                _merge_into_create(resolved_creates[entity_id], sibling)
-            # Deferred (same reasoning as the "same"-match branch above).
-            pending_actions.append((
-                clarifier.check_organic_resolution,
-                (),
-                {"entity_name": name, "confidence": float(entity.get("confidence", 0.0) or 0.0)},
-            ))
-            if indexer is not None and pending_entry is not None:
-                pending_actions.append((indexer.promote_from_pending, (name,), {}))
-        else:
-            confidence = float(entity.get("confidence", 0.3) or 0.3)
-            if confidence < CONFIDENCE_THRESHOLD and not ambiguous_match:
+            if ambiguous_match:
                 pending_actions.append((
-                    clarifier.create,
+                    _create_duplicate_clarification,
                     (),
-                    {
-                        "entity_name": name,
-                        "source_episode": entity.get("source_episode", ""),
-                        "uncertainty_type": _infer_uncertainty_type(entity),
-                        "suggested_classification": (
-                            f"{entity.get('type', 'concept')} — "
-                            f"{(entity.get('description') or '')[:120]}"
-                        ),
-                        "suggested_confidence": confidence,
-                        "source_context": entity.get("description", "") or "",
-                        "source_episode_timestamp": entity.get("source_episode_timestamp"),
-                    },
+                    {"clarifier": clarifier, "entity": entity, "candidate": match["candidate"]},
                 ))
 
-            if indexer is not None:
-                # One pending line per name: what every mention said rides on it
-                # (the line keeps the strongest mention's episode, as before).
-                parked = entity
+            if should_promote and not ambiguous_match:
+                entity_id = sanitize_id(name)
+                name_to_id[name_lower] = entity_id
+                if pending_entry is not None:
+                    merged_history = list(entity.get("history_entries", []) or [])
+                    for h in pending_entry.history_entries or []:
+                        if h not in merged_history:
+                            merged_history.append(h)
+                    if merged_history:
+                        entity["history_entries"] = merged_history
+                resolved_creates[entity_id] = {
+                    "id": entity_id,
+                    "action": "create",
+                    "entity": entity,
+                    "existing": None,
+                    "source_episode": entity.get("source_episode", ""),
+                    "source_episodes": [entity.get("source_episode", "")] if entity.get("source_episode") else [],
+                    "source_episode_timestamp": entity.get("source_episode_timestamp"),
+                    "source_episode_timestamps": [entity.get("source_episode_timestamp")] if entity.get("source_episode_timestamp") else [],
+                    "source_episode_days": _source_days(entity),
+                    "untimed": bool(entity.get("untimed")),
+                    "trigger": "sleep/promotion",
+                }
                 for sibling in siblings:
-                    parked = _merge_entity_payload(parked, sibling)
+                    _merge_into_create(resolved_creates[entity_id], sibling)
+                # Deferred (same reasoning as the "same"-match branch above).
                 pending_actions.append((
-                    indexer.index_pending_entity,
-                    (PendingEntity(
-                        name=name,
-                        type=entity.get("type", "concept"),
-                        description=parked.get("description", "") or "",
-                        source_episode=entity.get("source_episode", ""),
-                        confidence=confidence,
-                        tags=list(parked.get("tags", []) or []),
-                        history_entries=list(parked.get("history_entries", []) or []),
-                    ),),
-                    {},
+                    clarifier.check_organic_resolution,
+                    (),
+                    {"entity_name": name, "confidence": float(entity.get("confidence", 0.0) or 0.0)},
                 ))
+                if indexer is not None and pending_entry is not None:
+                    pending_actions.append((indexer.promote_from_pending, (name,), {}))
+            else:
+                confidence = float(entity.get("confidence", 0.3) or 0.3)
+                if confidence < CONFIDENCE_THRESHOLD and not ambiguous_match:
+                    pending_actions.append((
+                        clarifier.create,
+                        (),
+                        {
+                            "entity_name": name,
+                            "source_episode": entity.get("source_episode", ""),
+                            "uncertainty_type": _infer_uncertainty_type(entity),
+                            "suggested_classification": (
+                                f"{entity.get('type', 'concept')} — "
+                                f"{(entity.get('description') or '')[:120]}"
+                            ),
+                            "suggested_confidence": confidence,
+                            "source_context": entity.get("description", "") or "",
+                            "source_episode_timestamp": entity.get("source_episode_timestamp"),
+                        },
+                    ))
+
+                if indexer is not None:
+                    # One pending line per name: what every mention said rides on it
+                    # (the line keeps the strongest mention's episode, as before).
+                    parked = entity
+                    for sibling in siblings:
+                        parked = _merge_entity_payload(parked, sibling)
+                    pending_actions.append((
+                        indexer.index_pending_entity,
+                        (PendingEntity(
+                            name=name,
+                            type=entity.get("type", "concept"),
+                            description=parked.get("description", "") or "",
+                            source_episode=entity.get("source_episode", ""),
+                            confidence=confidence,
+                            tags=list(parked.get("tags", []) or []),
+                            history_entries=list(parked.get("history_entries", []) or []),
+                        ),),
+                        {},
+                    ))
+
+    finally:
+        if lookahead is not None:
+            # Starts nothing more and waits out the calls in flight, on every exit.
+            await lookahead.close()
+    if lookahead is not None and lookahead.error is not None and not cancelled:
+        raise lookahead.error  # a plan limit met ahead of the loop is still the batch's pause
 
     if progress_callback is not None and not cancelled:
         progress_callback(total_names, total_names)
@@ -1019,29 +1040,18 @@ async def _llm_judge_same_entity(
         return "unsure"
 
 
-async def _find_llm_candidate_match(
-    new_entity: dict,
-    existing_by_name: dict[str, dict],
-    created_by_id: dict[str, dict],
-    cache: dict[tuple[str, str], str],
-    settings: Settings,
-) -> dict | None:
-    """Look for an existing or in-cycle entity that the LLM judges as same/unsure.
+def _existing_llm_candidates(new_entity: dict, existing_by_name: dict[str, dict]) -> list[dict]:
+    """The pages on disk the judge weighs ``new_entity`` against, in judging order.
 
-    Candidates are same-type entities that share at least one content token with
-    the new entity's name and do not already fall under the strict-fuzz match.
-    Returns the first SAME match immediately; otherwise returns the strongest
-    UNSURE match so the caller can create a clarification instead of inventing
-    a new page.
-    """
+    Same-type pages that share a content token with the name and are not already a
+    strict-fuzz match. A function of the name and the bank alone — nothing the
+    per-name loop decides changes it — which is what lets ``resolve`` judge these
+    ahead of the loop (``_Lookahead``)."""
     new_name = new_entity.get("name") or ""
+    if not new_name or not _name_tokens(new_name):
+        return []
     new_name_lower = new_name.lower()
     new_type = (new_entity.get("type") or "concept").lower()
-    new_description = new_entity.get("description") or ""
-
-    if not new_name or not _name_tokens(new_name):
-        return None
-
     candidates: list[dict] = []
     for existing_name_lower, existing_data in existing_by_name.items():
         candidate = {"source": "existing", "id": existing_data["id"], "data": existing_data}
@@ -1053,7 +1063,17 @@ async def _find_llm_candidate_match(
         if fuzz.ratio(new_name_lower, existing_name_lower) > 85:
             continue
         candidates.append(candidate)
+    return candidates
 
+
+def _created_llm_candidates(new_entity: dict, created_by_id: dict[str, dict]) -> list[dict]:
+    """The in-cycle creates the judge weighs ``new_entity`` against — what the loop has decided so far."""
+    new_name = new_entity.get("name") or ""
+    if not new_name or not _name_tokens(new_name):
+        return []
+    new_name_lower = new_name.lower()
+    new_type = (new_entity.get("type") or "concept").lower()
+    candidates: list[dict] = []
     for candidate_id, create_change in created_by_id.items():
         candidate = {"source": "created", "id": candidate_id, "data": create_change}
         existing_display = _candidate_display_name(candidate)
@@ -1064,45 +1084,248 @@ async def _find_llm_candidate_match(
         if fuzz.ratio(new_name_lower, existing_display.lower()) > 85:
             continue
         candidates.append(candidate)
+    return candidates
 
-    unsure_candidate: dict | None = None
+
+async def _judge_candidates(
+    new_entity: dict,
+    candidates: list[dict],
+    cache: dict[tuple[str, str], str],
+    settings: Settings,
+    *,
+    gate: asyncio.Semaphore | None = None,
+    stop: Callable[[], bool] | None = None,
+) -> list[tuple[dict, str]]:
+    """Judge ``candidates`` in order, one call each, stopping at the first ``same``.
+
+    Returns ``(candidate, decision)`` per candidate judged. ``gate`` bounds the
+    calls in flight across every name ``resolve`` is judging; ``stop`` is polled
+    before each call so a cancel or a plan limit starts nothing new."""
+    new_name = new_entity.get("name") or ""
+    new_name_lower = new_name.lower()
+    new_type = (new_entity.get("type") or "concept").lower()
+    new_description = new_entity.get("description") or ""
+    judged: list[tuple[dict, str]] = []
     for candidate in candidates:
-        existing_display = _candidate_display_name(candidate)
         cache_key = (new_name_lower, candidate["id"])
         if cache_key in cache:
             decision = cache[cache_key]
-            if decision == "same":
-                return {"decision": "same", "candidate": candidate}
-            if decision == "unsure" and unsure_candidate is None:
-                unsure_candidate = candidate
-            continue
-
-        decision = await _llm_judge_same_entity(
-            new_name=new_name,
-            new_type=new_type,
-            new_description=new_description,
-            existing_name=existing_display,
-            existing_type=_candidate_type(candidate),
-            existing_body=_candidate_description(candidate),
-            settings=settings,
-        )
-        cache[(new_name_lower, candidate["id"])] = decision
-        if decision == "same":
-            logger.info(
-                f"LLM disambiguation merged '{new_name}' -> '{existing_display}'"
+        else:
+            if stop is not None and stop():
+                break
+            kwargs = dict(
+                new_name=new_name,
+                new_type=new_type,
+                new_description=new_description,
+                existing_name=_candidate_display_name(candidate),
+                existing_type=_candidate_type(candidate),
+                existing_body=_candidate_description(candidate),
+                settings=settings,
             )
+            if gate is None:
+                decision = await _llm_judge_same_entity(**kwargs)
+            else:
+                async with gate:
+                    if stop is not None and stop():  # stopped while waiting for a slot
+                        break
+                    decision = await _llm_judge_same_entity(**kwargs)
+            cache[cache_key] = decision
+        judged.append((candidate, decision))
+        if decision == "same":
+            break
+    return judged
+
+
+def _pick_match(new_name: str, judged: list[tuple[dict, str]]) -> dict | None:
+    """The first ``same`` in judging order, else the first ``unsure``, else ``None``."""
+    unsure_candidate: dict | None = None
+    for candidate, decision in judged:
+        if decision == "same":
+            logger.info(f"LLM disambiguation merged '{new_name}' -> '{_candidate_display_name(candidate)}'")
             return {"decision": "same", "candidate": candidate}
         if decision == "unsure" and unsure_candidate is None:
             unsure_candidate = candidate
-
     if unsure_candidate is not None:
         logger.info(
             f"LLM disambiguation deferred '{new_name}' for clarification "
             f"against '{_candidate_display_name(unsure_candidate)}'"
         )
         return {"decision": "unsure", "candidate": unsure_candidate}
-
     return None
+
+
+async def _find_llm_candidate_match(
+    new_entity: dict,
+    existing_by_name: dict[str, dict],
+    created_by_id: dict[str, dict],
+    cache: dict[tuple[str, str], str],
+    settings: Settings,
+    *,
+    prejudged: list[tuple[dict, str]] | None = None,
+    gate: asyncio.Semaphore | None = None,
+) -> dict | None:
+    """Look for an existing or in-cycle entity that the LLM judges as same/unsure.
+
+    Candidates are same-type entities that share at least one content token with
+    the new entity's name and do not already fall under the strict-fuzz match:
+    the pages on disk first, then the in-cycle creates. Returns the first SAME
+    match; otherwise the first UNSURE match so the caller can create a
+    clarification instead of inventing a new page.
+
+    ``prejudged`` is the existing-page part already judged ahead of the loop
+    (``_Lookahead``: the same calls, in the same order, with the same early
+    exit); only the in-cycle creates are then judged here.
+    """
+    new_name = new_entity.get("name") or ""
+    if not new_name or not _name_tokens(new_name):
+        return None
+
+    if prejudged is None:
+        judged = await _judge_candidates(
+            new_entity, _existing_llm_candidates(new_entity, existing_by_name), cache, settings, gate=gate)
+    else:
+        judged = list(prejudged)
+    if not any(decision == "same" for _, decision in judged):
+        judged += await _judge_candidates(
+            new_entity, _created_llm_candidates(new_entity, created_by_id), cache, settings, gate=gate)
+    return _pick_match(new_name, judged)
+
+
+#: How many names per concurrent slot ``_Lookahead`` takes ahead of the loop.
+#: A name's own calls stay sequential, so while the loop waits on a name with a
+#: long candidate list the other slots keep working on names further ahead; the
+#: window bounds what a cancel can waste (judgments taken but never used).
+LOOKAHEAD_NAMES_PER_SLOT = 4
+
+
+def _lookahead_plan(
+    ordered_entities: list[tuple[str, dict]], existing_by_name: dict[str, dict],
+) -> list[tuple[dict, list[dict]] | None]:
+    """What ``_Lookahead`` may judge ahead: per name in the loop's order, its
+    existing-page candidates — or ``None`` where the loop makes no existing-page
+    call (a direct match on disk, no candidate) or may settle the name on an
+    in-cycle create before judging (an earlier name in the batch within the
+    direct-match fuzz of it; an in-cycle create can only carry a batch name).
+    The plan only decides what runs early: the loop re-checks every match itself."""
+    plan: list[tuple[dict, list[dict]] | None] = []
+    earlier: list[str] = []
+    for _, entity in ordered_entities:
+        name_lower = (entity.get("name") or "").strip().lower()
+        entry: tuple[dict, list[dict]] | None = None
+        if (_find_direct_candidate_match(entity, existing_by_name, {}) is None
+                and not any(name_lower == other or fuzz.ratio(name_lower, other) > 85 for other in earlier)):
+            candidates = _existing_llm_candidates(entity, existing_by_name)
+            if candidates:
+                entry = (entity, candidates)
+        plan.append(entry)
+        earlier.append(str(entity.get("name") or "").lower())
+    return plan
+
+
+class _Lookahead:
+    """Stage 2's judgments against EXISTING pages, taken ahead of the per-name loop.
+
+    A name's existing-page judgments depend only on its own extraction and the
+    bank, so they can run while the loop is still deciding earlier names. Each
+    name's candidates are still judged one after another with the first-``same``
+    exit (the very calls the serial loop made); different names overlap, at most
+    ``concurrency`` calls in flight (the gate the loop's own inline calls share).
+    At most ``LOOKAHEAD_NAMES_PER_SLOT × concurrency`` names are taken ahead of the loop's position, so
+    a cancel or a plan limit wastes a bounded number of calls.
+
+    ``plan[i]`` is ``(entity, candidates)`` for the i-th name in the loop's
+    order, or ``None`` when the loop would make no existing-page call for it
+    (a direct match, no candidate) or might settle it on an in-cycle
+    create first — those are left to the loop, exactly as before.
+    ``close`` starts nothing more and waits out the calls in flight: a call is
+    never interrupted (a plan call runs in a worker thread), and none outlives
+    the batch.
+    """
+
+    def __init__(self, plan: list[tuple[dict, list[dict]] | None], *, settings: Settings,
+                 cache: dict[tuple[str, str], str], concurrency: int,
+                 cancel_check: Callable[[], bool] | None = None):
+        self._plan = plan
+        self._cancel_check = cancel_check
+        self._settings = settings
+        self._cache = cache
+        self.gate = asyncio.Semaphore(concurrency)
+        self._window = LOOKAHEAD_NAMES_PER_SLOT * concurrency
+        self._tasks: dict[int, asyncio.Task] = {}
+        self._dropped: list[asyncio.Task] = []
+        self._next = 0
+        self._stopped = False
+        self._error: BaseException | None = None
+
+    @property
+    def error(self) -> BaseException | None:
+        """The first engine error a lookahead call met, if any."""
+        return self._error
+
+    def _stop(self) -> bool:
+        if not self._stopped and self._cancel_check is not None and self._cancel_check():
+            self._stopped = True
+        return self._stopped
+
+    def _fill(self, cursor: int) -> None:
+        while (not self._stopped and self._next < len(self._plan)
+               and sum(1 for i in self._tasks if i >= cursor) < self._window):
+            index = self._next
+            self._next += 1
+            if self._plan[index] is not None:
+                self._tasks[index] = asyncio.create_task(self._judge(index))
+
+    async def _judge(self, index: int) -> list[tuple[dict, str]]:
+        entity, candidates = self._plan[index]
+        try:
+            # The loop's cache is shared safely: names are deduplicated before the
+            # loop, so no two names write the same ``(name, candidate)`` key.
+            return await _judge_candidates(entity, candidates, self._cache, self._settings,
+                                           gate=self.gate, stop=self._stop)
+        except BaseException as exc:
+            if self._error is None and not isinstance(exc, asyncio.CancelledError):
+                self._error = exc
+            self._stopped = True
+            raise
+
+    async def take(self, index: int) -> list[tuple[dict, str]] | None:
+        """The existing-page judgments for the loop's ``index``-th name, or
+        ``None`` when the loop is to judge that name itself. Raises the first
+        engine error any lookahead call met — the drain's pause, as before."""
+        self._fill(index)
+        if self._error is not None:
+            raise self._error
+        task = self._tasks.pop(index, None)
+        if task is None:
+            return None
+        judged = await task
+        if self._error is not None:
+            raise self._error
+        entity, candidates = self._plan[index]
+        if len(judged) < len(candidates) and not any(decision == "same" for _, decision in judged):
+            # Stopped between this name's candidates (a cancel): the loop is on this
+            # name, and the serial loop always finished the name it was on — so
+            # finish it here, never decide it on half its judgments.
+            judged += await _judge_candidates(entity, candidates[len(judged):], self._cache, self._settings,
+                                              gate=self.gate)
+        self._fill(index + 1)
+        return judged
+
+    def discard(self, index: int) -> None:
+        """The loop settled ``index`` without its judgments (a direct match to an
+        in-cycle create): drop them. A call already made is not undone."""
+        task = self._tasks.pop(index, None)
+        if task is not None:
+            self._dropped.append(task)  # still awaited by `close`
+        self._fill(index + 1)
+
+    async def close(self) -> None:
+        self._stopped = True
+        pending = [*self._tasks.values(), *self._dropped]
+        self._tasks.clear()
+        self._dropped.clear()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
 
 
 def _infer_uncertainty_type(entity: dict) -> str:
