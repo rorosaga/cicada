@@ -80,7 +80,7 @@ class _Judge:
         self.fail_on = fail_on
 
     async def __call__(self, new_name, new_type, new_description, existing_name, existing_type, existing_body,
-                       settings):
+                       settings, **extra):
         self.pairs.append((new_name, existing_name))
         if self.fail_on is not None and len(self.pairs) == self.fail_on:
             raise engine_errors.EngineThrottled("synthetic plan limit")
@@ -219,3 +219,40 @@ def test_a_cancel_mid_name_still_finishes_the_name_the_loop_is_on(bank, monkeypa
                       cancel_check=lambda: cancelled["now"])
     assert [p[1] for p in judge.pairs] == ["Lumen Mosaic", "Lumen Nectar", "Lumen Onyx"]
     assert out["name_to_id"]["lumen"] == "lumen-onyx"
+
+
+def _aliased_bank_and_batch():
+    """The synthetic batch over a bank whose pages carry aliases that share no word with their names: initials
+    (one page each) and a first-word prefix (every page starting with that word: a shared acronym), plus bare
+    words the batch also names, so alias holders join token-sharing candidates. Each acronym is named in two
+    conversations as the type of one of its holders, so it reaches the judge and can be promoted."""
+    pages, extracted = _bank_and_batch()
+    acronyms: dict[str, str] = {}
+    for i, page in enumerate(pages):
+        words = page["frontmatter"]["name"].split()
+        alias = "".join(w[0] for w in words).upper() if i % 2 else words[0][:3].upper()
+        aliases = [alias] + ([words[-1].lower()] if i % 4 == 0 else [])
+        page["frontmatter"]["aliases"] = aliases
+        acronyms.setdefault(alias, page["frontmatter"]["type"])
+    for n, (acronym, etype) in enumerate(sorted(acronyms.items())):
+        for extraction in (extracted[n % len(extracted)], extracted[(n + 1) % len(extracted)]):
+            extraction["entities"].append(_entity(acronym, etype, extraction["episode_id"]))
+    return pages, extracted
+
+
+def test_alias_candidates_decide_exactly_as_the_serial_loop(bank, monkeypatch):
+    def verdict(new_name, existing_name):  # every outcome, on alias candidates too
+        h = int(hashlib.sha1(f"{new_name}|{existing_name}".encode()).hexdigest()[:6], 16) % 3
+        return ("same", "unsure", "different")[h]
+
+    batch = _aliased_bank_and_batch()
+    serial, serial_judge = _run(bank, monkeypatch, 1, batch=batch, judge=_Judge(verdict=verdict))
+    concurrent, concurrent_judge = _run(bank, monkeypatch, 4, batch=_aliased_bank_and_batch(),
+                                        judge=_Judge(verdict=verdict))
+    acronyms = {p["frontmatter"]["aliases"][0].lower(): p["id"] for p in batch[0]}
+    page_ids = {p["id"] for p in batch[0]}
+    assert any(new.lower() in acronyms for new, _ in serial_judge.pairs), "acronyms must reach their pages"
+    assert any(serial["name_to_id"].get(a) in page_ids for a in acronyms), "and some land on one"
+    assert any(serial["name_to_id"].get(a) == a for a in acronyms), "and some get their own page"
+    assert _signature(concurrent) == _signature(serial)
+    assert sorted(concurrent_judge.pairs) == sorted(serial_judge.pairs)
