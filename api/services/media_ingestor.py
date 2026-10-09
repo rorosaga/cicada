@@ -49,6 +49,9 @@ _OEMBED_TIMEOUT = 4.0
 _OEMBED_MAX_BYTES = 512_000
 DESCRIPTION_LIMIT = 5000  # G140 Q-R12: a description is kept, cut here — a field, not a document
 MAX_BATCH = 2000
+#: The most items one upload may hold (a whole platform archive of likes runs
+#: past one batch). Imported ``MAX_BATCH`` at a time by :func:`ingest_chunked`.
+MAX_UPLOAD_ITEMS = 50_000
 _INLINE_ENRICH_LIMIT = 10  # small batches enrich inline so saves feel instant
 
 # Tracking params stripped during URL normalization.
@@ -115,6 +118,13 @@ class RawItem:
     # walled host is never requested by the backend, and even a public one
     # should not be read just because the person asked an agent to).
     defer_enrich: bool = False
+    # Other URLs that name this same saved thing (a Reddit link post's
+    # permalink beside its outbound link). Indexed as ``alias_of`` rows of the
+    # page this item becomes — the shape ``papers.index_aliases`` already uses,
+    # which every ``url_index`` reader skips — so the platform's export (which
+    # only knows the permalink) and its API connector (which saves the outbound
+    # link) dedupe against each other in either order.
+    aliases: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -689,21 +699,29 @@ def parse_youtube_takeout(content: bytes, filename: str) -> list[RawItem]:
 
 
 def parse_instagram_saved(data: dict) -> list[RawItem]:
-    """Meta "Download your information" saved-posts export.
+    """Meta "Download your information" — Instagram's saved, collected and liked posts.
 
-    Canonical shape: a top-level dict with ``saved_saved_media`` holding a list
-    of records like::
+    Three files share this parser (``your_instagram_activity/saved/`` and ``/likes/``):
 
-        {"title": "<account name>",
-         "string_map_data": {"Saved on": {"href": "https://instagram.com/reel/...",
-                                            "timestamp": 1699000000}}}
+    * ``saved_posts.json`` — ``saved_saved_media``: one record per save,
+      ``{"title": "<account>", "string_map_data": {"Saved on": {"href", "timestamp"}}}``.
+      Ungrouped saves get folder ``"Saved"``.
+    * ``saved_collections.json`` — ``saved_saved_collections``: a flat list in
+      which a header record (``"title": "Collection"``, ``Name.value`` with no
+      link) opens a collection and the records after it, each
+      ``{"Name": {"value": "<account>", "href"}, "Added Time": {"timestamp"}}``,
+      belong to it. The collection name becomes ``RawItem.folder`` — the
+      person's own grouping (G71).
+    * ``liked_posts.json`` — ``likes_media_likes``:
+      ``{"title": "<account>", "string_list_data": [{"href", "timestamp"}]}``,
+      folder ``"Liked posts"`` (TikTok's likes set the precedent: same origin,
+      the folder says it was a like).
 
-    Also tolerates a **collections** variant where saves are grouped under
-    collection names — either ``saved_saved_media`` itself is a
-    ``{collection_name: [record, ...]}`` dict, or a record carries a nested
-    ``name`` + ``sources``/``media`` list (a collection wrapper). The
-    collection name becomes ``RawItem.folder``; ungrouped saves default to
-    folder ``"Saved"``.
+    Also tolerated: the older ``{collection_name: [record, ...]}`` dict and a
+    record that wraps a collection (``name`` + ``sources``/``media``), and the
+    newer ``label_values`` layout (a ``URL`` entry and a record ``timestamp``).
+    The save date is the Unix ``timestamp`` beside the link, normalized by
+    ``saved_at``; absent when the export has none (never guessed).
 
     Parses defensively — any unknown/missing key is tolerated, malformed
     input degrades to ``[]`` rather than raising.
@@ -712,6 +730,10 @@ def parse_instagram_saved(data: dict) -> list[RawItem]:
     if not isinstance(data, dict):
         return items
 
+    payloads: list[tuple[object, str | None]] = []
+    likes = data.get("likes_media_likes")
+    if likes:
+        payloads.append((likes, "Liked posts"))
     media = data.get("saved_saved_media")
     if media is None:
         # Tolerate any other "saved_*" top-level key carrying the payload.
@@ -719,63 +741,125 @@ def parse_instagram_saved(data: dict) -> list[RawItem]:
             if isinstance(key, str) and key.startswith("saved_") and value:
                 media = value
                 break
-    if media is None:
+    if media is not None:
+        payloads.append((media, None))
+    if not payloads:
         return items
 
-    def item_from_record(record, folder: str | None) -> None:
-        if not isinstance(record, dict):
+    def add(record, folder: str | None) -> None:
+        href, stamp = _instagram_link(record)
+        if not href:
             return
         title = record.get("title")
-        href = None
-        smd = record.get("string_map_data")
-        if isinstance(smd, dict):
-            saved_on = smd.get("Saved on")
-            if isinstance(saved_on, dict):
-                href = saved_on.get("href")
-            if not href:
-                for v in smd.values():
-                    if isinstance(v, dict) and v.get("href"):
-                        href = v["href"]
-                        break
-        if not href:
-            href = record.get("href") or record.get("url")
-        if not href or not isinstance(href, str):
-            return
+        if not isinstance(title, str) or not title.strip() or title == "Collection":
+            title = _instagram_name(record, with_link=True)
         items.append(RawItem(
             url=href,
-            title=title if isinstance(title, str) else None,
+            title=title or None,
+            added=saved_at.from_unix_seconds(stamp),
             folder=folder or "Saved",
             origin="instagram-saved",
         ))
 
-    if isinstance(media, list):
-        for record in media:
-            # A collections wrapper nests a "name" + "sources"/"media" list
-            # instead of a leaf record's "string_map_data".
-            if isinstance(record, dict) and "string_map_data" not in record and (
-                "sources" in record or "media" in record
-            ):
-                coll_name = record.get("name") if isinstance(record.get("name"), str) else None
-                sub_records = record.get("sources") or record.get("media") or []
-                if isinstance(sub_records, list):
-                    for sub in sub_records:
-                        item_from_record(sub, coll_name)
+    for payload, default_folder in payloads:
+        if isinstance(payload, list):
+            current: str | None = default_folder
+            for record in payload:
+                if not isinstance(record, dict):
                     continue
-            item_from_record(record, None)
-    elif isinstance(media, dict):
-        # {collection_name: [record, ...]}
-        for coll_name, records in media.items():
-            if isinstance(records, list):
-                for record in records:
-                    item_from_record(record, coll_name if isinstance(coll_name, str) else None)
+                # A collections wrapper nests a "name" + "sources"/"media" list
+                # instead of a leaf record's "string_map_data".
+                if "string_map_data" not in record and ("sources" in record or "media" in record):
+                    coll_name = record.get("name") if isinstance(record.get("name"), str) else None
+                    sub_records = record.get("sources") or record.get("media") or []
+                    if isinstance(sub_records, list):
+                        for sub in sub_records:
+                            if isinstance(sub, dict):
+                                add(sub, coll_name)
+                        continue
+                href, _ = _instagram_link(record)
+                if href is None:
+                    # saved_collections.json: a header opens the collection the
+                    # records after it belong to.
+                    name = _instagram_name(record, with_link=False)
+                    if name:
+                        current = name
+                    continue
+                add(record, current)
+        elif isinstance(payload, dict):
+            # {collection_name: [record, ...]}
+            for coll_name, records in payload.items():
+                if isinstance(records, list):
+                    for record in records:
+                        if isinstance(record, dict):
+                            add(record, coll_name if isinstance(coll_name, str) else default_folder)
 
     return items
 
 
+def _instagram_link(record: dict) -> tuple[str | None, object]:
+    """``(href, timestamp)`` of one Instagram record, across the export's layouts."""
+    stamp = record.get("timestamp")
+    smd = record.get("string_map_data")
+    if isinstance(smd, dict):
+        saved_on = smd.get("Saved on")
+        if isinstance(saved_on, dict) and isinstance(saved_on.get("href"), str):
+            return saved_on["href"], saved_on.get("timestamp", stamp)
+        for value in smd.values():
+            if isinstance(value, dict) and isinstance(value.get("href"), str) and value["href"]:
+                when = value.get("timestamp")
+                if not when:
+                    for other in smd.values():
+                        if isinstance(other, dict) and other.get("timestamp") and not other.get("href"):
+                            when = other["timestamp"]
+                            break
+                return value["href"], when or stamp
+    sld = record.get("string_list_data")
+    if isinstance(sld, list):
+        for value in sld:
+            if isinstance(value, dict) and isinstance(value.get("href"), str) and value["href"]:
+                return value["href"], value.get("timestamp", stamp)
+    lv = record.get("label_values")
+    if isinstance(lv, list):
+        for value in lv:
+            if not isinstance(value, dict):
+                continue
+            href = value.get("href")
+            if not (isinstance(href, str) and href) and str(value.get("label") or "").lower() in ("url", "link"):
+                href = value.get("value")
+            if isinstance(href, str) and href.startswith(("http://", "https://")):
+                return href, value.get("timestamp_value", stamp)
+    for key in ("href", "url", "uri"):
+        href = record.get(key)
+        if isinstance(href, str) and href:
+            return href, stamp
+    return None, stamp
+
+
+def _instagram_name(record: dict, *, with_link: bool) -> str | None:
+    """The ``Name`` a collections record carries: the collection's name on a header
+    (no link), the account's on a saved post (with one)."""
+    smd = record.get("string_map_data")
+    name = smd.get("Name") if isinstance(smd, dict) else None
+    if isinstance(name, dict) and bool(name.get("href")) == with_link:
+        value = name.get("value")
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    lv = record.get("label_values")
+    if not with_link and isinstance(lv, list):
+        for value in lv:
+            if isinstance(value, dict) and str(value.get("label") or "").lower() == "name":
+                text = value.get("value")
+                if isinstance(text, str) and text.strip():
+                    return text.strip()
+    return None
+
+
 def _is_instagram_saved_json(data) -> bool:
-    """Sniff rule: a ``.json`` whose top-level dict has a ``saved_*`` key."""
+    """Sniff rule: a ``.json`` whose top-level dict has a ``saved_*`` key, or the
+    liked-posts list."""
     return isinstance(data, dict) and any(
-        isinstance(k, str) and k.startswith("saved_") for k in data.keys()
+        isinstance(k, str) and (k.startswith("saved_") or k == "likes_media_likes") for k in data.keys()
     )
 
 
@@ -789,15 +873,23 @@ _TIKTOK_SECTIONS = (
 
 
 def _tiktok_activity(data) -> dict | None:
-    """The activity dict, under either the old ``Activity`` key or the newer
-    ``Your Activity`` one."""
+    """The activity dict, under the old ``Activity`` key or the newer ``Your
+    Activity`` one — or, failing both, every known section found one level
+    under any top-level wrapper (TikTok has regrouped these across export
+    generations, e.g. a ``Likes and Favorites`` wrapper)."""
     if not isinstance(data, dict):
         return None
     for key in ("Activity", "Your Activity"):
         section = data.get(key)
         if isinstance(section, dict):
             return section
-    return None
+    found: dict = {}
+    for wrapper in data.values():
+        if isinstance(wrapper, dict):
+            for name, _list_key, _folder, _hist in _TIKTOK_SECTIONS:
+                if name in wrapper and name not in found:
+                    found[name] = wrapper[name]
+    return found or None
 
 
 def _is_tiktok_export_json(data) -> bool:
@@ -866,14 +958,30 @@ def _sniff_youtube_video_id_column(fieldnames: list[str] | None) -> str | None:
     return None
 
 
+_YOUTUBE_ADDED_COLUMNS = ("Playlist Video Creation Timestamp", "Playlist video creation timestamp",
+                          "Time Added", "Time added")
+
+
+def _youtube_added(raw: str | None) -> str | None:
+    """A playlist row's added time — ISO-8601 in current Takeout, ``YYYY-MM-DD
+    HH:MM:SS UTC`` in the older layout."""
+    text = (raw or "").strip()
+    if text.endswith(" UTC"):
+        text = text[:-4]
+    return saved_at.from_iso8601(text) or saved_at.from_freeform(text)
+
+
 def parse_youtube_playlist_csv(content: bytes, filename: str) -> list[RawItem]:
     """A single Google Takeout per-playlist video CSV.
 
     Takeout ships one CSV per playlist under ``Playlists/``, with the playlist
     name baked into the filename (e.g. ``"Watch later-videos.csv"``,
-    ``"<Name>-videos.csv"``). Columns include a video-id column
-    (``"Video ID"`` or ``"Video Id"``) and a timestamp; there is no title
-    column — titles are filled in later by the youtube oEmbed enrichment path.
+    ``"<Name>-videos.csv"``). Current Takeout writes two columns, ``Video ID``
+    and ``Playlist Video Creation Timestamp`` (ISO-8601); an older layout opens
+    with a playlist metadata block and a blank line before a ``Video Id,Time
+    Added`` table, so the video table is found by its header line wherever it
+    starts. The added time becomes the save date. There is no title column —
+    titles are filled in later by the youtube oEmbed enrichment path.
 
     An unrecognized CSV (no video-id column) yields ``[]`` — never raises.
     """
@@ -881,17 +989,27 @@ def parse_youtube_playlist_csv(content: bytes, filename: str) -> list[RawItem]:
     import io
 
     try:
-        text = content.decode("utf-8", errors="replace")
+        text = content.decode("utf-8-sig", errors="replace")
     except Exception:
         return []
 
+    lines = text.splitlines()
+    start = None
+    for i, line in enumerate(lines[:50]):
+        first = line.split(",", 1)[0].strip().strip('"')
+        if first in ("Video ID", "Video Id"):
+            start = i
+            break
+    if start is None:
+        return []
     try:
-        reader = csv.DictReader(io.StringIO(text))
+        reader = csv.DictReader(io.StringIO("\n".join(lines[start:])))
         vid_col = _sniff_youtube_video_id_column(reader.fieldnames)
     except Exception:
         return []
     if vid_col is None:
         return []
+    added_col = next((c for c in reader.fieldnames or [] if c and c.strip() in _YOUTUBE_ADDED_COLUMNS), None)
 
     playlist_name = _playlist_name_from_filename(filename)
     items: list[RawItem] = []
@@ -902,6 +1020,7 @@ def parse_youtube_playlist_csv(content: bytes, filename: str) -> list[RawItem]:
         items.append(RawItem(
             url=f"https://www.youtube.com/watch?v={vid}",
             title=None,
+            added=_youtube_added(row.get(added_col)) if added_col else None,
             folder=playlist_name,
             origin="youtube-playlist",
         ))
@@ -1039,61 +1158,6 @@ def parse_reddit_saved_csv(content: bytes, filename: str) -> list[RawItem]:
         if not raw.startswith(("http://", "https://")):
             continue
         items.append(RawItem(url=raw, folder=folder, origin="reddit-saved"))
-    return items
-
-
-# Cap on the number of members walked inside an uploaded zip archive — a
-# saved-content export zip has at most a handful of playlist CSVs + one
-# watch-history.json; this just bounds a maliciously/accidentally huge zip.
-_MAX_ZIP_MEMBERS = 5000
-
-
-def parse_youtube_takeout_zip(content: bytes, warnings: list[str] | None = None) -> list[RawItem]:
-    """Walk a whole Google Takeout zip: ``playlists/*.csv`` + ``watch-history.json``.
-
-    Lets a user drop one Takeout export zip in a single upload instead of
-    hunting for individual files. Unrecognized members (anything that isn't a
-    ``playlists/*.csv`` or a ``watch-history.json``) are skipped. Any read
-    error on an individual member is skipped rather than raised — a partially
-    corrupt zip still yields whatever is parseable. A non-zip or unreadable
-    archive degrades to ``[]``. ``warnings`` (G71 §4.3), when given, is
-    appended to with a summary of anything skipped, so a preview caller can
-    surface it instead of only the debug log.
-    """
-    import zipfile
-
-    items: list[RawItem] = []
-    skipped = 0
-    try:
-        zf = zipfile.ZipFile(BytesIO(content))
-    except Exception:
-        if warnings is not None:
-            warnings.append("This file is not a readable zip archive.")
-        return []
-
-    with zf:
-        names = zf.namelist()[:_MAX_ZIP_MEMBERS]
-        for name in names:
-            lower = name.lower()
-            # Match case-insensitively, but pass the *original*-cased base
-            # filename down to the parsers — the playlist name is derived
-            # from it and must keep its real casing.
-            base = name.rsplit("/", 1)[-1]
-            try:
-                if lower.endswith(".csv") and "playlists/" in lower:
-                    member_bytes = zf.read(name)
-                    items.extend(parse_youtube_playlist_csv(member_bytes, base))
-                elif base.lower() == "watch-history.json":
-                    member_bytes = zf.read(name)
-                    items.extend(parse_youtube_takeout(member_bytes, base))
-            except Exception as e:
-                logger.debug(f"Skipping unreadable zip member {name}: {type(e).__name__}: {e}")
-                skipped += 1
-                continue
-
-    if warnings is not None and skipped:
-        warnings.append(f"Skipped {skipped} unreadable file(s) inside the archive.")
-
     return items
 
 
@@ -1248,6 +1312,13 @@ async def ingest_feed(
     return await ingest_batch(items, memory_path, from_bookmark_file=False, commit=commit)
 
 
+#: Export files that hold other people, never saves — refused by name even when
+#: dropped alone, where the generic URL-list parser would otherwise read them.
+_NOT_SAVES = {
+    "connections.csv": "Connections.csv lists the people you are connected to, not things you saved.",
+}
+
+
 def parse_upload(
     content: bytes,
     filename: str,
@@ -1265,7 +1336,24 @@ def parse_upload(
     partial-parse detail reaches the user instead of only the debug log; every
     existing positional caller is unaffected.
     """
+    from api.services import saved_exports
+
+    if saved_exports.is_member_name(filename):
+        # One file of an export folder the app walked, named by its path inside
+        # the folder: the zip's allow-list and reader, so a member that is not a
+        # save list (a LinkedIn Connections.csv, an archive's viewer page, a
+        # message file) is never read as links.
+        if not saved_exports.is_save_list(filename):
+            raise ValueError("This file in the export folder is not a list of saves.")
+        items, platform, excluded = saved_exports.parse_member(filename, content, include_history=include_history)
+        if platform is None:
+            raise ValueError("This file in the export folder is not a list of saves.")
+        if excluded and warnings is not None:
+            warnings.append(saved_exports.history_warning(excluded))
+        return items, saved_exports.LABEL_BY_PLATFORM[platform], False
     name = (filename or "").lower()
+    if Path(name).name in _NOT_SAVES:
+        raise ValueError(_NOT_SAVES[Path(name).name])
     if name.endswith(".xml") or name.endswith(".rss") or name.endswith(".atom"):
         return parse_rss(content.decode("utf-8", errors="replace")), "RSS Feed", False
     if name.endswith(".html") or name.endswith(".htm"):
@@ -1300,17 +1388,20 @@ def parse_upload(
                 # no I/O.
                 excluded = len(parse_tiktok_export(data, include_history=True)) - len(items)
                 if excluded > 0:
-                    warnings.append(
-                        f"Browsing history ({excluded} item"
-                        f"{'s' if excluded != 1 else ''}) excluded by default — "
-                        "enable it when importing."
-                    )
+                    warnings.append(saved_exports.history_warning(excluded))
             return items, "TikTok Export", False
         # Takeout JSON is a list of watch entries; otherwise a generic URL list.
         if isinstance(data, list) and data and isinstance(data[0], dict) and (
             "titleUrl" in data[0] or "subtitles" in data[0]
         ):
-            return parse_youtube_takeout(content, name), "YouTube Takeout", False
+            # Watch history is not a save (G69): read only on request, through
+            # every door — a dropped file, a walked folder, a zip.
+            history = parse_youtube_takeout(content, name)
+            if include_history:
+                return history, "YouTube Takeout", False
+            if history and warnings is not None:
+                warnings.append(saved_exports.history_warning(len(history)))
+            return [], "YouTube Takeout", False
         # Generic JSON URL list: list[str] or list[{url}].
         items: list[RawItem] = []
         if isinstance(data, list):
@@ -1337,23 +1428,35 @@ def parse_upload(
             return linkedin_items, "LinkedIn Saved", False
         return parse_csv_url_list(content.decode("utf-8", errors="replace")), "URL List", False
     if name.endswith(".zip"):
-        # L4 (final review): a zip is sniffed by extension alone, but
-        # `parse_youtube_takeout_zip` only recognizes `playlists/*.csv` /
-        # `watch-history.json` members — a non-Takeout archive (an Instagram
-        # or TikTok export, say) reads as an empty zip to it and previously
-        # still carried the "YouTube Takeout (zip)" label into the preview's
-        # "found no saved links" warning, naming the wrong platform. Only
-        # claim the specific label when it actually found Takeout-shaped
-        # content; otherwise a generic one, same "unzip it and drop the
-        # individual file" guidance either way (via the caller's `total == 0`
-        # warning below).
-        zip_items = parse_youtube_takeout_zip(content, warnings)
-        zip_label = "YouTube Takeout (zip)" if zip_items else "ZIP archive"
-        return zip_items, zip_label, False
+        # Any platform's whole export (``saved_exports``): only the members
+        # whose names are save lists are read, never through the generic
+        # URL-list parsers below. L4 (final review) still holds — an archive
+        # with nothing recognized keeps the generic "ZIP archive" label rather
+        # than naming a platform it is not.
+        result = saved_exports.parse_archive(content, include_history=include_history)
+        if warnings is not None:
+            warnings.extend(result.warnings)
+        return result.items, result.label, False
+    if name.endswith(".js"):
+        # X's archive keeps every list as ``window.YTD.<name>.part0 = [...]``;
+        # only the like and bookmark lists are saves. Its messages, posts and
+        # the archive viewer's own scripts are refused unread.
+        base = Path(filename or name).name
+        if saved_exports.is_save_list(base):
+            items, _platform, _excluded = saved_exports.parse_member(base, content)
+            return items, saved_exports.LABEL_BY_PLATFORM["x"], False
+        raise ValueError("This .js file is not a list of saves. From an X archive, drop like.js or the whole .zip.")
     if name.endswith(".txt"):
+        base = Path(filename or name).name
+        if saved_exports.is_save_list(base):
+            # TikTok's TXT export, one file per list.
+            items, _platform, excluded = saved_exports.parse_member(base, content, include_history=include_history)
+            if excluded and warnings is not None:
+                warnings.append(saved_exports.history_warning(excluded))
+            return items, saved_exports.LABEL_BY_PLATFORM["tiktok"], False
         return parse_url_list(content.decode("utf-8", errors="replace")), "URL List", False
     raise ValueError(
-        "Unsupported file format. Use .html, .json, .csv, .txt, .plist, .zip, or .xml/.rss/.atom"
+        "Unsupported file format. Use .html, .json, .csv, .txt, .js, .plist, .zip, or .xml/.rss/.atom"
     )
 
 
@@ -1375,6 +1478,7 @@ PLATFORM_BY_LABEL = {
     "LinkedIn Saved": "linkedin",
     "TikTok Export": "tiktok",
     "Reddit Saved Export": "reddit",
+    "X Archive": "x",
 }
 
 # What ONE grouping is called on each platform, so the overlay can say
@@ -1389,6 +1493,7 @@ COLLECTION_KIND_BY_PLATFORM = {
     "linkedin": "saved",
     "tiktok": "list",
     "reddit": "saved",
+    "x": "list",
     "unknown": "list",
 }
 
@@ -1437,6 +1542,13 @@ def preview_upload(
             [f"Could not parse {filename or 'this file'}: {type(e).__name__}: {e}"],
         )
 
+    return describe_items(items, label, warnings)
+
+
+def describe_items(items: list[RawItem], label: str, warnings: list[str] | None = None) -> UploadPreview:
+    """Count parsed items by collection — the preview's body, shared with the
+    command line's ``cicada import --preview`` (a folder it walked itself)."""
+    warnings = list(warnings or [])
     platform = PLATFORM_BY_LABEL.get(label, "unknown")
     kind = COLLECTION_KIND_BY_PLATFORM.get(platform, "list")
 
@@ -1454,15 +1566,16 @@ def preview_upload(
             "an archive, unzip it and drop the individual export file instead."
         )
     # M3 (final review): mirror the SAME check `POST /sources/upload`'s
-    # confirm path enforces (`len(items) > MAX_BATCH` -> 413), on the SAME
-    # basis (`items`, before the URL-filtering `counts` above) — the preview
-    # promising an import Confirm then refuses is the bug being fixed, so the
-    # two checks must agree exactly. Deliberately a warning only: Confirm
-    # still hard-rejects rather than silently importing a truncated first
-    # slice, so this preview must not claim partial success either.
-    if len(items) > MAX_BATCH:
+    # confirm path enforces (`len(items) > MAX_UPLOAD_ITEMS` -> 413), on the
+    # SAME basis (`items`, before the URL-filtering `counts` above) — the
+    # preview promising an import Confirm then refuses is the bug being fixed,
+    # so the two checks must agree exactly. Deliberately a warning only:
+    # Confirm still hard-rejects rather than silently importing a truncated
+    # first slice, so this preview must not claim partial success either.
+    # Below the cap a large upload is imported `MAX_BATCH` at a time.
+    if len(items) > MAX_UPLOAD_ITEMS:
         warnings.append(
-            f"{len(items):,} items exceeds the {MAX_BATCH:,}-item batch cap — "
+            f"{len(items):,} items exceeds the {MAX_UPLOAD_ITEMS:,}-item import cap — "
             "Confirm will reject this import; split the export into smaller "
             "files first."
         )
@@ -1914,6 +2027,41 @@ def write_note_episode(memory_path: Path, item: RawItem, existing: IngestResult)
 # --- Single-item ingest + batch ---
 
 
+def _primary(idx: dict, h: str) -> str:
+    """An ``alias_of`` row's page row (itself for a page row)."""
+    entry = idx.get(h)
+    target = entry.get("alias_of") if isinstance(entry, dict) else None
+    return target if isinstance(target, str) and target in idx else h
+
+
+def existing_hash(item: RawItem, idx: dict) -> str | None:
+    """The ``url_index`` page row this item already is — by its URL or any of its
+    aliases, an ``alias_of`` row followed to its page — or ``None``."""
+    for url in (item.url, *item.aliases):
+        if not url:
+            continue
+        h = url_hash(url)
+        if h in idx:
+            return _primary(idx, h)
+    return None
+
+
+def index_aliases(item: RawItem, idx: dict, primary: str) -> bool:
+    """Every URL of ``item`` the index does not hold yet, as an ``alias_of`` row
+    of ``primary``. Returns whether ``idx`` changed."""
+    entry = idx.get(primary) or {}
+    changed = False
+    for url in (item.url, *item.aliases):
+        if not url:
+            continue
+        h = url_hash(url)
+        if h in idx:
+            continue
+        idx[h] = {"media_entity_id": entry.get("media_entity_id", ""), "url": url, "alias_of": primary}
+        changed = True
+    return changed
+
+
 def _backfill_content_saved_at(existing: dict, item: RawItem) -> bool:
     """A duplicate hit is not a pure no-op (Devin round 1, PR #26 finding 1).
 
@@ -1953,7 +2101,7 @@ class PreparedItem:
 async def prepare_one(item: RawItem, memory_path: Path, client, idx: dict,
                       from_bookmark_file: bool = False) -> PreparedItem:
     """The network half of :func:`ingest_one`: enrich a link the index does not hold yet. Writes nothing."""
-    if url_hash(item.url) in idx:
+    if existing_hash(item, idx) is not None:
         return PreparedItem(item, None, from_bookmark_file)
     if item.defer_enrich:
         ref = video_urls.resolve(item.url)
@@ -1982,8 +2130,10 @@ def write_prepared(prepared: PreparedItem, memory_path: Path, idx: dict) -> Inge
     prepared is a duplicate (and one dropped since gets the offline metadata)."""
     item, from_bookmark_file = prepared.item, prepared.from_bookmark_file
     h = url_hash(item.url)
-    if h in idx:
-        existing = idx[h]
+    found = existing_hash(item, idx)
+    if found is not None:
+        existing = idx[found]
+        index_aliases(item, idx, found)
         # Caller is responsible for persisting `idx` afterward — every
         # current caller (`POST /sources/save`, the Telegram `/save` path)
         # already calls `save_url_index` unconditionally right after this
@@ -2025,6 +2175,7 @@ def write_prepared(prepared: PreparedItem, memory_path: Path, idx: dict) -> Inge
     validated_added = saved_at.validate(item.added)
     if validated_added:
         idx[h]["content_saved_at"] = validated_added
+    index_aliases(item, idx, h)
     return IngestResult(
         status="created",
         media_entity_id=entity_id,
@@ -2064,16 +2215,22 @@ def _dedup_items(items: list[RawItem], idx: dict) -> tuple[list[RawItem], int, b
     for item in items:
         if not item.url:
             continue
-        h = url_hash(item.url)
-        if h in idx:
+        found = existing_hash(item, idx)
+        if found is not None:
             skipped += 1
-            if _backfill_content_saved_at(idx[h], item):
+            if _backfill_content_saved_at(idx[found], item):
+                backfilled = True
+            # The same thing under another of its URLs (a connector's outbound
+            # link for a permalink an export brought in): remembered as an alias
+            # so a later save of that URL is a duplicate too.
+            if index_aliases(item, idx, found):
                 backfilled = True
             continue
-        if h in seen:
+        hashes = {url_hash(u) for u in (item.url, *item.aliases) if u}
+        if hashes & seen:
             skipped += 1
             continue
-        seen.add(h)
+        seen |= hashes
         fresh.append(item)
     return fresh, skipped, backfilled
 
@@ -2144,6 +2301,27 @@ async def ingest_batch(
             logger.warning(f"Media commit failed: {type(e).__name__}: {e}")
 
     return created, len(items) - len(fresh)
+
+
+async def ingest_chunked(
+    items: list[RawItem],
+    memory_path: Path,
+    from_bookmark_file: bool = False,
+) -> tuple[int, int]:
+    """:func:`ingest_batch` over ``MAX_BATCH``-sized slices, each saving
+    ``url_index`` and committing on its own, so an archive larger than one batch is
+    imported whole and an interruption keeps every finished slice. The slice in
+    progress is not atomic: its pages are written before its ``url_index`` rows are
+    saved, so an interruption can leave some of its pages on disk unindexed, and a
+    re-import then writes those items again (duplicates, never a loss). Returns
+    ``(created, duplicates)``."""
+    created = duplicates = 0
+    step = max(1, MAX_BATCH)
+    for start in range(0, len(items), step):
+        c, d = await ingest_batch(items[start:start + step], memory_path, from_bookmark_file=from_bookmark_file)
+        created += c
+        duplicates += d
+    return created, duplicates
 
 
 async def _commit_media(

@@ -5,7 +5,7 @@ import XCTest
 final class SpineTextureTests: XCTestCase {
     func testKindMapIsTotalAndMatchesTheSpecTable() {
         let chat = "mcp claude-code claude-desktop cursor codex gemini-cli claude-export chatgpt-export gemini-export claude-web chatgpt perplexity claude-code-remote codex-remote vscode remote-app grok opencode hermes openclaw telegram".split(separator: " ").map(String.init)
-        let page = "chrome-bookmark safari-bookmark safari-tab bookmark saved-link share-sheet brave-bookmark vivaldi-bookmark comet-bookmark dia-bookmark chrome-tab-group rss instagram-saved pinterest reddit-saved reddit x-bookmarks x linkedin-saved".split(separator: " ").map(String.init)
+        let page = "chrome-bookmark safari-bookmark safari-tab bookmark saved-link share-sheet brave-bookmark vivaldi-bookmark comet-bookmark dia-bookmark chrome-tab-group rss instagram-saved pinterest reddit-saved reddit x-bookmarks x-likes x linkedin-saved".split(separator: " ").map(String.init)
         let note = ["apple-notes", "wispr-flow", "folder"], video = ["youtube-playlist", "tiktok-saved", "tiktok-history"]
         let other = ["calendar", "calendar-local", "contacts-local", "unknown", "+more", "unlisted"]
         for (kind, origins) in [(SpineKind.chat, chat), (.page, page), (.note, note), (.video, video), (.other, other)] {

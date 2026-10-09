@@ -207,10 +207,13 @@ struct WelcomeDrop: Identifiable, Equatable {
 
 /// The one import seam (R-IA20) — testable with a fake.
 protocol IntakeAPI: Sendable {
-    func sniffIntake(fileURL: URL, bank: String?) async throws -> IntakeSniff
+    /// `name`: a walked folder's file, named by its path inside the folder (`export/data/like.js`). The backend
+    /// reads such a file only when it is a save list, by the same allow-list as a zip's members; nil sends the
+    /// file's own name (a file the person dropped by itself).
+    func sniffIntake(fileURL: URL, bank: String?, name: String?) async throws -> IntakeSniff
     func importIntake(fileURL: URL, bank: String?) async throws -> IntakeImportResponse
     func intakeJob(id: String) async throws -> IntakeJobStatus
-    func uploadSaved(fileURL: URL) async throws -> UploadResponse
+    func uploadSaved(fileURL: URL, name: String?) async throws -> UploadResponse
 }
 
 /// Track I T5 (design §5.1, spec decision 13) — every way a file arrives goes
@@ -238,6 +241,86 @@ final class IntakeRouter {
     /// `.plist` — Safari's exported `Bookmarks.plist`).
     nonisolated static let exportExtensions: Set<String> = ["json", "html", "htm", "zip", "csv", "txt", "xml",
                                                             "rss", "atom", "opml", "plist"]
+    /// X's archive keeps each list as a script (`data/like.js`). Only the like and bookmark lists are saves —
+    /// `saved_exports.is_save_list`'s rule — so a folder walk sends no message, post or viewer script.
+    nonisolated static let xSaveLists: Set<String> = ["like", "likes", "bookmark", "bookmarks"]
+
+    /// TikTok's TXT export, one file per list — `saved_exports._TIKTOK_TXT`.
+    nonisolated static let tiktokTextLists: Set<String> = ["like list.txt", "favorite videos.txt",
+                                                           "video browsing history.txt", "browsing history.txt",
+                                                           "watch history.txt"]
+    /// The chat side's pages: Gemini's Takeout activity and ChatGPT's viewer (named as skipped).
+    nonisolated static let chatPages: Set<String> = ["myactivity.html", "chat.html"]
+
+    /// `saved_exports.is_save_list` for the scripts, CSVs and text files the chat side never reads: an X like or
+    /// bookmark list, a TikTok TXT list, a Takeout playlist, Reddit's saved lists, LinkedIn's saved items.
+    nonisolated static func isSaveListPath(_ path: String) -> Bool {
+        let low = path.lowercased()
+        let name = (low as NSString).lastPathComponent
+        let ext = (name as NSString).pathExtension
+        let stem = (name as NSString).deletingPathExtension
+        switch ext {
+        case "js": return isExportFile(URL(fileURLWithPath: name))
+        case "txt": return tiktokTextLists.contains(name)
+        case "csv":
+            if low.contains("playlists/") { return true }
+            let reddit = stem.replacingOccurrences(of: "-", with: "_")
+            if reddit.hasPrefix("saved_posts") || reddit.hasPrefix("saved_comments") { return true }
+            return stem.replacingOccurrences(of: "_", with: " ").replacingOccurrences(of: "-", with: " ")
+                .contains("saved item")
+        default: return false
+        }
+    }
+
+    /// What a walk inside a dropped folder keeps — narrower than a file dropped by itself: any `.json` and `.zip`
+    /// (the chat side reads them by content), the chat side's two pages, and otherwise only save lists. So an export
+    /// folder's contacts (LinkedIn's `Connections.csv`), an archive's viewer page (X's `Your archive.html`) or its
+    /// message pages never leave this Mac.
+    nonisolated static func isWalkedExportFile(_ url: URL) -> Bool {
+        let name = url.lastPathComponent.lowercased()
+        switch url.pathExtension.lowercased() {
+        case "json", "zip": return true
+        case "html", "htm": return chatPages.contains(name)
+        default: return isSaveListPath(url.path)
+        }
+    }
+
+    /// Each walked file's path inside the folder it was dropped in, the folder's own name first
+    /// (`Takeout/YouTube and YouTube Music/playlists/Later-videos.csv`). A file dropped by itself has none. Each
+    /// dropped folder is matched under every spelling the walk may hand back (`/tmp` vs `/private/tmp`).
+    nonisolated static func memberNames(found: [URL], drops: [URL]) -> [URL: String] {
+        var bases: [(spelled: [String], name: String)] = []
+        for drop in drops {
+            var isDir: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: drop.path, isDirectory: &isDir), isDir.boolValue else { continue }
+            for spelled in [drop.pathComponents, resolved(drop).pathComponents, realPath(drop)?.pathComponents]
+                .compactMap({ $0 }) {
+                bases.append((spelled, drop.lastPathComponent))
+            }
+        }
+        bases.sort { $0.spelled.count > $1.spelled.count }
+        var out: [URL: String] = [:]
+        for file in found {
+            let path = file.pathComponents
+            guard let base = bases.first(where: { path.count > $0.spelled.count && path.starts(with: $0.spelled) })
+            else { continue }
+            out[file] = ([base.name] + path.dropFirst(base.spelled.count)).joined(separator: "/")
+        }
+        return out
+    }
+
+    /// Whether a file is one the walk keeps: an export-shaped extension, or one of X's save lists.
+    nonisolated static func isExportFile(_ url: URL) -> Bool {
+        let ext = url.pathExtension.lowercased()
+        if exportExtensions.contains(ext) { return true }
+        guard ext == "js" else { return false }
+        let stem = url.deletingPathExtension().lastPathComponent.lowercased()
+        if xSaveLists.contains(stem) { return true }
+        guard let dash = stem.range(of: "-part") else { return false }
+        let digits = stem[dash.upperBound...]
+        return xSaveLists.contains(String(stem[..<dash.lowerBound])) && !digits.isEmpty
+            && digits.allSatisfy(\.isNumber)
+    }
 
     private(set) var phase: IntakePhase = .idle
     private(set) var host: IntakeHost = .overlay
@@ -260,6 +343,9 @@ final class IntakeRouter {
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private var files: [URL] = []
     @ObservationIgnored private var capped = false
+    /// Every admitted file that came from walking a dropped folder, named by its path inside that folder
+    /// (`memberNames`). Kept until the next drop replaces it, so a commit names its files as the sniff did.
+    @ObservationIgnored private var memberNames: [URL: String] = [:]
     /// The last sniff's preview, for the importing line's noun and the Into
     /// picker's "new memory" delta.
     private(set) var sniffedPreview: IntakePreview?
@@ -365,6 +451,7 @@ final class IntakeRouter {
             phase = .failed(refusal.panelText)
             return .refused(refusal)
         case .admitted(let found, let wasCapped):
+            memberNames.merge(Self.memberNames(found: found, drops: urls)) { _, new in new }
             if welcomeActive {
                 stageForWelcome(found, capped: wasCapped)
                 return .accepted
@@ -424,7 +511,7 @@ final class IntakeRouter {
             for url in files {
                 guard gen == self.generation else { return }
                 do {
-                    let s = try await self.tracked { try await self.api.sniffIntake(fileURL: url, bank: bank) }
+                    let s = try await self.tracked { try await self.api.sniffIntake(fileURL: url, bank: bank, name: self.memberNames[url]) }
                     results.append(IntakeFileSniff(url: url, sniff: s))
                 } catch {
                     results.append(IntakeFileSniff(url: url, error: AddSourceSheet.friendlyError(error)))
@@ -481,7 +568,7 @@ final class IntakeRouter {
             }
             for url in preview.savedFiles {
                 do {
-                    let r = try await self.tracked { try await self.api.uploadSaved(fileURL: url) }
+                    let r = try await self.tracked { try await self.api.uploadSaved(fileURL: url, name: self.memberNames[url]) }
                     outcome.savedCreated += r.episodesCreated
                     outcome.unchanged += r.duplicatesSkipped
                 } catch {
@@ -552,7 +639,7 @@ final class IntakeRouter {
             var results: [IntakeFileSniff] = []
             for url in files {
                 do {
-                    let s = try await self.tracked { try await self.api.sniffIntake(fileURL: url, bank: nil) }
+                    let s = try await self.tracked { try await self.api.sniffIntake(fileURL: url, bank: nil, name: self.memberNames[url]) }
                     results.append(IntakeFileSniff(url: url, sniff: s))
                 } catch {
                     results.append(IntakeFileSniff(url: url, error: AddSourceSheet.friendlyError(error)))
@@ -625,7 +712,7 @@ final class IntakeRouter {
         }
         for url in preview.savedFiles {
             do {
-                let r = try await tracked { try await api.uploadSaved(fileURL: url) }
+                let r = try await tracked { try await api.uploadSaved(fileURL: url, name: memberNames[url]) }
                 outcome.savedCreated += r.episodesCreated
                 outcome.unchanged += r.duplicatesSkipped
             } catch {
@@ -796,9 +883,9 @@ final class IntakeRouter {
     nonisolated static func expand(_ urls: [URL], fileManager fm: FileManager = .default,
                                    prune: (URL) -> Bool = { _ in false }) -> (files: [URL], capped: Bool) {
         var out: [URL] = []
-        func consider(_ url: URL) {
+        func consider(_ url: URL, walked: Bool) {
             guard !url.lastPathComponent.hasPrefix("."), !url.pathComponents.contains("__MACOSX") else { return }
-            if exportExtensions.contains(url.pathExtension.lowercased()) { out.append(url) }
+            if walked ? isWalkedExportFile(url) : isExportFile(url) { out.append(url) }
         }
         for url in urls {
             var isDir: ObjCBool = false
@@ -809,10 +896,10 @@ final class IntakeRouter {
                                            options: [.skipsHiddenFiles, .skipsPackageDescendants])
                 while let next = walker?.nextObject() as? URL, out.count <= maxFiles {
                     if prune(next) { walker?.skipDescendants(); continue }
-                    consider(next)
+                    consider(next, walked: true)
                 }
             } else {
-                consider(url)
+                consider(url, walked: false)
             }
             if out.count > maxFiles { break }
         }

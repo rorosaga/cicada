@@ -88,9 +88,9 @@ def test_no_generic_dispatcher_row():
         assert not any(a.prop in {"tool", "name", "arguments"} and a.positional for a in row.args), row.name
 
 
-def test_slice_one_exposes_its_eight_commands_only():
+def test_slice_one_exposes_its_eight_commands_and_import_only():
     assert {r.name for r in cli_map.exposed()} == {"recall", "get", "project", "continue", "save", "handshake",
-                                                   "status", "commands"}
+                                                   "status", "commands", "import"}
     assert cli_map.exposed_tools() == frozenset({"cicada_recall", "cicada_recall_detail", "cicada_project",
                                                  "cicada_continue", "cicada_save_episode", "cicada_handshake"})
 

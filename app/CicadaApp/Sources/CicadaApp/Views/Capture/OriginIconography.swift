@@ -34,7 +34,7 @@ enum OriginIconography {
         "chrome-bookmark", "safari-bookmark", "safari-tab", "apple-notes",
         "telegram", "rss", "calendar", "share-sheet", "bookmark", "saved-link",
         "instagram-saved", "youtube-playlist", "pinterest", "reddit-saved", "reddit",
-        "x-bookmarks", "x", "linkedin-saved", "tiktok-saved", "tiktok-history", "unknown",
+        "x-bookmarks", "x-likes", "x", "linkedin-saved", "tiktok-saved", "tiktok-history", "unknown",
         // G133 / G134 — a watched folder's episodes and Wispr Flow's.
         "folder", "wispr-flow",
         // Round-4 D2 (C6, R-FA13): the Calendar app read on this Mac — the backend track stamps it.
@@ -96,6 +96,7 @@ enum OriginIconography {
         case "pinterest": "Pinterest"
         case "reddit-saved": "Reddit Saved"
         case "x-bookmarks": "X Bookmarks"
+        case "x-likes": "X Likes"
         case "linkedin-saved": "LinkedIn Saved"
         case "tiktok-saved": "TikTok Saved"
         case "tiktok-history": "TikTok History"
@@ -160,7 +161,7 @@ enum OriginIconography {
         case "youtube-playlist": "play.rectangle.fill"
         case "pinterest": "pin.fill"
         case "reddit-saved", "reddit": "bubble.left.and.text.bubble.right.fill"
-        case "x-bookmarks", "x": "x.circle"
+        case "x-bookmarks", "x-likes", "x": "x.circle"
         case "linkedin-saved": "briefcase.fill"
         case "tiktok-saved": "music.note"
         case "tiktok-history": "clock.arrow.circlepath"
@@ -204,7 +205,7 @@ enum OriginIconography {
         case "youtube-playlist": Color(hex: 0xFF0000)
         case "pinterest": Color(hex: 0xE60023)
         case "reddit-saved", "reddit": Color(hex: 0xFF4500)
-        case "x-bookmarks", "x": Color(hex: 0x14171A)
+        case "x-bookmarks", "x-likes", "x": Color(hex: 0x14171A)
         case "linkedin-saved": Color(hex: 0x0A66C2)
         case "tiktok-saved", "tiktok-history": Color(hex: 0xFE2C55)
         // Google blue, the same swatch the Chrome row carries — same vendor,
@@ -258,7 +259,7 @@ enum OriginIconography {
         case "telegram": "telegram"
         case "pinterest": "pinterest"
         case "reddit-saved", "reddit": "reddit"
-        case "x-bookmarks", "x": "x"
+        case "x-bookmarks", "x-likes", "x": "x"
         case "linkedin-saved": "linkedin"
         case "tiktok-saved", "tiktok-history": "tiktok"
         case "instagram-saved": "instagram"

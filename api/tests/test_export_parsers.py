@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 
-from api.services import media_ingestor
+from api.services import media_ingestor, saved_exports
 
 # --- LinkedIn saved items ----------------------------------------------------
 
@@ -140,9 +140,7 @@ def test_preview_reports_tiktok_lists_with_counts():
     ]
     # Browsing History is excluded by default (ambient exhaust, not a save) —
     # but the preview must still SAY so rather than silently hiding it.
-    assert preview.warnings == [
-        "Browsing history (1 item) excluded by default — enable it when importing."
-    ]
+    assert preview.warnings == [saved_exports.history_warning(1)]
 
 
 def test_preview_reports_tiktok_history_count_with_plural_and_omits_warning_when_opted_in():
@@ -163,9 +161,7 @@ def test_preview_reports_tiktok_history_count_with_plural_and_omits_warning_when
     preview_plural = media_ingestor.preview_upload(
         json.dumps(with_extra_history).encode(), "user_data.json"
     )
-    assert preview_plural.warnings == [
-        "Browsing history (2 items) excluded by default — enable it when importing."
-    ]
+    assert preview_plural.warnings == [saved_exports.history_warning(2)]
 
     # Opting in via include_history=True: history is no longer EXCLUDED, so no
     # warning — it shows up in the parsed items instead.

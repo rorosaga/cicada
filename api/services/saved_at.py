@@ -112,6 +112,20 @@ def from_netscape_epoch(raw: object) -> str | None:
     return _epoch_seconds_to_iso_date(seconds)
 
 
+def from_unix_seconds(raw: object) -> str | None:
+    """A Unix-seconds ``timestamp`` (Meta's exports: Instagram's saved and liked
+    posts), as an int, a float or a numeric string. ``<= 0`` is unset."""
+    if raw is None or raw == "" or isinstance(raw, bool):
+        return None
+    try:
+        seconds = float(str(raw).strip())
+    except (TypeError, ValueError):
+        return None
+    if seconds <= 0:
+        return None
+    return _epoch_seconds_to_iso_date(seconds)
+
+
 def from_webkit_micros(raw: object) -> str | None:
     """Chrome bookmarks ``date_added`` — microseconds since 1601-01-01T00:00:00Z."""
     if raw is None or raw == "":

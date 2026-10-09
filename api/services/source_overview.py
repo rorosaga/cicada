@@ -97,7 +97,8 @@ CATALOG: tuple[SourceSpec, ...] = (
     SourceSpec("chrome-tab-groups", "Chrome tab groups", "browser", "chrome-tab-group", ("chrome-tab-group",), "chrome-tab-groups"),
     SourceSpec("pinterest", "Pinterest", "social", "pinterest", ("pinterest",), "pinterest"),
     SourceSpec("reddit", "Reddit", "social", "reddit-saved", ("reddit-saved",), "reddit"),
-    SourceSpec("x", "X", "social", "x-bookmarks", ("x-bookmarks",), "x"),
+    # `x-likes`: the X archive's like.js (saved_exports); bookmarks come from the connector.
+    SourceSpec("x", "X", "social", "x-bookmarks", ("x-bookmarks", "x-likes"), "x"),
     SourceSpec("instagram", "Instagram", "social", "instagram-saved", ("instagram-saved",), None),
     SourceSpec("youtube", "YouTube", "social", "youtube-playlist", ("youtube-playlist",), None),
     SourceSpec("linkedin", "LinkedIn", "social", "linkedin-saved", ("linkedin-saved",), None),

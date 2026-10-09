@@ -452,19 +452,32 @@ def _import_response(result: ImportResult, job: intake_jobs.Job | None = None) -
 # --- Sniff (R-IA11) -----------------------------------------------------------
 
 
+def _saved_sniff(content: bytes, filename: str) -> IntakeSniffResponse | None:
+    saved = media_ingestor.preview_upload(content, filename)
+    if not saved.recognized:
+        return None
+    return IntakeSniffResponse(recognized=True, kind="saved", platform=saved.platform,
+                               members=[PurePosixPath(filename or "").name], counts=IntakeCounts(items=saved.total),
+                               warnings=saved.warnings)
+
+
 def sniff_bytes(content: bytes, filename: str, settings: Settings, bank: str | None) -> IntakeSniffResponse:
-    name = PurePosixPath(filename or "").name
     try:
         parsed = parse_export(content, filename)
     except HTTPException as exc:
         reason = str(exc.detail)
         if reason not in FINAL_REFUSALS:
-            saved = media_ingestor.preview_upload(content, filename)
-            if saved.recognized:
-                return IntakeSniffResponse(recognized=True, kind="saved", platform=saved.platform,
-                                           members=[name], counts=IntakeCounts(items=saved.total),
-                                           warnings=saved.warnings)
+            saved = _saved_sniff(content, filename)
+            if saved is not None:
+                return saved
         return IntakeSniffResponse(recognized=False, reason=reason)
+    if not parsed.episodes and (filename or "").lower().endswith(".zip"):
+        # A platform archive the chat reader found no chat in, though it named
+        # a member it skips (Takeout's per-product activity pages): its save
+        # lists are still offered (``saved_exports``).
+        saved = _saved_sniff(content, filename)
+        if saved is not None:
+            return saved
     if not parsed.episodes:
         return IntakeSniffResponse(
             recognized=False,
