@@ -907,7 +907,7 @@ the commit that writes the page) — so a page said in 2024 and again in 2026 en
 the two were read in or where the batches broke, and a one-off from 2024 is archived on the day it is read. Claims
 follow the same rule (`claim_reconciler.claim_silence`): a claim minted from a dated conversation stamps its
 watermark at that day; a restatement that raises its confidence sets the watermark back to its last mention, so the
-raised value is aged from when it was said; a subject read this pass is charged its proven silence only. A claim
+raised value is aged from when it was said (an agent's live write, with no dated conversation, counts as said today); a subject read this pass is charged its proven silence only. Only Sleep charges claims: the agent and progress writers reconcile with `decay=False` (G85). A claim
 with no dated conversation keeps the old anchor (`recorded_at`, else `valid_from`). **Heard late, asked nothing:** a
 page or claim whose last mention was read more than seven days after it was said (`decay_policy.heard_late`) fades
 to `decaying` or `archived` without a decay question; the person is asked only about what went quiet while Cicada
