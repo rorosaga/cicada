@@ -855,8 +855,8 @@ constraining the prose; git is the safety net, the claims and the dated timeline
   (`bound_summary`, `lead`, `retain_orientation`) and the orientation `restated`/`covered` fold — exists because the
   Summary was capped and was the only prose; on an article page it no longer runs (the merges keep an article's lead
   as written), and it stays only for stubs and for banks with articles off. With articles on, the orientation call
-  serves no page (stubs take the deterministic merge), so retiring `summary_synthesis_enabled` is the next
-  simplification once articles are the default.
+  serves only a page over the article budget that has no article yet (stubs take the deterministic merge), so
+  retiring `summary_synthesis_enabled` is the next simplification once articles are the default.
 - **Measured offline** (`python -m benchmarks.system.page_articles --scratch <new-dir>`; a 15-conversation project, a
   5-conversation person and a one-conversation tool, one conversation per batch, fakes only): calls are equal — 36 over
   15 batches either way (18 write + 18 contradiction; today's write is the orientation call) — prompts grow 42%
