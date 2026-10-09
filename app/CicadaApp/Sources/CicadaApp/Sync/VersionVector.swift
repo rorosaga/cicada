@@ -32,6 +32,9 @@ struct VersionVector: Codable, Equatable {
         // fetch changes `/graph`'s `hasLogo` and nothing else, so it needs its
         // own key or the node keeps painting a monogram.
         "logos": [.graph],
+        // G159 (2026-10-09): a person's public-profile photo is cached outside the bank as well; a fetch, or a miss
+        // aging out, moves `/graph`'s versioned `picture` and nothing else.
+        "photos": [.graph],
         // The telemetry ledger and the consumption endpoints' etags all move
         // together with the current `events-YYYY-MM.jsonl` mtime (see
         // `sync_service.components`'s "telemetry" key) — one component so the

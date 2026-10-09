@@ -226,10 +226,12 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   never creating one. A site is trusted only when the person added or took it, or Cicada's own read confirmed it; a
   destructive verdict needs positive evidence. Agents check sources before a question reaches the person only on sites the
   person allowed, and **a check never settles, reorders or changes a belief** (S3 is shadow).
-- **Pictures:** one precedence (the person's choice → Contacts photo → a brand's logo → a media thumbnail → a monogram).
-  **A logo comes only from a trusted `website` source — never a domain guessed from a name; a person never gets a logo and
-  no service is sent a person's name (G146/G159).** Logos, pictures, media previews (fetched once, then served from the
-  store) and repo observations are caches outside every bank.
+- **Pictures:** one precedence (the person's choice → Contacts photo → a person's public-profile photo → a brand's logo →
+  a media thumbnail → a monogram). **A logo comes only from a trusted `website` source — never a domain guessed from a
+  name; a person never gets a logo and no service is sent a person's name (G146/G159).** A person's photo is asked only
+  with an identifier already on the page or record — the owner's hashed email, a GitHub profile link (`network.md`).
+  Logos, pictures, media previews (fetched once, then served from the store) and repo observations are caches outside
+  every bank.
 - **Backlogs (G150):** one markdown file per item, one writer behind every door, never an entity page.
 - **`_state.md` is a cursor, never a copy**; it commits ALONE, the read path too (the G85-class smear). **The handshake is
   ≤ 1,800 tokens, and R12 holds: every argument a primer names exists in the tool schema.**

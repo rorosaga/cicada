@@ -37,6 +37,14 @@ final class VersionVectorTests: XCTestCase {
         XCTAssertEqual(new.changedDomains(since: old), [.graph])
     }
 
+    /// G159 (2026-10-09) — a person's public-profile photo is cached outside the bank too; a fetch or a miss aging
+    /// out moves only the `photos` component, and `/graph` carries the node's versioned `picture`.
+    func testPhotosComponentRefreshesTheGraph() {
+        let old = VersionVector(version: "1", components: ["photos": "a", "bank": "x"])
+        let new = VersionVector(version: "2", components: ["photos": "b", "bank": "x"])
+        XCTAssertEqual(new.changedDomains(since: old), [.graph])
+    }
+
     /// `sync_service.components` folds `feeds.yaml` and `calendars.yaml` into
     /// the `sources` component, so a `sources` bump must refresh the calendar
     /// list too — subscribing to an ICS feed changes nothing else. G124 R7:

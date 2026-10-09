@@ -76,7 +76,7 @@ def test_an_upload_is_stored_in_the_bank_and_commits_alone_as_the_person(client)
     assert r.json() == {"entityId": "bob-example", "picture": f"/entities/bob-example/picture?v={sha}",
                         "pictureSource": "upload",
                         "pictureInputs": {"type": "person", "choice": "upload", "uploadSha": sha,
-                                          "contactsSha": None, "logo": False, "thumbnail": None}}
+                                          "contactsSha": None, "logo": False, "thumbnail": None, "profile": False, "profileSha": None}}
     assert (bank / "assets" / "pictures" / "bob-example.png").read_bytes() == data
     picture = markdown_parser.parse(bank / "entities" / "bob-example.md").frontmatter["picture"]
     assert (picture["kind"], picture["sha"], picture["ext"]) == ("upload", sha, "png")

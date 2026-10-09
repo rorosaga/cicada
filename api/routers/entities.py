@@ -51,6 +51,7 @@ from api.services import (
     markdown_parser,
     media_preview,
     page_lock,
+    person_photo,
     repo_context,
     repo_observations,
     telemetry,
@@ -320,6 +321,28 @@ async def get_entity_picture(entity_id: str, request: Request, settings: Setting
     if request.headers.get("if-none-match") == etag:
         return Response(status_code=304, headers=headers)
     return Response(content=data, media_type=media_type, headers=headers)
+
+
+#: G159 (2026-10-09) — at most two people's public-profile lookups at once (`_LOGO_FETCH_SEMAPHORE`'s reason).
+_PHOTO_FETCH_SEMAPHORE = asyncio.Semaphore(2)
+
+
+@router.get("/entities/{entity_id}/photo")
+async def get_entity_photo(entity_id: str, request: Request, settings: Settings = Depends(get_settings)):
+    """G159 amendment — a person's public-profile photo, fetched ONCE on demand from an identifier already on the page
+    (`person_photo`), then served from the copy outside the bank. 404 means none: no identifier, a remembered miss,
+    a gate off, or the person's own choice or Contacts photo outranks it. `GET /graph` never comes through here."""
+    _entity_page(settings, entity_id)
+    async with _PHOTO_FETCH_SEMAPHORE:
+        path = await person_photo.ensure_photo(settings.memory_path, entity_id)
+    if path is None or not path.is_file():
+        raise HTTPException(404, "no photo for this person")
+    data = path.read_bytes()
+    etag = '"' + entity_picture.sha12(data) + '"'
+    headers = {"ETag": etag, "Cache-Control": "private, max-age=86400"}
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=headers)
+    return Response(content=data, media_type=person_photo.MEDIA_TYPES[path.suffix.lstrip(".")], headers=headers)
 
 
 @router.post("/entities/{entity_id}/picture", response_model=EntityPictureResponse)

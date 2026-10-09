@@ -171,6 +171,14 @@ def _build_full(memory_path: Path) -> GraphResponse:
         logo_misses = logo_service.missed_ids(logo_service.bank_name(memory_path))
     except Exception:
         logo_misses = {}
+    # G159 (2026-10-09) — the people-photo index, read once: the public-profile rung is offered while not known to
+    # miss, versioned once a copy is stored. Read-only, like the logo sets.
+    try:
+        from api.services import person_photo
+
+        people_photos = person_photo.read_meta(logo_service.bank_name(memory_path))
+    except Exception:
+        people_photos = {}
     for f in bank_index.files(memory_path, "entities"):
         fm = f.frontmatter
         eid = f.stem
@@ -200,7 +208,7 @@ def _build_full(memory_path: Path) -> GraphResponse:
         # One malformed page must never cost the whole graph its answer (final review, finding 2): no picture, a ring.
         try:
             picture, _ = entity_picture.resolve_page(memory_path, eid, fm, body, page_mtime=f.mtime_ns / 1e9,
-                                                     cached=logo_ids, missed=logo_misses)
+                                                     cached=logo_ids, missed=logo_misses, photos=people_photos)
         except Exception:
             picture = entity_picture.NOTHING
         nodes.append(

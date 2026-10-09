@@ -11,7 +11,7 @@ enum PictureMenuModel {
         switch current.source {
         case .upload: return [.change, .remove]
         case .initials: return [.change] + (detected.map { [.useDetected($0.source)] } ?? [])
-        case .contacts, .logo, .thumbnail: return [.change, .useInitials]
+        case .contacts, .profile, .logo, .thumbnail: return [.change, .useInitials]
         }
     }
 }

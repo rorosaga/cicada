@@ -476,6 +476,9 @@ class PictureInputsModel(CamelModel):
     contacts_sha: Optional[str] = None
     logo: bool = False
     thumbnail: Optional[str] = None
+    #: G159 (2026-10-09) — the public-profile rung: offered (server-decided, like `logo`) and the stored copy's hash.
+    profile: bool = False
+    profile_sha: Optional[str] = None
 
 
 class EntityPictureResponse(CamelModel):

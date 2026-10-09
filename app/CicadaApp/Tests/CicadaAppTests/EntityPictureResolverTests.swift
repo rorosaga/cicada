@@ -47,6 +47,10 @@ final class EntityPictureResolverTests: XCTestCase {
         XCTAssertNil(EntityPictureRef.wire(url: nil, source: "upload"))
         XCTAssertNil(EntityPictureRef.wire(url: "/entities/x/logo", source: nil))
         XCTAssertNil(EntityPictureRef.wire(url: "/entities/x/logo", source: "gravatar"))
+        XCTAssertEqual(EntityPictureRef.wire(url: "/entities/x/photo", source: "profile"),
+                       EntityPictureRef(url: "/entities/x/photo", source: .profile))
+        XCTAssertEqual(PictureURL.parse("/entities/bob-example/photo?v=1a2b3c4d5e6f"),
+                       .api(path: "/entities/bob-example/photo?v=1a2b3c4d5e6f"), "loaded from Cicada, never the service")
     }
 
     /// R-PE6 — Cicada's bearer goes only to Cicada's own API.

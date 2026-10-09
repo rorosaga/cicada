@@ -24,6 +24,20 @@ Three backend gates, and a separate app-side scenery gate below. They do **not**
   and injects fetchers instead. It also gates the icons of the sites Settings, Reading the web, lists (G166): those
   come from the icon service only and the login-walled site is never contacted for its favicon (nor, since
   `fetch_logo` skips its first two rungs for a walled host, is a company or tool page's logo domain when it is one).
+  It also covers a person's public-profile photo, which has a second, narrower gate of its own:
+- **`CICADA_ALLOW_PERSON_PHOTO_FETCH=off`** (G159 amendment, owner 2026-10-09; on by default, off for the test suite)
+  stops every public-profile photo lookup for people while logos keep working. `person_photo` asks only when the app
+  loads `GET /entities/{id}/photo` for a `person` page whose picture would be that rung — never from `/graph`, never
+  from Sleep (a later warm-up would also sit behind `CICADA_ALLOW_CONNECTOR_FETCH`). **What leaves the Mac, exactly:**
+  for the owner's own page, `https://gravatar.com/avatar/<sha256>?s=256&d=404`, where `<sha256>` is the SHA-256 of the
+  owner's Settings email, trimmed and lowercased — the address itself never leaves the Mac and neither it nor the hash
+  is logged or stored; for any person whose page lists a GitHub profile link, `https://github.com/<username>.png?size=256`
+  with the username from that link. Nothing else: no name, no page text, no claim, no cookie or credential, a fixed
+  User-Agent, and (as with any request) the Mac's network address. Each request is `https` to the provider's own hosts
+  only (`gravatar.com` and its subdomains, `github.com`, `avatars.githubusercontent.com`), every redirect hop re-checked
+  against that list and `net_guard`, at most three; 4 s in all, the body streamed and cut past 512 KB; kept only as a
+  PNG or JPEG of 16–1024 px by its bytes (SVG refused whatever its header). `d=404` makes "no photo" a 404, so no
+  default image is cached as a photo. Never X/Twitter, never LinkedIn, never a third-party avatar proxy (the ToS rail).
 
 **The study room's weather has its own app gate (G176, owner 2026-10-02).** It is opt-out through the per-viewer scenery
 setting, not any backend environment variable: Settings → Sleep → The scenery → Local weather (default). Choosing

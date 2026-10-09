@@ -74,6 +74,7 @@ extension Copy {
             case .contacts: "Use the photo from Contacts"
             case .logo: "Use the logo"
             case .thumbnail: "Use the saved preview"
+            case .profile: "Use their public profile photo"
             case .upload, .initials: "Use the picture Cicada found"
             }
         }
@@ -109,6 +110,7 @@ extension Copy {
             case .contacts: "Photo from your Contacts"
             case .logo: "Logo from its website"
             case .thumbnail: "Preview from the saved page"
+            case .profile: "Photo from their public profile"
             case nil: "No picture yet"
             }
         }
