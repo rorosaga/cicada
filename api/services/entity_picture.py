@@ -206,11 +206,13 @@ def resolve_page(memory_path, entity_id: str, fm: dict, body: str, *, page_mtime
     available = logo_available(entity_id, fm, body, cached=cached, missed=missed, page_mtime=page_mtime)
     inputs = inputs_for(fm, logo_available=available)
     if inputs.type == "person":
-        from api.services import person_photo   # it imports this module; the rung's availability is its to say
+        from api.services import demo_guard, person_photo   # it imports this module; the rung is its to say
 
         bank = logo_service.bank_name(Path(memory_path))
+        # A demo's owner page is synthetic: the real owner's email never draws it (one check — one owner page).
+        owner = {} if fm.get("owner") is True and demo_guard.is_demo(Path(memory_path)) else None
         offered, sha = person_photo.available(entity_id, fm, person_photo.read_meta(bank) if photos is None else photos,
-                                              bank=bank)
+                                              owner=owner, bank=bank)
         inputs = replace(inputs, profile=offered, profile_sha=sha)
     return resolve(entity_id, inputs), inputs
 

@@ -316,3 +316,20 @@ def test_reading_never_creates_the_cache_folder(bank):
     assert person_photo.read_meta("default") == {}
     person_photo.stamp("default")
     assert not (Path(logo_service.meta_path("default")).parents[2] / "pictures").exists()
+
+
+def test_a_demo_bank_asks_nobody_and_never_offers_the_owners_email(bank, gates_on, monkeypatch):
+    """A demo is synthetic and made for screenshots: the real owner's email must not draw its owner page."""
+    from api.services import demo_guard, entity_picture, owner_identity
+
+    monkeypatch.setattr(owner_identity, "load_owner", lambda: {"email": "owner@example.com"})
+    demo_guard.write_manifest(bank)
+    write_page(bank, "owner-example", {"owner": True})
+    write_page(bank, "bob-example", {"sources": [GITHUB_SOURCE]})
+    http = FakeHTTP({"https://": FetchResult(200, png_bytes(), "image/png")})
+    for eid in ("owner-example", "bob-example"):
+        assert asyncio.run(person_photo.ensure_photo(bank, eid, fetcher=http)) is None
+    assert http.asked == []
+    fm = markdown_parser.parse(bank / "entities" / "owner-example.md").frontmatter
+    resolved, inputs = entity_picture.resolve_page(bank, "owner-example", fm, "", page_mtime=0.0)
+    assert resolved.source is None and inputs.profile is False

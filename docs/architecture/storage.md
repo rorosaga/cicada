@@ -458,7 +458,8 @@ Round 4 (C2–C4):
   retried after 30 days, a failed connection after a day. The rung is offered while the page has an identifier and no
   fresh miss under it (the URL gains `?v=<sha>` once a copy is stored), and `/sync/version`'s `photos` component (the
   index's mtime plus the misses past their window) moves `/graph` (`VersionVector` maps it onto `.graph`). The person's
-  upload outranks it and "Use initials" (kept in the bank) removes it for good. The fetch's rules are in `network.md`.
+  upload outranks it and "Use initials" (kept in the bank) removes it for good. A demo bank asks nobody and never offers
+  the owner's email (`demo_guard.is_demo`). The fetch's rules are in `network.md`.
 - `contacts_photo:` (G154, read by G146) — `{sha, ext}` on a `person` page Contacts matched (`ext` jpg|png, jpg when
   absent); the thumbnail itself is a cache at `$CICADA_HOME/pictures/<bank>/contacts/<id>.<ext>`, never in a bank.
   Written by the Contacts sync only (`contacts_local.photo_path`, the same path `entity_picture.contacts_path` reads).

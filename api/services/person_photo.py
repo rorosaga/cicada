@@ -32,6 +32,7 @@ GIF, an HTML page are refused). Two gates, both on by default: `CICADA_ALLOW_LOG
 indexed by `meta.json` (`{key, fetched_at, miss, transient, ext, sha}`). A photo is fetched ONCE per person and
 identifier set: a hit is kept until the identifier changes or goes, a miss is retried after 30 days, a failed
 connection after a day. The person's upload always wins, and "Use initials" (kept in the bank) removes it for good.
+A demo bank asks nobody and never offers the owner's email (its owner page is synthetic, made for screenshots).
 """
 from __future__ import annotations
 
@@ -370,15 +371,6 @@ def available(entity_id: str, fm: dict, meta: dict, *, owner: dict | None = None
     return True, sha
 
 
-def stored_file(bank: str, entity_id: str, fm: dict, meta: dict | None = None) -> Path | None:
-    """The stored photo for this page's current identifiers, if there is one — no network."""
-    key = identity_key(candidates(fm))
-    entry = (read_meta(bank) if meta is None else meta).get(entity_id)
-    if key is None or not isinstance(entry, dict) or entry.get("key") != key:
-        return None
-    return _hit_file(bank, entity_id, entry)
-
-
 _STAMPS: dict[str, tuple[float, int, float | None]] = {}
 
 
@@ -411,7 +403,11 @@ def stamp(bank: str) -> str:
 async def ensure_photo(memory_path, entity_id: str, *, fetcher: Fetcher | None = None) -> Path | None:
     """Resolve → cache → (once) fetch → store. Only for a `person` page whose picture would be this rung: the person's
     own choice or a Contacts photo means nothing is asked. Returns the stored file, or None."""
+    from api.services import demo_guard
+
     memory_path = Path(memory_path)
+    if demo_guard.is_demo(memory_path):
+        return None   # a demo is synthetic: nothing about it is asked of the network
     bank = logo_service.bank_name(memory_path)
     async with logo_service._lock(f"person:{bank}/{entity_id}"):
         return await _ensure_locked(memory_path, bank, entity_id, fetcher or _http_get)
