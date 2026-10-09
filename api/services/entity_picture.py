@@ -11,7 +11,10 @@ both are held to `api/tests/fixtures/entity_picture.json`, so a rung added on on
    and the rung never fires (R-PE7);
 3. **the domain logo** (G59's ladder), never for a `person` or a `media` page: eligible for `company`/`tool` or a page
    whose own `logo:` names a domain, available when cached or not yet known to miss (R-PE9);
-4. **the saved thumbnail**, `media` pages only, never a paper's (G133 fetches no arXiv page);
+4. **the media page's own preview**, `media` pages only: the saved page's `og:image`, a provider's thumbnail, a YouTube
+   video's standard still or a saved PDF's first page (`media_preview.source_for`), fetched once by the backend and
+   served from its store at `/entities/{id}/preview?v=<key>` — never a provider URL the app loads itself. A paper has
+   none (G133 fetches no arXiv page or PDF); its picture is the person's own PDF, rung 1;
 5. **nothing** — the app draws a ring monogram, never a solid fill.
 
 A person gets rungs 1–2 only: a surname is not a domain (G59), and no service is ever sent a person's name (G159).
@@ -32,7 +35,7 @@ from urllib.parse import quote
 
 from loguru import logger
 
-from api.services import logo_service, markdown_parser
+from api.services import logo_service, markdown_parser, media_preview
 
 #: R-PE1 — the person's pictures live in the bank, beside the pages that name them, so a handed-over bank keeps them.
 PICTURES_DIR = ("assets", "pictures")
@@ -44,12 +47,11 @@ LOGO_TYPES = frozenset(logo_service.GUESSABLE_TYPES)
 #: `$CICADA_HOME/pictures/<bank>/contacts/<id>.<jpg|png>`, outside every bank. Final review, finding 1: this side first
 #: read `$CICADA_HOME/contacts/<bank>/<id>.jpg`, so a matched person resolved to `contacts` and its picture 404'd.
 CONTACTS_DIR = ("pictures", "contacts")
-#: `papers.KIND`, spelled here so `graph_builder`'s import of this module stays light; a test pins the two equal.
-PAPER_KIND = "paper"
+#: `papers.KIND`, spelled in `media_preview` so `graph_builder`'s import of this module stays light; a test pins it.
+PAPER_KIND = media_preview.PAPER_KIND
 SOURCES = ("upload", "initials", "contacts", "logo", "thumbnail")
 _SHA_RE = re.compile(r"[0-9a-f]{12}")
 _DAY_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
-_MAX_URL = 2048
 
 
 @dataclass(frozen=True)
@@ -94,12 +96,6 @@ def _sha(value) -> bool:
     return isinstance(value, str) and _SHA_RE.fullmatch(value) is not None
 
 
-def _https(value) -> bool:
-    """R-PE6 — only a provider's https URL is ever offered as a thumbnail; the app loads it without the bearer."""
-    return (isinstance(value, str) and value.startswith("https://") and len(value) <= _MAX_URL
-            and not any(ch.isspace() for ch in value))
-
-
 def resolve(entity_id: str, inputs: PictureInputs) -> Resolved:
     """The precedence, and nothing else — no I/O, so the Swift twin can agree byte for byte (R-PE3)."""
     path = f"/entities/{quote(entity_id, safe='')}"
@@ -112,7 +108,8 @@ def resolve(entity_id: str, inputs: PictureInputs) -> Resolved:
             return Resolved("contacts", f"{path}/picture?v={inputs.contacts_sha}")
         return NOTHING
     if inputs.type == "media":
-        return Resolved("thumbnail", inputs.thumbnail) if _https(inputs.thumbnail) else NOTHING
+        # The preview's key (`media_preview.Source.key`), never a URL: the app loads Cicada's stored copy.
+        return Resolved("thumbnail", f"{path}/preview?v={inputs.thumbnail}") if _sha(inputs.thumbnail) else NOTHING
     if inputs.logo:
         return Resolved("logo", f"{path}/logo")
     return NOTHING
@@ -121,6 +118,15 @@ def resolve(entity_id: str, inputs: PictureInputs) -> Resolved:
 def detected(entity_id: str, inputs: PictureInputs) -> Resolved:
     """What shows once the person's own choice is gone — DELETE's answer, which the app paints early (R-PE10)."""
     return resolve(entity_id, replace(inputs, choice=None, upload_sha=None))
+
+
+def media_picture(entity_id: str, fm: dict) -> str | None:
+    """A media page's picture for the cards that draw a saved item (the Feed row, the media block): the person's own
+    upload (a PDF's first page included) or the stored preview — never a provider's URL. None for every other page
+    and for "use initials"."""
+    if str((fm or {}).get("type") or "").strip().lower() != "media":
+        return None
+    return resolve(entity_id, inputs_for(fm)).url
 
 
 def logo_eligible(fm: dict) -> bool:
@@ -150,10 +156,9 @@ def inputs_for(fm: dict, *, logo_available: bool = False) -> PictureInputs:
     # Contacts" over a monogram (final review, finding 1).
     contacts_sha = (contacts["sha"] if isinstance(contacts, dict) and _sha(contacts.get("sha"))
                     and contacts.get("ext", "jpg") in UPLOAD_EXTS else None)
-    thumbnail = None
-    media = fm.get("media")
-    if kind == "media" and isinstance(media, dict) and media.get("kind") != PAPER_KIND and _https(media.get("thumbnail")):
-        thumbnail = media["thumbnail"]
+    # The media rung's input is the preview's key, derived from the page alone (`media_preview.key_for`), so the wire
+    # moves only when the page does and no cache state rides an ETag.
+    thumbnail = media_preview.key_for(fm) if kind == "media" else None
     return PictureInputs(type=kind, choice=choice, upload_sha=upload_sha, contacts_sha=contacts_sha,
                          logo=bool(logo_available) and logo_eligible(fm), thumbnail=thumbnail)
 

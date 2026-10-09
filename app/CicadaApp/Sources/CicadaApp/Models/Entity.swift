@@ -646,7 +646,12 @@ struct MediaBlock: Codable, Equatable {
     var mediaType: String
     var site: String?
     var channel: String?
+    /// The provider's own image URL as the page stores it — never loaded by the app; `preview` is.
     var thumbnail: String?
+    /// The page's picture as Cicada stores it (`/entities/{id}/preview?v=…` or the person's upload), loaded with the
+    /// bearer through `PictureStore`. `nil` when the block was rebuilt from the page's own text or comes from an
+    /// older backend.
+    var preview: String?
     var savedAt: String?
     var urlHash: String?
     /// Track V / R-V2: the ingestor's own name for the provider it enriched
@@ -664,7 +669,7 @@ struct MediaBlock: Codable, Equatable {
     var durationS: Int?
 
     enum CodingKeys: String, CodingKey {
-        case url, mediaType, site, channel, thumbnail, savedAt, urlHash
+        case url, mediaType, site, channel, thumbnail, preview, savedAt, urlHash
         case provider, durationS, kind
     }
 
@@ -672,8 +677,9 @@ struct MediaBlock: Codable, Equatable {
         url: String, mediaType: String, site: String? = nil,
         channel: String? = nil, thumbnail: String? = nil,
         savedAt: String? = nil, urlHash: String? = nil,
-        provider: String? = nil, durationS: Int? = nil, kind: String? = nil
+        provider: String? = nil, durationS: Int? = nil, kind: String? = nil, preview: String? = nil
     ) {
+        self.preview = preview
         self.url = url
         self.mediaType = mediaType
         self.site = site
@@ -693,6 +699,7 @@ struct MediaBlock: Codable, Equatable {
         site = try c.decodeIfPresent(String.self, forKey: .site)
         channel = try c.decodeIfPresent(String.self, forKey: .channel)
         thumbnail = try c.decodeIfPresent(String.self, forKey: .thumbnail)
+        preview = try? c.decodeIfPresent(String.self, forKey: .preview)
         savedAt = try c.decodeIfPresent(String.self, forKey: .savedAt)
         urlHash = try c.decodeIfPresent(String.self, forKey: .urlHash)
         // R16: the client decodes these BEFORE the backend produces them, so

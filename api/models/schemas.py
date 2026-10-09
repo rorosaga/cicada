@@ -428,6 +428,10 @@ class EntityMedia(CamelModel):
     site: Optional[str] = None
     channel: Optional[str] = None
     thumbnail: Optional[str] = None
+    # The page's own picture as Cicada stores it (`media_preview.preview_path`: `/entities/{id}/preview?v=<key>`, loaded
+    # with the bearer) — what a card draws instead of fetching `thumbnail` from the provider. Derived from the page
+    # alone, so it moves only with the `entities` component. Additive: an older client ignores it.
+    preview: Optional[str] = None
     description: Optional[str] = None
     # Track V (R-V2) — the two video keys from the page's `media:` block, both
     # additive + defaulted so an older page (which carries neither) decodes
@@ -524,8 +528,8 @@ class EntityResponse(CamelModel):
     # ignores it and keeps showing the class.
     decay: Optional[EntityDecay] = None
     # C11 (G146) — the page's picture (`entity_picture.resolve`): a path on this API the app loads with the bearer
-    # (`/entities/{id}/picture?v=…`, `/entities/{id}/logo`) or a media page's https thumbnail it loads without it
-    # (plan R-PE6); which rung won; and the inputs the app's twin re-resolves from. Additive: an older client ignores
+    # (`/entities/{id}/picture?v=…`, `/entities/{id}/logo`, `/entities/{id}/preview?v=…` — a media page's stored
+    # preview; no provider URL any more); which rung won; and the inputs the app's twin re-resolves from. Additive: an older client ignores
     # all three.
     picture: Optional[str] = None
     picture_source: Optional[str] = None
@@ -3339,6 +3343,8 @@ class MediaSourceItem(CamelModel):
     site: Optional[str] = None
     channel: Optional[str] = None
     thumbnail: Optional[str] = None
+    # `EntityMedia.preview`'s twin: the stored copy of the page's own picture, from the page alone. Additive.
+    preview: Optional[str] = None
     saved_at: str
     tags: list[str] = []
     status: str = "active"

@@ -60,9 +60,9 @@ struct HeroPreview: View {
         case .embedVideo, .fileVideo, .image:
             return true
         case .instagram:
-            return model.thumbnailURL != nil
+            return model.hasPicture
         case .website:
-            return model.thumbnailURL != nil || !(model.site ?? "").isEmpty
+            return model.hasPicture || !(model.site ?? "").isEmpty
         }
     }
 
@@ -91,12 +91,12 @@ struct HeroPreview: View {
         case .instagram:
             // Login-walled — no in-app embed, but a saved thumbnail is still
             // a "usable image" per the catch-all rule.
-            if let thumb = model.thumbnailURL {
-                HeroImage(url: thumb)
+            if model.hasPicture {
+                HeroStoredImage(path: model.preview)
             }
 
         case .website:
-            if model.thumbnailURL != nil {
+            if model.hasPicture {
                 WebsiteHero(model: model)
             } else if let site = model.site, !site.isEmpty {
                 CompactSiteHero(model: model)
@@ -147,14 +147,8 @@ private struct EmbedVideoHero: View {
             if let url = model.resolvedURL { NSWorkspace.shared.open(url) }
         } label: {
             ZStack {
-                if let thumb = model.thumbnailURL {
-                    AsyncImage(url: thumb) { phase in
-                        if case .success(let image) = phase {
-                            image.resizable().scaledToFill()
-                        } else {
-                            CicadaTheme.surfaceHover
-                        }
-                    }
+                if model.hasPicture {
+                    StoredPreview(path: model.preview) { CicadaTheme.surfaceHover }
                 } else {
                     CicadaTheme.surfaceHover
                 }
@@ -256,6 +250,31 @@ private struct HeroImage: View {
     }
 }
 
+// MARK: - Hero stored picture (a login-walled page's saved preview)
+
+/// The stored preview at hero size — `HeroImage`'s frame without the lightbox, since the full image is the provider's.
+private struct HeroStoredImage: View {
+    let path: String?
+
+    var body: some View {
+        StoredPreview(path: path) {
+            ZStack {
+                CicadaTheme.mediaPink.opacity(0.1)
+                Image(systemName: "photo")
+                    .font(CicadaTheme.font(size: 28))
+                    .foregroundStyle(CicadaTheme.mediaPink.opacity(0.6))
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: HeroPreview.maxHeight)
+        .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadius))
+        .overlay(
+            RoundedRectangle(cornerRadius: CicadaTheme.cornerRadius)
+                .stroke(CicadaTheme.border, lineWidth: 1)
+        )
+    }
+}
+
 // MARK: - Website / bookmark hero (OG-style card)
 
 private struct WebsiteHero: View {
@@ -266,14 +285,8 @@ private struct WebsiteHero: View {
             if let url = model.resolvedURL { NSWorkspace.shared.open(url) }
         } label: {
             VStack(alignment: .leading, spacing: 0) {
-                if let thumb = model.thumbnailURL {
-                    AsyncImage(url: thumb) { phase in
-                        if case .success(let image) = phase {
-                            image.resizable().scaledToFill()
-                        } else {
-                            siteThumbPlaceholder
-                        }
-                    }
+                if model.hasPicture {
+                    StoredPreview(path: model.preview) { siteThumbPlaceholder }
                     .frame(maxWidth: .infinity)
                     .frame(height: HeroPreview.maxHeight - 64)
                     .clipped()

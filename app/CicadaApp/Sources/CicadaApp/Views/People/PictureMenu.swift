@@ -24,17 +24,44 @@ enum PictureActions {
     /// caller (a test, a model) can ask without the main actor.
     nonisolated static func canEdit(_ type: EntityType) -> Bool { type != .hub && type != .unknown }
 
-    /// F-11 — "It opens an NSOpenPanel for images."
+    /// A saved item (a paper, a saved document) also takes a PDF: the backend draws its first page.
+    nonisolated static func takesPDF(_ type: EntityType) -> Bool { type == .media }
+    /// The backend's own bound (`pdf_page.MAX_PDF_BYTES`).
+    nonisolated static let maxPDFBytes = 32 * 1024 * 1024
+
+    /// F-11 — "It opens an NSOpenPanel for images" — and, for a saved item, PDFs.
     static func change(id: String, name: String, type: EntityType, store: Store, inputs: PictureInputs?) {
         let bank = store.bank   // G183(d): the bank the person chose this entity in, before the panel and the preparation
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.image]
+        panel.allowedContentTypes = takesPDF(type) ? [.image, .pdf] : [.image]
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
         panel.message = Copy.People.pickMessage(name)
         panel.prompt = Copy.People.pickPrompt
         guard panel.runModal() == .OK, let url = panel.url else { return }
+        if takesPDF(type), UTType(filenameExtension: url.pathExtension)?.conforms(to: .pdf) == true {
+            Task { await uploadPDF(fileURL: url, id: id, type: type, bank: bank, store: store, inputs: inputs) }
+            return
+        }
         Task { await upload(fileURL: url, id: id, type: type, bank: bank, store: store, inputs: inputs) }
+    }
+
+    /// The PDF goes to the backend as it is; the backend renders page 1 and keeps it as the page's picture.
+    static func uploadPDF(fileURL: URL, id: String, type: EntityType, bank: String, store: Store,
+                          inputs: PictureInputs?) async {
+        let data = await Task.detached(priority: .userInitiated) { () -> Data? in
+            let size = (try? fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+            guard size <= maxPDFBytes else { return nil }
+            return try? Data(contentsOf: fileURL)
+        }.value
+        guard let data, !data.isEmpty else {
+            store.toast = Copy.People.importFailed(.unreadable)
+            return
+        }
+        await BankScope.bound(to: bank) {
+            await store.perform(EntityPictureWrite(entityId: id, type: type, bank: bank, action: .pdf(data),
+                                                   inputs: inputs, store: store))
+        }
     }
 
     /// `bank` is the bank the person acted in, captured before anything is awaited (G183(d)): the preparation runs

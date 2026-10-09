@@ -49,6 +49,7 @@ from api.services import (
     local_refs,
     logo_service,
     markdown_parser,
+    media_preview,
     page_lock,
     repo_context,
     repo_observations,
@@ -132,7 +133,7 @@ async def get_entity(
         raw_omitted=raw_omitted,
         history=history,
         history_truncated=history_truncated,
-        media=_build_media_block(fm, parsed.body),
+        media=_build_media_block(fm, parsed.body, entity_id=entity_id),
         is_owner=bool(fm.get("owner")),
         decay=EntityDecay(
             decay_class=effective.decay_class,
@@ -215,6 +216,32 @@ async def get_entity_logo(
 
     media_type = _LOGO_MEDIA_TYPES.get(path.suffix.lstrip("."), "application/octet-stream")
     return FileResponse(path, media_type=media_type, headers=headers)
+
+
+_PREVIEW_SEMAPHORE = asyncio.Semaphore(4)
+
+
+@router.get("/entities/{entity_id}/preview")
+async def get_entity_preview(entity_id: str, request: Request, settings: Settings = Depends(get_settings)):
+    """A media page's own picture — the saved page's image, a provider's thumbnail, a YouTube still or a saved PDF's
+    first page (`media_preview`) — served from Cicada's store outside the bank. The first request fetches it once
+    (under the picture-fetch gate, the ToS rail and `net_guard`); every later one is the stored copy, so a dead link
+    keeps its card. 404 means "no preview" and the app draws its placeholder. The `v=` the wire adds is the source's
+    key and is only for the app's caches. `GET /graph` never comes through here."""
+    memory_path = settings.memory_path
+    if not (memory_path / "entities" / f"{entity_id}.md").is_file():
+        raise HTTPException(404, f"Entity {entity_id} not found")
+    async with _PREVIEW_SEMAPHORE:
+        path = await media_preview.ensure_preview(memory_path, entity_id)
+    if path is None or not path.is_file():
+        raise HTTPException(404, "no preview for this entity")
+    data = await asyncio.to_thread(path.read_bytes)
+    etag = '"' + entity_picture.sha12(data) + '"'
+    headers = {"ETag": etag, "Cache-Control": "private, max-age=86400"}
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=headers)
+    media_type = media_preview.MEDIA_TYPES.get(path.suffix.lstrip("."), "application/octet-stream")
+    return Response(content=data, media_type=media_type, headers=headers)
 
 
 PICTURE_BUSY = "Sleep is updating your memory — try the picture again in a moment."
@@ -326,6 +353,42 @@ async def use_entity_initials(entity_id: str, settings: Settings = Depends(get_s
         return _picture_payload(settings.memory_path, entity_id)
 
 
+@router.post("/entities/{entity_id}/picture/pdf", response_model=EntityPictureResponse)
+async def set_entity_picture_from_pdf(entity_id: str, file: UploadFile, settings: Settings = Depends(get_settings)):
+    """A PDF the person gave a saved item (a paper, a saved document): its first page, rendered in the backend
+    (`pdf_page`, never the app), becomes the page's picture — the person's own choice, rung 1, kept in the bank and
+    committed alone as `user` exactly like an uploaded picture. Nothing is fetched; the PDF itself is not kept. The
+    render (a child process, up to `pdf_page.TIMEOUT_S`) runs BEFORE the write admission is taken, so Sleep never
+    waits on it; only the write and its commit are admitted."""
+    from api.services import pdf_page
+
+    page = _entity_page(settings, entity_id)
+    if str(markdown_parser.parse(page).frontmatter.get("type") or "").strip().lower() != "media":
+        raise HTTPException(400, "Cicada draws a PDF's first page for saved items only.")
+    data = await file.read(pdf_page.MAX_PDF_BYTES + 1)
+    if len(data) > pdf_page.MAX_PDF_BYTES:
+        raise HTTPException(413, "That PDF is too large — Cicada reads PDFs up to 32 MB.")
+    if not pdf_page.looks_like_pdf(data):
+        raise HTTPException(400, "That file isn't a PDF.")
+    png = await asyncio.to_thread(pdf_page.render_first_page, data)
+    if png is None:
+        raise HTTPException(422, "Cicada couldn't draw that PDF's first page.")
+    try:
+        ext = entity_picture.validate_upload(png)
+    except entity_picture.InvalidPicture as exc:
+        raise HTTPException(exc.status, str(exc)) from exc
+
+    async def store() -> EntityPictureResponse:
+        async with _PICTURE_LOCK:
+            _entity_page(settings, entity_id)   # still there once admitted
+            write = await asyncio.to_thread(entity_picture.write_upload, settings.memory_path, entity_id, png, ext,
+                                            today=date.today())
+            await entity_picture.commit(settings.memory_path, write)
+            return _picture_payload(settings.memory_path, entity_id)
+
+    return await write_admission.run_admitted(settings.memory_path, store, refuse=lambda: SleepWriting(PICTURE_BUSY))
+
+
 @router.delete("/entities/{entity_id}/picture", response_model=EntityPictureResponse)
 @_admits(PICTURE_BUSY)
 async def clear_entity_picture(entity_id: str, settings: Settings = Depends(get_settings)):
@@ -357,7 +420,7 @@ def _chapters(raw) -> list[VideoChapter] | None:
     return out or None
 
 
-def _build_media_block(frontmatter: dict, body: str) -> EntityMedia | None:
+def _build_media_block(frontmatter: dict, body: str, *, entity_id: str | None = None) -> EntityMedia | None:
     """Build the structured ``media`` block for a ``type: media`` entity.
 
     Reads the nested ``media:`` frontmatter block written by
@@ -390,6 +453,7 @@ def _build_media_block(frontmatter: dict, body: str) -> EntityMedia | None:
         site=media.get("site") or None,
         channel=media.get("channel") or None,
         thumbnail=media.get("thumbnail") or None,
+        preview=entity_picture.media_picture(entity_id, frontmatter) if entity_id else None,
         description=description,
         # Track V — both written by `write_media_entity` only when set, so an
         # older page simply has neither. `duration_s` is type-checked rather

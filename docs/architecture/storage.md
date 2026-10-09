@@ -403,9 +403,27 @@ Round 4 (C2–C4):
   for "Use initials instead". Written only by `POST|DELETE /entities/{id}/picture` and `…/picture/initials`, each
   committed alone as `user`, 409 while Sleep runs; never by an agent. The app shrinks a picture to ≤ 512 px before
   it leaves the Mac; the server keeps only a PNG or JPEG ≤ 512 KB (no Pillow). `entity_picture.resolve` is the one
-  precedence (the person's choice → a person's Contacts photo → a brand's logo → a media page's thumbnail → a ring
+  precedence (the person's choice → a person's Contacts photo → a brand's logo → a media page's preview → a ring
   monogram), resolved at read onto `/graph` nodes and the entity; the app's `EntityPictureResolver` is its twin over
   `api/tests/fixtures/entity_picture.json`. A person never gets a logo and no service is sent a person's name (G159).
+  `POST /entities/{id}/picture/pdf` (a `media` page only; ≤ 32 MB; nothing fetched) is the same write with a PDF the
+  person gave: `pdf_page` renders page 1 in the backend — the bundled PDFium wheel (`pypdfium2`) in a child process,
+  encoded to PNG with `zlib`, ≤ 480 px wide and ≤ 1024 px tall — and the PNG is stored and committed as an upload
+  (the PDF itself is not kept). This is how a paper (no fetched preview, G133) gets its first page as its picture.
+- **A media page's preview** (`media_preview`) — the page's own picture, fetched once by the backend and served from
+  `GET /entities/{id}/preview` (ETag; 404 = none), never a provider URL the app loads itself. The source, from the
+  page alone (`source_for`): `media.thumbnail` (the saved page's `og:image`/`twitter:image`, made absolute against
+  `media.url`, or a provider's oEmbed `thumbnail_url`) → for a YouTube video with none stored, the video's standard
+  still `i.ytimg.com/vi/<id>/hqdefault.jpg` from the id `video_urls.resolve` validated (a still, not the video or a
+  stream — G162) → a direct `.pdf` link the person saved (never arXiv/DOI, never a walled host), page 1 rendered by
+  `pdf_page`. The wire carries `/entities/{id}/preview?v=<key>` (`key` = sha256[:12] of the source, so it moves only
+  with the page) on the node's `picture`, as `pictureInputs.thumbnail`, and as `preview` on `EntityMedia` and on each
+  `/sources` item (the person's own upload wins there too, `entity_picture.media_picture`). The cache is
+  `$CICADA_HOME/previews/<bank>/<id>.<png|jpg|gif|webp>` plus a `<id>.json` sidecar (`{hit: {key, ext, at, kind},
+  miss: {key, at, reason, transient}}`, no URL), **never in a bank**: a hit is kept for good while its source is
+  unchanged and is still served when a changed source cannot be fetched (a dead link never blanks the card); a miss is
+  remembered per source for 7 days, a transient one (timeout, 429, 5xx) for an hour. The fetch rules are in
+  `network.md`.
 - `contacts_photo:` (G154, read by G146) — `{sha, ext}` on a `person` page Contacts matched (`ext` jpg|png, jpg when
   absent); the thumbnail itself is a cache at `$CICADA_HOME/pictures/<bank>/contacts/<id>.<ext>`, never in a bank.
   Written by the Contacts sync only (`contacts_local.photo_path`, the same path `entity_picture.contacts_path` reads).

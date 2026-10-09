@@ -39,6 +39,7 @@ from api.services import (
     calendar_registry,
     channel_items,
     channel_registry,
+    entity_picture,
     feed_registry,
     media_ingestor,
     notes_sync,
@@ -616,6 +617,10 @@ def _read_block(entry, fm_read, ask_rows, *, enabled: bool, allowed, wall=None, 
         return None
 
 
+#: The `/sources` payload's shape version (the `preview` field), folded into its ETag.
+SHAPE = "preview-1"
+
+
 @router.get("/sources", response_model=SourceListResponse)
 async def list_sources(
     request: Request,
@@ -633,7 +638,9 @@ async def list_sources(
     # G166: the `reading` component (the ask store and the reading settings, both
     # outside the bank) is an ETag input, so an agent's outcome or a per-site
     # switch reaches the Feed's read state without a bank write.
-    etag = sync_service.etag_for(memory_path, "sources", "episodes", "entities", "reading", extra=sort)
+    # `SHAPE` moves the tag once when the payload gains a field (`preview`), so a client holding the older body
+    # re-reads it instead of keeping a 304'd copy without the field.
+    etag = sync_service.etag_for(memory_path, "sources", "episodes", "entities", "reading", extra=f"{sort}|{SHAPE}")
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
     idx = media_ingestor.load_url_index(memory_path)
@@ -668,6 +675,7 @@ async def list_sources(
         duration_s: int | None = None
         kind: str | None = None
         paper: PaperSummary | None = None
+        preview: str | None = None
         fm_read = None
         wall_page = None
         entity_path = Path(memory_path) / "entities" / f"{entity_id}.md"
@@ -682,6 +690,9 @@ async def list_sources(
                 # `except: pass` would otherwise drop them if relevance or
                 # `media` raised on an odd page.
                 description = _description_excerpt(parsed.body)
+                # The page's own picture as Cicada stores it (the person's upload, else the stored preview) — the
+                # row never loads a provider's URL itself.
+                preview = entity_picture.media_picture(entity_id, fm)
                 about = [str(r) for r in (fm.get("related") or []) if str(r).strip()]
                 # G124 R6 — the Sources page filters these items by source and
                 # groups them by folder/board/device, straight from the page.
@@ -762,6 +773,7 @@ async def list_sources(
                 site=site,
                 channel=channel,
                 thumbnail=entry.get("thumbnail"),
+                preview=preview,
                 saved_at=entry.get("saved_at", ""),
                 content_saved_at=entry.get("content_saved_at"),
                 tags=tags,

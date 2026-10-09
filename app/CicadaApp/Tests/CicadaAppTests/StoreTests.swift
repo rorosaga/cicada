@@ -299,6 +299,9 @@ final class FakeSyncAPI: SyncAPI {
     func setEntityPicture(entityId: String, data: Data, ext: String) async throws -> EntityPictureAnswer {
         try await pictureWrite("setEntityPicture:\(entityId):\(ext):\(data.count)")
     }
+    func setEntityPictureFromPDF(entityId: String, data: Data) async throws -> EntityPictureAnswer {
+        try await pictureWrite("setEntityPictureFromPDF:\(entityId):\(data.count)")
+    }
     func useEntityInitials(entityId: String) async throws -> EntityPictureAnswer {
         try await pictureWrite("useEntityInitials:\(entityId)")
     }

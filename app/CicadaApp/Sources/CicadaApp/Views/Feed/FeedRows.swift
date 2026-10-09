@@ -173,7 +173,7 @@ struct FeedListRow: View {
                 mark.frame(width: CicadaTheme.scaled(14)).padding(.top, isVideo ? 0 : CicadaTheme.scaled(2))
                 if isVideo {
                     // G162 (§9 2026-09-30) — a 64 × 36 frame with its length at full width, 48 × 27 beside a detail.
-                    VideoThumb(thumbnail: item.thumbnail, durationS: item.durationS,
+                    VideoThumb(preview: item.preview, durationS: item.durationS,
                                width: style == .wide ? 64 : 48, height: style == .wide ? 36 : 27,
                                showsLength: style == .wide)
                 }

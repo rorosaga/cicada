@@ -74,8 +74,11 @@ the next page with `?skip=N` (`HistoryPaging`; the window is pinned to `MAX_PROV
 **Pictures and the person card (G146, round 4).** Every entity avatar is `EntityPicture` over the one picture
 precedence (`entity_picture.resolve` and its Swift twin `EntityPictureResolver`, one fixture): the person's own upload
 or "initials" → a person's Contacts photo → a brand's logo → a media page's thumbnail → a ring monogram, never a solid
-fill; `PictureStore` holds uploads, Contacts photos and thumbnails by URL (the bearer only for Cicada's own paths, never
-to a provider), `LogoStore` the logos. Any editable picture opens the image picker on a click, takes a dropped image,
+fill; `PictureStore` holds uploads, Contacts photos and media previews by URL — all on Cicada's own API with the bearer
+(a media page's picture is the backend's stored `/entities/{id}/preview?v=…`, and `MediaPreview`, `HeroPreview` and
+`VideoThumb` draw the same stored copy through `StoredPreview`; no view loads a provider's thumbnail) —, `LogoStore` the
+logos. Any editable picture opens the image picker on a click (a saved item's also takes a PDF: the backend draws its
+first page, `POST /entities/{id}/picture/pdf`, and nothing is painted before that answer), takes a dropped image,
 dims under a camera on hover and offers "Use initials instead" / "Remove picture" on right-click; the app shrinks the
 picture (ImageIO, ≤ 512 px) and `EntityPictureWrite` paints the answer before the server gives it. A `person` opens
 with mock C's top (F-12): an 88 pt picture, the name at 24, the Summary as a two-line standfirst (a click unfolds it and the header grows; *Show less* folds it —

@@ -35,7 +35,10 @@ def _split(value: str | None) -> set[str] | None:
 # every client take one 200.
 #
 # G61 S3-a: "+source-links" — `links` gained read-time edges from a source's `entity:` link, each `kind: "source"`.
-NODE_SHAPE = "aliases+f1-facets+pictures+source-links"
+#
+# "+previews" (spelled before "+source-links", which a test pins as the tail): a media node's `picture` is now Cicada's
+# stored preview (`/entities/{id}/preview?v=…`), no longer the provider's URL — no component moved, so the bump does.
+NODE_SHAPE = "aliases+f1-facets+pictures+previews+source-links"
 
 
 @router.get("/graph", response_model=GraphResponse)

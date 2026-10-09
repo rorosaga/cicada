@@ -61,7 +61,7 @@ struct VideoPickRow: View {
             .help(Copy.Videos.selectVideo)
             Button(action: toggle) {
                 HStack(spacing: CicadaTheme.scaled(10)) {
-                    VideoThumb(thumbnail: row.item.thumbnail, durationS: row.item.durationS, width: 88, height: 50)
+                    VideoThumb(preview: row.item.preview, durationS: row.item.durationS, width: 88, height: 50)
                     VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
                         Text(title)
                             .font(CicadaTheme.font(size: 13))
@@ -92,7 +92,7 @@ struct VideoRunListRow: View {
 
     var body: some View {
         HStack(spacing: CicadaTheme.scaled(10)) {
-            VideoThumb(thumbnail: member.row.item.thumbnail, durationS: member.row.item.durationS, width: 88, height: 50)
+            VideoThumb(preview: member.row.item.preview, durationS: member.row.item.durationS, width: 88, height: 50)
             VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
                 Text(title)
                     .font(CicadaTheme.font(size: 13))

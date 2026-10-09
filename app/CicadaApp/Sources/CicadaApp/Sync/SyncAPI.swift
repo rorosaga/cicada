@@ -128,6 +128,9 @@ protocol SyncAPI: Sendable {
     /// C11 (G146) — the three picture writes (`routers/entities.py`): each answers the page's picture after it and the
     /// inputs the twin re-resolves from; each answers 409 while Sleep runs.
     func setEntityPicture(entityId: String, data: Data, ext: String) async throws -> EntityPictureAnswer
+    /// A PDF the person gave a saved item: the backend draws its first page and keeps it as the page's picture
+    /// (`POST /entities/{id}/picture/pdf`, same answer as an upload).
+    func setEntityPictureFromPDF(entityId: String, data: Data) async throws -> EntityPictureAnswer
     func useEntityInitials(entityId: String) async throws -> EntityPictureAnswer
     func clearEntityPicture(entityId: String) async throws -> EntityPictureAnswer
     /// G61 S3-a — one edit to one of a page's sources, keyed by the entry's current `(ref, predicate)`; answers the
