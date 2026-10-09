@@ -234,7 +234,7 @@ def test_history_is_read_only_when_asked_and_its_size_is_said():
     plain = saved_exports.parse_archive(data)
     assert len(plain.items) == 4  # 2 playlist videos, 1 TikTok favourite, 1 TikTok like
     assert plain.history_excluded == 4
-    assert any("history (4 items) excluded" in w for w in plain.warnings)
+    assert saved_exports.history_warning(4) in plain.warnings
     assert plain.label == saved_exports.MIXED_LABEL
 
     full = saved_exports.parse_archive(data, include_history=True)
@@ -296,3 +296,48 @@ def test_a_zip_with_no_save_list_says_so():
     preview = media_ingestor.preview_upload(_zip({"notes/readme.txt": "hello"}), "export.zip")
     assert preview.recognized is False
     assert any("ZIP archive" in w for w in preview.warnings)
+
+
+# --- a folder the app walked: each file posted on its own, named by its path ----------
+
+
+def test_a_walked_folder_member_obeys_the_archives_allow_list():
+    """The app posts a walked folder's files one by one, each named by its path inside the
+    folder. Such a member is read only when it is a save list, by the archive's own reader —
+    a LinkedIn export's Connections.csv (other people's profiles) is never read as links."""
+    connections = b"First Name,Last Name,URL\nBob,Example,https://www.linkedin.com/in/bob-example\n"
+    preview = media_ingestor.preview_upload(connections, "Basic_LinkedInDataExport/Connections.csv")
+    assert preview.recognized is False and preview.total == 0
+    # The archive viewer page of an X archive is not a save list either.
+    page = b'<html><a href="https://example.com/a">a</a></html>'
+    assert media_ingestor.preview_upload(page, "twitter-archive/Your archive.html").recognized is False
+    # A save list named by its path reads exactly as inside a zip.
+    items, label, _ = media_ingestor.parse_upload(
+        YT_PLAYLIST_CSV.encode(), "Takeout/YouTube and YouTube Music/playlists/Watch later-videos.csv")
+    assert label == "YouTube Takeout (zip)" and len(items) == 2
+    items, label, _ = media_ingestor.parse_upload(X_LIKES.encode(), "twitter-archive/data/like.js")
+    assert label == "X Archive" and len(items) == 2
+
+
+def test_connections_csv_is_refused_on_its_own_too():
+    connections = b"First Name,Last Name,URL\nBob,Example,https://www.linkedin.com/in/bob-example\n"
+    preview = media_ingestor.preview_upload(connections, "Connections.csv")
+    assert preview.recognized is False and preview.total == 0
+
+
+def test_watch_history_is_read_only_on_request_through_every_door():
+    for name in ("watch-history.json", "Takeout/YouTube and YouTube Music/history/watch-history.json"):
+        warnings: list[str] = []
+        items, _, _ = media_ingestor.parse_upload(YT_HISTORY.encode(), name, warnings=warnings)
+        assert items == [], name
+        assert warnings == [saved_exports.history_warning(1)], name
+        items, _, _ = media_ingestor.parse_upload(YT_HISTORY.encode(), name, include_history=True)
+        assert len(items) == 1, name
+    tiktok: list[str] = []
+    media_ingestor.parse_upload(json.dumps(TIKTOK_JSON).encode(), "user_data_tiktok.json", warnings=tiktok)
+    assert tiktok == [saved_exports.history_warning(1)]
+
+
+def test_the_history_warning_promises_no_switch_the_app_lacks():
+    text = saved_exports.history_warning(2)
+    assert "2" in text and "enable" not in text.lower()

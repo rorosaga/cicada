@@ -114,6 +114,21 @@ class ArchiveResult:
         return MIXED_LABEL
 
 
+def history_warning(n: int) -> str:
+    """What every door says about history it left out. It names no switch: the
+    app's drop has none (the command line's ``--include-history`` and the API's
+    ``?include_history=true`` are the ways to ask)."""
+    return (f"Left out {n} watch or browsing history item{'s' if n != 1 else ''}: "
+            "history is not something you saved.")
+
+
+def is_member_name(filename: str) -> bool:
+    """A filename with a folder part names a file inside an export folder the app
+    walked (it posts each with its path inside the folder). Such a file obeys the
+    archive's allow-list, never a single file's generic parsers."""
+    return "/" in (filename or "").replace("\\", "/").strip("/")
+
+
 # --- one member ------------------------------------------------------------
 
 
@@ -254,8 +269,7 @@ def parse_members(members: Iterable[tuple[str, int, Reader]], *, include_history
         out.warnings.append(f"Skipped {oversized} file(s) over {MAX_MEMBER_BYTES // (1024 * 1024)} MB inside the archive.")
     if out.history_excluded:
         n = out.history_excluded
-        out.warnings.append(f"Watch and browsing history ({n} item{'s' if n != 1 else ''}) excluded by default — "
-                            "enable it when importing.")
+        out.warnings.append(history_warning(n))
     return out
 
 
@@ -375,5 +389,6 @@ def parse_tiktok_txt(data: bytes, *, folder: str, is_history: bool) -> list[RawI
     return items
 
 
-__all__ = ["ArchiveResult", "LABEL_BY_PLATFORM", "MAX_MEMBER_BYTES", "is_save_list", "parse_archive",
+__all__ = ["ArchiveResult", "LABEL_BY_PLATFORM", "MAX_MEMBER_BYTES", "history_warning", "is_member_name",
+           "is_save_list", "parse_archive",
            "parse_member", "parse_members", "parse_tiktok_txt", "parse_x_archive_js"]

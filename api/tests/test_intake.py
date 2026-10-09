@@ -439,3 +439,18 @@ def test_a_takeout_zip_with_another_products_activity_still_sniffs_as_saved_cont
     assert sniff.recognized and sniff.kind == "saved" and sniff.platform == "youtube"
     assert sniff.counts.items == 1
     config.get_settings.cache_clear()
+
+
+def test_a_walked_folders_files_sniff_by_their_path_inside_it(tmp_path, monkeypatch):
+    """The app names each file of a walked folder by its path inside it. A chat export is still a chat; a
+    LinkedIn Connections.csv (other people) is never offered as saved links; a save list is."""
+    client = _client(tmp_path, monkeypatch)
+    chat = _post(client, "/intake/sniff", "export/conversations.json", json.dumps(claude_conversations(1))).json()
+    assert chat["recognized"] and chat["kind"] == "chat"
+    people = _post(client, "/intake/sniff", "Basic_LinkedInDataExport/Connections.csv",
+                   "First Name,Last Name,URL\nBob,Example,https://www.linkedin.com/in/bob-example\n").json()
+    assert people["recognized"] is False and people["kind"] != "saved"
+    saves = _post(client, "/intake/sniff", "twitter-archive/data/like.js",
+                  'window.YTD.like.part0 = [{"like": {"tweetId": "1000000000000000001"}}]').json()
+    assert saves["recognized"] and saves["kind"] == "saved" and saves["platform"] == "x"
+    config.get_settings.cache_clear()

@@ -2257,14 +2257,19 @@ actor APIClient {
     /// `/sources/upload` reuse it. Generic over the response so the same
     /// wire-up serves the real upload (`UploadResponse`) and the staging-free
     /// preview (`UploadPreview`) without duplicating the multipart plumbing.
-    private func uploadMultipart<T: Decodable>(path: String, fileURL: URL) async throws -> T {
+    /// `filename`: the name the backend sees; nil is the file's own name. A walked folder's file is named by its
+    /// path inside the folder, which the backend reads as "a member of an export folder" (`saved_exports`).
+    private func uploadMultipart<T: Decodable>(path: String, fileURL: URL, filename: String? = nil) async throws -> T {
         var request = makeRequest(path, method: "POST", json: false)
 
         let boundary = UUID().uuidString
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
 
         let fileData = try Data(contentsOf: fileURL)
-        let filename = fileURL.lastPathComponent
+        // A quote or line break would end the header early; a path inside a folder never needs one.
+        let filename = (filename ?? fileURL.lastPathComponent)
+            .replacingOccurrences(of: "\"", with: "'").replacingOccurrences(of: "\r", with: " ")
+            .replacingOccurrences(of: "\n", with: " ")
 
         var body = Data()
         body.append("--\(boundary)\r\n".data(using: .utf8)!)
@@ -3140,8 +3145,8 @@ extension APIClient: IntakeAPI {
     }
 
     /// `POST /intake/sniff` — stages nothing (G71 §4.3); safe on every drop.
-    func sniffIntake(fileURL: URL, bank: String?) async throws -> IntakeSniff {
-        try await uploadMultipart(path: "/intake/sniff" + Self.bankQuery(bank), fileURL: fileURL)
+    func sniffIntake(fileURL: URL, bank: String?, name: String?) async throws -> IntakeSniff {
+        try await uploadMultipart(path: "/intake/sniff" + Self.bankQuery(bank), fileURL: fileURL, filename: name)
     }
 
     /// `POST /intake/import` — 200 with counts, or 202 with `job` (Track I T2b).
@@ -3152,7 +3157,9 @@ extension APIClient: IntakeAPI {
     func intakeJob(id: String) async throws -> IntakeJobStatus { try await get("/intake/jobs/\(id)") }
 
     /// A `kind: saved` file commits through the path that previewed it (R-IA32).
-    func uploadSaved(fileURL: URL) async throws -> UploadResponse { try await uploadSource(fileURL: fileURL) }
+    func uploadSaved(fileURL: URL, name: String?) async throws -> UploadResponse {
+        try await uploadMultipart(path: "/sources/upload", fileURL: fileURL, filename: name)
+    }
 
     /// `GET /agents/wiring` (Track I T3) — read-only: which agents are wired
     /// and the exact argv `AgentConnect` may run after the person's click.

@@ -247,14 +247,23 @@ Seven rails hold across all of them:
 **Platform data exports (G71, 2026-10-09).** What the person saved, liked or favourited on a platform comes in
 through that platform's own "download your data" archive, read locally — no hosted social API, so nothing passes
 through a third party. One reader, `api/services/saved_exports.py`, serves every door: the app's drop (a `.zip`, or a
-folder it walks file by file — `IntakeRouter.isExportFile` keeps only X's `like`/`bookmark` scripts among `.js`),
-`POST /sources/upload` (bytes only; the backend never opens a path) and `cicada import <path>` (the CLI reads the path
-in the person's shell and runs the same reader in-process — so the import needs no Mac app).
+folder it walks file by file), `POST /sources/upload` (bytes only; the backend never opens a path) and
+`cicada import <path>` (the CLI reads the path in the person's shell and runs the same reader in-process — so the
+import needs no Mac app).
+- **A walked folder obeys the zip's allow-list.** The app sends a walked file named by its path inside the dropped
+  folder (`twitter-archive/data/like.js`), and the backend reads a filename with a folder part only when
+  `is_save_list` says so, through `parse_member` — the zip's own reader (`saved_exports.is_member_name`). The app's
+  walk is narrower than a single drop too (`IntakeRouter.isWalkedExportFile`): `.json`/`.zip` (the chat side reads
+  them by content), Gemini's `MyActivity.html` and ChatGPT's `chat.html`, and otherwise only save lists — so LinkedIn's
+  `Connections.csv`, X's `Your archive.html` or a message page never leaves the Mac. A `Connections.csv` dropped by
+  itself is refused by name.
 - **What is read.** A member is opened only when its NAME is a known save list; everything else in the archive
   (messages, contacts, posts, search history) is counted and skipped unread, media is never opened, a member over
   64 MB is skipped with a warning, and the generic URL-list parsers a single dropped file may fall back to are never
-  used inside an archive. Watch and browsing history are not saves (G69): read only with `include_history`, their size
-  said in a warning otherwise.
+  used inside an archive. Watch and browsing history are not saves (G69): read only with `include_history` — through
+  every door, a single dropped `watch-history.json` included — and otherwise left out with one warning
+  (`history_warning`) that names no switch, because the app's drop has none (the CLI's `--include-history` and the
+  API's `?include_history=true` ask for it).
 
   | Platform | Files read | Kept |
   |---|---|---|
@@ -272,7 +281,8 @@ in the person's shell and runs the same reader in-process — so the import need
   (outbound links) dedupe in either order; a duplicate found under a new URL adds that URL as an alias. Within one
   archive a post found twice keeps the person's collection name over the platform default. A re-import writes nothing.
 - **Size.** An upload takes up to `MAX_UPLOAD_ITEMS` (50,000) and imports `MAX_BATCH` (2,000) at a time
-  (`ingest_chunked`), each slice committed alone; the preview warns past the cap, as Confirm refuses it.
+  (`ingest_chunked`), each slice committed alone; the preview warns past the cap, as Confirm refuses it. A slice is
+  not atomic: interrupted, it can leave pages written before its `url_index` rows, which a re-import writes again.
 - **Rails.** No model runs; the episode body is scrubbed as every media save is, and the X reader scrubs the post's
   words before they become a title; every `/sources/` POST answers 409 into a demo bank and `cicada import` exits 4.
   Pinterest's export is a browse-your-content HTML archive with no stable structure, so Pinterest stays with its

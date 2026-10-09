@@ -1312,6 +1312,13 @@ async def ingest_feed(
     return await ingest_batch(items, memory_path, from_bookmark_file=False, commit=commit)
 
 
+#: Export files that hold other people, never saves — refused by name even when
+#: dropped alone, where the generic URL-list parser would otherwise read them.
+_NOT_SAVES = {
+    "connections.csv": "Connections.csv lists the people you are connected to, not things you saved.",
+}
+
+
 def parse_upload(
     content: bytes,
     filename: str,
@@ -1329,7 +1336,24 @@ def parse_upload(
     partial-parse detail reaches the user instead of only the debug log; every
     existing positional caller is unaffected.
     """
+    from api.services import saved_exports
+
+    if saved_exports.is_member_name(filename):
+        # One file of an export folder the app walked, named by its path inside
+        # the folder: the zip's allow-list and reader, so a member that is not a
+        # save list (a LinkedIn Connections.csv, an archive's viewer page, a
+        # message file) is never read as links.
+        if not saved_exports.is_save_list(filename):
+            raise ValueError("This file in the export folder is not a list of saves.")
+        items, platform, excluded = saved_exports.parse_member(filename, content, include_history=include_history)
+        if platform is None:
+            raise ValueError("This file in the export folder is not a list of saves.")
+        if excluded and warnings is not None:
+            warnings.append(saved_exports.history_warning(excluded))
+        return items, saved_exports.LABEL_BY_PLATFORM[platform], False
     name = (filename or "").lower()
+    if Path(name).name in _NOT_SAVES:
+        raise ValueError(_NOT_SAVES[Path(name).name])
     if name.endswith(".xml") or name.endswith(".rss") or name.endswith(".atom"):
         return parse_rss(content.decode("utf-8", errors="replace")), "RSS Feed", False
     if name.endswith(".html") or name.endswith(".htm"):
@@ -1364,17 +1388,20 @@ def parse_upload(
                 # no I/O.
                 excluded = len(parse_tiktok_export(data, include_history=True)) - len(items)
                 if excluded > 0:
-                    warnings.append(
-                        f"Browsing history ({excluded} item"
-                        f"{'s' if excluded != 1 else ''}) excluded by default — "
-                        "enable it when importing."
-                    )
+                    warnings.append(saved_exports.history_warning(excluded))
             return items, "TikTok Export", False
         # Takeout JSON is a list of watch entries; otherwise a generic URL list.
         if isinstance(data, list) and data and isinstance(data[0], dict) and (
             "titleUrl" in data[0] or "subtitles" in data[0]
         ):
-            return parse_youtube_takeout(content, name), "YouTube Takeout", False
+            # Watch history is not a save (G69): read only on request, through
+            # every door — a dropped file, a walked folder, a zip.
+            history = parse_youtube_takeout(content, name)
+            if include_history:
+                return history, "YouTube Takeout", False
+            if history and warnings is not None:
+                warnings.append(saved_exports.history_warning(len(history)))
+            return [], "YouTube Takeout", False
         # Generic JSON URL list: list[str] or list[{url}].
         items: list[RawItem] = []
         if isinstance(data, list):
@@ -1406,8 +1433,6 @@ def parse_upload(
         # URL-list parsers below. L4 (final review) still holds — an archive
         # with nothing recognized keeps the generic "ZIP archive" label rather
         # than naming a platform it is not.
-        from api.services import saved_exports
-
         result = saved_exports.parse_archive(content, include_history=include_history)
         if warnings is not None:
             warnings.extend(result.warnings)
@@ -1416,23 +1441,18 @@ def parse_upload(
         # X's archive keeps every list as ``window.YTD.<name>.part0 = [...]``;
         # only the like and bookmark lists are saves. Its messages, posts and
         # the archive viewer's own scripts are refused unread.
-        from api.services import saved_exports
-
         base = Path(filename or name).name
         if saved_exports.is_save_list(base):
             items, _platform, _excluded = saved_exports.parse_member(base, content)
             return items, saved_exports.LABEL_BY_PLATFORM["x"], False
         raise ValueError("This .js file is not a list of saves. From an X archive, drop like.js or the whole .zip.")
     if name.endswith(".txt"):
-        from api.services import saved_exports
-
         base = Path(filename or name).name
         if saved_exports.is_save_list(base):
             # TikTok's TXT export, one file per list.
             items, _platform, excluded = saved_exports.parse_member(base, content, include_history=include_history)
             if excluded and warnings is not None:
-                warnings.append(f"Browsing history ({excluded} item{'s' if excluded != 1 else ''}) excluded by "
-                                "default — enable it when importing.")
+                warnings.append(saved_exports.history_warning(excluded))
             return items, saved_exports.LABEL_BY_PLATFORM["tiktok"], False
         return parse_url_list(content.decode("utf-8", errors="replace")), "URL List", False
     raise ValueError(
@@ -2288,9 +2308,13 @@ async def ingest_chunked(
     memory_path: Path,
     from_bookmark_file: bool = False,
 ) -> tuple[int, int]:
-    """:func:`ingest_batch` over ``MAX_BATCH``-sized slices, each committed on its
-    own, so an archive larger than one batch is imported whole and an interruption
-    loses at most the slice in progress. Returns ``(created, duplicates)``."""
+    """:func:`ingest_batch` over ``MAX_BATCH``-sized slices, each saving
+    ``url_index`` and committing on its own, so an archive larger than one batch is
+    imported whole and an interruption keeps every finished slice. The slice in
+    progress is not atomic: its pages are written before its ``url_index`` rows are
+    saved, so an interruption can leave some of its pages on disk unindexed, and a
+    re-import then writes those items again (duplicates, never a loss). Returns
+    ``(created, duplicates)``."""
     created = duplicates = 0
     step = max(1, MAX_BATCH)
     for start in range(0, len(items), step):
