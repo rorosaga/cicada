@@ -16,7 +16,6 @@ from api.remote.runtime import RemoteRuntime
 from api.services import agentic_write, change_timeline, markdown_parser, mcp_tools, search_index
 from api.services.claims import Claim, parse_claims, write_claims
 
-TODAY = date.today().isoformat()
 REASON = "The person said the index moved to another engine."
 
 
@@ -32,7 +31,22 @@ def _add(memory, claim: Claim, eid="alpha-project"):
 
 
 @pytest.fixture
-def srv(tmp_path, monkeypatch):
+def today(monkeypatch) -> str:
+    """The day this test started, pinned for the writer (``agentic_write`` stamps a withdrawal with
+    ``date.today()``): a run that crosses midnight mid-test, or between import and this test, still has one day."""
+    day = date.today()
+
+    class _Today(date):
+        @classmethod
+        def today(cls):
+            return day
+
+    monkeypatch.setattr(agentic_write, "date", _Today)
+    return day.isoformat()
+
+
+@pytest.fixture
+def srv(tmp_path, monkeypatch, today):
     memory = _bank(tmp_path)
     server = stdio_server()
     monkeypatch.setattr(server, "get_memory_path", lambda: memory)
@@ -51,7 +65,7 @@ def _retract(server, claim_id, reason=REASON, **extra):
                               {"subject": "alpha-project", "claim_id": claim_id, "reason": reason, **extra})
 
 
-def test_an_agent_withdraws_its_own_claim_and_the_reason_is_kept(srv):
+def test_an_agent_withdraws_its_own_claim_and_the_reason_is_kept(srv, today):
     server, memory = srv
     claim_id = _write(server)
     out = _retract(server, claim_id)
@@ -59,23 +73,24 @@ def test_an_agent_withdraws_its_own_claim_and_the_reason_is_kept(srv):
     claims = _claims(memory)
     target = claims[claim_id]
     record = claims[target.superseded_by]
-    assert target.valid_to == TODAY
+    assert target.valid_to == today
     assert (record.predicate, record.object, record.object_kind) == ("retracts", claim_id, "literal")
-    assert record.valid_from == record.valid_to == TODAY, "born closed: history, never a belief"
+    assert record.valid_from == record.valid_to == today, "born closed: history, never a belief"
     assert record.text == REASON and record.supersedes == claim_id and record.authored_by == "claude-code"
     assert [e.kind for e in record.evidence] == ["reasoning"]
     assert "sqlite-vec" not in server.handle_tool("cicada_get_perspective", {"subject": "alpha-project"})
 
 
-def test_the_withdrawal_is_committed_under_the_agent_and_counted_by_the_timeline(srv):
+def test_the_withdrawal_is_committed_under_the_agent_and_counted_by_the_timeline(srv, today):
     server, memory = srv
     _retract(server, _write(server))
     log = subprocess.run(["git", "-C", str(memory), "log", "-1", "--format=%s%n%b"],
                          capture_output=True, text=True, check=True).stdout
     assert "entities/alpha-project.md: retracted (source: n/a, trigger: mcp/claude-code)" in log
     assert "Cicada-Author: claude-code" in log and "Cicada-Session: ses_retract_fixed" in log
-    (day,) = change_timeline.collect(memory, date.today(), date.today())
-    assert day.retracted == 1
+    # The commit lands between the test's first day and now, whichever side of midnight it fell on.
+    days = change_timeline.collect(memory, date.fromisoformat(today), date.today())
+    assert sum(day.retracted for day in days) == 1
 
 
 def test_twice_is_a_no_op(srv):
@@ -121,7 +136,7 @@ def test_the_legacy_author_is_only_an_agents_on_an_mcp_origin():
     assert agentic_write.owns(stdio, author="codex", origin=None)
 
 
-def test_withdraw_restate_withdraw_closes_the_restatement(srv):
+def test_withdraw_restate_withdraw_closes_the_restatement(srv, today):
     """The id is minted from the fact, so a restatement after a withdrawal
     reuses it: the second withdrawal must close the OPEN copy, under a record
     id of its own (final review)."""
@@ -135,7 +150,7 @@ def test_withdraw_restate_withdraw_closes_the_restatement(srv):
     page = parse_claims(markdown_parser.parse(memory / "entities" / "alpha-project.md").body)
     copies = [c for c in page if c.id == claim_id]
     records = [c for c in page if c.predicate == "retracts"]
-    assert len(copies) == 2 and all(c.valid_to == TODAY for c in copies)
+    assert len(copies) == 2 and all(c.valid_to == today for c in copies)
     assert len({r.id for r in records}) == 2, "each withdrawal has its own record id"
     assert {c.superseded_by for c in copies} == {r.id for r in records}
     assert "sqlite-vec" not in server.handle_tool("cicada_get_perspective", {"subject": "alpha-project"})
@@ -164,7 +179,7 @@ def test_the_persons_words_become_the_records_evidence(srv):
     assert [e.kind for e in record.evidence] == ["user"]
 
 
-def test_history_says_withdrawn(srv, monkeypatch):
+def test_history_says_withdrawn(srv, monkeypatch, today):
     server, memory = srv
     monkeypatch.setattr(server.mcp_tools, "_relevant_inbox", lambda memory_path, query, **_: [])
     claim_id = _write(server)
@@ -174,8 +189,9 @@ def test_history_says_withdrawn(srv, monkeypatch):
     # The count is what pins the filter: a listed record would render as its
     # reason text with "closed", and never print the word `retracts`.
     assert "Earlier, newest first (1):" in full, "a record is bookkeeping, never listed as a belief"
-    lines = mcp_tools._recent_changes(memory / "entities", [{"entity_id": "alpha-project"}], date.today())
-    assert lines == [f'- `alpha-project` uses: "sqlite-vec" withdrawn {TODAY} by claude-code — {REASON}']
+    lines = mcp_tools._recent_changes(memory / "entities", [{"entity_id": "alpha-project"}],
+                                      date.fromisoformat(today))
+    assert lines == [f'- `alpha-project` uses: "sqlite-vec" withdrawn {today} by claude-code — {REASON}']
 
 
 def test_a_connection_can_only_withdraw_what_it_wrote(tmp_path, monkeypatch):

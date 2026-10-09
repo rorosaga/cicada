@@ -507,7 +507,8 @@ exchanges) in one, OR an explicit link to an existing high-confidence entity. Wh
 name before it has a page is not lost (G141 PJ-0b): Stage 5.56 holds those claims on the name's line in
 `<bank>/pending_entities.jsonl` (`api/services/pending_store.py`: spans, not copies; at most 50 per name,
 the rest counted) and releases them onto the page, first and through Stage 3, in the cycle whose Stage 5
-gives the name one — a holding line leaves the store only then.
+gives the name one — a holding line leaves the store only then. A Stage-4 skill seen in one conversation waits on the
+same store (see *A new skill page needs two conversations*).
 
 **Every mention in a batch is credited (2026-10-08).** Several conversations in one batch can name an entity by the
 same lower-cased name. Stage 2 judges and promotes the name once, on its strongest extraction (first on a confidence
@@ -586,8 +587,32 @@ contract, and a later batch that shows it writes it. A name that is already a `s
 merged, last mention moved, a decaying page recovered, and Stage 3's decay of it this batch dropped; its prose is not
 touched, so re-detections do not pile undated History bullets); a page of another
 type, an installed agent skill's page, a dropped page, or a page another change of the batch writes is left alone.
-`skills_detected` counts the grounded skills. No contradiction check runs on a skill update (it would be a paid call).
+`skills_detected` counts the grounded skills. No contradiction check runs on a skill update (owner ruling
+2026-10-09: no extra model call).
 The same repair script grounds the existing unsourced skill pages from the Sleep commit that created each one.
+
+**A new skill page needs two conversations (owner ruling 2026-10-09).** The bar is entity promotion's. A skill
+`ground` finds in only one conversation is not written and not lost: `skill_grounding.settle` (Stage 5, after the
+pages are written, before Stage 5.56) parks it on `<bank>/pending_entities.jsonl` as a `type: skill` line carrying
+that conversation, its description and confidence. A later batch that grounds the same name (by slug) on another
+conversation — or finds a same-named line Stage 1 parked from another conversation — clears the bar: the page is
+created citing every one of them (dates, `reasoning` rows, `source_episodes`), and the line leaves the store through
+`pending_store.take` (a line still holding claims stays until Stage 5.56 releases them onto the page). A held
+conversation whose episode is gone is no evidence. Nothing expires a line (G173 (4)), so batch 3 and batch 9 meet. A
+skill page that already exists is updated on one conversation as before. Chosen over a separate skills store because
+the pending store already is "a name heard once, no page yet": one file, tracked and committed by the cycle, whose
+held claims follow the name onto its page. Known gap: the held batch's evidence entities are not kept, so the page's
+`draws on` edges come from the batch that cleared the bar.
+
+**Unsourced skill pages are archived on request (owner ruling 2026-10-09).** `repair_skills_aliases
+--archive-unsourced` (off by default; the dry run counts `skill_archivable` / `skill_archive_unproven`, `--list`
+names them) sets `status: archived` — never a delete, no inbox item, and decay skips archived pages so no decay
+nudge follows — on a skill page that stays without a conversation after grounding, only when git proves the old
+Stage-4 writer made it and nothing but Sleep's decay touched it since: added by a Sleep cycle commit with exactly that
+writer's frontmatter; every later commit a Sleep commit carrying Sleep's own `sleep/decay` line for it; and the page
+now differs from what was added only in `confidence`, `status` and `decayed_through`, body unchanged (a decay commit
+stages the whole file, so a hand edit it carried shows). Anything else is kept. Same rails as the rest of the tool:
+refused while Sleep runs, dirty pages skipped, one `cicada` commit (`trigger: maintenance/skill-archive`).
 
 **The engine's own runtime is never a page.** The `claude -p` CLI still tells the model its cwd, platform and shell despite `--system-prompt` (probed 2.1.x; `--exclude-dynamic-system-prompt-sections` is ignored with it), so the extraction prompt says that is not conversation content and Stage 2 drops, with a text-free debug line, any entity named for `$CICADA_HOME` or a path under it (`agent_engine.is_runtime_path`; the scratch dir is one).
 

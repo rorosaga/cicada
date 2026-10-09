@@ -135,6 +135,16 @@ from api.services import conflict_resolver as cr, entity_extractor as ex, entity
 from api.services import providers, source_dates  # noqa: E402
 
 TODAY = date(2026, 10, 8)
+CYCLE_NOW = datetime(2026, 10, 8, 3, 0)
+
+
+class _CycleDay(date):
+    """`conflict_resolver`'s today, pinned to the cycle's own day: a page's `created` falls back to `date.today()`
+    while its `decayed_through` comes from the cycle's `now`, so the two agree on every day the suite runs."""
+
+    @classmethod
+    def today(cls):
+        return cls(CYCLE_NOW.year, CYCLE_NOW.month, CYCLE_NOW.day)
 MEMORY = {"id": MEMORY_EP, "timestamp": "2026-09-20T10:00:00Z", "origin": "claude-export", "source": "claude_memory",
           "evidence_kind": "assistant", "content": "system: The user built Alpha Project, a rover arm, in 2023."}
 CONV = {"id": CONV_EP, "timestamp": "2023-05-10T10:00:00Z", "origin": "claude-export", "source": "claude",
@@ -217,10 +227,10 @@ def _write(bank, episodes, existing=()):
 
     async def no_synthesis(**_k):
         return None
-    with patch.object(cr, "_synthesize_entity_update", no_synthesis):
+    with patch.object(cr, "_synthesize_entity_update", no_synthesis), patch.object(cr, "date", _CycleDay):
         changes = asyncio.run(cr.resolve_and_prune(resolved["changes"], list(existing), real, decay=False,
-                                                   now=datetime(2026, 10, 8, 3, 0)))
-    cr.apply_changes(changes, bank)
+                                                   now=CYCLE_NOW))
+        cr.apply_changes(changes, bank)
     return resolved["changes"]
 
 
