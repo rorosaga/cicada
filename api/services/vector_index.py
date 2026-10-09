@@ -60,6 +60,28 @@ QUERY_CACHE_SIZE = 16
 _QUERY_CACHE: "OrderedDict[tuple[str, str], tuple[float, np.ndarray]]" = OrderedDict()
 _QUERY_CACHE_LOCK = threading.Lock()
 
+# One writer per index file at a time (EmbeddingGemma 2, owner 2026-10-09): Sleep's syncs and the background
+# re-embed after a model change (``embedding_models``) both run in the backend process and both write tables;
+# each holds this for one table's diff → embed → write, so neither writes a table the other read a moment
+# before. Readers never take it (WAL serves them the last committed table).
+_WRITE_LOCKS: dict[str, threading.Lock] = {}
+_WRITE_LOCKS_GUARD = threading.Lock()
+#: How many texts one embed call takes while a stoppable sync runs (the re-embed checks between calls).
+STOPPABLE_CHUNK = 64
+
+
+class IndexSyncStopped(RuntimeError):
+    """A stoppable sync (the background re-embed) gave way — Sleep started. Nothing was written."""
+
+
+def _write_lock(db_path: Path) -> threading.Lock:
+    key = str(Path(db_path).expanduser().resolve())
+    with _WRITE_LOCKS_GUARD:
+        lock = _WRITE_LOCKS.get(key)
+        if lock is None:
+            lock = _WRITE_LOCKS[key] = threading.Lock()
+        return lock
+
 
 def clear_query_cache() -> None:
     with _QUERY_CACHE_LOCK:
@@ -138,6 +160,8 @@ class SqliteVecIndexer:
         embed_fn: EmbedFn | None = None,
         model_name: str | None = None,
         db_path: Path | None = None,
+        defer_model_switch: bool = False,
+        should_stop: Callable[[], bool] | None = None,
     ):
         self.memory_path = Path(memory_path)
         self.entities_dir = self.memory_path / "entities"
@@ -145,12 +169,19 @@ class SqliteVecIndexer:
         self.db_path = Path(db_path) if db_path else self.memory_path / INDEX_DB_FILE
         self.pending_store = self.memory_path / PENDING_STORE_FILE
         self._embed_fn = embed_fn
+        self._injected = embed_fn is not None
         # Recorded next to the vectors so a reindex knows what it built and can
         # detect a model swap (different model => different dim => full rebuild).
         self.model_name = model_name or ("unknown" if embed_fn else None)
         # What the last `index_*` call of each kind did: embedded / reused /
         # removed / rebuilt counts (Sleep's report and the tests read it).
         self.last_sync: dict[str, dict[str, int]] = {}
+        # Sleep's syncs pass ``defer_model_switch``: a table built with a model this Mac can still run keeps that
+        # model (synced incrementally with it) even when the bank's model changed — the re-embed into the new
+        # model is the background job's (``embedding_models.start_reindex_if_needed``), never Sleep's.
+        self.defer_model_switch = defer_model_switch
+        # The background re-embed passes ``should_stop``: it embeds in chunks and gives way when this says so.
+        self._should_stop = should_stop
 
     # ---------- embedding ----------
 
@@ -256,6 +287,7 @@ class SqliteVecIndexer:
         kind: str,
         rows: list[tuple[np.ndarray, str, dict]],
         keys: list[str] | None = None,
+        model: str | None = None,
     ) -> None:
         """(Re)create the vec + metadata tables for ``kind`` and load ``rows``.
 
@@ -270,6 +302,10 @@ class SqliteVecIndexer:
         dim = int(rows[0][0].shape[0])
         vec_table = f"vec_{kind}"
         meta_table = f"meta_{kind}"
+        # One transaction from the DROP to the commit: Python's sqlite3 opens none before DDL, and without it a
+        # reader would find the table gone (or empty, at the new width) for as long as the rows take to write.
+        if not conn.in_transaction:
+            conn.execute("BEGIN IMMEDIATE")
         conn.execute(f"DROP TABLE IF EXISTS {vec_table}")
         conn.execute(f"DROP TABLE IF EXISTS {meta_table}")
         conn.execute(
@@ -292,13 +328,13 @@ class SqliteVecIndexer:
                 (i, text, json.dumps(metadata),
                  keys[i - 1] if keys is not None else str(i), _text_hash(text)),
             )
-        self._write_index_meta(conn, model=self.model_name or "unknown", dim=dim, kind=kind)
+        self._write_index_meta(conn, model=model or self.model_name or "unknown", dim=dim, kind=kind)
         conn.commit()
 
     # ---------- incremental sync ----------
 
     def _existing_rows(
-        self, conn: sqlite3.Connection, kind: str
+        self, conn: sqlite3.Connection, kind: str, model: str | None = None
     ) -> tuple[dict[str, tuple[int, str, str]], int] | None:
         """``({key: (rowid, hash, metadata_json)}, dim)`` of what ``kind`` holds,
         or ``None`` when it cannot be diffed and must be rebuilt in full: no
@@ -312,7 +348,7 @@ class SqliteVecIndexer:
             if not {"key", "hash"} <= cols:
                 return None
             kv = dict(conn.execute("SELECT key, value FROM index_meta").fetchall())
-            if kv.get(f"model:{kind}") != (self.model_name or "unknown"):
+            if kv.get(f"model:{kind}") != (model or self.model_name or "unknown"):
                 return None
             dim = int(kv.get(f"dim:{kind}", 0) or 0)
             rows = {
@@ -325,6 +361,48 @@ class SqliteVecIndexer:
         except sqlite3.OperationalError:
             return None
 
+    def _build_embedder(self, kind: str, recorded: str | None) -> tuple[EmbedFn, str]:
+        """The embed_fn — and the model it records — that builds ``kind``'s table.
+
+        An injected embedder, or the bank's build model (``embedding_models.build_model``). With
+        ``defer_model_switch`` (Sleep's syncs), a table whose recorded model differs from the bank's but still
+        runs on this Mac keeps it: the switch is the background re-embed's, so Sleep never spends minutes
+        re-embedding a whole bank, and recall keeps answering from the old table until the new one is written."""
+        build_fn = self._ensure_or_global()
+        model = self.model_name or "unknown"
+        injected = getattr(self, "_injected", False)
+        if (self.defer_model_switch and not injected and _named(recorded) and _named(model)
+                and recorded != model):
+            from api.services import embedding_models
+
+            if embedding_models.is_available(recorded) and embedding_models.reindexes_in_background(model):
+                from api.services.providers import resolve_embed_fn_for_model
+
+                embed_fn, _model = resolve_embed_fn_for_model(recorded)
+                return embed_fn, recorded
+        return build_fn, model
+
+    def _embed_documents(self, embed_fn: EmbedFn, texts: list[str]) -> np.ndarray:
+        """Documents through ``embed_fn``; a stoppable sync embeds in chunks and gives way between them."""
+        if self._should_stop is None:
+            return self._checked(embed_fn(texts, is_query=False), len(texts))
+        parts: list[np.ndarray] = []
+        for start in range(0, len(texts), STOPPABLE_CHUNK):
+            if self._should_stop():
+                raise IndexSyncStopped("the index sync gave way")
+            chunk = texts[start : start + STOPPABLE_CHUNK]
+            parts.append(self._checked(embed_fn(chunk, is_query=False), len(chunk)))
+        if self._should_stop():
+            raise IndexSyncStopped("the index sync gave way")
+        return np.concatenate(parts, axis=0) if parts else np.zeros((0, 0), dtype=np.float32)
+
+    def _recorded_kind_model(self, conn: sqlite3.Connection, kind: str) -> str | None:
+        try:
+            row = conn.execute("SELECT value FROM index_meta WHERE key = ?", (f"model:{kind}",)).fetchone()
+        except sqlite3.OperationalError:
+            return None
+        return row[0] if row else None
+
     def _sync_kind(self, kind: str, staged: list[tuple[str, str, dict]]) -> dict[str, int]:
         """Bring ``kind``'s table in line with ``staged`` ``(key, text, metadata)``
         rows, embedding only the texts whose content hash is new or changed.
@@ -336,11 +414,14 @@ class SqliteVecIndexer:
         so a failed embed leaves the previous index exactly as it was. The
         index stays derived and disposable: dropping the file just costs one
         full build. Returns ``{"embedded", "reused", "removed", "rebuilt"}``.
+        One writer per index file at a time (``_write_lock``).
         """
+        with _write_lock(self.db_path):
+            return self._sync_kind_locked(kind, staged)
+
+    def _sync_kind_locked(self, kind: str, staged: list[tuple[str, str, dict]]) -> dict[str, int]:
         import sqlite_vec
 
-        # Resolves `model_name` for a production embedder before the diff.
-        self._ensure_or_global()
         unique_keys: list[str] = []
         seen: dict[str, int] = {}
         for key, _text, _meta in staged:
@@ -350,21 +431,32 @@ class SqliteVecIndexer:
         hashes = [_text_hash(text) for _k, text, _m in staged]
         stats = {"embedded": 0, "reused": 0, "removed": 0, "rebuilt": 0}
 
+        # The bank's build model first: resolving it reads the index's stamp, which must not find a file this
+        # call has just created empty.
+        self._ensure_or_global()
         conn = self._connect()
         try:
-            existing = self._existing_rows(conn, kind)
+            # The model this table is built with, before the diff: the bank's, or — deferred — its own.
+            embed_fn, model = self._build_embedder(kind, self._recorded_kind_model(conn, kind))
+            existing = self._existing_rows(conn, kind, model)
             if not staged:
-                if existing is not None:
+                # Nothing to index: no table, whatever model the old one was built with (a table left behind
+                # under another model would read as a switch still to do).
+                try:
+                    present = conn.execute(f"SELECT count(*) FROM meta_{kind}").fetchone()[0]
+                except sqlite3.OperationalError:
+                    present = None
+                if present is not None:
                     conn.execute(f"DROP TABLE IF EXISTS vec_{kind}")
                     conn.execute(f"DROP TABLE IF EXISTS meta_{kind}")
                     conn.commit()
-                    stats["removed"] = len(existing[0])
+                    stats["removed"] = int(present)
                 return stats
 
             def full() -> dict[str, int]:
-                embeddings = self._embed([t for _k, t, _m in staged])
+                embeddings = self._embed_documents(embed_fn, [t for _k, t, _m in staged])
                 rows = [(embeddings[i], staged[i][1], staged[i][2]) for i in range(len(staged))]
-                self._rebuild_table(conn, kind, rows, keys=unique_keys)
+                self._rebuild_table(conn, kind, rows, keys=unique_keys, model=model)
                 stats.update(embedded=len(rows), rebuilt=1)
                 return stats
 
@@ -382,7 +474,7 @@ class SqliteVecIndexer:
             stats["reused"] = len(staged) - len(todo)
             if not todo and not gone and not meta_moved:
                 return stats
-            embeddings = self._embed([staged[i][1] for i in todo]) if todo else None
+            embeddings = self._embed_documents(embed_fn, [staged[i][1] for i in todo]) if todo else None
             if embeddings is not None and dim and int(embeddings.shape[1]) != dim:
                 return full()  # same model name, different width: nothing is reusable
 
@@ -413,7 +505,7 @@ class SqliteVecIndexer:
                     conn.execute(f"UPDATE {meta_table} SET metadata = ? WHERE rowid = ?",
                                  (meta_json[i], rows_by_key[unique_keys[i]][0]))
                 self._write_index_meta(
-                    conn, model=self.model_name or "unknown",
+                    conn, model=model,
                     dim=int(embeddings.shape[1]) if embeddings is not None else dim, kind=kind,
                 )
                 conn.commit()
@@ -452,6 +544,28 @@ class SqliteVecIndexer:
         """The model ``kind``'s vectors were built with: its own ``model:<kind>``
         stamp, else the bank-wide one (an index written before per-kind stamps)."""
         return (self.index_info(kind) or {}).get("model")
+
+    def table_models(self) -> dict[str, str]:
+        """``{kind: model}`` for every vector table that exists — its own ``model:<kind>`` stamp, else the
+        bank-wide one (an index written before per-kind stamps). ``{}`` when unbuilt or unreadable."""
+        if not self.db_path.exists():
+            return {}
+        conn = self._connect()
+        try:
+            names = [r[0] for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'meta\\_%' ESCAPE '\\'")]
+            kv = dict(conn.execute("SELECT key, value FROM index_meta").fetchall())
+        except sqlite3.OperationalError:
+            return {}
+        finally:
+            conn.close()
+        out: dict[str, str] = {}
+        for name in names:
+            kind = name[len("meta_"):]
+            model = kv.get(f"model:{kind}") or kv.get("model")
+            if model:
+                out[kind] = model
+        return out
 
     def index_info(self, kind: str | None = None) -> dict:
         """Return ``{model, dim}`` recorded at build time, or ``{}`` if unbuilt.
@@ -730,8 +844,6 @@ class SqliteVecIndexer:
 
     def rebuild_pending_index(self) -> int:
         entries = self._load_pending()
-        if not entries:
-            return 0
         self._rebuild_pending_index(entries)
         return len(entries)
 
@@ -771,16 +883,28 @@ class SqliteVecIndexer:
         ]
         keep = [i for i, t in enumerate(texts) if t]
         if not keep:
+            # An empty store leaves no table behind: its rows would name entities no longer pending.
+            if self.db_path.exists():
+                with _write_lock(self.db_path):
+                    conn = self._connect()
+                    try:
+                        conn.execute("DROP TABLE IF EXISTS vec_pending")
+                        conn.execute("DROP TABLE IF EXISTS meta_pending")
+                        conn.commit()
+                    finally:
+                        conn.close()
             return
         texts = [texts[i] for i in keep]
         rows_meta = [rows_meta[i] for i in keep]
-        embeddings = self._embed(texts)
-        rows = [(embeddings[i], texts[i], rows_meta[i]) for i in range(len(texts))]
-        conn = self._connect()
-        try:
-            self._rebuild_table(conn, "pending", rows)
-        finally:
-            conn.close()
+        # Always rebuilt in full, so always with the bank's model (a few hundred short names, never a deferral).
+        with _write_lock(self.db_path):
+            embeddings = self._embed_documents(self._ensure_or_global(), texts)
+            rows = [(embeddings[i], texts[i], rows_meta[i]) for i in range(len(texts))]
+            conn = self._connect()
+            try:
+                self._rebuild_table(conn, "pending", rows)
+            finally:
+                conn.close()
 
     def search_pending(self, query: str, top_k: int = 5) -> list[dict]:
         return self._search_kind("pending", query, top_k)

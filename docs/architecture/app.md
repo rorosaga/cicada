@@ -880,7 +880,9 @@ different version (an updated app beside a background service still running the 
 `scripts/release/requirements.lock`, hashed, no torch; Cicada's tracked `api/`, `mcp/`, `skills/`, `SKILL.md`,
 `VERSION` and agent script; dugite-native git, pruned, with its GPLv2 `COPYING` and a source pointer; the int8 ONNX
 `intfloat/multilingual-e5-small`, owner 2026-10-06, fetched through `scripts/fetch-embedding-model.sh` — the same script
-a developer checkout's `make embedding-model` runs, the one reader of the model pins in `scripts/release/inputs.env`), copies it to `Contents/Resources/backend/`, stamps `CicadaDistribution=release` (and no
+a developer checkout's `make embedding-model` runs, the one reader of the model pins in `scripts/release/inputs.env`; and
+`coremltools` with the sympy/mpmath it imports, ≈ 28 MB unzipped, for EmbeddingGemma 2 — whose model is downloaded into
+`~/.cicada/models` on request, never bundled: about 340 MB more in the zip, for a model only macOS 15 runs), copies it to `Contents/Resources/backend/`, stamps `CicadaDistribution=release` (and no
 `CicadaRepoRoot`), strips the binary and signs every Mach-O ad hoc, inside out, never `--deep`
 (`scripts/release/sign-app.sh`). 347 MB unzipped, 138 MB zipped with the English-only model; the multilingual
 model adds about 95 MB (113 MB model and 16 MB tokenizer against 34 MB). Nothing is written inside the signed app:
@@ -954,12 +956,17 @@ shows once in the Version row ("couldn't be installed … You're still on 0.3.0"
 reinstalled once on that launch. The zip must be one of the same release's own assets, over https. The new copy rewrites the
 `~/.cicada/bin` launchers when it opens. Log: `~/.cicada/logs/update.log`.
 
-**Settings → Memory → Search model (G182 phase 3).** A row in the Search index card (DR-37): a picker of the models
-`GET /embeddings` offers — *Small* (built in) and *Larger* (EmbeddingGemma) — and a line saying what this memory
-searches with now, that a change takes effect at the next Sleep (which re-reads the memory once), or how an install
-is going. Choosing a model this Mac doesn't have opens `LargerSearchModelSheet`: why a token is needed (the model's
-license is accepted on Hugging Face, so the person's own read token downloads it once), links to accept the license
-and create a token, a secure field, Install. The token goes only in the one request body and is cleared from the view
-at once; nothing stores it. The row polls while an install runs and is disabled while Sleep writes (DR-41).
+**Settings → Memory → Search model (G182 phase 3; EmbeddingGemma 2, owner 2026-10-09).** A row in the Search index
+card (DR-37): a picker of the models `GET /embeddings` offers — *Neural Engine* (EmbeddingGemma 2, on a Mac with macOS 15+
+on Apple silicon), *Small* (built in) and, only where the Neural Engine model can't run or the bank already uses it,
+*Larger* (EmbeddingGemma-300M) — and a line saying what this memory searches with now (with a one-line suggestion when
+`recommended` names a better model this Mac runs but hasn't downloaded), how a download is going, or how far the
+background re-embed is ("Moving search to Neural Engine: 1 of 3 parts re-read. Search keeps working meanwhile.";
+"…when Sleep finishes" while a run holds it). Picking the Neural Engine model when it isn't here starts its one-click
+download (`POST /embeddings/install` with `model` — no token, no sheet; `SearchModelRoute.download`); picking the larger
+model opens `LargerSearchModelSheet`: why a token is needed (the model's license is accepted on Hugging Face, so the
+person's own read token downloads it once), links to accept the license and create a token, a secure field, Install.
+The token goes only in the one request body and is cleared from the view at once; nothing stores it. The row polls
+while a download or the re-embed runs (`EmbeddingsStatus.isBusy`) and is disabled while Sleep writes (DR-41).
 
 ---

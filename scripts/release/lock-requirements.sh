@@ -29,7 +29,7 @@ def blocks(path):
 names = lambda path: {n.lower().replace("_", "-") for n in re.findall(r"^([A-Za-z0-9_.-]+)==", open(path).read(), re.M)}
 # Locked for the bundle but removed from it by build-backend.sh (keep the two lists in step;
 # test_embedding_models holds them): the extras need them back.
-PRUNED = {"sympy", "mpmath", "hf-xet"}
+PRUNED = {"hf-xet"}
 bundled = names(base) - PRUNED
 text = open(full, encoding="utf-8").read()
 keep = [m.group(0) for m in re.finditer(r"^([A-Za-z0-9_.-]+)==[^\n]*(?:\n[ \t]+[^\n]*)*", text, re.M)

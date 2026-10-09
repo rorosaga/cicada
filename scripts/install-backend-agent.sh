@@ -119,6 +119,9 @@ fi
 # refresh at the tail of every Sleep cycle (G114 R5); the user-initiated
 # POST /sources/poll-feeds and POST /sources/poll-calendars are gated by the same
 # var. Without it an installed backend's subscriptions would never refresh.
+# No ProcessType key: launchd's Background (and Adaptive) class throttles the CPU work around the Neural Engine —
+# EmbeddingGemma 2 loaded in 4.9–6.7 s there against 1.4–2.0 s with no key, on an M4 Pro (2026-10-09); a 512-token
+# embed stayed ~30 ms in all three. test_install_backend_agent.py holds it.
 cat > "$PLIST_PATH" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

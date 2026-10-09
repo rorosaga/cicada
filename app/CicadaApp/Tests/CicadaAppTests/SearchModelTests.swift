@@ -169,7 +169,7 @@ final class SearchModelTests: XCTestCase {
 
     func testDetailWhileInstallingAndAfter() {
         XCTAssertEqual(SearchModelLogic.detail(status(install: .init(state: "installing", step: "Preparing"))), "Preparing…")
-        XCTAssertEqual(SearchModelLogic.detail(status(install: .init(state: "installing"))), "Installing the larger model…")
+        XCTAssertEqual(SearchModelLogic.detail(status(install: .init(state: "installing"))), "Installing the search model…")
         XCTAssertEqual(SearchModelLogic.detail(status(largeAvailable: true, install: .init(state: "done"))),
                        "Larger is ready on this Mac — choose it to switch.")
         XCTAssertEqual(SearchModelLogic.detail(status(model: Self.large, largeAvailable: true, install: .init(state: "done"))),
@@ -251,6 +251,118 @@ final class SearchModelTests: XCTestCase {
         for text in [Copy.SearchModel.sheetWhy, Copy.SearchModel.sheetTokenUse, Copy.SearchModel.title,
                      Copy.SearchModel.pickerHelp, Copy.SearchModel.sheetTitle] {
             for name in ["Google", "Gemma", "BAAI", "bge"] { XCTAssertFalse(text.contains(name), text) }
+        }
+    }
+}
+
+/// EmbeddingGemma 2 (owner 2026-10-09) — the Neural Engine model: one click, no token, and the background re-embed
+/// said in words while search keeps working.
+final class NeuralEngineSearchModelTests: XCTestCase {
+    static let small = "intfloat/multilingual-e5-small"
+    static let neural = "google/embeddinggemma-2:768"
+    static let large = "google/embeddinggemma-300m"
+
+    override func tearDown() {
+        MockURLProtocol.handler = nil
+        super.tearDown()
+    }
+
+    private func status(model: String = small, next: String? = nil, neuralAvailable: Bool = false,
+                        recommended: String? = neural, install: EmbeddingInstallState = EmbeddingInstallState(),
+                        reindex: EmbeddingReindexState = EmbeddingReindexState()) -> EmbeddingsStatus {
+        EmbeddingsStatus(model: model, nextModel: next ?? model, release: true, recommended: recommended, models: [
+            EmbeddingModelOption(id: Self.neural, label: "Neural Engine", dimensions: 768, detail: "Runs on this Mac's Neural Engine.",
+                                 needsDownload: true, needsToken: false, available: neuralAvailable),
+            EmbeddingModelOption(id: Self.small, label: "Small", dimensions: 384, detail: "Built in.",
+                                 needsDownload: false, available: true),
+        ], install: install, reindex: reindex)
+    }
+
+    func testDecodesTheNewFieldsAndAnOlderBackendStillReadsAsATokenDownload() throws {
+        let reply = Data("""
+        {"model": "intfloat/multilingual-e5-small", "nextModel": "google/embeddinggemma-2:768", "recommended": null,
+         "models": [{"id": "google/embeddinggemma-2:768", "label": "Neural Engine", "needsDownload": true, "needsToken": false, "available": true},
+                    {"id": "google/embeddinggemma-300m", "label": "Larger", "needsDownload": true, "available": false}],
+         "install": {"state": "done"},
+         "reindex": {"state": "running", "model": "google/embeddinggemma-2:768", "done": 1, "total": 3, "error": ""}}
+        """.utf8)
+        let s = try JSONDecoder().decode(EmbeddingsStatus.self, from: reply)
+        XCTAssertNil(s.recommended)
+        XCTAssertFalse(s.models[0].needsToken)
+        XCTAssertTrue(s.models[1].needsToken, "no needsToken on the wire: the old larger-model download")
+        XCTAssertEqual(s.reindex, EmbeddingReindexState(state: "running", model: Self.neural, done: 1, total: 3))
+        XCTAssertTrue(s.isBusy)
+        let old = try JSONDecoder().decode(EmbeddingsStatus.self, from: Data(#"{"model": "x"}"#.utf8))
+        XCTAssertEqual(old.reindex.state, "idle")
+        XCTAssertFalse(old.isBusy)
+    }
+
+    func testPickingItStartsTheDownloadNotTheTokenSheet() {
+        XCTAssertEqual(SearchModelLogic.route(picked: Self.neural, status: status(), sleepWriting: false), .download(Self.neural))
+        XCTAssertEqual(SearchModelLogic.route(picked: Self.neural, status: status(install: .init(state: "installing")),
+                                              sleepWriting: false), .nothing)
+        XCTAssertEqual(SearchModelLogic.route(picked: Self.neural, status: status(neuralAvailable: true), sleepWriting: false),
+                       .choose(Self.neural))
+        let withLarge = EmbeddingsStatus(model: Self.small, models: [
+            EmbeddingModelOption(id: Self.large, label: "Larger", needsDownload: true, available: false)])
+        XCTAssertEqual(SearchModelLogic.route(picked: Self.large, status: withLarge, sleepWriting: false), .install)
+    }
+
+    func testTheDownloadSendsOnlyTheModelId() async throws {
+        MockURLProtocol.handler = { request in
+            XCTAssertEqual(request.httpMethod, "POST")
+            XCTAssertEqual(request.url?.path, "/embeddings/install")
+            let object = try JSONSerialization.jsonObject(with: Self.body(request)) as? [String: Any]
+            XCTAssertEqual(object?.keys.sorted(), ["model"], "no token, nothing else")
+            XCTAssertEqual(object?["model"] as? String, Self.neural)
+            return (HTTPURLResponse(url: request.url!, statusCode: 202, httpVersion: nil, headerFields: nil)!,
+                    Data(#"{"model": "intfloat/multilingual-e5-small", "install": {"state": "installing", "step": "Preparing"}}"#.utf8))
+        }
+        let s = try await APIClient(session: MockURLProtocol.makeSession()).installEmbeddingModel(Self.neural)
+        XCTAssertTrue(s.install.isInstalling)
+    }
+
+    private static func body(_ request: URLRequest) -> Data {
+        request.httpBodyStream.map { stream -> Data in
+            stream.open()
+            defer { stream.close() }
+            var data = Data()
+            var buffer = [UInt8](repeating: 0, count: 1024)
+            while stream.hasBytesAvailable {
+                let read = stream.read(&buffer, maxLength: 1024)
+                if read <= 0 { break }
+                data.append(buffer, count: read)
+            }
+            return data
+        } ?? request.httpBody ?? Data()
+    }
+
+    func testTheDetailLineSaysWhereSearchIsAndThatItKeepsWorking() {
+        XCTAssertEqual(SearchModelLogic.detail(status()),
+                       "Searching with the Small model. Neural Engine runs on this Mac too and finds looser matches — pick it to download it once.")
+        XCTAssertEqual(SearchModelLogic.detail(status(neuralAvailable: true, recommended: nil)),
+                       "Searching with the Small model. Built in.", "nothing to recommend once it's here")
+        let running = EmbeddingReindexState(state: "running", model: Self.neural, done: 1, total: 3)
+        XCTAssertEqual(SearchModelLogic.detail(status(next: Self.neural, neuralAvailable: true, recommended: nil, reindex: running)),
+                       "Moving search to Neural Engine: 1 of 3 parts re-read. Search keeps working meanwhile.")
+        let waiting = EmbeddingReindexState(state: "waiting", model: Self.neural)
+        XCTAssertEqual(SearchModelLogic.detail(status(next: Self.neural, neuralAvailable: true, recommended: nil, reindex: waiting)),
+                       "Search moves to Neural Engine when Sleep finishes. Search keeps working meanwhile.")
+        let failed = EmbeddingReindexState(state: "failed", model: Self.neural, error: "Search couldn't move to the new model.")
+        XCTAssertEqual(SearchModelLogic.detail(status(next: Self.neural, neuralAvailable: true, recommended: nil, reindex: failed)),
+                       "Search couldn't move to the new model.")
+        let done = EmbeddingReindexState(state: "done", model: Self.neural, done: 3, total: 3)
+        XCTAssertEqual(SearchModelLogic.detail(status(model: Self.neural, neuralAvailable: true, recommended: nil, reindex: done)),
+                       "Searching with the Neural Engine model. Runs on this Mac's Neural Engine.")
+        XCTAssertEqual(SearchModelLogic.detail(status(install: .init(state: "installing", step: "Downloading the search model (12 of 585 MB)"))),
+                       "Downloading the search model (12 of 585 MB)…")
+    }
+
+    func testTheNewLinesNameNoProvider() {
+        let lines = [Copy.SearchModel.usesNowBetterHere("Small", better: "Neural Engine"),
+                     Copy.SearchModel.moving("Neural Engine", done: 1, total: 3), Copy.SearchModel.movingAfterSleep("Neural Engine")]
+        for line in lines {
+            for name in ["Hugging Face", "Google", "Gemma", "Apple", "Core ML"] { XCTAssertFalse(line.contains(name), line) }
         }
     }
 }

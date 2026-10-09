@@ -144,6 +144,12 @@ PY
 cat "$WORK/embed.out" | tail -1
 pass "the bundled model indexed and found the episode (sqlite-vec loaded)"
 
+# EmbeddingGemma 2's runtime is in the bundle (it is downloaded, never bundled): coremltools imports — it needs
+# sympy and mpmath, which build-backend.sh therefore keeps — and loads compiled models.
+run "$CICADA_HOME/bin/cicada-python" -c "from api.services import coreml_embedder as c; ct = c.import_coremltools(); assert ct.models.CompiledMLModel" \
+  > "$WORK/coreml.out" 2>&1 || { cat "$WORK/coreml.out" >&2; fail "the Neural Engine model's runtime does not import"; }
+pass "coremltools imports in the bundle (the Neural Engine search model can run once downloaded)"
+
 # A hook runs through its launcher (the registry reports an absent hook as exit 1).
 set +e
 run "$CICADA_HOME/bin/cicada-hook" registry status --settings "$WORK/settings.json" --event Stop \

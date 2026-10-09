@@ -1388,6 +1388,13 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True,
                 _state.drain.active = False
                 if _state.drain.ended_mono is None:
                     _state.drain.ended_mono = time.monotonic()
+            # A search-model change waits for Sleep to end: the background re-embed starts now if one is due.
+            try:
+                from api.services import embedding_models
+
+                embedding_models.start_reindex_if_needed(memory_path, settings)
+            except Exception as e:  # noqa: BLE001 — never a reason for a run to fail
+                logger.debug(f"re-embed check skipped: {type(e).__name__}")
 
 
 def _reset_batch_counters() -> None:
@@ -1962,7 +1969,10 @@ def _sync_vector_indexes(memory_path: Path) -> list[str]:
     warnings: list[str] = []
     try:
         from api.services.vector_index import SqliteVecIndexer
-        indexer = SqliteVecIndexer(memory_path)
+        # A table keeps the model it records while that model runs here: re-embedding a bank into a new model
+        # is the background job's (``embedding_models.start_reindex_if_needed``, at the end of this run), never
+        # minutes inside Sleep.
+        indexer = SqliteVecIndexer(memory_path, defer_model_switch=True)
     except Exception as e:
         warning = f"vector indexer init failed: {type(e).__name__}: {e}"
         logger.warning(warning)

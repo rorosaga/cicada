@@ -109,7 +109,7 @@ def _classify_one(exc: BaseException) -> str | None:
     if isinstance(exc, ImportError):
         return "model_missing"
     name = type(exc).__name__
-    if name in ("GatedRepoError", "RepositoryNotFoundError", "LocalEntryNotFoundError"):
+    if name in ("GatedRepoError", "RepositoryNotFoundError", "LocalEntryNotFoundError", "EmbedderUnavailable"):
         return "model_missing"
     if isinstance(exc, (ConnectionError, TimeoutError)) or name in (
             "ConnectionError", "Timeout", "ConnectTimeout", "ReadTimeout", "APIConnectionError", "APITimeoutError"):

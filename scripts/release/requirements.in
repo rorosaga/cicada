@@ -26,6 +26,9 @@ numpy
 onnxruntime
 tokenizers
 certifi
+# EmbeddingGemma 2 on the Neural Engine (api/services/coreml_embedder.py, macOS 15+; owner 2026-10-09). Its import
+# needs sympy and mpmath, so build-backend.sh keeps them now.
+coremltools
 # The optional larger search model (G182 phase 3) installs its runtime with pip into
 # ~/.cicada/extras at the person's request.
 pip

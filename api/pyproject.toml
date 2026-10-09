@@ -7,6 +7,8 @@ requires-python = ">=3.12"
 dependencies = [
     "apscheduler>=3.10",
     "beautifulsoup4>=4.14.3",
+    # EmbeddingGemma 2 on the Neural Engine (api/services/coreml_embedder.py; macOS 15+, owner 2026-10-09).
+    "coremltools>=9.0; sys_platform == 'darwin'",
     "fastapi>=0.135.3",
     "icalendar>=6.0",
     "litellm>=1.83.4",

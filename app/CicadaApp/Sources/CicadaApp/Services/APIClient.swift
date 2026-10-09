@@ -2546,6 +2546,13 @@ actor APIClient {
         try await post("/embeddings/install", body: ["hfToken": token])
     }
 
+    /// `POST /embeddings/install` (202) with `model` — a download that needs no account (the Neural Engine
+    /// model: pinned files, each checked before it is installed). 409 on a Mac that can't run it or while
+    /// another install runs.
+    func installEmbeddingModel(_ id: String) async throws -> EmbeddingsStatus {
+        try await post("/embeddings/install", body: ["model": id])
+    }
+
     /// `GET /memory/decay-suggestions` (G147) — the per-type pace suggestions and the pace
     /// already chosen. Not a Store domain, no ETag.
     func fetchDecayTuning() async throws -> DecayTuningResponse { try await get("/memory/decay-suggestions") }

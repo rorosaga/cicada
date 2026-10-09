@@ -14,8 +14,8 @@ import SwiftUI
 ///
 /// G182 phase 3 — *Search model* shares the Search index's card (DR-37: a group, never a one-line
 /// card of its own): a `PillPicker` of the backend's catalog labels, the detail line in words
-/// (`SearchModelLogic.detail`), and a model not on this Mac yet routed to `LargerSearchModelSheet`
-/// instead of switching (`SearchModelLogic.route`). While Sleep writes the picker is disabled at 45 %
+/// (`SearchModelLogic.detail`), and a model not on this Mac yet routed to its download instead of switching
+/// (`SearchModelLogic.route`): the Neural Engine model's one click, or `LargerSearchModelSheet` for the token. While Sleep writes the picker is disabled at 45 %
 /// with the reason in `.help` (DR-41), for the whole run (`ProjectWriteGate.sleepRunning`): the server
 /// refuses a switch while any run goes, since a drain re-syncs the index between its batches. No monospace anywhere on the row (DR-19).
 struct MemoryView: View {
@@ -58,9 +58,9 @@ struct MemoryView: View {
         }
         .task { index = try? await APIClient.shared.fetchSearchIndexStatus() }
         .task { await loadEmbeddings() }
-        // Polls only while the larger model installs; the id flips when the install ends, which
+        // Polls only while a download or the background re-embed runs; the id flips when it ends, which
         // cancels the loop.
-        .task(id: embeddings?.install.isInstalling == true) { await pollWhileInstalling() }
+        .task(id: embeddings?.isBusy == true) { await pollWhileInstalling() }
         // R-HS16 — a sheet centred on the window, never a popover at the panel's edge.
         .sheet(isPresented: $showInstall) {
             SettingsSheet(title: Copy.SearchModel.sheetTitle, onClose: { showInstall = false }) {
@@ -102,13 +102,13 @@ struct MemoryView: View {
     }
 
     private func pollWhileInstalling() async {
-        guard embeddings?.install.isInstalling == true else { return }
+        guard embeddings?.isBusy == true else { return }
         while !Task.isCancelled {
             try? await Task.sleep(for: SearchModelLogic.pollInterval)
             guard !Task.isCancelled else { return }
             guard let status = try? await APIClient.shared.fetchEmbeddings() else { continue }
             embeddings = status
-            if !status.install.isInstalling { return }
+            if !status.isBusy { return }
         }
     }
 
@@ -122,6 +122,17 @@ struct MemoryView: View {
         case .install:
             installModelID = id
             showInstall = true
+        case .download(let id):
+            choosing = true
+            Task { @MainActor in
+                defer { choosing = false }
+                do {
+                    embeddings = try await APIClient.shared.installEmbeddingModel(id)
+                    modelNote = nil
+                } catch {
+                    modelNote = AddSourceSheet.friendlyError(error)
+                }
+            }
         case .choose(let id):
             choosing = true
             Task { @MainActor in
