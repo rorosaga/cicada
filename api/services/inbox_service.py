@@ -1706,8 +1706,15 @@ def _answer_as_key_fact(body: str, sentence: str) -> str:
     from api.services.claims import preserve_claims_blocks, strip_claims_block
 
     sections = entity_body.parse_sections(strip_claims_block(body))
-    merged = entity_body.merge_sections_fallback(sections, {"summary": sentence})
-    return preserve_claims_blocks(body, entity_body.render_sections(merged))
+    # Only Key Facts changes, by one appended bullet: no section is rebuilt from its bullets, so the free text a
+    # legacy writer left in Key Facts or History (kept on purpose, `entity_article.record_sections`) stays exactly.
+    sentence = " ".join(str(sentence or "").split())
+    facts = (sections.get("Key Facts") or "").rstrip()
+    if not sentence or entity_body._normalize_fact(sentence) in {
+            entity_body._normalize_fact(f) for f in entity_body._bullet_lines(facts)}:
+        return body
+    sections["Key Facts"] = (facts + "\n" if facts else "") + entity_body._bullets_block([sentence])
+    return preserve_claims_blocks(body, entity_body.render_sections(sections))
 
 
 def _synthesis_basis(item_id: str, request: InboxResolveRequest, plan: "_ConflictPlan") -> tuple:

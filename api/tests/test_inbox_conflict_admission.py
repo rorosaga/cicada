@@ -166,3 +166,20 @@ def test_an_answer_on_an_article_page_lands_as_a_key_fact_and_survives_the_next_
     # The next deterministic merge keeps it.
     merged = entity_body.merge_sections_fallback(sections, {"key_facts": ["Another fact."]})
     assert any("sqlite-vec" in f for f in entity_body._bullet_lines(merged["Key Facts"]))
+
+
+def test_an_answer_as_a_key_fact_keeps_free_text_in_the_record():
+    """Review N1 (G194): the answer is one appended Key Facts bullet; no section is rebuilt from its bullets, so free
+    text a legacy writer left in Key Facts or History stays."""
+    from api.services import entity_body
+
+    prose = ("## Summary\nA synthetic page.\n\n## Article\n### What it is\n\nA synthetic project.\n\n"
+             "## Key Facts\nThe deploy target moved to beta-host in 2025.\n- Uses SQLite.\n\n"
+             "## History\nStarted as a side project.\n- 2026-01-10: First.")
+    out = inbox_service._answer_as_key_fact(prose, "The person chose sqlite-vec.")
+    sections = entity_body.parse_sections(out)
+    assert "The deploy target moved to beta-host in 2025." in sections["Key Facts"]
+    assert "Started as a side project." in sections["History"] and "- 2026-01-10: First." in sections["History"]
+    assert entity_body._bullet_lines(sections["Key Facts"]) == ["Uses SQLite.", "The person chose sqlite-vec."]
+    assert sections["Summary"] == "A synthetic page." and sections["Article"].endswith("A synthetic project.")
+    assert inbox_service._answer_as_key_fact(out, "The person chose sqlite-vec.") == out   # once only
