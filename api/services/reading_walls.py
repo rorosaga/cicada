@@ -27,7 +27,8 @@ That last rule keeps a connector-saved post whose text Cicada already holds out
 of the list (the reuse tier never runs for a walled host, so such a page has a
 description and no claim). A connector whose saved item IS the post (``x-bookmarks``:
 the post's text rides ``RawItem.note`` into the page's ``## Notes``) holds words
-through any non-empty ``## Notes`` too. A Reddit or Pinterest save is a link out: its
+through any non-empty ``## Notes`` too, and an X archive like (``x-likes``) through any
+non-empty ``## Description`` — the export's text is the whole post. A Reddit or Pinterest save is a link out: its
 title or pin description is not the linked page, so such a page is surfaced on purpose.
 
 The words check parses a page body, so it runs only for the small set of
@@ -49,6 +50,9 @@ _MEMO_MAX = 4096
 _HIDDEN = frozenset({"archived", "dropped"})
 #: Connector origins whose ``## Notes`` is the saved item's own text (the post), not a note about it.
 _TEXT_IN_NOTES_ORIGINS = frozenset({"x-bookmarks"})
+#: Export origins whose ``## Description`` is the post's whole text (``saved_exports``: an X archive like), so
+#: any of it is the post, however short — never asked for again.
+_TEXT_IS_DESCRIPTION_ORIGINS = frozenset({"x-likes"})
 
 _lock = threading.Lock()
 _words_memo: "OrderedDict[tuple, bool]" = OrderedDict()
@@ -153,8 +157,11 @@ def _holds_words(entity_id: str, fm: dict, body_fn, key: tuple) -> bool:
     if not words:
         text = link_enrichment._claim_description(link_enrichment._extract_description_section(body or ""), min_len)
         words = link_enrichment._is_substantive(text, min_len)
-    if not words and str(fm.get("origin") or "").strip().lower() in _TEXT_IN_NOTES_ORIGINS:
+    origin = str(fm.get("origin") or "").strip().lower()
+    if not words and origin in _TEXT_IN_NOTES_ORIGINS:
         words = bool(_notes_section(body or ""))
+    if not words and origin in _TEXT_IS_DESCRIPTION_ORIGINS:
+        words = bool(link_enrichment._extract_description_section(body or "").strip())
     with _lock:
         _words_memo[key] = words
         while len(_words_memo) > _MEMO_MAX:

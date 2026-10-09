@@ -232,6 +232,21 @@ final class IntakeRouterTests: XCTestCase {
         XCTAssertTrue(cappedMany)
     }
 
+    /// An unzipped X archive: only its like and bookmark lists leave this Mac — never its messages, its posts or
+    /// the archive viewer's own scripts (the backend refuses those too; this keeps them from being sent at all).
+    func testExpandKeepsOnlyTheXArchivesSaveListsAmongItsScripts() throws {
+        _ = try file("twitter/data/like.js")
+        _ = try file("twitter/data/bookmark-part1.js")
+        _ = try file("twitter/data/direct-messages.js")
+        _ = try file("twitter/data/tweets.js")
+        _ = try file("twitter/assets/js/main.js")
+        _ = try file("twitter/Your archive.html")
+        let (files, _) = IntakeRouter.expand([dir.appendingPathComponent("twitter")])
+        XCTAssertEqual(files.map(\.lastPathComponent), ["Your archive.html", "bookmark-part1.js", "like.js"])
+        XCTAssertTrue(IntakeRouter.isExportFile(URL(fileURLWithPath: "/x/Like.js")))
+        XCTAssertFalse(IntakeRouter.isExportFile(URL(fileURLWithPath: "/x/likes-partner.js")))
+    }
+
     /// R-IB15 — while the Welcome shows, every arrival is staged on it; nothing imports before Start.
     func testWhileTheWelcomeShowsEveryArrivalIsStagedAndNothingImports() async throws {
         let api = FakeIntakeAPI()

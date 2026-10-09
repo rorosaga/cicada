@@ -206,3 +206,10 @@ def test_an_archive_into_the_demo_bank_is_refused_and_writes_nothing(tmp_path, m
     assert r.status_code == 409 and r.json()["detail"] == demo_guard.REFUSAL
     assert not (demo / "sources" / "url_index.json").exists()
     assert list((demo / "entities").glob("media-*.md")) == []
+
+
+def test_x_likes_count_on_the_x_source_card():
+    from api.services import source_overview
+
+    spec = next(s for s in source_overview.CATALOG if s.id == "x")
+    assert "x-likes" in spec.origins

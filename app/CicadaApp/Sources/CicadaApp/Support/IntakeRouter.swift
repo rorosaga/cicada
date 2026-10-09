@@ -238,6 +238,22 @@ final class IntakeRouter {
     /// `.plist` — Safari's exported `Bookmarks.plist`).
     nonisolated static let exportExtensions: Set<String> = ["json", "html", "htm", "zip", "csv", "txt", "xml",
                                                             "rss", "atom", "opml", "plist"]
+    /// X's archive keeps each list as a script (`data/like.js`). Only the like and bookmark lists are saves —
+    /// `saved_exports.is_save_list`'s rule — so a folder walk sends no message, post or viewer script.
+    nonisolated static let xSaveLists: Set<String> = ["like", "likes", "bookmark", "bookmarks"]
+
+    /// Whether a file is one the walk keeps: an export-shaped extension, or one of X's save lists.
+    nonisolated static func isExportFile(_ url: URL) -> Bool {
+        let ext = url.pathExtension.lowercased()
+        if exportExtensions.contains(ext) { return true }
+        guard ext == "js" else { return false }
+        let stem = url.deletingPathExtension().lastPathComponent.lowercased()
+        if xSaveLists.contains(stem) { return true }
+        guard let dash = stem.range(of: "-part") else { return false }
+        let digits = stem[dash.upperBound...]
+        return xSaveLists.contains(String(stem[..<dash.lowerBound])) && !digits.isEmpty
+            && digits.allSatisfy(\.isNumber)
+    }
 
     private(set) var phase: IntakePhase = .idle
     private(set) var host: IntakeHost = .overlay
@@ -798,7 +814,7 @@ final class IntakeRouter {
         var out: [URL] = []
         func consider(_ url: URL) {
             guard !url.lastPathComponent.hasPrefix("."), !url.pathComponents.contains("__MACOSX") else { return }
-            if exportExtensions.contains(url.pathExtension.lowercased()) { out.append(url) }
+            if isExportFile(url) { out.append(url) }
         }
         for url in urls {
             var isDir: ObjCBool = false
