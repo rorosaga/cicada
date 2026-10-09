@@ -135,3 +135,34 @@ def test_prose_made_for_a_different_answer_is_never_used(memory, monkeypatch):
     page = _page(memory)
     assert "sqlite-vec (confirmed by user)" not in page, "prose for the old answer"
     assert "postgres-example" in page, "the answer the item holds now lands (the fallback)"
+
+
+def test_an_answer_on_an_article_page_lands_as_a_key_fact_and_survives_the_next_merge(memory, monkeypatch):
+    """Review B4 (G194): on a stamped article page the answer was appended as free text inside the last section,
+    which the next merge rebuilds from bullets — losing the only record of a pick with no claim."""
+    from api.services import entity_article, entity_body
+
+    page = memory / "entities/alpha-project.md"
+    parsed = markdown_parser.parse(page)
+    prose = ("## Summary\nAlpha Project is a synthetic project.\n\n## Article\n### What it is\n\n"
+             "Alpha Project stores vectors locally.\n\n## Key Facts\n- Uses local storage.\n\n"
+             "## Open Questions\n- Which index?")
+    entity_article.stamp(parsed.frontmatter, entity_body.parse_sections(prose))
+    markdown_parser.write(page, parsed.frontmatter, prose)
+
+    async def synth(**kwargs):
+        raise AssertionError("an article page gets no prose rewrite")
+
+    monkeypatch.setattr(conflict_resolver, "_synthesize_entity_update", synth)
+    assert _resolve(memory)["status"] == "resolved"
+    from api.services.claims import strip_claims_block
+
+    after = markdown_parser.parse(page)
+    sections = entity_body.parse_sections(strip_claims_block(after.body))
+    facts = entity_body._bullet_lines(sections["Key Facts"])
+    assert any("sqlite-vec" in f for f in facts)
+    assert sections["Open Questions"] == "- Which index?"
+    assert entity_article.stamped(after.frontmatter, sections)
+    # The next deterministic merge keeps it.
+    merged = entity_body.merge_sections_fallback(sections, {"key_facts": ["Another fact."]})
+    assert any("sqlite-vec" in f for f in entity_body._bullet_lines(merged["Key Facts"]))

@@ -1665,8 +1665,8 @@ async def _conflict_synthesis(item_id: str, request: InboxResolveRequest, settin
     from api.services.claims import strip_claims_block
     page_sections = entity_body.parse_sections(strip_claims_block(plan.entity.body))
     if entity_article.stamped(plan.entity.frontmatter, page_sections):
-        # An article page's lead is the article writer's (`entity_article`): the answer lands by the fallback and
-        # the next Sleep update writes it into the article.
+        # An article page's lead is the article writer's (`entity_article`): no rewrite. The admitted pass writes the
+        # answer's sentence as a Key Fact (`_answer_as_key_fact`), where every later merge keeps it.
         return None
     if getattr(settings, 'summary_synthesis_enabled', False):
         if entity_body.has_human_prose(plan.entity.frontmatter, page_sections):
@@ -1689,6 +1689,25 @@ async def _conflict_synthesis(item_id: str, request: InboxResolveRequest, settin
     except Exception:  # noqa: BLE001 — the fallback below is the answer's floor
         new_body = None
     return _Synthesis(basis=_synthesis_basis(item_id, request, plan), new_body=new_body) if new_body else None
+
+
+def _is_article_page(entity) -> bool:
+    from api.services import entity_article, entity_body
+    from api.services.claims import strip_claims_block
+
+    return entity_article.stamped(entity.frontmatter, entity_body.parse_sections(strip_claims_block(entity.body)))
+
+
+def _answer_as_key_fact(body: str, sentence: str) -> str:
+    """The person's answer on an article page (G194): a Key Fact, never free text appended to the last section — the
+    next merge rebuilds that section from its bullets and would drop it, and for a pick with no claim this sentence is
+    the only record of the answer. The lead and Article are kept exactly, so the page stays the writer's."""
+    from api.services import entity_body
+    from api.services.claims import preserve_claims_blocks, strip_claims_block
+
+    sections = entity_body.parse_sections(strip_claims_block(body))
+    merged = entity_body.merge_sections_fallback(sections, {"summary": sentence})
+    return preserve_claims_blocks(body, entity_body.render_sections(merged))
 
 
 def _synthesis_basis(item_id: str, request: InboxResolveRequest, plan: "_ConflictPlan") -> tuple:
@@ -1742,6 +1761,8 @@ async def _resolve_conflict(path, parsed, request, settings, synthesis: "_Synthe
     if sentence:
         if synthesis is not None and synthesis.basis == _synthesis_basis(path.stem, request, plan):
             new_body = synthesis.new_body
+        if not new_body and _is_article_page(entity):
+            new_body = _answer_as_key_fact(entity.body, sentence)
         if not new_body:
             # Safe fallback: dedup guard instead of blind append.
             new_body = (
