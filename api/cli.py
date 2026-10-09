@@ -475,6 +475,70 @@ def cmd_save(boot: Boot, args) -> Result:
     return result
 
 
+def _read_export(path: Path, include_history: bool):
+    """A platform export the person named in this shell: ``(items, label, from_bookmark_file, warnings)``.
+
+    The command line reads the path itself, as the app does — the backend is never asked to open one. A
+    folder goes through the same archive reader as an uploaded zip (``saved_exports``), so the two cannot
+    read an export differently; one file goes through ``parse_upload`` exactly as an upload would."""
+    from api.services import media_ingestor, saved_exports
+
+    if path.is_dir():
+        members = []
+        for f in sorted(path.rglob("*")):
+            if f.is_file() and not f.is_symlink():
+                members.append((f.relative_to(path).as_posix(), f.stat().st_size, f.read_bytes))
+        result = saved_exports.parse_members(members, include_history=include_history)
+        return result.items, result.label, False, result.warnings
+    warnings: list[str] = []
+    try:
+        items, label, from_bookmark_file = media_ingestor.parse_upload(
+            path.read_bytes(), path.name, include_history=include_history, warnings=warnings)
+    except ValueError as exc:
+        raise Refusal("not_an_export", str(exc)) from None
+    return items, label, from_bookmark_file, warnings
+
+
+def cmd_import(boot: Boot, args) -> Result:
+    """A platform's data export into the pinned bank through the upload's own parser and writer
+    (``media_ingestor``: scrub, ``url_index`` dedup against every channel, connectors included,
+    ``MAX_BATCH`` at a time). The demo refusal and the root cross-check come first; ``--preview``
+    writes nothing. Enrichment reads the public page of a link the export did not describe, as an
+    upload does — a request the person just made."""
+    import asyncio
+
+    from api.services import demo_guard, media_ingestor
+
+    bank = Path(boot.pin.path)
+    if demo_guard.is_demo(bank):
+        raise Refusal("demo_bank", demo_guard.REFUSAL)
+    if boot.probe.get("state") == "mismatch" and not args.preview:
+        raise Refusal("root_mismatch", "The app's backend uses a different memory folder than this command. "
+                                       "Nothing was imported; check `cicada status`.")
+    path = Path(args.path)
+    try:
+        items, label, from_bookmark_file, warnings = _read_export(path, args.include_history)
+    except PermissionError:
+        raise Refusal("unreadable", f"This shell may not read {path}.") from None
+    described = media_ingestor.describe_items(items, label, warnings)
+    data = {"source": label, "platform": described.platform, "total": described.total,
+            "collections": described.collections}
+    warnings = list(described.warnings) + _root_warnings(boot)
+    if args.preview:
+        lines = [f"{label}: {described.total} saved item(s)"]
+        lines += [f"  {c['name']}: {c['count']}" for c in described.collections]
+        return Result(text="\n".join(lines), data=data, warnings=warnings)
+    if not described.recognized:
+        raise Refusal("not_an_export", f"Found no saved links in {path.name}.")
+    if len(items) > media_ingestor.MAX_UPLOAD_ITEMS:
+        raise Refusal("too_large", f"{len(items):,} items is past the {media_ingestor.MAX_UPLOAD_ITEMS:,}-item "
+                                   "import cap; nothing was imported.")
+    created, duplicates = asyncio.run(media_ingestor.ingest_chunked(items, bank, from_bookmark_file))
+    data.update(created=created, duplicates=duplicates)
+    return Result(text=f"Imported {created} new item(s) from {label}; {duplicates} already in memory.",
+                  data=data, warnings=warnings)
+
+
 def cmd_handshake(boot: Boot, args) -> Result:
     from api.services import handshake, state_dictionary
 
@@ -489,7 +553,7 @@ def cmd_handshake(boot: Boot, args) -> Result:
 #: name → (handler, needs a bank). A test may swap a handler.
 COMMANDS: dict[str, Callable] = {"recall": cmd_recall, "get": cmd_get, "project": cmd_project,
                                  "continue": cmd_continue, "save": cmd_save, "handshake": cmd_handshake,
-                                 "status": cmd_status, "commands": cmd_commands}
+                                 "status": cmd_status, "commands": cmd_commands, "import": cmd_import}
 _NO_BOOT = {"commands"}
 
 
@@ -644,6 +708,11 @@ def _validate(command: str, args) -> None:
         raise UsageError("the entity is empty")
     if command == "project" and not args.project.strip():
         raise UsageError("the project is empty")
+    if command == "import":
+        path = Path(os.path.expanduser(args.path))
+        if not path.exists():
+            raise UsageError(f"nothing at {args.path}")
+        args.path = os.path.abspath(path)
     if command == "save":
         if args.content == "-":
             try:

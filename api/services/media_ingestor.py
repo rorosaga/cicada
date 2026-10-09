@@ -1522,6 +1522,13 @@ def preview_upload(
             [f"Could not parse {filename or 'this file'}: {type(e).__name__}: {e}"],
         )
 
+    return describe_items(items, label, warnings)
+
+
+def describe_items(items: list[RawItem], label: str, warnings: list[str] | None = None) -> UploadPreview:
+    """Count parsed items by collection — the preview's body, shared with the
+    command line's ``cicada import --preview`` (a folder it walked itself)."""
+    warnings = list(warnings or [])
     platform = PLATFORM_BY_LABEL.get(label, "unknown")
     kind = COLLECTION_KIND_BY_PLATFORM.get(platform, "list")
 

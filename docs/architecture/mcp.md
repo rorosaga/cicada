@@ -520,6 +520,12 @@ the CLI.
   - `status`: root path, source and verification; bank name, path and demo flag; the unconsolidated count; backend
     version and `writing`; the vector index state; distribution; the caller's folder.
   - `commands`: the full table in `data.commands`, with `exposed` per row.
+  - `import <path> [--preview] [--include-history]` (CLI-only, 2026-10-09): a platform's data export — a `.zip`, an
+    unzipped folder or one file — read by the command line itself (the backend never opens a path), parsed by the
+    upload's own reader (`saved_exports` / `media_ingestor.parse_upload`) and written by `media_ingestor.ingest_chunked`
+    into the pinned bank, deduped on `url_index` against every channel. Demo bank exit 4; a mismatched backend root
+    exit 3; a file that is no export `not_an_export`, exit 1; `--preview` writes nothing and reports
+    `data: {source, platform, total, collections}`. See `capture-and-sleep.md`, "Platform data exports".
   - `get <entity>`: `cicada_recall_detail`'s page, verbatim, with `data: {entity_id, type, status, from, count,
     total_lines}` (over the budget it comes in parts, as for the tool; a bounded read below slices the whole page).
     - Bounded reads: `--from N` / `--count N` / `--line-numbers`, or the shorthand `ENTITY:START[:END]` (lines START

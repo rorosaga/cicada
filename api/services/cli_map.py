@@ -148,6 +148,12 @@ ROWS: tuple[Row, ...] = (
     # --- CLI-only -------------------------------------------------------------------
     Row(("status",), None, "Which memory this command uses, and whether the app's backend agrees.", exposed=True),
     Row(("commands",), None, "Every command, and the MCP tool each one mirrors.", exposed=True),
+    Row(("import",), None,
+        "Bring in what the person saved on a platform, from its data export (a .zip, a folder or one file).",
+        (Arg("path", positional=True),),
+        options=(Option("--preview", "bool", "Say what the export holds; write nothing."),
+                 Option("--include-history", "bool", "Also read watch and browsing history (not saves).")),
+        mutates=True, exposed=True),
 )
 
 
