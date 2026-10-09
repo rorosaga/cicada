@@ -245,9 +245,8 @@ def cmd_page_history(boot, args) -> Result:
     _page_exists(boot, args.entity_id)
     rows = _run(git_service.get_entity_history(args.entity_id, Path(boot.pin.path)))
     entries = [_dump(r) for r in rows][: args.limit or None]
-    lines = [f"{e.get('date', '')[:16]}  {e.get('commitHash', e.get('commit_hash', ''))[:10]}  "
-             f"{', '.join(e.get('authors') or []) or e.get('author', '')}  {e.get('message', '')}".rstrip()
-             for e in entries]
+    lines = [f"{e.get('date', '')[:16]}  {e.get('commitHash', '')[:10]}  {e.get('author', '')}  "
+             f"{e.get('changeType', '')}: {e.get('description', '')}".rstrip(" :") for e in entries]
     return Result(text="\n".join(lines) or "No history (this memory is not under git, or the page is new).",
                   data={"entity_id": args.entity_id, "history": entries}, warnings=_warn(boot))
 
