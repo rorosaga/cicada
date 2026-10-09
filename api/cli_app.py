@@ -36,6 +36,11 @@ from api.cli_types import Refusal, Result, UsageError
 HTTP_TIMEOUT_S = 30.0
 JOB_POLL_S = 1.0
 JOB_WAIT_MAX_S = 3600.0
+#: A write to the backend needs `/healthz` to confirm this command's memory root. The bootstrap asks for 1 s; a
+#: backend that did not answer in time is asked once more, this long, before the write is refused.
+CONFIRM_TIMEOUT_S = 5.0
+#: Shell variables only a harness sets in the commands it runs: an agent's shell even when it names no session.
+AGENT_SHELL_ENV = (("CODEX_THREAD_ID", "codex"), ("CODEX_SESSION_ID", "codex"), ("CODEX_SANDBOX", "codex"))
 
 
 # --- the backend, as one more client of its API -----------------------------------------------------
@@ -58,6 +63,56 @@ def _opener():
     import urllib.request
 
     return urllib.request.build_opener(urllib.request.ProxyHandler({}))   # loopback never goes through a proxy
+
+
+def probe_backend(url: str, root, timeout: float) -> dict:
+    """Ask a running backend which memory root it serves. ``backend_down`` only on a refused
+    connection; a timeout, an error answer or no root in it is ``unverified``, never "no backend"."""
+    import socket
+    import urllib.error
+
+    try:
+        with _opener().open(f"{url}/healthz", timeout=timeout) as resp:
+            body = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError:
+        return {"state": "unverified"}
+    except urllib.error.URLError as exc:
+        return {"state": "backend_down" if isinstance(exc.reason, ConnectionRefusedError) else "unverified"}
+    except ConnectionRefusedError:
+        return {"state": "backend_down"}
+    except (TimeoutError, socket.timeout, OSError, ValueError):
+        return {"state": "unverified"}
+    reported = body.get("memoryRoot") if isinstance(body, dict) else None
+    if not isinstance(reported, str) or not reported.strip():
+        return {"state": "unverified"}
+    same = os.path.realpath(os.path.expanduser(reported)) == os.path.realpath(root)
+    out = {"state": "confirmed" if same else "mismatch"}
+    if isinstance(body.get("version"), str):
+        out["version"] = body["version"]
+    return out
+
+
+MISMATCH_TEXT = ("The app's backend uses a different memory folder than this command. Nothing was changed; "
+                 "check `cicada status`.")
+UNVERIFIED_TEXT = ("The app's backend did not confirm which memory folder it serves, so this command will not "
+                   "change anything through it: a write could land in another memory. Nothing was changed; "
+                   "check `cicada status`, or try again.")
+
+
+def _confirm_root(boot) -> None:
+    """A write goes only to a backend that confirmed it serves this command's memory root (ruling 21's split-brain
+    guard: the backend checks the bank's NAME, and a fresh root's bank is `default` too). An unverified probe is asked
+    once more with a longer timeout; anything but `confirmed` then refuses, its warnings kept."""
+    if boot.probe.get("state") == "unverified":
+        boot.probe = probe_backend(boot.backend_url, boot.root, CONFIRM_TIMEOUT_S)
+    state = boot.probe.get("state")
+    if state == "confirmed":
+        return
+    if state == "backend_down":
+        raise Refusal("backend_down", DOWN_TEXT)
+    if state == "mismatch":
+        raise Refusal("root_mismatch", MISMATCH_TEXT, _warn(boot))
+    raise Refusal("root_unverified", UNVERIFIED_TEXT, _warn(boot) or ["root_unverified"])
 
 
 DOWN_TEXT = ("The app's backend is not running, and this command acts on it. Open Cicada (or start its backend) "
@@ -90,8 +145,9 @@ def call(boot, method: str, path: str, *, body=None, query: dict | None = None,
     if state == "backend_down":
         raise Refusal("backend_down", DOWN_TEXT)
     if state == "mismatch":
-        raise Refusal("root_mismatch", "The app's backend uses a different memory folder than this command. "
-                                       "Nothing was changed; check `cicada status`.")
+        raise Refusal("root_mismatch", MISMATCH_TEXT, _warn(boot))
+    if method != "GET":
+        _confirm_root(boot)              # every write, bank CRUD included: never to an unconfirmed root
     url = boot.backend_url + path + (("?" + urlencode(query, doseq=True)) if query else "")
     headers = {**backend_headers(), "Accept": "application/json"}
     data = None
@@ -107,7 +163,7 @@ def call(boot, method: str, path: str, *, body=None, query: dict | None = None,
         with _opener().open(req, timeout=timeout) as resp:
             raw = resp.read()
     except urllib.error.HTTPError as exc:
-        _raise_for(exc)
+        _raise_for(exc, _warn(boot))
     except urllib.error.URLError as exc:
         if isinstance(exc.reason, ConnectionRefusedError):
             raise Refusal("backend_down", DOWN_TEXT) from None
@@ -128,7 +184,13 @@ def call(boot, method: str, path: str, *, body=None, query: dict | None = None,
         raise Refusal("backend_error", "The app's backend answered something that is not JSON.") from None
 
 
-def _raise_for(exc) -> None:
+def _demo_refusal() -> str:
+    from api.services import demo_guard
+
+    return demo_guard.REFUSAL
+
+
+def _raise_for(exc, warnings: list[str] | None = None) -> None:
     try:
         payload = json.loads(exc.read().decode("utf-8"))
     except Exception:  # noqa: BLE001 - an unreadable body falls back to the status
@@ -138,34 +200,55 @@ def _raise_for(exc) -> None:
     if not isinstance(detail, str):
         detail = None
     status = exc.code
+    w = list(warnings or [])
     if status == 409 and code == "bank_mismatch":
-        raise Refusal("bank_mismatch", "The active memory changed before this was sent. Nothing was changed.")
+        raise Refusal("bank_mismatch", "The active memory changed before this was sent. Nothing was changed.", w)
     if status == 409 and code == "sleep_writing":
         raise Refusal("sleep_writing", (detail or "Sleep is updating your memory.") + " Nothing was changed; "
-                                                                                       "try again in a moment.")
+                                                                                       "try again in a moment.", w)
+    if status == 409 and detail == _demo_refusal():
+        # `demo_guard`'s capture refusal (every capture and sources write in a demo bank): the CLI's demo exit.
+        raise Refusal("demo_bank", detail, w)
     if status == 409:
-        raise Refusal("refused", detail or "The app's backend refused this. Nothing was changed.")
+        raise Refusal("refused", detail or "The app's backend refused this. Nothing was changed.", w)
     if status == 404:
-        raise Refusal("not_found", detail or "Not found.")
+        raise Refusal("not_found", detail or "Not found.", w)
+    if status == 413:
+        raise Refusal("refused", detail or "That file is too large for Cicada. Nothing was changed.", w)
     if status in (400, 422):
         raise UsageError(detail or "the app's backend did not accept these values")
     if status in (401, 403):
         raise Refusal("unauthorized", "The app's backend did not accept this command's token "
-                                      "(CICADA_API_TOKEN or ~/.cicada/api_token).")
-    raise Refusal("backend_error", f"The app's backend could not do this (HTTP {status}).")
+                                      "(CICADA_API_TOKEN or ~/.cicada/api_token).", w)
+    raise Refusal("backend_error", f"The app's backend could not do this (HTTP {status}).", w)
 
 
 # --- the person-only rule ----------------------------------------------------------------------------
 
-def require_person(what: str) -> None:
-    """Refuse when the shell names an agent's session: the backend would record this as the person."""
+def agent_shell(environ=None) -> str | None:
+    """The harness whose shell this is, or None for the person's own terminal: a session or harness the identity
+    parse names (`session_identity.cli_identity`), else a variable only a harness sets in the commands it runs
+    (Codex's `CODEX_THREAD_ID` / `CODEX_SESSION_ID` / `CODEX_SANDBOX`, which its shells carry without naming a
+    session to Cicada)."""
     from api.services import session_identity
 
-    ident = session_identity.cli_identity()
+    environ = os.environ if environ is None else environ
+    ident = session_identity.cli_identity(environ)
     if ident.session_id or ident.harness:
+        return ident.harness or "unnamed harness"
+    for key, harness in AGENT_SHELL_ENV:
+        if (environ.get(key) or "").strip():
+            return harness
+    return None
+
+
+def require_person(what: str) -> None:
+    """Refuse when the shell belongs to an agent: the backend would record this as the person."""
+    harness = agent_shell()
+    if harness is not None:
         raise Refusal("person_only", f"{what} acts as the person, and this shell belongs to an agent's session "
-                                     f"({ident.harness or 'unnamed harness'}). The person runs it in their own "
-                                     "terminal or the app. Nothing was changed.")
+                                     f"({harness}). The person runs it in their own terminal or the app. "
+                                     "Nothing was changed.")
 
 
 def _warn(boot) -> list[str]:
@@ -365,6 +448,7 @@ def cmd_sleep_schedule(boot, args) -> Result:
     cfg = call(boot, "GET", "/sleep/schedule")
     if args.mode is None and args.at is None and args.every is None:
         return Result(text=_schedule_text(cfg), data=cfg, warnings=_warn(boot))
+    require_person("Changing when Sleep runs")
     new = {k: v for k, v in cfg.items() if k in ("mode", "hour", "minute", "intervalHours", "afterImport")}
     if args.at is not None:
         new["hour"], new["minute"] = _hhmm(args.at)
@@ -479,6 +563,7 @@ def cmd_index_rebuild(boot, args) -> Result:
 
 
 def cmd_index_use(boot, args) -> Result:
+    require_person("Switching the search model")
     model = None if args.model == "default" else args.model
     status = call(boot, "POST", "/embeddings/choice", body={"model": model})
     return Result(text="\n".join(_model_text(status)), data=status, warnings=_warn(boot))
@@ -486,10 +571,14 @@ def cmd_index_use(boot, args) -> Result:
 
 def cmd_index_install(boot, args) -> Result:
     require_person("Downloading a search model")
-    body = {"model": args.model} if args.model else {}
-    if not args.model:
+    model = args.model
+    if not model:
         current = call(boot, "GET", "/embeddings")
-        body = {"model": current.get("recommended") or current.get("nextModel")}
+        model = current.get("recommended") or current.get("nextModel")
+        if not isinstance(model, str) or not model.strip():
+            raise Refusal("refused", "Cicada has no search model to recommend downloading on this Mac. Name one with "
+                                     "--model (`cicada index status` lists them). Nothing was downloaded.", _warn(boot))
+    body = {"model": model}
     status = call(boot, "POST", "/embeddings/install", body=body)
     return Result(text="Download started.\n" + "\n".join(_model_text(status)), data=status, warnings=_warn(boot))
 
@@ -535,6 +624,8 @@ def _readable_file(raw: str) -> Path:
 
 
 def cmd_import(boot, args) -> Result:
+    if not args.preview:
+        require_person("Importing a file into memory")
     path = _readable_file(args.file)
     payload = (path.name, path.read_bytes())
     if args.preview:
@@ -556,7 +647,11 @@ def cmd_import(boot, args) -> Result:
             time.sleep(JOB_POLL_S)
         result = {**result, "jobStatus": status}
         if status.get("error"):
-            raise Refusal("backend_error", f"The import stopped: {status['error']}")
+            raise Refusal("backend_error", f"The import stopped: {status['error']}", _warn(boot))
+        if not status.get("done"):
+            raise Refusal("backend_timeout", f"The import is still running in the app's backend (job {job.get('id')})"
+                                             f": {status.get('staged', 0)} of {status.get('total', '?')} staged so far. "
+                                             "It keeps going; Sleep reads what it stages.", _warn(boot))
         text = (f"Imported: {status.get('created', 0)} new, {status.get('updated', 0)} updated, "
                 f"{status.get('skipped', 0)} already here.")
     elif job:

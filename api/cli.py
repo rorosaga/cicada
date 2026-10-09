@@ -156,30 +156,8 @@ def _opener():
 
 
 def probe_backend(url: str, root: Path, timeout: float = HEALTH_TIMEOUT_S) -> dict:
-    """Ask a running backend which memory root it serves. ``backend_down`` only on a refused
-    connection; a timeout or an error answer is ``unverified``, never "no backend"."""
-    import socket
-    import urllib.error
-
-    try:
-        with _opener().open(f"{url}/healthz", timeout=timeout) as resp:
-            body = json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError:
-        return {"state": "unverified"}
-    except urllib.error.URLError as exc:
-        return {"state": "backend_down" if isinstance(exc.reason, ConnectionRefusedError) else "unverified"}
-    except ConnectionRefusedError:
-        return {"state": "backend_down"}
-    except (TimeoutError, socket.timeout, OSError, ValueError):
-        return {"state": "unverified"}
-    reported = body.get("memoryRoot") if isinstance(body, dict) else None
-    if not isinstance(reported, str) or not reported.strip():
-        return {"state": "unverified"}
-    same = os.path.realpath(os.path.expanduser(reported)) == os.path.realpath(root)
-    out = {"state": "confirmed" if same else "mismatch"}
-    if isinstance(body.get("version"), str):
-        out["version"] = body["version"]
-    return out
+    """Ask a running backend which memory root it serves (`cli_app.probe_backend`, one copy)."""
+    return cli_app.probe_backend(url, root, timeout)
 
 
 def _backend_headers(environ=None) -> dict[str, str]:
@@ -761,7 +739,7 @@ def main(argv: list[str] | None = None) -> int:
         return EXIT_CODES["usage"]
     except Refusal as exc:
         _emit(as_json, command=command, ok=False, code=exc.code, bank=bank_name, data=None, text=str(exc),
-              warnings=[])
+              warnings=list(getattr(exc, "warnings", []) or []))
         return EXIT_CODES.get(exc.code, 1)
     except BootstrapError as exc:
         _emit(as_json, command=command, ok=False, code="bootstrap", bank=None, data=None,

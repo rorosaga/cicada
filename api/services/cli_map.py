@@ -192,7 +192,7 @@ ROWS: tuple[Row, ...] = (
          via="backend", mutates=True),
     _app(("sleep", "end"), "End a paused run; everything waiting stays queued.", via="backend", mutates=True),
     _app(("sleep", "schedule"), "When Sleep runs on its own; --mode manual|daily|interval, --at HH:MM, --every HOURS.",
-         (_f("mode"), _f("at"), _f("every", "int")), via="backend", mutates=True),
+         (_f("mode"), _f("at"), _f("every", "int")), via="backend", mutates=True, person=True),
     _app(("sleep", "engine"), "Which engine and model Sleep reads with; --mode and --model change it.",
          (_f("mode"), _f("model")), via="backend", mutates=True, person=True),
     _app(("sleep", "options"), "How Sleep reads: batch size, continue after a plan reset, the reserve.",
@@ -203,7 +203,7 @@ ROWS: tuple[Row, ...] = (
     _app(("index", "status"), "The word index and the search model: state, re-embedding, downloads.", via="backend"),
     _app(("index", "rebuild"), "Rebuild the word index now.", via="backend", mutates=True),
     _app(("index", "use"), "Use another installed search model (`default` for the default); re-embeds in the "
-                           "background.", (_p("model"),), via="backend", mutates=True),
+                           "background.", (_p("model"),), via="backend", mutates=True, person=True),
     _app(("index", "install"), "Download a search model (only ever on the person's command).", (_f("model"),),
          via="backend", mutates=True, person=True),
     # Sources and imports.

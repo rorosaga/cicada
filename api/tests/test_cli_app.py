@@ -19,13 +19,17 @@ from _synthetic_bank import _bank
 from api.services import cli_map
 
 TOKEN = "test-token-not-real"
-SESSION_KEYS = ("CLAUDE_CODE_SESSION_ID", "CLAUDE_PROJECT_DIR", "CICADA_SESSION_ID", "CICADA_SESSION_HARNESS")
+SESSION_KEYS = ("CLAUDE_CODE_SESSION_ID", "CLAUDE_PROJECT_DIR", "CICADA_SESSION_ID", "CICADA_SESSION_HARNESS",
+                "CODEX_THREAD_ID", "CODEX_SESSION_ID", "CODEX_SANDBOX")
+_SAME = object()
 
 
 @contextmanager
-def fake_backend(memory_root: str, routes: dict | None = None):
-    """A synthetic backend: `/healthz` names ``memory_root``; ``routes`` maps (METHOD, path) → (status, body).
-    Every request is recorded (method, path with query, headers, body bytes)."""
+def fake_backend(memory_root: str, routes: dict | None = None, *, health_delay: float = 0.0,
+                 health_status: int = 200, health_root=_SAME):
+    """A synthetic backend: `/healthz` names ``memory_root`` (or ``health_root``; None leaves it out), after
+    ``health_delay`` seconds; ``routes`` maps (METHOD, path) → (status, body). Every other request is recorded
+    (method, path with query, headers, body bytes)."""
     seen: list[dict] = []
     table = dict(routes or {})
 
@@ -35,7 +39,13 @@ def fake_backend(memory_root: str, routes: dict | None = None):
             body = self.rfile.read(length) if length else b""
             path = self.path.split("?", 1)[0]
             if path == "/healthz":
-                status, payload = 200, {"status": "ok", "version": "9.9.9", "memoryRoot": memory_root}
+                if health_delay:
+                    import time
+
+                    time.sleep(health_delay)
+                root = memory_root if health_root is _SAME else health_root
+                status, payload = health_status, {"status": "ok", "version": "9.9.9",
+                                                  **({"memoryRoot": root} if root is not None else {})}
             else:
                 seen.append({"method": self.command, "path": self.path, "headers": dict(self.headers),
                              "body": body})
@@ -92,8 +102,8 @@ def _run(argv, capsys):
 
 
 @contextmanager
-def _backend(env, monkeypatch, routes=None):
-    with fake_backend(os.path.realpath(env), routes) as server:
+def _backend(env, monkeypatch, routes=None, **health):
+    with fake_backend(os.path.realpath(env), routes, **health) as server:
         monkeypatch.setenv("CICADA_PORT", str(server.server_address[1]))
         yield server
 
@@ -283,6 +293,9 @@ PERSON_ARGV = {
     "page decay": ["page", "decay", "alpha-project", "durable"],
     "inbox answer": ["inbox", "answer", "inbox-001", "--option", "keep"],
     "sleep start": ["sleep", "start"],
+    "sleep schedule": ["sleep", "schedule", "--at", "04:00"],
+    "index use": ["index", "use", "default"],
+    "import": ["import", "PICTURE"],
     "sleep engine": ["sleep", "engine", "--model", "m-2"],
     "sleep options": ["sleep", "options", "--batch-size", "10"],
     "index install": ["index", "install", "--model", "x"],
@@ -303,7 +316,9 @@ def test_every_person_row_is_exercised_here():
 
 @pytest.mark.parametrize("name", sorted(PERSON_ARGV))
 @pytest.mark.parametrize("identity", [{"CLAUDE_CODE_SESSION_ID": "11111111-2222-4333-8444-555555555555"},
-                                      {"CICADA_SESSION_HARNESS": "codex"}])
+                                      {"CICADA_SESSION_HARNESS": "codex"},
+                                      {"CODEX_THREAD_ID": "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b"},
+                                      {"CODEX_SANDBOX": "seatbelt"}])
 def test_a_person_command_refuses_from_an_agents_shell(env, monkeypatch, capsys, tmp_path, name, identity):
     picture = tmp_path / "p.png"
     picture.write_bytes(b"\x89PNG\r\n\x1a\n")
@@ -311,6 +326,7 @@ def test_a_person_command_refuses_from_an_agents_shell(env, monkeypatch, capsys,
     for key, value in identity.items():
         monkeypatch.setenv(key, value)
     with _backend(env, monkeypatch, {("GET", "/sleep/engine"): (200, {"mode": "byok"}),
+                                     ("GET", "/sleep/schedule"): (200, {"mode": "manual", "hour": 3, "minute": 0}),
                                      ("GET", "/settings/owner"): (200, {"name": ""}),
                                      ("GET", "/embeddings"): (200, {"model": "m"})}) as server:
         code, out = _run(argv, capsys)
@@ -440,3 +456,93 @@ def test_every_exposed_row_has_a_handler_and_a_place():
 def test_the_agent_skill_keeps_the_app_commands_out_of_its_table():
     block = cli_map.skill_block()
     assert "`cicada sleep start`" not in block and "cicada commands" in block
+
+
+def test_the_person_s_own_terminal_is_not_an_agent_shell(env):
+    from api import cli_app
+
+    assert cli_app.agent_shell({}) is None
+    assert cli_app.agent_shell({"CODEX_THREAD_ID": "  "}) is None
+    assert cli_app.agent_shell({"CODEX_THREAD_ID": "t-1"}) == "codex"
+
+
+# --- a write goes only to a backend that confirmed this command's memory root (ruling 21's split-brain guard) ------
+
+WRITES = [["feed", "add", "https://example.com/feed.xml"], ["sleep", "stop"], ["bank", "create", "beta"]]
+
+
+@pytest.mark.parametrize("argv", WRITES, ids=lambda a: " ".join(a[:2]))
+def test_a_slow_backend_serving_another_root_receives_no_write(env, monkeypatch, capsys, tmp_path, argv):
+    elsewhere = tmp_path / "somewhere-else"
+    elsewhere.mkdir()
+    with _backend(env, monkeypatch, health_delay=1.5, health_root=str(elsewhere)) as server:
+        code, out = _run(argv, capsys)
+    assert code == 3 and out["ok"] is False and out["code"] == "root_mismatch", out
+    assert server.seen == []                       # the POST never left this process
+
+
+@pytest.mark.parametrize("argv", WRITES, ids=lambda a: " ".join(a[:2]))
+def test_a_slow_backend_that_confirms_the_root_on_the_second_ask_gets_the_write(env, monkeypatch, capsys, argv):
+    with _backend(env, monkeypatch, health_delay=1.5) as server:
+        code, out = _run(argv, capsys)
+    assert code == 0 and out["ok"] is True, out
+    assert "root_unverified" not in out["warnings"]
+    assert len(server.seen) == 1 and server.seen[0]["method"] in ("POST", "DELETE")
+
+
+@pytest.mark.parametrize("health", [{"health_root": None}, {"health_status": 500}], ids=["no-root", "http-500"])
+@pytest.mark.parametrize("argv", WRITES, ids=lambda a: " ".join(a[:2]))
+def test_a_backend_that_never_confirms_the_root_receives_no_write(env, monkeypatch, capsys, argv, health):
+    with _backend(env, monkeypatch, **health) as server:
+        code, out = _run(argv, capsys)
+    assert code == 3 and out["code"] == "root_unverified" and out["ok"] is False, out
+    assert out["warnings"] == ["root_unverified"]  # the refusal keeps why the root could not be checked
+    assert server.seen == []
+
+
+def test_a_read_from_an_unverified_backend_proceeds_with_its_warning(env, monkeypatch, capsys):
+    with _backend(env, monkeypatch, {("GET", "/sleep/status"): (200, {"status": "idle"})}, health_root=None):
+        code, out = _run(["sleep", "status"], capsys)
+    assert code == 0 and out["warnings"] == ["root_unverified"]
+
+
+# --- more typed refusals -----------------------------------------------------------------------------------------
+
+def test_a_demo_bank_capture_refusal_is_the_demo_exit(env, monkeypatch, capsys):
+    from api.services import demo_guard
+
+    with _backend(env, monkeypatch, {("POST", "/sources/feeds"): (409, {"detail": demo_guard.REFUSAL})}):
+        code, out = _run(["feed", "add", "https://example.com/feed.xml"], capsys)
+    assert code == 4 and out["code"] == "demo_bank" and out["text"] == demo_guard.REFUSAL
+
+
+def test_a_picture_over_the_servers_bound_is_refused_with_its_sentence(env, monkeypatch, capsys, tmp_path):
+    picture = tmp_path / "big.png"
+    picture.write_bytes(b"\x89PNG\r\n\x1a\n" + b"0" * 64)
+    sentence = "That picture is too large — Cicada keeps pictures under 512 KB."
+    with _backend(env, monkeypatch, {("POST", "/entities/bob-example/picture"): (413, {"detail": sentence})}):
+        code, out = _run(["picture", "set", "bob-example", str(picture)], capsys)
+    assert code == 1 and out["code"] == "refused" and out["text"] == sentence
+
+
+def test_index_install_without_a_recommendation_sends_nothing(env, monkeypatch, capsys):
+    with _backend(env, monkeypatch, {("GET", "/embeddings"): (200, {"model": "m", "recommended": None,
+                                                                     "nextModel": None})}) as server:
+        code, out = _run(["index", "install"], capsys)
+    assert code == 1 and out["code"] == "refused"
+    assert [r["method"] for r in server.seen] == ["GET"]
+
+
+def test_an_import_that_outlasts_the_wait_never_says_imported(env, monkeypatch, capsys, tmp_path):
+    from api import cli_app
+
+    monkeypatch.setattr(cli_app, "JOB_WAIT_MAX_S", 0.3)
+    monkeypatch.setattr(cli_app, "JOB_POLL_S", 0.05)
+    export = tmp_path / "conversations.json"
+    export.write_text("[]")
+    with _backend(env, monkeypatch, {("POST", "/intake/import"): (202, {"job": {"id": "job-1"}}),
+                                     ("GET", "/intake/jobs/job-1"): (200, {"id": "job-1", "done": False, "staged": 4,
+                                                                           "total": 40})}):
+        code, out = _run(["import", str(export)], capsys)
+    assert code == 6 and out["code"] == "backend_timeout" and "Imported" not in out["text"]
+    assert "still running" in out["text"]

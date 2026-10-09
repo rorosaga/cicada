@@ -18,7 +18,7 @@ REFUSAL_CODES = frozenset({
 })
 
 EXIT_CODES = {"usage": 2, "not_found": 1, "empty_graph": 1, "bank_mismatch": 3, "root_mismatch": 3,
-              "demo_bank": 4, "sandbox_denied": 5, "backend_down": 6, "backend_timeout": 6,
+              "root_unverified": 3, "demo_bank": 4, "sandbox_denied": 5, "backend_down": 6, "backend_timeout": 6,
               "sleep_writing": 1, "refused": 1, "unauthorized": 1, "person_only": 1,
               "backend_error": 70, "internal": 70, "bootstrap": 70}
 
@@ -28,11 +28,13 @@ class UsageError(Exception):
 
 
 class Refusal(Exception):
-    """A rule said no before anything was read or written."""
+    """A rule said no before anything was read or written. ``warnings`` ride on the refusal's envelope (the root
+    cross-check's ``root_unverified`` above all, so a refused write still says why it could not be checked)."""
 
-    def __init__(self, code: str, message: str) -> None:
+    def __init__(self, code: str, message: str, warnings: list[str] | None = None) -> None:
         super().__init__(message)
         self.code = code
+        self.warnings = list(warnings or [])
 
 
 @dataclass

@@ -576,15 +576,24 @@ the CLI.
     The CLI never starts a second Sleep, never writes state the backend holds (the scheduler, the run, the engine
     choice, a re-embed). Every mutating request names the pinned bank in `X-Cicada-Bank` (bank CRUD excepted), so a
     switch mid-command is refused by the backend (exit 3). With the bootstrap's probe at `backend_down` it refuses
-    before sending (`backend_down`, exit 6); `mismatch` refuses (exit 3). A 409 maps by its `code` (`sleep_writing`,
-    `bank_mismatch`, else `refused`), 404 `not_found`, 400/422 usage with the backend's sentence, 401/403
-    `unauthorized`, 5xx `backend_error` (70). A schedule, engine, options or owner change reads the current value and
-    sends it back merged.
+    before sending (`backend_down`, exit 6); `mismatch` refuses (exit 3). **A write (any non-GET, bank CRUD included)
+    is sent only to a backend that confirmed this command's memory root:** the backend checks the bank's *name*, and a
+    fresh root's bank is `default` too, so an `unverified` probe (a slow `/healthz`, an error answer, no `memoryRoot`)
+    is asked once more with a 5 s timeout and, unless that confirms, the write refuses (`root_unverified`, exit 3,
+    `warnings: ["root_unverified"]` kept on the envelope). A read from an unverified backend proceeds with the
+    warning. A 409 maps by its `code` (`sleep_writing`, `bank_mismatch`), `demo_guard.REFUSAL` as its detail is
+    `demo_bank` (exit 4), any other 409 `refused`; 404 `not_found`, 413 `refused` with the server's sentence (the CLI
+    does not shrink a picture), 400/422 usage with the backend's sentence, 401/403 `unauthorized`, 5xx
+    `backend_error` (70). A schedule, engine, options or owner change reads the current value and sends it back
+    merged. `index install` with no model named and none recommended refuses without sending; an `import` job still
+    running when the wait ends is `backend_timeout` (exit 6), never "Imported".
   - **Person-only rows** (`person=True`) act as the person: a page or picture write the backend commits as
-    `Cicada-Author: user`, an inbox answer, a run on the person's engine, a model download (only on the person's
-    command), a feed fetch, a bank switch, rename or trash. They refuse (`person_only`, exit 1, nothing sent but
-    reads) when `session_identity.cli_identity()` names a session or a harness — an agent's write carries the agent's
-    provenance, never the person's. A Codex shell that sets neither is not caught; the rule is a guard, not a lock.
+    `Cicada-Author: user`, an inbox answer, a run on the person's engine, a schedule change, a search-model switch or
+    download (only on the person's command), a feed fetch, an import, a bank switch, rename or trash. They refuse
+    (`person_only`, exit 1, nothing sent but reads) from an agent's shell (`cli_app.agent_shell`): one where
+    `session_identity.cli_identity()` names a session or a harness, or that carries `CODEX_THREAD_ID`,
+    `CODEX_SESSION_ID` or `CODEX_SANDBOX` (set by Codex in the commands it runs). An agent's write carries the agent's
+    provenance, never the person's. The rule is a guard, not a lock.
   - `import` refuses any file that resolves under `~/.claude` (transcripts are captured by the Stop hook only) and
     uploads as-is; the app's picture shrink to 512 px is not done here, the server's bound applies.
   - `cicada commands` lists them apart, marked *needs the app's backend* / *the person only*; `catalog()` adds
