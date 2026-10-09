@@ -309,6 +309,7 @@ def cmd_commands(boot: Boot | None, args) -> Result:
 
     def app_line(c):
         marks = ", ".join(m for m, on in (("needs the app's backend", c["via"] == "backend"),
+                                          ("a chat export needs the app's backend", c["via"] == "both"),
                                           ("the person only", c["person"])) if on)
         return f"  {c['command']:<{width}}{c['summary']}" + (f" [{marks}]" if marks else "")
 
@@ -455,6 +456,22 @@ def _read_export(path: Path, include_history: bool):
 
 
 def cmd_import(boot: Boot, args) -> Result:
+    """One `cicada import` for both kinds of export (person-only: it writes as the person; --preview writes
+    nothing and is allowed). The path is sniffed as the backend sniffs a dropped file: a chat export the intake's
+    reader finds conversations in goes to the backend's intake (`cli_app.import_chat_export`, the app's path);
+    anything else — a platform's save lists, a folder — is read here (`_import_platform_export`). Nothing under
+    ~/.claude is read by either."""
+    path = Path(args.path)
+    cli_app.refuse_harness_folder(path)
+    if not args.preview:
+        cli_app.require_person("Importing a file into memory")
+    content = cli_app.chat_export(path)
+    if content is not None:
+        return cli_app.import_chat_export(boot, args, path, content)
+    return _import_platform_export(boot, args)
+
+
+def _import_platform_export(boot: Boot, args) -> Result:
     """A platform's data export into the pinned bank through the upload's own parser and writer
     (``media_ingestor``: scrub, ``url_index`` dedup against every channel, connectors included,
     ``MAX_BATCH`` at a time). The demo refusal and the root cross-check come first; ``--preview``

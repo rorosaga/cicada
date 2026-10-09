@@ -522,7 +522,12 @@ the CLI.
   - `status`: root path, source and verification; bank name, path and demo flag; the unconsolidated count; backend
     version and `writing`; the vector index state; distribution; the caller's folder.
   - `commands`: the full table in `data.commands`, with `exposed` per row.
-  - `import <path> [--preview] [--include-history]` (CLI-only, 2026-10-09): a platform's data export — a `.zip`, an
+  - `import <path> [--preview] [--include-history] [--no-wait]` (CLI-only, 2026-10-09; one command for two kinds
+    of export, an app row: `via="both"`, person-only except `--preview`). The path is sniffed in the backend's own
+    order: a file the intake's chat reader (`intake.parse_export`) finds conversations in is a **chat export** and goes
+    to the backend's intake like the app's drop (`cli_app.import_chat_export`: `/intake/sniff` for `--preview`,
+    `/intake/import`, `/intake/jobs/{id}` until done, `--no-wait` returns once queued; the confirmed-root rule below).
+    Anything else, a folder included, is a **platform's data export** — a `.zip`, an
     unzipped folder or one file — read by the command line itself (the backend never opens a path), parsed by the
     upload's own reader (`saved_exports` / `media_ingestor.parse_upload`) and written by `media_ingestor.ingest_chunked`
     into the pinned bank, deduped on `url_index` against every channel. Demo bank exit 4; a mismatched backend root
@@ -570,7 +575,7 @@ the CLI.
   - `via="backend"` — the running backend's own routes with the token, because the state is the backend's: `sleep
     status|start [--continue]|stop|end|schedule [--mode --at --every]|engine [--mode --model]|options [--batch-size
     --continue-after-reset --reserve]`, `index status|rebuild|use <model>|install [--model]`, `feed add|remove|poll`,
-    `import <file> [--preview --no-wait]` (`/intake/sniff`, `/intake/import`, polling `/intake/jobs/{id}`), `settings
+    `import`'s chat-export branch (above), `settings
     owner [--name --handle --email]`, `engine list`, `page decay <entity> <class>`, `inbox answer <id> [--option
     --answer --defer --days --reject]`, `picture set <entity> <file>|initials|clear`, `bank use|create|rename|delete`.
     The CLI never starts a second Sleep, never writes state the backend holds (the scheduler, the run, the engine
@@ -594,8 +599,9 @@ the CLI.
     `session_identity.cli_identity()` names a session or a harness, or that carries `CODEX_THREAD_ID`,
     `CODEX_SESSION_ID` or `CODEX_SANDBOX` (set by Codex in the commands it runs). An agent's write carries the agent's
     provenance, never the person's. The rule is a guard, not a lock.
-  - `import` refuses any file that resolves under `~/.claude` (transcripts are captured by the Stop hook only) and
-    uploads as-is; the app's picture shrink to 512 px is not done here, the server's bound applies.
+  - `import` refuses any path that resolves under `~/.claude`, file or folder, on both branches (transcripts are
+    captured by the Stop hook only). `picture set` uploads as-is; the app's shrink to 512 px is not done here, the
+    server's bound applies.
   - `cicada commands` lists them apart, marked *needs the app's backend* / *the person only*; `catalog()` adds
     `via` and `person` to each entry (additive). The skill's table keeps to the agent commands and names `cicada
     commands`.

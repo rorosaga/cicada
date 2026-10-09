@@ -610,24 +610,44 @@ def cmd_feed_poll(boot, args) -> Result:
     return Result(text=json.dumps(result, ensure_ascii=False), data=result, warnings=_warn(boot))
 
 
+def refuse_harness_folder(path: Path) -> None:
+    """The rail: transcripts under ~/.claude are read only by the Stop hook's capture — never imported, by either
+    import path, file or folder."""
+    claude_root = Path(os.path.realpath(os.path.expanduser("~/.claude")))
+    real = Path(os.path.realpath(path))
+    if real == claude_root or claude_root in real.parents:
+        raise Refusal("refused", "Files under ~/.claude are captured by Cicada's own hook, never imported. "
+                                 "Nothing was read.")
+
+
 def _readable_file(raw: str) -> Path:
     path = Path(os.path.expanduser(raw))
     if not path.is_file():
         raise UsageError(f"no file at {raw}")
-    claude_root = Path(os.path.realpath(os.path.expanduser("~/.claude")))
-    real = Path(os.path.realpath(path))
-    if real == claude_root or claude_root in real.parents:
-        # The rail: transcripts under ~/.claude are read only by the Stop hook's capture, never imported.
-        raise Refusal("refused", "Files under ~/.claude are captured by Cicada's own hook, never imported. "
-                                 "Nothing was read.")
+    refuse_harness_folder(path)
     return path
 
 
-def cmd_import(boot, args) -> Result:
-    if not args.preview:
-        require_person("Importing a file into memory")
-    path = _readable_file(args.file)
-    payload = (path.name, path.read_bytes())
+def chat_export(path: Path) -> bytes | None:
+    """The file's bytes when the intake's own chat reader finds conversations in it (``intake.parse_export``, the
+    order the backend's sniff uses: a chat export first, a platform's save lists otherwise), else None. A folder
+    is never a chat export here: the intake takes one file."""
+    if not path.is_file():
+        return None
+    from api.routers import intake
+
+    content = path.read_bytes()
+    try:
+        parsed = intake.parse_export(content, path.name)
+    except Exception:  # noqa: BLE001 - not a chat export (the reader's refusal is the platform reader's to give)
+        return None
+    return content if parsed.episodes else None
+
+
+def import_chat_export(boot, args, path: Path, content: bytes) -> Result:
+    """`cicada import`'s chat branch: a ChatGPT / Claude / Gemini export goes to the backend's intake, the app's
+    path (`/intake/sniff` for --preview, `/intake/import`, then `/intake/jobs/{id}` until it is done)."""
+    payload = (path.name, content)
     if args.preview:
         sniff = call(boot, "POST", "/intake/sniff", upload=("file", *payload), timeout=300)
         counts = sniff.get("delta") or {}
@@ -793,7 +813,7 @@ def validate(command: str, args) -> None:
     """Checks that need no memory, before the bootstrap."""
     if command == "find" and not args.query.strip():
         raise UsageError("the query is empty")
-    for attr in ("entity_id", "bank_name", "new_name", "url", "item_id", "file"):
+    for attr in ("entity_id", "bank_name", "new_name", "url", "item_id", "file", "path"):
         value = getattr(args, attr, None)
         if isinstance(value, str) and not value.strip():
             raise UsageError(f"the {attr.replace('_', ' ')} is empty")

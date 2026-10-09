@@ -15,6 +15,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pytest
 
 from _cli import free_port
+from _intake_fixtures import chatgpt_conversations
 from _synthetic_bank import _bank
 from api.services import cli_map
 
@@ -357,7 +358,7 @@ def test_picture_set_uploads_the_file_as_the_apps_form_field(env, monkeypatch, c
 
 def test_import_waits_for_a_background_job(env, monkeypatch, capsys, tmp_path):
     export = tmp_path / "conversations.json"
-    export.write_text("[]")
+    export.write_text(json.dumps(chatgpt_conversations(2)))
     with _backend(env, monkeypatch, {("POST", "/intake/import"): (202, {"job": {"id": "job-1"}}),
                                      ("GET", "/intake/jobs/job-1"): (200, {"id": "job-1", "done": True, "created": 12,
                                                                            "updated": 1, "skipped": 2})}) as server:
@@ -369,7 +370,7 @@ def test_import_waits_for_a_background_job(env, monkeypatch, capsys, tmp_path):
 
 def test_import_preview_only_sniffs(env, monkeypatch, capsys, tmp_path):
     export = tmp_path / "conversations.json"
-    export.write_text("[]")
+    export.write_text(json.dumps(chatgpt_conversations(2)))
     sniff = {"recognized": True, "kind": "chat", "vendor": "chatgpt", "delta": {"new": 3, "grown": 0, "unchanged": 1}}
     with _backend(env, monkeypatch, {("POST", "/intake/sniff"): (200, sniff)}) as server:
         code, out = _run(["import", str(export), "--preview"], capsys)
@@ -446,11 +447,11 @@ def test_every_exposed_row_has_a_handler_and_a_place():
 
     for row in cli_map.exposed():
         assert row.name in cli.COMMANDS, row.name
-        assert row.via in ("bank", "backend"), row.name
+        assert row.via in ("bank", "backend", "both"), row.name
         if row.app:
             assert row.tool is None and row.exposed
         if row.person:
-            assert row.mutates and row.via == "backend", row.name
+            assert row.mutates and row.via in ("backend", "both"), row.name
 
 
 def test_the_agent_skill_keeps_the_app_commands_out_of_its_table():
@@ -539,10 +540,62 @@ def test_an_import_that_outlasts_the_wait_never_says_imported(env, monkeypatch, 
     monkeypatch.setattr(cli_app, "JOB_WAIT_MAX_S", 0.3)
     monkeypatch.setattr(cli_app, "JOB_POLL_S", 0.05)
     export = tmp_path / "conversations.json"
-    export.write_text("[]")
+    export.write_text(json.dumps(chatgpt_conversations(2)))
     with _backend(env, monkeypatch, {("POST", "/intake/import"): (202, {"job": {"id": "job-1"}}),
                                      ("GET", "/intake/jobs/job-1"): (200, {"id": "job-1", "done": False, "staged": 4,
                                                                            "total": 40})}):
         code, out = _run(["import", str(export)], capsys)
     assert code == 6 and out["code"] == "backend_timeout" and "Imported" not in out["text"]
     assert "still running" in out["text"]
+
+
+# --- one `import`: a chat export goes to the backend's intake, a platform export is read here (#262) -------------
+
+def _x_archive(path):
+    import io
+    import zipfile
+
+    likes = "window.YTD.like.part0 = " + json.dumps([
+        {"like": {"tweetId": "1000000000000000011", "fullText": "alpha-project ships"}}])
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("data/like.js", likes)
+    path.write_bytes(buf.getvalue())
+    return path
+
+
+def test_a_platform_export_is_read_here_and_never_sent_to_the_backend(env, monkeypatch, capsys, tmp_path):
+    archive = _x_archive(tmp_path / "twitter-archive.zip")
+    with _backend(env, monkeypatch) as server:
+        code, out = _run(["import", str(archive)], capsys)
+    assert code == 0 and out["data"]["created"] == 1, out
+    assert server.seen == []
+
+
+def test_a_chat_export_goes_to_the_backends_intake(env, monkeypatch, capsys, tmp_path):
+    export = tmp_path / "conversations.json"
+    export.write_text(json.dumps(chatgpt_conversations(2)))
+    with _backend(env, monkeypatch, {("POST", "/intake/import"): (200, {"episodesStaged": 2})}) as server:
+        code, out = _run(["import", str(export)], capsys)
+    assert code == 0 and "2 new" in out["text"]
+    assert [r["path"] for r in server.seen] == ["/intake/import"]
+
+
+@pytest.mark.parametrize("kind", ["chat", "platform"])
+def test_both_import_branches_are_person_only(env, monkeypatch, capsys, tmp_path, kind):
+    if kind == "chat":
+        path = tmp_path / "conversations.json"
+        path.write_text(json.dumps(chatgpt_conversations(2)))
+    else:
+        path = _x_archive(tmp_path / "twitter-archive.zip")
+    monkeypatch.setenv("CODEX_THREAD_ID", "t-1")
+    with _backend(env, monkeypatch) as server:
+        code, out = _run(["import", str(path)], capsys)
+    assert code == 1 and out["code"] == "person_only" and server.seen == []
+    assert not list((env / "entities").glob("media-*.md"))
+
+
+def test_a_preview_of_either_branch_is_allowed_from_an_agents_shell(env, monkeypatch, capsys, tmp_path):
+    monkeypatch.setenv("CODEX_THREAD_ID", "t-1")
+    code, out = _run(["import", str(_x_archive(tmp_path / "twitter-archive.zip")), "--preview"], capsys)
+    assert code == 0 and out["data"]["total"] == 1

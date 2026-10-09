@@ -36,9 +36,8 @@ it).
 | `cicada timeline` | What changed in memory, day by day. |
 | `cicada status` | Which memory this command uses, and whether the app's backend agrees. |
 | `cicada commands` | Every command, and the MCP tool each one mirrors. |
-| `cicada import <path>` | Bring in what the person saved on a platform, from its data export (a .zip, a folder or one file). |
 
-- **Options:** get: `--start`, `--from`, `--count`, `--line-numbers`; project: `--since`, `--tz`; continue: `--session`, `--before`; save: `--title`; timeline: `--since`; import: `--preview`, `--include-history`. `get` also takes `<entity-id>:<start>[:<end>]`; `save` reads the
+- **Options:** get: `--start`, `--from`, `--count`, `--line-numbers`; project: `--since`, `--tz`; continue: `--session`, `--before`; save: `--title`; timeline: `--since`. `get` also takes `<entity-id>:<start>[:<end>]`; `save` reads the
   text from stdin when it is `-`.
 - **`--json`** (before or after the command) prints one envelope: `{schema, command, ok, code, bank, data,
   text, warnings, version}`. `text` is what the matching MCP tool says; `data` is the structured part.

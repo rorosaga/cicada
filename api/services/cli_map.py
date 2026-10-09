@@ -59,7 +59,8 @@ class Row:
     #: Set for a tool the CLI will never carry; the reason is shown in `cicada commands`.
     mcp_only: str | None = None
     #: Where the command runs: ``bank`` — in this process over the pinned bank (ruling 21); ``backend`` — through
-    #: the running backend's HTTP API, because it acts on state the backend owns (`api/cli_app.py`).
+    #: the running backend's HTTP API, because it acts on state the backend owns (`api/cli_app.py`); ``both`` —
+    #: `import`, whose platform-export branch runs here and whose chat-export branch goes to the backend.
     via: str = "bank"
     #: Acts as the person (recorded as `Cicada-Author: user`, spends on their engine, or downloads on their
     #: command): refused from a shell that names an agent's session. A row that only reads unless given a flag
@@ -164,12 +165,15 @@ ROWS: tuple[Row, ...] = (
     # --- CLI-only -------------------------------------------------------------------
     Row(("status",), None, "Which memory this command uses, and whether the app's backend agrees.", exposed=True),
     Row(("commands",), None, "Every command, and the MCP tool each one mirrors.", exposed=True),
+    # One import for both kinds of export (G71 platform saves, read here; G180 chat exports, the backend's intake).
     Row(("import",), None,
-        "Bring in what the person saved on a platform, from its data export (a .zip, a folder or one file).",
+        "Bring in a data export: what the person saved on a platform (a .zip, a folder or one file), or a chat "
+        "export (through the app's backend).",
         (Arg("path", positional=True),),
         options=(Option("--preview", "bool", "Say what the export holds; write nothing."),
-                 Option("--include-history", "bool", "Also read watch and browsing history (not saves).")),
-        mutates=True, exposed=True),
+                 Option("--include-history", "bool", "Also read watch and browsing history (not saves)."),
+                 Option("--no-wait", "bool", "A chat export: return once the backend has queued it.")),
+        mutates=True, exposed=True, via="both", person=True, app=True),
     # --- the app's commands (G180 parity; `api/cli_app.py`) -------------------------
     # Pages and the graph.
     _app(("page", "list"), "Every page, with its type and status.", (_f("type"), _f("status"))),
