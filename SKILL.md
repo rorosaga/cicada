@@ -33,22 +33,26 @@ it).
 | `cicada continue` | Where the work in this folder stopped. |
 | `cicada save "<content>"` | Stage a note for the next Sleep (content `-` reads stdin). |
 | `cicada handshake` | The contract and the current state, for an agent arriving cold. |
+| `cicada timeline` | What changed in memory, day by day. |
 | `cicada status` | Which memory this command uses, and whether the app's backend agrees. |
 | `cicada commands` | Every command, and the MCP tool each one mirrors. |
 | `cicada import <path>` | Bring in what the person saved on a platform, from its data export (a .zip, a folder or one file). |
 
-- **Options:** get: `--start`, `--from`, `--count`, `--line-numbers`; project: `--since`, `--tz`; continue: `--session`, `--before`; save: `--title`; import: `--preview`, `--include-history`. `get` also takes `<entity-id>:<start>[:<end>]`; `save` reads the
+- **Options:** get: `--start`, `--from`, `--count`, `--line-numbers`; project: `--since`, `--tz`; continue: `--session`, `--before`; save: `--title`; timeline: `--since`; import: `--preview`, `--include-history`. `get` also takes `<entity-id>:<start>[:<end>]`; `save` reads the
   text from stdin when it is `-`.
 - **`--json`** (before or after the command) prints one envelope: `{schema, command, ok, code, bank, data,
   text, warnings, version}`. `text` is what the matching MCP tool says; `data` is the structured part.
 - **Exit codes:** 0 ok (a duplicate save is ok too) · 1 refused (`not_found`, `empty_graph`) · 2 usage ·
   3 bank or memory-folder mismatch, nothing written · 4 demo bank · 5 this shell may not use the memory
-  folder (use the MCP tools there) · 70 internal.
+  folder (use the MCP tools there) · 6 the app's backend is not running (only for commands that act on
+  it) · 70 internal.
 - **Grouping:** what you save is grouped by your harness's session id. If your harness gives none, set
   `CICADA_SESSION_ID` and `CICADA_SESSION_HARNESS`; without them a note is saved ungrouped, never under a
   made-up id.
 - **Not in the command line yet:** questions, claims, sources, progress and the backlog. Use the MCP tools
   for those when they are connected.
+- **The app's commands** (Sleep, banks, the search model, feeds, pictures, settings) are listed by
+  `cicada commands`. Those that act as the person refuse from an agent's shell.
 <!-- cicada-cli:end -->
 
 ## Handshake first

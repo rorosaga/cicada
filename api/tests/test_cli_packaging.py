@@ -167,10 +167,11 @@ def test_every_command_in_the_skill_block_parses_and_is_held():
             seen.add(" ".join(w for w in (args.command, getattr(args, "verb", None)) if w))
         except cli._HelpShown:
             pass
-    assert seen == {r.name for r in cli_map.exposed()}            # every held command taught, none other
+    # Every held agent command taught, none other; the app's commands are found through `cicada commands`.
+    assert seen == {r.name for r in cli_map.exposed() if not r.app}
     for word in ("--json", "Exit codes", "${CICADA_HOME:-$HOME/.cicada}/bin/cicada"):
         assert word in block
-    for code in ("0", "1", "2", "3", "4", "5", "70"):
+    for code in ("0", "1", "2", "3", "4", "5", "6", "70"):
         assert re.search(rf"\b{code}\b", block)
 
 

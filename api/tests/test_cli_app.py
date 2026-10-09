@@ -1,0 +1,442 @@
+"""G180 parity — the app's commands from a shell (`api/cli_app.py`).
+
+Commands that act on state the running backend owns go to its HTTP API with the token and name the CLI's pinned
+bank on every write; reads of the bank run in process and work with the backend down; commands that act as the
+person refuse from an agent's shell. Every backend here is a fake on an ephemeral loopback port — never 8000, never
+a real bank."""
+from __future__ import annotations
+
+import json
+import os
+import threading
+from contextlib import contextmanager
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+import pytest
+
+from _cli import free_port
+from _synthetic_bank import _bank
+from api.services import cli_map
+
+TOKEN = "test-token-not-real"
+SESSION_KEYS = ("CLAUDE_CODE_SESSION_ID", "CLAUDE_PROJECT_DIR", "CICADA_SESSION_ID", "CICADA_SESSION_HARNESS")
+
+
+@contextmanager
+def fake_backend(memory_root: str, routes: dict | None = None):
+    """A synthetic backend: `/healthz` names ``memory_root``; ``routes`` maps (METHOD, path) → (status, body).
+    Every request is recorded (method, path with query, headers, body bytes)."""
+    seen: list[dict] = []
+    table = dict(routes or {})
+
+    class Handler(BaseHTTPRequestHandler):
+        def _answer(self):
+            length = int(self.headers.get("Content-Length") or 0)
+            body = self.rfile.read(length) if length else b""
+            path = self.path.split("?", 1)[0]
+            if path == "/healthz":
+                status, payload = 200, {"status": "ok", "version": "9.9.9", "memoryRoot": memory_root}
+            else:
+                seen.append({"method": self.command, "path": self.path, "headers": dict(self.headers),
+                             "body": body})
+                status, payload = table.get((self.command, path), (200, {}))
+            data = json.dumps(payload).encode()
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        do_GET = do_POST = do_PUT = do_DELETE = do_PATCH = _answer  # noqa: N815 - http.server API
+
+        def log_message(self, *args):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        server.seen = seen
+        server.routes = table
+        yield server
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+@pytest.fixture
+def env(tmp_path, monkeypatch):
+    from api.config import Settings, get_settings
+
+    before = Settings.model_config.get("env_file")
+    memory = _bank(tmp_path, git=True)
+    monkeypatch.setenv("CICADA_MEMORY_PATH", str(memory))
+    monkeypatch.delenv("CICADA_MEMORY_ROOT", raising=False)
+    monkeypatch.setenv("CICADA_PORT", str(free_port()))
+    monkeypatch.setenv("CICADA_API_TOKEN", TOKEN)
+    monkeypatch.setenv("LITELLM_MODE", "PRODUCTION")
+    for key in SESSION_KEYS:
+        monkeypatch.delenv(key, raising=False)
+    yield memory
+    Settings.model_config["env_file"] = before
+    get_settings.cache_clear()
+
+
+def _run(argv, capsys):
+    from api import cli
+
+    code = cli.main([*argv, "--json"])
+    out = capsys.readouterr()
+    assert out.err == "", out.err
+    return code, json.loads(out.out)
+
+
+@contextmanager
+def _backend(env, monkeypatch, routes=None):
+    with fake_backend(os.path.realpath(env), routes) as server:
+        monkeypatch.setenv("CICADA_PORT", str(server.server_address[1]))
+        yield server
+
+
+def _json(req) -> dict | None:
+    return json.loads(req["body"]) if req["body"] else None
+
+
+# --- each backend command sends the app's own request ----------------------------------------------------
+
+BACKEND_CASES = [
+    # argv, method, path, body sent, response
+    (["sleep", "status"], "GET", "/sleep/status", None, {"status": "idle", "writing": False}),
+    (["sleep", "start"], "POST", "/sleep/trigger", None, {"status": "started", "message": "Sleep cycle initiated"}),
+    (["sleep", "start", "--continue"], "POST", "/sleep/trigger", {"continue": True},
+     {"status": "started", "message": "Sleep run resumed"}),
+    (["sleep", "stop"], "POST", "/sleep/cancel", None, {"status": "not_running", "message": "No sleep cycle"}),
+    (["sleep", "end"], "POST", "/sleep/run/end", None, {"status": "none", "message": "There is no paused run."}),
+    (["index", "rebuild"], "POST", "/maintenance/search-index/rebuild", None, {"state": "ready", "documents": 3}),
+    (["index", "use", "default"], "POST", "/embeddings/choice", {"model": None}, {"model": "m", "reindex": {}}),
+    (["index", "install", "--model", "gemma-x"], "POST", "/embeddings/install", {"model": "gemma-x"},
+     {"model": "m", "install": {"state": "downloading"}}),
+    (["feed", "add", "https://example.com/feed.xml", "--tag", "news"], "POST", "/sources/feeds",
+     {"url": "https://example.com/feed.xml", "tags": ["news"]}, {"url": "https://example.com/feed.xml"}),
+    (["feed", "remove", "https://example.com/feed.xml"], "DELETE", "/sources/feeds",
+     {"url": "https://example.com/feed.xml"}, {"status": "ok"}),
+    (["feed", "poll"], "POST", "/sources/poll-feeds", None, {"polled": 0}),
+    (["engine", "list"], "GET", "/connections", None, {"connections": [{"id": "byok-x", "label": "X",
+                                                                          "connected": True}]}),
+    (["page", "decay", "alpha-project", "durable"], "PUT", "/entities/alpha-project/decay",
+     {"decayClass": "durable"}, {"decayClass": "durable"}),
+    (["inbox", "answer", "inbox-001", "--option", "keep"], "POST", "/inbox/inbox-001/resolve",
+     {"action": "resolve", "optionKey": "keep"}, {"status": "resolved"}),
+    (["inbox", "answer", "inbox-001", "--defer", "--days", "3"], "POST", "/inbox/inbox-001/resolve",
+     {"action": "defer", "remindDays": 3}, {"status": "deferred", "remindAfter": "2026-10-12"}),
+    (["inbox", "answer", "inbox-002", "--reject"], "POST", "/inbox/inbox-002/resolve", {"action": "reject"},
+     {"status": "resolved"}),
+    (["picture", "initials", "bob-example"], "POST", "/entities/bob-example/picture/initials", None,
+     {"entityId": "bob-example", "pictureSource": "initials"}),
+    (["picture", "clear", "bob-example"], "DELETE", "/entities/bob-example/picture", None,
+     {"entityId": "bob-example", "pictureSource": None}),
+    (["bank", "use", "beta"], "POST", "/banks/beta/activate", None, {"banks": [], "active": "beta"}),
+    (["bank", "create", "beta", "--description", "a test"], "POST", "/banks",
+     {"name": "beta", "description": "a test"}, {"banks": [], "active": "default"}),
+    (["bank", "rename", "beta", "gamma"], "POST", "/banks/beta/rename", {"newName": "gamma"},
+     {"banks": [], "active": "default"}),
+    (["bank", "delete", "beta"], "DELETE", "/banks/beta", None, {"banks": [], "active": "default",
+                                                               "trashedTo": ".trash/beta"}),
+]
+
+#: Bank CRUD names its own bank: the backend never checks it against the active one (`bank_binding.EXEMPT`).
+NO_BANK_HEADER = {"/banks", "/banks/beta/activate", "/banks/beta/rename", "/banks/beta"}
+
+
+@pytest.mark.parametrize("argv,method,path,body,response", BACKEND_CASES, ids=lambda v: str(v)[:40])
+def test_each_backend_command_sends_the_apps_request(env, monkeypatch, capsys, argv, method, path, body, response):
+    with _backend(env, monkeypatch, {(method, path): (200, response)}) as server:
+        code, out = _run(argv, capsys)
+    assert code == 0 and out["ok"] is True, out
+    if argv[:2] == ["page", "decay"]:     # the page itself is not echoed: only what changed
+        assert out["data"] == {"entity_id": "alpha-project", "decay_class": "durable"}
+    else:
+        assert out["data"] == response
+    sent = [r for r in server.seen]
+    assert len(sent) == 1, sent
+    req = sent[0]
+    assert (req["method"], req["path"].split("?")[0]) == (method, path)
+    assert _json(req) == body
+    assert req["headers"].get("Authorization") == f"Bearer {TOKEN}"
+    bank_header = req["headers"].get("X-Cicada-Bank")
+    if method == "GET" or path in NO_BANK_HEADER:
+        assert bank_header is None
+    else:
+        assert bank_header == out["bank"]          # the bank this command pinned, as the app names it
+
+
+def test_a_bank_name_is_percent_encoded_like_the_apps(env, monkeypatch):
+    from types import SimpleNamespace
+
+    from api import cli_app
+
+    with _backend(env, monkeypatch, {("POST", "/sleep/cancel"): (200, {"status": "not_running"})}) as server:
+        boot = SimpleNamespace(probe={"state": "confirmed"}, backend_url=f"http://127.0.0.1:{server.server_address[1]}",
+                               pin=SimpleNamespace(name="my memory é"))
+        cli_app.call(boot, "POST", "/sleep/cancel")
+    assert server.seen[0]["headers"]["X-Cicada-Bank"] == "my%20memory%20%C3%A9"
+
+
+# --- reads and writes that merge ----------------------------------------------------------------------------
+
+def test_sleep_schedule_reads_then_merges_a_change(env, monkeypatch, capsys):
+    current = {"mode": "manual", "enabled": False, "hour": 3, "minute": 0, "intervalHours": 6}
+    with _backend(env, monkeypatch, {("GET", "/sleep/schedule"): (200, current),
+                                     ("PUT", "/sleep/schedule"): (200, {**current, "mode": "daily", "hour": 4,
+                                                                        "minute": 30, "enabled": True})}) as server:
+        code, out = _run(["sleep", "schedule"], capsys)
+        assert code == 0 and "only when started" in out["text"] and len(server.seen) == 1
+        code, out = _run(["sleep", "schedule", "--at", "04:30"], capsys)
+    assert code == 0 and "04:30" in out["text"]
+    put = server.seen[-1]
+    assert put["method"] == "PUT"
+    assert _json(put) == {"mode": "daily", "hour": 4, "minute": 30, "intervalHours": 6}
+
+
+@pytest.mark.parametrize("argv", [["sleep", "schedule", "--at", "25:00"], ["sleep", "schedule", "--every", "0"],
+                                  ["sleep", "options", "--continue-after-reset", "maybe"]])
+def test_bad_values_are_usage_errors_before_anything_is_sent(env, monkeypatch, capsys, argv):
+    with _backend(env, monkeypatch) as server:
+        code, out = _run(argv, capsys)
+    assert code == 2 and out["code"] == "usage" and server.seen == []
+
+
+def test_sleep_engine_and_options_change_through_the_backend(env, monkeypatch, capsys):
+    engine = {"mode": "byok", "model": "m-1", "source": "prefs"}
+    opts = {"batchSize": 25, "continueAfterReset": False, "reservePct": None}
+    with _backend(env, monkeypatch, {("GET", "/sleep/engine"): (200, engine),
+                                     ("PUT", "/sleep/engine"): (200, {**engine, "model": "m-2"}),
+                                     ("PUT", "/sleep/run-options"): (200, {**opts, "batchSize": 10})}) as server:
+        code, out = _run(["sleep", "engine", "--model", "m-2"], capsys)
+        assert code == 0 and "m-2" in out["text"]
+        assert _json(server.seen[-1]) == {"mode": "byok", "model": "m-2"}
+        code, out = _run(["sleep", "options", "--batch-size", "10", "--reserve", "off"], capsys)
+    assert code == 0 and "Batch size 10" in out["text"]
+    assert _json(server.seen[-1]) == {"batchSize": 10, "reservePct": None}
+
+
+def test_settings_owner_keeps_what_it_was_not_given(env, monkeypatch, capsys):
+    owner = {"name": "Alex Example", "handle": "alex", "email": None}
+    with _backend(env, monkeypatch, {("GET", "/settings/owner"): (200, owner),
+                                     ("PUT", "/settings/owner"): (200, {**owner, "email": "a@example.com"})}) as server:
+        code, out = _run(["settings", "owner"], capsys)
+        assert code == 0 and len(server.seen) == 1
+        code, out = _run(["settings", "owner", "--email", "a@example.com"], capsys)
+    assert code == 0
+    assert _json(server.seen[-1]) == {"name": "Alex Example", "handle": "alex", "email": "a@example.com"}
+
+
+def test_index_status_reads_the_word_index_and_the_model(env, monkeypatch, capsys):
+    with _backend(env, monkeypatch, {("GET", "/maintenance/search-index"): (200, {"state": "ready"}),
+                                     ("GET", "/embeddings"): (200, {"model": "small", "models": [{"id": "small"}]})}):
+        code, out = _run(["index", "status"], capsys)
+    assert code == 0 and out["data"]["index"] == {"state": "ready"} and "small" in out["text"]
+
+
+# --- the backend's refusals are typed ----------------------------------------------------------------------
+
+def test_with_the_backend_down_a_backend_command_refuses_and_sends_nothing(env, capsys):
+    code, out = _run(["sleep", "start"], capsys)
+    assert code == 6 and out["ok"] is False and out["code"] == "backend_down"
+    assert "Nothing was changed" in out["text"]
+
+
+def test_a_backend_serving_another_folder_is_refused(env, monkeypatch, capsys, tmp_path):
+    other = tmp_path / "elsewhere"
+    other.mkdir()
+    with fake_backend(str(other)) as server:
+        monkeypatch.setenv("CICADA_PORT", str(server.server_address[1]))
+        code, out = _run(["sleep", "stop"], capsys)
+    assert code == 3 and out["code"] == "root_mismatch" and server.seen == []
+
+
+@pytest.mark.parametrize("status,payload,code,exit_code", [
+    (409, {"code": "sleep_writing", "detail": "Sleep is updating your memory."}, "sleep_writing", 1),
+    (409, {"code": "bank_mismatch", "detail": "Memory switched"}, "bank_mismatch", 3),
+    (409, {"detail": "A run is reading right now — pause it first."}, "refused", 1),
+    (404, {"detail": "Entity x not found"}, "not_found", 1),
+    (401, {"detail": "no"}, "unauthorized", 1),
+    (500, {"detail": "boom"}, "backend_error", 70),
+])
+def test_backend_refusals_become_typed_codes(env, monkeypatch, capsys, status, payload, code, exit_code):
+    with _backend(env, monkeypatch, {("POST", "/sleep/run/end"): (status, payload)}):
+        got, out = _run(["sleep", "end"], capsys)
+    assert got == exit_code and out["code"] == code and out["ok"] is False
+    if code in ("sleep_writing", "refused"):
+        assert payload["detail"].split(" —")[0] in out["text"]
+
+
+def test_a_422_is_a_usage_error_with_the_backends_sentence(env, monkeypatch, capsys):
+    with _backend(env, monkeypatch, {("PUT", "/entities/alpha-project/decay"): (422, {"detail": "bad class"})}):
+        code, out = _run(["page", "decay", "alpha-project", "sometimes"], capsys)
+    assert code == 2 and out["code"] == "usage" and out["text"] == "bad class"
+
+
+# --- the person-only rule ---------------------------------------------------------------------------------
+
+PERSON_ARGV = {
+    "page decay": ["page", "decay", "alpha-project", "durable"],
+    "inbox answer": ["inbox", "answer", "inbox-001", "--option", "keep"],
+    "sleep start": ["sleep", "start"],
+    "sleep engine": ["sleep", "engine", "--model", "m-2"],
+    "sleep options": ["sleep", "options", "--batch-size", "10"],
+    "index install": ["index", "install", "--model", "x"],
+    "feed poll": ["feed", "poll"],
+    "settings owner": ["settings", "owner", "--name", "Alex Example"],
+    "picture set": ["picture", "set", "bob-example", "PICTURE"],
+    "picture initials": ["picture", "initials", "bob-example"],
+    "picture clear": ["picture", "clear", "bob-example"],
+    "bank use": ["bank", "use", "beta"],
+    "bank rename": ["bank", "rename", "beta", "gamma"],
+    "bank delete": ["bank", "delete", "beta"],
+}
+
+
+def test_every_person_row_is_exercised_here():
+    assert {r.name for r in cli_map.rows() if r.person} == set(PERSON_ARGV)
+
+
+@pytest.mark.parametrize("name", sorted(PERSON_ARGV))
+@pytest.mark.parametrize("identity", [{"CLAUDE_CODE_SESSION_ID": "11111111-2222-4333-8444-555555555555"},
+                                      {"CICADA_SESSION_HARNESS": "codex"}])
+def test_a_person_command_refuses_from_an_agents_shell(env, monkeypatch, capsys, tmp_path, name, identity):
+    picture = tmp_path / "p.png"
+    picture.write_bytes(b"\x89PNG\r\n\x1a\n")
+    argv = [str(picture) if a == "PICTURE" else a for a in PERSON_ARGV[name]]
+    for key, value in identity.items():
+        monkeypatch.setenv(key, value)
+    with _backend(env, monkeypatch, {("GET", "/sleep/engine"): (200, {"mode": "byok"}),
+                                     ("GET", "/settings/owner"): (200, {"name": ""}),
+                                     ("GET", "/embeddings"): (200, {"model": "m"})}) as server:
+        code, out = _run(argv, capsys)
+    assert code == 1 and out["code"] == "person_only", out
+    assert all(r["method"] == "GET" for r in server.seen), server.seen   # nothing was changed
+
+
+def test_reading_a_person_row_without_changing_it_is_allowed_from_an_agents_shell(env, monkeypatch, capsys):
+    monkeypatch.setenv("CICADA_SESSION_HARNESS", "codex")
+    with _backend(env, monkeypatch, {("GET", "/sleep/engine"): (200, {"mode": "byok", "model": "m"})}):
+        code, out = _run(["sleep", "engine"], capsys)
+    assert code == 0 and out["ok"] is True
+
+
+# --- imports and pictures send the file's bytes -------------------------------------------------------------
+
+def test_picture_set_uploads_the_file_as_the_apps_form_field(env, monkeypatch, capsys, tmp_path):
+    picture = tmp_path / "face.png"
+    picture.write_bytes(b"\x89PNG\r\n\x1a\nfake")
+    with _backend(env, monkeypatch, {("POST", "/entities/bob-example/picture"): (200, {"pictureSource": "upload"})}) \
+            as server:
+        code, out = _run(["picture", "set", "bob-example", str(picture)], capsys)
+    assert code == 0, out
+    req = server.seen[0]
+    assert req["headers"]["Content-Type"].startswith("multipart/form-data; boundary=")
+    assert b'name="file"; filename="face.png"' in req["body"] and b"\x89PNG\r\n\x1a\nfake" in req["body"]
+
+
+def test_import_waits_for_a_background_job(env, monkeypatch, capsys, tmp_path):
+    export = tmp_path / "conversations.json"
+    export.write_text("[]")
+    with _backend(env, monkeypatch, {("POST", "/intake/import"): (202, {"job": {"id": "job-1"}}),
+                                     ("GET", "/intake/jobs/job-1"): (200, {"id": "job-1", "done": True, "created": 12,
+                                                                           "updated": 1, "skipped": 2})}) as server:
+        code, out = _run(["import", str(export)], capsys)
+    assert code == 0 and "12 new" in out["text"]
+    assert [r["path"] for r in server.seen] == ["/intake/import", "/intake/jobs/job-1"]
+    assert server.seen[0]["headers"]["X-Cicada-Bank"] == out["bank"]
+
+
+def test_import_preview_only_sniffs(env, monkeypatch, capsys, tmp_path):
+    export = tmp_path / "conversations.json"
+    export.write_text("[]")
+    sniff = {"recognized": True, "kind": "chat", "vendor": "chatgpt", "delta": {"new": 3, "grown": 0, "unchanged": 1}}
+    with _backend(env, monkeypatch, {("POST", "/intake/sniff"): (200, sniff)}) as server:
+        code, out = _run(["import", str(export), "--preview"], capsys)
+    assert code == 0 and "3 new" in out["text"] and [r["path"] for r in server.seen] == ["/intake/sniff"]
+
+
+def test_import_never_reads_a_file_under_the_harness_transcript_folder(env, monkeypatch, capsys, tmp_path):
+    home = tmp_path / "h"
+    transcript = home / ".claude" / "projects" / "x" / "s.jsonl"
+    transcript.parent.mkdir(parents=True)
+    transcript.write_text("{}")
+    monkeypatch.setenv("HOME", str(home))
+    with _backend(env, monkeypatch) as server:
+        code, out = _run(["import", str(transcript)], capsys)
+    assert code == 1 and out["code"] == "refused" and server.seen == []
+
+
+# --- reads of the bank run here, with the backend down ------------------------------------------------------
+
+def test_page_list_and_graph_read_the_bank_with_the_backend_down(env, capsys):
+    code, out = _run(["page", "list", "--type", "project"], capsys)
+    assert code == 0
+    assert {p["id"] for p in out["data"]["pages"]} >= {"alpha-project", "beta-project"}
+    assert all(p["type"] == "project" for p in out["data"]["pages"])
+    code, out = _run(["graph"], capsys)
+    assert code == 0 and out["data"]["pages"] >= 5 and out["data"]["by_type"]["project"] >= 2
+
+
+def test_inbox_all_lists_every_kind_and_hides_deferred(env, capsys):
+    code, out = _run(["inbox", "all"], capsys)
+    assert code == 0
+    ids = {i["id"] for i in out["data"]["items"]}
+    assert "inbox-001" in ids and "inbox-002" not in ids          # inbox-002 is deferred to 2099
+    code, out = _run(["inbox", "all", "--kind", "conflict"], capsys)
+    assert out["data"]["items"] == []
+
+
+def test_page_history_and_sleep_history_read_git(env, capsys):
+    code, out = _run(["page", "history", "alpha-project"], capsys)
+    assert code == 0 and len(out["data"]["history"]) == 1
+    code, out = _run(["page", "history", "no-such-page"], capsys)
+    assert code == 1 and out["code"] == "not_found"
+    code, out = _run(["sleep", "history"], capsys)
+    assert code == 0 and isinstance(out["data"]["runs"], list)
+
+
+def test_bank_and_feed_lists_read_the_bank(env, capsys):
+    code, out = _run(["bank", "list"], capsys)
+    assert code == 0 and out["data"]["active"] == out["bank"]
+    code, out = _run(["feed", "list"], capsys)
+    assert code == 0 and out["data"] == {"feeds": [], "total": 0}
+
+
+def test_find_and_timeline_read_the_bank(env, capsys):
+    code, out = _run(["find", "alpha"], capsys)
+    assert code == 0 and "alpha-project" in out["text"]
+    code, out = _run(["timeline", "--since", "30d"], capsys)
+    assert code == 0 and out["command"] == "timeline"
+
+
+def test_bank_reads_never_call_the_backend(env, monkeypatch, capsys):
+    with _backend(env, monkeypatch) as server:
+        for argv in (["page", "list"], ["graph"], ["inbox", "all"], ["bank", "list"], ["feed", "list"],
+                     ["sleep", "history"], ["page", "history", "alpha-project"]):
+            code, out = _run(argv, capsys)
+            assert code == 0, (argv, out)
+    assert server.seen == []
+
+
+# --- the table -----------------------------------------------------------------------------------------------
+
+def test_every_exposed_row_has_a_handler_and_a_place():
+    from api import cli
+
+    for row in cli_map.exposed():
+        assert row.name in cli.COMMANDS, row.name
+        assert row.via in ("bank", "backend"), row.name
+        if row.app:
+            assert row.tool is None and row.exposed
+        if row.person:
+            assert row.mutates and row.via == "backend", row.name
+
+
+def test_the_agent_skill_keeps_the_app_commands_out_of_its_table():
+    block = cli_map.skill_block()
+    assert "`cicada sleep start`" not in block and "cicada commands" in block

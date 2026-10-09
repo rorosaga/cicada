@@ -42,7 +42,7 @@ def test_global_json_flag_works_before_or_after_the_subcommand(setup, args):
     ["--json", "recall", "alpha", "--quer", "x"],  # unknown (would-be abbreviation)
     ["--js", "status"],                     # abbreviated global flag
     ["--json"],                             # no subcommand
-    ["--json", "timeline"],                 # a command the CLI does not expose yet
+    ["--json", "hub", "x"],                 # a command the CLI does not expose yet
     ["--json", "recall"],                   # missing positional
     ["--json", "recall", "   "],            # blank query
     ["--format", "xml", "status"],          # bad format value
@@ -79,7 +79,7 @@ def test_help_lists_only_exposed_commands(setup):
     assert proc.returncode == 0
     for name in ("recall", "status", "commands"):
         assert name in proc.stdout
-    assert "claim add" not in proc.stdout and "inbox" not in proc.stdout
+    assert "claim add" not in proc.stdout and "record-check" not in proc.stdout and "perspective" not in proc.stdout
 
 
 def test_commands_catalog_lives_in_the_envelope(setup):

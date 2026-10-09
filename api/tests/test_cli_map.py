@@ -88,11 +88,16 @@ def test_no_generic_dispatcher_row():
         assert not any(a.prop in {"tool", "name", "arguments"} and a.positional for a in row.args), row.name
 
 
-def test_slice_one_exposes_its_eight_commands_and_import_only():
-    assert {r.name for r in cli_map.exposed()} == {"recall", "get", "project", "continue", "save", "handshake",
-                                                   "status", "commands", "import"}
+def test_the_exposed_agent_commands_are_slice_one_and_the_timeline():
+    """The agent's door: slice 1's eight commands plus `timeline` (a read no reply gates on). The app's commands
+    (G180 parity) are CLI-only rows, so they add no MCP tool to what a CLI reply may name."""
+    agent = {r.name for r in cli_map.exposed() if not r.app}
+    assert agent == {"recall", "get", "project", "continue", "save", "handshake", "status", "commands", "timeline",
+                     "import"}
     assert cli_map.exposed_tools() == frozenset({"cicada_recall", "cicada_recall_detail", "cicada_project",
-                                                 "cicada_continue", "cicada_save_episode", "cicada_handshake"})
+                                                 "cicada_continue", "cicada_save_episode", "cicada_handshake",
+                                                 "cicada_timeline"})
+    assert all(r.tool is None for r in cli_map.exposed() if r.app)
 
 
 def test_spell_renders_a_command_line_the_parser_accepts():
