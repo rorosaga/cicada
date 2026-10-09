@@ -37,7 +37,7 @@ from typing import Callable
 
 from api.services import agent_commits, agentic_write, demo_guard, episode_ids, episode_scrub, search_service
 # One fence rule for every frontmatter reader (L final review, finding 2).
-from api.services import markdown_parser, page_lock, write_admission
+from api.services import bank_index, markdown_parser, page_lock, search_index, write_admission
 
 
 def _loopback_post(url: str, payload: dict, headers: dict[str, str], timeout: float = 8) -> dict:
@@ -1261,7 +1261,16 @@ def recall(ctx: ToolContext, query: str) -> str:
 
     Pass 1 (this tool): summaries + proactive nudges/clarifications.
     Pass 2: cicada_recall_detail for the full page of a specific entity.
+
+    One recall lists each bank directory once (``bank_index.shared_scans``):
+    the index freshness check, the inbox causes and every name lookup read
+    the same listing instead of re-listing 3,600 pages per step.
     """
+    with bank_index.shared_scans():
+        return _recall(ctx, query)
+
+
+def _recall(ctx: ToolContext, query: str) -> str:
     from api.services.claims import strip_claims_block
 
     memory_path = ctx.memory_path()
@@ -2707,9 +2716,24 @@ def _live_pages(entities_dir: Path):
     ``dropped`` as their markdown says now — every leg's index (vectors, FTS)
     is as old as its last sync. Each page is read at most once per recall."""
     seen: dict[str, bool] = {}
+    listing: dict[str, set[str]] = {}
+
+    def listed(filename: str) -> bool:
+        # Exactly this name, case included, in the directory listing: on a case-insensitive volume a
+        # read of `Alpha-Project.md` succeeds after the page became `alpha-project.md`, and a stale
+        # index row would surface the page twice. A miss re-lists once (a page created mid-recall).
+        if "now" not in listing:
+            listing["now"] = set(bank_index.stamps(entities_dir.parent, entities_dir.name))
+        if filename not in listing["now"] and "fresh" not in listing:
+            listing["fresh"] = listing["now"] = set(
+                bank_index.stamps(entities_dir.parent, entities_dir.name, fresh=True))
+        return filename in listing["now"]
 
     def alive(eid: str) -> bool:
         if eid not in seen:
+            if not listed(f"{eid}.md"):
+                seen[eid] = False
+                return False
             path = entities_dir / f"{eid}.md"
             try:
                 fm, _ = parse_frontmatter(path.read_text(encoding="utf-8"))
@@ -3013,9 +3037,9 @@ def _mcp_sanitize_id(name: str) -> str:
 def _entity_id_for_name(entities_dir: Path, name: str) -> str | None:
     """Resolve a name-or-id ref to a real filepath.stem, multi-strategy.
 
-    Tries, in order: exact file <ref>.md, file <sanitize_id(ref)>.md,
-    file <ref.replace(' ','-')>.md, then a frontmatter-name / stem scan.
-    Mirrors api.services.id_utils.resolve_entity_id without importing it.
+    Tries, in order: a stem equal (case-insensitively) to <ref>,
+    sanitize_id(ref) or <ref.replace(' ','-')>, then a page whose frontmatter
+    ``name`` is <ref>. Mirrors api.services.id_utils.resolve_entity_id.
     """
     raw = str(name).strip()
     if not raw:
@@ -3024,21 +3048,43 @@ def _entity_id_for_name(entities_dir: Path, name: str) -> str | None:
         return None
 
     target = raw.lower()
-    sanitized_target = _mcp_sanitize_id(raw)
-    slug_target = target.replace(" ", "-")
+    wanted = {target, _mcp_sanitize_id(raw), target.replace(" ", "-")}
 
-    # Scan glob stems first — they are the authoritative on-disk ids. A bare
-    # Path.exists() check would lie on case-insensitive filesystems (macOS),
-    # echoing the requested casing instead of the real stem.
-    for filepath in entities_dir.glob("*.md"):
-        stem = filepath.stem.lower()
-        if stem in (target, sanitized_target, slug_target):
-            return filepath.stem
-        content = filepath.read_text(encoding="utf-8")
-        fm, _ = parse_frontmatter(content)
-        if str(fm.get("name", "")).lower() == target:
-            return filepath.stem
-    return None
+    # The on-disk stems are the authoritative ids. A bare Path.exists() check
+    # would lie on case-insensitive filesystems (macOS), echoing the requested
+    # casing instead of the real stem. Names come from one directory listing
+    # (`search_index.entity_names`: a page is parsed only when it moved), not
+    # from reading every page per name — that was 3,600 reads a name, eight
+    # names a recall. A stem match wins over a name match; ties go to the
+    # first stem in sorted order.
+    by_stem, by_name = _name_lookup(entities_dir)
+    stems = [by_stem[w] for w in wanted if w in by_stem]
+    if stems:
+        return min(stems)
+    return by_name.get(target)
+
+
+# (the `entity_names` answer it was built from, lowercased stem -> stem, lowercased name -> stem)
+_NAME_LOOKUP: tuple[dict, dict, dict] | None = None
+
+
+def _name_lookup(entities_dir: Path) -> tuple[dict, dict]:
+    """Case-folded stem and name maps over the active bank's pages, first stem
+    in sorted order winning a tie; rebuilt only when ``entity_names`` answers
+    with a new listing (it returns the same dict while nothing moved)."""
+    global _NAME_LOOKUP
+    names = search_index.entity_names(entities_dir.parent)
+    cached = _NAME_LOOKUP
+    if cached is not None and cached[0] is names:
+        return cached[1], cached[2]
+    by_stem: dict[str, str] = {}
+    by_name: dict[str, str] = {}
+    for stem in sorted(names):
+        by_stem.setdefault(stem.lower(), stem)
+        if names[stem] is not None:
+            by_name.setdefault(names[stem].lower(), stem)
+    _NAME_LOOKUP = (names, by_stem, by_name)
+    return by_stem, by_name
 
 
 def _inbox_dirs(memory_path: Path) -> list[Path]:
@@ -3197,7 +3243,8 @@ def _inbox_ctx(memory_path: Path, today: str):
     """ONE :class:`InboxContext` per reader loop, not one per item (final review H3).
 
     ``InboxContext`` is a per-read cache whose first ``episode()``/``entity()``
-    call scandirs and parses ``episodes/`` AND ``entities/`` whole. Constructing
+    call lists ``episodes/`` AND ``entities/`` (it parsed both whole until the
+    cold-recall fix; it now parses only the pages a lookup lands on). Constructing
     one inside the ``for`` in :func:`handle_check_nudges` / :func:`_relevant_inbox`
     re-ran both scans for every pending item: measured at 425 ms for 40 items on
     a synthetic 2,000-episode / 1,900-entity bank versus 9.3 ms warm — ~400 ms

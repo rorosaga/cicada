@@ -46,6 +46,7 @@ re-indexed document is re-inserted with a fresh, larger ``doc_id``,
 from __future__ import annotations
 
 import json
+import secrets
 import sqlite3
 import threading
 import time
@@ -202,6 +203,10 @@ class _BankState:
     # (or no usable file). Replaced wholesale, never mutated in place, so a
     # reader iterating it never sees it change underneath.
     stamps: dict[str, tuple[int, int]] | None = None
+    # The index's `generation` when `stamps` were loaded or last written by this
+    # process. Every write stores a new random one, so a different value on disk
+    # means another process wrote the file and `stamps` must be reloaded.
+    generation: str | None = None
     checked_at: float = float("-inf")
     worker: threading.Thread | None = None
 
@@ -222,6 +227,11 @@ def reset(memory_path: Path | None = None) -> None:
             _STATES.clear()
         else:
             _STATES.pop(str(Path(memory_path)), None)
+    with _NAMES_LOCK:
+        if memory_path is None:
+            _NAMES.clear()
+        else:
+            _NAMES.pop(str(Path(memory_path)), None)
 
 
 def invalidate(memory_path: Path) -> None:
@@ -234,24 +244,64 @@ def invalidate(memory_path: Path) -> None:
 
 
 def _scan(memory_path: Path) -> dict[str, bank_index.IndexedFile]:
+    """Every indexed file with its frontmatter — the full build's listing (it reads every file anyway)."""
     out: dict[str, bank_index.IndexedFile] = {}
-    for subdir in INDEXED_SUBDIRS:
+    for subdir in _subdirs(memory_path):
         for f in bank_index.files(memory_path, subdir):
             if subdir == "inbox" and not f.path.name.startswith("inbox-"):
                 continue
             out[f"{subdir}/{f.path.name}"] = f
+    return out
+
+
+def _subdirs(memory_path: Path) -> list[str]:
+    """The indexed directories: ``INDEXED_SUBDIRS``, then one per backlog project (G150)."""
+    out = list(INDEXED_SUBDIRS)
     root = Path(memory_path) / BACKLOG_SUBDIR
     if root.is_dir():
-        for folder in sorted(p for p in root.iterdir() if p.is_dir()):
-            for f in bank_index.files(memory_path, f"{BACKLOG_SUBDIR}/{folder.name}"):
-                out[f"{BACKLOG_SUBDIR}/{folder.name}/{f.path.name}"] = f
+        out += [f"{BACKLOG_SUBDIR}/{p.name}" for p in sorted(root.iterdir()) if p.is_dir()]
+    return out
+
+
+def _current_stamps(memory_path: Path) -> dict[str, tuple[int, int]]:
+    """``{doc_key: (mtime_ns, size)}`` for every indexed file: directory listings only, no parse.
+
+    The freshness check compares these with the stamps the index holds. It used to list through
+    ``bank_index.files``, which parses every frontmatter it has not cached — in a fresh process (the
+    CLI, an MCP server's first call) that was every file in the bank, 2.4 s at ~5,900 files, to learn
+    that nothing had changed. A file is read only once its stamp says it moved (:func:`_diff`)."""
+    out: dict[str, tuple[int, int]] = {}
+    for subdir in _subdirs(memory_path):
+        # `fresh`: never a `shared_scans` memo. The listing must be at least as new as the stamps it is
+        # compared with, or a page another process created and indexed in between reads as removed.
+        for name, stamp in bank_index.stamps(memory_path, subdir, fresh=True).items():
+            if subdir == "inbox" and not name.startswith("inbox-"):
+                continue
+            out[f"{subdir}/{name}"] = stamp
     return out
 
 
 def _diff(memory_path: Path, stamps: dict[str, tuple[int, int]]):
-    current = _scan(memory_path)
-    changed = {k: f for k, f in current.items() if stamps.get(k) != (f.mtime_ns, f.size)}
+    """What moved since the index was written: ``(changed, removed)``.
+
+    Any difference in ``(mtime_ns, size)`` is a change — an edit that keeps the size still moves the
+    nanosecond mtime, a checkout or a restore writes a new one, a rename is a removal plus an addition.
+    Only the changed files are parsed (their frontmatter orders a refresh, :func:`_ordered`). A file whose
+    frontmatter cannot be parsed counts as absent, exactly as ``bank_index.files`` — the listing this
+    replaced — left it out."""
+    current = _current_stamps(memory_path)
     removed = [k for k in stamps if k not in current]
+    changed: dict[str, bank_index.IndexedFile] = {}
+    for doc_key, stamp in current.items():
+        if stamps.get(doc_key) == stamp:
+            continue
+        subdir, name = doc_key.rsplit("/", 1)
+        f = bank_index.file(memory_path, subdir, name)
+        if f is None:  # malformed, or gone since the listing
+            if doc_key in stamps:
+                removed.append(doc_key)
+            continue
+        changed[doc_key] = f
     return changed, removed
 
 
@@ -269,15 +319,49 @@ def _ordered(files: dict[str, bank_index.IndexedFile]) -> list[tuple[str, bank_i
 
 
 def _load_stamps(db: Path) -> dict[str, tuple[int, int]] | None:
+    return _load_state(db)[0]
+
+
+def _stamps_in(conn) -> dict[str, tuple[int, int]]:
+    return {k: (m, s) for k, m, s in conn.execute("SELECT doc_key, mtime_ns, size FROM docs")}
+
+
+def _generation_in(conn) -> str | None:
+    row = conn.execute("SELECT value FROM meta WHERE key = 'generation'").fetchone()
+    return row[0] if row else None
+
+
+def _new_generation(conn) -> str:
+    token = secrets.token_hex(8)
+    conn.execute("INSERT OR REPLACE INTO meta(key, value) VALUES ('generation', ?)", (token,))
+    return token
+
+
+def _load_state(db: Path) -> tuple[dict[str, tuple[int, int]] | None, str | None]:
+    """``(stamps, generation)`` from one read of the file; ``(None, None)`` when there is no usable index."""
     if not db.exists():
-        return None
+        return None, None
     try:
         conn = _open(db)
         try:
             row = conn.execute("SELECT value FROM meta WHERE key = 'schema'").fetchone()
             if not row or row[0] != _schema_tag():
-                return None
-            return {k: (m, s) for k, m, s in conn.execute("SELECT doc_key, mtime_ns, size FROM docs")}
+                return None, None
+            conn.execute("BEGIN")
+            return _stamps_in(conn), _generation_in(conn)
+        finally:
+            conn.close()
+    except sqlite3.DatabaseError:
+        return None, None
+
+
+def _read_generation(db: Path) -> str | None:
+    """The file's ``generation`` (one row, once per freshness check); ``None`` when unreadable. Opened
+    ``mode=rw`` so a check never creates a file that vanished since ``ensure_fresh`` looked."""
+    try:
+        conn = sqlite3.connect(db.resolve().as_uri() + "?mode=rw", uri=True, timeout=5.0, isolation_level=None)
+        try:
+            return _generation_in(conn)
         finally:
             conn.close()
     except sqlite3.DatabaseError:
@@ -534,15 +618,16 @@ _INDEXERS = {"entities": _index_entity, "episodes": _index_episode, "inbox": _in
              "backlog": _index_backlog}
 
 
-def _index_doc(conn, doc_key: str, f) -> None:
+def _index_doc(conn, doc_key: str, f) -> bool:
     """Index one file inside a savepoint: a page that cannot be read or
     indexed is skipped with its partial rows rolled back — one odd file never
-    costs the whole build (and never loops a rebuild on every request)."""
+    costs the whole build (and never loops a rebuild on every request).
+    True when the file now has a ``docs`` row."""
     try:
         parsed = markdown_parser.parse(f.path)
     except Exception as exc:
         logger.warning(f"search_index: skipping unreadable {doc_key}: {type(exc).__name__}")
-        return
+        return False
     conn.execute("SAVEPOINT doc")
     try:
         _INDEXERS[doc_key.split("/", 1)[0]](conn, doc_key, f, parsed.frontmatter or {}, parsed.body)
@@ -550,14 +635,16 @@ def _index_doc(conn, doc_key: str, f) -> None:
         conn.execute("ROLLBACK TO doc")
         logger.warning(f"search_index: skipping {doc_key}: {type(exc).__name__}")
     conn.execute("RELEASE doc")
+    return conn.execute("SELECT 1 FROM docs WHERE doc_key = ?", (doc_key,)).fetchone() is not None
 
 
-def _delete_doc(conn, doc_key: str) -> None:
+def _delete_doc(conn, doc_key: str) -> bool:
+    """True when the file had rows (they are gone now)."""
     # By doc_key, read inside the transaction — never by a cached id — so two
     # processes refreshing the same file can never leave duplicate rows.
     row = conn.execute("SELECT id FROM docs WHERE doc_key = ?", (doc_key,)).fetchone()
     if row is None:
-        return
+        return False
     lo = int(row[0]) << ROW_BITS
     hi = lo | MAX_ROWS_PER_DOC
     for table in _FTS_COLUMNS:
@@ -565,6 +652,7 @@ def _delete_doc(conn, doc_key: str) -> None:
     conn.execute("DELETE FROM claim_ref WHERE row BETWEEN ? AND ?", (lo, hi))
     conn.execute("DELETE FROM claim_evidence WHERE row BETWEEN ? AND ?", (lo, hi))
     conn.execute("DELETE FROM docs WHERE id = ?", (row[0],))
+    return True
 
 
 def _write(db: Path, fn) -> None:
@@ -586,6 +674,7 @@ def _full_build(memory_path: Path, state: _BankState) -> int:
     # Excluded BEFORE the file can exist: the order is the whole rail (G99a).
     bank_registry.ensure_derived_excluded(memory_path)
     files = _scan(memory_path)
+    written: dict[str, str] = {}
 
     def build(conn):
         for table in (*_FTS_COLUMNS, "claim_ref", "claim_evidence", "docs", "meta"):
@@ -594,6 +683,7 @@ def _full_build(memory_path: Path, state: _BankState) -> int:
         for doc_key, f in _ordered(files):
             _index_doc(conn, doc_key, f)
         conn.execute("INSERT INTO meta(key, value) VALUES ('schema', ?)", (_schema_tag(),))
+        written["generation"] = _new_generation(conn)
 
     def attempt():
         conn = _open(db)
@@ -612,25 +702,58 @@ def _full_build(memory_path: Path, state: _BankState) -> int:
         _discard_files(db)
         attempt()
     state.stamps = {k: (f.mtime_ns, f.size) for k, f in files.items()}
+    state.generation = written.get("generation")
     state.checked_at = time.monotonic()
     logger.info(f"search_index: rebuilt ({len(files)} documents)")
     return len(files)
 
 
 def _refresh(memory_path: Path, state: _BankState, changed: dict, removed: list[str]) -> None:
+    """Apply a diff in one write transaction.
+
+    A removal is re-checked against the disk inside the transaction: a page that exists and reads by
+    then (another process created it after this one listed) keeps its rows — deleting them would leave a
+    live page unsearchable until its next edit. And when another process wrote the index since this one
+    loaded its stamps (the ``generation`` moved), the stamps are re-read from the file after the write,
+    so this process never trusts its own copy over rows someone else changed."""
+    out: dict = {}
+    listings: dict[str, dict] = {}
+
+    def on_disk(doc_key: str) -> bool:
+        # Exactly this name, case included, in a listing taken now: a stat of the old name succeeds on a
+        # case-insensitive volume (APFS) after a case-only rename, and would keep the old rows forever.
+        subdir, name = doc_key.rsplit("/", 1)
+        if subdir not in listings:
+            listings[subdir] = bank_index.stamps(memory_path, subdir, fresh=True)
+        return name in listings[subdir] and bank_index.file(memory_path, subdir, name) is not None
+
     def apply(conn):
-        for doc_key in [*removed, *changed]:
-            _delete_doc(conn, doc_key)
+        generation = _generation_in(conn)
+        foreign = generation != state.generation
+        wrote = False
+        for doc_key in removed:
+            if not on_disk(doc_key):
+                wrote = _delete_doc(conn, doc_key) or wrote
+        for doc_key in changed:
+            wrote = _delete_doc(conn, doc_key) or wrote
         for doc_key, f in _ordered(changed):
-            _index_doc(conn, doc_key, f)
+            wrote = _index_doc(conn, doc_key, f) or wrote
+        # A write that changed no row keeps the generation: a file that fails to index (no row) would
+        # otherwise have two processes take turns re-reading each other's stamps and retrying it.
+        out["generation"] = _new_generation(conn) if wrote else generation
+        if foreign:
+            out["stamps"] = _stamps_in(conn)
 
     _write(db_path(memory_path), apply)
-    stamps = dict(state.stamps or {})
+    # The file's rows when someone else wrote it since this process loaded them, else this process's own.
+    stamps = dict(out["stamps"]) if "stamps" in out else dict(state.stamps or {})
     for doc_key in removed:
         stamps.pop(doc_key, None)
     for doc_key, f in changed.items():
+        # Recorded even when it did not index: one odd file is tried once per stamp, never per check.
         stamps[doc_key] = (f.mtime_ns, f.size)
     state.stamps = stamps
+    state.generation = out["generation"]
     state.checked_at = time.monotonic()
 
 
@@ -667,19 +790,26 @@ def ensure_fresh(
         if not db.exists():
             state.stamps = None
         if state.stamps is None:
-            state.stamps = _load_stamps(db)
+            state.stamps, state.generation = _load_state(db)
         if state.stamps is None:
             if not wait:
                 _spawn(memory_path, state)
                 return "building"
             with state.lock:
                 if state.stamps is None or not db.exists():
-                    state.stamps = _load_stamps(db)
+                    state.stamps, state.generation = _load_state(db)
                     if state.stamps is None:
                         _full_build(memory_path, state)
             return "ready"
         if time.monotonic() - state.checked_at < ttl:
             return "ready"
+        if _read_generation(db) != state.generation:
+            # Another process wrote the index since these stamps were loaded: its rows, not this
+            # process's memory of them, are what the diff must compare with (a row someone deleted
+            # is re-indexed, never trusted as present). Loaded BEFORE `_diff` lists the files.
+            loaded, generation = _load_state(db)
+            if loaded is not None:
+                state.stamps, state.generation = loaded, generation
         changed, removed = _diff(memory_path, state.stamps)
         if not changed and not removed:
             state.checked_at = time.monotonic()
@@ -835,6 +965,87 @@ def pages_citing_many(memory_path: Path, episode_ids: list[str]) -> dict[str, li
     except sqlite3.Error:
         return None
     return {ep: sorted(refs) for ep, refs in out.items()}
+
+
+# --- page names ---------------------------------------------------------------
+
+# bank path -> (the listing it answered for, {filename: ((mtime_ns, size), name)}, the answer).
+_NAMES: dict[str, tuple[dict, dict, dict]] = {}
+_NAMES_LOCK = threading.Lock()
+
+
+def _page_name(stem: str, fm: dict) -> str:
+    """A page's display name — the rule :func:`_index_entity` stores, so both sources agree."""
+    return str((fm or {}).get("name") or stem.replace("-", " ").title())
+
+
+def _indexed_names(memory_path: Path) -> dict[str, tuple[tuple[int, int], str]]:
+    """``{filename: (stamp, name)}`` for every entity page the index holds; ``{}`` when there is no
+    usable index. Read-only: never creates, repairs or rebuilds the file."""
+    db = db_path(memory_path)
+    if not fts5_available() or not db.exists():
+        return {}
+    try:
+        uri = db.resolve().as_uri() + "?mode=ro"
+        conn = sqlite3.connect(uri, uri=True, timeout=2.0)
+        try:
+            row = conn.execute("SELECT value FROM meta WHERE key = 'schema'").fetchone()
+            if not row or row[0] != _schema_tag():
+                return {}
+            rows = conn.execute(
+                "SELECT doc_key, mtime_ns, size, meta FROM docs WHERE doc_key >= 'entities/' AND doc_key < 'entities0'"
+            ).fetchall()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return {}
+    out: dict[str, tuple[tuple[int, int], str]] = {}
+    for doc_key, mtime_ns, size, meta in rows:
+        filename = doc_key.split("/", 1)[1]
+        if "/" in filename:
+            continue
+        try:
+            name = json.loads(meta or "{}").get("name")
+        except ValueError:
+            continue
+        if name:
+            out[filename] = ((int(mtime_ns), int(size)), str(name))
+    return out
+
+
+def entity_names(memory_path: Path) -> dict[str, str | None]:
+    """``{stem: name}`` for every page in ``entities/``, as the files say NOW (``None``: a page whose
+    frontmatter cannot be read — it still has a stem).
+
+    Name lookups (recall's one-hop links, a hub's members, ``recall_detail`` by name) used to read every
+    page's frontmatter per name — 3,600 reads for each of eight names in a fresh process. This answers
+    from one directory listing: a page whose ``(mtime_ns, size)`` matches what this process last read,
+    or what the full-text index recorded, keeps that name; only a page that moved is parsed. So it is
+    exact whether or not the index is fresh, and a missing or broken index only costs parses. The
+    caller passes the active bank (the split-brain rule)."""
+    memory_path = Path(memory_path)
+    current = bank_index.stamps(memory_path, "entities")
+    key = str(memory_path)
+    with _NAMES_LOCK:
+        cached = _NAMES.get(key)
+    if cached is not None and cached[0] == current:
+        return cached[2]  # nothing moved: the same dict, so a caller may key its own lookups on it
+    held = dict(cached[1]) if cached is not None else {}
+    moved = [n for n, stamp in current.items() if (held.get(n) or (None,))[0] != stamp]
+    indexed = _indexed_names(memory_path) if len(moved) > 32 else {}
+    for filename in moved:
+        hit = indexed.get(filename)
+        if hit is not None and hit[0] == current[filename]:
+            held[filename] = hit
+            continue
+        f = bank_index.file(memory_path, "entities", filename)
+        # Malformed (or gone since the listing): no name to match, remembered so it is not re-read.
+        held[filename] = ((f.mtime_ns, f.size), _page_name(f.stem, f.frontmatter)) if f else (current[filename], None)
+    held = {n: v for n, v in held.items() if n in current}
+    names = {n[: -len(".md")]: name for n, (_stamp, name) in held.items()}
+    with _NAMES_LOCK:
+        _NAMES[key] = (current, held, names)
+    return names
 
 
 # --- reading ------------------------------------------------------------------

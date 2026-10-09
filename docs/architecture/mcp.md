@@ -21,7 +21,14 @@ round 1). `cicada get --start N` is the same; `--from`/`--count`/`--line-numbers
 FTS lexical leg (names, aliases and prose, word by word), and current claims mapped to their
 subject — so an alias or a relationship label reaches its page. Each leg is filtered against the pages as their
 markdown says now before fusion (`_live_pages`): a page that is gone or `dropped` is never ranked, suggested in the
-hints block or rendered (audit 2026-10-05 P2-5). The top three pages carry a bounded
+hints block or rendered (audit 2026-10-05 P2-5). **A cold recall reads what it needs, not the bank** (the CLI and
+every MCP session's first call run in a fresh process): one recall lists each directory once
+(`bank_index.shared_scans`); the FTS freshness check compares stamps without parsing; a name (one-hop links, a hub's
+members, `cicada get <name>`) resolves through `search_index.entity_names` — the index's recorded names for pages whose
+`(mtime_ns, size)` did not move, a parse for the ones that did — with a stem match winning over a name match; the inbox
+block's causes parse only the pages they land on; and `litellm` is imported only when a model is called. Measured on a
+synthetic 3,600-page / 1,500-episode bank with a model-free embedder: 2.15 s → 0.45 s median per fresh-process call,
+warm 0.35–1.0 s → 0.08 s, byte-identical replies (2026-10-09). The top three pages carry a bounded
 "Changed recently" block (claims closed in the last 30 days, ≤ 5 lines);
 `cicada_get_perspective(history=true)` lists every earlier claim. **`cicada_timeline(since)`**
 answers "what changed" from the commit manifests on demand — ids and counts only, nothing stored,
