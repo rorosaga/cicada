@@ -266,12 +266,19 @@ async def resolve_and_prune(
             decay_amount = decay_rate
             decay_today = now.date().isoformat()
         else:
-            decay_amount = decay_rate * (owed.days / 7.0)
+            decay_amount = None
             decay_today = owed.watermark.isoformat()
-        new_confidence = max(0.0, confidence - decay_amount)
-        # Heard late (an import): it fades into its age without a question — the person
-        # is asked only about something they went quiet on while Cicada was listening.
-        quiet = decay_policy.heard_late(said, learned)
+        if decay_amount is not None:
+            new_confidence = max(0.0, confidence - decay_amount)
+        else:
+            # Proven silence floors at the archive line for a page heard in 2+ conversations
+            # (owner 2026-10-09: one-offs archive, repeats fade); live silence may archive it.
+            new_confidence = decay_policy.charge(
+                confidence, decay_rate, owed, archive_threshold=settings.archive_threshold,
+                conversations=decay_policy.conversations(fm.get("source_episodes"), untimed=untimed))
+        # Heard late (an import), and this pass charges its age: the drop asks nothing. Only
+        # this pass — once its age is charged, live silence below 0.4 asks as for any page.
+        quiet = owed is not None and owed.proven_days > 0 and decay_policy.heard_late(said, learned)
 
         if new_confidence < settings.archive_threshold:
             faded_by_age += quiet
@@ -682,21 +689,27 @@ def apply_changes(changes: list[dict], memory_path) -> None:
             if mentioned:
                 fm = parsed.frontmatter
                 said_before = _extract_date_string(fm.get("last_referenced"))
-                said = _max_date(said_before, _latest_change_date(change)) or str(date.today())
+                charged = _extract_date_string(fm.get("decayed_through"))
+                heard = _latest_change_date(change) or str(date.today())
+                said = _max_date(said_before, heard)
                 fm["last_referenced"] = said
-                if str(fm.get("status", "active")) in ("decaying", "archived"):
-                    # Recovery (G66 §1.6): a re-mention is the counter-signal to decay. `dropped` is
-                    # deliberately excluded: the person dismissed that entity and it is never resurfaced.
-                    # The restored confidence is as of the last mention, so the decay pass ages it from
-                    # then: a new mention keeps it, an old one (an import) lets it fade back by its age.
-                    fm["status"] = "active"
-                    fm["confidence"] = max(float(fm.get("confidence", 0.0) or 0.0), RECOVERY_CONFIDENCE)
-                    fm["decayed_through"] = said
+                if decay_policy.owed(said_before, charged, _extract_date_string(fm.get("learned_on"))):
+                    # Not yet settled (read earlier in this run, or in one that stopped): age counts from the
+                    # latest mention, and the decay pass that settles it charges from there.
+                    if said_before is None or said > said_before:
+                        fm["learned_on"] = _max_date(_extract_date_string(fm.get("learned_on")), learned)
+                elif charged is None or heard >= charged:
+                    # A settled page mentioned in a conversation no charge has covered yet: the counter-signal
+                    # to decay. Recovery (G66 §1.6) — `dropped` is deliberately excluded: the person dismissed
+                    # that entity and it is never resurfaced — and the silence clock restarts the day Cicada
+                    # read it, so a mention never leaves a page lower than it stood.
+                    if str(fm.get("status", "active")) in ("decaying", "archived"):
+                        fm["status"] = "active"
+                        fm["confidence"] = max(float(fm.get("confidence", 0.0) or 0.0), RECOVERY_CONFIDENCE)
+                    fm["decayed_through"] = _max_date(charged, learned)
                     fm["learned_on"] = learned
-                elif said_before is None or said > said_before:
-                    # A later mention: the silence the run proves now runs from it to today. A mention no
-                    # later than what the page knew moves no clock — age counts from when it was said.
-                    fm["learned_on"] = _max_date(_extract_date_string(fm.get("learned_on")), learned)
+                # Else a conversation from before the watermark, read late: its source and its week count (G147),
+                # but no clock or status moves — age counts from when it was said, and a mention never lowers.
             parsed.frontmatter["version"] = parsed.frontmatter.get("version", 1) + 1
 
             episodes = parsed.frontmatter.get("source_episodes", [])
@@ -842,8 +855,9 @@ def _untimed_once(untimed_ids: frozenset[str] | None, memory_path) -> frozenset[
 def _settle(fm: dict, params: dict, untimed: frozenset[str]) -> None:
     """Charge a page this decay pass created or referenced the silence its mentions prove (last said ->
     ``learned_on``) — the same arithmetic as the unreferenced-page loop in :func:`resolve_and_prune`, on the page as
-    merged. Its live clock starts today, so nothing past ``learned_on`` is charged. Never asks a question: a page
-    that crosses the thresholds here was heard late, or is a page just read (see ``decay_policy.heard_late``)."""
+    merged. Its live clock starts today, so nothing past ``learned_on`` is charged. Proven silence floors just above
+    the archive line for a page heard in 2+ conversations (``decay_policy.charge``). Asks nothing in this pass; a page
+    it leaves below 0.4 is asked about by the first pass that charges it live silence."""
     if str(fm.get("status", "active")) in ("archived", "dropped"):
         return
     effective = decay_policy.effective(fm, alpha=params["alpha"], floor=params["floor"],
@@ -855,7 +869,9 @@ def _settle(fm: dict, params: dict, untimed: frozenset[str]) -> None:
         _extract_date_string(fm.get("learned_on")), date.fromisoformat(params["today"]), 0)
     if owed is None or owed.days <= 0:
         return
-    confidence = max(0.0, float(fm.get("confidence", 0.5) or 0.0) - effective.rate * owed.days / 7.0)
+    confidence = decay_policy.charge(
+        float(fm.get("confidence", 0.5) or 0.0), effective.rate, owed, archive_threshold=params["archive"],
+        conversations=decay_policy.conversations(fm.get("source_episodes"), untimed=untimed))
     fm["confidence"] = confidence
     fm["decayed_through"] = owed.watermark.isoformat()
     if confidence < params["archive"]:

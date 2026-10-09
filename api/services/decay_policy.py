@@ -455,3 +455,43 @@ def latest_said(episode_refs, *, untimed=frozenset()) -> str | None:
         if parsed and _day(parsed[0]) is not None:
             days.append(parsed[0])
     return max(days) if days else None
+
+
+# Owner 2026-10-09, after the first dry run on a real bank (79% archived): one-offs archive, repeats fade. Proven
+# silence alone never takes something that rests on two or more conversations below the archive threshold — it stops
+# just above, `decaying` and still on the graph; only live silence after Cicada read it can archive it.
+PROVEN_FLOOR_MARGIN = 0.01
+
+
+def proven_floor(archive_threshold: float) -> float:
+    """Where proven silence stops for a page or claim heard in 2+ conversations: just above the archive line."""
+    return float(archive_threshold) + PROVEN_FLOOR_MARGIN
+
+
+def conversations(episode_refs, *, untimed=frozenset()) -> int:
+    """Distinct dated conversations among episode ids (``ep_<date>_<n>``). A memory export entry (``untimed``) and
+    an id without a date are not one."""
+    seen = set()
+    for ref in _as_list(episode_refs):
+        stem = str(ref or "").strip()
+        if stem and stem not in untimed and episode_ids.parse_episode_id(stem) is not None:
+            seen.add(stem)
+    return len(seen)
+
+
+def charge(confidence: float, rate: float, owed: Silence, *, conversations: int, archive_threshold: float) -> float:
+    """Confidence after one pass: proven silence first — floored at :func:`proven_floor` for something heard in 2+
+    conversations, never raising what is already below it — then live silence, which may go anywhere."""
+    confidence = float(confidence)
+    after = confidence - rate * owed.proven_days / 7.0
+    if conversations >= 2:
+        after = max(after, min(confidence, proven_floor(archive_threshold)))
+    return max(0.0, after - rate * owed.live_days / 7.0)
+
+
+def owed(said, charged_through, learned) -> bool:
+    """Is there proven silence not yet charged — a mention read after the later of when it was said and the
+    watermark? A page or claim with none is settled: a further mention is a re-mention (see the writers)."""
+    read_on = _day(learned)
+    baseline = max([d for d in (_day(said), _day(charged_through)) if d is not None], default=None)
+    return read_on is not None and baseline is not None and read_on > baseline

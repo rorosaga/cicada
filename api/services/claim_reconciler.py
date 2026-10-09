@@ -148,44 +148,65 @@ def _close(old: Claim, *, by: Claim) -> None:
     by.supersedes = old.id
 
 
-def _said(claim: Claim, untimed=frozenset()) -> str | None:
-    """The day a claim was last said: its latest dated conversation — its ``source_episodes`` and the ``ep_*``
-    documents its evidence cites, never a memory export entry (``episode_time``) or a session id. ``valid_from`` is
-    when the fact became true in the world, not when it was said, so it never counts here."""
+def _merge_episodes(existing: Claim, incoming: Claim) -> None:
+    for ep in incoming.source_episodes or []:
+        if ep and ep not in existing.source_episodes:
+            existing.source_episodes.append(ep)
+
+
+def _said_refs(claim: Claim) -> list[str]:
+    """A claim's conversations: its ``source_episodes`` and the ``ep_*`` documents its evidence cites."""
     refs = list(claim.source_episodes or [])
     for ev in claim.evidence or []:
         doc = str(getattr(ev, "episode", "") or "")
-        if doc.startswith("ep_"):
+        if doc.startswith("ep_") and doc not in refs:
             refs.append(doc)
-    return decay_policy.latest_said(refs, untimed=untimed)
+    return refs
+
+
+def _said(claim: Claim, untimed=frozenset()) -> str | None:
+    """The day a claim was last said: its latest dated conversation (:func:`_said_refs`), never a memory export
+    entry (``episode_time``) or a session id. ``valid_from`` is when the fact became true in the world, not when it
+    was said, so it never counts here."""
+    return decay_policy.latest_said(_said_refs(claim), untimed=untimed)
 
 
 def _reinforce(existing: Claim, incoming: Claim, *, today: str | None = None, untimed=frozenset()) -> None:
     """Reaffirmation/duplicate: bump confidence + merge episodes; no new claim.
 
-    With ``today`` (the Stage-3 pass; events pass none): age counts from when it was said. A raised confidence
-    is as of the claim's last mention — the decay pass ages it from then, so an old restatement read late fades
-    back by its age — and a later mention, or a raise, is learned today (``recorded_at``)."""
-    said_before = _said(existing, untimed) if today is not None else None
-    raised = incoming.confidence > existing.confidence
-    existing.confidence = max(existing.confidence, incoming.confidence)
-    for ep in incoming.source_episodes or []:
-        if ep and ep not in existing.source_episodes:
-            existing.source_episodes.append(ep)
-    if incoming.recorded_at:
-        existing.recorded_at = incoming.recorded_at
-    # A restatement never moves the watermark backwards on its own.
-    existing.decayed_through = _max_date(existing.decayed_through, incoming.decayed_through)
-    if today is not None:
+    With ``today`` (the Stage-3 pass; events pass none), age counts from when it was said, and a restatement never
+    leaves a claim lower than it stood:
+
+    * a claim not yet settled (minted or restated earlier in this run, or in one that stopped — proven silence
+      still owed) keeps the higher confidence and its watermark follows the latest mention; the decay pass that
+      settles it charges from there;
+    * a settled claim restated in a conversation no charge has covered yet (said on or after its watermark — an
+      agent's live write, with no dated conversation, is said today) is restored: the higher confidence, the
+      watermark and ``recorded_at`` at today;
+    * a settled claim restated by an older conversation, or by a memory export entry alone, gains the source only.
+    """
+    if today is None:
+        existing.confidence = max(existing.confidence, incoming.confidence)
+        _merge_episodes(existing, incoming)
+        if incoming.recorded_at:
+            existing.recorded_at = incoming.recorded_at
+        existing.decayed_through = _max_date(existing.decayed_through, incoming.decayed_through)
+    else:
+        said_before = _said(existing, untimed)
+        unsettled = decay_policy.owed(said_before, existing.decayed_through, existing.recorded_at)
         heard = _said(incoming, untimed)
         refs = list(incoming.source_episodes or [])
         if heard is None and not (refs and all(r in untimed for r in refs)):
             heard = today   # no dated conversation and not a memory entry: an agent's live write, said now
-        said = max([d for d in (said_before, heard) if d], default=None)
-        later = heard is not None and (said_before is None or heard > said_before)
-        if raised and said is not None:
-            existing.decayed_through = said
-        if later or raised:
+        _merge_episodes(existing, incoming)
+        if unsettled:
+            existing.confidence = max(existing.confidence, incoming.confidence)
+            existing.decayed_through = _max_date(existing.decayed_through, heard)
+            if heard is not None and (said_before is None or heard > said_before):
+                existing.recorded_at = today
+        elif heard is not None and (not existing.decayed_through or heard >= str(existing.decayed_through)[:10]):
+            existing.confidence = max(existing.confidence, incoming.confidence)
+            existing.decayed_through = _max_date(existing.decayed_through, today)
             existing.recorded_at = today
     # PR #20 round-2 review fix — "repeated facts lose later conversations":
     # a scalar `session_id` can only ever remember the FIRST writer, so a
@@ -773,6 +794,7 @@ def _decay_claims(
     untimed=None,
 ) -> None:
     nudge_threshold = float(getattr(settings, "decay_nudge_threshold", 0.4) or 0.4)
+    archive_threshold = float(getattr(settings, "archive_threshold", 0.2) or 0.2)
     alpha, floor = decay_policy.spacing_params(settings)
     # A memory export entry restates a claim without the claim coming up (`episode_time`).
     if untimed is None:
@@ -804,11 +826,16 @@ def _decay_claims(
                 owed = decay_policy.Silence(0, 0, today_date)
             if cap == 0 and owed.days == 0:
                 continue  # read this pass, nothing proven: untouched, as before
-            amount = claim_rate(c, about, multiplier, untimed=untimed, alpha=alpha, floor=floor) * (owed.days / 7.0)
-            if amount > 0:
-                new_conf = max(0.0, c.confidence - amount)
-                # Heard late (an import): it fades into its age without a question.
-                quiet = decay_policy.heard_late(_said(c, untimed), c.recorded_at)
+            rate = claim_rate(c, about, multiplier, untimed=untimed, alpha=alpha, floor=floor)
+            if rate > 0 and owed.days > 0:
+                # One-offs fall freely; a claim restated across 2+ conversations floors where a page would
+                # (owner 2026-10-09) — proven silence alone never takes it under the archive line.
+                new_conf = decay_policy.charge(
+                    c.confidence, rate, owed, archive_threshold=archive_threshold,
+                    conversations=decay_policy.conversations(_said_refs(c), untimed=untimed))
+                # Heard late (an import), and this pass charges its age: the drop asks nothing. Only this
+                # pass — once its age is charged, live silence below 0.4 asks as for any claim.
+                quiet = owed.proven_days > 0 and decay_policy.heard_late(_said(c, untimed), c.recorded_at)
                 if new_conf != c.confidence:
                     c.confidence = new_conf
                     # Decay never closes a claim and never touches a human

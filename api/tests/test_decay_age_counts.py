@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import math
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -291,3 +291,108 @@ def test_an_old_restatement_read_late_lets_a_faded_claim_fade_back_but_a_live_wr
     revived, _, _ = _reconcile(state, [live], decay=True)
     assert revived["topic"][0].confidence == 0.9
 
+
+
+# --- owner 2026-10-09: one-offs archive, repeats fade --------------------------
+
+
+def test_a_page_from_two_old_conversations_fades_but_is_not_archived_by_its_age(tmp_path):
+    bank = _bank(tmp_path)
+    _drain(bank, [[_change("repeat", "create", "2024-03-05")], [_change("repeat", "update", "2024-04-02")], []])
+    fm = _fm(bank, "repeat")
+    floor = decay_policy.proven_floor(0.2)
+    assert fm["status"] == "decaying" and math.isclose(fm["confidence"], floor, abs_tol=1e-9)
+    # Only live silence after Cicada read it can archive it.
+    _batch(bank, [], decay=True, now=datetime(2026, 10, 16, 3, 0))
+    assert _fm(bank, "repeat")["status"] == "archived"
+
+
+def test_a_memory_export_entry_is_not_a_second_conversation(tmp_path):
+    bank = _bank(tmp_path)
+    markdown_parser.write(bank / "episodes" / "ep_2024-05-01_001.md",
+                          {"id": "ep_2024-05-01_001", "source": "claude_memory", "processed": True}, "Facts.\n")
+    _drain(bank, [[_change("one-off", "create", "2024-03-05")],
+                  [_change("one-off", "update", "2024-05-01", untimed=True)], []])
+    assert _fm(bank, "one-off")["status"] == "archived"
+
+
+def test_a_claim_restated_in_two_old_conversations_floors_where_a_page_would():
+    a, b = _claim("clm_a", "2024-03-05"), _claim("clm_b", "2024-04-02")
+    state, _, _ = _reconcile({}, [a], decay=False)
+    state, _, _ = _reconcile(state, [b], decay=True)
+    assert math.isclose(state["topic"][0].confidence, decay_policy.proven_floor(0.2), abs_tol=1e-9)
+    single, _, _ = _reconcile({}, [_claim("clm_c", "2024-03-05", subject="other")], decay=True)
+    assert single["other"][0].confidence == 0.0
+
+
+# --- blocker 1: heard late is quiet only in the pass its age is charged -------
+
+
+def test_a_page_read_late_is_still_asked_about_when_live_silence_takes_it_below_0_4(tmp_path):
+    bank = _bank(tmp_path)
+    _batch(bank, [_change("alpha-project", "create", "2026-08-01")], decay=True, now=datetime(2026, 8, 12, 3, 0))
+    day, asked = datetime(2026, 8, 13, 3, 0), None
+    while day < datetime(2027, 3, 1) and asked is None:
+        changes = _batch(bank, [], decay=True, now=day)
+        if any(c["id"] == "alpha-project" and c["action"] == "decay_nudge" for c in changes):
+            asked = day
+        assert _fm(bank, "alpha-project")["status"] != "archived" or asked, "archived without ever asking"
+        day += timedelta(days=1)
+    assert asked is not None and asked.date().isoformat() < "2026-10-20"
+
+
+def test_a_claim_read_late_is_still_asked_about_when_live_silence_takes_it_below_0_4():
+    state, _, _ = _reconcile({}, [_claim("clm_a", "2026-08-01")], decay=True, today="2026-08-12")
+    day, asked = datetime(2026, 8, 13), False
+    while day < datetime(2027, 6, 1) and not asked:
+        state, nudges, _ = _reconcile(state, [], decay=True, today=day.date().isoformat())
+        asked = any(n.get("action") == "decay_nudge" for n in nudges)
+        day += timedelta(days=1)
+    assert asked
+
+
+# --- blocker 2: a mention never lowers a page or claim ------------------------
+
+
+def _decaying_bob(bank):
+    _batch(bank, [_change("bob-example", "create", "2026-06-01")], decay=True, now=datetime(2026, 6, 1, 3, 0))
+    day = datetime(2026, 6, 2, 3, 0)
+    while day <= datetime(2026, 8, 12, 3, 0):
+        _batch(bank, [], decay=True, now=day)
+        day += timedelta(days=1)
+    fm = _fm(bank, "bob-example")
+    assert fm["status"] == "decaying" and fm["confidence"] < 0.4
+    return fm
+
+
+@pytest.mark.parametrize("said", ["2026-06-01", "2026-06-02"])
+@pytest.mark.parametrize("mid_drain", [False, True])
+def test_an_old_re_mention_never_lowers_a_decaying_page(tmp_path, said, mid_drain):
+    bank = _bank(tmp_path)
+    before = _decaying_bob(bank)
+    now = datetime(2026, 8, 12, 3, 0)
+    batches = [[_change("bob-example", "update", said)], []] if mid_drain else [[_change("bob-example", "update", said)]]
+    _drain(bank, batches, now=now)
+    after = _fm(bank, "bob-example")
+    assert after["confidence"] >= before["confidence"] and after["status"] in ("decaying", "active")
+
+
+def test_a_new_mention_revives_a_decaying_page(tmp_path):
+    bank = _bank(tmp_path)
+    _decaying_bob(bank)
+    _drain(bank, [[_change("bob-example", "update", "2026-08-12")], []], now=datetime(2026, 8, 12, 3, 0))
+    fm = _fm(bank, "bob-example")
+    assert fm["status"] == "active" and fm["confidence"] == 0.6
+
+
+@pytest.mark.parametrize("said", ["2026-06-01", "2026-06-02"])
+def test_an_old_restatement_never_lowers_a_claim(said):
+    state, _, _ = _reconcile({}, [_claim("clm_a", "2026-06-01", conf=0.45)], decay=True, today="2026-06-01")
+    day = datetime(2026, 6, 2)
+    while day <= datetime(2026, 8, 12):
+        state, _, _ = _reconcile(state, [], decay=True, today=day.date().isoformat())
+        day += timedelta(days=1)
+    before = state["topic"][0].confidence
+    state, _, _ = _reconcile(state, [_claim("clm_b", said, conf=0.5)], decay=False, today="2026-08-12")
+    state, _, _ = _reconcile(state, [], decay=True, today="2026-08-12")
+    assert state["topic"][0].confidence >= before
