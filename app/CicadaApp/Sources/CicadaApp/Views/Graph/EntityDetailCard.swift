@@ -84,6 +84,11 @@ struct EntityDetailCard: View {
     @State private var sourcesLoaded = false
     /// Bumped to scroll the card to "Where this came from" (a line with no recorded source of its own).
     @State private var provenanceScroll = 0
+    /// The full page could not be read: the card says so, with a retry, instead of "Reading the page…" forever (DR-32).
+    @State private var pageReadFailed = false
+    /// The one claims read in flight for this card: the beliefs section and the Perspectives or Timeline tab opening
+    /// together share it rather than each asking for megabytes.
+    @State private var claimsRead: Task<Void, Never>?
 
     // History tab (G68 §2.10). `entity.history` is empty BOTH before the full
     // entity body has landed and when the page has no commits, so track the
@@ -313,6 +318,7 @@ struct EntityDetailCard: View {
             sources = []
             sourcesLoaded = false
             factClaims = []
+            pageReadFailed = false
             paperDetail = nil
             pendingDecayClass = nil
             activeEntityId = entity.id
@@ -332,7 +338,8 @@ struct EntityDetailCard: View {
             // (already rendered above, so there is never an empty card). Upgrade it to the full entity through the
             // Store's memoised cache; the swap lands via `graphVM.selectedEntity`/`entities`, which is what feeds
             // this view its `entity`.
-            await graphVM.loadFullEntity(id: entity.id)
+            let pageRead = await graphVM.loadFullEntity(id: entity.id)
+            if !pageRead, !Task.isCancelled { pageReadFailed = true }
             if let facts = await facts, !Task.isCancelled { factClaims = facts }
             // Gated on what the graph-node STUB already knows (task 7 review
             // r1): the card opens on a stub whose `media` is nil, and the
@@ -482,6 +489,15 @@ struct EntityDetailCard: View {
         guard !Task.isCancelled, id == entity.id else { return }
         sources = fetched
         sourcesLoaded = true
+    }
+
+    private func retryPageRead() {
+        let id = entity.id
+        pageReadFailed = false
+        Task {
+            let read = await graphVM.loadFullEntity(id: id)
+            if !read, id == entity.id { pageReadFailed = true }
+        }
     }
 
     /// One click from any line (owner 2026-10-09): the line's own recorded source in the Reader, else the page's
@@ -732,8 +748,16 @@ struct EntityDetailCard: View {
             if HeroPreview.hasPreviewableAsset(for: entity) {
                 HeroPreview(entity: entity)
             }
-            if isStub {
-                // The full page is on its way: the shape of a page, never a blank (it lands in well under a second).
+            if isStub, pageReadFailed {
+                HStack(spacing: CicadaTheme.spacingSM) {
+                    Text(Copy.Graph.pageUnavailable)
+                        .font(CicadaTheme.metaFont)
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                    NeutralButton(title: Copy.Graph.retry) { retryPageRead() }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            } else if isStub {
+                // The full page is on its way, said in words (it lands in well under a second); a failed read says so.
                 SectionLoading(text: Copy.Graph.readingPage)
             } else {
                 WikiPageView(key: articleKey, onLineSource: openLineSource)
@@ -1214,18 +1238,27 @@ struct EntityDetailCard: View {
     /// (predicate, context) keys with ≥2 claims over time (valid + superseded).
     private var contestedKeys: [BeliefKey] { digest.contested }
 
+    /// Every caller awaits the one read in flight (the beliefs section and a tab opened together). The read is
+    /// unstructured so a caller's cancellation (a tab switch removing the section) never discards it half-way; the
+    /// card checks it is still on the same page before keeping the answer.
     private func loadClaimsIfNeeded() async {
         guard !claimsLoaded else { return }
-        // Include superseded so the timeline tab can detect contested keys.
-        let fetched = try? await APIClient.shared.fetchClaims(subject: entity.id, includeSuperseded: true)
-        // DS-3a — a load cancelled by a swap or a close must not read as "no beliefs" (R-DG16's counts).
-        guard !Task.isCancelled else { return }
-        let loaded = fetched ?? []
-        let derived = await Task.detached(priority: .userInitiated) { ClaimDigest(loaded) }.value
-        guard !Task.isCancelled else { return }
-        claims = loaded
-        digest = derived
-        claimsLoaded = true
+        if let claimsRead { return await claimsRead.value }
+        let id = entity.id
+        let read = Task { @MainActor in
+            // Include superseded so the timeline tab can detect contested keys.
+            let fetched = try? await APIClient.shared.fetchClaims(subject: id, includeSuperseded: true)
+            let loaded = fetched ?? []
+            let derived = await Task.detached(priority: .userInitiated) { ClaimDigest(loaded) }.value
+            // DS-3a — an answer for a page the card has left must not land under the new one.
+            guard id == entity.id else { return }
+            claims = loaded
+            digest = derived
+            claimsLoaded = true
+        }
+        claimsRead = read
+        await read.value
+        if claimsRead == read { claimsRead = nil }
     }
 
     private var historyState: HistoryTabState {

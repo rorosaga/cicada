@@ -194,6 +194,7 @@ extension Copy.Graph {
 extension Copy.Graph {
     static let beliefsTitle = "What Cicada believes"
     static let readingPage = "Reading the page…"
+    static let pageUnavailable = "Couldn't read this page."
     static let readingBeliefs = "Reading what Cicada believes…"
     static let readingSources = "Reading where to look this up…"
     static let lineSource = "Where this line came from"

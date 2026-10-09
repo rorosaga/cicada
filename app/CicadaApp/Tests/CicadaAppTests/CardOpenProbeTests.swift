@@ -80,6 +80,11 @@ final class CardOpenProbeTests: XCTestCase {
         let pinger = MainPinger()
         pinger.run()
         RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        // `CICADA_CARD_PROBE_HIDE` (a page file in the scratch bank): moved aside once the graph is read, so the
+        // full-page read fails and the card's failure state shows; put back when the probe ends.
+        let hidden = env["CICADA_CARD_PROBE_HIDE"]
+        if let hidden { try FileManager.default.moveItem(atPath: hidden, toPath: hidden + ".hidden") }
+        defer { if let hidden { try? FileManager.default.moveItem(atPath: hidden + ".hidden", toPath: hidden) } }
         let opened = pinger.now()
         graph.selectEntity(id: id)
         var marks: [String: Double] = [:]

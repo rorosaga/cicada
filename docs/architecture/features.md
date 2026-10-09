@@ -48,7 +48,7 @@ claims; shown open on an R-FX11 page, whose beliefs are its content), Where this
 article is `WikiArticle`: the served prose without `## Summary` (the header's), `## Description` (a media card's) or
 a claims fence, parsed once into flat rows — one per list item — off the main actor and cached by text
 (`WikiArticleCache`, in memory, not a Store domain). Its first 48 rows are built synchronously, so the page never
-draws blank, and `WikiPageView` draws the rows in a `LazyVStack`: only the lines on screen are laid out. Every line
+draws blank, and `WikiPageView` draws the rows in a `LazyVStack`: only the lines on screen are laid out. Until the full page lands the card says "Reading the page…"; a failed read says "Couldn't read this page." with Retry, never a spinner forever (DR-32). One claims read per card is shared by every section and tab that asks at once. Every line
 offers *Where this line came from* on hover and as an accessibility action: the `/provenance` section item whose
 `bodyRanges` cover the line opens its evidence in the Reader (checked against `pageBodyHash`); a line no item covers
 opens the page's Where this came from and scrolls to it. `/provenance` is read when the card opens — the header's
