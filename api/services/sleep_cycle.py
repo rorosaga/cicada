@@ -2426,15 +2426,19 @@ async def _run_stages(
             episode_cooccurrences=episode_cooccurrences,
         )
     # G112 (1): an answer becomes a page only with the conversations it came from — Stage 4's
-    # evidence matched to this batch, no model call; the rest is logged and not written. It reads
-    # every page's frontmatter (the name index), so it runs off the event loop like the rest (#250).
+    # evidence matched to this batch, no model call; the rest is logged and not written. A new
+    # page needs two conversations (owner ruling 2026-10-09); a skill seen in one is held in its
+    # own store (`skill_hold`) by `settle` in Stage 5. It reads every page's frontmatter (the
+    # name index), so it runs off the event loop like the rest (#250).
     from api.services import skill_grounding
-    skill_changes = await asyncio.to_thread(
+    skill_plan = await asyncio.to_thread(
         skill_grounding.ground, skills, changes, extracted, memory_path,
         name_to_id=resolved_result.get("name_to_id"),
-    ) if skills else []
+    ) if skills else skill_grounding.SkillPlan()
+    skill_changes = skill_plan.changes
     changes = skill_grounding.without_decay_of(changes, skill_changes)
-    logger.info(f"Stage 4 complete: {len(skills)} skills detected, {len(skill_changes)} grounded")
+    logger.info(f"Stage 4 complete: {len(skills)} skills detected, {len(skill_changes)} grounded, "
+                f"{len(skill_plan.held)} held for a second conversation")
     _state.skills_detected = len(skill_changes)
     _state.stage = 4
 
@@ -2463,6 +2467,16 @@ async def _run_stages(
     decay_budget = DecayBudget(getattr(settings, "decay_inbox_cap_per_cycle", 10))
     await generate(changes, skill_changes, memory_path, relationships=resolved_edges,
                    decay_budget=decay_budget)
+    # G112: the one-conversation skills go into the skill hold, and the lines a skill page of this
+    # batch carried leave it — after the pages exist. A failed hold write is a warning, as Stage 2's
+    # own pending writes are: the pages stand.
+    if skill_plan.held or skill_plan.promoted:
+        try:
+            held, taken = await asyncio.to_thread(skill_grounding.settle, memory_path, skill_plan)
+            logger.info(f"Stage 5: {held} skill(s) held for a second conversation, "
+                        f"{taken} held skill(s) written to their page")
+        except Exception as e:
+            logger.warning(f"Stage 5 skill hold failed: {type(e).__name__}: {e}")
 
     # Stage 5.5: Materialize entity-body wikilinks as `mentions` edges so the
     # graph stops ignoring them. Runs after relationships are written so the

@@ -13,7 +13,25 @@ when two or more of them came up in the batch, as Stage 4 now does (``skill_grou
 (the earliest of their days), ``last_referenced`` (the latest) and ``related``. The silence clock is not moved:
 ``decayed_through`` keeps the day Cicada learned the skill, so an older ``last_referenced`` charges no back-dated
 decay (TODO ruling 1). The body is not touched. A page whose batch or evidence cannot be found is counted and left
-as it is: what to do with it (keep, archive) is the person's call, not this tool's.
+as it is — unless the person asks for the archive below.
+
+**Archiving skill pages with no traceable conversation (owner ruling 2026-10-09)** — only with ``archive=True``
+(``--archive-unsourced``), never by default. A skill page that stays unsourced after grounding is set to ``status:
+archived`` — never deleted — when its git history PROVES it is the old Stage-4 writer's page that nobody else touched
+(:func:`_stage4_untouched`):
+
+* the commit that added it is a Sleep cycle commit, and the page it added has exactly the old writer's shape
+  (``type: skill``, ``source_episodes``/``tags``/``related`` empty, ``created`` = ``last_referenced``, ``version: 1``,
+  no other key but the decay class);
+* every later commit that touched it is a Sleep commit carrying Sleep's own decay line for it
+  (``<page>: … (source: n/a, trigger: sleep/decay``) — an inbox answer, an agent, a hand edit committed on its own,
+  any other maintenance commit, or a Sleep commit that merely swept it up makes it unproven;
+* and the page now differs from what was added only in what decay writes (``confidence``, ``status`` active or
+  decaying, ``decayed_through``), body unchanged — a decay commit stages the whole file, so a hand edit it carried
+  shows here.
+
+Anything else is counted (``skill_archive_unproven``) and kept. Archived pages are skipped by decay, so no decay nudge
+follows; the archive writes no inbox item.
 
 **References Sleep recorded as aliases.** ``alias_policy.is_reference`` ("the lock", "this project") — removed only
 when the page's git history PROVES Sleep wrote it: the commit that last added the alias is a Sleep cycle commit whose
@@ -55,6 +73,7 @@ from api.services import (
 from api.services.skill_tag import is_agent_skill
 
 TRIGGER = "maintenance/skill-provenance"
+ARCHIVE_TRIGGER = "maintenance/skill-archive"
 _EP_RE = re.compile(r"\bep_\d{4}-\d{2}-\d{2}_\d+\b")
 #: A name shorter than this is too common a word to count as the skill naming a page.
 MIN_NAME_CHARS = 3
@@ -74,6 +93,8 @@ class Survey:
     skill_groundable: int = 0
     skill_no_batch: int = 0
     skill_no_evidence: int = 0
+    skill_archivable: int = 0
+    skill_archive_unproven: int = 0
     alias_pages: int = 0
     alias_references: int = 0
     alias_references_kept: int = 0
@@ -81,8 +102,11 @@ class Survey:
     alias_names_other_page: int = 0
     dirty: int = 0
     repaired: int = 0
+    archived: int = 0
     committed: bool = False
     _todo: dict[Path, tuple[str, dict]] = field(default_factory=dict, repr=False)
+    _archive: list[str] = field(default_factory=list, repr=False)
+    _archive_unproven: list[str] = field(default_factory=list, repr=False)
     _removals: dict[str, list[str]] = field(default_factory=dict, repr=False)
     _unproven: dict[str, list[str]] = field(default_factory=dict, repr=False)
 
@@ -205,8 +229,64 @@ def _ground_skill(memory_path: Path, rel: str, fm: dict, body: str, pages: dict[
     return new
 
 
-def survey(memory_path) -> Survey:
-    """What ``apply`` would do, read-only."""
+#: The frontmatter the old Stage-4 writer stamped on every skill page (``inbox_generator`` before #251); the decay
+#: class pair joined it with G66.
+_STAGE4_KEYS = frozenset({"name", "type", "status", "confidence", "created", "last_referenced", "source_episodes",
+                          "tags", "related", "version"})
+_STAGE4_OPTIONAL = frozenset({"decay_class", "decay_rate"})
+#: What Sleep's decay writes on a page (``conflict_resolver.apply_changes``, the decay branch).
+_DECAY_KEYS = frozenset({"confidence", "status", "decayed_through"})
+
+
+def _stage4_shape(fm: dict) -> bool:
+    keys = set(fm)
+    return (_STAGE4_KEYS <= keys <= _STAGE4_KEYS | _STAGE4_OPTIONAL and fm.get("type") == "skill"
+            and fm.get("status") == "active" and fm.get("version") == 1
+            and not fm.get("source_episodes") and not fm.get("tags") and not fm.get("related")
+            and str(fm.get("created") or "") == str(fm.get("last_referenced") or "") != "")
+
+
+def _decay_line(body: str, rel: str) -> bool:
+    """Does this Sleep commit carry Sleep's own decay line for ``rel`` (``_finalize``: the decay commit's lines, or a
+    decay change folded into the main commit)?"""
+    prefix = f"{rel}: "
+    return any(line.strip().startswith(prefix) and "(source: n/a, trigger: sleep/decay" in line
+               for line in body.splitlines())
+
+
+def _stage4_untouched(memory_path: Path, rel: str, fm: dict, body: str) -> bool:
+    """True only when git PROVES ``rel`` is the old Stage-4 writer's page that no one but Sleep's decay has touched
+    since (see the module docstring). Any doubt — no history, an unreadable version, a commit of anyone else — is
+    False: the page is kept."""
+    try:
+        log = git_service._git_sync(memory_path, "log", "--reverse", "--format=%H%x1f%s%x1f%B%x1e", "--", rel)
+    except git_service.GitError:
+        return False
+    records = [r.strip("\n").split("\x1f", 2) for r in log.split("\x1e") if r.strip()]
+    if not records or any(len(r) != 3 for r in records):
+        return False
+    sha, subject, _body = records[0]
+    if git_service._cycle_kind(subject) != "sleep":
+        return False
+    try:
+        split = markdown_parser.split_frontmatter(git_service._git_sync(memory_path, "show", f"{sha}:{rel}"))
+        added = markdown_parser.load_yaml(split[0]) if split else None
+    except Exception:
+        return False
+    if not isinstance(added, dict) or not _stage4_shape(added):
+        return False
+    for _sha, subject, commit_body in records[1:]:
+        if git_service._cycle_kind(subject) not in ("sleep", "decay") or not _decay_line(commit_body, rel):
+            return False
+    if split[1].strip() != body.strip() or str(fm.get("status") or "") not in ("active", "decaying"):
+        return False
+    keys = set(fm) | set(added)
+    return all(fm.get(k) == added.get(k) for k in keys - _DECAY_KEYS)
+
+
+def survey(memory_path, *, archive: bool = False) -> Survey:
+    """What ``apply`` would do, read-only. ``archive``: also archive the skill pages that stay unsourced and that git
+    proves are the old Stage-4 writer's, untouched (``skill_archivable``); without it they are only counted."""
     memory_path = Path(memory_path)
     result = Survey()
     dirty: frozenset[str] = frozenset()
@@ -264,6 +344,17 @@ def survey(memory_path) -> Survey:
                     result.skill_groundable += 1
                     new = grounded
                     changed = True
+                elif str(fm.get("status") or "active") in ("archived", "dropped"):
+                    pass   # already out of the way
+                elif has_git and _stage4_untouched(memory_path, rel, fm, body):
+                    result.skill_archivable += 1
+                    result._archive.append(stem)
+                    if archive:
+                        new["status"] = "archived"
+                        changed = True
+                else:
+                    result.skill_archive_unproven += 1
+                    result._archive_unproven.append(stem)
 
         if changed:
             if rel in dirty:
@@ -273,16 +364,17 @@ def survey(memory_path) -> Survey:
     return result
 
 
-def apply(memory_path, *, sleep_running: Callable[[], bool]) -> Survey:
-    """Write every repair the survey found and commit them in ONE commit authored ``cicada``. Raises
-    :class:`SleepRunning` before writing anything when Sleep holds the pages or a run is in progress."""
+def apply(memory_path, *, sleep_running: Callable[[], bool], archive: bool = False) -> Survey:
+    """Write every repair the survey found and commit them in ONE commit authored ``cicada``; with ``archive``, the
+    provable unsourced Stage-4 skill pages are archived in the same commit. Raises :class:`SleepRunning` before
+    writing anything when Sleep holds the pages or a run is in progress."""
     memory_path = Path(memory_path)
     written: list[tuple[Path, str]] = []
     with write_admission.admitted(memory_path, refuse=lambda: SleepRunning("Sleep is holding this bank's pages")):
         if sleep_running():
             raise SleepRunning("a Sleep run is in progress; repair after it ends")
         with page_lock.page_lock(memory_path):
-            result = survey(memory_path)
+            result = survey(memory_path, archive=archive)
             for path, (surveyed, new_fm) in result._todo.items():
                 if path.read_text(encoding="utf-8") != surveyed:   # written since the survey: its writer's to commit
                     result.dirty += 1
@@ -293,15 +385,22 @@ def apply(memory_path, *, sleep_running: Callable[[], bool]) -> Survey:
             changed = [p for p, text in written if p.read_text(encoding="utf-8") != text]
             result.dirty += len(changed)
             rels = [f"entities/{p.name}" for p, _ in written if p not in changed]
-            result.repaired = len(rels)
+            archived = {f"entities/{stem}.md" for stem in result._archive} if archive else set()
+            result.archived = sum(1 for rel in rels if rel in archived)
+            result.repaired = len(rels) - result.archived
             if rels and (memory_path / ".git").exists():
+                parts = ([f"Skill sources and aliases repaired: {result.repaired} page(s)"] if result.repaired else [])
+                if result.archived:
+                    parts.append(f"{'u' if parts else 'U'}nsourced skill pages archived: {result.archived} page(s)")
+                subject = "; ".join(parts)
                 message = git_service.build_commit_message(
-                    f"Skill sources and aliases repaired: {len(rels)} page(s)",
-                    [f"{rel}: repaired (trigger: {TRIGGER})" for rel in rels],
+                    subject,
+                    [f"{rel}: archived (trigger: {ARCHIVE_TRIGGER})" if rel in archived
+                     else f"{rel}: repaired (trigger: {TRIGGER})" for rel in rels],
                     authors=["cicada"],
                 )
                 git_service.commit_paths_sync(memory_path, message, rels)
                 result.committed = True
     if written:
-        logger.info(f"skill/alias repair: {len(written)} page(s)")
+        logger.info(f"skill/alias repair: {len(written)} page(s), {result.archived} archived")
     return result

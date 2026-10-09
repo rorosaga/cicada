@@ -168,3 +168,148 @@ def test_the_script_is_a_dry_run_unless_told(bank, capsys, monkeypatch):
     monkeypatch.setattr(repair_skills_aliases, "backend_running", lambda: True)
     assert repair_skills_aliases.main(["--bank", str(bank), "--apply"]) == 3
     assert repair_skills_aliases.main(["--bank", str(bank / "nope")]) == 2
+
+
+# --- owner ruling 2026-10-09: skill pages with no traceable conversation are archived, on request, when git proves them ---
+
+
+def _decay(bank, stem, *, confidence, status, through, edit_body=None, folded=False):
+    """Sleep's decay of a page: its own `cicada` commit (or folded into a cycle commit), with Sleep's decay line."""
+    path = bank / "entities" / f"{stem}.md"
+    parsed = markdown_parser.parse(path)
+    markdown_parser.write(path, {**parsed.frontmatter, "confidence": confidence, "status": status,
+                                 "decayed_through": through}, edit_body or parsed.body)
+    subject = f"Sleep cycle {through}" + ("" if folded else " (decay)")
+    _git(bank, "commit", "-q", "-am", f"{subject}\n\n"
+         f"entities/{stem}.md: decay_nudge (source: n/a, trigger: sleep/decay)\n\nCicada-Author: cicada")
+
+
+def test_the_dry_run_counts_what_the_archive_would_take_and_writes_nothing(bank, capsys):
+    before = {p: p.read_text() for p in (bank / "entities").glob("*.md")}
+    for archive in (False, True):
+        counts = repair.survey(bank, archive=archive).counts()
+        assert counts["skill_archivable"] == 1 and counts["skill_archive_unproven"] == 0
+        assert counts["archived"] == 0 and counts["committed"] is False
+    assert {p: p.read_text() for p in (bank / "entities").glob("*.md")} == before
+    assert repair_skills_aliases.main(["--bank", str(bank), "--list", "--archive-unsourced"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["archive"] == ["prefers-short-answers"] and out["archive_unproven"] == []
+    assert {p: p.read_text() for p in (bank / "entities").glob("*.md")} == before
+
+
+def test_without_the_flag_nothing_is_archived(bank):
+    result = repair.apply(bank, sleep_running=lambda: False)
+    assert result.archived == 0
+    assert markdown_parser.parse(bank / "entities" / "prefers-short-answers.md").frontmatter["status"] == "active"
+
+
+def test_the_archive_sets_status_in_the_same_cicada_commit_and_writes_no_inbox_item(bank):
+    commits = int(_git(bank, "rev-list", "--count", "HEAD"))
+    result = repair.apply(bank, sleep_running=lambda: False, archive=True)
+    assert result.archived == 1 and result.repaired == 2 and result.committed
+    page = markdown_parser.parse(bank / "entities" / "prefers-short-answers.md")
+    assert page.frontmatter["status"] == "archived" and page.frontmatter["source_episodes"] == []
+    assert page.body.strip() == "Keeps answers short."
+    # The grounded skill is grounded, not archived.
+    assert markdown_parser.parse(bank / "entities" / "checks-the-tracker.md").frontmatter["status"] == "active"
+    assert int(_git(bank, "rev-list", "--count", "HEAD")) == commits + 1
+    log = _git(bank, "log", "-1", "--format=%B")
+    assert "entities/prefers-short-answers.md: archived (trigger: maintenance/skill-archive)" in log
+    assert "entities/checks-the-tracker.md: repaired (trigger: maintenance/skill-provenance)" in log
+    assert "Cicada-Author: cicada" in log and "; unsourced skill pages archived: 1 page(s)" in log
+    assert _git(bank, "status", "--porcelain") == ""
+    assert not (bank / "inbox").exists() or not list((bank / "inbox").iterdir())
+    again = repair.survey(bank, archive=True).counts()
+    assert again["skill_archivable"] == 0 and again["skill_archive_unproven"] == 0     # idempotent
+
+
+def test_a_page_only_sleeps_decay_touched_is_still_proven(bank):
+    _decay(bank, "prefers-short-answers", confidence=0.38, status="decaying", through="2026-10-15")
+    _decay(bank, "prefers-short-answers", confidence=0.36, status="decaying", through="2026-10-22", folded=True)
+    assert repair.apply(bank, sleep_running=lambda: False, archive=True).archived == 1
+    fm = markdown_parser.parse(bank / "entities" / "prefers-short-answers.md").frontmatter
+    assert fm["status"] == "archived" and fm["confidence"] == 0.36
+
+
+def _unproven(bank):
+    counts = repair.survey(bank, archive=True).counts()
+    assert counts["skill_archivable"] == 0 and counts["skill_archive_unproven"] == 1
+    assert repair.apply(bank, sleep_running=lambda: False, archive=True).archived == 0
+    assert markdown_parser.parse(bank / "entities" / "prefers-short-answers.md").frontmatter["status"] != "archived"
+
+
+def test_a_page_the_person_answered_about_is_kept(bank):
+    path = bank / "entities" / "prefers-short-answers.md"
+    parsed = markdown_parser.parse(path)
+    markdown_parser.write(path, {**parsed.frontmatter, "confidence": 0.6}, parsed.body)
+    _git(bank, "commit", "-q", "-am", "Inbox resolution: keep\n\nCicada-Author: user")
+    _unproven(bank)
+
+
+def test_a_hand_edit_a_sleep_commit_swept_up_is_kept(bank):
+    path = bank / "entities" / "prefers-short-answers.md"
+    parsed = markdown_parser.parse(path)
+    markdown_parser.write(path, parsed.frontmatter, "Keeps answers short, unless asked.\n")
+    _git(bank, "commit", "-q", "-am", "Sleep cycle 2026-10-12\n\n"
+         "entities/prefers-short-answers.md: updated (trigger: sleep/extraction)")
+    _unproven(bank)
+
+
+def test_a_hand_edit_a_decay_commit_carried_is_kept(bank):
+    # A decay commit stages the whole file: the decay line is Sleep's, the new body is not.
+    _decay(bank, "prefers-short-answers", confidence=0.38, status="decaying", through="2026-10-15",
+           edit_body="Keeps answers short. Mine.\n")
+    _unproven(bank)
+
+
+def test_a_key_decay_never_writes_is_kept(bank):
+    path = bank / "entities" / "prefers-short-answers.md"
+    parsed = markdown_parser.parse(path)
+    markdown_parser.write(path, {**parsed.frontmatter, "confidence": 0.38, "status": "decaying",
+                                 "decayed_through": "2026-10-15", "tags": ["mine"]}, parsed.body)
+    _git(bank, "commit", "-q", "-am", "Sleep cycle 2026-10-15 (decay)\n\n"
+         "entities/prefers-short-answers.md: decay_nudge (source: n/a, trigger: sleep/decay)")
+    _unproven(bank)
+
+
+def test_a_skill_page_another_writer_created_is_kept(tmp_path):
+    bank = tmp_path / "bank"
+    (bank / "entities").mkdir(parents=True)
+    _git(bank, "init", "-q")
+    _git(bank, "config", "user.name", "Test")
+    _git(bank, "config", "user.email", "test@example.com")
+    _page(bank, "my-habit", {"name": "My habit", "type": "skill", "status": "active", "confidence": 0.5,
+                             "created": "2026-10-08", "last_referenced": "2026-10-08", "source_episodes": [],
+                             "tags": [], "related": [], "version": 1}, "Mine.\n")
+    _git(bank, "add", "-A")
+    _git(bank, "commit", "-q", "-m", "Inbox resolution: confirm\n\nCicada-Author: user")
+    counts = repair.survey(bank, archive=True).counts()
+    assert counts["skill_archivable"] == 0 and counts["skill_archive_unproven"] == 1
+
+
+def test_a_page_the_old_writer_did_not_shape_is_kept(bank):
+    """Sleep's commit added it, but not with the old Stage-4 writer's frontmatter: a hand-made page Sleep swept up."""
+    _page(bank, "hand-made", {"name": "Hand made", "type": "skill", "status": "active", "source_episodes": [],
+                              "notes": "mine"}, "Mine.\n")
+    _git(bank, "add", "-A")
+    _git(bank, "commit", "-q", "-m",
+         "Sleep cycle 2026-10-09\n\nentities/hand-made.md: created (trigger: sleep/extraction)")
+    counts = repair.survey(bank, archive=True).counts()
+    assert counts["skill_archivable"] == 1 and counts["skill_archive_unproven"] == 1
+
+
+def test_an_archive_candidate_with_uncommitted_changes_is_skipped(bank):
+    path = bank / "entities" / "prefers-short-answers.md"
+    path.write_text(path.read_text() + "\nhand edit\n")
+    result = repair.apply(bank, sleep_running=lambda: False, archive=True)
+    assert result.archived == 0
+    assert markdown_parser.parse(path).frontmatter["status"] == "active"
+
+
+def test_the_archive_refuses_while_sleep_runs(bank, monkeypatch):
+    before = {p: p.read_text() for p in (bank / "entities").glob("*.md")}
+    with pytest.raises(repair.SleepRunning):
+        repair.apply(bank, sleep_running=lambda: True, archive=True)
+    monkeypatch.setattr(repair_skills_aliases, "backend_running", lambda: True)
+    assert repair_skills_aliases.main(["--bank", str(bank), "--apply", "--archive-unsourced"]) == 3
+    assert {p: p.read_text() for p in (bank / "entities").glob("*.md")} == before
