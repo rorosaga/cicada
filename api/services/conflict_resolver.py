@@ -304,9 +304,10 @@ async def resolve_and_prune(
     return changes
 
 
-def _article_context(existing: list[dict], settings: Settings, today: str) -> dict:
+def _article_context(existing: list[dict], settings: Settings, today: str, memory_path=None) -> dict:
     """What every page's article writer shares, read once per stage: the bank's page names (a ``[[link]]`` must name
-    one), each id's display name, and the owner's name (G169)."""
+    one), each id's display name, and the owner's name (G169) — from ``memory_path`` when the caller names the bank
+    (the rebuild script), else the settings' bank (Sleep)."""
     known: set[str] = set()
     names: dict[str, str] = {}
     for page in existing:
@@ -316,7 +317,7 @@ def _article_context(existing: list[dict], settings: Settings, today: str) -> di
     owner = None
     try:
         from api.services import owner_identity
-        owner = owner_identity.owner_name(getattr(settings, "memory_path", None), settings)
+        owner = owner_identity.owner_name(memory_path or getattr(settings, "memory_path", None), settings)
     except Exception:  # noqa: BLE001 - a missing owner costs the name, never the article
         owner = None
     return {"known": known, "names": names, "owner": owner, "today": today,
