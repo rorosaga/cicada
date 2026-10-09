@@ -287,3 +287,88 @@ def test_importing_the_recall_path_never_imports_litellm():
     proc = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=env,
                           cwd=str(__import__("pathlib").Path(__file__).resolve().parents[2]))
     assert proc.returncode == 0, proc.stderr[-2000:]
+
+
+# --- another process writing the index mid-recall (review blocker) -------------------------------------
+
+
+def _refresh_in_another_process(memory):
+    code = f"from api.services import search_index; print(search_index.refresh(__import__('pathlib').Path({str(memory)!r})))"
+    proc = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
+                          cwd=str(__import__("pathlib").Path(__file__).resolve().parents[2]))
+    assert proc.returncode == 0 and "ready" in proc.stdout, proc.stderr[-2000:]
+
+
+def test_a_page_indexed_by_another_process_mid_recall_is_never_deleted(tmp_path, monkeypatch):
+    """Recall lists `entities/` first (a hub's members resolve by name), then the vector leg takes its
+    time, then the lexical leg's freshness check loads the index's stamps. A page another process
+    created AND indexed in between is in those stamps; a diff against recall's older listing read it
+    as removed and deleted its rows, and no other process ever restored them."""
+    memory = _bank(tmp_path, n=5)
+    (memory / "hubs" / "topic-walrus.md").write_text(
+        "---\ntype: hub\nname: walrus\n---\n- [[Filler 001]]\n", encoding="utf-8")
+    search_index.rebuild(memory)
+    _cold()
+
+    def slow_vector_leg(memory_path, query, top_k):
+        _entity(memory, "newcomer-page", body="## Summary\nA quokka census.\n")
+        _refresh_in_another_process(memory)
+        assert _refs(memory, "quokka") == ["newcomer-page"]
+        return []
+
+    monkeypatch.setattr(mcp_tools, "_leann_search_entities", slow_vector_leg)
+    ctx = mcp_tools.ToolContext(memory_path=lambda: memory, session_id="s", harness="unknown")
+    mcp_tools.recall(ctx, "walrus")
+    assert _refs(memory, "quokka") == ["newcomer-page"]
+
+
+def test_a_removal_is_rechecked_against_the_disk_when_written(tmp_path):
+    memory = _bank(tmp_path, n=2)
+    _entity(memory, "alpha-project", body="## Summary\nThe walrus plan.\n")
+    search_index.rebuild(memory)
+    state = search_index._state(memory)
+    search_index._refresh(memory, state, {}, ["entities/alpha-project.md"])   # a stale "removed"
+    assert _refs(memory, "walrus") == ["alpha-project"], "a page on disk keeps its rows"
+    (memory / "entities" / "alpha-project.md").unlink()
+    search_index._refresh(memory, state, {}, ["entities/alpha-project.md"])
+    assert _refs(memory, "walrus") == []
+
+
+def test_rows_another_process_deleted_are_healed(tmp_path):
+    """A warm process trusted its own stamps over the file: rows someone else deleted for a live page
+    stayed missing until the page was edited. A write by anyone moves the index's generation, and a
+    moved generation reloads the stamps from the file."""
+    memory = _bank(tmp_path, n=2)
+    _entity(memory, "alpha-project", body="## Summary\nThe walrus plan.\n")
+    search_index.rebuild(memory)
+    assert search_index.ensure_fresh(memory, max_age_s=0) == "ready"     # warm state
+
+    def rogue(conn):
+        search_index._delete_doc(conn, "entities/alpha-project.md")
+        search_index._new_generation(conn)
+
+    search_index._write(search_index.db_path(memory), rogue)
+    assert _refs(memory, "walrus") == []
+    assert search_index.ensure_fresh(memory, max_age_s=0) == "ready"
+    assert _refs(memory, "walrus") == ["alpha-project"]
+
+
+def test_warm_caches_see_a_same_size_edit(tmp_path):
+    memory = _bank(tmp_path, n=40)
+    _entity(memory, "alpha-project", name="Project Alpha", body="## Summary\nThe walrus plan.\n")
+    search_index.rebuild(memory)
+    entities = memory / "entities"
+    assert search_index.ensure_fresh(memory, max_age_s=0) == "ready"
+    assert mcp_tools._entity_id_for_name(entities, "Project Alpha") == "alpha-project"
+    bank_index.files(memory, "entities")                                 # warm frontmatter cache
+    path = entities / "alpha-project.md"
+    held = path.stat().st_mtime_ns
+    text = path.read_text(encoding="utf-8")
+    path.write_text(text.replace("Project Alpha", "Project Omega").replace("walrus", "toucan"), encoding="utf-8")
+    os.utime(path, ns=(held + 1, held + 1))                               # same size, 1 ns later
+    assert mcp_tools._entity_id_for_name(entities, "Project Omega") == "alpha-project"
+    assert mcp_tools._entity_id_for_name(entities, "Project Alpha") is None
+    assert search_index.ensure_fresh(memory, max_age_s=0) == "ready"
+    assert _refs(memory, "toucan") == ["alpha-project"]
+    assert [f.frontmatter["name"] for f in bank_index.files(memory, "entities") if f.stem == "alpha-project"] \
+        == ["Project Omega"]

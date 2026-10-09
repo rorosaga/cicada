@@ -148,13 +148,16 @@ def files(memory_path: Path, subdir: str) -> list[IndexedFile]:
         return [known[n] for n in sorted(known)]
 
 
-def stamps(memory_path: Path, subdir: str) -> dict[str, tuple[int, int]]:
+def stamps(memory_path: Path, subdir: str, *, fresh: bool = False) -> dict[str, tuple[int, int]]:
     """``{filename: (mtime_ns, size)}`` for ``subdir``'s ``*.md`` files: one scandir, no parse.
 
     What a caller that needs to know *which* files exist and whether they moved — a freshness check, a
     name lookup — reads instead of :func:`files`, which parses every file it has not cached (the whole
-    directory in a fresh process: ~2.4 s for ~5,900 files)."""
-    return dict(_scan(Path(memory_path) / subdir))
+    directory in a fresh process: ~2.4 s for ~5,900 files). ``fresh`` lists the directory now, ignoring
+    a :func:`shared_scans` memo: a caller that compares the listing with state read LATER than the memo
+    (the FTS index's stamps) must never hold a listing older than that state."""
+    directory = Path(memory_path) / subdir
+    return dict(_scan_uncached(directory) if fresh else _scan(directory))
 
 
 def file(memory_path: Path, subdir: str, name: str) -> IndexedFile | None:

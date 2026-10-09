@@ -46,6 +46,7 @@ re-indexed document is re-inserted with a fresh, larger ``doc_id``,
 from __future__ import annotations
 
 import json
+import secrets
 import sqlite3
 import threading
 import time
@@ -202,6 +203,10 @@ class _BankState:
     # (or no usable file). Replaced wholesale, never mutated in place, so a
     # reader iterating it never sees it change underneath.
     stamps: dict[str, tuple[int, int]] | None = None
+    # The index's `generation` when `stamps` were loaded or last written by this
+    # process. Every write stores a new random one, so a different value on disk
+    # means another process wrote the file and `stamps` must be reloaded.
+    generation: str | None = None
     checked_at: float = float("-inf")
     worker: threading.Thread | None = None
 
@@ -267,7 +272,9 @@ def _current_stamps(memory_path: Path) -> dict[str, tuple[int, int]]:
     that nothing had changed. A file is read only once its stamp says it moved (:func:`_diff`)."""
     out: dict[str, tuple[int, int]] = {}
     for subdir in _subdirs(memory_path):
-        for name, stamp in bank_index.stamps(memory_path, subdir).items():
+        # `fresh`: never a `shared_scans` memo. The listing must be at least as new as the stamps it is
+        # compared with, or a page another process created and indexed in between reads as removed.
+        for name, stamp in bank_index.stamps(memory_path, subdir, fresh=True).items():
             if subdir == "inbox" and not name.startswith("inbox-"):
                 continue
             out[f"{subdir}/{name}"] = stamp
@@ -312,15 +319,49 @@ def _ordered(files: dict[str, bank_index.IndexedFile]) -> list[tuple[str, bank_i
 
 
 def _load_stamps(db: Path) -> dict[str, tuple[int, int]] | None:
+    return _load_state(db)[0]
+
+
+def _stamps_in(conn) -> dict[str, tuple[int, int]]:
+    return {k: (m, s) for k, m, s in conn.execute("SELECT doc_key, mtime_ns, size FROM docs")}
+
+
+def _generation_in(conn) -> str | None:
+    row = conn.execute("SELECT value FROM meta WHERE key = 'generation'").fetchone()
+    return row[0] if row else None
+
+
+def _new_generation(conn) -> str:
+    token = secrets.token_hex(8)
+    conn.execute("INSERT OR REPLACE INTO meta(key, value) VALUES ('generation', ?)", (token,))
+    return token
+
+
+def _load_state(db: Path) -> tuple[dict[str, tuple[int, int]] | None, str | None]:
+    """``(stamps, generation)`` from one read of the file; ``(None, None)`` when there is no usable index."""
     if not db.exists():
-        return None
+        return None, None
     try:
         conn = _open(db)
         try:
             row = conn.execute("SELECT value FROM meta WHERE key = 'schema'").fetchone()
             if not row or row[0] != _schema_tag():
-                return None
-            return {k: (m, s) for k, m, s in conn.execute("SELECT doc_key, mtime_ns, size FROM docs")}
+                return None, None
+            conn.execute("BEGIN")
+            return _stamps_in(conn), _generation_in(conn)
+        finally:
+            conn.close()
+    except sqlite3.DatabaseError:
+        return None, None
+
+
+def _read_generation(db: Path) -> str | None:
+    """The file's ``generation`` (one row, once per freshness check); ``None`` when unreadable. Opened
+    ``mode=rw`` so a check never creates a file that vanished since ``ensure_fresh`` looked."""
+    try:
+        conn = sqlite3.connect(db.resolve().as_uri() + "?mode=rw", uri=True, timeout=5.0, isolation_level=None)
+        try:
+            return _generation_in(conn)
         finally:
             conn.close()
     except sqlite3.DatabaseError:
@@ -629,6 +670,7 @@ def _full_build(memory_path: Path, state: _BankState) -> int:
     # Excluded BEFORE the file can exist: the order is the whole rail (G99a).
     bank_registry.ensure_derived_excluded(memory_path)
     files = _scan(memory_path)
+    written: dict[str, str] = {}
 
     def build(conn):
         for table in (*_FTS_COLUMNS, "claim_ref", "claim_evidence", "docs", "meta"):
@@ -637,6 +679,7 @@ def _full_build(memory_path: Path, state: _BankState) -> int:
         for doc_key, f in _ordered(files):
             _index_doc(conn, doc_key, f)
         conn.execute("INSERT INTO meta(key, value) VALUES ('schema', ?)", (_schema_tag(),))
+        written["generation"] = _new_generation(conn)
 
     def attempt():
         conn = _open(db)
@@ -655,25 +698,49 @@ def _full_build(memory_path: Path, state: _BankState) -> int:
         _discard_files(db)
         attempt()
     state.stamps = {k: (f.mtime_ns, f.size) for k, f in files.items()}
+    state.generation = written.get("generation")
     state.checked_at = time.monotonic()
     logger.info(f"search_index: rebuilt ({len(files)} documents)")
     return len(files)
 
 
 def _refresh(memory_path: Path, state: _BankState, changed: dict, removed: list[str]) -> None:
+    """Apply a diff in one write transaction.
+
+    A removal is re-checked against the disk inside the transaction: a page that exists and reads by
+    then (another process created it after this one listed) keeps its rows — deleting them would leave a
+    live page unsearchable until its next edit. And when another process wrote the index since this one
+    loaded its stamps (the ``generation`` moved), the stamps are re-read from the file after the write,
+    so this process never trusts its own copy over rows someone else changed."""
+    out: dict = {}
+
     def apply(conn):
-        for doc_key in [*removed, *changed]:
+        out["foreign"] = _generation_in(conn) != state.generation
+        for doc_key in removed:
+            subdir, name = doc_key.rsplit("/", 1)
+            if bank_index.file(memory_path, subdir, name) is not None:
+                out.setdefault("kept", []).append(doc_key)
+                continue
+            _delete_doc(conn, doc_key)
+        for doc_key in changed:
             _delete_doc(conn, doc_key)
         for doc_key, f in _ordered(changed):
             _index_doc(conn, doc_key, f)
+        out["generation"] = _new_generation(conn)
+        if out["foreign"]:
+            out["stamps"] = _stamps_in(conn)
 
     _write(db_path(memory_path), apply)
-    stamps = dict(state.stamps or {})
-    for doc_key in removed:
-        stamps.pop(doc_key, None)
-    for doc_key, f in changed.items():
-        stamps[doc_key] = (f.mtime_ns, f.size)
-    state.stamps = stamps
+    if out["foreign"]:
+        state.stamps = out["stamps"]
+    else:
+        stamps = dict(state.stamps or {})
+        for doc_key in removed:
+            stamps.pop(doc_key, None)
+        for doc_key, f in changed.items():
+            stamps[doc_key] = (f.mtime_ns, f.size)
+        state.stamps = stamps
+    state.generation = out["generation"]
     state.checked_at = time.monotonic()
 
 
@@ -710,19 +777,26 @@ def ensure_fresh(
         if not db.exists():
             state.stamps = None
         if state.stamps is None:
-            state.stamps = _load_stamps(db)
+            state.stamps, state.generation = _load_state(db)
         if state.stamps is None:
             if not wait:
                 _spawn(memory_path, state)
                 return "building"
             with state.lock:
                 if state.stamps is None or not db.exists():
-                    state.stamps = _load_stamps(db)
+                    state.stamps, state.generation = _load_state(db)
                     if state.stamps is None:
                         _full_build(memory_path, state)
             return "ready"
         if time.monotonic() - state.checked_at < ttl:
             return "ready"
+        if _read_generation(db) != state.generation:
+            # Another process wrote the index since these stamps were loaded: its rows, not this
+            # process's memory of them, are what the diff must compare with (a row someone deleted
+            # is re-indexed, never trusted as present). Loaded BEFORE `_diff` lists the files.
+            loaded, generation = _load_state(db)
+            if loaded is not None:
+                state.stamps, state.generation = loaded, generation
         changed, removed = _diff(memory_path, state.stamps)
         if not changed and not removed:
             state.checked_at = time.monotonic()
