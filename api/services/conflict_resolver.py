@@ -89,6 +89,7 @@ async def resolve_and_prune(
         disable=len(update_changes) == 0,
     )
     conflicts_found = 0
+    rereads = 0
     if progress_callback is not None:
         progress_callback(0, len(update_changes))
     for done_pages, change in enumerate(update_changes):
@@ -118,6 +119,15 @@ async def resolve_and_prune(
 
         existing_body = existing_entity.get("body", "")
         fm = existing_entity.get("frontmatter", {}) or {}
+        sources = set(_change_source_episodes(change))
+        if (sources and not sources - set(fm.get("source_episodes") or [])
+                and not entity_body.adds_orientation(existing_body, _entity_summary(new_entity),
+                                                     names=[fm.get("name") or entity_id])):
+            # A re-read of conversations the page already credits (a resumed conversation, G104) whose summary
+            # says nothing the page does not: its items merge deterministically, with no rewrite and no
+            # re-check. A re-read that says something new about it still gets both.
+            rereads += 1
+            continue
         entity_type = new_entity.get("type") or fm.get("type", "concept")
         entity_name = new_entity.get("name") or fm.get("name", entity_id)
 
@@ -193,6 +203,9 @@ async def resolve_and_prune(
             })
 
     progress.close()
+    if rereads:
+        logger.info(f"Stage 3: {rereads} page(s) re-read from conversations they already credit, saying nothing new "
+                    "about what they are — merged without a call")
     if progress_callback is not None and not (cancel_check is not None and cancel_check()):
         progress_callback(len(update_changes), len(update_changes))
 
@@ -471,11 +484,18 @@ def apply_changes(changes: list[dict], memory_path) -> None:
                 "links": new_entity.get("links", []) or [],
                 "open_questions": new_entity.get("open_questions", []) or [],
             }
-            if synthesized_body and not human_edited:
-                # Agent-only page: the synthesis call returns a full v2 body;
-                # re-parse so the Related reconciler runs against the canonical
-                # section dict. Full synthesis behavior is unchanged here.
+            if synthesized_body and not human_edited and change.get('section_aware_synthesis'):
+                # Opt-in orientation synthesis: `entity_orientation.compose` already unioned every section.
                 sections = entity_body.parse_sections(strip_claims_block(synthesized_body))
+            elif synthesized_body and not human_edited:
+                # Legacy whole-body synthesis: its Summary and the History it adds; every other item as the
+                # page had it, then the extraction's own items. The prompt is given only the description and
+                # history, and a rewrite can leave an item out or rephrase it — which used to drop the new
+                # facts silently and could drop old ones (G194, page quality 2026-10-09).
+                sections = entity_body.adopt_rewrite(
+                    entity_body.upgrade_legacy_to_v2(prose_body, str(parsed.frontmatter.get("type", "concept"))),
+                    entity_body.parse_sections(strip_claims_block(synthesized_body)))
+                sections = entity_body.merge_sections_fallback(sections, {**new_fields, 'summary': ''})
             elif human_edited:
                 # Additive-only merge over the RAW sections (preserving every
                 # human-authored line, canonical or not, verbatim). The LLM
@@ -495,7 +515,8 @@ def apply_changes(changes: list[dict], memory_path) -> None:
                 sections = entity_body.bound_summary(
                     sections, previous=raw_sections.get('Summary', ''),
                     name=str(parsed.frontmatter.get('name', entity_id)),
-                    entity_type=str(parsed.frontmatter.get('type', 'concept')))
+                    entity_type=str(parsed.frontmatter.get('type', 'concept')),
+                    names=[str(a) for a in parsed.frontmatter.get('aliases') or []])
             parsed.frontmatter["layout_version"] = 2
 
             # Related reconciler — rebuild the ## Related block from the
@@ -509,13 +530,11 @@ def apply_changes(changes: list[dict], memory_path) -> None:
                 sections.pop("Related", None)
 
             final_body = preserve_claims_blocks(original_body, entity_body.render_sections(sections))
-            legacy_synthesis = bool(synthesized_body and not human_edited
-                                    and not change.get('section_aware_synthesis'))
+            # Every path now writes the extraction's exact items (the legacy rewrite's are unioned back in),
+            # so each one that survives exactly keeps its source row; a rephrased one stays unrecorded.
             section_provenance.refresh(
                 parsed.frontmatter, original_body, final_body,
-                new_entity if legacy_synthesis else _selected_page_inputs(
-                    new_entity, sections, parsed.frontmatter, original_body),
-                synthesized=legacy_synthesis,
+                _selected_page_inputs(new_entity, sections, parsed.frontmatter, original_body),
             )
             markdown_parser.write(filepath, parsed.frontmatter, final_body)
 
@@ -816,23 +835,17 @@ The existing page was last mentioned in a conversation dated: {page_last_referen
 The new information comes from conversation(s) dated: {source_dates}
 
 INSTRUCTIONS:
-1. Merge the new information into the existing page body.
-2. The body has two sections: a description (prose paragraphs at the top) and an optional `## History` section (dated bullet entries).
-3. For the description: integrate new facts, remove redundancy, and resolve contradictions by preferring the information with the LATER DATE above — not whichever was read last. When the new information is dated earlier than the existing page, add it as dated background or a dated History entry; it never replaces the page's later statements. Keep the description coherent — do not append disconnected paragraphs.
-4. For the `## History` section: add new dated entries in chronological order. Do not duplicate existing entries. If the body has no History section yet and there are history entries, create one.
-5. If a new fact contradicts an older fact, update the description to the latest dated state and move the earlier fact into a history bullet (e.g., "2026-03-15: Previously used Postgres, switched to SQLite").
+1. Merge the new information into the existing page body. The page reads like a short wiki article about this thing as it figures in the person's life.
+2. The body is markdown sections in this order: `## Summary`, `## Key Facts`, `## History`, `## Links`, `## Open Questions`. Leave out `## Related` (code rebuilds it). Keep any other section exactly as it is.
+3. `## Summary`: one paragraph, 1-3 sentences, at most 600 characters: what it is, what it is to the person (built it, uses it, works with them, is deciding about it) and where it stands as of the latest dated information. Introduce the thing once: never a second sentence that says again what it is. Resolve contradictions by preferring the information with the LATER DATE above — not whichever was read last. When the new information is dated earlier than the existing page, it never replaces the page's later statements. Details belong in `## Key Facts`, not in `## Summary`.
+4. `## Key Facts`: keep every existing bullet as written. Add a fact from the new information only when no existing bullet already says it, in any words; one fact per bullet, never two bullets for one fact. Never a bullet about the conversation itself ("was mentioned", "asked about").
+5. `## History`: add new dated entries in chronological order. Do not duplicate existing entries. If a new fact contradicts an older fact, the Summary takes the latest dated state and the earlier fact becomes a history bullet (e.g., "2026-03-15: Previously used Postgres, switched to SQLite").
 6. Preserve every wikilink ([[Entity Name]]) that appears in the existing body.
 7. Preserve specific details — dates, names, numbers.
 8. If the new information implies a change over time but the extraction did not provide an explicit dated history entry, you may use the source episode date as the fallback date for that change.
 9. Write as of when things were said, never as of today. A statement known only from conversations dated more than 90 days before today names its month and year ("In February 2025, …") and is never presented as current. Plans, intentions and states of mind ("considering", "planning", "interested in", "wants", "hopes") always name the month and year they were stated. Keep every date already written on the page. Never write "currently", "now", "recently", "this week" or "soon".
 
-DESCRIPTION LENGTH GUIDELINES (by entity type):
-- deadline, skill: 1-2 sentences
-- location: 2-3 sentences
-- person: 2-4 sentences
-- tool: 3-5 sentences
-- concept: 3-6 sentences
-- project, company: 4-8 sentences (can be longer if history is rich)
+SUMMARY LENGTH (by entity type): skill 1 sentence; person, tool, concept, location 1-2 sentences; project, company 2-3 sentences.
 
 Output ONLY the updated markdown body. Do not include YAML frontmatter, do not wrap in code fences, do not add commentary."""
 
@@ -879,7 +892,8 @@ async def _synthesize_entity_update(
         data = entity_orientation.context(
             existing_body, name=entity_name, entity_type=entity_type, fields=fields,
             today=today or date.today().isoformat(),
-            source_dates=source_dates_seen or ([source_reference_date] if source_reference_date else []))
+            source_dates=source_dates_seen or ([source_reference_date] if source_reference_date else []),
+            orientation=True)
         try:
             from api.services import owner_identity
             data['owner_instruction'] = _owner_line(owner_identity.owner_name(
@@ -899,7 +913,12 @@ async def _synthesize_entity_update(
         summary = result.get('summary') if isinstance(result, dict) else None
         if not entity_orientation.valid_summary(summary):
             return None
-        return entity_orientation.compose(existing_body, fields, summary)
+        restated = entity_orientation.restated_facts(fields, result.get('restated'), summary, existing_body)
+        covered = entity_orientation.covered_sentences(existing_body, fields, result.get('covered'), summary)
+        if restated or covered:
+            logger.debug(f"Synthesis: {len(restated)} incoming fact(s) and {len(covered)} replaced orientation "
+                         "sentence(s) restate the page and were not added")
+        return entity_orientation.compose(existing_body, fields, summary, restated=restated, covered=covered)
 
     existing_body = strip_claims_block(existing_body)
     if not existing_body.strip() and not new_description.strip():

@@ -13,7 +13,8 @@ from loguru import logger
 from tqdm import tqdm
 
 from api.config import Settings
-from api.services import decay_policy, engine_errors, episode_time, evidence, section_provenance, source_dates
+from api.services import (decay_policy, engine_errors, episode_time, evidence, fact_policy, promotion,
+                          section_provenance, source_dates)
 from api.services.json_parse import parse_json_object
 
 EXTRACTION_SYSTEM_PROMPT = """You are an entity extraction system for a personal knowledge graph.
@@ -26,7 +27,7 @@ Output valid JSON with this exact structure:
       "name": "Entity Name",
       "type": "person|project|company|concept|tool|skill|location|directory",
       "aliases": ["Mongo"],
-      "summary": "1-3 sentence orientation. See SUMMARY LENGTH BY TYPE below.",
+      "summary": "1-3 sentence orientation. See SUMMARY below.",
       "key_facts": ["atomic fact", "another atomic fact"],
       "history_entries": [
         {"date": "YYYY-MM-DD", "event": "What happened"}
@@ -56,25 +57,32 @@ The entity body is rendered as ordered markdown sections: ## Summary, ## Key Fac
 ## History, ## Links, ## Open Questions. The fields above map directly onto those
 sections. ## Related is generated from `relationships` — do NOT emit a related field.
 
-SUMMARY (## Summary) — the orientation line, "what is this and why does the user care":
-- skill: 1-2 sentences. Procedural rule or preference, written as an instruction.
-- location: 2-3 sentences. Where the physical place is, why it's relevant to the user.
-- directory: 1-2 sentences. What the folder/path holds and why it matters.
-- person: 2-4 sentences. Who they are, relationship to user, key context.
-- tool: 2-4 sentences. What it is, how the user uses it, why it matters.
-- concept: 3-4 sentences. Definition, relevance to user's work.
-- project: 3-5 sentences. What it is, user's role, current status, goal.
-- company: 3-5 sentences. What they do, user's relationship, relevance.
-Do NOT cram every fact into the summary — atomic facts belong in key_facts.
+WHAT A PAGE IS FOR: each entity becomes a short wiki article about the thing AS IT FIGURES IN THE
+USER'S LIFE — what it is, what it is to them (they built it, use it, work with them, are deciding
+about it, visited it), where it stands, and the facts worth remembering, once each. Every line must
+earn its place: if the user would never ask about it months later, leave it out.
 
-KEY FACTS (## Key Facts) — this is where density lives:
-- Emit every concrete, atomic fact stated about the entity: roles, stack components,
-  dates-as-facts, identifiers, quantities, prices, versions, capacities, locations,
-  affiliations, contact handles.
-- One fact per bullet. Do NOT re-narrate the summary.
-- Prefer 3-8 facts for project/company/tool; 2-5 for person/concept; 1-3 for
-  location/directory. key_facts may be empty ONLY for skill.
-- key_facts is REQUIRED (emit when any relevant content exists) for project, company, tool.
+SUMMARY (## Summary) — one paragraph, at most 600 characters:
+- What it is, then what it is to the user and where it stands in this conversation.
+- skill: 1 sentence, written as an instruction. person, tool, concept, location, directory: 1-2
+  sentences. project, company: 2-3 sentences.
+- Introduce the thing once. Atomic facts belong in key_facts, not in the summary.
+
+KEY FACTS (## Key Facts) — facts about the thing worth remembering:
+- First the user's relation to it: what they built, chose, use it for, decided, plan, think of it.
+- Then durable facts about the thing that this conversation established: roles, components the
+  user relies on, dates-as-facts, identifiers, quantities, prices, versions the user chose,
+  locations, affiliations, contact handles.
+- Write each fact about the thing, not about the conversation: never "the assistant suggested /
+  said / recommended / explained …", "was described as …", "was mentioned / discussed in a
+  conversation", "the user asked about …". When the user acted on an assistant's suggestion, write
+  what they did or decided; a suggestion nobody took up is not a fact about the thing.
+- Leave out implementation trivia of a single debugging or how-to session — an artifact or file
+  name, an action or package version, an error message, a command, a line of code — unless the user
+  said it matters beyond that session.
+- One fact per bullet, said once: never restate the summary, and never two bullets that say the
+  same thing in different words.
+- Usually 0-5 facts; a minor thing may have one or none. Never pad.
 
 HISTORY ENTRIES (## History):
 - Include dated events extracted from the conversation, one sentence each.
@@ -129,6 +137,9 @@ EXTRACTION GUIDELINES:
 - The agent's own runtime (its working directory, platform, shell, git status, the date of the session)
   is never conversation content: extract nothing from it, and never an entity for a path it shows you.
 - Extract entities that are meaningful to the user's life, work, or goals. Skip trivial mentions.
+- A detail of the assistant's answer is not an entity: a function or variable in a code example, a
+  command, a library, tool or place the assistant only suggested or listed. Extract it only when the
+  user engaged with it — used it, asked about it by name, chose it, built it, went there.
 - ATTACHMENTS ARE NOT THE USER'S WORDS. A turn written `attachment [<file name>]:` (its lines quoted
   with "> ") is the text of a document the user shared — a CV, contract, paper, article. Never
   attribute a document's contents to the user (no "user works at / lives in / is ..." taken from a
@@ -553,7 +564,17 @@ async def extract(
                     all_relationships.extend(chunk_rels)
 
                 ep_origin = episode.get("origin", "unknown")
+                # The promotion rule's "more than 3 exchanges" and "the person's own words", counted on the
+                # conversation itself (`promotion`), never guessed from what the model wrote about it.
+                units = promotion.exchanges(content, override=episode.get("evidence_kind"), gaps=gaps)
+                narration = 0
                 for entity in all_entities:
+                    facts = entity.get("key_facts")
+                    if isinstance(facts, list):
+                        kept = [f for f in facts if not (isinstance(f, str) and fact_policy.about_the_conversation(f))]
+                        narration += len(facts) - len(kept)
+                        entity["key_facts"] = kept
+                    entity["mention_exchanges"], entity["named_by_person"] = promotion.measure(entity, units)
                     section_provenance.attach(entity, ep_id, content)
                     entity["source_episode"] = ep_id
                     entity["source_episode_timestamp"] = None if untimed else episode.get("timestamp")
@@ -565,6 +586,9 @@ async def extract(
                     entity["origin"] = ep_origin
                     sanitize_decay_class(entity)
                     sanitize_website(entity)
+                if narration:
+                    # "X was mentioned in a conversation": the page's sources already say so.
+                    logger.debug(f"  {ep_id}: {narration} fact(s) that only said the thing came up were left out")
                 for rel in all_relationships:
                     rel["source_episode"] = ep_id
                     rel["source_episode_timestamp"] = episode.get("timestamp")

@@ -199,8 +199,9 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   read only through `write_admission` (G183): a writer holds it shared through its own commit (async: `run_admitted`),
   Sleep sets its flag then waits holders out — past the bound it pauses, never reads; order admission → page → git;
   never held across a model call or a fetch.
-- **Entity promotion:** a first mention stays in the index; a page needs 2+ conversations, >3 exchanges, or a link to a
-  high-confidence page other than the owner's. Claims about a name with no page yet are held (`pending_store`), never lost.
+- **Entity promotion:** a first mention stays in the index; a page needs 2+ conversations, >3 exchanges with the person's
+  own words, or a link the person made to a high-confidence page other than the owner's — counted on the conversation,
+  never guessed (`promotion`). What is said about a name with no page yet is held (`pending_store`), never lost.
   A Stage-4 skill needs 2+ conversations too; one is held in its own store, `skill_hold` (G112, owner 2026-10-09).
   A speaker's self-reference ("the user", "me", "yo"…) is the owner's page, never a page of its own (G169).
 - **Temporal decay is a signal:** at most one week charged per cycle (ruling 1), paced by how many weeks a page came up

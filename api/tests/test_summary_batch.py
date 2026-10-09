@@ -8,7 +8,7 @@ import pytest
 
 from api.config import Settings
 from api.services import conflict_resolver as cr, entity_body as eb, entity_resolver as er
-from api.services import markdown_parser as md, section_provenance as sp
+from api.services import fact_policy, markdown_parser as md, section_provenance as sp
 
 
 @pytest.mark.parametrize('update, enabled', [(False, False), (True, False), (True, True)])
@@ -81,7 +81,10 @@ def test_25_same_name_mentions_retain_each_orientation_once(tmp_path, monkeypatc
     for n, entry in enumerate(extracted, 1):
         entity = entry['entities'][0]
         orientation = entity['summary']
-        assert visible.count(orientation) == 1
+        # Every sentence of every orientation is on the page, and the one that names it once.
+        sentences = fact_policy.sentences(orientation)
+        assert all(sentence in visible for sentence in sentences)
+        assert visible.count(sentences[0]) == 1, sentences[0]
         assert f'Atomic observation-{n:02d}.' in sections['Key Facts']
         # Every retained exact orientation in Summary/Key Facts keeps its own
         # input episode. Undated History is intentionally uninstrumented.

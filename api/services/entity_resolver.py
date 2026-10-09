@@ -11,7 +11,8 @@ from loguru import logger
 from thefuzz import fuzz
 
 from api.config import Settings
-from api.services import agent_engine, engine_errors, entity_body, json_parse, owner_identity, section_provenance
+from api.services import (agent_engine, engine_errors, entity_body, fact_policy, json_parse, owner_identity,
+                          promotion, section_provenance)
 from api.services.clarification_manager import (
     CONFIDENCE_THRESHOLD,
     ClarificationManager,
@@ -139,9 +140,6 @@ async def resolve(
     all_relationships: list[dict] = []
     # episode_id -> list of entity names mentioned in that episode
     episode_cooccurrences: dict[str, list[str]] = {}
-    # Count how many relationships each entity_name participates in within a
-    # single episode. Signals "substantively discussed in this conversation".
-    in_episode_relationship_count: dict[tuple[str, str], int] = {}
 
     for extraction in extracted:
         episode_id = extraction["episode_id"]
@@ -161,16 +159,7 @@ async def resolve(
         if per_episode_names:
             episode_cooccurrences[episode_id] = per_episode_names
 
-        episode_relationships = extraction.get("relationships", [])
-        all_relationships.extend(episode_relationships)
-        for rel in episode_relationships:
-            for endpoint in (rel.get("source"), rel.get("target")):
-                if not endpoint:
-                    continue
-                key = (episode_id, str(endpoint).lower())
-                in_episode_relationship_count[key] = (
-                    in_episode_relationship_count.get(key, 0) + 1
-                )
+        all_relationships.extend(extraction.get("relationships", []))
 
     # Track name -> final entity_id so we can resolve relationships to existing IDs
     name_to_id: dict[str, str] = {}
@@ -321,28 +310,28 @@ async def resolve(
 
             ambiguous_match = match is not None and match["decision"] == "unsure"
 
-            # New entity — check promotion threshold
-            episodes_seen = len(episode_mentions.get(name_lower, set()))
+            # New entity — the promotion rule, measured (`promotion`): 2+ conversations
+            # (this batch's, plus any an earlier batch parked the name from), more than
+            # 3 exchanges with the person's own words in one, or a link the person made
+            # to an existing high-confidence page.
+            heard_now = episode_mentions.get(name_lower, set())
             linked_to_existing = _is_linked_to_existing(name, all_relationships, existing_by_name, owner_id=owner_id, refs=refs)
 
-            # Promote if the entity is already in pending from a previous cycle
             pending_entry = None
             if indexer is not None:
                 try:
                     pending_entry = indexer.pending_by_name(name)
                 except Exception:
                     pending_entry = None
-
-            substantively_discussed = _is_substantively_discussed(
-                entity,
-                in_episode_relationship_count=in_episode_relationship_count,
-            )
+            # A line parked from this same conversation (a resumed one read again, G104) is not a second one.
+            heard_before = set(pending_entry.episodes()) - heard_now if pending_entry is not None else set()
+            if pending_entry is not None and not pending_entry.episodes():
+                heard_before = {"(unrecorded)"}  # a line from before episodes were kept: an earlier conversation
 
             should_promote = (
-                episodes_seen >= settings.sleep_promotion_threshold
+                len(heard_now | heard_before) >= settings.sleep_promotion_threshold
                 or linked_to_existing
-                or pending_entry is not None
-                or substantively_discussed
+                or any(promotion.substantive(e) for e in (entity, *siblings))
             )
 
             if ambiguous_match:
@@ -355,13 +344,6 @@ async def resolve(
             if should_promote and not ambiguous_match:
                 entity_id = sanitize_id(name)
                 name_to_id[name_lower] = entity_id
-                if pending_entry is not None:
-                    merged_history = list(entity.get("history_entries", []) or [])
-                    for h in pending_entry.history_entries or []:
-                        if h not in merged_history:
-                            merged_history.append(h)
-                    if merged_history:
-                        entity["history_entries"] = merged_history
                 resolved_creates[entity_id] = {
                     "id": entity_id,
                     "action": "create",
@@ -377,6 +359,9 @@ async def resolve(
                 }
                 for sibling in siblings:
                     _merge_into_create(resolved_creates[entity_id], sibling)
+                if pending_entry is not None:
+                    # What the earlier conversations said, and the credit for each of them.
+                    _fold_pending(resolved_creates[entity_id], pending_entry)
                 # Deferred (same reasoning as the "same"-match branch above).
                 pending_actions.append((
                     clarifier.check_organic_resolution,
@@ -413,15 +398,7 @@ async def resolve(
                         parked = _merge_entity_payload(parked, sibling)
                     pending_actions.append((
                         indexer.index_pending_entity,
-                        (PendingEntity(
-                            name=name,
-                            type=entity.get("type", "concept"),
-                            description=parked.get("description", "") or "",
-                            source_episode=entity.get("source_episode", ""),
-                            confidence=confidence,
-                            tags=list(parked.get("tags", []) or []),
-                            history_entries=list(parked.get("history_entries", []) or []),
-                        ),),
+                        (_pending_line(name, entity, parked, siblings, confidence),),
                         {},
                     ))
 
@@ -583,11 +560,17 @@ def _merge_entity_payload(base: dict, incoming: dict) -> dict:
     # Additive fields are unions (G169 review): two extractions of one thing —
     # "User" and "me" both landing on the owner page — each carry their own facts,
     # links, questions and aliases, and the first payload's lists used to win whole.
-    key_facts = _union_text(base.get("key_facts"), incoming.get("key_facts"))
+    # A fact another one already says (`fact_policy.restates`) is kept once, the
+    # more specific spelling winning; so is a sentence of a summary that lost.
+    key_facts, _ = fact_policy.union([], _union_text(base.get("key_facts"), incoming.get("key_facts")))
+    said = fact_policy.sentences(chosen)
+    key_facts = [f for f in key_facts if not fact_policy.covered(str(f), said)]
     folded = " ".join(chosen.split()).lower()
     for text in (base_text, incoming_text, *_effective_summaries(base), *_effective_summaries(incoming)):
         if text and " ".join(text.split()).lower() not in folded:
-            key_facts = _union_text(key_facts, [text])
+            for sentence in fact_policy.sentences(text):
+                if not fact_policy.covered(sentence, said + [str(f) for f in key_facts]):
+                    key_facts = _union_text(key_facts, [sentence])
     if key_facts:
         merged["key_facts"] = key_facts
     for field in ("open_questions", "aliases"):
@@ -755,6 +738,56 @@ def _merge_into_update(
 
     current["entity"] = _merge_entity_payload(current.get("entity", {}) or {}, incoming)
     _append_change_source(current, incoming)
+
+
+def _pending_line(name: str, entity: dict, parked: dict, siblings: list[dict], confidence: float) -> PendingEntity:
+    """The pending line for a name below the bar: what every mention in this batch
+    said about it — summary, facts, links, questions, aliases, their G118 item
+    records — and every conversation it came up in (page quality, 2026-10-09).
+    The line keeps the strongest mention's episode, as before."""
+    heard = []
+    for e in (entity, *siblings):
+        episode = e.get("source_episode") or ""
+        if episode and episode not in {h["episode"] for h in heard}:
+            heard.append({"episode": episode, "timestamp": e.get("source_episode_timestamp"),
+                          "day": e.get("source_episode_day")})
+    return PendingEntity(
+        name=name,
+        type=entity.get("type", "concept"),
+        description=parked.get("description", "") or "",
+        source_episode=entity.get("source_episode", ""),
+        confidence=confidence,
+        tags=list(parked.get("tags", []) or []),
+        history_entries=list(parked.get("history_entries", []) or []),
+        summary=_effective_summary(parked),
+        key_facts=[str(f) for f in parked.get("key_facts") or [] if str(f).strip()],
+        links=[link for link in parked.get("links") or [] if isinstance(link, dict) and link.get("url")],
+        open_questions=[str(q) for q in parked.get("open_questions") or [] if str(q).strip()],
+        aliases=[str(a) for a in parked.get("aliases") or [] if str(a).strip()],
+        item_inputs=list(parked.get(section_provenance.INPUTS) or []),
+        heard_in=heard,
+    )
+
+
+def _fold_pending(change: dict, line: PendingEntity) -> None:
+    """Fold a pending line into the create its promotion made: its text through the
+    same seam a same-name extraction uses, and one source credit per conversation
+    it heard the name in (its timestamp and day, when the line kept them)."""
+    payload = {
+        "name": line.name, "type": line.type, "confidence": line.confidence,
+        "summary": line.summary or line.description, "description": line.description,
+        "key_facts": list(line.key_facts), "links": list(line.links),
+        "open_questions": list(line.open_questions), "aliases": list(line.aliases),
+        "tags": list(line.tags or []), "history_entries": list(line.history_entries or []),
+        section_provenance.INPUTS: list(line.item_inputs),
+    }
+    change["entity"] = _merge_entity_payload(change.get("entity", {}) or {}, payload)
+    records = {str(r.get("episode")): r for r in line.heard_in if isinstance(r, dict) and r.get("episode")}
+    for episode in line.episodes():
+        record = records.get(episode, {})
+        _append_change_source(change, {"source_episode": episode,
+                                       "source_episode_timestamp": record.get("timestamp"),
+                                       "source_episode_day": record.get("day")})
 
 
 def _find_direct_candidate_match(
@@ -955,12 +988,17 @@ def _is_linked_to_existing(
     name: str, relationships: list[dict], existing: dict[str, dict], *, owner_id: str | None = None,
     refs: "owner_identity.SelfReferences | None" = None,
 ) -> bool:
-    """Check if entity is linked to a high-confidence existing entity.
+    """Check if entity is linked to a high-confidence existing entity — explicitly.
 
     The owner's page never counts (G169): everything the person talks about is
     linked to them, so that link is no sign a first mention matters — the
-    promotion rule would otherwise promote every name on its first mention."""
+    promotion rule would otherwise promote every name on its first mention.
+    Explicit means the relationship's evidence is located in a person's own words
+    (`promotion.person_said`): a link only the model's answer drew, or one it
+    inferred, is the assistant's detail, not the person's."""
     for rel in relationships:
+        if not promotion.person_said(rel):
+            continue
         partner = None
         if rel.get("source", "").lower() == name.lower():
             partner = rel.get("target", "").lower()
@@ -976,47 +1014,6 @@ def _is_linked_to_existing(
             confidence = existing[partner]["frontmatter"].get("confidence", 0)
             if confidence >= 0.6:
                 return True
-    return False
-
-
-SUBSTANTIVE_CONFIDENCE = 0.75
-SUBSTANTIVE_DESCRIPTION_CHARS = 200
-SUBSTANTIVE_HISTORY_ENTRIES = 2
-SUBSTANTIVE_RELATIONSHIP_COUNT = 2
-
-
-def _is_substantively_discussed(
-    entity: dict,
-    in_episode_relationship_count: dict[tuple[str, str], int],
-) -> bool:
-    """Decide whether a single-episode entity was discussed deeply enough to promote.
-
-    The extractor's own `confidence` field is defined as "how substantive the
-    discussion was", so a high score plus a meaty description is the strongest
-    signal. We also promote when the extractor produced multiple history
-    entries (indicating a timeline worth preserving) or when the entity
-    connects to several other entities within the same conversation.
-    """
-    confidence = float(entity.get("confidence", 0.0) or 0.0)
-    description = (entity.get("description") or "").strip()
-    history_entries = entity.get("history_entries", []) or []
-
-    if (
-        confidence >= SUBSTANTIVE_CONFIDENCE
-        and len(description) >= SUBSTANTIVE_DESCRIPTION_CHARS
-    ):
-        return True
-
-    if len(history_entries) >= SUBSTANTIVE_HISTORY_ENTRIES:
-        return True
-
-    episode_id = entity.get("source_episode", "")
-    name_lower = (entity.get("name") or "").lower()
-    if episode_id and name_lower:
-        rel_count = in_episode_relationship_count.get((episode_id, name_lower), 0)
-        if rel_count >= SUBSTANTIVE_RELATIONSHIP_COUNT:
-            return True
-
     return False
 
 

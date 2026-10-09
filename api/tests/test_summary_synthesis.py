@@ -79,7 +79,10 @@ def test_section_synthesis_records_only_exact_carried_fact(tmp_path, monkeypatch
     cr.apply_changes([change], tmp_path)
     page = md.parse(tmp_path / 'entities/alpha-project.md')
     assert not sp.matched(page.frontmatter, page.body).get('summary')
-    assert len(sp.matched(page.frontmatter, page.body)['key_facts']) == 1
+    # The exact fact, and the replaced incoming orientation kept as a fact with its own row.
+    facts = {i.text for i in sp.scan(page.body)['key_facts']
+             if i.key in sp.matched(page.frontmatter, page.body)['key_facts']}
+    assert facts == {'New atomic fact.', 'New context.'}
 
 
 def test_context_dates_and_closed_claims():
