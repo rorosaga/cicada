@@ -451,7 +451,9 @@ Round 4 (C2–C4):
   name: the owner's own email (the one typed in Settings, `owner.json`, used only on the page marked `owner: true`; the
   bank holds no one else's address — Contacts posts booleans, R-SR8, and a claim's value is a model's word), then the
   best-ranked GitHub profile link (`https://github.com/<username>`, one path segment) among the page's `sources:` — the
-  person's or an agent's, never an "Only I know" note. Fetched once, on demand, by `GET /entities/{id}/photo` (never by
+  person's or an agent's, never an "Only I know" note — then, only while `CICADA_ALLOW_PERSON_PHOTO_PROXY` is on (off by
+  default, owner 2026-10-09), an X profile link and a LinkedIn `/in/` link, asked through the avatar proxy within an
+  install-wide daily budget (`network.md`). Fetched once, on demand, by `GET /entities/{id}/photo` (never by
   `/graph`, never by Sleep) and cached at `$CICADA_HOME/pictures/<bank>/people/<id>.<png|jpg>` with `meta.json`
   (`{key, fetched_at, miss, transient, ext, sha}`; `key` is a hash over the identifiers, so the email's hash is never
   stored and a changed or removed identifier re-resolves — a removed one drops the copy). A hit is kept; a miss is

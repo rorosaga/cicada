@@ -13,12 +13,20 @@ from an identifier **already on that person's page or the person's own record**:
 - **a GitHub profile link among the page's `sources:`** — `https://github.com/<username>`, exactly one path segment,
   that the person or an agent attached (best-ranked first, `fact_sources.rank`; an "Only I know" note never counts).
 
-Never a name, an alias, a domain or a username guessed from either. Never X/Twitter or LinkedIn, and never a
-third-party proxy that is handed the identifier: the request goes to the service itself, and only to its own hosts.
+- **an X or LinkedIn profile link among the page's `sources:`** (owner 2026-10-09, the one exception to the ToS rail's
+  "never through someone else's service") — `https://x.com/<handle>` (or twitter.com) and
+  `https://www.linkedin.com/in/<slug>`, profile URLs only, never a post or a company page — asked of the unavatar.io
+  avatar proxy, which is handed the handle. Behind its OWN gate, `CICADA_ALLOW_PERSON_PHOTO_PROXY`, **off by default**:
+  each lookup tells a third party whom the person knows. With it off, such a link is no identifier at all. At most
+  :data:`PROXY_DAILY_BUDGET` lookups a UTC day across the install (the proxy's anonymous allowance), counted in
+  `$CICADA_HOME/pictures/proxy_budget.json`, outside every bank; over budget is a transient miss, asked again the
+  next day.
+
+Never a name, an alias, a domain or a username guessed from either.
 
 **The ladder** (the owner's model, adapted): the person's own choice → the Contacts photo → the email's public photo
 (asked with ``d=404``, so a "no photo" answer is a 404, never a default image cached as a photo) → the GitHub avatar →
-the monogram. `entity_picture.resolve` holds the precedence; this module answers its `profile` rung's availability
+the X photo → the LinkedIn photo (both with ``fallback=false``, unavatar's documented "404 on a miss") → the monogram. `entity_picture.resolve` holds the precedence; this module answers its `profile` rung's availability
 (read-only, from the cache index) and does the one fetch, on demand, when the app asks `GET /entities/{id}/photo`.
 
 **The fetch** — two fixed URL shapes, `https` only, every hop (redirects followed by hand, at most 3) checked against
@@ -56,6 +64,10 @@ from api.services import logo_service, markdown_parser, net_guard
 from api.services.logo_service import FetchResult
 
 GATE_ENV = "CICADA_ALLOW_PERSON_PHOTO_FETCH"
+PROXY_GATE_ENV = "CICADA_ALLOW_PERSON_PHOTO_PROXY"
+#: The proxy's anonymous allowance (its docs: 25 requests a day per IP address), shared by every bank on this Mac.
+PROXY_DAILY_BUDGET = 25
+BUDGET_FILENAME = "proxy_budget.json"
 PEOPLE_DIR = "people"
 META_FILENAME = "meta.json"
 LOCK_FILENAME = "meta.lock"
@@ -70,10 +82,22 @@ MEDIA_TYPES = {"png": "image/png", "jpg": "image/jpeg"}
 
 GRAVATAR = "gravatar"
 GITHUB = "github"
+X = "x"
+LINKEDIN = "linkedin"
+PROXIED = frozenset({X, LINKEDIN})
 _URLS = {
     GRAVATAR: "https://gravatar.com/avatar/{value}?s=" + str(SIZE) + "&d=404",
     GITHUB: "https://github.com/{value}.png?size=" + str(SIZE),
+    X: "https://unavatar.io/x/{value}?fallback=false",
+    LINKEDIN: "https://unavatar.io/linkedin/user:{value}?fallback=false",
 }
+_X_HANDLE_RE = re.compile(r"[A-Za-z0-9_]{1,15}")
+_X_RESERVED = frozenset({
+    "home", "explore", "notifications", "messages", "i", "settings", "search", "intent", "share", "hashtag", "compose",
+    "login", "logout", "signup", "tos", "privacy", "about", "jobs", "download", "following", "followers", "lists",
+    "bookmarks", "communities", "premium", "account",
+})
+_LINKEDIN_SLUG_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{2,99}")
 _EMAIL_RE = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
 _USERNAME_RE = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}")
 #: First path segments of github.com that are pages of the site, not a person's profile.
@@ -130,15 +154,59 @@ def github_username(ref) -> str | None:
     return name
 
 
-def _github_source(source: dict, _predicate) -> bool:
-    kind = str(source.get("kind") or "url").strip().lower()
-    return kind == "url" and github_username(source.get("ref")) is not None
+def _profile_parts(ref, hosts: tuple[str, ...]) -> list[str] | None:
+    """The path segments of an http(s) URL on one of ``hosts``; None for anything else."""
+    if not isinstance(ref, str) or "://" not in ref:
+        return None
+    try:
+        parsed = urlparse(ref.strip())
+        host = (parsed.hostname or "").lower()
+    except ValueError:
+        return None
+    if parsed.scheme not in ("http", "https") or host not in hosts:
+        return None
+    return [p for p in parsed.path.split("/") if p]
 
 
-def candidates(fm: dict, *, owner: dict | None = None) -> list[Candidate]:
+def x_handle(ref) -> str | None:
+    """The handle of an X profile URL (`https://x.com/<handle>`, twitter.com too) — None for a post, a site page,
+    another host, or anything that is not a URL."""
+    parts = _profile_parts(ref, ("x.com", "www.x.com", "twitter.com", "www.twitter.com", "mobile.twitter.com"))
+    if not parts or len(parts) != 1:
+        return None
+    name = parts[0]
+    if name.lower() in _X_RESERVED or _X_HANDLE_RE.fullmatch(name) is None:
+        return None
+    return name
+
+
+def linkedin_slug(ref) -> str | None:
+    """The slug of a LinkedIn member profile (`https://www.linkedin.com/in/<slug>`) — None for a company page, a post,
+    a profile's sub-page, or anything else."""
+    parts = _profile_parts(ref, ("linkedin.com", "www.linkedin.com"))
+    if not parts or len(parts) != 2 or parts[0] != "in" or _LINKEDIN_SLUG_RE.fullmatch(parts[1]) is None:
+        return None
+    return parts[1]
+
+
+_PARSERS = {GITHUB: github_username, X: x_handle, LINKEDIN: linkedin_slug}
+
+
+def _matcher(provider: str):
+    parse = _PARSERS[provider]
+
+    def serves(source: dict, _predicate) -> bool:
+        kind = str(source.get("kind") or "url").strip().lower()
+        return kind == "url" and parse(source.get("ref")) is not None
+
+    return serves
+
+
+def candidates(fm: dict, *, owner: dict | None = None, proxy: bool | None = None) -> list[Candidate]:
     """The identifiers a `person` page offers, in the order they are asked: the owner's email (only on the page marked
-    `owner: true`), then the best-ranked GitHub profile link among its sources. Nothing derived from a name. `owner`
-    is `owner.json`'s content; read only when the page is the owner's."""
+    `owner: true`), then the best-ranked GitHub, X and LinkedIn profile links among its sources — the last two only
+    while the proxy gate is on (``proxy``, default :func:`proxy_allowed`), so turning it on changes the identifier set
+    and re-asks. Nothing derived from a name. `owner` is `owner.json`'s content; read only on the owner's page."""
     fm = fm or {}
     if str(fm.get("type") or "").strip().lower() != "person":
         return []
@@ -153,9 +221,11 @@ def candidates(fm: dict, *, owner: dict | None = None) -> list[Candidate]:
             out.append(Candidate(GRAVATAR, digest))
     from api.services import fact_sources
 
-    for source in fact_sources.rank(fm.get("sources"), None, match=_github_source):
-        out.append(Candidate(GITHUB, github_username(source["ref"])))
-        break
+    providers = [GITHUB] + ([X, LINKEDIN] if (proxy_allowed() if proxy is None else proxy) else [])
+    for provider in providers:
+        for source in fact_sources.rank(fm.get("sources"), None, match=_matcher(provider)):
+            out.append(Candidate(provider, _PARSERS[provider](source["ref"])))
+            break
     return out
 
 
@@ -182,6 +252,40 @@ def fetch_allowed() -> bool:
     return own and logo_service.fetch_allowed()
 
 
+def proxy_allowed() -> bool:
+    """The X/LinkedIn proxy: its own gate, OFF by default (owner 2026-10-09) — and never past the other two."""
+    own = os.environ.get(PROXY_GATE_ENV, "off").strip().lower() in {"on", "1", "true"}
+    return own and fetch_allowed()
+
+
+def budget_path() -> Path:
+    """The install-wide proxy budget, outside every bank: ``$CICADA_HOME/pictures/proxy_budget.json``."""
+    raw = os.environ.get("CICADA_HOME") or str(Path.home() / ".cicada")
+    return Path(raw).expanduser() / "pictures" / BUDGET_FILENAME
+
+
+def _take_budget_sync() -> bool:
+    """Spend one proxy lookup from today's (UTC) allowance; False when it is spent. Under a file lock, so two
+    processes (the server and the CLI) share one count."""
+    path = budget_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    today = datetime.now(timezone.utc).date().isoformat()
+    with open(path.with_name(BUDGET_FILENAME + ".lock"), "a+") as handle:
+        with contextlib.suppress(OSError):
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            data = {}
+        used = int(data.get("count") or 0) if isinstance(data, dict) and data.get("day") == today else 0
+        if used >= PROXY_DAILY_BUDGET:
+            return False
+        tmp = path.with_name(f"{BUDGET_FILENAME}.{os.getpid()}.tmp")
+        tmp.write_text(json.dumps({"day": today, "count": used + 1}) + "\n", encoding="utf-8")
+        os.replace(tmp, path)
+        return True
+
+
 def _provider_host(url: str) -> bool:
     try:
         parsed = urlparse(url)
@@ -191,7 +295,7 @@ def _provider_host(url: str) -> bool:
     if parsed.scheme != "https" or parsed.username or parsed.password or parsed.port not in (None, 443):
         return False
     return (host == "gravatar.com" or host.endswith(".gravatar.com") or host == "github.com"
-            or host == "avatars.githubusercontent.com")
+            or host == "avatars.githubusercontent.com" or host == "unavatar.io")
 
 
 async def _http_get(url: str) -> FetchResult:
@@ -446,6 +550,9 @@ async def _ensure_locked(memory_path: Path, bank: str, entity_id: str, fetcher: 
     transient = False
     found: tuple[bytes, str] | None = None
     for cand in cands:
+        if cand.provider in PROXIED and not await asyncio.to_thread(_take_budget_sync):
+            transient = True   # over today's allowance: asked again tomorrow, never a cached miss
+            continue
         result, failed = await _get(provider_url(cand), fetcher)
         transient = transient or failed
         found = accept(result)

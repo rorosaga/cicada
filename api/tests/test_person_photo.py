@@ -333,3 +333,103 @@ def test_a_demo_bank_asks_nobody_and_never_offers_the_owners_email(bank, gates_o
     fm = markdown_parser.parse(bank / "entities" / "owner-example.md").frontmatter
     resolved, inputs = entity_picture.resolve_page(bank, "owner-example", fm, "", page_mtime=0.0)
     assert resolved.source is None and inputs.profile is False
+
+
+# --- the avatar proxy for X and LinkedIn (owner 2026-10-09: its own gate, off by default) ---------------------------
+
+
+X_SOURCE = {"ref": "https://x.com/bob_example", "kind": "url", "added_by": "user"}
+LINKEDIN_SOURCE = {"ref": "https://www.linkedin.com/in/bob-example/", "kind": "url", "added_by": "user"}
+
+
+@pytest.fixture
+def proxy_on(gates_on, monkeypatch):
+    monkeypatch.setenv("CICADA_ALLOW_PERSON_PHOTO_PROXY", "on")
+
+
+def test_an_x_handle_comes_only_from_a_profile_url():
+    assert person_photo.x_handle("https://x.com/bob_example") == "bob_example"
+    assert person_photo.x_handle("https://twitter.com/bob_example/") == "bob_example"
+    assert person_photo.x_handle("https://www.x.com/bob_example?lang=en") == "bob_example"
+    for refused in ("https://x.com/bob_example/status/1234567890", "https://x.com/home", "https://x.com/i/lists/1",
+                    "https://x.com/search?q=bob", "https://x.com/hashtag/alpha", "https://x.com/", "x.com/bob_example",
+                    "https://x.com.evil.example/bob_example", "https://x.com/bob-example", "https://x.com/" + "a" * 16,
+                    "https://mastodon.example/@bob_example", None):
+        assert person_photo.x_handle(refused) is None, refused
+
+
+def test_a_linkedin_slug_comes_only_from_an_in_profile_url():
+    assert person_photo.linkedin_slug("https://www.linkedin.com/in/bob-example/") == "bob-example"
+    assert person_photo.linkedin_slug("https://linkedin.com/in/bob-example") == "bob-example"
+    for refused in ("https://www.linkedin.com/company/acme-example", "https://www.linkedin.com/posts/bob-example_x",
+                    "https://www.linkedin.com/in/bob-example/details/experience", "https://www.linkedin.com/in/",
+                    "https://www.linkedin.com/feed/", "https://www.linkedin.com/pub/bob-example/1/2/3",
+                    "https://linkedin.com.evil.example/in/bob-example", "https://www.linkedin.com/in/a", None):
+        assert person_photo.linkedin_slug(refused) is None, refused
+
+
+def test_the_proxy_gate_is_off_by_default_and_needs_the_others(monkeypatch):
+    monkeypatch.delenv("CICADA_ALLOW_PERSON_PHOTO_PROXY", raising=False)
+    monkeypatch.setenv("CICADA_ALLOW_LOGO_FETCH", "on")
+    monkeypatch.setenv("CICADA_ALLOW_PERSON_PHOTO_FETCH", "on")
+    assert person_photo.fetch_allowed() and not person_photo.proxy_allowed(), "off by default"
+    monkeypatch.setenv("CICADA_ALLOW_PERSON_PHOTO_PROXY", "on")
+    assert person_photo.proxy_allowed()
+    monkeypatch.setenv("CICADA_ALLOW_PERSON_PHOTO_FETCH", "off")
+    assert not person_photo.proxy_allowed(), "never past the people gate"
+
+
+def test_with_the_proxy_gate_off_an_x_or_linkedin_link_is_no_identifier(bank, gates_on):
+    fm = {"type": "person", "sources": [X_SOURCE, LINKEDIN_SOURCE]}
+    assert person_photo.candidates(fm, owner={}) == []
+    write_page(bank, "bob-example", {"sources": [X_SOURCE, LINKEDIN_SOURCE]})
+    http = FakeHTTP({"https://unavatar.io/": FetchResult(200, png_bytes(), "image/png")})
+    assert asyncio.run(person_photo.ensure_photo(bank, "bob-example", fetcher=http)) is None
+    assert http.asked == []
+
+
+def test_the_order_is_email_github_x_linkedin(proxy_on):
+    fm = {"type": "person", "owner": True, "sources": [LINKEDIN_SOURCE, X_SOURCE, GITHUB_SOURCE]}
+    found = person_photo.candidates(fm, owner={"email": "owner@example.com"})
+    assert [c.provider for c in found] == ["gravatar", "github", "x", "linkedin"]
+    urls = [person_photo.provider_url(c) for c in found[2:]]
+    assert urls == ["https://unavatar.io/x/bob_example?fallback=false",
+                    "https://unavatar.io/linkedin/user:bob-example?fallback=false"], "a miss is a 404, never a default"
+
+
+def test_the_proxy_is_asked_only_after_the_direct_providers_miss(bank, proxy_on):
+    write_page(bank, "bob-example", {"sources": [LINKEDIN_SOURCE, X_SOURCE, GITHUB_SOURCE]})
+    http = FakeHTTP({"https://unavatar.io/linkedin/": FetchResult(200, jpeg_bytes(), "image/jpeg")})
+    path = asyncio.run(person_photo.ensure_photo(bank, "bob-example", fetcher=http))
+    assert path is not None and path.suffix == ".jpg"
+    assert [u.split("?")[0] for u in http.asked] == ["https://github.com/bob-example.png",
+                                                     "https://unavatar.io/x/bob_example",
+                                                     "https://unavatar.io/linkedin/user:bob-example"]
+
+
+def test_a_proxy_redirect_off_its_own_host_is_refused(bank, proxy_on):
+    write_page(bank, "bob-example", {"sources": [X_SOURCE]})
+    http = FakeHTTP({"https://unavatar.io/x/": FetchResult(302, b"", "", location="https://cdn.example.com/a.jpg"),
+                     "https://cdn.example.com/": FetchResult(200, jpeg_bytes(), "image/jpeg")})
+    assert asyncio.run(person_photo.ensure_photo(bank, "bob-example", fetcher=http)) is None
+    assert len(http.asked) == 1
+
+
+def test_the_daily_budget_is_install_wide_and_over_it_is_a_transient_miss(bank, proxy_on, monkeypatch):
+    monkeypatch.setattr(person_photo, "PROXY_DAILY_BUDGET", 2)
+    http = FakeHTTP({})
+    for n in range(3):
+        write_page(bank, f"p{n}-example", {"sources": [{**X_SOURCE, "ref": f"https://x.com/p{n}_example"}]})
+        asyncio.run(person_photo.ensure_photo(bank, f"p{n}-example", fetcher=http))
+    assert len(http.asked) == 2, "the third lookup waits for tomorrow"
+    meta = person_photo.read_meta("default")
+    assert meta["p0-example"]["transient"] is False, "a real 404 is a real miss"
+    assert meta["p2-example"]["miss"] is True and meta["p2-example"]["transient"] is True
+    budget = person_photo.budget_path()
+    assert bank not in budget.parents and "pictures" in budget.parts
+    # Another bank on the same Mac shares the budget.
+    other = bank.parent / "other"
+    (other / "entities").mkdir(parents=True)
+    write_page(other, "q-example", {"sources": [X_SOURCE]})
+    asyncio.run(person_photo.ensure_photo(other, "q-example", fetcher=http))
+    assert len(http.asked) == 2
