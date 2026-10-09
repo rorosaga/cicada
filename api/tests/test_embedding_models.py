@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from api import config
 from api.config import Settings
 from api.services import embedding_models as em
-from api.services import onnx_embedder, providers
+from api.services import coreml_embedder, onnx_embedder, providers
 
 
 def _bundle(root: Path) -> None:
@@ -95,6 +95,9 @@ def test_status_and_routes(env, monkeypatch, tmp_path):
     _bundle(tmp_path / "models")
     monkeypatch.setenv("CICADA_BUNDLED_MODELS", str(tmp_path / "models"))
     monkeypatch.setattr(em, "sentence_transformers_available", lambda: False)
+    # A Mac without the Neural Engine model, whatever runs the suite: on macOS 15+ with coremltools in the
+    # venv, the host would offer EmbeddingGemma 2 first (test_embeddinggemma2 covers that side).
+    monkeypatch.setattr(coreml_embedder, "supported", lambda: False)
     started = []
     monkeypatch.setattr(em, "_run_install", lambda token, environ: started.append(token))
     config.get_settings.cache_clear()

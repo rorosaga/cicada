@@ -114,7 +114,9 @@ step "Cicada's code…"
   | grep -Ev '^api/tests/|^api/\.env|^api/uv\.lock$|^api/\.python-version$|^api/\.gitignore$|^api/routers/\.gitignore$|^mcp/mcp_config\.json$' \
   | while IFS= read -r f; do [ -f "$f" ] && printf '%s\0' "$f"; done \
   | xargs -0 tar -cf - ) | tar -xf - -C "$OUT/app"
-[ -f "$OUT/app/api/data/predicates-seed.yaml" ] || die "api/data/predicates-seed.yaml missing from the bundle"
+for shipped in predicates-seed.yaml extras-requirements.lock embeddinggemma-2.lock.json; do
+  [ -f "$OUT/app/api/data/$shipped" ] || die "api/data/$shipped missing from the bundle"
+done
 [ -f "$OUT/app/VERSION" ] || die "VERSION missing from the bundle"
 ok "version $(cat "$OUT/app/VERSION")"
 
