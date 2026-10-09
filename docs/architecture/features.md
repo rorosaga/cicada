@@ -37,7 +37,10 @@ zones, same settle time).
 the type as a `Tag`, status and confidence in words ("Active · very confident", the number in `.help`) — or, when
 the page's `lastReferenced` is more than 90 days before the viewer's today, the status and when it was last mentioned
 ("Active · last mentioned Feb 2025", G194 A2: the confidence word is replaced, the number and the full day go to
-`.help`; app-only, from the existing field, no payload or ETag change), the
+`.help`). The three bands behind those words — confidence, fade pace, the old day — are served by the backend as
+`bands: {confidence, fadePace, lastMentioned}` on `GET /entities/{id}` (`entity_bands`, G180 parity; no ETag, not a
+Store domain); the app's `EntityHeaderWords` / `FadeWords` twin paints them from the existing fields and is pinned to
+the backend by one table, `api/tests/fixtures/entity_bands.json` (`EntityBandsTests`). Words stay in each client. The
 name, the page's Summary, Back ⌘[ and ×; text tabs Content · Perspectives · History · Timeline with counts once
 known (the belief counts once the claims are read, when a section or tab asks). **Content opens on the page (owner
 2026-10-09): every type, a person's too, shows its prose first as an article, and everything else waits behind a

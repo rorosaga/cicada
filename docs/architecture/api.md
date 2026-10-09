@@ -106,6 +106,13 @@ app-wide dependency (`bank_binding.require_same_bank`, beside `require_token` in
   (machine-global, in `~/.cicada`). Reads are never checked. `bank_binding.EXEMPT` lists every exemption by route
   template, and a test keeps each pointing at a real route.
 
+**The `cicada` command is a client too (G180 parity).** Its app commands (`api/cli_app.py`; `mcp.md`) call the
+routes above as the app does: the bearer token from `CICADA_API_TOKEN` or `~/.cicada/api_token`, and `X-Cicada-Bank`
+naming the bank the command pinned on every mutating request except bank CRUD, so the `bank_mismatch` check binds a
+shell exactly as it binds the app. It reads the `code` of a 409 (`sleep_writing`, `bank_mismatch`) and never a
+sentence. A route a browser front end would need is one the CLI can call: new features land behind a route, and the
+app is one client of it.
+
 **A Sleep-window refusal has a stable code.** Every route guarded by `sleep_cycle.is_writing()` raises
 `sleep_refusal.SleepWriting` (an `HTTPException`, so a direct caller still reads `.detail`); the handler in `api/main.py`
 answers `409 {"code": "sleep_writing", "detail": "<the route's sentence>"}`. Clients key off the code — never off
