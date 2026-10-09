@@ -29,7 +29,7 @@ archives via the entity engine.
 from __future__ import annotations
 
 import math
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Callable, NamedTuple
 
@@ -377,3 +377,81 @@ def claim_mention_weeks(claim, kept_on=(), *, untimed=frozenset()) -> int:
         if doc.startswith("ep_"):
             refs.append(doc)
     return mention_weeks(refs, kept_on, untimed=untimed)
+
+
+# --------------------------------------------------------------------------- #
+# Age counts from when it was said (owner ruling 2026-10-09, amends G170)
+# --------------------------------------------------------------------------- #
+
+# A page or claim fades from the day it was last SAID, not the day Cicada read it. Two kinds of silence:
+#
+# * proven silence — from the last mention to the day Cicada read that mention (a page's `learned_on`, a claim's
+#   `recorded_at`). The run that read it read everything waiting, so that gap is the person's, never an outage:
+#   charged in full, once, by the decay pass of the run that read it;
+# * live silence — everything after that day. TODO ruling 1 unchanged: at most `cap_days` per pass, the watermark
+#   advancing only by what was charged, so a gap between runs is worked off over several passes.
+
+#: A mention read more than this many days after it was said was heard late (an import, not a live conversation):
+#: what it fades into is the age of the record, not a change the person is asked about.
+HEARD_LATE_DAYS = 7
+
+
+def _day(value) -> date | None:
+    try:
+        return date.fromisoformat(str(value).strip()[:10]) if value else None
+    except ValueError:
+        return None
+
+
+class Silence(NamedTuple):
+    """What one decay pass charges a page or claim, in days, and the watermark it leaves."""
+
+    proven_days: int   # last said -> the day Cicada read it, charged in full
+    live_days: int     # after that, at most the per-pass cap (ruling 1)
+    watermark: date    # the new `decayed_through`
+
+    @property
+    def days(self) -> int:
+        return self.proven_days + self.live_days
+
+
+def silence(said, charged_through, learned, today: date, cap_days: int) -> Silence | None:
+    """The silence one pass charges. ``said``: the last mention's day; ``charged_through``: the watermark
+    (``decayed_through``); ``learned``: the day Cicada read the last mention. ``None`` when neither ``said`` nor
+    ``charged_through`` is a date (the caller keeps its own fallback).
+
+    The baseline is the later of ``said`` and ``charged_through``. Proven silence runs from it to ``learned`` (never
+    past ``today``); live silence from there, capped. ``cap_days=0`` charges proven silence only — for a page or
+    claim this very pass read, whose live clock starts now."""
+    baseline = max([d for d in (_day(said), _day(charged_through)) if d is not None], default=None)
+    if baseline is None:
+        return None
+    start = baseline
+    proven = 0
+    read_on = _day(learned)
+    if read_on is not None and read_on > baseline:
+        start = min(read_on, today)
+        proven = max(0, (start - baseline).days)
+    live = min(max(0, (today - start).days), max(0, int(cap_days)))
+    return Silence(proven, live, min(today, start + timedelta(days=live)))
+
+
+def heard_late(said, learned) -> bool:
+    """True when the last mention was read more than :data:`HEARD_LATE_DAYS` after it was said — it came from an
+    import, so its fading asks the person nothing (an archived page stays findable; recall ranks it last)."""
+    s, r = _day(said), _day(learned)
+    return s is not None and r is not None and (r - s).days > HEARD_LATE_DAYS
+
+
+def latest_said(episode_refs, *, untimed=frozenset()) -> str | None:
+    """The latest day among dated episode ids (``ep_<date>_<n>``) — when a claim was last said. A memory export
+    entry (``untimed``) and an id without a date say nothing about when."""
+    days = []
+    for ref in _as_list(episode_refs):
+        stem = str(ref or "").strip()
+        if not stem or stem in untimed:
+            continue
+        parsed = episode_ids.parse_episode_id(stem)
+        if parsed and _day(parsed[0]) is not None:
+            days.append(parsed[0])
+    return max(days) if days else None

@@ -1,10 +1,10 @@
-"""A backdated import is not the person going silent (TODO ruling 1's corollary).
+"""A backdated import is charged its age once, by the cycle that reads it — never again (TODO ruling 1).
 
-A first drain consolidates months-old exports over several cycles. A page a cycle
-creates or references from an old episode keeps that date as its content date
-(`last_referenced`), but silence is measured from the cycle that learned it —
-`decayed_through` — so the following drain cycles charge nothing, while a page that
-then really goes unmentioned decays from the cycle it was created.
+Owner ruling 2026-10-09 ("let age count") amended G170's "an import is not silence": a page created or referenced
+from an old episode keeps that date as its content date (`last_referenced`) and fades from it. The silence between
+that date and the day Cicada read it (`learned_on`) is charged in full by the decay pass of the run that read it;
+after that, ruling 1's cap holds (at most a week per cycle). Undated claims keep their old anchor. The full rule's
+tests are `test_decay_age_counts.py`.
 """
 
 from __future__ import annotations
@@ -48,44 +48,45 @@ def _cycle(tmp_path, resolved: list[dict], now: datetime) -> None:
     conflict_resolver.apply_changes(changes, tmp_path)
 
 
-def test_a_page_created_from_a_six_month_old_episode_survives_a_multi_cycle_drain(tmp_path):
+def test_a_backdated_page_is_charged_its_age_once_and_never_again_the_same_day(tmp_path):
     day = datetime(2026, 9, 28, 3, 0)
-    _cycle(tmp_path, [_create("old-topic", "2026-03-20T10:00:00+00:00")], day)
+    _cycle(tmp_path, [_create("old-topic", "2026-09-07T10:00:00+00:00")], day)
     fm = markdown_parser.parse(tmp_path / "entities" / "old-topic.md").frontmatter
-    # True content date kept for display; silence measured from this cycle.
-    assert str(fm["last_referenced"]) == "2026-03-20" and str(fm["decayed_through"]) == "2026-09-28"
+    # Content date kept; three weeks of silence the episode proves, charged once.
+    assert str(fm["last_referenced"]) == "2026-09-07" and str(fm["learned_on"]) == "2026-09-28"
+    assert str(fm["decayed_through"]) == "2026-09-28"
+    assert round(fm["confidence"], 10) == round(0.7 - 0.05 * 3, 10)
 
-    for _ in range(6):  # the drain: back-to-back cycles working through the queue
+    for _ in range(6):  # more cycles the same day charge nothing more
         _cycle(tmp_path, [], day)
     fm = markdown_parser.parse(tmp_path / "entities" / "old-topic.md").frontmatter
-    assert fm["confidence"] == 0.7 and fm["status"] == "active"
+    assert round(fm["confidence"], 10) == round(0.7 - 0.05 * 3, 10) and fm["status"] == "active"
 
 
-def test_a_page_unmentioned_after_creation_decays_from_the_cycle_it_was_created(tmp_path):
+def test_after_its_age_is_charged_a_page_decays_a_week_per_cycle(tmp_path):
     created = datetime(2026, 9, 1, 3, 0)
-    _cycle(tmp_path, [_create("quiet-topic", "2026-03-20T10:00:00+00:00")], created)
-    # Two weeks later, one cycle at a time: exactly one week charged each (the cap),
-    # measured from 2026-09-01 — not from March.
-    _cycle(tmp_path, [], datetime(2026, 9, 8, 3, 0))
+    _cycle(tmp_path, [_create("quiet-topic", "2026-08-25T10:00:00+00:00")], created)
     fm = markdown_parser.parse(tmp_path / "entities" / "quiet-topic.md").frontmatter
     assert round(fm["confidence"], 10) == round(0.7 - 0.05, 10)
+    # Two weeks later, one cycle at a time: exactly one week charged each (the cap).
+    _cycle(tmp_path, [], datetime(2026, 9, 8, 3, 0))
+    fm = markdown_parser.parse(tmp_path / "entities" / "quiet-topic.md").frontmatter
+    assert round(fm["confidence"], 10) == round(0.7 - 0.10, 10)
     assert str(fm["decayed_through"]) == "2026-09-08"
     _cycle(tmp_path, [], datetime(2026, 9, 15, 3, 0))
     fm = markdown_parser.parse(tmp_path / "entities" / "quiet-topic.md").frontmatter
-    assert round(fm["confidence"], 10) == round(0.7 - 0.10, 10)
+    assert round(fm["confidence"], 10) == round(0.7 - 0.15, 10)
 
 
-def test_a_re_mention_of_old_episodes_restarts_the_clock_and_never_moves_it_back(tmp_path):
-    _cycle(tmp_path, [_create("seen-twice", "2026-03-20T10:00:00+00:00")], datetime(2026, 9, 20, 3, 0))
+def test_an_older_re_mention_moves_no_clock(tmp_path):
+    _cycle(tmp_path, [_create("seen-twice", "2026-09-15T10:00:00+00:00")], datetime(2026, 9, 20, 3, 0))
     update = {"id": "seen-twice", "action": "update", "entity": {"name": "Seen Twice", "type": "concept"},
               "source_episode": "ep_old_002", "source_episode_timestamp": "2026-04-02T10:00:00+00:00"}
-    # A drain cycle on an earlier reference date than the page's watermark.
-    _cycle(tmp_path, [update], datetime(2026, 9, 10, 3, 0))
-    fm = markdown_parser.parse(tmp_path / "entities" / "seen-twice.md").frontmatter
-    assert str(fm["decayed_through"]) == "2026-09-20"
     _cycle(tmp_path, [update], datetime(2026, 9, 25, 3, 0))
     fm = markdown_parser.parse(tmp_path / "entities" / "seen-twice.md").frontmatter
-    assert str(fm["decayed_through"]) == "2026-09-25"
+    # Age counts from when it was said: the April mention is older than the page's last one.
+    assert str(fm["last_referenced"]) == "2026-09-15" and str(fm["learned_on"]) == "2026-09-20"
+    assert str(fm["decayed_through"]) == "2026-09-20"
 
 
 # --- claims ------------------------------------------------------------------
@@ -116,7 +117,7 @@ def _reconcile(existing, incoming, today: str):
     )[0]
 
 
-def test_a_claim_minted_from_an_old_episode_is_not_charged_by_the_following_drain_cycles():
+def test_an_undated_claim_keeps_its_old_anchor_through_the_following_drain_cycles():
     today = "2026-09-28"
     state = _reconcile({}, [_stage1_claim("subj", "clm_a")], today)
     (claim,) = state["subj"]
@@ -129,7 +130,7 @@ def test_a_claim_minted_from_an_old_episode_is_not_charged_by_the_following_drai
     assert abs(state["subj"][0].confidence - (0.9 - 0.02)) < 1e-9
 
 
-def test_a_superseding_claim_from_an_old_episode_carries_the_watermark_too():
+def test_a_superseding_undated_claim_carries_the_watermark_too():
     today = "2026-09-28"
     state = _reconcile({}, [_stage1_claim("subj2", "clm_c", "postgres")], today)
     # Single-valued predicate: a newer claim (later episode) supersedes — the branch

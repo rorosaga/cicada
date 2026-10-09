@@ -30,14 +30,15 @@ def _seed_old_page(memory):
     claim = Claim(
         id="clm_old", text="Old topic uses a thing.", subject="old-topic", predicate="uses",
         object="a-thing", observer="agent", confidence=0.9, valid_from=OLD, recorded_at=OLD,
-        source_trust="agent_extracted", source_episodes=["ep_2025-01-01_001"],
+        # Said the day it was recorded: no proven silence to settle, so the charge is the live week alone.
+        source_trust="agent_extracted", source_episodes=[f"ep_{OLD}_001"],
     )
     body = write_claims("## Summary\nAn old topic nobody mentions.\n", [claim])
     markdown_parser.write(
         memory / "entities" / "old-topic.md",
         {"name": "Old topic", "type": "concept", "status": "active", "confidence": 0.9,
          "created": OLD, "last_referenced": OLD, "decay_class": "active",
-         "source_episodes": ["ep_2025-01-01_001"], "version": 1},
+         "source_episodes": [f"ep_{OLD}_001"], "version": 1},
         body,
     )
 

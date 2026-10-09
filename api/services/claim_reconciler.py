@@ -29,7 +29,7 @@ the human-protection rule must be deterministic and auditable.
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from typing import Callable
 
 from loguru import logger
@@ -148,16 +148,41 @@ def _close(old: Claim, *, by: Claim) -> None:
     by.supersedes = old.id
 
 
-def _reinforce(existing: Claim, incoming: Claim) -> None:
-    """Reaffirmation/duplicate: bump confidence + merge episodes; no new claim."""
+def _said(claim: Claim, untimed=frozenset()) -> str | None:
+    """The day a claim was last said: its latest dated conversation — its ``source_episodes`` and the ``ep_*``
+    documents its evidence cites, never a memory export entry (``episode_time``) or a session id. ``valid_from`` is
+    when the fact became true in the world, not when it was said, so it never counts here."""
+    refs = list(claim.source_episodes or [])
+    for ev in claim.evidence or []:
+        doc = str(getattr(ev, "episode", "") or "")
+        if doc.startswith("ep_"):
+            refs.append(doc)
+    return decay_policy.latest_said(refs, untimed=untimed)
+
+
+def _reinforce(existing: Claim, incoming: Claim, *, today: str | None = None, untimed=frozenset()) -> None:
+    """Reaffirmation/duplicate: bump confidence + merge episodes; no new claim.
+
+    With ``today`` (the Stage-3 pass; events pass none): age counts from when it was said. A raised confidence
+    is as of the claim's last mention — the decay pass ages it from then, so an old restatement read late fades
+    back by its age — and a later mention, or a raise, is learned today (``recorded_at``)."""
+    said_before = _said(existing, untimed) if today is not None else None
+    raised = incoming.confidence > existing.confidence
     existing.confidence = max(existing.confidence, incoming.confidence)
     for ep in incoming.source_episodes or []:
         if ep and ep not in existing.source_episodes:
             existing.source_episodes.append(ep)
     if incoming.recorded_at:
         existing.recorded_at = incoming.recorded_at
-    # A restatement restarts the silence clock (never backwards).
+    # A restatement never moves the watermark backwards on its own.
     existing.decayed_through = _max_date(existing.decayed_through, incoming.decayed_through)
+    if today is not None:
+        said = _said(existing, untimed)
+        later = said is not None and (said_before is None or said > said_before)
+        if raised and said is not None:
+            existing.decayed_through = said
+        if later or raised:
+            existing.recorded_at = today
     # PR #20 round-2 review fix — "repeated facts lose later conversations":
     # a scalar `session_id` can only ever remember the FIRST writer, so a
     # later conversation restating the same fact would silently vanish from
@@ -538,7 +563,7 @@ def _reconcile_milestone(new, slot, settings, *, today, nudges, audit) -> None:
 
 
 def _place_claim(new: Claim, slot: list[Claim], settings, today: str, cardinality_fn: CardinalityFn,
-                 nudges: list[dict], audit: list[dict]) -> Claim | None:
+                 nudges: list[dict], audit: list[dict], untimed=frozenset()) -> Claim | None:
     """One non-event incoming claim against its subject's slot (the K table).
     Returns the claim the page keeps for it — ``new``, or the existing claim a
     restatement reinforced — or ``None`` when it is not stored (a conflict to
@@ -557,13 +582,13 @@ def _place_claim(new: Claim, slot: list[Claim], settings, today: str, cardinalit
         if dup is None:
             slot.append(_stamp_new(new, settings, today=today))
             return new
-        _reinforce(dup, new)
+        _reinforce(dup, new, today=today, untimed=untimed)
         return dup
 
     # Single-valued: ≤1 open per slot.
     existing = same_key_open[0]
     if same_object(existing, new):
-        _reinforce(existing, new)
+        _reinforce(existing, new, today=today, untimed=untimed)
         return existing
 
     action = trust_decision(new, existing)
@@ -652,16 +677,19 @@ def reconcile_stage3(
     # pass, so two distinct happenings quoting one sentence never collapse.
     absorbed: set[str] = set()
 
+    # A memory export entry says nothing about when (`episode_time`): read once for the pass.
+    untimed = episode_time.untimed_ids(memory_path)
     for new in incoming_claims:
         sub = new.subject
         referenced_subjects.add(sub)
-        # An import is not the person going silent: a claim minted this pass from
-        # a months-old episode keeps that `valid_from`, but its silence is measured
-        # from when Cicada learned it (mirrors the entity engine's stamp in
-        # `conflict_resolver.resolve_and_prune`). Set before any branch, so every
-        # path that stores `new` — including SUPERSEDE, which skips `_stamp_new` —
-        # carries it, and `_reinforce` hands it to the claim it merges into.
-        new.decayed_through = _max_date(new.decayed_through, today)
+        # Age counts from when it was said (owner ruling 2026-10-09; mirrors the
+        # entity engine in `conflict_resolver.resolve_and_prune`): a claim minted
+        # from a dated conversation is charged nothing before it was said, and the
+        # decay pass charges the silence between then and `recorded_at` — the day
+        # Cicada read it — in full. Without a dated conversation (an agent's live
+        # write, a memory export entry) its clock starts today, as before. Set
+        # before any branch, so every path that stores `new` carries it.
+        new.decayed_through = _max_date(new.decayed_through, _said(new, untimed) or today)
         slot = reconciled.setdefault(sub, [])
 
         if is_event(new):
@@ -678,7 +706,7 @@ def reconcile_stage3(
         # One question per pair, raised after the pass so it names every claim
         # the pages keep for it — a reinforced restatement keeps the OLD id.
         raw_label = getattr(new, "predicate_raw", None)
-        kept = _place_claim(new, slot, settings, today, cardinality_fn, nudges, audit)
+        kept = _place_claim(new, slot, settings, today, cardinality_fn, nudges, audit, untimed)
         if raw_label:
             raw_slug = predicates._slugify_predicate(str(raw_label))
             if raw_slug and raw_slug != new.predicate:
@@ -691,7 +719,8 @@ def reconcile_stage3(
             nudges.append(_normalization_audit_nudge(entry["raw"], canonical, entry["kept"][0], entry["kept"][1:]))
 
     if decay:
-        _decay_claims(reconciled, referenced_subjects, settings, nudges, today, decay_class_fn, subject_fn)
+        _decay_claims(reconciled, referenced_subjects, settings, nudges, today, decay_class_fn, subject_fn,
+                      untimed=untimed)
     return reconciled, nudges, audit
 
 
@@ -700,19 +729,32 @@ def reconcile_stage3(
 # --------------------------------------------------------------------------- #
 
 
-def _days_since(ref: str | None, today: str) -> int:
-    try:
-        a = datetime.fromisoformat(today[:10]).date()
-        b = datetime.fromisoformat((ref or today)[:10]).date()
-    except ValueError:
-        return 0
-    return max(0, (a - b).days)
-
-
 def _max_date(left: str | None, right: str | None) -> str | None:
     """The later of two ISO date/date-time strings; either may be missing."""
     candidates = [str(c)[:10] for c in (left, right) if c]
     return max(candidates) if candidates else None
+
+
+def claim_rate(c: Claim, about, multiplier: float, *, untimed=frozenset(),
+               alpha: float = decay_policy.SPACING_ALPHA, floor: float = decay_policy.SPACING_FLOOR) -> float:
+    """A claim's weekly fade: per-epistemic base x source trust x the subject's class (G66) x the subject's
+    per-type pace x spacing over the weeks it was said in (G147, R-FD4)."""
+    base = _DECAY_BASE.get(c.epistemic, 0.02)
+    factor = _DECAY_FACTOR.get(c.source_trust, 1.0)
+    spacing = decay_policy.stability(
+        decay_policy.claim_mention_weeks(c, about.kept_on, untimed=untimed), alpha=alpha, floor=floor
+    )
+    return base * factor * multiplier * about.type_multiplier * spacing
+
+
+def claim_silence(c: Claim, today: date, cap_days: int, *, untimed=frozenset()) -> decay_policy.Silence | None:
+    """The silence one pass charges a claim (``decay_policy.silence``): from the later of when it was last said and
+    its watermark; proven silence up to ``recorded_at`` (the day Cicada read it) in full, live silence capped.
+    A claim with no dated conversation keeps its old anchor — ``recorded_at``, else ``valid_from`` — live only."""
+    said = _said(c, untimed)
+    if said is None:
+        return decay_policy.silence(c.recorded_at or c.valid_from, c.decayed_through, None, today, cap_days)
+    return decay_policy.silence(said, c.decayed_through, c.recorded_at, today, cap_days)
 
 
 def _decay_claims(
@@ -723,16 +765,21 @@ def _decay_claims(
     today: str,
     decay_class_fn: DecayClassFn,
     subject_fn: SubjectFn,
+    *,
+    untimed=None,
 ) -> None:
-    archive_threshold = float(getattr(settings, "archive_threshold", 0.2) or 0.2)
     nudge_threshold = float(getattr(settings, "decay_nudge_threshold", 0.4) or 0.4)
     alpha, floor = decay_policy.spacing_params(settings)
     # A memory export entry restates a claim without the claim coming up (`episode_time`).
-    untimed = episode_time.untimed_ids(getattr(settings, "memory_path", None))
+    if untimed is None:
+        untimed = episode_time.untimed_ids(getattr(settings, "memory_path", None))
+    today_date = date.fromisoformat(today[:10])
 
     for subject, claims in reconciled.items():
-        if subject in referenced_subjects:
-            continue
+        # A subject this pass read is not silent: its claims are charged only the
+        # silence their own conversations prove (last said -> the day Cicada read
+        # it), never live silence — the clock starts today.
+        cap = 0 if subject in referenced_subjects else MAX_DECAY_DAYS_PER_CYCLE
         # One lookup per subject, not per claim.
         multiplier = decay_policy.claim_multiplier(decay_class_fn(subject))
         if multiplier <= 0:
@@ -745,52 +792,25 @@ def _decay_claims(
                 # Closed claims are history; events are asked about (the G141
                 # follow-up), never faded (R-PJ12).
                 continue
-            base = _DECAY_BASE.get(c.epistemic, 0.02)
-            factor = _DECAY_FACTOR.get(c.source_trust, 1.0)
-            # G85 §2 / Wave-1 1.1: `recorded_at`/`valid_from` never move, so
-            # anchoring decay to them alone re-charges the SAME elapsed span
-            # on every Sleep run. `decayed_through` is the watermark this pass
-            # itself stamps below; anchor to whichever is more recent so an
-            # interval is charged exactly once.
-            anchor = _max_date(c.decayed_through, c.recorded_at or c.valid_from)
-            raw_days = _days_since(anchor, today)
-            # Wave-1 1.8: cap the charge at MAX_DECAY_DAYS_PER_CYCLE and
-            # advance the watermark by only that capped amount (not to
-            # `today`) — a long gap works off gradually over several cycles
-            # instead of charging the whole span as one cliff.
-            charged_days = min(raw_days, MAX_DECAY_DAYS_PER_CYCLE)
-            # G147 (R-FD4): a belief restated across many weeks fades slower than
-            # one heard in a single burst — weeks from what the claim already
-            # records, plus the subject's kept weeks.
-            spacing = decay_policy.stability(
-                decay_policy.claim_mention_weeks(c, about.kept_on, untimed=untimed), alpha=alpha, floor=floor
-            )
-            amount = (base * factor * multiplier * about.type_multiplier * spacing
-                      * (charged_days / 7.0))
-            today_date = date.fromisoformat(today[:10])
-            try:
-                anchor_date = date.fromisoformat((anchor or today)[:10])
-                new_watermark = min(today_date, anchor_date + timedelta(days=charged_days))
-            except ValueError:
-                new_watermark = today_date
+            # G85 §2 / Wave-1 1.1 + 1.8: charged from the watermark, so an interval
+            # is charged exactly once; live silence capped at MAX_DECAY_DAYS_PER_CYCLE
+            # with the watermark advancing only by what was charged (TODO ruling 1).
+            owed = claim_silence(c, today_date, cap, untimed=untimed)
+            if owed is None:
+                owed = decay_policy.Silence(0, 0, today_date)
+            if cap == 0 and owed.days == 0:
+                continue  # read this pass, nothing proven: untouched, as before
+            amount = claim_rate(c, about, multiplier, untimed=untimed, alpha=alpha, floor=floor) * (owed.days / 7.0)
             if amount > 0:
                 new_conf = max(0.0, c.confidence - amount)
+                # Heard late (an import): it fades into its age without a question.
+                quiet = decay_policy.heard_late(_said(c, untimed), c.recorded_at)
                 if new_conf != c.confidence:
                     c.confidence = new_conf
                     # Decay never closes a claim and never touches a human
                     # claim's validity — it only lowers the retrieval weight
                     # + may nudge.
-                    if new_conf < archive_threshold:
-                        nudges.append({
-                            "id": subject,
-                            "action": "decay_nudge",
-                            "entity": {"name": _entity_name(c)},
-                            "new_confidence": new_conf,
-                            "claim_id": c.id,
-                            "source_episode": (c.source_episodes or [None])[-1],
-                            "trigger": "sleep/decay",
-                        })
-                    elif new_conf < nudge_threshold:
+                    if new_conf < nudge_threshold and not quiet:
                         nudges.append({
                             "id": subject,
                             "action": "decay_nudge",
@@ -802,7 +822,7 @@ def _decay_claims(
                         })
             # Stamp the watermark regardless of whether `amount` moved
             # anything this pass — the next pass must measure from here.
-            c.decayed_through = new_watermark.isoformat()
+            c.decayed_through = owed.watermark.isoformat()
 
 
 # --------------------------------------------------------------------------- #

@@ -402,6 +402,10 @@ def merge_entities(memory_path: Path, loser_id: str, winner_id: str,
     last = [v for v in (wfm.get("last_referenced"), lfm.get("last_referenced")) if v]
     if last:
         wfm["last_referenced"] = max(last, key=str)
+    # And read most recently: a silence the loser's mention proves is still the merged page's to charge.
+    learned = [str(v)[:10] for v in (wfm.get("learned_on"), lfm.get("learned_on")) if v]
+    if learned:
+        wfm["learned_on"] = max(learned)
 
     # Section-merge loser body into winner (human-safe: never drop winner prose).
     # merge_sections_human_safe needs the STRUCTURED new_fields shape, so convert
