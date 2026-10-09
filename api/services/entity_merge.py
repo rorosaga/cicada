@@ -430,6 +430,25 @@ def merge_entities(memory_path: Path, loser_id: str, winner_id: str,
         elif content not in existing:
             merged_sections[title] = existing + "\n\n" + content
         # identical content: keep winner's, no dup
+    # The loser's `## Article` (G194). Canonical, so neither loop above carries it. A person's article (a hand-written
+    # one, or a machine one edited since its stamp) is never lost: it joins the winner's Article, after the winner's
+    # own, which makes the winner's prose the person's too (its stamp no longer matches: additive-only from now on).
+    # A machine article is not carried: it was compiled from the loser's record, which merged in above, and the
+    # winner's next article is rewritten from the merged record; git keeps the loser's page.
+    loser_article = (loser_sections.get(entity_article.SECTION) or "").strip()
+    if loser_article and not entity_article.stamped(lfm, loser_sections):
+        winner_article = (merged_sections.get(entity_article.SECTION) or "").strip()
+        if loser_article not in winner_article:
+            merged_sections[entity_article.SECTION] = (
+                f"{winner_article}\n\n{loser_article}" if winner_article else loser_article)
+            if not (merged_sections.get("Summary") or "").strip():
+                merged_sections["Summary"] = (loser_sections.get("Summary") or "").strip()
+            merged_sections = {t: merged_sections[t] for t in sorted(
+                merged_sections, key=lambda t: -1 if not t else entity_body.CANONICAL_SECTIONS.index(t)
+                if t in entity_body.CANONICAL_SECTIONS else len(entity_body.CANONICAL_SECTIONS))}
+    elif loser_article:
+        logger.info(f"merge: {loser_id}'s machine article is not carried; {winner_id}'s next article is written "
+                    "from the merged record")
     new_body = "\n\n".join(f"## {t}\n{c}" if t else c
                            for t, c in merged_sections.items() if c).strip()
     # A wikilink to the loser inside the merged prose now names this page.
