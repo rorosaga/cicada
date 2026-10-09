@@ -116,6 +116,7 @@ def test_apply_is_refused_before_any_call_unless_sleep_is_idle(tmp_path, monkeyp
         rebuild.run(bank, _settings(), mode="apply", sleep_running=lambda: True)
     assert calls == [] and _git(bank, "status", "--porcelain") == ""
     monkeypatch.setattr(script, "backend_running", lambda: True)
+    _resolves_to(monkeypatch, "local")   # an engine that resolves: the Sleep check is what refuses
     assert script.main(["--bank", str(bank), "--apply"]) == 3
 
 
@@ -157,3 +158,93 @@ def test_a_page_written_since_it_was_read_is_skipped(tmp_path, monkeypatch):
     path.write_text(path.read_text() + "\n")
     rebuild.apply(bank, result, sleep_running=lambda: False)
     assert result.changed_since_read == 1 and result.written == 0
+
+
+# --------------------------------------------------------------------------- the engine (orchestrator blocker)
+
+
+def _resolves_to(monkeypatch, mode, why="synthetic"):
+    """`engine_select.resolve_settings` as a person-started Sleep would see it: the given mode."""
+    from api.services import engine_select
+
+    seen = []
+
+    async def resolve(settings, registry=None, *, user_triggered=True):
+        seen.append(user_triggered)
+        return settings.model_copy(update={"llm_mode": mode}), why
+
+    monkeypatch.setattr(engine_select, "resolve_settings", resolve)
+    return seen
+
+
+def _capture_engine(monkeypatch, calls):
+    """The provider seam: records the engine each call was routed to, answers like `_fake`."""
+    from api.services import providers
+
+    def resolve_llm_fn(settings, *, model=None, completion=None, stage=None, **kwargs):
+        async def call(**call_kwargs):
+            calls.append(settings.llm_mode)
+            text = call_kwargs["messages"][-1]["content"]
+            data = json.loads(text.partition("\nDATA:\n")[2])
+            facts = [i["id"] for i in data["INPUT"] if i["kind"] == "fact"]
+            earlier = [i["id"] for i in data["INPUT"] if i["kind"] in ("earlier", "history")]
+            answer = {"summary": {"text": f"{data['NAME']} is part of the owner's work, dated March 2026.",
+                                  "from": earlier},
+                      "sections": [{"title": "What it is", "paragraphs": [
+                          {"text": "It uses SQLite and runs on a laptop.", "from": facts}]}]}
+            return SimpleNamespace(model="plan-model", choices=[SimpleNamespace(message=SimpleNamespace(
+                content=json.dumps(answer)))])
+        return call
+
+    monkeypatch.setattr(providers, "resolve_llm_fn", resolve_llm_fn)
+
+
+def test_the_plan_the_person_chose_is_the_engine_used(tmp_path, monkeypatch, capsys):
+    bank = _bank(tmp_path)
+    seen = _resolves_to(monkeypatch, "agent", "Sleep engine set to 'agent' in Settings")
+    calls = []
+    _capture_engine(monkeypatch, calls)
+    assert script.main(["--bank", str(bank), "--entity", "alpha-project", "--preview-dir",
+                        str(tmp_path / "out")]) == 0
+    out = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert seen == [True]                      # resolved as a person-started run
+    assert calls == ["agent"] and out["engine"] == "claude-cli" and out["written"] == 1
+    assert "sk-" not in json.dumps(out)
+
+
+def test_nothing_connected_is_refused_before_a_call(tmp_path, monkeypatch, capsys):
+    bank = _bank(tmp_path)
+    _resolves_to(monkeypatch, "byok", "no Sleep engine chosen")
+    for key in ("OPENAI_API_KEY", "OPENROUTER_API_KEY", "ANTHROPIC_API_KEY"):
+        monkeypatch.delenv(key, raising=False)
+    calls = []
+    _capture_engine(monkeypatch, calls)
+    for extra in ([], ["--allow-metered"]):
+        assert script.main(["--bank", str(bank), "--limit", "1", "--preview-dir", str(tmp_path / "out"),
+                            *extra]) == 4
+        out = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+        assert "No engine is connected" in out["refused"] and out["engine"] == "litellm"
+    assert script.main(["--bank", str(bank), "--apply"]) == 4
+    assert calls == [] and not (tmp_path / "out").exists()
+    assert _git(bank, "status", "--porcelain") == ""
+
+
+def test_a_metered_key_is_refused_without_the_flag_and_used_with_it(tmp_path, monkeypatch, capsys):
+    bank = _bank(tmp_path)
+    _resolves_to(monkeypatch, "byok", "no Sleep engine chosen — using the configured API model")
+    monkeypatch.setenv("OPENAI_API_KEY", "synthetic-not-a-key")
+    monkeypatch.setenv("CICADA_LITELLM_MODEL", "gpt-5.4-nano")
+    monkeypatch.delenv("CICADA_CONSOLIDATION_MODEL", raising=False)
+    calls = []
+    _capture_engine(monkeypatch, calls)
+    assert script.main(["--bank", str(bank), "--limit", "1", "--preview-dir", str(tmp_path / "out")]) == 4
+    out = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert "--allow-metered" in out["refused"] and "billed per call" in out["refused"]
+    assert calls == [] and "synthetic-not-a-key" not in json.dumps(out)
+    # The dry run names the engine and why a call would be refused, and calls nothing.
+    assert script.main(["--bank", str(bank)]) == 0
+    dry = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert dry["engine"] == "litellm" and dry["engine_reason"].startswith("refused:") and calls == []
+    assert script.main(["--bank", str(bank), "--limit", "1", "--preview-dir", str(tmp_path / "out"),
+                        "--allow-metered"]) == 0
+    assert calls == ["byok"]

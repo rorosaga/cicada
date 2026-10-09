@@ -42,6 +42,55 @@ class SleepRunning(RuntimeError):
     """Sleep holds this bank's pages, or a run is in progress: write nothing."""
 
 
+class EngineRefused(RuntimeError):
+    """No engine the person chose can write the articles, or the one that resolves spends money they did not agree
+    to here: call nothing. ``engine`` is the resolved engine's label (never a key)."""
+
+    def __init__(self, message: str, engine: str | None = None):
+        super().__init__(message)
+        self.engine = engine
+
+
+#: Engines that bill per call on the person's own API key. A plan (``claude-cli``, ``codex-cli``) and the local engine
+#: (``ollama``) do not.
+METERED_ENGINES = frozenset({"litellm"})
+
+
+async def resolve_engine(settings, *, allow_metered: bool = False):
+    """The engine a person-started Sleep would use now (`engine_select.resolve_settings`, ``user_triggered=True``:
+    the engine picked in Settings → Engines, a plan when one is chosen and connected), as ``(settings, label, why)``.
+
+    Raises :class:`EngineRefused` before any call when it resolves to the API-key engine and either the model's key is
+    not in the environment (nothing is connected) or ``allow_metered`` is false — a rebuild of many pages on a metered
+    key is spending the person agrees to by name (ruling 4's and ruling 12's spirit), never a fallback."""
+    from api.services import engine_select
+
+    resolved, why = await engine_select.resolve_settings(settings, user_triggered=True)
+    label = engine_select.engine_label(resolved)
+    if label in METERED_ENGINES:
+        model = str(getattr(resolved, "effective_consolidation_model", "") or "").strip()
+        if not model or not _key_present(model):
+            raise EngineRefused(
+                f"No engine is connected for this ({why}): connect a plan or a local engine in Settings → Engines, "
+                "or set an API key and pass --allow-metered.", engine=label)
+        if not allow_metered:
+            raise EngineRefused(
+                f"The engine that resolves is an API key, billed per call ({why}). Rebuilding pages this way spends "
+                "money: pass --allow-metered to agree to it, or choose a plan or a local engine in Settings → Engines.",
+                engine=label)
+    return resolved, label, why
+
+
+def _key_present(model: str) -> bool:
+    """The model's provider key is in the environment (litellm's own check; never reads or prints the key)."""
+    try:
+        import litellm
+
+        return bool(litellm.validate_environment(model=model).get("keys_in_environment"))
+    except Exception:  # noqa: BLE001 - an unknown provider is no proof of a key
+        return False
+
+
 @dataclass
 class Job:
     path: Path
@@ -71,6 +120,8 @@ class Survey:
     written: int = 0
     changed_since_read: int = 0
     committed: bool = False
+    engine: str | None = None       # the resolved engine label (never a key or a secret)
+    engine_reason: str | None = None
     _jobs: list[Job] = field(default_factory=list, repr=False)
     _models: set = field(default_factory=set, repr=False)
 
@@ -130,10 +181,12 @@ def survey(memory_path, settings, *, entity_ids=None, limit: int | None = None, 
 
 
 async def write(result: Survey, settings) -> Survey:
-    """One writer call per selected page, at most ``agent_max_concurrency`` at once. Engine errors propagate
-    (a plan limit stops the rebuild; nothing has been written)."""
-    from api.services.providers import resolve_llm_fn
+    """One writer call per selected page, at most ``agent_max_concurrency`` at once, on ``settings`` as
+    :func:`resolve_engine` resolved them. Engine errors propagate (a plan limit stops the rebuild; nothing has been
+    written)."""
+    from api.services import providers
 
+    resolve_llm_fn = providers.resolve_llm_fn
     completion = conflict_resolver._litellm().acompletion
     llm_fn = resolve_llm_fn(settings, model=settings.effective_consolidation_model, completion=completion,
                             stage="merge")
@@ -157,7 +210,12 @@ async def write(result: Survey, settings) -> Survey:
                                              aliases=job.writer["aliases"])
 
     concurrency = max(1, int(getattr(settings, "agent_max_concurrency", 1) or 1))
-    await conflict_resolver._overlap_pages(result._jobs, one, concurrency=concurrency)
+    import uuid
+
+    from api.services import agent_engine
+
+    with agent_engine.use_scope(f"articles:{uuid.uuid4().hex}"):   # a plan throttle here never blocks Sleep's scope
+        await conflict_resolver._overlap_pages(result._jobs, one, concurrency=concurrency)
     return result
 
 
@@ -213,13 +271,7 @@ def apply(memory_path, result: Survey, *, sleep_running: Callable[[], bool], set
                 rels.append(f"entities/{job.path.name}")
             result.written = len(rels)
             if rels and (memory_path / ".git").exists():
-                engine = None
-                if settings is not None:
-                    try:
-                        from api.services import engine_select
-                        engine = engine_select.engine_label(settings)
-                    except Exception:  # noqa: BLE001 - an engine trailer is omitted rather than guessed
-                        engine = None
+                engine = result.engine
                 message = git_service.build_commit_message(
                     f"Pages rebuilt as articles: {len(rels)} page(s)",
                     [f"{rel}: article (trigger: {TRIGGER})" for rel in rels],
@@ -233,9 +285,21 @@ def apply(memory_path, result: Survey, *, sleep_running: Callable[[], bool], set
 
 
 def run(memory_path, settings, *, mode: str, sleep_running: Callable[[], bool] = lambda: True,
-        entity_ids=None, limit: int | None = None, rewrite: bool = False, preview_dir=None) -> Survey:
-    """``mode``: ``"dry"`` (counts), ``"preview"`` (calls, files in ``preview_dir``) or ``"apply"``."""
+        entity_ids=None, limit: int | None = None, rewrite: bool = False, preview_dir=None,
+        allow_metered: bool = False) -> Survey:
+    """``mode``: ``"dry"`` (counts), ``"preview"`` (calls, files in ``preview_dir``) or ``"apply"``.
+
+    The engine is resolved first, as a person-started Sleep resolves it (:func:`resolve_engine`), and named in the
+    counts. The dry run only reports it (``engine_refused`` says why a call would be refused); preview and apply
+    raise :class:`EngineRefused` before any call."""
     result = survey(memory_path, settings, entity_ids=entity_ids, limit=limit, rewrite=rewrite)
+    try:
+        settings, result.engine, result.engine_reason = asyncio.run(
+            resolve_engine(settings, allow_metered=allow_metered))
+    except EngineRefused as exc:
+        if mode != "dry":
+            raise
+        result.engine, result.engine_reason = exc.engine, f"refused: {exc}"
     if mode == "dry" or not result._jobs:
         return result
     if mode == "apply" and sleep_running():
