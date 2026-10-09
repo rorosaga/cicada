@@ -73,6 +73,7 @@ def bank(tmp_path: Path) -> Path:
     _page(root, "already-archived", "2024-03-05", conf=0.1, status="archived")
     _page(root, "with-claims", "2026-10-07", body=CLAIMS_BODY)
     _page(root, "edited-by-hand", "2024-03-05")
+    _page(root, "repeat-2024", "2024-04-02", weeks=["2024-03-05", "2024-04-02"], kind="project")
     _git(root, "init", "-q")
     _git(root, "config", "user.name", "Synthetic")
     _git(root, "config", "user.email", "synthetic@example.com")
@@ -93,26 +94,27 @@ def test_the_dry_run_counts_by_type_and_age_and_writes_nothing(bank):
     counts = recompute.survey(bank, today=TODAY).counts()
     assert {p.name: p.read_text() for p in (bank / "entities").glob("*.md")} == before
 
-    assert counts["eligible"] == 7 and counts["dirty"] == 1
-    assert counts["lowered"] == 5                     # said-after-added was read live; with-claims is fresh
-    assert counts["would_archive"] == 1               # script-2024
-    assert counts["would_decay_quietly"] == 2         # quarter-old, once — heard late: no question
-    assert counts["would_be_asked"] == 0
+    assert counts["eligible"] == 8 and counts["dirty"] == 1
+    assert counts["lowered"] == 6                     # said-after-added was read live; with-claims is fresh
+    assert counts["would_archive"] == 1               # script-2024: one conversation
+    assert counts["floored_repeats"] == 1             # repeat-2024: two conversations, held just above 0.2
+    assert counts["would_decay"] == 3                 # quarter-old, once, repeat-2024
+    assert counts["would_be_asked"] == 3              # by later passes, as live silence charges them (capped)
     assert counts["claims_lowered"] == 1 and counts["claims_below_nudge"] == 1
-    assert counts["learned_from_git"] == 7 and counts["learned_without_git"] == 0
-    assert counts["by_age"]["over_1_year"] == {"pages": 1, "lowered": 1, "archive": 1, "decaying": 0}
+    assert counts["learned_from_git"] == 8 and counts["learned_without_git"] == 0
+    assert counts["by_age"]["over_1_year"] == {"pages": 2, "lowered": 2, "archive": 1, "decaying": 1}
     assert counts["by_age"]["3_to_12_months"] == {"pages": 2, "lowered": 2, "archive": 0, "decaying": 1}
     assert counts["by_age"]["under_3_months"] == {"pages": 4, "lowered": 2, "archive": 0, "decaying": 1}
-    assert counts["by_type"]["concept"]["lowered"] == 5
+    assert counts["by_type"]["concept"]["lowered"] == 5 and counts["by_type"]["project"]["decaying"] == 1
     text = json.dumps(counts)
     assert "script-2024" not in text and "spaced" not in text, "counts only, never a page name"
 
 
 def test_apply_charges_once_in_one_commit_and_a_second_run_changes_nothing(bank):
     result = recompute.apply(bank, sleep_running=lambda: False, today=TODAY)
-    assert result.written == 6 and result.committed   # five pages lowered + the page whose claim was lowered
+    assert result.written == 7 and result.committed   # six pages lowered + the page whose claim was lowered
     assert len(_git(bank, "log", "--format=%H").split()) == 2
-    assert _git(bank, "log", "-1", "--format=%s") == "Decay by age: 6 page(s)\n"
+    assert _git(bank, "log", "-1", "--format=%s") == "Decay by age: 7 page(s)\n"
     assert "Cicada-Author: cicada" in _git(bank, "log", "-1", "--format=%b")
     assert _git(bank, "status", "--porcelain").strip() == "M entities/edited-by-hand.md"
 
@@ -126,6 +128,8 @@ def test_apply_charges_once_in_one_commit_and_a_second_run_changes_nothing(bank)
     spaced, once = _fm(bank, "spaced"), _fm(bank, "once")
     assert spaced["status"] == "active" and once["status"] == "decaying"
     assert spaced["confidence"] > once["confidence"], "twelve weeks of mentions fade slower than one"
+    repeat = _fm(bank, "repeat-2024")
+    assert repeat["status"] == "decaying" and math.isclose(repeat["confidence"], 0.21, abs_tol=1e-9)
     for untouched in ("said-after-added", "saved-article", "owner-example", "export-only", "already-archived"):
         assert "learned_on" not in _fm(bank, untouched), untouched
     assert _fm(bank, "saved-article")["confidence"] == 0.99 and _fm(bank, "owner-example")["confidence"] == 0.99
@@ -176,9 +180,21 @@ def test_apply_is_refused_while_sleep_runs(bank):
 
 def test_the_script_is_a_dry_run_unless_told_and_refuses_when_the_backend_is_not_idle(bank, monkeypatch, capsys):
     assert script.main(["--bank", str(bank)]) == 0
-    assert json.loads(capsys.readouterr().out)["lowered"] == 5
+    assert json.loads(capsys.readouterr().out)["lowered"] == 6
     assert _fm(bank, "script-2024")["status"] == "active"
     monkeypatch.setattr(script, "backend_running", lambda: True)
     assert script.main(["--bank", str(bank), "--apply"]) == 3
     assert "refused" in json.loads(capsys.readouterr().out)
     assert script.main(["--bank", str(bank / "nowhere")]) == 2
+
+
+def test_a_claim_restated_in_two_conversations_floors_in_the_recompute(tmp_path):
+    root = tmp_path / "bank"
+    (root / "entities").mkdir(parents=True)
+    line = {"id": "clm_r", "text": "fact", "subject": "repeat", "predicate": "uses", "object": "x",
+            "confidence": 0.9, "recorded_at": "2026-10-07", "decayed_through": "2026-10-08",
+            "source_episodes": ["ep_2024-03-05_001", "ep_2024-04-02_001"]}
+    _page(root, "repeat", "2026-10-07", body="## Summary\nA thing.\n\n```claims\n" + json.dumps(line) + "\n```\n")
+    recompute.apply(root, sleep_running=lambda: False, today=TODAY)
+    (claim,) = parse_claims(markdown_parser.parse(root / "entities" / "repeat.md").body)
+    assert math.isclose(claim.confidence, 0.21, abs_tol=1e-9)

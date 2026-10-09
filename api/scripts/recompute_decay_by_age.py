@@ -5,9 +5,10 @@ automatically (owner ruling 2026-10-09, "let age count"; ``api.services.age_reco
     api/.venv/bin/python -m api.scripts.recompute_decay_by_age --bank <path> --apply   # one `cicada` commit
 
 The dry run counts the pages it would lower, by type and by the age of their last mention (under 3 months, 3-12
-months, over a year), how many would be archived (below 0.2: they stay in entities/ and recall still finds them,
-ranked last), how many would fade to decaying without a question (heard late), how many would be asked about at the
-next Sleep (`would_be_asked`), and the claims it would lower. ``--apply`` writes exactly that — confidence, status,
+months, over a year), how many would be archived (below 0.2: one-conversation pages only — they stay in entities/ and
+recall still finds them, ranked last), how many would fade to decaying (`would_decay`; `floored_repeats` of them rest on
+2+ conversations and are held just above 0.2), how many Sleep would later ask about (`would_be_asked`, at most the
+cycle's cap of new questions a cycle), and the claims it would lower. ``--apply`` writes exactly that — confidence, status,
 ``learned_on`` and the watermark, and the changed claim lines — in one `cicada` commit (trigger
 ``maintenance/decay-by-age``), refused while Sleep runs or holds the pages; pages dirty in git or written since the
 survey are skipped. A second run changes nothing. No inbox item is written.

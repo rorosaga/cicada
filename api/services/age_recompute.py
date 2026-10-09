@@ -20,9 +20,11 @@ changed lines of a JSON Lines fence are rewritten, every other byte kept.
 Only lowers: confidence and status (below 0.4 ``decaying``, below 0.2 ``archived`` — the page stays in ``entities/``
 and recall still finds it). Never touched: evergreen pages (the owner's page among them), archived and dropped pages,
 pages with no dated mention (a memory export entry alone), pages Sleep already charged by age (``learned_on``
-present), pages dirty in git or written since the survey. No inbox item is written; a page charged here was heard
-late, so Sleep's decay pass fades it without a question (``decay_policy.heard_late``) — ``would_be_asked`` counts the
-few that were not.
+present), pages dirty in git or written since the survey. One-offs archive, repeats fade (owner 2026-10-09): a page or
+claim resting on 2+ distinct dated conversations is never taken below just above the archive line by this charge
+(``decay_policy.charge``; ``floored_repeats`` counts the pages that floor held). No inbox item is written; a page left
+decaying is asked about by the first Sleep pass that charges it live silence, at most the cycle's cap of new
+questions at a time (``would_be_asked``).
 """
 from __future__ import annotations
 
@@ -65,8 +67,9 @@ class Survey:
     already_by_age: int = 0
     lowered: int = 0
     would_archive: int = 0
-    would_decay_quietly: int = 0
+    would_decay: int = 0
     would_be_asked: int = 0
+    floored_repeats: int = 0
     claims_lowered: int = 0
     claims_below_nudge: int = 0
     claims_skipped_legacy_fence: int = 0
@@ -134,7 +137,7 @@ def _recompute_claims(body: str, subject_about, multiplier: float, untimed, resu
     if not claims.is_jsonl_payload(payload):
         result.claims_skipped_legacy_fence += 1   # `migrate_claims_jsonl` converts it; never re-rendered here
         return body
-    from api.services.claim_reconciler import _said
+    from api.services.claim_reconciler import _said, _said_refs
 
     lines = payload.split("\n")
     changed = False
@@ -151,8 +154,11 @@ def _recompute_claims(body: str, subject_about, multiplier: float, untimed, resu
         said, learned = _day(_said(claim, untimed)), _day(claim.recorded_at)
         if said is None or learned is None or learned <= said:
             continue
-        amount = claim_rate(claim, subject_about, multiplier, untimed=untimed) * (learned - said).days / 7.0
-        new_conf = max(0.0, claim.confidence - amount)
+        rate = claim_rate(claim, subject_about, multiplier, untimed=untimed)
+        new_conf = decay_policy.charge(
+            claim.confidence, rate, decay_policy.Silence((learned - said).days, 0, learned),
+            archive_threshold=ARCHIVE_THRESHOLD,
+            conversations=decay_policy.conversations(_said_refs(claim), untimed=untimed))
         if new_conf >= claim.confidence:
             continue
         raw["confidence"] = new_conf
@@ -224,7 +230,11 @@ def survey(memory_path, *, today: date | None = None, settings=None) -> Survey:
                 learned = max([d for d in (said, _day(fm.get("decayed_through"))) if d is not None])
             learned = min(learned, today)
             confidence = float(fm.get("confidence", 0.5) or 0.0)
-            new_conf = max(0.0, confidence - effective.rate * (learned - said).days / 7.0)
+            heard_in = decay_policy.conversations(fm.get("source_episodes"), untimed=untimed)
+            unfloored = max(0.0, confidence - effective.rate * (learned - said).days / 7.0)
+            new_conf = decay_policy.charge(
+                confidence, effective.rate, decay_policy.Silence((learned - said).days, 0, learned),
+                archive_threshold=ARCHIVE_THRESHOLD, conversations=heard_in)
             if new_conf < confidence:
                 lowered = True
                 new_fm["confidence"] = new_conf
@@ -243,10 +253,11 @@ def survey(memory_path, *, today: date | None = None, settings=None) -> Survey:
                     new_fm["status"] = "decaying"
                     for tally in (result.by_type[kind], result.by_age[bucket]):
                         tally["decaying"] += 1
-                    if decay_policy.heard_late(said, learned):
-                        result.would_decay_quietly += 1
-                    else:
-                        result.would_be_asked += 1
+                    result.would_decay += 1
+                    # Asked by the first Sleep pass that charges it live silence (at most
+                    # `decay_inbox_cap_per_cycle` new questions a cycle) — never by the recompute.
+                    result.would_be_asked += 1
+                    result.floored_repeats += unfloored < ARCHIVE_THRESHOLD
 
         about = subject(path.stem)
         new_body = _recompute_claims(body, about, decay_policy.claim_multiplier(about.decay_class), untimed, result)
