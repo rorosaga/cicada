@@ -465,6 +465,16 @@ class EntityDecay(CamelModel):
     mention_weeks: int
 
 
+class EntityBands(CamelModel):
+    """G180 parity — the card's classifications, computed behind the API (`entity_bands`) so no client re-derives
+    them: ``confidence`` very|fairly|unsure|doubtful, ``fade_pace`` never|very_slowly|slowly|usual|quickly (from the
+    charged rate), ``last_mentioned`` the page's day when it is old (G194), else null. Words stay in each client."""
+
+    confidence: str
+    fade_pace: str
+    last_mentioned: Optional[str] = None
+
+
 class PictureInputsModel(CamelModel):
     """C11 — the rung inputs `entity_picture.resolve` read (plan R-PE5), so the app's twin can paint a removal before
     the server answers (R-PE10). `choice` is the person's (`upload` | `initials`); `logo` is already the logo rung's
@@ -531,6 +541,8 @@ class EntityResponse(CamelModel):
     # builds an EntityResponse without a page. Additive: an older client
     # ignores it and keeps showing the class.
     decay: Optional[EntityDecay] = None
+    # G180 parity: additive; `GET /entities/{id}` has no ETag and is not a Store domain, so no VersionVector change.
+    bands: Optional[EntityBands] = None
     # C11 (G146) — the page's picture (`entity_picture.resolve`): a path on this API the app loads with the bearer
     # (`/entities/{id}/picture?v=…`, `/entities/{id}/logo`, `/entities/{id}/preview?v=…` — a media page's stored
     # preview; no provider URL any more); which rung won; and the inputs the app's twin re-resolves from. Additive: an older client ignores

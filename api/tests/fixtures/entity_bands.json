@@ -1,0 +1,28 @@
+{
+  "_comment": "One table for the entity card's bands (G180 parity): api/services/entity_bands.py serves them on GET /entities/{id}, and the app's EntityHeaderWords / FadeWords read the same rows (EntityBandsTests.swift). Change a threshold on one side only and the other goes red.",
+  "confidence": [
+    [1.0, "very"], [0.85, "very"], [0.849, "fairly"], [0.6, "fairly"], [0.599, "unsure"],
+    [0.4, "unsure"], [0.399, "doubtful"], [0.0, "doubtful"], [-0.5, "doubtful"]
+  ],
+  "fadePace": [
+    [-1.0, "never"], [0.0, "never"], [0.001, "very_slowly"], [0.0125, "very_slowly"], [0.0126, "slowly"],
+    [0.03, "slowly"], [0.0301, "usual"], [0.05, "usual"], [0.0799, "usual"], [0.08, "quickly"], [0.5, "quickly"]
+  ],
+  "lastMentioned": {
+    "today": "2026-10-09",
+    "cases": [
+      ["2026-07-11", null],
+      ["2026-07-10", "2026-07-10"],
+      ["2025-02-01", "2025-02-01"],
+      ["2025-02-01T10:00:00+00:00", "2025-02-01"],
+      ["2025-02-01 10:00", "2025-02-01"],
+      ["2025-02-01Z", null],
+      ["2025-02-30", null],
+      ["2025-2-01", null],
+      ["2099-01-01", null],
+      ["", null],
+      [null, null],
+      ["not a day", null]
+    ]
+  }
+}

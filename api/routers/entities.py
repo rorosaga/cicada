@@ -13,6 +13,7 @@ from api.models.schemas import (
     ContextEpisodeExcerpt,
     ContextNeighbor,
     EntityContextResponse,
+    EntityBands,
     EntityDecay,
     EntityDecayUpdate,
     EntityDiff,
@@ -42,6 +43,7 @@ from api.models.schemas import (
 from api.services import (
     decay_policy,
     decay_tuning,
+    entity_bands,
     entity_picture,
     episode_time,
     fact_sources,
@@ -141,6 +143,11 @@ async def get_entity(
             effective_rate_per_week=round(effective.rate, 6),
             mention_weeks=effective.mention_weeks,
         ),
+        # G180 parity: the card's bands from the backend, the charged rate above being the pace's one input.
+        bands=EntityBands(**entity_bands.bands(confidence=fm.get("confidence", 0.5),
+                                               rate_per_week=round(effective.rate, 6),
+                                               last_referenced=str(fm.get("last_referenced", "")),
+                                               today=date.today())),
         picture=picture.url,
         picture_source=picture.source,
         picture_inputs=PictureInputsModel(**picture_inputs.to_fields()),
