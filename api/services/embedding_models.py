@@ -28,9 +28,9 @@ that never chose it) moves to it; a model the person picked, or set explicitly, 
 (macOS 14, not downloaded yet, a failed load) the small bundled model answers as before and search never errors.
 
 **A model change is a background re-embed, never Sleep's** (``start_reindex_if_needed``): each table is
-re-embedded in full with the new model in this process's background thread — the embed first, then one
-transaction swaps the table, so recall keeps answering from the old table (queried with the old model it
-records) until the new one is written. It starts after a choice, an install, the backend's start and the end
+re-embedded in full with the new model from this process's background thread — the embed first (in a child
+process, ``embed_worker``: Core ML holds the GIL), then one transaction swaps the table, so recall keeps
+answering from the old table (queried with the old model it records) until the new one is written. It starts after a choice, an install, the backend's start and the end
 of every Sleep run, never while Sleep runs, and gives way within one chunk of 64 texts when Sleep starts
 (Sleep's own syncs keep each table's recorded model meanwhile: ``SqliteVecIndexer(defer_model_switch=True)``).
 

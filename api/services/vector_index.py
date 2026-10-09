@@ -297,8 +297,6 @@ class SqliteVecIndexer:
         the ``hash`` of the text that was embedded — what :meth:`_sync_kind`
         diffs against so the next cycle embeds only what changed.
         """
-        import sqlite_vec
-
         dim = int(rows[0][0].shape[0])
         vec_table = f"vec_{kind}"
         meta_table = f"meta_{kind}"
@@ -320,7 +318,7 @@ class SqliteVecIndexer:
         for i, (embedding, text, metadata) in enumerate(rows, start=1):
             conn.execute(
                 f"INSERT INTO {vec_table}(rowid, embedding) VALUES (?, ?)",
-                (i, sqlite_vec.serialize_float32([float(x) for x in embedding])),
+                (i, _blob(embedding)),
             )
             conn.execute(
                 f"INSERT INTO {meta_table}(rowid, text, metadata, key, hash) "
@@ -382,8 +380,17 @@ class SqliteVecIndexer:
                 return embed_fn, recorded
         return build_fn, model
 
-    def _embed_documents(self, embed_fn: EmbedFn, texts: list[str]) -> np.ndarray:
-        """Documents through ``embed_fn``; a stoppable sync embeds in chunks and gives way between them."""
+    def _embed_documents(self, embed_fn: EmbedFn, texts: list[str], model: str | None = None) -> np.ndarray:
+        """Documents through ``embed_fn``; a stoppable sync embeds in chunks and gives way between them.
+
+        A long batch for an on-device ``model`` is embedded in a child process with that same model
+        (``embed_worker``): Core ML holds the GIL for every predict, and minutes of them in this process starved
+        the event loop. Everything else here — the chunks, the stop check, what is written — is unchanged."""
+        if not getattr(self, "_injected", False) and _named(model):
+            from api.services import embed_worker
+
+            if embed_worker.eligible(model):
+                embed_fn = embed_worker.documents(model, embed_fn)
         if self._should_stop is None:
             return self._checked(embed_fn(texts, is_query=False), len(texts))
         parts: list[np.ndarray] = []
@@ -420,8 +427,6 @@ class SqliteVecIndexer:
             return self._sync_kind_locked(kind, staged)
 
     def _sync_kind_locked(self, kind: str, staged: list[tuple[str, str, dict]]) -> dict[str, int]:
-        import sqlite_vec
-
         unique_keys: list[str] = []
         seen: dict[str, int] = {}
         for key, _text, _meta in staged:
@@ -454,7 +459,7 @@ class SqliteVecIndexer:
                 return stats
 
             def full() -> dict[str, int]:
-                embeddings = self._embed_documents(embed_fn, [t for _k, t, _m in staged])
+                embeddings = self._embed_documents(embed_fn, [t for _k, t, _m in staged], model)
                 rows = [(embeddings[i], staged[i][1], staged[i][2]) for i in range(len(staged))]
                 self._rebuild_table(conn, kind, rows, keys=unique_keys, model=model)
                 stats.update(embedded=len(rows), rebuilt=1)
@@ -474,7 +479,7 @@ class SqliteVecIndexer:
             stats["reused"] = len(staged) - len(todo)
             if not todo and not gone and not meta_moved:
                 return stats
-            embeddings = self._embed_documents(embed_fn, [staged[i][1] for i in todo]) if todo else None
+            embeddings = self._embed_documents(embed_fn, [staged[i][1] for i in todo], model) if todo else None
             if embeddings is not None and dim and int(embeddings.shape[1]) != dim:
                 return full()  # same model name, different width: nothing is reusable
 
@@ -494,7 +499,7 @@ class SqliteVecIndexer:
                         rowid, next_rowid = next_rowid, next_rowid + 1
                     conn.execute(
                         f"INSERT INTO {vec_table}(rowid, embedding) VALUES (?, ?)",
-                        (rowid, sqlite_vec.serialize_float32([float(x) for x in embeddings[j]])),
+                        (rowid, _blob(embeddings[j])),
                     )
                     conn.execute(
                         f"INSERT INTO {meta_table}(rowid, text, metadata, key, hash) "
@@ -606,8 +611,6 @@ class SqliteVecIndexer:
         *,
         qvec: np.ndarray | None = None,
     ) -> list[dict]:
-        import sqlite_vec
-
         vec_table = f"vec_{kind}"
         meta_table = f"meta_{kind}"
         if qvec is None:
@@ -621,7 +624,7 @@ class SqliteVecIndexer:
             f"SELECT v.rowid, v.distance, m.text, m.metadata "
             f"FROM {vec_table} v JOIN {meta_table} m ON m.rowid = v.rowid "
             f"WHERE v.embedding MATCH ? AND k = ? ORDER BY v.distance",
-            (sqlite_vec.serialize_float32([float(x) for x in qvec]), int(top_k)),
+            (_blob(qvec), int(top_k)),
         )
         results: list[dict] = []
         for _rowid, distance, text, metadata_json in cur.fetchall():
@@ -898,7 +901,7 @@ class SqliteVecIndexer:
         rows_meta = [rows_meta[i] for i in keep]
         # Always rebuilt in full, so always with the bank's model (a few hundred short names, never a deferral).
         with _write_lock(self.db_path):
-            embeddings = self._embed_documents(self._ensure_or_global(), texts)
+            embeddings = self._embed_documents(self._ensure_or_global(), texts, self.model_name)
             rows = [(embeddings[i], texts[i], rows_meta[i]) for i in range(len(texts))]
             conn = self._connect()
             try:
@@ -1044,6 +1047,14 @@ class SqliteVecIndexer:
                         "metadata": {**meta, **claim.to_dict(), "claim_id": claim.id,
                                      "file_path": str(page)}})
         return out
+
+
+def _blob(vector) -> bytes:
+    """A vector as the raw float32 bytes sqlite-vec stores. ``tolist()`` converts in C: the per-element Python loop it
+    replaces was a GIL-held second per thousand-odd rows of a re-embed's write (byte-identical output)."""
+    import sqlite_vec
+
+    return sqlite_vec.serialize_float32(np.asarray(vector, dtype=np.float32).tolist())
 
 
 def _text_hash(text: str) -> str:
