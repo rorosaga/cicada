@@ -162,8 +162,35 @@ def record_sections(prose_body: str, entity_type: str, new_fields: dict) -> dict
     sections = entity_body.upgrade_legacy_to_v2(prose_body, entity_type)
     sections.pop("Summary", None)
     sections.pop(SECTION, None)
+    original = dict(sections)
     fields = {k: v for k, v in (new_fields or {}).items() if k not in ("summary", "description")}
-    return entity_body.merge_sections_fallback(sections, {**fields, "summary": ""})
+    merged = entity_body.merge_sections_fallback(sections, {**fields, "summary": ""})
+    # A legacy writer's free text inside a list section ("The deploy target moved …" under Key Facts, not a bullet) is
+    # record too, and the bullet merge would drop it: such a section keeps its text exactly, with only the new bullets
+    # appended (`entity_orientation.compose`'s rule).
+    for title in ("Key Facts", "History", "Links", "Open Questions"):
+        text = original.get(title, "")
+        if _has_free_text(text):
+            seen = {entity_body._normalize_fact(i) for i in entity_body._bullet_lines(text)}
+            added = [i for i in entity_body._bullet_lines(merged.get(title, ""))
+                     if entity_body._normalize_fact(i) not in seen]
+            merged[title] = text + ("\n" + entity_body._bullets_block(added) if added else "")
+    return merged
+
+
+def _has_free_text(text: str) -> bool:
+    """A line in a list section that is neither a bullet nor a bullet's indented continuation."""
+    return any(line.strip() and not line[:1].isspace() and not line.lstrip().startswith(("- ", "* "))
+               for line in (text or "").splitlines())
+
+
+def free_text(prose_body: str) -> list[str]:
+    """The free-text lines of a page's list sections (what :func:`record_sections` keeps verbatim), so the writer is
+    given them as inputs too."""
+    sections = entity_body.parse_sections(prose_body or "")
+    return [line.strip() for title in ("Key Facts", "History", "Links", "Open Questions")
+            for line in (sections.get(title) or "").splitlines()
+            if line.strip() and not line[:1].isspace() and not line.lstrip().startswith(("- ", "* "))]
 
 
 # --------------------------------------------------------------------------- inputs
@@ -239,7 +266,9 @@ def build(*, name: str, entity_type: str, frontmatter: dict, original_body: str,
                               rows, retain))
 
     first_article = not str(page.get(SECTION) or "").strip()
-    old_lead = str(page.get("Summary") or "").strip()
+    # A legacy page's opening text (before any `## `) is its lead: `upgrade_legacy_to_v2` reads it the way
+    # `record_sections` does, so it reaches the writer and, on a first article, is kept as Key Facts if uncarried.
+    old_lead = str(entity_body.upgrade_legacy_to_v2(prose, entity_type).get("Summary") or "").strip()
     lead_item = next(iter(scanned.get("summary", [])), None)
     lead_rows = page_rows("summary", lead_item.text) if lead_item else []
     for sentence in entity_body._summary_sentences(old_lead):
@@ -256,6 +285,8 @@ def build(*, name: str, entity_type: str, frontmatter: dict, original_body: str,
         rows = page_rows("key_facts", fact) or list(incoming_rows.get(fact.strip(), []))
         add("f", "fact", fact, rows, said_on=_days(rows) or (list(update_days) if fact.strip() in incoming_rows
                                                                 else []))
+    for line in free_text(prose):
+        add("f", "fact", line, [])   # free text a legacy writer left in a list section: kept on the page as is
     for line in entity_body._bullet_lines(record.get("History", "")):
         m = re.match(r"^(\d{4}-\d{2}-\d{2})", line.strip())
         add("h", "history", line, page_rows("history", line), said_on=[m.group(1)] if m else None)
@@ -502,5 +533,11 @@ def compose(prose_body: str, entity_type: str, new_fields: dict, article: dict) 
     if article.get("markdown"):
         sections[SECTION] = article["markdown"]
     if article.get("retain"):
-        sections["Key Facts"] = entity_body._merge_facts(sections.get("Key Facts", ""), list(article["retain"]))
+        facts = sections.get("Key Facts", "")
+        if _has_free_text(facts):   # keep a legacy writer's free text exactly; append only what is new
+            seen = {entity_body._normalize_fact(i) for i in entity_body._bullet_lines(facts)}
+            added = [f for f in dict.fromkeys(article["retain"]) if entity_body._normalize_fact(f) not in seen]
+            sections["Key Facts"] = facts + ("\n" + entity_body._bullets_block(added) if added else "")
+        else:
+            sections["Key Facts"] = entity_body._merge_facts(facts, list(article["retain"]))
     return sections
