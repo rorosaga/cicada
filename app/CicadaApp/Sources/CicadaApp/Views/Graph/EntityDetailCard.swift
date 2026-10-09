@@ -71,8 +71,24 @@ struct EntityDetailCard: View {
     @State private var paperDetail: PaperDetail?
     /// R-DG21 / DR-39 — the Details disclosure, collapsed until this viewer opens it, then remembered.
     @AppStorage(DetailsWords.openKey) private var detailsOpen = false
-    /// F-12 (R-PE17, DR-39) — a person's "Show the page" disclosure, closed until this viewer opens it, then remembered.
-    @AppStorage("cicada.person.pageOpen") private var personPageOpen = false
+    /// Owner 2026-10-09 (DR-39) — the card opens on the page; every other section waits behind its own remembered
+    /// disclosure and reads its data only when opened (`CardDisclosure`).
+    @AppStorage(CardSections.beliefsKey) private var beliefsOpen = false
+    @AppStorage(CardSections.provenanceKey) private var provenanceOpen = false
+    @AppStorage(CardSections.connectionsKey) private var connectionsOpen = false
+    @AppStorage(CardSections.sourcesKey) private var sourcesOpen = false
+    /// A person's "Works at" and "Role" cells, read on open as the few current beliefs with those predicates — the
+    /// header never waits for (or reads) every belief on the page.
+    @State private var factClaims: [Claim] = []
+    /// `sources` has been read for this page (the "Look it up at" section reads it when opened).
+    @State private var sourcesLoaded = false
+    /// Bumped to scroll the card to "Where this came from" (a line with no recorded source of its own).
+    @State private var provenanceScroll = 0
+    /// The full page could not be read: the card says so, with a retry, instead of "Reading the page…" forever (DR-32).
+    @State private var pageReadFailed = false
+    /// The one claims read in flight for this card: the beliefs section and the Perspectives or Timeline tab opening
+    /// together share it rather than each asking for megabytes.
+    @State private var claimsRead: Task<Void, Never>?
 
     // History tab (G68 §2.10). `entity.history` is empty BOTH before the full
     // entity body has landed and when the page has no commits, so track the
@@ -181,7 +197,7 @@ struct EntityDetailCard: View {
     /// F-12 (R-PE16) — a person's facts, derived from what the card already loaded; nothing for any other type.
     private var personFacts: [PersonFact] {
         guard entity.type == .person else { return [] }
-        return PersonFacts.cells(entity: entity, claims: claimsLoaded ? digest.current : [],
+        return PersonFacts.cells(entity: entity, claims: claimsLoaded ? digest.current : factClaims,
                                  provenance: provenanceState.value,
                                  names: store.entityNames, typeOf: { id in graphVM.node(id)?.type },
                                  picture: store.picture(for: entity.id, held: entity.pictureRef),
@@ -213,13 +229,16 @@ struct EntityDetailCard: View {
                 facts: personFacts, pictureInputs: entity.pictureInputs,
                 onShowOnGraph: style == .card ? showOnGraph : nil,
                 onOpenEntity: { navigate(to: $0) })
-            ScrollView {
-                switch selectedTab {
-                case .content: contentTab
-                case .perspectives: perspectivesTab
-                case .history: historyTab
-                case .timeline: timelineTab
+            ScrollViewReader { proxy in
+                ScrollView {
+                    switch selectedTab {
+                    case .content: contentTab
+                    case .perspectives: perspectivesTab
+                    case .history: historyTab
+                    case .timeline: timelineTab
+                    }
                 }
+                .onChange(of: provenanceScroll) { proxy.scrollTo(Self.provenanceAnchor, anchor: .top) }
             }
         }
         .frame(maxHeight: .infinity)
@@ -242,11 +261,13 @@ struct EntityDetailCard: View {
         .wikilinkNavigation(onSelect: navigate)
         // Outermost on purpose: every evidence chip in the tabs reads it.
         .environment(\.evidenceDocIndex, EvidenceDocIndex.from(provenanceState.value))
+        // Provenance is read when the card opens but drawn only when asked: the header's facts are when the
+        // conversations were said (G194), every evidence chip names its agent from it, and it is a small read off the
+        // main actor. The claims are not: an owner-sized page's are megabytes, read when a section or tab asks.
         .task(id: entity.id) { await loadProvenance() }
-        // R-DG16 — the tab counts need the claims when the column opens, not when a tab is tapped. At the
-        // card's level: a tab switch removes `contentTab` and would cancel a task hung there.
-        .task(id: entity.id) { await loadClaimsIfNeeded() }
     }
+
+    private static let provenanceAnchor = "card-where-this-came-from"
 
     /// One `/provenance` per entity (ETag-revalidated by the cache). A 404 —
     /// an older backend — hides the section rather than showing an error.
@@ -265,14 +286,28 @@ struct EntityDetailCard: View {
 
     // MARK: - Content Tab
 
+    /// Owner 2026-10-09 — every type opens on its page, read as an article; what Cicada believes, where it came from,
+    /// a person's connections, where to look it up and the details wait behind their own disclosures (DR-39) and read
+    /// their data when opened. Capped at DR-36's 760.
     private var contentTab: some View {
-        Group {
-            if entity.type == .person { personContent } else { standardContent }
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingCard) {
+            pageBlock
+            if Self.listsFolder(entity.type) { locationSection }
+            if !repoContexts.isEmpty { repositorySection }
+            // The sections behind a click sit together, closer than the blocks above (DR-35).
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
+                beliefsSection
+                provenanceSection.id(Self.provenanceAnchor)
+                if entity.type == .person { connectionsSection }
+                sourcesSection
+                detailsSection
+            }
         }
+        .frame(maxWidth: CicadaTheme.scaled(760), alignment: .leading)
         .modifier(EntityTabInsets(style: style))
         .task(id: entity.id) {
             // G124 R11 — a card open is a read. Fire-and-forget on its own
-            // Task so a slow ledger never delays the sources fetch below.
+            // Task so a slow ledger never delays the page below.
             Task { await APIClient.shared.recordEntityRead(id: entity.id) }
             // Reset before (re)fetching so swapping between entities can't show
             // a previous entity's location/repo/sources data. `.task(id:)`
@@ -281,6 +316,9 @@ struct EntityDetailCard: View {
             locationListing = nil
             repoContexts = []
             sources = []
+            sourcesLoaded = false
+            factClaims = []
+            pageReadFailed = false
             paperDetail = nil
             pendingDecayClass = nil
             activeEntityId = entity.id
@@ -292,14 +330,17 @@ struct EntityDetailCard: View {
             olderHistory = []
             historyPaging = nil
             olderFailed = false
-            // The page and its sources at once: the full page used to wait for `/sources` before it was asked for.
-            async let sourcesFetch = APIClient.shared.fetchEntitySources(entityId: entity.id)
+            // A person's two belief-backed facts, beside the page: a few rows, never the whole claims list.
+            async let facts: [Claim]? = entity.type == .person
+                ? try? await APIClient.shared.fetchClaims(subject: entity.id, predicates: PersonFacts.predicates)
+                : nil
             // §5.7 — the card opened on the graph-node stub, whose `markdownContent` is the server's short `summary`
             // (already rendered above, so there is never an empty card). Upgrade it to the full entity through the
             // Store's memoised cache; the swap lands via `graphVM.selectedEntity`/`entities`, which is what feeds
             // this view its `entity`.
-            await graphVM.loadFullEntity(id: entity.id)
-            sources = (try? await sourcesFetch) ?? []
+            let pageRead = await graphVM.loadFullEntity(id: entity.id)
+            if !pageRead, !Task.isCancelled { pageReadFailed = true }
+            if let facts = await facts, !Task.isCancelled { factClaims = facts }
             // Gated on what the graph-node STUB already knows (task 7 review
             // r1): the card opens on a stub whose `media` is nil, and the
             // full-entity swap below keeps the same `.task(id:)`, so a check
@@ -326,7 +367,7 @@ struct EntityDetailCard: View {
         }
     }
 
-    /// The Rendered/Source switch and Copy — shared by every type's page and a person's "Show the page".
+    /// The Rendered/Source switch and Copy.
     private var bodyToolbar: some View {
         HStack(spacing: 0) {
             TextTabs(tabs: EntityBodyView.tabs, selection: Binding(
@@ -338,76 +379,144 @@ struct EntityDetailCard: View {
         }
     }
 
-    /// Every type but a person: the page, then what Cicada knows about it (DS-3a).
-    private var standardContent: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingCard) {
-            VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
-                bodyToolbar
-                // G133: a paper leads with why it is in memory, then the dated abstract — and never loads
-                // arxiv.org in a preview (R-LS19).
-                if let paperDetail {
-                    PaperCard(detail: paperDetail)
-                } else if entity.type == .media, let media = entity.media, media.hasURL, !media.isPaper {
-                    // G11: rich media preview above the body for `media`-type entities.
-                    MediaPreview(model: MediaPreviewModel(block: media, title: entity.name, description: mediaDescription))
-                    if VideoBlock.isVideo(media) {
-                        // G162 (M6) — the entity card's media block carries what Cicada holds for a video, joined by
-                        // the page and its link (a media entity id alone is not unique).
-                        VideoBlock(feedId: entity.id + "|" + media.url, url: media.url, title: entity.name,
-                                   mediaEntityId: entity.id)
+    /// The page: Rendered/Source and Copy, a paper's or a media page's own card, then the article (or the file).
+    private var pageBlock: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
+            bodyToolbar
+            // G133: a paper leads with why it is in memory, then the dated abstract — and never loads
+            // arxiv.org in a preview (R-LS19).
+            if let paperDetail {
+                PaperCard(detail: paperDetail)
+            } else if entity.type == .media, let media = entity.media, media.hasURL, !media.isPaper {
+                // G11: rich media preview above the body for `media`-type entities.
+                MediaPreview(model: MediaPreviewModel(block: media, title: entity.name, description: mediaDescription))
+                if VideoBlock.isVideo(media) {
+                    // G162 (M6) — the entity card's media block carries what Cicada holds for a video, joined by
+                    // the page and its link (a media entity id alone is not unique).
+                    VideoBlock(feedId: entity.id + "|" + media.url, url: media.url, title: entity.name,
+                               mediaEntityId: entity.id)
+                }
+            }
+            if showRawMarkdown { rawMarkdownView } else { renderedMarkdownView }
+        }
+    }
+
+    // MARK: - The sections behind a click (DR-39)
+
+    /// R-FX11 — a full page whose prose is at most a Summary: its beliefs are its content, shown as they always were.
+    /// Every other page keeps them behind "What Cicada believes", read when opened.
+    @ViewBuilder
+    private var beliefsSection: some View {
+        if !showRawMarkdown, showsBeliefs {
+            Group {
+                if claimsLoaded {
+                    if !validClaims.isEmpty {
+                        WhatCicadaKnowsSection(claims: validClaims) { claim in openTimeline(for: claim) }
+                    }
+                } else {
+                    SectionLoading(text: Copy.Graph.readingBeliefs)
+                }
+            }
+            .task(id: entity.id) { await loadClaimsIfNeeded() }
+        } else if !isStub {
+            CardDisclosure(title: Copy.Graph.beliefsTitle,
+                           summary: claimsLoaded ? Copy.Graph.sectionCount(validClaims.count) : nil,
+                           isOpen: $beliefsOpen) {
+                Group {
+                    if !claimsLoaded {
+                        SectionLoading(text: Copy.Graph.readingBeliefs)
+                    } else if validClaims.isEmpty {
+                        Text(Copy.Graph.noBeliefsYet).font(CicadaTheme.font(size: 13))
+                            .foregroundStyle(CicadaTheme.textTertiary)
+                    } else if entity.type == .person {
+                        PersonBeliefsSection(ordered: digest.newestFirst, showsLabel: false) { claim in
+                            openTimeline(for: claim)
+                        }
+                    } else {
+                        WhatCicadaKnowsSection(claims: validClaims, showsLabel: false) { claim in openTimeline(for: claim) }
                     }
                 }
-                if showRawMarkdown { rawMarkdownView } else { renderedMarkdownView }
+                .task(id: entity.id) { await loadClaimsIfNeeded() }
             }
-            if Self.listsFolder(entity.type) { locationSection }
-            if !repoContexts.isEmpty { repositorySection }
-            if !showRawMarkdown, showsBeliefs, !validClaims.isEmpty {
-                WhatCicadaKnowsSection(claims: validClaims) { claim in openTimeline(for: claim) }
-            }
-            WhereThisCameFromSection(entityId: entity.id, state: provenanceState)
-            // `.id` — the add field's draft belongs to one page, as the card's own field was reset per id.
-            LookItUpSection(entityId: entity.id, entityType: entity.type, sources: $sources, navigate: { navigate(to: $0) },
-                            isCurrent: { [id = entity.id] in activeEntityId == id }).id(entity.id)
-            detailsSection
         }
     }
 
-    // MARK: - A person's Content (F-12, R-PE17)
-
-    private var personContent: some View {
-        PersonColumns(main: personMain, aside: personAside)
-    }
-
-    private var personMain: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingCard) {
-            PersonBeliefsSection(ordered: digest.newestFirst) { claim in openTimeline(for: claim) }
-            WhereThisCameFromSection(entityId: entity.id, state: provenanceState)
-            personPage
-            // `.id` — the add field's draft belongs to one page (as in `standardContent`).
-            LookItUpSection(entityId: entity.id, entityType: entity.type, sources: $sources, navigate: { navigate(to: $0) },
-                            isCurrent: { [id = entity.id] in activeEntityId == id }).id(entity.id)
-            detailsSection
-        }
-    }
-
-    private var personAside: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingCard) {
-            PersonMapSection(personId: entity.id, name: entity.name, isOwner: entity.isOwner,
-                             navigate: { navigate(to: $0) }, showOnGraph: showOnGraph)
-            PersonHappeningsSection(personId: entity.id, projectIds: graphVM.personProjectIds(entity.id))
-        }
-    }
-
-    /// DR-39 — the page's own prose, collapsed and remembered: the hero shows its Summary and the beliefs carry its facts.
-    private var personPage: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            TextButton(title: personPageOpen ? Copy.People.hidePage : Copy.People.showPage) {
-                Instant.run { personPageOpen.toggle() }
+    @ViewBuilder
+    private var provenanceSection: some View {
+        if !provenanceState.isUnavailable {
+            CardDisclosure(title: Copy.Provenance.whereThisCameFrom,
+                           summary: provenanceState.value.map { Copy.Graph.conversationsSummary($0.totals.conversations) },
+                           isOpen: $provenanceOpen) {
+                WhereThisCameFromSection(entityId: entity.id, state: provenanceState, showsLabel: false)
             }
-            .padding(.leading, -CicadaTheme.scaled(10))
-            if personPageOpen {
-                bodyToolbar
-                if showRawMarkdown { rawMarkdownView } else { renderedMarkdownView }
+        }
+    }
+
+    /// A person's neighbourhood: "How you know <name>" (`PersonMapLayout`) and "What's happening" — read from the
+    /// graph and the Projects cache only when opened.
+    private var connectionsSection: some View {
+        CardDisclosure(title: PersonMapLayout.title(name: entity.name, isOwner: entity.isOwner),
+                       isOpen: $connectionsOpen) {
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingCard) {
+                PersonMapSection(personId: entity.id, name: entity.name, isOwner: entity.isOwner, showsLabel: false,
+                                 navigate: { navigate(to: $0) }, showOnGraph: showOnGraph)
+                PersonHappeningsSection(personId: entity.id, projectIds: graphVM.personProjectIds(entity.id))
+            }
+        }
+    }
+
+    /// "Look it up at" (G61), its sources read when opened.
+    private var sourcesSection: some View {
+        CardDisclosure(title: Copy.Provenance.lookItUpAt, isOpen: $sourcesOpen) {
+            Group {
+                if sourcesLoaded {
+                    // `.id` — the add field's draft belongs to one page, as the card's own field was reset per id.
+                    LookItUpSection(entityId: entity.id, entityType: entity.type, showsLabel: false, sources: $sources,
+                                    navigate: { navigate(to: $0) },
+                                    isCurrent: { [id = entity.id] in activeEntityId == id }).id(entity.id)
+                } else {
+                    SectionLoading(text: Copy.Graph.readingSources)
+                }
+            }
+            .task(id: entity.id) { await loadSourcesIfNeeded() }
+        }
+    }
+
+    private func loadSourcesIfNeeded() async {
+        guard !sourcesLoaded else { return }
+        let id = entity.id
+        let fetched = (try? await APIClient.shared.fetchEntitySources(entityId: id)) ?? []
+        guard !Task.isCancelled, id == entity.id else { return }
+        sources = fetched
+        sourcesLoaded = true
+    }
+
+    private func retryPageRead() {
+        let id = entity.id
+        pageReadFailed = false
+        Task {
+            let read = await graphVM.loadFullEntity(id: id)
+            if !read, id == entity.id { pageReadFailed = true }
+        }
+    }
+
+    /// One click from any line (owner 2026-10-09): the line's own recorded source in the Reader, else the page's
+    /// "Where this came from", opened and scrolled to.
+    private func openLineSource(_ row: WikiRow) {
+        let id = entity.id
+        let body = entity.markdownContent
+        Task {
+            var provenance = provenanceState.value
+            if provenance == nil, let provenanceCache {
+                provenance = ProvenanceSectionState(await provenanceCache.provenance(entityId: id)).value
+            }
+            guard id == entity.id else { return }
+            if let provenanceRouter,
+               let target = LineProvenance.target(for: row, body: body, provenance: provenance, subjectId: id) {
+                provenanceRouter.open(target)
+            } else {
+                provenanceOpen = true
+                provenanceScroll &+= 1
             }
         }
     }
@@ -616,22 +725,17 @@ struct EntityDetailCard: View {
     // The section readers live in `EntityProse` (F1 R-FX8): one copy of the
     // rule that strips the claims fence before any section is read.
 
-    /// The entity body with the sections that already render in their own
-    /// dedicated chrome (`## Summary` → the header, R-DG15; `## Description` → media
-    /// hero/website card) removed, so the rendered markdown view below doesn't
-    /// show them a second time. The claims fence goes first (R-FX8).
-    private var bodyForRendering: String {
-        // R-DG15 — a stub's markdown IS the preview the header already shows.
-        guard !isStub else { return "" }
-        let prose = EntityProse.stripClaimsFence(entity.markdownContent)
-        return EntityProse.stripSection(named: "## Description",
-                                        from: EntityProse.stripSection(named: "## Summary", from: prose))
+    /// The page's article (`WikiArticle`): the prose without the sections that already have their own surface
+    /// (`## Summary` → the header, R-DG15; `## Description` → the media card) or the claims fence (R-FX8). A stub's
+    /// markdown IS the preview the header already shows, so it has none.
+    private var articleKey: WikiArticleCache.Key {
+        WikiArticleCache.Key(markdown: isStub ? "" : entity.markdownContent, dropping: WikiArticle.ownSurfaces)
     }
 
-    /// R-FX11 — media pages have their own card (a paper's lists its why).
+    /// R-FX11 — media pages have their own card (a paper's lists its why); any other full page with no prose beyond
+    /// its Summary shows its beliefs as its content.
     private var showsBeliefs: Bool {
-        entity.type != .media
-            && EntityProse.showsBeliefs(markdown: entity.markdownContent, isStub: entity.isStub)
+        entity.type != .media && !isStub && WikiArticleCache.shared.article(articleKey).isEmpty
     }
 
     private var renderedMarkdownView: some View {
@@ -644,13 +748,20 @@ struct EntityDetailCard: View {
             if HeroPreview.hasPreviewableAsset(for: entity) {
                 HeroPreview(entity: entity)
             }
-
-            // Inline transclusion (§1): tokenize the body into text/embed segments
-            // and render `![[…]]` embeds as nested collapsible cards. Falls back to
-            // plain wikilink rendering for bodies with no embeds. Summary /
-            // Description are stripped here — they already render in their own
-            // chrome (the header, R-DG15 / media hero) and would otherwise double.
-            TranscludingMarkdownView(body: bodyForRendering)
+            if isStub, pageReadFailed {
+                HStack(spacing: CicadaTheme.spacingSM) {
+                    Text(Copy.Graph.pageUnavailable)
+                        .font(CicadaTheme.metaFont)
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                    NeutralButton(title: Copy.Graph.retry) { retryPageRead() }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            } else if isStub {
+                // The full page is on its way, said in words (it lands in well under a second); a failed read says so.
+                SectionLoading(text: Copy.Graph.readingPage)
+            } else {
+                WikiPageView(key: articleKey, onLineSource: openLineSource)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -719,51 +830,34 @@ struct EntityDetailCard: View {
 
     /// R-DG21 / DR-39 — secondary detail starts collapsed; each viewer's choice is remembered.
     private var detailsSection: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            Button { detailsOpen.toggle() } label: {
-                HStack(spacing: CicadaTheme.scaled(6)) {
-                    Image(systemName: detailsOpen ? "chevron.down" : "chevron.right")
-                        .font(CicadaTheme.font(size: 10, weight: .semibold))
-                        .accessibilityHidden(true)
-                    Text(Copy.Graph.details).foregroundStyle(CicadaTheme.textSecondary)
-                    if !detailsOpen {
-                        Text(Copy.Graph.detailsSummary).foregroundStyle(CicadaTheme.textTertiary)
+        CardDisclosure(title: Copy.Graph.details, summary: Copy.Graph.detailsSummary, isOpen: $detailsOpen) {
+            Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: CicadaTheme.spacingMD,
+                 verticalSpacing: CicadaTheme.scaled(10)) {
+                if !entity.tags.isEmpty {
+                    GridRow {
+                        detailLabel(Copy.Graph.tags)
+                        FlowLayout(spacing: 6) { ForEach(entity.tags, id: \.self) { Tag(text: $0) } }
                     }
                 }
-                .font(CicadaTheme.metaMediumFont)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.cicadaPlain)
-            .accessibilityValue(detailsOpen ? "Open" : "Closed")
-            if detailsOpen {
-                Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: CicadaTheme.spacingMD,
-                     verticalSpacing: CicadaTheme.scaled(10)) {
-                    if !entity.tags.isEmpty {
-                        GridRow {
-                            detailLabel(Copy.Graph.tags)
-                            FlowLayout(spacing: 6) { ForEach(entity.tags, id: \.self) { Tag(text: $0) } }
+                if !entity.related.isEmpty {
+                    GridRow {
+                        detailLabel(Copy.Graph.related)
+                        FlowLayout(spacing: CicadaTheme.spacingMD) {
+                            ForEach(entity.related, id: \.self) { rel in relatedLink(rel) }
                         }
                     }
-                    if !entity.related.isEmpty {
-                        GridRow {
-                            detailLabel(Copy.Graph.related)
-                            FlowLayout(spacing: CicadaTheme.spacingMD) {
-                                ForEach(entity.related, id: \.self) { rel in relatedLink(rel) }
-                            }
-                        }
-                    }
-                    GridRow {
-                        detailLabel(Copy.Graph.firstNoted)
-                        detailValue(EntityDates.day(entity.created) ?? "—")
-                    }
-                    GridRow {
-                        detailLabel(Copy.Graph.lastMentioned)
-                        detailValue(DetailsWords.lastMentioned(entity.lastReferenced, now: .now))
-                    }
-                    GridRow {
-                        detailLabel(Copy.Graph.fades)
-                        fadesMenu
-                    }
+                }
+                GridRow {
+                    detailLabel(Copy.Graph.firstNoted)
+                    detailValue(EntityDates.day(entity.created) ?? "—")
+                }
+                GridRow {
+                    detailLabel(Copy.Graph.lastMentioned)
+                    detailValue(DetailsWords.lastMentioned(entity.lastReferenced, now: .now))
+                }
+                GridRow {
+                    detailLabel(Copy.Graph.fades)
+                    fadesMenu
                 }
             }
         }
@@ -1144,18 +1238,27 @@ struct EntityDetailCard: View {
     /// (predicate, context) keys with ≥2 claims over time (valid + superseded).
     private var contestedKeys: [BeliefKey] { digest.contested }
 
+    /// Every caller awaits the one read in flight (the beliefs section and a tab opened together). The read is
+    /// unstructured so a caller's cancellation (a tab switch removing the section) never discards it half-way; the
+    /// card checks it is still on the same page before keeping the answer.
     private func loadClaimsIfNeeded() async {
         guard !claimsLoaded else { return }
-        // Include superseded so the timeline tab can detect contested keys.
-        let fetched = try? await APIClient.shared.fetchClaims(subject: entity.id, includeSuperseded: true)
-        // DS-3a — a load cancelled by a swap or a close must not read as "no beliefs" (R-DG16's counts).
-        guard !Task.isCancelled else { return }
-        let loaded = fetched ?? []
-        let derived = await Task.detached(priority: .userInitiated) { ClaimDigest(loaded) }.value
-        guard !Task.isCancelled else { return }
-        claims = loaded
-        digest = derived
-        claimsLoaded = true
+        if let claimsRead { return await claimsRead.value }
+        let id = entity.id
+        let read = Task { @MainActor in
+            // Include superseded so the timeline tab can detect contested keys.
+            let fetched = try? await APIClient.shared.fetchClaims(subject: id, includeSuperseded: true)
+            let loaded = fetched ?? []
+            let derived = await Task.detached(priority: .userInitiated) { ClaimDigest(loaded) }.value
+            // DS-3a — an answer for a page the card has left must not land under the new one.
+            guard id == entity.id else { return }
+            claims = loaded
+            digest = derived
+            claimsLoaded = true
+        }
+        claimsRead = read
+        await read.value
+        if claimsRead == read { claimsRead = nil }
     }
 
     private var historyState: HistoryTabState {

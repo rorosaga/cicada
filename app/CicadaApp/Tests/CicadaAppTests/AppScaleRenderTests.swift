@@ -31,7 +31,7 @@ final class AppScaleRenderTests: XCTestCase {
                 }
                 let aside = PersonMapSection(personId: f.ownerId, name: "Owner Example", isOwner: true,
                                              navigate: { _ in }, showOnGraph: {})
-                let view = PersonColumns(main: main, aside: aside)
+                let view = VStack(alignment: .leading, spacing: CicadaTheme.spacingCard) { main; aside }
                     .padding(CicadaTheme.spacingLG)
                     .frame(width: width + CicadaTheme.spacingLG * 2)
                     .background(CicadaTheme.bgBase)
@@ -99,6 +99,71 @@ final class AppScaleRenderTests: XCTestCase {
             .background(CicadaTheme.bgBase)
             .environment(\.colorScheme, mode == .dark ? .dark : .light)
             try write(older, width: 504, to: dir, file: "history-older-\(mode == .dark ? "dark" : "light").png")
+        }
+    }
+
+    /// Owner 2026-10-09 — the card opens on its page: the article's first lines, then every other section closed
+    /// behind its disclosure; and the same sections opened. Light and dark, at the Graph column's width.
+    @MainActor
+    func testRenderTheWikiCardForReview() throws {
+        guard let dir = ProcessInfo.processInfo.environment["APP_SCALE_RENDER_DIR"], !dir.isEmpty else {
+            throw XCTSkip("set APP_SCALE_RENDER_DIR to write the review renders")
+        }
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        let f = OwnerScaleFixture.self
+        let store = Store(cache: SnapshotCache(
+            root: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        ), api: FakeSyncAPI())
+        store.graph.value = GraphResponse(nodes: f.nodes, links: f.edges)
+        store.graph.loadedAt = Date()
+        let graph = GraphViewModel(store: store)
+        let digest = ClaimDigest(f.claims)
+        let article = WikiArticle.build("## Summary\nThe owner.\n\n" + WikiPageFixture.prose
+            .replacingOccurrences(of: "## Summary\nOwner Example is the person this memory belongs to.\n", with: ""))
+        let width = GraphColumns.entityMax - 48
+        defer { CicadaTheme.mode = .dark }
+        for mode in [AppColorScheme.light, .dark] {
+            CicadaTheme.mode = mode
+            CicadaTheme.uiScale = 1
+            for open in [false, true] {
+                let view = VStack(alignment: .leading, spacing: CicadaTheme.spacingCard) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(article.rows.prefix(open ? 3 : 9)) { row in
+                            WikiRowView(row: row, onSource: { _ in })
+                                .padding(.top, row.id == 0 ? 0 : WikiRowView.gap(above: row, after: article.rows[row.id - 1]))
+                        }
+                    }
+                    VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
+                    CardDisclosure(title: Copy.Graph.beliefsTitle, summary: Copy.Graph.sectionCount(digest.current.count),
+                                   isOpen: .constant(open)) {
+                        PersonBeliefsSection(ordered: digest.newestFirst, showsLabel: false)
+                    }
+                    CardDisclosure(title: Copy.Provenance.whereThisCameFrom,
+                                   summary: Copy.Graph.conversationsSummary(f.provenance.totals.conversations),
+                                   isOpen: .constant(open)) {
+                        WhereThisCameFromSection(entityId: f.ownerId, state: .loaded(f.provenance), showsLabel: false)
+                    }
+                    CardDisclosure(title: PersonMapLayout.title(name: "Owner Example", isOwner: true),
+                                   isOpen: .constant(open)) {
+                        PersonMapSection(personId: f.ownerId, name: "Owner Example", isOwner: true, showsLabel: false,
+                                         navigate: { _ in }, showOnGraph: {})
+                    }
+                    // A spinner does not draw offscreen; the sources section stays closed here.
+                    CardDisclosure(title: Copy.Provenance.lookItUpAt, isOpen: .constant(false)) { EmptyView() }
+                    CardDisclosure(title: Copy.Graph.details, summary: Copy.Graph.detailsSummary, isOpen: .constant(false)) {
+                        EmptyView()
+                    }
+                    }
+                }
+                .padding(CicadaTheme.spacingLG)
+                .frame(width: width + CicadaTheme.spacingLG * 2)
+                .background(CicadaTheme.bgBase)
+                .environment(store)
+                .environment(graph)
+                .environment(\.colorScheme, mode == .dark ? .dark : .light)
+                try write(view, width: width + CicadaTheme.spacingLG * 2, to: dir,
+                          file: "wiki-card-\(open ? "sections-open" : "sections-closed")-\(mode == .dark ? "dark" : "light").png")
+            }
         }
     }
 

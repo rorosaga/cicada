@@ -39,11 +39,29 @@ the page's `lastReferenced` is more than 90 days before the viewer's today, the 
 ("Active · last mentioned Feb 2025", G194 A2: the confidence word is replaced, the number and the full day go to
 `.help`; app-only, from the existing field, no payload or ETag change), the
 name, the page's Summary, Back ⌘[ and ×; text tabs Content · Perspectives · History · Timeline with counts once
-known. Content: Rendered/Source and Copy; the page; its folder or repository in words; What Cicada knows (R-FX11
-pages); Where this came from; Look it up at — each G61 source's fact ("For uses"), how it can be read (the
+known (the belief counts once the claims are read, when a section or tab asks). **Content opens on the page (owner
+2026-10-09): every type, a person's too, shows its prose first as an article, and everything else waits behind a
+click.** Content: Rendered/Source and Copy; the article; its folder or repository in words; then the sections, each a
+remembered disclosure (`CardDisclosure`, DR-39) that reads its data only when opened — What Cicada believes (the
+claims; shown open on an R-FX11 page, whose beliefs are its content), Where this came from, a person's *How you know
+<name>* (*What you're connected to* on the owner's page) with *What's happening*, Look it up at and Details. The
+article is `WikiArticle`: the served prose without `## Summary` (the header's), `## Description` (a media card's) or
+a claims fence, parsed once into flat rows — one per list item — off the main actor and cached by text
+(`WikiArticleCache`, in memory, not a Store domain). Its first 48 rows are built synchronously, so the page never
+draws blank, and `WikiPageView` draws the rows in a `LazyVStack`: only the lines on screen are laid out. Until the full page lands the card says "Reading the page…"; a failed read says "Couldn't read this page." with Retry, never a spinner forever (DR-32). One claims read per card is shared by every section and tab that asks at once. Every line
+offers *Where this line came from* on hover and as an accessibility action: the `/provenance` section item whose
+`bodyRanges` cover the line opens its evidence in the Reader (checked against `pageBodyHash`); a line no item covers
+opens the page's Where this came from and scrolls to it. `/provenance` is read when the card opens — the header's
+facts are when the conversations were said (G194) and every evidence chip names its agent from it — but drawn only
+when asked; a person's Works at and Role read only those beliefs (`GET /entities/{id}/claims?predicate=…`), never the
+whole list. Measured on a synthetic owner page of the real one's size (5.6 MB, 5,921 claims, ~180 KB of prose;
+`CardOpenProbeTests`, opt-in, against a scratch backend; debug build): `MarkdownBody` laid the whole prose out at once,
+a 2.1–3.2 s main-thread stall when the page landed and ~0.5 s on every graph push while it was shown; the article
+costs ~60 ms of first screen and no stall over 16 ms on a push. Look it up at shows each G61 source's fact ("For
+uses"), how it can be read (the
 stated `access`, else a path or repo is "A file on this Mac" and an app "An app"; `effective_access` is not on
 this endpoint), who added it with their mark, "You chose to use this" / "Only you know this", no check line
-until G61 S3 serves one, and the page's open inbox question with Open in Inbox; Details (collapsed, remembered):
+until G61 S3 serves one, and the page's open inbox question with Open in Inbox; Details:
 tags, related, dates, how it fades. Beliefs are rows — the sentence, its evidence chip and its age, the rest in
 `.help`. A location page's map is a picture of where it is, never a scroll trap: it takes no pointer events, so
 the column scrolls with the pointer over it, and *Open in Maps* is the way to pan (`LocationMap`). A page with
@@ -65,11 +83,12 @@ a capped Summary or name is never selectable, since a selectable field opens ove
 picture's source line and a
 facts strip whose every cell comes from something the card loaded (`PersonFacts`; Known since, Last mentioned and
 Conversations are when the conversations were said, over all of them — `/provenance`'s `totals` — with the page's own
-dates only as a fallback); then the tabs, and in Content two
-columns — beliefs signed with who wrote them (`SignedLine`: harness, model and effort from the captured turn), Where
-this came from, the page behind a remembered disclosure — beside *How you know <name>* (*What you're connected to* on the owner's own page, by its `owner` flag;
-`PersonMapLayout`, the graph's own edges) and *What's happening* (`PersonHappenings`, from `ProjectsCache`). Every other type keeps this header with a
-40 pt picture. In Clusters a person's card may grow to 1024 units; the header adds "Show on the graph".
+dates only as a fallback); then the tabs, and in Content the page like every other type, one column; behind its
+disclosures, beliefs signed with who wrote them (`SignedLine`: harness, model and effort from the captured turn), Where
+this came from, and *How you know <name>* (*What you're connected to* on the owner's own page, by its `owner` flag;
+`PersonMapLayout`, the graph's own edges) with *What's happening* (`PersonHappenings`, from `ProjectsCache`). Every
+other type keeps this header with a 40 pt picture. In Clusters every card keeps the focus width (the two-column person
+card retired with the page-first card); the header adds "Show on the graph".
 
 ### 2/3. Unified inbox (`memory/inbox/`)
 Nudges and clarifications live in **one store**: `memory/inbox/inbox-NNN.md`, each with a `kind`

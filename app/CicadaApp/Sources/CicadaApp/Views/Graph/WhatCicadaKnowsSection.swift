@@ -6,13 +6,15 @@ import SwiftUI
 /// here and in Perspectives.
 struct WhatCicadaKnowsSection: View {
     let claims: [Claim]
+    /// False inside the card's "What Cicada believes" disclosure, which already names the section (DR-38).
+    var showsLabel = true
     var onOpenTimeline: (Claim) -> Void = { _ in }
     /// A page at a time (`BeliefPaging`): a summary-only page can carry thousands of beliefs.
     @State private var shown = BeliefPaging.step
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            SectionLabel(Copy.Beliefs.heading(claims.count))
+            if showsLabel { SectionLabel(Copy.Beliefs.heading(claims.count)) }
             Text(Copy.Beliefs.caption)
                 .font(CicadaTheme.metaFont)
                 .foregroundStyle(CicadaTheme.textTertiary)

@@ -10,6 +10,7 @@ final class MonospaceLintTests: XCTestCase {
         "Views/Common/CommandBox.swift": "a command the person copies",
         "Views/Common/DiffView.swift": "diff lines and their line numbers",
         "Views/Common/MarkdownBody.swift": "fenced code blocks",
+        "Views/Graph/WikiPageView.swift": "a page's fenced code blocks",
         "Views/Common/FoundRow.swift": "the exact paths and commands shown before consent",
         "Views/Common/VideoPlayerView.swift": "a local file path",
         "Views/Settings/LocalSourceRows.swift": "watched folder paths",

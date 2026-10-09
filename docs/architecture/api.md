@@ -122,6 +122,11 @@ schedules one revalidation there. The queue's writes (`PUT|DELETE /videos/queue/
 
 **Endpoint traps worth knowing before you touch them:**
 
+- `GET /entities/{id}/claims` answers every belief on the page (an owner-sized page's are ~6 MB of JSON, ~90 ms to
+  decode in a debug app); `?predicate=` (repeatable) keeps only those predicates. The entity card reads the whole list
+  only when a section or tab asks, and a person's Works at / Role cells with `?predicate=` when it opens. Not a Store
+  domain, no ETag; read in memory per card.
+
 - `GET /entities/{id}` and `/entities/{id}/context` serve `markdownContent` **without the claims fence** (F4: the
   claims are `/claims`; an owner-sized page shipped its 2.5 MB fence twice per card open). `/provenance`'s
   `pageBodyHash` and section `bodyRanges` describe that same served text (`claims.served_prose` maps the offsets; a

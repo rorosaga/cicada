@@ -618,8 +618,10 @@ final class GraphViewModel {
     /// card — in `selectedEntity`. Called by `selectEntity` and by
     /// `EntityDetailCard`'s `.task(id:)`, which renders the node `summary`
     /// immediately and upgrades to the real body when this returns.
-    func loadFullEntity(id: String) async {
-        guard let fullEntity = await store.entity(id) else { return }
+    /// False when the full body could not be read (the card then says so, with a retry — never a spinner forever).
+    @discardableResult
+    func loadFullEntity(id: String) async -> Bool {
+        guard let fullEntity = await store.entity(id) else { return false }
         if let idx = entities.firstIndex(where: { $0.id == id }) {
             entities[idx] = fullEntity
             // The body just grew from the node summary to the full page, and
@@ -630,6 +632,7 @@ final class GraphViewModel {
         if selectedEntity?.id == id {
             selectedEntity = fullEntity
         }
+        return true
     }
 
     /// Drop the memoised body and re-read it, so a write through `APIClient`

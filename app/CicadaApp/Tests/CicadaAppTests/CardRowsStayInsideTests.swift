@@ -3,10 +3,10 @@ import SwiftUI
 @testable import CicadaApp
 
 /// The owner's page in a wide card drew its main column off the left edge: belief text clipped, only the rows' clocks
-/// showing. A fixed-width column centres a child that is wider than it, and a flow (contributors, tags, related, a
-/// belief's footer) reported its widest child's ideal width even when that was wider than it was offered. Neither may
-/// happen: every row stays inside the card at every width.
-final class PersonColumnsTests: XCTestCase {
+/// showing. A flow (contributors, tags, related, a belief's footer) reported its widest child's ideal width even when
+/// that was wider than it was offered. It may not happen to any row of the card — an article line included: every row
+/// stays inside the card at every width.
+final class CardRowsStayInsideTests: XCTestCase {
     private struct Frames: PreferenceKey {
         static let defaultValue: [String: CGRect] = [:]
         static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
@@ -33,7 +33,11 @@ final class PersonColumnsTests: XCTestCase {
             ClaimFooterFlow(spacing: 6) { Text(wide).lineLimit(1) }
                 .background(tagged("footer"))
         }
-        let view = PersonColumns(main: main, aside: Color.clear.frame(height: 40).background(tagged("aside")))
+        let line = WikiArticle.build("- " + wide + " [[a-very-long-wikilinked-page-name-that-has-to-wrap]]").rows[0]
+        let view = VStack(alignment: .leading, spacing: 12) {
+            main
+            WikiRowView(row: line, onSource: { _ in }).background(tagged("article"))
+        }
             .frame(width: width)
             .coordinateSpace(name: "card")
             .onPreferenceChange(Frames.self) { box.frames = $0 }
@@ -46,22 +50,13 @@ final class PersonColumnsTests: XCTestCase {
     @MainActor
     func testEveryRowStaysInsideTheCardWideOrNarrow() throws {
         CicadaTheme.uiScale = 1
-        for width in [GraphColumns.entityMax - 48, 992] {
+        for width in [GraphColumns.entityMax - 48, ColumnLayout.questionMaxWidth] {
             let f = try frames(width: width)
-            XCTAssertEqual(Set(f.keys), ["row", "flow", "footer", "aside"], "\(width)")
+            XCTAssertEqual(Set(f.keys), ["row", "flow", "footer", "article"], "\(width)")
             for (name, rect) in f {
                 XCTAssertGreaterThanOrEqual(rect.minX, -0.5, "\(name) at \(width): \(rect)")
                 XCTAssertLessThanOrEqual(rect.maxX, width + 0.5, "\(name) at \(width): \(rect)")
             }
         }
-    }
-
-    @MainActor
-    func testWideCardsGetTwoColumnsAndNarrowOnesStack() throws {
-        CicadaTheme.uiScale = 1
-        let wide = try frames(width: 992)
-        XCTAssertLessThan(try XCTUnwrap(wide["row"]).maxX, try XCTUnwrap(wide["aside"]).minX, "side by side")
-        let narrow = try frames(width: 512)
-        XCTAssertGreaterThan(try XCTUnwrap(narrow["aside"]).minY, try XCTUnwrap(narrow["row"]).maxY, "stacked")
     }
 }

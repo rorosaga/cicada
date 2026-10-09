@@ -21,8 +21,9 @@ the index derives from, so a page edit is reflected immediately.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
@@ -84,9 +85,13 @@ async def get_entity_claims(
     entity_id: str,
     include_superseded: bool = False,
     include_events: bool = False,
+    predicate: Annotated[list[str] | None, Query()] = None,
     settings: Settings = Depends(get_settings),
 ):
     """A subject's claims — currently-valid by default; superseded on request.
+
+    ``predicate`` (repeatable) keeps only claims with one of those predicates: a person card asks for its "Works at"
+    and "Role" beliefs when it opens, a few rows instead of every belief on an owner-sized page (megabytes).
 
     Event claims (G141 `happened`/`milestone`) only with ``include_events``
     (R-PJB10): the shipped card groups claims by ``(predicate, context)`` and
@@ -100,13 +105,16 @@ async def get_entity_claims(
     the hazard ``/origins`` and ``/sources/channels`` were moved off it for.
     """
     return await run_in_threadpool(
-        _build_entity_claims, settings.memory_path, entity_id, include_superseded, include_events,
+        _build_entity_claims, settings.memory_path, entity_id, include_superseded, include_events, predicate,
     )
 
 
 def _build_entity_claims(memory_path: Path, entity_id: str, include_superseded: bool,
-                         include_events: bool) -> ClaimListResponse:
+                         include_events: bool, predicates: list[str] | None = None) -> ClaimListResponse:
     claims = _load_subject_claims(memory_path, entity_id)
+    if predicates:
+        wanted = set(predicates)
+        claims = [c for c in claims if c.predicate in wanted]
     if not include_events:
         claims = [c for c in claims if not is_event(c)]
     if not include_superseded:

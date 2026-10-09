@@ -189,3 +189,18 @@ extension Copy.Graph {
     }
     static let supersededByNewer = "Superseded by a newer belief"
 }
+
+// Owner 2026-10-09 — the card opens on the page; the rest waits behind a click.
+extension Copy.Graph {
+    static let beliefsTitle = "What Cicada believes"
+    static let readingPage = "Reading the page…"
+    static let pageUnavailable = "Couldn't read this page."
+    static let readingBeliefs = "Reading what Cicada believes…"
+    static let readingSources = "Reading where to look this up…"
+    static let lineSource = "Where this line came from"
+    /// A closed section's count, after its name ("What Cicada believes · 4,770").
+    static func sectionCount(_ n: Int) -> String { "· \(UsageFormat.count(n))" }
+    static func conversationsSummary(_ n: Int) -> String {
+        n == 1 ? "· 1 conversation" : "· \(UsageFormat.count(n)) conversations"
+    }
+}

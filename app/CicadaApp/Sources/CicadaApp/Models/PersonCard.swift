@@ -22,6 +22,9 @@ enum PersonFacts {
     static let worksAt: Set<String> = ["works-at"]
     /// R-PE16 — the predicate vocabulary has no `role` yet; the first of these a current belief uses.
     static let role = ["role", "has-role", "job-title", "is-a"]
+    /// Every predicate a cell reads from a belief: the card asks for these current beliefs alone when it opens
+    /// (`GET /entities/{id}/claims?predicate=…`), never the page's whole claims list.
+    static let predicates: [String] = worksAt.sorted() + role
     static let maxMarks = 4
 
     static func cells(entity: Entity, claims: [Claim], provenance: EntityProvenance?, names: EntityNames,

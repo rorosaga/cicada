@@ -39,9 +39,8 @@ struct ClustersCardColumn: View {
                              onEscape: onEscape)
                 .id(displayEntity.id)
         }
-        // F-12 (R-PE17) — a person's card holds two columns, each under DR-36's 760; every other card keeps the focus
-        // width.
-        .frame(maxWidth: CicadaTheme.scaled(displayEntity.type == .person ? 1024 : ColumnLayout.questionMaxWidth))
+        // Every card keeps the focus width: a person's opens on its page too, one column (owner 2026-10-09).
+        .frame(maxWidth: CicadaTheme.scaled(ColumnLayout.questionMaxWidth))
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .padding(.horizontal, gutter)
         .padding(.bottom, CicadaTheme.spacingLG)
