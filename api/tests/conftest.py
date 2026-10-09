@@ -150,8 +150,11 @@ def _default_public_net_guard_resolver(monkeypatch):
 def _no_background_reindex(monkeypatch):
     """EmbeddingGemma 2 (2026-10-09): the backend re-embeds a bank in a background thread after a model change,
     started from the lifespan, a choice, a download and the end of every Sleep run. Off for the suite, so no
-    TestClient's lifespan starts a thread that writes a test's index; the re-embed's own tests turn it on."""
+    TestClient's lifespan starts a thread that writes a test's index; the re-embed's own tests turn it on.
+    A long embed's child process (``embed_worker``) is off too: a child never sees a test's fakes, so the suite
+    embeds in-process and the worker's own tests turn it on with a stand-in the child can import."""
     monkeypatch.setenv("CICADA_BACKGROUND_REINDEX", "off")
+    monkeypatch.setenv("CICADA_EMBED_WORKER", "off")
 
 
 @pytest.fixture(autouse=True)

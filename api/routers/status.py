@@ -42,15 +42,21 @@ async def healthz(request: Request, settings: Settings = Depends(get_settings)):
     Reports counts, the *resolved* embedding mode (post auto-degrade), and
     whether any LEANN index has been built so doctor can verify the offline
     path is active and the indexes exist without parsing logs.
+
+    Every read happens off the event loop: two directory listings and two
+    index connections are thousands of system calls on a large bank, and a
+    probe that stalled on them stalled every other request with it.
     """
+    return await run_in_threadpool(_health, request.app.version, settings)
+
+
+def _health(version: str, settings: Settings) -> HealthResponse:
     memory_path = settings.memory_path
-    entity_count = _count_md(memory_path / "entities")
-    episode_count = _count_md(memory_path / "episodes")
     return HealthResponse(
         status="ok",
-        version=request.app.version,
-        entity_count=entity_count,
-        episode_count=episode_count,
+        version=version,
+        entity_count=_count_md(memory_path / "entities"),
+        episode_count=_count_md(memory_path / "episodes"),
         embedding_mode=settings.resolved_embedding_mode,
         memory_path=str(memory_path),
         memory_root=str(settings.memory_root),

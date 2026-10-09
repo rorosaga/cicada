@@ -240,8 +240,15 @@ def _warm(folder: Path, report: Progress) -> None:
     if spec is None or not coreml_embedder.supported():
         return
     report("warm", 0, 0)
+    from api.services import embed_worker
+
     try:
-        coreml_embedder.CoreMLEmbedder(spec).warm()
+        if embed_worker.enabled():
+            # In a child: a Core ML load holds the GIL for the whole compile, and this runs inside the backend
+            # after a download — a minute and a half in which no request (a capture hook's POST included) answered.
+            embed_worker.warm_in_child(folder)
+        else:
+            coreml_embedder.CoreMLEmbedder(spec).warm()
     except Exception as exc:  # noqa: BLE001
         raise FetchError("The search model downloaded but this Mac couldn't load it. Restart Cicada and "
                          "try again.") from exc
