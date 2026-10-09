@@ -10,7 +10,7 @@ processing at capture time** — just file I/O.
 
 Sources are many and the pipeline is **source-agnostic**: MCP-native clients, hook-driven session
 capture, chat exports, browsers (bookmarks and Safari tabs), Telegram, direct saved-content
-connectors (Pinterest/Reddit/X), RSS, calendars, files. The per-channel detail lives in
+connectors (Pinterest/Reddit/X), the platforms' own data exports, RSS, calendars, files. The per-channel detail lives in
 `api/services/` and in the backlog rows that introduced each one — read the code, not a list here.
 Seven rails hold across all of them:
 
@@ -243,6 +243,40 @@ Seven rails hold across all of them:
   session. A demo bank's Sleep consolidates its own made-up episodes, but its tail skips the
   connector, feed/calendar, link-backfill, paper and Wispr to-do steps (connector credentials are
   machine-global). The generator itself is never gated.
+
+**Platform data exports (G71, 2026-10-09).** What the person saved, liked or favourited on a platform comes in
+through that platform's own "download your data" archive, read locally — no hosted social API, so nothing passes
+through a third party. One reader, `api/services/saved_exports.py`, serves every door: the app's drop (a `.zip`, or a
+folder it walks file by file — `IntakeRouter.isExportFile` keeps only X's `like`/`bookmark` scripts among `.js`),
+`POST /sources/upload` (bytes only; the backend never opens a path) and `cicada import <path>` (the CLI reads the path
+in the person's shell and runs the same reader in-process — so the import needs no Mac app).
+- **What is read.** A member is opened only when its NAME is a known save list; everything else in the archive
+  (messages, contacts, posts, search history) is counted and skipped unread, media is never opened, a member over
+  64 MB is skipped with a warning, and the generic URL-list parsers a single dropped file may fall back to are never
+  used inside an archive. Watch and browsing history are not saves (G69): read only with `include_history`, their size
+  said in a warning otherwise.
+
+  | Platform | Files read | Kept |
+  |---|---|---|
+  | Instagram | `saved_posts.json`, `saved_collections.json`, `liked_posts.json` | link, account as title, save date, collection name (likes: folder `Liked posts`) |
+  | TikTok | `user_data*.json` (any section wrapper) or the TXT lists (`Like List.txt`, `Favorite Videos.txt`) | link, date, `Likes`/`Favorites` |
+  | YouTube (Takeout) | `playlists/*-videos.csv` (current and older layouts); `watch-history.json` only on request | video, playlist name, added date |
+  | X archive | `data/like.js` (`bookmark.js` if an archive carries one) | the connector's own post URL, the post's text as title and stand-in description (scrubbed, never the person's note), no date (the archive has none), never fetched at import |
+  | Reddit | `saved_posts.csv`, `saved_comments.csv` | permalink (no title or date in the export) |
+  | LinkedIn | a `Saved Items` CSV | link, saved date |
+- **Identity and dedup.** One saved thing is one `url_index` row keyed by its normalized URL — the identity bookmarks,
+  connectors, uploads and single saves already share — so an export never forks a link saved another way, and the
+  shared stager (`episode_staging`) is not used: its `source_id` would be a second identity for the same link.
+  `RawItem.aliases` names other URLs of the same thing, indexed as `alias_of` rows (the papers shape every reader
+  skips): the Reddit connector records a link post's permalink, so the export (permalinks only) and the connector
+  (outbound links) dedupe in either order; a duplicate found under a new URL adds that URL as an alias. Within one
+  archive a post found twice keeps the person's collection name over the platform default. A re-import writes nothing.
+- **Size.** An upload takes up to `MAX_UPLOAD_ITEMS` (50,000) and imports `MAX_BATCH` (2,000) at a time
+  (`ingest_chunked`), each slice committed alone; the preview warns past the cap, as Confirm refuses it.
+- **Rails.** No model runs; the episode body is scrubbed as every media save is, and the X reader scrubs the post's
+  words before they become a title; every `/sources/` POST answers 409 into a demo bank and `cicada import` exits 4.
+  Pinterest's export is a browse-your-content HTML archive with no stable structure, so Pinterest stays with its
+  connector.
 
 **Conversation identity (G48).** An MCP episode carries `session_id` plus `harness` and
 `project_dir` when exposed — minted once per MCP process from `CLAUDE_CODE_SESSION_ID` →
