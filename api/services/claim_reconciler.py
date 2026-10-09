@@ -177,8 +177,12 @@ def _reinforce(existing: Claim, incoming: Claim, *, today: str | None = None, un
     # A restatement never moves the watermark backwards on its own.
     existing.decayed_through = _max_date(existing.decayed_through, incoming.decayed_through)
     if today is not None:
-        said = _said(existing, untimed)
-        later = said is not None and (said_before is None or said > said_before)
+        heard = _said(incoming, untimed)
+        refs = list(incoming.source_episodes or [])
+        if heard is None and not (refs and all(r in untimed for r in refs)):
+            heard = today   # no dated conversation and not a memory entry: an agent's live write, said now
+        said = max([d for d in (said_before, heard) if d], default=None)
+        later = heard is not None and (said_before is None or heard > said_before)
         if raised and said is not None:
             existing.decayed_through = said
         if later or raised:

@@ -277,3 +277,17 @@ def test_a_claim_restated_in_2026_ends_the_drain_the_same_whatever_the_order(ord
 def test_a_claim_said_today_is_not_charged():
     state, _, _ = _reconcile({}, [_claim("clm_live", "2026-10-09")], decay=True)
     assert state["topic"][0].confidence == 0.9
+
+
+def test_an_old_restatement_read_late_lets_a_faded_claim_fade_back_but_a_live_write_revives_it():
+    state, _, _ = _reconcile({}, [_claim("clm_a", "2024-03-05", conf=0.5)], decay=True)
+    assert state["topic"][0].confidence == 0.0
+    # An older conversation read today restates it with more confidence: raised as of when it was said, aged back.
+    old_again, _, _ = _reconcile({k: [*v] for k, v in state.items()}, [_claim("clm_b", "2024-02-01")], decay=True)
+    assert old_again["topic"][0].confidence == 0.0
+    # An agent's live write (no conversation id) is said now: the raise stands.
+    live = _claim("clm_c", "2026-10-09")
+    live.source_episodes = []
+    revived, _, _ = _reconcile(state, [live], decay=True)
+    assert revived["topic"][0].confidence == 0.9
+

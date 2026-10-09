@@ -321,8 +321,9 @@ def _reconcile_write(memory_path: Path, page: Path, entity_id: str, parsed, exis
     """One claim through Stage 3's event branch, the page written only when its
     body changed, the audit to the ledger (G113) and any divergence item into
     the inbox. Returns the inbox paths it created so the caller commits them."""
+    # Decay is Sleep's arithmetic, committed under `cicada` (G85) — never inside a progress write.
     reconciled, nudges, audit = reconcile_stage3([claim], {entity_id: existing}, _Settings(memory_path),
-                                                 now_date=today.isoformat())
+                                                 now_date=today.isoformat(), decay=False)
     telemetry.record_audit(audit, subject_hint=entity_id, bank=memory_path.name, stage="reconcile")
     claims = reconciled.get(entity_id, existing)
     body = write_claims(parsed.body, claims)

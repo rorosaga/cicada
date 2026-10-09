@@ -518,6 +518,8 @@ def write_claim(
             {entity_id: existing_claims},
             settings,
             now_date=(today or date.today()).isoformat(),
+            # Decay is Sleep's arithmetic, committed under `cicada` (G85) — never under the agent's write.
+            decay=False,
         )
         # G113 — an agent's claim superseding or being rejected against the
         # page is feedback on that agent, same as in the Sleep pipeline.
