@@ -91,9 +91,11 @@ def valid_summary(text) -> bool:
 
 
 def _confirmed(candidates: list[str], indexes, summary: str, existing_body: str, name: str) -> set[int]:
-    """The listed indexes whose item shares a content word (beyond the thing's own
-    name) with the new Summary or an existing Key Fact — a check that a claim of
-    sameness is about something on the page, never a licence to drop text."""
+    """The listed indexes whose item shares two words (beyond the thing's own name)
+    with one sentence of the Summary or one Key Fact, and adds no number, tense or
+    status word or negation that item lacks (`fact_policy.compatible`) — a check
+    that a claim of sameness is about something on the page, never a licence to
+    drop text."""
     if not isinstance(indexes, list) or not candidates:
         return set()
     sections = entity_body.parse_sections(claims.strip_claims_block(existing_body))
@@ -105,7 +107,10 @@ def _confirmed(candidates: list[str], indexes, summary: str, existing_body: str,
         if not isinstance(index, int) or isinstance(index, bool) or not 0 <= index < len(candidates):
             continue
         words = fact_policy._profile(candidates[index])[0] - name_words
-        if any(words & fact_policy._profile(item)[0] for item in on_page):
+        # One page item that shares two words beyond the name and adds back nothing the candidate says
+        # (no number, tense/status word or negation the item lacks): otherwise the candidate stays.
+        if any(len(words & fact_policy._profile(item)[0]) >= 2 and fact_policy.compatible(candidates[index], item)
+               for item in on_page):
             out.add(index)
     return out
 

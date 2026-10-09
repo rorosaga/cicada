@@ -571,7 +571,10 @@ async def extract(
                 for entity in all_entities:
                     facts = entity.get("key_facts")
                     if isinstance(facts, list):
-                        kept = [f for f in facts if not (isinstance(f, str) and fact_policy.about_the_conversation(f))]
+                        aliases = entity.get("aliases") if isinstance(entity.get("aliases"), list) else []
+                        names = [entity.get("name"), *aliases]
+                        kept = [f for f in facts
+                                if not (isinstance(f, str) and fact_policy.about_the_conversation(f, names))]
                         narration += len(facts) - len(kept)
                         entity["key_facts"] = kept
                     entity["mention_exchanges"], entity["named_by_person"] = promotion.measure(entity, units)

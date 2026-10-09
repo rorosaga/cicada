@@ -203,6 +203,7 @@ async def resolve(
     # (callable, args, kwargs), executed in this exact order only if the
     # loop completes without cancelling. `cancelled` records whether it did.
     pending_actions: list[tuple[Callable, tuple, dict]] = []
+    promoted_pending: list[str] = []
     cancelled = False
 
     # A self-reference's facts are the owner's: they land on the owner page, under
@@ -368,8 +369,11 @@ async def resolve(
                     (),
                     {"entity_name": name, "confidence": float(entity.get("confidence", 0.0) or 0.0)},
                 ))
-                if indexer is not None and pending_entry is not None:
-                    pending_actions.append((indexer.promote_from_pending, (name,), {}))
+                if pending_entry is not None:
+                    # The line leaves the store only once Stage 5 has written the page that now carries
+                    # what it held (`sleep_cycle`): a cancel before that keeps it, and the next run
+                    # promotes it again with everything it heard.
+                    promoted_pending.append(name)
             else:
                 confidence = float(entity.get("confidence", 0.3) or 0.3)
                 if confidence < CONFIDENCE_THRESHOLD and not ambiguous_match:
@@ -474,6 +478,8 @@ async def resolve(
         "name_to_id": dict(name_to_id),
         # G169: the qualified self-reference decision this stage keyed by.
         "self_references": refs,
+        # The pending lines this batch's creates folded in, for Stage 5 to take once the pages exist.
+        "promoted_pending": [] if cancelled else promoted_pending,
     }
 
 

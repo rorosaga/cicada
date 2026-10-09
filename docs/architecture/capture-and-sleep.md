@@ -296,8 +296,8 @@ Summary keeps its leading whole sentences that fit the budget, once each, and ne
 thing ("X is a CI platform. … X is a CI/CD automation platform." keeps the first: `entity_body.lead`); this also
 de-glues an existing Summary on the page's next update. Whatever an orientation loses — a distinct incoming one beside
 a usable Summary, the sentences a lead leaves out, a replaced one — goes through `entity_body.retain_orientation`: a
-sentence the Summary or a Key Fact already restates (`fact_policy`), or a re-introduction whose every word the page
-already has, is dropped; every other sentence becomes a Key Fact. Nothing goes to History any more: the "Undated
+sentence the Summary or a Key Fact already says word for word (`fact_policy`) is dropped; every other sentence
+becomes a Key Fact. Nothing goes to History any more: the "Undated
 background:" bullets this replaced repeated Key Facts word for word (667 on the owner's clean run). Incoming facts the
 Summary already says are suppressed; existing facts/human prose are never removed. Exact input evidence follows the
 surviving Summary or fact via `section_provenance.merge_selected` (a one-sentence orientation that becomes a fact
@@ -315,8 +315,9 @@ Off preserves the legacy description/history gate and its call count. On uses ef
 and requests one bounded JSON Summary plus two lists (prompt version 2, page quality 2026-10-09): `restated`, the
 incoming facts that say nothing beyond the new Summary or an existing Key Fact, and `covered`, the sentences of the
 replaced and the incoming orientation (`orientation_sentences`, sent with the call) that do. Code leaves out only an
-item the model listed AND that shares a content word, beyond the thing's own name, with the new or old Summary or a
-Key Fact (`entity_orientation._confirmed`); nothing already on the page is ever removed this way. This is the one
+item the model listed AND that shares two words, beyond the thing's own name, with one sentence of the new or old
+Summary or one Key Fact while adding no number, tense or status word or negation that item lacks
+(`entity_orientation._confirmed`, `fact_policy.compatible`); nothing already on the page is ever removed this way. This is the one
 place a restatement in other words is folded, at no extra call. Facts-only updates need one merge call; Summary/description
 updates also run the existing contradiction check. `entity_orientation` passes dated inputs and
 only structurally current claims (`claims.is_current`, excluding withdrawal records). Prose is
@@ -547,7 +548,9 @@ summary and for every relationship); "an explicit link" was any relationship the
 Below the bar nothing is lost: the pending line now carries what was said — summary, key facts, links, open questions,
 aliases, their G118 item records and every conversation that named it (`heard_in`) — and a re-park unions instead of
 replacing. When a later conversation promotes the name, the line is folded into the create through the same seam a
-same-name extraction uses, crediting each earlier conversation (its day too). A line written before this keeps its
+same-name extraction uses, crediting each earlier conversation (its day too). The line leaves the store only after
+Stage 5 has written that page (`promoted_pending`; a line holding claims still leaves through Stage 5.56's release):
+a cancel before Stage 5 keeps it, and the next run promotes it again with everything it heard. A line written before this keeps its
 old shape and promotes as before. The rail and its numbers are unchanged; only how they are measured. What Sleep hears about a
 name before it has a page is not lost (G141 PJ-0b): Stage 5.56 holds those claims on the name's line in
 `<bank>/pending_entities.jsonl` (`api/services/pending_store.py`: spans, not copies; at most 50 per name,
@@ -713,13 +716,18 @@ where it stands, the facts worth remembering once each. What changed, besides pr
   person said it matters; one fact once, usually 0-5; a detail of the assistant's answer is not an entity unless the
   person engaged with it. An assistant-said fact stays legitimate evidence (kind `assistant`); the bar is triviality,
   not source. A prompt change is not measurable offline; the deterministic parts below are.
-- **Narration is dropped at Stage 1** (`fact_policy.about_the_conversation`): a fact whose only content is that the
-  thing came up in a conversation, counted in a debug line — the page's sources already say so.
-- **Restatements fold** (`fact_policy.restates`): an incoming fact (or a sentence of a summary that lost the fold) is
-  dropped when an item already on the page, or a more specific incoming one, says every content word of it (folded
-  case, accents, wikilinks, possessives, a light stem; numbers are words; negation must agree; shared names keep
-  their order, so a reversed relation is never folded; two content words at least). Used by Stage 2's same-name fold, every section merge and the pending store. An existing bullet is never
-  removed or reworded.
+- **Narration is dropped at Stage 1** (`fact_policy.about_the_conversation`): a fact whose subject is the thing itself
+  (its name, an alias or a pronoun) and whose only other words say it came up in a conversation, counted in a debug
+  line — the page's sources already say so. Any other subject ("Moving to Berlin … was discussed in a conversation")
+  is a fact with content and is kept.
+- **Restatements fold, word for word only** (`fact_policy.restates`; tightened after review): an incoming fact (or a
+  sentence of a summary that lost the fold) is dropped only when an item already on the page, or a more specific
+  incoming one, contains its words as one unbroken run in the same order — after folding case, accents, wikilinks,
+  possessives and a plural `s`, and leaving out articles, prepositions and conjunctions. Tense and status words
+  ("will", "was", "previously", "launched" vs "launch"), modals, quantifiers and every whole number ("1,200" is one
+  token) must match, and negation must be equal on both sides. When in doubt it keeps: a duplicate is cheaper than a
+  lost fact, so paraphrases stay (only opt-in synthesis folds those). Used by Stage 2's same-name fold, every section
+  merge, the re-read gate and the pending store. An existing bullet is never removed or reworded.
 - **Offline eval:** `python -m benchmarks.system.page_quality --scratch <new-dir>` runs the production Stage 1
   post-processing, Stage 2, Stage 3 and the page writer over synthetic conversations with recorded Stage-1 answers
   (`benchmarks/system/fixtures/page_quality.json`), with synthesis off and on, and reports pages, one-conversation

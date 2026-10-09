@@ -157,7 +157,8 @@ def _repair(fm: dict, body: str, result: Survey) -> str:
     result.facts_assistant_phrased += sum(bool(_ASSISTANT.search(f)) for f in facts)
     result.facts_restated_on_page += sum(
         1 for i, f in enumerate(facts) if fact_policy.covered(f, facts[:i] + facts[i + 1:]))
-    narration = [f for f in facts if fact_policy.about_the_conversation(f)]
+    names = [name, *(str(a) for a in fm.get("aliases") or [])]
+    narration = [f for f in facts if fact_policy.about_the_conversation(f, names)]
     if narration:
         result.facts_about_the_conversation += len(narration)
         kept = [f for f in facts if f not in narration]

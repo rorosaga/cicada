@@ -25,15 +25,69 @@ EP_A, EP_B = "ep_2026-03-02_001", "ep_2026-04-10_001"
 
 # --------------------------------------------------------------------------- fact_policy
 
-def test_a_restatement_is_folded_but_a_change_never_is():
-    assert fact_policy.restates("Forge CI runs the tests of alpha-project on each push.",
-                                "Forge CI runs alpha-project's tests on every push.")
-    assert fact_policy.restates("Forge CI is a CI platform.", "Forge CI is a CI/CD automation platform.")
-    assert not fact_policy.restates("Bob uses Docker.", "Bob does not use Docker.")
-    assert not fact_policy.restates("beta-app had 12 testers in May 2026.", "beta-app had 12 testers in June 2026.")
+def test_only_a_word_for_word_restatement_folds():
+    assert fact_policy.restates("Bob Example lives in Lisbon.", "Bob Example lives in Lisbon, Portugal.")
+    assert fact_policy.restates("Alice reports to Bob.", "Since May 2026, Alice reports to Bob.")
+    assert fact_policy.restates("Forge CI runs alpha-project's tests.", "Forge CI runs alpha-project's tests on every push.")
+    # A paraphrase is kept: a duplicate is cheaper than a lost fact.
+    assert not fact_policy.restates("Forge CI is a CI platform.", "Forge CI is a CI/CD automation platform.")
     assert not fact_policy.restates("Lisbon.", "Bob lives in Lisbon.")  # one content word is never swallowed
-    assert not fact_policy.restates("Alice reports to Bob.", "Bob reports to Alice.")
-    assert fact_policy.restates("Alice reports to Bob.", "Since May 2026, Alice reports to Bob in Lisbon.")
+
+
+# Review of e33f1f93 (blocker 1): each incoming fact says something its page item does not.
+CHANGED = [
+    ("alpha-project launched in May 2026.", "alpha-project will launch in May 2026."),
+    ("Bob Example works at Acme.", "Bob Example previously worked at Acme."),
+    ("Bob Example prefers tea over coffee.", "Bob Example prefers coffee over tea."),
+    ("alpha-project does not use Docker.", "alpha-project does not use Kubernetes; it uses Docker instead."),
+    ("alpha-project has 1,200 GitHub stars.", "alpha-project has 1 maintainer and 200 GitHub stars."),
+    ("Lives in Berlin.", "Formerly lived in Berlin."),
+    ("Uses Docker for deployment.", "Stopped using Docker for deployment."),
+    ("Is CTO of Acme.", "Was CTO of Acme."),
+    ("Moved to Berlin in 2026.", "Moving to Berlin in 2026."),
+    ("Budget is 5,000 euros.", "Budget is 5,000,000 euros."),
+    ("Alice reports to Bob.", "Bob reports to Alice."),
+    ("alice reports to bob.", "bob reports to alice."),
+    ("Depends on beta-lib.", "beta-lib depends on it."),
+    ("Price is 50 dollars.", "Price rose from 50 dollars to 80 dollars."),
+    ("Approved the budget.", "Not yet approved the budget; Bob approved the budget."),
+    ("Bob uses Docker.", "Bob does not use Docker."),
+    ("beta-app had 12 testers in May 2026.", "beta-app had 12 testers in June 2026."),
+]
+
+
+@pytest.mark.parametrize("incoming, existing", CHANGED)
+def test_a_fact_that_says_something_different_is_never_folded(incoming, existing):
+    assert not fact_policy.restates(incoming, existing)
+    assert fact_policy.union([existing], [incoming])[0] == [existing, incoming]
+
+
+@pytest.mark.parametrize("incoming, existing", CHANGED)
+def test_every_changed_fact_reaches_the_page_through_the_writer(tmp_path, incoming, existing):
+    (tmp_path / "entities").mkdir()
+    path = tmp_path / "entities" / "alpha-project.md"
+    md.write(path, {"name": "alpha-project", "type": "project", "source_episodes": [EP_A]},
+             f"## Summary\nalpha-project is a project.\n\n## Key Facts\n- {existing}")
+    cr.apply_changes([{"id": "alpha-project", "action": "update", "source_episodes": [EP_B],
+                       "entity": {"name": "alpha-project", "type": "project", "summary": "", "key_facts": [incoming]}}],
+                     tmp_path)
+    assert body._bullet_lines(body.parse_sections(md.parse(path).body)["Key Facts"]) == [existing, incoming]
+
+
+def test_the_fold_keeps_the_extractions_current_fact_beside_an_older_one():
+    merged = er._merge_entity_payload(
+        {"name": "alpha-project", "summary": "alpha-project is a project.",
+         "key_facts": ["alpha-project launched in May 2026.", "Bob Example works at Acme."]},
+        {"name": "alpha-project", "summary": "",
+         "key_facts": ["alpha-project will launch in May 2026.", "Bob Example previously worked at Acme."]})
+    assert merged["key_facts"] == ["alpha-project launched in May 2026.", "Bob Example works at Acme.",
+                                   "alpha-project will launch in May 2026.", "Bob Example previously worked at Acme."]
+
+
+def test_a_reread_that_changes_a_status_is_something_new():
+    page = "## Summary\nalpha-project will launch in May 2026."
+    assert body.adds_orientation(page, "alpha-project launched in May 2026.", names=["alpha-project"])
+    assert not body.adds_orientation(page, "alpha-project will launch in May 2026.", names=["alpha-project"])
 
 
 def test_union_keeps_every_existing_item_and_the_more_specific_incoming_one():
@@ -52,18 +106,23 @@ def test_sentences_keep_abbreviations_versions_and_lowercase_names():
 @pytest.mark.parametrize("fact, narration", [
     ("Forge CI was mentioned in a conversation.", True),
     ("Forge CI was discussed in the conversation.", True),
+    ("It was brought up in a conversation.", True),
     ("Forge CI was discussed in a conversation about pricing.", False),
     ("Forge CI runs alpha-project's tests.", False),
+    # Review of e33f1f93 (blocker 2): a clause with content is never narration.
+    ("Moving to Berlin in March 2027 was discussed in a conversation.", False),
+    ("A 20% budget cut for alpha-project was raised during a discussion.", False),
+    ("The decision to sell the company for $2M was discussed in the session.", False),
 ])
-def test_only_a_fact_that_just_says_it_came_up_is_narration(fact, narration):
-    assert fact_policy.about_the_conversation(fact) is narration
+def test_only_a_fact_whose_subject_is_the_thing_and_that_just_says_it_came_up_is_narration(fact, narration):
+    assert fact_policy.about_the_conversation(fact, ["Forge CI", "forge"]) is narration
 
 
 # --------------------------------------------------------------------------- entity_body
 
 def test_a_restated_incoming_fact_is_folded_and_an_existing_one_is_never_removed():
     merged = body._merge_facts("- Forge CI runs alpha-project's tests on every push.\n- Forge CI is a CI platform.",
-                               ["Forge CI runs the tests of alpha-project on each push.", "Free tier: 2,000 minutes."])
+                               ["Forge CI runs alpha-project's tests.", "Free tier: 2,000 minutes."])
     assert merged.splitlines() == ["- Forge CI runs alpha-project's tests on every push.",
                                    "- Forge CI is a CI platform.", "- Free tier: 2,000 minutes."]
 
@@ -71,11 +130,11 @@ def test_a_restated_incoming_fact_is_folded_and_an_existing_one_is_never_removed
 def test_an_incoming_orientation_beside_a_usable_summary_becomes_a_fact_not_background():
     sections = body.merge_sections_fallback(
         {"Summary": "Forge CI is a CI platform.", "Key Facts": "- Forge CI runs alpha-project's tests."},
-        {"name": "Forge CI", "summary": "Forge CI is the CI platform that runs alpha-project's tests. "
+        {"name": "Forge CI", "summary": "Forge CI runs alpha-project's tests. "
                                         "Its free tier covers 2,000 minutes a month."})
     assert sections["Summary"] == "Forge CI is a CI platform."
     assert "History" not in sections
-    # The first sentence re-introduces it with words the page already has; the second adds something.
+    # The first sentence is already a Key Fact word for word; the second adds something.
     assert sections["Key Facts"].splitlines() == ["- Forge CI runs alpha-project's tests.",
                                                   "- Its free tier covers 2,000 minutes a month."]
 
@@ -225,10 +284,10 @@ def test_a_second_conversation_promotes_crediting_both_with_what_each_said(bank)
 
 def test_a_folded_summary_that_restates_the_chosen_one_is_not_a_fact():
     merged = er._merge_entity_payload(
-        {"name": "Bob Example", "summary": "Bob Example is a friend from university who lives in Lisbon.",
+        {"name": "Bob Example", "summary": "Bob Example lives in Lisbon with Ana, a friend from university.",
          "key_facts": []},
         {"name": "Bob Example", "summary": "Bob Example lives in Lisbon.", "key_facts": ["Bob Example gets seasick."]})
-    assert merged["summary"] == "Bob Example is a friend from university who lives in Lisbon."
+    assert merged["summary"] == "Bob Example lives in Lisbon with Ana, a friend from university."
     assert merged["key_facts"] == ["Bob Example gets seasick."]
 
 
@@ -386,3 +445,59 @@ def test_the_repair_is_refused_while_sleep_runs(tmp_path):
     (tmp_path / "entities").mkdir()
     with pytest.raises(repair.SleepRunning):
         repair.apply(tmp_path, sleep_running=lambda: True)
+
+
+# --------------------------------------------------------------------------- a promoted line leaves only with its page
+
+def test_a_promoted_pending_line_survives_a_cancel_and_leaves_once_its_page_is_written(tmp_path, monkeypatch):
+    from api.services import sleep_cycle
+    from api.tests.test_sleep_cycle_hold import _bank, _entity, _episode, _patch, _settings
+
+    memory = _bank(tmp_path)
+    ts_a, ts_b = "2026-03-02T10:00:00+00:00", "2026-04-10T10:00:00+00:00"
+    first = dict(_entity("Gamma Board", "tool", EP_A, ts_a), key_facts=["Gamma Board has 3 sensors."])
+    second = _entity("Gamma Board", "tool", EP_B, ts_b)
+    batch = lambda ep, ts, e: [{"episode_id": ep, "episode_timestamp": ts, "origin": "synthetic",
+                                "entities": [dict(e)], "relationships": []}]
+    _episode(memory, EP_A, ts_a, "user: Gamma Board arrived.\nassistant: Noted.")
+    _patch(monkeypatch, [batch(EP_A, ts_a, first), batch(EP_B, ts_b, second), batch(EP_B, ts_b, second)])
+    asyncio.run(sleep_cycle.run(_settings(memory), cycle_id="pq_1"))
+    (line,) = pending_store.load(memory)
+    assert line.key_facts == ["Gamma Board has 3 sensors."]
+
+    # The second conversation promotes it, but the run is cancelled before Stage 5: the line stays.
+    _episode(memory, EP_B, ts_b, "user: Gamma Board again.\nassistant: Good.")
+    real_resolve = er.resolve
+
+    async def resolve_then_cancel(*args, **kwargs):
+        out = await real_resolve(*args, **kwargs)
+        assert out["promoted_pending"] == ["Gamma Board"]
+        sleep_cycle.request_cancel()
+        return out
+    monkeypatch.setattr(er, "resolve", resolve_then_cancel)
+    asyncio.run(sleep_cycle.run(_settings(memory), cycle_id="pq_2"))
+    assert [e.key_facts for e in pending_store.load(memory)] == [["Gamma Board has 3 sensors."]]
+    assert not (memory / "entities" / "gamma-board.md").exists()
+
+    # Read again: the page carries the first conversation's fact and both credits; then the line leaves.
+    monkeypatch.setattr(er, "resolve", real_resolve)
+    asyncio.run(sleep_cycle.run(_settings(memory), cycle_id="pq_3"))
+    page = md.parse(memory / "entities" / "gamma-board.md")
+    assert "Gamma Board has 3 sensors." in page.body
+    assert sorted(page.frontmatter["source_episodes"]) == [EP_A, EP_B]
+    assert pending_store.load(memory) == []
+
+
+def test_the_repair_never_removes_a_bullet_with_content(tmp_path):
+    bank = tmp_path / "bank"
+    (bank / "entities").mkdir(parents=True)
+    page = bank / "entities" / "bob-example.md"
+    kept = ["Moving to Berlin in March 2027 was discussed in a conversation.",
+            "A 20% budget cut for alpha-project was raised during a discussion.",
+            "The decision to sell the company for $2M was discussed in the session."]
+    md.write(page, {"name": "Bob Example", "type": "person", "source_episodes": [EP_A, EP_B]},
+             "## Summary\nBob Example is a friend.\n\n## Key Facts\n" + "\n".join(f"- {f}" for f in kept)
+             + "\n- Bob Example was mentioned in a conversation.")
+    result = repair.apply(bank, sleep_running=lambda: False)
+    assert result.repaired == 1 and result.facts_about_the_conversation == 1
+    assert body._bullet_lines(body.parse_sections(md.parse(page).body)["Key Facts"]) == kept

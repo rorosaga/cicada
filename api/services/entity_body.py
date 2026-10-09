@@ -155,11 +155,10 @@ def retain_orientation(sections: dict[str, str], text: str, *, names=()) -> int:
     return len(fresh)
 
 
-def _said(sentence: str, kept: list[str], names) -> bool:
-    """A displaced orientation sentence the page already says: one item restates it,
-    or it (re-)introduces the thing with words the page already has throughout."""
-    return fact_policy.covered(sentence, kept) or (
-        fact_policy.introduces(sentence, names) and fact_policy.said_everywhere(sentence, kept))
+def _said(sentence: str, kept: list[str], names=()) -> bool:
+    """A displaced orientation sentence the page already says, word for word, in one item
+    (`fact_policy.restates`). Anything less is kept: a duplicate is cheaper than a lost fact."""
+    return fact_policy.covered(sentence, kept)
 
 
 def adds_orientation(body: str, text: str, *, names=()) -> bool:
@@ -436,14 +435,10 @@ def merge_sections_fallback(existing: dict[str, str], new_fields: dict, *,
     new_facts = list(new_fields.get("key_facts", []) or [])
     # A displaced orientation's sentences join the incoming facts, so one union
     # keeps whichever spelling is the more specific (`retain_orientation`'s rule).
-    page_says = (_summary_sentences(merged.get('Summary', '')) + _bullet_lines(merged.get('Key Facts', ''))
-                 + [str(f) for f in new_facts])
     for text, at_end in ((old_summary, False), (new_summary, True)):
         if text and _normalize_fact(text) != _normalize_fact(merged.get('Summary', '')):
             displaced = [sentence for paragraph in re.split(r'\n\s*\n', text)
-                         for sentence in fact_policy.sentences(paragraph)
-                         if not (fact_policy.introduces(sentence, names)
-                                 and fact_policy.said_everywhere(sentence, page_says))]
+                         for sentence in fact_policy.sentences(paragraph)]
             new_facts = new_facts + displaced if at_end else displaced + new_facts
     # Existing prose (including human facts) remains untouched. Only suppress
     # an incoming fact the retained orientation already says; an exact copy's

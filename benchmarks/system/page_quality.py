@@ -170,6 +170,9 @@ def run(root: Path, synthesis: bool) -> dict:
             result = asyncio.run(er.resolve(extraction, existing, settings))
             changes = asyncio.run(cr.resolve_and_prune(result['changes'], existing, settings, decay=False))
             cr.apply_changes(changes, bank)
+            from api.services import pending_store
+            for name in result.get('promoted_pending') or []:  # Stage 5's take, once the pages exist
+                pending_store.take(bank, name)
             counted, chars = {}, {}
             for stage in calls[before:]:
                 counted[stage] = counted.get(stage, 0) + 1
@@ -212,7 +215,7 @@ def run(root: Path, synthesis: bool) -> dict:
             covered += 1
         elif any(str(line.get('name', '')).lower() == name.lower() and fact in json.dumps(line) for line in pending):
             held += 1
-        elif fact_policy is not None and fact_policy.about_the_conversation(fact):
+        elif fact_policy is not None and fact_policy.about_the_conversation(fact, [name]):
             narration.append(f'{name}: {fact}')
         elif fact_policy is not None and fact_policy.covered(fact, on_page):
             restated.append(f'{name}: {fact}')
