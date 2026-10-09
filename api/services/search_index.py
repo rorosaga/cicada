@@ -618,15 +618,16 @@ _INDEXERS = {"entities": _index_entity, "episodes": _index_episode, "inbox": _in
              "backlog": _index_backlog}
 
 
-def _index_doc(conn, doc_key: str, f) -> None:
+def _index_doc(conn, doc_key: str, f) -> bool:
     """Index one file inside a savepoint: a page that cannot be read or
     indexed is skipped with its partial rows rolled back — one odd file never
-    costs the whole build (and never loops a rebuild on every request)."""
+    costs the whole build (and never loops a rebuild on every request).
+    True when the file now has a ``docs`` row."""
     try:
         parsed = markdown_parser.parse(f.path)
     except Exception as exc:
         logger.warning(f"search_index: skipping unreadable {doc_key}: {type(exc).__name__}")
-        return
+        return False
     conn.execute("SAVEPOINT doc")
     try:
         _INDEXERS[doc_key.split("/", 1)[0]](conn, doc_key, f, parsed.frontmatter or {}, parsed.body)
@@ -634,14 +635,16 @@ def _index_doc(conn, doc_key: str, f) -> None:
         conn.execute("ROLLBACK TO doc")
         logger.warning(f"search_index: skipping {doc_key}: {type(exc).__name__}")
     conn.execute("RELEASE doc")
+    return conn.execute("SELECT 1 FROM docs WHERE doc_key = ?", (doc_key,)).fetchone() is not None
 
 
-def _delete_doc(conn, doc_key: str) -> None:
+def _delete_doc(conn, doc_key: str) -> bool:
+    """True when the file had rows (they are gone now)."""
     # By doc_key, read inside the transaction — never by a cached id — so two
     # processes refreshing the same file can never leave duplicate rows.
     row = conn.execute("SELECT id FROM docs WHERE doc_key = ?", (doc_key,)).fetchone()
     if row is None:
-        return
+        return False
     lo = int(row[0]) << ROW_BITS
     hi = lo | MAX_ROWS_PER_DOC
     for table in _FTS_COLUMNS:
@@ -649,6 +652,7 @@ def _delete_doc(conn, doc_key: str) -> None:
     conn.execute("DELETE FROM claim_ref WHERE row BETWEEN ? AND ?", (lo, hi))
     conn.execute("DELETE FROM claim_evidence WHERE row BETWEEN ? AND ?", (lo, hi))
     conn.execute("DELETE FROM docs WHERE id = ?", (row[0],))
+    return True
 
 
 def _write(db: Path, fn) -> None:
@@ -713,33 +717,42 @@ def _refresh(memory_path: Path, state: _BankState, changed: dict, removed: list[
     loaded its stamps (the ``generation`` moved), the stamps are re-read from the file after the write,
     so this process never trusts its own copy over rows someone else changed."""
     out: dict = {}
+    listings: dict[str, dict] = {}
+
+    def on_disk(doc_key: str) -> bool:
+        # Exactly this name, case included, in a listing taken now: a stat of the old name succeeds on a
+        # case-insensitive volume (APFS) after a case-only rename, and would keep the old rows forever.
+        subdir, name = doc_key.rsplit("/", 1)
+        if subdir not in listings:
+            listings[subdir] = bank_index.stamps(memory_path, subdir, fresh=True)
+        return name in listings[subdir] and bank_index.file(memory_path, subdir, name) is not None
 
     def apply(conn):
-        out["foreign"] = _generation_in(conn) != state.generation
+        generation = _generation_in(conn)
+        foreign = generation != state.generation
+        wrote = False
         for doc_key in removed:
-            subdir, name = doc_key.rsplit("/", 1)
-            if bank_index.file(memory_path, subdir, name) is not None:
-                out.setdefault("kept", []).append(doc_key)
-                continue
-            _delete_doc(conn, doc_key)
+            if not on_disk(doc_key):
+                wrote = _delete_doc(conn, doc_key) or wrote
         for doc_key in changed:
-            _delete_doc(conn, doc_key)
+            wrote = _delete_doc(conn, doc_key) or wrote
         for doc_key, f in _ordered(changed):
-            _index_doc(conn, doc_key, f)
-        out["generation"] = _new_generation(conn)
-        if out["foreign"]:
+            wrote = _index_doc(conn, doc_key, f) or wrote
+        # A write that changed no row keeps the generation: a file that fails to index (no row) would
+        # otherwise have two processes take turns re-reading each other's stamps and retrying it.
+        out["generation"] = _new_generation(conn) if wrote else generation
+        if foreign:
             out["stamps"] = _stamps_in(conn)
 
     _write(db_path(memory_path), apply)
-    if out["foreign"]:
-        state.stamps = out["stamps"]
-    else:
-        stamps = dict(state.stamps or {})
-        for doc_key in removed:
-            stamps.pop(doc_key, None)
-        for doc_key, f in changed.items():
-            stamps[doc_key] = (f.mtime_ns, f.size)
-        state.stamps = stamps
+    # The file's rows when someone else wrote it since this process loaded them, else this process's own.
+    stamps = dict(out["stamps"]) if "stamps" in out else dict(state.stamps or {})
+    for doc_key in removed:
+        stamps.pop(doc_key, None)
+    for doc_key, f in changed.items():
+        # Recorded even when it did not index: one odd file is tried once per stamp, never per check.
+        stamps[doc_key] = (f.mtime_ns, f.size)
+    state.stamps = stamps
     state.generation = out["generation"]
     state.checked_at = time.monotonic()
 

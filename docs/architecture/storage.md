@@ -618,9 +618,12 @@ listings (`bank_index.stamps`) that parses only the files whose `(mtime_ns, size
 same-size edit, an add, a removal, a rename and a checkout are all caught, and a fresh process learns "nothing moved"
 without a parse (at most one check a second, inline up to 64 changed files, one background worker beyond). The
 listing is always taken after the stamps it is compared with (never a `shared_scans` memo), a removal is re-checked
-against the disk inside the write, and every write stores a new random `generation` in `meta`: a process that sees
-another's generation reloads the stamps from the file before diffing, so rows another process wrote or deleted are
-never shadowed by a stale in-memory copy; the
+inside the write against the exact name, case included, in a fresh listing (a stat of the old name still succeeds
+after a case-only rename on APFS; recall's existence filter applies the same rule), and every write that changes a
+row stores a new random `generation` in `meta`: a process that sees another's generation reloads the stamps from the
+file before diffing, so rows another process wrote or deleted are never shadowed by a stale in-memory copy. A write
+that changes nothing keeps the generation, and a file that fails to index is remembered by its stamp, so one odd file
+is tried once per stamp per process, never bounced between processes; the
 lifespan and a bank switch warm it in the background. The caller always passes the active bank's path
 — the module never resolves a bank (the split-brain rule). `search_service` ranks over it (QuickMatch
 tiers 0–2), fuses it with the stored vectors in `mode=hybrid`, and **never embeds in `mode=prefix`**.

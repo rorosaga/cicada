@@ -372,3 +372,62 @@ def test_warm_caches_see_a_same_size_edit(tmp_path):
     assert _refs(memory, "toucan") == ["alpha-project"]
     assert [f.frontmatter["name"] for f in bank_index.files(memory, "entities") if f.stem == "alpha-project"] \
         == ["Project Omega"]
+
+
+# --- case-only renames and no-op writes (review round 2) -----------------------------------------------
+
+
+def _case_rename(memory):
+    entities = memory / "entities"
+    (entities / "Alpha-Project.md").rename(entities / "tmp-rename.md")
+    (entities / "tmp-rename.md").rename(entities / "alpha-project.md")
+
+
+def test_a_case_only_rename_drops_the_old_rows(tmp_path):
+    """On a case-insensitive volume (APFS) a stat of `Alpha-Project.md` still succeeds after the page
+    became `alpha-project.md`; only the exact name in a listing says the old one is gone."""
+    memory = _bank(tmp_path, n=2)
+    _entity(memory, "Alpha-Project", body="## Summary\nThe walrus plan.\n")
+    search_index.rebuild(memory)
+    _case_rename(memory)
+    _entity(memory, "alpha-project", body="## Summary\nThe toucan plan.\n")
+    assert search_index.ensure_fresh(memory, max_age_s=0) == "ready"
+    assert _refs(memory, "walrus") == []
+    assert _refs(memory, "toucan") == ["alpha-project"]
+    _cold()
+    assert search_index.refresh(memory) == "ready"
+    assert _refs(memory, "walrus") == []
+
+
+def test_recall_never_surfaces_a_page_under_its_old_casing(tmp_path):
+    memory = _bank(tmp_path, n=2)
+    _entity(memory, "Alpha-Project")
+    _case_rename(memory)
+    keep = mcp_tools._live_pages(memory / "entities")
+    assert [h["entity_id"] for h in keep([{"entity_id": "Alpha-Project"}, {"entity_id": "alpha-project"}])] \
+        == ["alpha-project"]
+
+
+def test_a_file_that_never_indexes_does_not_bounce_between_two_processes(tmp_path, monkeypatch):
+    """Two index states over one file (two processes). A page whose indexer raises has no row; a write
+    that changed nothing must not move the generation, or each state reloads the other's stamps, finds
+    the row missing and writes again — on every check."""
+    memory = _bank(tmp_path, n=4)
+    real = search_index._INDEXERS["entities"]
+
+    def flaky(conn, doc_key, f, fm, body):
+        if doc_key.endswith("filler-002.md"):
+            raise ValueError("cannot index")
+        return real(conn, doc_key, f, fm, body)
+
+    monkeypatch.setitem(search_index._INDEXERS, "entities", flaky)
+    alias = tmp_path / "alias"
+    alias.symlink_to(memory)                       # a second path: a second process's index state
+    search_index.rebuild(memory)
+    writes = []
+    real_write = search_index._write
+    monkeypatch.setattr(search_index, "_write", lambda db, fn: writes.append(1) or real_write(db, fn))
+    for _ in range(6):
+        for path in (memory, alias):
+            assert search_index.ensure_fresh(path, max_age_s=0) == "ready"
+    assert len(writes) <= 1, f"{len(writes)} index writes for an unchanged bank"

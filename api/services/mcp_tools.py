@@ -2716,9 +2716,24 @@ def _live_pages(entities_dir: Path):
     ``dropped`` as their markdown says now — every leg's index (vectors, FTS)
     is as old as its last sync. Each page is read at most once per recall."""
     seen: dict[str, bool] = {}
+    listing: dict[str, set[str]] = {}
+
+    def listed(filename: str) -> bool:
+        # Exactly this name, case included, in the directory listing: on a case-insensitive volume a
+        # read of `Alpha-Project.md` succeeds after the page became `alpha-project.md`, and a stale
+        # index row would surface the page twice. A miss re-lists once (a page created mid-recall).
+        if "now" not in listing:
+            listing["now"] = set(bank_index.stamps(entities_dir.parent, entities_dir.name))
+        if filename not in listing["now"] and "fresh" not in listing:
+            listing["fresh"] = listing["now"] = set(
+                bank_index.stamps(entities_dir.parent, entities_dir.name, fresh=True))
+        return filename in listing["now"]
 
     def alive(eid: str) -> bool:
         if eid not in seen:
+            if not listed(f"{eid}.md"):
+                seen[eid] = False
+                return False
             path = entities_dir / f"{eid}.md"
             try:
                 fm, _ = parse_frontmatter(path.read_text(encoding="utf-8"))
