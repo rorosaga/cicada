@@ -1634,8 +1634,12 @@ actor APIClient {
     /// currently-valid claims; `includeSuperseded` lifts the filter. Returns
     /// `[]` on a 404 so the perspective tab / claim chips degrade gracefully
     /// against a backend that hasn't shipped the endpoint yet.
-    func fetchClaims(subject: String, includeSuperseded: Bool = false) async throws -> [Claim] {
-        let q = includeSuperseded ? "?include_superseded=true" : ""
+    /// `predicates` — only the subject's claims with one of these predicates (a person card's facts): a few rows read
+    /// when the card opens, instead of every belief on an owner-sized page.
+    func fetchClaims(subject: String, includeSuperseded: Bool = false, predicates: [String] = []) async throws -> [Claim] {
+        var items: [String] = includeSuperseded ? ["include_superseded=true"] : []
+        items += predicates.map { "predicate=\($0.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? $0)" }
+        let q = items.isEmpty ? "" : "?" + items.joined(separator: "&")
         do {
             let r: ClaimListResponse = try await get("/entities/\(encodedID(subject))/claims\(q)")
             return r.claims

@@ -14,6 +14,11 @@ enum ProvenanceSectionState {
         return nil
     }
 
+    var isUnavailable: Bool {
+        if case .unavailable = self { return true }
+        return false
+    }
+
     init(_ load: ProvenanceLoad<EntityProvenance>) {
         switch load {
         case let .loaded(p): self = .loaded(p)
@@ -32,6 +37,8 @@ enum ProvenanceSectionState {
 struct WhereThisCameFromSection: View {
     let entityId: String
     let state: ProvenanceSectionState
+    /// False inside the card's own "Where this came from" disclosure, which already names the section (DR-38).
+    var showsLabel = true
 
     @Environment(ProvenanceRouter.self) private var router: ProvenanceRouter?
     @State private var showAll = false
@@ -44,7 +51,7 @@ struct WhereThisCameFromSection: View {
             EmptyView()
         default:
             VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                SectionLabel(Copy.Provenance.whereThisCameFrom)
+                if showsLabel { SectionLabel(Copy.Provenance.whereThisCameFrom) }
                 content
             }
         }

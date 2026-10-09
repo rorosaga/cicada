@@ -8,6 +8,8 @@ struct LookItUpSection: View {
     let entityId: String
     /// The page's type, for what the empty field asks for: a brand its official website, a person a profile.
     var entityType: EntityType? = nil
+    /// False inside the card's "Look it up at" disclosure, which already names the section (DR-38).
+    var showsLabel = true
     @Binding var sources: [EntitySource]
     /// Opens another page's card (the card's own `navigate(to:)`) — a source's "Open page ›".
     var navigate: (String) -> Void = { _ in }
@@ -25,7 +27,7 @@ struct LookItUpSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            SectionLabel(Copy.Provenance.lookItUpAt)
+            if showsLabel { SectionLabel(Copy.Provenance.lookItUpAt) }
             if !sources.isEmpty {
                 VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
                     // A page holds many sources; each fact's are together, in words (G61 S3-a).
