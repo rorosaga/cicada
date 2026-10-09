@@ -241,13 +241,13 @@
     {
       "function": "_write_sleep_findings",
       "method": "write",
-      "frontmatter": "{'kind': 'divergence', 'required_input': 'choice', 'status': 'pending', 'priority': 0.5, 'entity_id': 'grace-example', 'entity_name': 'Grace Example', 'title': \"I'm reading something different about Grace Example\", 'created_date': day, 'options': ['Keep my statement (Acme Example)', 'Update to Initech Example', 'Both true \u2014 different context'], 'predicate': None, 'question': None, 'allow_other': False, 'allow_defer': False, 'claim_id': agent['claim_id'], 'existing_claim_id': owner.id, 'source_episode': capture, 'trigger': 'sleep/conflict_resolution', 'raw_predicate': None, 'canonical_predicate': None}",
+      "frontmatter": "{'kind': 'divergence', 'required_input': 'choice', 'status': 'pending', 'priority': 0.5, 'entity_id': 'grace-example', 'entity_name': 'Grace Example', 'title': \"I'm reading something different about Grace Example\", 'created_date': day, 'options': ['Keep my statement (Acme Example)', 'Update to Initech Example', 'Both true — different context'], 'predicate': None, 'question': None, 'allow_other': False, 'allow_defer': False, 'claim_id': agent['claim_id'], 'existing_claim_id': owner.id, 'source_episode': capture, 'trigger': 'sleep/conflict_resolution', 'raw_predicate': None, 'canonical_predicate': None}",
       "disposition": "fresh_frontmatter_untracked"
     },
     {
       "function": "_write_sleep_findings",
       "method": "write",
-      "frontmatter": "{'kind': 'normalization', 'required_input': 'choice', 'status': 'pending', 'priority': 0.3, 'entity_id': 'nina-example', 'entity_name': 'Nina Example', 'title': 'Confirm a predicate fold for Nina Example', 'created_date': day, 'options': ['Correct fold', 'Wrong fold \u2014 keep separate'], 'predicate': None, 'question': None, 'allow_other': False, 'allow_defer': False, 'claim_id': nina['claim_id'], 'existing_claim_id': None, 'source_episode': capture, 'trigger': 'sleep/conflict_resolution', 'raw_predicate': 'is employed by', 'canonical_predicate': 'works-at'}",
+      "frontmatter": "{'kind': 'normalization', 'required_input': 'choice', 'status': 'pending', 'priority': 0.3, 'entity_id': 'nina-example', 'entity_name': 'Nina Example', 'title': 'Confirm a predicate fold for Nina Example', 'created_date': day, 'options': ['Correct fold', 'Wrong fold — keep separate'], 'predicate': None, 'question': None, 'allow_other': False, 'allow_defer': False, 'claim_id': nina['claim_id'], 'existing_claim_id': None, 'source_episode': capture, 'trigger': 'sleep/conflict_resolution', 'raw_predicate': 'is employed by', 'canonical_predicate': 'works-at'}",
       "disposition": "fresh_frontmatter_untracked"
     },
     {
@@ -669,6 +669,20 @@
       "method": "write",
       "frontmatter": "fm",
       "disposition": "uninstrumented_guarded"
+    }
+  ],
+  "services/page_article_rebuild.py": [
+    {
+      "function": "preview",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "refresh_or_preserve"
+    },
+    {
+      "function": "apply",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "refresh_or_preserve"
     }
   ],
   "services/page_quality_repair.py": [
