@@ -177,3 +177,21 @@ call; no API-key fallback, provider substitution, automatic top-up, judge or quo
 retry loop is configured. The runner requires cached local embeddings and disables
 model downloads. Availability, allowance and runtime are observations at execution,
 not promises this command fits any particular plan.
+
+## Page quality (offline, G194)
+
+`python -m benchmarks.system.page_quality --scratch <new-empty-directory> [--synthesis on|off|both]`
+runs the production Stage 1 post-processing (evidence, section provenance, the
+promotion measurement, narration filter), Stage 2, Stage 3 and Stage 5's page
+writer, batch by batch, over the synthetic conversations and recorded Stage-1
+answers in `fixtures/page_quality.json` (shapes from the owner's clean run, real
+values redacted). Opt-in synthesis calls answer from hand-recorded replies where
+the fixture has one, otherwise from `FakeEngine`. It reports pages written and how
+many rest on one conversation, words, facts, near-duplicates (its own measure:
+text ratio ≥ 0.75 or contained content words), assistant-phrased and narration
+facts, fallback Summaries, "Undated background" bullets, every extracted fact that
+reaches no page or pending line (`facts_lost`), and model calls and prompt
+characters by stage per batch. Recorded answers stand in for the extraction, so
+a prompt change is not measured here — only what the code does with the same
+answers. It also runs against older checkouts (copy the script and fixture) for a
+before/after.

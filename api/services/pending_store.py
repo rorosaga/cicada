@@ -43,10 +43,9 @@ from api.services.id_utils import bank_file, sanitize_id
 PENDING_STORE_FILE = "pending_entities.jsonl"
 
 #: R-HP3 — claims held per name, head-stable. A name promotes on its next
-#: mention and on two relationships in one conversation
-#: (``entity_resolver.SUBSTANTIVE_RELATIONSHIP_COUNT``), so a held name
-#: normally carries one or two; only a name Stage 2 keeps re-parking (an
-#: ``unsure`` match, cycle after cycle) comes near this. Past it a claim is
+#: conversation (`promotion`), so a held name normally carries a handful; only
+#: a name Stage 2 keeps re-parking (an ``unsure`` match, or one conversation
+#: read again and again) comes near this. Past it a claim is
 #: refused at the door and counted — a claim already held is never evicted.
 MAX_HELD_CLAIMS = 50
 
@@ -71,6 +70,22 @@ class PendingEntity:
     # G141 PJ-0b (R-HP1): what Sleep heard about this name while it had no
     # page, as `Claim.to_dict()` — spans into the episode, never its text.
     held_claims: list[dict] = field(default_factory=list)
+    # What the page would have said (page quality, 2026-10-09): a name below the
+    # promotion bar used to keep only its description, tags and history, so the
+    # summary and facts of its first conversation were gone by the time a second
+    # one promoted it. The extraction's own text, never the conversation's; its
+    # G118 item records (reasoning rows: an episode id and a body hash) ride along.
+    summary: str = ""
+    key_facts: list[str] = field(default_factory=list)
+    links: list[dict] = field(default_factory=list)
+    open_questions: list[str] = field(default_factory=list)
+    aliases: list[str] = field(default_factory=list)
+    item_inputs: list[dict] = field(default_factory=list)
+    # Every conversation that named it, as {episode, timestamp, day}: promotion
+    # credits each one on the page, and "2+ conversations" counts them.
+    heard_in: list[dict] = field(default_factory=list)
+
+    _OPTIONAL = ("summary", "key_facts", "links", "open_questions", "aliases", "item_inputs", "heard_in")
 
     def to_dict(self) -> dict:
         data = {
@@ -85,10 +100,29 @@ class PendingEntity:
         # Absent when empty: a line from before PJ-0b re-writes byte for byte.
         if self.held_claims:
             data["held_claims"] = list(self.held_claims)
+        for key in self._OPTIONAL:  # absent when empty, the same way
+            value = getattr(self, key)
+            if value:
+                data[key] = value
         return data
+
+    def episodes(self) -> list[str]:
+        """Every conversation this line heard the name in, the line's own first."""
+        out = [self.source_episode] if self.source_episode else []
+        for record in self.heard_in:
+            episode = str(record.get("episode") or "") if isinstance(record, dict) else ""
+            if episode and episode not in out:
+                out.append(episode)
+        return out
 
     @classmethod
     def from_dict(cls, data: dict) -> "PendingEntity":
+        def strings(key):
+            return [str(v) for v in (data.get(key) or []) if isinstance(v, str) and v.strip()]
+
+        def dicts(key):
+            return [d for d in (data.get(key) or []) if isinstance(d, dict)]
+
         return cls(
             name=data.get("name", ""),
             type=data.get("type", "concept"),
@@ -100,7 +134,76 @@ class PendingEntity:
             held_claims=[
                 d for d in (data.get("held_claims") or []) if isinstance(d, dict) and d.get("id")
             ],
+            summary=str(data.get("summary") or ""),
+            key_facts=strings("key_facts"),
+            links=[d for d in dicts("links") if d.get("url")],
+            open_questions=strings("open_questions"),
+            aliases=strings("aliases"),
+            item_inputs=[d for d in dicts("item_inputs") if d.get("text") and isinstance(d.get("evidence"), list)],
+            heard_in=[d for d in dicts("heard_in") if d.get("episode")],
         )
+
+
+def _texts(*lists) -> list[str]:
+    out, seen = [], set()
+    for values in lists:
+        for value in values or []:
+            key = " ".join(str(value).split()).lower()
+            if key and key not in seen:
+                seen.add(key)
+                out.append(value)
+    return out
+
+
+def _carry(prior: PendingEntity, entity: PendingEntity) -> None:
+    """A re-park keeps what the replaced line heard (page quality, 2026-10-09).
+
+    Stage 2 re-parks a name when the same conversation is read again (a resumed
+    one) or its match was ``unsure``: the fresh line knows only this read, and
+    replacing the old one dropped the first read's facts. Lists are unions (the
+    old line's items first, a fact the old line already says folded away), the
+    newer summary and description win as before — the old ones stay as facts
+    when they say something the line does not — and every conversation either
+    line heard is kept."""
+    from api.services import fact_policy
+
+    displaced = [t for t in (prior.summary, prior.description)
+                 if t and t not in (entity.summary, entity.description)]
+    entity.summary = entity.summary or prior.summary
+    entity.description = entity.description or prior.description
+    said = fact_policy.sentences(entity.summary or entity.description)
+    displaced = [s for t in displaced for s in fact_policy.sentences(t) if not fact_policy.covered(s, said)]
+    facts, _ = fact_policy.union(list(prior.key_facts), _texts(entity.key_facts, displaced))
+    entity.key_facts = _texts(facts)
+    links, urls = [], set()
+    for link in list(prior.links) + list(entity.links):
+        if link.get("url") not in urls:
+            urls.add(link.get("url"))
+            links.append(link)
+    entity.links = links
+    entity.open_questions = _texts(prior.open_questions, entity.open_questions)
+    entity.aliases = _texts(prior.aliases, entity.aliases)
+    entity.tags = sorted(set(prior.tags or []) | set(entity.tags or []))
+    history = list(prior.history_entries or [])
+    for item in entity.history_entries or []:
+        if item not in history:
+            history.append(item)
+    entity.history_entries = history
+    inputs = list(prior.item_inputs)
+    for record in entity.item_inputs:
+        if record not in inputs:
+            inputs.append(record)
+    entity.item_inputs = inputs
+    heard = {r["episode"]: r for r in prior.heard_in if r.get("episode")}
+    if prior.source_episode and prior.source_episode not in heard:
+        heard[prior.source_episode] = {"episode": prior.source_episode}
+    for record in entity.heard_in:
+        heard.setdefault(record["episode"], record)
+    if entity.source_episode and entity.source_episode not in heard:
+        heard[entity.source_episode] = {"episode": entity.source_episode}
+    entity.heard_in = list(heard.values())
+    entity.source_episode = prior.source_episode or entity.source_episode
+    entity.confidence = max(float(prior.confidence or 0), float(entity.confidence or 0))
 
 
 class HoldOutcome(NamedTuple):
@@ -217,6 +320,7 @@ def upsert(memory_path: Path, entity: PendingEntity) -> None:
         for e in entries:
             if e.name.lower() == key:
                 carried = _merged(carried, e.held_claims)
+                _carry(e, entity)
             else:
                 kept.append(e)
         entity.held_claims = _merged(carried, entity.held_claims)

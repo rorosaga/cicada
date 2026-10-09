@@ -35,13 +35,15 @@ def _owner_page(memory: Path) -> None:
 
 
 def _rel(source: str, target: str, label: str) -> dict:
-    return {"source": source, "target": target, "label": label, "source_episode": EP, "source_episode_timestamp": TS}
+    # Located in the person's own words: an explicit link (`promotion.person_said`).
+    return {"source": source, "target": target, "label": label, "source_episode": EP, "source_episode_timestamp": TS,
+            "evidence": [{"episode": EP, "start": 0, "end": 4, "kind": "user", "hash": "0" * 12}]}
 
 
 def _substantive(name: str, kind: str) -> dict:
-    # Over Stage 2's substantive bar on its own: promoted on its first mention.
+    # Over Stage 2's substantive bar on its own: promoted on its first mention (`promotion.substantive`).
     entity = _entity(name, kind, EP, TS)
-    entity.update(confidence=0.99, description="Discussed at length. " * 12)
+    entity.update(confidence=0.99, description="Discussed at length. " * 12, mention_exchanges=4, named_by_person=True)
     return entity
 
 

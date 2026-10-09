@@ -20,27 +20,48 @@ def test_repeated_mentions_keep_orientation_and_every_detail(mentions):
         assert body.merge_sections_fallback(sections, fields) == sections
     assert sections['Summary'] == orientation
     assert len(sections['Summary']) <= 600
-    assert all(f'option-{index}.' in sections['History'] for index in range(mentions))
-    assert len(sections['Key Facts'].splitlines()) == mentions
+    # What each displaced orientation said is a Key Fact, once; nothing goes to History.
+    assert all(f'option-{index}.' in sections['Key Facts'] for index in range(mentions))
+    assert 'History' not in sections
+    assert len(sections['Key Facts'].splitlines()) == 2 * mentions
 
 
 @pytest.mark.parametrize('summary', ['Sentence. ' * 100, 'First paragraph.\n\nSecond paragraph.'])
-def test_invalid_creation_retains_full_prose_outside_bounded_summary(summary):
+def test_invalid_creation_keeps_whole_sentences_and_every_distinct_one(summary):
     sections = body.parse_sections(compose(summary))
-    assert len(sections['Summary']) <= 600
-    assert summary.strip() in sections['History'].replace('\n  ', '\n')
-    # Another update must not drop a continuation of the preserved prose.
+    assert len(sections['Summary']) <= 600 and '\n\n' not in sections['Summary']
+    assert sections['Summary'].endswith('.')
+    for sentence in {'Sentence.', 'First paragraph.', 'Second paragraph.'} & set(summary.split('\n\n') + ['Sentence.']):
+        if sentence in summary:
+            assert (sections['Summary'] + sections.get('Key Facts', '')).count(sentence) == 1
     merged = body.merge_sections_fallback(sections, {'summary': 'Another observation.'})
-    assert summary.strip() in merged['History'].replace('\n  ', '\n')
+    assert 'Another observation.' in merged['Key Facts']
 
 
-def test_existing_overlong_summary_gets_conservative_fallback_without_clipping():
+def test_existing_overlong_summary_keeps_its_leading_sentences_without_clipping():
     old = 'alpha-project evaluated a design. ' * 100
     sections = body.merge_sections_fallback({'Summary': old}, {'key_facts': ['Retained fact.']})
-    assert len(sections['Summary']) <= 600
-    assert sections['Summary'].endswith('.')
-    assert old.strip() in sections['History']
+    assert sections['Summary'] == 'alpha-project evaluated a design.'
     assert sections['Key Facts'] == '- Retained fact.'
+
+
+def test_glued_orientations_keep_the_first_introduction():
+    glued = ('Forge CI is a CI platform. Forge CI is the workflow platform used by alpha-project. '
+             'It runs every push. Forge CI is a CI/CD automation platform.')
+    sections = body.bound_summary({'Summary': glued}, name='Forge CI', entity_type='tool')
+    assert sections['Summary'] == 'Forge CI is a CI platform. It runs every push.'
+    facts = sections['Key Facts']
+    assert 'Forge CI is the workflow platform used by alpha-project.' in facts
+    assert 'Forge CI is a CI/CD automation platform.' in facts
+    assert 'History' not in sections
+
+
+def test_an_unusable_summary_with_no_sentence_to_keep_names_only_what_it_is():
+    one_sentence = 'alpha-project ' + 'evaluated a long design ' * 40 + 'option.'
+    sections = body.merge_sections_fallback({}, {'name': 'alpha-project', 'type': 'project', 'summary': one_sentence})
+    assert sections['Summary'] == 'alpha-project is a project.'
+    assert 'not established' not in sections['Summary']
+    assert one_sentence in sections['Key Facts']
 
 
 def test_human_summary_is_exact_and_exempt_even_when_overlong():
@@ -49,7 +70,7 @@ def test_human_summary_is_exact_and_exempt_even_when_overlong():
     merged = body.merge_sections_human_safe(original, {'summary': 'New observation.'}, human_edited=True)
     assert merged['Summary'] == human
     assert merged['My Notes'] == original['My Notes']
-    assert 'New observation.' in merged['History']
+    assert 'New observation.' in merged['Key Facts']
 
 
 def test_update_keeps_old_summary_provenance_and_claims(tmp_path):
@@ -65,7 +86,7 @@ def test_update_keeps_old_summary_provenance_and_claims(tmp_path):
     page = md.parse(path)
     assert fence in page.body
     assert len(sp.matched(page.frontmatter, page.body)['summary']) == 1
-    assert 'A later observation.' in body.parse_sections(page.body)['History']
+    assert 'A later observation.' in body.parse_sections(page.body)['Key Facts']
 
 
 def test_long_synthesis_output_is_bounded_without_changing_other_sections(tmp_path):
@@ -76,8 +97,9 @@ def test_long_synthesis_output_is_bounded_without_changing_other_sections(tmp_pa
                        'synthesized_body': '## Summary\n' + 'Long generated observation. ' * 100 +
                        '\n\n## Key Facts\n- Original fact.'}], tmp_path)
     page = body.parse_sections(md.parse(tmp_path / 'entities/alpha-project.md').body)
-    assert page['Summary'] == 'A notes application.'
-    assert 'Long generated observation.' in page['History']
+    # The rewrite's leading whole sentence is its Summary (the repeats say nothing more); every other
+    # section is the page's own, item for item.
+    assert page['Summary'] == 'Long generated observation.'
     assert page['Key Facts'] == '- Original fact.'
 
 

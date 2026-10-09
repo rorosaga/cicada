@@ -287,41 +287,65 @@ selected field/text, so repeated mentions cannot multiply identical records when
 and description share the same words. The pending-store limitation remains; earlier pending
 facts are not restored by provenance. Stage 5 records exact surviving items
 on create and fallback/human-safe updates. The B-update fixture keeps A's usable Summary
-and its exact guard; a distinct incoming orientation goes into explicitly undated History
-background when it is not already retained as a fact, without fabricated provenance. A's facts keep their links.
+and its exact guard; a distinct incoming orientation becomes a Key Fact (its exact text keeps B's row) when the page
+does not already say it (see *Page quality*). A's facts keep their links.
 
-**Summary growth (G194).** Deterministic create/update/dedup merges use one 600-Unicode-character,
-single-paragraph budget (`summary_policy`). An existing usable orientation stays exact;
-distinct incoming prose and displaced oversized/multi-paragraph prose are retained in History
-as `Undated background` unless the complete orientation is already retained as a Key Fact.
-Same-name batch carry (#241) therefore keeps one bounded Summary plus distinct carried facts,
-without a second History copy. Incoming facts matching the retained Summary are suppressed;
-existing facts/human prose are never removed for this purpose. Exact input evidence follows the
-surviving Summary or fact via `section_provenance.merge_selected`, without recertifying changed
-text. Multiline carried facts receive stable continuation indentation so later merges retain
-their complete content; a changed exact text guard is unrecorded, never recertified by normalization.
-Indented continuations survive later merges. No page-level
-date is assigned to that mixed context. An unusable machine orientation gets a complete conservative
-identity/unknown-role sentence, never character clipping. Stage-5 synthesis output is bounded too;
-this does not change the synthesis gate or add model calls. Human Summary is exempt and never
-extended or rewritten; incoming context is added outside it. Human flags and custom sections are
-honored by both entity merge and source rewrite. This is a structural floor, not semantic synthesis:
-short fragments/stale prose still need orientation and dated-prose repair.
+**Summary growth (G194; reworked by *Page quality*, 2026-10-09).** Deterministic create/update/dedup merges use one
+600-Unicode-character, single-paragraph budget (`summary_policy`). An existing usable orientation stays exact. A machine
+Summary keeps its leading whole sentences that fit the budget, once each, and never a second (re-)introduction of the
+thing ("X is a CI platform. … X is a CI/CD automation platform." keeps the first: `entity_body.lead`); this also
+de-glues an existing Summary on the page's next update. Whatever an orientation loses — a distinct incoming one beside
+a usable Summary, the sentences a lead leaves out, a replaced one — goes through `entity_body.retain_orientation`: a
+sentence equal to a Summary sentence or a Key Fact (`fact_policy`: the same text up to case, accents, whitespace,
+wikilink brackets and trailing punctuation) is dropped; every other sentence becomes a Key Fact. Nothing goes to History any more: the "Undated
+background:" bullets this replaced repeated Key Facts word for word (667 on the owner's clean run). Incoming facts the
+Summary already holds as the same text are suppressed; existing facts/human prose are never removed. Exact input evidence follows the
+surviving Summary or fact via `section_provenance.merge_selected` (a one-sentence orientation that becomes a fact
+keeps its row; a split one is unrecorded, never recertified). Multiline carried facts receive stable continuation
+indentation. When no sentence fits (an empty or single over-budget one), the Summary is a usable previous one or the
+identity line "X is a tool." — it no longer adds "Its present role for the owner is not established.", which read as a
+claim against the page's own facts. Human Summary is exempt and never extended or rewritten; incoming context is
+added outside it, as Key Facts. Human flags and custom sections are honored by both entity merge and source rewrite.
+This is a structural floor, not semantic synthesis: a restatement in other words ("CI platform" / "continuous
+integration service") is only caught by the opt-in synthesis below.
 
 **Opt-in orientation synthesis (G194).** `CICADA_SUMMARY_SYNTHESIS_ENABLED` defaults to false.
 Off preserves the legacy description/history gate and its call count. On uses effective Summary
 (then description) and all incoming structured fields, skips human/custom pages before a call,
-and requests one bounded JSON Summary. Facts-only updates need one merge call; Summary/description
+and requests one bounded JSON Summary plus two lists (prompt version 2, page quality 2026-10-09): `restated`, the
+incoming facts that say nothing beyond the new Summary or an existing Key Fact, and `covered`, the sentences of the
+replaced and the incoming orientation (`orientation_sentences`, sent with the call) that do. Code leaves out only an
+item the model listed AND that shares two words, beyond the thing's own name, with one sentence of the new or old
+Summary or one Key Fact while adding no number, tense or status word or negation that item lacks
+(`entity_orientation._confirmed`, `fact_policy.compatible`); nothing already on the page is ever removed this way. This is the one
+place a restatement in other words is folded, at no extra call. Facts-only updates need one merge call; Summary/description
 updates also run the existing contradiction check. `entity_orientation` passes dated inputs and
 only structurally current claims (`claims.is_current`, excluding withdrawal records). Prose is
 labeled unverified background; old statements and intentions must name their own date, never a
 page-wide last-reference date. Input over 24,000 characters and invalid output take the deterministic
 fallback without a retry. Engine failures/cancellation retain the existing propagation contract.
 Composition changes only Summary and deterministically unions the complete non-Summary sections,
-even ones the model did not rewrite. Replaced orientation remains undated background. Exact carried
+even ones the model did not rewrite. A replaced orientation's sentences become Key Facts unless `covered`. Exact carried
 facts retain or acquire exact G118 guards; a rephrased orientation remains unrecorded. The inbox
 caller shares this builder and retains its existing pre-call snapshot/write-time fence. The switch
 requires owner review of benchmark call counts; fake timing does not estimate provider latency.
+
+**Off: the legacy rewrite keeps every item (page quality, 2026-10-09).** With synthesis off, a page update that carries
+a `description` or history still makes the legacy whole-body call. Its prompt now describes the v2 sections (one
+600-character Summary that introduces the thing once; Key Facts kept as written, a new one only when no bullet says
+it). What it returns is used only for the Summary and the History lines it adds that no line already says
+(`entity_body.adopt_rewrite`); every other item is the page's own, then the extraction's key facts, links and open
+questions are merged deterministically. Before, its body replaced the page's: the extraction's facts never reached
+the page on that path (the prompt is given only the description and history — 12 of 50 extracted facts lost in the
+offline eval) and a fact the rewrite left out or rephrased was dropped or doubled. Every exact item now keeps its
+source row on this path too. The cost: the rewrite can no longer delete a Key Fact it judged superseded; the dated
+History line it adds and the contradiction check's question to the person are how a superseded fact is resolved.
+
+**A re-read is not a new mention (page quality, 2026-10-09).** Stage 3 makes no synthesis or contradiction call for
+an update whose conversations the page already credits (a resumed conversation read again, G104) when every sentence
+of its summary and every one of its facts is equal to a Summary sentence or Key Fact already on the page
+(`entity_body.adds_anything`, the same normalization as the fold): its items merge deterministically. A re-read that
+brings anything else still gets both calls, so a change stated in the resumed part is still checked. Either setting.
 
 **Person-started prose repair, candidates only (G194 B).**
 `scripts/repair_entity_prose.py --bank <bank> --scratch <outside-bank-directory>` inventories
@@ -503,7 +527,31 @@ Home's "Last read" shows the last batch's pages. Details › Last cycle's cost l
 ### Entity promotion
 Entities are NOT extracted from every mention — that pollutes the graph. First mention stays in the
 vector index only; promotion needs **2+ separate conversations**, OR substantive discussion (>3
-exchanges) in one, OR an explicit link to an existing high-confidence entity. What Sleep hears about a
+exchanges) in one, OR an explicit link to an existing high-confidence entity.
+
+**The bar is measured, not guessed (page quality, 2026-10-09; `api/services/promotion.py`).** A clean run of 296
+conversations wrote 70% of its 3,588 pages from one conversation (median 85 words, 3 facts): a function in the
+assistant's code example, a ride the assistant listed, a credential helper it suggested. The rungs were proxies almost
+every extraction cleared — "substantive" was confidence ≥ 0.75 with a 200-character description, or two history
+entries, or two relationships in the conversation (the prompt defines confidence as certainty, asks for a 3-5 sentence
+summary and for every relationship); "an explicit link" was any relationship the model drew to any page at 0.6. Now:
+- **>3 exchanges** is counted by Stage 1 on the conversation itself (`promotion.exchanges` / `measure`, no model):
+  an exchange opens at each turn of a person (the owner, or a `speaker:` in a meeting) and runs through the replies;
+  a document with no turn markers is the person's own writing, one exchange per paragraph. The name or an alias (a
+  person's first name too) must come up in more than 3 exchanges **and** in a person's own words at least once
+  (`mention_exchanges`, `named_by_person` ride on the extraction; never written to a page).
+- **An explicit link** is a relationship to an existing page at ≥ 0.6 (never the owner's) whose evidence is located in
+  a person's own words (`promotion.person_said`: kind `user` or `speaker`) — not one only the model's answer made or
+  one it inferred.
+- **2+ conversations** counts the batch's and the pending line's conversations together, so a resumed conversation
+  read again (G104) is not a second one.
+Below the bar nothing is lost: the pending line now carries what was said — summary, key facts, links, open questions,
+aliases, their G118 item records and every conversation that named it (`heard_in`) — and a re-park unions instead of
+replacing. When a later conversation promotes the name, the line is folded into the create through the same seam a
+same-name extraction uses, crediting each earlier conversation (its day too). The line leaves the store only after
+Stage 5 has written that page (`promoted_pending`; a line holding claims still leaves through Stage 5.56's release):
+a cancel before Stage 5 keeps it, and the next run promotes it again with everything it heard. A line written before this keeps its
+old shape and promotes as before. The rail and its numbers are unchanged; only how they are measured. What Sleep hears about a
 name before it has a page is not lost (G141 PJ-0b): Stage 5.56 holds those claims on the name's line in
 `<bank>/pending_entities.jsonl` (`api/services/pending_store.py`: spans, not copies; at most 50 per name,
 the rest counted) and releases them onto the page, first and through Stage 3, in the cycle whose Stage 5
@@ -653,12 +701,47 @@ and becomes its own page.
   company "Yo", the unchanged page also gains `→ yo`, and both `mentions` edges persist (the non-claim edge merge is
   additive). The fix is to bind a speaker wikilink to the owner when the prose is written (keeping its label), or to
   remember the resolved identity per page revision — never to reinterpret unchanged prose with later type evidence.
-- *Synthesis drops additive fields (pre-existing).* When an update carries a `description`, Stage 3's synthesis
-  prompt (`conflict_resolver._synthesize_entity_update`) is given the description and history only, and its body
-  replaces the page's on an agent-only page — so the unioned key facts, links and open questions of a merged
-  payload (several self-references on the owner page included) do not reach the written page on that path. The
-  deterministic and human-edited paths keep them. The fix is to send the whole merged payload to synthesis, or to
-  merge the additive fields deterministically into its result.
+- *Synthesis dropped additive fields — fixed 2026-10-09.* The legacy synthesis body used to replace the page's, so
+  the unioned key facts, links and open questions of a merged payload never reached the written page on that path.
+  It now contributes only its Summary and new History lines (`entity_body.adopt_rewrite`); see *Off: the legacy
+  rewrite keeps every item*.
+
+### Page quality (2026-10-09)
+The owner, on a clean run: "the markdowns of each page are too short and some saved facts are useless." A page should
+read like a short wiki article about the thing as it figures in the person's life — what it is, what it is to them,
+where it stands, the facts worth remembering once each. What changed, besides promotion and summaries above:
+- **Stage 1's prompt** asks for that article: the person's relation first; facts about the thing, never about the
+  conversation ("the assistant suggested …", "was mentioned in a conversation", "the user asked about …"); no
+  implementation trivia of one debugging session (an artifact name, an action version, an error message) unless the
+  person said it matters; one fact once, usually 0-5; a detail of the assistant's answer is not an entity unless the
+  person engaged with it. An assistant-said fact stays legitimate evidence (kind `assistant`); the bar is triviality,
+  not source. A prompt change is not measurable offline; the deterministic parts below are.
+- **Narration is dropped at Stage 1** (`fact_policy.about_the_conversation`): a fact whose subject is the thing itself
+  (its name, an alias or a pronoun) and whose only other words say it came up in a conversation, counted in a debug
+  line — the page's sources already say so. Any other subject ("Moving to Berlin … was discussed in a conversation")
+  is a fact with content and is kept.
+- **Only repeats fold** (`fact_policy.restates`; owner ruling 2026-10-09 after two review rounds): an incoming fact
+  (or a sentence of a summary that lost the fold) is dropped only when it is EQUAL to an item already on the page, or
+  to an earlier incoming one, after trivial normalization — case, accents, whitespace, wikilink brackets, trailing
+  punctuation. Never containment, never stopword or preposition removal: "works at Acme" inside "works at Acme's
+  competitor", "uses Postgres" inside "uses Postgres or SQLite", "launched" against "will launch" are all kept.
+  Paraphrases and more specific restatements fold only through opt-in synthesis, behind its guard; with synthesis off
+  near-duplicates stay — a duplicate is cheaper than a lost fact. Used by Stage 2's same-name fold, every section
+  merge, the re-read gate and the pending store. An existing bullet is never removed or reworded.
+- **Offline eval:** `python -m benchmarks.system.page_quality --scratch <new-dir>` runs the production Stage 1
+  post-processing, Stage 2, Stage 3 and the page writer over synthetic conversations with recorded Stage-1 answers
+  (`benchmarks/system/fixtures/page_quality.json`), with synthesis off and on, and reports pages, one-conversation
+  pages, words, facts, near-duplicates, narration, fallback Summaries, background bullets, every extracted fact that
+  reaches no page or pending line, and calls and prompt characters by stage per batch.
+- **Existing pages:** `python -m api.scripts.repair_page_quality --bank <bank>` (dry run: counts only, never a name)
+  counts one-conversation pages, which old proxy let each through (`old_rung_*`, read back from what the page kept)
+  and whether the measured bar would have written them, glued/over-budget/fallback
+  Summaries, background bullets, narration, restated and assistant-phrased facts. `--apply` (the person's call) repairs
+  only what a Sleep update would now write, on machine pages, losslessly — background bullets and displaced Summary
+  sentences become Key Facts when they add something, the fallback's clause and narration facts go — in one `cicada`
+  commit (`trigger: maintenance/page-quality`), refused while Sleep runs, dirty pages and pages with free prose in a
+  list section skipped (`skipped_free_prose`). Near-duplicate facts
+  already on a page and one-conversation pages are counted, never changed.
 
 ### Temporal decay
 Absence of mention IS a signal, and **how often something came up sets how fast its absence

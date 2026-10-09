@@ -671,6 +671,14 @@
       "disposition": "uninstrumented_guarded"
     }
   ],
+  "services/page_quality_repair.py": [
+    {
+      "function": "apply",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "refresh_or_preserve"
+    }
+  ],
   "services/paper_claim_text_migration.py": [
     {
       "function": "_rewrite",

@@ -119,30 +119,39 @@ def test_a_create_b_fact_only_update_keeps_a_summary_precondition(tmp_path, huma
     assert {ev.episode for _, evs in matched['key_facts'].values() for ev in evs} == {A, B}
 
 
-def test_b_new_summary_keeps_a_orientation_and_guards_while_retaining_b_background(tmp_path):
+def test_b_new_summary_keeps_a_orientation_and_guards_while_retaining_b_as_a_fact(tmp_path):
     cr.apply_changes([{'id': 'alpha-project', 'action': 'create', 'entity': entity()}], tmp_path)
     cr.apply_changes([{'id': 'alpha-project', 'action': 'update', 'entity': entity('Different Summary.', ['New fact.'], ep=B)}], tmp_path)
     p = page(tmp_path)
     assert 'Different Summary.' in p.body
     assert len(links(p)['summary']) == 1
     assert {ev.episode for _, evs in links(p)['summary'].values() for ev in evs} == {A}
-    assert len(links(p)['key_facts']) == 2
+    # B's orientation is a Key Fact now, exact, so its own row follows it (never History background).
+    assert len(links(p)['key_facts']) == 3
+    item = next(i for i in sp.scan(p.body)['key_facts'] if i.text == 'Different Summary.')
+    assert {ev.episode for ev in links(p)['key_facts'][item.key][1]} == {B}
     sections = provenance.entity_provenance(tmp_path, tmp_path / 'entities' / 'alpha-project.md').sections
     summary, facts = sections[:2]
-    assert sections[2].recorded_items == 0  # No guard is invented for prefixed background.
+    assert all(section.recorded_items == 0 for section in sections[2:])
     assert summary.recorded_items == summary.reasoning_count == 1
-    assert facts.recorded_items == facts.reasoning_count == 2
+    assert facts.recorded_items == facts.reasoning_count == 3
 
 
-def test_synthesis_carries_exact_items_but_not_unseen_incoming_facts(tmp_path):
+def test_synthesis_keeps_the_page_items_and_records_the_exact_incoming_ones(tmp_path):
     cr.apply_changes([{'id': 'alpha-project', 'action': 'create', 'entity': entity(facts=['One.', 'Two.', 'Three.'])}], tmp_path)
     cr.apply_changes([{'id': 'alpha-project', 'action': 'update',
         'entity': entity('Not supplied to synthesis.', ['Unseen incoming.'], ep=B, description='New description.'),
-        'synthesized_body': '## Summary\nExample project.\n\n## Key Facts\n- One.\n- Two.\n- Rephrased three.\n- Unseen incoming.'}], tmp_path)
-    matched = links(page(tmp_path))
+        'synthesized_body': '## Summary\nExample project.\n\n## Key Facts\n- One.\n- Two.\n- Rephrased three.'}], tmp_path)
+    p = page(tmp_path)
+    facts = sp.scan(p.body)['key_facts']
+    # The rewrite's Summary; the page's facts as they were (a rephrase is not a second copy); the
+    # extraction's fact, which the rewrite never saw, is still written and keeps its own row.
+    assert [i.text for i in facts] == ['One.', 'Two.', 'Three.', 'Unseen incoming.']
+    matched = links(p)
     assert len(matched['summary']) == 1
-    assert len(matched['key_facts']) == 2
-    assert all(ev.episode == A for _, evs in matched['key_facts'].values() for ev in evs)
+    assert len(matched['key_facts']) == 4
+    unseen = next(i for i in facts if i.text == 'Unseen incoming.')
+    assert {ev.episode for ev in matched['key_facts'][unseen.key][1]} == {B}
 
 
 def test_legacy_pending_style_input_does_not_get_fabricated_links(tmp_path):

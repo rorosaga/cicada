@@ -164,7 +164,7 @@ def test_a_cancel_starts_no_new_judgment_and_writes_nothing(bank, monkeypatch):
 def test_a_name_that_matches_an_in_cycle_create_spends_no_lookahead_call(bank, monkeypatch):
     """"Alpha Bravo Hub" direct-matches the in-cycle create "Alpha Bravo Hubs" (fuzzy > 85): the serial loop
     never judged it, and the lookahead must not judge it either."""
-    history = {"history_entries": [{"date": "2026-10-01", "event": "e1"}, {"date": "2026-10-02", "event": "e2"}]}
+    history = {"mention_exchanges": 4, "named_by_person": True}  # promoted on its one conversation
     pages = [_page("Alpha Cobalt", "project")]
     extracted = [{"episode_id": "ep_2026-10-01_001", "relationships": [], "entities": [
         _entity("Alpha Bravo Hubs", "project", "ep_2026-10-01_001", **history),
@@ -176,7 +176,7 @@ def test_a_name_that_matches_an_in_cycle_create_spends_no_lookahead_call(bank, m
 
 
 def test_an_in_cycle_candidate_is_still_judged_after_the_existing_ones(bank, monkeypatch):
-    history = {"history_entries": [{"date": "2026-10-01", "event": "e1"}, {"date": "2026-10-02", "event": "e2"}]}
+    history = {"mention_exchanges": 4, "named_by_person": True}  # promoted on its one conversation
     pages = [_page("Delta Onyx", "tool")]
     extracted = [{"episode_id": "ep_2026-10-01_002", "relationships": [], "entities": [
         _entity("Delta Ember Prism", "tool", "ep_2026-10-01_002", **history),

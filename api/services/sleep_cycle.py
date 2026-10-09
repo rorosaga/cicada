@@ -2477,6 +2477,20 @@ async def _run_stages(
     decay_budget = DecayBudget(getattr(settings, "decay_inbox_cap_per_cycle", 10))
     await generate(changes, skill_changes, memory_path, relationships=resolved_edges,
                    decay_budget=decay_budget)
+    # The pending lines Stage 2 promoted leave the store only now that their pages carry what they held
+    # (page quality, 2026-10-09): a cancel before Stage 5 kept them. A line holding claims stays until
+    # Stage 5.56 writes those claims (`pending_store.take`).
+    promoted_pending = resolved_result.get("promoted_pending") or []
+    if promoted_pending:
+        from api.services import pending_store
+
+        def _take_promoted():
+            return sum(1 for name in promoted_pending if pending_store.take(memory_path, name)[1])
+        try:
+            taken = await asyncio.to_thread(_take_promoted)
+            logger.info(f"Stage 5: {taken} promoted pending line(s) left the store")
+        except Exception as e:
+            logger.warning(f"Stage 5 pending take failed: {type(e).__name__}: {e}")
     # G112: the one-conversation skills go into the skill hold, and the lines a skill page of this
     # batch carried leave it — after the pages exist. A failed hold write is a warning, as Stage 2's
     # own pending writes are: the pages stand.
