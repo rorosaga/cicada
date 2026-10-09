@@ -613,8 +613,10 @@ to the real git dir, and a new bank's `.gitignore` lists the file too. It never 
 `.gitignore`, which would dirty the tree and smear into the next `git add -A` commit. **Freshness:**
 Sleep brings it up to date beside the vectors (`search_index.refresh`, off the event loop — the
 stamp diff `ensure_fresh` uses, so an idle night re-indexes nothing; a full build only when the file is
-missing, damaged or of another schema); every read path calls `ensure_fresh`, a `bank_index` stamp diff
-(at most one check a second, inline up to 64 changed files, one background worker beyond); the
+missing, damaged or of another schema); every read path calls `ensure_fresh`, a stamp diff over directory
+listings (`bank_index.stamps`) that parses only the files whose `(mtime_ns, size)` moved — any difference counts, so a
+same-size edit, an add, a removal, a rename and a checkout are all caught, and a fresh process learns "nothing moved"
+without a parse (at most one check a second, inline up to 64 changed files, one background worker beyond); the
 lifespan and a bank switch warm it in the background. The caller always passes the active bank's path
 — the module never resolves a bank (the split-brain rule). `search_service` ranks over it (QuickMatch
 tiers 0–2), fuses it with the stored vectors in `mode=hybrid`, and **never embeds in `mode=prefix`**.

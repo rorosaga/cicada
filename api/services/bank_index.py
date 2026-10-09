@@ -148,6 +148,54 @@ def files(memory_path: Path, subdir: str) -> list[IndexedFile]:
         return [known[n] for n in sorted(known)]
 
 
+def stamps(memory_path: Path, subdir: str) -> dict[str, tuple[int, int]]:
+    """``{filename: (mtime_ns, size)}`` for ``subdir``'s ``*.md`` files: one scandir, no parse.
+
+    What a caller that needs to know *which* files exist and whether they moved — a freshness check, a
+    name lookup — reads instead of :func:`files`, which parses every file it has not cached (the whole
+    directory in a fresh process: ~2.4 s for ~5,900 files)."""
+    return dict(_scan(Path(memory_path) / subdir))
+
+
+def file(memory_path: Path, subdir: str, name: str) -> IndexedFile | None:
+    """One file's cached entry, parsing only that file when its ``(mtime, size)`` moved or it was never
+    read. ``name`` is the on-disk filename (``<stem>.md``); a missing or malformed file is ``None``.
+
+    Shares :func:`files`' cache, so a long-lived process that has listed the directory answers from it,
+    and a fresh one parses the one page a read needs instead of all of them."""
+    global parse_count
+    directory = Path(memory_path) / subdir
+    path = directory / name
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    stamp = (st.st_mtime_ns, st.st_size)
+    key = (str(memory_path), subdir)
+    with _lock:
+        hit = _cache.get(key, {}).get(name)
+        if hit is not None and (hit.mtime_ns, hit.size) == stamp:
+            return hit
+    try:
+        fm = markdown_parser.parse(path).frontmatter
+    except Exception as exc:  # malformed file: skip, never crash a caller
+        logger.warning(f"bank_index: skipping malformed {path}: {exc}")
+        return None
+    entry = IndexedFile(path=path, mtime_ns=stamp[0], size=stamp[1], frontmatter=fm)
+    with _lock:
+        try:
+            st = os.stat(path)
+            stamp_now = (st.st_mtime_ns, st.st_size)
+        except FileNotFoundError:
+            stamp_now = None
+        if stamp_now == stamp:
+            # A partial directory cache is safe: `files()` parses whatever it lacks, and `is_warm`
+            # compares the whole listing, so one entry never reads as "the directory is warm".
+            parse_count += 1
+            _cache.setdefault(key, {})[name] = entry
+    return entry
+
+
 def dir_stamp(memory_path: Path, subdir: str) -> tuple[int, int]:
     """(file count, max mtime_ns) — a cheap change stamp, no parsing."""
     current = _scan(Path(memory_path) / subdir)

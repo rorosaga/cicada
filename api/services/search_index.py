@@ -222,6 +222,11 @@ def reset(memory_path: Path | None = None) -> None:
             _STATES.clear()
         else:
             _STATES.pop(str(Path(memory_path)), None)
+    with _NAMES_LOCK:
+        if memory_path is None:
+            _NAMES.clear()
+        else:
+            _NAMES.pop(str(Path(memory_path)), None)
 
 
 def invalidate(memory_path: Path) -> None:
@@ -234,24 +239,62 @@ def invalidate(memory_path: Path) -> None:
 
 
 def _scan(memory_path: Path) -> dict[str, bank_index.IndexedFile]:
+    """Every indexed file with its frontmatter — the full build's listing (it reads every file anyway)."""
     out: dict[str, bank_index.IndexedFile] = {}
-    for subdir in INDEXED_SUBDIRS:
+    for subdir in _subdirs(memory_path):
         for f in bank_index.files(memory_path, subdir):
             if subdir == "inbox" and not f.path.name.startswith("inbox-"):
                 continue
             out[f"{subdir}/{f.path.name}"] = f
+    return out
+
+
+def _subdirs(memory_path: Path) -> list[str]:
+    """The indexed directories: ``INDEXED_SUBDIRS``, then one per backlog project (G150)."""
+    out = list(INDEXED_SUBDIRS)
     root = Path(memory_path) / BACKLOG_SUBDIR
     if root.is_dir():
-        for folder in sorted(p for p in root.iterdir() if p.is_dir()):
-            for f in bank_index.files(memory_path, f"{BACKLOG_SUBDIR}/{folder.name}"):
-                out[f"{BACKLOG_SUBDIR}/{folder.name}/{f.path.name}"] = f
+        out += [f"{BACKLOG_SUBDIR}/{p.name}" for p in sorted(root.iterdir()) if p.is_dir()]
+    return out
+
+
+def _current_stamps(memory_path: Path) -> dict[str, tuple[int, int]]:
+    """``{doc_key: (mtime_ns, size)}`` for every indexed file: directory listings only, no parse.
+
+    The freshness check compares these with the stamps the index holds. It used to list through
+    ``bank_index.files``, which parses every frontmatter it has not cached — in a fresh process (the
+    CLI, an MCP server's first call) that was every file in the bank, 2.4 s at ~5,900 files, to learn
+    that nothing had changed. A file is read only once its stamp says it moved (:func:`_diff`)."""
+    out: dict[str, tuple[int, int]] = {}
+    for subdir in _subdirs(memory_path):
+        for name, stamp in bank_index.stamps(memory_path, subdir).items():
+            if subdir == "inbox" and not name.startswith("inbox-"):
+                continue
+            out[f"{subdir}/{name}"] = stamp
     return out
 
 
 def _diff(memory_path: Path, stamps: dict[str, tuple[int, int]]):
-    current = _scan(memory_path)
-    changed = {k: f for k, f in current.items() if stamps.get(k) != (f.mtime_ns, f.size)}
+    """What moved since the index was written: ``(changed, removed)``.
+
+    Any difference in ``(mtime_ns, size)`` is a change — an edit that keeps the size still moves the
+    nanosecond mtime, a checkout or a restore writes a new one, a rename is a removal plus an addition.
+    Only the changed files are parsed (their frontmatter orders a refresh, :func:`_ordered`). A file whose
+    frontmatter cannot be parsed counts as absent, exactly as ``bank_index.files`` — the listing this
+    replaced — left it out."""
+    current = _current_stamps(memory_path)
     removed = [k for k in stamps if k not in current]
+    changed: dict[str, bank_index.IndexedFile] = {}
+    for doc_key, stamp in current.items():
+        if stamps.get(doc_key) == stamp:
+            continue
+        subdir, name = doc_key.rsplit("/", 1)
+        f = bank_index.file(memory_path, subdir, name)
+        if f is None:  # malformed, or gone since the listing
+            if doc_key in stamps:
+                removed.append(doc_key)
+            continue
+        changed[doc_key] = f
     return changed, removed
 
 
@@ -835,6 +878,87 @@ def pages_citing_many(memory_path: Path, episode_ids: list[str]) -> dict[str, li
     except sqlite3.Error:
         return None
     return {ep: sorted(refs) for ep, refs in out.items()}
+
+
+# --- page names ---------------------------------------------------------------
+
+# bank path -> (the listing it answered for, {filename: ((mtime_ns, size), name)}, the answer).
+_NAMES: dict[str, tuple[dict, dict, dict]] = {}
+_NAMES_LOCK = threading.Lock()
+
+
+def _page_name(stem: str, fm: dict) -> str:
+    """A page's display name — the rule :func:`_index_entity` stores, so both sources agree."""
+    return str((fm or {}).get("name") or stem.replace("-", " ").title())
+
+
+def _indexed_names(memory_path: Path) -> dict[str, tuple[tuple[int, int], str]]:
+    """``{filename: (stamp, name)}`` for every entity page the index holds; ``{}`` when there is no
+    usable index. Read-only: never creates, repairs or rebuilds the file."""
+    db = db_path(memory_path)
+    if not fts5_available() or not db.exists():
+        return {}
+    try:
+        uri = db.resolve().as_uri() + "?mode=ro"
+        conn = sqlite3.connect(uri, uri=True, timeout=2.0)
+        try:
+            row = conn.execute("SELECT value FROM meta WHERE key = 'schema'").fetchone()
+            if not row or row[0] != _schema_tag():
+                return {}
+            rows = conn.execute(
+                "SELECT doc_key, mtime_ns, size, meta FROM docs WHERE doc_key >= 'entities/' AND doc_key < 'entities0'"
+            ).fetchall()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return {}
+    out: dict[str, tuple[tuple[int, int], str]] = {}
+    for doc_key, mtime_ns, size, meta in rows:
+        filename = doc_key.split("/", 1)[1]
+        if "/" in filename:
+            continue
+        try:
+            name = json.loads(meta or "{}").get("name")
+        except ValueError:
+            continue
+        if name:
+            out[filename] = ((int(mtime_ns), int(size)), str(name))
+    return out
+
+
+def entity_names(memory_path: Path) -> dict[str, str | None]:
+    """``{stem: name}`` for every page in ``entities/``, as the files say NOW (``None``: a page whose
+    frontmatter cannot be read — it still has a stem).
+
+    Name lookups (recall's one-hop links, a hub's members, ``recall_detail`` by name) used to read every
+    page's frontmatter per name — 3,600 reads for each of eight names in a fresh process. This answers
+    from one directory listing: a page whose ``(mtime_ns, size)`` matches what this process last read,
+    or what the full-text index recorded, keeps that name; only a page that moved is parsed. So it is
+    exact whether or not the index is fresh, and a missing or broken index only costs parses. The
+    caller passes the active bank (the split-brain rule)."""
+    memory_path = Path(memory_path)
+    current = bank_index.stamps(memory_path, "entities")
+    key = str(memory_path)
+    with _NAMES_LOCK:
+        cached = _NAMES.get(key)
+    if cached is not None and cached[0] == current:
+        return cached[2]  # nothing moved: the same dict, so a caller may key its own lookups on it
+    held = dict(cached[1]) if cached is not None else {}
+    moved = [n for n, stamp in current.items() if (held.get(n) or (None,))[0] != stamp]
+    indexed = _indexed_names(memory_path) if len(moved) > 32 else {}
+    for filename in moved:
+        hit = indexed.get(filename)
+        if hit is not None and hit[0] == current[filename]:
+            held[filename] = hit
+            continue
+        f = bank_index.file(memory_path, "entities", filename)
+        # Malformed (or gone since the listing): no name to match, remembered so it is not re-read.
+        held[filename] = ((f.mtime_ns, f.size), _page_name(f.stem, f.frontmatter)) if f else (current[filename], None)
+    held = {n: v for n, v in held.items() if n in current}
+    names = {n[: -len(".md")]: name for n, (_stamp, name) in held.items()}
+    with _NAMES_LOCK:
+        _NAMES[key] = (current, held, names)
+    return names
 
 
 # --- reading ------------------------------------------------------------------

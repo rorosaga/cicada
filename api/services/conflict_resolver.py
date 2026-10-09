@@ -6,7 +6,6 @@ import sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-import litellm
 from loguru import logger
 from tqdm import tqdm
 
@@ -17,6 +16,25 @@ from api.services import (
     markdown_parser, section_provenance, source_dates,
 )
 from api.services.providers import resolve_llm_fn
+
+
+def _litellm():
+    """litellm, imported when a model is first called, never at import time.
+
+    The import costs ~0.8-1.5 s, and this module sits under every reader that touches the inbox
+    (``inbox_generator`` -> ``inbox_service`` -> ``search_service`` -> ``mcp_tools``): a fresh process's
+    first recall paid for a library no read uses. ``conflict_resolver.litellm`` still names the module
+    (:func:`__getattr__`), so patching ``conflict_resolver.litellm.acompletion`` patches what every call
+    here reads."""
+    import litellm
+
+    return litellm
+
+
+def __getattr__(name: str):
+    if name == "litellm":
+        return _litellm()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 # Confidence floor a decaying/archived entity is restored to when it is
 # mentioned again (G66 §1.6) — high enough to clear `decay_nudge_threshold`
@@ -1000,8 +1018,9 @@ async def _synthesize_entity_update(
         prompt = entity_orientation.bounded_prompt(data)
         if prompt is None:
             return None
+        completion = _litellm().acompletion
         llm_fn = resolve_llm_fn(settings, model=settings.effective_consolidation_model,
-                                completion=litellm.acompletion, stage='merge')
+                                completion=completion, stage='merge')
         response = await llm_fn(messages=[{'role': 'user', 'content': prompt}])
         try:
             result = json.loads(response.choices[0].message.content or '')
@@ -1041,9 +1060,10 @@ async def _synthesize_entity_update(
     # Route through the provider factory (CQA-H3) so llm_mode="local" (ollama)
     # and consolidation_model overrides apply uniformly here too. completion
     # stays litellm.acompletion, so this is still awaited exactly as before.
+    completion = _litellm().acompletion
     llm_fn = resolve_llm_fn(
         settings, model=settings.effective_consolidation_model,
-        completion=litellm.acompletion, stage="merge",
+        completion=completion, stage="merge",
     )
     response = await llm_fn(
         messages=[{"role": "user", "content": prompt}],
@@ -1165,9 +1185,10 @@ async def _detect_contradiction(
         existing_as_of=source_dates.describe(existing_as_of),
         new_as_of=_days_line(new_as_of or []),
     )
+    completion = _litellm().acompletion
     llm_fn = resolve_llm_fn(
         settings, model=settings.effective_consolidation_model,
-        completion=litellm.acompletion, stage="conflict",
+        completion=completion, stage="conflict",
     )
     response = await llm_fn(
         messages=[{"role": "user", "content": prompt}],
