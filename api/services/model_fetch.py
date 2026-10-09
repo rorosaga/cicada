@@ -57,7 +57,11 @@ class FetchError(RuntimeError):
 
 
 def pins() -> dict:
-    return json.loads(PINS.read_text(encoding="utf-8"))
+    try:
+        return json.loads(PINS.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise FetchError(f"This copy of Cicada is missing the search model's pinned file list "
+                         f"(api/data/{PINS.name}), so nothing was downloaded. Update or reinstall Cicada.") from exc
 
 
 def total_bytes(p: dict | None = None) -> int:

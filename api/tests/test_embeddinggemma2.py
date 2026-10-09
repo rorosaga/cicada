@@ -597,6 +597,13 @@ def test_a_checksum_mismatch_installs_nothing(mac15, tmp_path, monkeypatch):
     assert not (mac15 / "models").exists() or not any((mac15 / "models").iterdir())
 
 
+def test_a_missing_pin_file_is_a_sentence_not_a_traceback(tmp_path, monkeypatch):
+    monkeypatch.setattr(model_fetch, "PINS", tmp_path / "embeddinggemma-2.lock.json")
+    with pytest.raises(model_fetch.FetchError, match="missing the search model's pinned file list"):
+        model_fetch.install(tmp_path / "models", compile_fn=_fake_compile)
+    assert not (tmp_path / "models").exists(), "nothing is staged before the pins are read"
+
+
 def test_the_real_pins_name_only_the_text_encoder_at_one_revision():
     pins = model_fetch.pins()
     assert len(pins["revision"]) == 40 and pins["dir_name"] == "embeddinggemma-2"
