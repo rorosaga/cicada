@@ -507,8 +507,8 @@ exchanges) in one, OR an explicit link to an existing high-confidence entity. Wh
 name before it has a page is not lost (G141 PJ-0b): Stage 5.56 holds those claims on the name's line in
 `<bank>/pending_entities.jsonl` (`api/services/pending_store.py`: spans, not copies; at most 50 per name,
 the rest counted) and releases them onto the page, first and through Stage 3, in the cycle whose Stage 5
-gives the name one — a holding line leaves the store only then. A Stage-4 skill seen in one conversation waits on the
-same store (see *A new skill page needs two conversations*).
+gives the name one — a holding line leaves the store only then. A Stage-4 skill seen in one conversation waits in a
+store of its own (see *A new skill page needs two conversations*).
 
 **Every mention in a batch is credited (2026-10-08).** Several conversations in one batch can name an entity by the
 same lower-cased name. Stage 2 judges and promotes the name once, on its strongest extraction (first on a confidence
@@ -593,16 +593,19 @@ The same repair script grounds the existing unsourced skill pages from the Sleep
 
 **A new skill page needs two conversations (owner ruling 2026-10-09).** The bar is entity promotion's. A skill
 `ground` finds in only one conversation is not written and not lost: `skill_grounding.settle` (Stage 5, after the
-pages are written, before Stage 5.56) parks it on `<bank>/pending_entities.jsonl` as a `type: skill` line carrying
-that conversation, its description and confidence. A later batch that grounds the same name (by slug) on another
-conversation — or finds a same-named line Stage 1 parked from another conversation — clears the bar: the page is
-created citing every one of them (dates, `reasoning` rows, `source_episodes`), and the line leaves the store through
-`pending_store.take` (a line still holding claims stays until Stage 5.56 releases them onto the page). A held
-conversation whose episode is gone is no evidence. Nothing expires a line (G173 (4)), so batch 3 and batch 9 meet. A
-skill page that already exists is updated on one conversation as before. Chosen over a separate skills store because
-the pending store already is "a name heard once, no page yet": one file, tracked and committed by the cycle, whose
-held claims follow the name onto its page. Known gap: the held batch's evidence entities are not kept, so the page's
-`draws on` edges come from the batch that cleared the bar.
+pages are written) parks it in its own store, `<bank>/pending_skills.jsonl` (`api/services/skill_hold.py`, keyed by
+the page id the skill would get), with that conversation, its description, confidence and evidence pages. A later
+batch that grounds the same skill on another conversation clears the bar: the page is created citing both
+(dates, `reasoning` rows, `source_episodes`, the held batch's `draws on` edges joined) and the line leaves the store.
+If a `skill` page of that id appeared meanwhile, the held conversation joins its update the same way. A held
+conversation whose episode is gone is no evidence. Nothing expires a line, so batch 3 and batch 9 meet. A skill page
+that already exists is updated on one conversation as before. **Not Stage 2's pending store** (review of the first
+attempt): that store is keyed by name, and Stage 2 promotes any line a Stage-1 entity repeats under the entity's
+type, crediting only the new conversation and deleting the line — a held skill there became a concept page and lost
+its first conversation, and a skill create taking a same-named Stage-1 line dropped that line's history, description
+and tags. Two key spaces cannot consume each other's lines. The cost: a Stage-1 mention of the same name does not count
+toward a skill's bar (a name heard is not the pattern seen), and claims about a held skill's name are not held with
+it, as before. The file is tracked and committed by the cycle, like the pending store.
 
 **Unsourced skill pages are archived on request (owner ruling 2026-10-09).** `repair_skills_aliases
 --archive-unsourced` (off by default; the dry run counts `skill_archivable` / `skill_archive_unproven`, `--list`

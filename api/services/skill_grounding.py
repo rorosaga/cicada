@@ -21,12 +21,14 @@ Stage 1 found — no new writer, no model call:
   skill is an inference across them, never a quotation of one (G118 R6).
 * **Related.** Each evidence entity with a page gets a ``draws on`` edge, so ``related`` names it.
 * **Two conversations (owner ruling 2026-10-09).** A NEW skill page needs two or more conversations, the bar entity
-  promotion sets. A skill grounded on one conversation is held, not written and not lost: :func:`settle` parks it on
-  the pending store (``pending_store``, the line a first mention of any name gets), as ``type: skill`` with that one
-  conversation. A later batch that grounds the same name on another conversation — or a same-named line Stage 1
-  parked from another conversation — clears the bar: the page is created citing both, and the line leaves the store
-  (a line that still holds claims leaves through Stage 5.56's release, as for any promotion). Nothing expires a
-  line, so batch 3 and batch 9 meet.
+  promotion sets. A skill grounded on one conversation is held, not written and not lost: :func:`settle` parks it in
+  its own store (``skill_hold``, ``pending_skills.jsonl``, keyed by the page id it would get) with that conversation,
+  its description, confidence and evidence pages. A later batch that grounds the same skill on another conversation
+  clears the bar: the page is created citing both, its evidence pages joined, and the line leaves the store. Nothing
+  expires a line, so batch 3 and batch 9 meet. The hold is NOT Stage 2's pending store: that one is keyed by name and
+  promotes any line a Stage-1 entity repeats, under the entity's type — a skill there would become a concept page and
+  lose its first conversation, and a skill create taking a Stage-1 line would drop what that line held. So a Stage-1
+  mention of the same name does not count toward a skill's bar.
 * **Again.** A skill whose name is already a ``type: skill`` page updates that page — sources merged,
   last mention moved, a decaying page recovered — instead of being a silent no-op. Its prose is not touched: a
   re-detection is evidence, not new text, and a paraphrased description fed to the merge would pile one undated
@@ -41,9 +43,9 @@ from pathlib import Path
 
 from loguru import logger
 
-from api.services import episode_time, evidence, markdown_parser, pending_store, section_provenance
+from api.services import episode_time, evidence, markdown_parser, section_provenance, skill_hold
 from api.services.id_utils import bank_file, build_name_index, resolve_entity_id, sanitize_id
-from api.services.pending_store import PendingEntity
+from api.services.skill_hold import HeldSkill
 from api.services.skill_tag import is_agent_skill
 
 TRIGGER = "sleep/skills"
@@ -107,12 +109,12 @@ MIN_CONVERSATIONS = 2
 @dataclass
 class SkillPlan:
     """Stage 4's answer, decided: ``changes`` for ``apply_changes``; ``held`` — skills grounded on one conversation,
-    parked on the pending store by :func:`settle`; ``promoted`` — ``(line name, page id)`` of the pending lines a
-    create of this plan carries, which leave the store once that page exists."""
+    parked in ``skill_hold`` by :func:`settle`; ``promoted`` — the page ids whose held line a change of this plan
+    carries, which leave the hold once that page exists."""
 
     changes: list[dict] = field(default_factory=list)
-    held: list[PendingEntity] = field(default_factory=list)
-    promoted: list[tuple[str, str]] = field(default_factory=list)
+    held: list[HeldSkill] = field(default_factory=list)
+    promoted: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -125,23 +127,20 @@ class _Draft:
     evidence_ids: set[str] = field(default_factory=set)
 
 
-def _held_conversations(memory_path: Path, lines: list[PendingEntity]) -> dict[str, tuple[str | None, bool]]:
-    """``{episode id: (timestamp, untimed)}`` for the conversations the pending lines of one name were heard in — only
-    an episode still in the bank counts: a conversation that cannot be opened is no evidence."""
-    out: dict[str, tuple[str | None, bool]] = {}
-    for line in lines:
-        ep_id = str(line.source_episode or "").strip()
-        if not ep_id or not evidence.is_episode_id(ep_id):
-            continue
-        doc = evidence.source_document(memory_path, ep_id)
-        if doc is None:
-            continue
-        fm = doc[0]
-        untimed = not episode_time.counts_as_activity(fm)
-        stamp = fm.get("timestamp")
-        stamp = stamp.isoformat() if hasattr(stamp, "isoformat") else (str(stamp) if stamp else None)
-        out[ep_id] = (None if untimed else stamp, untimed)
-    return out
+def _held_conversation(memory_path: Path, line: HeldSkill | None) -> dict[str, tuple[str | None, bool]]:
+    """``{episode id: (timestamp, untimed)}`` for the conversation a held line was grounded on — only an episode still
+    in the bank counts: a conversation that cannot be opened is no evidence."""
+    ep_id = str(line.source_episode or "").strip() if line is not None else ""
+    if not ep_id or not evidence.is_episode_id(ep_id):
+        return {}
+    doc = evidence.source_document(memory_path, ep_id)
+    if doc is None:
+        return {}
+    fm = doc[0]
+    untimed = not episode_time.counts_as_activity(fm)
+    stamp = fm.get("timestamp")
+    stamp = stamp.isoformat() if hasattr(stamp, "isoformat") else (str(stamp) if stamp else None)
+    return {ep_id: (None if untimed else stamp, untimed)}
 
 
 def ground(
@@ -154,7 +153,7 @@ def ground(
 ) -> SkillPlan:
     """Stage 4's answer as ``create``/``update`` changes for ``apply_changes``, plus the one-conversation skills to
     hold; the ungrounded ones are dropped (logged as a count). Each change carries ``evidence_ids`` for :func:`edges`.
-    Reads the bank and the pending store, writes nothing (:func:`settle` does, in Stage 5)."""
+    Reads the bank and the skill hold, writes nothing (:func:`settle` does, in Stage 5)."""
     name_to_id = {str(k).lower(): v for k, v in (name_to_id or {}).items()}
     entities_dir = Path(memory_path) / "entities"
     name_index = build_name_index(entities_dir)
@@ -224,29 +223,27 @@ def ground(
         draft.chosen |= chosen
         draft.evidence_ids |= evidence_ids
 
-    # The pending store, read once: a create meets the bar with what a past batch (or Stage 1) heard of the name.
-    pending_by_slug: dict[str, list[PendingEntity]] = {}
-    if any(d.action == "create" for d in drafts.values()):
-        for line in pending_store.load(memory_path):
-            pending_by_slug.setdefault(sanitize_id(line.name), []).append(line)
+    # The skill hold, read once: a skill meets the bar with the conversation a past batch grounded it on.
+    held_by_slug = {line.slug: line for line in skill_hold.load(memory_path)} if drafts else {}
 
     plan = SkillPlan()
     for skill_id, draft in drafts.items():
         timing = {ep_id: (episodes[ep_id].timestamp, episodes[ep_id].untimed) for ep_id in draft.chosen}
-        lines = pending_by_slug.get(skill_id, []) if draft.action == "create" else []
-        if draft.action == "create":
-            held = _held_conversations(memory_path, lines)
-            if len(draft.chosen | set(held)) < MIN_CONVERSATIONS:
-                # One conversation: held, not written. A line that already names it holds it already.
-                if not any(line.source_episode in draft.chosen for line in lines):
-                    plan.held.append(PendingEntity(
-                        name=draft.name, type="skill", description=draft.description,
-                        source_episode=sorted(draft.chosen)[-1], confidence=draft.confidence,
-                        tags=[], history_entries=[]))
-                continue
+        line = held_by_slug.get(skill_id)
+        held = _held_conversation(memory_path, line)
+        if draft.action == "create" and len(draft.chosen | set(held)) < MIN_CONVERSATIONS:
+            # One conversation: held, not written. A line that already names it holds it already.
+            if line is None or line.source_episode not in draft.chosen:
+                plan.held.append(HeldSkill(
+                    name=draft.name, description=draft.description, confidence=draft.confidence,
+                    source_episode=sorted(draft.chosen)[-1], evidence_ids=sorted(draft.evidence_ids)))
+            continue
+        if line is not None:
+            # The held conversation joins the page — a create's or an update's — and the line leaves.
             for ep_id, value in held.items():
                 timing.setdefault(ep_id, value)
-            plan.promoted.extend((line.name, skill_id) for line in lines)
+            draft.evidence_ids |= set(line.evidence_ids) & known_ids - {skill_id}
+            plan.promoted.append(skill_id)
         chosen = sorted(timing)
         timed = [ep_id for ep_id in chosen if not timing[ep_id][1]]
         stamps = sorted({timing[ep_id][0] for ep_id in timed if timing[ep_id][0]})
@@ -279,18 +276,12 @@ def ground(
 
 
 def settle(memory_path: Path, plan: SkillPlan) -> tuple[int, int]:
-    """Stage 5, after the pages are written: park each held skill on the pending store, and take out the lines a
-    create of this plan carried, now that their page exists (``pending_store.take``: a line still holding claims
-    stays for Stage 5.56 to release onto the page). Returns ``(held, taken)``."""
-    for line in plan.held:
-        pending_store.upsert(memory_path, line)
+    """Stage 5, after the pages are written: park each held skill in ``skill_hold``, and remove the lines a change of
+    this plan carried, now that their page exists. Returns ``(held, released)``."""
     entities_dir = Path(memory_path) / "entities"
-    taken = 0
-    for name, page_id in plan.promoted:
-        page = bank_file(entities_dir, page_id)
-        if page is not None and page.is_file():
-            taken += int(pending_store.take(memory_path, name)[1])
-    return len(plan.held), taken
+    release = [page_id for page_id in plan.promoted
+               if (page := bank_file(entities_dir, page_id)) is not None and page.is_file()]
+    return skill_hold.settle(memory_path, plan.held, release)
 
 
 def edges(skill_changes: list[dict]) -> list[dict]:

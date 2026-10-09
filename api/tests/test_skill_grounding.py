@@ -173,7 +173,7 @@ def test_apply_changes_is_the_only_writer(tmp_path, monkeypatch):
 def test_the_live_cycle_holds_a_one_conversation_skill_and_writes_it_on_the_second(tmp_path, monkeypatch):
     """owner ruling 2026-10-09: a new skill page needs two conversations. Cycle one holds the skill on the pending store;
     cycle two, on another conversation, writes the page citing both and the line leaves the store."""
-    from api.services import git_service, pending_store, sleep_cycle
+    from api.services import git_service, pending_store, skill_hold, sleep_cycle
     from api.tests import test_sleep_cycle_claims_wired as wired
 
     memory = wired._seed_bank(tmp_path)
@@ -211,9 +211,10 @@ def test_the_live_cycle_holds_a_one_conversation_skill_and_writes_it_on_the_seco
     run("2026-06-17_skill")
     assert not page.exists() and not (memory / "entities" / "unseen-habit.md").exists()
     assert sleep_cycle._state.skills_detected == 0
-    [line] = [e for e in pending_store.load(memory) if e.type == "skill"]
-    assert (line.name, line.source_episode, line.description) == \
-        ("Reads the plan first", ep1, "Reads the plan before coding.")
+    [line] = skill_hold.load(memory)
+    assert (line.name, line.source_episode, line.description, line.evidence_ids) == \
+        ("Reads the plan first", ep1, "Reads the plan before coding.", ["cicada"])
+    assert pending_store.load(memory) == []        # Stage 2's store is not where a skill waits
 
     markdown_parser.write(memory / "episodes" / f"{ep2}.md",
                           {"id": ep2, "processed": False, "source": "mcp", "timestamp": "2026-06-24T10:00:00"},
@@ -224,7 +225,7 @@ def test_the_live_cycle_holds_a_one_conversation_skill_and_writes_it_on_the_seco
     assert fm["source_episodes"] == [ep1, ep2] and fm["related"] == ["cicada"]
     assert fm["created"] == "2026-06-17" and fm["last_referenced"] == "2026-06-24"
     assert sleep_cycle._state.skills_detected == 1
-    assert not [e for e in pending_store.load(memory) if e.type == "skill"]
+    assert skill_hold.load(memory) == []
     assert any(f"entities/reads-the-plan-first.md: create (source: {ep2}, trigger: sleep/skills" in m
                for m in messages)
 
@@ -259,23 +260,24 @@ def _settle(bank, plan):
 
 
 def test_a_skill_seen_in_one_conversation_is_held_not_written(tmp_path):
-    from api.services import pending_store
+    from api.services import skill_hold
 
     bank = _dated_bank(tmp_path)
     plan = skill_grounding.ground([SKILL], [], _one_conversation(EP1), bank)
     assert plan.changes == [] and [h.source_episode for h in plan.held] == [EP1]
     assert _settle(bank, plan) == (1, 0)
     assert not (bank / "entities" / "checks-the-tracker-first.md").exists()
-    [line] = pending_store.load(bank)
-    assert (line.name, line.type, line.source_episode, line.description, line.confidence) == \
-        ("Checks the tracker first", "skill", EP1, "Before planning, reads the tracker.", 0.7)
+    [line] = skill_hold.load(bank)
+    assert (line.slug, line.name, line.source_episode, line.description, line.confidence, line.evidence_ids) == \
+        ("checks-the-tracker-first", "Checks the tracker first", EP1, "Before planning, reads the tracker.", 0.7,
+         ["alpha-tool", "beta-project"])
     # The same conversation read again (a re-staged episode) is still one conversation: nothing new is written.
     again = skill_grounding.ground([SKILL], [], _one_conversation(EP1), bank)
     assert again == skill_grounding.SkillPlan()
 
 
 def test_a_held_skill_seen_again_in_a_later_batch_gets_its_page_citing_both(tmp_path):
-    from api.services import pending_store
+    from api.services import skill_hold
 
     bank = _dated_bank(tmp_path)
     _settle(bank, skill_grounding.ground([SKILL], [], _one_conversation(EP1), bank))   # "batch 3"
@@ -284,54 +286,112 @@ def test_a_held_skill_seen_again_in_a_later_batch_gets_its_page_citing_both(tmp_
     plan = skill_grounding.ground([SKILL], [], _one_conversation(EP2), bank)            # "batch 9"
     [change] = plan.changes
     assert change["action"] == "create" and change["source_episodes"] == [EP1, EP2]
-    assert plan.promoted == [("Checks the tracker first", "checks-the-tracker-first")]
+    assert plan.promoted == ["checks-the-tracker-first"]
     assert _settle(bank, plan) == (0, 1)
     page = _fm(bank, "checks-the-tracker-first")
     fm = page.frontmatter
     assert fm["source_episodes"] == [EP1, EP2]
     assert fm["created"] == "2026-03-02" and fm["last_referenced"] == "2026-03-09"
+    assert set(fm["related"]) == {"alpha-tool", "beta-project"}
     records = section_provenance.decode(fm[section_provenance.FIELD])
     rows = [ev for _hash, evs in records["summary"].values() for ev in evs]
     assert {(ev.episode, ev.kind) for ev in rows} == {(EP1, "reasoning"), (EP2, "reasoning")}
-    assert pending_store.load(bank) == []
+    assert skill_hold.load(bank) == []
 
 
-def test_a_line_stage_one_parked_from_another_conversation_counts(tmp_path):
+def test_the_held_batch_s_evidence_pages_are_kept(tmp_path):
+    bank = _dated_bank(tmp_path)
+    _settle(bank, skill_grounding.ground([SKILL], [], _one_conversation(EP1), bank))
+    # The second batch names only one of the two pages; the first batch's other evidence page still gets its edge.
+    only_alpha = [{"episode_id": EP2, "entities": [{"name": "Alpha Tool", "type": "tool", "source_episode": EP2,
+                                                    "source_episode_timestamp": "2026-03-09T10:00:00+00:00"}]}]
+    [change] = skill_grounding.ground([SKILL], [], only_alpha, bank).changes
+    assert change["source_episodes"] == [EP1, EP2] and change["evidence_ids"] == ["alpha-tool", "beta-project"]
+
+
+def _stage2_line(bank, kind="concept"):
+    from api.services import pending_store
+
+    line = pending_store.PendingEntity(
+        name="Checks the tracker first", type=kind, description="Read about it once.", source_episode=EP3,
+        confidence=0.4, tags=["reading"], history_entries=[{"date": "2026-03-10", "entry": "Read a guide."}])
+    pending_store.upsert(bank, line)
+    return pending_store.load(bank)
+
+
+def test_a_stage_one_line_of_the_same_name_neither_counts_nor_is_consumed(tmp_path):
+    """Review B2: a skill never takes a line Stage 2 parked — its history, description and tags stay where they
+    are, for Stage 2's own promotion — and a name heard is not the pattern seen, so it does not count."""
     from api.services import pending_store
 
     bank = _dated_bank(tmp_path)
-    pending_store.upsert(bank, pending_store.PendingEntity(
-        name="checks the tracker first", type="concept", description="Heard once.", source_episode=EP3,
-        confidence=0.4, tags=[], history_entries=[]))
-    plan = skill_grounding.ground([SKILL], [], _one_conversation(EP1), bank)
-    assert [c["source_episodes"] for c in plan.changes] == [[EP1, EP3]] and plan.held == []
+    for kind in ("concept", "skill"):
+        before = _stage2_line(bank, kind)
+        plan = skill_grounding.ground([SKILL], [], _one_conversation(EP1), bank)
+        assert plan.changes == [] and [h.source_episode for h in plan.held] == [EP1]
+        _settle(bank, plan)
+        assert pending_store.load(bank) == before
+        _settle(bank, skill_grounding.ground([SKILL], [], _one_conversation(EP2), bank))
+        assert pending_store.load(bank) == before
+        assert _fm(bank, "checks-the-tracker-first").frontmatter["source_episodes"] == [EP1, EP2]
+        (bank / "entities" / "checks-the-tracker-first.md").unlink()
+        pending_store.save(bank, [])
+
+
+def test_stage_two_never_sees_a_held_skill(tmp_path, monkeypatch):
+    """Review B1: Stage 2 promotes any pending line a Stage-1 entity repeats, under that entity's type. A held skill
+    is not on its store, so a concept of the same name in another conversation stays a first mention there, and the
+    skill — still held — gets its own page when Stage 4 grounds it again."""
+    from types import SimpleNamespace
+
+    from api.services import entity_resolver, pending_store, skill_hold
+
+    bank = _dated_bank(tmp_path)
+    _settle(bank, skill_grounding.ground([SKILL], [], _one_conversation(EP1), bank))
+
+    class _Indexer:   # the real pending store behind Stage 2, no embedding
+        def __init__(self, *_a, **_k):
+            pass
+
+        def pending_by_name(self, name):
+            return next((e for e in pending_store.load(bank) if e.name.lower() == name.lower()), None)
+
+        def index_pending_entity(self, entity):
+            pending_store.upsert(bank, entity)
+
+        def promote_from_pending(self, name):
+            return pending_store.take(bank, name)[0]
+
+        def rebuild_pending_index(self):
+            return 0
+
+    async def no_judge(**_kw):
+        return None
+
+    monkeypatch.setattr(entity_resolver, "SqliteVecIndexer", _Indexer)
+    monkeypatch.setattr(entity_resolver, "_find_llm_candidate_match", no_judge)
+    settings = SimpleNamespace(memory_path=bank, litellm_model="m", litellm_disambiguation_model="m",
+                               sleep_promotion_threshold=2)
+    stage1 = [{"episode_id": EP2, "entities": [{"name": "Checks the tracker first", "type": "concept",
+                                                 "confidence": 0.8, "source_episode": EP2,
+                                                 "source_episode_timestamp": "2026-03-09T10:00:00+00:00",
+                                                 "description": "a technique"}], "relationships": []}]
+    resolved = asyncio.run(entity_resolver.resolve(stage1, [], settings))
+    assert resolved["changes"] == []                                   # no concept page made of the skill
+    assert [line.source_episode for line in skill_hold.load(bank)] == [EP1]
+    plan = skill_grounding.ground([SKILL], resolved["changes"], _one_conversation(EP2), bank)
+    assert [(c["action"], c["source_episodes"]) for c in plan.changes] == [("create", [EP1, EP2])]
 
 
 def test_a_held_conversation_no_longer_in_the_bank_is_no_evidence(tmp_path):
-    from api.services import pending_store
+    from api.services import skill_hold
 
     bank = _dated_bank(tmp_path)
-    pending_store.upsert(bank, pending_store.PendingEntity(
-        name="Checks the tracker first", type="skill", description="Old.", source_episode="ep_2026-01-01_9",
-        confidence=0.4, tags=[], history_entries=[]))
+    skill_hold.settle(bank, [skill_hold.HeldSkill("Checks the tracker first", "Old.", 0.4, "ep_2026-01-01_9")], [])
     plan = skill_grounding.ground([SKILL], [], _one_conversation(EP1), bank)
     assert plan.changes == [] and [h.source_episode for h in plan.held] == [EP1]
     _settle(bank, plan)
-    assert [line.source_episode for line in pending_store.load(bank)] == [EP1]
-
-
-def test_a_promoted_line_holding_claims_stays_for_their_release(tmp_path):
-    from api.services import pending_store
-
-    bank = _dated_bank(tmp_path)
-    pending_store.upsert(bank, pending_store.PendingEntity(
-        name="Checks the tracker first", type="skill", description="Held.", source_episode=EP1, confidence=0.4,
-        tags=[], history_entries=[], held_claims=[{"id": "c1", "subject": "checks-the-tracker-first"}]))
-    plan = skill_grounding.ground([SKILL], [], _one_conversation(EP2), bank)
-    assert _settle(bank, plan) == (0, 0)
-    assert (bank / "entities" / "checks-the-tracker-first.md").exists()
-    held = [{"id": "c1", "subject": "checks-the-tracker-first"}]
-    assert [line.held_claims for line in pending_store.load(bank)] == [held]
+    assert [line.source_episode for line in skill_hold.load(bank)] == [EP1]
 
 
 def test_an_existing_skill_page_found_in_one_conversation_is_still_updated(tmp_path):
@@ -345,3 +405,31 @@ def test_an_existing_skill_page_found_in_one_conversation_is_still_updated(tmp_p
     assert plan.held == [] and plan.promoted == []
     _settle(bank, plan)
     assert _fm(bank, "checks-the-tracker-first").frontmatter["source_episodes"] == [EP1, EP2]
+
+
+def test_a_held_skill_whose_page_appeared_meanwhile_joins_it(tmp_path):
+    """A skill page another writer made after the hold (Stage 1 with type skill): the held conversation is added to
+    the update and the line leaves — nothing held is lost."""
+    from api.services import skill_hold
+
+    bank = _dated_bank(tmp_path)
+    _settle(bank, skill_grounding.ground([SKILL], [], _one_conversation(EP1), bank))
+    markdown_parser.write(bank / "entities" / "checks-the-tracker-first.md",
+                          {"name": "Checks the tracker first", "type": "skill", "status": "active",
+                           "confidence": 0.5, "source_episodes": [EP3], "version": 1}, "Mine.\n")
+    plan = skill_grounding.ground([SKILL], [], _one_conversation(EP2), bank)
+    assert [(c["action"], c["source_episodes"]) for c in plan.changes] == [("update", [EP1, EP2])]
+    assert _settle(bank, plan) == (0, 1) and skill_hold.load(bank) == []
+
+
+def test_the_hold_file_round_trips_and_skips_junk(tmp_path):
+    from api.services import skill_hold
+
+    (tmp_path / skill_hold.HOLD_FILE).write_text('not json\n{"name": ""}\n', encoding="utf-8")
+    assert skill_hold.load(tmp_path) == []
+    held = skill_hold.HeldSkill("Ünïcode habit", "Désc.", 0.6, EP1, ["alpha-tool"])
+    assert skill_hold.settle(tmp_path, [held], []) == (1, 0)
+    assert skill_hold.load(tmp_path) == [held]
+    assert skill_hold.settle(tmp_path, [], ["nobody"]) == (0, 0)
+    assert skill_hold.settle(tmp_path, [], [held.slug]) == (0, 1) and skill_hold.load(tmp_path) == []
+    assert not [p for p in tmp_path.iterdir() if p.name.endswith(".tmp")]

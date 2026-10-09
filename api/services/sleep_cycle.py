@@ -2427,9 +2427,9 @@ async def _run_stages(
         )
     # G112 (1): an answer becomes a page only with the conversations it came from — Stage 4's
     # evidence matched to this batch, no model call; the rest is logged and not written. A new
-    # page needs two conversations (owner ruling 2026-10-09); a skill seen in one is held on the
-    # pending store by `settle` in Stage 5. It reads every page's frontmatter (the name index),
-    # so it runs off the event loop like the rest (#250).
+    # page needs two conversations (owner ruling 2026-10-09); a skill seen in one is held in its
+    # own store (`skill_hold`) by `settle` in Stage 5. It reads every page's frontmatter (the
+    # name index), so it runs off the event loop like the rest (#250).
     from api.services import skill_grounding
     skill_plan = await asyncio.to_thread(
         skill_grounding.ground, skills, changes, extracted, memory_path,
@@ -2467,13 +2467,14 @@ async def _run_stages(
     decay_budget = DecayBudget(getattr(settings, "decay_inbox_cap_per_cycle", 10))
     await generate(changes, skill_changes, memory_path, relationships=resolved_edges,
                    decay_budget=decay_budget)
-    # G112: the one-conversation skills go onto the pending store, and the lines a new skill
-    # page carried leave it — after the pages exist, before Stage 5.56 holds or releases claims.
-    # A failed store write is a warning, as Stage 2's own pending writes are: the pages stand.
+    # G112: the one-conversation skills go into the skill hold, and the lines a skill page of this
+    # batch carried leave it — after the pages exist. A failed hold write is a warning, as Stage 2's
+    # own pending writes are: the pages stand.
     if skill_plan.held or skill_plan.promoted:
         try:
             held, taken = await asyncio.to_thread(skill_grounding.settle, memory_path, skill_plan)
-            logger.info(f"Stage 5: {held} skill(s) held for a second conversation, {taken} pending line(s) promoted")
+            logger.info(f"Stage 5: {held} skill(s) held for a second conversation, "
+                        f"{taken} held skill(s) written to their page")
         except Exception as e:
             logger.warning(f"Stage 5 skill hold failed: {type(e).__name__}: {e}")
 
