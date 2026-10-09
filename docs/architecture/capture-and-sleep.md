@@ -899,23 +899,41 @@ the bank's own decay answers in git history (`GET /memory/decay-suggestions`) an
 their own. One function, `decay_policy.effective`, serves the pass and the entity wire's derived
 `decay` block. Claims fade the same way (`claim_reconciler._decay_claims`: weeks from the claim's
 episodes and cited `ep_*` documents plus the subject's keeps; session ids carry no date and never
-count). A create stamps `decayed_through` at the content date and `learned_on` at the cycle's day; a mention that
-moves `last_referenced` forward stamps `learned_on`; an older one moves no clock. Nothing is charged mid-drain (the
-batches before the last run with `decay=False`), and the pass that charges decay also settles the pages its own
-batch creates or references (the change's `settle` directive, applied by `apply_changes` on the page as merged, in
-the commit that writes the page) — so a page said in 2024 and again in 2026 ends the drain alive whatever the order
-the two were read in or where the batches broke, and a one-off from 2024 is archived on the day it is read. Claims
-follow the same rule (`claim_reconciler.claim_silence`): a claim minted from a dated conversation stamps its
-watermark at that day; a restatement that raises its confidence sets the watermark back to its last mention, so the
-raised value is aged from when it was said (an agent's live write, with no dated conversation, counts as said today); a subject read this pass is charged its proven silence only. Only Sleep charges claims: the agent and progress writers reconcile with `decay=False` (G85). A claim
-with no dated conversation keeps the old anchor (`recorded_at`, else `valid_from`). **Heard late, asked nothing:** a
-page or claim whose last mention was read more than seven days after it was said (`decay_policy.heard_late`) fades
-to `decaying` or `archived` without a decay question; the person is asked only about what went quiet while Cicada
-was listening, and Stage 3 logs the count. Existing banks are charged once by the person's own
-`api/scripts/recompute_decay_by_age.py` (`age_recompute`): dry run by default (counts by type and by the age of the
-last mention, would-archive, would-fade-quietly, would-be-asked, claims), `--apply` refused while Sleep runs, one
-`cicada` commit (`trigger: maintenance/decay-by-age`), the day a page was read estimated from the git commit that
-added it, only changed claim lines rewritten, a second run a no-op.
+count). **One-offs archive, repeats fade** (owner 2026-10-09, after the first dry run on a real bank would have
+archived 79% of it): proven silence alone never takes a page or claim resting on 2+ distinct dated conversations
+(`decay_policy.conversations`; a memory export entry is not one) below just above the archive line
+(`decay_policy.proven_floor` = archive threshold + 0.01, applied by `decay_policy.charge`) — it stays `decaying`
+and on the graph, and only live silence after Cicada read it can archive it (at the default pace a floored repeat
+crosses 0.2 after two to four days of live silence). A one-conversation page or claim falls freely. A create stamps
+`decayed_through` at the content date and `learned_on` at the cycle's day. **A mention never lowers:** on a page
+not yet settled (proven silence still owed — read earlier in this run, or in one that stopped) a later mention moves
+`learned_on` and the age counts from it; on a settled page, a mention from a conversation dated on or after its
+watermark (one no charge has covered — every live mention) revives it (`max(current, 0.6)`, `active`) and restarts
+its clock the day Cicada read it, as before the ruling; one dated before the watermark (an old conversation read
+late) adds its source and its week and moves nothing else. Nothing is charged mid-drain (the batches before the last
+run with `decay=False`), and the pass that charges decay also settles the pages its own batch creates or references
+(the change's `settle` directive, applied by `apply_changes` on the page as merged, in the commit that writes the
+page) — so a page said in 2024 and again in 2026 ends the drain alive whatever the order the two were read in or
+where the batches broke, and a one-off from 2024 is archived on the day it is read. **What ruling 1's cap still
+protects:** a page nobody mentioned during a gap between runs (an outage, a paused schedule) — its silence is
+charged a week per pass. A page first heard of in a conversation from during the gap is charged its whole proven
+gap at once (floored if it is a repeat); a page Cicada already knew and that was mentioned during the gap restarts
+its clock instead. Claims follow the same rules (`claim_reconciler.claim_silence`, `_reinforce`): a claim minted
+from a dated conversation stamps its watermark at that day; a restatement of a claim not yet settled follows the
+latest mention; a settled claim restated in a conversation dated on or after its watermark (an agent's live write,
+with no dated conversation, counts as said today) gets the higher confidence and a clock restarted today; an older
+restatement or a memory entry adds the source only. A subject read this pass is charged its proven silence only.
+Only Sleep charges claims: the agent and progress writers reconcile with `decay=False` (G85). A claim with no dated
+conversation keeps the old anchor (`recorded_at`, else `valid_from`). **Heard late, asked once by its live
+silence:** in the pass that charges a page's or claim's proven silence, a drop below 0.4 caused by it asks nothing
+when the mention was read more than seven days after it was said (`decay_policy.heard_late`, `proven_days > 0`);
+Stage 3 logs the count. From the next pass, live silence below 0.4 raises the decay question as for anything else,
+at most `decay_inbox_cap_per_cycle` new questions a cycle. Existing banks are charged once by the person's own
+`api/scripts/recompute_decay_by_age.py` (`age_recompute`), with the same floor: dry run by default (counts by type
+and by the age of the last mention, `would_archive`, `would_decay`, `floored_repeats`, `would_be_asked` — by later
+passes, capped — and claims), `--apply` refused while Sleep runs, one `cicada` commit (`trigger:
+maintenance/decay-by-age`), the day a page was read estimated from the git commit that added it, only changed claim
+lines rewritten, a second run a no-op.
 **A memory export entry is facts, not activity** (owner, 2026-10-08). A `source: claude_memory` episode is a summary
 of the person dated by the export entry's `updated_at`, not by when anything in it came up. `episode_time` is the one
 predicate: such an episode is no week in `w` (page, claim and card alike), and Stage 1 hands Stage 2 its entities
@@ -923,9 +941,9 @@ with no timestamp or day and `untimed: true`. A change made only of memory entri
 `last_referenced`** (`created` and `decayed_through` are the cycle's day), and on an existing page moves neither
 `last_referenced` nor `decayed_through` and recovers no status; its facts, claims (with their `valid_from`) and
 `source_episodes` are written as usual. Any real conversation in the same change dates it as before.
-Below 0.2 → `status: archived` (the page stays in `entities/`); below 0.4 → a decay nudge (none when heard late).
-Mentioned again → promoted back at `confidence = max(current, 0.6)`, as of the last mention: `decayed_through` moves
-to `last_referenced`, so a new mention keeps it and an old one read late lets it fade back by its age. Evergreen
+Below 0.2 → `status: archived` (the page stays in `entities/`); below 0.4 → a decay nudge (not in the pass that charges a late-heard page its age).
+Mentioned again in a conversation no charge has covered → promoted back at `confidence = max(current, 0.6)`, clock
+restarted the day it was read; an old conversation read late never revives and never lowers. Evergreen
 entities (the owner's page among them) skip all decay math. **Confidence does not rank recall:** search puts archived pages last and otherwise ranks
 by relevance (`search_service._page`'s sort key and the per-kind cut's archived tier); whether
 confidence should weigh in is a question for G148's benchmark pass to measure before anything
