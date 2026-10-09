@@ -56,7 +56,7 @@ struct PictureInputs: Codable, Equatable, Hashable, Sendable {
 
 /// The twin of `entity_picture.resolve` (R-PE3): one precedence, one table — `api/tests/fixtures/entity_picture.json`
 /// runs on both sides, so a rung added on one side only turns the other red (the `timeline_state.json` precedent).
-/// A person reaches rungs 1–2 only, a media page only its thumbnail, everything else only a logo.
+/// A person reaches rungs 1–2 only, a media page only its stored preview, everything else only a logo.
 enum EntityPictureResolver {
     /// RFC 3986's unreserved set — exactly what Python's `quote(s, safe="")` leaves alone.
     private static let unreserved = CharacterSet(
@@ -73,8 +73,9 @@ enum EntityPictureResolver {
             return EntityPictureRef(url: "\(path)/picture?v=\(sha)", source: .contacts)
         }
         if i.type == "media" {
-            guard let thumbnail = i.thumbnail, isHTTPS(thumbnail) else { return nil }
-            return EntityPictureRef(url: thumbnail, source: .thumbnail)
+            // The preview's key (`media_preview.Source.key`), never a URL: the stored copy on Cicada's own API.
+            guard isSha(i.thumbnail), let key = i.thumbnail else { return nil }
+            return EntityPictureRef(url: "\(path)/preview?v=\(key)", source: .thumbnail)
         }
         return i.logo ? EntityPictureRef(url: "\(path)/logo", source: .logo) : nil
     }
@@ -101,7 +102,8 @@ enum EntityPictureResolver {
 }
 
 /// R-PE6 — how a picture URL is loaded: a path on Cicada's own API with the bearer, a provider's https thumbnail with
-/// nothing of Cicada's. Anything else is never loaded.
+/// nothing of Cicada's. Anything else is never loaded. Since media previews are stored by the backend
+/// (`/entities/{id}/preview?v=…`) no resolved picture is `.external`; the case stays for an older backend's graph.
 enum PictureURL: Hashable, Sendable {
     case api(path: String)
     case external(URL)

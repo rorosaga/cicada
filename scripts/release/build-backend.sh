@@ -169,7 +169,7 @@ step "Checking the assembled backend…"
 CHECK_HOME="$(mktemp -d)"
 CICADA_HOME="$CHECK_HOME/home" CICADA_MEMORY_PATH="$CHECK_HOME/bank" CICADA_CAPTURE=off \
   "$OUT/bin/cicada-python" - <<'PYCHECK' || die "the assembled backend does not import"
-import api.main, sqlite_vec, onnxruntime, tokenizers, certifi  # noqa: F401
+import api.main, sqlite_vec, onnxruntime, tokenizers, certifi, pypdfium2  # noqa: F401
 from api.version import __version__
 print(f"    imports ok · version {__version__}")
 PYCHECK

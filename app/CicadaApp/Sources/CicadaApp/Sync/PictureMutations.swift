@@ -7,7 +7,9 @@ import Foundation
 /// answer ("painted where the answer is known", `ProjectWrite`'s rule). The answer settles the override; a failure
 /// rolls it back and toasts the server's own sentence.
 struct EntityPictureWrite: Mutation {
-    enum Action: Equatable { case upload(PreparedPicture), useInitials, clear }
+    /// `pdf` is a PDF the person chose for a saved item: the backend draws page 1, so nothing is painted before the
+    /// answer (its hash is not known here) and the old picture stays until it lands.
+    enum Action: Equatable { case upload(PreparedPicture), pdf(Data), useInitials, clear }
 
     let entityId: String
     let type: EntityType
@@ -49,6 +51,8 @@ struct EntityPictureWrite: Mutation {
             guard inputs != nil else { return nil }
             next.choice = nil
             next.uploadSha = nil
+        case .pdf:
+            return nil
         }
         return PictureOverride(picture: EntityPictureResolver.resolve(id: entityId, next), inputs: next, at: .distantFuture)
     }
@@ -68,6 +72,7 @@ struct EntityPictureWrite: Mutation {
             switch action {
             case .upload(let picture): reply = try await api.setEntityPicture(entityId: entityId, data: picture.data,
                                                                               ext: picture.ext)
+            case .pdf(let data): reply = try await api.setEntityPictureFromPDF(entityId: entityId, data: data)
             case .useInitials: reply = try await api.useEntityInitials(entityId: entityId)
             case .clear: reply = try await api.clearEntityPicture(entityId: entityId)
             }
@@ -96,7 +101,7 @@ enum PictureWriteFailure {
     static func message(_ error: (any Error)?) -> String {
         guard let api = error as? APIError else { return Copy.People.saveFailed }
         switch api {
-        case .httpError(let code, let body) where [400, 409, 413].contains(code):
+        case .httpError(let code, let body) where [400, 409, 413, 422].contains(code):
             return ProjectWriteFailure.detail(body) ?? (code == 409 ? Copy.People.sleepBusy : Copy.People.saveFailed)
         case .serverUnreachable:
             return Copy.People.backendDown

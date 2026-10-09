@@ -228,7 +228,8 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   person allowed, and **a check never settles, reorders or changes a belief** (S3 is shadow).
 - **Pictures:** one precedence (the person's choice → Contacts photo → a brand's logo → a media thumbnail → a monogram).
   **A logo comes only from a trusted `website` source — never a domain guessed from a name; a person never gets a logo and
-  no service is sent a person's name (G146/G159).** Logos, pictures and repo observations are caches outside every bank.
+  no service is sent a person's name (G146/G159).** Logos, pictures, media previews (fetched once, then served from the
+  store) and repo observations are caches outside every bank.
 - **Backlogs (G150):** one markdown file per item, one writer behind every door, never an entity page.
 - **`_state.md` is a cursor, never a copy**; it commits ALONE, the read path too (the G85-class smear). **The handshake is
   ≤ 1,800 tokens, and R12 holds: every argument a primer names exists in the tool schema.**
@@ -278,7 +279,8 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 ### The network
 
 - **Three gates, not one:** `CICADA_ALLOW_CONNECTOR_FETCH` (opt-out) gates every fetch Sleep starts on its own — a click
-  the person made never is; `CICADA_ALLOW_FEED_FETCH` (opt-in) gates RSS/ICS; `CICADA_ALLOW_LOGO_FETCH=off` disables logos.
+  the person made never is; `CICADA_ALLOW_FEED_FETCH` (opt-in) gates RSS/ICS; `CICADA_ALLOW_LOGO_FETCH=off` disables
+  logos and media previews.
   Every server-side fetch of someone else's URL goes through `net_guard`.
 - **Update check (G182):** release builds only, behind Settings → General's *Install updates automatically* (on by
   default; off = only Check for Updates… asks); a download installs only after its sha256 and Ed25519 signature verify.

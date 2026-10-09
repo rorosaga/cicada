@@ -223,7 +223,12 @@ struct MediaFeedItem: Codable, Identifiable {
     let mediaType: String
     let site: String?
     let channel: String?
+    /// The provider's own image URL, as the page stores it. Never loaded by the app: `preview` is.
     let thumbnail: String?
+    /// The item's picture as Cicada stores it — `/entities/{id}/preview?v=…` (fetched once by the backend) or the
+    /// person's own upload — loaded with the bearer through `PictureStore`. `nil` from an older backend and for an
+    /// item with nothing to show (the row draws its placeholder).
+    let preview: String?
     let savedAt: String
     let tags: [String]
     let status: String
@@ -308,7 +313,7 @@ struct MediaFeedItem: Codable, Identifiable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case mediaEntityId, url, title, mediaType, site, channel, thumbnail
+        case mediaEntityId, url, title, mediaType, site, channel, thumbnail, preview
         case savedAt, tags, status, relatedCount, relevance, personalRelevance
         case contentSavedAt
         case description, about
@@ -327,6 +332,7 @@ struct MediaFeedItem: Codable, Identifiable {
         site = try c.decodeIfPresent(String.self, forKey: .site)
         channel = try c.decodeIfPresent(String.self, forKey: .channel)
         thumbnail = try c.decodeIfPresent(String.self, forKey: .thumbnail)
+        preview = try? c.decodeIfPresent(String.self, forKey: .preview)
         savedAt = (try? c.decode(String.self, forKey: .savedAt)) ?? ""
         tags = (try? c.decode([String].self, forKey: .tags)) ?? []
         status = (try? c.decode(String.self, forKey: .status)) ?? "active"
@@ -1539,6 +1545,29 @@ actor APIClient {
         body.append(data)
         body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
         request.httpBody = body
+        let (reply, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw APIError.serverUnreachable }
+        guard (200...299).contains(http.statusCode) else {
+            if http.statusCode == 401 { Self.invalidateToken() }
+            throw APIError.httpError(http.statusCode, String(data: reply, encoding: .utf8) ?? "Unknown error")
+        }
+        return try decoder.decode(EntityPictureAnswer.self, from: reply)
+    }
+
+    /// A saved item's picture from a PDF the person chose: the backend renders page 1 (`POST /entities/{id}/picture/pdf`).
+    func setEntityPictureFromPDF(entityId: String, data: Data) async throws -> EntityPictureAnswer {
+        var request = makeRequest("/entities/\(encodedID(entityId))/picture/pdf", method: "POST", json: false)
+        let boundary = UUID().uuidString
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        var body = Data()
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"document.pdf\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: application/pdf\r\n\r\n".data(using: .utf8)!)
+        body.append(data)
+        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+        request.httpBody = body
+        // The render runs in the backend before it answers: give it longer than a plain write.
+        request.timeoutInterval = 60
         let (reply, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw APIError.serverUnreachable }
         guard (200...299).contains(http.statusCode) else {

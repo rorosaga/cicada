@@ -20,7 +20,7 @@ Three backend gates, and a separate app-side scenery gate below. They do **not**
 - **`CICADA_ALLOW_FEED_FETCH`** gates RSS/ICS polling and is **opt-IN** (`=1`). A fresh install's
   LaunchAgent plist sets it; `install.sh` never rewrites a plist behind a running backend, so an
   older plist needs the key added by hand.
-- **`CICADA_ALLOW_LOGO_FETCH=off`** disables logo fetching entirely. The test suite runs that way
+- **`CICADA_ALLOW_LOGO_FETCH=off`** disables logo fetching entirely, and media previews with it (below). The test suite runs that way
   and injects fetchers instead. It also gates the icons of the sites Settings, Reading the web, lists (G166): those
   come from the icon service only and the login-walled site is never contacted for its favicon (nor, since
   `fetch_logo` skips its first two rungs for a walled host, is a company or tool page's logo domain when it is one).
@@ -100,6 +100,19 @@ neither; the name lookup runs off the event loop).
 `lastError`; a gate-skipped poll is recorded distinctly (`record_skip`) so a skip never reads as a
 failure or as a stale success.
 
+**Media previews ride the picture gate (`CICADA_ALLOW_LOGO_FETCH`), like logos.** `GET /entities/{id}/preview` is the
+app drawing a card; the first request for a page's source fetches it once (`media_preview.ensure_preview`) and every
+later one is served from `$CICADA_HOME/previews/<bank>/`. With the gate off nothing is fetched and nothing is recorded
+as a miss. A caller that runs on its own (`unattended=True`) also needs `CICADA_ALLOW_CONNECTOR_FETCH`; none does
+today — no Sleep step warms previews. The fetch is the rail's: `net_guard` before the first request and every redirect
+hop (≤ 3, never delegated to the client), 4 s, at most 512 KB read, no cookies, one fixed User-Agent; a walled host is
+never asked, a 401/403/407/451 or a redirect onto a login host is a miss and is never retried with other headers.
+Raster only, by magic bytes (PNG, JPEG, GIF, WebP; SVG refused; nothing under 16 px). A saved `.pdf` link is fetched
+under the same 512 KB bound and its first page rendered in a child process (`pdf_page`); an arXiv or DOI paper is
+never fetched (below). A YouTube video oEmbed gave no thumbnail for (embedding off) uses its standard still, a URL
+Cicada builds on its own pin from the validated id. The person's own PDF (`POST /entities/{id}/picture/pdf`) fetches
+nothing and is not gated.
+
 **Paper details (G133) ride the first gate, not a fourth.** The unattended Sleep-tail lookup is behind
 `CICADA_ALLOW_CONNECTOR_FETCH`; a folder sync the person asked for (`?resolve=true`) is not. Only two
 APIs are ever called — `export.arxiv.org/api/query` (≤ 50 ids a request, ≥ 3 s apart) and
@@ -138,7 +151,9 @@ from the id by `video_urls.resolve` / `VideoRef`, so nothing a provider returns 
 **A stream is never derived** — no `yt-dlp`, no CDN or `.m3u8` URL lifted out of a page — so a
 direct file the app plays is one the *user* saved as a direct URL. Twitch stays external (its
 player validates `parent` against the real embedding origin; synthesising one is circumvention),
-X and Instagram stay external. The app itself makes **no** network call to classify: oEmbed runs
+X and Instagram stay external. A video's picture is the backend's stored preview (`media_preview`: oEmbed's
+`thumbnail_url`, else YouTube's standard still for the id) — a still image, never a frame or a stream, and the app no
+longer loads it from the provider. The app itself makes **no** network call to classify: oEmbed runs
 only on the ingest/enrich path, under the gates that path already has, and the three new
 provider calls take the rail's own 4 s / ≤ 512 KB numbers rather than the older, looser `_TIMEOUT`.
 

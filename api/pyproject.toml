@@ -17,6 +17,7 @@ dependencies = [
     "onnxruntime>=1.23.2",
     "pydantic>=2.12.5",
     "pydantic-settings>=2.13.1",
+    "pypdfium2>=4.30",
     "python-multipart>=0.0.24",
     "pyyaml>=6.0.3",
     "sentence-transformers>=5.0.0",

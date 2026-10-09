@@ -394,7 +394,9 @@ the page's find row.
   `videoQueue`, `episodes`, `entities` and `bank` components, one revalidation is scheduled at the wire's
   `nextChangeAt` so a lapsed lease never sticks as "Picked up", a bank switch empties it, and a 404 from an older
   backend hides every video addition). **The server is the only deriver** of a video's state; the app decodes and labels.
-  A Feed video row carries a 64 × 36 frame (the stored thumbnail or a neutral play tile, never a URL derived from an id),
+  A Feed video row carries a 64 × 36 frame (Cicada's stored preview, `MediaFeedItem.preview` through `StoredPreview` —
+  oEmbed's thumbnail or YouTube's standard still, fetched once by the backend — or a neutral play tile; the app never
+  asks the provider),
   "channel · site · length · saved day" and one state word (a queue word wins). The Videos tab's 44 pt strip says how
   many are not read yet and the one queue wording, and *Choose videos…* turns the page into the watch run: the picker's
   tabs (Not yet read · Queued · Read, disjoint, nothing pre-selected) replace the sort and kind tabs, the list becomes

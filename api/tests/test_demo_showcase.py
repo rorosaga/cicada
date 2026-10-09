@@ -15,7 +15,7 @@ from _demo_scenario import T, demo
 from fastapi.testclient import TestClient
 
 from api import config, main
-from api.services import (demo_pictures, demo_showcase, entity_picture, handshake, markdown_parser, papers,
+from api.services import (demo_pictures, demo_showcase, entity_picture, handshake, markdown_parser, media_preview, papers,
                           video_urls)
 
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "demo_showcase.json"
@@ -58,8 +58,11 @@ def test_people_and_a_company_have_pictures_the_app_can_load(bank, client):
         assert nodes[eid]["picture"] == f"/entities/{eid}/picture?v={fm['picture']['sha']}"
         got = client.get(nodes[eid]["picture"])
         assert got.status_code == 200 and got.headers["content-type"] == "image/png", eid
-    assert nodes[demo_showcase.VIDEO_ID]["picture"] == demo_showcase.VIDEO_THUMBNAIL
-    assert nodes[demo_showcase.ARTICLE_ID]["picture"] == demo_showcase.ARTICLE_THUMBNAIL
+    # A media page's picture is Cicada's stored copy of the page's own image, keyed by the source it came from.
+    for eid, thumb in ((demo_showcase.VIDEO_ID, demo_showcase.VIDEO_THUMBNAIL),
+                       (demo_showcase.ARTICLE_ID, demo_showcase.ARTICLE_THUMBNAIL)):
+        key = media_preview.Source("image", thumb).key
+        assert nodes[eid]["picture"] == f"/entities/{eid}/preview?v={key}", eid
 
 
 def test_the_people_card_opens_on_the_pictured_people(client):

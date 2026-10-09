@@ -36,6 +36,8 @@ struct MediaPreviewModel {
     let site: String?
     let channel: String?
     let thumbnail: String?
+    /// The picture as Cicada stores it (`StoredPreview`); the provider's `thumbnail` URL is never loaded.
+    let preview: String?
     var description: String? = nil
 
     init(block: MediaBlock, title: String, description: String? = nil) {
@@ -45,6 +47,7 @@ struct MediaPreviewModel {
         self.site = block.site
         self.channel = block.channel
         self.thumbnail = block.thumbnail
+        self.preview = block.preview
         self.description = description
     }
 
@@ -55,6 +58,7 @@ struct MediaPreviewModel {
         self.site = item.site
         self.channel = item.channel
         self.thumbnail = item.thumbnail
+        self.preview = item.preview
         self.description = nil
     }
 
@@ -97,7 +101,8 @@ struct MediaPreviewModel {
     }
 
     var resolvedURL: URL? { URL(string: url) }
-    var thumbnailURL: URL? { thumbnail.flatMap { URL(string: $0) } }
+    /// Whether there is a stored picture to draw (a path on Cicada's own API).
+    var hasPicture: Bool { StoredPreviewPath.loads(preview) }
 }
 
 // MARK: - URL helpers
@@ -172,14 +177,8 @@ struct MediaPreview: View {
             }
         } label: {
             ZStack {
-                if let thumb = model.thumbnailURL {
-                    AsyncImage(url: thumb) { phase in
-                        if case .success(let image) = phase {
-                            image.resizable().scaledToFill()
-                        } else {
-                            CicadaTheme.surfaceHover
-                        }
-                    }
+                if model.hasPicture {
+                    StoredPreview(path: model.preview) { CicadaTheme.surfaceHover }
                 } else {
                     CicadaTheme.surfaceHover
                 }
@@ -247,12 +246,8 @@ struct MediaPreview: View {
     @ViewBuilder
     private var instagramPreview: some View {
         ZStack {
-            if let thumb = model.thumbnailURL {
-                AsyncImage(url: thumb) { phase in
-                    if case .success(let image) = phase {
-                        image.resizable().scaledToFill()
-                    } else { instagramPlaceholder }
-                }
+            if model.hasPicture {
+                StoredPreview(path: model.preview) { instagramPlaceholder }
             } else {
                 instagramPlaceholder
             }
@@ -290,14 +285,8 @@ struct MediaPreview: View {
     private var websitePreview: some View {
         // Open-Graph preview card: thumbnail (og:image) + title + site + description.
         VStack(alignment: .leading, spacing: 0) {
-            if let thumb = model.thumbnailURL {
-                AsyncImage(url: thumb) { phase in
-                    if case .success(let image) = phase {
-                        image.resizable().scaledToFill()
-                    } else {
-                        siteThumbPlaceholder
-                    }
-                }
+            if model.hasPicture {
+                StoredPreview(path: model.preview) { siteThumbPlaceholder }
                 .frame(height: 160)
                 .frame(maxWidth: .infinity)
                 .clipped()

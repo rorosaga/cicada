@@ -47,3 +47,32 @@ final class MediaBlockDecodeTests: XCTestCase {
         XCTAssertEqual(block.durationS, 421)
     }
 }
+
+/// A saved item's picture is Cicada's stored copy (`preview`), decoded beside the provider's `thumbnail` — and only a
+/// path on Cicada's own API is ever loaded.
+final class StoredPreviewTests: XCTestCase {
+    func testTheFeedItemAndTheMediaBlockCarryThePreview() throws {
+        let item = try JSONDecoder().decode(MediaFeedItem.self, from: Data(#"""
+        {"mediaEntityId":"a-link","url":"https://example.com/a","title":"A","mediaType":"url",
+         "thumbnail":"https://cdn.example.com/a.png","preview":"/entities/a-link/preview?v=5c0ffee12345"}
+        """#.utf8))
+        XCTAssertEqual(item.preview, "/entities/a-link/preview?v=5c0ffee12345")
+        let again = try JSONDecoder().decode(MediaFeedItem.self, from: JSONEncoder().encode(item))
+        XCTAssertEqual(again.preview, item.preview, "the Store's disk copy keeps it")
+        let block = try JSONDecoder().decode(MediaBlock.self, from: Data(#"""
+        {"url":"https://example.com/a","mediaType":"url","preview":"/entities/a-link/preview?v=5c0ffee12345"}
+        """#.utf8))
+        XCTAssertEqual(MediaPreviewModel(block: block, title: "A").hasPicture, true)
+        XCTAssertNil(try JSONDecoder().decode(MediaBlock.self, from: Data(#"{"url":"u","mediaType":"url"}"#.utf8)).preview)
+    }
+
+    func testOnlyCicadasOwnPathIsLoaded() {
+        XCTAssertTrue(StoredPreviewPath.loads("/entities/a-link/preview?v=5c0ffee12345"))
+        XCTAssertTrue(StoredPreviewPath.loads("/entities/a-paper/picture?v=5c0ffee12345"))
+        XCTAssertFalse(StoredPreviewPath.loads("https://cdn.example.com/a.png"), "a provider URL is never loaded")
+        XCTAssertFalse(StoredPreviewPath.loads("/entities/../secrets"))
+        XCTAssertFalse(StoredPreviewPath.loads(nil))
+        let block = MediaBlock(url: "https://example.com/a", mediaType: "url", thumbnail: "https://cdn.example.com/a.png")
+        XCTAssertFalse(MediaPreviewModel(block: block, title: "A").hasPicture, "a bare provider thumbnail draws nothing")
+    }
+}

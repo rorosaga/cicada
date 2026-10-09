@@ -45,7 +45,9 @@ live bank is ~1.8 MB. **Ship the ETag and its client mapping together** — `GET
 `inbox`+`entities`+`episodes`, and `VersionVector.swift` maps `entities` and `episodes` onto
 `.inbox`; change one half, change both. `/graph`'s `extra` carries a node-shape tag
 (`graph.NODE_SHAPE`), bumped when a node gains a field a client must see or the body changes for
-the same files (F1's context filter and fence strip); an entity node's hash also folds its derived
+the same files (F1's context filter and fence strip; `+previews` when a media node's `picture` became the stored
+preview path); `/sources` carries `sources.SHAPE` in its `extra` the same way (`preview-1`: items gained `preview`).
+Neither moved a component, so `VersionVector` is unchanged. An entity node's hash also folds its derived
 `contexts` and `summary`, so `GraphDiff` re-pushes a node whose derivation changed. `/projects` and
 `/projects/{id}/timeline` (G141) ETag over `entities`+`episodes`+`inbox` with `extra` =
 `projects|<shape>|<author shape>|<machine zone>` (`git_service.AUTHOR_SHAPE` since round 4, R4B-9) — never today, never a viewer zone — and are **not** Store domains
