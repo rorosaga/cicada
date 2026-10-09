@@ -1,5 +1,6 @@
 """Stage 3: Conflict Resolution & Temporal Decay."""
 
+import asyncio
 import json
 import sys
 from datetime import date, datetime, timedelta
@@ -49,12 +50,20 @@ async def resolve_and_prune(
 ) -> list[dict]:
     """Apply conflict resolution and temporal decay to all entities.
 
+    The synthesis and contradiction calls — the long, paid part of this stage — overlap
+    across pages, at most ``agent_max_concurrency`` pages at once (1 is one page after
+    another; a plan engine is further held to the same number process-wide by the
+    provider permit). A page's own two calls stay in order, and every result is applied
+    in the pages' order once all are in, so ``changes`` is the serial loop's
+    (``_overlap_pages``). An engine error stops new pages, waits out the ones in flight
+    and is raised as it was.
+
     ``cancel_check`` (Sleep page v5, a pause must be able to land here): polled before
-    each page's synthesis and contradiction calls — the long, paid part of this stage,
-    a loop of engine calls. Once it says stop, no further page is asked about and the
-    partial ``changes`` come back for the caller to discard, as Stage 2 does; nothing
-    is on disk before Stage 5. ``progress_callback(done, total)`` counts the pages to
-    update, fixed when the loop starts.
+    each page's calls start. Once it says stop, no further page is asked about, the
+    pages in flight finish, and the partial ``changes`` come back for the caller to
+    discard, as Stage 2 does; nothing is on disk before Stage 5.
+    ``progress_callback(done, total)`` counts the pages to update, fixed when the stage
+    starts; ``done`` grows as pages finish.
 
     ``decay``: ``False`` skips the unreferenced-entity decay loop only — a drain
     (``sleep_drain``) charges decay once, in the batch that empties its queue,
@@ -90,108 +99,52 @@ async def resolve_and_prune(
     )
     conflicts_found = 0
     rereads = 0
+    total_pages = len(update_changes)
     if progress_callback is not None:
-        progress_callback(0, len(update_changes))
-    for done_pages, change in enumerate(update_changes):
-        if cancel_check is not None and cancel_check():
-            break
-        if progress_callback is not None and done_pages:
-            progress_callback(done_pages, len(update_changes))
-        progress.update(1)
-        if change.get("action") != "update":
-            continue
-        entity_id = change["id"]
-        existing_entity = existing_by_id.get(entity_id)
-        if not existing_entity:
-            continue
-        new_entity = change.get("entity", {}) or {}
-        new_desc = (new_entity.get("description") or "").strip()
-        new_history = new_entity.get("history_entries", []) or []
-        section_aware = getattr(settings, 'summary_synthesis_enabled', False)
-        if section_aware:
-            new_desc = _entity_summary(new_entity)
-            if _is_human_edited(existing_entity.get('frontmatter', {}),
-                                entity_body.parse_sections(existing_entity.get('body', ''))):
-                continue
-        if not new_desc and not new_history and not (section_aware and any(
-                new_entity.get(k) for k in ('key_facts', 'links', 'open_questions'))):
-            continue
-
-        existing_body = existing_entity.get("body", "")
-        fm = existing_entity.get("frontmatter", {}) or {}
-        sources = set(_change_source_episodes(change))
-        if (sources and not sources - set(fm.get("source_episodes") or [])
-                and not entity_body.adds_anything(existing_body, _entity_summary(new_entity),
-                                                  new_entity.get("key_facts") or [])):
-            # A re-read of conversations the page already credits (a resumed conversation, G104) in which
-            # every summary sentence and fact is one the page already holds: nothing to rewrite or re-check.
-            # A re-read that brings anything else still gets both calls.
+        progress_callback(0, total_pages)
+    # The per-page decisions that need no model call run first, in order: whether the page is asked about at
+    # all and with what. Only the calls overlap (`_overlap_pages`); every result is applied below in this order.
+    jobs: list[dict] = []
+    for change in update_changes:
+        job = _page_job(change, existing_by_id, settings)
+        if job == "reread":
             rereads += 1
-            continue
-        entity_type = new_entity.get("type") or fm.get("type", "concept")
-        entity_name = new_entity.get("name") or fm.get("name", entity_id)
+        elif job is not None:
+            jobs.append(job)
+    finished = total_pages - len(jobs)
+    progress.update(finished)
+    if progress_callback is not None and finished:
+        progress_callback(finished, total_pages)
 
-        page_said = _extract_date_string(fm.get("last_referenced"))
-        change_days = _change_dates(change)
-        try:
-            synthesized = await _synthesize_entity_update(
-                entity_name=entity_name,
-                entity_type=entity_type,
-                existing_body=existing_body,
-                new_description=new_desc,
-                new_history_entries=new_history,
-                # The prompt's fallback line may use a day recovered from an id; the stored fields never do.
-                source_reference_date=_latest_change_date(change) or (change_days[-1] if change_days else None),
-                settings=settings,
-                page_last_referenced=page_said,
-                source_dates_seen=change_days,
-                today=cycle_day,
-                new_fields=new_entity if section_aware else None,
-            )
-            if synthesized:
-                change["synthesized_body"] = synthesized
-                if section_aware:
-                    change['section_aware_synthesis'] = True
-        except engine_errors.EngineError:
-            # G74(a), M2: an ENGINE failure is not "nothing to synthesize" —
-            # flattening it here let a partial throttle silently skip
-            # synthesis for every entity while the cycle still committed and
-            # reported "Completed". Propagate so the cycle stops with the
-            # episode queue intact, same contract as the resolver's judge.
-            raise
-        except Exception as e:
-            logger.debug(f"Synthesis failed for {entity_id}: {e}")
+    def _page_done() -> None:
+        nonlocal finished
+        finished += 1
+        progress.update(1)
+        if progress_callback is not None:
+            progress_callback(finished, total_pages)
 
-        if not new_desc:
-            continue
-
-        try:
-            contradiction = await _detect_contradiction(
-                entity_name=entity_name,
-                existing_body=existing_body,
-                new_description=new_desc,
-                settings=settings,
-                existing_as_of=page_said,
-                new_as_of=change_days,
-                today=cycle_day,
-            )
-        except engine_errors.EngineError:
-            # Same reasoning as the synthesis branch above: an engine failure
-            # must not be read as "no contradiction found".
-            raise
-        except Exception as e:
-            logger.debug(f"Contradiction check failed for {entity_id}: {e}")
-            contradiction = None
-
+    concurrency = max(1, int(getattr(settings, "agent_max_concurrency", 1) or 1))
+    decided = await _overlap_pages(
+        jobs, lambda job: _decide_page(job, settings, cycle_day),
+        concurrency=concurrency, cancel_check=cancel_check, on_done=_page_done,
+    )
+    for index, job in enumerate(jobs):
+        if index not in decided:
+            continue  # a cancel stopped before this page; the caller discards the partial result
+        change, synthesized, contradiction = job["change"], *decided[index]
+        if synthesized:
+            change["synthesized_body"] = synthesized
+            if job["section_aware"]:
+                change['section_aware_synthesis'] = True
         if contradiction and contradiction.get("has_unresolvable_contradiction"):
             conflicts_found += 1
             progress.set_postfix_str(f"conflicts={conflicts_found}", refresh=False)
             today_str = str(date.today())
-            built = build_entity_question(entity_name, contradiction, today_str)
+            built = build_entity_question(job["entity_name"], contradiction, today_str)
             changes.append({
-                "id": entity_id,
+                "id": change["id"],
                 "action": "conflict_nudge",
-                "entity": new_entity,
+                "entity": job["new_entity"],
                 "conflict_context": contradiction.get("contradiction", ""),
                 "predicate": "description",
                 "question": built["question"],
@@ -328,6 +281,150 @@ async def resolve_and_prune(
 
     decay_progress.close()
     return changes
+
+
+def _page_job(change: dict, existing_by_id: dict[str, dict], settings: Settings) -> dict | str | None:
+    """What Stage 3 asks the engine about one update, decided without a call: ``None`` when the page gets no call,
+    ``"reread"`` for a re-read that says nothing new, else the call's inputs. A function of the change and the
+    pages as they were read before the stage — never of another page's answer — which is what lets the calls
+    overlap (`_overlap_pages`)."""
+    entity_id = change["id"]
+    existing_entity = existing_by_id.get(entity_id)
+    if not existing_entity:
+        return None
+    new_entity = change.get("entity", {}) or {}
+    new_desc = (new_entity.get("description") or "").strip()
+    new_history = new_entity.get("history_entries", []) or []
+    section_aware = getattr(settings, 'summary_synthesis_enabled', False)
+    if section_aware:
+        new_desc = _entity_summary(new_entity)
+        if _is_human_edited(existing_entity.get('frontmatter', {}),
+                            entity_body.parse_sections(existing_entity.get('body', ''))):
+            return None
+    if not new_desc and not new_history and not (section_aware and any(
+            new_entity.get(k) for k in ('key_facts', 'links', 'open_questions'))):
+        return None
+
+    existing_body = existing_entity.get("body", "")
+    fm = existing_entity.get("frontmatter", {}) or {}
+    sources = set(_change_source_episodes(change))
+    if (sources and not sources - set(fm.get("source_episodes") or [])
+            and not entity_body.adds_anything(existing_body, _entity_summary(new_entity),
+                                              new_entity.get("key_facts") or [])):
+        # A re-read of conversations the page already credits (a resumed conversation, G104) in which
+        # every summary sentence and fact is one the page already holds: nothing to rewrite or re-check.
+        # A re-read that brings anything else still gets both calls.
+        return "reread"
+    change_days = _change_dates(change)
+    return {
+        "change": change,
+        "new_entity": new_entity,
+        "new_desc": new_desc,
+        "new_history": new_history,
+        "section_aware": section_aware,
+        "existing_body": existing_body,
+        "entity_type": new_entity.get("type") or fm.get("type", "concept"),
+        "entity_name": new_entity.get("name") or fm.get("name", entity_id),
+        "page_said": _extract_date_string(fm.get("last_referenced")),
+        "change_days": change_days,
+        # The prompt's fallback line may use a day recovered from an id; the stored fields never do.
+        "source_reference_date": _latest_change_date(change) or (change_days[-1] if change_days else None),
+    }
+
+
+async def _decide_page(job: dict, settings: Settings, cycle_day: str) -> tuple[str | None, dict | None]:
+    """One page's calls, in their serial order: the synthesis, then (with a description) the contradiction check.
+    Returns ``(synthesized body, contradiction payload)``; writes nothing and touches no other page."""
+    entity_id = job["change"]["id"]
+    synthesized = None
+    try:
+        synthesized = await _synthesize_entity_update(
+            entity_name=job["entity_name"],
+            entity_type=job["entity_type"],
+            existing_body=job["existing_body"],
+            new_description=job["new_desc"],
+            new_history_entries=job["new_history"],
+            source_reference_date=job["source_reference_date"],
+            settings=settings,
+            page_last_referenced=job["page_said"],
+            source_dates_seen=job["change_days"],
+            today=cycle_day,
+            new_fields=job["new_entity"] if job["section_aware"] else None,
+        )
+    except engine_errors.EngineError:
+        # G74(a), M2: an ENGINE failure is not "nothing to synthesize" —
+        # flattening it here let a partial throttle silently skip
+        # synthesis for every entity while the cycle still committed and
+        # reported "Completed". Propagate so the cycle stops with the
+        # episode queue intact, same contract as the resolver's judge.
+        raise
+    except Exception as e:
+        logger.debug(f"Synthesis failed for {entity_id}: {e}")
+
+    if not job["new_desc"]:
+        return synthesized, None
+
+    try:
+        contradiction = await _detect_contradiction(
+            entity_name=job["entity_name"],
+            existing_body=job["existing_body"],
+            new_description=job["new_desc"],
+            settings=settings,
+            existing_as_of=job["page_said"],
+            new_as_of=job["change_days"],
+            today=cycle_day,
+        )
+    except engine_errors.EngineError:
+        # Same reasoning as the synthesis branch above: an engine failure
+        # must not be read as "no contradiction found".
+        raise
+    except Exception as e:
+        logger.debug(f"Contradiction check failed for {entity_id}: {e}")
+        contradiction = None
+    return synthesized, contradiction
+
+
+async def _overlap_pages(jobs: list, run, *, concurrency: int, cancel_check=None, on_done=None) -> dict[int, object]:
+    """Run ``run(job)`` for each job with at most ``concurrency`` in flight; ``{index: result}`` for each finished.
+
+    Jobs start in list order — ``concurrency`` workers take the next one — so 1 is the serial loop. Before each
+    start ``cancel_check`` is polled; once it says stop, or any job raises, nothing new starts and the jobs in
+    flight are waited out (a plan call runs in a worker thread and is never interrupted; none outlives the stage).
+    Then the error of the EARLIEST job that raised is re-raised, the same object: every job before it started and
+    finished, so it is the error the serial loop would have met first (a plan limit is still the drain's pause)."""
+    results: dict[int, object] = {}
+    errors: dict[int, BaseException] = {}
+    state = {"next": 0, "stopped": False}
+
+    async def worker() -> None:
+        while not state["stopped"] and state["next"] < len(jobs):
+            if cancel_check is not None and cancel_check():
+                state["stopped"] = True
+                return
+            index = state["next"]
+            state["next"] += 1
+            try:
+                results[index] = await run(jobs[index])
+            except Exception as exc:  # noqa: BLE001 - re-raised below, after the jobs in flight finish
+                errors[index] = exc
+                state["stopped"] = True
+                return
+            if on_done is not None:
+                on_done()
+
+    workers = [asyncio.create_task(worker()) for _ in range(min(max(1, concurrency), len(jobs)))]
+    try:
+        await asyncio.gather(*workers)
+    finally:
+        state["stopped"] = True
+        for task in workers:
+            if not task.done():
+                task.cancel()
+        if workers:
+            await asyncio.gather(*workers, return_exceptions=True)
+    if errors:
+        raise errors[min(errors)]
+    return results
 
 
 def apply_changes(changes: list[dict], memory_path) -> None:

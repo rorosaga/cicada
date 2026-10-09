@@ -264,7 +264,7 @@ then says the model wasn't shared.
 2. **Entity resolution & dedup** — exact name, fuzzy match, embedding similarity, LLM disambiguation
    (bounded concurrency, decisions in order; a recorded alias brings its page to the judge; see below).
 3. **Conflict resolution & pruning** — contradictions detected, recency wins, old state archived;
-   temporal decay applied.
+   temporal decay applied (pages' calls overlap, results applied in order; see below).
 4. **Pattern detection & skill extraction** — recurring patterns distilled into skill entities, each written only
    with the conversations it came from (see *A skill page carries its conversations*).
 5. **Nudge generation, clarification queue & versioning** — snapshot, git commit.
@@ -581,6 +581,28 @@ the loop — a direct match to an in-cycle create, an in-cycle create as a candi
 order, so every decision and every call is the serial loop's. A cancel or a plan limit starts no new call and waits
 out the ones in flight (a plan call is never interrupted); the engine error is still what `resolve` raises, so the
 drain pauses as before.
+
+**Stage 3's calls overlap, its results do not (2026-10-09).** Stage 3 asks the engine once or twice per page a batch
+updates — the synthesis, then (with a summary) the contradiction check — and those calls ran one page after another:
+~250 calls a 12-batch run with summary synthesis off, and roughly 750–1,250 more with it on (`summary_synthesis_enabled`,
+~2 calls per summary update, 1 per facts-only one), minutes per batch. A page's calls depend only on its own change and
+the pages as read before the stage, never on another page's answer, so `conflict_resolver.resolve_and_prune` first
+decides in order, with no call, which pages are asked and with what (`_page_job`: a missing page, a hand-edited page
+under synthesis, an update with nothing to merge and a re-read are settled there), then runs those pages' calls with at
+most `agent_max_concurrency` pages in flight (`CICADA_AGENT_MAX_CONCURRENCY`, default 3; 1 is the serial loop; a plan
+engine is held to the same number process-wide by the provider permit; no Stage 3 knob of its own), pages started in
+order (`_overlap_pages`). A page's own two calls stay in order. Once every answer is in, the results — the synthesized
+body, the contradiction's `conflict_nudge` — are applied in the pages' order, so `changes`, every page Stage 5 writes
+and every inbox item (a second conflict on a page merging into the first's item included) are byte-for-byte the serial
+run's (`test_conflict_resolver_concurrency`: randomized per-call latency, concurrency 1 vs 2/3/5/10, both synthesis
+settings). Stage 3 still writes nothing and holds no write admission; Stage 5 writes, as before. A cancel is polled
+before each page starts: no new page starts and the pages in flight finish. An engine error starts no new page, waits
+out the ones in flight (a plan call runs in a worker thread and is never interrupted) and re-raises the error of the
+earliest page that failed — the one the serial loop would have met — as the same exception object, so the drain's
+plan-limit pause and its error classification are unchanged. Measured on a fake engine through a threading permit
+(25 updates, 20 with a summary: 45 calls, 8–12 s per synthesis call and 2.5–3.5 s per contradiction call):
+304 s serial (concurrency 1, as before), 110 s at 3 (the default), 38 s at 10 — the measured run's setting, ~4.4 minutes
+saved per batch.
 
 **An alias brings its page to the judge, never a decision (2026-10-08).** The judge's candidates used to be only the
 same-type pages sharing a content word with the name, and Stage 2 never read a page's `aliases`, so a short form or
