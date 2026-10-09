@@ -13,6 +13,8 @@ loguru>=0.7.3
 mcp>=2.2,<3
 pydantic>=2.12.5
 pydantic-settings>=2.13.1
+# A saved PDF's first page, rendered in the backend (api/services/pdf_page.py): PDFium's own arm64 wheel.
+pypdfium2>=4.30
 python-multipart>=0.0.24
 pyyaml>=6.0.3
 sqlite-vec>=0.1.9
