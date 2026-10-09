@@ -115,6 +115,13 @@ class RawItem:
     # walled host is never requested by the backend, and even a public one
     # should not be read just because the person asked an agent to).
     defer_enrich: bool = False
+    # Other URLs that name this same saved thing (a Reddit link post's
+    # permalink beside its outbound link). Indexed as ``alias_of`` rows of the
+    # page this item becomes — the shape ``papers.index_aliases`` already uses,
+    # which every ``url_index`` reader skips — so the platform's export (which
+    # only knows the permalink) and its API connector (which saves the outbound
+    # link) dedupe against each other in either order.
+    aliases: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -1989,6 +1996,41 @@ def write_note_episode(memory_path: Path, item: RawItem, existing: IngestResult)
 # --- Single-item ingest + batch ---
 
 
+def _primary(idx: dict, h: str) -> str:
+    """An ``alias_of`` row's page row (itself for a page row)."""
+    entry = idx.get(h)
+    target = entry.get("alias_of") if isinstance(entry, dict) else None
+    return target if isinstance(target, str) and target in idx else h
+
+
+def existing_hash(item: RawItem, idx: dict) -> str | None:
+    """The ``url_index`` page row this item already is — by its URL or any of its
+    aliases, an ``alias_of`` row followed to its page — or ``None``."""
+    for url in (item.url, *item.aliases):
+        if not url:
+            continue
+        h = url_hash(url)
+        if h in idx:
+            return _primary(idx, h)
+    return None
+
+
+def index_aliases(item: RawItem, idx: dict, primary: str) -> bool:
+    """Every URL of ``item`` the index does not hold yet, as an ``alias_of`` row
+    of ``primary``. Returns whether ``idx`` changed."""
+    entry = idx.get(primary) or {}
+    changed = False
+    for url in (item.url, *item.aliases):
+        if not url:
+            continue
+        h = url_hash(url)
+        if h in idx:
+            continue
+        idx[h] = {"media_entity_id": entry.get("media_entity_id", ""), "url": url, "alias_of": primary}
+        changed = True
+    return changed
+
+
 def _backfill_content_saved_at(existing: dict, item: RawItem) -> bool:
     """A duplicate hit is not a pure no-op (Devin round 1, PR #26 finding 1).
 
@@ -2028,7 +2070,7 @@ class PreparedItem:
 async def prepare_one(item: RawItem, memory_path: Path, client, idx: dict,
                       from_bookmark_file: bool = False) -> PreparedItem:
     """The network half of :func:`ingest_one`: enrich a link the index does not hold yet. Writes nothing."""
-    if url_hash(item.url) in idx:
+    if existing_hash(item, idx) is not None:
         return PreparedItem(item, None, from_bookmark_file)
     if item.defer_enrich:
         ref = video_urls.resolve(item.url)
@@ -2057,8 +2099,10 @@ def write_prepared(prepared: PreparedItem, memory_path: Path, idx: dict) -> Inge
     prepared is a duplicate (and one dropped since gets the offline metadata)."""
     item, from_bookmark_file = prepared.item, prepared.from_bookmark_file
     h = url_hash(item.url)
-    if h in idx:
-        existing = idx[h]
+    found = existing_hash(item, idx)
+    if found is not None:
+        existing = idx[found]
+        index_aliases(item, idx, found)
         # Caller is responsible for persisting `idx` afterward — every
         # current caller (`POST /sources/save`, the Telegram `/save` path)
         # already calls `save_url_index` unconditionally right after this
@@ -2100,6 +2144,7 @@ def write_prepared(prepared: PreparedItem, memory_path: Path, idx: dict) -> Inge
     validated_added = saved_at.validate(item.added)
     if validated_added:
         idx[h]["content_saved_at"] = validated_added
+    index_aliases(item, idx, h)
     return IngestResult(
         status="created",
         media_entity_id=entity_id,
@@ -2139,16 +2184,22 @@ def _dedup_items(items: list[RawItem], idx: dict) -> tuple[list[RawItem], int, b
     for item in items:
         if not item.url:
             continue
-        h = url_hash(item.url)
-        if h in idx:
+        found = existing_hash(item, idx)
+        if found is not None:
             skipped += 1
-            if _backfill_content_saved_at(idx[h], item):
+            if _backfill_content_saved_at(idx[found], item):
+                backfilled = True
+            # The same thing under another of its URLs (a connector's outbound
+            # link for a permalink an export brought in): remembered as an alias
+            # so a later save of that URL is a duplicate too.
+            if index_aliases(item, idx, found):
                 backfilled = True
             continue
-        if h in seen:
+        hashes = {url_hash(u) for u in (item.url, *item.aliases) if u}
+        if hashes & seen:
             skipped += 1
             continue
-        seen.add(h)
+        seen |= hashes
         fresh.append(item)
     return fresh, skipped, backfilled
 
