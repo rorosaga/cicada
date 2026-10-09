@@ -74,32 +74,35 @@ def test_preview_of_a_recognized_but_empty_file_warns_honestly():
     assert any("no saved links" in w for w in preview.warnings)
 
 
-def test_preview_warns_when_item_count_exceeds_the_batch_cap():
+def test_preview_warns_when_item_count_exceeds_the_import_cap(monkeypatch):
     """M3 (final review): preview must not promise an import Confirm then
     413s — `POST /sources/upload` (no ``?preview=true``) hard-rejects any
-    upload past ``MAX_BATCH`` items (`test_post_rss_rejects_oversized_feed`
-    pins the same cap for the RSS path); preview must warn about that same
+    upload past ``MAX_UPLOAD_ITEMS`` items (below it, a large upload is
+    imported ``MAX_BATCH`` at a time); preview must warn about that same
     outcome instead of silently showing "N items across M collections" as if
     Confirm would just work.
     """
-    payload = "\n".join(
-        f"https://example.com/{i}" for i in range(media_ingestor.MAX_BATCH + 1)
-    )
+    monkeypatch.setattr(media_ingestor, "MAX_UPLOAD_ITEMS", 5)
+    payload = "\n".join(f"https://example.com/{i}" for i in range(6))
     preview = media_ingestor.preview_upload(payload.encode(), "links.txt")
     assert preview.recognized is True
-    assert preview.total == media_ingestor.MAX_BATCH + 1
-    assert any(
-        "batch cap" in w and f"{media_ingestor.MAX_BATCH:,}" in w for w in preview.warnings
-    )
+    assert preview.total == 6
+    assert any("import cap" in w and "5" in w for w in preview.warnings)
 
 
-def test_preview_at_exactly_the_batch_cap_does_not_warn():
-    payload = "\n".join(
-        f"https://example.com/{i}" for i in range(media_ingestor.MAX_BATCH)
-    )
+def test_preview_at_exactly_the_import_cap_does_not_warn(monkeypatch):
+    monkeypatch.setattr(media_ingestor, "MAX_UPLOAD_ITEMS", 5)
+    payload = "\n".join(f"https://example.com/{i}" for i in range(5))
     preview = media_ingestor.preview_upload(payload.encode(), "links.txt")
-    assert preview.total == media_ingestor.MAX_BATCH
-    assert not any("batch cap" in w for w in preview.warnings)
+    assert preview.total == 5
+    assert not any("import cap" in w for w in preview.warnings)
+
+
+def test_preview_past_one_batch_but_under_the_cap_does_not_warn():
+    payload = "\n".join(f"https://example.com/{i}" for i in range(media_ingestor.MAX_BATCH + 1))
+    preview = media_ingestor.preview_upload(payload.encode(), "links.txt")
+    assert preview.total == media_ingestor.MAX_BATCH + 1
+    assert not any("cap" in w for w in preview.warnings)
 
 
 def test_preview_ungrouped_items_fall_into_one_bucket():

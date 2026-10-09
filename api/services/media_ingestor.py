@@ -49,6 +49,9 @@ _OEMBED_TIMEOUT = 4.0
 _OEMBED_MAX_BYTES = 512_000
 DESCRIPTION_LIMIT = 5000  # G140 Q-R12: a description is kept, cut here — a field, not a document
 MAX_BATCH = 2000
+#: The most items one upload may hold (a whole platform archive of likes runs
+#: past one batch). Imported ``MAX_BATCH`` at a time by :func:`ingest_chunked`.
+MAX_UPLOAD_ITEMS = 50_000
 _INLINE_ENRICH_LIMIT = 10  # small batches enrich inline so saves feel instant
 
 # Tracking params stripped during URL normalization.
@@ -1536,15 +1539,16 @@ def preview_upload(
             "an archive, unzip it and drop the individual export file instead."
         )
     # M3 (final review): mirror the SAME check `POST /sources/upload`'s
-    # confirm path enforces (`len(items) > MAX_BATCH` -> 413), on the SAME
-    # basis (`items`, before the URL-filtering `counts` above) — the preview
-    # promising an import Confirm then refuses is the bug being fixed, so the
-    # two checks must agree exactly. Deliberately a warning only: Confirm
-    # still hard-rejects rather than silently importing a truncated first
-    # slice, so this preview must not claim partial success either.
-    if len(items) > MAX_BATCH:
+    # confirm path enforces (`len(items) > MAX_UPLOAD_ITEMS` -> 413), on the
+    # SAME basis (`items`, before the URL-filtering `counts` above) — the
+    # preview promising an import Confirm then refuses is the bug being fixed,
+    # so the two checks must agree exactly. Deliberately a warning only:
+    # Confirm still hard-rejects rather than silently importing a truncated
+    # first slice, so this preview must not claim partial success either.
+    # Below the cap a large upload is imported `MAX_BATCH` at a time.
+    if len(items) > MAX_UPLOAD_ITEMS:
         warnings.append(
-            f"{len(items):,} items exceeds the {MAX_BATCH:,}-item batch cap — "
+            f"{len(items):,} items exceeds the {MAX_UPLOAD_ITEMS:,}-item import cap — "
             "Confirm will reject this import; split the export into smaller "
             "files first."
         )
@@ -2270,6 +2274,23 @@ async def ingest_batch(
             logger.warning(f"Media commit failed: {type(e).__name__}: {e}")
 
     return created, len(items) - len(fresh)
+
+
+async def ingest_chunked(
+    items: list[RawItem],
+    memory_path: Path,
+    from_bookmark_file: bool = False,
+) -> tuple[int, int]:
+    """:func:`ingest_batch` over ``MAX_BATCH``-sized slices, each committed on its
+    own, so an archive larger than one batch is imported whole and an interruption
+    loses at most the slice in progress. Returns ``(created, duplicates)``."""
+    created = duplicates = 0
+    step = max(1, MAX_BATCH)
+    for start in range(0, len(items), step):
+        c, d = await ingest_batch(items[start:start + step], memory_path, from_bookmark_file=from_bookmark_file)
+        created += c
+        duplicates += d
+    return created, duplicates
 
 
 async def _commit_media(

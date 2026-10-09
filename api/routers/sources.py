@@ -256,10 +256,13 @@ async def upload_sources(
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"Could not parse {filename}: {e}")
 
-    if len(items) > MAX_BATCH:
+    # Read at call time (not the import-time name): a whole archive of likes
+    # runs past one batch and is imported MAX_BATCH at a time below.
+    cap = media_ingestor.MAX_UPLOAD_ITEMS
+    if len(items) > cap:
         raise HTTPException(
             status_code=413,
-            detail=f"{len(items)} items exceeds the {MAX_BATCH}-item batch cap",
+            detail=f"{len(items)} items exceeds the {cap}-item import cap",
         )
 
     memory_path = settings.memory_path
@@ -289,7 +292,7 @@ async def upload_sources(
         message = f"Saved {created} item(s) from {source_label}"
     else:
         background_tasks.add_task(
-            media_ingestor.ingest_batch,
+            media_ingestor.ingest_chunked,
             fresh,
             memory_path,
             from_bookmark_file=from_bookmark_file,

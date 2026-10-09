@@ -131,3 +131,78 @@ def test_x_likes_are_staged_without_a_network_read(memory, monkeypatch):
     data = saved_exports.parse_x_archive_js(
         b'window.YTD.like.part0 = [{"like": {"tweetId": "1000000000000000004", "fullText": "hello"}}]', "like")
     assert _ingest(data, memory) == (1, 0)
+
+
+# --- the upload route --------------------------------------------------------------
+
+
+@pytest.fixture
+def client(memory, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from api import config, main
+
+    monkeypatch.setenv("CICADA_MEMORY_PATH", str(memory))
+    config.get_settings.cache_clear()
+    yield TestClient(main.app)
+    config.get_settings.cache_clear()
+
+
+def _likes(n: int) -> bytes:
+    rows = [{"like": {"tweetId": str(1000000000000000100 + i), "fullText": f"post {i}"}} for i in range(n)]
+    return _zip({"data/like.js": "window.YTD.like.part0 = " + json.dumps(rows)})
+
+
+def test_an_archive_past_one_batch_is_imported_in_batches_not_refused(client, memory, monkeypatch):
+    monkeypatch.setattr(media_ingestor, "MAX_BATCH", 4)
+    real = media_ingestor.ingest_batch
+    sizes: list[int] = []
+
+    async def spy(items, *args, **kwargs):
+        sizes.append(len(items))
+        return await real(items, *args, **kwargs)
+
+    monkeypatch.setattr(media_ingestor, "ingest_batch", spy)
+    r = client.post("/sources/upload", files={"file": ("twitter-archive.zip", _likes(11), "application/zip")})
+    assert r.status_code == 200, r.text
+    assert r.json()["source"] == "X Archive"
+    # TestClient runs the background task before returning.
+    assert sizes == [4, 4, 3]
+    assert len(list((memory / "entities").glob("media-*.md"))) == 11
+    again = client.post("/sources/upload", files={"file": ("twitter-archive.zip", _likes(11), "application/zip")})
+    assert again.json()["episodesCreated"] == 0 and again.json()["duplicatesSkipped"] == 11
+
+
+def test_an_upload_past_the_import_cap_is_refused_and_the_preview_says_so(client, memory, monkeypatch):
+    monkeypatch.setattr(media_ingestor, "MAX_UPLOAD_ITEMS", 3)
+    r = client.post("/sources/upload", files={"file": ("twitter-archive.zip", _likes(4), "application/zip")})
+    assert r.status_code == 413
+    assert list((memory / "entities").glob("*.md")) == []
+    preview = client.post("/sources/upload?preview=true",
+                          files={"file": ("twitter-archive.zip", _likes(4), "application/zip")}).json()
+    assert any("import cap" in w for w in preview["warnings"])
+
+
+def test_an_archive_into_the_demo_bank_is_refused_and_writes_nothing(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from api import config, main
+    from api.services import bank_registry, demo_guard
+
+    root = tmp_path / "root"
+    root.mkdir()
+    slug = bank_registry.create_bank(root, "demo")
+    demo = bank_registry.bank_dir(root, slug)
+    demo_guard.write_manifest(demo)
+    bank_registry.activate_bank(root, slug)
+    monkeypatch.delenv("CICADA_MEMORY_PATH", raising=False)
+    monkeypatch.setenv("CICADA_MEMORY_ROOT", str(root))
+    config.get_settings.cache_clear()
+    try:
+        r = TestClient(main.app).post("/sources/upload",
+                                      files={"file": ("twitter-archive.zip", _likes(2), "application/zip")})
+    finally:
+        config.get_settings.cache_clear()
+    assert r.status_code == 409 and r.json()["detail"] == demo_guard.REFUSAL
+    assert not (demo / "sources" / "url_index.json").exists()
+    assert list((demo / "entities").glob("media-*.md")) == []
