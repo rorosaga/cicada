@@ -383,6 +383,10 @@ def _page_job(change: dict, existing_by_id: dict[str, dict], settings: Settings,
     fm0 = existing_entity.get("frontmatter", {}) or {}
     page_sections = entity_body.parse_sections(_strip_claims(existing_entity.get("body", "")))
     has_article = entity_article.stamped(fm0, page_sections)
+    if article_context is not None or has_article:
+        # The contradiction check reads what the update says about the thing: Stage 1 fills `summary` (an older
+        # payload, `description`), so an article page's check does not depend on which one it filled.
+        new_desc = _entity_summary(new_entity)
     if article_context is not None:
         if _is_human_edited(fm0, page_sections):
             return None

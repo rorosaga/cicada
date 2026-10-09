@@ -130,3 +130,20 @@ def test_free_text_and_a_legacy_lead_survive_a_sleep_article(tmp_path, monkeypat
     assert "- Runs on a laptop." in sections["Key Facts"]
     assert "Free history text kept by an old writer." in sections["History"]
     assert "beta-tool was chosen over gamma-tool for offline sync." in sections["Key Facts"]
+
+
+# Also: the contradiction check on article pages -----------------------------------------------------------------
+
+
+def test_a_summary_only_update_still_gets_its_contradiction_check_on_an_article_page(tmp_path, monkeypatch):
+    import test_page_articles_sleep as sleep_tests
+
+    contradiction = "checking whether two descriptions"
+    _, calls, first = sleep_tests.run(tmp_path, monkeypatch,
+                                      fields=sleep_tests._fields(summary="alpha-project moved to a beta in March."))
+    assert sum(contradiction in c for c in calls) == 1           # writer on, summary only (no `description`)
+    for articles in (True, False):                               # an article page, writer on or off
+        _, calls, _ = sleep_tests.run(tmp_path / str(articles), monkeypatch, articles=articles,
+                                      fields=sleep_tests._fields(summary="alpha-project left the beta in May."),
+                                      page=first.body, fm=first.frontmatter, sources=("ep_2026-05-01_001",))
+        assert sum(contradiction in c for c in calls) == 1
