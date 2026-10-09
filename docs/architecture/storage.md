@@ -53,6 +53,22 @@ excluded — it comes from the ingestion path, not conversation extraction.
 **Status lifecycle:** `active` → `decaying` → `archived` → `dropped` (user-dismissed, never
 resurfaced).
 
+**The body (layout v2, with the article, G194 2026-10-09).** H2 sections in a fixed order (`entity_body
+.CANONICAL_SECTIONS`): `## Summary`, `## Article`, `## Key Facts`, `## History`, `## Related`, `## Links`,
+`## Open Questions`, then any hand-added section, then the claims fence. Above the line (conceptual — never a `---`
+in the file, which after a paragraph is a setext heading) is compiled prose: the Summary is the lead (the card's
+header) and `## Article` holds `### <title>` sections of paragraphs with inline `[[links]]`, both rewritten freely
+by the article writer (`entity_article`, `capture-and-sleep.md` *Pages as articles*). Below it is the record — Key
+Facts, History, Links, Open Questions, Related, claims — unioned deterministically and never shortened by a writer.
+A page without an Article is the v2 fact sheet; nothing reads the two differently except the writers below.
+
+`article: {v: 1, hash: <12 hex>, written: YYYY-MM-DD}` stamps the lead and Article as the writer left them
+(`entity_article.stamp`). While it matches, the page is machine prose: no summary or legacy rewrite touches the lead,
+`bound_summary` and the deterministic merge keep it at any length, and a renamed link restamps it
+(`entity_merge`, `entity_article.carry_stamp`). When it no longer matches — a person edited the lead or Article, or
+wrote an Article by hand — `entity_body.has_human_prose` is true: the page is additive-only, like any hand-edited
+page, and the writer leaves it alone.
+
 ### Decay classes (G66)
 One resolver, `api/services/decay_policy.py`. `resolve(fm)` returns `(class, rate)`: an explicit
 `decay_class:` wins; otherwise inferred from `type` (`media` → evergreen, `skill` → durable, else
@@ -199,7 +215,12 @@ pairs, including multiple revisions of the same episode, and refresh prunes unus
 
 The item key hashes `_normalize_fact(text)` for lookup; the mandatory exact text guard
 prevents normalization from recertifying edited words. Summary is one item; list items
-include indented continuations. Duplicate/ambiguous normalized bullets are not attributed.
+include indented continuations; in `article` (G194) each paragraph — a run of non-blank lines that are not a `### `
+title — is one item, the same row the app draws. The article writer records, per paragraph and for the lead, the
+evidence rows of the inputs that paragraph validly cites (spans first, at most 16), under its exact text: one click
+from a line to the conversations its facts and claims came from; an edit unlinks the paragraph, never recertifies it.
+History lines carry no rows (Stage 1 records summaries and facts only), so a paragraph written only from History is
+unrecorded and opens the page's own Where this came from. Duplicate/ambiguous normalized bullets are not attributed.
 Editing one of 120 bullets leaves 119 links; reordering preserves them. The server parses
 headings outside code fences, accumulates duplicate headings and supplies Unicode code-point
 body ranges. Claims never enter fingerprints. Any code fence still open at end of the body
