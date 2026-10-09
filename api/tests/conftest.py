@@ -128,6 +128,8 @@ def _disable_api_auth(monkeypatch):
 @pytest.fixture(autouse=True)
 def _disable_logo_fetch(monkeypatch):
     monkeypatch.setenv("CICADA_ALLOW_LOGO_FETCH", "off")
+    # G159 (2026-10-09): a person's public-profile photo has its own gate too; no test ever asks the real services.
+    monkeypatch.setenv("CICADA_ALLOW_PERSON_PHOTO_FETCH", "off")
 
 
 @pytest.fixture(autouse=True)
