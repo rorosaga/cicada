@@ -436,10 +436,10 @@ def parse(raw, inputs: Inputs, *, name: str, aliases=(), known=()) -> Written | 
 
 def retained(inputs: Inputs, written: Written, *, name: str = "", aliases=()) -> list[str]:
     """The orientation sentences that are not yet record (this update's summary; a first article's old Summary) and
-    that no kept paragraph visibly carries: they become Key Facts. Carried = cited by a paragraph that shares two of
-    its words (one for a one-word sentence) and adds back every number, negation and tense or status word it has
-    (`fact_policy.compatible`, the orientation synthesis's floor). Anything less is kept: a duplicate in the record
-    is cheaper than a lost sentence."""
+    that no kept paragraph visibly carries: they become Key Facts. Carried = cited by a paragraph that has most of
+    its words (:func:`_carried`: three in five, at least two, and every name in it) and every number, negation and
+    tense or status word it has (`fact_policy.compatible`, the orientation synthesis's floor). Anything less is kept:
+    a duplicate in the record is cheaper than a lost sentence."""
     name_words = frozenset().union(*(fact_policy._profile(str(n))[0] for n in (name, *aliases) if n))
     citing: dict[str, list[str]] = {}
     for paragraph in written.paragraphs():
@@ -449,13 +449,29 @@ def retained(inputs: Inputs, written: Written, *, name: str = "", aliases=()) ->
     for source in inputs.sources:
         if not source.retain:
             continue
-        own = _words(source.text, name_words)
-        need = min(2, len(own))
-        carried = any(len(own & _words(text, name_words)) >= need and fact_policy.compatible(source.text, text)
-                      for text in citing.get(source.id, []))
+        carried = any(_carried(source.text, text, name_words) for text in citing.get(source.id, []))
         if not carried:
             out.append(source.text)
     return out
+
+
+_NAME_TOKEN = re.compile(r"\[\[([^\]|]+)|(?<=\s)([A-Z][\w'’-]*)|([\w]+-[\w-]+)")
+
+
+def _carried(sentence: str, paragraph: str, name_words) -> bool:
+    """``paragraph`` says what ``sentence`` says, as far as words can tell: it shares at least three in five of the
+    sentence's content words (at least two; one for a one-word sentence), every name the sentence uses (a
+    ``[[link]]``, a capitalised word after the first, a hyphenated name) and nothing `fact_policy.compatible` forbids."""
+    own = _words(sentence, name_words)
+    theirs = _words(paragraph, name_words)
+    need = max(min(2, len(own)), -(-3 * len(own) // 5))
+    if len(own & theirs) < need or not fact_policy.compatible(sentence, paragraph):
+        return False
+    for m in _NAME_TOKEN.finditer(" " + sentence):
+        token = next(g for g in m.groups() if g)
+        if not _words(token, name_words) <= theirs:
+            return False
+    return True
 
 
 def records(written: Written) -> list[dict]:
