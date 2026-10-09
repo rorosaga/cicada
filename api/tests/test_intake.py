@@ -425,3 +425,17 @@ def test_a_lone_chatgpt_extra_file_sniffs_as_a_quiet_skip(tmp_path, monkeypatch)
     assert body["recognized"] is False and body["reason"] is None
     assert body["ignored"] == [{"name": "ads.json", "reason": intake.SKIPPED_MEMBERS["ads.json"]}]
     config.get_settings.cache_clear()
+
+
+def test_a_takeout_zip_with_another_products_activity_still_sniffs_as_saved_content(tmp_path, monkeypatch):
+    """The chat reader names Takeout's YouTube activity page as skipped and finds no chat — the zip's saved
+    playlists must still be offered, not dropped as "nothing readable"."""
+    monkeypatch.setenv("CICADA_MEMORY_PATH", str(tmp_path))
+    config.get_settings.cache_clear()
+    z = _zip({"Takeout/My Activity/YouTube/MyActivity.html": "<html><body>activity</body></html>",
+              "Takeout/YouTube and YouTube Music/playlists/Watch later-videos.csv":
+                  "Video ID,Playlist Video Creation Timestamp\nvid0000001,2024-06-24T23:49:51+00:00\n"})
+    sniff = intake.sniff_bytes(z, "takeout.zip", config.get_settings(), None)
+    assert sniff.recognized and sniff.kind == "saved" and sniff.platform == "youtube"
+    assert sniff.counts.items == 1
+    config.get_settings.cache_clear()
