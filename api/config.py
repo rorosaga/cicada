@@ -337,8 +337,10 @@ class Settings(BaseSettings):
             return self.embedding_model_openrouter
         if "embedding_model_local" not in self.model_fields_set:
             # G182 — a release app bundles a small ONNX model (no torch) and a fresh
-            # bank is built with it; a developer checkout bundles none and keeps the
-            # default below. An explicit CICADA_EMBEDDING_MODEL_LOCAL always wins.
+            # bank is built with it; EmbeddingGemma 2 on the Neural Engine outranks it
+            # once downloaded on a Mac that runs it (owner 2026-10-09). A checkout with
+            # neither keeps the default below. An explicit CICADA_EMBEDDING_MODEL_LOCAL
+            # always wins.
             from api.services import onnx_embedder
 
             bundled = onnx_embedder.default_model()

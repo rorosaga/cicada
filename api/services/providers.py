@@ -85,7 +85,12 @@ def warm_local_embed_fn(model_id: str | None) -> EmbedFn | None:
         return None
     with _EMBED_LOCK:
         hit = _EMBED_CACHE.get(mid)
-    return hit[0] if hit else None
+    if not hit:
+        return None
+    # A Core ML model loads per function: here it never loads one inside the hook's budget (it answers "not
+    # yet" at once and the lexical order stands).
+    loaded_only = getattr(hit[0], "loaded_only", None)
+    return loaded_only() if callable(loaded_only) else hit[0]
 
 
 def cached_embed_fn_for_model(model_id: str, settings: Settings | None = None) -> tuple[EmbedFn, str]:
@@ -136,7 +141,13 @@ def warm_query_embedder(memory_path) -> None:
         # Every model a table was built with — after a partial switch, two (audit 2026-10-05 P2-4).
         for recorded in dict.fromkeys(idx.kind_model(k) for k in ("entities", "claims", "episodes", "pending")):
             if recorded and recorded != "unknown":
-                cached_embed_fn_for_model(recorded)
+                embed_fn, _mid = cached_embed_fn_for_model(recorded)
+                warm = getattr(embed_fn, "warm", None)
+                if callable(warm):
+                    # A Core ML model loads per function; the backend loads all seven (≈ 5 s in the background,
+                    # ≈ 13 MB more than the query ones): its recall hook embeds prompts of any length and never
+                    # loads one inside its budget, and its builds need them anyway.
+                    warm()
                 logger.info(f"Warmed query embedder: {recorded}")
     except Exception as exc:  # never fatal
         logger.warning(f"embedder warm-up skipped: {exc}")
@@ -779,7 +790,8 @@ def resolve_embed_fn(
 
     spec = onnx_embedder.find(model)
     if spec is not None:
-        return onnx_embedder.OnnxEmbedder(spec), spec.id
+        return onnx_embedder.embedder_for(spec), spec.id
+    _refuse_missing_on_device(model)
 
     # Local sentence-transformers (default: google/embeddinggemma-300m).
     if sentence_transformer_factory is None:
@@ -810,6 +822,15 @@ def resolve_embed_fn(
 # Recorded model ids that map to the OpenRouter ``/embeddings`` route. Gemini
 # embedding models are served via OpenRouter in Cicada.
 _OPENROUTER_EMBED_MODELS = ("gemini",)
+
+
+def _refuse_missing_on_device(model_id: str) -> None:
+    """EmbeddingGemma 2 runs only from its downloaded Core ML folder on a Mac that can run it: never through
+    sentence-transformers, which would try to fetch an id that names no Hugging Face repository."""
+    from api.services import coreml_embedder, onnx_embedder
+
+    if onnx_embedder.base_id(model_id).lower() == onnx_embedder.PREFERRED_BASE:
+        raise coreml_embedder.EmbedderUnavailable(f"{model_id} isn't installed or can't run on this Mac")
 
 
 def _local_source(model_id: str) -> str:
@@ -923,7 +944,8 @@ def resolve_embed_fn_for_model(
 
     spec = onnx_embedder.find(mid)
     if spec is not None:
-        return onnx_embedder.OnnxEmbedder(spec), spec.id
+        return onnx_embedder.embedder_for(spec), spec.id
+    _refuse_missing_on_device(mid)
 
     # Local sentence-transformers (the recorded id is the ST model name).
     if sentence_transformer_factory is None:

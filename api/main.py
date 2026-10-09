@@ -125,6 +125,12 @@ async def lifespan(app: FastAPI):
     # cost. Never awaited — must not block startup — and warm_query_embedder
     # swallows its own errors so a slow/missing index can't crash boot.
     asyncio.get_running_loop().run_in_executor(None, warm_query_embedder, settings.memory_path)
+    # A search-model change that hasn't reached every table yet (a download that landed while the backend was
+    # down, an interrupted re-embed) resumes in the background; it never runs while Sleep does.
+    from api.services import embedding_models
+
+    asyncio.get_running_loop().run_in_executor(
+        None, embedding_models.start_reindex_if_needed, settings.memory_path, settings)
 
     logger.info(f"Memory path: {settings.memory_path}")
     logger.info(f"LLM model: {settings.litellm_model}")

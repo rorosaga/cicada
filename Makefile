@@ -9,7 +9,7 @@ ABLATIONS ?= default promotion_1 promotion_3 decay_aggressive decay_loose
 
 INSTALL_FLAGS ?=
 
-.PHONY: help install cli doctor embedding-model app run-app install-app release-app release release-pr dev login-item no-login-item backfill-structural rebuild-episodes table1 table3 table3-sleep table3-sleep-smoke ablation ablation-smoke eval all-safe all-full
+.PHONY: help install cli doctor embedding-model embedding-model-gemma2 app run-app install-app release-app release release-pr dev login-item no-login-item backfill-structural rebuild-episodes table1 table3 table3-sleep table3-sleep-smoke ablation ablation-smoke eval all-safe all-full
 
 help:
 	@printf '%s\n' \
@@ -17,6 +17,7 @@ help:
 	  '  make install               # plug-and-play install (install.sh)' \
 	  '  make doctor                # health checks (scripts/doctor.sh)' \
 	  '  make embedding-model       # fetch the on-device search model the release app ships (~130 MB, once)' \
+	  '  make embedding-model-gemma2 # EmbeddingGemma 2 on the Neural Engine, macOS 15+ (~585 MB + ~90 s, once)' \
 	  '  make install-app           # release-build, install ~/Applications/Cicada.app' \
 	  '  make dev                   # rebuild (debug) + reinstall + relaunch the app — the devloop command' \
 	  '  make release-app           # build the installable app with its backend (G182; nothing installed)' \
@@ -57,6 +58,13 @@ doctor:
 # $${CICADA_HOME:-~/.cicada}/models: a checkout then embeds as a release does — onnxruntime, no torch.
 embedding-model:
 	bash scripts/fetch-embedding-model.sh
+
+# EmbeddingGemma 2 on the Neural Engine (macOS 15+, owner 2026-10-09): its pinned files (api/data/
+# embeddinggemma-2.lock.json, each sha256-checked) into $${CICADA_HOME:-~/.cicada}/models, compiled and warmed
+# once. The same code the app's Settings → Memory → Search model runs. A running backend then moves the active
+# bank to it in the background (restart it, or pick the model in Settings).
+embedding-model-gemma2:
+	$(PYTHON) -m api.services.model_fetch
 
 # Build the macOS app as a proper .app bundle (NOT `swift run`, which produces
 # a bundle-less executable whose window never becomes key — that breaks graph

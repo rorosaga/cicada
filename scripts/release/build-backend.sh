@@ -86,12 +86,11 @@ for banned in torch sentence_transformers transformers; do
   [ ! -e "$SITE/$banned" ] || die "$banned is in the release set — it must stay out (G182)"
 done
 # What no code path imports at runtime: test suites, type stubs, litellm's proxy
-# web UI, sympy/mpmath (onnxruntime's graph tools, never its inference) and
-# hf_xet (huggingface_hub falls back to plain HTTPS without it).
+# web UI, onnxruntime's graph tools and hf_xet (huggingface_hub falls back to plain
+# HTTPS without it). sympy and mpmath stay: coremltools imports them (EmbeddingGemma 2).
 find "$SITE" -type d \( -name tests -o -name test \) -prune -exec rm -rf {} +
 find "$SITE" -name '*.pyi' -delete
 rm -rf "$SITE/litellm/proxy/_experimental/out" "$SITE/litellm/proxy/swagger" \
-  "$SITE"/sympy "$SITE"/mpmath "$SITE"/sympy-*.dist-info "$SITE"/mpmath-*.dist-info \
   "$SITE/onnxruntime/transformers" "$SITE/onnxruntime/quantization" "$SITE/onnxruntime/tools" \
   "$SITE"/hf_xet "$SITE"/hf_xet-*.dist-info "$SITE"/bin
 cat > "$SITE/sitecustomize.py" <<'PY'

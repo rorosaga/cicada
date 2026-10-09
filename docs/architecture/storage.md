@@ -523,15 +523,54 @@ in the developer set at the release lock's versions. Without that step a checkou
 pages of 150–260 words: e5-small ONNX 39 s, 785 MB peak RSS, 2 ms a query; EmbeddingGemma-300M on torch 98 s on the CPU
 (2.0 GB peak) and 53–116 s on the GPU (≈4.4 GB of GPU memory), 25–30 ms a query. The ONNX embedder runs one text at a
 time (`_BATCH = 1`): as fast as 32 per run at half the peak memory.
+**EmbeddingGemma 2 on the Neural Engine is the model wherever it runs (owner 2026-10-09).** `google/embeddinggemma-2:768`
+— the id carries the Matryoshka width, so a table records exactly which vector space it holds — runs through Core ML
+(`api/services/coreml_embedder.py`; `coremltools` is in both dependency sets) on Apple silicon with macOS 15+; the export
+(`FluidInference/embeddinggemma-2-coreml`, Apache 2.0) has seven fixed-shape functions sharing one set of weights
+(`embed_32`…`embed_512`, `pack_256` for eight short texts), which is what keeps it on the Neural Engine. It is never
+bundled: `model_fetch` downloads one pinned revision (`api/data/embeddinggemma-2.lock.json`, sha256 per file, ≈ 585 MB)
+into `$CICADA_HOME/models/embeddinggemma-2` on the person's request (Settings, `make embedding-model-gemma2`,
+`install.sh` on macOS 15+), compiles it and loads every function once from that final path — macOS caches the Neural
+Engine compile (≈ 90 s, once) against the `.mlmodelc` path, so the folder never moves and a new revision gets a new
+folder name. `onnx_embedder` is the registry of model folders: a manifest with `"runtime": "coreml"` counts only where
+`coreml_embedder.supported()` (`CICADA_COREML_DISABLED=1` turns it off), and a release reads downloaded models from the
+home but ONNX ones only from its bundle. A function loads on first use in the stdio MCP server and the CLI (a short
+query: `embed_32`, ≈ 1 s warm); the backend loads all seven at its start, in the background (≈ 5 s; ≈ 13 MB more than
+the query ones), and the per-prompt recall hook never loads one inside its budget (`loaded_only`); a query
+that would wait past 8 s for a cold compile raises `EmbedderWarming` and the leg answers on words while the load
+finishes in the background (never recorded as a failure); a load failure is `EmbedderUnavailable` (`model_missing`).
+`coremltools` is imported with its converter frameworks hidden (torch would cost a checkout ≈ 2 s on every process's
+first search). Measured on an M4 Pro: parity with the reference model cosine ≥ 0.9998; a query 2.8 ms; a session's
+first recall 1.7–2.2 s in a fresh process against e5's 0.7–0.85 s, every later one ≈ 0.1 s; ≈ 300–360 MB footprint per
+process that has searched; re-embedding a 21,208-vector synthetic bank (3,000 pages, 11,500 claims, 6,708 passages)
+340 s against e5's 398 s; cross-language EN↔ES page retrieval +0.11 MRR over e5 on the spike's 3k set. **The default
+moves with it:** where it runs, it is the configured default, and a bank recording one of Cicada's former defaults
+(`FORMER_DEFAULTS`: e5-small, or EmbeddingGemma-300M in a checkout that never chose it) moves to it; a model the person
+chose or set explicitly is kept. A bank built with it on a Mac without it keeps its vectors (search reads words).
+**A model change is a background re-embed, never Sleep's** (`embedding_models.start_reindex_if_needed`): after a
+choice, a download, the backend's start and the end of every Sleep run — never while Sleep runs (it waits; the end of the
+run starts it) — the backend re-embeds each table whose model differs (pages, claims, pending, passages), embedding first
+and then swapping the table in one transaction, so recall keeps answering from the old table with the old model it
+records (measured: 835 recalls during a 340 s re-embed, none with an empty leg, p50 123 ms). It embeds in chunks of 64
+and gives way when Sleep starts (`IndexSyncStopped`, nothing written). Sleep's own syncs pass
+`defer_model_switch=True`: a table whose recorded model still runs here keeps it, synced incrementally, while the switch
+waits for the job. Only a switch to an on-device model folder is the job's; one to a hosted or sentence-transformers
+model still happens in Sleep's index step, and `CICADA_BACKGROUND_REINDEX=off` (the suite's setting) restores that for
+every model. `GET /embeddings` carries `recommended` (the better model this Mac runs but hasn't downloaded) and `reindex`
+(state, model, tables done of total). One writer per index file at a time (`vector_index._write_lock`, in-process: every
+index writer is the backend's); a full table rebuild runs in one transaction from its `DROP` to its commit.
 A fresh bank is built with the small model unless `CICADA_EMBEDDING_MODEL_LOCAL` names another; a bank built with it is
 queried with it (the recorded model, as for every bank). **Each bank's vectors are built with its own model**
 (`embedding_models.build_model`, G182 phase 3): the person's choice for that bank (Settings → Memory → Search model,
 kept in `$CICADA_HOME/embedding-models.json`, outside every bank), else the model its index already records when this
-Mac can run it and no `CICADA_EMBEDDING_*` was set explicitly, else the configured default — so a change of default
-never silently re-embeds a bank, and an explicit setting keeps its old meaning. A bank whose recorded model this Mac
-can't run is rebuilt with the default at its next sync — except one built with the larger model, which keeps its
-vectors (search reads words) until the person installs it or picks another model (Settings says so). EmbeddingGemma is the optional larger model
-in a release: `POST /embeddings/install` installs sentence-transformers and torch with the bundled pip into
+Mac can run it and no `CICADA_EMBEDDING_*` was set explicitly (unless it is a former default and EmbeddingGemma 2 runs
+here — above), else the configured default — so a change of default never re-embeds a bank unannounced (the one
+move it makes, to EmbeddingGemma 2, runs in the background and Settings says so), and an explicit setting keeps its old
+meaning. A bank whose recorded model this Mac
+can't run is rebuilt with the default at its next sync — except one built with a downloaded model (the larger model,
+EmbeddingGemma 2), which keeps its vectors (search reads words) until the person installs it or picks another model
+(Settings says so). EmbeddingGemma-300M is the optional larger model
+in a release on a Mac that can't run EmbeddingGemma 2: `POST /embeddings/install` installs sentence-transformers and torch with the bundled pip into
 `$CICADA_HOME/extras/site-packages` (exactly the hashed packages in `api/data/extras-requirements.lock`, at the
 developer lock's versions, `--no-deps`; `sitecustomize` appends it after the bundled packages, so a shared one always
 resolves to the bundled copy; a failed install leaves nothing behind) and downloads the model once with the person's own Hugging Face token, used for

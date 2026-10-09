@@ -62,6 +62,19 @@ person chooses Cicada → Check for Updates…. The requests carry no cookies, t
 the app before anything is unzipped, and nothing reaches the backend. The tester's install line
 (`scripts/install-release.sh`) is the person's own command and fetches the same two files with `curl`.
 
+**The Neural Engine search model's download (owner 2026-10-09).** EmbeddingGemma 2 (`api/services/model_fetch.py`) is
+fetched only when the person asks: the Neural Engine pick in Settings → Memory → Search model (`POST /embeddings/install`
+with `model`), `make embedding-model-gemma2`, or `install.sh` on macOS 15+ — never on a schedule, never by Sleep,
+never by the backend on its own. It reads one pinned revision of `FluidInference/embeddinggemma-2-coreml` from
+`huggingface.co/<repo>/resolve/<revision>/<path>` (redirects followed to Hugging Face's own storage), the seven files
+listed in `api/data/embeddinggemma-2.lock.json` and nothing else (not the audio or vision encoders): about 585 MB, 30 s
+to connect, 60 s between bytes, three tries a file, no cookies, no token, no account, a fixed `Cicada (search model
+download)` user agent. Every file's size and sha256 are checked while it streams; one mismatch drops it and installs
+nothing. The files land in `$CICADA_HOME/models/embeddinggemma-2` (staged beside it and swapped in whole), never in a
+bank or the signed app; `NOTICE.txt` beside them carries the Apache 2.0 license and the Gemma Prohibited Use Policy.
+The URLs are Cicada's own pins, never one someone else chose, so this is not a `net_guard` fetch — like the update
+check and `scripts/fetch-embedding-model.sh`.
+
 **The remote connector (G135) — the one way in from outside this Mac.** Off by default
 (`~/.cicada/remote/settings.json`). When on, a **second listener on `127.0.0.1:8765`**
 (`CICADA_REMOTE_PORT`) serves **only MCP** — none of the FastAPI routers — to cloud AI apps

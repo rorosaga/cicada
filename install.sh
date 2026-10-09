@@ -201,6 +201,22 @@ else
     warn "Could not fetch the search model — search will match words only until 'make embedding-model' succeeds"
   fi
 fi
+# EmbeddingGemma 2 on the Neural Engine (owner 2026-10-09) where this Mac runs it: macOS 15+ on Apple silicon.
+# Pinned and sha256-checked (api/data/embeddinggemma-2.lock.json); ~585 MB and a ~90 s first load, once. Without
+# it the small model above answers; 'make embedding-model-gemma2' retries.
+MACOS_MAJOR="$(sw_vers -productVersion 2>/dev/null | cut -d. -f1)"
+if [ "$(uname -m)" = "arm64" ] && [ "${MACOS_MAJOR:-0}" -ge 15 ] 2>/dev/null; then
+  if [ -f "${CICADA_HOME:-$HOME/.cicada}/models/embeddinggemma-2/cicada-model.json" ]; then
+    ok "Neural Engine search model present"
+  else
+    step "Fetching the Neural Engine search model (~585 MB, once; then ~90 s to get it ready)"
+    if run sh -c "cd '$REPO' && '$VENV_PY' -m api.services.model_fetch"; then
+      ok "Neural Engine search model ready"
+    else
+      warn "Could not fetch the Neural Engine search model — search keeps the small model until 'make embedding-model-gemma2' succeeds"
+    fi
+  fi
+fi
 
 # --- 3. Memory tree + git ---
 hdr "3. Memory directory"

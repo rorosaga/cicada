@@ -3,7 +3,7 @@ import Foundation
 /// G182 phase 3 — Settings → Memory → Search model and its install sheet. Provider-neutral
 /// (owner, 2026-09-30): the step is described, never a provider doing it; Hugging Face is
 /// named only where the person must use their own account there. A model's own label
-/// ("Small", "Larger") comes from the backend's catalog, the person's choice.
+/// ("Small", "Neural Engine", "Larger") comes from the backend's catalog, the person's choice.
 extension Copy {
     enum SearchModel {
         // MARK: The row
@@ -21,7 +21,18 @@ extension Copy {
         static func switchesAtNextSleep(_ label: String) -> String {
             "Search switches to \(label) at the next Sleep, which re-reads this memory once."
         }
-        static let installingGeneric = "Installing the larger model…"
+        static func usesNowBetterHere(_ label: String, better: String) -> String {
+            "Searching with the \(label) model. \(better) runs on this Mac too and finds looser matches — pick it to download it once."
+        }
+        static func moving(_ label: String, done: Int, total: Int) -> String {
+            total > 0
+                ? "Moving search to \(label): \(done) of \(total) parts re-read. Search keeps working meanwhile."
+                : "Moving search to \(label). Search keeps working meanwhile."
+        }
+        static func movingAfterSleep(_ label: String) -> String {
+            "Search moves to \(label) when Sleep finishes. Search keeps working meanwhile."
+        }
+        static let installingGeneric = "Installing the search model…"
         static func installing(_ step: String) -> String { "\(step)…" }
         static func installedChoose(_ label: String) -> String { "\(label) is ready on this Mac — choose it to switch." }
         static let loadFailed = "Couldn't read the search model — open this page again to retry."

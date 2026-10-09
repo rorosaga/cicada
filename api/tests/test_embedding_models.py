@@ -154,7 +154,7 @@ def test_the_extras_lock_is_hashed_pinned_and_disjoint_from_the_bundle():
     assert "sentence-transformers" in pins and "torch" in pins
     assert lock.count("--hash=sha256:") >= len(pins)
     bundled = set(re.findall(r"^([A-Za-z0-9_.-]+)==", (root / "scripts/release/requirements.lock").read_text(), re.M))
-    pruned = {"sympy", "mpmath", "hf-xet"}  # locked for the bundle, removed by build-backend.sh, needed by torch
+    pruned = {"hf-xet"}  # locked for the bundle, removed by build-backend.sh, needed by the extras
     assert not set(pins) & (bundled - pruned), "a shared package always comes from the bundle"
     assert pruned <= set(pins)
     build = (root / "scripts/release/build-backend.sh").read_text()
