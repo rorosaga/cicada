@@ -87,6 +87,13 @@ class Settings(BaseSettings):
 
     # G194: opt-in until the owner reviews the synthetic call/timing results.
     summary_synthesis_enabled: bool = False  # CICADA_SUMMARY_SYNTHESIS_ENABLED
+    # G194 articles (owner 2026-10-09): a page resting on 2+ conversations is rewritten as an article — a lead and
+    # prose sections compiled from its record — each time it gains material (`entity_article`). Opt-in until the
+    # owner reviews the before/after and the call/size numbers, like the synthesis switch above; on, it replaces
+    # that call for those pages, and a one-conversation page keeps the deterministic merge with no call.
+    page_articles_enabled: bool = False      # CICADA_PAGE_ARTICLES_ENABLED
+    # The writer's prompt is never clipped; a page whose inputs are larger keeps the deterministic merge.
+    page_article_max_input_chars: int = 60000  # CICADA_PAGE_ARTICLE_MAX_INPUT_CHARS
 
     # Optional OpenRouter attribution headers, attached by the provider factory
     # ONLY when the resolved model id starts with "openrouter/". Both empty (the

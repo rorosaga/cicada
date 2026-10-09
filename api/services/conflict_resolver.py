@@ -12,8 +12,8 @@ from tqdm import tqdm
 from api.config import Settings
 from api.models.schemas import DecayClass
 from api.services import (
-    alias_policy, decay_policy, decay_tuning, engine_errors, entity_body, episode_time, fact_sources, json_parse,
-    markdown_parser, section_provenance, source_dates,
+    alias_policy, decay_policy, decay_tuning, engine_errors, entity_article, entity_body, episode_time, fact_sources,
+    json_parse, markdown_parser, section_provenance, source_dates,
 )
 from api.services.providers import resolve_llm_fn
 
@@ -123,8 +123,9 @@ async def resolve_and_prune(
     # The per-page decisions that need no model call run first, in order: whether the page is asked about at
     # all and with what. Only the calls overlap (`_overlap_pages`); every result is applied below in this order.
     jobs: list[dict] = []
+    context = _article_context(existing, settings, cycle_day) if getattr(settings, "page_articles_enabled", False) else None
     for change in update_changes:
-        job = _page_job(change, existing_by_id, settings)
+        job = _page_job(change, existing_by_id, settings, context)
         if job == "reread":
             rereads += 1
         elif job is not None:
@@ -150,7 +151,9 @@ async def resolve_and_prune(
         if index not in decided:
             continue  # a cancel stopped before this page; the caller discards the partial result
         change, synthesized, contradiction = job["change"], *decided[index]
-        if synthesized:
+        if isinstance(synthesized, dict):
+            change["article"] = synthesized   # the article writer's lead and sections (`entity_article.payload`)
+        elif synthesized:
             change["synthesized_body"] = synthesized
             if job["section_aware"]:
                 change['section_aware_synthesis'] = True
@@ -301,11 +304,74 @@ async def resolve_and_prune(
     return changes
 
 
-def _page_job(change: dict, existing_by_id: dict[str, dict], settings: Settings) -> dict | str | None:
+def _article_context(existing: list[dict], settings: Settings, today: str) -> dict:
+    """What every page's article writer shares, read once per stage: the bank's page names (a ``[[link]]`` must name
+    one), each id's display name, and the owner's name (G169)."""
+    known: set[str] = set()
+    names: dict[str, str] = {}
+    for page in existing:
+        fm = page.get("frontmatter") or {}
+        names[page["id"]] = str(fm.get("name") or page["id"])
+        known |= {page["id"], names[page["id"]], *(str(a) for a in fm.get("aliases") or [] if a)}
+    owner = None
+    try:
+        from api.services import owner_identity
+        owner = owner_identity.owner_name(getattr(settings, "memory_path", None), settings)
+    except Exception:  # noqa: BLE001 - a missing owner costs the name, never the article
+        owner = None
+    return {"known": known, "names": names, "owner": owner, "today": today,
+            "max_chars": int(getattr(settings, "page_article_max_input_chars", 60000) or 60000)}
+
+
+_LINK = __import__("re").compile(r"\[\[([^\]|]+)(?:\|[^\]]+)?\]\]")
+
+
+def _linkable(original_body: str, record: dict, names: dict[str, str], known: set[str]) -> list[str]:
+    """The pages this one already links to — in its prose, its Related block, its claims — by display name."""
+    from api.services.claims import parse_claims
+
+    found = set(_LINK.findall(original_body or ""))
+    found |= set(_LINK.findall("\n".join(str(v) for v in record.values())))
+    try:
+        found |= {names.get(c.object, "") for c in parse_claims(original_body or "") if c.object_kind == "node"}
+    except Exception:  # noqa: BLE001
+        pass
+    lowered = {k.lower() for k in known}
+    return sorted(n for n in found if n and n.strip().lower() in lowered)
+
+
+def _article_job(change: dict, existing_entity: dict, new_entity: dict, context: dict) -> dict | None:
+    """The article writer's inputs for one page, or ``None`` (over budget: the page keeps the deterministic merge)."""
+    fm = existing_entity.get("frontmatter", {}) or {}
+    from api.services.claims import strip_claims_block
+
+    original = existing_entity.get("body", "")
+    entity_type = new_entity.get("type") or fm.get("type", "concept")
+    name = str(fm.get("name") or new_entity.get("name") or change["id"])
+    fields = {k: new_entity.get(k) or [] for k in ("key_facts", "history_entries", "links", "open_questions")}
+    record = entity_article.record_sections(strip_claims_block(original), str(entity_type), fields)
+    inputs = entity_article.build(
+        name=name, entity_type=str(entity_type), frontmatter=fm, original_body=original, record=record,
+        incoming=new_entity, today=context["today"], update_days=_change_dates(change), owner=context["owner"],
+        linkable=_linkable(original, record, context["names"], context["known"]))
+    prompt = entity_article.prompt(inputs, max_chars=context["max_chars"])
+    if prompt is None:
+        return None
+    return {"inputs": inputs, "prompt": prompt, "name": name,
+            "aliases": [str(a) for a in fm.get("aliases") or [] if a], "known": context["known"]}
+
+
+def _page_job(change: dict, existing_by_id: dict[str, dict], settings: Settings,
+              article_context: dict | None = None) -> dict | str | None:
     """What Stage 3 asks the engine about one update, decided without a call: ``None`` when the page gets no call,
     ``"reread"`` for a re-read that says nothing new, else the call's inputs. A function of the change and the
     pages as they were read before the stage — never of another page's answer — which is what lets the calls
-    overlap (`_overlap_pages`)."""
+    overlap (`_overlap_pages`).
+
+    ``article_context`` (``page_articles_enabled``): a machine page resting on 2+ conversations gets the article
+    writer's one call in place of the synthesis call (`entity_article`); a one-conversation page and one whose inputs
+    are over the budget get no write call (the deterministic merge). A page that already has its stamped Article is
+    never handed to the summary or legacy rewrite, setting on or off: those replace the lead the writer owns."""
     entity_id = change["id"]
     existing_entity = existing_by_id.get(entity_id)
     if not existing_entity:
@@ -313,6 +379,40 @@ def _page_job(change: dict, existing_by_id: dict[str, dict], settings: Settings)
     new_entity = change.get("entity", {}) or {}
     new_desc = (new_entity.get("description") or "").strip()
     new_history = new_entity.get("history_entries", []) or []
+    fm0 = existing_entity.get("frontmatter", {}) or {}
+    page_sections = entity_body.parse_sections(_strip_claims(existing_entity.get("body", "")))
+    has_article = entity_article.stamped(fm0, page_sections)
+    if article_context is not None:
+        if _is_human_edited(fm0, page_sections):
+            return None
+        if not (_entity_summary(new_entity) or new_history or any(
+                new_entity.get(k) for k in ("key_facts", "links", "open_questions"))):
+            return None
+        sources = set(_change_source_episodes(change))
+        if (sources and not sources - set(fm0.get("source_episodes") or [])
+                and not entity_body.adds_anything(existing_entity.get("body", ""), _entity_summary(new_entity),
+                                                  new_entity.get("key_facts") or [])):
+            return "reread"
+        writer = None
+        if entity_article.eligible(fm0, sources):
+            writer = _article_job(change, existing_entity, new_entity, article_context)
+        if writer is None and not has_article and not entity_article.eligible(fm0, sources):
+            has_article = True   # a stub: the deterministic merge, no write call
+        if writer is None and not has_article:
+            article_context = None   # over budget, never written: today's path below
+        else:
+            change_days = _change_dates(change)
+            if writer is None and not new_desc:
+                return None
+            return {
+                "change": change, "new_entity": new_entity, "new_desc": new_desc, "new_history": new_history,
+                "section_aware": False, "existing_body": existing_entity.get("body", ""),
+                "entity_type": new_entity.get("type") or fm0.get("type", "concept"),
+                "entity_name": new_entity.get("name") or fm0.get("name", entity_id),
+                "page_said": _extract_date_string(fm0.get("last_referenced")), "change_days": change_days,
+                "source_reference_date": _latest_change_date(change) or (change_days[-1] if change_days else None),
+                "article": writer, "no_rewrite": writer is None,
+            }
     section_aware = getattr(settings, 'summary_synthesis_enabled', False)
     if section_aware:
         new_desc = _entity_summary(new_entity)
@@ -347,7 +447,34 @@ def _page_job(change: dict, existing_by_id: dict[str, dict], settings: Settings)
         "change_days": change_days,
         # The prompt's fallback line may use a day recovered from an id; the stored fields never do.
         "source_reference_date": _latest_change_date(change) or (change_days[-1] if change_days else None),
+        "no_rewrite": has_article,
     }
+
+
+def _strip_claims(body: str) -> str:
+    from api.services.claims import strip_claims_block
+
+    return strip_claims_block(body or "")
+
+
+async def _write_article(job: dict, settings: Settings) -> dict | None:
+    """The article writer's one call (`entity_article`): ``entity_article.payload`` for Stage 5, or ``None`` when
+    the answer is not a valid article (the page keeps the deterministic merge, no retry)."""
+    writer = job["article"]
+    completion = _litellm().acompletion
+    llm_fn = resolve_llm_fn(settings, model=settings.effective_consolidation_model, completion=completion,
+                            stage="merge")
+    response = await llm_fn(messages=[{"role": "user", "content": writer["prompt"]}],
+                            response_format={"type": "json_object"})
+    raw = json_parse.parse_json_object(response.choices[0].message.content)
+    written = entity_article.parse(raw, writer["inputs"], name=writer["name"], aliases=writer["aliases"],
+                                   known=writer["known"])
+    if written is None:
+        logger.debug(f"Article for {job['change']['id']}: not a valid article; the page keeps the merge")
+        return None
+    if written.dropped:
+        logger.debug(f"Article for {job['change']['id']}: left out {written.dropped}")
+    return entity_article.payload(writer["inputs"], written, name=writer["name"], aliases=writer["aliases"])
 
 
 async def _decide_page(job: dict, settings: Settings, cycle_day: str) -> tuple[str | None, dict | None]:
@@ -356,19 +483,24 @@ async def _decide_page(job: dict, settings: Settings, cycle_day: str) -> tuple[s
     entity_id = job["change"]["id"]
     synthesized = None
     try:
-        synthesized = await _synthesize_entity_update(
-            entity_name=job["entity_name"],
-            entity_type=job["entity_type"],
-            existing_body=job["existing_body"],
-            new_description=job["new_desc"],
-            new_history_entries=job["new_history"],
-            source_reference_date=job["source_reference_date"],
-            settings=settings,
-            page_last_referenced=job["page_said"],
-            source_dates_seen=job["change_days"],
-            today=cycle_day,
-            new_fields=job["new_entity"] if job["section_aware"] else None,
-        )
+        if job.get("article"):
+            synthesized = await _write_article(job, settings)
+        elif job.get("no_rewrite"):
+            synthesized = None   # an article page or a stub: the deterministic merge
+        else:
+            synthesized = await _synthesize_entity_update(
+                entity_name=job["entity_name"],
+                entity_type=job["entity_type"],
+                existing_body=job["existing_body"],
+                new_description=job["new_desc"],
+                new_history_entries=job["new_history"],
+                source_reference_date=job["source_reference_date"],
+                settings=settings,
+                page_last_referenced=job["page_said"],
+                source_dates_seen=job["change_days"],
+                today=cycle_day,
+                new_fields=job["new_entity"] if job["section_aware"] else None,
+            )
     except engine_errors.EngineError:
         # G74(a), M2: an ENGINE failure is not "nothing to synthesize" —
         # flattening it here let a partial throttle silently skip
@@ -599,7 +731,13 @@ def apply_changes(changes: list[dict], memory_path) -> None:
                 "links": new_entity.get("links", []) or [],
                 "open_questions": new_entity.get("open_questions", []) or [],
             }
-            if synthesized_body and not human_edited and change.get('section_aware_synthesis'):
+            article = change.get("article")
+            if article and not human_edited:
+                # The article writer (`entity_article`): the record merged deterministically, then the lead and
+                # the Article it wrote, then what this update's orientation said that the article does not carry.
+                sections = entity_article.compose(prose_body, str(parsed.frontmatter.get("type", "concept")),
+                                                  new_fields, article)
+            elif synthesized_body and not human_edited and change.get('section_aware_synthesis'):
                 # Opt-in orientation synthesis: `entity_orientation.compose` already unioned every section.
                 sections = entity_body.parse_sections(strip_claims_block(synthesized_body))
             elif synthesized_body and not human_edited:
@@ -626,7 +764,7 @@ def apply_changes(changes: list[dict], memory_path) -> None:
                     prose_body, str(parsed.frontmatter.get("type", "concept"))
                 )
                 sections = entity_body.merge_sections_fallback(sections, new_fields)
-            if not human_edited:
+            if not human_edited and not article and not entity_article.stamped(parsed.frontmatter, raw_sections):
                 sections = entity_body.bound_summary(
                     sections, previous=raw_sections.get('Summary', ''),
                     name=str(parsed.frontmatter.get('name', entity_id)),
@@ -647,10 +785,14 @@ def apply_changes(changes: list[dict], memory_path) -> None:
             final_body = preserve_claims_blocks(original_body, entity_body.render_sections(sections))
             # Every path now writes the extraction's exact items (the legacy rewrite's are unioned back in),
             # so each one that survives exactly keeps its source row; a rephrased one stays unrecorded.
-            section_provenance.refresh(
-                parsed.frontmatter, original_body, final_body,
-                _selected_page_inputs(new_entity, sections, parsed.frontmatter, original_body),
-            )
+            selected = _selected_page_inputs(new_entity, sections, parsed.frontmatter, original_body)
+            if article and not human_edited:
+                # Each written paragraph carries the evidence of the inputs it cites, under its exact text (G118).
+                selected[section_provenance.INPUTS] = list(selected.get(section_provenance.INPUTS) or []) + list(
+                    article.get("records") or [])
+                entity_article.stamp(parsed.frontmatter, entity_body.parse_sections(strip_claims_block(final_body)),
+                                     written=change.get("decayed_through") or str(date.today()))
+            section_provenance.refresh(parsed.frontmatter, original_body, final_body, selected)
             markdown_parser.write(filepath, parsed.frontmatter, final_body)
 
         elif action in ("decay", "decay_nudge", "archive") and filepath.exists():

@@ -1661,11 +1661,15 @@ async def _conflict_synthesis(item_id: str, request: InboxResolveRequest, settin
         return None
     from api.services import conflict_resolver
 
+    from api.services import entity_article, entity_body
+    from api.services.claims import strip_claims_block
+    page_sections = entity_body.parse_sections(strip_claims_block(plan.entity.body))
+    if entity_article.stamped(plan.entity.frontmatter, page_sections):
+        # An article page's lead is the article writer's (`entity_article`): the answer lands by the fallback and
+        # the next Sleep update writes it into the article.
+        return None
     if getattr(settings, 'summary_synthesis_enabled', False):
-        from api.services import entity_body
-        from api.services.claims import strip_claims_block
-        if entity_body.has_human_prose(plan.entity.frontmatter, entity_body.parse_sections(
-                strip_claims_block(plan.entity.body))):
+        if entity_body.has_human_prose(plan.entity.frontmatter, page_sections):
             return None
 
     try:
