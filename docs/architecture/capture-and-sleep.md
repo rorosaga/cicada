@@ -881,8 +881,13 @@ constraining the prose; git is the safety net, the claims and the dated timeline
 
 ### Temporal decay
 Absence of mention IS a signal, and **how often something came up sets how fast its absence
-counts** (G147). Each Sleep cycle charges an unreferenced page at most one week
-(`MAX_DECAY_DAYS_PER_CYCLE`, measured from `max(last_referenced, decayed_through)` — TODO ruling 1)
+counts** (G147). **Age counts from when it was said** (owner ruling 2026-10-09, amending G170's "an import is not
+silence"). Silence is measured from `max(last_referenced, decayed_through)` in two parts (`decay_policy.silence`):
+**proven silence** — from the last mention to the day Cicada read it (a page's `learned_on`, a claim's
+`recorded_at`) — is charged in full, once: the run that read the mention read everything waiting, so the gap is the
+person's, never an outage; **live silence** after that day is charged at most one week per pass
+(`MAX_DECAY_DAYS_PER_CYCLE`, the watermark advancing only by what was charged — TODO ruling 1), so a gap between
+runs is worked off over several. Both are charged
 at **base × f(w) × the bank's per-type pace**: the base is the decay class's rate or an explicit
 `decay_rate:` (G66); `w` is the number of distinct ISO weeks among the page's `source_episodes`
 dates plus the weeks the person answered *keep* to a decay question (`kept_on`; every unparseable id
@@ -894,10 +899,23 @@ the bank's own decay answers in git history (`GET /memory/decay-suggestions`) an
 their own. One function, `decay_policy.effective`, serves the pass and the entity wire's derived
 `decay` block. Claims fade the same way (`claim_reconciler._decay_claims`: weeks from the claim's
 episodes and cited `ep_*` documents plus the subject's keeps; session ids carry no date and never
-count). **An import is not silence:** a page or claim a cycle creates or references from months-old
-episodes keeps that date as its content date (`last_referenced`, `valid_from`) but gets
-`decayed_through` = the cycle's date, so silence counts from when Cicada learned it and a
-multi-cycle drain of a backdated export never charges or archives what it just read.
+count). A create stamps `decayed_through` at the content date and `learned_on` at the cycle's day; a mention that
+moves `last_referenced` forward stamps `learned_on`; an older one moves no clock. Nothing is charged mid-drain (the
+batches before the last run with `decay=False`), and the pass that charges decay also settles the pages its own
+batch creates or references (the change's `settle` directive, applied by `apply_changes` on the page as merged, in
+the commit that writes the page) — so a page said in 2024 and again in 2026 ends the drain alive whatever the order
+the two were read in or where the batches broke, and a one-off from 2024 is archived on the day it is read. Claims
+follow the same rule (`claim_reconciler.claim_silence`): a claim minted from a dated conversation stamps its
+watermark at that day; a restatement that raises its confidence sets the watermark back to its last mention, so the
+raised value is aged from when it was said; a subject read this pass is charged its proven silence only. A claim
+with no dated conversation keeps the old anchor (`recorded_at`, else `valid_from`). **Heard late, asked nothing:** a
+page or claim whose last mention was read more than seven days after it was said (`decay_policy.heard_late`) fades
+to `decaying` or `archived` without a decay question; the person is asked only about what went quiet while Cicada
+was listening, and Stage 3 logs the count. Existing banks are charged once by the person's own
+`api/scripts/recompute_decay_by_age.py` (`age_recompute`): dry run by default (counts by type and by the age of the
+last mention, would-archive, would-fade-quietly, would-be-asked, claims), `--apply` refused while Sleep runs, one
+`cicada` commit (`trigger: maintenance/decay-by-age`), the day a page was read estimated from the git commit that
+added it, only changed claim lines rewritten, a second run a no-op.
 **A memory export entry is facts, not activity** (owner, 2026-10-08). A `source: claude_memory` episode is a summary
 of the person dated by the export entry's `updated_at`, not by when anything in it came up. `episode_time` is the one
 predicate: such an episode is no week in `w` (page, claim and card alike), and Stage 1 hands Stage 2 its entities
@@ -905,9 +923,10 @@ with no timestamp or day and `untimed: true`. A change made only of memory entri
 `last_referenced`** (`created` and `decayed_through` are the cycle's day), and on an existing page moves neither
 `last_referenced` nor `decayed_through` and recovers no status; its facts, claims (with their `valid_from`) and
 `source_episodes` are written as usual. Any real conversation in the same change dates it as before.
-Below 0.2 → `status: archived` (the page stays in `entities/`); below 0.4 → a decay nudge.
-Mentioned again → promoted back at `confidence = max(current, 0.6)`. Evergreen entities skip all
-decay math. **Confidence does not rank recall:** search puts archived pages last and otherwise ranks
+Below 0.2 → `status: archived` (the page stays in `entities/`); below 0.4 → a decay nudge (none when heard late).
+Mentioned again → promoted back at `confidence = max(current, 0.6)`, as of the last mention: `decayed_through` moves
+to `last_referenced`, so a new mention keeps it and an old one read late lets it fade back by its age. Evergreen
+entities (the owner's page among them) skip all decay math. **Confidence does not rank recall:** search puts archived pages last and otherwise ranks
 by relevance (`search_service._page`'s sort key and the per-kind cut's archived tier); whether
 confidence should weigh in is a question for G148's benchmark pass to measure before anything
 changes.
