@@ -132,7 +132,7 @@ def retain_orientation(sections: dict[str, str], text: str, *, names=()) -> int:
 
     An orientation that lost the Summary (an incoming one beside a usable
     Summary, a replaced or overlong one) is split into sentences; a sentence the
-    Summary or a Key Fact already restates (`fact_policy.restates`) is dropped,
+    Summary or a Key Fact already holds, as the same text (`fact_policy.restates`), is dropped,
     every other one becomes a Key Fact, so its words survive once. Re-introducing
     the thing is what a Summary is for, once; History is a timeline, not a drawer
     for orientations (the "Undated background" bullets this replaced repeated Key
@@ -156,22 +156,22 @@ def retain_orientation(sections: dict[str, str], text: str, *, names=()) -> int:
 
 
 def _said(sentence: str, kept: list[str], names=()) -> bool:
-    """A displaced orientation sentence the page already says, word for word, in one item
+    """A displaced orientation sentence the page already holds as the same text in one item
     (`fact_policy.restates`). Anything less is kept: a duplicate is cheaper than a lost fact."""
     return fact_policy.covered(sentence, kept)
 
 
-def adds_orientation(body: str, text: str, *, names=()) -> bool:
-    """True when ``text`` (an incoming summary) has a sentence the page's Summary and
-    Key Facts do not already say (:func:`_said`) — used to decide whether a re-read
-    of a conversation still needs a model's merge (`conflict_resolver`)."""
+def adds_anything(body: str, summary: str, facts=()) -> bool:
+    """True unless every sentence of ``summary`` and every one of ``facts`` is equal
+    (`fact_policy.normalized`) to a Summary sentence or Key Fact already on the page —
+    whether a re-read of a conversation still needs a model's merge (`conflict_resolver`)."""
     from api.services.claims import strip_claims_block
 
     sections = parse_sections(strip_claims_block(body or ''))
-    kept = _summary_sentences(sections.get('Summary', '')) + _bullet_lines(sections.get('Key Facts', ''))
-    keys = {_normalize_fact(k) for k in kept}
-    return any(_normalize_fact(sentence) not in keys and not _said(sentence, kept, names)
-               for sentence in _summary_sentences(text))
+    on_page = {fact_policy.normalized(k) for k in
+               _summary_sentences(sections.get('Summary', '')) + _bullet_lines(sections.get('Key Facts', ''))}
+    incoming = _summary_sentences(summary) + [str(f) for f in facts or [] if str(f).strip()]
+    return any(fact_policy.normalized(item) not in on_page for item in incoming)
 
 
 def _summary_sentences(summary: str) -> list[str]:
@@ -183,7 +183,7 @@ def lead(text: str, *, names=()) -> tuple[str, str]:
 
     Whole sentences of the first paragraph, in order, while they fit the
     600-character budget (`summary_policy`), skipping a sentence an earlier kept
-    one restates and every second (re-)introduction of the thing ("X is a CI
+    one repeats and every second (re-)introduction of the thing ("X is a CI
     platform. … X is a CI/CD automation platform."): several conversations'
     orientations glued together keep the first. Never clips a sentence;
     ``summary`` is empty when the first sentence alone is over budget. ``rest``
@@ -290,11 +290,11 @@ def _merge_history_bullets(existing: str, new_entries: list[dict]) -> str:
 
 
 def _merge_facts(existing: str, new_facts: list[str]) -> str:
-    """Existing fact bullets unchanged, then every new fact nothing else restates.
+    """Existing fact bullets unchanged, then every new fact that is not a repeat.
 
-    Exact (normalized) duplicates are skipped as always; a new fact an existing
-    one restates, or a more specific new one restates, is folded away
-    (`fact_policy.union`). An existing bullet is never removed or reworded."""
+    A new fact equal to one already there (case, accents, whitespace, wikilink
+    brackets and trailing punctuation aside: `fact_policy.union`) is skipped;
+    everything else is kept. An existing bullet is never removed or reworded."""
     items = _bullet_lines(existing)
     seen = {_normalize_fact(it) for it in items}
     fresh: list[str] = []
@@ -410,8 +410,8 @@ def merge_sections_fallback(existing: dict[str, str], new_fields: dict, *,
                             human_edited: bool = False) -> dict[str, str]:
     """Non-LLM section-aware merge used when synthesis is unavailable.
 
-    Union Key Facts / Links / Open Questions (a new fact something on the page
-    already restates is folded away, `fact_policy`), append+dedupe History, keep
+    Union Key Facts / Links / Open Questions (a new fact equal to one on the page
+    is skipped, `fact_policy`), append+dedupe History, keep
     the existing usable Summary. A distinct orientation is never concatenated:
     what it says that the page does not becomes Key Facts
     (:func:`retain_orientation`). Human Summary is exempt and exact.
@@ -434,7 +434,7 @@ def merge_sections_fallback(existing: dict[str, str], new_fields: dict, *,
                                  or summary_policy.fallback(name=names[0], entity_type=str(new_fields.get('type') or '')))
     new_facts = list(new_fields.get("key_facts", []) or [])
     # A displaced orientation's sentences join the incoming facts, so one union
-    # keeps whichever spelling is the more specific (`retain_orientation`'s rule).
+    # skips a sentence the page already holds (`retain_orientation`'s rule).
     for text, at_end in ((old_summary, False), (new_summary, True)):
         if text and _normalize_fact(text) != _normalize_fact(merged.get('Summary', '')):
             displaced = [sentence for paragraph in re.split(r'\n\s*\n', text)

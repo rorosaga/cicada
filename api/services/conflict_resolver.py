@@ -121,11 +121,11 @@ async def resolve_and_prune(
         fm = existing_entity.get("frontmatter", {}) or {}
         sources = set(_change_source_episodes(change))
         if (sources and not sources - set(fm.get("source_episodes") or [])
-                and not entity_body.adds_orientation(existing_body, _entity_summary(new_entity),
-                                                     names=[fm.get("name") or entity_id])):
-            # A re-read of conversations the page already credits (a resumed conversation, G104) whose summary
-            # says nothing the page does not: its items merge deterministically, with no rewrite and no
-            # re-check. A re-read that says something new about it still gets both.
+                and not entity_body.adds_anything(existing_body, _entity_summary(new_entity),
+                                                  new_entity.get("key_facts") or [])):
+            # A re-read of conversations the page already credits (a resumed conversation, G104) in which
+            # every summary sentence and fact is one the page already holds: nothing to rewrite or re-check.
+            # A re-read that brings anything else still gets both calls.
             rereads += 1
             continue
         entity_type = new_entity.get("type") or fm.get("type", "concept")

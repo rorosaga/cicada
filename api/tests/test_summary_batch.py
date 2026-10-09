@@ -84,7 +84,13 @@ def test_25_same_name_mentions_retain_each_orientation_once(tmp_path, monkeypatc
         # Every sentence of every orientation is on the page, and the one that names it once.
         sentences = fact_policy.sentences(orientation)
         assert all(sentence in visible for sentence in sentences)
-        assert visible.count(sentences[0]) == 1, sentences[0]
+        if already_fact and len(sentences) > 1:
+            # The oversized orientation is also a fact of its own; its first sentence, split out of a
+            # displaced Summary, is not EQUAL to that fact, so both stay (owner ruling 2026-10-09:
+            # only an equal fact folds — a duplicate is cheaper than a lost fact).
+            assert visible.count(sentences[0]) >= 1, sentences[0]
+        else:
+            assert visible.count(sentences[0]) == 1, sentences[0]
         assert f'Atomic observation-{n:02d}.' in sections['Key Facts']
         # Every retained exact orientation in Summary/Key Facts keeps its own
         # input episode. Undated History is intentionally uninstrumented.

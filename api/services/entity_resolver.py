@@ -566,8 +566,8 @@ def _merge_entity_payload(base: dict, incoming: dict) -> dict:
     # Additive fields are unions (G169 review): two extractions of one thing —
     # "User" and "me" both landing on the owner page — each carry their own facts,
     # links, questions and aliases, and the first payload's lists used to win whole.
-    # A fact another one already says (`fact_policy.restates`) is kept once, the
-    # more specific spelling winning; so is a sentence of a summary that lost.
+    # A fact repeated (the same text after trivial normalization, `fact_policy.restates`)
+    # is kept once; so is a sentence of a summary that lost.
     key_facts, _ = fact_policy.union([], _union_text(base.get("key_facts"), incoming.get("key_facts")))
     said = fact_policy.sentences(chosen)
     key_facts = [f for f in key_facts if not fact_policy.covered(str(f), said)]

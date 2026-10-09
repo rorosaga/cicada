@@ -1,26 +1,22 @@
-"""What a page keeps from what Sleep heard: restatements, sentences, conversation narration.
+"""What a page keeps from what Sleep heard: repeats, sentences, conversation narration.
 
 Pure and engine-free, shared by every machine writer of a page's prose
-(`entity_body`, `entity_resolver`'s same-name fold, `entity_extractor`).
+(`entity_body`, `entity_resolver`'s same-name fold, `entity_extractor`,
+`pending_store`).
 
-**Restatement, never meaning — and when in doubt, keep.** :func:`restates`
-folds one item into another only when the other says it word for word: after
-folding case, accents, wikilinks, possessives and a plural ``s``, and leaving
-out articles, prepositions and conjunctions, the item's words appear in the
-other as one unbroken run, in the same order. Everything that can change what
-a fact says stays a word that must match: tense and status ("is"/"was",
-"will", "previously", "launched"/"launch" — no tense stemming), modals,
-quantifiers, every whole number ("1,200" is one number, never "1" and "200"),
-and negation, which must also be equal on both sides. Order covers every
-operand, named or not ("tea over coffee" never restates "coffee over tea").
-An item needs two content words to be restated at all. A duplicate is cheaper
-than a lost fact: synonyms and paraphrases ("CI platform" / "continuous
-integration service") are never caught here — only the opt-in synthesis call
-can fold those (`entity_orientation`), behind its own guard.
+**A repeat, never a meaning (owner ruling 2026-10-09).** :func:`restates`
+folds one item into another only when they are the SAME text after trivial
+normalization: case, accents, whitespace, wikilink brackets and trailing
+punctuation. Equality, not containment — two review rounds showed a
+"contained in a longer item" rule drops facts whose longer neighbour changes
+the meaning ("works at Acme" inside "works at Acme's competitor", "uses
+Postgres" inside "uses Postgres or SQLite"). Paraphrases and more specific
+restatements are folded only by the opt-in synthesis call, behind its own
+guard (`entity_orientation`); with synthesis off they stay. A duplicate is
+cheaper than a lost fact.
 
 Nothing here removes text a page already holds: callers drop only an INCOMING
-item that an item already on the page (or a more specific incoming one)
-restates, so the words survive once.
+item equal to an item already on the page (or an earlier incoming one).
 """
 from __future__ import annotations
 
@@ -72,24 +68,25 @@ def _profile(text: str) -> tuple[frozenset[str], frozenset[str], bool]:
     return content, numbers, negated
 
 
-def _contains_run(run: tuple[str, ...], seq: tuple[str, ...]) -> bool:
-    n = len(run)
-    return any(seq[i:i + n] == run for i in range(len(seq) - n + 1))
+@lru_cache(maxsize=65536)
+def normalized(text: str) -> str:
+    """The text for equality: wikilinks unwrapped, accents and case folded, whitespace
+    collapsed, trailing punctuation dropped. Nothing else."""
+    text = _WIKILINK.sub(lambda m: m.group(3) or m.group(1), str(text or ""))
+    return " ".join(fold(text).split()).rstrip(" .!?;:,")
 
 
 def restates(item: str, other: str) -> bool:
-    """True when ``other`` already says ``item`` word for word (see the module doc)."""
-    a, b = _sequence(item), _sequence(other)
-    a_content, _, a_negated = _profile(item)
-    if len(a_content) < 2 or a_negated != _profile(other)[2]:
-        return False
-    return _contains_run(a, b)
+    """True when ``item`` and ``other`` are the same text after :func:`normalized`."""
+    a = normalized(item)
+    return bool(a) and a == normalized(other)
 
 
-# Words that set when or whether a statement holds. Two items that differ in them say different things.
+# Words that set when or whether a statement holds. Used only by the synthesis guard
+# (`entity_orientation`), never by the rule-based fold.
 _STATUS = frozenset("""
 is are was were be been being am will would shall should could can may might must has have had do does did
-previously formerly former formerly used once still now no longer anymore stopped quit left ex past future
+previously formerly former used once still now no longer anymore stopped quit left ex past future
 plan plans planned planning intend intends intended considering considered want wants wanted hope hopes hoped
 until since before after soon already yet never always sometimes rarely usually
 """.split())
@@ -97,7 +94,7 @@ until since before after soon already yet never always sometimes rarely usually
 
 def compatible(item: str, other: str) -> bool:
     """``item`` adds no number, no tense or status word and no negation that ``other``
-    lacks — the floor under any claim (a model's included) that the two say the same."""
+    lacks — the floor under a model's claim that the two say the same."""
     a, a_numbers, a_negated = _profile(item)
     b, b_numbers, b_negated = _profile(other)
     return a_negated == b_negated and a_numbers <= b_numbers and (a & _STATUS) <= (b & _STATUS)
@@ -109,25 +106,22 @@ def covered(item: str, kept) -> bool:
 
 
 def union(existing: list[str], incoming: list[str]) -> tuple[list[str], int]:
-    """``existing`` unchanged, then every incoming item nothing else restates.
-
-    An incoming item a later, more specific incoming item restates gives way to
-    it (both are this write's input; neither is on the page yet). Returns the
-    items and how many incoming items were folded away."""
-    kept_incoming: list[str] = []
+    """``existing`` unchanged, then every incoming item not equal (:func:`normalized`) to
+    one already kept. Returns the items and how many incoming items were repeats."""
+    seen = {normalized(e) for e in existing}
+    kept: list[str] = []
     folded = 0
     for item in incoming:
         text = str(item).strip()
         if not text:
             continue
-        if covered(text, existing) or covered(text, kept_incoming):
+        key = normalized(text)
+        if key in seen:
             folded += 1
             continue
-        before = len(kept_incoming)
-        kept_incoming = [k for k in kept_incoming if not restates(k, text)]
-        folded += before - len(kept_incoming)
-        kept_incoming.append(text)
-    return list(existing) + kept_incoming, folded
+        seen.add(key)
+        kept.append(text)
+    return list(existing) + kept, folded
 
 
 # --------------------------------------------------------------------------- sentences

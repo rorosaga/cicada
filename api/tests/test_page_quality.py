@@ -25,13 +25,12 @@ EP_A, EP_B = "ep_2026-03-02_001", "ep_2026-04-10_001"
 
 # --------------------------------------------------------------------------- fact_policy
 
-def test_only_a_word_for_word_restatement_folds():
-    assert fact_policy.restates("Bob Example lives in Lisbon.", "Bob Example lives in Lisbon, Portugal.")
-    assert fact_policy.restates("Alice reports to Bob.", "Since May 2026, Alice reports to Bob.")
-    assert fact_policy.restates("Forge CI runs alpha-project's tests.", "Forge CI runs alpha-project's tests on every push.")
-    # A paraphrase is kept: a duplicate is cheaper than a lost fact.
+def test_only_the_same_fact_folds():
+    """Owner ruling 2026-10-09: equality after trivial normalization, never containment."""
+    assert fact_policy.restates("Bob Example lives in Lisbon.", "bob example  lives in [[Lisbon]]")
+    assert fact_policy.restates("Zürich is home.", "zurich is home!")
+    assert not fact_policy.restates("Bob Example lives in Lisbon.", "Bob Example lives in Lisbon, Portugal.")
     assert not fact_policy.restates("Forge CI is a CI platform.", "Forge CI is a CI/CD automation platform.")
-    assert not fact_policy.restates("Lisbon.", "Bob lives in Lisbon.")  # one content word is never swallowed
 
 
 # Review of e33f1f93 (blocker 1): each incoming fact says something its page item does not.
@@ -53,7 +52,27 @@ CHANGED = [
     ("Approved the budget.", "Not yet approved the budget; Bob approved the budget."),
     ("Bob uses Docker.", "Bob does not use Docker."),
     ("beta-app had 12 testers in May 2026.", "beta-app had 12 testers in June 2026."),
+    # Review of fe843b0c: a longer neighbour that contains it but means something else.
+    ("Bob Example works at Acme.", "Bob Example works at Acme's competitor."),
+    ("Bob Example moved to Berlin from Paris.", "Bob Example moved from Berlin to Paris."),
+    ("Bob Example works with Alice Example.", "Bob Example works with Alice Example's replacement."),
+    ("Bob is CTO.", "Bob is CTO candidate."),
+    ("Bob studied in Paris.", "Bob studied in Paris Texas."),
+    ("alpha-project uses Postgres.", "alpha-project uses Postgres or SQLite."),
+    ("alpha-project uses Docker.", "alpha-project uses Docker only for tests."),
+    ("Bob works at Acme.", "Bob works at Acme until June 2026."),
+    ("Bob lives in Berlin.", "Bob's mother lives in Berlin."),
+    ("alpha-project costs 50 dollars.", "alpha-project costs 50 dollars per user."),
+    ("beta-app runs on iOS.", "beta-app runs on iOS 17 only."),
 ]
+
+
+@pytest.mark.parametrize("incoming, existing", CHANGED)
+def test_the_stage_2_fold_keeps_both_sides(incoming, existing):
+    for base, other in ((incoming, existing), (existing, incoming)):
+        merged = er._merge_entity_payload({"name": "x", "summary": "", "key_facts": [base]},
+                                          {"name": "x", "summary": "", "key_facts": [other]})
+        assert merged["key_facts"] == [base, other]
 
 
 @pytest.mark.parametrize("incoming, existing", CHANGED)
@@ -85,16 +104,17 @@ def test_the_fold_keeps_the_extractions_current_fact_beside_an_older_one():
 
 
 def test_a_reread_that_changes_a_status_is_something_new():
-    page = "## Summary\nalpha-project will launch in May 2026."
-    assert body.adds_orientation(page, "alpha-project launched in May 2026.", names=["alpha-project"])
-    assert not body.adds_orientation(page, "alpha-project will launch in May 2026.", names=["alpha-project"])
+    page = "## Summary\nalpha-project will launch in May 2026.\n\n## Key Facts\n- alpha-project uses Docker."
+    assert body.adds_anything(page, "alpha-project launched in May 2026.")
+    assert body.adds_anything(page, "", ["alpha-project uses Docker only for tests."])
+    assert not body.adds_anything(page, "alpha-project will launch in May 2026", ["alpha-project uses [[Docker]]."])
 
 
-def test_union_keeps_every_existing_item_and_the_more_specific_incoming_one():
+def test_union_keeps_every_existing_item_and_skips_only_repeats():
     existing = ["Bob lives in Lisbon.", "bob lives in lisbon"]  # never touched, even an exact repeat
-    items, folded = fact_policy.union(existing, ["Bob lives in Lisbon.", "Bob studied with Alex.",
-                                                 "Bob studied with Alex at university."])
-    assert items == existing + ["Bob studied with Alex at university."]
+    items, folded = fact_policy.union(existing, ["Bob lives in Lisbon!", "Bob studied with Alex.",
+                                                 "Bob studied with Alex at university.", "bob studied with alex"])
+    assert items == existing + ["Bob studied with Alex.", "Bob studied with Alex at university."]
     assert folded == 2
 
 
@@ -120,11 +140,13 @@ def test_only_a_fact_whose_subject_is_the_thing_and_that_just_says_it_came_up_is
 
 # --------------------------------------------------------------------------- entity_body
 
-def test_a_restated_incoming_fact_is_folded_and_an_existing_one_is_never_removed():
+def test_a_repeated_incoming_fact_is_skipped_and_an_existing_one_is_never_removed():
     merged = body._merge_facts("- Forge CI runs alpha-project's tests on every push.\n- Forge CI is a CI platform.",
-                               ["Forge CI runs alpha-project's tests.", "Free tier: 2,000 minutes."])
+                               ["forge ci is a CI platform", "Forge CI runs alpha-project's tests.",
+                                "Free tier: 2,000 minutes."])
     assert merged.splitlines() == ["- Forge CI runs alpha-project's tests on every push.",
-                                   "- Forge CI is a CI platform.", "- Free tier: 2,000 minutes."]
+                                   "- Forge CI is a CI platform.", "- Forge CI runs alpha-project's tests.",
+                                   "- Free tier: 2,000 minutes."]
 
 
 def test_an_incoming_orientation_beside_a_usable_summary_becomes_a_fact_not_background():
@@ -284,10 +306,10 @@ def test_a_second_conversation_promotes_crediting_both_with_what_each_said(bank)
 
 def test_a_folded_summary_that_restates_the_chosen_one_is_not_a_fact():
     merged = er._merge_entity_payload(
-        {"name": "Bob Example", "summary": "Bob Example lives in Lisbon with Ana, a friend from university.",
+        {"name": "Bob Example", "summary": "Bob Example lives in Lisbon. Bob Example studied with Ana.",
          "key_facts": []},
         {"name": "Bob Example", "summary": "Bob Example lives in Lisbon.", "key_facts": ["Bob Example gets seasick."]})
-    assert merged["summary"] == "Bob Example lives in Lisbon with Ana, a friend from university."
+    assert merged["summary"] == "Bob Example lives in Lisbon. Bob Example studied with Ana."
     assert merged["key_facts"] == ["Bob Example gets seasick."]
 
 
@@ -357,7 +379,7 @@ def test_a_reread_that_says_nothing_new_about_it_makes_no_call(tmp_path, monkeyp
     monkeypatch.setattr(cr.litellm, "acompletion", fake)
     reread = {"id": "forge-ci", "action": "update", "source_episodes": [EP_A],
               "entity": {"name": "Forge CI", "description": "Forge CI is a CI platform.",
-                         "key_facts": ["Forge CI caches dependencies."]}}
+                         "key_facts": ["Forge CI runs alpha-project's tests."]}}
     for enabled in (False, True):
         settings = Settings(_env_file=None, summary_synthesis_enabled=enabled)
         out = asyncio.run(cr.resolve_and_prune([dict(reread)], [existing], settings, decay=False))

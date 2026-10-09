@@ -296,10 +296,10 @@ Summary keeps its leading whole sentences that fit the budget, once each, and ne
 thing ("X is a CI platform. … X is a CI/CD automation platform." keeps the first: `entity_body.lead`); this also
 de-glues an existing Summary on the page's next update. Whatever an orientation loses — a distinct incoming one beside
 a usable Summary, the sentences a lead leaves out, a replaced one — goes through `entity_body.retain_orientation`: a
-sentence the Summary or a Key Fact already says word for word (`fact_policy`) is dropped; every other sentence
-becomes a Key Fact. Nothing goes to History any more: the "Undated
+sentence equal to a Summary sentence or a Key Fact (`fact_policy`: the same text up to case, accents, whitespace,
+wikilink brackets and trailing punctuation) is dropped; every other sentence becomes a Key Fact. Nothing goes to History any more: the "Undated
 background:" bullets this replaced repeated Key Facts word for word (667 on the owner's clean run). Incoming facts the
-Summary already says are suppressed; existing facts/human prose are never removed. Exact input evidence follows the
+Summary already holds as the same text are suppressed; existing facts/human prose are never removed. Exact input evidence follows the
 surviving Summary or fact via `section_provenance.merge_selected` (a one-sentence orientation that becomes a fact
 keeps its row; a split one is unrecorded, never recertified). Multiline carried facts receive stable continuation
 indentation. When no sentence fits (an empty or single over-budget one), the Summary is a usable previous one or the
@@ -342,10 +342,10 @@ source row on this path too. The cost: the rewrite can no longer delete a Key Fa
 History line it adds and the contradiction check's question to the person are how a superseded fact is resolved.
 
 **A re-read is not a new mention (page quality, 2026-10-09).** Stage 3 makes no synthesis or contradiction call for
-an update whose conversations the page already credits (a resumed conversation read again, G104) when its summary
-says nothing the page's Summary and Key Facts do not (`entity_body.adds_orientation`): its items merge
-deterministically. A re-read that says something new about the thing still gets both calls, so a change stated in
-the resumed part is still checked. Either setting.
+an update whose conversations the page already credits (a resumed conversation read again, G104) when every sentence
+of its summary and every one of its facts is equal to a Summary sentence or Key Fact already on the page
+(`entity_body.adds_anything`, the same normalization as the fold): its items merge deterministically. A re-read that
+brings anything else still gets both calls, so a change stated in the resumed part is still checked. Either setting.
 
 **Person-started prose repair, candidates only (G194 B).**
 `scripts/repair_entity_prose.py --bank <bank> --scratch <outside-bank-directory>` inventories
@@ -720,13 +720,13 @@ where it stands, the facts worth remembering once each. What changed, besides pr
   (its name, an alias or a pronoun) and whose only other words say it came up in a conversation, counted in a debug
   line — the page's sources already say so. Any other subject ("Moving to Berlin … was discussed in a conversation")
   is a fact with content and is kept.
-- **Restatements fold, word for word only** (`fact_policy.restates`; tightened after review): an incoming fact (or a
-  sentence of a summary that lost the fold) is dropped only when an item already on the page, or a more specific
-  incoming one, contains its words as one unbroken run in the same order — after folding case, accents, wikilinks,
-  possessives and a plural `s`, and leaving out articles, prepositions and conjunctions. Tense and status words
-  ("will", "was", "previously", "launched" vs "launch"), modals, quantifiers and every whole number ("1,200" is one
-  token) must match, and negation must be equal on both sides. When in doubt it keeps: a duplicate is cheaper than a
-  lost fact, so paraphrases stay (only opt-in synthesis folds those). Used by Stage 2's same-name fold, every section
+- **Only repeats fold** (`fact_policy.restates`; owner ruling 2026-10-09 after two review rounds): an incoming fact
+  (or a sentence of a summary that lost the fold) is dropped only when it is EQUAL to an item already on the page, or
+  to an earlier incoming one, after trivial normalization — case, accents, whitespace, wikilink brackets, trailing
+  punctuation. Never containment, never stopword or preposition removal: "works at Acme" inside "works at Acme's
+  competitor", "uses Postgres" inside "uses Postgres or SQLite", "launched" against "will launch" are all kept.
+  Paraphrases and more specific restatements fold only through opt-in synthesis, behind its guard; with synthesis off
+  near-duplicates stay — a duplicate is cheaper than a lost fact. Used by Stage 2's same-name fold, every section
   merge, the re-read gate and the pending store. An existing bullet is never removed or reworded.
 - **Offline eval:** `python -m benchmarks.system.page_quality --scratch <new-dir>` runs the production Stage 1
   post-processing, Stage 2, Stage 3 and the page writer over synthetic conversations with recorded Stage-1 answers
