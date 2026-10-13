@@ -58,6 +58,16 @@ class Row:
     exposed: bool = False
     #: Set for a tool the CLI will never carry; the reason is shown in `cicada commands`.
     mcp_only: str | None = None
+    #: Where the command runs: ``bank`` — in this process over the pinned bank (ruling 21); ``backend`` — through
+    #: the running backend's HTTP API, because it acts on state the backend owns (`api/cli_app.py`); ``both`` —
+    #: `import`, whose platform-export branch runs here and whose chat-export branch goes to the backend.
+    via: str = "bank"
+    #: Acts as the person (recorded as `Cicada-Author: user`, spends on their engine, or downloads on their
+    #: command): refused from a shell that names an agent's session. A row that only reads unless given a flag
+    #: refuses only when it would write.
+    person: bool = False
+    #: One of the app's commands (G180 parity): listed by `cicada commands`, kept out of the agent skill's table.
+    app: bool = False
 
     @property
     def name(self) -> str:
@@ -70,6 +80,13 @@ def _p(prop: str, kind: str = "str") -> Arg:
 
 def _f(prop: str, kind: str = "str", flag_name: str | None = None) -> Arg:
     return Arg(prop, kind, flag_name=flag_name)
+
+
+def _app(command: tuple[str, ...], summary: str, args: tuple[Arg, ...] = (), *, via: str = "bank",
+         mutates: bool = False, person: bool = False, options: tuple[Option, ...] = ()) -> Row:
+    """One of the app's commands: CLI-only (no MCP tool), exposed."""
+    return Row(command, None, summary, args, options=options, mutates=mutates, exposed=True, via=via,
+               person=person, app=True)
 
 
 ROWS: tuple[Row, ...] = (
@@ -94,7 +111,7 @@ ROWS: tuple[Row, ...] = (
     # --- slice 2 (proposed spellings) ----------------------------------------------
     Row(("ask",), "cicada_ask", "Answer a direct question from memory, with citations.",
         (_p("query"), _f("top_k", "int"))),
-    Row(("timeline",), "cicada_timeline", "What changed in memory, day by day.", (_f("since"),)),
+    Row(("timeline",), "cicada_timeline", "What changed in memory, day by day.", (_f("since"),), exposed=True),
     Row(("hub",), "cicada_open_hub", "A topic index page.", (_p("hub"),)),
     Row(("perspective",), "cicada_get_perspective", "Beliefs about one subject, by observer.",
         (_p("subject"), _f("observer"), _f("context"), _f("history", "bool"))),
@@ -148,12 +165,77 @@ ROWS: tuple[Row, ...] = (
     # --- CLI-only -------------------------------------------------------------------
     Row(("status",), None, "Which memory this command uses, and whether the app's backend agrees.", exposed=True),
     Row(("commands",), None, "Every command, and the MCP tool each one mirrors.", exposed=True),
+    # One import for both kinds of export (G71 platform saves, read here; G180 chat exports, the backend's intake).
     Row(("import",), None,
-        "Bring in what the person saved on a platform, from its data export (a .zip, a folder or one file).",
+        "Bring in a data export: what the person saved on a platform (a .zip, a folder or one file), or a chat "
+        "export (through the app's backend).",
         (Arg("path", positional=True),),
         options=(Option("--preview", "bool", "Say what the export holds; write nothing."),
-                 Option("--include-history", "bool", "Also read watch and browsing history (not saves).")),
-        mutates=True, exposed=True),
+                 Option("--include-history", "bool", "Also read watch and browsing history (not saves)."),
+                 Option("--no-wait", "bool", "A chat export: return once the backend has queued it.")),
+        mutates=True, exposed=True, via="both", person=True, app=True),
+    # --- the app's commands (G180 parity; `api/cli_app.py`) -------------------------
+    # Pages and the graph.
+    _app(("page", "list"), "Every page, with its type and status.", (_f("type"), _f("status"))),
+    _app(("page", "history"), "A page's change history, newest first.", (_p("entity_id"), _f("limit", "int"))),
+    _app(("page", "decay"), "Set how a page fades (durable, active, volatile or evergreen).",
+         (_p("entity_id"), _p("decay_class")), via="backend", mutates=True, person=True),
+    _app(("graph",), "The graph at a glance: pages by type and status, and the links between them."),
+    _app(("find",), "Find pages, beliefs, conversations, sources and questions, as the app's search does.",
+         (_p("query"), _f("kind", "list"), _f("limit", "int"))),
+    # The inbox.
+    _app(("inbox", "all"), "Every open inbox question, of every kind, with its choices.", (_f("kind", "list"),)),
+    _app(("inbox", "answer"), "Answer an inbox question as the person: --option, --answer, --defer or --reject.",
+         (_p("item_id"), _f("option"), _f("answer"), _f("defer", "bool"), _f("days", "int"), _f("reject", "bool")),
+         via="backend", mutates=True, person=True),
+    # Sleep.
+    _app(("sleep", "status"), "Whether Sleep is running, paused or idle, and how much is waiting.", via="backend"),
+    _app(("sleep", "start"), "Start Sleep: read everything waiting (--continue resumes a paused run).",
+         (_f("continue_run", "bool", flag_name="continue"),), via="backend", mutates=True, person=True),
+    _app(("sleep", "stop"), "Stop the running Sleep at its next safe point; nothing filed is lost.",
+         via="backend", mutates=True),
+    _app(("sleep", "end"), "End a paused run; everything waiting stays queued.", via="backend", mutates=True),
+    _app(("sleep", "schedule"), "When Sleep runs on its own; --mode manual|daily|interval, --at HH:MM, --every HOURS.",
+         (_f("mode"), _f("at"), _f("every", "int")), via="backend", mutates=True, person=True),
+    _app(("sleep", "engine"), "Which engine and model Sleep reads with; --mode and --model change it.",
+         (_f("mode"), _f("model")), via="backend", mutates=True, person=True),
+    _app(("sleep", "options"), "How Sleep reads: batch size, continue after a plan reset, the reserve.",
+         (_f("batch_size", "int"), _f("continue_after_reset"), _f("reserve")), via="backend", mutates=True,
+         person=True),
+    _app(("sleep", "history"), "Past Sleep runs, newest first.", (_f("limit", "int"),)),
+    # The search index and model.
+    _app(("index", "status"), "The word index and the search model: state, re-embedding, downloads.", via="backend"),
+    _app(("index", "rebuild"), "Rebuild the word index now.", via="backend", mutates=True),
+    _app(("index", "use"), "Use another installed search model (`default` for the default); re-embeds in the "
+                           "background.", (_p("model"),), via="backend", mutates=True, person=True),
+    _app(("index", "install"), "Download a search model (only ever on the person's command).", (_f("model"),),
+         via="backend", mutates=True, person=True),
+    # Sources and imports.
+    _app(("feed", "list"), "The RSS/Atom feeds this memory follows."),
+    _app(("feed", "add"), "Follow an RSS/Atom feed.", (_p("url"), _f("tag", "list")), via="backend", mutates=True),
+    _app(("feed", "remove"), "Stop following a feed.", (_p("url"),), via="backend", mutates=True),
+    _app(("feed", "poll"), "Fetch every followed feed now.", via="backend", mutates=True, person=True),
+    # Settings and engines.
+    _app(("settings", "owner"), "Who the person is (--name, --handle, --email change it).",
+         (_f("name"), _f("handle"), _f("email")), via="backend", mutates=True, person=True),
+    _app(("engine", "list"), "The engines and plans Cicada can read with, and whether each is connected.",
+         via="backend"),
+    # Pictures.
+    _app(("picture", "set"), "Use an image file as a page's picture.", (_p("entity_id"), _p("file")), via="backend",
+         mutates=True, person=True),
+    _app(("picture", "initials"), "Use initials as a page's picture.", (_p("entity_id"),), via="backend",
+         mutates=True, person=True),
+    _app(("picture", "clear"), "Go back to the detected picture.", (_p("entity_id"),), via="backend", mutates=True,
+         person=True),
+    # Banks.
+    _app(("bank", "list"), "Every memory bank, its size, and which one is active."),
+    _app(("bank", "use"), "Switch the active memory bank.", (_p("bank_name"),), via="backend", mutates=True, person=True),
+    _app(("bank", "create"), "Create an empty memory bank.", (_p("bank_name"), _f("description")), via="backend",
+         mutates=True),
+    _app(("bank", "rename"), "Rename a memory bank.", (_p("bank_name"), _p("new_name")), via="backend", mutates=True,
+         person=True),
+    _app(("bank", "delete"), "Move a memory bank to the trash (nothing erased).", (_p("bank_name"),), via="backend",
+         mutates=True, person=True),
 )
 
 
@@ -209,7 +291,7 @@ def _options(row: Row) -> list[str]:
 def skill_block() -> str:
     """The portable skill's command-line section (SKILL.md), generated from this table so it can never name a
     command or flag the CLI lacks (R12 by construction). Provider-neutral; no machine's paths."""
-    rows = [r for r in exposed()]
+    rows = [r for r in exposed() if not r.app]
     lines = [
         "Agents that can run shell commands can use `cicada` instead of the MCP tools: the same memory and bank,",
         "read and written by the same code. `cicada --help` lists the commands (`--help` after any command explains",
@@ -233,12 +315,15 @@ def skill_block() -> str:
         "  text, warnings, version}`. `text` is what the matching MCP tool says; `data` is the structured part.",
         "- **Exit codes:** 0 ok (a duplicate save is ok too) · 1 refused (`not_found`, `empty_graph`) · 2 usage ·",
         "  3 bank or memory-folder mismatch, nothing written · 4 demo bank · 5 this shell may not use the memory",
-        "  folder (use the MCP tools there) · 70 internal.",
+        "  folder (use the MCP tools there) · 6 the app's backend is not running (only for commands that act on",
+        "  it) · 70 internal.",
         "- **Grouping:** what you save is grouped by your harness's session id. If your harness gives none, set",
         "  `CICADA_SESSION_ID` and `CICADA_SESSION_HARNESS`; without them a note is saved ungrouped, never under a",
         "  made-up id.",
         "- **Not in the command line yet:** questions, claims, sources, progress and the backlog. Use the MCP tools",
         "  for those when they are connected.",
+        "- **The app's commands** (Sleep, banks, the search model, feeds, pictures, settings) are listed by",
+        "  `cicada commands`. Those that act as the person refuse from an agent's shell.",
         "",
     ]
     return "\n".join(lines)
@@ -261,6 +346,10 @@ def rows() -> tuple[Row, ...]:
 
 def exposed() -> tuple[Row, ...]:
     return tuple(r for r in ROWS if r.exposed)
+
+
+def by_name() -> dict[str, Row]:
+    return {r.name: r for r in ROWS}
 
 
 def by_tool() -> dict[str, Row]:
@@ -286,10 +375,12 @@ def catalog() -> list[dict]:
             "args": [{"property": a.prop, "kind": a.kind,
                       **({"positional": True} if a.positional else {"flag": a.flag})} for a in r.args],
             "options": [{"flag": o.flag, "kind": o.kind, "help": o.help} for o in r.options],
+            "via": r.via,
+            "person": r.person,
             **({"mcp_only": r.mcp_only} if r.mcp_only else {}),
         })
     return out
 
 
-__all__ = ["Arg", "KINDS", "Option", "Placeholder", "ROWS", "Row", "by_tool", "catalog", "exposed", "exposed_tools",
+__all__ = ["Arg", "KINDS", "Option", "Placeholder", "ROWS", "Row", "by_name", "by_tool", "catalog", "exposed", "exposed_tools",
            "rows", "skill_block", "spell", "write_skill_block"]

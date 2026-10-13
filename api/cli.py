@@ -19,7 +19,12 @@ this bootstrap is the authority.
 **Output.** Text by default; `--json` (or `--format json`) prints exactly one envelope —
 `{schema, command, ok, code, bank, data, text, warnings, version}` — and nothing else on either
 stream, in every outcome. Exit codes: 0 ok, 1 refused, 2 usage, 3 bank/root mismatch, 4 demo
-bank, 5 sandbox denied, 70 internal (the exception's class name only, never its message).
+bank, 5 sandbox denied, 6 the app's backend is not running (or did not answer) for a command that acts on
+it, 70 internal (the exception's class name only, never its message).
+
+**The app's commands** (`api/cli_app.py`): what the Cicada app does — browsing, the inbox, Sleep, the search
+model, sources, settings, pictures, banks. Reads of the bank run here like every other read; actions on state
+the running backend owns go to its HTTP API with the token, as the app's own requests do (`cli_map.Row.via`).
 """
 from __future__ import annotations
 
@@ -35,6 +40,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
+from api import cli_app
+from api.cli_types import EXIT_CODES, REFUSAL_CODES, Refusal, Result, UsageError
 from api.services import cli_map
 from api.version import __version__
 
@@ -42,24 +49,8 @@ SCHEMA = "cicada.cli/1"
 ROOT_KEYS = ("CICADA_MEMORY_PATH", "CICADA_MEMORY_ROOT")
 #: Keys the bootstrap decides itself: no config file may set them.
 CONTROL_KEYS = ROOT_KEYS + ("LITELLM_MODE",)
-#: A body's typed refusal (``mcp_tools.Reply.code``) → not ok, its exit code.
-REFUSAL_CODES = frozenset({"not_found", "empty_graph", "demo_bank"})
 DEFAULT_ROOT = "~/cicada/memory"
 HEALTH_TIMEOUT_S = 1.0
-EXIT_CODES = {"usage": 2, "not_found": 1, "empty_graph": 1, "bank_mismatch": 3, "root_mismatch": 3,
-              "demo_bank": 4, "sandbox_denied": 5, "internal": 70, "bootstrap": 70}
-
-
-class UsageError(Exception):
-    """A malformed command line: exit 2."""
-
-
-class Refusal(Exception):
-    """A rule said no before anything was read or written."""
-
-    def __init__(self, code: str, message: str) -> None:
-        super().__init__(message)
-        self.code = code
 
 
 class BootstrapError(Exception):
@@ -73,18 +64,6 @@ class _HelpShown(Exception):
         super().__init__(prog)
         words = prog.split()[1:]
         self.topic = " ".join(words) or None
-
-
-@dataclass
-class Result:
-    text: str
-    data: dict | None
-    warnings: list[str] = field(default_factory=list)
-    code: str | None = None
-
-    @property
-    def ok(self) -> bool:
-        return self.code not in REFUSAL_CODES
 
 
 @dataclass
@@ -177,43 +156,12 @@ def _opener():
 
 
 def probe_backend(url: str, root: Path, timeout: float = HEALTH_TIMEOUT_S) -> dict:
-    """Ask a running backend which memory root it serves. ``backend_down`` only on a refused
-    connection; a timeout or an error answer is ``unverified``, never "no backend"."""
-    import socket
-    import urllib.error
-
-    try:
-        with _opener().open(f"{url}/healthz", timeout=timeout) as resp:
-            body = json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError:
-        return {"state": "unverified"}
-    except urllib.error.URLError as exc:
-        return {"state": "backend_down" if isinstance(exc.reason, ConnectionRefusedError) else "unverified"}
-    except ConnectionRefusedError:
-        return {"state": "backend_down"}
-    except (TimeoutError, socket.timeout, OSError, ValueError):
-        return {"state": "unverified"}
-    reported = body.get("memoryRoot") if isinstance(body, dict) else None
-    if not isinstance(reported, str) or not reported.strip():
-        return {"state": "unverified"}
-    same = os.path.realpath(os.path.expanduser(reported)) == os.path.realpath(root)
-    out = {"state": "confirmed" if same else "mismatch"}
-    if isinstance(body.get("version"), str):
-        out["version"] = body["version"]
-    return out
+    """Ask a running backend which memory root it serves (`cli_app.probe_backend`, one copy)."""
+    return cli_app.probe_backend(url, root, timeout)
 
 
 def _backend_headers(environ=None) -> dict[str, str]:
-    from api.services import runtime_layout
-
-    environ = os.environ if environ is None else environ
-    token = (environ.get("CICADA_API_TOKEN") or "").strip()
-    if not token:
-        try:
-            token = (runtime_layout.cicada_home(environ) / "api_token").read_text(encoding="utf-8").strip()
-        except OSError:
-            token = ""
-    return {"Authorization": f"Bearer {token}"} if token else {}
+    return cli_app.backend_headers(environ)
 
 
 def _sleep_writing(url: str) -> bool | None:
@@ -350,15 +298,23 @@ def cmd_status(boot: Boot, args) -> Result:
 
 def cmd_commands(boot: Boot | None, args) -> Result:
     catalog = cli_map.catalog()
-    exposed = [c for c in catalog if c["exposed"]]
+    app_names = {r.name for r in cli_map.rows() if r.app}
+    exposed = [c for c in catalog if c["exposed"] and c["command"] not in app_names]
+    app = [c for c in catalog if c["command"] in app_names]
     later = [c for c in catalog if not c["exposed"]]
     width = max(len(c["command"]) for c in catalog) + 2
 
     def line(c):
         return f"  {c['command']:<{width}}{(c['mirrors'] or '(CLI only)'):<26}{c['summary']}"
 
-    text = "\n".join(["Commands:", *map(line, exposed), "", "Not in this command line yet (use the MCP tool):",
-                      *map(line, later)])
+    def app_line(c):
+        marks = ", ".join(m for m, on in (("needs the app's backend", c["via"] == "backend"),
+                                          ("a chat export needs the app's backend", c["via"] == "both"),
+                                          ("the person only", c["person"])) if on)
+        return f"  {c['command']:<{width}}{c['summary']}" + (f" [{marks}]" if marks else "")
+
+    text = "\n".join(["Commands:", *map(line, exposed), "", "The app's commands:", *map(app_line, app), "",
+                      "Not in this command line yet (use the MCP tool):", *map(line, later)])
     return Result(text=text, data={"commands": catalog})
 
 
@@ -500,6 +456,22 @@ def _read_export(path: Path, include_history: bool):
 
 
 def cmd_import(boot: Boot, args) -> Result:
+    """One `cicada import` for both kinds of export (person-only: it writes as the person; --preview writes
+    nothing and is allowed). The path is sniffed as the backend sniffs a dropped file: a chat export the intake's
+    reader finds conversations in goes to the backend's intake (`cli_app.import_chat_export`, the app's path);
+    anything else — a platform's save lists, a folder — is read here (`_import_platform_export`). Nothing under
+    ~/.claude is read by either."""
+    path = Path(args.path)
+    cli_app.refuse_harness_folder(path)
+    if not args.preview:
+        cli_app.require_person("Importing a file into memory")
+    content = cli_app.chat_export(path)
+    if content is not None:
+        return cli_app.import_chat_export(boot, args, path, content)
+    return _import_platform_export(boot, args)
+
+
+def _import_platform_export(boot: Boot, args) -> Result:
     """A platform's data export into the pinned bank through the upload's own parser and writer
     (``media_ingestor``: scrub, ``url_index`` dedup against every channel, connectors included,
     ``MAX_BATCH`` at a time). The demo refusal and the root cross-check come first; ``--preview``
@@ -550,10 +522,11 @@ def cmd_handshake(boot: Boot, args) -> Result:
     return Result(text=text, data={"tokens_est": len(text) // 4}, warnings=_root_warnings(boot))
 
 
-#: name → (handler, needs a bank). A test may swap a handler.
+#: name → handler. A test may swap a handler. The app's commands (`cli_app`) join the agent's.
 COMMANDS: dict[str, Callable] = {"recall": cmd_recall, "get": cmd_get, "project": cmd_project,
                                  "continue": cmd_continue, "save": cmd_save, "handshake": cmd_handshake,
-                                 "status": cmd_status, "commands": cmd_commands, "import": cmd_import}
+                                 "status": cmd_status, "commands": cmd_commands, **cli_app.COMMANDS,
+                                 "import": cmd_import}
 _NO_BOOT = {"commands"}
 
 
@@ -721,6 +694,7 @@ def _validate(command: str, args) -> None:
                 raise UsageError("could not read the text from stdin") from None
         if not args.content.strip():
             raise UsageError("there is nothing to save")
+    cli_app.validate(command, args)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -782,7 +756,7 @@ def main(argv: list[str] | None = None) -> int:
         return EXIT_CODES["usage"]
     except Refusal as exc:
         _emit(as_json, command=command, ok=False, code=exc.code, bank=bank_name, data=None, text=str(exc),
-              warnings=[])
+              warnings=list(getattr(exc, "warnings", []) or []))
         return EXIT_CODES.get(exc.code, 1)
     except BootstrapError as exc:
         _emit(as_json, command=command, ok=False, code="bootstrap", bank=None, data=None,

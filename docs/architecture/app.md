@@ -12,6 +12,12 @@ chat, via MCP.
 on launch (`Process()`) and terminated on quit; graph rendered with d3-force in a `WKWebView`.
 SwiftUI→d3 via `evaluateJavaScript()`, d3→SwiftUI via `postMessage()`.
 
+**The app is one client of the backend's API (G180 parity, 2026-10-09).** Everything it shows or changes about a bank
+goes through a route; the `cicada` command's app commands are a second client of the same routes (`mcp.md`, "The
+app's commands"), and a browser front end would be a third. What the app still holds alone — the Mac readers that
+post bytes, per-viewer UserDefaults, and the Swift-only presentation logic listed in the G180 parity map — is the
+web door's remaining work; the entity card's bands are the first piece moved (`entity_bands`, `features.md`).
+
 **Ruling (G109, 2026-09-02) — d3-force stays.** Evaluated against sigma.js/ForceAtlas2, Pixi,
 cosmos, ngraph and d3-force-3d at ~1,900 nodes: the two G109 symptoms were three local bugs in how
 `graph.js` drove d3-force, not a library problem. The only flip trigger is an in-app p95 frame time

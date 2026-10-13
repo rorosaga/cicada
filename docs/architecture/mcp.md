@@ -497,7 +497,9 @@ the CLI.
   envelope, `{schema: "cicada.cli/1", command, ok, code, bank, data, text, warnings, version}`, and nothing else on
   either stream. Library output is sent to `/dev/null` at the descriptor level while the command runs.
   - Exit codes: 0 ok, 1 refused, 2 usage (unknown or abbreviated flags are rejected, never ignored), 3 bank/root
-    mismatch, 4 demo bank, 5 sandbox denied (also a permission denial during bootstrap), 70 internal or bootstrap.
+    mismatch, 4 demo bank, 5 sandbox denied (also a permission denial during bootstrap), 6 the app's backend is not
+    running or did not answer (only for a command that acts on it), 70 internal or bootstrap. The outcome types live
+    in `api/cli_types.py`, shared by `api/cli.py` (run as `__main__`) and `api/cli_app.py`.
   - Help with JSON selected is an envelope too: `command: "help"`, `data: {topic}`, with the usage text in `text`.
   - An internal error carries the exception's class name only, never its message.
   - The envelope is additive-only within `cicada.cli/1`.
@@ -520,7 +522,12 @@ the CLI.
   - `status`: root path, source and verification; bank name, path and demo flag; the unconsolidated count; backend
     version and `writing`; the vector index state; distribution; the caller's folder.
   - `commands`: the full table in `data.commands`, with `exposed` per row.
-  - `import <path> [--preview] [--include-history]` (CLI-only, 2026-10-09): a platform's data export — a `.zip`, an
+  - `import <path> [--preview] [--include-history] [--no-wait]` (CLI-only, 2026-10-09; one command for two kinds
+    of export, an app row: `via="both"`, person-only except `--preview`). The path is sniffed in the backend's own
+    order: a file the intake's chat reader (`intake.parse_export`) finds conversations in is a **chat export** and goes
+    to the backend's intake like the app's drop (`cli_app.import_chat_export`: `/intake/sniff` for `--preview`,
+    `/intake/import`, `/intake/jobs/{id}` until done, `--no-wait` returns once queued; the confirmed-root rule below).
+    Anything else, a folder included, is a **platform's data export** — a `.zip`, an
     unzipped folder or one file — read by the command line itself (the backend never opens a path), parsed by the
     upload's own reader (`saved_exports` / `media_ingestor.parse_upload`) and written by `media_ingestor.ingest_chunked`
     into the pinned bank, deduped on `url_index` against every channel. Demo bank exit 4; a mismatched backend root
@@ -556,6 +563,48 @@ the CLI.
   - `handshake`: `handshake.build_cli`, a primer like the remote one that names only the commands the CLI holds,
     spelled from `cli_map.spell`. It sits within the same ≤1,800-token aim, is built per call (never cached), and its
     ledger row has `delivery: "cli"`.
+- **`timeline [--since]`** is exposed too: `cicada_timeline`'s body, read-only, gated by nothing a reply names.
+- **The app's commands (G180 parity, 2026-10-09; `api/cli_app.py`).** What the app does, from a shell. Each is a
+  CLI-only row in `cli_map` (`app=True`, no MCP tool, so `exposed_tools()` and every reply's gating are unchanged)
+  with `via` saying where it runs:
+  - `via="bank"` — read in process from the one bootstrap, like every read (ruling 21), so it works with the backend
+    down: `page list [--type --status]` and `graph` (`graph_builder`, pages only), `page history <entity>`
+    (`git_service.get_entity_history`), `find <query> [--kind --limit]` (`search_service.search`, every kind unless
+    `--kind`), `inbox all [--kind]` (`inbox_service.load_inbox`: every kind, deferred hidden), `sleep history`,
+    `feed list`, `bank list`.
+  - `via="backend"` — the running backend's own routes with the token, because the state is the backend's: `sleep
+    status|start [--continue]|stop|end|schedule [--mode --at --every]|engine [--mode --model]|options [--batch-size
+    --continue-after-reset --reserve]`, `index status|rebuild|use <model>|install [--model]`, `feed add|remove|poll`,
+    `import`'s chat-export branch (above), `settings
+    owner [--name --handle --email]`, `engine list`, `page decay <entity> <class>`, `inbox answer <id> [--option
+    --answer --defer --days --reject]`, `picture set <entity> <file>|initials|clear`, `bank use|create|rename|delete`.
+    The CLI never starts a second Sleep, never writes state the backend holds (the scheduler, the run, the engine
+    choice, a re-embed). Every mutating request names the pinned bank in `X-Cicada-Bank` (bank CRUD excepted), so a
+    switch mid-command is refused by the backend (exit 3). With the bootstrap's probe at `backend_down` it refuses
+    before sending (`backend_down`, exit 6); `mismatch` refuses (exit 3). **A write (any non-GET, bank CRUD included)
+    is sent only to a backend that confirmed this command's memory root:** the backend checks the bank's *name*, and a
+    fresh root's bank is `default` too, so an `unverified` probe (a slow `/healthz`, an error answer, no `memoryRoot`)
+    is asked once more with a 5 s timeout and, unless that confirms, the write refuses (`root_unverified`, exit 3,
+    `warnings: ["root_unverified"]` kept on the envelope). A read from an unverified backend proceeds with the
+    warning. A 409 maps by its `code` (`sleep_writing`, `bank_mismatch`), `demo_guard.REFUSAL` as its detail is
+    `demo_bank` (exit 4), any other 409 `refused`; 404 `not_found`, 413 `refused` with the server's sentence (the CLI
+    does not shrink a picture), 400/422 usage with the backend's sentence, 401/403 `unauthorized`, 5xx
+    `backend_error` (70). A schedule, engine, options or owner change reads the current value and sends it back
+    merged. `index install` with no model named and none recommended refuses without sending; an `import` job still
+    running when the wait ends is `backend_timeout` (exit 6), never "Imported".
+  - **Person-only rows** (`person=True`) act as the person: a page or picture write the backend commits as
+    `Cicada-Author: user`, an inbox answer, a run on the person's engine, a schedule change, a search-model switch or
+    download (only on the person's command), a feed fetch, an import, a bank switch, rename or trash. They refuse
+    (`person_only`, exit 1, nothing sent but reads) from an agent's shell (`cli_app.agent_shell`): one where
+    `session_identity.cli_identity()` names a session or a harness, or that carries `CODEX_THREAD_ID`,
+    `CODEX_SESSION_ID` or `CODEX_SANDBOX` (set by Codex in the commands it runs). An agent's write carries the agent's
+    provenance, never the person's. The rule is a guard, not a lock.
+  - `import` refuses any path that resolves under `~/.claude`, file or folder, on both branches (transcripts are
+    captured by the Stop hook only). `picture set` uploads as-is; the app's shrink to 512 px is not done here, the
+    server's bound applies.
+  - `cicada commands` lists them apart, marked *needs the app's backend* / *the person only*; `catalog()` adds
+    `via` and `person` to each entry (additive). The skill's table keeps to the agent commands and names `cicada
+    commands`.
 - **Spelling.** Generated actions (recall's hints, the state cursor, project's page action, continue's reads, the
   primer) are spelled by `cli_map.spell(tool, **values)` from the table, with every concrete value shell-quoted. A test
   parses each printed command back through the real parser. Memory's own text is never respelled.
