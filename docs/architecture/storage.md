@@ -493,6 +493,14 @@ Round 4 (C2–C4):
   Sleep never writes a page for a speaker reference, routes every such entity, edge, claim and wikilink here
   (a non-person page holding the name, a company "Owner", keeps its own), and its prompts call the person by
   this page's `name` (`capture-and-sleep.md`, "Entity promotion").
+- `owner_roles:` / `unnamed:` / `name_declined:` (placeholder people, 2026-10-14; `role_people`) — a `person` page
+  known only by a relation to the owner is titled by the relation ("Partner", "Former roommate"; never "<owner>'s
+  partner", and never a number — "(another)" when a second page of one relation is kept), with `unnamed: true` and the
+  relation's key in `owner_roles`. A named page carries a relation in `owner_roles` only when the person's answer or a
+  merge on evidence put it there; Stage 2 attaches a later role-only mention to the one named page holding a
+  **singular** relation (partner, spouse, father, mother…), never to a named page on a plural one (a friend, a
+  roommate). `name_declined: true` is "I'd rather not say": the page keeps its role title and is never asked again.
+  `capture-and-sleep.md`, "Placeholder people", has the rules; `features.md` the question.
 - `kept_on:` (G147) — the days the person answered *keep* to a decay question; each joins the page's
   mention weeks, so a kept page fades a little slower. Written only by the decay resolver, deduped,
   capped at 52. Not an episode id and never read as one.

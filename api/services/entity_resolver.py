@@ -12,7 +12,7 @@ from thefuzz import fuzz
 
 from api.config import Settings
 from api.services import (agent_engine, engine_errors, entity_body, fact_policy, json_parse, owner_identity,
-                          promotion, section_provenance)
+                          promotion, role_people, section_provenance)
 from api.services.clarification_manager import (
     CONFIDENCE_THRESHOLD,
     ClarificationManager,
@@ -108,6 +108,13 @@ async def resolve(
         getattr(settings, "litellm_disambiguation_model", "") or settings.litellm_model
     )
     logger.info(f"Stage 2 disambiguation model: {disambig_model}")
+
+    # A person named only by their relation to the owner ("<owner>'s partner", "my dad") is titled by the
+    # relation and attached to the ONE page that holds it, before anything keys a name (`role_people`): every
+    # later step — promotion, claims, wikilink edges — reads the same renamed batch. Never the owner's name.
+    owner_page_id = owner_identity.owner_page_id(existing, getattr(settings, "memory_path", None), settings)
+    owner_page = next((e for e in existing if owner_page_id and e.get("id") == owner_page_id), None)
+    role_people.canonicalize(extracted, existing, (owner_page or {}).get("frontmatter"))
 
     existing_by_name: dict[str, dict] = {}
     for e in existing:
@@ -376,7 +383,9 @@ async def resolve(
                     promoted_pending.append(name)
             else:
                 confidence = float(entity.get("confidence", 0.3) or 0.3)
-                if confidence < CONFIDENCE_THRESHOLD and not ambiguous_match:
+                # A placeholder person is asked for a name once it has a page (`role_people`), never "Who or
+                # what is Partner?" — whose answer would become the page's prose, not its name.
+                if confidence < CONFIDENCE_THRESHOLD and not ambiguous_match and not entity.get(role_people.UNNAMED_KEY):
                     pending_actions.append((
                         clarifier.create,
                         (),

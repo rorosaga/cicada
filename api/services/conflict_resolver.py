@@ -13,7 +13,7 @@ from api.config import Settings
 from api.models.schemas import DecayClass
 from api.services import (
     alias_policy, decay_policy, decay_tuning, engine_errors, entity_article, entity_body, episode_time, fact_sources,
-    json_parse, markdown_parser, section_provenance, source_dates,
+    json_parse, markdown_parser, role_people, section_provenance, source_dates,
 )
 from api.services.providers import resolve_llm_fn
 
@@ -674,6 +674,8 @@ def apply_changes(changes: list[dict], memory_path) -> None:
                 "related": [],
                 "version": 1,
                 "layout_version": 2,
+                # A person known only by their relation to the owner: the relation, and no name yet (`role_people`).
+                **role_people.create_fields(entity),
             }
             # G61 S3-b: Stage 1's optional official site is stored UNVERIFIED (`fact_sources.propose_site`: pure, no
             # network, never over a tombstone or an existing `website`); Cicada's own read confirms it later and only

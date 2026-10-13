@@ -193,7 +193,11 @@ def owner_block(name: str | None) -> str:
         f'  {self_reference_list()}; write "{name}" in a conversation in any language.\n'
         f'- Their own facts go on one entity named exactly "{name}" (type person); never a second entity for them.\n'
         "- A real company, product, tool or concept that happens to be called one of those words keeps its own\n"
-        "  name and type."
+        "  name and type.\n"
+        f"- A person the conversation names only by their relation to {name} (a partner, a parent, a friend, a\n"
+        '  teacher) and never by a name: name the entity by the relation alone — "Partner", "Father", "Former\n'
+        f'  roommate" — never "{name}\'s partner" and never "(unnamed)". When the conversation gives their name,\n'
+        "  use the name and keep the relation as a key fact."
     )
 
 

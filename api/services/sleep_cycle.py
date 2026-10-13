@@ -2502,6 +2502,21 @@ async def _run_stages(
         except Exception as e:
             logger.warning(f"Stage 5 skill hold failed: {type(e).__name__}: {e}")
 
+    # Stage 5.4: a person known only by their relation to the owner ("Partner") is asked about once its page is
+    # written — "What's the name of your partner?" (`role_people`; one question per page, never after "I'd rather
+    # not say"). The item rides this cycle's commit like every other question it opens.
+    try:
+        from api.services import role_people
+
+        def _ask_names():
+            return role_people.ask_after_write(
+                memory_path, changes, role_people.owner_frontmatter(memory_path, settings))
+        asked = await asyncio.to_thread(_ask_names)
+        if asked:
+            logger.info(f"Stage 5.4: asked for {len(asked)} unnamed person name(s)")
+    except Exception as e:
+        logger.warning(f"Stage 5.4 name questions failed: {type(e).__name__}: {e}")
+
     # Stage 5.5: Materialize entity-body wikilinks as `mentions` edges so the
     # graph stops ignoring them. Runs after relationships are written so the
     # `mentions` wave merges into the same graph_edges.yaml. Idempotent.
