@@ -901,10 +901,11 @@ their own. One function, `decay_policy.effective`, serves the pass and the entit
 episodes and cited `ep_*` documents plus the subject's keeps; session ids carry no date and never
 count). **One-offs archive, repeats fade** (owner 2026-10-09, after the first dry run on a real bank would have
 archived 79% of it): proven silence alone never takes a page or claim resting on 2+ distinct dated conversations
-(`decay_policy.conversations`; a memory export entry is not one) below just above the archive line
-(`decay_policy.proven_floor` = archive threshold + 0.01, applied by `decay_policy.charge`) — it stays `decaying`
-and on the graph, and only live silence after Cicada read it can archive it (at the default pace a floored repeat
-crosses 0.2 after two to four days of live silence). A one-conversation page or claim falls freely. A create stamps
+(`decay_policy.conversations`; a memory export entry is not one) below 0.39, just under the question line
+(`decay_policy.proven_floor` = decay-question threshold − 0.01, applied by `decay_policy.charge`) — it stays
+`decaying`, dimmed and on the graph, and only live silence after Cicada read it carries it on to the archive line, at
+the normal pace (at the default `active` pace, about 38 days for two conversations in different weeks, 52 for five,
+66 for twelve; 27 when both fell in one week). A one-conversation page or claim falls freely. A create stamps
 `decayed_through` at the content date and `learned_on` at the cycle's day. **A mention never lowers:** on a page
 not yet settled (proven silence still owed — read earlier in this run, or in one that stopped) a later mention moves
 `learned_on` and the age counts from it; on a settled page, a mention from a conversation dated on or after its
@@ -924,14 +925,15 @@ latest mention; a settled claim restated in a conversation dated on or after its
 with no dated conversation, counts as said today) gets the higher confidence and a clock restarted today; an older
 restatement or a memory entry adds the source only. A subject read this pass is charged its proven silence only.
 Only Sleep charges claims: the agent and progress writers reconcile with `decay=False` (G85). A claim with no dated
-conversation keeps the old anchor (`recorded_at`, else `valid_from`). **Heard late, asked once by its live
-silence:** in the pass that charges a page's or claim's proven silence, a drop below 0.4 caused by it asks nothing
-when the mention was read more than seven days after it was said (`decay_policy.heard_late`, `proven_days > 0`);
-Stage 3 logs the count. From the next pass, live silence below 0.4 raises the decay question as for anything else,
-at most `decay_inbox_cap_per_cycle` new questions a cycle. Existing banks are charged once by the person's own
+conversation keeps the old anchor (`recorded_at`, else `valid_from`). **A question fires only when live silence
+carries a page or claim across 0.4** (`decay_policy.asks`). One that its own age took below the line — proven
+silence charged in a pass, the mention read more than seven days after it was said (`decay_policy.heard_late`) — is
+marked `faded_by_age` (a page's frontmatter key, a claim's field) and is never asked about as live silence continues:
+it archives quietly at 0.2, counted in Stage 3's one summary line. A page read late but still above 0.4 after its age
+is asked when live silence later carries it across; a new mention clears the mark. Existing banks are charged once by the person's own
 `api/scripts/recompute_decay_by_age.py` (`age_recompute`), with the same floor: dry run by default (counts by type
-and by the age of the last mention, `would_archive`, `would_decay`, `floored_repeats`, `would_be_asked` — by later
-passes, capped — and claims), `--apply` refused while Sleep runs, one `cicada` commit (`trigger:
+and by the age of the last mention, `would_archive`, `would_decay`, `floored_repeats`, `would_be_asked` — only pages
+read within a week of being said; everything else it lowers below 0.4 is marked `faded_by_age` — and claims), `--apply` refused while Sleep runs, one `cicada` commit (`trigger:
 maintenance/decay-by-age`), the day a page was read estimated from the git commit that added it, only changed claim
 lines rewritten, a second run a no-op.
 **A memory export entry is facts, not activity** (owner, 2026-10-08). A `source: claude_memory` episode is a summary
@@ -941,7 +943,7 @@ with no timestamp or day and `untimed: true`. A change made only of memory entri
 `last_referenced`** (`created` and `decayed_through` are the cycle's day), and on an existing page moves neither
 `last_referenced` nor `decayed_through` and recovers no status; its facts, claims (with their `valid_from`) and
 `source_episodes` are written as usual. Any real conversation in the same change dates it as before.
-Below 0.2 → `status: archived` (the page stays in `entities/`); below 0.4 → a decay nudge (not in the pass that charges a late-heard page its age).
+Below 0.2 → `status: archived` (the page stays in `entities/`); below 0.4 → a decay nudge when live silence carries it across (never for what its age took there).
 Mentioned again in a conversation no charge has covered → promoted back at `confidence = max(current, 0.6)`, clock
 restarted the day it was read; an old conversation read late never revives and never lowers. Evergreen
 entities (the owner's page among them) skip all decay math. **Confidence does not rank recall:** search puts archived pages last and otherwise ranks
