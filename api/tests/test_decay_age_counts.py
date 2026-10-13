@@ -217,8 +217,9 @@ def test_a_later_mention_revives_and_an_old_one_fades_back(tmp_path):
     _drain(bank, [[_change("revived", "update", "2026-10-09"), _change("not-revived", "update", "2024-06-11")], []])
     revived = _fm(bank, "revived")
     assert revived["status"] == "active" and revived["confidence"] == 0.6
-    # An old conversation read late restores 0.6 as of when it was said, and its age takes it back.
-    assert _fm(bank, "not-revived")["status"] == "archived"
+    # An old conversation read late never revives — but it makes the one-off a repeat: the repeat floor, dimmed.
+    old_again = _fm(bank, "not-revived")
+    assert old_again["status"] == "decaying" and math.isclose(old_again["confidence"], 0.39, abs_tol=1e-9)
 
 
 # --- claims ------------------------------------------------------------------
@@ -282,9 +283,9 @@ def test_a_claim_said_today_is_not_charged():
 def test_an_old_restatement_read_late_lets_a_faded_claim_fade_back_but_a_live_write_revives_it():
     state, _, _ = _reconcile({}, [_claim("clm_a", "2024-03-05", conf=0.5)], decay=True)
     assert state["topic"][0].confidence == 0.0
-    # An older conversation read today restates it with more confidence: raised as of when it was said, aged back.
+    # An older conversation read today never revives it — but it makes it a repeat: the repeat floor.
     old_again, _, _ = _reconcile({k: [*v] for k, v in state.items()}, [_claim("clm_b", "2024-02-01")], decay=True)
-    assert old_again["topic"][0].confidence == 0.0
+    assert math.isclose(old_again["topic"][0].confidence, 0.39, abs_tol=1e-9)
     # An agent's live write (no conversation id) is said now: the raise stands.
     live = _claim("clm_c", "2026-10-09")
     live.source_episodes = []
@@ -440,3 +441,80 @@ def test_a_claim_faded_by_its_age_is_never_asked_as_live_silence_continues():
         asked = asked or any(n.get("action") == "decay_nudge" for n in nudges)
         day += timedelta(days=1)
     assert not asked
+
+
+# --- the floor holds however imports split across runs -------------------------
+
+
+def _same_and_split_pages(tmp_path):
+    same, split = _bank(tmp_path / "same"), _bank(tmp_path / "split")
+    _drain(same, [[_change("alpha-project", "create", "2024-03-05")],
+                  [_change("alpha-project", "update", "2024-04-02")], []])
+    _batch(split, [_change("alpha-project", "create", "2024-03-05")], decay=True)
+    assert _fm(split, "alpha-project")["status"] == "archived"
+    _batch(split, [_change("alpha-project", "update", "2024-04-02")], decay=True, now=datetime(2026, 10, 10, 3, 0))
+    return same, split
+
+
+def test_a_second_old_conversation_in_a_later_run_lifts_a_one_off_to_the_repeat_floor(tmp_path):
+    same, split = _same_and_split_pages(tmp_path)
+    lifted = _fm(split, "alpha-project")
+    assert lifted["status"] == "decaying" and math.isclose(lifted["confidence"], 0.39, abs_tol=1e-9)
+    assert len(lifted["source_episodes"]) == 2
+    for bank in (same, split):
+        _batch(bank, [], decay=True, now=datetime(2026, 10, 20, 3, 0))
+    a, b = _fm(same, "alpha-project"), _fm(split, "alpha-project")
+    assert math.isclose(a["confidence"], b["confidence"], abs_tol=1e-9) and a["status"] == b["status"] == "decaying"
+    assert str(a["decayed_through"]) == str(b["decayed_through"])
+
+
+def test_a_second_old_restatement_in_a_later_run_lifts_a_claim_to_the_repeat_floor():
+    same, _, _ = _reconcile({}, [_claim("clm_a", "2024-03-05")], decay=False)
+    same, _, _ = _reconcile(same, [_claim("clm_b", "2024-04-02")], decay=True)
+    split, _, _ = _reconcile({}, [_claim("clm_a", "2024-03-05")], decay=True)
+    assert split["topic"][0].confidence == 0.0
+    split, _, _ = _reconcile(split, [_claim("clm_b", "2024-04-02")], decay=True, today="2026-10-10")
+    assert math.isclose(split["topic"][0].confidence, 0.39, abs_tol=1e-9)
+    same, _, _ = _reconcile(same, [], decay=True, today="2026-10-20")
+    split, _, _ = _reconcile(split, [], decay=True, today="2026-10-20")
+    assert math.isclose(same["topic"][0].confidence, split["topic"][0].confidence, abs_tol=1e-9)
+
+
+# --- a capture read late, after the last charge, is charged its gap once ------
+
+
+def _live_page(bank, confidence=0.9):
+    _batch(bank, [_change("live", "create", "2026-07-01", confidence=confidence)], decay=True,
+           now=datetime(2026, 7, 1, 3, 0))
+    day = datetime(2026, 7, 2, 3, 0)
+    while day <= datetime(2026, 7, 10, 3, 0):
+        _batch(bank, [], decay=True, now=day)
+        day += timedelta(days=1)
+    return _fm(bank, "live")
+
+
+def test_a_capture_read_late_after_the_last_charge_is_charged_its_gap_once(tmp_path):
+    bank = _bank(tmp_path)
+    before = _live_page(bank)
+    assert before["status"] == "active" and str(before["decayed_through"]) == "2026-07-10"
+    _drain(bank, [[_change("live", "update", "2026-07-15")], []])
+    fm = _fm(bank, "live")
+    expected = before["confidence"] - 0.05 * _f(2) * _weeks("2026-07-15", "2026-10-09")
+    assert math.isclose(fm["confidence"], expected, abs_tol=1e-9)
+    assert str(fm["decayed_through"]) == "2026-10-09" and str(fm["last_referenced"]) == "2026-07-15"
+    _batch(bank, [], decay=True, now=datetime(2026, 10, 9, 23, 0))   # once: the same day charges nothing more
+    assert math.isclose(_fm(bank, "live")["confidence"], expected, abs_tol=1e-9)
+
+
+def test_a_late_capture_that_revives_a_page_never_leaves_it_below_where_it_stood(tmp_path):
+    bank = _bank(tmp_path)
+    before = _live_page(bank, confidence=0.45)
+    day = datetime(2026, 7, 11, 3, 0)
+    while _fm(bank, "live")["status"] != "decaying":
+        _batch(bank, [], decay=True, now=day)
+        day += timedelta(days=1)
+    before = _fm(bank, "live")
+    _drain(bank, [[_change("live", "update", (day - timedelta(days=1)).date().isoformat())], []],
+           now=datetime(2026, 12, 20, 3, 0))
+    after = _fm(bank, "live")
+    assert after["confidence"] >= before["confidence"] and after["status"] != "archived"

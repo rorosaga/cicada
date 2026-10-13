@@ -208,18 +208,21 @@ async def resolve_and_prune(
     # The pass that charges decay also settles the pages it itself creates or references: they are not in
     # `existing`, so the loop below never sees them. The arithmetic runs in `apply_changes`, on the page
     # as merged, and rides in the commit that writes the page (never the `(decay)` commit, G85).
-    settle = {
+    # Every create/update carries the pace's inputs (`decay_params`): an old conversation that makes a faded
+    # one-off a repeat lifts it to the repeat floor in any batch; only the decay pass's carry `settle`.
+    params = {
         "today": learned_on, "alpha": alpha, "floor": floor, "tuning": dict(tuning or {}),
         "archive": float(getattr(settings, "archive_threshold", 0.2)),
         "nudge": float(getattr(settings, "decay_nudge_threshold", 0.4)),
-    } if decay else None
+    }
     for change in resolved:
         if change.get("action") not in ("create", "update"):
             continue
         change["learned_on"] = learned_on
+        change["decay_params"] = params
         # A memory export entry is no mention (`episode_time`): it settles nothing.
-        if settle is not None and not change.get("untimed"):
-            change["settle"] = settle
+        if decay and not change.get("untimed"):
+            change["settle"] = params
     # A memory export entry is no week a page came up in (`episode_time`), here as on the card.
     untimed = episode_time.untimed_ids(getattr(settings, "memory_path", None)) if decay else frozenset()
     decay_candidates = [e for e in existing if e["id"] not in referenced_ids] if decay else []
@@ -275,7 +278,8 @@ async def resolve_and_prune(
             # (owner 2026-10-09: one-offs archive, repeats fade); live silence carries it on to the archive.
             new_confidence = decay_policy.charge(
                 confidence, decay_rate, owed, nudge_threshold=settings.decay_nudge_threshold,
-                conversations=decay_policy.conversations(fm.get("source_episodes"), untimed=untimed))
+                conversations=decay_policy.conversations(fm.get("source_episodes"), untimed=untimed),
+                at_least=fm.get(MENTION_FLOOR_KEY))
         # Faded by its age: heard late, and this pass's proven silence took it below the question line. Marked,
         # it fades and archives quietly from here — a question fires only when live silence carries a page across
         # 0.4 (`decay_policy.asks`), so a page still above the line after its age keeps its question.
@@ -284,6 +288,8 @@ async def resolve_and_prune(
                  and new_confidence < settings.decay_nudge_threshold)
         faded = marked or newly
         mark = {decay_policy.FADED_BY_AGE_KEY: decay_today} if newly else {}
+        if MENTION_FLOOR_KEY in fm:
+            mark["clear"] = [MENTION_FLOOR_KEY]   # the mention's gap is settled: the floor has done its job
         asks = not newly and decay_policy.asks(
             confidence, new_confidence, settings.decay_nudge_threshold, faded_by_age=marked)
 
@@ -320,6 +326,7 @@ async def resolve_and_prune(
                 "source_episode": "",
                 "trigger": "sleep/decay",
                 "decayed_through": decay_today,
+                **({"clear": mark["clear"]} if "clear" in mark else {}),
             })
 
     decay_progress.close()
@@ -695,6 +702,7 @@ def apply_changes(changes: list[dict], memory_path) -> None:
             # A memory export entry alone is no re-mention ("facts yes, activity no", `episode_time`): its facts
             # and source land below, but the last mention, the silence clock and the status stay.
             mentioned = not change.get("untimed")
+            lift = False
             if mentioned:
                 fm = parsed.frontmatter
                 said_before = _extract_date_string(fm.get("last_referenced"))
@@ -710,16 +718,21 @@ def apply_changes(changes: list[dict], memory_path) -> None:
                 elif charged is None or heard >= charged:
                     # A settled page mentioned in a conversation no charge has covered yet: the counter-signal
                     # to decay. Recovery (G66 §1.6) — `dropped` is deliberately excluded: the person dismissed
-                    # that entity and it is never resurfaced — and the silence clock restarts the day Cicada
-                    # read it, so a mention never leaves a page lower than it stood.
+                    # that entity and it is never resurfaced. Its clock restarts when it was said; the gap until
+                    # Cicada read it is proven silence, charged once by the pass that settles it — never below
+                    # where a revived page stood before the mention (`MENTION_FLOOR_KEY`).
                     if str(fm.get("status", "active")) in ("decaying", "archived"):
+                        fm.setdefault(MENTION_FLOOR_KEY, float(fm.get("confidence", 0.0) or 0.0))
                         fm["status"] = "active"
                         fm["confidence"] = max(float(fm.get("confidence", 0.0) or 0.0), RECOVERY_CONFIDENCE)
                     fm.pop(decay_policy.FADED_BY_AGE_KEY, None)   # back in the person's words: asked like any page
-                    fm["decayed_through"] = _max_date(charged, learned)
+                    fm["decayed_through"] = _max_date(charged, heard)
                     fm["learned_on"] = learned
-                # Else a conversation from before the watermark, read late: its source and its week count (G147),
-                # but no clock or status moves — age counts from when it was said, and a mention never lowers.
+                else:
+                    # A conversation from before the watermark, read late: its source and its week count (G147),
+                    # but no clock or status moves — age counts from when it was said, and a mention never
+                    # lowers. If it makes a one-off faded by its age a repeat, the repeat floor applies below.
+                    lift = bool(fm.get(decay_policy.FADED_BY_AGE_KEY))
             parsed.frontmatter["version"] = parsed.frontmatter.get("version", 1) + 1
 
             episodes = parsed.frontmatter.get("source_episodes", [])
@@ -834,6 +847,9 @@ def apply_changes(changes: list[dict], memory_path) -> None:
                 entity_article.stamp(parsed.frontmatter, entity_body.parse_sections(strip_claims_block(final_body)),
                                      written=change.get("learned_on") or str(date.today()))
             section_provenance.refresh(parsed.frontmatter, original_body, final_body, selected)
+            if lift and change.get("decay_params"):
+                untimed_ids = _untimed_once(untimed_ids, memory_path)
+                _lift_to_repeat_floor(parsed.frontmatter, change["decay_params"], untimed_ids)
             if change.get("settle") and mentioned:
                 untimed_ids = _untimed_once(untimed_ids, memory_path)
                 _settle(parsed.frontmatter, change["settle"], untimed_ids)
@@ -852,6 +868,8 @@ def apply_changes(changes: list[dict], memory_path) -> None:
             parsed.frontmatter["decayed_through"] = change.get("decayed_through") or str(date.today())
             if change.get(decay_policy.FADED_BY_AGE_KEY):
                 parsed.frontmatter[decay_policy.FADED_BY_AGE_KEY] = change[decay_policy.FADED_BY_AGE_KEY]
+            for key in change.get("clear") or ():
+                parsed.frontmatter.pop(key, None)
             markdown_parser.write(filepath, parsed.frontmatter, parsed.body)
 
     write_progress.close()
@@ -862,6 +880,34 @@ def apply_changes(changes: list[dict], memory_path) -> None:
 
 def _untimed_once(untimed_ids: frozenset[str] | None, memory_path) -> frozenset[str]:
     return untimed_ids if untimed_ids is not None else episode_time.untimed_ids(memory_path)
+
+
+#: What a revived page stood at before the mention, kept only until the pass that settles the mention's gap: the
+#: proven silence it charges never takes the page below it (a mention never lowers).
+MENTION_FLOOR_KEY = "confidence_before_mention"
+
+
+def _lift_to_repeat_floor(fm: dict, params: dict, untimed: frozenset[str]) -> None:
+    """A one-off its age faded (``faded_by_age``) that an older conversation, read in a later run, makes a repeat:
+    where the two conversations read in one run would have left it — the repeat floor less the live silence charged
+    since its age was settled — when that is higher. Only raises, so how the imports split across runs never
+    changes where a page ends."""
+    if decay_policy.conversations(fm.get("source_episodes"), untimed=untimed) < 2:
+        return
+    if str(fm.get("status", "active")) == "dropped":
+        return
+    effective = decay_policy.effective(fm, alpha=params["alpha"], floor=params["floor"],
+                                       tuning=params.get("tuning") or {}, untimed=untimed)
+    if effective.decay_class is DecayClass.evergreen:
+        return
+    since = date.fromisoformat(str(fm[decay_policy.FADED_BY_AGE_KEY])[:10])
+    charged = _extract_date_string(fm.get("decayed_through"))
+    live_days = max(0, (date.fromisoformat(charged) - since).days) if charged else 0
+    lifted = decay_policy.proven_floor(params["nudge"]) - effective.rate * live_days / 7.0
+    if lifted <= float(fm.get("confidence", 0.0) or 0.0):
+        return
+    fm["confidence"] = lifted
+    fm["status"] = "archived" if lifted < params["archive"] else "decaying"
 
 
 def _settle(fm: dict, params: dict, untimed: frozenset[str]) -> None:
@@ -880,10 +926,12 @@ def _settle(fm: dict, params: dict, untimed: frozenset[str]) -> None:
         _extract_date_string(fm.get("last_referenced")), _extract_date_string(fm.get("decayed_through")),
         _extract_date_string(fm.get("learned_on")), date.fromisoformat(params["today"]), 0)
     if owed is None or owed.days <= 0:
+        fm.pop(MENTION_FLOOR_KEY, None)
         return
     confidence = decay_policy.charge(
         float(fm.get("confidence", 0.5) or 0.0), effective.rate, owed, nudge_threshold=params["nudge"],
-        conversations=decay_policy.conversations(fm.get("source_episodes"), untimed=untimed))
+        conversations=decay_policy.conversations(fm.get("source_episodes"), untimed=untimed),
+        at_least=fm.pop(MENTION_FLOOR_KEY, None))
     fm["confidence"] = confidence
     if confidence < params["nudge"] and decay_policy.heard_late(
             _extract_date_string(fm.get("last_referenced")), _extract_date_string(fm.get("learned_on"))):

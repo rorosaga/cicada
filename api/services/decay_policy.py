@@ -493,13 +493,17 @@ def conversations(episode_refs, *, untimed=frozenset()) -> int:
     return len(seen)
 
 
-def charge(confidence: float, rate: float, owed: Silence, *, conversations: int, nudge_threshold: float) -> float:
+def charge(confidence: float, rate: float, owed: Silence, *, conversations: int, nudge_threshold: float,
+           at_least: float | None = None) -> float:
     """Confidence after one pass: proven silence first — floored at :func:`proven_floor` for something heard in 2+
-    conversations, never raising what is already below it — then live silence, which may go anywhere."""
+    conversations, and at ``at_least`` (where a revived page stood before the mention), never raising what is
+    already below them — then live silence, which may go anywhere."""
     confidence = float(confidence)
     after = confidence - rate * owed.proven_days / 7.0
     if conversations >= 2:
         after = max(after, min(confidence, proven_floor(nudge_threshold)))
+    if at_least is not None:
+        after = max(after, min(confidence, float(at_least)))
     return max(0.0, after - rate * owed.live_days / 7.0)
 
 

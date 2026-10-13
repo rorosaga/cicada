@@ -209,6 +209,10 @@ def _reinforce(existing: Claim, incoming: Claim, *, today: str | None = None, un
             existing.decayed_through = _max_date(existing.decayed_through, today)
             existing.recorded_at = today
             existing.faded_by_age = None   # said again: asked like any claim
+        elif existing.faded_by_age:
+            # An older conversation that may make a one-off its age faded a repeat: the repeat floor is checked
+            # once the pass knows the subject's pace (`_lift_to_repeat_floor`).
+            setattr(existing, "_lift_check", True)
     # PR #20 round-2 review fix — "repeated facts lose later conversations":
     # a scalar `session_id` can only ever remember the FIRST writer, so a
     # later conversation restating the same fact would silently vanish from
@@ -740,6 +744,12 @@ def reconcile_stage3(
                 if kept is not None and all(k is not kept for k in entry["kept"]):
                     entry["kept"].append(kept)
 
+    for sub, slot in reconciled.items():
+        for c in slot:
+            if getattr(c, "_lift_check", False):
+                delattr(c, "_lift_check")
+                _lift_to_repeat_floor(c, sub, settings, decay_class_fn, subject_fn, untimed)
+
     for (_raw_slug, canonical), entry in folds.items():
         if entry["kept"]:   # nothing stored under the fold (rejected, or a conflict asked) — nothing to ask
             nudges.append(_normalization_audit_nudge(entry["raw"], canonical, entry["kept"][0], entry["kept"][1:]))
@@ -759,6 +769,27 @@ def _max_date(left: str | None, right: str | None) -> str | None:
     """The later of two ISO date/date-time strings; either may be missing."""
     candidates = [str(c)[:10] for c in (left, right) if c]
     return max(candidates) if candidates else None
+
+
+def _lift_to_repeat_floor(c: Claim, subject: str, settings, decay_class_fn, subject_fn, untimed) -> None:
+    """A claim its age faded (``faded_by_age``) that an older restatement, read in a later run, makes a repeat:
+    where both read in one run would have left it — the repeat floor less the live silence charged since its age
+    was settled — when that is higher. Only raises."""
+    if decay_policy.conversations(_said_refs(c), untimed=untimed) < 2:
+        return
+    multiplier = decay_policy.claim_multiplier(decay_class_fn(subject))
+    if multiplier <= 0:
+        return
+    alpha, floor = decay_policy.spacing_params(settings)
+    rate = claim_rate(c, subject_fn(subject), multiplier, untimed=untimed, alpha=alpha, floor=floor)
+    try:
+        since = date.fromisoformat(str(c.faded_by_age)[:10])
+        charged = date.fromisoformat(str(c.decayed_through)[:10]) if c.decayed_through else since
+    except ValueError:
+        return
+    nudge = float(getattr(settings, "decay_nudge_threshold", 0.4) or 0.4)
+    lifted = decay_policy.proven_floor(nudge) - rate * max(0, (charged - since).days) / 7.0
+    c.confidence = max(c.confidence, lifted)
 
 
 def claim_rate(c: Claim, about, multiplier: float, *, untimed=frozenset(),
