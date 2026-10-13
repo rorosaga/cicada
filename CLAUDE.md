@@ -204,9 +204,11 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   never guessed (`promotion`). What is said about a name with no page yet is held (`pending_store`), never lost.
   A Stage-4 skill needs 2+ conversations too; one is held in its own store, `skill_hold` (G112, owner 2026-10-09).
   A speaker's self-reference ("the user", "me", "yo"…) is the owner's page, never a page of its own (G169).
-- **Temporal decay is a signal:** at most one week charged per cycle (ruling 1), paced by how many weeks a page came up
-  in (G147); evergreen never decays; an import is not silence. Below 0.2 archived, below 0.4 a decay nudge.
-  **Confidence does not rank recall.**
+- **Temporal decay is a signal; age counts from when it was said** (owner 2026-10-09/13, amends G170): what the
+  conversations prove silent is charged once, when read; a one-off may archive by age, a page or claim on 2+ dated
+  conversations floors at 0.39 and only live silence archives it; ruling 1's one-week cap governs live silence; a
+  mention never lowers; a decay question only when live silence crosses 0.4. Evergreen never decays; a memory export
+  entry is no mention. Below 0.2 archived. **Confidence does not rank recall.**
 
 ### Storage, claims and provenance
 

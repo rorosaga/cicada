@@ -1,4 +1,12 @@
 {
+  "services/age_recompute.py": [
+    {
+      "function": "apply",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    }
+  ],
   "services/agentic_write.py": [
     {
       "function": "_ensure_subject_page",
