@@ -870,7 +870,14 @@ constraining the prose; git is the safety net, the claims and the dated timeline
   name). `--limit N` / `--entity <id>` narrow it; `--preview-dir <outside-the-bank>` makes the calls and writes
   `<id>.before.md`/`<id>.after.md` there, touching nothing in the bank; `--apply` is refused before any call unless the
   backend says Sleep is idle, makes the calls outside the write admission, then writes in one commit
-  (`trigger: maintenance/page-articles`, the model as `Cicada-Author`), skipping a page written since it was read.
+  (`trigger: maintenance/page-articles`, the model as `Cicada-Author`), skipping a page written since it was read. One page's
+  trouble is that page's (2026-10-13, after a malformed answer aborted a 1,056-page run): a malformed, empty or
+  unparseable answer, a timeout, a lost connection, a failed or refused call, a page too long for the model — the
+  page is skipped and counted under `page_failures`, as Sleep's article path falls back on the same answer. What
+  every later page would meet — a plan limit, an unreachable engine, a missing model, a metered key's quota or
+  outage — or 5 engine failures in a row stop the run: no new page starts, the pages in flight finish, and what was
+  written is kept (the preview files, or the one commit), with `stopped` and `not_attempted` in the counts and exit
+  5. Running it again continues: finished pages are already articles.
 
 ### Temporal decay
 Absence of mention IS a signal, and **how often something came up sets how fast its absence
