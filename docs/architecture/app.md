@@ -110,7 +110,7 @@ now runs off the event loop and commits what it merges (G183(e)), so the button 
 G147's *How things fade*: pace suggestions from the person's own "Still tracking…?" answers
 (Apply · Not now — the latter per viewer) and each chosen per-type pace (Reset). Advanced lists the environment
 switches by name (G139) and, under *Settings file* (2026-10-13, `SettingsFileText`), whether a developer checkout's
-`api/.env` was read, which settings it set, which the environment replaced, and the pace and page-writing values in
+`api/.env` was read, which settings it set, which the environment replaced with another value, and the pace and page-writing values in
 effect — from `/status`'s `settings` block (`api.md`), names only. Search is `SettingsIndex` over `QuickMatch` — the
 palette's one ranker — and landing always selects, scrolls, washes (the selected fill and the focus ring) and
 announces the row (G139). `SettingsSection` raw values did not move. General's appearance offers System, which

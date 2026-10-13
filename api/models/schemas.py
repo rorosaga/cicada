@@ -2188,7 +2188,9 @@ class StatusSettingsEffective(CamelModel):
 class StatusSettings(CamelModel):
     """Where each `CICADA_` setting came from, by NAME only (`api/settings_file.py`): the developer checkout's
     settings file (`file`, null when none was read) or the environment, and which names the file set but the
-    environment replaced — so a value that is set but not in effect is visible."""
+    environment replaced with a different value — so a value that is set but not in effect is visible. A name the
+    environment carries with the file's own value (the plist's memory path, the app-spawned developer backend's copy
+    of the whole file) counts as from the file."""
     file: Optional[str] = None
     from_file: list[str] = []
     from_environment: list[str] = []

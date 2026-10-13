@@ -88,8 +88,11 @@ def load(environ: MutableMapping[str, str] | None = None, file: Path | None = No
             if value is None or key in CONTROL_KEYS:
                 continue
             if key in env:
+                # The environment wins. Only a DIFFERENT value replaces the file's: the plist copies
+                # CICADA_MEMORY_PATH from this file, and the app-spawned developer backend copies every key, so an
+                # equal value is the file's own setting, in effect. Values are compared here and never kept.
                 if key.startswith(_PREFIX):
-                    replaced.append(key)
+                    (from_file if env[key] == value else replaced).append(key)
                 continue
             env[key] = value
             if key.startswith(_PREFIX):
@@ -112,7 +115,7 @@ def sources() -> Sources:
 
 
 def log_summary() -> None:
-    """One startup line, names only: what the file set and what the environment replaced."""
+    """One startup line, names only: what the file set and what the environment replaced with another value."""
     from loguru import logger
 
     src = sources()

@@ -83,6 +83,17 @@ def test_load_fills_the_environment_and_the_environment_wins(enabled, tmp_path):
     assert settings_file.sources() == recorded
 
 
+def test_an_equal_value_in_the_environment_is_the_files_own_setting(enabled, tmp_path):
+    """The launchd plist copies CICADA_MEMORY_PATH from api/.env: same value, so the file's setting is in effect."""
+    env_file = tmp_path / ".env"
+    env_file.write_text("CICADA_MEMORY_PATH=/the/bank\nCICADA_LLM_MODE=byok\n")
+    environ = {"CICADA_MEMORY_PATH": "/the/bank", "CICADA_LLM_MODE": "agent"}
+    recorded = settings_file.load(environ=environ, file=env_file)
+    assert recorded.from_file == ("CICADA_MEMORY_PATH",)
+    assert recorded.replaced_by_environment == ("CICADA_LLM_MODE",), "only a different value replaces the file's"
+    assert environ["CICADA_LLM_MODE"] == "agent"
+
+
 def test_load_with_no_file_still_turns_litellms_load_off(enabled, tmp_path):
     environ = {"LITELLM_MODE": "DEV"}
     recorded = settings_file.load(environ=environ, file=tmp_path / "missing.env")
@@ -179,6 +190,18 @@ def test_the_environment_wins_over_the_file(tmp_path):
     assert out["concurrency"] == 4 and out["articles"] is False
     assert out["synthesis"] is True
     assert out["replaced"] == ["CICADA_AGENT_MAX_CONCURRENCY", "CICADA_PAGE_ARTICLES_ENABLED"]
+
+
+def test_the_app_spawned_developer_backend_reports_the_file_it_copied(tmp_path):
+    """`BackendProcess.developerProcess` copies every api/.env key into the child's environment: every one is the file's
+    own setting, in effect — never "0 settings read" with all of them replaced."""
+    root = _checkout(tmp_path, _FILE)
+    copied = dict(line.split("=", 1) for line in _FILE.splitlines())
+    out = _run(tmp_path, cwd=root, pythonpath=str(root), code=_BACKEND_PROBE, **copied)
+    assert out["from_file"] == ["CICADA_AGENT_MAX_CONCURRENCY", "CICADA_PAGE_ARTICLES_ENABLED",
+                                "CICADA_SLEEP_RESOLVE_CONCURRENCY", "CICADA_SUMMARY_SYNTHESIS_ENABLED"]
+    assert out["replaced"] == []
+    assert out["concurrency"] == 10 and out["synthesis"] is True
 
 
 def test_an_agent_folders_dotenv_never_steers_settings(tmp_path):

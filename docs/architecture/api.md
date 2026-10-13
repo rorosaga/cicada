@@ -74,7 +74,9 @@ stripped). A **release** (G182) has no settings file (`CICADA_DISTRIBUTION=relea
 carries tracked files only): its settings are the launcher's and plist's environment, the app's own preferences, and
 provider keys in `$CICADA_HOME/secrets.env`. The `cicada` command keeps its own bootstrap (`mcp.md`) and reads no file
 through `Settings`. `GET /status` carries `settings`: `file` (`"api/.env"` or null), `fromFile`, `fromEnvironment` and
-`replacedByEnvironment` — `CICADA_` names only, never a value — and `effective`, the four values Sleep's pace and page
+`replacedByEnvironment` (only where the environment's value differs from the file's; an equal value, as the plist's
+memory path or the app-spawned developer backend's copy of the file, counts as from the file) — `CICADA_` names only,
+never a value — and `effective`, the four values Sleep's pace and page
 writing turn on (`agentMaxConcurrency`, `sleepResolveConcurrency`, `summarySynthesisEnabled`, `pageArticlesEnabled`).
 The backend logs the same names once at startup. Settings → Advanced shows them (`app.md`).
 
