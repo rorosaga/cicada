@@ -86,7 +86,7 @@ enum SettingsIndex {
         .skill(CicadaSkillBundle.cicada.rawValue), .skill(CicadaSkillBundle.cicadaLibrarian.rawValue),
         .remoteSwitch, .remoteReach, .remoteNew,
         .engineChoice, .engineModel, .engineOverage, .enginePreview, .engineAsk, .engineAutoClaude,
-        .backendStatus, .mcpCommand, .apiToken, .envOverrides,
+        .backendStatus, .mcpCommand, .apiToken, .envOverrides, .settingsFile,
     ]
 
     static let staticEntries: [SettingsEntry] = [
@@ -202,6 +202,7 @@ enum SettingsIndex {
         SettingsEntry(.mcpCommand, .advanced, Copy.mcpCommandTitle, keywords: ["mcp", "command", "python"]),
         SettingsEntry(.apiToken, .advanced, Copy.apiTokenTitle, keywords: ["token", "bearer", "CICADA_API_TOKEN"]),
         SettingsEntry(.envOverrides, .advanced, Copy.envOverridesTitle, keywords: ["env", ".env", "environment", "variables", "CICADA_LLM_MODE"]),
+        SettingsEntry(.settingsFile, .advanced, Copy.settingsFileTitle, keywords: ["api/.env", ".env", "settings", "concurrency", "in effect"]),
     ]
 
     static let pageEntries: [SettingsEntry] = SettingsSection.allCases.map {

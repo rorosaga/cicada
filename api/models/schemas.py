@@ -2177,6 +2177,27 @@ class StatusGates(CamelModel):
     logo_fetch: bool = True
 
 
+class StatusSettingsEffective(CamelModel):
+    """The four values Sleep's pace and page writing turn on — never a path, a key or a token."""
+    agent_max_concurrency: int
+    sleep_resolve_concurrency: int
+    summary_synthesis_enabled: bool
+    page_articles_enabled: bool
+
+
+class StatusSettings(CamelModel):
+    """Where each `CICADA_` setting came from, by NAME only (`api/settings_file.py`): the developer checkout's
+    settings file (`file`, null when none was read) or the environment, and which names the file set but the
+    environment replaced with a different value — so a value that is set but not in effect is visible. A name the
+    environment carries with the file's own value (the plist's memory path, the app-spawned developer backend's copy
+    of the whole file) counts as from the file."""
+    file: Optional[str] = None
+    from_file: list[str] = []
+    from_environment: list[str] = []
+    replaced_by_environment: list[str] = []
+    effective: Optional[StatusSettingsEffective] = None
+
+
 class StatusResponse(CamelModel):
     sleep: StatusSleep
     inbox: StatusInbox
@@ -2189,6 +2210,7 @@ class StatusResponse(CamelModel):
     telemetry: Optional[str] = None
     gates: Optional[StatusGates] = None
     env_overrides: list[str] = []
+    settings: Optional[StatusSettings] = None
 
 
 # --- Health (liveness probe for installer / doctor) ---

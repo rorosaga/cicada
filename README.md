@@ -142,6 +142,10 @@ First launch opens a four-step sheet — your name, a consolidation engine, one 
 your first Sleep cycle — or "try a demo bank first" if you'd rather look around before wiring in
 your own life. Re-open it any time from Settings → General → "Run setup again".
 
+`api/.env` is a source checkout's settings file. The backend reads it from its own folder, whatever directory it
+starts in, after a restart. A variable set in the backend's environment, such as its LaunchAgent plist, wins over the
+file. Settings → Advanced lists which settings came from the file and which the environment replaced with another value.
+
 Pick a consolidation engine in `api/.env`:
 
 ```sh

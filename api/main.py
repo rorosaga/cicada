@@ -1,6 +1,12 @@
-import asyncio
-import logging
-import sys
+# The settings file first, before any other import (`api/settings_file.py`): a developer checkout's `api/.env` fills
+# the environment (the environment wins), and litellm's own walk-up `.env` load is turned off for good.
+from api import settings_file
+
+settings_file.load()
+
+import asyncio  # noqa: E402
+import logging  # noqa: E402
+import sys  # noqa: E402
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI
@@ -109,6 +115,7 @@ SHUTDOWN_DRAIN_S = 30.0
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
+    settings_file.log_summary()
     if auth_enabled():
         get_token()  # generate the token file on first boot so clients can read it
     else:

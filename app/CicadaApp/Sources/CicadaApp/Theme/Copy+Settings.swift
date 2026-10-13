@@ -275,8 +275,9 @@ extension Copy {
     static let telemetryOn = "On — ids and counts only, never your words."
     static let telemetryOff = "Off."
     /// Not "in api/.env" (final review): `telemetry.enabled()` reads only the
-    /// process environment, pydantic's env_file never reaches `os.environ`, and
-    /// the LaunchAgent does not load api/.env — that instruction kept recording.
+    /// process environment. Since 2026-10-13 a developer checkout's backend fills
+    /// its environment from api/.env (`api/settings_file.py`), but a release has
+    /// no such file, so the environment is the one instruction true for both.
     static let telemetryHow = "To turn it off, set CICADA_TELEMETRY=off in the backend's environment (its LaunchAgent) and restart it."
     static let reachingTheInternet = "Reaching the internet"
     static let outboundConnectorsTitle = "Nightly connector check"
@@ -346,6 +347,8 @@ extension Copy {
     static let apiTokenOverridden = "Replaced by CICADA_API_TOKEN in the environment."
     static let envOverridesTitle = "Set in api/.env or the environment"
     static let envOverridesNone = "None — Cicada is using its own settings."
+    static let settingsFileTitle = "Settings file"
+    static let settingsFileNone = "None read — settings come from the environment and Cicada's defaults."
     static let backendNotAnswering = "Not answering."
     static func backendLine(version: String?, entities: Int?, episodes: Int?) -> String {
         var parts = ["Connected"]

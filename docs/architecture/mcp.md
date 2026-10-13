@@ -481,7 +481,9 @@ the CLI.
     file wins, as in the app-spawned dev backend).
   - The root is canonicalised once (`realpath`) and published as the only root in the environment.
   - `api.config.disable_dotenv()` then makes every `Settings` read **no** `.env` file, so neither a project's `.env` in
-    the cwd nor one in `CICADA_HOME` can steer it.
+    the cwd nor one in `CICADA_HOME` can steer it. (Elsewhere — the backend, the MCP server, the hooks — `Settings`
+    reads only the checkout's own `api/.env`, found from the package's folder, never the cwd; `api.md`, "The settings
+    file".)
   - Provider keys load from `secrets.env` as the backend's lifespan loads them.
   - The active bank is pinned once (`bank_registry.pin_request_bank`) in a context every command runs in. The settings
     root is asserted equal to the pinned root, so `get_settings().memory_path` answers the pin through a mid-command bank

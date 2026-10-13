@@ -6,6 +6,7 @@ from loguru import logger
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings
 
+from api import settings_file
 from api.services.bank_registry import resolve_active_bank_path
 
 # Key-backed embedding modes -> the env var whose presence keeps them from
@@ -303,7 +304,10 @@ class Settings(BaseSettings):
     # no hook re-registration.
     capture_assistant_replies: bool = True  # CICADA_CAPTURE_ASSISTANT_REPLIES
 
-    model_config = {"env_prefix": "CICADA_", "env_file": ".env", "extra": "ignore"}
+    # The developer checkout's `api/.env`, as an absolute path found from this package's folder — never a `.env` in the
+    # working directory, which for an MCP server or a hook is an agent's project folder. None in a release
+    # (`api/settings_file.py`). The environment always wins over the file.
+    model_config = {"env_prefix": "CICADA_", "env_file": settings_file.path(), "extra": "ignore"}
 
     @property
     def telegram_enabled(self) -> bool:
@@ -383,4 +387,5 @@ def disable_dotenv() -> None:
     the engine. The command publishes its one resolved root into the environment first
     (``api/cli.py``'s bootstrap), then calls this."""
     Settings.model_config["env_file"] = None
+    settings_file.disable()
     get_settings.cache_clear()
