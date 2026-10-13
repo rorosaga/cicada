@@ -76,8 +76,10 @@ the next page with `?skip=N` (`HistoryPaging`; the window is pinned to `MAX_PROV
 
 **Pictures and the person card (G146, round 4).** Every entity avatar is `EntityPicture` over the one picture
 precedence (`entity_picture.resolve` and its Swift twin `EntityPictureResolver`, one fixture): the person's own upload
-or "initials" → a person's Contacts photo → a brand's logo → a media page's thumbnail → a ring monogram, never a solid
-fill; `PictureStore` holds uploads, Contacts photos and media previews by URL — all on Cicada's own API with the bearer
+or "initials" → a person's Contacts photo → a person's public-profile photo (G159, 2026-10-09; "Photo from their public
+profile", served from Cicada's own copy at `/entities/{id}/photo`, with Change and "Use initials instead" like any
+detected picture) → a brand's logo → a media page's thumbnail → a ring monogram, never a solid
+fill; `PictureStore` holds uploads, Contacts photos, public-profile photos and media previews by URL — all on Cicada's own API with the bearer
 (a media page's picture is the backend's stored `/entities/{id}/preview?v=…`, and `MediaPreview`, `HeroPreview` and
 `VideoThumb` draw the same stored copy through `StoredPreview`; no view loads a provider's thumbnail) —, `LogoStore` the
 logos. Any editable picture opens the image picker on a click (a saved item's also takes a PDF: the backend draws its

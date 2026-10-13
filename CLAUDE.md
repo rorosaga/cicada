@@ -226,10 +226,13 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   never creating one. A site is trusted only when the person added or took it, or Cicada's own read confirmed it; a
   destructive verdict needs positive evidence. Agents check sources before a question reaches the person only on sites the
   person allowed, and **a check never settles, reorders or changes a belief** (S3 is shadow).
-- **Pictures:** one precedence (the person's choice → Contacts photo → a brand's logo → a media thumbnail → a monogram).
-  **A logo comes only from a trusted `website` source — never a domain guessed from a name; a person never gets a logo and
-  no service is sent a person's name (G146/G159).** Logos, pictures, media previews (fetched once, then served from the
-  store) and repo observations are caches outside every bank.
+- **Pictures:** one precedence (the person's choice → Contacts photo → a person's public-profile photo → a brand's logo →
+  a media thumbnail → a monogram). **A logo comes only from a trusted `website` source — never a domain guessed from a
+  name; a person never gets a logo and no service is sent a person's name (G146/G159).** A person's photo is asked only
+  with an identifier already on the page or record and given as their own account — the owner's hashed email, a GitHub,
+  X or LinkedIn profile link (owner, 2026-10-09; `network.md`).
+  Logos, pictures, media previews (fetched once, then served from the store) and repo observations are caches outside
+  every bank.
 - **Backlogs (G150):** one markdown file per item, one writer behind every door, never an entity page.
 - **`_state.md` is a cursor, never a copy**; it commits ALONE, the read path too (the G85-class smear). **The handshake is
   ≤ 1,800 tokens, and R12 holds: every argument a primer names exists in the tool schema.**
@@ -290,7 +293,8 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 - **Study room weather (G176):** its own opt-out app gate reads only public city weather while the room is visible and Settings is closed, at 4 s / ≤ 64 KB / no cookies or identifiers; see `docs/architecture/network.md`.
 - **The ToS rail — not negotiable.** A fetched page is 4 s / ≤ 512 KB / no cookies / never behind auth. Consent
   interstitials and login walls are classified and retired **without a byte fetched**. **A block is never retried with
-  different headers.** No scraping behind authentication, ever.
+  different headers.** No scraping behind authentication, ever. **One dated exception (owner, 2026-10-09):** a person's
+  photo through unavatar.io from an X or LinkedIn link already on their page, behind its own gate, off by default.
 - **Credentials** live in `~/.cicada/secrets.env` (0600) — never in a bank, never logged.
 - **Video:** only a provider's own player URL is loaded; an oEmbed response is read for its fields, never its HTML.
 

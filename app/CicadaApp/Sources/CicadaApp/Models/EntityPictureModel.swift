@@ -4,6 +4,9 @@ import Foundation
 /// resolves it (`api/services/entity_picture.py`); `EntityPictureResolver` below is its twin.
 enum PictureSource: String, Codable, Sendable, CaseIterable {
     case upload, initials, contacts, logo, thumbnail
+    /// G159 (2026-10-09) — a person's public-profile photo, fetched once by the server from an identifier already on the
+    /// page and served from Cicada's own copy (`/entities/{id}/photo`).
+    case profile
 }
 
 /// A page's resolved picture. `url` is nil only for `initials` — the person chose the monogram.
@@ -30,18 +33,28 @@ struct PictureInputs: Codable, Equatable, Hashable, Sendable {
     var contactsSha: String?
     var logo: Bool
     var thumbnail: String?
+    /// G159 — the public-profile rung: offered (decided server-side, like `logo`) and the stored copy's hash.
+    var profile: Bool
+    var profileSha: String?
+    /// Review B1 — the identifiers' hash, which names the photo's URL until a copy is stored.
+    var profileKey: String?
 
     init(type: String, choice: String? = nil, uploadSha: String? = nil, contactsSha: String? = nil,
-         logo: Bool = false, thumbnail: String? = nil) {
+         logo: Bool = false, thumbnail: String? = nil, profile: Bool = false, profileSha: String? = nil,
+         profileKey: String? = nil) {
         self.type = type
         self.choice = choice
         self.uploadSha = uploadSha
         self.contactsSha = contactsSha
         self.logo = logo
         self.thumbnail = thumbnail
+        self.profile = profile
+        self.profileSha = profileSha
+        self.profileKey = profileKey
     }
 
-    enum CodingKeys: String, CodingKey { case type, choice, uploadSha, contactsSha, logo, thumbnail }
+    enum CodingKeys: String, CodingKey { case type, choice, uploadSha, contactsSha, logo, thumbnail, profile, profileSha,
+                                                profileKey }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -51,12 +64,16 @@ struct PictureInputs: Codable, Equatable, Hashable, Sendable {
         contactsSha = (try? c.decodeIfPresent(String.self, forKey: .contactsSha)) ?? nil
         logo = (try? c.decodeIfPresent(Bool.self, forKey: .logo)) ?? false
         thumbnail = (try? c.decodeIfPresent(String.self, forKey: .thumbnail)) ?? nil
+        profile = (try? c.decodeIfPresent(Bool.self, forKey: .profile)) ?? false
+        profileSha = (try? c.decodeIfPresent(String.self, forKey: .profileSha)) ?? nil
+        profileKey = (try? c.decodeIfPresent(String.self, forKey: .profileKey)) ?? nil
     }
 }
 
 /// The twin of `entity_picture.resolve` (R-PE3): one precedence, one table — `api/tests/fixtures/entity_picture.json`
 /// runs on both sides, so a rung added on one side only turns the other red (the `timeline_state.json` precedent).
-/// A person reaches rungs 1–2 only, a media page only its stored preview, everything else only a logo.
+/// A person reaches rungs 1–2b only (upload or initials, Contacts, a public-profile photo), a media page only its
+/// stored preview, everything else only a logo.
 enum EntityPictureResolver {
     /// RFC 3986's unreserved set — exactly what Python's `quote(s, safe="")` leaves alone.
     private static let unreserved = CharacterSet(
@@ -69,8 +86,21 @@ enum EntityPictureResolver {
         }
         if i.choice == "initials" { return EntityPictureRef(url: nil, source: .initials) }
         if i.type == "person" {
-            guard isSha(i.contactsSha), let sha = i.contactsSha else { return nil }
-            return EntityPictureRef(url: "\(path)/picture?v=\(sha)", source: .contacts)
+            if isSha(i.contactsSha), let sha = i.contactsSha {
+                return EntityPictureRef(url: "\(path)/picture?v=\(sha)", source: .contacts)
+            }
+            guard i.profile else { return nil }
+            // The stored bytes name it once there are any; until then the identifiers do, so a changed identifier is a
+            // new URL and `PictureStore`'s disk cache can never pin a stale photo (review B1).
+            let version: String
+            if isSha(i.profileSha), let sha = i.profileSha {
+                version = "?v=\(sha)"
+            } else if isKey(i.profileKey), let key = i.profileKey {
+                version = "?k=\(key)"
+            } else {
+                version = ""
+            }
+            return EntityPictureRef(url: "\(path)/photo\(version)", source: .profile)
         }
         if i.type == "media" {
             // The preview's key (`media_preview.Source.key`), never a URL: the stored copy on Cicada's own API.
@@ -92,6 +122,12 @@ enum EntityPictureResolver {
 
     static func isSha(_ value: String?) -> Bool {
         guard let value, value.unicodeScalars.count == 12 else { return false }
+        return value.unicodeScalars.allSatisfy { ("0"..."9").contains($0) || ("a"..."f").contains($0) }
+    }
+
+    /// A people-photo identifier key: 16 lowercase hex (`person_photo.identity_key`).
+    static func isKey(_ value: String?) -> Bool {
+        guard let value, value.unicodeScalars.count == 16 else { return false }
         return value.unicodeScalars.allSatisfy { ("0"..."9").contains($0) || ("a"..."f").contains($0) }
     }
 

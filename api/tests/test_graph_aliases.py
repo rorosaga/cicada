@@ -107,5 +107,7 @@ def test_graph_serves_aliases_and_its_etag_moves_once_for_the_new_shape(client):
     default_extra = "None|None|0.0|None|True|False"
     before = sync_service.etag_for(mem, "entities", "edges", "hubs", "inbox", "logos", extra=default_extra)
     assert r.headers["etag"] != before, "a pre-S6 client gets one 200, never a 304 into an alias-less cache"
+    # G159 (review B1): `photos` joined the components — a person's stored photo moves the node's `picture`.
     assert r.headers["etag"] == sync_service.etag_for(
-        mem, "entities", "edges", "hubs", "inbox", "logos", extra=f"{default_extra}|{graph_router.NODE_SHAPE}")
+        mem, "entities", "edges", "hubs", "inbox", "logos", "photos",
+        extra=f"{default_extra}|{graph_router.NODE_SHAPE}")

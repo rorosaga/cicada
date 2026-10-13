@@ -57,7 +57,9 @@ async def get_graph(
     etag = sync_service.etag_for(
         # "logos": `has_logo` rides every node's content_hash but lives in the
         # machine-global logo cache, not in the bank — see sync_service.
-        settings.memory_path, "entities", "edges", "hubs", "inbox", "logos", extra=extra
+        # "photos" (G159, review B1): a person's public-profile photo lives outside the bank too; a fetch or a miss
+        # aging out changes the node's `picture` and nothing else.
+        settings.memory_path, "entities", "edges", "hubs", "inbox", "logos", "photos", extra=extra
     )
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early

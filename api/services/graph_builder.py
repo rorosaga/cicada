@@ -110,6 +110,15 @@ def build_graph(
     )
 
 
+def _photos_stamp(memory_path: Path) -> str:
+    try:
+        from api.services import person_photo
+
+        return person_photo.stamp(logo_service.bank_name(memory_path))
+    except Exception:
+        return ""
+
+
 def _build_full(memory_path: Path) -> GraphResponse:
     entities_dir = memory_path / "entities"
     edges_file = memory_path / "graph_edges.yaml"
@@ -126,6 +135,9 @@ def _build_full(memory_path: Path) -> GraphResponse:
         # on-demand fetch moves no other key here — without this the cached
         # response keeps every node's stale `has_logo` (and `content_hash`).
         _mtime(logo_service.meta_path(logo_service.bank_name(memory_path))),
+        # G159 (review B1): the people-photo index, outside the bank too — a stored photo or a miss aging out moves
+        # a node's `picture` (`person_photo.stamp`: the index's mtime plus the misses past their window).
+        _photos_stamp(memory_path),
     )
     if _CACHE["key"] == key:
         return _CACHE["value"]
@@ -171,6 +183,14 @@ def _build_full(memory_path: Path) -> GraphResponse:
         logo_misses = logo_service.missed_ids(logo_service.bank_name(memory_path))
     except Exception:
         logo_misses = {}
+    # G159 (2026-10-09) — the people-photo index, read once: the public-profile rung is offered while not known to
+    # miss, versioned once a copy is stored. Read-only, like the logo sets.
+    try:
+        from api.services import person_photo
+
+        people_photos = person_photo.read_meta(logo_service.bank_name(memory_path))
+    except Exception:
+        people_photos = {}
     for f in bank_index.files(memory_path, "entities"):
         fm = f.frontmatter
         eid = f.stem
@@ -200,7 +220,7 @@ def _build_full(memory_path: Path) -> GraphResponse:
         # One malformed page must never cost the whole graph its answer (final review, finding 2): no picture, a ring.
         try:
             picture, _ = entity_picture.resolve_page(memory_path, eid, fm, body, page_mtime=f.mtime_ns / 1e9,
-                                                     cached=logo_ids, missed=logo_misses)
+                                                     cached=logo_ids, missed=logo_misses, photos=people_photos)
         except Exception:
             picture = entity_picture.NOTHING
         nodes.append(

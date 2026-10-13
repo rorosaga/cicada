@@ -15,8 +15,8 @@ from pathlib import Path
 
 from fastapi import Request, Response
 
-from api.services import (backlog, bank_index, logo_service, markdown_parser, reading_asks, reading_settings,
-                              telemetry, video_queue)
+from api.services import (backlog, bank_index, logo_service, markdown_parser, person_photo, reading_asks,
+                          reading_settings, telemetry, video_queue)
 from api.services.calendar_registry import CALENDARS_FILENAME
 from api.services.feed_registry import FEEDS_FILENAME
 from api.services.folder_source import FOLDERS_FILENAME
@@ -210,6 +210,11 @@ def components(memory_path: Path, *, sleep_state=None) -> dict[str, str]:
         # (The other direction — an entry aging out of its TTL, which writes
         # nothing — rides the expired count; see `_logos_component`.)
         "logos": _logos_component(mp),
+        # G159 (2026-10-09): a person's public-profile photo is cached at `$CICADA_HOME/pictures/<bank>/people/`,
+        # outside the bank, and `/graph` bakes its `?v=` (or its absence, after a miss) into the node's hash. The
+        # stamp is `meta.json`'s mtime plus the misses past their retry window (an expiry writes nothing). The app
+        # maps it onto `.graph`, like `logos`.
+        "photos": person_photo.stamp(logo_service.bank_name(mp)),
         # G162: the person's video queue lives at `$CICADA_HOME/video_queue/<bank>.json`,
         # OUTSIDE the bank, so a queued video, an agent's lease or a hand-back moves nothing
         # above. `stamp` is the file's mtime plus how many leases, failed rows and finished

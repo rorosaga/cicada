@@ -9,6 +9,10 @@ both are held to `api/tests/fixtures/entity_picture.json`, so a rung added on on
 2. **a Contacts photo**, `person` pages only (G154). T-Sources writes the optional `contacts_photo: {sha, ext}` key and
    the bytes at `$CICADA_HOME/pictures/<bank>/contacts/<id>.<ext>` (its R-SR9); until it lands no page carries the key
    and the rung never fires (R-PE7);
+2b. **a public profile photo**, `person` pages only (G159 amendment, owner 2026-10-09): `person_photo` asks the
+   email's public photo, then the GitHub avatar, ONLY from an identifier already on the page or the person's own record
+   (the owner's own email on the owner's page; a GitHub profile link among the page's sources) — never from a name.
+   Offered while not known to miss; `?v=<sha>` once a copy is stored outside the bank;
 3. **the domain logo** (G59's ladder), never for a `person` or a `media` page: eligible for `company`/`tool` or a page
    whose own `logo:` names a domain, available when cached or not yet known to miss (R-PE9);
 4. **the media page's own preview**, `media` pages only: the saved page's `og:image`, a provider's thumbnail, a YouTube
@@ -17,7 +21,7 @@ both are held to `api/tests/fixtures/entity_picture.json`, so a rung added on on
    none (G133 fetches no arXiv page or PDF); its picture is the person's own PDF, rung 1;
 5. **nothing** — the app draws a ring monogram, never a solid fill.
 
-A person gets rungs 1–2 only: a surname is not a domain (G59), and no service is ever sent a person's name (G159).
+A person gets rungs 1–2b only: a surname is not a domain (G59), and no service is ever sent a person's name (G159).
 
 `resolve` does no I/O. `resolve_page` gathers one page's inputs from its frontmatter and the machine-global logo index,
 read-only — `GET /graph` still never fetches, and `GET /entities/{id}/logo` is still the only place a logo is fetched.
@@ -49,8 +53,9 @@ LOGO_TYPES = frozenset(logo_service.GUESSABLE_TYPES)
 CONTACTS_DIR = ("pictures", "contacts")
 #: `papers.KIND`, spelled in `media_preview` so `graph_builder`'s import of this module stays light; a test pins it.
 PAPER_KIND = media_preview.PAPER_KIND
-SOURCES = ("upload", "initials", "contacts", "logo", "thumbnail")
+SOURCES = ("upload", "initials", "contacts", "profile", "logo", "thumbnail")
 _SHA_RE = re.compile(r"[0-9a-f]{12}")
+_KEY_RE = re.compile(r"[0-9a-f]{16}")
 _DAY_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 
@@ -65,20 +70,30 @@ class PictureInputs:
     contacts_sha: str | None = None
     logo: bool = False
     thumbnail: str | None = None
+    #: G159 (2026-10-09): the public-profile rung's availability (decided server-side, like `logo`) and the stored
+    #: copy's hash once there is one.
+    profile: bool = False
+    profile_sha: str | None = None
+    #: Review B1: the identifiers' hash, which names the URL until a copy is stored.
+    profile_key: str | None = None
 
     @classmethod
     def from_wire(cls, raw: dict) -> "PictureInputs":
         return cls(type=str(raw.get("type") or "concept"), choice=raw.get("choice"), upload_sha=raw.get("uploadSha"),
-                   contacts_sha=raw.get("contactsSha"), logo=bool(raw.get("logo")), thumbnail=raw.get("thumbnail"))
+                   contacts_sha=raw.get("contactsSha"), logo=bool(raw.get("logo")), thumbnail=raw.get("thumbnail"),
+                   profile=bool(raw.get("profile")), profile_sha=raw.get("profileSha"),
+                   profile_key=raw.get("profileKey"))
 
     def to_wire(self) -> dict:
         return {"type": self.type, "choice": self.choice, "uploadSha": self.upload_sha,
-                "contactsSha": self.contacts_sha, "logo": self.logo, "thumbnail": self.thumbnail}
+                "contactsSha": self.contacts_sha, "logo": self.logo, "thumbnail": self.thumbnail,
+                "profile": self.profile, "profileSha": self.profile_sha, "profileKey": self.profile_key}
 
     def to_fields(self) -> dict:
         """Keyword arguments for `schemas.PictureInputsModel`."""
         return {"type": self.type, "choice": self.choice, "upload_sha": self.upload_sha,
-                "contacts_sha": self.contacts_sha, "logo": self.logo, "thumbnail": self.thumbnail}
+                "contacts_sha": self.contacts_sha, "logo": self.logo, "thumbnail": self.thumbnail,
+                "profile": self.profile, "profile_sha": self.profile_sha, "profile_key": self.profile_key}
 
 
 @dataclass(frozen=True)
@@ -106,6 +121,16 @@ def resolve(entity_id: str, inputs: PictureInputs) -> Resolved:
     if inputs.type == "person":
         if _sha(inputs.contacts_sha):
             return Resolved("contacts", f"{path}/picture?v={inputs.contacts_sha}")
+        if inputs.profile:
+            # The stored bytes name it once there are any; until then the identifiers do, so a changed identifier is
+            # a new URL and no cache keyed by URL can pin a stale photo (review B1).
+            if _sha(inputs.profile_sha):
+                version = f"?v={inputs.profile_sha}"
+            elif isinstance(inputs.profile_key, str) and _KEY_RE.fullmatch(inputs.profile_key):
+                version = f"?k={inputs.profile_key}"
+            else:
+                version = ""
+            return Resolved("profile", f"{path}/photo{version}")
         return NOTHING
     if inputs.type == "media":
         # The preview's key (`media_preview.Source.key`), never a URL: the app loads Cicada's stored copy.
@@ -181,15 +206,25 @@ def logo_available(entity_id: str, fm: dict, body: str, *, cached: set[str], mis
 
 
 def resolve_page(memory_path, entity_id: str, fm: dict, body: str, *, page_mtime: float,
-                 cached: set[str] | None = None, missed: dict[str, float] | None = None) -> tuple[Resolved, PictureInputs]:
+                 cached: set[str] | None = None, missed: dict[str, float] | None = None,
+                 photos: dict | None = None) -> tuple[Resolved, PictureInputs]:
     """The wire's two answers for one page: what to draw, and the inputs the app's twin re-resolves from. The graph
-    builder passes the bank's logo sets once; a single-page caller lets this read them."""
+    builder passes the bank's logo sets and the people-photo index once; a single-page caller lets this read them."""
     if cached is None or missed is None:
         bank = logo_service.bank_name(Path(memory_path))
         cached = logo_service.cached_ids(bank) if cached is None else cached
         missed = logo_service.missed_ids(bank) if missed is None else missed
     available = logo_available(entity_id, fm, body, cached=cached, missed=missed, page_mtime=page_mtime)
     inputs = inputs_for(fm, logo_available=available)
+    if inputs.type == "person":
+        from api.services import demo_guard, person_photo   # it imports this module; the rung is its to say
+
+        bank = logo_service.bank_name(Path(memory_path))
+        # A demo's owner page is synthetic: the real owner's email never draws it (one check — one owner page).
+        owner = {} if fm.get("owner") is True and demo_guard.is_demo(Path(memory_path)) else None
+        offered, sha, key = person_photo.available(
+            entity_id, fm, person_photo.read_meta(bank) if photos is None else photos, owner=owner, bank=bank)
+        inputs = replace(inputs, profile=offered, profile_sha=sha, profile_key=key if offered else None)
     return resolve(entity_id, inputs), inputs
 
 
