@@ -636,9 +636,17 @@ def chat_export(path: Path) -> bytes | None:
         return None
     from api.routers import intake
 
+    from fastapi import HTTPException
+
     content = path.read_bytes()
     try:
         parsed = intake.parse_export(content, path.name)
+    except HTTPException as exc:
+        if exc.detail in intake.FINAL_REFUSALS:
+            # A page the intake refuses for good (the ChatGPT chat.html viewer; Takeout activity of a product other
+            # than Gemini): the backend's sniff never offers it to the platform reader either, so neither does this.
+            raise Refusal("refused", str(exc.detail)) from None
+        return None
     except Exception:  # noqa: BLE001 - not a chat export (the reader's refusal is the platform reader's to give)
         return None
     return content if parsed.episodes else None

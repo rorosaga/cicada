@@ -15,7 +15,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pytest
 
 from _cli import free_port
-from _intake_fixtures import chatgpt_conversations
+from _intake_fixtures import CHAT_HTML, chatgpt_conversations, gemini_activity_html
 from _synthetic_bank import _bank
 from api.services import cli_map
 
@@ -599,3 +599,20 @@ def test_a_preview_of_either_branch_is_allowed_from_an_agents_shell(env, monkeyp
     monkeypatch.setenv("CODEX_THREAD_ID", "t-1")
     code, out = _run(["import", str(_x_archive(tmp_path / "twitter-archive.zip")), "--preview"], capsys)
     assert code == 0 and out["data"]["total"] == 1
+
+
+@pytest.mark.parametrize("name,page", [
+    ("chat.html", CHAT_HTML),
+    ("MyActivity.html", gemini_activity_html((("example.com opening hours", None, "Jan 5, 2026, 9:00:00 AM PST"),),
+                                             product="Search", verb="Searched for")),
+], ids=["chatgpt-viewer", "takeout-search-activity"])
+def test_a_page_the_intake_refuses_for_good_is_never_read_as_saved_items(env, monkeypatch, capsys, tmp_path, name,
+                                                                          page):
+    from api.routers import intake
+
+    path = tmp_path / name
+    path.write_text(page)
+    with _backend(env, monkeypatch) as server:
+        code, out = _run(["import", str(path)], capsys)
+    assert code == 1 and out["code"] == "refused" and out["text"] in intake.FINAL_REFUSALS, out
+    assert server.seen == [] and not list((env / "entities").glob("media-*.md"))
