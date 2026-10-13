@@ -97,6 +97,7 @@ struct SettingsRowID: RawRepresentable, Hashable, Codable, Sendable {
     static let mcpCommand = SettingsRowID("mcpCommand")
     static let apiToken = SettingsRowID("apiToken")
     static let envOverrides = SettingsRowID("envOverrides")
+    static let settingsFile = SettingsRowID("settingsFile")
 
     /// Every section's header — what a section-level hit lands on (R-O14).
     static func page(_ section: SettingsSection) -> SettingsRowID { SettingsRowID("page:\(section.rawValue)") }

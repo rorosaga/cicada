@@ -14,6 +14,7 @@ struct AdvancedView: View {
     private let mcp = CicadaRuntime.current.mcpCommand
 
     private var overrides: [String] { store.status.value?.envOverrides ?? [] }
+    private var settingsSources: StatusSnapshot.SettingsSources? { store.status.value?.settings }
 
     private var backendLine: String {
         guard store.isConnected else { return Copy.backendNotAnswering }
@@ -50,6 +51,23 @@ struct AdvancedView: View {
                             HStack(alignment: .firstTextBaseline, spacing: CicadaTheme.spacingSM) {
                                 Text(name).font(CicadaTheme.monoFont).foregroundStyle(CicadaTheme.textPrimary)
                                 Text(EnvOverrideCopy.meaning(name) ?? "").font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
+                            }
+                        }
+                    }
+                }
+                if let sources = settingsSources {
+                    SettingsDivider()
+                    SettingsRow(.settingsFile, title: Copy.settingsFileTitle,
+                                detail: SettingsFileText.detail(sources)) { EmptyView() } below: {
+                        VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+                            ForEach(SettingsFileText.lines(sources), id: \.name) { line in
+                                HStack(alignment: .firstTextBaseline, spacing: CicadaTheme.spacingSM) {
+                                    Text(line.name).font(CicadaTheme.monoFont).foregroundStyle(CicadaTheme.textPrimary)
+                                    Text(line.note).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
+                                }
+                            }
+                            if let effective = SettingsFileText.effective(sources.effective) {
+                                Text(effective).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
                             }
                         }
                     }

@@ -142,6 +142,24 @@ struct StatusSnapshot: Codable, Equatable {
     var telemetry: String? = nil
     var gates: Gates? = nil
     var envOverrides: [String]? = nil
+    /// 2026-10-13 — where each `CICADA_` setting came from (a developer checkout's `api/.env` or the environment),
+    /// by name only, and the pace and page-writing values in effect. Optional like the rest: an older backend has none.
+    var settings: SettingsSources? = nil
+
+    struct SettingsSources: Codable, Equatable {
+        var file: String?
+        var fromFile: [String]?
+        var fromEnvironment: [String]?
+        var replacedByEnvironment: [String]?
+        var effective: Effective?
+
+        struct Effective: Codable, Equatable {
+            var agentMaxConcurrency: Int?
+            var sleepResolveConcurrency: Int?
+            var summarySynthesisEnabled: Bool?
+            var pageArticlesEnabled: Bool?
+        }
+    }
 
     /// Each gate optional too: a missing key reads as "—" on Privacy & data,
     /// never as a guessed On or Off, and never fails the whole `/status`
