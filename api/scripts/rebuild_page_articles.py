@@ -20,7 +20,10 @@ rebuild on a metered key spends money, so it is agreed to by name.
 The bank is named explicitly; nothing is resolved from the environment's active bank. Prints one JSON object of
 counts (never a page name or a word of the bank). Exit 0 done, 2 not a bank or a bad preview directory, 3 refused
 because Sleep is running or holds the pages, 4 refused because no engine resolves or it is metered without
-``--allow-metered``.
+``--allow-metered``, 5 stopped early by the engine (a plan limit, an unreachable engine, or pages failing in a row):
+the pages written before the stop are kept (``stopped`` says why, ``not_attempted`` how many were never asked; run it
+again to continue — finished pages are already articles). One page's malformed answer, timeout or refusal never
+stops the run: that page is skipped and counted under ``page_failures``.
 """
 from __future__ import annotations
 
@@ -71,7 +74,7 @@ def main(argv=None) -> int:
         print(json.dumps({"refused": str(exc), "engine": exc.engine}))
         return 4
     print(rebuild.dumps(result))
-    return 0
+    return 5 if result.stopped else 0
 
 
 if __name__ == "__main__":

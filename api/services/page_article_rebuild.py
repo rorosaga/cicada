@@ -99,6 +99,7 @@ class Job:
     body: str
     writer: dict         # `conflict_resolver._article_job`'s inputs and prompt
     article: dict | None = None
+    attempted: bool = False
 
 
 @dataclass
@@ -116,6 +117,12 @@ class Survey:
     prompt_chars: int = 0
     calls: int = 0
     invalid: int = 0
+    # Pages whose call failed, by reason (`_page_failure`): each page is skipped, never the run.
+    page_failures: dict = field(default_factory=dict)
+    # Why the run stopped early (a plan limit, an engine that cannot answer, pages failing in a row), or None. The
+    # pages written before the stop are kept (preview files, or the one commit); ``not_attempted`` were never asked.
+    stopped: str | None = None
+    not_attempted: int = 0
     paragraphs_left_out: dict = field(default_factory=dict)
     written: int = 0
     changed_since_read: int = 0
@@ -180,10 +187,73 @@ def survey(memory_path, settings, *, entity_ids=None, limit: int | None = None, 
     return result
 
 
+#: Engine failures in a row (timeouts, lost connections, failed calls) after which the run stops: one page's trouble
+#: is that page's, but every page failing is the engine's, and asking 1,000 more pages would only spend the wait.
+MAX_FAILURES_IN_A_ROW = 5
+
+_ENGINE_TROUBLE = {"timed_out", "connection_lost", "engine_failed"}
+
+
+class _Stop(Exception):
+    """Raised from one page to stop the run: no new page starts, the pages in flight finish."""
+
+    def __init__(self, sentence: str):
+        super().__init__(sentence)
+        self.sentence = sentence
+
+
+def _page_failure(exc: BaseException) -> str | None:
+    """One page's failure as the reason it is skipped, or ``None`` when it is the engine's and stops the run.
+
+    Stops: a plan limit (throttled, exhausted, overage), an engine that cannot be reached, a model that does not
+    exist, and a metered provider's key, quota, rate limit or outage — every later page would meet it too. Skipped:
+    a malformed, empty or unparseable answer (the same answer Sleep's article path falls back on), a timeout, a lost
+    connection, a failed or refused call, a page too long for the model."""
+    from api.services import engine_errors
+
+    if isinstance(exc, (engine_errors.EngineThrottled, engine_errors.EngineExhausted,
+                        engine_errors.EngineUnavailable, engine_errors.EngineModelNotFound)):
+        return None
+    try:
+        import litellm
+
+        lx = litellm.exceptions
+        if isinstance(exc, lx.Timeout):
+            return "timed_out"
+        if isinstance(exc, lx.ContextWindowExceededError):
+            return "too_long"
+        if isinstance(exc, lx.ContentPolicyViolationError):
+            return "refused"
+        if isinstance(exc, (lx.APIError, lx.AuthenticationError, lx.NotFoundError, lx.RateLimitError,
+                            lx.APIConnectionError, lx.BadRequestError, lx.InternalServerError,
+                            lx.ServiceUnavailableError)):
+            return None
+    except Exception:  # pragma: no cover - litellm missing or renamed
+        pass
+    if isinstance(exc, engine_errors.EngineTimeout):
+        return "timed_out"
+    if isinstance(exc, engine_errors.EngineConnectionLost):
+        return "connection_lost"
+    if isinstance(exc, engine_errors.EngineProtocolError):
+        return "unparsed"
+    if isinstance(exc, engine_errors.EngineFailed):
+        return "engine_failed"
+    if isinstance(exc, engine_errors.EngineError):
+        return None
+    if isinstance(exc, (ValueError, TypeError, KeyError, AttributeError, IndexError)):
+        return "unparsed"   # malformed, empty or unbalanced JSON (`json_parse`), or an answer of the wrong shape
+    return "error"
+
+
 async def write(result: Survey, settings) -> Survey:
     """One writer call per selected page, at most ``agent_max_concurrency`` at once, on ``settings`` as
-    :func:`resolve_engine` resolved them. Engine errors propagate (a plan limit stops the rebuild; nothing has been
-    written)."""
+    :func:`resolve_engine` resolved them.
+
+    A page's own failure skips that page and is counted (:func:`_page_failure`); the run goes on. An engine failure
+    every later page would meet — a plan limit, an unreachable engine, a metered key's quota — or
+    :data:`MAX_FAILURES_IN_A_ROW` engine failures in a row stop the run: no new page starts, the pages in flight
+    finish, and ``result.stopped`` says why. What was written before the stop is kept for :func:`preview` /
+    :func:`apply`; nothing is lost to one page."""
     from api.services import providers
 
     resolve_llm_fn = providers.resolve_llm_fn
@@ -191,7 +261,24 @@ async def write(result: Survey, settings) -> Survey:
     llm_fn = resolve_llm_fn(settings, model=settings.effective_consolidation_model, completion=completion,
                             stage="merge")
 
+    in_a_row = {"n": 0}
+
     async def one(job: Job) -> None:
+        job.attempted = True
+        try:
+            await ask(job)
+            in_a_row["n"] = 0
+        except Exception as exc:  # noqa: BLE001 - sorted below: one page's trouble, or the run's
+            reason = _page_failure(exc)
+            if reason is None:
+                raise _Stop(f"{type(exc).__name__}: {str(exc).strip()[:300]}") from exc
+            result.page_failures[reason] = result.page_failures.get(reason, 0) + 1
+            logger.warning(f"page articles: one page skipped ({reason}: {type(exc).__name__})")
+            in_a_row["n"] = in_a_row["n"] + 1 if reason in _ENGINE_TROUBLE else 0
+            if in_a_row["n"] >= MAX_FAILURES_IN_A_ROW:
+                raise _Stop(f"{in_a_row['n']} pages in a row failed in the engine (last: {reason})") from exc
+
+    async def ask(job: Job) -> None:
         response = await llm_fn(messages=[{"role": "user", "content": job.writer["prompt"]}],
                                 response_format={"type": "json_object"})
         result.calls += 1
@@ -215,7 +302,12 @@ async def write(result: Survey, settings) -> Survey:
     from api.services import agent_engine
 
     with agent_engine.use_scope(f"articles:{uuid.uuid4().hex}"):   # a plan throttle here never blocks Sleep's scope
-        await conflict_resolver._overlap_pages(result._jobs, one, concurrency=concurrency)
+        try:
+            await conflict_resolver._overlap_pages(result._jobs, one, concurrency=concurrency)
+        except _Stop as stop:
+            result.stopped = stop.sentence
+            logger.warning(f"page articles: stopped early — {stop.sentence}")
+    result.not_attempted = sum(1 for job in result._jobs if not job.attempted)
     return result
 
 
