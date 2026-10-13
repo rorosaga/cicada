@@ -286,18 +286,21 @@ def test_the_persons_choice_and_contacts_photo_mean_no_fetch(bank, gates_on):
 
 def test_availability_is_offered_until_known_to_miss(bank, gates_on):
     fm = {"type": "person", "sources": [GITHUB_SOURCE]}
-    assert person_photo.available("bob-example", fm, {}, owner={}) == (True, None), "never asked: the card may ask"
-    assert person_photo.available("bob-example", {"type": "person"}, {}, owner={}) == (False, None)
+    key = person_photo.identity_key(person_photo.candidates(fm, owner={}))
+    assert key and len(key) == 16
+    assert person_photo.available("bob-example", fm, {}, owner={}) == (True, None, key), "never asked: the card may ask"
+    assert person_photo.available("bob-example", {"type": "person"}, {}, owner={}) == (False, None, None)
     write_page(bank, "bob-example", {"sources": [GITHUB_SOURCE]})
     http = FakeHTTP({"https://github.com/bob-example.png": FetchResult(200, png_bytes(), "image/png")})
     asyncio.run(person_photo.ensure_photo(bank, "bob-example", fetcher=http))
     meta = person_photo.read_meta("default")
-    offered, sha = person_photo.available("bob-example", fm, meta, owner={}, bank="default")
-    assert offered and sha == meta["bob-example"]["sha"]
+    offered, sha, got = person_photo.available("bob-example", fm, meta, owner={}, bank="default")
+    assert offered and sha == meta["bob-example"]["sha"] and got == key
     miss = {"bob-example": {**meta["bob-example"], "miss": True, "ext": None, "sha": None}}
-    assert person_photo.available("bob-example", fm, miss, owner={}) == (False, None)
+    assert person_photo.available("bob-example", fm, miss, owner={}) == (False, None, key)
     other = {"type": "person", "sources": [{**GITHUB_SOURCE, "ref": "https://github.com/bob-other"}]}
-    assert person_photo.available("bob-example", other, miss, owner={}) == (True, None), "a new identifier is asked"
+    offered, sha, other_key = person_photo.available("bob-example", other, miss, owner={})
+    assert offered and sha is None and other_key != key, "a new identifier is asked, under a new key"
 
 
 def test_the_stamp_moves_on_a_write_and_on_an_expiry(bank, gates_on):
@@ -433,3 +436,55 @@ def test_the_daily_budget_is_install_wide_and_over_it_is_a_transient_miss(bank, 
     write_page(other, "q-example", {"sources": [X_SOURCE]})
     asyncio.run(person_photo.ensure_photo(other, "q-example", fetcher=http))
     assert len(http.asked) == 2
+
+
+# --- which links are the person's own account (review B2) ----------------------------------------------------------
+
+
+@pytest.mark.parametrize("source, counts", [
+    ({"ref": "https://github.com/bob-example", "kind": "url", "added_by": "user"}, True),
+    ({"ref": "https://github.com/bob-example", "kind": "url", "added_by": "user", "predicate": "profile"}, True),
+    ({"ref": "https://github.com/bob-example", "kind": "url", "added_by": "claude-code", "accepted": True,
+      "predicate": "works-at"}, False),
+    ({"ref": "https://github.com/bob-example", "kind": "url", "added_by": "claude-code"}, True),
+    ({"ref": "https://github.com/bob-example", "kind": "url", "added_by": "claude-code", "predicate": "github"}, True),
+    ({"ref": "https://github.com/acme-org", "kind": "url", "added_by": "user", "predicate": "works-at"}, False),
+    ({"ref": "https://github.com/acme-org", "kind": "url", "added_by": "claude-sonnet-4-5", "predicate": "works-at"}, False),
+    ({"ref": "https://github.com/bob-example", "kind": "url", "added_by": "agent"}, False),
+    ({"ref": "https://github.com/bob-example", "kind": "url", "added_by": "cicada"}, False),
+    ({"ref": "https://github.com/bob-example", "kind": "url", "added_by": "user", "only_me": True}, False),
+], ids=["person", "person-profile", "taken-for-a-fact", "agent-no-fact", "agent-profile", "person-works-at",
+        "stage-5.56-cite", "unidentified-proposal", "cicada", "only-me"])
+def test_only_a_link_given_as_the_persons_own_account_counts(source, counts):
+    found = person_photo.candidates({"type": "person", "sources": [source]}, owner={})
+    assert bool(found) is counts
+
+
+def test_no_fact_stage_5_56_can_cite_is_a_profile_predicate(tmp_path):
+    """Stage 5.56 attaches a cited link under the claim's own predicate, and only one whose locus is `world` or
+    `artifact`; none of those may ever read as "this is their account"."""
+    from api.services import predicates
+
+    locus_of = predicates.build_locus_fn(tmp_path)
+    for predicate in person_photo.PROFILE_PREDICATES:
+        assert locus_of(predicate) not in ("world", "artifact"), predicate
+
+
+def test_the_whole_ladder_has_one_deadline(bank, proxy_on, monkeypatch):
+    monkeypatch.setattr(person_photo, "LADDER_SECONDS", 0.05)
+
+    async def slow(url):
+        await asyncio.sleep(0.2)
+        return FetchResult(404, b"", "text/plain")
+
+    write_page(bank, "bob-example", {"sources": [GITHUB_SOURCE, X_SOURCE]})
+    assert asyncio.run(person_photo.ensure_photo(bank, "bob-example", fetcher=slow)) is None
+    entry = person_photo.read_meta("default")["bob-example"]
+    assert entry["transient"] is True, "out of time is asked again soon, never a cached miss"
+
+
+def test_the_proxy_budget_is_spent_only_on_a_request_that_may_go(bank, proxy_on, monkeypatch):
+    monkeypatch.setattr(net_guard, "_resolve_host", lambda host: ["127.0.0.1"])
+    write_page(bank, "bob-example", {"sources": [X_SOURCE]})
+    asyncio.run(person_photo.ensure_photo(bank, "bob-example", fetcher=FakeHTTP({})))
+    assert not person_photo.budget_path().exists(), "a refused request spends nothing"

@@ -35,7 +35,8 @@ Three backend gates, and a separate app-side scenery gate below. They do **not**
   with the username from that link. Nothing else: no name, no page text, no claim, no cookie or credential, a fixed
   User-Agent, and (as with any request) the Mac's network address. Each request is `https` to the provider's own hosts
   only (`gravatar.com` and its subdomains, `github.com`, `avatars.githubusercontent.com`), every redirect hop re-checked
-  against that list and `net_guard`, at most three; 4 s in all, the body streamed and cut past 512 KB; kept only as a
+  against that list and `net_guard`, at most three; 4 s a request (all its hops) and 10 s for the whole ladder, out of
+  time being a transient miss; the body streamed and cut past 512 KB; kept only as a
   PNG or JPEG of 16–1024 px by its bytes (SVG refused whatever its header). `d=404` makes "no photo" a 404, so no
   default image is cached as a photo.
 - **`CICADA_ALLOW_PERSON_PHOTO_PROXY=on`** (owner 2026-10-09, **off by default**) is the ToS rail's one exception: a
@@ -50,7 +51,8 @@ Three backend gates, and a separate app-side scenery gate below. They do **not**
   documented "404 when there is no avatar", so a default image is never cached as a photo. Every hop must stay on
   `unavatar.io` (a redirect elsewhere is refused and remembered as a miss) and pass `net_guard`; the same 4 s, 512 KB
   and raster-only rules. At most 25 lookups a UTC day across the install (the proxy's anonymous allowance per IP),
-  counted in `$CICADA_HOME/pictures/proxy_budget.json`, outside every bank; a lookup over budget is a transient miss,
+  counted in `$CICADA_HOME/pictures/proxy_budget.json`, outside every bank, and spent only once a request has passed
+  the host and `net_guard` checks; a lookup over budget is a transient miss,
   asked again the next day, never a cached one. With the gate off, an X or LinkedIn link is not an identifier at all.
 
 **The study room's weather has its own app gate (G176, owner 2026-10-02).** It is opt-out through the per-viewer scenery

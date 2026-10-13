@@ -55,6 +55,7 @@ CONTACTS_DIR = ("pictures", "contacts")
 PAPER_KIND = media_preview.PAPER_KIND
 SOURCES = ("upload", "initials", "contacts", "profile", "logo", "thumbnail")
 _SHA_RE = re.compile(r"[0-9a-f]{12}")
+_KEY_RE = re.compile(r"[0-9a-f]{16}")
 _DAY_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 
@@ -73,23 +74,26 @@ class PictureInputs:
     #: copy's hash once there is one.
     profile: bool = False
     profile_sha: str | None = None
+    #: Review B1: the identifiers' hash, which names the URL until a copy is stored.
+    profile_key: str | None = None
 
     @classmethod
     def from_wire(cls, raw: dict) -> "PictureInputs":
         return cls(type=str(raw.get("type") or "concept"), choice=raw.get("choice"), upload_sha=raw.get("uploadSha"),
                    contacts_sha=raw.get("contactsSha"), logo=bool(raw.get("logo")), thumbnail=raw.get("thumbnail"),
-                   profile=bool(raw.get("profile")), profile_sha=raw.get("profileSha"))
+                   profile=bool(raw.get("profile")), profile_sha=raw.get("profileSha"),
+                   profile_key=raw.get("profileKey"))
 
     def to_wire(self) -> dict:
         return {"type": self.type, "choice": self.choice, "uploadSha": self.upload_sha,
                 "contactsSha": self.contacts_sha, "logo": self.logo, "thumbnail": self.thumbnail,
-                "profile": self.profile, "profileSha": self.profile_sha}
+                "profile": self.profile, "profileSha": self.profile_sha, "profileKey": self.profile_key}
 
     def to_fields(self) -> dict:
         """Keyword arguments for `schemas.PictureInputsModel`."""
         return {"type": self.type, "choice": self.choice, "upload_sha": self.upload_sha,
                 "contacts_sha": self.contacts_sha, "logo": self.logo, "thumbnail": self.thumbnail,
-                "profile": self.profile, "profile_sha": self.profile_sha}
+                "profile": self.profile, "profile_sha": self.profile_sha, "profile_key": self.profile_key}
 
 
 @dataclass(frozen=True)
@@ -118,7 +122,14 @@ def resolve(entity_id: str, inputs: PictureInputs) -> Resolved:
         if _sha(inputs.contacts_sha):
             return Resolved("contacts", f"{path}/picture?v={inputs.contacts_sha}")
         if inputs.profile:
-            version = f"?v={inputs.profile_sha}" if _sha(inputs.profile_sha) else ""
+            # The stored bytes name it once there are any; until then the identifiers do, so a changed identifier is
+            # a new URL and no cache keyed by URL can pin a stale photo (review B1).
+            if _sha(inputs.profile_sha):
+                version = f"?v={inputs.profile_sha}"
+            elif isinstance(inputs.profile_key, str) and _KEY_RE.fullmatch(inputs.profile_key):
+                version = f"?k={inputs.profile_key}"
+            else:
+                version = ""
             return Resolved("profile", f"{path}/photo{version}")
         return NOTHING
     if inputs.type == "media":
@@ -211,9 +222,9 @@ def resolve_page(memory_path, entity_id: str, fm: dict, body: str, *, page_mtime
         bank = logo_service.bank_name(Path(memory_path))
         # A demo's owner page is synthetic: the real owner's email never draws it (one check — one owner page).
         owner = {} if fm.get("owner") is True and demo_guard.is_demo(Path(memory_path)) else None
-        offered, sha = person_photo.available(entity_id, fm, person_photo.read_meta(bank) if photos is None else photos,
-                                              owner=owner, bank=bank)
-        inputs = replace(inputs, profile=offered, profile_sha=sha)
+        offered, sha, key = person_photo.available(
+            entity_id, fm, person_photo.read_meta(bank) if photos is None else photos, owner=owner, bank=bank)
+        inputs = replace(inputs, profile=offered, profile_sha=sha, profile_key=key if offered else None)
     return resolve(entity_id, inputs), inputs
 
 

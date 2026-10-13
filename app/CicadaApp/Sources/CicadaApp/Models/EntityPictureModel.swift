@@ -36,9 +36,12 @@ struct PictureInputs: Codable, Equatable, Hashable, Sendable {
     /// G159 — the public-profile rung: offered (decided server-side, like `logo`) and the stored copy's hash.
     var profile: Bool
     var profileSha: String?
+    /// Review B1 — the identifiers' hash, which names the photo's URL until a copy is stored.
+    var profileKey: String?
 
     init(type: String, choice: String? = nil, uploadSha: String? = nil, contactsSha: String? = nil,
-         logo: Bool = false, thumbnail: String? = nil, profile: Bool = false, profileSha: String? = nil) {
+         logo: Bool = false, thumbnail: String? = nil, profile: Bool = false, profileSha: String? = nil,
+         profileKey: String? = nil) {
         self.type = type
         self.choice = choice
         self.uploadSha = uploadSha
@@ -47,9 +50,11 @@ struct PictureInputs: Codable, Equatable, Hashable, Sendable {
         self.thumbnail = thumbnail
         self.profile = profile
         self.profileSha = profileSha
+        self.profileKey = profileKey
     }
 
-    enum CodingKeys: String, CodingKey { case type, choice, uploadSha, contactsSha, logo, thumbnail, profile, profileSha }
+    enum CodingKeys: String, CodingKey { case type, choice, uploadSha, contactsSha, logo, thumbnail, profile, profileSha,
+                                                profileKey }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -61,6 +66,7 @@ struct PictureInputs: Codable, Equatable, Hashable, Sendable {
         thumbnail = (try? c.decodeIfPresent(String.self, forKey: .thumbnail)) ?? nil
         profile = (try? c.decodeIfPresent(Bool.self, forKey: .profile)) ?? false
         profileSha = (try? c.decodeIfPresent(String.self, forKey: .profileSha)) ?? nil
+        profileKey = (try? c.decodeIfPresent(String.self, forKey: .profileKey)) ?? nil
     }
 }
 
@@ -84,7 +90,16 @@ enum EntityPictureResolver {
                 return EntityPictureRef(url: "\(path)/picture?v=\(sha)", source: .contacts)
             }
             guard i.profile else { return nil }
-            let version = isSha(i.profileSha) ? "?v=\(i.profileSha ?? "")" : ""
+            // The stored bytes name it once there are any; until then the identifiers do, so a changed identifier is a
+            // new URL and `PictureStore`'s disk cache can never pin a stale photo (review B1).
+            let version: String
+            if isSha(i.profileSha), let sha = i.profileSha {
+                version = "?v=\(sha)"
+            } else if isKey(i.profileKey), let key = i.profileKey {
+                version = "?k=\(key)"
+            } else {
+                version = ""
+            }
             return EntityPictureRef(url: "\(path)/photo\(version)", source: .profile)
         }
         if i.type == "media" {
@@ -107,6 +122,12 @@ enum EntityPictureResolver {
 
     static func isSha(_ value: String?) -> Bool {
         guard let value, value.unicodeScalars.count == 12 else { return false }
+        return value.unicodeScalars.allSatisfy { ("0"..."9").contains($0) || ("a"..."f").contains($0) }
+    }
+
+    /// A people-photo identifier key: 16 lowercase hex (`person_photo.identity_key`).
+    static func isKey(_ value: String?) -> Bool {
+        guard let value, value.unicodeScalars.count == 16 else { return false }
         return value.unicodeScalars.allSatisfy { ("0"..."9").contains($0) || ("a"..."f").contains($0) }
     }
 

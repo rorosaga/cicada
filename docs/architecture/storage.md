@@ -450,16 +450,22 @@ Round 4 (C2–C4):
   pages only, asked ONLY with an identifier already on the page or the person's own record, never one derived from a
   name: the owner's own email (the one typed in Settings, `owner.json`, used only on the page marked `owner: true`; the
   bank holds no one else's address — Contacts posts booleans, R-SR8, and a claim's value is a model's word), then the
-  best-ranked GitHub profile link (`https://github.com/<username>`, one path segment) among the page's `sources:` — the
-  person's or an agent's, never an "Only I know" note — then, only while `CICADA_ALLOW_PERSON_PHOTO_PROXY` is on (off by
+  best-ranked GitHub profile link (`https://github.com/<username>`, one path segment) among the page's `sources:` that
+  somebody gave as the person's OWN account (`person_photo.is_own_account`): the person's or one they took, with no
+  fact attached, a profile predicate or `website`; or an identified agent's with no fact attached or a profile predicate
+  (`PROFILE_PREDICATES`) — never Cicada's own writers, an unidentified proposal, an "Only I know" note, or a link Stage
+  5.56 attached from a claim's cited words (always under a `world`/`artifact` predicate, which no profile predicate
+  is; a test pins it) — then, only while `CICADA_ALLOW_PERSON_PHOTO_PROXY` is on (off by
   default, owner 2026-10-09), an X profile link and a LinkedIn `/in/` link, asked through the avatar proxy within an
   install-wide daily budget (`network.md`). Fetched once, on demand, by `GET /entities/{id}/photo` (never by
   `/graph`, never by Sleep) and cached at `$CICADA_HOME/pictures/<bank>/people/<id>.<png|jpg>` with `meta.json`
   (`{key, fetched_at, miss, transient, ext, sha}`; `key` is a hash over the identifiers, so the email's hash is never
   stored and a changed or removed identifier re-resolves — a removed one drops the copy). A hit is kept; a miss is
   retried after 30 days, a failed connection after a day. The rung is offered while the page has an identifier and no
-  fresh miss under it (the URL gains `?v=<sha>` once a copy is stored), and `/sync/version`'s `photos` component (the
-  index's mtime plus the misses past their window) moves `/graph` (`VersionVector` maps it onto `.graph`). The person's
+  fresh miss under it. Its URL is `/entities/{id}/photo?k=<key>` (the identifiers' hash) until a copy is stored and
+  `?v=<sha>` after, so a changed identifier is always a new URL the app's URL-keyed cache has never seen.
+  `/sync/version`'s `photos` component (the index's mtime plus the misses past their window) is in `/graph`'s ETag and
+  `graph_builder`'s cache key (`VersionVector` maps it onto `.graph`). The person's
   upload outranks it and "Use initials" (kept in the bank) removes it for good. A demo bank asks nobody and never offers
   the owner's email (`demo_guard.is_demo`). The fetch's rules are in `network.md`.
 - `contacts_photo:` (G154, read by G146) — `{sha, ext}` on a `person` page Contacts matched (`ext` jpg|png, jpg when

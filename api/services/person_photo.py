@@ -11,7 +11,9 @@ from an identifier **already on that person's page or the person's own record**:
   memory; only the hash is ever sent, and neither the address nor the hash is logged or stored (the cache key is a
   hash of the hash);
 - **a GitHub profile link among the page's `sources:`** — `https://github.com/<username>`, exactly one path segment,
-  that the person or an agent attached (best-ranked first, `fact_sources.rank`; an "Only I know" note never counts).
+  that somebody gave as the person's OWN account (:func:`is_own_account`: the person's or one they took, or an
+  identified agent's, with no fact attached or a profile predicate — never a link Stage 5.56 attached from a claim's
+  cited words, never Cicada's own writers); best-ranked first (`fact_sources.rank`).
 
 - **an X or LinkedIn profile link among the page's `sources:`** (owner 2026-10-09, the one exception to the ToS rail's
   "never through someone else's service") — `https://x.com/<handle>` (or twitter.com) and
@@ -29,8 +31,9 @@ Never a name, an alias, a domain or a username guessed from either.
 the X photo → the LinkedIn photo (both with ``fallback=false``, unavatar's documented "404 on a miss") → the monogram. `entity_picture.resolve` holds the precedence; this module answers its `profile` rung's availability
 (read-only, from the cache index) and does the one fetch, on demand, when the app asks `GET /entities/{id}/photo`.
 
-**The fetch** — two fixed URL shapes, `https` only, every hop (redirects followed by hand, at most 3) checked against
-the providers' own hosts AND `net_guard`; 4 s in all, ≤ 512 KB read and then stopped, a fresh client with no cookies
+**The fetch** — fixed URL shapes, `https` only, every hop (redirects followed by hand, at most 3) checked against
+the providers' own hosts AND `net_guard`; 4 s a request (all its hops) and 10 s for the whole ladder, ≤ 512 KB read
+and then stopped, a fresh client with no cookies
 and no credentials; kept only as a PNG or a JPEG of 16–1024 px by its own bytes (an SVG, whatever its header says, a
 GIF, an HTML page are refused). Two gates, both on by default: `CICADA_ALLOW_LOGO_FETCH` (every picture fetch) and
 `CICADA_ALLOW_PERSON_PHOTO_FETCH` (people only). Nothing here runs from Sleep; a later warm-up would also sit behind
@@ -76,6 +79,8 @@ TRANSIENT_TTL = timedelta(days=1)
 MAX_BYTES = logo_service.MAX_BYTES
 TIMEOUT_SECONDS = logo_service.TIMEOUT_SECONDS
 MAX_REDIRECTS = 3
+#: One deadline for the whole ladder (up to four providers), on top of each request's own 4 s.
+LADDER_SECONDS = 10.0
 SIZE = 256
 EXTS = ("png", "jpg")
 MEDIA_TYPES = {"png": "image/png", "jpg": "image/jpeg"}
@@ -192,12 +197,39 @@ def linkedin_slug(ref) -> str | None:
 _PARSERS = {GITHUB: github_username, X: x_handle, LINKEDIN: linkedin_slug}
 
 
+#: The predicates that say "this link is the person's own account" — the only ones a profile link may carry (none at all
+#: also counts). None of them is a `world` or `artifact` predicate, so a link Stage 5.56 attaches from a claim's cited
+#: words (always under that claim's own predicate) can never qualify; a test pins that.
+PROFILE_PREDICATES = frozenset({"profile", "identity", "account", "handle", "social", "github", "x", "twitter",
+                                "linkedin"})
+#: The person may also file their own profile link as their `website`.
+_PERSON_PREDICATES = PROFILE_PREDICATES | {"website"}
+#: Machine writers that never speak for the person's identity: Cicada's own syncs and an unidentified proposal.
+_NOT_AN_AGENT = frozenset({"cicada", "agent"})
+
+
+def is_own_account(source: dict) -> bool:
+    """Review B2 — a link counts as the person's OWN account only when somebody said so: the person added or took it
+    (`fact_sources.trusted`) with no fact attached or a profile predicate (a person's `works-at` link to an org is the
+    org's), or an identified agent added it with no fact attached or a profile predicate. Never Cicada's own writers,
+    never an unidentified proposal, never an "Only I know" note."""
+    from api.services import fact_sources
+
+    predicate = str(source.get("predicate") or "").strip().lower()
+    if fact_sources.trusted(source):
+        return not predicate or predicate in _PERSON_PREDICATES
+    who = str(source.get("added_by") or "").strip().lower()
+    if not who or who in _NOT_AN_AGENT:
+        return False
+    return not predicate or predicate in PROFILE_PREDICATES
+
+
 def _matcher(provider: str):
     parse = _PARSERS[provider]
 
     def serves(source: dict, _predicate) -> bool:
         kind = str(source.get("kind") or "url").strip().lower()
-        return kind == "url" and parse(source.get("ref")) is not None
+        return kind == "url" and parse(source.get("ref")) is not None and is_own_account(source)
 
     return serves
 
@@ -316,16 +348,26 @@ async def _http_get(url: str) -> FetchResult:
                                location=resp.headers.get("location"))
 
 
-async def _get(url: str, fetcher: Fetcher) -> tuple[FetchResult | None, bool]:
-    """One logical GET within the rail. Returns ``(result, transient)``: ``transient`` is True only when the
-    connection failed or timed out (worth a sooner retry); a refusal or a long redirect chain is a plain miss. Never
-    logs a URL — the email's hash is in it."""
+async def _get(url: str, fetcher: Fetcher, *, timeout: float = TIMEOUT_SECONDS,
+               spend=None) -> tuple[FetchResult | None, bool]:
+    """One logical GET within the rail, every hop inside ``timeout`` (≤ 4 s, less when the ladder's deadline is near).
+    Returns ``(result, transient)``: ``transient`` is True when the connection failed, time ran out or ``spend`` (the
+    proxy's daily budget) said no — worth a sooner retry; a refusal or a long redirect chain is a plain miss. ``spend``
+    is asked once, only after the first hop passed the host and `net_guard` checks, so a request that could never go
+    costs nothing. Never logs a URL — the email's hash is in it."""
     current = url
-    for _ in range(MAX_REDIRECTS + 1):
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + max(0.0, timeout)
+    for hop in range(MAX_REDIRECTS + 1):
         if not _provider_host(current) or not await net_guard.is_fetchable_url_async(current):
             return None, False
+        if hop == 0 and spend is not None and not await spend():
+            return None, True
+        remaining = deadline - loop.time()
+        if remaining <= 0:
+            return None, True
         try:
-            result = await asyncio.wait_for(fetcher(current), timeout=TIMEOUT_SECONDS)
+            result = await asyncio.wait_for(fetcher(current), timeout=remaining)
         except Exception as exc:  # noqa: BLE001 — a dead host never raises into the caller
             logger.debug(f"person photo fetch failed: {type(exc).__name__}")
             return None, True
@@ -457,22 +499,23 @@ def _hit_file(bank: str, entity_id: str, entry: dict) -> Path | None:
 
 
 def available(entity_id: str, fm: dict, meta: dict, *, owner: dict | None = None,
-              bank: str | None = None) -> tuple[bool, str | None]:
-    """The `profile` rung's inputs for `/graph` and the card: ``(offered, sha)``. Offered while the page has an
+              bank: str | None = None) -> tuple[bool, str | None, str | None]:
+    """The `profile` rung's inputs for `/graph` and the card: ``(offered, sha, key)``. Offered while the page has an
     identifier and is not known to miss under it; ``sha`` once a photo for THIS identifier is stored (checked on disk
-    when ``bank`` is given). No network, ever."""
+    when ``bank`` is given); ``key`` the identifiers' hash, which names the URL until a copy is stored (review B1: a
+    changed identifier is a new URL, so the app's disk cache can never pin a stale photo). No network, ever."""
     key = identity_key(candidates(fm, owner=owner))
     if key is None:
-        return False, None
+        return False, None, None
     entry = (meta or {}).get(entity_id)
     if not isinstance(entry, dict) or entry.get("key") != key:
-        return True, None
+        return True, None, key
     if entry.get("miss"):
-        return (not _fresh_miss(entry)), None
+        return (not _fresh_miss(entry)), None, key
     sha = entry.get("sha") if isinstance(entry.get("sha"), str) else None
     if bank is not None and _hit_file(bank, entity_id, entry) is None:
-        return True, None
-    return True, sha
+        return True, None, key
+    return True, sha, key
 
 
 _STAMPS: dict[str, tuple[float, int, float | None]] = {}
@@ -549,11 +592,20 @@ async def _ensure_locked(memory_path: Path, bank: str, entity_id: str, fetcher: 
         return None   # never asked is not a miss
     transient = False
     found: tuple[bytes, str] | None = None
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + LADDER_SECONDS
+
+    async def spend() -> bool:
+        return await asyncio.to_thread(_take_budget_sync)
+
     for cand in cands:
-        if cand.provider in PROXIED and not await asyncio.to_thread(_take_budget_sync):
-            transient = True   # over today's allowance: asked again tomorrow, never a cached miss
-            continue
-        result, failed = await _get(provider_url(cand), fetcher)
+        remaining = deadline - loop.time()
+        if remaining <= 0:
+            transient = True   # out of time: asked again soon, never a cached miss
+            break
+        # Over today's proxy allowance is transient too: asked again tomorrow.
+        result, failed = await _get(provider_url(cand), fetcher, timeout=min(TIMEOUT_SECONDS, remaining),
+                                    spend=spend if cand.provider in PROXIED else None)
         transient = transient or failed
         found = accept(result)
         if found is not None:

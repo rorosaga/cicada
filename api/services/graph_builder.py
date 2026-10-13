@@ -110,6 +110,15 @@ def build_graph(
     )
 
 
+def _photos_stamp(memory_path: Path) -> str:
+    try:
+        from api.services import person_photo
+
+        return person_photo.stamp(logo_service.bank_name(memory_path))
+    except Exception:
+        return ""
+
+
 def _build_full(memory_path: Path) -> GraphResponse:
     entities_dir = memory_path / "entities"
     edges_file = memory_path / "graph_edges.yaml"
@@ -126,6 +135,9 @@ def _build_full(memory_path: Path) -> GraphResponse:
         # on-demand fetch moves no other key here — without this the cached
         # response keeps every node's stale `has_logo` (and `content_hash`).
         _mtime(logo_service.meta_path(logo_service.bank_name(memory_path))),
+        # G159 (review B1): the people-photo index, outside the bank too — a stored photo or a miss aging out moves
+        # a node's `picture` (`person_photo.stamp`: the index's mtime plus the misses past their window).
+        _photos_stamp(memory_path),
     )
     if _CACHE["key"] == key:
         return _CACHE["value"]

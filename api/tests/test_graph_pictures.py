@@ -101,7 +101,7 @@ def test_the_entity_carries_its_picture_and_the_twins_inputs(bank):
         project = c.get("/entities/alpha-project").json()
     assert person["picture"] == "/entities/bob-example/picture?v=3f9a1c0b2d4e" and person["pictureSource"] == "upload"
     assert person["pictureInputs"] == {"type": "person", "choice": "upload", "uploadSha": "3f9a1c0b2d4e",
-                                       "contactsSha": None, "logo": False, "thumbnail": None, "profile": False, "profileSha": None}
+                                       "contactsSha": None, "logo": False, "thumbnail": None, "profile": False, "profileSha": None, "profileKey": None}
     assert project["picture"] is None and project["pictureSource"] is None
     assert project["pictureInputs"]["type"] == "project"
 
