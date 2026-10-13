@@ -251,7 +251,10 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   harness as `Cicada-Author`, the session trailer) and an agent withdraws only what it wrote.
 - **The CLI (G180, ruling 21)** is a second door onto the same bodies: in-process from one bootstrap that reads no
   `.env` (the root resolved once, canonical, pinned with the bank; `--bank` asserts, never selects), names from one
-  tested CLI↔MCP table (`cli_map`), one JSON envelope, no generic dispatcher (`mcp.md`).
+  tested CLI↔MCP table (`cli_map`), one JSON envelope, no generic dispatcher (`mcp.md`). **Ruling 21a (owner,
+  2026-10-13):** a command on state the running backend owns (Sleep, engine, search model, bank switch, settings, the
+  app's page writes) calls the backend's own route with the token and its pinned bank, only after `/healthz` confirms the
+  root; with the backend down it refuses. Commands that act as the person refuse from an agent's shell.
 - **The remote connector (G135)** is off by default, serves only MCP on its own listener, through a tunnel **the person**
   runs; capability tokens are hashed, scoped (`sources` gates every verbatim word of the person's), expiring and
   revocable; a remote claim is never the person's own words.
@@ -268,7 +271,9 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 
 ### The app
 
-- **The app is not the primary surface — the chat is.** The app makes the graph observable.
+- **The app is not the primary surface — the chat is.** The app makes the graph observable. **New features live behind
+  the backend API; the app is one client of it** (the CLI and a future browser front end are others, owner 2026-10-13):
+  the app keeps only Mac readers that post bytes, per-viewer chrome and presentation.
 - **Design direction D is binding** (`docs/design/DESIGN_RULES.md`; a UI PR cites the DR ids it applies; a departure needs
   a dated ruling). SF only; the accent in six uses; depth is a ring, not a shadow; painted art never behind data or text;
   Liquid Glass only in the chrome layer; a keyboard action never animates; every duration is spelled in `CicadaMotion` (a sprite's frame timings are data in its sheet, inside `CicadaMotion`'s sprite caps — TODO ruling 18).
