@@ -209,6 +209,9 @@ class Claim:
     # removed it and the writer that restored it. Such a claim is always closed. Omitted when unset (R7's reason).
     recovered_from: str | None = None
     recovered_by: str | None = None
+    # Owner 2026-10-09: the day its own age (proven silence, heard late) took it below the decay-question line — it
+    # then fades quietly, never asked about, until restated (`decay_policy.FADED_BY_AGE_KEY`). Omitted when unset.
+    faded_by_age: str | None = None
 
     def all_session_ids(self) -> list[str]:
         """Every session that has written or reinforced this claim, deduped,
@@ -242,7 +245,7 @@ class Claim:
         data["participants"] = clean_participants(data.get("participants"))
         if not data["participants"]:
             data.pop("participants", None)
-        for key in ("recorded_ts", "recovered_from", "recovered_by"):
+        for key in ("recorded_ts", "recovered_from", "recovered_by", "faded_by_age"):
             if data.get(key) is None:
                 data.pop(key, None)
         return data
@@ -285,6 +288,7 @@ class Claim:
             recorded_ts=_opt_str(data.get("recorded_ts")),
             recovered_from=_opt_str(data.get("recovered_from")),
             recovered_by=_opt_str(data.get("recovered_by")),
+            faded_by_age=_opt_str(data.get("faded_by_age")),
         )
 
 

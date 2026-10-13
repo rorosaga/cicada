@@ -296,15 +296,48 @@ def test_an_old_restatement_read_late_lets_a_faded_claim_fade_back_but_a_live_wr
 # --- owner 2026-10-09: one-offs archive, repeats fade --------------------------
 
 
-def test_a_page_from_two_old_conversations_fades_but_is_not_archived_by_its_age(tmp_path):
+def _live_passes(bank, page_id, start, days):
+    """Daily decay passes; returns (the actions raised for the page, the day it archived or None)."""
+    actions, archived, day = [], None, start
+    for _ in range(days):
+        changes = _batch(bank, [], decay=True, now=day)
+        actions += [c["action"] for c in changes if c["id"] == page_id]
+        if archived is None and _fm(bank, page_id)["status"] == "archived":
+            archived = day
+        day += timedelta(days=1)
+    return actions, archived
+
+
+def test_a_page_from_two_old_conversations_fades_dimmed_and_archives_only_by_live_silence(tmp_path):
     bank = _bank(tmp_path)
     _drain(bank, [[_change("repeat", "create", "2024-03-05")], [_change("repeat", "update", "2024-04-02")], []])
     fm = _fm(bank, "repeat")
-    floor = decay_policy.proven_floor(0.2)
+    floor = decay_policy.proven_floor(0.4)
+    assert floor == pytest.approx(0.39)
     assert fm["status"] == "decaying" and math.isclose(fm["confidence"], floor, abs_tol=1e-9)
-    # Only live silence after Cicada read it can archive it.
-    _batch(bank, [], decay=True, now=datetime(2026, 10, 16, 3, 0))
-    assert _fm(bank, "repeat")["status"] == "archived"
+    # Stays on the graph, dimmed, through real silence; archives at the normal live pace — never asked.
+    actions, archived = _live_passes(bank, "repeat", datetime(2026, 10, 10, 3, 0), 60)
+    assert archived is not None
+    expected_days = (floor - 0.2) / (0.05 * _f(2)) * 7
+    assert abs((archived - TODAY).days - expected_days) <= 1.5
+    assert "decay_nudge" not in actions
+
+
+def test_a_one_off_faded_by_its_age_is_never_asked_as_live_silence_continues(tmp_path):
+    bank = _bank(tmp_path)
+    _drain(bank, [[_change("quarter-old", "create", "2026-07-17")], []])
+    assert _fm(bank, "quarter-old")["status"] == "decaying"
+    actions, archived = _live_passes(bank, "quarter-old", datetime(2026, 10, 10, 3, 0), 40)
+    assert archived is not None and "decay_nudge" not in actions
+
+
+def test_a_page_revived_after_fading_by_age_is_asked_when_it_crosses_again(tmp_path):
+    bank = _bank(tmp_path)
+    _drain(bank, [[_change("quarter-old", "create", "2026-07-17")], []])
+    _drain(bank, [[_change("quarter-old", "update", "2026-10-10")]], now=datetime(2026, 10, 10, 3, 0))
+    assert _fm(bank, "quarter-old")["confidence"] == 0.6
+    actions, _ = _live_passes(bank, "quarter-old", datetime(2026, 10, 11, 3, 0), 40)
+    assert "decay_nudge" in actions
 
 
 def test_a_memory_export_entry_is_not_a_second_conversation(tmp_path):
@@ -320,7 +353,7 @@ def test_a_claim_restated_in_two_old_conversations_floors_where_a_page_would():
     a, b = _claim("clm_a", "2024-03-05"), _claim("clm_b", "2024-04-02")
     state, _, _ = _reconcile({}, [a], decay=False)
     state, _, _ = _reconcile(state, [b], decay=True)
-    assert math.isclose(state["topic"][0].confidence, decay_policy.proven_floor(0.2), abs_tol=1e-9)
+    assert math.isclose(state["topic"][0].confidence, decay_policy.proven_floor(0.4), abs_tol=1e-9)
     single, _, _ = _reconcile({}, [_claim("clm_c", "2024-03-05", subject="other")], decay=True)
     assert single["other"][0].confidence == 0.0
 
@@ -396,3 +429,14 @@ def test_an_old_restatement_never_lowers_a_claim(said):
     state, _, _ = _reconcile(state, [_claim("clm_b", said, conf=0.5)], decay=False, today="2026-08-12")
     state, _, _ = _reconcile(state, [], decay=True, today="2026-08-12")
     assert state["topic"][0].confidence >= before
+
+
+def test_a_claim_faded_by_its_age_is_never_asked_as_live_silence_continues():
+    state, nudges, _ = _reconcile({}, [_claim("clm_a", "2026-03-15")], decay=True)
+    assert 0.2 < state["topic"][0].confidence < 0.4 and not nudges
+    day, asked = datetime(2026, 10, 10), False
+    while day < datetime(2027, 6, 1):
+        state, nudges, _ = _reconcile(state, [], decay=True, today=day.date().isoformat())
+        asked = asked or any(n.get("action") == "decay_nudge" for n in nudges)
+        day += timedelta(days=1)
+    assert not asked

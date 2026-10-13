@@ -21,10 +21,10 @@ Only lowers: confidence and status (below 0.4 ``decaying``, below 0.2 ``archived
 and recall still finds it). Never touched: evergreen pages (the owner's page among them), archived and dropped pages,
 pages with no dated mention (a memory export entry alone), pages Sleep already charged by age (``learned_on``
 present), pages dirty in git or written since the survey. One-offs archive, repeats fade (owner 2026-10-09): a page or
-claim resting on 2+ distinct dated conversations is never taken below just above the archive line by this charge
-(``decay_policy.charge``; ``floored_repeats`` counts the pages that floor held). No inbox item is written; a page left
-decaying is asked about by the first Sleep pass that charges it live silence, at most the cycle's cap of new
-questions at a time (``would_be_asked``).
+claim resting on 2+ distinct dated conversations is never taken below 0.39, just under the question line, by this
+charge (``decay_policy.charge``; ``floored_repeats`` counts the pages that floor held). No inbox item is written; a page
+or claim this charge leaves below 0.4 is marked ``faded_by_age`` and Sleep fades and archives it quietly, never
+asking — ``would_be_asked`` counts the few left decaying that were read within a week of being said.
 """
 from __future__ import annotations
 
@@ -157,11 +157,13 @@ def _recompute_claims(body: str, subject_about, multiplier: float, untimed, resu
         rate = claim_rate(claim, subject_about, multiplier, untimed=untimed)
         new_conf = decay_policy.charge(
             claim.confidence, rate, decay_policy.Silence((learned - said).days, 0, learned),
-            archive_threshold=ARCHIVE_THRESHOLD,
+            nudge_threshold=NUDGE_THRESHOLD,
             conversations=decay_policy.conversations(_said_refs(claim), untimed=untimed))
         if new_conf >= claim.confidence:
             continue
         raw["confidence"] = new_conf
+        if new_conf < NUDGE_THRESHOLD and decay_policy.heard_late(said, learned) and not raw.get("faded_by_age"):
+            raw["faded_by_age"] = learned.isoformat()   # its age took it below the line: Sleep never asks
         # The gap is charged: the next pass measures from no earlier than the day it was read.
         watermark = max([d for d in (_day(claim.decayed_through), learned) if d is not None])
         raw["decayed_through"] = watermark.isoformat()
@@ -234,7 +236,7 @@ def survey(memory_path, *, today: date | None = None, settings=None) -> Survey:
             unfloored = max(0.0, confidence - effective.rate * (learned - said).days / 7.0)
             new_conf = decay_policy.charge(
                 confidence, effective.rate, decay_policy.Silence((learned - said).days, 0, learned),
-                archive_threshold=ARCHIVE_THRESHOLD, conversations=heard_in)
+                nudge_threshold=NUDGE_THRESHOLD, conversations=heard_in)
             if new_conf < confidence:
                 lowered = True
                 new_fm["confidence"] = new_conf
@@ -244,6 +246,10 @@ def survey(memory_path, *, today: date | None = None, settings=None) -> Survey:
                 result.lowered += 1
                 for tally in (result.by_type[kind], result.by_age[bucket]):
                     tally["lowered"] += 1
+                quiet = new_conf < NUDGE_THRESHOLD and decay_policy.heard_late(said, learned)
+                if quiet:
+                    # Its own age took it below the question line: Sleep fades and archives it quietly.
+                    new_fm[decay_policy.FADED_BY_AGE_KEY] = learned.isoformat()
                 if new_conf < ARCHIVE_THRESHOLD:
                     new_fm["status"] = "archived"
                     result.would_archive += 1
@@ -254,10 +260,10 @@ def survey(memory_path, *, today: date | None = None, settings=None) -> Survey:
                     for tally in (result.by_type[kind], result.by_age[bucket]):
                         tally["decaying"] += 1
                     result.would_decay += 1
-                    # Asked by the first Sleep pass that charges it live silence (at most
-                    # `decay_inbox_cap_per_cycle` new questions a cycle) — never by the recompute.
-                    result.would_be_asked += 1
-                    result.floored_repeats += unfloored < ARCHIVE_THRESHOLD
+                    # Read within a week of being said: Sleep asks about it as live silence continues
+                    # (at most `decay_inbox_cap_per_cycle` new questions a cycle). Never the recompute.
+                    result.would_be_asked += not quiet
+                    result.floored_repeats += unfloored < new_conf
 
         about = subject(path.stem)
         new_body = _recompute_claims(body, about, decay_policy.claim_multiplier(about.decay_class), untimed, result)

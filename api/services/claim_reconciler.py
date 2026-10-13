@@ -208,6 +208,7 @@ def _reinforce(existing: Claim, incoming: Claim, *, today: str | None = None, un
             existing.confidence = max(existing.confidence, incoming.confidence)
             existing.decayed_through = _max_date(existing.decayed_through, today)
             existing.recorded_at = today
+            existing.faded_by_age = None   # said again: asked like any claim
     # PR #20 round-2 review fix — "repeated facts lose later conversations":
     # a scalar `session_id` can only ever remember the FIRST writer, so a
     # later conversation restating the same fact would silently vanish from
@@ -794,7 +795,6 @@ def _decay_claims(
     untimed=None,
 ) -> None:
     nudge_threshold = float(getattr(settings, "decay_nudge_threshold", 0.4) or 0.4)
-    archive_threshold = float(getattr(settings, "archive_threshold", 0.2) or 0.2)
     alpha, floor = decay_policy.spacing_params(settings)
     # A memory export entry restates a claim without the claim coming up (`episode_time`).
     if untimed is None:
@@ -831,17 +831,23 @@ def _decay_claims(
                 # One-offs fall freely; a claim restated across 2+ conversations floors where a page would
                 # (owner 2026-10-09) — proven silence alone never takes it under the archive line.
                 new_conf = decay_policy.charge(
-                    c.confidence, rate, owed, archive_threshold=archive_threshold,
+                    c.confidence, rate, owed, nudge_threshold=nudge_threshold,
                     conversations=decay_policy.conversations(_said_refs(c), untimed=untimed))
-                # Heard late (an import), and this pass charges its age: the drop asks nothing. Only this
-                # pass — once its age is charged, live silence below 0.4 asks as for any claim.
-                quiet = owed.proven_days > 0 and decay_policy.heard_late(_said(c, untimed), c.recorded_at)
+                # Faded by its age (heard late, and this pass's proven silence took it below the question
+                # line): marked, it fades quietly from here. A question fires only when live silence carries
+                # a claim across 0.4 (`decay_policy.asks`).
+                newly = (not c.faded_by_age and owed.proven_days > 0 and new_conf < nudge_threshold
+                         and decay_policy.heard_late(_said(c, untimed), c.recorded_at))
+                asks = not newly and decay_policy.asks(c.confidence, new_conf, nudge_threshold,
+                                                       faded_by_age=c.faded_by_age)
+                if newly:
+                    c.faded_by_age = owed.watermark.isoformat()
                 if new_conf != c.confidence:
                     c.confidence = new_conf
                     # Decay never closes a claim and never touches a human
                     # claim's validity — it only lowers the retrieval weight
                     # + may nudge.
-                    if new_conf < nudge_threshold and not quiet:
+                    if asks:
                         nudges.append({
                             "id": subject,
                             "action": "decay_nudge",

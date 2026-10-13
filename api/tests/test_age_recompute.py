@@ -99,7 +99,7 @@ def test_the_dry_run_counts_by_type_and_age_and_writes_nothing(bank):
     assert counts["would_archive"] == 1               # script-2024: one conversation
     assert counts["floored_repeats"] == 1             # repeat-2024: two conversations, held just above 0.2
     assert counts["would_decay"] == 3                 # quarter-old, once, repeat-2024
-    assert counts["would_be_asked"] == 3              # by later passes, as live silence charges them (capped)
+    assert counts["would_be_asked"] == 0              # faded by age: archived quietly, never asked
     assert counts["claims_lowered"] == 1 and counts["claims_below_nudge"] == 1
     assert counts["learned_from_git"] == 8 and counts["learned_without_git"] == 0
     assert counts["by_age"]["over_1_year"] == {"pages": 2, "lowered": 2, "archive": 1, "decaying": 1}
@@ -129,7 +129,8 @@ def test_apply_charges_once_in_one_commit_and_a_second_run_changes_nothing(bank)
     assert spaced["status"] == "active" and once["status"] == "decaying"
     assert spaced["confidence"] > once["confidence"], "twelve weeks of mentions fade slower than one"
     repeat = _fm(bank, "repeat-2024")
-    assert repeat["status"] == "decaying" and math.isclose(repeat["confidence"], 0.21, abs_tol=1e-9)
+    assert repeat["status"] == "decaying" and math.isclose(repeat["confidence"], 0.39, abs_tol=1e-9)
+    assert repeat.get("faded_by_age"), "Sleep will not ask about it"
     for untouched in ("said-after-added", "saved-article", "owner-example", "export-only", "already-archived"):
         assert "learned_on" not in _fm(bank, untouched), untouched
     assert _fm(bank, "saved-article")["confidence"] == 0.99 and _fm(bank, "owner-example")["confidence"] == 0.99
@@ -197,4 +198,4 @@ def test_a_claim_restated_in_two_conversations_floors_in_the_recompute(tmp_path)
     _page(root, "repeat", "2026-10-07", body="## Summary\nA thing.\n\n```claims\n" + json.dumps(line) + "\n```\n")
     recompute.apply(root, sleep_running=lambda: False, today=TODAY)
     (claim,) = parse_claims(markdown_parser.parse(root / "entities" / "repeat.md").body)
-    assert math.isclose(claim.confidence, 0.21, abs_tol=1e-9)
+    assert math.isclose(claim.confidence, 0.39, abs_tol=1e-9)

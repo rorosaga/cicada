@@ -458,14 +458,28 @@ def latest_said(episode_refs, *, untimed=frozenset()) -> str | None:
 
 
 # Owner 2026-10-09, after the first dry run on a real bank (79% archived): one-offs archive, repeats fade. Proven
-# silence alone never takes something that rests on two or more conversations below the archive threshold — it stops
-# just above, `decaying` and still on the graph; only live silence after Cicada read it can archive it.
+# silence alone never takes something that rests on two or more conversations below just under the decay-question
+# line — `decaying`, dimmed, still on the graph; only live silence after Cicada read it carries it on to the archive
+# line, at the normal pace. (A floor just above 0.2 archived a repeat after two to four days of live silence.)
 PROVEN_FLOOR_MARGIN = 0.01
 
+#: The frontmatter key (a claim's field of the same name) a page or claim gets when its own age took it below the
+#: decay-question line: it then fades and archives quietly, never asked about, until it is mentioned again.
+FADED_BY_AGE_KEY = "faded_by_age"
 
-def proven_floor(archive_threshold: float) -> float:
-    """Where proven silence stops for a page or claim heard in 2+ conversations: just above the archive line."""
-    return float(archive_threshold) + PROVEN_FLOOR_MARGIN
+
+def proven_floor(nudge_threshold: float) -> float:
+    """Where proven silence stops for a page or claim heard in 2+ conversations: just under the question line."""
+    return float(nudge_threshold) - PROVEN_FLOOR_MARGIN
+
+
+def asks(confidence_before: float, confidence_after: float, nudge_threshold: float, *, faded_by_age) -> bool:
+    """Does this pass raise a decay question? Only below the line — and never for something its age took there
+    (``faded_by_age``) that has not been back above the line since: a question fires when live silence carries a
+    page or claim across 0.4, never as live silence continues after its age was charged."""
+    if confidence_after >= nudge_threshold:
+        return False
+    return not (faded_by_age and confidence_before < nudge_threshold)
 
 
 def conversations(episode_refs, *, untimed=frozenset()) -> int:
@@ -479,13 +493,13 @@ def conversations(episode_refs, *, untimed=frozenset()) -> int:
     return len(seen)
 
 
-def charge(confidence: float, rate: float, owed: Silence, *, conversations: int, archive_threshold: float) -> float:
+def charge(confidence: float, rate: float, owed: Silence, *, conversations: int, nudge_threshold: float) -> float:
     """Confidence after one pass: proven silence first — floored at :func:`proven_floor` for something heard in 2+
     conversations, never raising what is already below it — then live silence, which may go anywhere."""
     confidence = float(confidence)
     after = confidence - rate * owed.proven_days / 7.0
     if conversations >= 2:
-        after = max(after, min(confidence, proven_floor(archive_threshold)))
+        after = max(after, min(confidence, proven_floor(nudge_threshold)))
     return max(0.0, after - rate * owed.live_days / 7.0)
 
 

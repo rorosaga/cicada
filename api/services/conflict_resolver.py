@@ -271,17 +271,24 @@ async def resolve_and_prune(
         if decay_amount is not None:
             new_confidence = max(0.0, confidence - decay_amount)
         else:
-            # Proven silence floors at the archive line for a page heard in 2+ conversations
-            # (owner 2026-10-09: one-offs archive, repeats fade); live silence may archive it.
+            # Proven silence floors just under the question line for a page heard in 2+ conversations
+            # (owner 2026-10-09: one-offs archive, repeats fade); live silence carries it on to the archive.
             new_confidence = decay_policy.charge(
-                confidence, decay_rate, owed, archive_threshold=settings.archive_threshold,
+                confidence, decay_rate, owed, nudge_threshold=settings.decay_nudge_threshold,
                 conversations=decay_policy.conversations(fm.get("source_episodes"), untimed=untimed))
-        # Heard late (an import), and this pass charges its age: the drop asks nothing. Only
-        # this pass — once its age is charged, live silence below 0.4 asks as for any page.
-        quiet = owed is not None and owed.proven_days > 0 and decay_policy.heard_late(said, learned)
+        # Faded by its age: heard late, and this pass's proven silence took it below the question line. Marked,
+        # it fades and archives quietly from here — a question fires only when live silence carries a page across
+        # 0.4 (`decay_policy.asks`), so a page still above the line after its age keeps its question.
+        marked = fm.get(decay_policy.FADED_BY_AGE_KEY)
+        newly = (not marked and owed is not None and owed.proven_days > 0 and decay_policy.heard_late(said, learned)
+                 and new_confidence < settings.decay_nudge_threshold)
+        faded = marked or newly
+        mark = {decay_policy.FADED_BY_AGE_KEY: decay_today} if newly else {}
+        asks = not newly and decay_policy.asks(
+            confidence, new_confidence, settings.decay_nudge_threshold, faded_by_age=marked)
 
         if new_confidence < settings.archive_threshold:
-            faded_by_age += quiet
+            faded_by_age += 0 if asks or not faded else 1
             changes.append({
                 "id": entity_id,
                 "action": "archive",
@@ -290,17 +297,19 @@ async def resolve_and_prune(
                 "source_episode": "",
                 "trigger": "sleep/decay",
                 "decayed_through": decay_today,
+                **mark,
             })
         elif new_confidence < settings.decay_nudge_threshold:
-            faded_by_age += quiet
+            faded_by_age += 0 if asks else 1
             changes.append({
                 "id": entity_id,
-                "action": "decay" if quiet else "decay_nudge",
+                "action": "decay_nudge" if asks else "decay",
                 "new_confidence": new_confidence,
                 "new_status": "decaying",
                 "source_episode": "",
                 "trigger": "sleep/decay",
                 "decayed_through": decay_today,
+                **mark,
             })
         else:
             changes.append({
@@ -315,8 +324,8 @@ async def resolve_and_prune(
 
     decay_progress.close()
     if faded_by_age:
-        logger.info(f"Stage 3: {faded_by_age} page(s) heard only in old conversations faded below "
-                    f"{settings.decay_nudge_threshold} by their age — no question asked")
+        logger.info(f"Stage 3: {faded_by_age} page(s) faded by the age of what they came from, below "
+                    f"{settings.decay_nudge_threshold} or archived — no question asked")
     return changes
 
 
@@ -706,6 +715,7 @@ def apply_changes(changes: list[dict], memory_path) -> None:
                     if str(fm.get("status", "active")) in ("decaying", "archived"):
                         fm["status"] = "active"
                         fm["confidence"] = max(float(fm.get("confidence", 0.0) or 0.0), RECOVERY_CONFIDENCE)
+                    fm.pop(decay_policy.FADED_BY_AGE_KEY, None)   # back in the person's words: asked like any page
                     fm["decayed_through"] = _max_date(charged, learned)
                     fm["learned_on"] = learned
                 # Else a conversation from before the watermark, read late: its source and its week count (G147),
@@ -840,6 +850,8 @@ def apply_changes(changes: list[dict], memory_path) -> None:
             # date the decay pass computed against (falls back to the real
             # today for a change dict built outside `resolve_and_prune`).
             parsed.frontmatter["decayed_through"] = change.get("decayed_through") or str(date.today())
+            if change.get(decay_policy.FADED_BY_AGE_KEY):
+                parsed.frontmatter[decay_policy.FADED_BY_AGE_KEY] = change[decay_policy.FADED_BY_AGE_KEY]
             markdown_parser.write(filepath, parsed.frontmatter, parsed.body)
 
     write_progress.close()
@@ -855,9 +867,9 @@ def _untimed_once(untimed_ids: frozenset[str] | None, memory_path) -> frozenset[
 def _settle(fm: dict, params: dict, untimed: frozenset[str]) -> None:
     """Charge a page this decay pass created or referenced the silence its mentions prove (last said ->
     ``learned_on``) — the same arithmetic as the unreferenced-page loop in :func:`resolve_and_prune`, on the page as
-    merged. Its live clock starts today, so nothing past ``learned_on`` is charged. Proven silence floors just above
-    the archive line for a page heard in 2+ conversations (``decay_policy.charge``). Asks nothing in this pass; a page
-    it leaves below 0.4 is asked about by the first pass that charges it live silence."""
+    merged. Its live clock starts today, so nothing past ``learned_on`` is charged. Proven silence floors just under
+    the question line for a page heard in 2+ conversations (``decay_policy.charge``). Asks nothing; a page heard late
+    that it leaves below 0.4 is marked ``faded_by_age`` and fades and archives quietly from here."""
     if str(fm.get("status", "active")) in ("archived", "dropped"):
         return
     effective = decay_policy.effective(fm, alpha=params["alpha"], floor=params["floor"],
@@ -870,9 +882,12 @@ def _settle(fm: dict, params: dict, untimed: frozenset[str]) -> None:
     if owed is None or owed.days <= 0:
         return
     confidence = decay_policy.charge(
-        float(fm.get("confidence", 0.5) or 0.0), effective.rate, owed, archive_threshold=params["archive"],
+        float(fm.get("confidence", 0.5) or 0.0), effective.rate, owed, nudge_threshold=params["nudge"],
         conversations=decay_policy.conversations(fm.get("source_episodes"), untimed=untimed))
     fm["confidence"] = confidence
+    if confidence < params["nudge"] and decay_policy.heard_late(
+            _extract_date_string(fm.get("last_referenced")), _extract_date_string(fm.get("learned_on"))):
+        fm.setdefault(decay_policy.FADED_BY_AGE_KEY, params["today"])   # fades quietly from here
     fm["decayed_through"] = owed.watermark.isoformat()
     if confidence < params["archive"]:
         fm["status"] = "archived"
