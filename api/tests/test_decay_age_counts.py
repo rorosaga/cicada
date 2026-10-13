@@ -572,3 +572,63 @@ def test_a_second_old_restatement_weeks_later_lands_a_claim_where_one_run_would_
     split, _, _ = _reconcile(split, [_claim("clm_b", "2024-04-02")], decay=True, today="2026-12-01")
     assert math.isclose(same["topic"][0].confidence, split["topic"][0].confidence, abs_tol=1e-9)
     assert same["topic"][0].confidence < 0.39
+
+
+# --- article pages (#263) get the same settlement and lift ---------------------
+
+
+def _article_run(tmp_path, monkeypatch, *, fm, sources, stamps, now):
+    import json as _json
+    from types import SimpleNamespace
+
+    from api.config import Settings
+    from api.services import entity_article, section_provenance as sp
+    from test_page_articles_sleep import ARTICLE_MARK, PAGE, _answer
+
+    monkeypatch.setenv("CICADA_MEMORY_PATH", str(tmp_path))
+    settings = Settings(_env_file=None, page_articles_enabled=True)
+
+    async def fake(**kwargs):
+        text = kwargs["messages"][-1]["content"]
+        content = _json.dumps(_answer(text)) if ARTICLE_MARK in text else _json.dumps(
+            {"has_unresolvable_contradiction": False})
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content))])
+
+    monkeypatch.setattr(conflict_resolver.litellm, "acompletion", fake)
+    (tmp_path / "entities").mkdir(parents=True, exist_ok=True)
+    frontmatter = {"name": "alpha-project", "type": "project", **decay_policy.frontmatter_fields(DecayClass.active),
+                   **fm}
+    markdown_parser.write(tmp_path / "entities/alpha-project.md", frontmatter, PAGE)
+    fields = {"key_facts": ["Runs on a laptop."], "history_entries": [{"date": stamps[-1][:10], "event": "Beta."}]}
+    sp.attach(fields, sources[-1], "user: synthetic")
+    change = {"id": "alpha-project", "action": "update", "entity": fields, "source_episodes": list(sources),
+              "source_episode_timestamps": list(stamps)}
+    existing = [{"id": "alpha-project", "frontmatter": frontmatter, "body": PAGE}]
+    changes = asyncio.run(conflict_resolver.resolve_and_prune([change], existing, settings, now=now, tuning={}))
+    conflict_resolver.apply_changes([c for c in changes if c["id"] == "alpha-project"], tmp_path)
+    page = markdown_parser.parse(tmp_path / "entities/alpha-project.md")
+    from api.services import entity_body as body
+    return page, entity_article.stamped(page.frontmatter, body.parse_sections(page.body))
+
+
+def test_an_article_page_read_in_the_decay_batch_is_settled_by_its_age(tmp_path, monkeypatch):
+    page, stamped = _article_run(
+        tmp_path, monkeypatch, now=TODAY,
+        fm={"status": "active", "confidence": 0.9, "source_episodes": ["ep_2026-01-10_001"],
+            "last_referenced": "2026-01-10", "decayed_through": "2026-01-10", "learned_on": "2026-10-09"},
+        sources=["ep_2026-03-02_001"], stamps=["2026-03-02T10:00:00+00:00"])
+    assert stamped, "the article writer wrote the page"
+    # Two conversations, silent since March: its age floors it at 0.39, dimmed, asked nothing.
+    assert page.frontmatter["status"] == "decaying" and math.isclose(page.frontmatter["confidence"], 0.39,
+                                                                      abs_tol=1e-9)
+
+
+def test_an_old_conversation_lifts_a_faded_article_page_to_the_repeat_floor(tmp_path, monkeypatch):
+    page, _ = _article_run(
+        tmp_path, monkeypatch, now=datetime(2026, 10, 10, 3, 0),
+        fm={"status": "archived", "confidence": 0.0, "source_episodes": ["ep_2024-01-10_001"],
+            "last_referenced": "2024-01-10", "decayed_through": "2026-10-09", "learned_on": "2026-10-09",
+            "faded_by_age": "2026-10-09"},
+        sources=["ep_2024-02-01_001"], stamps=["2024-02-01T10:00:00+00:00"])
+    assert page.frontmatter["status"] == "decaying"
+    assert math.isclose(page.frontmatter["confidence"], 0.39 - 0.05 * _f(2) / 7, abs_tol=1e-9)
