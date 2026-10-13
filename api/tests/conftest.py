@@ -25,7 +25,17 @@ import sys
 
 import pytest
 
-from api.services import logo_service
+# A developer checkout's settings file (`api/.env`, `api/settings_file.py`) never reaches the suite: off before any
+# module builds `Settings` or imports the backend's entry. A test that wants it turns it back on for itself.
+from api import settings_file as _settings_file
+
+_settings_file.disable()
+
+from api import config as _config  # noqa: E402
+
+_config.Settings.model_config["env_file"] = None
+
+from api.services import logo_service  # noqa: E402
 from api.services import codex_app_server as _codex_app_server
 from api.services.connections import base as _conn_base
 

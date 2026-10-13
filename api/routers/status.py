@@ -4,6 +4,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, Request
 from starlette.concurrency import run_in_threadpool
 
+from api import settings_file
 from api.config import Settings, get_settings
 from api.models.schemas import (
     HealthResponse,
@@ -12,6 +13,8 @@ from api.models.schemas import (
     StatusGates,
     StatusInbox,
     StatusResponse,
+    StatusSettings,
+    StatusSettingsEffective,
     StatusSleep,
 )
 from api.services import (
@@ -161,6 +164,25 @@ async def get_status(settings: Settings = Depends(get_settings)):
         telemetry="on" if telemetry.enabled() else "off",
         gates=StatusGates(**env_overrides.gates()),
         env_overrides=env_overrides.present(settings.model_fields_set),
+        settings=_settings_sources(settings),
+    )
+
+
+def _settings_sources(settings: Settings) -> StatusSettings:
+    """Names only, from what the backend's entry recorded when it read the settings file — never a value but the four
+    `effective` ones."""
+    src = settings_file.sources()
+    return StatusSettings(
+        file=src.file,
+        from_file=list(src.from_file),
+        from_environment=list(src.from_environment),
+        replaced_by_environment=list(src.replaced_by_environment),
+        effective=StatusSettingsEffective(
+            agent_max_concurrency=settings.agent_max_concurrency,
+            sleep_resolve_concurrency=settings.sleep_resolve_concurrency,
+            summary_synthesis_enabled=settings.summary_synthesis_enabled,
+            page_articles_enabled=settings.page_articles_enabled,
+        ),
     )
 
 

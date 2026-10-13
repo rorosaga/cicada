@@ -60,6 +60,24 @@ Neither moved a component, so `VersionVector` is unchanged. An entity node's has
 while Sleep runs and each commits alone over its own pages as `Cicada-Author: user`,
 `user/companion_app`.
 
+**The settings file (2026-10-13).** A developer checkout's settings file is `api/.env`, found by `api/settings_file.py`
+from the package's own folder — **never the working directory**, so neither the repo root (the launchd backend's cwd)
+nor an agent's project folder (an MCP server's or hook's cwd) can put a `.env` in its place. `Settings.env_file` is that
+absolute path, so every process that builds `Settings` reads the file's `CICADA_` fields; **the environment always wins**
+over it. The backend's entry (`api/main.py`, before any other import) also runs `settings_file.load()`: it forces
+`LITELLM_MODE=PRODUCTION`, which turns off litellm's import-time `load_dotenv()` (it walks up from litellm's own folder,
+so it read `api/.env` only when the venv sat inside `api/`, and the main checkout's file from a worktree sharing that
+venv), then fills `os.environ` from the file without replacing anything already set — the outbound gates, telemetry,
+the API token and litellm's provider keys read `os.environ`. The keys that reach `os.environ` are the ones litellm's
+load put there before; every `claude`/`codex` child still runs under `scrubbed_env` (provider keys and plan overrides
+stripped). A **release** (G182) has no settings file (`CICADA_DISTRIBUTION=release` turns the lookup off; the bundle
+carries tracked files only): its settings are the launcher's and plist's environment, the app's own preferences, and
+provider keys in `$CICADA_HOME/secrets.env`. The `cicada` command keeps its own bootstrap (`mcp.md`) and reads no file
+through `Settings`. `GET /status` carries `settings`: `file` (`"api/.env"` or null), `fromFile`, `fromEnvironment` and
+`replacedByEnvironment` — `CICADA_` names only, never a value — and `effective`, the four values Sleep's pace and page
+writing turn on (`agentMaxConcurrency`, `sleepResolveConcurrency`, `summarySynthesisEnabled`, `pageArticlesEnabled`).
+The backend logs the same names once at startup. Settings → Advanced shows them (`app.md`).
+
 `GET /status` has no ETag (the app refetches it whenever the vector's `sleep` component moves). Its `sleep.writing`
 (G177) is `sleep_cycle.is_writing()` — the predicate behind every "Sleep is running" 409 — and the SSE `sleep` event and
 the `sleep` component carry it too, so the app's write controls follow a drain's write window, not `running`.
