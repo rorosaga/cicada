@@ -459,10 +459,12 @@ def _same_and_split_pages(tmp_path):
 def test_a_second_old_conversation_in_a_later_run_lifts_a_one_off_to_the_repeat_floor(tmp_path):
     same, split = _same_and_split_pages(tmp_path)
     lifted = _fm(split, "alpha-project")
-    assert lifted["status"] == "decaying" and math.isclose(lifted["confidence"], 0.39, abs_tol=1e-9)
+    # The floor less the one live day since its age was settled.
+    assert lifted["status"] == "decaying"
+    assert math.isclose(lifted["confidence"], 0.39 - 0.05 * _f(2) / 7, abs_tol=1e-9)
     assert len(lifted["source_episodes"]) == 2
-    for bank in (same, split):
-        _batch(bank, [], decay=True, now=datetime(2026, 10, 20, 3, 0))
+    _daily(same, datetime(2026, 10, 10, 3, 0), datetime(2026, 10, 20, 3, 0))
+    _daily(split, datetime(2026, 10, 11, 3, 0), datetime(2026, 10, 20, 3, 0))
     a, b = _fm(same, "alpha-project"), _fm(split, "alpha-project")
     assert math.isclose(a["confidence"], b["confidence"], abs_tol=1e-9) and a["status"] == b["status"] == "decaying"
     assert str(a["decayed_through"]) == str(b["decayed_through"])
@@ -474,9 +476,11 @@ def test_a_second_old_restatement_in_a_later_run_lifts_a_claim_to_the_repeat_flo
     split, _, _ = _reconcile({}, [_claim("clm_a", "2024-03-05")], decay=True)
     assert split["topic"][0].confidence == 0.0
     split, _, _ = _reconcile(split, [_claim("clm_b", "2024-04-02")], decay=True, today="2026-10-10")
-    assert math.isclose(split["topic"][0].confidence, 0.39, abs_tol=1e-9)
-    same, _, _ = _reconcile(same, [], decay=True, today="2026-10-20")
-    split, _, _ = _reconcile(split, [], decay=True, today="2026-10-20")
+    assert math.isclose(split["topic"][0].confidence, 0.39 - 0.02 * _f(2) / 7, abs_tol=1e-9)
+    same, _, _ = _reconcile(same, [], decay=True, today="2026-10-10")
+    for n in range(11, 21):
+        same, _, _ = _reconcile(same, [], decay=True, today=f"2026-10-{n}")
+        split, _, _ = _reconcile(split, [], decay=True, today=f"2026-10-{n}")
     assert math.isclose(same["topic"][0].confidence, split["topic"][0].confidence, abs_tol=1e-9)
 
 
@@ -493,17 +497,27 @@ def _live_page(bank, confidence=0.9):
     return _fm(bank, "live")
 
 
-def test_a_capture_read_late_after_the_last_charge_is_charged_its_gap_once(tmp_path):
+def test_a_capture_read_late_after_the_last_charge_never_lowers_an_active_page(tmp_path):
     bank = _bank(tmp_path)
-    before = _live_page(bank)
+    before = _live_page(bank, confidence=0.5)
     assert before["status"] == "active" and str(before["decayed_through"]) == "2026-07-10"
     _drain(bank, [[_change("live", "update", "2026-07-15")], []])
     fm = _fm(bank, "live")
-    expected = before["confidence"] - 0.05 * _f(2) * _weeks("2026-07-15", "2026-10-09")
-    assert math.isclose(fm["confidence"], expected, abs_tol=1e-9)
+    # Its clock restarts when it was said; the gap until it was read never takes it below where it stood.
+    assert math.isclose(fm["confidence"], before["confidence"], abs_tol=1e-9) and fm["status"] == "active"
     assert str(fm["decayed_through"]) == "2026-10-09" and str(fm["last_referenced"]) == "2026-07-15"
-    _batch(bank, [], decay=True, now=datetime(2026, 10, 9, 23, 0))   # once: the same day charges nothing more
+    assert "confidence_before_mention" not in fm
+    _batch(bank, [], decay=True, now=datetime(2026, 10, 10, 3, 0))   # the gap is settled: one live day next
+    expected = before["confidence"] - 0.05 * _f(2) / 7
     assert math.isclose(_fm(bank, "live")["confidence"], expected, abs_tol=1e-9)
+
+
+def test_a_late_capture_on_an_evergreen_page_leaves_no_mention_floor(tmp_path):
+    bank = _bank(tmp_path)
+    _batch(bank, [_change("saved", "create", "2026-07-01", kind="media")], decay=True, now=datetime(2026, 7, 1, 3, 0))
+    _batch(bank, [], decay=True, now=datetime(2026, 7, 10, 3, 0))
+    _drain(bank, [[_change("saved", "update", "2026-07-15")], []])
+    assert "confidence_before_mention" not in _fm(bank, "saved")
 
 
 def test_a_late_capture_that_revives_a_page_never_leaves_it_below_where_it_stood(tmp_path):
@@ -518,3 +532,43 @@ def test_a_late_capture_that_revives_a_page_never_leaves_it_below_where_it_stood
            now=datetime(2026, 12, 20, 3, 0))
     after = _fm(bank, "live")
     assert after["confidence"] >= before["confidence"] and after["status"] != "archived"
+
+
+def _daily(bank, start, end):
+    day = start
+    while day <= end:
+        _batch(bank, [], decay=True, now=day)
+        day += timedelta(days=1)
+
+
+@pytest.mark.parametrize("second_read", ["2026-10-23", "2026-12-01"])
+def test_a_second_old_conversation_weeks_later_lands_where_one_run_would_have(tmp_path, second_read):
+    same, split = _bank(tmp_path / "same"), _bank(tmp_path / "split")
+    read = datetime.fromisoformat(second_read + "T03:00:00")
+    _drain(same, [[_change("alpha-project", "create", "2024-03-05")],
+                  [_change("alpha-project", "update", "2024-04-02")], []])
+    _daily(same, datetime(2026, 10, 10, 3, 0), read)
+    _batch(split, [_change("alpha-project", "create", "2024-03-05")], decay=True)
+    _daily(split, datetime(2026, 10, 10, 3, 0), read - timedelta(days=1))
+    _batch(split, [_change("alpha-project", "update", "2024-04-02")], decay=True, now=read)
+    a, b = _fm(same, "alpha-project"), _fm(split, "alpha-project")
+    assert a["status"] == b["status"]
+    if a["status"] != "archived":
+        assert math.isclose(a["confidence"], b["confidence"], abs_tol=1e-9)
+    else:
+        assert b["confidence"] < 0.2
+
+
+def test_a_second_old_restatement_weeks_later_lands_a_claim_where_one_run_would_have():
+    same, _, _ = _reconcile({}, [_claim("clm_a", "2024-03-05")], decay=False)
+    same, _, _ = _reconcile(same, [_claim("clm_b", "2024-04-02")], decay=True)
+    split, _, _ = _reconcile({}, [_claim("clm_a", "2024-03-05")], decay=True)
+    day = datetime(2026, 10, 10)
+    while day < datetime(2026, 12, 1):
+        same, _, _ = _reconcile(same, [], decay=True, today=day.date().isoformat())
+        split, _, _ = _reconcile(split, [], decay=True, today=day.date().isoformat())
+        day += timedelta(days=1)
+    same, _, _ = _reconcile(same, [], decay=True, today="2026-12-01")
+    split, _, _ = _reconcile(split, [_claim("clm_b", "2024-04-02")], decay=True, today="2026-12-01")
+    assert math.isclose(same["topic"][0].confidence, split["topic"][0].confidence, abs_tol=1e-9)
+    assert same["topic"][0].confidence < 0.39

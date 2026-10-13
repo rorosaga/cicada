@@ -720,9 +720,10 @@ def apply_changes(changes: list[dict], memory_path) -> None:
                     # to decay. Recovery (G66 §1.6) — `dropped` is deliberately excluded: the person dismissed
                     # that entity and it is never resurfaced. Its clock restarts when it was said; the gap until
                     # Cicada read it is proven silence, charged once by the pass that settles it — never below
-                    # where a revived page stood before the mention (`MENTION_FLOOR_KEY`).
-                    if str(fm.get("status", "active")) in ("decaying", "archived"):
+                    # where the page stood before the mention (`MENTION_FLOOR_KEY`).
+                    if decay_policy.resolve(fm)[0] is not DecayClass.evergreen:
                         fm.setdefault(MENTION_FLOOR_KEY, float(fm.get("confidence", 0.0) or 0.0))
+                    if str(fm.get("status", "active")) in ("decaying", "archived"):
                         fm["status"] = "active"
                         fm["confidence"] = max(float(fm.get("confidence", 0.0) or 0.0), RECOVERY_CONFIDENCE)
                     fm.pop(decay_policy.FADED_BY_AGE_KEY, None)   # back in the person's words: asked like any page
@@ -900,13 +901,15 @@ def _lift_to_repeat_floor(fm: dict, params: dict, untimed: frozenset[str]) -> No
                                        tuning=params.get("tuning") or {}, untimed=untimed)
     if effective.decay_class is DecayClass.evergreen:
         return
+    # Live silence from the day its age was settled to today: an archived page is never charged, so its watermark
+    # stopped the day it archived and says nothing about the weeks since.
     since = date.fromisoformat(str(fm[decay_policy.FADED_BY_AGE_KEY])[:10])
-    charged = _extract_date_string(fm.get("decayed_through"))
-    live_days = max(0, (date.fromisoformat(charged) - since).days) if charged else 0
-    lifted = decay_policy.proven_floor(params["nudge"]) - effective.rate * live_days / 7.0
+    today = date.fromisoformat(params["today"])
+    lifted = decay_policy.proven_floor(params["nudge"]) - effective.rate * max(0, (today - since).days) / 7.0
     if lifted <= float(fm.get("confidence", 0.0) or 0.0):
         return
     fm["confidence"] = lifted
+    fm["decayed_through"] = today.isoformat()   # charged through today: the next pass charges only what follows
     fm["status"] = "archived" if lifted < params["archive"] else "decaying"
 
 
@@ -916,6 +919,7 @@ def _settle(fm: dict, params: dict, untimed: frozenset[str]) -> None:
     merged. Its live clock starts today, so nothing past ``learned_on`` is charged. Proven silence floors just under
     the question line for a page heard in 2+ conversations (``decay_policy.charge``). Asks nothing; a page heard late
     that it leaves below 0.4 is marked ``faded_by_age`` and fades and archives quietly from here."""
+    at_least = fm.pop(MENTION_FLOOR_KEY, None)   # used here once, or never: it never outlives this pass
     if str(fm.get("status", "active")) in ("archived", "dropped"):
         return
     effective = decay_policy.effective(fm, alpha=params["alpha"], floor=params["floor"],
@@ -926,12 +930,11 @@ def _settle(fm: dict, params: dict, untimed: frozenset[str]) -> None:
         _extract_date_string(fm.get("last_referenced")), _extract_date_string(fm.get("decayed_through")),
         _extract_date_string(fm.get("learned_on")), date.fromisoformat(params["today"]), 0)
     if owed is None or owed.days <= 0:
-        fm.pop(MENTION_FLOOR_KEY, None)
         return
     confidence = decay_policy.charge(
         float(fm.get("confidence", 0.5) or 0.0), effective.rate, owed, nudge_threshold=params["nudge"],
         conversations=decay_policy.conversations(fm.get("source_episodes"), untimed=untimed),
-        at_least=fm.pop(MENTION_FLOOR_KEY, None))
+        at_least=at_least)
     fm["confidence"] = confidence
     if confidence < params["nudge"] and decay_policy.heard_late(
             _extract_date_string(fm.get("last_referenced")), _extract_date_string(fm.get("learned_on"))):

@@ -911,12 +911,14 @@ not yet settled (proven silence still owed — read earlier in this run, or in o
 `learned_on` and the age counts from it; on a settled page, a mention from a conversation dated on or after its
 watermark (one no charge has covered — every live mention) revives it (`max(current, 0.6)`, `active`) and restarts
 its clock when it was said: the gap until Cicada read it is proven silence, charged once by the pass that settles it,
-never below where a revived page stood before the mention (`confidence_before_mention`, kept only until then); one
+never below where the page stood before the mention (`confidence_before_mention`, kept only until then; never on an evergreen page); one
 dated before the watermark (an old conversation read late) adds its source and its week and moves nothing else —
 except that when it makes a one-off its age faded (`faded_by_age`) a repeat, the page is lifted to where the two
-conversations read in one run would have left it: the repeat floor less the live silence charged since its age was
-settled (`_lift_to_repeat_floor`; only raises, archived → decaying where it lands at or above 0.2), so how imports
-split across runs never changes the result. Claims are lifted the same way in `_reinforce`. Nothing is charged mid-drain (the batches before the last
+conversations read in one run would have left it: the repeat floor less the live silence from the day its age was
+settled to today (`_lift_to_repeat_floor`; an archived page's watermark stops the day it archives, so it is never the measure; only raises, archived → decaying where it lands at or above 0.2), so how imports
+split across runs never changes the result. Claims are lifted the same way in `_reinforce`. A late restatement of a
+settled claim (said after its watermark, read later) still restarts the claim's clock the day it is read, so a page
+and its claim from the same late capture can differ slightly. Nothing is charged mid-drain (the batches before the last
 run with `decay=False`), and the pass that charges decay also settles the pages its own batch creates or references
 (the change's `settle` directive, applied by `apply_changes` on the page as merged, in the commit that writes the
 page) — so a page said in 2024 and again in 2026 ends the drain alive whatever the order the two were read in or
