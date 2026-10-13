@@ -15,7 +15,7 @@ from api.services.claims import Evidence
 
 FIELD = 'section_provenance'
 INPUTS = '_section_inputs'  # transient, never serialized into a page
-TITLES = {'summary': 'Summary', 'key_facts': 'Key Facts', 'history': 'History',
+TITLES = {'summary': 'Summary', 'article': 'Article', 'key_facts': 'Key Facts', 'history': 'History',
           'links': 'Links', 'open_questions': 'Open Questions'}
 _CODES = {'user': 'u', 'assistant': 'a', 'page': 'p', 'reasoning': 'r', 'speaker': 's', 'media': 'm'}
 _KINDS = {v: k for k, v in _CODES.items()}
@@ -105,6 +105,21 @@ def scan(body: str) -> dict[str, list[Item]]:
                     ranges.append((start, start + len(text)))
             if texts:
                 items.append(_item('\n'.join(texts), tuple(ranges)))
+        elif key == 'article':
+            # The article (`entity_article`): each paragraph is one item — a run of non-blank lines that are not a
+            # `### ` title — the same row the app draws for it, so a line finds its paragraph's sources.
+            for chunk in chunks:
+                run = []
+                for row in chunk + [(None, '', False)]:
+                    if row[1].strip() and not row[2] and not row[1].lstrip().startswith('#'):
+                        run.append(row)
+                        continue
+                    if run:
+                        raw = ''.join(r[1] for r in run)
+                        text = raw.strip()
+                        start = run[0][0] + len(raw) - len(raw.lstrip())
+                        items.append(_item(text, ((start, start + len(text)),)))
+                        run = []
         else:
             for chunk in chunks:
                 current = []
@@ -290,7 +305,9 @@ def refresh(frontmatter: dict, original_body: str, body: str, entity: dict, *, s
     selected_summary = 'description' if synthesized else ('summary' if entity.get('summary') else 'description')
     for record in entity.get(INPUTS, []) or []:
         field = record['field']
-        section = 'summary' if field == selected_summary else ('key_facts' if field == 'key_facts' and not synthesized else None)
+        section = ('summary' if field == selected_summary else
+                   'key_facts' if field == 'key_facts' and not synthesized else
+                   'article' if field == 'article' else None)
         if not section:
             continue
         text = record['text']

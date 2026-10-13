@@ -12,7 +12,7 @@ import tempfile
 import uuid
 from datetime import date
 
-from api.services import claims, entity_body, entity_orientation as orientation
+from api.services import claims, entity_article, entity_body, entity_orientation as orientation
 from api.services import markdown_parser, section_provenance, source_dates
 
 
@@ -91,6 +91,10 @@ def _snapshot(bank: Path, path: Path, today: str) -> tuple[dict, dict]:
     sections = entity_body.parse_sections(claims.strip_claims_block(page.body))
     if entity_body.has_human_prose(page.frontmatter, sections):
         raise ValueError('human_prose')
+    if entity_article.stamped(page.frontmatter, sections):
+        # An article page's lead is the article writer's (G194): replacing it here, unstamped, would make the page
+        # read as hand-edited and freeze it. The article writer, or its rebuild, is how that lead changes.
+        raise ValueError('article_page')
     if section_provenance.unavailable_sections(page.body, {}):
         raise ValueError('unreadable_prose')
     refs = page.frontmatter.get('source_episodes', []) or []

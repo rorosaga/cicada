@@ -38,6 +38,41 @@ final class WikiArticleTests: XCTestCase {
         XCTAssertTrue(article.complete)
     }
 
+    /// G194 articles: `## Article` is a container — its heading is not drawn, its `### ` titles read as the page's
+    /// sections (one level up, peers of `## Key Facts`), and inline `[[links]]` in its paragraphs stay links.
+    func testTheArticleContainerIsUnwrappedAndItsTitlesReadAsSections() {
+        let markdown = """
+        ## Summary
+        The lead, in the header.
+
+        ## Article
+        ### What it is
+        alpha-project syncs through [[SQLite]] on a laptop.
+
+        It began in January 2026.
+
+        ### Where it stands
+        In March 2026 it had a beta.
+
+        ## Key Facts
+        - Uses SQLite.
+        """
+        let article = WikiArticle.build(markdown)
+        XCTAssertEqual(texts(article), ["What it is", "alpha-project syncs through SQLite on a laptop.",
+                                        "It began in January 2026.", "Where it stands", "In March 2026 it had a beta.",
+                                        "Key Facts", "Uses SQLite."])
+        XCTAssertEqual(kinds(article), [.heading(level: 2), .paragraph, .paragraph, .heading(level: 2), .paragraph,
+                                        .heading(level: 2), .item(marker: "•", indent: 0)])
+        let link = article.rows[1].text.runs.compactMap(\.link).first
+        XCTAssertEqual(link?.scheme, "cicada")
+        // Each paragraph row's source is its own range in the served prose, so a line finds its paragraph's sources.
+        let scalars = Array(markdown.unicodeScalars)
+        let row = article.rows[2]
+        XCTAssertEqual(String(String.UnicodeScalarView(scalars[row.source])), "It began in January 2026.")
+        // Outside the container a `###` keeps its level.
+        XCTAssertEqual(kinds(WikiArticle.build("## Notes\n### Small")), [.heading(level: 2), .heading(level: 3)])
+    }
+
     func testTheSectionsWithTheirOwnSurfaceAndTheClaimsFenceAreLeftOut() {
         let markdown = """
         ## Summary

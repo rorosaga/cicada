@@ -43,6 +43,11 @@ struct WikiArticle: Sendable, Equatable {
     /// media page's card. The same pair `EntityDetailCard` used to strip before rendering.
     static let ownSurfaces: Set<String> = ["## Summary", "## Description"]
 
+    /// Sections whose heading is a container, not a title (G194 articles): `## Article` holds the page's prose sections
+    /// under `### ` titles, right below the header's lead. Its own heading row is not drawn and its titles are drawn
+    /// one level up, so the article reads as the page's sections and the record below (`## Key Facts`, …) as peers.
+    static let containers: Set<String> = ["## Article"]
+
     /// `markdown` as rows, without every section in `dropping` (a `## ` header and its body, up to the next `## `)
     /// and without any ```claims block (machine data with its own surface, R-FX8). Stops after `maxRows` rows: the
     /// rows a capped build returns are exactly the full build's first rows, so a first screen can be drawn before the
@@ -51,12 +56,20 @@ struct WikiArticle: Sendable, Equatable {
         var reader = LineReader(markdown)
         var rows: [WikiRow] = []
         var dropped = false
+        var contained = false
         func add(_ kind: WikiRow.Kind, _ text: AttributedString, _ source: Range<Int>) {
             rows.append(WikiRow(id: rows.count, kind: kind, text: text, source: source))
         }
         while rows.count < maxRows, let line = reader.peek() {
             let trimmed = line.text.trimmingCharacters(in: .whitespaces)
-            if trimmed.hasPrefix("## ") || trimmed == "##" { dropped = dropping.contains(trimmed) }
+            if trimmed.hasPrefix("## ") || trimmed == "##" {
+                dropped = dropping.contains(trimmed)
+                contained = containers.contains(trimmed)
+                if contained, !dropped {
+                    reader.advance()
+                    continue
+                }
+            }
             if trimmed.isEmpty {
                 reader.advance()
                 continue
@@ -82,7 +95,8 @@ struct WikiArticle: Sendable, Equatable {
                 continue
             }
             if let heading = headingLevel(trimmed, line.text) {
-                add(.heading(level: heading.level), WikiInline.attributed(heading.text), line.start..<line.end)
+                let level = contained && heading.level > 2 ? heading.level - 1 : heading.level
+                add(.heading(level: level), WikiInline.attributed(heading.text), line.start..<line.end)
                 reader.advance()
                 continue
             }

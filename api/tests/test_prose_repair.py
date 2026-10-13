@@ -222,3 +222,22 @@ def test_repair_preserves_nonbullet_text_in_other_sections(bank, tmp_path):
                         max_calls=1, token_budget=10000, engine_id='fake-v1')
     candidate = json.loads(Path(result['pages'][0]['candidate']).read_text())
     assert 'Unstructured context.' in candidate['body']
+
+
+def test_an_article_page_is_left_alone(bank, tmp_path):
+    """G194 review: replacing an article page's lead without its stamp would freeze the page as hand-edited."""
+    from api.services import entity_article, entity_body
+
+    path = bank / 'entities/alpha-project.md'
+    page = md.parse(path)
+    prose = ('## Summary\nA local notes project.\n\n## Article\n### What it is\n\nA prototype for local notes.\n\n'
+             '## Key Facts\n- Planned a local notes prototype.')
+    entity_article.stamp(page.frontmatter, entity_body.parse_sections(prose))
+    md.write(path, page.frontmatter, claims.preserve_claims_blocks(page.body, prose))
+    before = snapshot(bank)
+    calls = []
+    result = repair.run(bank, tmp_path / 'inventory', llm_fn=fake(calls))
+    assert result['pages'][0]['status'] != 'eligible' and calls == []
+    result = repair.run(bank, tmp_path / 'candidates', generate=True, llm_fn=fake(calls),
+                        max_calls=1, token_budget=10000, today='2026-10-08', engine_id='fake-v1')
+    assert calls == [] and snapshot(bank) == before

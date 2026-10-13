@@ -12,7 +12,7 @@ from pathlib import Path
 import yaml
 from loguru import logger
 
-from api.services import markdown_parser, entity_body, page_lock
+from api.services import entity_article, entity_body, markdown_parser, page_lock
 from api.services.claims import (
     Claim, MalformedClaimsBlockError, parse_claims, strip_claims_block, write_claims,
 )
@@ -214,6 +214,9 @@ def _repoint_page(ep: Path, old: set[str], old_id: str, new_id: str, new_name: s
         claims_changed |= _repoint_claim(c, old, old_id, new_id)
 
     new_body, n_subs = _relink(wikilink_re, new_name, epar.body)
+    if n_subs:
+        # A renamed link is a mechanical edit: an article stamp that held before still holds (`entity_article`).
+        entity_article.carry_stamp(efm, epar.body, new_body)
     if claims_changed:
         new_body = write_claims(new_body, page_claims)
     if n_subs or claims_changed:
@@ -322,7 +325,10 @@ def rename_references(memory_path: Path, old_id: str, old_name: str, new_id: str
     changed = False
     for c in own:
         changed |= _repoint_claim(c, old, old_id, new_id)
+    before = body
     body, n = _relink(_wikilink_re(old_id, old_name), new_name, body)
+    if n:
+        entity_article.carry_stamp(fm, before, body)
     if changed:
         body = write_claims(body, own)
     self_names = old | _names(new_id, new_name)
@@ -424,10 +430,32 @@ def merge_entities(memory_path: Path, loser_id: str, winner_id: str,
         elif content not in existing:
             merged_sections[title] = existing + "\n\n" + content
         # identical content: keep winner's, no dup
+    # The loser's `## Article` (G194). Canonical, so neither loop above carries it. A person's article (a hand-written
+    # one, or a machine one edited since its stamp) is never lost: it joins the winner's Article, after the winner's
+    # own, which makes the winner's prose the person's too (its stamp no longer matches: additive-only from now on).
+    # A machine article is not carried: it was compiled from the loser's record, which merged in above, and the
+    # winner's next article is rewritten from the merged record; git keeps the loser's page.
+    loser_article = (loser_sections.get(entity_article.SECTION) or "").strip()
+    if loser_article and not entity_article.stamped(lfm, loser_sections):
+        winner_article = (merged_sections.get(entity_article.SECTION) or "").strip()
+        if loser_article not in winner_article:
+            merged_sections[entity_article.SECTION] = (
+                f"{winner_article}\n\n{loser_article}" if winner_article else loser_article)
+            if not (merged_sections.get("Summary") or "").strip():
+                merged_sections["Summary"] = (loser_sections.get("Summary") or "").strip()
+            merged_sections = {t: merged_sections[t] for t in sorted(
+                merged_sections, key=lambda t: -1 if not t else entity_body.CANONICAL_SECTIONS.index(t)
+                if t in entity_body.CANONICAL_SECTIONS else len(entity_body.CANONICAL_SECTIONS))}
+    elif loser_article:
+        logger.info(f"merge: {loser_id}'s machine article is not carried; {winner_id}'s next article is written "
+                    "from the merged record")
     new_body = "\n\n".join(f"## {t}\n{c}" if t else c
                            for t, c in merged_sections.items() if c).strip()
     # A wikilink to the loser inside the merged prose now names this page.
-    new_body, _n = _relink(_wikilink_re(loser_id, loser_name), winner_name, new_body)
+    relinked, _n = _relink(_wikilink_re(loser_id, loser_name), winner_name, new_body)
+    if _n:
+        entity_article.carry_stamp(wfm, new_body, relinked)
+    new_body = relinked
     all_claims = _carry_claims(winner_claims, loser_claims, loser_id, loser_name, winner_id)
     if all_claims:
         new_body = write_claims(new_body, all_claims)

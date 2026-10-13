@@ -23,6 +23,10 @@ from api.services import fact_policy, summary_policy
 
 CANONICAL_SECTIONS = [
     "Summary",
+    # The article (`entity_article`): `### <title>` sections of prose under the Summary lead, written by the article
+    # writer from the record below it. Canonical, so no merge folds it away or mistakes it for human prose; a person's
+    # edit of it is still seen, through its frontmatter stamp (:func:`has_human_prose`).
+    "Article",
     "Key Facts",
     "History",
     "Related",
@@ -123,8 +127,13 @@ def _bullet_lines(content: str) -> list[str]:
 
 
 def has_human_prose(frontmatter: dict, sections: dict[str, str]) -> bool:
+    """A page a person wrote or edited: the frontmatter says so, it has a heading no machine writer emits, or its
+    Summary/Article no longer match the stamp the article writer left (`entity_article.edited`) — an edit of a machine
+    article makes the page the person's, additive-only, like any other hand edit."""
+    from api.services import entity_article
+
     return bool(frontmatter.get('human_edited')) or any(
-        title and title not in CANONICAL_SECTIONS for title in sections)
+        title and title not in CANONICAL_SECTIONS for title in sections) or entity_article.edited(frontmatter, sections)
 
 
 def retain_orientation(sections: dict[str, str], text: str, *, names=()) -> int:
@@ -219,8 +228,11 @@ def bound_summary(sections: dict[str, str], *, previous: str = '', name: str = '
     The Summary keeps its leading whole sentences that fit the budget, once each
     (:func:`lead`); the rest goes through :func:`retain_orientation`. With no
     sentence to keep: a usable ``previous`` Summary, else the identity fallback.
-    Human Summaries never come here (callers check)."""
+    Human Summaries never come here (callers check). A page with an Article keeps its lead as written: the article
+    writer owns it, at whatever length the material gave it (`entity_article`)."""
     sections = dict(sections)
+    if (sections.get('Article') or '').strip():
+        return sections
     names = [n for n in (name, *names) if n]
     lead_text = sections.pop('', '').strip()
     candidate = sections.get('Summary', '').strip()
@@ -424,7 +436,11 @@ def merge_sections_fallback(existing: dict[str, str], new_fields: dict, *,
     new_summary = str(new_fields.get("summary", "") or "").strip()
     old_summary = merged.get('Summary', '')
     names = [str(new_fields.get('name') or '')]
-    if not human_edited:
+    if (merged.get('Article') or '').strip() and old_summary:
+        # An article page's lead is the article writer's, at any length (`entity_article`): kept exactly; what an
+        # incoming orientation says lands in Key Facts below, until the writer next rewrites the lead.
+        pass
+    elif not human_edited:
         if summary_policy.usable(old_summary):
             merged['Summary'] = old_summary
         elif summary_policy.usable(new_summary):
@@ -636,7 +652,7 @@ def render_related(related_slugs: list[str], edges: list[dict], id_to_name: dict
 # Priority order for recall summaries: fact-bearing sections first. Summary +
 # Key Facts are ALWAYS included in full (they hold the answer); the rest fill
 # the remaining budget in this order.
-_RECALL_PRIORITY = ["Summary", "Key Facts", "History", "Links", "Related", "Open Questions"]
+_RECALL_PRIORITY = ["Summary", "Key Facts", "Article", "History", "Links", "Related", "Open Questions"]
 
 
 def summarize_for_recall(body: str, *, max_chars: int = 3200) -> str:

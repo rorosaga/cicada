@@ -46,7 +46,10 @@ remembered disclosure (`CardDisclosure`, DR-39) that reads its data only when op
 claims; shown open on an R-FX11 page, whose beliefs are its content), Where this came from, a person's *How you know
 <name>* (*What you're connected to* on the owner's page) with *What's happening*, Look it up at and Details. The
 article is `WikiArticle`: the served prose without `## Summary` (the header's), `## Description` (a media card's) or
-a claims fence, parsed once into flat rows — one per list item — off the main actor and cached by text
+a claims fence, parsed once into flat rows — one per list item or paragraph — off the main actor. `## Article` (G194
+articles, `storage.md`) is a container: its heading row is not drawn and its `### ` titles are drawn as level-2
+headings, peers of `## Key Facts`, so the article reads as the page's sections under the header's lead; each paragraph
+is one row whose range is its `article` provenance item's and cached by text
 (`WikiArticleCache`, in memory, not a Store domain). Its first 48 rows are built synchronously, so the page never
 draws blank, and `WikiPageView` draws the rows in a `LazyVStack`: only the lines on screen are laid out. Until the full page lands the card says "Reading the page…"; a failed read says "Couldn't read this page." with Retry, never a spinner forever (DR-32). One claims read per card is shared by every section and tab that asks at once. Every line
 offers *Where this line came from* on hover and as an accessibility action: the `/provenance` section item whose

@@ -809,6 +809,69 @@ where it stands, the facts worth remembering once each. What changed, besides pr
   list section skipped (`skipped_free_prose`). Near-duplicate facts
   already on a page and one-conversation pages are counted, never changed.
 
+### Pages as articles (G194, 2026-10-09)
+The owner: "i dont get yet why the consolidation as wikipedia articles of stuff still doesnt fill like this?" — pages
+read as fact sheets (a one-to-three-sentence Summary, then Key Facts bullets), because the merge prompt capped the
+Summary by type, the orientation writer rewrote only the Summary under the 600-character budget, and nothing turned
+a page's facts into connected writing. The direction (owner, after gbrain and Cognition's agent memory): stop
+constraining the prose; git is the safety net, the claims and the dated timeline are the record.
+
+- **Shape** (`storage.md`, *The body*): the Summary lead and a canonical `## Article` of `### ` prose sections with
+  inline `[[links]]` above the line, rewritten freely; the record below (Key Facts, History, Links, Open Questions,
+  Related, claims), unioned deterministically and never shortened. Key Facts stay: they are not claims (claims come
+  from relationships and agent writes), so they are the record the article is compiled from, each with its G118 row.
+  The `article` frontmatter stamp marks the prose as the writer's; an edit makes the page the person's.
+- **The writer** (`entity_article`, `CICADA_PAGE_ARTICLES_ENABLED`, off until the owner reviews the numbers below,
+  like the synthesis switch): in Stage 3, a machine page resting on 2+ conversations once the update lands, that
+  gains anything (the re-read gate still applies), gets ONE JSON call in place of the synthesis call; the
+  contradiction call is unchanged. A one-conversation page is a stub: the deterministic merge, no call (short because
+  it is a stub, not because of a cap). A page whose prompt is over `CICADA_PAGE_ARTICLE_MAX_INPUT_CHARS` (60,000; never
+  clipped) keeps the deterministic merge if it has an article, else today's path. A page with a stamped article is
+  never handed to the orientation or legacy rewrite, whatever the settings: both replace the lead the writer owns; an
+  inbox answer on it takes the fallback append.
+- **Inputs**, numbered: the record after this update's deterministic union (`f` facts with the days their rows'
+  conversations were said, `h` dated History lines, `q` questions, `l` links), this update's summary sentences (`s`),
+  the page's earlier lead and paragraphs (`p`, unverified background), current claims (`c`, with `valid_from` and
+  their evidence), today, the owner's name, the pages it already links to (the only names it may link) and suggested
+  sections for the type (a project, a person, a tool and a place get different ones; the model uses what the material
+  fills). No length caps: "length follows the material".
+- **Rails in code** (`entity_article.parse`): each paragraph lists the inputs it was written from; a cited input must
+  share a word with the paragraph. A paragraph with no valid citation is the model's own knowledge (G121), one with a
+  relative time word is not written as of its date (G194), one saying "the user" breaks G169 — each is dropped and
+  counted; a `[[link]]` to no page is unwrapped. A lead that fails rejects the article (no retry; the deterministic
+  merge). Nothing the record holds can be lost: Stage 5 writes the record merge first. The two kinds of prose that
+  are not yet record — this update's summary and, on a page's first article, its old Summary — have each sentence the
+  article does not visibly carry (cited by a paragraph holding three in five of its words, every name in it and every
+  number, negation and tense word, `fact_policy.compatible`) kept as a Key Fact. The writer's own earlier prose is
+  rewritten freely; git keeps every version.
+- **Provenance** is per paragraph, not per sentence: the app draws a paragraph as one row, so one click from a line
+  is one click from its paragraph; per-sentence citations would multiply output and failure for no finer click. Each
+  paragraph (and the lead) records the evidence rows of the inputs it validly cites under its exact text guard
+  (`storage.md`); an edit unlinks it rather than recertifying it.
+- **What the old machinery is still for.** The equality-only fold (`fact_policy`) keeps the record free of exact
+  repeats — still needed, it is how Key Facts union. `entity_body.adds_anything` (the re-read gate) still saves both
+  calls on a resumed conversation. The guards that protect claims (fences preserved, never parsed into prose) and the
+  timeline (History merged, never rewritten) are untouched. The prose-only machinery — the 600-character lead budget
+  (`bound_summary`, `lead`, `retain_orientation`) and the orientation `restated`/`covered` fold — exists because the
+  Summary was capped and was the only prose; on an article page it no longer runs (the merges keep an article's lead
+  as written), and it stays only for stubs and for banks with articles off. With articles on, the orientation call
+  serves only a page over the article budget that has no article yet (stubs take the deterministic merge), so
+  retiring `summary_synthesis_enabled` is the next simplification once articles are the default.
+- **Measured offline** (`python -m benchmarks.system.page_articles --scratch <new-dir>`; a 15-conversation project, a
+  5-conversation person and a one-conversation tool, one conversation per batch, fakes only): calls are equal — 36 over
+  15 batches either way (18 write + 18 contradiction; today's write is the orientation call) — prompts grow 42%
+  (129,365 → 183,993 characters, median batch 8,392 → 12,481) and answers about 11× (2,380 → 27,326 with the
+  mechanical fake; a recorded article for the 15-conversation page is 2,479 characters from an 8,413-character prompt).
+  Modelled plan-engine time (2 s a call, 5,000 input and 70 output tokens a second, assumed): Stage 3 over the run
+  67.9 s → 149.2 s, the largest batch 5.0 s → 13.4 s — output-bound, so the cost is per rich page per batch, not per
+  call. Every extracted fact and dated line is on its page in both runs; the stub stays a stub.
+- **Existing pages:** `python -m api.scripts.rebuild_page_articles --bank <bank>` (dry run: counts only — pages,
+  skipped as archived/media/human/one conversation/already articles/over budget, selected, prompt characters; never a
+  name). `--limit N` / `--entity <id>` narrow it; `--preview-dir <outside-the-bank>` makes the calls and writes
+  `<id>.before.md`/`<id>.after.md` there, touching nothing in the bank; `--apply` is refused before any call unless the
+  backend says Sleep is idle, makes the calls outside the write admission, then writes in one commit
+  (`trigger: maintenance/page-articles`, the model as `Cicada-Author`), skipping a page written since it was read.
+
 ### Temporal decay
 Absence of mention IS a signal, and **how often something came up sets how fast its absence
 counts** (G147). Each Sleep cycle charges an unreferenced page at most one week
