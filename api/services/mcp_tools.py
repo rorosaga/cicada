@@ -3438,10 +3438,11 @@ def resolve_inbox(
 ) -> str:
     """Resolve (or defer) one inbox item through the backend (§2.7).
 
-    ``quote`` (owner, 2026-10-14) is the person's own words in this conversation that answered the question —
-    asked, or settled before anyone asked. The backend keeps them as a small episode of their words and cites it
-    as the answer's evidence; a remote connection never sends them (R-R22: a remote app never records the
-    person's own words as theirs).
+    ``quote`` (owner, 2026-10-14) is what the person said in this conversation that answered the question —
+    asked, or settled before anyone asked — as this agent relays it. The backend keeps it as a small relay episode
+    (the agent's text, ``relayed_by`` = this harness, ``session_id`` = this conversation) and cites it as the
+    answer's evidence; the commit names both. A remote connection never sends it (R-R22: a remote app never
+    records the person's own words as theirs), and a demo bank never receives it (review B2).
 
     ``skip=True`` (G75 contract item 2, final review) is an in-process no-op:
     the id joins ``_SKIPPED_INBOX_IDS`` so ``handle_check_nudges`` stops
@@ -3488,8 +3489,14 @@ def resolve_inbox(
                     else "Error: pass option_key, answer, or defer=true.")
         from api.services import inbox_ask_gate
 
-        if (words := inbox_ask_gate.clean_quote(quote)):
+        # Never into a demo bank (review B2): the person's real conversation must not reach the demo's content.
+        if (words := inbox_ask_gate.clean_quote(quote)) and _demo_refusal(ctx.memory_path()) is None:
+            # Who relays it and from which conversation (review B1): the words are this agent's account of what the
+            # person said, kept and shown as relayed by it — never as the person's verbatim words.
             payload["quote"] = words
+            payload["relayedBy"] = ctx.author
+            if ctx.session_id:
+                payload["sessionId"] = ctx.session_id
 
     import urllib.error
 
@@ -3516,8 +3523,9 @@ def resolve_inbox(
         return f"Deferred {item_id} until {result.get('remindAfter', 'later')}."
     kept = result.get("quoteEpisode")
     if kept:
-        return (f"Inbox item {item_id}: {status}. The person's words are kept as its evidence ({kept}). "
-                "Tell them in one short line what you noted.")
+        return (f"Inbox item {item_id}: {status}. What you relayed of their answer is kept as its evidence, marked as "
+                f"relayed by you from this conversation ({kept}) — not as their own verbatim words. Tell them in one "
+                "short line what you noted.")
     return f"Inbox item {item_id}: {status}."
 
 

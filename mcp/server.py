@@ -664,7 +664,7 @@ TOOLS = [
                 },
                 "quote": {
                     "type": "string",
-                    "description": "The person's exact words in this conversation that answer the question (at most 500 characters). Kept as the answer's evidence, so pass it whenever their words settled it — asked or not.",
+                    "description": "What the person said in this conversation that answers the question, as close to their exact words as you can (at most 500 characters). Kept as the answer's evidence, marked as relayed by you from this conversation, so pass it whenever their words settled it — asked or not.",
                 },
             },
             "required": ["id"],

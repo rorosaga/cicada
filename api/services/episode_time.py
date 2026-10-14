@@ -19,7 +19,10 @@ from pathlib import Path
 from api.services import bank_index
 
 #: Episode ``source`` values that carry facts but no time: the date they hold is the summary's, not a mention's.
-UNTIMED_SOURCES = frozenset({"claude_memory"})
+#: ``agent_relay`` (owner, 2026-10-14): an agent's relay of what the person said when they answered an inbox
+#: question in conversation. The conversation itself is captured on its own (the Stop hook), so counting the relay
+#: too would count one conversation twice — and lift a one-off to the 2-conversation floor.
+UNTIMED_SOURCES = frozenset({"claude_memory", "agent_relay"})
 
 
 def counts_as_activity(frontmatter: dict | None) -> bool:

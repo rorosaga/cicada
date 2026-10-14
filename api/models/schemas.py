@@ -2215,10 +2215,14 @@ class InboxResolveRequest(CamelModel):
     # When it names the cleaner mention instead, the surviving file is renamed to
     # the survivor's slug so a merge can go either direction.
     merge_survivor: Optional[str] = None
-    # Owner, 2026-10-14: the person's own words, relayed by an agent, that answered the question in conversation
-    # (asked or not). Kept as a small episode of their words and cited as the answer's evidence; never sent by a
-    # remote connection (R-R22).
+    # Owner, 2026-10-14: what the person said in conversation that answered the question (asked or not), as the
+    # AGENT relays it — never verified as their verbatim words. Kept as a small episode marked relayed (the agent's
+    # text, `relayed_by` + `session_id`) and cited as the answer's evidence; never sent by a remote connection
+    # (R-R22); dropped in a demo bank.
     quote: Optional[str] = None
+    # Who relayed ``quote``: the harness (its ``Cicada-Author`` name) and the conversation it came from.
+    relayed_by: Optional[str] = None
+    session_id: Optional[str] = None
 
 
 class CheckCensus(CamelModel):

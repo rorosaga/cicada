@@ -938,7 +938,7 @@ def _emit_resolution(
 SLEEP_BUSY = "Sleep is updating your memory — try answering again in a moment."
 
 
-#: The person's own words that answered the item being resolved, as ``[{episode, quote}]`` (owner, 2026-10-14):
+#: What the agent relayed of the person's answer to the item being resolved, as ``[{episode, quote}]`` (owner, 2026-10-14):
 #: set by :func:`_resolve_admitted` for the length of one answer, read by the resolvers that write or confirm a
 #: claim, so the claim cites the person's words. A ContextVar, not an argument threaded through every resolver:
 #: most kinds write no claim, and the ones that do read it in one line.
@@ -946,7 +946,8 @@ _ANSWER_QUOTE: "contextvars.ContextVar[list[dict] | None]" = contextvars.Context
 
 
 def _quote_spans(memory_path: Path) -> list:
-    """The evidence spans for the answer's quote (G118: located in its own episode), or ``[]`` without one."""
+    """The evidence spans for the relayed answer (G118: located in its relay episode, so the span is the relaying
+    agent's text, kind ``assistant``), or ``[]`` without one."""
     items = _ANSWER_QUOTE.get()
     if not items:
         return []
@@ -955,16 +956,42 @@ def _quote_spans(memory_path: Path) -> list:
     return evidence_mod.verify_many(memory_path, items)
 
 
-def _write_quote_episode(memory_path: Path, fm: dict, item_id: str, words: str) -> str:
-    """The person's words that answered ``item_id``, kept as a small already-processed episode of their own
-    (``progress.write_note_episode`` — a span, not a copy; Sleep never re-reads it)."""
+#: What may name the relaying agent or its conversation in frontmatter and a git trailer: a short id, nothing else.
+_RELAY_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:@-]{0,79}$")
+RELAY_SOURCE = "agent_relay"
+
+
+def _relay_id(value) -> str | None:
+    text = str(value or "").strip()
+    return text if _RELAY_ID.match(text) else None
+
+
+def _write_relay_episode(memory_path: Path, fm: dict, item_id: str, words: str, *, relayed_by: str,
+                         session_id: str | None) -> str:
+    """What the agent relayed of the person's answer to ``item_id``, kept as a small episode of its own — as the
+    AGENT's text, never as the person's verbatim words (review B1, 2026-10-14). Nothing verifies that an agent's
+    ``quote`` is what the person typed, so the turn is the relaying agent's (``assistant``: a span into it reads as
+    the agent's words, not ``user``), and the episode says who relayed it and from which conversation
+    (``relayed_by``, ``session_id``, ``harness``). ``source: agent_relay`` is untimed (``episode_time``): the
+    conversation itself is captured on its own, so the relay never counts as a second conversation. Already
+    processed: Sleep never re-reads it."""
     from datetime import timezone
 
-    from api.services import progress
+    from api.services import episode_staging, when as when_mod
 
     name = str(fm.get("entity_name") or fm.get("entity_mention") or fm.get("entity_id") or item_id)
-    return progress.write_note_episode(memory_path, words, origin="inbox", title=f"Answer on {name}",
-                                       now=datetime.now(timezone.utc), key=item_id, source="mcp")
+    now = datetime.now(timezone.utc)
+    instant = when_mod.utc_z(now)
+    extra = {"relayed_by": relayed_by, "harness": relayed_by, "inbox_item": item_id}
+    if session_id:
+        extra["session_id"] = session_id
+    draft = episode_staging.EpisodeDraft(
+        title=f"Answer on {name}, relayed by {relayed_by}", source_id=f"agent-relay:{instant}:{item_id}",
+        timestamp=instant, original_date=now.date().isoformat(), source=RELAY_SOURCE, origin="inbox",
+        turns=[episode_staging.Turn(text=words, speaker="assistant", ts=instant)], extra=extra,
+        queue_for_sleep=False, writer="mcp")
+    result = episode_staging.stage([draft], Path(memory_path) / "episodes", bank=Path(memory_path).name)
+    return result.episode_ids[draft.source_id]
 
 
 async def resolve(
@@ -1041,13 +1068,19 @@ async def _resolve_admitted(item_id: str, request: InboxResolveRequest, settings
     extra_lines: list[str] = []
     emit_extra: dict = {}
     committed = False   # a resolver that commits inside its own page-lock section says so
-    # Owner, 2026-10-14: an answer the person gave in conversation carries their words. They are kept as a small
-    # episode of their own and cited as the answer's evidence; a normalization answer commits inside its own lock
-    # section, so it never takes one (and it never reaches the conversation anyway).
-    from api.services import inbox_ask_gate
+    # Owner, 2026-10-14: an answer the person gave in conversation carries what the agent relayed of it. It is kept
+    # as a small relay episode (the agent's text, who relayed it, which conversation) and cited as the answer's
+    # evidence; the commit names the relaying agent and the conversation. A normalization answer commits inside its
+    # own lock section, so it never takes one (and it never reaches the conversation anyway).
+    from api.services import demo_guard, inbox_ask_gate
 
-    words = inbox_ask_gate.clean_quote(request.quote) if kind != "normalization" else ""
-    quote_episode = _write_quote_episode(settings.memory_path, parsed.frontmatter, item_id, words) if words else None
+    # Never into a demo bank (review B2): the person's real conversation must not leak into the demo's content.
+    words = ("" if kind == "normalization" or demo_guard.is_demo(settings.memory_path)
+             else inbox_ask_gate.clean_quote(request.quote))
+    relayed_by = _relay_id(request.relayed_by) or "agent"
+    session_id = _relay_id(request.session_id)
+    quote_episode = (_write_relay_episode(settings.memory_path, parsed.frontmatter, item_id, words,
+                                          relayed_by=relayed_by, session_id=session_id) if words else None)
     token = _ANSWER_QUOTE.set([{"episode": quote_episode, "quote": words}] if quote_episode else None)
     try:
         entity_id, skipped, extra_lines, emit_extra, committed = await _route_resolution(
@@ -1076,8 +1109,9 @@ async def _resolve_admitted(item_id: str, request: InboxResolveRequest, settings
     if skipped:
         return {"status": "skipped", "id": item_id}
 
+    relay = {"relayed_by": relayed_by, "sessions": [session_id] if session_id else None} if quote_episode else {}
     return await _commit_answer(settings, item_id, kind, label, entity_id, extra_lines, committed, path, before,
-                                quote_episode)
+                                quote_episode, relay)
 
 
 async def _route_resolution(kind: str, path, parsed, request, settings, item_id: str, label: str, synthesis):
@@ -1117,7 +1151,7 @@ async def _route_resolution(kind: str, path, parsed, request, settings, item_id:
 
 
 async def _commit_answer(settings, item_id: str, kind: str, label: str, entity_id: str, extra_lines: list[str],
-                         committed: bool, path, before, quote_episode: str | None) -> dict:
+                         committed: bool, path, before, quote_episode: str | None, relay: dict | None = None) -> dict:
     """Commit one answer as the person's and refresh the state projection (the tail of :func:`resolve`)."""
     # Avoid the local import becoming a hard module-load dependency cycle.
     from api.services import git_service
@@ -1144,6 +1178,7 @@ async def _commit_answer(settings, item_id: str, kind: str, label: str, entity_i
             # file are read from the manifest itself — nothing else is committed.
             paths=[path.relative_to(settings.memory_path).as_posix()],
             before=before,
+            **(relay or {}),
         )
     # G53 (R4) — the pending count just changed; refresh the projection
     # cheaply (repo blocks are the app's last look, never a git run) and commit it

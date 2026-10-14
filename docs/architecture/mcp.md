@@ -483,12 +483,18 @@ recall's own inbox block was a body-text token match (a recall for "alpha projec
   open as context — never the `Cause:` card.
 - **Answered naturally:** when the person's words already answer an item, the agent records it without asking,
   `cicada_resolve_inbox(id, option_key or answer, quote=<their exact words>)`, and says what it noted in one short
-  line (UX principle 2: a change the person never saw asked is still shown). The backend keeps the words as a small
-  already-processed episode of their own (`progress.write_note_episode`, `source: mcp`, `origin: inbox`), commits it
-  with the answer (`episodes/<id>.md: created (source: inbox-NNN, …)`), cites it as evidence on the claim the answer
-  picks or writes (conflict pick, free text, clarification), and marks the ledger row `answered_in: conversation`
-  (an enum). A refused answer leaves no episode. A remote connection never sends `quote` (R-R22). Never a guess:
-  only the person's own words resolve an item.
+  line (UX principle 2: a change the person never saw asked is still shown). Nothing can verify that an agent's
+  `quote` is what the person typed, so it is kept as **the agent's relay, never as the person's verbatim words**
+  (review B1): a small already-processed episode (`inbox_service._write_relay_episode`, `source: agent_relay`,
+  `origin: inbox`) whose one turn is the agent's (`assistant`), stamped `relayed_by` (the harness's
+  `Cicada-Author` name, sent by `cicada_resolve_inbox`), `session_id` and `inbox_item`. It is committed with the
+  answer — the commit carries `Cicada-Author: user` and the relaying agent, plus `Cicada-Session:` — and cited as
+  evidence on the claim the answer picks or writes (conflict pick, free text, clarification), so the span reads as
+  the agent's words. `agent_relay` is untimed (`episode_time.UNTIMED_SOURCES`): the conversation is captured on its
+  own by the Stop hook, so the relay never counts as a second conversation (no 2-conversation floor from one turn,
+  G170). The ledger row says `answered_in: conversation` (an enum). A refused answer leaves no episode. A remote
+  connection never sends `quote` (R-R22), and a demo bank never receives it — dropped by the tool and by the backend
+  (review B2). Never a guess: only what the person said resolves an item.
 - **On request:** `mode="list"` (the default) lists every visible item plainly — "what is in my inbox", "what
   conflicts do I have". Every inbox reader in `mcp_tools` now reads an item as YAML (`read_inbox_item`); the line
   parser flattened a question's `options` into strings ("0) key: a").

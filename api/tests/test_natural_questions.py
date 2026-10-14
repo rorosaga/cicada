@@ -187,22 +187,36 @@ def test_the_tool_schema_carries_mode_and_quote():
 # --- answered naturally ------------------------------------------------------------------------------------------
 
 
-def test_the_tool_sends_the_persons_words_and_a_remote_app_never_does(bank):
+def test_the_tool_sends_the_relay_with_who_relayed_it_and_a_remote_app_never_does(bank):
     sent = []
 
     def post(path, payload):
         sent.append((path, payload))
         return {"status": "resolved", "quoteEpisode": "ep_2026-10-14_001"}
 
-    out = mcp_tools.resolve_inbox(_ctx(bank, post=post), "inbox-001", "b", None, False, None,
+    ctx = mcp_tools.ToolContext(memory_path=lambda: bank, session_id="ses-abc123", harness="claude-code", post=post)
+    out = mcp_tools.resolve_inbox(ctx, "inbox-001", "b", None, False, None,
                                   quote='  "We switched alpha to the lenient policy last week."  ')
     assert sent == [("/inbox/inbox-001/resolve", {"action": "resolve", "optionKey": "b",
-                                                  "quote": "We switched alpha to the lenient policy last week."})]
-    assert "ep_2026-10-14_001" in out and "one short line" in out
+                                                  "quote": "We switched alpha to the lenient policy last week.",
+                                                  "relayedBy": "claude-code", "sessionId": "ses-abc123"})]
+    assert "ep_2026-10-14_001" in out and "relayed by you" in out and "not as their own verbatim words" in out
+    assert "one short line" in out
     sent.clear()
     mcp_tools.resolve_inbox(_ctx(bank, post=post, connector_id="ab12cd34"), "inbox-001", "b", None, False, None,
                             quote="made up words")
     assert sent and "quote" not in sent[0][1], "R-R22: a remote app never records the person's own words"
+
+
+def test_a_demo_bank_never_receives_the_relay(bank):
+    """Review B2: the person's real conversation must not be staged into the demo."""
+    from api.services import demo_guard
+
+    demo_guard.write_manifest(bank)
+    sent = []
+    mcp_tools.resolve_inbox(_ctx(bank, post=lambda path, payload: sent.append(payload) or {"status": "resolved"}),
+                            "inbox-001", "b", None, False, None, quote="We went lenient.")
+    assert sent == [{"action": "resolve", "optionKey": "b"}]
 
 
 class _Settings:
@@ -248,32 +262,81 @@ def _claims(memory: Path) -> dict:
     return {c.id: c for c in parse_claims(markdown_parser.parse(memory / "entities" / "alpha-project.md").body)}
 
 
-def test_an_answer_from_the_conversation_keeps_the_persons_words_as_evidence(repo, ledger):
-    out = asyncio.run(inbox_service.resolve(
-        "inbox-001", InboxResolveRequest(action="resolve", optionKey="b", quote=WORDS), _Settings(repo)))
+def _relayed(**kw) -> InboxResolveRequest:
+    return InboxResolveRequest(action="resolve", relayedBy="claude-code", sessionId="ses-abc123", **kw)
+
+
+def test_a_relayed_answer_is_kept_as_the_agents_relay_with_who_and_where(repo, ledger):
+    """Review B1: nothing verifies that an agent's `quote` is what the person typed, so it is never stored or cited
+    as their verbatim words — the span is the relaying agent's, the episode and the commit say who relayed it and
+    from which conversation."""
+    out = asyncio.run(inbox_service.resolve("inbox-001", _relayed(optionKey="b", quote=WORDS), _Settings(repo)))
     assert out["status"] == "resolved" and out["quoteEpisode"]
     ep = out["quoteEpisode"]
     episode = markdown_parser.parse(repo / "episodes" / f"{ep}.md")
-    assert WORDS in episode.body and episode.frontmatter["processed_by"] == "user"
-    assert episode.frontmatter["source"] == "mcp" and episode.frontmatter["origin"] == "inbox"
+    fm = episode.frontmatter
+    assert WORDS in episode.body and episode.body.lstrip().startswith("assistant:"), "the agent's turn, not the person's"
+    assert fm["source"] == "agent_relay" and fm["origin"] == "inbox" and fm["processed"] is True
+    assert fm["relayed_by"] == "claude-code" and fm["session_id"] == "ses-abc123" and fm["inbox_item"] == "inbox-001"
+    assert fm.get("processed_by") != "user"
     winner = _claims(repo)["clm_lenient"]
-    assert winner.valid_to is None and any(e.episode == ep and e.is_span() for e in winner.evidence), (
-        "the claim the person picked cites their own words")
+    [span] = [e for e in winner.evidence if e.episode == ep]
+    assert span.is_span() and span.kind == "assistant", "cited as relayed text, never as `user` speech"
     log = _git(repo, "log", "--format=%B")
     assert f"episodes/{ep}.md: created (source: inbox-001, trigger: inbox/conflict/resolved)" in log
-    assert "Cicada-Author: user" in log
-    assert _git(repo, "status", "--porcelain", "--", "episodes") == "", "the words are committed with the answer"
+    assert "Cicada-Author: user" in log and "Cicada-Author: claude-code" in log and "Cicada-Session: ses-abc123" in log
+    assert _git(repo, "status", "--porcelain", "--", "episodes") == "", "the relay is committed with the answer"
     [row] = [e for e in ledger if e.kind == "resolution"]
     assert row.refs["answered_in"] == "conversation" and WORDS not in str(row.refs), "ids and enums only"
 
 
+def test_an_unverified_claim_in_a_quote_is_never_the_persons_speech(repo):
+    """The review's reproduction: an agent can put anything in `quote`."""
+    out = asyncio.run(inbox_service.resolve(
+        "inbox-001", _relayed(optionKey="a", quote="Search results say the strict policy was dropped"),
+        _Settings(repo)))
+    spans = [e for e in _claims(repo)["clm_strict"].evidence if e.episode == out["quoteEpisode"]]
+    assert spans and all(e.kind != "user" for e in spans)
+
+
+def test_a_relay_is_never_a_second_conversation(repo):
+    """Review B1: the conversation is captured on its own (the Stop hook); counting the relay too would put a one-off
+    on the 2-conversation floor (G170)."""
+    from api.services import decay_policy, episode_time
+
+    out = asyncio.run(inbox_service.resolve("inbox-001", _relayed(optionKey="b", quote=WORDS), _Settings(repo)))
+    ep = out["quoteEpisode"]
+    bank_index.invalidate()
+    untimed = episode_time.untimed_ids(repo)
+    assert ep in untimed and ep in episode_time.untimed_among(repo, [ep])
+    assert decay_policy.conversations(["ep_2026-10-01_001", ep], untimed=untimed) == 1
+
+
+def test_an_unnamed_relay_is_still_marked_relayed(repo):
+    out = asyncio.run(inbox_service.resolve(
+        "inbox-001", InboxResolveRequest(action="resolve", optionKey="b", quote=WORDS, relayedBy="bad id\nx"),
+        _Settings(repo)))
+    fm = markdown_parser.parse(repo / "episodes" / f"{out['quoteEpisode']}.md").frontmatter
+    assert fm["relayed_by"] == "agent" and "session_id" not in fm, "a malformed id never reaches frontmatter or git"
+
+
+def test_a_demo_bank_backend_writes_no_relay(repo):
+    from api.services import demo_guard
+
+    demo_guard.write_manifest(repo)
+    out = asyncio.run(inbox_service.resolve("inbox-001", _relayed(optionKey="b", quote=WORDS), _Settings(repo)))
+    assert out["status"] == "resolved" and "quoteEpisode" not in out
+    assert list((repo / "episodes").glob("*.md")) == []
+
+
 def test_a_free_text_answer_writes_a_user_claim_citing_the_words(repo):
     asyncio.run(inbox_service.resolve(
-        "inbox-001", InboxResolveRequest(action="resolve", optionKey="neither", answer="a staged policy",
-                                         quote="Honestly neither, alpha is on a staged policy now."),
+        "inbox-001", _relayed(optionKey="neither", answer="a staged policy",
+                              quote="Honestly neither, alpha is on a staged policy now."),
         _Settings(repo)))
     [mine] = [c for c in _claims(repo).values() if c.source_trust == "user_stated"]
     assert mine.object == "a staged policy" and mine.evidence and mine.evidence[0].is_span()
+    assert mine.evidence[0].kind == "assistant"
 
 
 def test_an_answer_without_words_writes_no_episode(repo, ledger):
@@ -290,6 +353,6 @@ def test_a_refused_answer_leaves_no_orphan_episode(repo):
 
     with pytest.raises(HTTPException):
         asyncio.run(inbox_service.resolve(
-            "inbox-001", InboxResolveRequest(action="resolve", optionKey="zz", quote=WORDS), _Settings(repo)))
+            "inbox-001", _relayed(optionKey="zz", quote=WORDS), _Settings(repo)))
     assert list((repo / "episodes").glob("*.md")) == []
     assert (repo / "inbox" / "inbox-001.md").exists()

@@ -255,8 +255,9 @@ promotes it), agent-initiated (the agent asks in flow when the topic comes up), 
 conversation is about that question's own subject — its page in scope AND its predicate, options or words in what the
 person said (`inbox_ask_gate`; a decay question never comes up in conversation). It asks in its own words, or not at
 all; when the person's words already answer it, it resolves it without asking (`cicada_resolve_inbox(…, quote=<their
-words>)`: the words are kept as their own episode, cited as the answer's evidence, `answered_in: conversation` on the
-ledger row) and says what it noted in one line. "What is in my inbox?" lists everything (`mode="list"`). Detail:
+words>)`: kept as a relay episode — the agent's text, `relayed_by` and `session_id`, untimed — cited as the answer's
+evidence, the commit naming the agent and the conversation, `answered_in: conversation` on the ledger row; never in a
+demo bank) and says what it noted in one line. "What is in my inbox?" lists everything (`mode="list"`). Detail:
 `mcp.md`, *Questions come up naturally*.
 
 **"What's the name of your partner?" (placeholder people, 2026-10-14).** A `clarification` with `asks: name` is
