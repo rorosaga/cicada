@@ -117,8 +117,9 @@ struct IntegrationsView: View {
     }
 
     /// Rows a category renders beyond its channels — the informational harness
-    /// rows, the export-only platforms, the "Add a folder" rows (G133) and the
-    /// Wispr Flow row once Wispr Flow is on this Mac (G134).
+    /// rows, the export-only platforms, the pointer to Search & files where the
+    /// folders live (G133, moved 2026-10-14) and the Wispr Flow row once Wispr
+    /// Flow is on this Mac (G134).
     private func extraRowCount(_ category: IntegrationCategory, rows: [SourceChannel]) -> Int {
         switch category {
         case .chatAndAgents: harnessRows.count
@@ -188,10 +189,10 @@ struct IntegrationsView: View {
                 if category == .browsers {
                     BrowsersSection(channels: rows, inventory: browsers)
                 }
-                ForEach(rows.filter { !BrowsersSection.owns($0.id) }) { channel in
-                    if channel.id.hasPrefix("folder:") {
-                        FolderChannelRow(channel: channel)
-                    } else if channel.id != LocalSourceWatcher.wisprChannel,
+                // Search & files (owner, 2026-10-14): watched folders list there, with their depth; Notes & files keeps
+                // Apple Notes and the Obsidian app entry, plus one pointer.
+                ForEach(rows.filter { !BrowsersSection.owns($0.id) && !$0.id.hasPrefix("folder:") }) { channel in
+                    if channel.id != LocalSourceWatcher.wisprChannel,
                               channel.id != CalendarRow.channelId,
                               channel.id != ContactsReader.channel {
                         // Wispr Flow, the Calendar app and Contacts each have a row the app owns (below).
@@ -199,8 +200,8 @@ struct IntegrationsView: View {
                     }
                 }
                 if category == .notesAndFiles {
-                    AddFolderRow.folder
                     if obsidianInstalled { AddFolderRow.obsidian }
+                    FoldersPointerRow()
                 }
                 if category == .feedsAndCalendars {
                     CalendarRow(channel: rows.first { $0.id == CalendarRow.channelId })
@@ -337,6 +338,27 @@ private struct IntegrationChannelRow: View {
                 }
             }
         }
+    }
+}
+
+/// "Folders are in Search & files ›" — the one pointer from Notes & files to where the folders moved (owner,
+/// 2026-10-14). A link, not a second editor (DR-38): nothing about a folder is said twice.
+private struct FoldersPointerRow: View {
+    var body: some View {
+        HStack(spacing: CicadaTheme.spacingSM) {
+            Image(systemName: "folder")
+                .font(CicadaTheme.icon(.inline))
+                .foregroundStyle(CicadaTheme.textTertiary)
+                .frame(width: CicadaTheme.scaled(28))
+            Text(Copy.SearchFiles.integrationsLinkLead)
+                .font(CicadaTheme.captionFont)
+                .foregroundStyle(CicadaTheme.textSecondary)
+            SettingsInlineLink(section: .searchFiles, row: .searchFolders, label: Copy.SearchFiles.sidebar)
+                .font(CicadaTheme.captionFont)
+            Spacer()
+        }
+        .padding(.horizontal, CicadaTheme.spacingMD)
+        .padding(.vertical, CicadaTheme.spacingSM)
     }
 }
 

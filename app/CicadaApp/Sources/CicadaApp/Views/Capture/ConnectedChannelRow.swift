@@ -141,7 +141,10 @@ struct ConnectedChannelRow: View {
     private var rowLink: some View {
         let spoken = ChannelDetailLine.text(channel).map { "\(channel.label). \($0)" } ?? channel.label
         if ChannelActions.managesInIntegrations(channel.id) {
-            SettingsSectionLink(section: .integrations, accessibilityText: spoken) { rowLabel }
+            // A folder lands on its own row on Search & files; the others open Integrations as before.
+            let section = ChannelActions.settingsSection(for: channel.id)
+            SettingsSectionLink(section: section, row: section == .searchFiles ? .channel(channel.id) : nil,
+                                accessibilityText: spoken) { rowLabel }
         } else {
             Button { onAction("manage") } label: { rowLabel }
                 .buttonStyle(.cicadaPlain)

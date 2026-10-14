@@ -1,8 +1,8 @@
 import XCTest
 @testable import CicadaApp
 
-/// G182 phase 3 — Settings → Memory → Search model: the wire, the token's one road out, the
-/// detail line in words and the pick routing.
+/// G182 phase 3 — Settings → Search & files → Advanced → Search version (was Memory → Search model): the wire, the
+/// key's one road out, the detail line in words and the pick routing.
 final class SearchModelTests: XCTestCase {
     static let small = "intfloat/multilingual-e5-small"
     static let large = "google/embeddinggemma-300m"
@@ -107,13 +107,13 @@ final class SearchModelTests: XCTestCase {
 
     func testChoose409CarriesTheBackendsSentence() async {
         MockURLProtocol.handler = { request in
-            Self.ok(request, status: 409, data: Data(#"{"detail": "Sleep is running; change the search model when it finishes."}"#.utf8))
+            Self.ok(request, status: 409, data: Data(#"{"detail": "Sleep is running; change how search works when it finishes."}"#.utf8))
         }
         do {
             _ = try await APIClient(session: MockURLProtocol.makeSession()).chooseEmbeddingModel(Self.small)
             XCTFail("a 409 throws")
         } catch {
-            XCTAssertEqual(AddSourceSheet.friendlyError(error), "Sleep is running; change the search model when it finishes.")
+            XCTAssertEqual(AddSourceSheet.friendlyError(error), "Sleep is running; change how search works when it finishes.")
         }
     }
 
@@ -157,30 +157,33 @@ final class SearchModelTests: XCTestCase {
     func testDetailWhatTheBankUsesNow() {
         XCTAssertNil(SearchModelLogic.detail(nil))
         XCTAssertEqual(SearchModelLogic.detail(status()),
-                       "Searching with the Small model. Built in. Quick, and good for most memories.")
+                       "Searching with Small. Built in. Quick, and good for most memories.")
         XCTAssertEqual(SearchModelLogic.detail(status(model: "some/other-model")),
-                       "Searching with another model set up on this Mac.")
+                       "Searching with a version set up outside the app.")
     }
 
     func testDetailAfterAChange() {
         XCTAssertEqual(SearchModelLogic.detail(status(next: Self.large, largeAvailable: true)),
-                       "Search switches to Larger at the next Sleep, which re-reads this memory once.")
+                       "Switches to Larger at the next Sleep, which re-reads your memory once.")
     }
 
     func testDetailWhileInstallingAndAfter() {
         XCTAssertEqual(SearchModelLogic.detail(status(install: .init(state: "installing", step: "Preparing"))), "Preparing…")
-        XCTAssertEqual(SearchModelLogic.detail(status(install: .init(state: "installing"))), "Installing the search model…")
+        XCTAssertEqual(SearchModelLogic.detail(status(install: .init(state: "installing"))), "Getting it ready…")
         XCTAssertEqual(SearchModelLogic.detail(status(largeAvailable: true, install: .init(state: "done"))),
-                       "Larger is ready on this Mac — choose it to switch.")
+                       "Larger is on this Mac — pick it to switch.")
         XCTAssertEqual(SearchModelLogic.detail(status(model: Self.large, largeAvailable: true, install: .init(state: "done"))),
-                       "Searching with the Larger model. Finds looser matches.", "once chosen, done is quiet")
+                       "Searching with Larger. Finds looser matches.", "once chosen, done is quiet")
+        XCTAssertEqual(SearchModelLogic.detail(status(install: .init(state: "installing", step: "x", part: "vision"))),
+                       "Searching with Small. Built in. Quick, and good for most memories.",
+                       "the image part's download is the images row's, never this line")
     }
 
     func testDetailAfterAFailure() {
         let failed = EmbeddingInstallState(state: "failed", error: "The download stopped: 401")
         XCTAssertEqual(SearchModelLogic.detail(status(install: failed)), "The download stopped: 401")
         XCTAssertEqual(SearchModelLogic.detail(status(largeAvailable: true, install: failed)),
-                       "Searching with the Small model. Built in. Quick, and good for most memories.",
+                       "Searching with Small. Built in. Quick, and good for most memories.",
                        "a failure that a later install fixed is not shown")
     }
 
@@ -231,21 +234,25 @@ final class SearchModelTests: XCTestCase {
 
     // MARK: The Settings index
 
-    func testTheRowIsIndexedOnMemory() {
+    func testTheRowIsIndexedOnSearchAndFilesBehindAdvanced() {
         let entry = SettingsIndex.staticEntries.first { $0.id == .searchModel }
-        XCTAssertEqual(entry?.section, .memory)
+        XCTAssertEqual(entry?.section, .searchFiles)
         XCTAssertEqual(entry?.title, Copy.SearchModel.title)
+        XCTAssertEqual(entry?.anchor, .searchAdvanced)
         XCTAssertTrue(SettingsIndex.staticIDs.contains(.searchModel))
         let all = SettingsIndex.staticEntries + SettingsIndex.pageEntries
+        // A technical search lands on the default-visible row that turns it on (Search & files).
         for query in ["embedding", "semantic", "meaning"] {
-            XCTAssertEqual(SettingsIndex.search(query, in: all).first?.entry.id, .searchModel, query)
+            XCTAssertEqual(SettingsIndex.search(query, in: all).first?.entry.id, .searchMeaning, query)
         }
-        XCTAssertTrue(SettingsIndex.search("larger", in: all).contains { $0.entry.id == .searchModel })
+        for query in ["embedding", "larger", "model"] {
+            XCTAssertTrue(SettingsIndex.search(query, in: all).contains { $0.entry.id == .searchModel }, query)
+        }
     }
 
-    func testTheSheetCopyExplainsTheTokenAndNamesOnlyTheAccountsHost() {
-        XCTAssertTrue(Copy.SearchModel.sheetWhy.contains("license"))
-        XCTAssertTrue(Copy.SearchModel.sheetWhy.contains("your own read-access token"))
+    func testTheSheetCopyExplainsTheKeyAndNamesOnlyTheAccountsHost() {
+        XCTAssertTrue(Copy.SearchModel.sheetWhy.contains("terms you accept with your own account"))
+        XCTAssertTrue(Copy.SearchModel.sheetWhy.contains("a key from that account"))
         XCTAssertTrue(Copy.SearchModel.sheetTokenUse.contains("isn't saved"))
         XCTAssertTrue(Copy.SearchModel.sheetTokenUse.contains("2 GB"))
         for text in [Copy.SearchModel.sheetWhy, Copy.SearchModel.sheetTokenUse, Copy.SearchModel.title,
@@ -298,7 +305,8 @@ final class NeuralEngineSearchModelTests: XCTestCase {
     }
 
     func testPickingItStartsTheDownloadNotTheTokenSheet() {
-        XCTAssertEqual(SearchModelLogic.route(picked: Self.neural, status: status(), sleepWriting: false), .download(Self.neural))
+        XCTAssertEqual(SearchModelLogic.route(picked: Self.neural, status: status(), sleepWriting: false), .confirmDownload(Self.neural),
+                       "a selection is never the consent: it raises the confirm, nothing is sent (review B1)")
         XCTAssertEqual(SearchModelLogic.route(picked: Self.neural, status: status(install: .init(state: "installing")),
                                               sleepWriting: false), .nothing)
         XCTAssertEqual(SearchModelLogic.route(picked: Self.neural, status: status(neuralAvailable: true), sleepWriting: false),
@@ -339,23 +347,23 @@ final class NeuralEngineSearchModelTests: XCTestCase {
 
     func testTheDetailLineSaysWhereSearchIsAndThatItKeepsWorking() {
         XCTAssertEqual(SearchModelLogic.detail(status()),
-                       "Searching with the Small model. Neural Engine runs on this Mac too and finds looser matches — pick it to download it once.")
+                       "Searching with Small. Neural Engine runs on this Mac too and finds looser matches — pick it to see its download size.")
         XCTAssertEqual(SearchModelLogic.detail(status(neuralAvailable: true, recommended: nil)),
-                       "Searching with the Small model. Built in.", "nothing to recommend once it's here")
+                       "Searching with Small. Built in.", "nothing to recommend once it's here")
         let running = EmbeddingReindexState(state: "running", model: Self.neural, done: 1, total: 3)
         XCTAssertEqual(SearchModelLogic.detail(status(next: Self.neural, neuralAvailable: true, recommended: nil, reindex: running)),
-                       "Moving search to Neural Engine: 1 of 3 parts re-read. Search keeps working meanwhile.")
+                       "Re-reading your memory for Neural Engine — step 1 of 3. Search keeps working meanwhile.")
         let waiting = EmbeddingReindexState(state: "waiting", model: Self.neural)
         XCTAssertEqual(SearchModelLogic.detail(status(next: Self.neural, neuralAvailable: true, recommended: nil, reindex: waiting)),
-                       "Search moves to Neural Engine when Sleep finishes. Search keeps working meanwhile.")
+                       "Switching to Neural Engine waits for Sleep to finish. Search keeps working.")
         let failed = EmbeddingReindexState(state: "failed", model: Self.neural, error: "Search couldn't move to the new model.")
         XCTAssertEqual(SearchModelLogic.detail(status(next: Self.neural, neuralAvailable: true, recommended: nil, reindex: failed)),
                        "Search couldn't move to the new model.")
         let done = EmbeddingReindexState(state: "done", model: Self.neural, done: 3, total: 3)
         XCTAssertEqual(SearchModelLogic.detail(status(model: Self.neural, neuralAvailable: true, recommended: nil, reindex: done)),
-                       "Searching with the Neural Engine model. Runs on this Mac's Neural Engine.")
-        XCTAssertEqual(SearchModelLogic.detail(status(install: .init(state: "installing", step: "Downloading the search model (12 of 585 MB)"))),
-                       "Downloading the search model (12 of 585 MB)…")
+                       "Searching with Neural Engine. Runs on this Mac's Neural Engine.")
+        XCTAssertEqual(SearchModelLogic.detail(status(install: .init(state: "installing", step: "Downloading — 12 of 585 MB"))),
+                       "Downloading — 12 of 585 MB…")
     }
 
     func testTheNewLinesNameNoProvider() {

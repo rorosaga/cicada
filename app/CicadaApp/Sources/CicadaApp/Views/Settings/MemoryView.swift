@@ -1,151 +1,31 @@
 import SwiftUI
 
-/// Settings → Memory (G139): the derived search index and the link backfill,
-/// both user-started and both refused with a plain sentence while Sleep runs.
-/// Rebuilding the index costs CPU, never a fact (TODO ruling 3), which is why
-/// it can sit behind one button with no confirmation. Below them sits G147's
-/// *How things fade* (`FadePaceCard`) — suggestions from the person's own decay
-/// answers, applied only on Apply.
+/// Settings → Memory (G139): the link backfill, user-started and refused with a plain sentence while Sleep runs, and
+/// G147's *How things fade* (`FadePaceCard`) — suggestions from the person's own decay answers, applied only on Apply.
+///
+/// Search & files (owner, 2026-10-14) took the search index and the search version: how Cicada *finds* things now
+/// lives on `SearchFilesView`, and Memory keeps how it tidies what it knows.
 ///
 /// "Look for duplicates" is deliberately absent (R-O17): the dedup endpoint
 /// blocks the event loop, its dry run never reaches the Inbox, and its live
 /// run leaves uncommitted merges for the next `git add -A` writer (the G85
 /// smear). `CicadaPagesTests.testNoPageCallsTheDedupSweep` holds that line.
-///
-/// G182 phase 3 — *Search model* shares the Search index's card (DR-37: a group, never a one-line
-/// card of its own): a `PillPicker` of the backend's catalog labels, the detail line in words
-/// (`SearchModelLogic.detail`), and a model not on this Mac yet routed to its download instead of switching
-/// (`SearchModelLogic.route`): the Neural Engine model's one click, or `LargerSearchModelSheet` for the token. While Sleep writes the picker is disabled at 45 %
-/// with the reason in `.help` (DR-41), for the whole run (`ProjectWriteGate.sleepRunning`): the server
-/// refuses a switch while any run goes, since a drain re-syncs the index between its batches. No monospace anywhere on the row (DR-19).
 struct MemoryView: View {
-    @Environment(Store.self) private var store
-    @State private var index: SearchIndexStatus?
-    @State private var indexNote: String?
     @State private var linksNote: String?
     @State private var busy = false
-    @State private var embeddings: EmbeddingsStatus?
-    @State private var modelNote: String?
-    @State private var choosing = false
-    @State private var installModelID: String?
-    @State private var showInstall = false
 
     var body: some View {
         SettingsPage(section: .memory) {
             SettingsGroupCard {
-                SettingsRow(.searchIndex, title: Copy.searchIndexTitle, detail: indexNote ?? MemoryMaintenanceText.index(index)) {
-                    Button(Copy.rebuildNow) {
-                        run {
-                            index = try await APIClient.shared.rebuildSearchIndex()
-                            indexNote = nil
-                        } onError: { indexNote = $0 }
-                    }
-                    .disabled(busy)
-                }
-                SettingsDivider()
-                searchModelRow
-                SettingsDivider()
                 SettingsRow(.enrichLinks, title: Copy.enrichLinksTitle, detail: linksNote ?? Copy.enrichLinksDetail) {
-                    Button(Copy.fetchNow) {
+                    NeutralButton(title: Copy.fetchNow, size: .compact, isDisabled: busy) {
                         run {
                             linksNote = MemoryMaintenanceText.links(try await APIClient.shared.enrichLinksNow())
                         } onError: { linksNote = $0 }
                     }
-                    .disabled(busy)
                 }
             }
             FadePaceCard()
-        }
-        .task { index = try? await APIClient.shared.fetchSearchIndexStatus() }
-        .task { await loadEmbeddings() }
-        // Polls only while a download or the background re-embed runs; the id flips when it ends, which
-        // cancels the loop.
-        .task(id: embeddings?.isBusy == true) { await pollWhileInstalling() }
-        // R-HS16 — a sheet centred on the window, never a popover at the panel's edge.
-        .sheet(isPresented: $showInstall) {
-            SettingsSheet(title: Copy.SearchModel.sheetTitle, onClose: { showInstall = false }) {
-                LargerSearchModelSheet(modelID: installModelID ?? "",
-                                       onStarted: { status in
-                                           embeddings = status
-                                           modelNote = nil
-                                           showInstall = false
-                                       },
-                                       onCancel: { showInstall = false })
-            }
-        }
-    }
-
-    // MARK: Search model (G182 phase 3)
-
-    @ViewBuilder
-    private var searchModelRow: some View {
-        let sleeping = ProjectWriteGate.sleepRunning(store.status.value)
-        SettingsRow(.searchModel, title: Copy.SearchModel.title, detail: modelNote ?? SearchModelLogic.detail(embeddings)) {
-            if let embeddings, !embeddings.models.isEmpty {
-                PillPicker(title: Copy.SearchModel.title,
-                           selection: Binding(get: { embeddings.nextModel }, set: { pick($0) }),
-                           options: embeddings.models.map { PillOption(value: $0.id, label: $0.label) })
-                    .disabled(sleeping || choosing)
-                    .opacity(sleeping ? NeutralButton.disabledOpacity : 1)
-                    .help(sleeping ? Copy.SearchModel.sleepRunningHelp : Copy.SearchModel.pickerHelp)
-            }
-        }
-    }
-
-    private func loadEmbeddings() async {
-        do {
-            embeddings = try await APIClient.shared.fetchEmbeddings()
-            modelNote = nil
-        } catch {
-            modelNote = Copy.SearchModel.loadFailed
-        }
-    }
-
-    private func pollWhileInstalling() async {
-        guard embeddings?.isBusy == true else { return }
-        while !Task.isCancelled {
-            try? await Task.sleep(for: SearchModelLogic.pollInterval)
-            guard !Task.isCancelled else { return }
-            guard let status = try? await APIClient.shared.fetchEmbeddings() else { continue }
-            embeddings = status
-            if !status.isBusy { return }
-        }
-    }
-
-    private func pick(_ id: String) {
-        guard let status = embeddings else { return }
-        switch SearchModelLogic.route(picked: id, status: status, sleepWriting: ProjectWriteGate.sleepRunning(store.status.value)) {
-        case .nothing:
-            break
-        case .blocked:
-            modelNote = Copy.SearchModel.sleepRunningHelp
-        case .install:
-            installModelID = id
-            showInstall = true
-        case .download(let id):
-            choosing = true
-            Task { @MainActor in
-                defer { choosing = false }
-                do {
-                    embeddings = try await APIClient.shared.installEmbeddingModel(id)
-                    modelNote = nil
-                } catch {
-                    modelNote = AddSourceSheet.friendlyError(error)
-                }
-            }
-        case .choose(let id):
-            choosing = true
-            Task { @MainActor in
-                defer { choosing = false }
-                do {
-                    embeddings = try await APIClient.shared.chooseEmbeddingModel(id)
-                    modelNote = nil
-                } catch {
-                    // 409's `detail` is the backend's sentence ("Sleep is running…", "isn't installed…").
-                    modelNote = AddSourceSheet.friendlyError(error)
-                    if let fresh = try? await APIClient.shared.fetchEmbeddings() { embeddings = fresh }
-                }
-            }
         }
     }
 

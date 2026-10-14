@@ -73,6 +73,13 @@ enum ChannelActions {
         }
     }
 
+    /// Which Settings section manages it: a watched folder lives on Search & files (owner, 2026-10-14), every other
+    /// app-read source on Integrations.
+    static func settingsSection(for channelId: String) -> SettingsSection {
+        if case .folder = syncRoute(for: channelId) { return .searchFiles }
+        return .integrations
+    }
+
     /// Track I T1 (R-IA2): a Sync now on a watched browser IS the consent, so it
     /// goes through `BrowserWatcher.syncNow` — one sync, recorded, watch live.
     /// Before, it went around the watcher: the browser stayed un-consented as

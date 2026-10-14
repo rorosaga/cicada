@@ -1,4 +1,4 @@
-"""G182 phase 3 — Settings → Memory → Search model.
+"""G182 phase 3 — Settings → Search & files (was Memory → Search model until 2026-10-14).
 
 ``GET /embeddings`` says which model the active bank's vectors use, which models
 this Mac can run, how a download is going and how far the background re-embed is.
@@ -33,12 +33,16 @@ class EmbeddingModelOption(CamelModel):
     needs_download: bool
     needs_token: bool = False
     available: bool
+    download_bytes: int = 0       # what its one-click download fetches (the pinned total), stated before the click
 
 
 class EmbeddingInstallState(CamelModel):
     state: str
     step: str = ""
     error: str = ""
+    part: str = ""                # text | vision | larger: which download, so Settings puts it on the right row
+    done: int = 0                 # bytes fetched so far while a pinned download streams
+    total: int = 0                # bytes in all (0: not known, or not streaming now)
 
 
 class EmbeddingReindexState(CamelModel):
@@ -53,6 +57,7 @@ class EmbeddingVisionState(CamelModel):
     supported: bool = False       # macOS 15+ on Apple silicon
     installed: bool = False       # the image encoder sits beside the text encoder
     download_bytes: int = 0       # what the one-time download would fetch now
+    includes_text: bool = False   # that size includes the text encoder, fetched first when it isn't here
 
 
 class EmbeddingsStatus(CamelModel):
@@ -87,13 +92,13 @@ async def embeddings_status(settings: Settings = Depends(get_settings)):
 async def choose_model(body: EmbeddingChoiceRequest, settings: Settings = Depends(get_settings)):
     known = {m.id for m in embedding_models.CATALOG}
     if body.model is not None and body.model not in known:
-        raise HTTPException(status_code=400, detail="That isn't one of the search models Cicada offers.")
+        raise HTTPException(status_code=400, detail="That isn't a version of search Cicada offers.")
     if body.model and not embedding_models.is_available(body.model):
-        raise HTTPException(status_code=409, detail="That model isn't installed on this Mac yet.")
+        raise HTTPException(status_code=409, detail="That version isn't on this Mac yet.")
     # Not only while a batch writes: a drain re-syncs the index between its batches, and a model switched
     # mid-drain would re-embed half the bank under one model and half under the other until the next full sync.
     if write_admission.probe() or sleep_cycle.get_sleep_state().status == "running":
-        raise SleepWriting("Sleep is running; change the search model when it finishes.")
+        raise SleepWriting("Sleep is running; change how search works when it finishes.")
     await run_in_threadpool(embedding_models.set_bank_choice, settings.memory_path, body.model)
     await run_in_threadpool(embedding_models.start_reindex_if_needed, settings.memory_path, settings)
     payload = await run_in_threadpool(embedding_models.status, settings.memory_path, settings)
@@ -104,26 +109,26 @@ async def choose_model(body: EmbeddingChoiceRequest, settings: Settings = Depend
 async def install_larger_model(body: EmbeddingInstallRequest, settings: Settings = Depends(get_settings)):
     if body.model == embedding_models.PREFERRED_ID and body.part == "vision":
         if not embedding_models.neural_engine_supported():
-            raise HTTPException(status_code=409, detail="Searching by image needs macOS 15 or later on Apple silicon.")
+            raise HTTPException(status_code=409, detail="Understanding images needs macOS 15 or later on a Mac with Apple silicon.")
         if not embedding_models.start_vision_download():
-            raise HTTPException(status_code=409, detail="A search model is already being installed.")
+            raise HTTPException(status_code=409, detail="A download is already running.")
         payload = await run_in_threadpool(embedding_models.status, settings.memory_path, settings)
         return EmbeddingsStatus.model_validate(payload)
     if body.part not in (None, ""):
-        raise HTTPException(status_code=400, detail="That isn't a part of a search model Cicada offers.")
+        raise HTTPException(status_code=400, detail="That isn't something Cicada can download.")
     if body.model == embedding_models.PREFERRED_ID:
         if not embedding_models.neural_engine_supported():
-            raise HTTPException(status_code=409, detail="This search model needs macOS 15 or later on Apple silicon.")
+            raise HTTPException(status_code=409, detail="The sharper version needs macOS 15 or later on a Mac with Apple silicon.")
         if not embedding_models.start_download(settings.memory_path, settings):
-            raise HTTPException(status_code=409, detail="A search model is already being installed.")
+            raise HTTPException(status_code=409, detail="A download is already running.")
         payload = await run_in_threadpool(embedding_models.status, settings.memory_path, settings)
         return EmbeddingsStatus.model_validate(payload)
     if body.model not in (None, embedding_models.LARGE_ID):
-        raise HTTPException(status_code=400, detail="That isn't one of the search models Cicada offers.")
+        raise HTTPException(status_code=400, detail="That isn't a version of search Cicada offers.")
     token = (body.hf_token or "").strip()
     if not token.startswith("hf_") or len(token) < 20:
-        raise HTTPException(status_code=400, detail="That doesn't look like a Hugging Face access token (it starts with hf_).")
+        raise HTTPException(status_code=400, detail="That doesn't look like a Hugging Face key (it starts with hf_).")
     if not embedding_models.start_install(token):
-        raise HTTPException(status_code=409, detail="The larger model is already being installed.")
+        raise HTTPException(status_code=409, detail="A download is already running.")
     payload = await run_in_threadpool(embedding_models.status, settings.memory_path, settings)
     return EmbeddingsStatus.model_validate(payload)

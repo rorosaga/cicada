@@ -4,9 +4,10 @@ import XCTest
 /// G139 — the Cicada group's new pages (design §2.2; R-O17, R-O18, R-O21).
 final class CicadaPagesTests: XCTestCase {
     func testTheCicadaGroupReadsInTheDesignsOrder() {
-        XCTAssertEqual(SettingsGroup.cicada.sections, [.general, .you, .privacy, .memory, .sleep])
+        // Search & files (owner, 2026-10-14) sits between Privacy & data and Memory.
+        XCTAssertEqual(SettingsGroup.cicada.sections, [.general, .you, .privacy, .searchFiles, .memory, .sleep])
         XCTAssertEqual(SettingsGroup.enginesAndKeys.sections, [.engines, .plansAndKeys, .advanced])
-        for section in [SettingsSection.you, .privacy, .memory, .advanced] {
+        for section in [SettingsSection.you, .privacy, .searchFiles, .memory, .advanced] {
             XCTAssertLessThanOrEqual(section.subtitle.count, 60)
             XCTAssertFalse(section.subtitle.lowercased().contains(section.title.lowercased()))
         }
@@ -88,7 +89,7 @@ final class CicadaPagesTests: XCTestCase {
 
     func testMaintenanceLinesSayWhatHappenedInWords() {
         XCTAssertEqual(MemoryMaintenanceText.index(SearchIndexStatus(state: "building", builtAt: nil, documents: nil)),
-                       "Building for the first time…")
+                       "Getting search ready for the first time…")
         XCTAssertEqual(MemoryMaintenanceText.index(SearchIndexStatus(state: "unavailable", builtAt: nil, documents: nil)),
                        "Not available on this Mac — search still works from your pages.")
         XCTAssertTrue((MemoryMaintenanceText.index(SearchIndexStatus(state: "ready", builtAt: nil, documents: 1200)) ?? "").hasPrefix("Up to date"))

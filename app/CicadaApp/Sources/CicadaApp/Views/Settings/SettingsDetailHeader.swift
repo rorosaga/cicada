@@ -42,7 +42,7 @@ struct SettingsDetailHeader: View {
                             .accessibilityAddTraits(.isHeader)
                     }
                 } else {
-                    Text(section.title)
+                    Text(section.pageTitle)
                         .font(CicadaTheme.displayFont(size: 22))
                         .tracking(CicadaTheme.displayTracking(size: 22))
                         .foregroundStyle(CicadaTheme.textPrimary)

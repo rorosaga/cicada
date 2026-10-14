@@ -317,9 +317,8 @@ extension Copy {
 
     // MARK: Memory
     static let memorySection = "Memory"
-    static let memorySubtitle = "How Cicada finds and tidies what it knows."
-    static let searchIndexTitle = "Search index"
-    static let rebuildNow = "Rebuild now"
+    /// Search & files took finding (owner, 2026-10-14): Memory keeps how Cicada tidies what it knows.
+    static let memorySubtitle = "How Cicada tidies what it knows."
     static let enrichLinksTitle = "Fetch link previews"
     static let enrichLinksDetail = "Reads each saved link's page — 4 seconds at most, never behind a login — and writes a short description with your engine."
     static let fetchNow = "Fetch now"

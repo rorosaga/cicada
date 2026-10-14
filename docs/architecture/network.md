@@ -93,8 +93,10 @@ the app before anything is unzipped, and nothing reaches the backend. The tester
 (`scripts/install-release.sh`) is the person's own command and fetches the same two files with `curl`.
 
 **The Neural Engine search model's download (owner 2026-10-09).** EmbeddingGemma 2 (`api/services/model_fetch.py`) is
-fetched only when the person asks: the Neural Engine pick in Settings → Memory → Search model (`POST /embeddings/install`
-with `model`), `make embedding-model-gemma2`, or `install.sh` on macOS 15+ — never on a schedule, never by Sleep,
+fetched only when the person asks: *Turn on* beside *Understand what you mean* in Settings → Search & files, or the
+*Download* in the confirm a *Sharper* pick under its Advanced raises — a selection alone never downloads
+(`POST /embeddings/install` with `model`; the size is stated before the click from
+the pins, `downloadBytes`), `make embedding-model-gemma2`, or `install.sh` on macOS 15+ — never on a schedule, never by Sleep,
 never by the backend on its own. It reads one pinned revision of `FluidInference/embeddinggemma-2-coreml` from
 `huggingface.co/<repo>/resolve/<revision>/<path>` (redirects followed to Hugging Face's own storage), the seven files
 listed under `files` in `api/data/embeddinggemma-2.lock.json` and nothing else (never the audio encoder): about 585 MB, 30 s
@@ -107,8 +109,10 @@ check and `scripts/fetch-embedding-model.sh`.
 
 **The image encoder is its own click (design taste, 2026-10-14).** The same pinned revision's `vision_files` — the
 vision `.mlpackage` and `position_embeddings.f16`, about 309 MB — are fetched only when the person presses *Turn on*
-on the Looks page (`POST /embeddings/install` with `model` and `part: "vision"`) or runs `make embedding-model-vision`;
-the text encoder is fetched first when it isn't here. Same transport, same checks (size and sha256 while streaming,
+beside *Understand images* in Settings → Search & files (dimmed until the text encoder is here, so it is a second click)
+or on the Looks page (`POST /embeddings/install` with `model` and `part: "vision"`), or runs `make
+embedding-model-vision`; the text encoder is fetched first when it isn't here — the Looks shortcut's one click, whose
+row states the combined size first (`vision.includesText`). Same transport, same checks (size and sha256 while streaming,
 one mismatch installs nothing), staged in `.embeddinggemma-2.vision.partial` and grafted beside the text encoder, a
 `cicada-vision.json` mark written last. **Nothing about a screenshot leaves the Mac:** the design board fetches no page,
 no image and no font; its palette, tokens and vectors are computed here. A public page's HTML/CSS for tokens is a spec

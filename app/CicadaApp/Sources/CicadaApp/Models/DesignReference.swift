@@ -112,23 +112,26 @@ struct DesignVision: Decodable, Equatable, Sendable {
     var supported: Bool
     var installed: Bool
     var downloadBytes: Int
+    /// The size covers the meaning part too (fetched first when it isn't here) — said before the click.
+    var includesText: Bool
     var installing: Bool
     var step: String
     var error: String
 
-    init(supported: Bool = false, installed: Bool = false, downloadBytes: Int = 0, installing: Bool = false,
-         step: String = "", error: String = "") {
+    init(supported: Bool = false, installed: Bool = false, downloadBytes: Int = 0, includesText: Bool = false,
+         installing: Bool = false, step: String = "", error: String = "") {
         self.supported = supported; self.installed = installed; self.downloadBytes = downloadBytes
-        self.installing = installing; self.step = step; self.error = error
+        self.includesText = includesText; self.installing = installing; self.step = step; self.error = error
     }
 
-    private enum CodingKeys: String, CodingKey { case supported, installed, downloadBytes, installing, step, error }
+    private enum CodingKeys: String, CodingKey { case supported, installed, downloadBytes, includesText, installing, step, error }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.init(supported: try c.decodeIfPresent(Bool.self, forKey: .supported) ?? false,
                   installed: try c.decodeIfPresent(Bool.self, forKey: .installed) ?? false,
                   downloadBytes: try c.decodeIfPresent(Int.self, forKey: .downloadBytes) ?? 0,
+                  includesText: try c.decodeIfPresent(Bool.self, forKey: .includesText) ?? false,
                   installing: try c.decodeIfPresent(Bool.self, forKey: .installing) ?? false,
                   step: try c.decodeIfPresent(String.self, forKey: .step) ?? "",
                   error: try c.decodeIfPresent(String.self, forKey: .error) ?? "")

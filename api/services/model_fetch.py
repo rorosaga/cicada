@@ -1,6 +1,6 @@
 """Fetch EmbeddingGemma 2 for the Neural Engine once, into ``$CICADA_HOME/models`` (owner 2026-10-09).
 
-One implementation for every door: Settings → Memory → Search model in a release app (``embedding_models``'
+One implementation for every door: Settings → Search & files in a release app (``embedding_models``'
 install job), ``make embedding-model-gemma2`` and ``install.sh`` in a checkout (``python -m
 api.services.model_fetch``). It reads the pins in ``api/data/embeddinggemma-2.lock.json`` — one revision of
 ``FluidInference/embeddinggemma-2-coreml``, every file's size and sha256 — and nothing else is fetched: no
@@ -74,8 +74,12 @@ def pins() -> dict:
     try:
         return json.loads(PINS.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
-        raise FetchError(f"This copy of Cicada is missing the search model's pinned file list "
-                         f"(api/data/{PINS.name}), so nothing was downloaded. Update or reinstall Cicada.") from exc
+        # The person reads this (Settings → Search & files): no repo path, no family name — the log has the file.
+        from loguru import logger
+
+        logger.warning(f"model_fetch: the pins file {PINS.name} can't be read: {type(exc).__name__}")
+        raise FetchError("This copy of Cicada can't find what it needs to download this, so nothing was downloaded. "
+                         "Update or reinstall Cicada.") from exc
 
 
 def total_bytes(p: dict | None = None) -> int:
@@ -85,7 +89,7 @@ def total_bytes(p: dict | None = None) -> int:
 def destination(models_dir: Path, p: dict | None = None) -> Path:
     name = str((p or pins())["dir_name"])
     if "/" in name or name.startswith("."):
-        raise FetchError("The model's folder name in the pins is not a plain name.")
+        raise FetchError("This copy of Cicada can't download this. Update or reinstall Cicada.")
     return Path(models_dir) / name
 
 
@@ -140,7 +144,7 @@ def _download(url: str, dest: Path, size: int, sha: str, on_bytes: Callable[[int
             continue
         if got != size or h.hexdigest() != sha:
             dest.unlink(missing_ok=True)
-            raise FetchError("A downloaded file didn't match its checksum, so nothing was installed. Try again later.")
+            raise FetchError("Something in the download didn't check out, so nothing was installed. Try again later.")
         return
     raise FetchError("The download stopped. Check your connection and try again.") from last
 
@@ -168,8 +172,7 @@ def _compile(stage: Path, *, package_name: str | None = None, compiled_name: str
         shutil.rmtree(compiled, ignore_errors=True)
         shutil.move(str(tmp), str(compiled))
     except Exception as exc:  # noqa: BLE001
-        raise FetchError("This Mac couldn't prepare the search model. Make sure macOS is up to date, "
-                         "then try again.") from exc
+        raise FetchError("This Mac couldn't set it up. Make sure macOS is up to date, then try again.") from exc
     shutil.rmtree(package, ignore_errors=True)  # the runtime reads only the compiled model
 
 
@@ -179,7 +182,7 @@ def _manifest(stage: Path, p: dict) -> dict:
         prompts = cfg["prompts"]
         query_prefix, document_prefix = str(prompts["search_query"]), str(prompts["document"])
     except (OSError, ValueError, KeyError) as exc:
-        raise FetchError("The model's settings file couldn't be read, so nothing was installed.") from exc
+        raise FetchError("Part of the download couldn't be read, so nothing was installed.") from exc
     return {
         "id": p["id"],
         "runtime": "coreml",
@@ -208,7 +211,7 @@ def install(models_dir: Path, *, progress: Progress | None = None, client=None, 
             _warm(out, report)
         return out
     if not coreml_embedder.supported() and compile_fn is None:
-        raise FetchError("This search model needs macOS 15 or later on Apple silicon.")
+        raise FetchError("The sharper version needs macOS 15 or later on a Mac with Apple silicon.")
     stage = Path(models_dir) / f".{out.name}.partial"
     shutil.rmtree(stage, ignore_errors=True)
     stage.mkdir(parents=True)
@@ -271,7 +274,8 @@ def install_vision(models_dir: Path, *, progress: Progress | None = None, client
     p = pins()
     files = p.get("vision_files") or []
     if not files:
-        raise FetchError("This copy of Cicada has no pinned image model, so nothing was downloaded. Update Cicada.")
+        raise FetchError("This copy of Cicada can't download image understanding, so nothing was downloaded. "
+                         "Update Cicada.")
     out = destination(models_dir, p)
     if installed_revision(out) != p["revision"]:
         install(models_dir, progress=progress, client=client,
@@ -279,7 +283,7 @@ def install_vision(models_dir: Path, *, progress: Progress | None = None, client
     if vision_installed(out, p):
         return out
     if not coreml_embedder.supported() and compile_fn is None:
-        raise FetchError("Searching by image needs macOS 15 or later on Apple silicon.")
+        raise FetchError("Understanding images needs macOS 15 or later on a Mac with Apple silicon.")
     report = progress or (lambda phase, done, total: None)
     stage = Path(models_dir) / f".{out.name}.vision.partial"
     shutil.rmtree(stage, ignore_errors=True)
@@ -336,8 +340,7 @@ def _warm(folder: Path, report: Progress) -> None:
         else:
             coreml_embedder.CoreMLEmbedder(spec).warm()
     except Exception as exc:  # noqa: BLE001
-        raise FetchError("The search model downloaded but this Mac couldn't load it. Restart Cicada and "
-                         "try again.") from exc
+        raise FetchError("It downloaded, but this Mac couldn't start it. Restart Cicada and try again.") from exc
 
 
 def main(argv: list[str] | None = None) -> int:

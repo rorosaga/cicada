@@ -61,7 +61,8 @@ final class LocalSourcesSurfaceTests: XCTestCase {
         r.stage1Passes = 7
         // Synthetic counts; 1,200 also proves the number is grouped for the reader's locale.
         XCTAssertEqual(LocalSourceRowText.previewSummary(r, locale: en), "Found 12 notes · 3 written by an agent · 1,200 papers")
-        XCTAssertEqual(LocalSourceRowText.sleepLine(r, locale: en), "Sleep will read your own notes in about 7 steps.")
+        // Search & files — a count of the person's own notes (12 found, 3 an agent's), never of passes.
+        XCTAssertEqual(LocalSourceRowText.sleepLine(r, locale: en), "Sleep will read 9 notes of your own.")
         var one = FolderSyncResult()
         one.filesNew = 1
         XCTAssertEqual(LocalSourceRowText.previewSummary(one, locale: en), "Found 1 note")

@@ -1,7 +1,8 @@
 import Foundation
 
 /// Design taste (owner, 2026-10-14) — the Looks page's words (DR-59: sentence case, plain verbs, no "!"). Provider-
-/// neutral (owner 2026-09-30): the image model is "the image model", never a name; a download says its size.
+/// neutral (owner 2026-09-30) and plain (Search & files, owner 2026-10-14): "understand images", the same words as
+/// Settings → Search & files, never a model; a download says its size before the click.
 extension Copy {
     enum Looks {
         static let page = "Looks"
@@ -53,14 +54,18 @@ extension Copy {
         }
         static func share(_ share: Double) -> String { "\(Int((share * 100).rounded())) %" }
 
-        // MARK: Searching by picture (the image model's own click)
-        static let pictureOff = "Searching by picture needs the image model on this Mac."
-        static func pictureDownload(_ bytes: Int) -> String {
+        // MARK: Understanding images (the in-context shortcut to Search & files' second click)
+        static let pictureOff = "To find looks by what they show, Cicada needs to understand images."
+        /// The Looks shortcut keeps its one click (coordinator's call, 2026-10-14): on a Mac without the meaning part
+        /// it fetches both, so the combined size is stated before the click.
+        static func pictureDownload(_ bytes: Int, includesMeaning: Bool = false) -> String {
             let mb = max(1, Int((Double(bytes) / 1_000_000).rounded()))
-            return "A one-time download of about \(mb) MB. It stays on this Mac; your screenshots never leave it."
+            return includesMeaning
+                ? "A one-time download of about \(mb) MB, which also sets up Understand what you mean. It stays on this Mac; your screenshots never leave it."
+                : "A one-time download of about \(mb) MB. It stays on this Mac; your screenshots never leave it."
         }
         static let turnOn = "Turn on"
-        static let pictureUnsupported = "Searching by picture needs macOS 15 or later on Apple silicon. Words still work."
-        static let pictureMissing = "Searching by picture isn't on, so this compared words."
+        static let pictureUnsupported = "Understanding images needs macOS 15 or later on a Mac with Apple silicon. Words still work."
+        static let pictureMissing = "Cicada doesn't understand images yet, so this compared words."
     }
 }

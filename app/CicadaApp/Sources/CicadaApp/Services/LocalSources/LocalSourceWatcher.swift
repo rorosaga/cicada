@@ -33,8 +33,7 @@ enum LocalSourceCopy {
     static let folderMissing = "This folder isn't on this Mac — it may live on another computer, or it moved."
     static let folderNotWatched =
         "Cicada couldn't start watching this folder. It will try again the next time it syncs."
-    static let folderNotSetUpHere =
-        "This folder isn't set up on this Mac yet — open Settings → Integrations to finish."
+    static let folderNotSetUpHere = Copy.SearchFiles.folderNotSetUpHere
     static let wisprTurnedOff = "Wispr Flow is turned off — turn it on in Settings → Integrations."
     static let alreadySyncing = "Already syncing — anything new will follow right after."
     static let synced = "Synced"
