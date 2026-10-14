@@ -8,7 +8,6 @@ extension Copy {
         static let sitesAndLinks = "Sources and links"
         static let namedInConversations = "Named in conversations"
         static let conversationsLabel = "Conversations"
-        static let nothingYetSummary = "· nothing recorded yet"
         static let nothingYet = "Nothing records where this came from yet."
         static func sources(_ n: Int) -> String { n == 1 ? "1 source" : "\(UsageFormat.count(n)) sources" }
         static func noFactCheckable(_ total: Int) -> String {

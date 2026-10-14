@@ -65,8 +65,9 @@ whole list. Measured on a synthetic owner page of the real one's size (5.6 MB, 5
 a 2.1–3.2 s main-thread stall when the page landed and ~0.5 s on every graph push while it was shown; the article
 costs ~60 ms of first screen and no stall over 16 ms on a push. **Where this comes from (owner 2026-10-14, G61)** is
 one disclosure for where the page's knowledge comes from and how fresh it is (it replaced *Where this came from* and
-*Look it up at*, and keeps the former's remembered choice). Closed, it says "· 3 conversations" (from `/provenance`),
-and "· 2 sources · 3 conversations" once its data has been read. Open: how
+*Look it up at*, and keeps the former's remembered choice). Closed, it says only "· 3 conversations" (from `/provenance`,
+known before the section is read, so the words never change on a first open and never claim a page with unread sources
+has nothing). Open: how
 many beliefs have a place to check them, when the page was last said and its sources last checked; **Sources and
 links** — each G61 source grouped by its fact ("Employs · backs 5 beliefs"), its row leading with the site's name (the
 page's own `## Links` title for that URL, or the name of the saved page it is linked to, else its host) over the full

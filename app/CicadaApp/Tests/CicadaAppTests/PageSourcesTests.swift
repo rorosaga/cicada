@@ -56,13 +56,13 @@ final class PageSourcesTests: XCTestCase {
 
     // MARK: Words
 
-    func testTheClosedSectionSaysHowManySourcesAndConversations() throws {
+    func testTheClosedSectionCountsConversationsOnly() throws {
         let o = try Self.fixture()
-        XCTAssertEqual(PageSourcesWords.summary(o), "· 3 sources · 3 conversations")
+        XCTAssertEqual(PageSourcesWords.summary(o), "· 3 conversations")
+        XCTAssertEqual(PageSourcesWords.summary(nil, conversations: 3), PageSourcesWords.summary(o),
+                       "the same words before and after the section's first read")
         XCTAssertNil(PageSourcesWords.summary(nil), "nothing known yet says nothing")
-        XCTAssertEqual(PageSourcesWords.summary(nil, conversations: 4), "· 4 conversations",
-                       "an older backend still counts its conversations")
-        XCTAssertEqual(PageSourcesWords.summary(PageSourcesOverview(entityId: "x")), "· nothing recorded yet")
+        XCTAssertNil(PageSourcesWords.summary(PageSourcesOverview(entityId: "x")))
     }
 
     func testCoverageAndFreshnessAreSaidInWords() throws {

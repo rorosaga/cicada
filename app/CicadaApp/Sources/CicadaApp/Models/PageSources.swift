@@ -277,15 +277,12 @@ struct PageSourcesOverview: Decodable, Hashable {
 /// Everything "Where this comes from" says, pure and tested. Dates go through the app's one formatter; relative words
 /// are computed when read (DR-58); names of apps through `ProvenanceSummary.placeName` (DR-54).
 enum PageSourcesWords {
-    /// A closed section's few words: "· 2 sources · 3 conversations". Nil until something is known.
+    /// A closed section's few words: "· 3 conversations". Nil when none is known.
     static func summary(_ o: PageSourcesOverview?, conversations fallback: Int? = nil) -> String? {
-        let sources = o?.sources.count ?? 0
+        // Only what is known before the section is read (`/provenance`'s count), so the words never change on a
+        // first open and never claim a page has nothing when its sources were simply not read yet (review re-check).
         let conversations = o?.conversations.total ?? fallback ?? 0
-        var parts: [String] = []
-        if sources > 0 { parts.append(Copy.PageSources.sources(sources)) }
-        if conversations > 0 { parts.append(Copy.Provenance.conversations(conversations)) }
-        if o == nil, fallback == nil { return nil }
-        return parts.isEmpty ? Copy.PageSources.nothingYetSummary : "· " + parts.joined(separator: " · ")
+        return conversations > 0 ? "· " + Copy.Provenance.conversations(conversations) : nil
     }
 
     /// "6 of 7 facts have a place to check them." Nil on a page with no beliefs.
