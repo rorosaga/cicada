@@ -944,6 +944,26 @@ def _emit_resolution(
 #: ``/nudges`` and ``/clarifications``) gives while Sleep holds the pages.
 SLEEP_BUSY = "Sleep is updating your memory — try answering again in a moment."
 
+#: An inbox id is a file's own name in ``inbox/`` (G198 review B1: "INBOX-003" opened ``inbox-003.md`` on a
+#: case-insensitive disk, and a percent-encoded id named it too, past every guard keyed on the canonical id). Every
+#: writer names items ``inbox-NNN``; older items and the deprecated nudge/clarification doors use other lowercase stems,
+#: so the rule is the shape (lowercase letters, digits, ``-`` and ``_``; no dot, slash or ``%``) plus the exact name the
+#: directory lists — a spelling that only resolves through the disk's case folding is refused.
+_ITEM_ID = re.compile(r"[a-z0-9][a-z0-9_-]{0,127}")
+
+
+def _check_item_id(item_id: str, memory_path: Path | None = None) -> None:
+    if not isinstance(item_id, str) or not _ITEM_ID.fullmatch(item_id):
+        raise HTTPException(400, "An inbox id looks like 'inbox-001'.")
+    if memory_path is not None:
+        inbox = _inbox_dir(memory_path)
+        try:
+            listed = f"{item_id}.md" in {p.name for p in inbox.iterdir()} if inbox.is_dir() else False
+        except OSError:
+            listed = False
+        if not listed and (inbox / f"{item_id}.md").exists():
+            raise HTTPException(400, "An inbox id is the item's own name, exactly as listed (e.g. 'inbox-001').")
+
 
 async def resolve(
     item_id: str, request: InboxResolveRequest, settings: Settings
@@ -959,6 +979,7 @@ async def resolve(
     and its commit: a window cannot open in between."""
     from api.services import write_admission
 
+    _check_item_id(item_id)
     # An early answer only (the admitted pass asks again): no model call is spent while Sleep holds the pages.
     if write_admission.probe():
         raise SleepWriting(SLEEP_BUSY)
@@ -970,12 +991,17 @@ async def resolve(
 
 async def _resolve_admitted(item_id: str, request: InboxResolveRequest, settings: Settings,
                             synthesis: "_Synthesis | None" = None) -> dict:
+    _check_item_id(item_id, settings.memory_path)
     path = _inbox_dir(settings.memory_path) / f"{item_id}.md"
     if not path.exists():
         raise HTTPException(404, f"Inbox item {item_id} not found")
 
     parsed = markdown_parser.parse(path)
     kind = str(parsed.frontmatter.get("kind", "decay"))
+    if kind == "page_edit" and (request.via or "").strip().lower() == "agent":
+        # G198 review B1: only the person applies or leaves a proposed edit — an agent's answer, its author's least
+        # of all, would be committed as the person's acceptance.
+        raise HTTPException(403, "A proposed page edit is the person's to apply or leave, in the app.")
 
     # G115 R5 — a decay item answered through `QuestionView` arrives as
     # `resolve` + `archive|keep`; translate it into the legacy verb here, before

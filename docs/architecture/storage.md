@@ -87,7 +87,8 @@ an edit through Sleep, in the frontmatter:
   to write — the article writer's payload first, lead, paragraphs and their G118 records together
   (`page_edits.correct_article`), so a corrected paragraph keeps its evidence, then the whole prose
   (`apply_corrections`: exact, whole-word at a word edge, idempotent when `new` contains `old`, never in `## Related` or
-  the claims) — and the article writer is given them as `CORRECTIONS` with one more rule line (its prompt is
+  the claims, never on a heading or code-fence line, and a fix whose result would change the text's `page_edits.shape` —
+  claims openers, where the claims block starts, the `#`/`##` headings, an open fence — is skipped) — and the article writer is given them as `CORRECTIONS` with one more rule line (its prompt is
   byte-identical without them). A word-level fix restamps a stamped article (`entity_article.carry_stamp`), so the page stays
   the writer's and keeps growing with the fix in. A later edit whose `new` is a pinned `old` drops that pin.
 - `aliases_removed: [{alias, by, on}]` (≤ 50) — like `sources_removed`: Sleep's alias merge (`page_edits.keep_aliases`) and a
@@ -959,7 +960,12 @@ collapsed to one line, so it can never open a trailer. An applied proposal names
 `git blame --porcelain` over the prose lines (frontmatter and claims fence left out) and one `git log --no-walk` over the
 commits it names give, per `##` section (an Article's `###` sections apart), each contributor's line count, last change and
 commits, and per commit its author, kind, trigger, reason and `accepted_by`; heading and blank lines count to no one, an
-uncommitted line is `uncommitted`, never guessed. Kept per (bank, page, HEAD, mtime, size) in the process; never stored.
+uncommitted line is `uncommitted`, never guessed. Blame walks the page's whole history (0.6 s at 600 commits, 1.9 s at
+2,000 on a 600 KB page, review round 1), so it is kept per (bank, page, the newest commit touching the page, mtime, size)
+in the process — a commit elsewhere does not empty it — with one computation in flight per key; a request waits ≤ 0.5 s
+(shielded) and is otherwise answered `pending: true`, which the app never draws (it keeps its last copy and asks again,
+a few times); every git call has a deadline (30 s, the process killed past it), and a failure is never cached. Never
+stored.
 
 **Three trailer families, all inert to entity-line parsing — extend them, don't break them:**
 

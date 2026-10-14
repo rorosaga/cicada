@@ -2218,6 +2218,10 @@ class InboxResolveRequest(CamelModel):
     # When it names the cleaner mention instead, the surviving file is renamed to
     # the survivor's slug so a merge can go either direction.
     merge_survivor: Optional[str] = None
+    # G198 review B1: "agent" when an agent's tool posted the answer (`cicada_resolve_inbox`, an edit's `resolves`).
+    # The backend refuses such a caller an answer only the person gives (a proposed page edit). Defense in depth: the
+    # tool refuses first; a process that skips the tool can write the bank's files anyway.
+    via: Optional[str] = None
 
 
 class CheckCensus(CamelModel):
@@ -3140,6 +3144,9 @@ class PageBlameResponse(CamelModel):
     sections: list[BlameSection] = Field(default_factory=list)
     uncommitted_lines: int = 0
     lines: Optional[list[BlameLine]] = None
+    # G198 review B3: the blame is still running (or git could not answer in time). The app keeps its last copy and
+    # asks again; nothing here is an empty page.
+    pending: bool = False
 
 
 # --- Conversation Upload ---

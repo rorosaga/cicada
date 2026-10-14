@@ -206,7 +206,8 @@ final class ProvenanceCache {
         let cached = blames.get(entityId)
         do {
             let value = try await api.fetchEntityBlame(entityId: entityId)
-            blames.set(entityId, value)
+            // A pending answer is not a page with no authors: it never replaces the copy held (G198 review B3).
+            if !value.pending { blames.set(entityId, value) }
             return .loaded(value)
         } catch {
             if Self.isGone(error) { blames.remove(entityId) }

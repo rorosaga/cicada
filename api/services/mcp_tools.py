@@ -2773,7 +2773,7 @@ def _answer_inbox_by_edit(ctx: ToolContext, memory_path: Path, resolves, spans) 
         if not isinstance(raw, dict):
             continue
         item_id = str(raw.get("id") or "").strip()
-        if not _REMOTE_INBOX_ID_RE.match(item_id):
+        if not _REMOTE_INBOX_ID_RE.fullmatch(item_id):
             lines.append(f"Inbox: '{item_id}' is not an inbox id (like 'inbox-012'); skipped.")
             continue
         path = memory_path / "inbox" / f"{item_id}.md"
@@ -3572,10 +3572,13 @@ def resolve_inbox(
     item_id = (item_id or "").strip()
     if not item_id:
         return "Error: id is required (e.g. 'inbox-001')."
-    if ctx.is_remote and not _REMOTE_INBOX_ID_RE.match(item_id):
+    if not _REMOTE_INBOX_ID_RE.fullmatch(item_id):
         # Task 5 review r1: the id is spliced into a loopback URL that carries
-        # the backend's bearer token; a remote caller gets the schema's shape
-        # and nothing else, so it can never steer that request elsewhere.
+        # the backend's bearer token; a caller gets the schema's shape and
+        # nothing else, so it can never steer that request elsewhere. G198
+        # review B1: local callers too — "INBOX-003" (a case-insensitive disk)
+        # or a percent-encoded id named the same file and slipped past the
+        # page_edit guard below.
         return "Error: id must look like 'inbox-001'."
 
     if skip:
@@ -3600,6 +3603,8 @@ def resolve_inbox(
         if not option_key and not answer:
             return ("Error: pass option_key, or defer=true." if ctx.is_remote
                     else "Error: pass option_key, answer, or defer=true.")
+    # G198 review B1: the backend knows an agent sent this, and refuses it an answer only the person gives.
+    payload["via"] = "agent"
 
     import urllib.error
 
@@ -3632,7 +3637,7 @@ _REMOTE_INBOX_ID_RE = re.compile(r"^inbox-\d+$")
 
 def _inbox_kind(ctx: ToolContext, item_id: str) -> str | None:
     """The kind of an inbox item in the caller's bank, or ``None`` when it cannot be read here."""
-    if not _REMOTE_INBOX_ID_RE.match(item_id or ""):
+    if not _REMOTE_INBOX_ID_RE.fullmatch(item_id or ""):
         return None
     try:
         path = ctx.memory_path() / "inbox" / f"{item_id}.md"

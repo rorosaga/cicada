@@ -7,12 +7,16 @@ own provenance), one ``git log --no-walk`` over the commits it names, and each c
 ``trigger``, and an agent edit's ``Reason:`` line (``page_edits``). Lines are grouped by section (``## `` titles, and
 an Article's ``### `` sections apart) with each contributor's line count and last change.
 
-A line not committed yet is ``uncommitted`` (blame's all-zero commit), never guessed. The answer is kept per (bank,
-page, HEAD, the file's mtime and size) in this process — disposable, like the history window's blame — because blame
-walks the page's whole history (``git_service`` measured 2.3 s on a 520-commit page).
+A line not committed yet is ``uncommitted`` (blame's all-zero commit), never guessed. Blame walks the page's whole
+history (review: 0.6 s at 600 commits, 1.9 s at 2,000 on a 600 KB page), so the answer is kept per (bank, page, the
+newest commit touching the page, the file's mtime and size) in this process, one computation runs per key, a request
+waits for it at most :data:`WAIT_S` and is otherwise answered ``pending`` — the app keeps its last copy and asks again —
+and every git call has a deadline (:data:`GIT_TIMEOUT_S`). Disposable, like the History window's blame.
 """
 from __future__ import annotations
 
+import asyncio
+import os
 import re
 from pathlib import Path
 
@@ -81,63 +85,113 @@ def _commit(record: str, entity_file: str) -> dict | None:
             "accepted_by": "user" if (author != "user" and "user" in authors) else None}
 
 
-async def blame(memory_path: Path, entity_id: str, *, with_lines: bool = False) -> dict | None:
-    """The page's blame, or ``None`` when there is no page. A bank with no git, or a page git has never seen, answers
-    with every line ``uncommitted``."""
+#: How long a request waits for a blame still running (G198 review B3, the History window's rule): past it the answer
+#: is ``pending`` and the blame finishes in the background for the next ask.
+WAIT_S = 0.5
+#: No git call here runs longer than this; a blame that would is given up, never cached, and asked again later.
+GIT_TIMEOUT_S = 30.0
+_PENDING: dict[tuple, "asyncio.Task"] = {}
+
+
+class _Unavailable(Exception):
+    """git could not answer (an error, or past :data:`GIT_TIMEOUT_S`): nothing is cached."""
+
+
+async def _git(memory_path: Path, *args: str, timeout: float | None = None) -> str:
+    """A read-only git call with a deadline (:data:`GIT_TIMEOUT_S` unless given); the process is killed past it."""
+    timeout = GIT_TIMEOUT_S if timeout is None else timeout
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "git", *args, cwd=str(memory_path), stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"})
+    except OSError as exc:
+        raise _Unavailable(str(exc)) from exc
+    try:
+        out, _err = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+    except asyncio.TimeoutError:
+        proc.kill()
+        await proc.wait()
+        raise _Unavailable(f"git {args[0]} took longer than {timeout:.0f} s") from None
+    if proc.returncode != 0:
+        raise _Unavailable(f"git {args[0]} failed")
+    return out.decode(errors="replace")
+
+
+def pending(entity_id: str) -> dict:
+    """The answer while a blame is still running: the app keeps the last copy it holds and asks again."""
+    return {"entity_id": entity_id, "commits": [], "sections": [], "uncommitted_lines": 0, "pending": True}
+
+
+async def blame(memory_path: Path, entity_id: str, *, with_lines: bool = False, wait: float = WAIT_S) -> dict | None:
+    """The page's blame, ``None`` when there is no page, or :func:`pending` when it is still being computed.
+
+    G198 review B3: kept per (bank, page, the newest commit that touched the page, the file's mtime and size) — a
+    commit elsewhere in the bank does not empty it — with one computation in flight per key, waited for at most
+    ``wait`` seconds (shielded: a request that stops waiting never cancels it), and every git call bounded. A page git
+    has never committed answers at once, every line ``uncommitted``."""
     memory_path = Path(memory_path)
     entity_file = f"entities/{entity_id}.md"
     page = memory_path / entity_file
     if not page.is_file():
         return None
-    text = page.read_text(encoding="utf-8", errors="replace")
-    head = None
-    try:
-        from api.services import sync_service
-
-        head = sync_service.git_head(memory_path)
-        st = page.stat()
-        key = (str(memory_path), entity_file, head, st.st_mtime_ns, st.st_size)
-    except Exception:  # noqa: BLE001 — a key that cannot be built only costs the cache
-        key = None
-    if key is not None and head and key in _CACHE:
-        return _shape(_CACHE[key], with_lines)
-
-    first, last = prose_lines(text)
-    lines = text.splitlines(keepends=True)[first - 1:last] if last >= first else []
-    by_line: dict[int, str] = {}
-    if lines and (memory_path / ".git").exists():
+    newest = ""
+    if (memory_path / ".git").exists():
         try:
-            out = await git_service._run_git(memory_path, "blame", "--porcelain", "-L", f"{first},{last}", "--",
-                                             entity_file)
+            newest = (await _git(memory_path, "log", "-1", "--format=%H", "--", entity_file, timeout=5.0)).strip()
+        except _Unavailable:
+            return pending(entity_id)
+    st = page.stat()
+    key = (str(memory_path.resolve()), entity_file, newest, st.st_mtime_ns, st.st_size)
+    if key in _CACHE:
+        return _shape(_CACHE[key], with_lines)
+    loop = asyncio.get_running_loop()
+    task = _PENDING.get(key)
+    if task is None or task.done() or task.get_loop() is not loop:
+        task = loop.create_task(_compute(memory_path, entity_id, entity_file, page, newest, key))
+        # A failure nobody waited for is still retrieved (it is answered `pending` and asked again later).
+        task.add_done_callback(lambda t: t.cancelled() or t.exception())
+        _PENDING[key] = task
+    try:
+        result = await asyncio.wait_for(asyncio.shield(task), timeout=wait)
+    except asyncio.TimeoutError:
+        return pending(entity_id)
+    except _Unavailable:
+        return pending(entity_id)
+    return _shape(result, with_lines)
+
+
+async def _compute(memory_path: Path, entity_id: str, entity_file: str, page: Path, newest: str, key) -> dict:
+    try:
+        text = page.read_text(encoding="utf-8", errors="replace")
+        first, last = prose_lines(text)
+        lines = text.splitlines(keepends=True)[first - 1:last] if last >= first else []
+        by_line: dict[int, str] = {}
+        if lines and newest:
+            out = await _git(memory_path, "blame", "--porcelain", "-L", f"{first},{last}", "--", entity_file)
             for raw in out.splitlines():
                 if (m := _HEADER.match(raw)):
                     by_line[int(m.group(3))] = m.group(1)
-        except git_service.GitError:
-            by_line = {}
-    shas = [h for h in dict.fromkeys(by_line.values()) if h != _ZERO]
-    commits: dict[str, dict] = {}
-    if shas:
-        try:
-            out = await git_service._run_git(memory_path, "log", "--no-walk=unsorted", "--date=short",
-                                             git_service._HISTORY_FORMAT, *shas, "--")
+        shas = [h for h in dict.fromkeys(by_line.values()) if h != _ZERO]
+        commits: dict[str, dict] = {}
+        if shas:
+            out = await _git(memory_path, "log", "--no-walk=unsorted", "--date=short", git_service._HISTORY_FORMAT,
+                             *shas, "--")
             for record in out.split("\x1e")[1:]:
                 if (row := _commit(record, entity_file)) is not None:
                     commits[row["hash"]] = row
-        except git_service.GitError:
-            commits = {}
-
-    rows = []
-    for (n, section), raw in zip(_sections(lines, first), lines):
-        sha = by_line.get(n)
-        # A heading line is the section's frame, not its words: it is never counted to anyone.
-        rows.append({"line": n, "section": section, "commit": sha if sha in commits else None,
-                     "blank": not raw.strip() or bool(page_edits._HEADING.match(raw.rstrip("\r\n")))})
-    result = _assemble(entity_id, rows, commits)
-    if key is not None and head:
+        rows = []
+        for (n, section), raw in zip(_sections(lines, first), lines):
+            sha = by_line.get(n)
+            # A heading line is the section's frame, not its words: it is never counted to anyone.
+            rows.append({"line": n, "section": section, "commit": sha if sha in commits else None,
+                         "blank": not raw.strip() or bool(page_edits._HEADING.match(raw.rstrip("\r\n")))})
+        result = _assemble(entity_id, rows, commits)
         while len(_CACHE) >= _CACHE_MAX:
             _CACHE.pop(next(iter(_CACHE)))
         _CACHE[key] = result
-    return _shape(result, with_lines)
+        return result
+    finally:
+        _PENDING.pop(key, None)
 
 
 def _assemble(entity_id: str, rows: list[dict], commits: dict[str, dict]) -> dict:
@@ -182,6 +236,7 @@ def _assemble(entity_id: str, rows: list[dict], commits: dict[str, dict]) -> dic
 
 def _shape(result: dict, with_lines: bool) -> dict:
     out = {k: v for k, v in result.items() if k != "_lines"}
+    out.setdefault("pending", False)
     if with_lines:
         out["lines"] = list(result["_lines"])
     return out

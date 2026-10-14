@@ -65,7 +65,8 @@ whole list. Measured on a synthetic owner page of the real one's size (5.6 MB, 5
 a 2.1–3.2 s main-thread stall when the page landed and ~0.5 s on every graph push while it was shown; the article
 costs ~60 ms of first screen and no stall over 16 ms on a push. **Where this comes from ends with *Who wrote it*
 (G198):** per part of the page's text, who last changed it, when, and an agent edit's reason ("accepted by you" when the
-person applied a proposal), from `GET /entities/{id}/blame` (git, never stored; not a Store domain, cached in memory).
+person applied a proposal), from `GET /entities/{id}/blame` (git, never stored; not a Store domain, cached in memory;
+a `pending` answer keeps the copy held and is asked again up to `CicadaTiming.blamePendingTries` times).
 **Where this comes from (owner 2026-10-14, G61)** is
 one disclosure for where the page's knowledge comes from and how fresh it is (it replaced *Where this came from* and
 *Look it up at*, and keeps the former's remembered choice). Closed, it says only "· 3 conversations" (from `/provenance`,

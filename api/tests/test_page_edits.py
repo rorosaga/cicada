@@ -396,7 +396,8 @@ def test_an_edit_answers_the_inbox_item_it_settles_with_the_persons_words(bank):
         _ctx(bank, posts=posts), "alpha-project", "Not a name it ever had.", remove_aliases=["Alpha Projekt"],
         evidence=[{"episode": "ep_2026-10-14_001", "quote": "Alpha Projekt was never its name"}],
         resolves=[{"id": "inbox-003", "answer": "No — it was never its name."}])
-    assert posts == [("/inbox/inbox-003/resolve", {"action": "resolve", "answer": "No — it was never its name."})]
+    assert posts == [("/inbox/inbox-003/resolve", {"action": "resolve", "answer": "No — it was never its name.",
+                                                   "via": "agent"})]
     assert "Inbox item inbox-003: resolved." in out
 
 
@@ -473,3 +474,175 @@ def test_the_stdio_tool_and_the_demo_bank(bank, monkeypatch):
     demo_guard.manifest_path(bank).write_text(f"kind: {demo_guard.DEMO_KIND}\n")
     assert demo_guard.is_demo(bank)
     assert mcp_tools.edit_page(_ctx(bank), "alpha-project", REASON, edits=FIX) == demo_guard.AGENT_REFUSAL
+
+
+# --------------------------------------------------------------------------- review round 1
+
+
+def _proposal(bank) -> None:
+    mcp_tools.edit_page(_ctx(bank, harness="cursor"), "alpha-project", REASON, edits=FIX)
+    assert (bank / "inbox/inbox-003.md").exists()
+
+
+@pytest.mark.parametrize("item_id", ["INBOX-003", "inbox-00%33", "Inbox-003", "../inbox/inbox-003", "inbox-003.md"])
+def test_b1_an_agent_cannot_reach_its_proposal_under_another_spelling(bank, item_id):
+    _proposal(bank)
+    posts: list = []
+    before = (bank / "entities/alpha-project.md").read_bytes()
+    out = mcp_tools.resolve_inbox(_ctx(bank, harness="cursor", posts=posts), item_id, "apply", None, False, None)
+    assert out == "Error: id must look like 'inbox-001'." and posts == []
+    assert (bank / "entities/alpha-project.md").read_bytes() == before
+
+
+@pytest.mark.parametrize("item_id", ["INBOX-003", "Inbox-003", "inbox-00%33", "inbox-003 ", "../inbox/inbox-003",
+                                     "inbox-003.md"])
+def test_b1_the_backend_refuses_any_other_id_shape(bank, item_id):
+    from fastapi import HTTPException
+
+    _proposal(bank)
+    with pytest.raises(HTTPException) as err:
+        asyncio.run(inbox_service.resolve(item_id, InboxResolveRequest(action="resolve", option_key="apply"),
+                                          SimpleNamespace(memory_path=bank, inbox_defer_days=30)))
+    assert err.value.status_code == 400
+    assert (bank / "inbox/inbox-003.md").exists() and "Owner Exampel" in _page(bank).body
+
+
+def test_b1_the_backend_refuses_an_agent_answer_to_a_proposal_whatever_door(bank):
+    from fastapi import HTTPException
+
+    _proposal(bank)
+    head = _git(bank, "rev-parse", "HEAD")
+    for action, key in (("resolve", "apply"), ("resolve", "dismiss"), ("defer", None)):
+        with pytest.raises(HTTPException) as err:
+            asyncio.run(inbox_service.resolve("inbox-003", InboxResolveRequest(action=action, option_key=key,
+                                                                               via="agent"),
+                                              SimpleNamespace(memory_path=bank, inbox_defer_days=30)))
+        assert err.value.status_code == 403
+    assert _git(bank, "rev-parse", "HEAD") == head and (bank / "inbox/inbox-003.md").exists()
+    # The tool says it is an agent on every answer it posts.
+    posts: list = []
+    mcp_tools.resolve_inbox(_ctx(bank, posts=posts), "inbox-001", "keep", None, False, None)
+    assert posts[0][1]["via"] == "agent"
+
+
+def test_b1_the_route_refuses_a_case_variant_id(bank, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from api import config, main
+
+    _proposal(bank)
+    monkeypatch.setenv("CICADA_MEMORY_PATH", str(bank))
+    config.get_settings.cache_clear()
+    try:
+        client = TestClient(main.app)
+        assert client.post("/inbox/INBOX-003/resolve", json={"action": "resolve", "optionKey": "apply"}
+                           ).status_code == 400
+        assert client.post("/inbox/inbox-003/resolve", json={"action": "resolve", "optionKey": "apply",
+                                                             "via": "agent"}).status_code == 403
+        assert "Owner Exampel" in _page(bank).body
+    finally:
+        config.get_settings.cache_clear()
+
+
+def _prose_page(memory: Path, prose: str) -> tuple[dict, str]:
+    fact = Claim(id="clm_alpha_uses_sqlite", text="Alpha Project uses SQLite", subject="alpha-project",
+                 predicate="uses", object="sqlite", valid_from="2026-01-10", recorded_at="2026-01-10")
+    _entity(memory, "alpha-project", type="project", name="Alpha Project", body=claims.write_claims(prose, [fact]))
+    return _raw(memory)
+
+
+def test_b2_words_that_only_together_make_a_claims_opener_are_refused(bank):
+    fm, body = _prose_page(bank, "## Summary\nAlpha Project.\n\n## Key Facts\n- Marked.\n\n``x marks it.")
+    for edit in ({"old": "x marks", "new": "`claims marks"}, {"old": "x", "new": "`claims", "all": True, "pin": True}):
+        with pytest.raises(page_edits.EditError, match="sections or its claims block"):
+            page_edits.plan(fm, body, page_edits.parse_request([edit]), author="claude-code")
+
+
+def test_b2_an_edit_never_renames_or_adds_a_section_heading(bank):
+    fm, body = _raw(bank)
+    for edit in ({"old": "Summary", "new": "Overview", "all": True},
+                 {"old": "Uses SQLite for sync.", "new": "Uses SQLite.\n\n# Uses"}):
+        with pytest.raises(page_edits.EditError):
+            page_edits.plan(fm, body, page_edits.parse_request([edit]), author="claude-code")
+    with pytest.raises(page_edits.EditError):
+        # a heading line is refused in the request itself
+        page_edits.parse_request([{"old": "Uses SQLite for sync.", "new": "x\n## New"}])
+
+
+def test_b2_a_pinned_fix_never_touches_a_heading_or_assembles_a_fence():
+    rows = [{"old": "Summary", "new": "Overview"}]
+    text = "## Summary\nThe Summary of it.\n\n### Summary notes\nMore."
+    fixed, n = page_edits.correct_text(text, rows)
+    assert fixed == "## Summary\nThe Overview of it.\n\n### Summary notes\nMore." and n == 1
+    fence = [{"old": "x", "new": "`claims"}]
+    assert page_edits.correct_text("Some text.\n``x here.\n", fence) == ("Some text.\n``x here.\n", 0)
+    body = "## Summary\nSome text.\n``x here.\n\n```claims\n[]\n```"
+    assert page_edits.apply_corrections({"corrections": fence}, body) == (body, 0)
+    assert page_edits.shape(body) == page_edits.shape(page_edits.apply_corrections(
+        {"corrections": rows}, "## Summary\nThe Summary.\n\n```claims\n[]\n```")[0])
+
+
+def _blame_bank(tmp_path):
+    memory = _bank(tmp_path)
+    return memory
+
+
+def test_b3_blame_is_kept_per_the_pages_own_newest_commit(tmp_path, monkeypatch):
+    memory = _blame_bank(tmp_path)
+    page_blame._CACHE.clear()
+    calls: list[str] = []
+    real = page_blame._git
+
+    async def counting(memory_path, *args, **kw):
+        calls.append(args[0])
+        return await real(memory_path, *args, **kw)
+
+    monkeypatch.setattr(page_blame, "_git", counting)
+    first = asyncio.run(page_blame.blame(memory, "alpha-project"))
+    assert first["pending"] is False and calls.count("blame") == 1
+    # A commit elsewhere in the bank does not empty it.
+    (memory / "entities/bob-example.md").write_text((memory / "entities/bob-example.md").read_text() + "\nMore.\n")
+    _commit_all(memory, "Elsewhere\n\nCicada-Author: cicada")
+    assert asyncio.run(page_blame.blame(memory, "alpha-project")) == first
+    assert calls.count("blame") == 1
+    # A commit to the page does.
+    page = memory / "entities/alpha-project.md"
+    page.write_text(page.read_text().replace("synthetic fixture", "synthetic fixture page"))
+    _commit_all(memory, "Here\n\nCicada-Author: cicada")
+    asyncio.run(page_blame.blame(memory, "alpha-project"))
+    assert calls.count("blame") == 2
+
+
+def test_b3_a_slow_blame_answers_pending_runs_once_and_is_served_when_done(tmp_path, monkeypatch):
+    memory = _blame_bank(tmp_path)
+    page_blame._CACHE.clear()
+    real = page_blame._git
+    blames: list[int] = []
+
+    async def slow(memory_path, *args, **kw):
+        if args[0] == "blame":
+            blames.append(1)
+            await asyncio.sleep(0.4)
+        return await real(memory_path, *args, **kw)
+
+    monkeypatch.setattr(page_blame, "_git", slow)
+
+    async def scenario():
+        a, b = await asyncio.gather(page_blame.blame(memory, "alpha-project", wait=0.05),
+                                    page_blame.blame(memory, "alpha-project", wait=0.05))
+        assert a["pending"] and b["pending"] and a["sections"] == []
+        await asyncio.sleep(0.6)
+        return await page_blame.blame(memory, "alpha-project", wait=0.05)
+
+    done = asyncio.run(scenario())
+    assert done["pending"] is False and done["sections"] and len(blames) == 1
+
+
+def test_b3_every_git_call_has_a_deadline_and_a_failure_is_never_cached(tmp_path, monkeypatch):
+    memory = _blame_bank(tmp_path)
+    page_blame._CACHE.clear()
+    with pytest.raises(page_blame._Unavailable):
+        asyncio.run(page_blame._git(memory, "log", "--all", "-p", timeout=0.0001))
+    monkeypatch.setattr(page_blame, "GIT_TIMEOUT_S", 0.0001)
+    assert asyncio.run(page_blame.blame(memory, "alpha-project"))["pending"] is True
+    assert page_blame._CACHE == {}

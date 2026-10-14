@@ -119,15 +119,19 @@ struct PageBlame: Decodable, Equatable {
     var commits: [PageBlameCommit]
     var sections: [PageBlameSection]
     var uncommittedLines: Int
+    /// G198 review B3: the backend is still computing it (or git could not answer in time). Never drawn: the section
+    /// keeps the last copy it holds and asks again.
+    var pending: Bool
 
-    enum CodingKeys: String, CodingKey { case entityId, commits, sections, uncommittedLines }
+    enum CodingKeys: String, CodingKey { case entityId, commits, sections, uncommittedLines, pending }
 
     init(entityId: String, commits: [PageBlameCommit] = [], sections: [PageBlameSection] = [],
-         uncommittedLines: Int = 0) {
+         uncommittedLines: Int = 0, pending: Bool = false) {
         self.entityId = entityId
         self.commits = commits
         self.sections = sections
         self.uncommittedLines = uncommittedLines
+        self.pending = pending
     }
 
     init(from decoder: Decoder) throws {
@@ -136,6 +140,7 @@ struct PageBlame: Decodable, Equatable {
         commits = try c.decodeIfPresent([PageBlameCommit].self, forKey: .commits) ?? []
         sections = try c.decodeIfPresent([PageBlameSection].self, forKey: .sections) ?? []
         uncommittedLines = try c.decodeIfPresent(Int.self, forKey: .uncommittedLines) ?? 0
+        pending = try c.decodeIfPresent(Bool.self, forKey: .pending) ?? false
     }
 
     func commit(_ hash: String) -> PageBlameCommit? { commits.first { $0.hash == hash } }

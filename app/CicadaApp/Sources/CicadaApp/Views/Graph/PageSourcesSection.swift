@@ -82,10 +82,20 @@ struct PageSourcesSection: View {
     private func loadBlame() async {
         guard let provenanceCache else { return }
         blame = provenanceCache.cachedBlame(entityId: entityId)
-        switch await provenanceCache.blame(entityId: entityId) {
-        case let .loaded(value): blame = value
-        case .gone: blame = nil
-        case .failed: break   // the last answer held stays (never blank)
+        // The backend answers `pending` while its blame runs (G198 review B3): keep what is held and ask again, a few
+        // times, a moment apart. The task ends when the section goes away.
+        for attempt in 0..<CicadaTiming.blamePendingTries {
+            switch await provenanceCache.blame(entityId: entityId) {
+            case let .loaded(value) where value.pending:
+                guard attempt + 1 < CicadaTiming.blamePendingTries else { return }
+                try? await Task.sleep(for: .seconds(CicadaTiming.blamePendingRetry))
+                if Task.isCancelled { return }
+                continue
+            case let .loaded(value): blame = value
+            case .gone: blame = nil
+            case .failed: break   // the last answer held stays (never blank)
+            }
+            return
         }
     }
 

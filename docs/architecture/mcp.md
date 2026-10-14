@@ -150,8 +150,16 @@ it alone — `Page edit <date>`, `entities/<id>.md: edited (trigger: mcp/<harnes
 proposed <date>`, and the reply says the person decides. `resolves: [{id, option_key|answer}]` answers inbox items through
 the same backend route as `cicada_resolve_inbox`, after the edit's commit and outside its page lock, and only when
 `evidence` holds a span located as the person's own words (`kind: user`) — never for a proposal, never a `normalization`
-or `page_edit` item. A `page_edit` item is app-only: `cicada_check_nudges`, recall's inbox block and the recall hook never
-serve it, and `cicada_resolve_inbox` refuses it (an agent never applies its own proposal). Refused with nothing written: a
+or `page_edit` item. Those quotes are a gate and the edit's commit carries them as `Evidence:` lines; the answer itself
+is posted as `cicada_resolve_inbox` posts one and stores no evidence of its own. A `page_edit` item is app-only: `cicada_check_nudges`, recall's inbox block and the recall hook never
+serve it, and `cicada_resolve_inbox` refuses it (an agent never applies its own proposal). Review round 1 (B1): every
+caller's inbox id must be exactly `inbox-<digits>` (a case variant or a percent-encoded id named the same file on a
+case-insensitive disk), the backend's resolve (every door) takes only a lowercase stem with no dot, slash or `%` that
+the inbox directory lists exactly — a spelling that resolves only through the disk's case folding is a 400 — and every
+answer an agent's
+tool posts says `via: "agent"`, which the backend refuses for a `page_edit` (403) — defense in depth: a process that
+skips the tool can write the bank's files anyway. The result of an edit is checked as well as the request (B2): an edit
+whose result moves the claims block, opens a code fence or changes a `#`/`##` heading is refused. Refused with nothing written: a
 remote caller, a demo bank, Sleep holding the pages (asked inside the write admission, `EDIT_SLEEPING`), words not on the
 page or on it more than once without `all`, words only in the claims. Admission → page lock → commit, like every agent
 write. Stdio and the command line only (`catalog.NEVER_REMOTE`); the CLI spelling `cicada page edit` is a proposed row.

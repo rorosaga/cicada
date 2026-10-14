@@ -912,7 +912,9 @@ opens (both through `ProvenanceCache`);
 G61's sources, the page's links and its conversations by app are one section since 2026-10-14 (`features.md`). Its last part,
 **Who wrote it** (G198, `WhoWroteItSection`), is `GET /entities/{id}/blame` read when the section shows
 (`PageSourcesSection` asks `ProvenanceCache.blame`; no ETag, so it asks again on every show, keeps the last answer on a
-failure and draws the held one at once on a re-open; a 404 — an older backend — leaves it out): per part of the page's
+failure and draws the held one at once on a re-open; a 404 — an older backend — leaves it out; a `pending` answer, the
+backend's blame still running, never replaces the held copy and is asked again `CicadaTiming.blamePendingTries` times,
+`blamePendingRetry` apart): per part of the page's
 text (an H2, an Article section as "Article › title", the opening before any heading), who last changed its lines with
 the shared marks and names (`ContributorAvatar`, `ContributorIdentity.displayName`), how many lines and the day
 (`EntityDates.shortDay`, DR-58), and an agent edit's reason in quotes, "· accepted by you" when the person applied it

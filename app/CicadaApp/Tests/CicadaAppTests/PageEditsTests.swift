@@ -94,6 +94,10 @@ final class PageEditsTests: XCTestCase {
     func testBlameDecodingIsTolerant() throws {
         let blame = try JSONDecoder().decode(PageBlame.self, from: Data(#"{"entityId":"x"}"#.utf8))
         XCTAssertEqual(blame, PageBlame(entityId: "x"))
+        XCTAssertFalse(blame.pending)
+        // G198 review B3: a blame still running decodes as pending, never as a page with no authors.
+        let waiting = try JSONDecoder().decode(PageBlame.self, from: Data(#"{"entityId":"x","pending":true}"#.utf8))
+        XCTAssertTrue(waiting.pending)
         let section = PageBlameSection(title: "Key Facts", contributors: (0..<5).map {
             PageBlameContributor(author: "a\($0)", lines: 1)
         })

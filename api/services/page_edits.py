@@ -303,25 +303,75 @@ def corrections(frontmatter: dict) -> list[dict]:
     return out
 
 
+_ANY_HEADING = re.compile(r"^ {0,3}(#{1,6})(?:\s+(.*?))?\s*$")
+_CLAIMS_OPEN = re.compile(r"^```claims[ \t]*\r?$", re.MULTILINE)
+
+
+def shape(text: str) -> tuple:
+    """What an edit or a pinned fix must leave as it was (G198 review B2): how many ``claims`` openers the text holds,
+    where its claims block starts (counted from the end, so words changed before it do not move it), its ``#``/``##``
+    headings outside code fences in order, and whether a code fence is left open at its end."""
+    text = text or ""
+    start = claims.claims_block_start(text)
+    tops: list[tuple[int, str]] = []
+    fence = None
+    for raw in text.splitlines():
+        marker = _FENCE_LINE.match(raw)
+        if fence is None and marker:
+            fence = marker.group(1)
+        elif fence is not None and marker and marker.group(1)[0] == fence[0] and len(marker.group(1)) >= len(fence) \
+                and not raw[raw.index(marker.group(1)) + len(marker.group(1)):].strip():
+            fence = None
+        elif fence is None and (m := _ANY_HEADING.match(raw)) and len(m.group(1)) <= 2:
+            tops.append((len(m.group(1)), (m.group(2) or "").strip()))
+    return (len(_CLAIMS_OPEN.findall(text)), None if start is None else len(text) - start, tuple(tops),
+            fence is not None)
+
+
+def _structure_lines(text: str) -> list[tuple[int, int]]:
+    """``(start, end)`` of every heading line and code-fence marker line — what a pinned fix never rewrites."""
+    out, offset = [], 0
+    for raw in text.splitlines(keepends=True):
+        line = raw.rstrip("\r\n")
+        if _ANY_HEADING.match(line) or _FENCE_LINE.match(line):
+            out.append((offset, offset + len(line)))
+        offset += len(raw)
+    return out
+
+
+def _correct_one(text: str, old: str, new: str) -> tuple[str, int]:
+    if old not in text:
+        return text, 0
+    # Headings and fence lines are the page's frame: masked, so a fix never renames a section or opens a fence.
+    frame: list[str] = []
+    for start, end in reversed(_structure_lines(text)):
+        frame.append(text[start:end])
+        text = text[:start] + f"\x01{len(frame) - 1}\x01" + text[end:]
+    held: list[str] = []
+    if new and old in new:
+        # Mask every place the fix already stands, so its own `old` is not replaced inside it.
+        def keep(m):
+            held.append(m.group(0))
+            return f"\x00{len(held) - 1}\x00"
+        text = re.sub(re.escape(new), keep, text)
+    text, n = _pattern(old).subn(lambda _m: new, text)
+    if held:
+        text = re.sub(r"\x00(\d+)\x00", lambda m: held[int(m.group(1))], text)
+    if frame:
+        text = re.sub(r"\x01(\d+)\x01", lambda m: frame[int(m.group(1))], text)
+    return text, n
+
+
 def correct_text(text: str, rows: list[dict]) -> tuple[str, int]:
     """Every pinned correction applied to ``text``: ``(text, replacements)``. Idempotent — where ``new`` already
-    stands (and contains ``old``) nothing changes."""
+    stands (and contains ``old``) nothing changes. Never on a heading or fence line, and a fix whose result would
+    change the text's :func:`shape` anyway (a claims opener assembled across words) is skipped (G198 review B2)."""
     count = 0
+    base = shape(text)
     for row in rows:
-        old, new = row["old"], row["new"]
-        if old not in text:
-            continue
-        held: list[str] = []
-        if new and old in new:
-            # Mask every place the fix already stands, so its own `old` is not replaced inside it.
-            def keep(m):
-                held.append(m.group(0))
-                return f"\x00{len(held) - 1}\x00"
-            text = re.sub(re.escape(new), keep, text)
-        text, n = _pattern(old).subn(lambda _m: new, text)
-        count += n
-        if held:
-            text = re.sub(r"\x00(\d+)\x00", lambda m: held[int(m.group(1))], text)
+        candidate, n = _correct_one(text, row["old"], row["new"])
+        if n and shape(candidate) == base:
+            text, count = candidate, count + n
     return text, count
 
 
@@ -486,6 +536,11 @@ def plan(frontmatter: dict, body: str, request: Request, *, author: str, day: st
         # The fence starts on its own line after a blank one, as every writer leaves it; it and all after it are
         # the page's own bytes.
         new_body = prose.rstrip() + "\n\n" + rest if rest else prose.strip()
+        # G198 review B2: the request was checked, now the result — words that only together make a claims opener,
+        # a code fence or a heading ("``" + "`claims"; "Summary" → "Overview" with `all`) move the page's frame.
+        if shape(new_body) != shape(original) or claims.fence_state(new_body) != claims.fence_state(original):
+            raise EditError("that change would alter the page's sections or its claims block (a heading, a code "
+                            "fence or a claims opener). Edit the words inside a section only.")
     elif request.edits or request.section is not None:
         raise EditError("That leaves the page's words as they are.")
 
