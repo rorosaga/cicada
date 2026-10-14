@@ -177,7 +177,8 @@ def said_in_conversations(memory_path: Path, entity_id: str) -> list[str]:
         return []
     out = []
     for claim in found:
-        if not claims.is_current(claim):
+        # Current beliefs only, and never an event (a dated happening says what was done, not why it was saved).
+        if claims.is_event(claim) or not claims.is_current(claim):
             continue
         persons = claim.source_trust == "user_stated" or any(e.kind == "user" for e in claim.evidence or [])
         if persons and str(claim.text or "").strip():
