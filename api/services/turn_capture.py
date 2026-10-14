@@ -2,8 +2,11 @@
 
 Claude Code and Codex hand their Stop hook a transcript path, and
 ``transcript_capture`` re-reads the whole session on every firing. Cursor and
-Gemini CLI document no transcript format, but their hooks carry the words
-themselves:
+Gemini CLI hand their hooks a ``transcript_path`` too, but neither documents the
+file's format, a confined root or the order its final message lands in — and
+Cursor's may be null — so nothing proves which bytes are the person's and which
+the final reply. Their hooks carry the words themselves, so those are used and
+the transcript is never opened:
 
 * **Cursor** — ``beforeSubmitPrompt`` carries ``prompt`` (the person's turn) and
   ``afterAgentResponse`` carries ``text`` (the agent's reply), each with the
@@ -71,28 +74,37 @@ def _refuse(harness: str, session_id: str, bank, reason: str, event) -> tc.Captu
     return tc.CaptureResult("refused", None, 0, 0, {}, reason=reason)
 
 
+def _int(value) -> int:
+    """A stored offset or count: a real non-negative integer, else ``ValueError``
+    (a hand-written ``.inf``, a float, a bool or a string never becomes one)."""
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError("not an offset")
+    return value
+
+
 def _load(stored) -> tuple[list[Turn], list[str | None], Gap | None, bool] | None:
     """The kept turns, their hook ids and the gap, read back from the episode.
     ``None`` when the episode does not re-render byte for byte from its own
-    ``hook_turns`` — hand-edited, or written by another writer — so a firing
-    never rewrites a body it cannot account for."""
+    ``hook_turns`` — hand-edited, hand-poisoned, or written by another writer — so
+    a firing never rewrites a body it cannot account for and never answers 500."""
+    try:
+        return _load_strict(stored)
+    except (KeyError, TypeError, ValueError, OverflowError, AttributeError):
+        return None
+
+
+def _load_strict(stored):
     fm, body = stored.frontmatter, stored.body
     entries = fm.get(STATE_KEY)
-    if not isinstance(entries, list) or not entries:
+    if not isinstance(entries, list) or not entries or not all(isinstance(e, dict) for e in entries):
         return None
     gap = None
     gap_meta = fm.get("capture_gap")
-    gap_at = None
-    if isinstance(gap_meta, dict):
-        try:
-            gap_at = int(gap_meta.get("offset"))
-            dropped = int(gap_meta.get("dropped_turns"))
-        except (TypeError, ValueError):
-            return None
-    try:
-        offsets = [int(e["offset"]) for e in entries]
-    except (TypeError, KeyError, ValueError):
-        return None
+    gap_at = dropped = None
+    if gap_meta is not None:
+        gap_at = _int(gap_meta["offset"])
+        dropped = _int(gap_meta["dropped_turns"])
+    offsets = [_int(e["offset"]) for e in entries]
     bounds = sorted(set(offsets + ([gap_at] if gap_at is not None else [])))
     turns: list[Turn] = []
     ids: list[str | None] = []
@@ -103,10 +115,17 @@ def _load(stored) -> tuple[list[Turn], list[str | None], Gap | None, bool] | Non
             return None
         later = [b for b in bounds if b > at]
         end = later[0] - 1 if later else len(body)
-        gap_info = e.get("reply_gap") if isinstance(e.get("reply_gap"), dict) else None
-        turns.append(Turn(role=speaker, text=body[at + len(prefix):end], ts=e.get("at"),
-                          model=e.get("model"), reply_gap=dict(gap_info) if gap_info else None))
-        ids.append(e.get("id"))
+        gap_info = e.get("reply_gap")
+        if gap_info is not None:
+            # capture_meta reads both keys; a poisoned entry is a mismatch, not a 500.
+            gap_info = {"offset": _int(gap_info["offset"]), "omitted_chars": _int(gap_info["omitted_chars"])}
+        turn_id = e.get("id")
+        if turn_id is not None and not (isinstance(turn_id, str) and _TURN_ID_RE.match(turn_id)):
+            return None
+        turns.append(Turn(role=speaker, text=body[at + len(prefix):end],
+                          ts=e.get("at") if isinstance(e.get("at"), str) else None,
+                          model=e.get("model") if isinstance(e.get("model"), str) else None, reply_gap=gap_info))
+        ids.append(turn_id)
     if gap_at is not None:
         after = sum(1 for at in offsets if at < gap_at)
         gap = Gap(after=after, dropped=dropped, first_at=gap_meta.get("first_dropped_at"),
@@ -115,8 +134,8 @@ def _load(stored) -> tuple[list[Turn], list[str | None], Gap | None, bool] | Non
                          turns=turns, gap=gap)
     if tc._body(probe) != body:
         return None
-    clipped = bool((fm.get("capture_flags") or {}).get("first_request_clipped")) \
-        if isinstance(fm.get("capture_flags"), dict) else False
+    flags = fm.get("capture_flags")
+    clipped = bool(flags.get("first_request_clipped")) if isinstance(flags, dict) else False
     return turns, ids, gap, clipped
 
 

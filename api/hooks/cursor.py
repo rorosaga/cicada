@@ -8,15 +8,20 @@ Stdlib, run by path; one command registered under three events of the user's
   and prints ``{"additional_context": …}``. User-hook cwd is ~/.cursor, not the
   workspace, so the workspace is the one ``workspace_roots`` entry or nothing.
 * ``beforeSubmitPrompt`` — the person's turn: ``prompt`` is posted to
-  ``POST /capture/turn``; stdout is always ``{"continue": true}``, so a slow or
-  absent backend never holds a message back beyond the request's own bound.
+  ``POST /capture/turn``. Every output of this script carries
+  ``{"continue": true}`` — whatever the event, and even when the payload could
+  not be read at all — so a prompt is never held back by Cicada; Cursor ignores
+  the key on the other events.
 * ``afterAgentResponse`` — the agent's reply: ``text`` is posted the same way.
 
 Capture posts the turn's words, the ``conversation_id`` (the session) and the
 ``generation_id`` (which run the turn belongs to, so a re-fire is idempotent and
 only a run's final reply is kept) — never ``transcript_path``, attachments,
-``user_email`` or a thought: Cursor documents no transcript format, so the
-backend opens nothing (the transcripts rail). ``stop``, thoughts and tool events
+``user_email`` or a thought. Cursor's docs list a ``transcript_path`` on every
+hook, but it may be null and nothing documents its format, a confined root or
+where the final reply sits in it, while ``prompt`` and ``text`` already are the
+two things kept — so it is never forwarded and the backend opens nothing (the
+transcripts rail). ``stop``, thoughts and tool events
 are never registered. ``CICADA_CAPTURE=off`` (Cicada's own spawns) and a remote
 or cloud session (``CURSOR_CODE_REMOTE``) post nothing. Fails open: every path
 exits 0 with valid JSON on stdout, and an exception's message is never logged.
@@ -137,7 +142,9 @@ def main(argv=None, *, stdin=None, stdout=None, environ=None, post=None):
     stdout = sys.stdout if stdout is None else stdout
     post = _default_post if post is None else post
     home = Path(environ.get("CICADA_HOME") or (Path(environ.get("HOME") or str(Path.home())) / ".cicada"))
-    out = {}
+    # Whatever happens below, a prompt is never blocked: an event that cannot be
+    # read (oversized prompt-first JSON, bad UTF-8, a list) still answers continue.
+    out = {"continue": True}
     event = None
     reason = "skipped"
     sid, outcome = "?", "skipped"
@@ -157,8 +164,6 @@ def main(argv=None, *, stdin=None, stdout=None, environ=None, post=None):
             # hook answers ``continue`` and the log says why nothing was saved.
             sniffed = _EVENT_SNIFF.search(raw)
             event = sniffed.group(1) if sniffed else None
-        if event == "beforeSubmitPrompt":
-            out = {"continue": True}
         remote = str(environ.get("CURSOR_CODE_REMOTE", "")).lower() == "true"
         if event in CAPTURE:
             if _off(environ, "CICADA_CAPTURE"):
@@ -174,7 +179,8 @@ def main(argv=None, *, stdin=None, stdout=None, environ=None, post=None):
             return 0
         if not isinstance(payload, dict) or event != "sessionStart":
             return 0
-        out, reason = _startup(payload, environ=environ, home=home, post=post)
+        startup_out, reason = _startup(payload, environ=environ, home=home, post=post)
+        out = {"continue": True, **startup_out}
     except Exception as exc:  # fail open; exception messages can contain private input
         reason = outcome = f"error: {type(exc).__name__}" if event in CAPTURE else type(exc).__name__
     finally:

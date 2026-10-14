@@ -151,6 +151,31 @@ def test_an_episode_that_no_longer_matches_its_turn_index_is_never_rewritten(ban
     assert path.read_bytes() == before
 
 
+@pytest.mark.parametrize("poison", [
+    lambda fm: fm["hook_turns"][0].__setitem__("offset", float("inf")),
+    lambda fm: fm["hook_turns"][0].__setitem__("offset", "0"),
+    lambda fm: fm["hook_turns"][1].__setitem__("reply_gap", {"offset": 3}),
+    lambda fm: fm["hook_turns"][1].__setitem__("reply_gap", "gap"),
+    lambda fm: fm["hook_turns"][0].pop("offset"),
+    lambda fm: fm["hook_turns"].__setitem__(0, "not an entry"),
+    lambda fm: fm.__setitem__("capture_gap", {"offset": float("inf"), "dropped_turns": 1}),
+    lambda fm: fm.__setitem__("capture_gap", ["not", "a", "gap"]),
+    lambda fm: fm["hook_turns"][0].__setitem__("id", {"nested": True}),
+])
+def test_a_hand_poisoned_turn_index_is_a_refusal_not_a_500(bank, poison):
+    _cursor(bank, "user", "Hello there", "gen-1")
+    _cursor(bank, "assistant", "Hi", "gen-1")
+    path, ep = _one(bank)
+    fm = dict(ep.frontmatter)
+    fm["hook_turns"] = [dict(e) for e in fm["hook_turns"]]
+    poison(fm)
+    markdown_parser.write(path, fm, ep.body)
+    before = path.read_bytes()
+    result = _cursor(bank, "user", "Next", "gen-2")
+    assert (result.status, result.reason) == ("refused", "state_mismatch")
+    assert path.read_bytes() == before
+
+
 @pytest.mark.parametrize("kw,reason", [({"harness": "claude-code"}, "bad_harness"),
                                        ({"session_id": "bad id"}, "bad_session_id"),
                                        ({"turn_id": "bad\nid"}, "bad_turn_id")])

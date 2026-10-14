@@ -344,7 +344,8 @@ the user-hook process cwd is `~/.cursor` and is never substituted. Missing/multi
 only the primer, without a continuity selection or git observation. Optional identity uses the same
 bounded D2 observer. The existing authenticated hook-context route/compositor keeps the light
 ≤240-character pointer inside the whole≤1,800-token note; the hook maps `additionalContext` to
-`additional_context` and fails open with `{}` on empty/error/disabled/unsupported input. HTTP timeout
+`additional_context` and fails open with `{"continue": true}` alone on empty/error/disabled/unsupported input
+(every output carries `continue`, so the capture events never hold a prompt back). HTTP timeout
 is0.9s and the config timeout2s. Email (including the environment value), model fields, transcript
 pointer and arbitrary extras never leave the hook or enter its logs. Only the existing registry's
 ids/hashes/times are recorded; no episode is created. Pass the episode in the hint to

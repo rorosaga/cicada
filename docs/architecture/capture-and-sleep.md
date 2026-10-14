@@ -35,7 +35,8 @@ Seven rails hold across all of them:
   Codex session is captured by the harness's own `Stop` hook
   (`api/hooks/capture.py` → `POST /capture/transcript`). Cursor and Gemini CLI are captured by their own
   per-turn hooks, whose payloads carry the words (see *Capture from every agent* below); no Cursor or Gemini
-  transcript is read (neither documents its transcript's format, and Cursor's pointer is nullable).
+  transcript is read: both hooks send a `transcript_path`, but neither documents its format, a confined root or where
+the final reply sits, and Cursor's may be null, while the posted strings already are what is kept.
   **The flush (G110 gate A, owner ruling 2026-10-07):** the
   same command is also registered under `PreCompact` and `SessionEnd` (install.sh step 5b, both harnesses; the app's
   Connect through `flushOn`). Stop stays the trigger (TODO ruling 7): a flush is the same idempotent request —
@@ -346,7 +347,8 @@ read it unchanged. A posted turn is cleaned like a transcript turn (`transcript_
 stripped, `episode_scrub`, 16k for the first person message, 2k head or head+gap+tail for the rest). **The episode
 is the state:** `hook_turns` (outside the hash, before `turns`) records each kept turn's offset, speaker, hook turn
 id, time, model and reply gap, so the next firing splits the body back into turns; a body that does not re-render
-byte for byte from it is refused unwritten (`state_mismatch`). Cursor turns are keyed by `generation_id`: a re-fire
+byte for byte from it — or whose index was hand-poisoned (a missing key, a non-integer or infinite offset) — is
+refused unwritten (`state_mismatch`), never a 500. Cursor turns are keyed by `generation_id`: a re-fire
 with the same text is `unchanged`, a later reply for the same run replaces the earlier one (only the final reply is
 kept), and a reply lands after its own prompt even when a follow-up was queued. Gemini CLI exchanges carry no id:
 the same exchange again is `unchanged`, a `stop_hook_active` retry of the last prompt replaces its reply, and
@@ -356,8 +358,9 @@ gap. The demo rule is the Stop hook's: the turn goes to the real bank left most 
 is the backend's arrival time (Cursor's payload has none).
 
 **Cursor's hook** (`api/hooks/cursor.py`, one command): `sessionStart` is startup context (`mcp.md`);
-`beforeSubmitPrompt` always prints `{"continue": true}` and posts with a 1.2 s bound (it holds the person's
-message); `afterAgentResponse` posts with 3 s. `CICADA_CAPTURE=off`, a remote session (`CURSOR_CODE_REMOTE`) and
+every output carries `{"continue": true}` — even for a payload it cannot read (oversized prompt-first JSON, bad
+UTF-8), so a prompt is never held back by Cicada — and `beforeSubmitPrompt` posts with a 1.2 s bound (it holds the
+person's message); `afterAgentResponse` posts with 3 s. `CICADA_CAPTURE=off`, a remote session (`CURSOR_CODE_REMOTE`) and
 a payload over 1 MiB post nothing. `cursor_registry --hook startup|capture` makes them two switches in
 `~/.cursor/hooks.json`, every other tool's entries kept; `/agents/wiring` reports capture as Cursor's `autosave`,
 with its install in `connect` and its removal in `autosave_off`. **Gemini CLI** runs the capture script as

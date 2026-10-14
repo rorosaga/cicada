@@ -75,7 +75,7 @@ def test_the_prompt_hook_posts_only_the_turn_and_always_continues(tmp_path):
 
 def test_the_reply_hook_posts_the_reply_and_its_model(tmp_path):
     out, [(_, body, _)] = fire(tmp_path, REPLY)
-    assert out == {}
+    assert out == {"continue": True}   # every output carries it; Cursor ignores it here
     assert body["messages"] == [{"speaker": "assistant", "text": "Yes, once the migration lands."}]
     assert body["model"] == "synthetic-model" and "transcript_path" not in body
 
@@ -101,6 +101,27 @@ def test_an_oversized_payload_posts_nothing_and_still_continues(tmp_path):
     assert out == {"continue": True} and sent == []
     line = _log(tmp_path)
     assert "payload too large" in line and "plain words" not in line
+
+
+def test_a_prompt_first_payload_over_the_cap_still_continues(tmp_path):
+    """Cursor may put the prompt before hook_event_name: past 1 MiB the event is
+    never found, and the answer must still let the message through."""
+    raw = '{"prompt": "' + "plain words " * 100_000 + '", "hook_event_name": "beforeSubmitPrompt"}'
+    assert len(raw) > 1024 * 1024 and raw.index("hook_event_name") > 1024 * 1024
+    out, sent = fire(tmp_path, None, raw=raw)
+    assert out == {"continue": True} and sent == []
+
+
+@pytest.mark.parametrize("raw", [b'{"hook_event_name": "beforeSubmitPrompt", "prompt": "caf\xff"}', b"\xff\xfe",
+                                 b"[]", b"not json"])
+def test_an_unreadable_payload_still_continues(tmp_path, raw):
+    def forbidden(*a, **k):
+        pytest.fail("an unreadable payload must not post")
+    out = io.StringIO()
+    stdin = io.TextIOWrapper(io.BytesIO(raw), encoding="utf-8")   # strict, like Python's own stdin
+    assert cursor().main(stdin=stdin, stdout=out, environ={"CICADA_HOME": str(tmp_path / "cicada")},
+                         post=forbidden) == 0
+    assert json.loads(out.getvalue()) == {"continue": True}
 
 
 def test_a_long_turn_is_trimmed_before_it_is_posted(tmp_path):

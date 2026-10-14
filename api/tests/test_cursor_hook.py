@@ -54,7 +54,7 @@ def test_documented_startup_schema_allowlists_values(tmp_path, monkeypatch):
     payload.update(transcript_path="/outside/must-not-open.jsonl", arbitrary="SECRET_EXTRA", cwd="/wrong-hook-cwd")
     out, sent, observed = fire(tmp_path, monkeypatch, payload,
                                extra_env={"CURSOR_USER_EMAIL": "environment@example.invalid"})
-    assert out == {"additional_context": "light pointer"}
+    assert out == {"continue": True, "additional_context": "light pointer"}
     [(url, body, token, timeout)] = sent
     assert url == "http://127.0.0.1:49178/capture/hook-context" and timeout <= 0.9
     assert body == {"event": "session_start", "harness": "cursor", "session_id": payload["conversation_id"],
@@ -71,19 +71,19 @@ def test_documented_startup_schema_allowlists_values(tmp_path, monkeypatch):
 def test_unsupported_events_and_unsafe_sessions_never_post(tmp_path, monkeypatch, change):
     payload = {**json.loads(FIXTURE.read_text()), **change, "transcript_path": "/outside/unreadable.jsonl"}
     out, sent, observed = fire(tmp_path, monkeypatch, payload)
-    assert out == {} and sent == [] and observed == []
+    assert out == {"continue": True} and sent == [] and observed == []
 
 
 @pytest.mark.parametrize("key", ["CICADA_CAPTURE", "CICADA_RECALL", "CURSOR_CODE_REMOTE"])
 def test_disabled_or_remote_never_post(tmp_path, monkeypatch, key):
     out, sent, observed = fire(tmp_path, monkeypatch, extra_env={key: "true" if key == "CURSOR_CODE_REMOTE" else "off"})
-    assert out == {} and sent == [] and observed == []
+    assert out == {"continue": True} and sent == [] and observed == []
 
 
 @pytest.mark.parametrize("roots", [[], ["/synthetic/a", "/synthetic/b"], ["relative"], ["/bad\nroot"]])
 def test_no_single_valid_workspace_gets_primer_without_guessing_cwd(tmp_path, monkeypatch, roots):
     out, sent, observed = fire(tmp_path, monkeypatch, {**json.loads(FIXTURE.read_text()), "workspace_roots": roots})
-    assert out == {"additional_context": "light pointer"}
+    assert out == {"continue": True, "additional_context": "light pointer"}
     assert sent[0][1]["cwd"] is None and observed == []
 
 
@@ -91,7 +91,7 @@ def test_no_single_valid_workspace_gets_primer_without_guessing_cwd(tmp_path, mo
                                       (200, '{"additionalContext":null}')])
 def test_empty_error_or_invalid_response_is_empty_output(tmp_path, monkeypatch, status, text):
     out, _, _ = fire(tmp_path, monkeypatch, post=lambda *a: (status, text))
-    assert out == {}
+    assert out == {"continue": True}
 
 
 @pytest.mark.parametrize("raw", ["not json", "[]", "x" * (64 * 1024 + 1)])
@@ -100,14 +100,14 @@ def test_malformed_or_oversized_input_fails_open(tmp_path, raw):
     def forbidden(*a, **k):
         pytest.fail("invalid payload must not post")
     assert hook().main(stdin=io.StringIO(raw), stdout=out, environ={"CICADA_HOME":str(tmp_path)}, post=forbidden) == 0
-    assert json.loads(out.getvalue()) == {}
+    assert json.loads(out.getvalue()) == {"continue": True}
 
 
 def test_timeout_does_not_print_private_exception_text(tmp_path, monkeypatch):
     def timeout(*a):
         raise TimeoutError("PRIVATE_SENTINEL")
     out, _, _ = fire(tmp_path, monkeypatch, post=timeout)
-    assert out == {}
+    assert out == {"continue": True}
     assert "PRIVATE_SENTINEL" not in (tmp_path / "cicada/logs/recall.log").read_text()
 
 

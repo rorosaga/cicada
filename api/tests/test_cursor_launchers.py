@@ -47,8 +47,8 @@ def test_source_and_release_registry_executes_and_noop_hook_fails_open(tmp_path,
         shim.chmod(0o755)
     configured = json.loads(before)['hooks']['sessionStart'][0]['command']
     r = run(shlex.split(configured), input=json.dumps({'hook_event_name':'stop'}))
-    assert r.returncode == 0 and json.loads(r.stdout) == {}
+    assert r.returncode == 0 and json.loads(r.stdout) == {"continue": True}
     r = run(hook,input=json.dumps({'hook_event_name':'stop','transcript_path':'/outside/unreadable'}))
-    assert r.returncode == 0 and json.loads(r.stdout) == {}
+    assert r.returncode == 0 and json.loads(r.stdout) == {"continue": True}
     assert run(prefix+['uninstall','--settings',str(settings)]).returncode == 0
     assert 'hooks' not in json.loads(settings.read_text())

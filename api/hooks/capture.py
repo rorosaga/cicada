@@ -51,8 +51,9 @@ Gemini CLI (capture-everywhere): registered under ``AfterAgent`` as
 ``--harness gemini-cli``. Its payload carries the exchange itself — ``prompt``
 and ``prompt_response``, plus ``stop_hook_active`` on a retry of the same
 prompt — so this script posts those two strings to ``POST /capture/turn``
-(``turn_capture``) instead of a transcript path: Gemini CLI documents no
-transcript format, and the backend opens nothing. Gemini CLI reads a hook's
+(``turn_capture``) instead of a transcript path: Gemini CLI does send one, but
+documents neither its format nor a confined root, while the two strings already
+are what is kept — so the path is never forwarded and the backend opens nothing. Gemini CLI reads a hook's
 stdout as JSON, so for it this script prints ``{}``. Unverified against an
 installed Gemini CLI; the log line is the verification signal.
 
