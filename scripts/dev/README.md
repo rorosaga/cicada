@@ -22,12 +22,19 @@ requirement is the build's own code hash, so every rebuild — `make install-app
 each merge to `dev` — looks like a new app and asks again. A certificate-signed build's requirement is "this bundle id,
 signed by this certificate", which a rebuild keeps.
 
-Once per Mac, make a self-signed code-signing certificate:
+Measured 2026-10-14: Full Disk Access granted to an ad-hoc build read "Needs Full Disk Access" again after the next
+dev auto-update — TCC keys an ad-hoc app's grants to its cdhash, so Full Disk Access, Contacts, Calendar, Automation
+and Screen Recording are all dropped silently by every update.
 
-1. Keychain Access → Keychain Access menu → Certificate Assistant → Create a Certificate…
-2. Name **Cicada Local** (exactly), Identity Type **Self-Signed Root**, Certificate Type **Code Signing**. Create.
-3. Run `make install-app` by hand once. macOS asks whether codesign may use the new key: **Always Allow**. An
+Once per Mac, make a self-signed code-signing certificate (free, no Apple account):
+
+1. `make signing-identity` (`scripts/dev/make-signing-identity.sh`). It creates **Cicada Local** in the login keychain
+   with `openssl` and `security import … -T /usr/bin/codesign`, and does nothing if it is already there. (By hand
+   instead: Keychain Access → Certificate Assistant → Create a Certificate…, name **Cicada Local**, Self-Signed Root,
+   Code Signing.)
+2. Run `make install-app` by hand once. macOS asks whether codesign may use the new key: **Always Allow**. An
    unattended auto-update would otherwise wait on that dialog.
+3. Grant Full Disk Access (and any other permission) once more, to this first certificate-signed build.
 
 The install then says `Signed and verified with "Cicada Local" (<hash>)`. It finds the certificate in
 `security find-identity -p codesigning`, where an untrusted self-signed one is listed only without `-v`, and signs by

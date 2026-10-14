@@ -123,6 +123,7 @@ if ! codesign --verify --deep --strict "$STAGING" >/dev/null 2>&1; then
 fi
 if [ "$SIGN_IDENTITY" = "-" ]; then
   ok "Signed and verified (ad hoc — stabilizes the Launch Services identity across reinstalls; privacy grants are asked again after each rebuild; not a Gatekeeper-trusted signature)"
+  warn "Ad hoc: macOS forgets Full Disk Access and every other permission at each rebuild or update. Once per Mac: make signing-identity"
 else
   ok "Signed and verified with ${SIGN_LABEL} — privacy grants carry across rebuilds; not a Gatekeeper-trusted signature"
 fi

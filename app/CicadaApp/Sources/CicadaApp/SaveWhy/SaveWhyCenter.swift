@@ -17,23 +17,24 @@ enum BookmarkSyncSignal {
     enum Delivery: Equatable {
         /// A sync finished; `live` when the watch started it and no early look spoke for it.
         case synced(live: Bool)
-        /// A sync finished whose bookmarks an early look already decided about: its links are saved now.
-        case afterEarlyLook
+        /// A sync finished whose bookmarks an early look (numbered `look`) already decided about: every link that look
+        /// or an earlier one saw is saved now.
+        case afterEarlyLook(look: Int)
     }
 
     /// The one listener (the app's `SaveWhyCenter`); nil in tests and before launch finishes.
     @MainActor static var observer: (@MainActor (BookmarkSyncResult, Delivery) -> Void)?
-    /// The early look (the center's `lookEarly`): true when it looked, whatever it decided.
-    @MainActor static var early: (@MainActor (BookmarkBytes) async -> Bool)?
+    /// The early look (the center's `lookEarly`): the look's number when it looked, whatever it decided; nil when not.
+    @MainActor static var early: (@MainActor (BookmarkBytes) async -> Int?)?
 
     /// Only a live sync looks early — a catch-up, Sync now, Turn on or import is never a moment of saving.
-    @MainActor static func lookEarly(_ bytes: BookmarkBytes) async -> Bool {
-        guard live, let early else { return false }
+    @MainActor static func lookEarly(_ bytes: BookmarkBytes) async -> Int? {
+        guard live, let early else { return nil }
         return await early(bytes)
     }
 
-    @MainActor static func post(_ result: BookmarkSyncResult, lookedEarly: Bool = false) {
-        observer?(result, lookedEarly ? .afterEarlyLook : .synced(live: live))
+    @MainActor static func post(_ result: BookmarkSyncResult, lookedEarly: Int? = nil) {
+        observer?(result, lookedEarly.map { .afterEarlyLook(look: $0) } ?? .synced(live: live))
     }
 }
 
@@ -72,7 +73,10 @@ final class SaveWhyCenter {
     @ObservationIgnored private(set) var cachedOptions: SavedWhyOptions?
     /// Links asked about from an early look whose sync has not said they are saved yet (url → channel): an answer
     /// the backend refuses with 404 meanwhile is held, not dropped, and sent when the sync lands.
-    @ObservationIgnored private(set) var awaitingIngest: [String: String] = [:]
+    @ObservationIgnored private(set) var awaitingIngest: [String: (channel: String, look: Int)] = [:]
+    /// Every link an early look saw as fresh, with that look's number, until a sync that read after it lands.
+    @ObservationIgnored private(set) var seenFresh: [String: (channel: String, look: Int)] = [:]
+    @ObservationIgnored private var lookCount = 0
     /// The last input the guard ignored — for tests and diagnostics, never shown.
     private(set) var lastIgnored: SaveWhyPanelState.Event?
     @ObservationIgnored private var timer: Task<Void, Never>?
@@ -99,30 +103,52 @@ final class SaveWhyCenter {
             Task { @MainActor in
                 switch delivery {
                 case .synced(let live): await self?.noticed(result, live: live)
-                case .afterEarlyLook: await self?.ingested(result)
+                case .afterEarlyLook(let look): await self?.ingested(result, look: look)
                 }
             }
         }
-        BookmarkSyncSignal.early = { [weak self] bytes in await self?.lookEarly(bytes) ?? false }
+        BookmarkSyncSignal.early = { [weak self] bytes in await self?.lookEarly(bytes) }
         Task { await refreshOptions() }
     }
 
     /// G191 live — the early look: decide on the bookmarks in `bytes` the bank does not hold yet, before the sync
-    /// that saves them. False when it did not look (the switch off, a panel open, or no answer — an older backend),
-    /// so the sync's own result decides as before.
-    func lookEarly(_ bytes: BookmarkBytes) async -> Bool {
-        guard prefs.enabled, state?.phase != .writing else { return false }
+    /// that saves them. Nil when it did not look (the switch off, the person typing, or no answer — an older
+    /// backend), so the sync's own result decides as before; else the look's number, which the sync hands back
+    /// when it lands (`ingested`).
+    ///
+    /// **A save while an earlier sync still runs (measured 2026-10-14: the second of two bookmarks 12 s apart asked
+    /// only after +12 s).** The watcher looks at once for such a save (`BrowserWatcher`'s `peek`) instead of waiting
+    /// for the sync ahead. Its bytes then hold the earlier bookmark too, not saved yet — so every link a look saw as
+    /// fresh is remembered (`seenFresh`) until a sync that read after it lands, and a later look subtracts what an
+    /// earlier one already saw: "one fresh bookmark" means one new since the last look, not two.
+    func lookEarly(_ bytes: BookmarkBytes) async -> Int? {
+        guard prefs.enabled, state?.phase != .writing else { return nil }
         let options = cachedOptions == nil ? Task { await refreshOptions() } : nil
-        guard let result = try? await api.freshBookmarks(bytes) else { return false }
+        guard let result = try? await api.freshBookmarks(bytes) else { return nil }
         await options?.value
-        await noticed(result, live: true, early: true)
-        return true
+        lookCount += 1
+        let look = lookCount
+        await noticed(newSinceEarlierLooks(result, look: look), live: true, early: look)
+        return look
     }
 
-    /// The sync after an early look finished: its links are saved, so a held answer can land now.
-    func ingested(_ result: BookmarkSyncResult) async {
+    /// `result` without the links an earlier look already saw (their syncs not landed yet); records the rest.
+    func newSinceEarlierLooks(_ result: BookmarkSyncResult, look: Int) -> BookmarkSyncResult {
+        var out = result
+        let seenBefore = result.fresh.filter { seenFresh[$0.url] != nil }
+        for item in result.fresh where seenFresh[item.url] == nil { seenFresh[item.url] = (item.channel, look) }
+        out.fresh = result.fresh.filter { seenFresh[$0.url]?.look == look }
+        out.freshTotal = max(0, result.freshTotal - seenBefore.count)
+        return out
+    }
+
+    /// The sync after early look `look` finished: every link that look or an earlier one saw on its channels is
+    /// saved now, so a held answer can land. A link a later look saw waits for its own sync.
+    func ingested(_ result: BookmarkSyncResult, look: Int) async {
         let channels = Set(result.sources.map(\.channel))
-        awaitingIngest = awaitingIngest.filter { !channels.contains($0.value) }
+        let landed: ((channel: String, look: Int)) -> Bool = { channels.contains($0.channel) && $0.look <= look }
+        awaitingIngest = awaitingIngest.filter { !landed($0.value) }
+        seenFresh = seenFresh.filter { !landed($0.value) }
         await retryHeld()
     }
 
@@ -133,7 +159,7 @@ final class SaveWhyCenter {
     var isShowing: Bool { state?.isOpen == true }
 
     /// A bookmark sync finished. Asks only when `SaveWhyPolicy` says so; otherwise does nothing at all.
-    func noticed(_ result: BookmarkSyncResult, live: Bool, early: Bool = false) async {
+    func noticed(_ result: BookmarkSyncResult, live: Bool, early: Int? = nil) async {
         let decision = SaveWhyPolicy.decide(.init(
             enabled: prefs.enabled, live: live, result: result, now: now(), lastAsked: prefs.lastAsked,
             mutedHosts: prefs.mutedHosts, writing: state?.phase == .writing, lastURL: prefs.lastURL))
@@ -159,7 +185,7 @@ final class SaveWhyCenter {
             guard state?.phase != .writing else { return }
             send(.superseded)
         }
-        if early { awaitingIngest[item.url] = item.channel }
+        if let early { awaitingIngest[item.url] = (item.channel, early) }
         previewing = false
         options = fetched
         state = SaveWhyPanelState(item: item, order: fetched.reasons.map(\.key), maxText: fetched.maxText)

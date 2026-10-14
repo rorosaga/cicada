@@ -66,6 +66,26 @@ enum BrowserImportActions {
         }
     }
 
+    /// G191 live — a save the watch saw while this channel's sync (or its 5 s floor) still runs: read the file and
+    /// look early now, as a live save, instead of waiting for the sync ahead (measured: +12 s for the second of two
+    /// bookmarks 12 s apart). The sync itself follows once the way is clear. Any failure is silent: the sync's own
+    /// look still decides.
+    @MainActor
+    static func peek(_ id: String) async {
+        let bytes: BookmarkBytes
+        do {
+            switch id {
+            case "safari-bookmarks": bytes = .safari(try await BrowserFileReader.read(.safariBookmarks))
+            case "chrome-bookmarks": bytes = .chrome(try await BrowserFileReader.read(.chromeBookmarks))
+            default:
+                guard let spec = BrowserInventory.spec(forBookmarksChannel: id), spec.engine == .chromium,
+                      spec.id != "chrome", let file = BrowserFile.bookmarks(forBrowser: spec.id) else { return }
+                bytes = .chromium(browser: spec.id, try await BrowserFileReader.read(file))
+            }
+        } catch { return }
+        _ = await BookmarkSyncSignal.$live.withValue(true) { await BookmarkSyncSignal.lookEarly(bytes) }
+    }
+
     enum ImportActionError: Error, LocalizedError, Equatable {
         case failed(String)
         /// The backend is still finishing an earlier bookmark sync of this bank (a 409, `BookmarkSyncBusy`) — not a
