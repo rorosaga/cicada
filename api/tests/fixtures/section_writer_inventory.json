@@ -916,5 +916,55 @@
       "frontmatter": "fm",
       "disposition": "uninstrumented_guarded"
     }
+  ],
+  "services/role_people.py": [
+    {
+      "function": "ensure_question",
+      "method": "write",
+      "frontmatter": "item_fm",
+      "disposition": "fresh_frontmatter_untracked"
+    },
+    {
+      "function": "_note",
+      "method": "write",
+      "frontmatter": "parsed.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "merge_into",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "rename",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "answer_name",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "answer_name",
+      "method": "write",
+      "frontmatter": "item_parsed.frontmatter",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "decline",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "apply",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    }
   ]
 }

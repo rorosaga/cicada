@@ -87,6 +87,41 @@ struct FreeTextBody: View {
     }
 }
 
+/// A person Cicada knows only by their relation to the owner — "What's the name of your partner?" (DR-43's free-text
+/// shape, DR-40's buttons). The field is open but not auto-focused, as R-DI15's free text, so L and Esc work at once
+/// and O focuses it. Submit is neutral and disabled until there is a name (DR-41); "I'd rather not say" is a
+/// `TextButton` (a decline, like Skip) that sends the item's own option key — one tap, never asked again.
+struct NameBody: View {
+    let item: InboxItem
+    let field: FocusState<InboxFocusCard.Field?>.Binding
+    let onAnswer: (QuestionResolution) -> Void
+
+    @State private var text = ""
+
+    private var isEmpty: Bool { text.trimmed.isEmpty }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+            HStack(spacing: CicadaTheme.spacingSM) {
+                InboxTextField(prompt: Copy.Inbox.namePrompt, text: $text, isFocused: field.wrappedValue == .answer)
+                    .focused(field, equals: .answer)
+                    .onSubmit(submit)
+                NeutralButton(title: Copy.Inbox.submit, keyHint: "⏎", isDisabled: isEmpty,
+                              disabledHelp: Copy.Inbox.nameNeedsText, action: submit)
+            }
+            TextButton(title: NameAnswer.declineLabel(item), help: Copy.Inbox.ratherNotSayHelp) {
+                onAnswer(NameAnswer.decline)
+            }
+            .padding(.leading, -CicadaTheme.scaled(10))
+        }
+    }
+
+    private func submit() {
+        guard let r = NameAnswer.resolution(name: text) else { return }
+        onAnswer(r)
+    }
+}
+
 /// A possible duplicate — the port of the pre-DS-2 merge card (G113 slice 3b), with neutral
 /// buttons (DR-40). The existing entity is the merge's DATA source (it owns the real frontmatter
 /// and history) and is editable, seeded from `mergeTargetHint`; the survivor picker chooses only

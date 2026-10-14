@@ -203,6 +203,7 @@ def _item_from_file(
         suggested_classification=fm.get("suggested_classification"),
         suggested_confidence=fm.get("suggested_confidence"),
         merge_target_hint=fm.get("merge_target_hint"),
+        asks=_opt_str(fm.get("asks")),
         source_episode=_opt_str(fm.get("source_episode")),
         source_episode_timestamp=_opt_str(fm.get("source_episode_timestamp")),
         claim_id=_opt_str(fm.get("claim_id")),
@@ -290,7 +291,20 @@ def _subject_gone(memory_path: Path, entity_id: str, kind: str) -> bool:
         fm = markdown_parser.parse(filepath).frontmatter
     except Exception:
         return False
+    if kind == _NAME_QUESTION:
+        # "What's the name of your partner?" is about who the person is, not whether the page stays live: a faded
+        # page is still asked about (it may be the most important person in the owner's life). Only a dropped page
+        # retires it; a page merged away is missing and retires it above.
+        return str(fm.get("status", "active") or "active") == "dropped"
     return str(fm.get("status", "active") or "active") in ("archived", "dropped")
+
+
+#: The served kind :func:`_hidden` is asked with for a clarification that asks for a name (``asks: name``).
+_NAME_QUESTION = "clarification:name"
+
+
+def _hiding_kind(kind: str, asks: object) -> str:
+    return _NAME_QUESTION if kind == "clarification" and str(asks or "") == "name" else kind
 
 
 def _hidden(
@@ -347,7 +361,7 @@ def served_counts(memory_path: Path) -> tuple[int, dict[str, int]]:
             return len(items), dict(Counter(i.kind.value for i in items))
         kind = str(fm["kind"])
         if _hidden(
-            memory_path, kind=kind, entity_id=_fold_anchor(memory_path, fm),
+            memory_path, kind=_hiding_kind(kind, fm.get("asks")), entity_id=_fold_anchor(memory_path, fm),
             remind_after=_opt_str(fm.get("remind_after")), today=today,
         ):
             continue
@@ -394,7 +408,7 @@ def load_inbox(memory_path: Path, *, include_deferred: bool = False) -> list[Inb
             logger.warning(f"skipping unparseable inbox item {filepath.name}: {exc}")
             continue
         if _hidden(
-            memory_path, kind=item.kind.value, entity_id=item.entity_id,
+            memory_path, kind=_hiding_kind(item.kind.value, item.asks), entity_id=item.entity_id,
             remind_after=item.remind_after, today=today, include_deferred=include_deferred,
         ):
             continue
@@ -537,6 +551,8 @@ def _action_label(kind: str, request: InboxResolveRequest, options: list[dict]) 
             return "answer"
         return action or "answer"
     # clarification / merge_suggestion
+    if key == "rather_not_say":
+        return "rather_not_say"
     if action in ("answer", "resolve"):
         return "answer"
     if action in ("dismiss", "merge", "reject", "skip"):
@@ -1011,6 +1027,8 @@ async def _resolve_admitted(item_id: str, request: InboxResolveRequest, settings
         entity_id, skipped, extra_lines, committed = await _resolve_normalization(
             path, parsed, request, settings, item_id, label
         )
+    elif kind == "clarification" and str(parsed.frontmatter.get("asks") or "") == "name":
+        entity_id, skipped, extra_lines = await _resolve_name(path, parsed, request, settings)
     elif kind in ("clarification", "merge_suggestion"):
         entity_id, skipped, extra_lines = await _resolve_clarification(
             path, parsed, request, settings
@@ -1998,6 +2016,52 @@ def _answer_normalization(path: Path, request, settings, label: str) -> str:
     return entity_id
 
 
+async def _resolve_name(path, parsed, request, settings) -> tuple[str, bool, list[str]]:
+    """A placeholder person's question, "What's the name of your partner?" (``asks: name``, `role_people`).
+
+    A typed name (``answer``, through ``resolve`` or ``answer``) names the page: exactly one person page already
+    called that (name or alias) takes it in through the one merge primitive — the person's answer is the evidence —
+    and any other name renames the page, its claims, edges and every reference following. ``rather_not_say`` (or a
+    dismiss) keeps it as a role page, titled by the role, never asked again. Returns ``(page id, skipped, manifest
+    lines)``; the page and every path the answer wrote or removed are committed as the person's."""
+    import asyncio
+
+    from api.services import role_people
+    from api.services.claims import MalformedClaimsBlockError
+
+    fm = parsed.frontmatter
+    page_id = str(fm.get("entity_id", "") or "")
+    role_key = str(fm.get("owner_role", "") or "")
+    action = (request.action or "").strip().lower()
+    key = (request.option_key or "").strip()
+    answer = (request.answer or "").strip()
+    if action == "skip":
+        return page_id, True, []
+    if not (settings.memory_path / "entities" / f"{page_id}.md").is_file():
+        raise HTTPException(404, f"The page this question was about is gone ({page_id})")
+    owner_fm = await asyncio.to_thread(role_people.owner_frontmatter, settings.memory_path, settings)
+    if answer and action in ("answer", "resolve"):
+        try:
+            outcome = role_people.answer_name(settings.memory_path, page_id, role_key, answer, owner_fm)
+        except role_people.NotAName as exc:
+            raise HTTPException(400, f"{str(exc).capitalize()}: type the person's name, or choose "
+                                     f"\"{role_people.DECLINE_LABEL}\".")
+        except MalformedClaimsBlockError as exc:
+            raise HTTPException(409, f"A page has an unreadable claims block; repair it before naming ({exc})")
+        trigger = "inbox/clarification/resolved:answer"
+    elif key == role_people.DECLINE_KEY or action == "dismiss":
+        outcome = role_people.decline(settings.memory_path, page_id, role_key, owner_fm)
+        trigger = "inbox/clarification/resolved:rather_not_say"
+    else:
+        raise HTTPException(400, "Type the person's name, or choose \"I'd rather not say\".")
+    path.unlink()
+    verb = "removed (merged)" if outcome.action == "merged" else "removed (renamed)"
+    lines = [f"{rel}: {verb} (trigger: {trigger})" if rel == outcome.removed else f"{rel}: updated (trigger: {trigger})"
+             for rel in outcome.paths if rel != f"entities/{outcome.page_id}.md"]
+    lines += [f"{rel}: created (trigger: {trigger})" for rel in outcome.suggested]
+    return outcome.page_id, False, lines
+
+
 async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, bool, list[str]]:
     """Port of the clarifications.py logic (answer / dismiss / merge / reject / skip).
 
@@ -2229,6 +2293,22 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
             note = f"\n\n_Resolved ambiguous mention '{mention}' into this entity._"
             new_body = append_note(target.body, note)
             markdown_parser.write(target_path, target.frontmatter, new_body)
+            # A question asked about a PAGE (a placeholder person named in the inbox, `role_people.answer_name`,
+            # flagged `fold_page`) folds that page into the target through the one merge primitive — its claims,
+            # sources and references follow. Any other item was asked about a mention: a page promoted under that
+            # slug since is not what the person answered about, so it is left alone (the note above, as before).
+            mention_path = (resolve_entity_file(settings.memory_path, entity_id)
+                            if entity_id and parsed.frontmatter.get("fold_page") is True else None)
+            if mention_path is not None and not mention_path.samefile(target_path):
+                try:
+                    merged = merge_entities(settings.memory_path, loser_id=mention_path.stem,
+                                            winner_id=target_path.stem)
+                except MalformedClaimsBlockError as exc:
+                    raise HTTPException(
+                        409, f"'{mention_path.stem}' has an unreadable claims block; repair it before merging ({exc})")
+                path.unlink()
+                return target_path.stem, False, _merge_manifest(merged["paths"],
+                                                                removed=f"entities/{mention_path.stem}.md")
             path.unlink()
             entity_id = target_path.stem
         else:
