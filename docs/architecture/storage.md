@@ -122,7 +122,9 @@ closed the open place whenever another was mentioned, and one measured owner pag
 flipping between six places 1–60 days apart while two were true at once. The reconciler's oracle
 (`predicates.build_cardinality_fn`) applies `cardinality`'s rule too — the committed seed's `multi_valued` wins over a
 bank's stale `single_valued` (an uncertain cardinality never auto-closes), and the seed's singles are not imported, so a
-bank with no map still coexists everything. `runs-on`, `takes-place-in` and `part-of` stay single-valued: no evidence
+bank with no map still coexists everything. The same rule reaches every predicate the seed moved: a bank seeded before
+G98 still lists `uses`, `is-a`, `located-in` and `depends-on` single-valued, and in Stage 3 those coexist now too (as
+the inbox already said); their values closed under the old rule are not repaired. `runs-on`, `takes-place-in` and `part-of` stay single-valued: no evidence
 says they fail the same way. **A place ends only on evidence that it ended:** a stated end (`expected_end`,
 `claim_expiry`), the person's own edit or answer, or an ending label (`endings` in the seed, `predicates.build_endings_fn`,
 seed ∪ bank, compared slugged, a label two canonicals claim ends nothing). Stage 3 reads the label as said
@@ -130,11 +132,16 @@ seed ∪ bank, compared slugged, a label two canonicals claim ends nothing). Sta
 closes every open belief on that subject and object, dated when it was said and never before it opened — never the
 person's own statement under an agent's word, never one last said after the ending — and keeps the ending as closed
 history; with none open, a label that is a synonym ("previously worked at") is closed history and any other ("left")
-keeps its own label. `past` ("worked at") reinforces an open place and never closes it; with none open it is closed
-history, never a current place. No fold question is raised for an ending. Stage 1's prompt says "works at" means current.
-**Repairing a bank:** `python -m api.services.coexist_reopen --bank <path> [--plan <file>] [--said-since <day>]` is a
-dry run (counts by reason, and the places it would reopen by when they were last said; the plan holds ids, paths,
-commits and reasons, never text); `--apply` reopens, in one `Reopen coexisting places <date>` commit as `cicada`, only a
+keeps its own label. `past` ("worked at", "interned at") reinforces an open place and never closes it; with none open
+it is closed history, never a current place. **Order never decides:** a mention said on or before a departure already on
+the page (a "left" claim, or an ending record's own words) is kept as closed history, whatever order the claims are
+read in, and a re-read of a claim the page holds closed (same id, G104) only adds its sources — a page never holds one
+id twice. No fold question is raised for an ending. Stage 1's prompt says "works at" means current.
+**Repairing a bank:** `python -m api.services.coexist_reopen --bank <path> [--plan <file>] [--said-since <day> | --all]`
+is a dry run (counts by reason, and the places it would reopen — and those the window keeps closed — by when they were
+last said; the plan holds ids, paths, commits and reasons, never text). **The window defaults to places said in the
+last 180 days**; `--all` lifts it: a place closed once by a new job and never said again passes every check and is as
+often a real job change, so read the age groups before widening; `--apply` reopens, in one `Reopen coexisting places <date>` commit as `cicada`, only a
 `works-at` belief the old rule alone closed — its successor on the same page has the same slot, a different object,
 `supersedes` it back and opened the day it closed; neither is the person's; the close was made by a model's `Sleep cycle`
 commit (found by bisecting the page's history, its claims ledger included); no stated end has passed; its own words are

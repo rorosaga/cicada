@@ -592,12 +592,56 @@ def _reconcile_milestone(new, slot, settings, *, today, nudges, audit) -> None:
 # --------------------------------------------------------------------------- #
 
 
+def _departed_on(new: Claim, slot: list[Claim], over: set[str], untimed=frozenset()) -> str | None:
+    """The latest day a departure from ``new``'s place was said on this page, or ``None`` (2026-10-14 review).
+
+    A departure is a claim on the same subject and object whose predicate is an ``over`` label ("left", kept under
+    its own label when nothing was open) or whose own words are one ("Bob previously worked at Acme", an ending
+    record) — so the order claims are read in never decides the belief: a re-read of the older conversation, an
+    older mention read after the departure, or "left" listed before "works at" in one extraction."""
+    days = []
+    for c in slot:
+        if c is new or c.subject != new.subject or not same_object(c, new) or is_event(c) or is_record(c):
+            continue
+        said_label = predicates._slugify_predicate(c.predicate) in over or (
+            c.predicate == new.predicate and c.valid_to is not None and _says_any(c.text, over))
+        if said_label:
+            days.append(_said(c, untimed) or c.valid_from)
+    days = [str(d)[:10] for d in days if d]
+    return max(days) if days else None
+
+
+def _says_any(text: str, labels: set[str]) -> bool:
+    words = "-" + predicates._slugify_predicate(text or "") + "-"
+    return any(f"-{label}-" in words for label in labels)
+
+
 def _place_claim(new: Claim, slot: list[Claim], settings, today: str, cardinality_fn: CardinalityFn,
-                 nudges: list[dict], audit: list[dict], untimed=frozenset()) -> Claim | None:
+                 nudges: list[dict], audit: list[dict], untimed=frozenset(), over: set[str] = frozenset()) -> Claim | None:
     """One non-event incoming claim against its subject's slot (the K table).
     Returns the claim the page keeps for it — ``new``, or the existing claim a
     restatement reinforced — or ``None`` when it is not stored (a conflict to
-    ask about, or rejected)."""
+    ask about, or rejected).
+
+    ``over`` — the labels that end ``new``'s predicate: a mention said on or before a departure already on the page
+    is kept as closed history, never reopened (2026-10-14 review). A claim whose id the page already holds closed, read
+    again from a conversation that claim already cites (G104), stays closed: a re-read never undoes a close, and never
+    doubles an id. A withdrawn claim restated is a fresh assertion (``cicada_retract_claim``'s rule), as before."""
+    heard = set(new.source_episodes or [])
+    twin = next((c for c in slot if c.id == new.id and not open_(c) and not _withdrawn(c, slot)
+                 and heard and heard <= set(_said_refs(c))), None)
+    if twin is not None:
+        _merge_episodes(twin, new)
+        return twin
+    if over and not is_human(new):
+        departed = _departed_on(new, slot, over, untimed)
+        said = str(_said(new, untimed) or new.valid_from or today)[:10]
+        if departed is not None and said <= departed:
+            _stamp_new(new, settings, today=today)
+            new.valid_to = max(departed, str(new.valid_from or departed)[:10])
+            slot.append(new)
+            audit.append({"action": "after_departure", "kept_closed": new.id})
+            return new
     same_key_open = [c for c in slot if open_(c) and K(c) == K(new)]
 
     if not same_key_open:
@@ -794,7 +838,8 @@ def reconcile_stage3(
         ending = endings_fn(str(raw_label or new.predicate))
         if ending is not None and _place_ending(new, ending, slot, settings, today, audit, untimed) is not False:
             continue
-        kept = _place_claim(new, slot, settings, today, cardinality_fn, nudges, audit, untimed)
+        over = getattr(endings_fn, "over", {}).get(new.predicate, frozenset())
+        kept = _place_claim(new, slot, settings, today, cardinality_fn, nudges, audit, untimed, over)
         if raw_label:
             raw_slug = predicates._slugify_predicate(str(raw_label))
             if raw_slug and raw_slug != new.predicate:

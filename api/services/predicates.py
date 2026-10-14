@@ -316,6 +316,12 @@ def build_endings_fn(memory_path: Path | None) -> EndingFn:
     def ending(label: str) -> Ending | None:
         return table.get(_slugify_predicate(label or ""))
 
+    # Every `over` label, by the canonical it ends — Stage 3 looks for a departure already on the page.
+    over: dict[str, set[str]] = {}
+    for slug, hit in table.items():
+        if hit.mode == ENDING_OVER:
+            over.setdefault(hit.canonical, set()).add(slug)
+    ending.over = over  # type: ignore[attr-defined]
     return ending
 
 

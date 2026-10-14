@@ -170,3 +170,50 @@ def test_a_single_valued_predicate_still_supersedes(tmp_path):
                 valid_from="2026-06-02")
     out, _nudges, audit = reconcile_stage3([new], {"x": [old]}, _settings(memory), now_date="2026-06-02")
     assert old.superseded_by == "clm_b" and {"action": "supersede", "closed": "clm_a", "by": "clm_b"} in audit
+
+
+# --- review 2026-10-14: order never decides, and "interned at" is past tense ------------------------------------
+
+
+def test_interned_at_is_history_never_a_current_place(tmp_path):
+    memory = _bank(tmp_path)
+    _sleep(memory, "2026-06-01", 1, [("interned at", "Lab Example")])
+    _sleep(memory, "2026-09-01", 2, [("works at", "Acme Example")])
+    current, works = _places(memory)
+    assert current == {"acme-example"}
+    assert [c.valid_to for c in works if c.object == "lab-example"] == ["2026-06-01"], "kept as closed history"
+
+
+def test_a_departure_read_before_an_older_mention_still_ends_it(tmp_path):
+    memory = _bank(tmp_path)
+    _sleep(memory, "2026-05-01", 1, [("left", "Acme Example")])
+    _sleep(memory, "2026-03-01", 2, [("works at", "Acme Example")])
+    current, works = _places(memory)
+    assert current == set()
+    assert [(c.valid_from, c.valid_to) for c in works] == [("2026-03-01", "2026-05-01")], "history up to the departure"
+
+
+def test_the_order_an_extraction_lists_left_and_works_at_never_decides(tmp_path):
+    a, b = _bank(tmp_path / "a"), _bank(tmp_path / "b")
+    _sleep(a, "2026-05-01", 1, [("left", "Acme Example"), ("works at", "Acme Example")])
+    _sleep(b, "2026-05-01", 1, [("works at", "Acme Example"), ("left", "Acme Example")])
+    assert _places(a)[0] == _places(b)[0] == set()
+
+
+def test_a_reread_of_the_older_conversation_never_undoes_a_departure_or_doubles_an_id(tmp_path):
+    memory = _bank(tmp_path)
+    _sleep(memory, "2026-06-01", 1, [("works at", "Acme Example")])
+    _sleep(memory, "2026-06-10", 2, [("left", "Acme Example")])
+    _sleep(memory, "2026-06-01", 1, [("works at", "Acme Example")])
+    current, works = _places(memory)
+    assert current == set()
+    ids = [c.id for c in parse_claims(markdown_parser.parse(memory / "entities" / f"{PERSON}.md").body, strict=True)]
+    assert len(ids) == len(set(ids)), "one id, one claim"
+
+
+def test_a_place_said_again_after_the_departure_is_current_again(tmp_path):
+    memory = _bank(tmp_path)
+    _sleep(memory, "2026-03-01", 1, [("works at", "Acme Example")])
+    _sleep(memory, "2026-05-01", 2, [("left", "Acme Example")])
+    _sleep(memory, "2026-09-01", 3, [("works at", "Acme Example")])
+    assert _places(memory)[0] == {"acme-example"}, "went back: the newer word stands"

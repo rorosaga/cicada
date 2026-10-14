@@ -23,7 +23,9 @@ the reconciler's, the person's word, a stated end already past, a claim whose ow
 ending ("worked at", "left" — ``endings`` in the seed), a page that also says the person left that place, a close by
 any other writer, an unprovable close, a place already current under the same slot, and every older closed copy of the
 same place (the newest one reopens; the rest stay as the history they are). ``--said-since`` keeps closed, as
-``said_before_cutoff``, a place last said before that day, for an operator who wants only recent places back.
+``said_before_cutoff``, a place last said before that day. **The CLI defaults it to 180 days ago** (``--all`` lifts
+it): a place closed once by a new job and never said again passes every check above, and is a real job change as
+often as not — so by default only recently said places come back, and the dry run counts the rest by age.
 
 **Dry run (default)** prints counts only — by reason, and the places it would reopen by when they were last said;
 ``--plan`` writes ids, page paths, commits and reasons, never claim text. **``--apply``** refuses unless Sleep is idle
@@ -35,7 +37,7 @@ on the reopened claim, the successor's ``supersedes`` cleared when it named it. 
 close. One ``Reopen coexisting places <date>`` commit of only the pages written, ``Cicada-Author: cicada``, put back
 from HEAD on a failure. A re-run finds nothing.
 
-    python -m api.services.coexist_reopen --bank <path> [--plan <file>] [--said-since YYYY-MM-DD] [--apply]
+    python -m api.services.coexist_reopen --bank <path> [--plan <file>] [--said-since YYYY-MM-DD | --all] [--apply]
 """
 from __future__ import annotations
 
@@ -44,7 +46,7 @@ import json
 import re
 import sys
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Callable
 
@@ -68,7 +70,12 @@ SUBJECT = "Reopen coexisting places"
 PREDICATES = ("works-at",)
 LEDGER_SUFFIX = ".claims.jsonl"
 _GONE = frozenset({"archived", "dropped"})
-_AGE_BUCKETS = ((30, "said within 30 days"), (90, "said within 90 days"), (365, "said within a year"))
+_AGE_BUCKETS = ((30, "said within 30 days"), (90, "said within 90 days"), (180, "said within 180 days"),
+                (365, "said within a year"))
+#: The CLI's default window: a place closed once by a new job and never said again is a real job change the old rule
+#: happened to get right, and nothing on the page tells the two apart — so by default only places said in the last
+#: 180 days come back; `--all` lifts it, after reading the dry run's age groups (review 2026-10-14).
+DEFAULT_WINDOW_DAYS = 180
 
 
 class NotAGitBank(ValueError):
@@ -111,12 +118,22 @@ class Plan:
         ages: dict[str, int] = {}
         for i in self.reopen:
             ages[_bucket(i.said, today)] = ages.get(_bucket(i.said, today), 0) + 1
+        cut: dict[str, int] = {}
+        for i in self.items:
+            if i.reason == "said_before_cutoff":
+                cut[_bucket(i.said, today)] = cut.get(_bucket(i.said, today), 0) + 1
         return {"closed_candidates": len(self.items), "reopen": len(self.reopen),
                 "pages": len({i.page for i in self.reopen}), "kept_closed": dict(sorted(kept.items())),
-                "reopen_by_last_said": ages, "pages_skipped": dict(sorted(self.pages_skipped.items()))}
+                "reopen_by_last_said": _ordered(ages), "cutoff_by_last_said": _ordered(cut),
+                "pages_skipped": dict(sorted(self.pages_skipped.items()))}
 
     def to_dict(self) -> dict:
         return {"head": self.head, "items": [i.to_dict() for i in self.items], "pages_skipped": self.pages_skipped}
+
+
+def _ordered(counts: dict[str, int]) -> dict[str, int]:
+    order = [label for _, label in _AGE_BUCKETS] + ["said more than a year ago", "said on no dated conversation"]
+    return {k: counts[k] for k in order if k in counts}
 
 
 def _bucket(said: str | None, today: date) -> str:
@@ -452,12 +469,17 @@ def _apply_locked(bank: Path, plan: Plan, today: date) -> ApplyResult:
 _DAY = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
-def _print_counts(plan: Plan) -> None:
+def _print_counts(plan: Plan, said_since: str | None) -> None:
     counts = plan.counts()
     print(f"closed {', '.join(PREDICATES)} claims read: {counts['closed_candidates']}")
-    print(f"would reopen: {counts['reopen']} on {counts['pages']} pages")
+    print(f"window: {'places said since ' + said_since if said_since else 'every place (--all)'}")
+    print(f"would reopen: {counts['reopen']} on {counts['pages']} pages, by when last said:")
     for bucket, n in counts["reopen_by_last_said"].items():
         print(f"  {bucket}: {n}")
+    if counts["cutoff_by_last_said"]:
+        print("kept closed by the window (--all would weigh them), by when last said:")
+        for bucket, n in counts["cutoff_by_last_said"].items():
+            print(f"  {bucket}: {n}")
     for reason, n in counts["kept_closed"].items():
         print(f"kept closed ({reason}): {n}")
     for reason, n in counts["pages_skipped"].items():
@@ -470,12 +492,19 @@ def main(argv: list[str] | None = None) -> int:
                                                  "place was mentioned (dry run by default).")
     parser.add_argument("--bank", required=True, help="the bank directory (a git repository)")
     parser.add_argument("--plan", help="write the plan (ids, page paths, commits, reasons — no claim text) here")
-    parser.add_argument("--said-since", help="keep closed a place last said before this day (YYYY-MM-DD)")
+    parser.add_argument("--said-since", help="keep closed a place last said before this day (YYYY-MM-DD); "
+                                             f"default: {DEFAULT_WINDOW_DAYS} days ago")
+    parser.add_argument("--all", action="store_true", help="no window: weigh every place, however long ago said")
     parser.add_argument("--apply", action="store_true", help="reopen them, in one commit")
     args = parser.parse_args(argv)
     if args.said_since and not _DAY.match(args.said_since):
         print("--said-since takes a day, YYYY-MM-DD", file=sys.stderr)
         return 2
+    if args.all and args.said_since:
+        print("--all and --said-since are two windows; pass one", file=sys.stderr)
+        return 2
+    if not args.all and not args.said_since:
+        args.said_since = (date.today() - timedelta(days=DEFAULT_WINDOW_DAYS)).isoformat()
     bank = Path(args.bank).expanduser()
     try:
         if args.apply:
@@ -494,7 +523,7 @@ def main(argv: list[str] | None = None) -> int:
     except write_admission.AdmissionUnavailable:
         print("the bank's write admission cannot be opened; nothing was changed.", file=sys.stderr)
         return 3
-    _print_counts(plan)
+    _print_counts(plan, args.said_since)
     if args.plan:
         Path(args.plan).write_text(json.dumps(plan.to_dict(), indent=2) + "\n", encoding="utf-8")
     if args.apply:

@@ -185,3 +185,30 @@ def test_cli_dry_run_prints_counts_only(bank, capsys):
     assert "would reopen: 2 on 1 pages" in out and "kept closed (older_copy): 1" in out
     assert "acme" not in out and "Bob" not in out, "counts only, never claim text or names"
     assert coexist_reopen.main(["--bank", str(bank / "nope")]) == 2
+
+
+def test_a_past_internship_stays_closed(bank):
+    """Review 2026-10-14 (blocker): "interned at" folds into works-at; its own words are past tense."""
+    intern = _w("clm_i1", "lab-example", "2026-05-01")
+    intern.text = "Bob Example interned at Lab Example"     # Stage 1's text: "{source} {raw_label} {target}"
+    job = _w("clm_j1", "acme-example", "2026-06-01")
+    _close(intern, job)
+    _sleep(bank, "2026-06-01", [intern, job])
+    assert {i.claim_id: i.reason for i in coexist_reopen.analyze(bank).items} == {"clm_i1": "said_past"}
+
+
+def test_the_cli_window_defaults_to_180_days_and_all_lifts_it(bank, capsys):
+    from datetime import date, timedelta
+
+    old_day = (date.today() - timedelta(days=400)).isoformat()
+    new_day = (date.today() - timedelta(days=20)).isoformat()
+    old = _w("clm_old", "old-example", old_day)
+    new = _w("clm_new", "new-example", new_day)
+    _close(old, new)
+    _sleep(bank, new_day, [old, new])
+    assert coexist_reopen.main(["--bank", str(bank)]) == 0
+    out = capsys.readouterr().out
+    assert "would reopen: 0 on 0 pages" in out and "said more than a year ago: 1" in out
+    assert coexist_reopen.main(["--bank", str(bank), "--all"]) == 0
+    assert "would reopen: 1 on 1 pages" in capsys.readouterr().out
+    assert coexist_reopen.main(["--bank", str(bank), "--all", "--said-since", new_day]) == 2
