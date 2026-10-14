@@ -616,36 +616,54 @@ ROLLUP_NAMES = 8
 #: What a relation label MEANS, not how it is spelled (hub rollup, 2026-10-14). The real owner page's labels are
 #: free-form — "asked how to use", "asked for explanation of", "planned to use", "received recommendation for": hundreds
 #: of verbs, the commonest three times each — so grouping by exact verb left 1,676 of 2,024 lines. Each label falls in
-#: the first family whose stems it holds; the order settles "asked how to use" (asked) and "planned to use" (planned).
-#: ``relation`` is a fact about the page ("studies at", "works at", "sibling of"): never a log, always its own line.
+#: the first family whose stems it holds. ``relation`` is tested first and holds the facts about the page in every
+#: inflection ("studies at", "studying at", "working for", "got a job at", "graduate of", "moved to", "sibling of"):
+#: never a log. The four activity families name activity only where the stems say so positively; a label no family
+#: claims is ``other`` — when unsure, a label is a fact (review 2026-10-14).
 FAMILIES: tuple[tuple[str, str, re.Pattern], ...] = tuple((key, label, re.compile(pattern)) for key, label, pattern in (
-    ("relation", "", r"\b(studies at|studied at|study at|enrolled|enrols?|works? (at|for)|worked (at|for)|employed|"
-                     r"employs?|lives? in|lived in|living in|resides?|born|member of|attends?|attended|graduated|"
-                     r"alumn\w*|founded|co-?founded|owns|owned by|married|spouse|partner of|partners? with|sibling|"
-                     r"brother|sister|parent|mother|father|son of|daughter|child of|friend|colleague|classmate|"
-                     r"roommate|mentor|mentee|manager of|manages|reports to|supervis\w*|advis\w*|teaches|teacher|"
-                     r"student (at|of)|relative|cousin|aunt|uncle|grand\w+|neighbou?r)\b"),
+    ("relation", "relations",
+     r"\b((stud(y|ies|ied|ying)|work(s|ed|ing)?|intern(s|ed|ing)?|teach(es|ing)?|taught|lectur(es|ed|ing)|"
+     r"volunteer(s|ed|ing)?|employed|hired|enrolled|enrolls?|enrolling|registered|"
+     r"(started|began|starting|beginning)( working| studying| a job)?|accepted|admitted|placed) (at|for|in|into)|"
+     r"(liv(e|es|ed|ing)|resid(e|es|ed|ing)|based|located|born|raised|grew up|settled|stay(s|ed|ing)?|"
+     r"moved|moving|relocated|relocating) (at|in|to|on)|"
+     r"serv(es|ed|ing) (at|in|on|with)|"
+     r"(got|landed|accepted|started|began|has|had|holds?|held|took) (a |an |the )?(job|position|role|offer|"
+     r"internship|place|seat|degree|diploma|scholarship|fellowship)|"
+     r"(received|earned|got|completed|finished|obtained|holds?|has) (a |an |the |his |her |their )?"
+     r"(degree|diploma|phd|master'?s|bachelor'?s|certificate|certification|license)|"
+     r"(employee|graduate|alumn\w*|founder|co-?founder|owner|ceo|cto|director|head|member|fellow|student|"
+     r"resident|citizen|native|manager|lead|partner|president|chair|intern) (of|at|in|from)|"
+     r"enrolled|employed by|hired by|graduated|alumn\w*|co-?founded|founded|owns|owned by|married|spouse|"
+     r"engaged to|dating|partner of|partners? with|sibling|brother|sister|parent of|mother|father|son of|"
+     r"daughter|child of|friends? (of|with)|best friend|colleague|coworker|co-worker|classmate|roommate|"
+     r"flatmate|mentor|mentee|manages|managed by|reports to|supervised by|supervisor of|advised by|advisor|"
+     r"relative|cousin|aunt|uncle|grand(mother|father|parent|son|daughter)|neighbou?r|joined|belongs to|"
+     r"part of|from|nationality|citizen)\b"),
     ("asked", "asked or learned about",
-     r"\b(ask\w*|question\w*|learn\w*|explain\w*|explanation|research\w*|read|reads|reading|stud(y|ied|ies|ying)|"
-     r"explor\w*|curious|inquir\w*|look(ed|ing|s)? (into|up|at)|wonder\w*|understand\w*|clarif\w*|how to|"
-     r"what (is|are)|recommend\w*|advice|advis\w*|help with|received|got|seek\w*|sought|discuss\w*|talk\w* about|"
+     r"\b(ask(s|ed|ing)?|question(s|ed|ing)?|learn(s|ed|t|ing)?|explain\w*|explanation|research\w*|read|reads|"
+     r"reading|explor\w*|curious|inquir\w*|look(ed|ing|s)? (into|up|at)|wonder\w*|understand\w*|clarif\w*|how to|"
+     r"what (is|are)|recommend\w*|advice|help with|received|sought|seek(s|ing)?|discuss\w*|talk(s|ed|ing)? about|"
      r"interested in|mention\w*|search\w*|watch\w*|listen\w*|review\w*)\b"),
     ("planned", "planned or considered",
-     r"\b(plan\w*|consider\w*|intend\w*|want\w*|appl(y|ied|ies|ying)|think\w* (about|of)|thought (about|of)|"
-     r"evaluat\w*|compar\w*|decid\w*|schedul\w*|aim\w*|goal|hop(e|es|ed|ing)|prepar\w*|weigh\w*|choos\w*|"
-     r"chose|pick\w*|propos\w*|expect\w*|wish\w*|might|will|would|could)\b"),
+     r"\b(plan(s|ned|ning)?|consider\w*|intend\w*|want(s|ed|ing)?|appl(y|ied|ies|ying)|think(s|ing)? (about|of)|"
+     r"thought (about|of)|evaluat\w*|compar\w*|decid\w*|schedul\w*|aim(s|ed|ing)?|hop(e|es|ed|ing)|prepar\w*|"
+     r"weigh\w*|choos\w*|chose|pick(s|ed|ing)?|propos\w*|expect\w*|wish\w*)\b"),
     ("built", "built or wrote",
-     r"\b(buil\w*|creat\w*|develop\w*|writ\w*|wrote|implement\w*|design\w*|made|mak\w*|draft\w*|"
-     r"publish\w*|launch\w*|ship\w*|cod(e|ed|es|ing)|prototyp\w*|author\w*|produc\w*|compos\w*|record\w*|"
-     r"generat\w*|refactor\w*|redesign\w*|start\w*|found)\b"),
+     r"\b(buil(d|ds|t|ding)|creat\w*|develop\w*|writ(e|es|ing|ten)|wrote|implement\w*|design\w*|made|mak(e|es|ing)|"
+     r"draft\w*|publish\w*|launch\w*|ship(s|ped|ping)?|cod(e|ed|es|ing)|prototyp\w*|author\w*|produc\w*|"
+     r"compos\w*|generat\w*|refactor\w*|redesign\w*)\b"),
     ("used", "used or worked with",
-     r"\b(us(e|es|ed|ing)|work\w*|tr(y|ied|ies|ying)|test\w*|install\w*|configur\w*|set(s|ting)? up|setup|"
-     r"run\w*|ran|deploy\w*|debug\w*|fix\w*|troubleshoot\w*|integrat\w*|migrat\w*|maintain\w*|operat\w*|"
-     r"practic\w*|adopt\w*|switch\w*|upgrad\w*|connect\w*|host\w*|play\w*|visit\w*|bought|buy\w*|"
-     r"subscrib\w*|joined|join\w*|follow\w*|track\w*|manag\w*|edit\w*|analy[sz]\w*|measur\w*|benchmark\w*)\b"),
+     r"\b(us(e|es|ed|ing)|tr(y|ied|ies|ying)|test(s|ed|ing)?|install\w*|configur\w*|set(s|ting)? up|setup|"
+     r"run(s|ning)?|ran|deploy\w*|debug\w*|fix(es|ed|ing)?|troubleshoot\w*|integrat\w*|migrat\w*|maintain\w*|"
+     r"operat\w*|practi[cs]\w*|adopt\w*|switch\w*|upgrad\w*|connect\w*|host(s|ed|ing)?|play(s|ed|ing)?|"
+     r"visit\w*|bought|buy(s|ing)?|subscrib\w*|follow(s|ed|ing)?|track(s|ed|ing)?|edit(s|ed|ing)?|analy[sz]\w*|"
+     r"measur\w*|benchmark\w*|work(s|ed|ing)? (on|with))\b"),
 ))
 #: Families whose links are activity: a conversation touching a page, not a fact about the person.
 ACTIVITY_FAMILIES = frozenset({"asked", "planned", "built", "used"})
+#: Of the 60 lines, how many the ``relation`` family may take: its stems are broad, so it never crowds out the rest.
+RELATION_LINES_MAX = 40
 
 
 def relation_family(label: str) -> str:
@@ -661,43 +679,52 @@ def relation_family(label: str) -> str:
 
 
 def is_log(label: str, objects: int) -> bool:
-    """Is a label a log of activity rather than a fact about the page? An activity family's always is (whatever its
-    spelling); a ``relation`` never is; any other label is a log once the page holds it for more than
-    :data:`RELATION_FAMILY_MAX` objects. One rule for a hub's Related, the article's inputs and the ledger's spill."""
-    family = relation_family(label)
-    if family in ACTIVITY_FAMILIES:
-        return True
-    if family == "relation":
-        return False
-    return objects > RELATION_FAMILY_MAX
+    """Is a label a log of activity rather than a fact about the page? Only when its stems positively say activity
+    (:data:`ACTIVITY_FAMILIES`) AND the page holds more than :data:`RELATION_FAMILY_MAX` objects under that family —
+    ``objects`` counts the family, not the exact spelling, since the real labels are free-form. Anything else is a
+    fact: when unsure, a label is a fact (review 2026-10-14). One rule for a hub's Related, the ledger's spill order
+    and the article's inputs."""
+    return relation_family(label) in ACTIVITY_FAMILIES and objects > RELATION_FAMILY_MAX
+
+
+def family_counts(labels) -> dict[str, int]:
+    """How many of ``labels`` (one per object) fall in each family — the ``objects`` :func:`is_log` takes."""
+    counts: dict[str, int] = {}
+    for label in labels:
+        family = relation_family(label)
+        counts[family] = counts.get(family, 0) + 1
+    return counts
 
 
 def _rolled_up(pairs: list[tuple[str, str]], id_types: dict[str, str]) -> str:
-    """A hub page's Related (owner page, 2026-10-14; families 2026-10-14): its facts — a ``relation`` label, or a rare
-    label that is no activity — then its people, keep a line each, up to :data:`RELATED_MAX` lines (facts first, then
-    the latest people and facts); every other link is counted on one line per family of meaning
-    (:func:`relation_family`), with the latest few names. Related is a view of ``graph_edges.yaml`` (rebuilt on every
-    write), so nothing is lost: each rolled-up link is still an edge, still on the linked page's own Related, and its
-    claims, with their evidence, are still this page's (its ledger, ``claims_ledger``)."""
-    counts: dict[str, int] = {}
-    for _name, verb in pairs:
-        counts[verb] = counts.get(verb, 0) + 1
-    facts = [(n, v) for n, v in pairs if v and not is_log(v, counts[v])]
-    hard = [(n, v) for n, v in facts if relation_family(v) == "relation"]
-    rare = [pair for pair in facts if pair not in set(hard)]
-    people = [(n, v) for n, v in pairs if (n, v) not in set(facts) and id_types.get(n.lower()) == "person"]
-    keep: list[tuple[str, str]] = list(hard)
-    for group in (people, rare):            # the latest first, while there is room
+    """A hub page's Related (owner page, 2026-10-14; families and the review of 2026-10-14). Up to
+    :data:`RELATED_MAX` lines, in this order of right: its facts — ``relation`` labels first (at most
+    :data:`RELATION_LINES_MAX`, the latest), then every other label that is no log (:func:`is_log`), the latest —
+    then its people, the latest, while room is left. Everything else is one line per family of meaning, the people
+    who did not fit on a "people" line, each with the latest few names. Related is a view of ``graph_edges.yaml``
+    (rebuilt on every write), so nothing is lost: each rolled-up link is still an edge, still on the linked page's own
+    Related, and its claims, with their evidence, are still this page's (its ledger, ``claims_ledger``)."""
+    counts = family_counts(v for _n, v in pairs if v)
+    relations = [(n, v) for n, v in pairs if v and relation_family(v) == "relation"]
+    facts = [(n, v) for n, v in pairs if v and relation_family(v) != "relation"
+             and not is_log(v, counts.get(relation_family(v), 0))]
+    taken = set(relations) | set(facts)
+    people = [(n, v) for n, v in pairs if (n, v) not in taken and id_types.get(n.lower()) == "person"]
+    keep: list[tuple[str, str]] = relations[-RELATION_LINES_MAX:]
+    for group in (facts, people):           # the latest first, while there is room
         room = RELATED_MAX - len(keep)
         if room > 0:
             keep += group[-room:]
     kept = set(keep)
     lines = [pair for pair in pairs if pair in kept]
+    people_ids = {pair for pair in people}
     rolled: dict[str, list[str]] = {}
     for name, verb in pairs:
-        if (name, verb) not in kept:
-            rolled.setdefault(relation_family(verb) if verb else "", []).append(name)
-    labels = {key: label for key, label, _p in FAMILIES} | {"other": "other links", "": "linked"}
+        if (name, verb) in kept:
+            continue
+        family = "people" if (name, verb) in people_ids else (relation_family(verb) if verb else "")
+        rolled.setdefault(family, []).append(name)
+    labels = {key: label for key, label, _p in FAMILIES} | {"other": "other links", "": "linked", "people": "people"}
     out = _related_bullets(lines)
     rows = []
     for family, names in sorted(rolled.items(), key=lambda kv: (-len(kv[1]), kv[0])):

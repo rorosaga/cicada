@@ -91,21 +91,68 @@ def _related(memory: Path) -> str:
 @pytest.mark.parametrize("label, family", [
     ("asked how to use", "asked"), ("asked for explanation of", "asked"), ("received recommendation for", "asked"),
     ("asked about using", "asked"), ("asked-how-to-use", "asked"), ("researched how to fix", "asked"),
+    ("talked about", "asked"),
     ("planned to use", "planned"), ("considered applying for", "planned"), ("wanted to install", "planned"),
     ("developed", "built"), ("wrote", "built"), ("built", "built"),
-    ("worked on", "used"), ("uses", "used"), ("tried to deploy", "used"),
-    ("studies at", "relation"), ("enrolled in", "relation"), ("lives in", "relation"), ("works at", "relation"),
-    ("sibling of", "relation"),
-    ("relates to", "other"), ("prefers", "other"),
+    ("worked on", "used"), ("working on", "used"), ("uses", "used"), ("tried to deploy", "used"),
+    # Facts, in every inflection (review 2026-10-14): progressive and participle forms included.
+    ("studies at", "relation"), ("studying at", "relation"), ("studied at", "relation"), ("enrolled in", "relation"),
+    ("lives in", "relation"), ("living in", "relation"), ("lived in", "relation"), ("moved to", "relation"),
+    ("works at", "relation"), ("working at", "relation"), ("worked for", "relation"), ("working for", "relation"),
+    ("interning at", "relation"), ("teaching at", "relation"), ("started at", "relation"),
+    ("got a job at", "relation"), ("landed a role at", "relation"), ("received degree from", "relation"),
+    ("earned a master's from", "relation"), ("graduate of", "relation"), ("graduated from", "relation"),
+    ("employee of", "relation"), ("founder of", "relation"), ("joined", "relation"), ("sibling of", "relation"),
+    ("relates to", "other"), ("prefers", "other"), ("attended", "other"),
 ])
 def test_a_free_form_label_falls_in_its_family_of_meaning(label, family):
     assert entity_body.relation_family(label) == family
 
 
-def test_an_activity_label_is_a_log_however_rare_and_a_relation_never_is():
-    assert entity_body.is_log("asked how to use", 1)
-    assert not entity_body.is_log("studies at", 50)
-    assert not entity_body.is_log("prefers", 2) and entity_body.is_log("prefers", 9)
+def test_only_positive_activity_held_for_many_objects_is_a_log():
+    assert entity_body.is_log("asked how to use", entity_body.RELATION_FAMILY_MAX + 1)
+    assert not entity_body.is_log("asked how to use", 1)              # a single conversation: when unsure, a fact
+    assert not entity_body.is_log("studies at", 500)                  # a relation never is
+    assert not entity_body.is_log("prefers", 500)                     # a label no family claims never is
+
+
+# The reviewer's reproductions (review 2026-10-14), kept.
+@pytest.mark.parametrize("label", ["working at", "studying at", "got a job at", "received degree from"])
+def test_review_an_employment_or_education_fact_is_never_a_log(label):
+    assert not entity_body.is_log(label, 1), (label, entity_body.relation_family(label))
+    assert not entity_body.is_log(label, 500), (label, entity_body.relation_family(label))
+
+
+def test_review_a_hubs_rare_facts_keep_their_own_line_beside_many_people():
+    pairs = [(f"Person {i:03d}", "talked about") for i in range(70)]
+    pairs += [(f"Topic {i:03d}", "asked about") for i in range(200)]
+    facts = [("Synthetic University", "graduate of"), ("Example Corp", "working at"),
+             ("Example Lab", "studying at"), ("Example City", "moved to")]
+    pairs += facts
+    types = {f"person {i:03d}": "person" for i in range(70)}
+    block = entity_body._rolled_up(pairs, types)
+    missing = [f"- [[{n}]] — {v}" for n, v in facts if f"- [[{n}]] — {v}" not in block]
+    assert not missing, missing
+    bullets = [line for line in block.splitlines() if line.startswith("- ")]
+    assert len(bullets) <= entity_body.RELATED_MAX + len(entity_body.FAMILIES) + 3
+    assert any(line.startswith("- people: ") for line in bullets)   # the people who did not fit
+
+
+def test_a_rare_label_no_family_claims_outranks_people():
+    pairs = [(f"Person {i:03d}", "talked about") for i in range(90)]
+    pairs += [("Example Club", "prefers"), ("Example Region", "attended")]
+    block = entity_body._rolled_up(pairs, {f"person {i:03d}": "person" for i in range(90)})
+    assert "- [[Example Club]] — prefers" in block and "- [[Example Region]] — attended" in block
+
+
+def test_a_broad_relation_family_cannot_take_every_line():
+    pairs = [(f"Alpha {i:03d}", "member of") for i in range(200)]
+    pairs += [(f"Beta {i:03d}", "prefers") for i in range(30)]
+    block = entity_body._rolled_up(pairs, {})
+    lines = [line for line in block.splitlines() if line.startswith("- [[")]
+    assert sum("member of" in line for line in lines) == entity_body.RELATION_LINES_MAX
+    assert sum("prefers" in line for line in lines) == entity_body.RELATED_MAX - entity_body.RELATION_LINES_MAX
+    assert "- relations: " in block and "- other links: " in block
 
 
 def test_a_hub_with_hundreds_of_distinct_labels_rolls_up_near_the_target():
@@ -180,6 +227,34 @@ def test_untimed_among_matches_the_full_scan_for_a_pages_conversations(tmp_path)
     assert episode_time.untimed_among(memory, asked) == episode_time.untimed_ids(memory) & set(asked)
     assert episode_time.untimed_among(memory, ["ep_missing"] + asked[:3]) == \
         episode_time.untimed_ids(memory) & {"ep_missing", *asked[:3]}       # no file of its name: the full scan
+
+
+def test_a_scalar_source_episodes_reads_as_one_id_on_the_card_as_in_sleep(tmp_path):
+    """A hand-edited `source_episodes: ep_x` is one id (`decay_policy._as_list`): the card's pace matches Sleep's."""
+    from api.services import decay_policy
+
+    memory = tmp_path / "memory"
+    (memory / "episodes").mkdir(parents=True)
+    _episode(memory, "ep_2026-01-01_001", "claude_memory")
+    fm = {"type": "concept", "source_episodes": "ep_2026-01-01_001", "last_referenced": "2026-01-01"}
+    card = decay_policy.effective(fm, untimed=episode_time.untimed_among(
+        memory, decay_policy._as_list(fm["source_episodes"])))
+    sleep = decay_policy.effective(fm, untimed=episode_time.untimed_ids(memory))
+    assert card.mention_weeks == sleep.mention_weeks
+
+
+def test_a_rerun_keeps_no_stale_rollup_count(tmp_path):
+    """An earlier rollup's family line whose name is no longer covered keeps that name only, never its old count."""
+    memory, _pages = _hub_bank(tmp_path, n_pages=100, people=0)
+    page = memory / "entities" / f"{OWNER}.md"
+    text = page.read_text()
+    page.write_text(text.replace("## Related\n", "## Related\n- asked or learned about: 1,203 pages — latest "
+                                 "[[Qwertyuio]], [[Alpha 0001]] and 1,201 more\n", 1))
+    _git(memory, "commit", "-qam", "An old rollup line\n\nCicada-Author: cicada")
+    result = hub_pages.apply(memory, sleep_running=lambda: False)
+    assert result.failed_check == 0 and result.written == 1
+    related = _related(memory)
+    assert "1,203 pages" not in related and "- [[Qwertyuio]]" in related
 
 
 def _client(memory: Path, monkeypatch) -> TestClient:

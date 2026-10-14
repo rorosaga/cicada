@@ -109,7 +109,7 @@ async def get_entity(
     effective = decay_policy.effective(
         fm, alpha=alpha, floor=floor, tuning=decay_tuning.load(settings.memory_path),
         # Only this page's conversations are read (a full episode scan was most of a cold open's time).
-        untimed=episode_time.untimed_among(settings.memory_path, fm.get("source_episodes") or []),
+        untimed=episode_time.untimed_among(settings.memory_path, decay_policy._as_list(fm.get("source_episodes"))),
     )
     # C11 (G146) — the page's picture, resolved at read like everything else on this card (plan R-PE5).
     page_stat = entity_path.stat()

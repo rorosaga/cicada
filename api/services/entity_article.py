@@ -377,8 +377,9 @@ def fit(inputs: Inputs, *, max_chars: int, people=()) -> Inputs:
     Unchanged when the prompt already fits. Otherwise, in order, until it fits:
 
     1. claims sharing a predicate and an object fold into one input (:func:`_fold_claims`);
-    2. claim inputs are left out, a log's before a fact's — ``entity_body.is_log``: an activity predicate however it
-       is spelled, or one held for many objects — unless its object is one of ``people`` (the person pages: who is in a life is never a log) —
+    2. claim inputs are left out, a log's before a fact's — ``entity_body.is_log``: a predicate whose stems
+       positively say activity, in a family held for more than a few objects; when unsure, a fact — unless its object
+       is one of ``people`` (the person pages: who is in a life is never a log) —
        and within each, the ones said in the fewest conversations, then the longest ago, first;
     3. then History lines, the oldest first.
 
@@ -389,14 +390,14 @@ def fit(inputs: Inputs, *, max_chars: int, people=()) -> Inputs:
     if prompt(inputs, max_chars=max_chars) is not None:
         return inputs
     sources = _fold_claims(inputs.sources)
-    families: dict[str, set[str]] = {}
+    families: dict[str, set[str]] = {}   # objects per family of meaning (free-form predicates)
     for source in sources:
         if source.kind == "claim" and source.group:
-            families.setdefault(source.group[0], set()).add(source.group[1])
+            families.setdefault(entity_body.relation_family(source.group[0]), set()).add(source.group[1])
 
     def claim_order(source: Source):
         predicate = source.group[0] if source.group else ""
-        log = (entity_body.is_log(predicate, len(families.get(predicate, ())))
+        log = (entity_body.is_log(predicate, len(families.get(entity_body.relation_family(predicate), ())))
                and not (source.group and source.group[1] in people))
         return (0 if log else 1, source.heard, max(source.said_on) if source.said_on else "")
 

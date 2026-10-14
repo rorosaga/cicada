@@ -37,6 +37,8 @@ from api.services import (
 TRIGGER = "maintenance/hub-pages"
 _RELATED_RE = re.compile(r"^## Related[ \t]*\n(?P<block>.*?)(?=^## |^```claims[ \t]*$|\Z)", re.M | re.S)
 _LINK = re.compile(r"\[\[([^\]|#]+)")
+#: A rolled-up family line (`entity_body._rolled_up`): "- asked or learned about: 1,203 pages — latest [[A]] …".
+_ROLLUP_ROW = re.compile(r"^- [^\[\]]+: [\d,]+ pages? — latest ")
 
 
 class SleepRunning(RuntimeError):
@@ -128,8 +130,15 @@ def _plan(path: Path, memory_path: Path, edges_by_entity: dict, result: Survey, 
         ids = {str(e.get("target", "")).lower() for e in edges_by_entity.get(path.stem, ())}
         ids |= {str(s).lower() for s in parsed.frontmatter.get("related") or []}
         names = {n.strip().lower() for n in _LINK.findall(block)} | ids
-        kept_lines = [line for line in old_related.splitlines() if line.lstrip().startswith("- ")
-                      and any(not _covered(n, names, ids, memory_path, name_index) for n in _LINK.findall(line))]
+        kept_lines = []
+        for line in old_related.splitlines():
+            if not line.lstrip().startswith("- "):
+                continue
+            lost = [n for n in _LINK.findall(line) if not _covered(n, names, ids, memory_path, name_index)]
+            if not lost:
+                continue
+            # An earlier rollup's family line is a count that no longer holds: only its uncovered names stay.
+            kept_lines += ([f"- [[{n.strip()}]]" for n in lost] if _ROLLUP_ROW.match(line.strip()) else [line])
         if kept_lines:
             block = "\n".join(part for part in (block, "\n".join(kept_lines)) if part)
             result.lines_kept_as_were += len(kept_lines)

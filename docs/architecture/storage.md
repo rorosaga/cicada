@@ -134,8 +134,8 @@ ledger changed since) leaves every ledger line as it is. Nothing is matched by i
 its restatement share one, and both are the record (review 2026-10-14). Lines the ledger gains are written before the
 page and lines it loses after it (`write_plan`), so a crash leaves a duplicate, never a loss. The rest stays in the
 fence, and when the fence is over the budget lines move to the ledger until it is
-under `SPILL_TO` (half), in order: closed claims, then a log's (`entity_body.is_log`: an activity predicate however
-it is spelled, or one the page holds for more than 3 objects), then the rest, each oldest first — so what stays on the page
+under `SPILL_TO` (half), in order: closed claims, then a log's (`entity_body.is_log`: a predicate the stems positively call
+activity, in a family the page holds for more than 3 objects; when unsure, a fact), then the rest, each oldest first — so what stays on the page
 is what it says about its subject plus the newest activity. **A write never removes a ledger line** (a body read
 without the ledger leaves it as it is); only `claims_ledger.remove` (a merged-away page, after its claims moved) and
 `move` (the inbox's rename) take one away. The ledger is written before the page (a crash leaves a line in both, never

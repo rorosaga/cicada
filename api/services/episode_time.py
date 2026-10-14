@@ -65,13 +65,16 @@ inside && /^source:/ { v = $0; sub(/^source:[ \t]*/, "", v); sub(/[ \t]*#.*$/, "
 _MEMO: dict[str, tuple[int | None, dict[str, str]]] = {}
 
 
+_AWK_BIN = "/usr/bin/awk" if os.path.exists("/usr/bin/awk") else "awk"
+
+
 def _sources(paths: list[Path]) -> dict[str, str] | None:
     """``{path: source}`` for the episodes that state one (one awk pass, in batches); ``None`` when awk cannot run."""
     out: dict[str, str] = {}
     for start in range(0, len(paths), 500):
         batch = [str(p) for p in paths[start:start + 500]]
         try:
-            proc = subprocess.run(["awk", _AWK, *batch], capture_output=True, timeout=30)
+            proc = subprocess.run([_AWK_BIN, _AWK, *batch], capture_output=True, timeout=30)
         except (OSError, subprocess.SubprocessError):
             return None
         if proc.returncode != 0:
