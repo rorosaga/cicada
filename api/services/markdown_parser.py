@@ -143,14 +143,22 @@ def write(filepath: Path, frontmatter: dict, body: str) -> None:
     is not (the guarantee is "never a torn page", not "the rename survives a
     power cut").
 
-    An entity page's claims are split with its ledger first (``claims_ledger``): the ledger is written before the
-    page, so a crash between the two leaves a claim in both files, never in neither."""
+    An entity page's claims are split with its ledger (``claims_ledger``): lines the ledger gains are written before
+    the page and lines it loses after it (``claims_ledger.write_plan``), so a crash between the two leaves a claim in
+    both files, never in neither."""
     frontmatter, body, ledger = _split_ledger(Path(filepath), frontmatter, body)
+    before = after = None
     if ledger is not None:
         from api.services import claims_ledger
 
-        _replace(claims_ledger.path_for(filepath), ledger)
+        before, after = claims_ledger.write_plan(filepath, ledger)
+        if before:
+            _replace(claims_ledger.path_for(filepath), before)
     _replace(filepath, _render(frontmatter, body))
+    if after == b"":   # the writer kept no line in the ledger: the page holds them all now
+        _unlink_quietly(str(claims_ledger.path_for(filepath)))
+    elif after:
+        _replace(claims_ledger.path_for(filepath), after)
 
 
 def write_document(filepath: Path, text: str) -> None:

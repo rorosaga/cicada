@@ -420,7 +420,7 @@ def test_a_withdrawn_claim_in_the_ledger_survives_its_restatement_under_the_same
     assert len(after) == 2 and any(v for v, _ in after) and any(v is None for v, _ in after)
 
 
-def test_an_edited_ledger_claim_is_replaced_in_place_and_never_duplicated(tmp_path):
+def test_an_edited_ledger_claim_is_never_duplicated(tmp_path):
     memory = _owner_bank(tmp_path, git=False)
     page = memory / "entities" / f"{OWNER}.md"
     parsed = markdown_parser.parse(page)
@@ -434,7 +434,58 @@ def test_an_edited_ledger_claim_is_replaced_in_place_and_never_duplicated(tmp_pa
     markdown_parser.write(page, p.frontmatter, claims.write_claims(p.body, every))
     copies = [c for c in claims.parse_claims(markdown_parser.parse(page).body) if c.id == moved]
     assert len(copies) == 1 and copies[0].valid_to == "2026-10-01"
-    assert any(claims_ledger.line_id(line) == moved for line in claims_ledger.ledger_lines(page))
+    assert len(claims.parse_claims(markdown_parser.parse(page).body)) == len(every)
+
+
+def test_a_write_that_edits_every_ledger_claim_leaves_no_stale_copy(tmp_path):
+    """A pass touching every claim (the review's probe): each comes back once, at its new value."""
+    memory = _owner_bank(tmp_path, git=False)
+    page = memory / "entities" / f"{OWNER}.md"
+    parsed = markdown_parser.parse(page)
+    markdown_parser.write(page, parsed.frontmatter, parsed.body)
+    p = markdown_parser.parse(page)
+    every = claims.parse_claims(p.body, strict=True)
+    for c in every:
+        c.confidence = 0.42
+    markdown_parser.write(page, p.frontmatter, claims.write_claims(p.body, every))
+    after = claims.parse_claims(markdown_parser.parse(page).body, strict=True)
+    assert len(after) == len(every) and {c.confidence for c in after} == {0.42}
+    assert claims_ledger.path_for(page).exists()            # the edited set spilled again
+    assert claims_ledger.READ not in markdown_parser.parse(page, ledger=False).frontmatter[claims_ledger.STAMP]
+
+
+def test_a_rename_of_a_ledger_page_leaves_no_stale_copies(tmp_path):
+    """The inbox's keep-the-cleaner-name rename re-subjects every claim of a page with a ledger: each is read back
+    once, under its new subject (the review's re-check reproduction, kept)."""
+    from collections import Counter
+
+    ents = tmp_path / "memory" / "entities"
+    ents.mkdir(parents=True)
+    old = ents / "alpha-proj.md"
+    rows = [Claim(id=f"clm_{i:05d}", text=f"Alpha Proj asked about Beta {i} " + "x" * 200, subject="alpha-proj",
+                  predicate="asked-about", object=f"beta-{i:04d}", valid_from="2026-01-01",
+                  recorded_at=f"2026-01-{1 + i % 28:02d}") for i in range(600)]
+    markdown_parser.write(old, {"name": "Alpha Proj", "type": "project", "status": "active"},
+                          claims.write_claims("## Summary\nAlpha.", rows))
+    assert claims_ledger.ledger_lines(old)
+    new = ents / "alpha-project.md"
+    old.replace(new)
+    claims_ledger.move(old, new)
+    entity_merge.rename_references(tmp_path / "memory", "alpha-proj", "Alpha Proj", "alpha-project", "Alpha Project")
+    after = claims.parse_claims(markdown_parser.parse(new).body)
+    twice = sum(1 for v in Counter(c.id for c in after).values() if v > 1)
+    assert (len(after), twice, sum(1 for c in after if c.subject == "alpha-proj")) == (600, 0, 0)
+
+
+def test_a_body_read_without_the_ledger_never_removes_a_ledger_line(tmp_path):
+    memory = _owner_bank(tmp_path, git=False)
+    page = memory / "entities" / f"{OWNER}.md"
+    parsed = markdown_parser.parse(page)
+    markdown_parser.write(page, parsed.frontmatter, parsed.body)
+    held = claims_ledger.ledger_lines(page)
+    raw = markdown_parser.parse(page, ledger=False)
+    markdown_parser.write(page, raw.frontmatter, claims.write_claims(raw.body, []))   # the page's claims, emptied
+    assert claims_ledger.ledger_lines(page) == held
 
 
 def test_a_failed_dedup_merge_leaves_no_ledger_behind(tmp_path, monkeypatch):

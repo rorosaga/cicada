@@ -13,22 +13,23 @@ first, tracked by git like the page. The split is invisible above ``markdown_par
   body with the ledger's lines put back at the head of the fence, so every claim reader sees one set, as before. A
   frontmatter-only scan passes ``ledger=False`` and never opens it.
 * **Write** (:func:`split`): ``markdown_parser.write`` leaves in the ledger every ledger line the body carries back
-  byte for byte; a ledger line the body edited is replaced in place only when its id is unambiguous (one line in the
-  ledger, one edited line in the body). Everything else stays in the fence, and — when the fence is over the budget —
-  the oldest of it (closed ones first, then a log's — :func:`_spill_order`) moves into the ledger until it is under
-  :data:`SPILL_TO`, so a page spills in steps, not on every write. **A write never removes a ledger line**, and
-  never merges two copies under one id: ids come from the fact, so a withdrawn or expired claim and its restatement
-  share one, and both are the record. A body read without the ledger (a raw read, a page put back from git) leaves
-  the ledger as it is. Only :func:`remove` (a merged-away page) and :func:`move` (a renamed page) take a ledger away,
-  and both move its claims first or with it.
+  byte for byte. A ledger line the body does not carry leaves the ledger only when the writer hands back the
+  frontmatter :func:`fold` marked (:data:`READ`, the hash of the ledger it read) and that ledger is unchanged: the
+  body is then the page's whole claim set, and the line was changed or removed by the writer (a rename re-subjects
+  every claim; a pass edits each). Any other body — read without the ledger, or against a ledger changed since —
+  leaves every ledger line as it is. Nothing is matched by id: ids come from the fact, so a withdrawn or expired claim
+  and its restatement share one, and both are the record. When the fence is over the budget, its oldest lines
+  (closed ones first, then a log's — :func:`_spill_order`) move into the ledger until it is under :data:`SPILL_TO`,
+  so a page spills in steps. :func:`remove` (a merged-away page) and :func:`move` (a renamed page) take a ledger
+  away, both after or with its claims.
 * The page's frontmatter stamp ``claims_ledger: {claims: N, hash: <12 hex>}`` is rewritten with every ledger write,
   so the page's bytes change whenever its ledger does (every cache keyed on the page's mtime, size or hash sees it),
   and a raw reader — `cicada_recall_detail`, the Source view — can say the ledger is there. It is a pointer, not a
   changelog: git holds the history of both files.
 
-Crash order: the ledger is written before the page. A crash between the two leaves the old page beside a ledger that
-already holds the claims it was about to move — the same lines twice, never one missing — and :func:`fold` reads a
-line present byte for byte in both files once. The next write files it where it belongs.
+Crash order (:func:`write_plan`): lines the ledger gains are written before the page, lines it loses after it. A crash
+between the two leaves a claim in both files — the same bytes, which :func:`fold` reads once, or an old version beside
+its new one — never in neither.
 
 Git: a page and its ledger are one unit. ``git_service`` adds the ledger to every commit and checkout that names its
 page (:func:`with_ledgers`); a dedup merge's footprint names it too.
@@ -48,6 +49,8 @@ from api.services import claims, entity_body
 
 SUFFIX = ".claims.jsonl"
 STAMP = "claims_ledger"
+#: The in-memory mark :func:`fold` leaves on the frontmatter it folded for: the hash of the ledger it read.
+READ = "read"
 #: Above this many characters of claim lines, a write moves the page's oldest claims into its ledger. About one
 #: `cicada_recall_detail` part: every page but a few hubs stays far below it (a median page holds a few KB of claims).
 FENCE_MAX_CHARS = 64_000
@@ -170,14 +173,23 @@ def _with_fence(body: str, match, lines: list[str]) -> str:
 
 def fold(page, frontmatter: dict, body: str) -> str:
     """The body with the page's ledger lines at the head of its fence — what every claim reader takes as the page's
-    claims. Untouched when the page carries no :data:`STAMP`, has no ledger, or its fence cannot be read."""
+    claims. Untouched when the page carries no :data:`STAMP`, has no ledger, or its fence cannot be read.
+
+    When it folds, it marks ``frontmatter`` (the dict ``markdown_parser.parse`` returns with this body) with the hash of
+    the ledger it read (:data:`READ`): a writer that hands that frontmatter back to ``markdown_parser.write`` with the
+    body it read and changed is writing the page's whole claim set, and :func:`split` files it exactly. The mark never
+    reaches disk — :func:`split` rewrites the stamp on every write."""
     if not isinstance(frontmatter, dict) or STAMP not in frontmatter:
         return body
     ledger_path = path_for(page)
     ledger = read_lines(ledger_path)
     if not ledger:
         return body
-    return merged(body, ledger)
+    folded = merged(body, ledger)
+    if folded is not body:
+        stamp = frontmatter.get(STAMP)
+        frontmatter[STAMP] = {**(stamp if isinstance(stamp, dict) else {}), READ: _stamp(ledger)[0]["hash"]}
+    return folded
 
 
 def merged(body: str, ledger: list[str]) -> str:
@@ -233,7 +245,8 @@ def _stamp(lines: list[str]) -> tuple[dict, bytes]:
 
 def split(page, frontmatter: dict, body: str) -> tuple[dict, str, bytes | None]:
     """What a write of ``(frontmatter, body)`` to ``page`` puts on the page and in its ledger: ``(frontmatter, body,
-    ledger bytes)``, the last ``None`` when the ledger needs no write. Never drops a ledger line or a claim."""
+    ledger bytes)``, the last ``None`` when the ledger needs no write and ``b""`` when it goes. Never drops a claim:
+    a ledger line leaves the ledger only for a writer that read it through :func:`fold` and wrote its change back."""
     frontmatter = dict(frontmatter or {})
     ledger_path = path_for(page)
     has_ledger = ledger_path.exists()
@@ -249,50 +262,33 @@ def split(page, frontmatter: dict, body: str) -> tuple[dict, str, bytes | None]:
         if old:
             frontmatter[STAMP] = _stamp(old)[0]
         return frontmatter, body, None
-    ledger = list(old)
-    old_ids = _ids(ledger_path) if has_ledger else []
-    # Which ledger lines the body carries back byte for byte: those stay in the ledger as they are.
+    # The ledger lines the body carries back byte for byte stay in the ledger, where they are.
     in_body = Counter(fence)
-    carried: set[int] = set()
-    for i, line in enumerate(old):
-        if in_body[line] > 0:
+    carried: list[bool] = []
+    for line in old:
+        carried.append(in_body[line] > 0)
+        if carried[-1]:
             in_body[line] -= 1
-            carried.add(i)
-    consumed = Counter(old[i] for i in carried)
-    pending: list[str] = []
+    consumed = Counter(line for line, kept in zip(old, carried) if kept)
+    stay: list[str] = []
     for line in fence:
         if consumed[line] > 0:
             consumed[line] -= 1
         else:
-            pending.append(line)
-    # A body that carries ledger lines was read with its ledger (`fold`): a ledger line it does not carry was edited by
-    # the writer. It is replaced in place only when its id is unambiguous — one line in the ledger, one edited line in
-    # the body. Two copies under one id (a withdrawn claim and its restatement) are never merged: the new or edited
-    # line stays on the page. A body read without the ledger (``carried`` empty) replaces nothing.
-    stay: list[str] = []
-    if carried:
-        ledger_count = Counter(old_ids)
-        pending_ids = [line_id(line) for line in pending]
-        pending_count = Counter(pending_ids)
-        index = {cid: i for i, cid in enumerate(old_ids) if cid and ledger_count[cid] == 1 and i not in carried}
-        for line, cid in zip(pending, pending_ids):
-            if cid and cid in index and pending_count[cid] == 1:
-                ledger[index[cid]] = line
-            else:
-                stay.append(line)
-    else:
-        stay = pending
-    where = set(old_ids)
+            stay.append(line)
+    # A ledger line the body does not carry: when the writer read this very ledger through `fold` (the mark on the
+    # frontmatter it hands back), the body is the page's whole claim set and the writer changed or removed that line —
+    # its new version, if any, is in ``stay``: the ledger keeps only what was carried (owner page review 2026-10-14: a
+    # rename re-subjects every claim; a pass edits every one). Any other body — read without the ledger, or from a
+    # ledger changed since — knows nothing of those lines: they stay as they are. Never matched by id: a withdrawn
+    # claim and its restatement share one, and both are the record.
+    read = (frontmatter.get(STAMP) or {}).get(READ) if isinstance(frontmatter.get(STAMP), dict) else None
+    whole_set = bool(old) and read == _stamp(old)[0]["hash"]
+    ledger = [line for line, kept in zip(old, carried) if kept] if whole_set else list(old)
     size = sum(len(line) + 1 for line in stay)
     if size > FENCE_MAX_CHARS:
-        ids = [line_id(line) for line in stay]
-        seen: dict[str, int] = {}
-        for cid in ids:
-            seen[cid] = seen.get(cid, 0) + 1
-        # Only a line with an id of its own can be filed: the ledger is matched by id on every later write.
         order = _spill_order(stay)
-        movable = sorted((i for i, cid in enumerate(ids) if cid and seen[cid] == 1 and cid not in where),
-                         key=lambda i: (order[i], i))
+        movable = sorted(range(len(stay)), key=lambda i: (order[i], i))
         moved: set[int] = set()
         for i in movable:
             if size <= SPILL_TO:
@@ -301,12 +297,37 @@ def split(page, frontmatter: dict, body: str) -> tuple[dict, str, bytes | None]:
             size -= len(stay[i]) + 1
         ledger += [stay[i] for i in sorted(moved)]
         stay = [line for i, line in enumerate(stay) if i not in moved]
+    if not ledger and old:
+        # The writer held every ledger line and kept none there: the ledger goes (an empty file says nothing).
+        frontmatter.pop(STAMP, None)
+        return frontmatter, _with_fence(body, match, stay), b""
     if not ledger:
         frontmatter.pop(STAMP, None)
         return frontmatter, body, None
     frontmatter[STAMP], data = _stamp(ledger)
     new_body = _with_fence(body, match, stay)
     return frontmatter, new_body, (None if ledger == old else data)
+
+
+def write_plan(page, data: bytes) -> tuple[bytes | None, bytes | None]:
+    """How a ledger write is ordered around its page's write, so a crash never loses a claim: ``(before the page,
+    after the page)``. Lines it adds go in before the page (a crash then leaves a moved line in both files, which a
+    read takes once); lines it drops go after the page has their new versions (a crash then leaves the old version
+    beside the new one — a duplicate, never a loss). ``b""`` after the page: the ledger goes."""
+    old = read_lines(path_for(page))
+    new = [line for line in data.decode("utf-8").split("\n") if line.strip()]
+    added = Counter(new) - Counter(old)
+    dropped = Counter(old) - Counter(new)
+    if not dropped:
+        return data, None
+    if not added:
+        return None, data
+    staging = list(old)
+    for line in new:
+        if added[line] > 0:
+            added[line] -= 1
+            staging.append(line)
+    return _stamp(staging)[1], data
 
 
 def ledger_lines(page) -> list[str]:

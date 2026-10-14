@@ -125,11 +125,15 @@ owner's page carried ~5,900 claims, mostly a per-conversation activity log ("<ow
 4.7 MB file every reader and writer moved. The split is invisible above `markdown_parser`: `parse` of a page whose
 frontmatter carries the `claims_ledger: {claims, hash}` stamp folds the ledger's lines back in at the head of the
 fence (a line in both files byte for byte — a crash between the two writes — is read once), so all ~70 claim readers
-and writers see one set; `parse(..., ledger=False)` (a frontmatter scan, the card) never opens it. `write` leaves in
-the ledger every line the body carries back byte for byte; a ledger line the body edited is replaced in place only
-when its id is unambiguous (one ledger line, one edited body line). **Two copies under one id are never merged**: ids
-come from the fact, so a withdrawn or expired claim and its restatement share one, and both are the record (review
-2026-10-14). The rest stays in the fence, and when the fence is over the budget lines move to the ledger until it is
+and writers see one set; `parse(..., ledger=False)` (a frontmatter scan, the card) never opens it. `parse` also marks the frontmatter dict it
+returns with the hash of the ledger it folded (`claims_ledger.READ`, never written to disk). `write` leaves in the
+ledger every line the body carries back byte for byte. A ledger line the body does not carry leaves the ledger only
+when the writer handed back that mark for the ledger as it still is — it read the whole set and wrote its change
+(a rename re-subjecting every claim, a pass editing each); any other body (read without the ledger, or against a
+ledger changed since) leaves every ledger line as it is. Nothing is matched by id: a withdrawn or expired claim and
+its restatement share one, and both are the record (review 2026-10-14). Lines the ledger gains are written before the
+page and lines it loses after it (`write_plan`), so a crash leaves a duplicate, never a loss. The rest stays in the
+fence, and when the fence is over the budget lines move to the ledger until it is
 under `SPILL_TO` (half), in order: closed claims, then a log's (a predicate the page holds for
 more than `entity_body.RELATION_FAMILY_MAX` = 3 objects), then the rest, each oldest first — so what stays on the page
 is what it says about its subject plus the newest activity. **A write never removes a ledger line** (a body read
