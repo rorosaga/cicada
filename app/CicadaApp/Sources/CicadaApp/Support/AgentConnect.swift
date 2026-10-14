@@ -93,17 +93,23 @@ enum AgentConnectPolicy {
     /// G110 gate A — the events the capture command is registered under: `Stop` (the trigger) and the two
     /// best-effort flushes (`agent_wiring.FLUSH_EVENTS`).
     static let captureEvents: Set<String> = ["Stop", "PreCompact", "SessionEnd"]
+    /// Capture-everywhere — Cursor's two switches in `cursor_registry.HOOKS`: startup context and saving chats.
+    static let cursorHookGroups = ["startup", "capture"]
 
     /// G182 — every shape comes from `runtime` (`mcpCommand`, `registryArgv`, `hookCommand`), so a developer build
     /// accepts only the checkout's venv commands and a release only its launchers.
     static func isAllowed(_ argv: [String], runtime: CicadaRuntime, binaries: Set<String>) -> Bool {
         guard let head = argv.first else { return false }
         // Cursor's flat registry can touch only this user's global hooks.json,
-        // never a project hook, stop registration or arbitrary command.
+        // never a project hook, stop registration or arbitrary command. Its two
+        // switches are named groups (`--hook startup | capture`), never events.
         if argv.count >= 2, Array(argv[0...1]) == runtime.cursorRegistryArgv {
             let settings = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".cursor/hooks.json").path
-            if argv == runtime.cursorRegistryArgv + ["uninstall", "--settings", settings] { return true }
-            return argv == runtime.cursorRegistryArgv + ["install", "--settings", settings, "--command", runtime.cursorHookCommand]
+            let base = runtime.cursorRegistryArgv
+            let install = base + ["install", "--settings", settings, "--command", runtime.cursorHookCommand]
+            let allowed = [base + ["uninstall", "--settings", settings], install, install + ["--hook", "capture"]]
+                + cursorHookGroups.map { base + ["uninstall", "--settings", settings, "--hook", $0] }
+            return allowed.contains(argv)
         }
         if binaries.contains(head), ["claude", "codex"].contains(URL(fileURLWithPath: head).lastPathComponent) {
             let mcp = runtime.mcpCommand

@@ -171,7 +171,8 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   `<session_id>.jsonl` within the size cap. Only the person's turns and the agent's final reply are kept, plus each agent
   turn's model and effort. After scrubbing, the first person message keeps up to 16k characters; later person turns
   keep a 2k head, agent final replies a 2k head+tail including a recorded non-speaker gap (G110 A2).
-  **One episode per session** (G104). Cicada's own `claude -p` / `codex exec` spawns run with
+  Cursor and Gemini CLI hooks post the turn's own words to `/capture/turn` (same writer, caps, scrub and demo rule;
+  no transcript read, `capture-and-sleep.md`). **One episode per session** (G104). Cicada's own `claude -p` / `codex exec` spawns run with
   `CICADA_CAPTURE=off`. Stop is the trigger; PreCompact and SessionEnd run the same hook as a best-effort, idempotent
   flush, each log line tagged with its event (G110 gate A). Over the session cap the head and the latest turns are kept
   around one marker line (G110 gate B2; its G104 costs in `capture-and-sleep.md`). Recall is the same move (G149): the

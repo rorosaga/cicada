@@ -33,9 +33,9 @@ Seven rails hold across all of them:
   only when the page gave no description of its own.
 - **Capture must not depend on a model deciding to call a tool** (G105). Every Claude Code and
   Codex session is captured by the harness's own `Stop` hook
-  (`api/hooks/capture.py` → `POST /capture/transcript`). Cursor's local IDE integration supplies startup
-  context/MCP only; automatic capture is unsupported, no Stop hook is registered and no Cursor transcript
-  is read (current nullable pointer has no proved confinement/format contract; `mcp.md`).
+  (`api/hooks/capture.py` → `POST /capture/transcript`). Cursor and Gemini CLI are captured by their own
+  per-turn hooks, whose payloads carry the words (see *Capture from every agent* below); no Cursor or Gemini
+  transcript is read (neither documents its transcript's format, and Cursor's pointer is nullable).
   **The flush (G110 gate A, owner ruling 2026-10-07):** the
   same command is also registered under `PreCompact` and `SessionEnd` (install.sh step 5b, both harnesses; the app's
   Connect through `flushOn`). Stop stays the trigger (TODO ruling 7): a flush is the same idempotent request —
@@ -310,9 +310,61 @@ model lives per turn instead (round 4, G49's reservation lifted for harness writ
 - `turn_authorship.py` joins the two at read (`authorModel`/`authorEffort`), never guessed and
   never self-reported.
 
-An app with no capture hook (the Claude app, ChatGPT, Cursor, a remote connector) has no turn to
-join, and neither does a Codex MCP write, because Codex gives an MCP server no session id. The app
+An app with no capture hook (the Claude app, ChatGPT, a remote connector) has no turn to
+join, and neither does a Codex MCP write, because Codex gives an MCP server no session id; nor yet does a Cursor
+or Gemini CLI MCP write, whose captured episode exists but whose MCP session is not tied to it. The app
 then says the model wasn't shared.
+
+#### Capture from every agent (capture-everywhere, 2026-10-14)
+
+Owner, 2026-10-14: "The idea is for this to be an all-rounded capture and use of all providers." Every agent is
+captured by its own documented hook, never by a model choosing to call a tool (G105), keeping only the person's
+turns and the agent's final reply. Where a hook carries the words themselves, the hook posts those strings and
+the backend opens nothing; where it carries only a transcript path, the backend reads the transcript under the
+harness root (above). Docs checked 2026-10-14; "unverified" means built from the documented payload with synthetic
+fixtures, not yet run against the installed app.
+
+| Agent | Documented hook or export | What it carries | What Cicada captures |
+|---|---|---|---|
+| Claude Code | `Stop` (+ `PreCompact`/`SessionEnd` flush) | `session_id`, `transcript_path` (JSONL) | Every session (G105), verified |
+| Codex | `Stop` in `~/.codex/hooks.json` | `session_id`, `transcript_path` (JSONL) | Every session (G105); payload R9-unverified |
+| Cursor | `beforeSubmitPrompt`, `afterAgentResponse` in `~/.cursor/hooks.json` | `prompt`; `text` (final reply); `conversation_id`, `generation_id`, `model`; `transcript_path` nullable, format undocumented | Every local chat, per turn (`turn_capture`); unverified |
+| Gemini CLI | `AfterAgent` in `~/.gemini/settings.json` | `prompt`, `prompt_response`, `stop_hook_active`, `session_id`; `transcript_path` format undocumented | Every session, per exchange (`turn_capture`); unverified |
+| Claude app (desktop) | none; MCP only | — | Only what it saves through MCP; its chats arrive by the claude.ai data export import (G197) |
+| Claude on the web, ChatGPT, Grok | none; remote connector (G135) | — | Only what they save when asked; exports through the importers |
+| Windsurf (Cascade) | `pre_user_prompt`, `post_cascade_response` in `~/.codeium/windsurf/hooks.json` | `user_prompt`; `response`; `trajectory_id`, `execution_id` | Not yet: the same shape as Cursor, so it is a registry and an adapter on `/capture/turn` (G197) |
+| GitHub Copilot CLI | `userPromptSubmitted`, `agentStop` in `~/.copilot/hooks/` | `prompt`; the reply only inside `transcriptPath`, format undocumented | Not yet: the reply needs a transcript reader (G197) |
+| OpenCode | JS/TS plugins only (`~/.config/opencode/plugins/`) | events (`message.updated`, `session.idle`) with undocumented payloads | Not yet: needs a plugin, not a command hook (G197) |
+| Hermes, OpenClaw | no hooks documented | — | MCP saves only |
+
+**Per-turn capture (`api/services/turn_capture.py`, `POST /capture/turn`).** The hook posts `{harness, session_id,
+messages: [{speaker, text}], turn_id?, retry?, model?, cwd?, hook_event}` — one turn (Cursor) or one exchange (Gemini
+CLI), each text trimmed by the hook to 256k characters, never `transcript_path`, attachments, an email or a thought.
+The writer is the Stop hook's (`transcript_capture.write_session`): one episode per session (G104), the same body,
+`content_hash`, `turns` sidecar, G110 metadata and `capture_kind: transcript`, so continuity, titles and the Reader
+read it unchanged. A posted turn is cleaned like a transcript turn (`transcript_extract.clean_turn`: code fences
+stripped, `episode_scrub`, 16k for the first person message, 2k head or head+gap+tail for the rest). **The episode
+is the state:** `hook_turns` (outside the hash, before `turns`) records each kept turn's offset, speaker, hook turn
+id, time, model and reply gap, so the next firing splits the body back into turns; a body that does not re-render
+byte for byte from it is refused unwritten (`state_mismatch`). Cursor turns are keyed by `generation_id`: a re-fire
+with the same text is `unchanged`, a later reply for the same run replaces the earlier one (only the final reply is
+kept), and a reply lands after its own prompt even when a follow-up was queued. Gemini CLI exchanges carry no id:
+the same exchange again is `unchanged`, a `stop_hook_active` retry of the last prompt replaces its reply, and
+anything else appends. The session cap is gate B2's (`transcript_extract.window`): once the middle is dropped it
+cannot be re-read, so the head stays fixed and the tail sheds its oldest turns a block at a time into the counted
+gap. The demo rule is the Stop hook's: the turn goes to the real bank left most recently, or `409`. A turn's time
+is the backend's arrival time (Cursor's payload has none).
+
+**Cursor's hook** (`api/hooks/cursor.py`, one command): `sessionStart` is startup context (`mcp.md`);
+`beforeSubmitPrompt` always prints `{"continue": true}` and posts with a 1.2 s bound (it holds the person's
+message); `afterAgentResponse` posts with 3 s. `CICADA_CAPTURE=off`, a remote session (`CURSOR_CODE_REMOTE`) and
+a payload over 1 MiB post nothing. `cursor_registry --hook startup|capture` makes them two switches in
+`~/.cursor/hooks.json`, every other tool's entries kept; `/agents/wiring` reports capture as Cursor's `autosave`,
+with its install in `connect` and its removal in `autosave_off`. **Gemini CLI** runs the capture script as
+`capture.py --harness gemini-cli` under `AfterAgent` (registered by the setup prompt the person's own agent runs;
+`registry.py` writes its timeout in milliseconds), prints `{}` and posts the exchange. Both log one line per
+firing to `capture.log` in the Stop hook's shape (`<harness> <sid8> <event> <outcome>`), never content: a
+validation error's echoed `detail` is logged as `invalid request`.
 
 ### Sleep — 5-stage nightly batch
 1. **Entity & relationship extraction** — LLM over episode chunks, structured output.

@@ -1,7 +1,9 @@
 """Cursor docs/hooks v1, checked 2026-10-08. Synthetic; no installed Cursor.
 
-Nullable transcript_path proves neither confinement nor final-message format.
-Only local interactive sessionStart is supported; stop must never capture.
+Nullable transcript_path proves neither confinement nor final-message format,
+so it is never read. sessionStart is startup context; the person's turns and the
+agent's replies are captured from beforeSubmitPrompt/afterAgentResponse
+(test_cursor_capture.py); stop, thoughts and tools never post.
 """
 import importlib.util
 import io
@@ -63,8 +65,8 @@ def test_documented_startup_schema_allowlists_values(tmp_path, monkeypatch):
     assert not any(s in logs + json.dumps(body) for s in ("sentinel@", "environment@", "SECRET_EXTRA", "must-not-open", "synthetic-model"))
 
 
-@pytest.mark.parametrize("change", [{"hook_event_name": "stop"}, {"hook_event_name": "afterAgentResponse"},
-    {"hook_event_name": "beforeSubmitPrompt"}, {"is_background_agent": True},
+@pytest.mark.parametrize("change", [{"hook_event_name": "stop"}, {"hook_event_name": "afterAgentThought"},
+    {"hook_event_name": "preCompact"}, {"is_background_agent": True},
     {"is_background_agent": "false"}, {"session_id": "different-session"}, {"conversation_id": "bad\nvalue"}])
 def test_unsupported_events_and_unsafe_sessions_never_post(tmp_path, monkeypatch, change):
     payload = {**json.loads(FIXTURE.read_text()), **change, "transcript_path": "/outside/unreadable.jsonl"}

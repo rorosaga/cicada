@@ -1,13 +1,20 @@
-"""Small local Cursor setup/status adapter, not a capture or engine provider."""
+"""Small local Cursor setup/status adapter: startup context and turn capture, never an engine.
+
+Two switches in the user's ``~/.cursor/hooks.json``, one command (``api/hooks/cursor.py``):
+``autorecall`` is the ``sessionStart`` startup hook, ``autosave`` the
+``beforeSubmitPrompt`` + ``afterAgentResponse`` capture hooks (``turn_capture``).
+``connect`` carries the capture install — the same place Claude Code's Stop hook
+sits — because Cursor's MCP registration is its own install link."""
 from api.hooks import cursor_registry
 from api.services import runtime_layout
 
 ID = "cursor"
 EVENTS = ("session_start",)
-CAPABILITIES = {"startup": "documented", "capture": "unsupported", "surface": "local-ide", "verification": "synthetic"}
+CAPABILITIES = {"startup": "documented", "capture": "documented", "surface": "local-ide", "verification": "synthetic"}
 SETTINGS = ".cursor/hooks.json"
-NOTE = ("Cursor asks you to confirm MCP. Turn on startup context separately, then open a new local chat. "
-        "Automatic capture is unsupported. Startup timing in installed Cursor is unverified.")
+NOTE = ("Cursor asks you to confirm MCP. Startup context and saving chats are each their own switch; "
+        "then open a new local chat. Saving keeps what you type and each final reply, never files, tools or "
+        "thinking. Both are built from Cursor's hook docs and not yet checked in an installed Cursor.")
 
 
 def _quote(value):
@@ -31,13 +38,18 @@ def steps(*, home, repo, python):
     prefix = registry_argv(python, repo)
     path = str(home / SETTINGS)
     touches = ["~/" + SETTINGS]
-    return {"on": [_step("autorecall", prefix + ["install", "--settings", path, "--command", command(python, repo)], touches)],
-            "off": [_step("autorecall-off", prefix + ["uninstall", "--settings", path], touches)]}
+    cmd = command(python, repo)
+    return {"on": [_step("autorecall", prefix + ["install", "--settings", path, "--command", cmd], touches)],
+            "off": [_step("autorecall-off", prefix + ["uninstall", "--settings", path, "--hook", "startup"], touches)],
+            "save_on": [_step("hook", prefix + ["install", "--settings", path, "--command", cmd, "--hook", "capture"],
+                              touches)],
+            "save_off": [_step("hook-off", prefix + ["uninstall", "--settings", path, "--hook", "capture"], touches)]}
 
 
 def setup(*, home, repo, python, spec):
     from api.services.agent_wiring import cursor_deeplink
-    on = steps(home=home, repo=repo, python=python)["on"]
+    commands = steps(home=home, repo=repo, python=python)
+    on = commands["on"] + commands["save_on"]
     return {"harness": ID, "kind": "deeplink", "title": "Connect Cursor", "deeplink": cursor_deeplink(spec),
             "argv": [s["argv"] for s in on], "display": [s["display"] for s in on], "note": NOTE}
 
@@ -47,12 +59,16 @@ def wiring(*, home, repo, python):
     if not (home / ".cursor").is_dir():
         return {"id": ID, "installed": False, "binary": None, "recall": "off", "autosave": "n/a",
                 "connect": [], "capabilities": dict(CAPABILITIES), "detail": NOTE}
-    state = {"present": "on", "absent": "off", "stale": "stale", "invalid": "invalid"}[
-        cursor_registry.status(home / SETTINGS, command=command(python, repo))]
+    words = {"present": "on", "absent": "off", "stale": "stale", "invalid": "invalid"}
+    cmd = command(python, repo)
+    state = words[cursor_registry.status(home / SETTINGS, command=cmd, hook="startup")]
+    save = words[cursor_registry.status(home / SETTINGS, command=cmd, hook="capture")]
     commands = steps(home=home, repo=repo, python=python)
     return {"id": ID, "installed": True, "binary": None,
-            "recall": config_state(ID, home), "autosave": "n/a", "connect": [], "autorecall": state,
+            "recall": config_state(ID, home), "autosave": save,
+            "connect": commands["save_on"] if save in ("off", "stale") else [], "autorecall": state,
             "autorecall_on": commands["on"] if state in ("off", "stale") else [],
             "autorecall_off": commands["off"] if state in ("on", "stale") else [],
+            "autosave_off": commands["save_off"] if save in ("on", "stale") else [],
             "capabilities": dict(CAPABILITIES),
             "detail": ("~/.cursor/hooks.json is invalid or unreadable; repair it before retrying. " if state == "invalid" else "") + NOTE}

@@ -58,10 +58,15 @@ def test_the_prompt_is_short_plain_and_says_what_it_touches(harness):
     assert "change nothing else" in prompt and "uploads nothing" in prompt
 
 
-def test_gemini_gets_its_own_add_command_and_no_hook():
-    assert _setup("gemini-cli")["argv"] == [[
+def test_gemini_gets_its_own_add_command_and_its_after_agent_hook():
+    setup = _setup("gemini-cli")
+    assert setup["argv"] == [[
         "/opt/homebrew/bin/gemini", "mcp", "add", "-s", "user", "-e", f"CICADA_MEMORY_PATH={MEM}",
-        "cicada", PY, f"{REPO}/mcp/server.py"]]
+        "cicada", PY, f"{REPO}/mcp/server.py"],
+        [PY, f"{REPO}/api/hooks/registry.py", "install", "--settings", str(HOME / ".gemini/settings.json"),
+         "--event", "AfterAgent", "--command", f'"{PY}" "{REPO}/api/hooks/capture.py" --harness gemini-cli']]
+    assert len(setup["prompt"]) <= agent_wiring.PROMPT_MAX_CHARS
+    assert "saves our conversations" in setup["prompt"]
 
 
 def test_a_cli_the_backend_cannot_find_is_named_bare():
@@ -71,7 +76,8 @@ def test_a_cli_the_backend_cannot_find_is_named_bare():
 def test_cursor_gets_its_install_link_with_the_server_inside():
     setup = _setup("cursor")
     assert (setup["kind"], setup.get("prompt")) == ("deeplink", None)
-    assert len(setup["argv"]) == 1 and setup["argv"][0][1].endswith("/api/hooks/cursor_registry.py")
+    assert len(setup["argv"]) == 2 and all(a[1].endswith("/api/hooks/cursor_registry.py") for a in setup["argv"])
+    assert setup["argv"][1][-2:] == ["--hook", "capture"]
     link = setup["deeplink"]
     assert link.startswith("cursor://anysphere.cursor-deeplink/mcp/install?name=cicada&config=")
     assert json.loads(base64.b64decode(unquote(link.split("config=", 1)[1]))) == SPEC

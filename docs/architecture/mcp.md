@@ -337,8 +337,8 @@ offers it separately under Remembers automatically. Release commands use the sta
 `cicada-hook cursor` / `cursor_registry` launcher verbs, not bundle paths. MCP uses its existing
 install link or [global MCP config](https://cursor.com/docs/mcp); enabling MCP never implies hook delivery.
 
-`api/hooks/cursor.py` is stdlib/run-by-path, accepts at most64KB of synthetic-schema-equivalent input,
-allowlists `sessionStart`, uses equal stable `conversation_id`/`session_id` (never generation id), and
+`api/hooks/cursor.py` is stdlib/run-by-path; for startup it accepts at most 64KB of synthetic-schema-equivalent
+input (capture events up to 1 MiB), allowlists `sessionStart`, uses equal stable `conversation_id`/`session_id` (never generation id), and
 skips background/remote sessions. A single valid absolute `workspace_roots` entry supplies the cwd;
 the user-hook process cwd is `~/.cursor` and is never substituted. Missing/multiple/invalid roots get
 only the primer, without a continuity selection or git observation. Optional identity uses the same
@@ -352,16 +352,18 @@ ids/hashes/times are recorded; no episode is created. Pass the episode in the hi
 
 **Capability/status honesty.** `/agents/wiring` adds the Cursor row: `recall` is MCP *registration*
 state (live connectivity remains `/agents/live`); `autorecall` is startup hook *configuration* state;
-`autosave: n/a` and `capabilities.capture: unsupported` mean no automatic capture. Capabilities also
+`autosave` is the capture hooks' configuration state (capture-everywhere, 2026-10-14: `capabilities.capture:
+documented`; `capture-and-sleep.md`, *Capture from every agent*). Capabilities also
 label `startup: documented`, `surface: local-ide`, `verification: synthetic`. Recognised config-directory
 presence supplies `installed`, not an app binary/version probe. Current docs say startup is
 fire-and-forget: actual installed timing, first-prompt delivery, model tool choice and rendered UI
 remain unverified, with no claimed minimum Cursor build. CLI, cloud and remote delivery are not
 supported by this local IDE adapter. The docs' nullable common transcript pointer does not establish
-a trusted confined root, format or final-message ordering contract. **No Stop hook is installed, no
-Cursor transcript is read and `/capture/transcript` still rejects Cursor.** There is no response/tool
-accumulation fallback, followup message, artificial prompt or dynamic rule. Capture support requires
-a separate proved confinement/format contract and the existing sole backend reader.
+a trusted confined root, format or final-message ordering contract, so **no Stop hook is installed, no
+Cursor transcript is read and `/capture/transcript` still rejects Cursor.** Capture instead takes the words the
+documented `beforeSubmitPrompt.prompt` and `afterAgentResponse.text` carry, through `POST /capture/turn`
+(`capture-and-sleep.md`); there is still no tool accumulation, thought capture, followup message, artificial
+prompt or dynamic rule.
 
 - **Identity (B2, D2).** Exact `sha256(cwd)[:16]` remains first. Only the stdlib harness-side hook may run
   the fixed `git -c core.fsmonitor=false rev-parse --path-format=absolute` pair with `--git-common-dir` and

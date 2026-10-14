@@ -538,6 +538,53 @@ def extract_codex(
     return b.finish(session_id, cwd)
 
 
+def clean_turn(role: str, text: str, *, first: bool, ts: str | None = None,
+               model: str | None = None) -> tuple[Turn | None, dict]:
+    """One turn through the SAME cleaning a transcript turn gets — code fences
+    stripped, secrets scrubbed, the first person message capped at 16k and every
+    other turn at 2k (a reply as head + recorded gap + tail) — for a harness
+    whose hook posts each turn's text instead of a transcript path
+    (``turn_capture``: Cursor, Gemini CLI). ``first`` says whether this is the
+    session's first person turn. Returns the turn (``None`` when nothing is left
+    after cleaning) and the counts the ledger reads."""
+    b = _Builder("posted", keep_assistant=True, turn_cap=TURN_CAP_CHARS, session_cap=SESSION_CAP_CHARS)
+    b.first_user_seen = not first
+    b._add(role, text, ts, model=clean_model(model) if role == "assistant" else None)
+    counts = {"scrubbed": b.scrubbed, "truncated_turns": b.truncated_turns,
+              "first_request_clipped": b.first_request_clipped}
+    return (b.turns[0] if b.turns else None), counts
+
+
+def window(turns: list[Turn], gap: Gap | None, *, session_cap: int = SESSION_CAP_CHARS,
+           tail_block: int = TAIL_BLOCK_TURNS) -> tuple[list[Turn], Gap | None]:
+    """Gate B2 for a session held turn by turn (``turn_capture``), where the
+    dropped middle is gone and cannot be re-read. Without a gap this is
+    :meth:`_Builder._window` exactly. With one, the head is fixed — its offsets
+    never move, the property B2 exists for — and the tail sheds its oldest turns
+    a block at a time into the gap until it fits the tail share, never the
+    latest turn."""
+    if gap is None:
+        b = _Builder("posted", keep_assistant=True, turn_cap=TURN_CAP_CHARS, session_cap=session_cap,
+                     tail_block=tail_block)
+        b.turns = list(turns)
+        b._window()
+        return b.turns, b.gap
+    head, tail = list(turns[:gap.after]), list(turns[gap.after:])
+    num, den = HEAD_SHARE
+    tail_cap = session_cap - session_cap * num // den
+    dropped: list[Turn] = []
+    while len(tail) > 1 and sum(len(t.text) for t in tail) > tail_cap:
+        k = min(max(1, tail_block), len(tail) - 1)
+        dropped.extend(tail[:k])
+        tail = tail[k:]
+    if not dropped:
+        return head + tail, gap
+    stamps = [t.ts for t in dropped if t.ts]
+    return head + tail, Gap(after=gap.after, dropped=gap.dropped + len(dropped),
+                            first_at=gap.first_at or (stamps[0] if stamps else None),
+                            last_at=stamps[-1] if stamps else gap.last_at)
+
+
 def extract(harness: str, lines: Iterable[str], **kw) -> Conversation:
     if harness == "claude-code":
         return extract_claude_code(lines, **kw)

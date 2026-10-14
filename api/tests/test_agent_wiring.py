@@ -117,7 +117,25 @@ def test_gemini_cli_is_read_only(tmp_path):
     (tmp_path / ".gemini").mkdir()
     (tmp_path / ".gemini/settings.json").write_text(json.dumps({"mcpServers": {"cicada": {}}}), encoding="utf-8")
     row = _row(_probe(tmp_path, resolve=lambda name: name), "gemini-cli")
-    assert (row["recall"], row["autosave"], row["connect"]) == ("on", "n/a", [])
+    # Capture-everywhere: the AfterAgent hook's state is reported, but nothing is
+    # offered to run — the setup prompt the person's own agent runs turns it on.
+    assert (row["recall"], row["autosave"], row["connect"]) == ("on", "off", [])
+
+
+def test_gemini_cli_autosave_reads_its_after_agent_hook(tmp_path):
+    settings = tmp_path / ".gemini/settings.json"
+    settings.parent.mkdir()
+    settings.write_text(json.dumps({"mcpServers": {"cicada": {}}}), encoding="utf-8")
+    step = agent_wiring.gemini_hook_step(home=tmp_path, repo=REPO, python=PY)
+    assert step["argv"][-4:-2] == ["--event", "AfterAgent"]
+    hook_registry.install(settings, event="AfterAgent", command=step["argv"][-1])
+    data = json.loads(settings.read_text())
+    assert data["mcpServers"] == {"cicada": {}}
+    assert data["hooks"]["AfterAgent"][0]["hooks"][0]["timeout"] == 5000  # Gemini CLI counts milliseconds
+    row = _row(_probe(tmp_path, resolve=lambda name: name), "gemini-cli")
+    assert (row["autosave"], row["connect"]) == ("on", [])
+    settings.write_text("{not json", encoding="utf-8")
+    assert _row(_probe(tmp_path, resolve=lambda name: name), "gemini-cli")["autosave"] == "invalid"
 
 
 def test_the_probe_never_writes(tmp_path):

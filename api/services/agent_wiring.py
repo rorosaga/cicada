@@ -248,6 +248,20 @@ def gemini_mcp_step(binary: str, *, memory_root: Path, repo: Path, python: str) 
                          "cicada", *runtime_layout.mcp_argv(python, repo)], [f"~/{GEMINI_SETTINGS}"])
 
 
+#: Capture-everywhere: Gemini CLI's end-of-turn hook carries the prompt and the reply.
+GEMINI_CAPTURE_EVENT = "AfterAgent"
+
+
+def gemini_hook_step(*, home: Path, repo: Path, python: str) -> dict:
+    """The capture hook under ``AfterAgent`` in ``~/.gemini/settings.json``, merged
+    in by ``registry.py`` (same nested shape as Claude Code's; its timeout is in
+    milliseconds, which ``registry.default_timeout`` picks from the event). Served,
+    like the MCP step, only inside the prompt the person's own agent runs."""
+    return _step("hook", [*runtime_layout.registry_argv(python, repo), "install",
+                          "--settings", str(home / GEMINI_SETTINGS), "--event", GEMINI_CAPTURE_EVENT,
+                          "--command", hook_command(python, repo, "gemini-cli")], [f"~/{GEMINI_SETTINGS}"])
+
+
 def server_spec(*, memory_root: Path, repo: Path, python: str) -> dict:
     """The MCP server as a config object — the shape `ConnectView.swift` already
     writes for Cursor and the Claude app."""
@@ -357,9 +371,11 @@ def setup(harness: str, *, home: Path, memory_root: Path, repo: Path = REPO_ROOT
                                        hook_step(h, home=home, repo=repo, python=python)])
     if harness == "gemini-cli":
         binary = resolve("gemini") or "gemini"
-        return _prompt_setup(harness, [gemini_mcp_step(binary, memory_root=memory_root, repo=repo, python=python)],
+        return _prompt_setup(harness, [gemini_mcp_step(binary, memory_root=memory_root, repo=repo, python=python),
+                                       gemini_hook_step(home=home, repo=repo, python=python)],
                              note="Once it's done, start a new Gemini CLI session so it can see your memory. "
-                                  "Gemini CLI conversations aren't saved into Cicada on their own yet.")
+                                  "Saving keeps what you type and each final reply; it is built from Gemini CLI's "
+                                  "hook docs and not yet checked in an installed Gemini CLI.")
     if harness in harness_integrations.LOCAL:
         return harness_integrations.LOCAL[harness].setup(home=home, repo=repo, python=python, spec=spec)
     if harness == "claude-desktop":
@@ -486,7 +502,7 @@ async def _harness(h: Harness, *, home: Path, memory_root: Path, repo: Path, pyt
 CONFIG_AGENT_BINARIES = {"gemini-cli": "gemini", "opencode": "opencode", "hermes": "hermes", "openclaw": "openclaw"}
 
 
-def _config_agent(agent_id: str, home: Path, resolve) -> dict:
+def _config_agent(agent_id: str, home: Path, resolve, *, python: str | None = None, repo: Path | None = None) -> dict:
     """Read-only until the app has verified a registration command for it
     (R-IA15, R-AG3): the row reports the agent's own config and offers nothing.
     Dict order is the row order — Gemini CLI stays where it was, the three
@@ -495,8 +511,18 @@ def _config_agent(agent_id: str, home: Path, resolve) -> dict:
     if binary is None:
         return {"id": agent_id, "installed": False, "binary": None, "recall": "off",
                 "autosave": "n/a", "connect": [], "detail": None}
+    autosave = "n/a"
+    if agent_id == "gemini-cli" and python is not None and repo is not None:
+        # Capture-everywhere: read-only like recall — the hook is turned on by the
+        # setup prompt the person's own agent runs, never by an argv offered here.
+        try:
+            hook_registry.load(home / GEMINI_SETTINGS)
+            autosave = {"present": "on", "absent": "off", "stale": "stale"}[hook_registry.status(
+                home / GEMINI_SETTINGS, event=GEMINI_CAPTURE_EVENT, command=hook_command(python, repo, agent_id))]
+        except hook_registry.RegistryError:
+            autosave = "invalid"
     return {"id": agent_id, "installed": True, "binary": binary, "recall": config_state(agent_id, home),
-            "autosave": "n/a", "connect": [], "detail": None}
+            "autosave": autosave, "connect": [], "detail": None}
 
 
 async def probe(*, home: Path, memory_root: Path, repo: Path = REPO_ROOT, python: str | None = None,
@@ -511,6 +537,6 @@ async def probe(*, home: Path, memory_root: Path, repo: Path = REPO_ROOT, python
     by_id = {h.id: h for h in HARNESSES}
     rows = [{**row, **autorecall_fields(by_id[row["id"]], home=home, repo=repo, python=python)}
             if row["installed"] else row for row in rows]
-    return {"agents": [*rows, *(_config_agent(a, home, resolve) for a in CONFIG_AGENT_BINARIES),
+    return {"agents": [*rows, *(_config_agent(a, home, resolve, python=python, repo=repo) for a in CONFIG_AGENT_BINARIES),
                        *(adapter.wiring(home=home, repo=repo, python=python) for adapter in harness_integrations.LOCAL.values())], "python": python,
             "repo": str(repo), "memory": str(memory_root)}
