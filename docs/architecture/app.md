@@ -79,7 +79,7 @@ plan window's share) and a plan's before → after carries the honest limit that
 (`CycleUsageText`, `UsageFormat.currency`).
 
 **Navigation (Direction D, DS-1).** A 56 pt icon rail (`Views/Shell/NavRail.swift`): Home, Graph, Clusters, Feed,
-Sleep, Inbox, Sources, Projects at ⌘1–8 in `AppTab.allCases` order (`RailItem`; a page switch is instant), each cell's tooltip
+Sleep, Inbox, Sources, Projects, Looks at ⌘1–9 in `AppTab.allCases` order (`RailItem`; a page switch is instant), each cell's tooltip
 naming its page and shortcut (450 ms, then instant while warm), selection by brightness and one neutral fill
 (`bgSelected` — never the accent, `SelectionTintLintTests`), the Inbox count a neutral `bgBadge` numeral, a spinner on
 Sleep while a cycle runs, the gear and the sun/moon toggle at its foot, no wordmark. ⌃⌘S or the titlebar toggle swaps it
@@ -471,6 +471,24 @@ the demo scenario's real wire, `app/CicadaApp/Tests/fixtures/projects-demo.json`
   (the whole run) stays on the search-model switch, whose route refuses while any run goes, and on what stops the
   backend (the background install, Restart to update and the updater's cached check), since that ends a drain between
   batches too. L · M · D are key presses on the focused project (the Inbox's O / L precedent), never menu key equivalents.
+
+**Looks (design taste, owner 2026-10-14).** The ninth rail page (⌘9, `paintpalette`, after Projects so no shortcut
+moves; the placement is the owner's call). A board of the looks the person likes over `GET /design`, not a Store domain:
+`LooksCache` (in the page, in memory) revalidates by ETag when the page appears, after a write, when an SSE version moves
+`design` or `bank` (`LooksRefresh`), and is emptied on a bank switch. `LooksBoardView` is pure over its inputs (the page
+feeds it the cache; the offscreen renders feed it fixtures): the eyebrow (`Looks · 5 saved`, `… · 3 matches`), a search
+field (⏎ searches by words through `POST /design/search`; the board re-ranks), `+` (an image file), and, when this Mac
+supports it but the image model isn't here, one row (DR-37) saying what it is for and its download size with *Turn on*
+(`POST /embeddings/install` with `part: vision`; the page polls while it installs). Tiles: the screenshot through
+`StoredPreview` (`PictureURL` accepts `/design/…` as Cicada's own API), its colours as one proportional strip, the site
+and the day. A click opens the reference beside the board: the screenshot, the link, *What you liked*, the colours with
+their share and words (pills), the type, the snippets (`MarkdownBody` code blocks), who saved it and how, *Remove from
+Looks*. A picture dropped anywhere on the page or pasted (⌘V, `onPasteCommand` — never `NSPasteboard.general`) is
+shrunk by `DesignImageShrink` (≤ 2560 px; PNG ≤ 1.5 MB else JPEG) and opens `LooksComposer`: link, name, note,
+*Find similar* (a picture search) or *Save to Looks* (the one primary action). The app reads the file or the image and
+posts bytes; every colour, token and ranking is the server's. Copy is `Theme/Copy+Looks.swift`, provider-neutral.
+Renders: `LooksTests.testRenderTheBoardForReview` with `LOOKS_RENDER_DIR`; a hosting-view capture cannot draw Liquid
+Glass, so the composer's action row (`LooksComposerActions`, Save the one primary) is also rendered with `ImageRenderer`.
 
 **Sleep page — the study room (G125 v4, Track Z).** The room and the worm are Aseprite sprite sheets; to watch every
 animation, open `app/CicadaApp/Art/sprites/bookworm-2026-10-01/preview.html` in a browser (*The sprite art and its
@@ -875,8 +893,10 @@ so there is no `VersionVector` mapping — slices every offset as a Unicode scal
 `quoteParts`: deletion only, so every span maps exactly; the Reader keeps a turn's lines, drawing a bullet as "•"),
 shows a time only when the episode stores one, and says stale / grown / derived /
 inferred / truncated in words — a span its rewritten document no longer reaches (the server's 422) is
-stale too, never "couldn't open". The entity card's "Where this came from" (Content, after the page and its beliefs) reads
-`/entities/{id}/provenance` once per card; G61's section is "Look it up at". Chips read the router
+stale too, never "couldn't open". The entity card's "Where this comes from" (Content, after the page and its beliefs) reads
+`/entities/{id}/provenance` once per card and `/entities/{id}/sources/overview` when the section or the beliefs list
+opens (both through `ProvenanceCache`);
+G61's sources, the page's links and its conversations by app are one section since 2026-10-14 (`features.md`). Chips read the router
 and cache as optional environment values, so a chip outside the main window renders without a
 click-through rather than trapping; the Ask sheet steps aside when the Reader
 opens (the Belief Timeline is inline in its tab since DS-3a), and a bank switch closes it and empties the cache (episode ids repeat across banks).

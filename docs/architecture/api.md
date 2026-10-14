@@ -28,6 +28,23 @@ The ETag retains entities/episodes/git_head, author shape and current day, and a
 ship together. R-PB11 still applies:
 asked on demand, cached in memory, not a Store domain or a new VersionVector component.
 
+**Where a page's knowledge comes from (owner 2026-10-14, G61).** `GET /entities/{id}/sources/overview`
+(`page_sources.overview`) answers the card's one section in one read: `sources[]` (each the `/sources` entry plus
+`site`, a `title` (the page's `## Links` title for that URL, else the name of the saved page `entity:` links it to —
+never fetched), `scope` `fact|site|page` and the current beliefs of its predicate it backs — at most
+`MAX_FACTS` 4, newest first, with `factCount`; a happening, milestone or withdrawal record is never a fact a source
+backs, though it still counts toward the conversations), `links[]` (the `## Links` lines that are not sources, at most
+`MAX_LINKS` 12 with `linksTotal`, each with `cameFrom` — the conversation its section-provenance record names, with
+the evidence the Reader opens), `conversations` (`total`, `firstSaid`/`lastSaid`, `apps[]` by harness else origin:
+conversations, beliefs and passages backed, last said — grouped by `provenance.conversation_groups`, the grouping
+`/provenance` uses, so the totals agree), `factsTotal`, `factsWithSource` and `lastChecked` (the newest `verified`
+or `checked` stamp). Engine-free, never fetches, writes nothing; bounded so an owner-sized page answers in kilobytes,
+and linear in beliefs + episodes (episode → beliefs/passages inverted once; review B1: ~170 ms warm at 5,900 beliefs over
+3,000 conversations). The card reads it when the section opens or the beliefs list shows, never on every open.
+ETag over `entities`+`episodes` with `extra` = `page_sources.SHAPE|<page>|<today>` (what is a current belief moves at
+midnight). R-PB11: asked on demand and cached in memory by `ProvenanceCache.sourcesOverview`, not a Store domain, no
+`VersionVector` mapping. The wire is pinned on both sides by `api/tests/fixtures/page_sources_overview.json`.
+
 **Auth.** Every endpoint except `GET /healthz`, `POST /capture/telegram`, an OAuth adapter's
 `GET /sources/connectors/{id}/callback`, and OpenRouter's sign-in landing
 `GET /connections/byok-openrouter/callback/<nonce>` (R-AG10 — gated by its own single-use, 10-minute nonce

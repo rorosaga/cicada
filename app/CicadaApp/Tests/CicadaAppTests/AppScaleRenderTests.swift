@@ -27,7 +27,7 @@ final class AppScaleRenderTests: XCTestCase {
             for (name, width) in [("wide", CGFloat(992)), ("column", GraphColumns.entityMax - 48)] {
                 let main = VStack(alignment: .leading, spacing: CicadaTheme.spacingCard) {
                     PersonBeliefsSection(ordered: digest.newestFirst)
-                    WhereThisCameFromSection(entityId: f.ownerId, state: .loaded(f.provenance))
+                    Self.pageSources(f)
                 }
                 let aside = PersonMapSection(personId: f.ownerId, name: "Owner Example", isOwner: true,
                                              navigate: { _ in }, showOnGraph: {})
@@ -37,6 +37,7 @@ final class AppScaleRenderTests: XCTestCase {
                     .background(CicadaTheme.bgBase)
                     .environment(store)
                     .environment(graph)
+                    .environment(AppRouter())
                     .environment(\.colorScheme, mode == .dark ? .dark : .light)
                 try write(view, width: width + CicadaTheme.spacingLG * 2,
                           to: dir, file: "owner-content-\(name)-\(mode == .dark ? "dark" : "light").png")
@@ -138,18 +139,16 @@ final class AppScaleRenderTests: XCTestCase {
                                    isOpen: .constant(open)) {
                         PersonBeliefsSection(ordered: digest.newestFirst, showsLabel: false)
                     }
-                    CardDisclosure(title: Copy.Provenance.whereThisCameFrom,
-                                   summary: Copy.Graph.conversationsSummary(f.provenance.totals.conversations),
+                    CardDisclosure(title: Copy.PageSources.title,
+                                   summary: PageSourcesWords.summary(Self.ownerOverview(f)),
                                    isOpen: .constant(open)) {
-                        WhereThisCameFromSection(entityId: f.ownerId, state: .loaded(f.provenance), showsLabel: false)
+                        Self.pageSources(f)
                     }
                     CardDisclosure(title: PersonMapLayout.title(name: "Owner Example", isOwner: true),
                                    isOpen: .constant(open)) {
                         PersonMapSection(personId: f.ownerId, name: "Owner Example", isOwner: true, showsLabel: false,
                                          navigate: { _ in }, showOnGraph: {})
                     }
-                    // A spinner does not draw offscreen; the sources section stays closed here.
-                    CardDisclosure(title: Copy.Provenance.lookItUpAt, isOpen: .constant(false)) { EmptyView() }
                     CardDisclosure(title: Copy.Graph.details, summary: Copy.Graph.detailsSummary, isOpen: .constant(false)) {
                         EmptyView()
                     }
@@ -160,11 +159,41 @@ final class AppScaleRenderTests: XCTestCase {
                 .background(CicadaTheme.bgBase)
                 .environment(store)
                 .environment(graph)
+                .environment(AppRouter())
                 .environment(\.colorScheme, mode == .dark ? .dark : .light)
                 try write(view, width: width + CicadaTheme.spacingLG * 2, to: dir,
                           file: "wiki-card-\(open ? "sections-open" : "sections-closed")-\(mode == .dark ? "dark" : "light").png")
             }
         }
+    }
+
+    /// The owner's "Where this comes from" (owner 2026-10-14): two profile sources for facts, the conversations by
+    /// app — the same totals the fixture's provenance carries.
+    static func ownerOverview(_ f: OwnerScaleFixture.Type) -> PageSourcesOverview {
+        let works = PageSource(source: PageSourcesTests.source("https://profile.example.org/owner-example",
+                                                               predicate: "works-at"),
+                               site: "example.org", scope: .fact,
+                               facts: [PageSourceFact(claimId: "clm_w", text: "Owner Example works at alpha-co",
+                                                      predicate: "works-at")])
+        let agentFound = PageSource(source: PageSourcesTests.source("https://code.example.com/owner-example",
+                                                                    predicate: "works-on", addedBy: "claude-code"),
+                                    site: "example.com", scope: .fact, factCount: 0)
+        let total = f.provenance.totals.conversations
+        return PageSourcesOverview(
+            entityId: f.ownerId, entityType: "person", sources: [works, agentFound],
+            conversations: PageConversations(total: total, lastSaid: f.provenance.totals.lastSaid,
+                                             apps: [PageSourceApp(harness: "claude-code", conversations: total,
+                                                                  facts: f.provenance.totals.claims,
+                                                                  lastSaid: f.provenance.totals.lastSaid)]),
+            factsTotal: f.provenance.totals.claims, factsWithSource: 1, lastChecked: nil)
+    }
+
+    @MainActor
+    static func pageSources(_ f: OwnerScaleFixture.Type) -> some View {
+        let overview = ownerOverview(f)
+        return PageSourcesSection(entityId: f.ownerId, entityType: .person, overview: overview, sourcesLoaded: true,
+                                  sources: .constant(overview.sources.map(\.source)),
+                                  provenance: .loaded(f.provenance))
     }
 
     @MainActor

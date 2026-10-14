@@ -1,0 +1,151 @@
+{
+  "entityId": "alpha-co",
+  "entityType": "company",
+  "sources": [
+    {
+      "ref": "https://alpha-co.example/",
+      "kind": "url",
+      "predicate": "website",
+      "addedBy": "agent",
+      "addedAt": "2026-09-30",
+      "accepted": false,
+      "onlyMe": false,
+      "verified": {
+        "at": "2026-10-02",
+        "how": "name+content"
+      },
+      "effectiveAccess": "unknown",
+      "trusted": true,
+      "site": "alpha-co.example",
+      "title": "Alpha Co",
+      "scope": "site",
+      "facts": [
+        {
+          "claimId": "clm_website_0",
+          "text": "alpha-co website https://alpha-co.example/",
+          "predicate": "website",
+          "context": "general"
+        }
+      ],
+      "factCount": 1
+    },
+    {
+      "ref": "https://example.org/alpha-co/team",
+      "kind": "url",
+      "predicate": "employs",
+      "addedBy": "user",
+      "addedAt": "2026-10-01",
+      "accepted": false,
+      "onlyMe": false,
+      "effectiveAccess": "unknown",
+      "trusted": true,
+      "checked": {
+        "at": "2026-10-05",
+        "outcome": "unconfirmed"
+      },
+      "site": "example.org",
+      "scope": "fact",
+      "facts": [
+        {
+          "claimId": "clm_employs_4",
+          "text": "alpha-co employs person-4",
+          "predicate": "employs",
+          "context": "general"
+        },
+        {
+          "claimId": "clm_employs_3",
+          "text": "alpha-co employs person-3",
+          "predicate": "employs",
+          "context": "general"
+        },
+        {
+          "claimId": "clm_employs_2",
+          "text": "alpha-co employs person-2",
+          "predicate": "employs",
+          "context": "general"
+        },
+        {
+          "claimId": "clm_employs_1",
+          "text": "alpha-co employs person-1",
+          "predicate": "employs",
+          "context": "general"
+        }
+      ],
+      "factCount": 5
+    },
+    {
+      "ref": "Ask bob-example",
+      "kind": "note",
+      "addedBy": "user",
+      "addedAt": "2026-10-03",
+      "accepted": false,
+      "onlyMe": false,
+      "effectiveAccess": "unknown",
+      "trusted": true,
+      "scope": "page",
+      "facts": [],
+      "factCount": 0
+    }
+  ],
+  "links": [
+    {
+      "url": "https://blog.example.net/launch",
+      "title": "Launch post",
+      "site": "example.net",
+      "note": "how the launch went",
+      "cameFrom": {
+        "episode": "ep_2026-09-03_001",
+        "title": "Later",
+        "harness": "claude-code",
+        "origin": "mcp",
+        "said": "2026-09-03T10:00:00+00:00",
+        "available": true,
+        "evidence": {
+          "episode": "ep_2026-09-03_001",
+          "start": 6,
+          "end": 30,
+          "kind": "user",
+          "hash": "290818bfcd11"
+        }
+      }
+    },
+    {
+      "url": "https://news.example.com/alpha-co",
+      "title": "",
+      "site": "example.com"
+    }
+  ],
+  "linksTotal": 2,
+  "conversations": {
+    "total": 3,
+    "firstSaid": "2026-08-12T09:00:00+00:00",
+    "lastSaid": "2026-09-03T10:00:00+00:00",
+    "apps": [
+      {
+        "harness": "claude-code",
+        "origin": "mcp",
+        "conversations": 1,
+        "facts": 5,
+        "passages": 0,
+        "lastSaid": "2026-09-03T10:00:00+00:00"
+      },
+      {
+        "origin": "chatgpt-export",
+        "conversations": 1,
+        "facts": 1,
+        "passages": 2,
+        "lastSaid": "2026-08-12T09:00:00+00:00"
+      },
+      {
+        "origin": "claude-export",
+        "source": "claude_memory",
+        "conversations": 1,
+        "facts": 1,
+        "passages": 0
+      }
+    ]
+  },
+  "factsTotal": 7,
+  "factsWithSource": 6,
+  "lastChecked": "2026-10-05"
+}

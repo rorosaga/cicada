@@ -3769,3 +3769,248 @@ def _content_tokens(text: str) -> set[str]:
     }
     raw = re.findall(r"[\w'-]+", (text or "").lower())
     return {token for token in raw if token not in stopwords and len(token) >= 2}
+
+
+# --------------------------------------------------------------------------- #
+# Design taste (2026-10-14): the looks the person likes
+# --------------------------------------------------------------------------- #
+
+DESIGN_SLEEPING = "Sleep is consolidating memory right now — try again in a minute. Nothing was saved."
+#: Where an agent's screenshot is never read from: the harnesses' own homes (transcripts live there — the
+#: "never read anywhere else" rail), Cicada's home and every bank, and ~/Library (the app's to read, not an agent's).
+_DESIGN_REFUSED_ROOTS = ("~/.claude", "~/.codex", "~/.cicada", "~/Library")
+
+
+def _design_refused_ids(memory_path: Path) -> set[tuple[int, int]]:
+    """The refused folders as file identities ``(st_dev, st_ino)`` — never as spellings. On macOS a path can be
+    re-cased (case-insensitive APFS), re-normalised (Unicode) or reached through a firmlink
+    (``/System/Volumes/Data/…``) and still name the same folder; its identity cannot change (review blocker,
+    2026-10-14)."""
+    import os
+
+    from api.services import runtime_layout
+
+    roots = [Path(os.path.expanduser(r)) for r in _DESIGN_REFUSED_ROOTS]
+    roots += [runtime_layout.cicada_home(), Path(memory_path)]
+    for env in ("CLAUDE_CONFIG_DIR", "CODEX_HOME"):
+        if os.environ.get(env):
+            roots.append(Path(os.environ[env]).expanduser())
+    ids: set[tuple[int, int]] = set()
+    for root in roots:
+        try:
+            st = os.stat(root)
+        except OSError:
+            continue
+        ids.add((st.st_dev, st.st_ino))
+    return ids
+
+
+def _design_inside_refused(path: Path, refused: set[tuple[int, int]]) -> bool:
+    """Whether ``path`` or any folder above it IS one of the refused folders, by identity."""
+    import os
+
+    for node in (path, *path.parents):
+        try:
+            st = os.stat(node)
+        except OSError:
+            continue
+        if (st.st_dev, st.st_ino) in refused:
+            return True
+    return False
+
+
+def _design_read_file(given: Path, memory_path: Path, cap: int) -> bytes | str:
+    """Open the agent's file once — ``O_NOFOLLOW | O_NONBLOCK`` on its resolved path — and decide on the open
+    descriptor (``fstat``: a regular file under the cap), so the file checked is the file read. Refused when the
+    opened file, or any folder above it, is (by identity) a refused folder."""
+    import os
+    import stat
+
+    from api.services import entity_picture
+
+    refusal = "Not saved: Cicada doesn't read pictures from that folder. Save the screenshot somewhere else."
+    real = Path(os.path.realpath(given))
+    refused = _design_refused_ids(memory_path)
+    if _design_inside_refused(real, refused):
+        return refusal
+    try:
+        fd = os.open(real, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except OSError:
+        return "Not saved: there's no file Cicada can read at that path."
+    try:
+        st = os.fstat(fd)
+        if (st.st_dev, st.st_ino) in refused:
+            return refusal
+        try:
+            named = os.stat(real)
+        except OSError:
+            return "Not saved: that file moved while it was read."
+        if (named.st_dev, named.st_ino) != (st.st_dev, st.st_ino):
+            return "Not saved: that file moved while it was read."
+        if _design_inside_refused(real, refused):   # asked again after the open: the folders above the read file
+            return refusal
+        if not stat.S_ISREG(st.st_mode):
+            return "Not saved: that path isn't a file."
+        if st.st_size > cap:
+            return "Not saved: that picture is over 4 MB. Save a smaller PNG or JPEG."
+        with os.fdopen(os.dup(fd), "rb") as fh:
+            head = fh.read(16)
+            if entity_picture.sniff(head) is None:
+                return "Not saved: that file isn't a PNG or JPEG."
+            return head + fh.read(cap + 1 - len(head))
+    finally:
+        os.close(fd)
+
+
+def _design_image(ctx: ToolContext, memory_path: Path, image_path, image_base64) -> bytes | str:
+    """The picture an agent sent: base64 bytes (any connection), or a file the agent itself saved (stdio only — the
+    MCP server runs as the agent's own child, so this is the agent's own read; never a remote caller's path). A file
+    must be a regular PNG or JPEG under the size cap, outside the refused folders, judged by identity
+    (`_design_read_file`). Returns bytes or a refusal."""
+    import base64
+    import binascii
+    import os
+
+    from api.services import design_refs, entity_picture
+
+    cap = design_refs.MAX_IMAGE_BYTES
+    if image_base64:
+        raw = str(image_base64)
+        if raw.startswith("data:") and "," in raw:
+            raw = raw.split(",", 1)[1]
+        if len(raw) > (cap * 4) // 3 + 8:
+            return "Not saved: that picture is over 4 MB. Send a smaller PNG or JPEG."
+        try:
+            data = base64.b64decode(raw, validate=True)
+        except (binascii.Error, ValueError):
+            return "Not saved: `image_base64` isn't base64."
+    elif image_path:
+        if ctx.is_remote:
+            return "Not saved: a remote connection sends the picture itself as `image_base64`."
+        given = Path(os.path.expanduser(str(image_path)))
+        if not given.is_absolute():
+            return "Not saved: give the screenshot's absolute path."
+        got = _design_read_file(given, memory_path, cap)
+        if isinstance(got, str):
+            return got
+        data = got
+    else:
+        return "Not saved: send the screenshot as `image_path` (a file you saved) or `image_base64`."
+    if len(data) > cap:
+        return "Not saved: that picture is over 4 MB. Send a smaller PNG or JPEG."
+    if entity_picture.sniff(data) is None:
+        return "Not saved: that picture isn't a PNG or JPEG."
+    return data
+
+
+def _design_line(ref, *, memory_path: Path | None = None, legs: list[str] | None = None) -> str:
+    from api.services import design_refs
+
+    name = ref.title or ref.site or ref.id
+    bits = [f"- {ref.id} · {name}"]
+    if ref.url:
+        bits.append(ref.url)
+    if ref.palette:
+        bits.append("palette " + " ".join(c["hex"] for c in ref.palette[:6]))
+    if ref.look:
+        bits.append(", ".join(ref.look))
+    fonts = (ref.tokens or {}).get("fonts") or []
+    if fonts:
+        bits.append("fonts " + ", ".join(fonts[:4]))
+    if legs:
+        bits.append("matched by " + " + ".join(legs))
+    line = " · ".join(bits)
+    if ref.note:
+        note = " ".join(ref.note.split())
+        line += f"\n  liked: {note[:240]}{'…' if len(note) > 240 else ''}"
+    if memory_path is not None:
+        found = design_refs.image_file(memory_path, ref)
+        if found is not None:
+            line += f"\n  screenshot: {found[0]}"
+        line += f"\n  reference: {Path(memory_path) / ref.path}"
+    return line
+
+
+def save_design(ctx: ToolContext, url=None, note=None, image_path=None, image_base64=None, title=None, snippets=None,
+                tags=None, region=None) -> str:
+    """`cicada_save_design` (design taste): a look the person likes, captured by their agent — the screenshot, the
+    page, what they liked, and any HTML/CSS they pointed at. Written by the one writer (`design_refs`) as the harness,
+    with the conversation as `Cicada-Session:`; refused in a demo bank and while Sleep runs. The palette is read from
+    the pixels before the admission is taken."""
+    from api.services import design_refs, telemetry
+
+    memory_path = ctx.memory_path()
+    if (refusal := _demo_refusal(memory_path)) is not None:
+        return refusal
+    data = _design_image(ctx, memory_path, image_path, image_base64)
+    if isinstance(data, str):
+        return data
+    if snippets is not None and not isinstance(snippets, list):
+        return "Not saved: `snippets` is a list of {lang, code}."
+    look = design_refs.read_look(data)
+    with write_admission.shared(memory_path):   # G183: from the probe through the commit
+        if ctx.sleep_running():
+            return DESIGN_SLEEPING
+        result = design_refs.add_ref(memory_path, image=data, url=url, title=title, note=note, snippets=snippets,
+                                     tags=tags if isinstance(tags, list) else None, region=region, via="agent",
+                                     author=ctx.author, session=ctx.session_id, look=look)
+        if result["action"] == "duplicate":
+            return f"NOT saved — that screenshot is already on the board as {result['id']}."
+        if result["action"] != "added":
+            return f"Not saved: {result.get('error') or 'unknown error'}"
+        ref = result["ref"]
+        refs = {"action": "design_created", "item_id": ref.id, "session_id": ctx.session_id, "harness": ctx.harness,
+                "client_name": ctx.client_name, "client_version": ctx.client_version}
+        telemetry.record(telemetry.UsageEvent(
+            kind="agentic_write", stage="driver", connection="session",
+            engine="mcp-remote" if ctx.is_remote else "mcp-client", model=None, bank=memory_path.name,
+            billing="subscription", invocations=1, refs=refs))
+        agent_commits.commit_write(
+            memory_path, subject=ctx.commit_subject,
+            lines=[f"{p}: created (source: n/a, trigger: {ctx.trigger})" for p in result["paths"]],
+            paths=result["paths"], author=ctx.author, session=ctx.session_id)
+    head = f"Saved {ref.id} to the person's design board."
+    detail = _design_line(ref)
+    return f"{head}\n{detail}"
+
+
+def design_search(ctx: ToolContext, query=None, image_path=None, image_base64=None, limit=8) -> str:
+    """`cicada_design_search` (design taste): the person's saved looks, re-ranked by words, by meaning (EmbeddingGemma
+    2's shared text–image space, when it is here) or by an example picture; no query lists the newest. Each row
+    names the screenshot's file so a local agent can open it. Writes only the derived index outside the bank."""
+    from api.services import design_index, design_refs
+
+    memory_path = ctx.memory_path()
+    try:
+        limit = max(1, min(int(limit or 8), 24))
+    except (TypeError, ValueError):
+        limit = 8
+    image = None
+    if image_path or image_base64:
+        got = _design_image(ctx, memory_path, image_path, image_base64)
+        if isinstance(got, str):
+            return got.replace("Not saved", "Can't search with it")
+        image = got
+    refs = {r.id: r for r in design_refs.list_refs(memory_path)}
+    if not refs:
+        return ("The person's design board is empty. When they show you a site whose look they like, save it with "
+                "cicada_save_design (a screenshot, the link, what they liked).")
+    if not (query or "").strip() and image is None:
+        rows = [_design_line(r, memory_path=None if ctx.is_remote else memory_path) for r in list(refs.values())[:limit]]
+        return f"The person's design board, newest first ({len(refs)} saved):\n" + "\n".join(rows)
+    # Never embed the board while Sleep runs (the rail); the vectors already there still answer.
+    out = design_index.search(memory_path, query=query, image=image, limit=limit, embed=not ctx.sleep_running())
+    lines = []
+    for hit in out["results"]:
+        ref = refs.get(hit["id"])
+        if ref is not None:
+            lines.append(_design_line(ref, memory_path=None if ctx.is_remote else memory_path, legs=hit["legs"]))
+    notes = []
+    if "image_model" in out["missing"]:
+        notes.append("Searching by picture isn't set up on this Mac (the person can turn it on from the Looks page), "
+                     "so pictures were compared by their words only.")
+    if "model" in out["missing"]:
+        notes.append("Only words were compared: the on-device search model isn't installed.")
+    if not lines:
+        return "Nothing on the person's design board matches that." + (f"\n{notes[0]}" if notes else "")
+    return "The person's saved looks, best match first:\n" + "\n".join(lines) + ("\n" + "\n".join(notes) if notes else "")

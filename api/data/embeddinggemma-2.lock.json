@@ -1,5 +1,5 @@
 {
-  "_comment": "EmbeddingGemma 2 for the Neural Engine (owner 2026-10-09): the pinned files api/services/model_fetch.py downloads once into $CICADA_HOME/models/<dir_name>, each checked against its sha256 and size before anything is installed. Only the text encoder: the audio and vision encoders in the same repository are never fetched. Bump `revision` and every hash together, and give `dir_name` a new value with them: macOS caches the Neural Engine compile against the compiled model's path, so a new revision must never land at an old path.",
+  "_comment": "EmbeddingGemma 2 for the Neural Engine (owner 2026-10-09): the pinned files api/services/model_fetch.py downloads once into $CICADA_HOME/models/<dir_name>, each checked against its sha256 and size before anything is installed. `files` is the text encoder, fetched on the person's click (Settings, make embedding-model-gemma2). `vision_files` (2026-10-14, design taste) is the image encoder and its patch-position table, fetched only on a second click of its own (the Looks page, make embedding-model-vision) into the same folder beside the text encoder, which it needs: an image's tokens are embedded by the text model, so a screenshot lands in the text vectors' space. The audio encoder in the same repository is never fetched. Bump `revision` and every hash together, and give `dir_name` a new value with them: macOS caches the Neural Engine compile against the compiled model's path, so a new revision must never land at an old path.",
   "id": "google/embeddinggemma-2",
   "dir_name": "embeddinggemma-2",
   "repo": "FluidInference/embeddinggemma-2-coreml",
@@ -17,5 +17,11 @@
     {"path": "EmbeddingGemma2Text.mlpackage/Manifest.json", "size": 617, "sha256": "83eace80b69b46f8415af620ba1b40d7c490d00f7c00ba9dedd2e29da6e9ac19"},
     {"path": "EmbeddingGemma2Text.mlpackage/Data/com.apple.CoreML/model.mlmodel", "size": 7323423, "sha256": "0df9aca02807cf490db6d4f1c68607a8c7f486ad23b376d1968fd3be5eb14677"},
     {"path": "EmbeddingGemma2Text.mlpackage/Data/com.apple.CoreML/weights/weight.bin", "size": 276815424, "sha256": "75b97ab036ca87eae60560c4034a63d604201498dc4b6f6971dd0b1e4558d61f"}
+  ],
+  "vision_files": [
+    {"path": "position_embeddings.f16", "size": 3145728, "sha256": "17de9480acc23638c0634a97ed89e51ed664433256d7d6f109587dcd91c79124"},
+    {"path": "EmbeddingGemma2Vision.mlpackage/Manifest.json", "size": 617, "sha256": "376afe7b51608637312cd15a0a89b1d7863f9779502aaf5f12fa6b14c4272d8d"},
+    {"path": "EmbeddingGemma2Vision.mlpackage/Data/com.apple.CoreML/model.mlmodel", "size": 2053174, "sha256": "0085b5e04a13d000fe5969adeaa13d897f5a3cb7be60c76c8685c023747f89ef"},
+    {"path": "EmbeddingGemma2Vision.mlpackage/Data/com.apple.CoreML/weights/weight.bin", "size": 304078400, "sha256": "5b5b6dd8d80aa438bf91ba143fbe90d56a2e25bfcf685a56b990aad71cf75232"}
   ]
 }

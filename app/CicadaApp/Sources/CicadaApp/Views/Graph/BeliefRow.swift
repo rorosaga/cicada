@@ -10,6 +10,9 @@ struct BeliefRow: View {
     /// F-12 (R-PE17) — on the person card a belief is signed: the signed line takes the age `Tag`'s place, since it
     /// carries the day (DR-38).
     var signed = false
+    /// Owner 2026-10-14 — the way back from a belief to where to check it: the best source for its fact, if any.
+    var lookUp: PageSource? = nil
+    var onLookUp: ((PageSource) -> Void)? = nil
     @State private var showAllEvidence = false
     @State private var hovering = false
 
@@ -33,6 +36,9 @@ struct BeliefRow: View {
                         SignedLineView(claim: claim)
                     } else if let age = BeliefWords.age(claim, now: .now) {
                         Tag(text: age.text).help(age.help)
+                    }
+                    if let lookUp, let onLookUp {
+                        LookUpChip(source: lookUp, entityId: claim.subject) { onLookUp(lookUp) }
                     }
                 }
             }

@@ -212,6 +212,11 @@ final class FakeProvenanceAPI: ProvenanceAPI, @unchecked Sendable {
     var lastTextETag: String?
     var provenance = EntityProvenance(entityId: "alpha-project")
     var citations = EpisodeCitations(episode: "ep_1")
+    var overview = PageSourcesOverview(entityId: "alpha-co")
+    var overviewCalls = 0
+    var lastOverviewETag: String?
+    var overviewNotModified = false
+    var overviewError: Error?
 
     func fetchEpisodeSpan(episode: String, start: Int, end: Int, hash: String?) async throws -> EpisodeSpan {
         spanCalls += 1
@@ -236,5 +241,13 @@ final class FakeProvenanceAPI: ProvenanceAPI, @unchecked Sendable {
 
     func fetchEpisodeCitations(episode: String, etag: String?) async throws -> Conditional<EpisodeCitations> {
         Conditional(value: citations, etag: "\"c1\"", notModified: false)
+    }
+
+    func fetchSourcesOverview(entityId: String, etag: String?) async throws -> Conditional<PageSourcesOverview> {
+        overviewCalls += 1
+        lastOverviewETag = etag
+        if let overviewError { throw overviewError }
+        if overviewNotModified { return Conditional(value: nil, etag: etag, notModified: true) }
+        return Conditional(value: overview, etag: "\"o\(overviewCalls)\"", notModified: false)
     }
 }

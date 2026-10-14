@@ -771,6 +771,36 @@ TOOLS = [
             "status": {"type": "string", "enum": ["open", "doing", "done", "dropped"],
                        "description": "Optional: move the item as you note it."}}},
     },
+    {
+        # Design taste (2026-10-14): a write as the harness; stdio only in this slice (it can read a file the agent
+        # saved). The palette is read from the pixels; nothing is fetched.
+        "name": "cicada_save_design",
+        "description": "Save a look the person likes to their design board when they say they like how a site or screen looks ('save this style', 'I love this layout'). Send the screenshot you took (`image_path`: a PNG or JPEG you saved, or `image_base64`), the page's link, and what they liked in their own words; add any HTML/CSS they pointed at as `snippets`. Cicada reads the colours itself.",
+        "inputSchema": {"type": "object", "required": ["note"], "properties": {
+            "url": {"type": "string", "description": "The page the screenshot shows (http or https)."},
+            "note": {"type": "string", "description": "What the person liked about it, in their words."},
+            "image_path": {"type": "string", "description": "Absolute path of a PNG or JPEG screenshot you saved (under 4 MB)."},
+            "image_base64": {"type": "string", "description": "The screenshot itself, base64 (when you have no file)."},
+            "title": {"type": "string", "description": "Optional: a short name for this look (the page's title)."},
+            "snippets": {"type": "array", "description": "Optional: HTML or CSS the person selected.", "items": {
+                "type": "object", "required": ["code"], "properties": {
+                    "lang": {"type": "string", "enum": ["html", "css", "js", "jsx", "tsx", "svg", "swift", "text"]},
+                    "code": {"type": "string"}}}},
+            "tags": {"type": "array", "items": {"type": "string"}, "description": "Optional: a few words to file it under."},
+            "region": {"type": "object", "description": "Optional: the visible region the screenshot covers, in page pixels.",
+                       "properties": {"x": {"type": "integer"}, "y": {"type": "integer"},
+                                      "width": {"type": "integer"}, "height": {"type": "integer"}}}}},
+    },
+    {
+        # Design taste: read-only over the bank (writes only the derived index outside it).
+        "name": "cicada_design_search",
+        "description": "The looks the person saved — before building or restyling UI for them, search their design board with what you are making ('dark settings page', 'pricing table'), or with a picture to find similar ones. Each result gives the link, the palette, the fonts, what they liked and the screenshot's file to open. With no query, lists the newest.",
+        "inputSchema": {"type": "object", "properties": {
+            "query": {"type": "string", "description": "Optional: what you are looking for, in words."},
+            "image_path": {"type": "string", "description": "Optional: absolute path of a PNG or JPEG to find similar looks."},
+            "image_base64": {"type": "string", "description": "Optional: a picture, base64, to find similar looks."},
+            "limit": {"type": "integer", "description": "Optional: how many to return (default 8, at most 24)."}}},
+    },
 ]
 
 
@@ -958,6 +988,13 @@ def handle_tool(name: str, arguments: dict) -> str:
         return handle_add_backlog_item(arguments)
     elif name == "cicada_add_backlog_note":
         return handle_add_backlog_note(arguments)
+    elif name == "cicada_save_design":
+        return mcp_tools.save_design(_ctx(), arguments.get("url"), arguments.get("note"), arguments.get("image_path"),
+                                     arguments.get("image_base64"), arguments.get("title"), arguments.get("snippets"),
+                                     arguments.get("tags"), arguments.get("region"))
+    elif name == "cicada_design_search":
+        return mcp_tools.design_search(_ctx(), arguments.get("query"), arguments.get("image_path"),
+                                       arguments.get("image_base64"), arguments.get("limit", 8))
     elif name == "cicada_open_hub":
         return handle_open_hub(arguments.get("hub", ""))
     elif name == "cicada_ask":

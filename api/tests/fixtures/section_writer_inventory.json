@@ -279,6 +279,14 @@
       "disposition": "uninstrumented_guarded"
     }
   ],
+  "services/design_refs.py": [
+    {
+      "function": "add_ref",
+      "method": "write_new",
+      "frontmatter": "_frontmatter(ref)",
+      "disposition": "fresh_frontmatter_untracked"
+    }
+  ],
   "services/entity_merge.py": [
     {
       "function": "repoint_references",

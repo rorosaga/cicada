@@ -28,6 +28,9 @@ enum AppTab: String, CaseIterable {
     /// G141 PJ-5 — the eighth page, ⌘8 (owner ruling 2026-09-23: the first free cell after Sources, so no existing
     /// shortcut moves; DESIGN_RULES §9, DR-22). A new raw value, so `restored(from:)` needs no mapping.
     case projects = "Projects"
+    /// Design taste (owner, 2026-10-14) — the ninth page, ⌘9: the board of looks the person likes. The first free
+    /// cell after Projects, so no existing shortcut moves (the Projects ruling's reasoning; placement is the owner's).
+    case looks = "Looks"
 
     /// Decodes a persisted selection, mapping every retired tab to whichever
     /// page inherited its content. Anything unrecognised falls back to Home.
@@ -52,6 +55,7 @@ enum AppTab: String, CaseIterable {
         case .inbox: "tray"
         case .sources: "tray.2"
         case .projects: "point.topleft.down.to.point.bottomright.curvepath"
+        case .looks: "paintpalette"
         }
     }
 
