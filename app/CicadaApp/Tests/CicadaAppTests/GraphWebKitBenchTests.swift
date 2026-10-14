@@ -90,4 +90,73 @@ final class GraphWebKitBenchTests: XCTestCase {
         let numbers = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any])
         XCTAssertEqual(numbers["settledNodesMoved"] as? Int, 0)
     }
+    /// G109 (2026-10-14) — the owner's bank's SHAPE (3,698 nodes, 41,570 links; `Tests/graph/graph-bank-shape.js`, the
+    /// generator the node tests use, evaluated in the page) through the real entry points, stepped like d3's timer
+    /// (tick, the tick handler, stop and "end" below alphaMin). Prints `BENCH webkit-bank`; opt-in like the one above.
+    private static let bankScript = #"""
+    const module = { exports: {} };
+    new Function("module", "require", generator)(module, { main: null });
+    const g = module.exports.bankShaped(7);
+    const out = {};
+    let t = performance.now();
+    updateGraph(JSON.stringify(g));
+    applyFilters(JSON.stringify({ minConfidence: 0, minDegree: 0, types: [], statuses: ["active", "decaying"], tags: [],
+                                  contexts: [], observers: [], showLogos: false }));
+    out.updateGraphMs = performance.now() - t;
+    simulation.stop();
+    initialFitTicksLeft = -1;
+    out.nodes = visibleNodes.length; out.links = visibleLinks.length;
+    const ticks = [];
+    let steps = 0;
+    for (; steps < 1000; steps++) {
+        const s = performance.now();
+        simulation.tick();
+        const h = simulation.on("tick"); if (h) h();
+        ticks.push(performance.now() - s);
+        if (simulation.alpha() < simulation.alphaMin()) { simulation.stop(); const e = simulation.on("end"); if (e) e(); steps++; break; }
+    }
+    ticks.sort((a, b) => a - b);
+    out.coldSteps = steps;
+    out.coldSettleMs = ticks.reduce((a, b) => a + b, 0);
+    out.msPerTickP50 = ticks[ticks.length >> 1];
+    out.msPerTickP95 = ticks[Math.floor(ticks.length * 0.95)];
+    let ke = 0, vmax = 0;
+    for (const n of visibleNodes) { const v2 = n.vx * n.vx + n.vy * n.vy; ke += v2; vmax = Math.max(vmax, v2); }
+    out.keAtStop = ke / visibleNodes.length; out.vmaxAtStop = Math.sqrt(vmax);
+    const time = (k) => {
+        transform = d3.zoomIdentity.translate(600, 400).scale(k);
+        const frames = [];
+        for (let i = 0; i < 20; i++) { const s = performance.now(); draw(); frames.push(performance.now() - s); }
+        frames.sort((a, b) => a - b);
+        return frames[10];
+    };
+    out.drawMsAtFit = time(0.3);   // below the hubs-only tier: hub links only
+    out.drawMsAtZoom1 = time(1);   // every link
+    return JSON.stringify(out);
+    """#
+
+    @MainActor
+    func testPrintTheGraphsCostAtTheBanksShape() async throws {
+        guard ProcessInfo.processInfo.environment["CICADA_APP_BENCH"] == "1" else {
+            throw XCTSkip("set CICADA_APP_BENCH=1 to print the WebKit numbers")
+        }
+        let generatorURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("graph/graph-bank-shape.js")
+        let generator = try String(contentsOf: generatorURL, encoding: .utf8)
+        let page = try XCTUnwrap(Bundle.cicadaResources.url(forResource: "graph/index", withExtension: "html"))
+        let web = WKWebView(frame: NSRect(x: 0, y: 0, width: 1200, height: 800))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.contentView = web
+        web.loadFileURL(page, allowingReadAccessTo: page.deletingLastPathComponent())
+        for _ in 0..<100 {
+            if (try? await web.evaluateJavaScript("typeof updateGraph === 'function' && !!ctx")) as? Bool == true { break }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        let result = try await web.callAsyncJavaScript(Self.bankScript, arguments: ["generator": generator],
+                                                       contentWorld: .page)
+        let json = try XCTUnwrap(result as? String)
+        print("BENCH webkit-bank \(json)")
+    }
 }

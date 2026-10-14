@@ -39,9 +39,13 @@ function reseed(s = 42) { seed = s; }
 // ---- DOM stubs (same shape as graph-delta.test.js) ----
 const noop = () => {};
 let canvasStub;
+// How many times draw() stroked or filled a path, for the batching check (G109, 2026-10-14).
+const drawCounters = { stroke: 0, fill: 0 };
 const ctxStub = new Proxy({}, {
     get: (t, k) => {
         if (k === "canvas") return canvasStub;
+        if (k === "stroke") return () => { drawCounters.stroke += 1; };
+        if (k === "fill") return () => { drawCounters.fill += 1; };
         if (k === "measureText") return () => ({ width: 10 });
         if (k === "createLinearGradient") return () => ({ addColorStop: noop });
         return typeof k === "string" ? noop : undefined;
@@ -55,8 +59,12 @@ canvasStub = {
     getBoundingClientRect: () => ({ left: 0, top: 0, width: 1200, height: 800 }),
 };
 
-function loadGraph() {
+// `opts.frames`: requestAnimationFrame queues its callback instead of dropping it, and `pumpFrame()` runs the queued
+// frames once (what the browser does on its next frame) — so a test can watch whether the redraw loop ends.
+function loadGraph(opts = {}) {
     const clock = { now: 0 };
+    let frameQueue = [];
+    const rAF = opts.frames ? (cb) => { frameQueue.push(cb); return frameQueue.length; } : noop;
     const sandbox = {
         console,
         document: { getElementById: () => canvasStub, addEventListener: noop, documentElement: {}, body: {} },
@@ -65,7 +73,7 @@ function loadGraph() {
             // Swallow the JS->Swift messages (nodeClicked etc.) the click-release path posts.
             webkit: { messageHandlers: { cicada: { postMessage: noop } } },
         },
-        requestAnimationFrame: noop, cancelAnimationFrame: noop,
+        requestAnimationFrame: rAF, cancelAnimationFrame: noop,
         performance: { now: () => clock.now },
         setTimeout, clearTimeout, Date, JSON, Map, Set, Number, String, Boolean, Array, Object,
         Math: Object.create(Math, { random: { value: rnd } }),
@@ -79,7 +87,31 @@ function loadGraph() {
     // `let`/`const` module state is lexical, not a sandbox property: read it by expression.
     const get = (expr) => vm.runInContext(expr, sandbox);
     const call = (fn, arg) => vm.runInContext(`${fn}(${JSON.stringify(arg)})`, sandbox);
-    return { sandbox, clock, get, call };
+    // The cold layout's one-shot fit needs d3-zoom on a real canvas; headless, it is disarmed.
+    const disarmFit = () => vm.runInContext("initialFitTicksLeft = -1", sandbox);
+    // One d3 timer step, exactly as d3-force's own step(): tick, the "tick" event (graph.js's settle check runs
+    // there), then stop and fire "end" once alpha is below alphaMin. Returns false once the timer would be stopped.
+    const step = () => {
+        const sim = get("simulation");
+        sim.tick();
+        const onTick = sim.on("tick");
+        if (onTick) onTick.call(sim);
+        if (sim.alpha() < sim.alphaMin()) {
+            sim.stop();
+            const onEnd = sim.on("end");
+            if (onEnd) onEnd.call(sim);
+            return false;
+        }
+        return true;
+    };
+    // Steps until d3 would stop its timer; the number of steps, or null past `max`.
+    const runUntilStop = (max = 1000) => {
+        disarmFit();
+        for (let t = 1; t <= max; t++) if (!step()) return t;
+        return null;
+    };
+    const pumpFrame = () => { const q = frameQueue; frameQueue = []; for (const cb of q) cb(clock.now); return frameQueue.length; };
+    return { sandbox, clock, get, call, step, runUntilStop, pumpFrame, disarmFit };
 }
 
 // ---- synthetic graph: hub-and-spoke core + facets + N isolates ----
@@ -286,4 +318,4 @@ function runDeltaNoop(sizeName) {
     };
 }
 
-module.exports = { GRAPH_JS, SIZES, loadGraph, synthetic, runScenario, runDeltaNoop, kePerNode, maxSpeed, radii };
+module.exports = { GRAPH_JS, SIZES, drawCounters, loadGraph, synthetic, runScenario, runDeltaNoop, kePerNode, maxSpeed, radii };
