@@ -56,7 +56,8 @@ def test_the_ids_are_the_shared_catalog():
     ("unknown", "cursor-vscode", "cursor"), ("unknown", "opencode", "opencode"),
     ("unknown", "OpenClaw Gateway", "openclaw"), ("unknown", "Hermes Agent", "hermes"),
     ("unknown", "gemini-cli-mcp-client", "gemini-cli"), ("unknown", "grok", "grok"),
-    ("unknown", "mystery-client", None), ("unknown", None, None), (None, "", None),
+    ("unknown", "mystery-client", "other"), ("unknown", "smoke-test", None),
+    ("unknown", None, None), (None, "", None),
 ])
 def test_agent_for_prefers_the_harness_then_the_product_name(harness, client, expected):
     assert agent_live.agent_for(harness, client) == expected

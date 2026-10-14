@@ -25,7 +25,46 @@ final class CursorIntegrationTests: XCTestCase {
         XCTAssertFalse(startup?.detail.contains("mention") == true, "startup only must not promise per-prompt recall")
         XCTAssertFalse(AutoRecall.detail(row).contains("mention"))
         XCTAssertTrue(steps.last?.isConfirm == true)
-        XCTAssertNotNil(AgentSteps.honesty(for: AgentCatalog.entry(for: "cursor")!))
+        // Capture-everywhere: Cursor's own hooks save its chats, so no "no automatic save" line.
+        XCTAssertNil(AgentSteps.honesty(for: AgentCatalog.entry(for: "cursor")!))
+    }
+
+    func testSavingChatsIsItsOwnStepWhileTheCaptureHooksAreOff() {
+        let save = AgentWiringStep(step: "hook", display: "merge capture hooks", argv: [], touches: ["~/.cursor/hooks.json"])
+        func row(_ autosave: String, _ connect: [AgentWiringStep]) -> AgentWiring {
+            AgentWiring(id: "cursor", installed: true, binary: nil, recall: "on", autosave: autosave,
+                        connect: connect, detail: nil, autorecall: "on", autorecallOn: [],
+                        capabilities: ["startup": "documented", "capture": "documented"])
+        }
+        func steps(_ wiring: AgentWiring) -> [AgentStep] {
+            AgentSteps.steps(for: AgentCatalog.entry(for: "cursor")!, setups: [:], wiring: wiring, live: nil,
+                             remoteReady: false)
+        }
+        let off = steps(row("off", [save]))
+        XCTAssertEqual(off.map(\.title), ["Open in Cursor", Copy.agentStepSaveChats, "Confirm"])
+        XCTAssertEqual(off[1].actions, [.connectForMe([save])])
+        XCTAssertEqual(steps(row("on", [])).map(\.title), ["Open in Cursor", "Confirm"])
+    }
+
+    func testCaptureSwitchArgvIsPinnedAndScoped() {
+        let root = "/synthetic/cicada"
+        let runtime = CicadaRuntime.developer(codeRoot: URL(fileURLWithPath: root))
+        let prefix = [runtime.pythonPath, root + "/api/hooks/cursor_registry.py"]
+        let settings = NSHomeDirectory() + "/.cursor/hooks.json"
+        let command = "'\(root)/api/.venv/bin/python' '\(root)/api/hooks/cursor.py'"
+        let install = prefix + ["install", "--settings", settings, "--command", command]
+        XCTAssertTrue(AgentConnectPolicy.isAllowed(install + ["--hook", "capture"], runtime: runtime, binaries: []))
+        XCTAssertFalse(AgentConnectPolicy.isAllowed(install + ["--hook", "stop"], runtime: runtime, binaries: []))
+        XCTAssertFalse(AgentConnectPolicy.isAllowed(install + ["--hook", "capture", "--hook", "startup"],
+                                                   runtime: runtime, binaries: []))
+        for group in ["startup", "capture"] {
+            XCTAssertTrue(AgentConnectPolicy.isAllowed(prefix + ["uninstall", "--settings", settings, "--hook", group],
+                                                      runtime: runtime, binaries: []), group)
+        }
+        XCTAssertFalse(AgentConnectPolicy.isAllowed(prefix + ["uninstall", "--settings", settings, "--hook", "all"],
+                                                   runtime: runtime, binaries: []))
+        XCTAssertFalse(AgentConnectPolicy.isAllowed(prefix + ["uninstall", "--settings", "/synthetic/project/.cursor/hooks.json",
+                                                              "--hook", "capture"], runtime: runtime, binaries: []))
     }
 
     func testCheckoutStartupRegistryAllowsOnlyItsPinnedCommand() {

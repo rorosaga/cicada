@@ -1,0 +1,14 @@
+{
+  "conversation_id": "cursor-synthetic-0001",
+  "generation_id": "generation-synthetic-0001",
+  "model": "synthetic-model",
+  "model_id": "synthetic-model",
+  "model_params": [],
+  "hook_event_name": "beforeSubmitPrompt",
+  "cursor_version": "2.4.0",
+  "workspace_roots": ["/synthetic/alpha-project"],
+  "user_email": "sentinel@example.invalid",
+  "transcript_path": "/outside/must-not-open.jsonl",
+  "prompt": "Should alpha-project ship on Friday?",
+  "attachments": [{"type": "file", "file_path": "/synthetic/alpha-project/SECRET_ATTACHMENT.md"}]
+}

@@ -1,11 +1,13 @@
 """Inbound capture connectors — webhooks that stage episodes/media without
 going through MCP or the companion app's own upload flow.
 
-Three today: the Telegram webhook (parse+route logic in
+Four today: the Telegram webhook (parse+route logic in
 ``api/services/telegram_capture.py``; this router is only the token gate +
 HTTP surface), the G105 session-capture endpoint the harness's Stop hook
 posts to (``api/services/transcript_capture.py`` does the validation, the
-extraction and the write), and the G149 recall hooks' read,
+extraction and the write), the per-turn capture endpoint Cursor's and Gemini
+CLI's hooks post to (``POST /capture/turn``, ``api/services/turn_capture.py``),
+and the G149 recall hooks' read,
 ``POST /capture/hook-context`` (``api/services/hook_recall.py``).
 """
 
@@ -26,6 +28,7 @@ from api.services.telegram_capture import (
     ensure_webhook_secret,
     ingest_telegram_update,
 )
+from api.services import turn_capture as turn_capture_mod
 from api.services.transcript_capture import capture_transcript
 
 router = APIRouter()
@@ -231,6 +234,58 @@ async def capture_transcript_endpoint(
         "bank": target.name,
         "redirectedFrom": target.redirected_from,
     }
+
+
+class PostedTurn(BaseModel):
+    speaker: Literal["user", "assistant"]
+    # The hook trims to this before posting; the writer keeps ≤16k/≤2k after cleaning.
+    text: str = Field(..., max_length=turn_capture_mod.TEXT_MAX_CHARS)
+
+
+class TurnCaptureRequest(BaseModel):
+    """What a per-turn capture hook forwards (Cursor's ``beforeSubmitPrompt`` /
+    ``afterAgentResponse``, Gemini CLI's ``AfterAgent``): the turn's own words
+    from the harness's stdin, never a path. Snake_case: the sender is a stdlib
+    script."""
+
+    harness: Literal[*turn_capture_mod.HARNESSES]
+    session_id: str = Field(..., min_length=1, max_length=200)
+    messages: list[PostedTurn] = Field(..., min_length=1, max_length=2)
+    turn_id: str | None = Field(None, max_length=128)
+    retry: bool = False
+    model: str | None = Field(None, max_length=200)
+    cwd: str | None = Field(None, max_length=4096)
+    hook_event: str | None = Field(None, max_length=64)
+
+
+@router.post("/capture/turn")
+async def capture_turn_endpoint(req: TurnCaptureRequest, settings: Settings = Depends(get_settings)):
+    """Capture-everywhere: a harness whose hook carries each turn's text (Cursor,
+    Gemini CLI) instead of a transcript path. Bearer-authed like
+    ``/capture/transcript``, the same one-episode-per-session write
+    (``turn_capture``), and the same demo rule: while the demo bank is open the
+    turn is saved into the real bank left most recently and the response names
+    it; with no real bank, ``409`` and nothing is written."""
+    target = bank_registry.capture_bank(settings.memory_root)
+    memory_path = target.path if target is not None else settings.memory_path
+
+    def _capture():
+        return turn_capture_mod.capture_turns(
+            memory_path, harness=req.harness, session_id=req.session_id,
+            turns=[turn_capture_mod.Posted(t.speaker, t.text) for t in req.messages],
+            turn_id=req.turn_id, retry=req.retry, model=req.model, cwd=req.cwd,
+            keep_assistant=settings.capture_assistant_replies, bank=memory_path.name,
+            bank_paths=continuity_sessions.bank_paths_for(settings.memory_root), hook_event=req.hook_event)
+
+    result = await asyncio.to_thread(_capture)
+    if target is None or result.status == "refused":
+        if target is None or result.reason == "demo_bank":
+            raise HTTPException(status_code=409, detail=demo_guard.HOOK_REFUSAL)
+        raise HTTPException(status_code=400, detail=result.reason)
+    if target.redirected_from:
+        logger.info(f"capture: the demo bank is open — saved the {req.harness} turn into '{target.name}'")
+    return {"status": result.status, "episodeId": result.episode_id, "turnsUser": result.turns_user,
+            "turnsAssistant": result.turns_assistant, "bank": target.name, "redirectedFrom": target.redirected_from}
 
 
 class HookContextRequest(BaseModel):

@@ -419,6 +419,7 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /sources/contacts-local/sync": (ADMITTED, None),
     "POST /capture/telegram": (INTAKE, None),
     "POST /capture/transcript": (CAPTURE, None),
+    "POST /capture/turn": (CAPTURE, None),   # capture-everywhere: the same writer as the Stop hook
     "POST /capture/hook-context": (OUTSIDE, None),   # G110: may refresh the continuity index in $CICADA_HOME
     "PUT /sources/connectors/{connector_id}/credentials": (OUTSIDE, None),
     "DELETE /sources/connectors/{connector_id}/credentials": (OUTSIDE, None),

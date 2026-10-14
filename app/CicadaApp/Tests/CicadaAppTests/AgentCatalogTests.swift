@@ -21,11 +21,22 @@ final class AgentCatalogTests: XCTestCase {
         XCTAssertEqual(AgentCatalog.setupHarnesses, Set(f.setup))
     }
 
-    func testEveryMarkShipsAndOnlyGrokUsesAGlyph() {
+    func testEveryMarkShipsAndOnlyGrokAndAnotherAgentUseAGlyph() {
         for entry in AgentCatalog.all {
             if let mark = entry.mark { XCTAssertTrue(LogoImage.exists(name: mark), entry.id) }
         }
-        XCTAssertEqual(AgentCatalog.all.filter { $0.mark == nil }.map(\.id), ["grok"])
+        XCTAssertEqual(AgentCatalog.all.filter { $0.mark == nil }.map(\.id), ["grok", "other"])
+        // "Another agent" names no vendor: it wears Integrations' own "Other agents" glyph, never another app's mark.
+        XCTAssertEqual(AgentCatalog.entry(for: "other")?.symbol, IntegrationHarnessRows.otherAgentsSymbol)
+    }
+
+    func testAnotherAgentIsSettingsOnlyAndFoundBySearch() {
+        let other = AgentCatalog.entry(for: "other")!
+        XCTAssertFalse(other.featured, "onboarding keeps the owner's nine (R-AG1)")
+        XCTAssertEqual(other.kind, .anyAgent)
+        let entries = SettingsIndex.dynamicEntries(channels: [], harnessRows: [], exportOnly: [], connections: [],
+                                                   agents: AgentCatalog.all)
+        XCTAssertTrue(SettingsIndex.search("windsurf", in: entries).contains { $0.entry.id == .agent("other") })
     }
 
     func testTheClaudeAppLandsOnTheClaudePill() {

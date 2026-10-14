@@ -901,13 +901,13 @@
   ],
   "services/transcript_capture.py": [
     {
-      "function": "capture_transcript",
+      "function": "write_session",
       "method": "write",
       "frontmatter": "fm",
       "disposition": "uninstrumented_guarded"
     },
     {
-      "function": "capture_transcript",
+      "function": "write_session",
       "method": "write",
       "frontmatter": "fm",
       "disposition": "uninstrumented_guarded"

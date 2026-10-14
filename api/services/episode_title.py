@@ -33,7 +33,7 @@ from loguru import logger
 from api.services.transcript_extract import CLAUDE_HARNESS_TAGS, CODE_OMITTED, CODEX_HARNESS_TAGS
 
 TITLE_MAX = 72
-PRODUCT = {"claude-code": "Claude Code", "codex": "Codex"}
+PRODUCT = {"claude-code": "Claude Code", "codex": "Codex", "cursor": "Cursor", "gemini-cli": "Gemini CLI"}
 HARNESS_TAGS = CLAUDE_HARNESS_TAGS | CODEX_HARNESS_TAGS
 TRIGGER = "maintenance/episode-titles"
 

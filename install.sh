@@ -403,10 +403,11 @@ else
   fi
 fi
 
-# Cursor user-level startup delivery only; MCP and capture capability are separate.
+# Cursor user-level startup delivery only; MCP and chat capture are separate switches. Capture stays the person's
+# click in Settings → Agents until it is checked in an installed Cursor (its prompt hook holds each message).
 if [ -d "$HOME/.cursor" ] && [ "$(printf '%s' "${CICADA_RECALL:-}" | tr '[:upper:]' '[:lower:]')" != "off" ]; then
   if run "$VENV_PY" "$CURSOR_REGISTRY" install --settings "$CURSOR_HOOKS"; then
-    ok "Cursor sessionStart context registered (MCP setup separate; automatic capture unsupported)"
+    ok "Cursor sessionStart context registered (MCP setup and saving chats are separate, in Settings → Agents)"
   else
     warn "Cursor hooks config needs repair — unchanged; use Settings → Agents or fix $CURSOR_HOOKS"
   fi

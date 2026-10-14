@@ -280,31 +280,50 @@ agent instead of running anything:
 - for Claude Code, Codex and Gemini CLI, a plain prompt (≤ 1,200 characters) that names the exact
   commands, built by the same step builders `/agents/wiring` uses (both steps always,
   `display == shlex.join(argv)`);
-- for Cursor, its MCP install link and separate startup-hook merge argv; Remembers automatically
-  offers the startup action independently and labels automatic capture unsupported;
-- for the Claude app, a config merge the APP performs.
+- for Cursor, its MCP install link and the startup-hook and capture-hook merge argv, plus (2026-10-14) a `prompt` for
+  Cursor's own agent that adds the MCP server to `~/.cursor/mcp.json` and nothing else — both hooks stay their own
+  clicks (R-H11); Remembers automatically offers the startup action independently, and Settings → Agents' Cursor
+  steps add *Save chats on their own* (the wiring's `connect`, the capture hooks) while capture is off;
+- for OpenCode, Hermes and OpenClaw, a prompt with no commands naming the server and where it lives in the agent's own
+  settings;
+- for `other` (2026-10-14, "Another agent"), one generic prompt — the server spec, "add one MCP server named cicada to
+  your own MCP settings, in the shape they already use", change nothing else, if you can't, say where they live and
+  what to add, uploads nothing, one sentence back — that names no agent (provider-neutral copy);
+- for the Claude app, a config merge the APP performs and **no prompt**: its chat cannot edit its own config, and
+  handing the file to some other agent would trade the app's backup-first merge for a hand edit of a file holding
+  other servers' secrets.
 
-No probe, no subprocess, no ETag.
+Every prompt names the server through `agent_wiring.server_lines` (command, one `argument:` line per argument,
+environment), so a release app's argument-less `~/.cicada/bin/cicada-mcp` reads right (G182; the config prompts used to
+index a first argument and failed there). ≤ 1,200 characters, commands and paths never shortened. No probe, no
+subprocess, no ETag.
 
 Cursor's registered local IDE adapter adds a wiring row with independent MCP registration (`recall`),
 startup configuration (`autorecall`) and capability/evidence (`capabilities`) fields; the Swift decoder
 defaults capabilities to an empty dictionary for older payloads. This endpoint remains request/response,
 outside Store/sync/VersionVector. The existing neutral startup button/command disclosure is reused
 (DR-38/39/40/41); its allowlist pins the helper/command to the app runtime and the settings file to this
-user's `~/.cursor/hooks.json`. No project hook or Stop registration is allowed. The existing no-autosave
-honesty line remains, and the startup row says startup context only. Installed Cursor hook delivery,
-timing/tool choice and visual rendering are unverified; `mcp.md` specifies the unsupported capture,
+user's `~/.cursor/hooks.json`, and the hook group to `--hook startup | capture` (capture-everywhere,
+2026-10-14). No project hook or Stop registration is allowed. Cursor and Gemini CLI are in
+`ModelNames.savingHarnesses`, so their steps drop the no-autosave honesty line; they stay out of
+`capturingHarnesses` because their MCP writes are not yet joined to a captured turn. Installed Cursor hook delivery,
+timing/tool choice and visual rendering are unverified; `mcp.md` and `capture-and-sleep.md` specify the capture,
 CLI/cloud/remote boundaries. No app launch is needed to configure or test this seam.
 
 Settings → Agents (round-4 D5) adds, per harness, Connect for me (the same `AgentConnect.run`), Copy
 setup prompt (`GET /agents/setup`'s prompt shown verbatim, then copied — the agent runs the install itself), Open in
 Cursor (the catalog's own deeplink) and Set up Claude (`ClaudeDesktopConfig` merges `mcpServers.cicada` into Claude
 desktop's config: backup first, merge never replace, an unreadable file left untouched; the app computes the path and
-the value itself). Round 4 C8: Settings → Agents is one selector of ten agents (`AgentCatalog`, pinned to
+the value itself). Round 4 C8: Settings → Agents is one selector of eleven agents (`AgentCatalog`, pinned to
 `agent_live.LIVE_AGENTS` by `api/tests/fixtures/agent_catalog.json`) with numbered steps below (`AgentSetupSteps`),
 reused by onboarding. OpenCode, Hermes and OpenClaw register by editing their own config from a pasted prompt — Cicada
 runs nothing for them and only reads that file (`agent_wiring.config_state`, ≤ 256 KB, parse-only); Claude, ChatGPT and
-Grok go through From anywhere (`kind: remote`). `GET /agents/live` lights a pill's ✓ from the local handshake ledger
+Grok go through From anywhere (`kind: remote`). Cursor's card adds *Or copy and send this to Cursor* (its prompt, shown
+before it is copied) after Open in Cursor. The last pill, *Another agent* (`AgentCatalogEntry.Kind.anyAgent`, the
+neutral glyph Integrations' "Other agents" wears, DR-52; Settings-only, so onboarding keeps the owner's nine), is
+*Copy and send this to your agent* → Confirm, with its own "Do it by hand" `mcpServers` snippet; its ✓ lights for a
+local `initialize` from a client that names itself but matches no other pill (`agent_live.agent_for` → `other`; the
+release smoke test is excluded). `GET /agents/live` lights a pill's ✓ from the local handshake ledger
 rows, a used connector (`last_used_at`) or the agent's own config — no subprocess, never `~/Library`, never
 `~/.claude.json`; polled every 3 s while the page is visible.
 
