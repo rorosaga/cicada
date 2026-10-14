@@ -132,6 +132,20 @@ quote only where the item's `Cause:` quote shows (never to a remote connection w
 decide." — no highlight, no tag, no reorder.
 **`cicada_backlog`**, **`cicada_add_backlog_item`** and **`cicada_add_backlog_note`** (G150) read and file a
 project's backlog — see Backlogs.
+**`cicada_save_design`** and **`cicada_design_search`** (design taste, 2026-10-14; `design_refs`, `design_index`).
+Save: when the person says they like how a site or screen looks, the agent sends the screenshot it took — `image_path`
+(an absolute path to a PNG or JPEG it saved, ≤ 4 MB) or `image_base64` — with `url`, the person's `note`, and any
+HTML/CSS they pointed at as `snippets` (`title`, `tags`, `region` optional). The stdio server reads that file as the
+agent's own child process, and only a regular PNG/JPEG outside `~/.claude`, `~/.codex`, `~/.cicada` / `CICADA_HOME`,
+`~/Library` and the bank (the transcript rail, and the app-reads-`~/Library` rail); a remote caller can never name a
+path. The palette is read before the write admission; the write holds it through its own commit as the harness with
+`Cicada-Session:`; refused in a demo bank and while Sleep runs. Search: words, a picture (`image_path` /
+`image_base64`) or nothing (the newest); each row gives the link, palette, look words, fonts, what the person liked, and
+the screenshot's and reference's file paths so a local agent can open the picture. **Both are stdio-only in this slice**
+(`catalog.NEVER_REMOTE`): which scope a remote picture belongs under is an open question for the owner. CLI spellings
+`cicada design save` / `cicada design search` are proposed rows, not exposed. The portable skill
+`skills/design-taste/SKILL.md` tells an agent to search the board before building UI and to cite what it drew from.
+
 **Video watch (G162, TODO ruling 17).** `cicada_record_watch` takes three more arguments the agent states about its
 own work — `basis` (`transcript | frames | both`), `engine` (`captions | video_link | local_frames | speech_to_text |
 browser | other`) and `duration` (kept only when the page has none) — none verified (R-VU2: the app says "an agent recorded

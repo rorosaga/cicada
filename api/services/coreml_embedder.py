@@ -298,6 +298,34 @@ class CoreMLEmbedder:
                 result[i] = vec
         return result
 
+    def token_rows(self, ids: list[int]) -> np.ndarray:
+        """The scaled table rows for ``ids`` (fp16, ``[n, 512]``) — what a special token contributes to a sequence
+        another encoder filled (an image's ``<bos> <|image> … <image|> <eos>``, ``vision_embedder``)."""
+        self._base()
+        return self._rows(ids)
+
+    def embed_rows(self, rows: np.ndarray, *, wait: float | None = None) -> np.ndarray:
+        """One embedding (``[width]``, L2-normalised) for a sequence given as rows in the text model's input space —
+        the smallest ``embed_S`` that fits, padded with the pad token's row. Used for an image's tokens, which the
+        image encoder already projects into that space."""
+        self._base()
+        rows = np.asarray(rows, dtype=np.float16)
+        n = int(rows.shape[0])
+        if n == 0 or n > LENGTHS[-1]:
+            raise ValueError(f"a sequence of {n} rows doesn't fit the text model")
+        size = next(s for s in LENGTHS if s >= n)
+        model = self._function(f"embed_{size}", wait=wait)
+        emb = np.zeros((1, size, HIDDEN), dtype=np.float16)
+        emb[0, :n] = rows
+        if size > n:
+            emb[0, n:] = self._rows([self._pad_id()] * (size - n))
+        mask = np.zeros((1, size), dtype=np.float16)
+        mask[0, :n] = 1
+        with self._predict_lock:
+            out = model.predict({"inputs_embeds": emb, "attention_mask": mask})["embedding"]
+        vec = np.asarray(out, dtype=np.float32).reshape(-1)[:FULL_DIM][: self.width]
+        return (vec / max(float(np.linalg.norm(vec)), 1e-12)).astype(np.float32)
+
     def loaded_only(self):
         """This embedder for a caller with a budget of milliseconds (the per-prompt recall hook, G149 R-H4): a
         query whose function isn't loaded yet raises :class:`EmbedderWarming` at once instead of loading it."""
