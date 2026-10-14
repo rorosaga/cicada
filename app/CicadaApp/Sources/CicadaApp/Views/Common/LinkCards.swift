@@ -222,9 +222,7 @@ struct CaptureStrip: View {
     var body: some View {
         let shots = fact.captures.sorted { $0.day < $1.day }
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            Text(Copy.Links.howItLooked(shots.count))
-                .font(CicadaTheme.labelFont)
-                .foregroundStyle(CicadaTheme.textTertiary)
+            SectionLabel(Copy.Links.howItLooked(shots.count))
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
                     ForEach(Array(shots.enumerated()), id: \.offset) { _, shot in

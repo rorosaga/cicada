@@ -365,6 +365,7 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /entities/{entity_id}/sources": (ADMITTED, None),
     "POST /entities/{entity_id}/sources/change": (ADMITTED, None),
     "DELETE /entities/{entity_id}/sources/{index}": (ADMITTED, None),
+    "POST /entities/{entity_id}/edits": (ADMITTED, None),
     "POST /projects/{project_id}/milestones": (ADMITTED, None),
     "PATCH /projects/{project_id}/milestones/{slug}": (ADMITTED, None),
     "POST /projects/{project_id}/happenings": (ADMITTED, None),
