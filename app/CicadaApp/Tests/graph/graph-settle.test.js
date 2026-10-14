@@ -207,6 +207,35 @@ for (const seed of [7, 3, 11]) {
     check("a thrown node keeps the timer running while it coasts", coast === 10, coast);
 }
 
+// ---- 5. a small graph's cold open fits the view when it ends, never later (review B1) ----
+for (const n of [12, 40]) {
+    const h = harness.loadGraph({ frames: true });
+    const nodes = [], links = [];
+    for (let i = 0; i < n; i++) {
+        nodes.push({ id: "s" + i, name: "s", type: ["person", "concept", "project"][i % 3], status: "active", confidence: 0.5 });
+        if (i > 0) links.push({ source: "s" + Math.floor((i - 1) / 2), target: "s" + i });   // a binary tree
+    }
+    h.call("updateGraph", { nodes, links });
+    h.get("simulation").stop();
+    // fitGraph needs d3-zoom on a real canvas; count its calls instead.
+    h.get("fitGraph = function () { globalThis.__fits = (globalThis.__fits || 0) + 1; }");
+    let steps = 0;
+    while (steps < 1000 && h.step()) steps += 1;
+    const fits = () => h.get("globalThis.__fits || 0");
+    // measured 71 / 83 steps: the settle check ends it before INITIAL_FIT_TICKS (90), the case this guards
+    check(`${n} nodes: the cold layout ends before the fit's 90 ticks`, steps + 1 < 90, steps + 1);
+    check(`${n} nodes: the view is fitted exactly once by the layout's end`, fits() === 1, fits());
+    check(`${n} nodes: no fit is left armed`, h.get("initialFitTicksLeft") === -1, h.get("initialFitTicksLeft"));
+    const fitsBeforeGrab = fits();
+    const node = h.get("visibleNodes")[0];
+    h.clock.now = 30000;
+    h.sandbox.onMouseDown({ clientX: node.x, clientY: node.y, stopImmediatePropagation: () => {} });
+    h.get("simulation").stop();
+    for (let i = 0; i < 30; i++) h.step();
+    h.sandbox.onMouseUp({});
+    check(`${n} nodes: grabbing a node afterwards fits nothing`, fits() === fitsBeforeGrab, `${fitsBeforeGrab} -> ${fits()}`);
+}
+
 {
     // The synthetic's shape is the brief's (a guard on the generator, not on graph.js).
     const { shapeSummary } = require("./graph-bank-shape.js");

@@ -492,6 +492,13 @@ function tickInitialFit() {
     initialFitTicksLeft = -1;
     fitGraph();
 }
+// G109 (2026-10-14): a layout can now end before INITIAL_FIT_TICKS (settleCheck; a 12-node graph stops near step 80),
+// so the layout's end runs a fit still pending. Left armed, it fired on the next restart — mid-drag.
+function finishInitialFit() {
+    if (initialFitTicksLeft < 0) return;
+    initialFitTicksLeft = -1;
+    fitGraph();
+}
 function centerOnce() {
     if (hasCentered || width <= 0 || height <= 0 || !currentZoom) return;
     hasCentered = true;
@@ -600,6 +607,7 @@ function zoomReset() {
 }
 
 function fitGraph() {
+    if (!currentZoom) return;   // headless (no zoom behaviour attached), as revealNode/ensureVisible handle it
     if (!visibleNodes.length) { zoomReset(); return; }
     const t = transformForNodes(visibleNodes, 60);
     if (!t) { zoomReset(); return; }
@@ -1363,7 +1371,7 @@ function startSimulation({ reheat = 1.0, relax = null, seeded = null } = {}) {
         .force("band", bandForce(BAND_SPRING))
         .force("clampSpeed", clampSpeedForce())
         .on("tick", () => { tickInitialFit(); settleCheck(); scheduleRedraw(); })
-        .on("end", () => { simulation.stop(); releaseHolds(); layoutRelax = null; });
+        .on("end", () => { simulation.stop(); releaseHolds(); layoutRelax = null; finishInitialFit(); });
 
     if (relax && relax.size === 0) {
         simulation.alpha(0).stop();
