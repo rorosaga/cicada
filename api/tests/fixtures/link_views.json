@@ -44,6 +44,14 @@
      "links": [{"label": "https://example.com/plans/flat", "url": "https://example.com/plans/flat", "view": "raw", "asked": "raw", "day": null, "block": false, "markdown": "https://example.com/plans/flat"}]},
     {"line": "The redesign (https://example.com/pricing) shipped.",
      "links": [{"label": "https://example.com/pricing", "url": "https://example.com/pricing", "view": "raw", "asked": "raw", "day": null, "block": false, "markdown": "https://example.com/pricing"}]},
+    {"line": "See [Foo](https://en.wikipedia.org/wiki/Foo_(bar)) here.",
+     "links": [{"label": "Foo", "url": "https://en.wikipedia.org/wiki/Foo_(bar)", "view": "link", "asked": "link", "day": null, "block": false, "markdown": "[Foo](https://en.wikipedia.org/wiki/Foo_(bar))"}]},
+    {"line": "[Foo](https://en.wikipedia.org/wiki/Foo_(bar) \"bookmark\")",
+     "links": [{"label": "Foo", "url": "https://en.wikipedia.org/wiki/Foo_(bar)", "view": "bookmark", "asked": "bookmark", "day": null, "block": true, "markdown": "[Foo](https://en.wikipedia.org/wiki/Foo_(bar) \"bookmark\")"}]},
+    {"line": "Bare https://en.wikipedia.org/wiki/Foo_(bar) and (see https://example.com/x).",
+     "links": [
+       {"label": "https://en.wikipedia.org/wiki/Foo_(bar)", "url": "https://en.wikipedia.org/wiki/Foo_(bar)", "view": "raw", "asked": "raw", "day": null, "block": false, "markdown": "https://en.wikipedia.org/wiki/Foo_(bar)"},
+       {"label": "https://example.com/x", "url": "https://example.com/x", "view": "raw", "asked": "raw", "day": null, "block": false, "markdown": "https://example.com/x"}]},
     {"line": "Autolinked: <https://example.com/x>.",
      "links": [{"label": "https://example.com/x", "url": "https://example.com/x", "view": "raw", "asked": "raw", "day": null, "block": false, "markdown": "<https://example.com/x>"}]},
     {"line": "[Notes \\[draft\\]](https://example.com/notes \"captures\")",
@@ -60,6 +68,7 @@
     {"in": "[T](https://example.com/t \"screenshot 2026-10-14\")", "out": "[T](https://example.com/t)"},
     {"in": "[T](https://example.com/t \"A real tooltip\")", "out": "[T](https://example.com/t \"A real tooltip\")"},
     {"in": "No links at all.", "out": "No links at all."},
+    {"in": "[Foo](https://en.wikipedia.org/wiki/Foo_(bar) \"look\") x", "out": "[Foo](https://en.wikipedia.org/wiki/Foo_(bar)) x"},
     {"in": "![img](https://example.com/i.png \"look\")", "out": "![img](https://example.com/i.png \"look\")"}
   ],
   "markdown": [

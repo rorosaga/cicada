@@ -148,8 +148,10 @@ enum LinkCardModel {
     /// The views the person's switcher offers for a link: a view only where Cicada has something for it (Screenshot
     /// with a picture of the page, Captures with a capture, Look with a saved look), and block views only for a link
     /// alone on its line.
+    /// A bare URL or `<URL>` is never switched: it is the page's own words, not a link token to restyle.
     static func offered(_ ref: LinkRef, fact: LinkFact) -> [LinkViewKind] {
-        LinkViewKind.switcher.filter { view in
+        guard ref.markdown.hasPrefix("[") else { return [] }
+        return LinkViewKind.switcher.filter { view in
             switch view {
             case .link, .mention: return true
             case .bookmark: return ref.block

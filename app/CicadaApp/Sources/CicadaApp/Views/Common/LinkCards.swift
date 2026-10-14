@@ -443,7 +443,7 @@ struct LinkLineList: View {
                     let fact = LinkFactsCache.shared.fact(ref.url, on: entityId)
                     VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                         BookmarkCard(fact: fact, ref: ref, entityId: entityId)
-                        if let entityId {
+                        if let entityId, !LinkCardModel.offered(ref, fact: fact).isEmpty {
                             LinkSwitcher(ref: ref, fact: fact, entityId: entityId, inLinks: inLinks)
                         }
                     }

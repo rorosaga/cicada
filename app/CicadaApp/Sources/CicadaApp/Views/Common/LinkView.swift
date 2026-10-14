@@ -52,7 +52,7 @@ enum LinkGrammar {
 
     private static let title = regex(#"^([a-z]+)(?: (\d{4}-\d{2}-\d{2}))?$"#)
     private static let link = regex(
-        #"(?<!!)\[((?:\\.|[^\[\]\\])*)\]\(\s*(?:<(https?://[^\s<>]+)>|(https?://[^\s()<>]+))(?:\s+(?:"([^"]*)"|'([^']*)'))?\s*\)"#)
+        #"(?<!!)\[((?:\\.|[^\[\]\\])*)\]\(\s*(?:<(https?://[^\s<>]+)>|(https?://(?:[^\s()<>]|\([^\s()<>]*\))+))(?:\s+(?:"([^"]*)"|'([^']*)'))?\s*\)"#)
     private static let autolink = regex(#"<(https?://[^\s<>]+)>"#)
     private static let bare = regex(#"(?<![\w<"'=/])(https?://[^\s<>"'`\]]+)"#)
     private static let image = regex(#"!\[[^\]]*\]\([^)]*\)"#)
@@ -164,6 +164,16 @@ enum LinkGrammar {
         text = ns.replacingCharacters(in: range, with: String(repeating: " ", count: range.length))
     }
 
+    /// A bare URL without the sentence's trailing punctuation — a closing `)` only when it closes nothing in the URL.
+    static func trimBare(_ raw: String) -> String {
+        var url = raw
+        while let last = url.last, bareTrail.contains(last) {
+            if last == ")", url.filter({ $0 == "(" }).count >= url.filter({ $0 == ")" }).count { break }
+            url.removeLast()
+        }
+        return url
+    }
+
     /// Every link in ONE line, in order: titled and plain markdown links, autolinks and bare URLs (`raw`). Nothing
     /// inside inline code; never an image.
     static func links(in line: String) -> [LinkRef] {
@@ -199,7 +209,7 @@ enum LinkGrammar {
         ns = text as NSString
         for m in bare.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
             var url = ns.substring(with: m.range(at: 1))
-            while let last = url.last, bareTrail.contains(last) { url.removeLast() }
+            url = trimBare(url)
             guard url.contains("://"), url.count > "https://".count else { continue }
             let range = NSRange(location: m.range.location, length: (url as NSString).length)
             found.append(LinkRef(label: url, url: url, view: .raw, asked: .raw, day: nil, block: isBlock(ns, range),

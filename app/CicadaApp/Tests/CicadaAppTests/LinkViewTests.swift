@@ -79,6 +79,13 @@ final class LinkViewTests: XCTestCase {
         XCTAssertEqual(String(WikiInline.attributed("at <https://example.com/x>.").characters), "at example.com/x.")
     }
 
+    /// Review B2: a URL with balanced parentheses is one URL, so the link reads as its words.
+    func testAWikipediaLinkStaysOneLink() {
+        let text = WikiInline.attributed("See [Foo](https://en.wikipedia.org/wiki/Foo_(bar)) here.")
+        XCTAssertEqual(String(text.characters), "See Foo here.")
+        XCTAssertEqual(runs(text).first { $0.1 != nil }?.1, "https://en.wikipedia.org/wiki/Foo_(bar)")
+    }
+
     func testAViewWordIsNeverShownAndAMentionReadsAsSiteThenTitle() {
         let titled = WikiInline.attributed(#"See [the guide](https://docs.example.com/g "The setup guide") now."#)
         XCTAssertEqual(String(titled.characters), "See the guide now.")
@@ -201,6 +208,10 @@ final class LinkViewTests: XCTestCase {
         let bare = LinkFact(url: seats)
         XCTAssertEqual(LinkCardModel.offered(alone, fact: bare), [.link, .mention, .bookmark])
         XCTAssertEqual(LinkCardModel.offered(inSentence, fact: bare), [.link, .mention])
+        // A bare URL or an autolink is the page's own words: never offered a switch (review B1).
+        for raw in LinkGrammar.links(in: "See https://x.example.com/a and <https://x.example.com/b>.") {
+            XCTAssertEqual(LinkCardModel.offered(raw, fact: bare), [], raw.markdown)
+        }
         let withLook = LinkFact(url: seats, looks: [LinkFact.Look(id: "2026-10-14-a", day: "2026-10-14", image: "/d", palette: [])])
         XCTAssertEqual(LinkCardModel.offered(alone, fact: withLook), [.link, .mention, .bookmark, .screenshot, .look])
     }

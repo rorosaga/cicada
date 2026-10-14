@@ -147,7 +147,7 @@ def _links_origin(fm: dict, body: str) -> str | None:
     names = _names(fm)
     for line in section.splitlines():
         for m in _URL_LINK.finditer(line):
-            title, url = (m.group(1) or ""), (m.group(2) or m.group(3) or "").rstrip(").,")
+            title, url = (m.group(1) or ""), (m.group(2) or link_views.trim_bare(m.group(3) or ""))
             origin = origin_of(url)
             if not origin:
                 continue

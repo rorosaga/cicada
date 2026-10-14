@@ -219,3 +219,35 @@ def test_the_person_edit_route_waits_for_sleep(bank, monkeypatch):
         {"old": "prices by seat", "new": "prices per seat"}]})
     assert response.status_code == 409
     assert "prices by seat" in (bank / "entities" / "alpha-project.md").read_text(encoding="utf-8")
+
+
+# --------------------------------------------------------------------------- review B1: a switch edits one whole token
+
+
+def test_a_view_switch_never_reaches_inside_a_longer_url_a_link_or_an_image():
+    """A link or URL edit (and its pin) matches only the whole token: never ``…/a`` inside ``…/a/b``, never the target
+    of ``[Guide](…/a)``, never an image. Before the fix, switching the bare URL nested a link inside the other two and
+    the pin re-applied it on every Sleep."""
+    url = "https://x.example.com/a"
+    body = (f"## Summary\nSee {url} and [Guide]({url}) and {url}/b.\n\n![Guide]({url})\n")
+    bare = link_views.markdown(url, url, "mention")
+    out = page_edits.plan({"name": "P"}, body, page_edits.parse_request(
+        [{"old": url, "new": bare, "all": True, "pin": True}]), author="user")
+    assert out.body.strip() == body.replace(f"See {url} and", f"See {bare} and").strip()
+    rewritten, n = page_edits.apply_corrections(out.frontmatter, body)
+    assert n == 1 and rewritten.strip() == out.body.strip()
+    assert page_edits.apply_corrections(out.frontmatter, out.body) == (out.body, 0)
+    token, card = f"[Guide]({url})", link_views.markdown("Guide", url, "bookmark")
+    out = page_edits.plan({"name": "P"}, body, page_edits.parse_request(
+        [{"old": token, "new": card, "all": True, "pin": True}]), author="user")
+    assert out.body.strip() == body.replace(f"and {token} and", f"and {card} and").strip()
+    assert f"![Guide]({url})" in out.body and f"{url}/b" in out.body
+    assert page_edits.apply_corrections(out.frontmatter, out.body) == (out.body, 0)
+
+
+def test_a_url_with_parentheses_is_one_url_everywhere():
+    wiki = "https://en.wikipedia.org/wiki/Foo_(bar)"
+    assert entity_body._link_url(f"- [Foo]({wiki}) — a note") == wiki
+    merged = entity_body._merge_links(f"- [Foo]({wiki}) — a note", [{"url": wiki, "title": "Foo", "note": "again"}])
+    assert merged.count(wiki) == 1
+    assert page_sources._parse_link(f'[Foo]({wiki} "bookmark") — a note') == (wiki, "Foo", "a note")

@@ -51,14 +51,17 @@ SWITCHER_VIEWS = ("link", "mention", "bookmark", "screenshot", "captures", "look
 _TITLE = re.compile(r"^(?P<view>[a-z]+)(?: (?P<day>\d{4}-\d{2}-\d{2}))?$")
 #: A markdown link that is not an image: ``[label](url)`` or ``[label](url "title")`` / ``'title'``. The label may
 #: hold backslash escapes; the URL is http(s), optionally in angle brackets.
+#: A link's URL: no space or angle bracket, and parentheses only balanced, one level deep — CommonMark's rule, so
+#: ``https://en.wikipedia.org/wiki/Foo_(bar)`` is one URL and the link's own ``)`` still closes it.
+URL = r"https?://(?:[^\s()<>]|\([^\s()<>]*\))+"
 LINK = re.compile(
     r"(?<!!)\[(?P<label>(?:\\.|[^\[\]\\])*)\]"
-    r"\(\s*(?:<(?P<aurl>https?://[^\s<>]+)>|(?P<url>https?://[^\s()<>]+))"
+    r"\(\s*(?:<(?P<aurl>https?://[^\s<>]+)>|(?P<url>" + URL + r"))"
     r"(?:\s+(?:\"(?P<dq>[^\"]*)\"|'(?P<sq>[^']*)'))?\s*\)"
 )
 #: The ``(url)`` / ``(url "title")`` half of a link, the URL as group 1 — for a parser that keeps its own groups
 #: (``entity_body``'s ``## Links`` dedup, ``page_sources``, ``site_sources``), so a titled link is never dropped.
-LINK_TAIL = r"\(\s*<?(https?://[^\s()<>]+)>?(?:\s+(?:\"[^\"]*\"|'[^']*'))?\s*\)"
+LINK_TAIL = r"\(\s*<?(" + URL + r")>?(?:\s+(?:\"[^\"]*\"|'[^']*'))?\s*\)"
 #: ``<https://…>`` — CommonMark's autolink.
 AUTOLINK = re.compile(r"<(?P<url>https?://[^\s<>]+)>")
 #: A bare URL in prose (not inside a link, an image, an autolink or code — :func:`links_in` masks those first), so a
@@ -189,12 +192,22 @@ def links_in(line: str) -> list[LinkRef]:
                              m.start(), m.end(), line[m.start():m.end()]))
         rest = rest[:m.start()] + " " * (m.end() - m.start()) + rest[m.end():]
     for m in BARE.finditer(rest):
-        url = m.group("url").rstrip(_BARE_TRAIL)
+        url = trim_bare(m.group("url"))
         if "://" not in url or len(url) <= len("https://"):
             continue
         end = m.start() + len(url)
         found.append(LinkRef(url, url, "raw", "raw", None, _is_block(rest, m.start(), end), m.start(), end, url))
     return sorted(found, key=lambda r: r.start)
+
+
+def trim_bare(url: str) -> str:
+    """A bare URL without the sentence's trailing punctuation — a closing ``)`` only when it closes nothing in the URL
+    (``(see https://example.com/x)`` vs ``https://en.wikipedia.org/wiki/Foo_(bar)``)."""
+    while url and url[-1] in _BARE_TRAIL:
+        if url[-1] == ")" and url.count("(") >= url.count(")"):
+            break
+        url = url[:-1]
+    return url
 
 
 def plain(text: str) -> str:

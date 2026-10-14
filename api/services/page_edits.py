@@ -277,6 +277,8 @@ def _find_section(prose: str, wanted: str) -> tuple[_Heading, str]:
 
 
 def _occurrences(text: str, old: str) -> list[int]:
+    if _is_link(old):
+        return [m.start() for m in _pattern(old).finditer(text)]
     out, at = [], text.find(old)
     while at != -1:
         out.append(at)
@@ -287,8 +289,21 @@ def _occurrences(text: str, old: str) -> list[int]:
 # --------------------------------------------------------------------------- corrections
 
 
+#: A link or a URL in an edit is one whole token (owner rulings 2026-10-14, the link-view switch): never inside a
+#: longer URL (``…/a`` in ``…/a/b``), a link's target (``(…)``) or label (``[…]``), or an image (``![…](…)``).
+_LINK_LEAD = r"(?<![\w!\[(/<\"'=.:#?&%~+-])"
+_LINK_TAIL = r"(?![\w/(\[\]\-?#=&%~+:\"'>]|\.[\w/])"
+
+
+def _is_link(old: str) -> bool:
+    return "://" in old
+
+
 def _pattern(old: str) -> re.Pattern[str]:
-    """``old`` as written, whole-word at an edge that is a word character (``Jon`` never matches inside ``Jonas``)."""
+    """``old`` as written, whole-word at an edge that is a word character (``Jon`` never matches inside ``Jonas``);
+    a link or URL only as a whole token (``_LINK_LEAD`` / ``_LINK_TAIL``)."""
+    if _is_link(old):
+        return re.compile(_LINK_LEAD + re.escape(old) + _LINK_TAIL)
     lead = r"(?<!\w)" if _WORD.match(old[:1]) else ""
     tail = r"(?!\w)" if _WORD.match(old[-1:]) else ""
     return re.compile(lead + re.escape(old) + tail)
@@ -507,7 +522,10 @@ def plan(frontmatter: dict, body: str, request: Request, *, author: str, day: st
                                 "would not last. Record the relation as a claim instead.")
             if title not in touched:
                 touched.append(title)
-        prose = prose.replace(old, new) if edit["all"] else prose.replace(old, new, 1)
+        if _is_link(old):
+            prose = _pattern(old).sub(lambda _m: new, prose, count=0 if edit["all"] else 1)
+        else:
+            prose = prose.replace(old, new) if edit["all"] else prose.replace(old, new, 1)
         n = len(hits) if edit["all"] else 1
         changes.append(f"replaced {n} passage{'s' if n != 1 else ''}" + (" (pinned)" if edit["pin"] else ""))
 
