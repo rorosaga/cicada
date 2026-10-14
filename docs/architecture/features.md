@@ -65,17 +65,22 @@ whole list. Measured on a synthetic owner page of the real one's size (5.6 MB, 5
 a 2.1–3.2 s main-thread stall when the page landed and ~0.5 s on every graph push while it was shown; the article
 costs ~60 ms of first screen and no stall over 16 ms on a push. **Where this comes from (owner 2026-10-14, G61)** is
 one disclosure for where the page's knowledge comes from and how fresh it is (it replaced *Where this came from* and
-*Look it up at*, and keeps the former's remembered choice). Closed, it says "· 2 sources · 3 conversations". Open: how
+*Look it up at*, and keeps the former's remembered choice). Closed, it says "· 3 conversations" (from `/provenance`),
+and "· 2 sources · 3 conversations" once its data has been read. Open: how
 many beliefs have a place to check them, when the page was last said and its sources last checked; **Sources and
-links** — each G61 source grouped by its fact ("Employs · backs 5 beliefs"), its row as before (the fact, how it can
+links** — each G61 source grouped by its fact ("Employs · backs 5 beliefs"), its row leading with the site's name (the
+page's own `## Links` title for that URL, or the name of the saved page it is linked to, else its host) over the full
+URL, then as before (the fact, how it can
 be read, who added it with their mark, "You chose to use this" / "Only you know this", the official site's
 confirmation, ↗ and the menu), under each fact group the beliefs its sources back (four, then "and N more"), each a
 way into that belief's timeline; then *Named in conversations*, the page's `## Links` lines that are not sources, each
-with its site, its note and the conversation that named it (mark, app, title, day — opens in the Reader), ↗, and
+with its title (else its host), its URL, its note and the conversation that named it (mark, app, title, day — opens in the Reader), ↗, and
 *Use as a source* in its menu; the add field and the page's open inbox question with Open in Inbox; **Conversations**
 — one row per app (mark, name, conversations, beliefs and passages they back, last day), then *Where this came
 from*'s writers, conversation rows and coverage. It reads `GET /entities/{id}/sources/overview` (`page_sources`, one
-bounded read when the card opens, through `ProvenanceCache`, ETag-revalidated, never a Store domain) and the card's
+bounded read — ~170 ms warm on an owner-sized page of 5,900 beliefs over 3,000 conversations, pinned under 500 ms by
+`test_page_sources_owner_scale.py` — through `ProvenanceCache`, ETag-revalidated, never a Store domain) only when the
+section opens or the beliefs list is shown (for its chips), never on every card open, which already reads
 `/provenance`; never the claims list. A belief whose fact has a source wears a *Check at example.org* chip beside its
 evidence (`PageSourcesOverview.lookUps`: the person's, then a taken or confirmed one, then the rest; never the
 official-site or page-wide ones): it opens the section on that source, selected (DR-48) and scrolled to — the way back

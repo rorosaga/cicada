@@ -37,8 +37,6 @@ enum ProvenanceSectionState {
 struct WhereThisCameFromSection: View {
     let entityId: String
     let state: ProvenanceSectionState
-    /// False inside the card's own "Where this came from" disclosure, which already names the section (DR-38).
-    var showsLabel = true
     /// False inside "Where this comes from", whose rows per app already say how many conversations and where (DR-38).
     var showsConversationsSentence = true
 
@@ -53,7 +51,6 @@ struct WhereThisCameFromSection: View {
             EmptyView()
         default:
             VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                if showsLabel { SectionLabel(Copy.Provenance.whereThisCameFrom) }
                 content
             }
         }

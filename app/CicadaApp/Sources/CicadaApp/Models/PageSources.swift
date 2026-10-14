@@ -322,10 +322,18 @@ enum PageSourcesWords {
         return more > 0 ? Copy.PageSources.andMore(more) : nil
     }
 
-    /// A link's meta line: "example.net · how the launch went".
-    static func linkMeta(_ l: PageLink) -> String? {
-        let parts = [l.site, l.note].compactMap { $0?.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
-        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    /// A link named in a conversation leads the same way as a source: its title, else its host; the URL second.
+    static func linkTitle(_ l: PageLink) -> String {
+        let named = l.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard named.isEmpty else { return named }
+        guard let host = l.link?.host?.lowercased(), !host.isEmpty else { return l.url }
+        return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
+    }
+
+    /// A link's note, as the page's line gives it ("how the launch went"); nil when it gives none.
+    static func linkNote(_ l: PageLink) -> String? {
+        let note = l.note?.trimmingCharacters(in: .whitespaces) ?? ""
+        return note.isEmpty ? nil : note
     }
 
     /// The conversation that named a link, the way a person would (DR-54): "Claude Code · Launch plan · Sep 3", or
@@ -361,6 +369,16 @@ enum PageSourcesWords {
         case "app": return Copy.PageSources.chipApp
         default: return Copy.PageSources.chipNote
         }
+    }
+
+    /// What a source row leads with (review polish, 2026-10-14): a link reads as its site's name — the title the page
+    /// already holds for it (its `## Links` line, or the saved page it is linked to), else its host — with the full
+    /// URL as the secondary line. Anything that is not a link keeps its own words and no second line.
+    static func heading(_ s: EntitySource, title: String?) -> (title: String, url: String?) {
+        guard let url = s.url, let host = url.host?.lowercased(), !host.isEmpty else { return (s.ref, nil) }
+        let named = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let shown = named.isEmpty ? (host.hasPrefix("www.") ? String(host.dropFirst(4)) : host) : named
+        return (shown, s.ref)
     }
 
     /// The scroll anchor of a source row, so a belief's chip can land on it.

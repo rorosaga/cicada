@@ -156,6 +156,20 @@ def test_a_happening_or_a_withdrawal_record_is_never_a_fact_a_source_backs(tmp_p
     assert hook.facts == 5 and result.conversations.total == 3
 
 
+def test_a_source_linked_to_its_saved_page_takes_that_pages_name_as_its_title(built):
+    memory, page = built
+    md.write(memory / "entities" / "media-alpha-team.md", {"name": "The Alpha Co team", "type": "media"}, "Saved.")
+    parsed = md.parse(page)
+    sources = parsed.frontmatter["sources"]
+    sources[1]["entity"] = "media-alpha-team"
+    md.write(page, parsed.frontmatter, parsed.body)
+    bank_index.invalidate()
+    result = page_sources.overview(memory, page)
+    assert result.sources[1].title == "The Alpha Co team"
+    assert result.sources[0].title == "Alpha Co", "the page's own `## Links` title still wins"
+    assert result.sources[2].title is None, "a note has no title"
+
+
 def test_a_page_with_nothing_answers_empty(tmp_path: Path):
     memory = tmp_path / "memory"
     (memory / "entities").mkdir(parents=True)

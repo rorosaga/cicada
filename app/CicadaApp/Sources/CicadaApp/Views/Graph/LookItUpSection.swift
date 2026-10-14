@@ -8,8 +8,6 @@ struct LookItUpSection: View {
     let entityId: String
     /// The page's type, for what the empty field asks for: a brand its official website, a person a profile.
     var entityType: EntityType? = nil
-    /// False inside the card's "Look it up at" disclosure, which already names the section (DR-38).
-    var showsLabel = true
     @Binding var sources: [EntitySource]
     /// Opens another page's card (the card's own `navigate(to:)`) — a source's "Open page ›".
     var navigate: (String) -> Void = { _ in }
@@ -38,7 +36,6 @@ struct LookItUpSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            if showsLabel { SectionLabel(Copy.Provenance.lookItUpAt) }
             let links = overview?.links ?? []
             if !sources.isEmpty || !links.isEmpty {
                 VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
@@ -99,8 +96,10 @@ struct LookItUpSection: View {
 
     private func row(_ source: EntitySource) -> some View {
         let linked = source.entity.flatMap { id in store.entityNames.name(for: id).map { (id: id, name: $0) } }
+        let heading = PageSourcesWords.heading(source, title: overview?.backing(source)?.title)
         return FactSourceRow(
-            line: FactSourceWords.line(source), url: source.url, linked: linked,
+            line: FactSourceWords.line(source), title: heading.title, fullURL: heading.url, url: source.url,
+            linked: linked,
             node: linked.flatMap { pair in store.graph.value?.nodes.first { $0.id == pair.id } },
             canBeTaken: source.canBeTaken,
             entityId: entityId, site: SourceSite.key(of: source),
@@ -295,6 +294,10 @@ private struct SourceLinkPicker: View {
 /// linked to its own page wears that page's picture and offers "Open page ›" (G61 S3-a).
 private struct FactSourceRow: View {
     let line: FactSourceWords.Line
+    /// What the row leads with — a link's site name, else the ref (`PageSourcesWords.heading`).
+    var title: String? = nil
+    /// A link's full URL, under its name (review polish 2026-10-14).
+    var fullURL: String? = nil
     let url: URL?
     /// The page this source is linked to, when it still exists.
     let linked: (id: String, name: String)?
@@ -318,13 +321,21 @@ private struct FactSourceRow: View {
         HStack(alignment: .top, spacing: CicadaTheme.scaled(10)) {
             mark
             VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
-                Text(line.ref)
+                Text(title ?? line.ref)
                     .font(CicadaTheme.rowFont)
                     .foregroundStyle(line.isLink ? (hovering ? CicadaTheme.textPrimary : CicadaTheme.accentText)
                                                  : CicadaTheme.textSecondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .help(line.help)
+                if let fullURL, fullURL != title {
+                    Text(fullURL)
+                        .font(CicadaTheme.metaFont)
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .help(line.help)
+                }
                 HStack(spacing: CicadaTheme.spacingXS) {
                     Text(line.forFact)
                     if let readBy = line.readBy {

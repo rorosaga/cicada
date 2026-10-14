@@ -84,6 +84,14 @@ def _parse_link(text: str) -> tuple[str, str, str | None] | None:
     return url, title, note
 
 
+def _page_name(memory_path: Path, entity_id: str) -> str | None:
+    try:
+        name = markdown_parser.parse(Path(memory_path) / "entities" / f"{entity_id}.md").frontmatter.get("name")
+    except Exception:
+        return None
+    return _opt(name)
+
+
 def _scope(source: dict) -> str:
     predicate = str(source.get("predicate") or "").strip().lower()
     if not predicate:
@@ -156,6 +164,10 @@ def overview(memory_path: Path, page: Path) -> SourcesOverview:
         facts = by_predicate.get(predicate, []) if predicate else []
         backed.update(c.id for c in facts)
         title = next((t for u, t, _, _ in link_rows if t and is_url and _same_url(u, ref)), None)
+        if title is None and is_url and row["entity"]:
+            # The page this source is linked to is the saved copy of it: its name is the title read when it was
+            # saved — already in the bank, nothing is fetched.
+            title = _page_name(memory_path, row["entity"])
         known = set(OverviewSource.model_fields)
         sources.append(OverviewSource(
             **{k: v for k, v in row.items() if k in known},
@@ -190,12 +202,21 @@ def overview(memory_path: Path, page: Path) -> SourcesOverview:
     cited = {c.id: provenance.cited_episodes(c) for c in current}
     fed_by = [str(e) for e in (fm.get("source_episodes") or []) if evidence.is_episode_id(str(e))]
     ordered = list(dict.fromkeys(fed_by + sorted({e for eps in cited.values() for e in eps})))
-    passages: dict[tuple[str, str], set[str]] = {}
+    # Inverted once, episode -> what it backs, so the tally is O(beliefs + episodes + passages), never
+    # conversations x beliefs (an owner-sized page: ~6k beliefs over ~3k conversations, review B1).
+    beliefs_by_episode: dict[str, set[str]] = {}
+    for cid, eps in cited.items():
+        if cid in belief_ids:
+            for ep in eps:
+                beliefs_by_episode.setdefault(ep, set()).add(cid)
+    passages_by_episode: dict[str, set[tuple[str, str]]] = {}
     for section, records in matched.items():
         if section == "links":
             continue
         for key, (_, evs) in records.items():
-            passages[(section, key)] = {e.episode for e in evs if evidence.is_episode_id(e.episode)}
+            for e in evs:
+                if evidence.is_episode_id(e.episode):
+                    passages_by_episode.setdefault(e.episode, set()).add((section, key))
 
     apps: dict[str, dict] = {}
     first_said = last_said = None
@@ -210,8 +231,9 @@ def overview(memory_path: Path, page: Path) -> SourcesOverview:
             "harness": harness, "origin": origin, "source": _opt(last.get("source")),
             "conversations": 0, "facts": set(), "passages": set(), "last_said": None})
         app["conversations"] += 1
-        app["facts"].update(cid for cid, eps in cited.items() if cid in belief_ids and eps & members)
-        app["passages"].update(key for key, eps in passages.items() if eps & members)
+        for ep in members:
+            app["facts"].update(beliefs_by_episode.get(ep, ()))
+            app["passages"].update(passages_by_episode.get(ep, ()))
         if group["said"]:
             first, newest = group["said"]
             if app["last_said"] is None or episode_ids.timestamp_sort_key(newest) > \

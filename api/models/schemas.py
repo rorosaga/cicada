@@ -1295,7 +1295,8 @@ class SourceFact(CamelModel):
 
 class OverviewSource(EntitySource):
     """A ``sources:`` entry as ``GET /entities/{id}/sources`` serves it, plus what the card says about it: its
-    ``site`` key (``reading_hosts.site_of``, a url only), a ``title`` the page's own ``## Links`` gives that URL,
+    ``site`` key (``reading_hosts.site_of``, a url only), a ``title`` — the page's own ``## Links`` title for that URL,
+    else the name of the saved page it is linked to (``entity``), never fetched —
     its ``scope`` (``fact``: it backs one predicate; ``site``: the official-site role; ``page``: no predicate) and
     the current beliefs it backs (at most ``page_sources.MAX_FACTS``, newest first; ``fact_count`` is all of them)."""
 

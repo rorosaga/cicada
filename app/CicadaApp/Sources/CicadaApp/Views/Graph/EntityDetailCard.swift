@@ -81,8 +81,8 @@ struct EntityDetailCard: View {
     @State private var factClaims: [Claim] = []
     /// `sources` has been read for this page (from the overview, else `/sources` when the section opens).
     @State private var sourcesLoaded = false
-    /// Owner 2026-10-14 — "Where this comes from" (`/sources/overview`), read when the card opens: its few words sit
-    /// beside the closed section, and a belief's chip points at the source its fact can be checked at.
+    /// Owner 2026-10-14 — "Where this comes from" (`/sources/overview`), read when the section opens or the beliefs
+    /// list is shown: it fills the section, and a belief's chip points at the source its fact can be checked at.
     @State private var overview: PageSourcesOverview?
     /// The source a belief's chip asked for: selected in the section and scrolled to.
     @State private var highlightedSource: String?
@@ -331,7 +331,6 @@ struct EntityDetailCard: View {
             sourcesLoaded = false
             overview = nil
             highlightedSource = nil
-            Task { await loadOverview() }
             factClaims = []
             pageReadFailed = false
             paperDetail = nil
@@ -433,7 +432,7 @@ struct EntityDetailCard: View {
                     SectionLoading(text: Copy.Graph.readingBeliefs)
                 }
             }
-            .task(id: entity.id) { await loadClaimsIfNeeded() }
+            .task(id: entity.id) { await loadBeliefs() }
         } else if !isStub {
             CardDisclosure(title: Copy.Graph.beliefsTitle,
                            summary: claimsLoaded ? Copy.Graph.sectionCount(validClaims.count) : nil,
@@ -454,7 +453,7 @@ struct EntityDetailCard: View {
                                                lookUp: lookUp(for:), onLookUp: openSource)
                     }
                 }
-                .task(id: entity.id) { await loadClaimsIfNeeded() }
+                .task(id: entity.id) { await loadBeliefs() }
             }
         }
     }
@@ -473,7 +472,10 @@ struct EntityDetailCard: View {
                                isCurrent: { [id = entity.id] in activeEntityId == id },
                                onOpenFact: { fact in openTimeline(for: fact.key) },
                                onChanged: { Task { await loadOverview() } })
-                .task(id: entity.id) { await loadSourcesIfNeeded() }
+                .task(id: entity.id) {
+                    await loadOverview()
+                    await loadSourcesIfNeeded()   // only an older backend, with no overview, gets here unloaded
+                }
         }
     }
 
@@ -490,8 +492,16 @@ struct EntityDetailCard: View {
         }
     }
 
-    /// The page's "Where this comes from" through the in-memory cache (ETag-revalidated, never a Store domain). A
-    /// failure keeps whatever the card already shows; the sources are taken from it so the section needs no second read.
+    /// The beliefs list and, for its "Check at …" chips, the overview — both only once the list is shown.
+    private func loadBeliefs() async {
+        await loadClaimsIfNeeded()
+        if overview == nil { await loadOverview() }
+    }
+
+    /// The page's "Where this comes from" through the in-memory cache (ETag-revalidated, never a Store domain), read
+    /// when the section opens or the beliefs list is shown — never on every card open, which already reads
+    /// `/provenance` (review B1: on an owner-sized page that route alone is ~850 ms warm). A failure keeps whatever
+    /// the card already shows; the sources are taken from it so the section needs no second read.
     private func loadOverview() async {
         guard let provenanceCache else { return }
         let id = entity.id

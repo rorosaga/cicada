@@ -44,7 +44,7 @@ struct PageSourcesSection: View {
                 SectionLabel(Copy.PageSources.sitesAndLinks)
                 if sourcesLoaded {
                     // `.id` — the add field's draft belongs to one page.
-                    LookItUpSection(entityId: entityId, entityType: entityType, showsLabel: false, sources: $sources,
+                    LookItUpSection(entityId: entityId, entityType: entityType, sources: $sources,
                                     navigate: navigate, isCurrent: isCurrent, overview: overview,
                                     highlighted: highlighted, onOpenFact: onOpenFact,
                                     onOpenLinkOrigin: router == nil ? nil : openOrigin, onChanged: onChanged)
@@ -63,7 +63,7 @@ struct PageSourcesSection: View {
                         .padding(.horizontal, -CicadaTheme.scaled(10))
                     }
                     // The apps above already say how many and where: the section's own sentence would repeat them.
-                    WhereThisCameFromSection(entityId: entityId, state: provenance, showsLabel: false,
+                    WhereThisCameFromSection(entityId: entityId, state: provenance,
                                              showsConversationsSentence: overview == nil)
                 }
             }
@@ -180,7 +180,7 @@ private struct BackedFactRow: View {
 }
 
 /// A link the page's conversations named: its mark (the page's own icon route answers only for a site it trusts; else
-/// a monogram), its title in `accentText` (DR-6), the site and the line's note, then the conversation that named it —
+/// a monogram), its title (else its host) in `accentText` (DR-6), the full URL, the line's note, then the conversation that named it —
 /// mark, app, title, day (DR-54) — which opens in the Reader. ↗ opens the link; the menu keeps it as a source.
 struct PageLinkRow: View {
     let link: PageLink
@@ -193,14 +193,20 @@ struct PageLinkRow: View {
         HStack(alignment: .top, spacing: CicadaTheme.scaled(10)) {
             mark
             VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
-                Text(link.title.isEmpty ? link.url : link.title)
+                Text(PageSourcesWords.linkTitle(link))
                     .font(CicadaTheme.rowFont)
                     .foregroundStyle(hovering ? CicadaTheme.textPrimary : CicadaTheme.accentText)
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .help(link.url)
-                if let meta = PageSourcesWords.linkMeta(link) {
-                    Text(meta)
+                Text(link.url)
+                    .font(CicadaTheme.metaFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .help(link.url)
+                if let note = PageSourcesWords.linkNote(link) {
+                    Text(note)
                         .font(CicadaTheme.metaFont)
                         .foregroundStyle(CicadaTheme.textTertiary)
                         .lineLimit(1)

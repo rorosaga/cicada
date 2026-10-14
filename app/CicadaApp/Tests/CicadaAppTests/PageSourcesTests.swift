@@ -92,8 +92,10 @@ final class PageSourcesTests: XCTestCase {
 
     func testALinkNamesTheConversationItCameFromTheWayAPersonWould() throws {
         let o = try Self.fixture()
-        XCTAssertEqual(PageSourcesWords.linkMeta(o.links[0]), "example.net · how the launch went")
-        XCTAssertEqual(PageSourcesWords.linkMeta(o.links[1]), "example.com")
+        XCTAssertEqual(PageSourcesWords.linkTitle(o.links[0]), "Launch post")
+        XCTAssertEqual(PageSourcesWords.linkNote(o.links[0]), "how the launch went")
+        XCTAssertEqual(PageSourcesWords.linkTitle(o.links[1]), "news.example.com", "untitled: its host")
+        XCTAssertNil(PageSourcesWords.linkNote(o.links[1]))
         let named = try XCTUnwrap(o.links[0].cameFrom)
         let place = ProvenanceSummary.placeName(harness: named.harness, origin: named.origin)
         XCTAssertEqual(PageSourcesWords.cameFrom(named, locale: en), "\(place) · Later · Sep 3")
@@ -314,5 +316,21 @@ final class PageSourcesTests: XCTestCase {
             conversations: rows,
             totals: ProvenanceTotals(claims: 7, withSpan: 4, legacy: 1, conversations: 3,
                                      firstSaid: "2026-08-12T09:00:00+00:00", lastSaid: "2026-09-03T10:00:00+00:00")))
+    }
+}
+
+extension PageSourcesTests {
+    /// Review polish — a link leads with its site's name, the full URL second; anything else keeps its words.
+    func testASourceRowLeadsWithTheSitesNameAndKeepsTheURLSecond() {
+        let titled = PageSourcesWords.heading(Self.source("https://alpha-co.example/"), title: "Alpha Co")
+        XCTAssertEqual(titled.title, "Alpha Co")
+        XCTAssertEqual(titled.url, "https://alpha-co.example/")
+        let bare = PageSourcesWords.heading(Self.source("https://www.example.org/alpha-co/team"), title: nil)
+        XCTAssertEqual(bare.title, "example.org", "no title the page holds: the host, without www")
+        XCTAssertEqual(bare.url, "https://www.example.org/alpha-co/team")
+        XCTAssertEqual(PageSourcesWords.heading(Self.source("https://example.org/x"), title: "  ").title, "example.org")
+        let note = PageSourcesWords.heading(Self.source("Ask bob-example", kind: "note"), title: nil)
+        XCTAssertEqual(note.title, "Ask bob-example")
+        XCTAssertNil(note.url)
     }
 }
