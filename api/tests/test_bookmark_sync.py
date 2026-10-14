@@ -745,3 +745,71 @@ def test_a_second_sync_of_the_same_bank_while_one_runs_is_a_409(tmp_path, monkey
     assert r.json()["detail"] == sources.BOOKMARK_SYNC_BUSY
     # A preview stages nothing and takes no lock.
     assert client.post("/sources/sync-bookmarks?preview=true", json={"chromeDataB64": b64}).status_code == 200
+
+
+# --- G191: the early look (POST /sources/sync-bookmarks/fresh) -----------------
+
+
+def _tree_bytes(memory):
+    """Every file under the bank with its bytes — to prove the early look writes nothing."""
+    return {p.relative_to(memory).as_posix(): p.read_bytes() for p in sorted(memory.rglob("*")) if p.is_file()}
+
+
+def test_fresh_preview_lists_the_new_bookmark_and_writes_nothing(tmp_path, monkeypatch):
+    """The early look reads the bytes, says which bookmark is new and whether the channel was ever synced — and leaves
+    the bank byte-identical, so the real sync that follows sees exactly what it would have."""
+    _offline_enrich(monkeypatch)
+    client, memory = _make_client(tmp_path, monkeypatch)
+    chrome = json.loads(json.dumps(CHROME_BOOKMARKS_JSON))
+    b64 = lambda d: base64.b64encode(json.dumps(d).encode()).decode()  # noqa: E731
+
+    first = client.post("/sources/sync-bookmarks/fresh", json={"chromeDataB64": b64(chrome)})
+    assert first.status_code == 200, first.text
+    assert first.json()["sources"][0]["firstSync"] is True   # never synced: the policy will not ask
+    assert first.json()["freshTotal"] == 2
+    assert client.post("/sources/sync-bookmarks", json={"chromeDataB64": b64(chrome)}).status_code == 200
+
+    chrome["roots"]["bookmark_bar"]["children"].append(
+        {"type": "url", "name": "Alpha example", "url": "https://alpha.example/notes", "date_added": "13300000000000000"})
+    before = _tree_bytes(memory)
+    resp = client.post("/sources/sync-bookmarks/fresh", json={"chromeDataB64": b64(chrome)})
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["sources"][0]["firstSync"] is False
+    assert body["freshTotal"] == 1
+    assert body["fresh"][0]["url"] == "https://alpha.example/notes"
+    assert body["fresh"][0]["channel"] == "chrome-bookmarks"
+    assert body["fresh"][0]["episodeId"] == ""            # not ingested yet
+    assert body["fresh"][0]["addedAt"]                     # the browser's own instant rides along
+    assert body["new"] == 0
+    assert _tree_bytes(memory) == before, "the early look must not write a byte"
+
+
+def test_fresh_preview_reads_safari_and_refuses_an_empty_body(tmp_path, monkeypatch):
+    client, memory = _make_client(tmp_path, monkeypatch)
+    safari_b64 = base64.b64encode(plistlib.dumps(SAFARI_PLIST_TREE)).decode()
+    resp = client.post("/sources/sync-bookmarks/fresh", json={"safariDataB64": safari_b64})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["sources"][0]["channel"] == "safari-bookmarks"
+    assert resp.json()["freshTotal"] == 4
+    assert client.post("/sources/sync-bookmarks/fresh", json={}).status_code == 422
+    assert client.post("/sources/sync-bookmarks/fresh", json={"safariDataB64": "%%%"}).status_code == 422
+
+
+def test_fresh_preview_is_not_blocked_by_a_sync_in_progress(tmp_path, monkeypatch):
+    """Read-only, so it never waits on (or answers 409 for) the per-bank sync lock the real sync holds."""
+    import asyncio
+
+    from api.routers import sources as sources_router
+
+    client, memory = _make_client(tmp_path, monkeypatch)
+    lock = sources_router._bookmark_sync_lock(memory)
+    loop = asyncio.new_event_loop()
+    try:
+        loop.run_until_complete(lock.acquire())
+        chrome_b64 = base64.b64encode(json.dumps(CHROME_BOOKMARKS_JSON).encode()).decode()
+        assert client.post("/sources/sync-bookmarks", json={"chromeDataB64": chrome_b64}).status_code == 409
+        assert client.post("/sources/sync-bookmarks/fresh", json={"chromeDataB64": chrome_b64}).status_code == 200
+    finally:
+        lock.release()
+        loop.close()

@@ -1,3 +1,4 @@
+import CoreServices
 import Foundation
 
 /// G129 slice 1 — a bookmark saved in a browser reaches the queue in seconds,
@@ -194,6 +195,25 @@ enum BrowserWatchPolicy {
     /// half-written file and then sync twice more for the same bookmark.
     static let debounce: Duration = .milliseconds(1_200)
 
+    /// G191 live (2026-10-14) — the browser watch's own settle time, shorter than the folder watches' `debounce`:
+    /// the stream reports only events on the bookmark file's own name (`BrowserFileEvents`), so a temp file's writes
+    /// never reach it, and the rename that lands the finished file is the last event of a save. 300 ms still folds
+    /// the pair a swap reports (both names, one save) into one sync, and keeps the question inside its 2 s budget.
+    static let bookmarkDebounce: Duration = .milliseconds(300)
+
+    /// How long FSEvents may hold an event before it reports it (its `latency`).
+    static let streamLatency: TimeInterval = 0.05
+
+    /// G191 live — how often an armed-but-refused browser (Safari before Full Disk Access) is asked again whether it
+    /// can be read now. Only while one is refused: a single `open` per tick, nothing read.
+    static let accessRecheck: Duration = .seconds(5)
+
+    /// The settle and stream latency together — what a save costs before the read starts (the budget test sums it).
+    static var watchDelay: TimeInterval {
+        TimeInterval(bookmarkDebounce.components.seconds)
+            + TimeInterval(bookmarkDebounce.components.attoseconds) / 1e18 + streamLatency
+    }
+
     /// A floor on how often one channel may sync, so a browser that rewrites
     /// its file in a loop cannot turn into a request loop.
     static let minimumInterval: Duration = .seconds(5)
@@ -211,6 +231,15 @@ enum BrowserWatchPolicy {
 /// once and then goes quiet forever, which looks exactly like a feature that
 /// works in testing and not in life. Watching the containing *directory*
 /// survives the replace, because the directory is the thing that persists.
+///
+/// **G191 live (2026-10-14): an FSEvents stream, not a kqueue on the directory.** Measured on the owner's Mac: Safari
+/// rewrote `Bookmarks.plist` and nothing synced. A kqueue `.write` on a directory fires only when an entry is added,
+/// removed or renamed *in that directory* — not when a file in it is rewritten in place, nor when a save swaps the
+/// file in from a temp file elsewhere — and its descriptor was opened once, at launch, when Safari's folder may
+/// still have been refused (Full Disk Access granted later never reached it). An FSEvents stream on the folder with
+/// per-file events (`BrowserFileEvents`) sees every way a file can change by its path, filtered to the bookmark
+/// file's own name; and an armed browser whose file was refused is re-armed once it can be read
+/// (`refreshAccess`, on the app becoming active and every `accessRecheck` while one is refused).
 @MainActor
 @Observable
 final class BrowserWatcher {
@@ -218,7 +247,14 @@ final class BrowserWatcher {
     /// The permission failure, when there is one, so the row can show the fix.
     private(set) var errors: [String: BrowserFileError] = [:]
 
-    private var sources: [String: DispatchSourceFileSystemObject] = [:]
+    private var sources: [String: BrowserFileEvents] = [:]
+    /// Whether the file could be read when its stream was armed — a stream armed while macOS refused it (Safari
+    /// before Full Disk Access) is armed again once it can be (`refreshAccess`).
+    private var armedReadable: [String: Bool] = [:]
+    /// A change seen while that channel was syncing, or inside `minimumInterval`: synced once the way is clear
+    /// (G191 live — before, it was dropped until the next save), with whether the watch saw it (`live`).
+    private var owed: [String: Bool] = [:]
+    private var recheck: Task<Void, Never>?
     private var pending: [String: Task<Void, Never>] = [:]
     private var lastSyncStarted: [String: ContinuousClock.Instant] = [:]
     private var syncing: Set<String> = []
@@ -236,6 +272,7 @@ final class BrowserWatcher {
     private let paths: (BrowserFile) -> [URL]
     private let debounce: Duration
     private let minimumInterval: Duration
+    private let accessRecheck: Duration
     /// Round 4 (R-SR17) — where a running sync is announced, so every `SourceRow` can say "Syncing now" with an ×.
     /// Optional: a watcher built without one (older tests) simply reports nowhere.
     private let activity: SyncActivity?
@@ -250,8 +287,9 @@ final class BrowserWatcher {
         defaults: UserDefaults = .standard,
         channels: [(channel: String, file: BrowserFile)] = BrowserWatchPolicy.watched,
         paths: @escaping (BrowserFile) -> [URL] = { $0.candidatePaths },
-        debounce: Duration = BrowserWatchPolicy.debounce,
+        debounce: Duration = BrowserWatchPolicy.bookmarkDebounce,
         minimumInterval: Duration = BrowserWatchPolicy.minimumInterval,
+        accessRecheck: Duration = BrowserWatchPolicy.accessRecheck,
         activity: SyncActivity? = nil,
         performSync: @escaping @MainActor (String, Store) async throws -> String = {
             try await BrowserImportActions.syncChannel($0, store: $1)
@@ -262,6 +300,7 @@ final class BrowserWatcher {
         self.paths = paths
         self.debounce = debounce
         self.minimumInterval = minimumInterval
+        self.accessRecheck = accessRecheck
         self.activity = activity
         self.performSync = performSync
     }
@@ -287,8 +326,53 @@ final class BrowserWatcher {
     func stop() {
         for source in sources.values { source.cancel() }
         sources.removeAll()
+        armedReadable.removeAll()
         for task in pending.values { task.cancel() }
         pending.removeAll()
+        recheck?.cancel()
+        recheck = nil
+    }
+
+    /// G191 live — a turned-on browser whose stream was armed while macOS refused its file (Safari before Full Disk
+    /// Access; the measured case) is armed again once an open says it can be read, and caught up — not as a live
+    /// event, so the bookmarks already there are never asked about. Called when the app becomes active (the person
+    /// back from System Settings) and every `accessRecheck` while one is refused. Returns the channels re-armed.
+    @discardableResult
+    func refreshAccess() -> [String] {
+        var rearmed: [String] = []
+        for (channel, file) in channels where isEnabled(channel) && armedReadable[channel] != true {
+            guard rearmIfReadable(channel: channel, file: file) else { continue }
+            rearmed.append(channel)
+            refreshState(channel: channel, file: file)
+            Task { await syncIfChanged(channel: channel, file: file) }
+        }
+        scheduleRecheck()
+        return rearmed
+    }
+
+    /// Arm `channel` again when its stream was armed before the file could be read and it can be now (or it was
+    /// never armed: its folder appeared since). True when it did.
+    private func rearmIfReadable(channel: String, file: BrowserFile) -> Bool {
+        guard armedReadable[channel] != true, BrowserFileAccess.probe(paths(file)) == .present else { return false }
+        sources[channel]?.cancel()
+        sources[channel] = nil
+        arm(channel: channel, file: file)
+        return true
+    }
+
+    /// While a turned-on browser is refused, look again every `accessRecheck` — the person may grant Full Disk Access
+    /// and go straight back to Safari without ever bringing Cicada to the front. Stops once none is refused.
+    private func scheduleRecheck() {
+        let waiting = channels.contains { isEnabled($0.channel) && armedReadable[$0.channel] != true
+            && BrowserFileAccess.probe(paths($0.file)) != .absent }
+        guard waiting else { recheck?.cancel(); recheck = nil; return }
+        guard recheck == nil else { return }
+        recheck = Task { [weak self, accessRecheck] in
+            try? await Task.sleep(for: accessRecheck)
+            guard !Task.isCancelled, let self else { return }
+            self.recheck = nil
+            self.refreshAccess()
+        }
     }
 
     /// Sync every turned-on channel whose file moved since its last successful
@@ -347,6 +431,8 @@ final class BrowserWatcher {
         // Round 4 (C9): a browser installed while the app ran had no directory to watch at launch; arm it now that
         // it is turned on (`arm` leaves an already-armed channel be).
         arm(channel: channel, file: file)
+        _ = rearmIfReadable(channel: channel, file: file)   // G191 live: one armed while refused, or before consent
+        scheduleRecheck()
         refreshState(channel: channel, file: file)
         Task { await syncIfChanged(channel: channel, file: file) }
     }
@@ -361,6 +447,7 @@ final class BrowserWatcher {
         }
         defaults.set(true, forKey: BrowserWatchPolicy.enabledKey(channel))
         arm(channel: channel, file: file)
+        _ = rearmIfReadable(channel: channel, file: file)   // G191 live: Try again after granting Full Disk Access
         switch await sync(channel: channel, file: file) {
         case .success(let line)?: return line
         case .failure(let error)?: throw error
@@ -422,21 +509,18 @@ final class BrowserWatcher {
     private func arm(channel: String, file: BrowserFile) {
         guard sources[channel] == nil else { return }
         // The directory, not the file — see the type's doc comment.
-        guard let path = paths(file).first?.deletingLastPathComponent().path else { return }
-        let descriptor = open(path, O_EVTONLY)
-        guard descriptor >= 0 else { return }
-
-        let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: descriptor,
-            eventMask: [.write, .delete, .rename],
-            queue: .main
-        )
-        source.setEventHandler { [weak self] in
+        let urls = paths(file)
+        guard let directory = urls.first?.deletingLastPathComponent(),
+              FileManager.default.fileExists(atPath: directory.path) else { return }
+        let names = Set(urls.map(\.lastPathComponent))
+        guard let stream = BrowserFileEvents(directory: directory.path, names: names,
+                                             latency: BrowserWatchPolicy.streamLatency, handler: { [weak self] in
             self?.fileChanged(channel: channel, file: file)
-        }
-        source.setCancelHandler { close(descriptor) }
-        source.resume()
-        sources[channel] = source
+        }) else { return }
+        sources[channel] = stream
+        // Only a turned-on browser is opened (final review, finding 4); one nobody chose is re-checked on Turn on.
+        armedReadable[channel] = isEnabled(channel) && BrowserFileAccess.probe(urls) == .present
+        if armedReadable[channel] != true { scheduleRecheck() }
     }
 
     /// Coalesce the burst of events one save produces into a single sync.
@@ -454,6 +538,16 @@ final class BrowserWatcher {
     private func syncIfChanged(channel: String, file: BrowserFile, live: Bool = false) async {
         if let started = lastSyncStarted[channel],
            ContinuousClock.now - started < minimumInterval {
+            // G191 live: owed, not dropped — before, a save inside the floor waited for the next save to be read.
+            let wait = minimumInterval - (ContinuousClock.now - started)
+            owed[channel] = (owed[channel] ?? false) || live
+            pending[channel]?.cancel()
+            pending[channel] = Task { [weak self] in
+                try? await Task.sleep(for: wait)
+                guard !Task.isCancelled, let self else { return }
+                let wasLive = self.owed.removeValue(forKey: channel) ?? live
+                await self.syncIfChanged(channel: channel, file: file, live: wasLive)
+            }
             return
         }
         let current = signature(of: file)
@@ -470,7 +564,13 @@ final class BrowserWatcher {
     /// or this channel is already syncing).
     @discardableResult
     private func sync(channel: String, file: BrowserFile, live: Bool = false) async -> Result<String, Error>? {
-        guard let store, !syncing.contains(channel) else { return nil }
+        guard let store else { return nil }
+        guard !syncing.contains(channel) else {
+            // G191 live: a save during a sync is read right after it (the signature taken before this one started
+            // differs), not lost until the next save.
+            owed[channel] = (owed[channel] ?? false) || live
+            return nil
+        }
         // Read the signature BEFORE the sync: a bookmark saved while the sync
         // is in flight must not be recorded as already synced.
         let before = signature(of: file)
@@ -512,6 +612,9 @@ final class BrowserWatcher {
         activity?.ended(channel)
         syncing.remove(channel)
         refreshState(channel: channel, file: file)
+        if let wasLive = owed.removeValue(forKey: channel) {
+            Task { [weak self] in await self?.syncIfChanged(channel: channel, file: file, live: wasLive) }
+        }
         return result
     }
 
@@ -535,4 +638,59 @@ final class BrowserWatcher {
         guard let data = try? JSONEncoder().encode(signature) else { return }
         defaults.set(data, forKey: defaultsKey(channel))
     }
+}
+
+// MARK: - The stream
+
+/// G191 live — one FSEvents stream on a browser's folder, reporting only events on the bookmark file's own name(s).
+/// Per-file events (`kFSEventStreamCreateFlagFileEvents`) name the path that changed whatever the save did — an
+/// in-place write, a rename from a temp file beside it, a swap from a temp folder elsewhere — and the stream lives on
+/// the folder's path, not a descriptor, so a replaced file never leaves it watching a dead inode. Delivered on the
+/// main queue. `cancel()` is the teardown; it is also run on deinit.
+final class BrowserFileEvents {
+    private var stream: FSEventStreamRef?
+    private let names: Set<String>
+    private let handler: @MainActor () -> Void
+
+    init?(directory: String, names: Set<String>, latency: TimeInterval, handler: @escaping @MainActor () -> Void) {
+        self.names = names
+        self.handler = handler
+        var context = FSEventStreamContext(version: 0, info: nil, retain: nil, release: nil, copyDescription: nil)
+        context.info = Unmanaged.passUnretained(self).toOpaque()
+        let callback: FSEventStreamCallback = { _, info, count, paths, _, _ in
+            guard let info else { return }
+            let events = Unmanaged<BrowserFileEvents>.fromOpaque(info).takeUnretainedValue()
+            let changed = (unsafeBitCast(paths, to: NSArray.self) as? [String]) ?? []
+            guard BrowserFileEvents.matches(changed.prefix(count), names: events.names) else { return }
+            MainActor.assumeIsolated { events.handler() }
+        }
+        let flags = FSEventStreamCreateFlags(kFSEventStreamCreateFlagUseCFTypes | kFSEventStreamCreateFlagFileEvents
+                                             | kFSEventStreamCreateFlagNoDefer)
+        guard let stream = FSEventStreamCreate(nil, callback, &context, [directory] as CFArray,
+                                               FSEventStreamEventId(kFSEventStreamEventIdSinceNow), latency, flags)
+        else { return nil }
+        FSEventStreamSetDispatchQueue(stream, .main)
+        guard FSEventStreamStart(stream) else {
+            FSEventStreamInvalidate(stream)
+            FSEventStreamRelease(stream)
+            return nil
+        }
+        self.stream = stream
+    }
+
+    /// Whether any reported path is the watched file (by its last component: FSEvents reports the canonical path,
+    /// `/private/var/…` for `/var/…`, so a full-path compare would miss).
+    static func matches<S: Sequence>(_ paths: S, names: Set<String>) -> Bool where S.Element == String {
+        paths.contains { names.contains(($0 as NSString).lastPathComponent) }
+    }
+
+    func cancel() {
+        guard let stream else { return }
+        FSEventStreamStop(stream)
+        FSEventStreamInvalidate(stream)
+        FSEventStreamRelease(stream)
+        self.stream = nil
+    }
+
+    deinit { cancel() }
 }

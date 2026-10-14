@@ -483,8 +483,30 @@ struct SavedWhyAnswer: Codable, Equatable, Sendable {
     }
 }
 
-/// G191 — the two calls the panel makes; `APIClient` is the live one, tests inject their own.
+/// G191 live — the bytes of one browser's bookmark file, as the early look sends them.
+enum BookmarkBytes: Sendable, Equatable {
+    case chrome(Data)
+    case safari(Data)
+    /// A Chromium-family browser beyond Chrome (round 4, C9), by its catalog id.
+    case chromium(browser: String, Data)
+
+    /// The sync's own request body (`chromeDataB64` / `safariDataB64` / `chromium`), so the look and the sync can
+    /// never send different shapes.
+    var body: [String: Any] {
+        switch self {
+        case .chrome(let data): return ["chromeDataB64": data.base64EncodedString()]
+        case .safari(let data): return ["safariDataB64": data.base64EncodedString()]
+        case .chromium(let browser, let data):
+            return ["chromium": [["browser": browser, "dataB64": data.base64EncodedString()]]]
+        }
+    }
+}
+
+/// G191 — the calls the panel makes; `APIClient` is the live one, tests inject their own.
 protocol SavedWhyAPI: Sendable {
+    /// G191 live — the early look (`POST /sources/sync-bookmarks/fresh`): which bookmarks in these bytes the bank
+    /// does not hold yet, without ingesting — answered in a parse, not after the sync's page fetches and commits.
+    func freshBookmarks(_ bytes: BookmarkBytes) async throws -> BookmarkSyncResult
     func savedWhyOptions() async throws -> SavedWhyOptions
     /// `at` is when the person answered — sent so an answer held through a 409 keeps its own time (review B1).
     func saveWhy(url: String, answer: SavedWhyAnswer, at: Date) async throws
@@ -2145,6 +2167,11 @@ actor APIClient {
     func syncChromiumBookmarks(browser: String, data: Data) async throws -> BookmarkSyncResult {
         try await post("/sources/sync-bookmarks",
                        body: ["chromium": [["browser": browser, "dataB64": data.base64EncodedString()]]])
+    }
+
+    /// G191 live — the early look (`POST /sources/sync-bookmarks/fresh`): read-only, never a 409 for a sync running.
+    func freshBookmarks(_ bytes: BookmarkBytes) async throws -> BookmarkSyncResult {
+        try await post("/sources/sync-bookmarks/fresh", body: bytes.body)
     }
 
     /// G191 — the one-tap answers to "What made you save this?" (`GET /sources/saved-why/options`).

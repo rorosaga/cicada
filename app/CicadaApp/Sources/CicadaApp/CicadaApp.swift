@@ -274,6 +274,12 @@ struct CicadaApp: App {
                 .onChange(of: store.status.value == nil) { _, missing in
                     if !missing { Task { await saveWhy.retryHeld() } }
                 }
+                // G191 live — back from System Settings: a browser whose file was refused when its watch was armed
+                // (Safari before Full Disk Access) is armed again now that it can be read. The watcher also looks
+                // every few seconds while one is refused, for a grant made without coming back here.
+                .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+                    browserWatcher.refreshAccess()
+                }
                 .onChange(of: store.bank) { _, _ in
                     Task { await localSources.reload() }
                     // Round-4 D2 — the new memory gets the calendar too (a demo's 409 is said in words).

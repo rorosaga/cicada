@@ -327,6 +327,30 @@ given, and sent again — with that `at` — when the status's `writing` goes fa
 on launch; a 404/422 or an answer over 24 h old is dropped. Esc reaches the panel only once it is clicked, so its
 hint names a click elsewhere as the way to skip.
 
+**Ask why, live (2026-10-14, branch `fix/notch-live`).** Measured on the owner's Mac: the panel came 18 s after a
+Chrome save, a Safari save was never seen, and "Something else…" was found open with nothing chosen. Four changes:
+*Speed* — the 18 s were the sync itself (each new link's page fetch and two commits: 6-7 s) plus `Store.perform`
+reconciling four domains before `syncChannel` posted its result, plus a fresh options fetch. A live sync now first
+sends the same bytes to the read-only **`POST /sources/sync-bookmarks/fresh`** (`bookmark_sync.fresh_preview`: the
+sync's own parse and `url_index` check, no lock, no write, never a 409) through `BookmarkSyncSignal.lookEarly` →
+`SaveWhyCenter.lookEarly`, and the question is decided on that, with the options cached from the last fetch; the
+sync's own result then arrives as `.afterEarlyLook` and only says the links are saved. An answer given before that
+meets a 404, which is held (`awaitingIngest`) and sent when the sync lands; without the route (an older backend) the
+sync's result decides as before. The watch settles 300 ms (`BrowserWatchPolicy.bookmarkDebounce`; the folder
+watches keep 1.2 s), so save → panel is about 0.5 s; `SaveWhyLiveTests` drives the real watcher against a 3 s sync
+and holds it to `SaveWhyPolicy.showBudget` (2 s). A save inside the 5 s floor or during a sync is now owed and read
+after it, not dropped until the next save. *Safari* — the watch is an FSEvents stream per browser folder with
+per-file events (`BrowserFileEvents`), filtered to the bookmark file's own name, not a kqueue on the folder: a kqueue
+sees only entries added, removed or renamed in that folder, and its descriptor was opened once at launch, when
+Safari's folder may still have been refused. A stream armed while the file was refused is armed again once an open
+says it is readable (`BrowserWatcher.refreshAccess`: on the app becoming active, and every 5 s while one is refused),
+with a catch-up that is never live. *No self-opening field* — every chip and click from the panel goes through
+`SaveWhyCenter.input`, which ignores a choice (and a click elsewhere) within `SaveWhyPolicy.armDelay` (0.5 s) of the
+panel showing — at 0.5 s after a save the hand is still on the page beneath — and `SaveWhyNSPanel.canBecomeKey` is false
+until a mouse-down lands in it, so no activation or stray key can press a chip or type; only `tapOther` opens the field.
+*Screen* — `SaveWhyScreen` puts the panel on the screen holding most of the browser's front window (window-list
+bounds; no Screen Recording needed), else the front app's, else `NSScreen.main`, and the notch is that screen's own.
+
 **Ask why: one switch that works (v2, 2026-10-14).** Measured on the owner's Mac: nothing appeared after a Chrome
 bookmark because the switch was off *and* both browsers' bookmark watches were off — the question can only follow a
 bookmark the watch sees. Turning the switch on (`SaveWhySetup.turnOn`) records it and calls `BrowserWatcher.enable` for

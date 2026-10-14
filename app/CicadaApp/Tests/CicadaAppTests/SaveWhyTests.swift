@@ -375,12 +375,14 @@ final class SaveWhyTests: XCTestCase {
 
     @MainActor
     func testTheSignalCarriesWhetherTheWatchStartedTheSync() async {
-        var seen: [Bool] = []
-        BookmarkSyncSignal.observer = { _, live in seen.append(live) }
+        var seen: [BookmarkSyncSignal.Delivery] = []
+        BookmarkSyncSignal.observer = { _, delivery in seen.append(delivery) }
         defer { BookmarkSyncSignal.observer = nil }
         BookmarkSyncSignal.post(result([]))
         await BookmarkSyncSignal.$live.withValue(true) { BookmarkSyncSignal.post(result([])) }
-        XCTAssertEqual(seen, [false, true])
+        // G191 live: a sync an early look already spoke for only says its links are saved — it never asks again.
+        await BookmarkSyncSignal.$live.withValue(true) { BookmarkSyncSignal.post(result([]), lookedEarly: true) }
+        XCTAssertEqual(seen, [.synced(live: false), .synced(live: true), .afterEarlyLook])
     }
 }
 
@@ -390,6 +392,10 @@ private actor FakeSavedWhyAPI: SavedWhyAPI {
     /// Errors to throw on the next posts, in order (then succeed).
     var failures: [Error] = []
     func fail(with errors: [Error]) { failures = errors }
+
+    func freshBookmarks(_ bytes: BookmarkBytes) async throws -> BookmarkSyncResult {
+        BookmarkSyncResult(new: 0, skipped: 0, sources: [])
+    }
 
     func savedWhyOptions() async throws -> SavedWhyOptions {
         SavedWhyOptions(reasons: [

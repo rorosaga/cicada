@@ -32,6 +32,11 @@ enum SaveWhyPolicy {
     /// How long a half-written "Something else…" may sit before the panel leaves (keeping the taps, dropping the
     /// unsent words).
     static let writingTimeout: TimeInterval = 60
+    /// G191 live — how long after the panel appears a click on it still counts as aimed at what was beneath it
+    /// (`SaveWhyCenter.input`). Inside the grow (`CicadaMotion`'s notch spring) and well under a deliberate reach.
+    static let armDelay: TimeInterval = 0.5
+    /// G191 live — the budget from the browser writing its bookmark file to the panel on screen.
+    static let showBudget: TimeInterval = 2
 
     struct Inputs {
         var enabled: Bool
