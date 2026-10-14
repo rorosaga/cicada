@@ -189,11 +189,18 @@ def _private_cause(memory):
                           "user: my private words about beta project VERBATIM-SECRET-PHRASE\n")
     _entity(memory, "beta-project", type="project", confidence=0.4, last_referenced="2026-03-01",
             source_episodes=["ep_2026-08-20_001"])
+    # Recall surfaces only a question about what the query is about (owner, 2026-10-14) — never a decay one —
+    # so the recall half of this check needs a conflict whose subject the query names.
+    markdown_parser.write(memory / "inbox" / "inbox-002.md",
+                          {"kind": "conflict", "status": "pending", "entity_id": "beta-project",
+                           "entity_name": "Beta Project", "predicate": "status",
+                           "question": "Is Beta Project paused or shipping?", "source_episode": "ep_2026-08-20_001",
+                           "options": [{"key": "a", "label": "paused"}, {"key": "b", "label": "shipping"}]}, "ctx")
 
 
 @pytest.mark.parametrize("tool, args, scopes", [
     ("cicada_check_nudges", {}, {"read"}),
-    ("cicada_recall", {"query": "beta project"}, {"search"}),
+    ("cicada_recall", {"query": "is beta project paused"}, {"search"}),
 ])
 def test_the_cause_line_never_quotes_the_person_without_sources(runtime, memory, monkeypatch, tool, args, scopes):
     """G135 final review (R-R22): the inbox `Cause:` line quoted up to 200
@@ -223,7 +230,7 @@ def test_answer_takes_options_never_free_text(runtime, posts):
     text, _ = runtime.call(c, "cicada_resolve_inbox", {"id": "inbox-001", "answer": "made up words"})
     assert "option_key" in text and posts == []
     runtime.call(c, "cicada_resolve_inbox", {"id": "inbox-001", "option_key": "keep"})
-    assert posts == [("/inbox/inbox-001/resolve", {"action": "resolve", "optionKey": "keep"})]
+    assert posts == [("/inbox/inbox-001/resolve", {"action": "resolve", "optionKey": "keep", "via": "agent"})]
 
 
 def test_skip_is_remembered_per_conversation(runtime):
@@ -385,13 +392,15 @@ def test_a_remote_inbox_id_must_have_the_schemas_shape(runtime, posts, bad):
     assert posts == [] and "inbox-001" in text
 
 
-def test_stdio_inbox_ids_are_not_reshaped(memory):
-    """The shape rule is remote-only: stdio keeps posting what it was given."""
+def test_stdio_inbox_ids_take_the_same_shape(memory):
+    """G198 review B1: the shape rule is every caller's now — a local id of another shape (a case variant on a
+    case-insensitive disk, a percent-encoded one) reached a proposed page edit past the tool's guard."""
     sent = []
     ctx = mcp_tools.ToolContext(memory_path=lambda: memory, session_id="s", harness="codex",
                                 post=lambda p, d: sent.append(p) or {"status": "resolved"})
-    mcp_tools.resolve_inbox(ctx, "nudge_005", "keep", None, False, None)
-    assert sent == ["/inbox/nudge_005/resolve"]
+    assert mcp_tools.resolve_inbox(ctx, "nudge_005", "keep", None, False, None).startswith("Error: id must look like")
+    mcp_tools.resolve_inbox(ctx, "inbox-005", "keep", None, False, None)
+    assert sent == ["/inbox/inbox-005/resolve"]
 
 
 @pytest.mark.parametrize("raw, expected", [(None, 6), (3, 3), (10_000, 12), (-5, 1), ("abc", 6), (1e400, 6)])

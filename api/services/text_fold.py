@@ -108,6 +108,32 @@ def words(text: str | None) -> list[str]:
     return [w for w in _SEPARATOR_RE.split(fold(text)) if w]
 
 
+#: Words that carry no subject: question scaffolding, the inbox's own wording, English and Spanish function words.
+#: Used by :func:`subject_terms` — the ask gate (``inbox_ask_gate``) and ``cicada_ask``'s context ranking.
+SUBJECT_STOPWORDS = frozenset("""
+a about actually after again also am an and any anymore are as at be been before being both but by can could
+current currently did do does doing done for from get got had has have he her here him his how i if in into is it
+its just me might more most my neither no nor not now of on one or other our out over she should so some still
+such than that the their them then there these they this those to too true under up us was we were what when
+where which while who whom whose why will with would yes yet you your
+tracking track keep kept same different value values answer option options
+el la los las un una unos unas de del al y o que en es son por para con sin su sus lo se mi mis tu ya
+""".split())
+
+
+def stem(word: str) -> str:
+    """A light English suffix fold, enough that "targets", "targeting" and "targeted" meet "target"."""
+    for suffix in ("ing", "ed", "es", "s"):
+        if len(word) > len(suffix) + 3 and word.endswith(suffix):
+            return word[: -len(suffix)]
+    return word
+
+
+def subject_terms(text: str | None) -> set[str]:
+    """The subject words of ``text``: folded, three letters or more, function words and numbers dropped, stemmed."""
+    return {stem(w) for w in words(text) if len(w) >= 3 and w not in SUBJECT_STOPWORDS and not w.isdigit()}
+
+
 def contains_all(text: str | None, q: str | None) -> bool:
     """Every whitespace-separated word of ``q`` is a folded SUBSTRING of
     ``text`` (AND). The title filter's rule: a title is short, so "contains"

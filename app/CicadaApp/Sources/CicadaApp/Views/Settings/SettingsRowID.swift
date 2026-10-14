@@ -59,6 +59,8 @@ struct SettingsRowID: RawRepresentable, Hashable, Codable, Sendable {
     static let agentsReading = SettingsRowID("agentsReading")
     // Agents' Remembers automatically (G149)
     static let agentsAutoRecall = SettingsRowID("agentsAutoRecall")
+    // Agents' Editing pages (G198): the agents that may edit a page's words directly
+    static let agentsEditors = SettingsRowID("agentsEditors")
     // Reading the web (G166): the master switch, the hand-off prompt, how the agent reads, the sites that need a browser
     static let readingAgent = SettingsRowID("readingAgent")
     static let readingPrompt = SettingsRowID("reading:prompt")

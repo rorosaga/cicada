@@ -360,6 +360,7 @@ struct ConnectView: View {
                 }
             }
             AutoRecallGroup()
+            PageEditorsGroup()
             SettingsGroupCard {
                 SettingsRow(.agentsCloud, title: Copy.agentsCloudTitle, detail: Copy.agentsCloudDetail) {
                     SettingsInlineLink(section: .remote, label: Copy.fromAnywhere)

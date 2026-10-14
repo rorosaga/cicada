@@ -183,7 +183,8 @@ struct InboxFocusCard: View {
                     .foregroundStyle(CicadaTheme.textTertiary)
                     .padding(.top, CicadaTheme.spacingXS)
             }
-        } else if !item.hasCause, !item.body.isEmpty {
+        }
+        if InboxBodyPreview.shows(item, hasQuote: QuoteSegments.of(item) != nil) {
             // Owner defect 2 (2026-09-03) survives: a long legacy body shows three lines and "Show all N".
             // Cleaned line by line: `clean` joins lines with a space, which would fold the three kept
             // lines back into the one run-on paragraph the collapse exists to prevent.

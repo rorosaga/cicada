@@ -7,6 +7,7 @@ loads them into ``InboxItem`` and resolves them by routing on ``kind``.
 
 from __future__ import annotations
 
+import contextvars
 import logging
 import re
 from collections import Counter
@@ -55,7 +56,7 @@ def next_inbox_num(inbox_dir: Path) -> int:
 
 
 def _required_input_for(kind: str) -> str:
-    if kind in ("decay", "conflict", "divergence", "normalization", "removal", "followup"):
+    if kind in ("decay", "conflict", "divergence", "normalization", "removal", "followup", "page_edit"):
         return "choice"
     if kind == "merge_suggestion":
         return "merge"
@@ -540,6 +541,11 @@ def _action_label(kind: str, request: InboxResolveRequest, options: list[dict]) 
         if key in ("keep", "remove"):
             return key
         return action or "answer"
+    if kind == "page_edit":
+        # G198: the person applies an agent's proposed edit or leaves the page as it is.
+        if action in ("skip", "dismiss"):
+            return action
+        return key if key in ("apply", "dismiss") else (action or "answer")
     if kind in ("conflict", "divergence", "normalization"):
         if action == "dismiss":
             return "dismiss"
@@ -618,6 +624,9 @@ def _verdict(
         return {"answer": "agreed", "merge": "agreed", "dismiss": "overruled"}.get(label, "neutral")
     if kind == "merge_suggestion":
         return {"merge": "agreed", "reject": "overruled"}.get(label, "neutral")
+    if kind == "page_edit":
+        # G198: the agent's proposal, graded by the person — the reward signal for an edit (G113).
+        return {"apply": "agreed", "dismiss": "overruled"}.get(label, "neutral")
     return "neutral"
 
 
@@ -755,8 +764,8 @@ def recommended_key(kind: str, fm: dict, options: list[dict]) -> str | None:
     The name and date are irrelevant to the verdict table (only the KEYS are),
     so the cheap placeholder question is enough.
     """
-    if kind in ("merge_suggestion", "clarification", "removal", "followup"):
-        # G141 PJ-6: a follow-up proposes nothing — it asks how it went.
+    if kind in ("merge_suggestion", "clarification", "removal", "followup", "page_edit"):
+        # G141 PJ-6: a follow-up proposes nothing — it asks how it went. G198: Cicada proposed no edit; an agent did.
         return None
     if kind == "decay" and not options:
         options = inbox_questions.normalize_options(
@@ -936,6 +945,82 @@ def _emit_resolution(
 #: ``/nudges`` and ``/clarifications``) gives while Sleep holds the pages.
 SLEEP_BUSY = "Sleep is updating your memory — try answering again in a moment."
 
+#: An inbox id is a file's own name in ``inbox/`` (G198 review B1: "INBOX-003" opened ``inbox-003.md`` on a
+#: case-insensitive disk, and a percent-encoded id named it too, past every guard keyed on the canonical id). Every
+#: writer names items ``inbox-NNN``; older items and the deprecated nudge/clarification doors use other lowercase stems,
+#: so the rule is the shape (lowercase letters, digits, ``-`` and ``_``; no dot, slash or ``%``) plus the exact name the
+#: directory lists — a spelling that only resolves through the disk's case folding is refused.
+_ITEM_ID = re.compile(r"[a-z0-9][a-z0-9_-]{0,127}")
+
+
+def _check_item_id(item_id: str, memory_path: Path | None = None) -> None:
+    if not isinstance(item_id, str) or not _ITEM_ID.fullmatch(item_id):
+        raise HTTPException(400, "An inbox id looks like 'inbox-001'.")
+    if memory_path is not None:
+        inbox = _inbox_dir(memory_path)
+        try:
+            listed = f"{item_id}.md" in {p.name for p in inbox.iterdir()} if inbox.is_dir() else False
+        except OSError:
+            listed = False
+        if not listed and (inbox / f"{item_id}.md").exists():
+            raise HTTPException(400, "An inbox id is the item's own name, exactly as listed (e.g. 'inbox-001').")
+
+
+#: What the agent relayed of the person's answer to the item being resolved, as ``[{episode, quote}]`` (owner, 2026-10-14):
+#: set by :func:`_resolve_admitted` for the length of one answer, read by the resolvers that write or confirm a
+#: claim, so the claim cites the person's words. A ContextVar, not an argument threaded through every resolver:
+#: most kinds write no claim, and the ones that do read it in one line.
+_ANSWER_QUOTE: "contextvars.ContextVar[list[dict] | None]" = contextvars.ContextVar("inbox_answer_quote", default=None)
+
+
+def _quote_spans(memory_path: Path) -> list:
+    """The evidence spans for the relayed answer (G118: located in its relay episode, so the span is the relaying
+    agent's text, kind ``assistant``), or ``[]`` without one."""
+    items = _ANSWER_QUOTE.get()
+    if not items:
+        return []
+    from api.services import evidence as evidence_mod
+
+    return evidence_mod.verify_many(memory_path, items)
+
+
+#: What may name the relaying agent or its conversation in frontmatter and a git trailer: a short id, nothing else.
+_RELAY_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:@-]{0,79}$")
+RELAY_SOURCE = "agent_relay"
+
+
+def _relay_id(value) -> str | None:
+    text = str(value or "").strip()
+    return text if _RELAY_ID.match(text) else None
+
+
+def _write_relay_episode(memory_path: Path, fm: dict, item_id: str, words: str, *, relayed_by: str,
+                         session_id: str | None) -> str:
+    """What the agent relayed of the person's answer to ``item_id``, kept as a small episode of its own — as the
+    AGENT's text, never as the person's verbatim words (review B1, 2026-10-14). Nothing verifies that an agent's
+    ``quote`` is what the person typed, so the turn is the relaying agent's (``assistant``: a span into it reads as
+    the agent's words, not ``user``), and the episode says who relayed it and from which conversation
+    (``relayed_by``, ``session_id``, ``harness``). ``source: agent_relay`` is untimed (``episode_time``): the
+    conversation itself is captured on its own, so the relay never counts as a second conversation. Already
+    processed: Sleep never re-reads it."""
+    from datetime import timezone
+
+    from api.services import episode_staging, when as when_mod
+
+    name = str(fm.get("entity_name") or fm.get("entity_mention") or fm.get("entity_id") or item_id)
+    now = datetime.now(timezone.utc)
+    instant = when_mod.utc_z(now)
+    extra = {"relayed_by": relayed_by, "harness": relayed_by, "inbox_item": item_id}
+    if session_id:
+        extra["session_id"] = session_id
+    draft = episode_staging.EpisodeDraft(
+        title=f"Answer on {name}, relayed by {relayed_by}", source_id=f"agent-relay:{instant}:{item_id}",
+        timestamp=instant, original_date=now.date().isoformat(), source=RELAY_SOURCE, origin="inbox",
+        turns=[episode_staging.Turn(text=words, speaker="assistant", ts=instant)], extra=extra,
+        queue_for_sleep=False, writer="mcp")
+    result = episode_staging.stage([draft], Path(memory_path) / "episodes", bank=Path(memory_path).name)
+    return result.episode_ids[draft.source_id]
+
 
 async def resolve(
     item_id: str, request: InboxResolveRequest, settings: Settings
@@ -951,6 +1036,7 @@ async def resolve(
     and its commit: a window cannot open in between."""
     from api.services import write_admission
 
+    _check_item_id(item_id)
     # An early answer only (the admitted pass asks again): no model call is spent while Sleep holds the pages.
     if write_admission.probe():
         raise SleepWriting(SLEEP_BUSY)
@@ -962,12 +1048,18 @@ async def resolve(
 
 async def _resolve_admitted(item_id: str, request: InboxResolveRequest, settings: Settings,
                             synthesis: "_Synthesis | None" = None) -> dict:
+    _check_item_id(item_id, settings.memory_path)
     path = _inbox_dir(settings.memory_path) / f"{item_id}.md"
     if not path.exists():
         raise HTTPException(404, f"Inbox item {item_id} not found")
 
     parsed = markdown_parser.parse(path)
     kind = str(parsed.frontmatter.get("kind", "decay"))
+    if kind == "page_edit" and ((request.via or "").strip().lower() == "agent" or request.relayed_by or request.quote):
+        # A relayed quote is an agent's account (G115): it never stands in for the person applying a proposal either.
+        # G198 review B1: only the person applies or leaves a proposed edit — an agent's answer, its author's least
+        # of all, would be committed as the person's acceptance.
+        raise HTTPException(403, "A proposed page edit is the person's to apply or leave, in the app.")
 
     # G115 R5 — a decay item answered through `QuestionView` arrives as
     # `resolve` + `archive|keep`; translate it into the legacy verb here, before
@@ -1011,6 +1103,58 @@ async def _resolve_admitted(item_id: str, request: InboxResolveRequest, settings
     extra_lines: list[str] = []
     emit_extra: dict = {}
     committed = False   # a resolver that commits inside its own page-lock section says so
+    # Owner, 2026-10-14: an answer the person gave in conversation carries what the agent relayed of it. It is kept
+    # as a small relay episode (the agent's text, who relayed it, which conversation) and cited as the answer's
+    # evidence; the commit names the relaying agent and the conversation. A normalization answer commits inside its
+    # own lock section, so it never takes one (and it never reaches the conversation anyway).
+    from api.services import demo_guard, inbox_ask_gate
+
+    # Never into a demo bank (review B2): the person's real conversation must not leak into the demo's content.
+    words = ("" if kind == "normalization" or demo_guard.is_demo(settings.memory_path)
+             else inbox_ask_gate.clean_quote(request.quote))
+    relayed_by = _relay_id(request.relayed_by) or "agent"
+    session_id = _relay_id(request.session_id)
+    quote_episode = (_write_relay_episode(settings.memory_path, parsed.frontmatter, item_id, words,
+                                          relayed_by=relayed_by, session_id=session_id) if words else None)
+    token = _ANSWER_QUOTE.set([{"episode": quote_episode, "quote": words}] if quote_episode else None)
+    try:
+        entity_id, skipped, extra_lines, emit_extra, committed = await _route_resolution(
+            kind, path, parsed, request, settings, item_id, label, synthesis, before)
+    except BaseException:
+        if quote_episode:
+            (settings.memory_path / "episodes" / f"{quote_episode}.md").unlink(missing_ok=True)
+            bank_index.invalidate()
+        raise
+    finally:
+        _ANSWER_QUOTE.reset(token)
+    if quote_episode and skipped:
+        (settings.memory_path / "episodes" / f"{quote_episode}.md").unlink(missing_ok=True)
+        bank_index.invalidate()
+        quote_episode = None
+    if quote_episode:
+        extra_lines = [*extra_lines,
+                       f"episodes/{quote_episode}.md: created (source: {item_id}, trigger: inbox/{kind}/resolved)"]
+        emit_extra = {**emit_extra, "extra_refs": {**(emit_extra.get("extra_refs") or {}),
+                                                   "answered_in": "conversation"}}
+
+    # A skip is a neutral row, not a missing one — "asked, not answered" is
+    # itself informative about the question.
+    _emit_resolution(parsed.frontmatter, item_id, kind, request, label, settings, **feedback, **emit_extra)
+
+    if skipped:
+        return {"status": "skipped", "id": item_id}
+
+    relay = {"relayed_by": relayed_by, "sessions": [session_id] if session_id else None} if quote_episode else {}
+    return await _commit_answer(settings, item_id, kind, label, entity_id, extra_lines, committed, path, before,
+                                quote_episode, relay)
+
+
+async def _route_resolution(kind: str, path, parsed, request, settings, item_id: str, label: str, synthesis,
+                            before=None):
+    """The per-kind resolver, by ``kind``: ``(entity_id, skipped, extra_lines, emit_extra, committed)``."""
+    extra_lines: list[str] = []
+    emit_extra: dict = {}
+    committed = False
     if kind == "decay":
         entity_id, skipped = await _resolve_decay(path, parsed, request, settings)
     elif kind == "removal":
@@ -1037,16 +1181,16 @@ async def _resolve_admitted(item_id: str, request: InboxResolveRequest, settings
         entity_id, skipped, extra_lines, emit_extra = await _resolve_followup(
             path, parsed, request, settings, item_id, label
         )
+    elif kind == "page_edit":
+        entity_id, skipped, committed = await _resolve_page_edit(path, parsed, settings, label, before)
     else:
         raise HTTPException(400, f"Unknown kind {kind}")
+    return entity_id, skipped, extra_lines, emit_extra, committed
 
-    # A skip is a neutral row, not a missing one — "asked, not answered" is
-    # itself informative about the question.
-    _emit_resolution(parsed.frontmatter, item_id, kind, request, label, settings, **feedback, **emit_extra)
 
-    if skipped:
-        return {"status": "skipped", "id": item_id}
-
+async def _commit_answer(settings, item_id: str, kind: str, label: str, entity_id: str, extra_lines: list[str],
+                         committed: bool, path, before, quote_episode: str | None, relay: dict | None = None) -> dict:
+    """Commit one answer as the person's and refresh the state projection (the tail of :func:`resolve`)."""
     # Avoid the local import becoming a hard module-load dependency cycle.
     from api.services import git_service
 
@@ -1072,6 +1216,7 @@ async def _resolve_admitted(item_id: str, request: InboxResolveRequest, settings
             # file are read from the manifest itself — nothing else is committed.
             paths=[path.relative_to(settings.memory_path).as_posix()],
             before=before,
+            **(relay or {}),
         )
     # G53 (R4) — the pending count just changed; refresh the projection
     # cheaply (repo blocks are the app's last look, never a git run) and commit it
@@ -1089,7 +1234,10 @@ async def _resolve_admitted(item_id: str, request: InboxResolveRequest, settings
         await state_dictionary.refresh_and_commit(settings.memory_path, settings)
     except Exception as exc:
         logger.warning(f"state refresh after resolution skipped: {type(exc).__name__}: {exc}")
-    return {"status": "resolved", "id": item_id}
+    out = {"status": "resolved", "id": item_id}
+    if quote_episode:
+        out["quoteEpisode"] = quote_episode
+    return out
 
 
 async def _defer(path, parsed, request, settings, item_id: str, *, label: str = "defer") -> dict:
@@ -1582,6 +1730,9 @@ def _conflict_plan(path, parsed, request, settings) -> "_ConflictPlan":
         winner = by_id.get(str(chosen.get("claim_id") or ""))
         if winner is not None:
             winner.confidence = max(winner.confidence, 0.9)
+            # The person's words that picked it, when they came from a conversation (owner, 2026-10-14).
+            winner.evidence = [*winner.evidence, *(e for e in _quote_spans(settings.memory_path)
+                                                   if e not in winner.evidence)]
         for loser in option_claims:
             if winner is not None and loser.id == winner.id:
                 continue
@@ -1638,6 +1789,7 @@ def _conflict_plan(path, parsed, request, settings) -> "_ConflictPlan":
                     confidence=0.95,
                     valid_from=today,
                     recorded_at=today,
+                    evidence=_quote_spans(settings.memory_path),
                 )
                 for loser in option_claims:
                     if loser.valid_to is None:
@@ -2062,6 +2214,66 @@ async def _resolve_name(path, parsed, request, settings) -> tuple[str, bool, lis
     return outcome.page_id, False, lines
 
 
+# ---------- G198: an agent's proposed page edit ----------
+
+PAGE_EDIT_STALE = ("The page changed since this edit was proposed, so it no longer applies: {why} Leave it as it "
+                   "is, or ask the agent again.")
+
+
+async def _resolve_page_edit(path, parsed, settings, label: str, before) -> tuple[str, bool, bool]:
+    """``apply`` writes the agent's edit as it was proposed — planned again on the page as it is now, refused (409,
+    nothing written) when it no longer applies — and commits the page and the retired item together, under the agent
+    that wrote the words and the person who accepted them. ``dismiss`` retires the item and leaves the page.
+    ``(entity_id, skipped, committed)``; this resolver commits its own answer."""
+    import asyncio
+
+    entity_id = str(parsed.frontmatter.get("entity_id", "") or "")
+    if label == "skip":
+        return entity_id, True, False
+    if label not in ("apply", "dismiss"):
+        raise HTTPException(400, f"A proposed edit takes optionKey 'apply' or 'dismiss' — got {label!r}.")
+    await asyncio.to_thread(_answer_page_edit, path, dict(parsed.frontmatter), settings.memory_path, label, before)
+    return entity_id, False, True
+
+
+def _answer_page_edit(path: Path, fm: dict, memory_path: Path, label: str, before) -> None:
+    from api.services import git_service, page_edits, page_lock
+
+    day = date.today().isoformat()
+    rel_item = f"inbox/{path.name}"
+    kept = {"kept_subject": f"Uncommitted edit kept apart {day}", "kept_trigger": "inbox/kept-apart"}
+    with page_lock.page_lock(memory_path):
+        if label == "dismiss":
+            path.unlink(missing_ok=True)
+            message = git_service.build_commit_message(
+                f"Inbox resolution (page_edit) {day}",
+                [f"{rel_item}: removed (trigger: {page_edits.TRIGGER_DISMISS})"], authors=["user"])
+            git_service.commit_touched_sync(memory_path, message, [rel_item], before=before, **kept)
+            return
+        page = resolve_entity_file(memory_path, str(fm.get("entity_id") or ""))
+        if page is None:
+            raise HTTPException(409, PAGE_EDIT_STALE.format(why="the page is gone."))
+        author = str(fm.get("proposed_by") or "agent")
+        try:
+            request = page_edits.request_from_dict(fm.get("edit"))
+            reason = page_edits.clean_reason(fm.get("reason"))
+            current = page_edits.read(page)
+            outcome = page_edits.plan(current.frontmatter, current.body, request, author=author, day=day)
+        except page_edits.EditError as exc:
+            raise HTTPException(409, PAGE_EDIT_STALE.format(why=str(exc))) from exc
+        page_edits.write(page, outcome)
+        path.unlink(missing_ok=True)
+        rel = f"entities/{page.name}"
+        session = str(fm.get("session_id") or "").strip()
+        message = git_service.build_commit_message(
+            f"{page_edits.COMMIT_SUBJECT} {day}",
+            page_edits.commit_lines(rel, page_edits.TRIGGER_APPLY, reason, fm.get("evidence"), accepted=True,
+                                    extra=[f"{rel_item}: removed (trigger: {page_edits.TRIGGER_APPLY})"]),
+            authors=[author, "user"], sessions=[session] if session else None)
+        git_service.commit_touched_sync(memory_path, message, [rel, rel_item], before=before, **kept)
+    bank_index.invalidate(memory_path)
+
+
 async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, bool, list[str]]:
     """Port of the clarifications.py logic (answer / dismiss / merge / reject / skip).
 
@@ -2192,6 +2404,7 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
                     subject=entity_id, predicate=predicate, object=answer_text, object_kind="literal",
                     observer=_owner_observer(settings, settings.memory_path), source_trust="user_stated", origin="clarification",
                     authored_by="user", confidence=0.95, valid_from=today, recorded_at=today,
+                    evidence=_quote_spans(settings.memory_path),
                 ))
                 body = write_claims(body, claims)
             else:

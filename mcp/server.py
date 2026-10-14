@@ -197,13 +197,18 @@ TOOLS = [
     },
     {
         "name": "cicada_check_nudges",
-        "description": "Check for pending inbox items in Cicada's memory system. Returns items that need user attention — decaying entities, conflicts, ambiguous mentions, or possible duplicates. Use this proactively when a conversation touches topics that might have pending items. After `cicada_recall`, pass its suggested entity ids as `entity_ids`.",
+        "description": "Open questions Cicada has for the person — two facts that disagree, a name that could be two people, a follow-up. mode=\"ask\" (after `cicada_recall`, with `topic` = the person's own words this turn and `entity_ids` = recall's ids) returns at most two questions about what they are talking about now, and nothing when none is: ask one only if it fits, in your own words, or record an answer their words already gave. mode=\"list\" (the default) lists everything pending, for when the person asks what is in their inbox or what conflicts they have.",
         "inputSchema": {
             "type": "object",
             "properties": {
+                "mode": {
+                    "type": "string",
+                    "enum": ["ask", "list"],
+                    "description": "\"ask\": only questions about what the person is talking about now (needs `topic`). \"list\" (default): every pending question, plainly.",
+                },
                 "topic": {
                     "type": "string",
-                    "description": "Optional topic to filter inbox items by relevance",
+                    "description": "With mode=\"ask\": the person's own words this turn (or what the conversation is about now). With mode=\"list\": an optional word filter.",
                 },
                 "entity_ids": {
                     "type": "array",
@@ -591,6 +596,63 @@ TOOLS = [
         },
     },
     {
+        # G198 (owner ruling 2026-10-14): a page's words and aliases, with a reason that becomes the commit message.
+        # Stdio and the command line only in this slice (`catalog.NEVER_REMOTE`).
+        "name": "cicada_edit_page",
+        "description": "Fix the words of a page or its aliases when they are wrong — a misspelled name, a stale sentence, an alias that is not a name for it — never to record a new fact (that is cicada_write_claim). Give a `reason` in one sentence: it becomes the commit message the person sees. `edits` replace exact words on the page (copy them from cicada_recall_detail); `section` + `text` rewrite one section; `add_aliases` / `remove_aliases` change its other names (a removed one is never added back automatically). The claims on the page are never touched. If the person has not listed your app as one that may edit pages, the change waits in their inbox for one tap instead, and the reply says so. `resolves` answers inbox questions this change settles, only with the person's own words cited in `evidence`.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "subject": {"type": "string", "description": "The page — its id (e.g. 'alpha-project') or name."},
+                "reason": {"type": "string", "maxLength": 500, "description": "Why, in one sentence (e.g. 'the person spelled their surname for me'). It becomes the commit message."},
+                "edits": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "old": {"type": "string", "description": "The exact words on the page now, character for character."},
+                            "new": {"type": "string", "description": "What they become; an empty string deletes them."},
+                            "all": {"type": "boolean", "description": "Change every place the words appear (default: they must appear once)."},
+                            "pin": {"type": "boolean", "description": "Keep the fix when Sleep rewrites the page: Cicada writes `new` wherever a rewrite would write `old` on this page. Defaults to `all`."},
+                        },
+                        "required": ["old", "new"],
+                    },
+                    "description": "Optional: exact words → new words in the page's text.",
+                },
+                "section": {"type": "string", "description": "Optional: the title of one section to rewrite whole (e.g. 'Summary', or a section inside the Article). Needs `text`."},
+                "text": {"type": "string", "description": "The section's new content, without its heading."},
+                "add_aliases": {"type": "array", "items": {"type": "string"}, "description": "Optional: other names the thing goes by."},
+                "remove_aliases": {"type": "array", "items": {"type": "string"}, "description": "Optional: aliases that are wrong, spelled exactly as listed (accents included)."},
+                "evidence": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "episode": {"type": "string", "description": "The episode the words are in."},
+                            "quote": {"type": "string", "description": "The exact words, copied verbatim (at most 240 characters)."},
+                        },
+                        "required": ["episode", "quote"],
+                    },
+                    "description": "Optional: the person's exact words that justify the change, from a saved episode — verified and stored as offsets in the commit, never copied.",
+                },
+                "resolves": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": {"type": "string", "description": "The inbox item (e.g. 'inbox-012')."},
+                            "option_key": {"type": "string", "description": "The option the person's words pick."},
+                            "answer": {"type": "string", "description": "Or their answer in their own words."},
+                        },
+                        "required": ["id"],
+                    },
+                    "description": "Optional: inbox questions this change answers. Each is answered only when `evidence` cites the person's own words.",
+                },
+            },
+            "required": ["subject", "reason"],
+        },
+    },
+    {
         "name": "cicada_pending",
         "description": "List Cicada episodes not yet consolidated into the knowledge graph (processed: false), each with its rev (the version of its text). Use this to see what raw conversation material is waiting, then use cicada_write_claim to consolidate atomic facts out of it yourself, and cicada_mark_processed once you're done with an episode — this lets an agent do its own lightweight consolidation between Sleep cycles.",
         "inputSchema": {
@@ -625,7 +687,7 @@ TOOLS = [
     },
     {
         "name": "cicada_resolve_inbox",
-        "description": "Answer a pending Cicada inbox question on the user's behalf, after they told you the answer in conversation. Use ONLY with an answer the user actually gave — never guess. Pass the option_key shown by cicada_check_nudges (e.g. 'a', 'b', 'both', 'neither'), or `answer` with free text when none of the options is right (this records a user-stated, trust-protected claim and closes the competing ones), or defer=true when the user says they're not sure and want to be asked later. Pass skip=true when the user did not answer at all: nothing is written and cicada_check_nudges stops returning the item for the rest of this session.",
+        "description": "Answer a pending Cicada inbox question on the user's behalf, after they told you the answer in conversation — whether you asked or their words already settled it (pass those words as `quote`). Use ONLY with an answer the user actually gave — never guess. Pass the option_key shown by cicada_check_nudges (e.g. 'a', 'b', 'both', 'neither'), or `answer` with free text when none of the options is right (this records a user-stated, trust-protected claim and closes the competing ones), or defer=true when the user says they're not sure and want to be asked later. Pass skip=true when the user did not answer at all: nothing is written and cicada_check_nudges stops returning the item for the rest of this session.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -656,6 +718,10 @@ TOOLS = [
                 "reject": {
                     "type": "boolean",
                     "description": "For a merge_suggestion: these are NOT the same entity — remember that and stop proposing it.",
+                },
+                "quote": {
+                    "type": "string",
+                    "description": "What the person said in this conversation that answers the question, as close to their exact words as you can (at most 500 characters). Kept as the answer's evidence, marked as relayed by you from this conversation, so pass it whenever their words settled it — asked or not.",
                 },
             },
             "required": ["id"],
@@ -973,7 +1039,7 @@ def handle_tool(name: str, arguments: dict) -> str:
             arguments.get("title"),
         )
     elif name == "cicada_check_nudges":
-        return handle_check_nudges(arguments.get("topic"), arguments.get("entity_ids"))
+        return handle_check_nudges(arguments.get("topic"), arguments.get("entity_ids"), arguments.get("mode"))
     elif name == "cicada_handshake":
         return handle_handshake()
     elif name == "cicada_timeline":
@@ -1071,6 +1137,11 @@ def handle_tool(name: str, arguments: dict) -> str:
             arguments.get("access"),
             arguments.get("entity"),
         )
+    elif name == "cicada_edit_page":
+        return mcp_tools.edit_page(
+            _ctx(), arguments.get("subject", ""), arguments.get("reason", ""), arguments.get("edits"),
+            arguments.get("section"), arguments.get("text"), arguments.get("add_aliases"),
+            arguments.get("remove_aliases"), arguments.get("evidence"), arguments.get("resolves"))
     elif name == "cicada_pending":
         return handle_pending(arguments.get("limit"))
     elif name == "cicada_mark_processed":
@@ -1088,6 +1159,7 @@ def handle_tool(name: str, arguments: dict) -> str:
             arguments.get("remind_days"),
             skip=bool(arguments.get("skip", False)),
             reject=bool(arguments.get("reject", False)),
+            quote=arguments.get("quote"),
         )
     else:
         raise ValueError(f"Unknown tool: {name}")
@@ -1212,12 +1284,14 @@ def handle_get_perspective(subject, observer=None, context=None, history=False) 
     return mcp_tools.get_perspective(_ctx(), subject, observer, context, history)
 
 
-def handle_check_nudges(topic, entity_ids=None) -> str:
-    return mcp_tools.check_nudges(_ctx(), topic, entity_ids)
+def handle_check_nudges(topic, entity_ids=None, mode=None) -> str:
+    return mcp_tools.check_nudges(_ctx(), topic, entity_ids, mode)
 
 
-def handle_resolve_inbox(item_id, option_key, answer, defer, remind_days, *, skip=False, reject=False) -> str:
-    return mcp_tools.resolve_inbox(_ctx(), item_id, option_key, answer, defer, remind_days, skip=skip, reject=reject)
+def handle_resolve_inbox(item_id, option_key, answer, defer, remind_days, *, skip=False, reject=False,
+                         quote=None) -> str:
+    return mcp_tools.resolve_inbox(_ctx(), item_id, option_key, answer, defer, remind_days, skip=skip, reject=reject,
+                                   quote=quote)
 
 
 def handle_save_episode(content, title) -> str:

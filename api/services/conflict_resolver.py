@@ -13,7 +13,7 @@ from api.config import Settings
 from api.models.schemas import DecayClass
 from api.services import (
     alias_policy, decay_policy, decay_tuning, engine_errors, entity_article, entity_body, episode_time, fact_sources,
-    json_parse, markdown_parser, role_people, section_provenance, source_dates,
+    json_parse, markdown_parser, page_edits, role_people, section_provenance, source_dates,
 )
 from api.services.providers import resolve_llm_fn
 
@@ -760,6 +760,8 @@ def apply_changes(changes: list[dict], memory_path) -> None:
             # Merge new aliases
             # Only Sleep's NEW aliases are filtered: what the page already lists (a hand-added one too) stays.
             new_aliases = alias_policy.keep(new_entity.get("aliases", []) or [])
+            # G198: an alias an edit removed stays removed (`aliases_removed`, like `sources_removed`).
+            new_aliases = page_edits.keep_aliases(parsed.frontmatter, new_aliases)
             if new_aliases or parsed.frontmatter.get("aliases"):
                 existing_aliases = parsed.frontmatter.get("aliases", []) or []
                 merged_aliases = list(existing_aliases)
@@ -793,7 +795,8 @@ def apply_changes(changes: list[dict], memory_path) -> None:
                 "links": new_entity.get("links", []) or [],
                 "open_questions": new_entity.get("open_questions", []) or [],
             }
-            article = change.get("article")
+            # G198: the writer's article with the page's pinned corrections in, records and all.
+            article = page_edits.correct_article(parsed.frontmatter, change.get("article"))
             if article and not human_edited:
                 # The article writer (`entity_article`): the record merged deterministically, then the lead and
                 # the Article it wrote, then what this update's orientation said that the article does not carry.
@@ -832,6 +835,9 @@ def apply_changes(changes: list[dict], memory_path) -> None:
                     name=str(parsed.frontmatter.get('name', entity_id)),
                     entity_type=str(parsed.frontmatter.get('type', 'concept')),
                     names=[str(a) for a in parsed.frontmatter.get('aliases') or []])
+            # G198: the page's pinned corrections — an edit's fixed words — are written over whatever this update
+            # wrote, so Sleep never puts the old words back (Related is rebuilt below and left alone).
+            sections = page_edits.apply_corrections_to_sections(parsed.frontmatter, sections)
             parsed.frontmatter["layout_version"] = 2
 
             # Related reconciler — rebuild the ## Related block from the

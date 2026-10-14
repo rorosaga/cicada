@@ -63,7 +63,11 @@ when asked; a person's Works at and Role read only those beliefs (`GET /entities
 whole list. Measured on a synthetic owner page of the real one's size (5.6 MB, 5,921 claims, ~180 KB of prose;
 `CardOpenProbeTests`, opt-in, against a scratch backend; debug build): `MarkdownBody` laid the whole prose out at once,
 a 2.1–3.2 s main-thread stall when the page landed and ~0.5 s on every graph push while it was shown; the article
-costs ~60 ms of first screen and no stall over 16 ms on a push. **Where this comes from (owner 2026-10-14, G61)** is
+costs ~60 ms of first screen and no stall over 16 ms on a push. **Where this comes from ends with *Who wrote it*
+(G198):** per part of the page's text, who last changed it, when, and an agent edit's reason ("accepted by you" when the
+person applied a proposal), from `GET /entities/{id}/blame` (git, never stored; not a Store domain, cached in memory;
+a `pending` answer keeps the copy held and is asked again up to `CicadaTiming.blamePendingTries` times).
+**Where this comes from (owner 2026-10-14, G61)** is
 one disclosure for where the page's knowledge comes from and how fresh it is (it replaced *Where this came from* and
 *Look it up at*, and keeps the former's remembered choice). Closed, it says only "· 3 conversations" (from `/provenance`,
 known before the section is read, so the words never change on a first open and never claim a page with unread sources
@@ -130,7 +134,8 @@ Nudges and clarifications live in **one store**: `memory/inbox/inbox-NNN.md`, ea
 discriminator (`decay`, `conflict`, `clarification`, `merge_suggestion`, `removal`, `divergence`,
 `normalization` — the last two were written by Sleep since G49/G98 but only became loadable and
 resolvable kinds with G113; `removal` is written by a live browser sync, not Sleep, at proposal
-time (G129 slice 2); `followup`, G141 PJ-6, by Sleep's engine-free tail), behind `GET /inbox` /
+time (G129 slice 2); `followup`, G141 PJ-6, by Sleep's engine-free tail; `page_edit`, G198, by an agent's proposed page
+edit), behind `GET /inbox` /
 `POST /inbox/{id}/resolve`. `api/routers/nudges.py` and `clarifications.py` are thin **deprecated**
 shims (they set `Deprecation: true`) kept only for external callers — the app calls `/inbox`. Every resolve door answers
 409 while Sleep holds the pages (`inbox_service.resolve`, G177/G183(a)), asked under the bank's write admission and held
@@ -244,12 +249,32 @@ false, so the shipped app's 7-day button never shows; the server clamps any defe
 through `progress.py` (origin `clarification`) and grade the extractor: done/still agreed, 'That didn't
 happen' overruled, a person's own thread always neutral.
 
+**An agent's proposed page edit (`page_edit`, G198, owner ruling 2026-10-14).** When an agent that is not on the person's
+list of agents that edit pages directly (Settings; `GET/PUT /settings/editors`, `page_editors`) calls `cicada_edit_page`,
+the edit is checked against the page and filed as one item: `question` "An agent suggests a change to <name>: <reason>",
+two closed options (`apply`, `dismiss`; no recommendation — Cicada proposed nothing), `allow_defer`, and a body that previews
+each change in plain words; the item keeps `proposed_by`, `reason`, the request (`edit`), its evidence spans and the
+conversation. `apply` plans the edit again on the page as it is then — a page that changed so it no longer applies answers
+409 and writes nothing — writes it and commits the page with the retired item in one commit under the agent and `user`
+(`storage.md`, *A page edit's commit*); `dismiss` retires the item as the person's. Both run inside the answer's write
+admission, under the page lock and git's write lock. It is graded like every verdict (G113): `apply` agreed, `dismiss`
+overruled — the agent's reward signal. App-only: no agent ask path serves it and `cicada_resolve_inbox` refuses it.
+
 **G98 rule.** A multi-valued predicate never opens a conflict; an existing one is served
 `informational: true` — the card lists the values and offers `Got it`, which removes the item and
 touches no claim.
 
 **Three resolution paths for a clarification:** organic (the user provides context later, Sleep
 promotes it), agent-initiated (the agent asks in flow when the topic comes up), manual (the app).
+
+**In conversation, questions come up naturally (owner, 2026-10-14).** An agent sees an item only when the
+conversation is about that question's own subject — its page in scope AND its predicate, options or words in what the
+person said (`inbox_ask_gate`; a decay question never comes up in conversation). It asks in its own words, or not at
+all; when the person's words already answer it, it resolves it without asking (`cicada_resolve_inbox(…, quote=<their
+words>)`: kept as a relay episode — the agent's text, `relayed_by` and `session_id`, untimed — cited as the answer's
+evidence, the commit naming the agent and the conversation, `answered_in: conversation` on the ledger row; never in a
+demo bank) and says what it noted in one line. "What is in my inbox?" lists everything (`mode="list"`). Detail:
+`mcp.md`, *Questions come up naturally*.
 
 **"What's the name of your partner?" (placeholder people, 2026-10-14).** A `clarification` with `asks: name` is
 the question about a person Cicada knows only by a relation to the owner (`role_people`; written by Sleep's Stage

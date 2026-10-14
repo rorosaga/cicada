@@ -14,7 +14,8 @@ model instead:
   replaces ``HOOK_POINTER``'s request that the model call a tool (R-H8).
 * UserPromptSubmit → at most three pages the message NAMES (R-H2), each with
   its one-line summary and at most two current claims with their dates, plus
-  at most one open inbox question about them. The note is ≤ 400 tokens, or
+  at most one open inbox question about what the message is about (the ask
+  gate, ``inbox_ask_gate``: naming the page is not enough). The note is ≤ 400 tokens, or
   nothing (R-H5).
 
 Rails:
@@ -308,22 +309,40 @@ def fit(pages: list[PageNote], question: str | None) -> tuple[str, list[PageNote
     return compose(pages, question), pages, question
 
 
-def _open_question(reader: search_index.Reader, pages: list[PageNote], today: str) -> tuple[str | None, str | None]:
-    """At most one open inbox item about the pages shown (R-H5), chosen by the
-    SAME filter ``cicada_check_nudges(entity_ids=…)`` applies
-    (``mcp_tools.nudge_visible``) over the index's inbox rows. A pointer to
-    the card, never the card. A follow-up's question is synthesised at read
-    (G141 PJ-6) and is not in the index, so it reads "(a follow-up)"."""
+def _open_question(reader: search_index.Reader, pages: list[PageNote], today: str, *,
+                   memory_path: Path | None = None, prompt: str = "") -> tuple[str | None, str | None]:
+    """At most one open inbox item about what the message is ABOUT (R-H5; owner, 2026-10-14).
+
+    Chosen by the SAME visibility filter ``cicada_check_nudges`` applies (``mcp_tools.nudge_visible``) over
+    the index's inbox rows, then by the in-conversation ask gate (``inbox_ask_gate.relevant``) against the
+    message itself: naming a page is no longer enough — the message must be about the question's own
+    subject (its predicate, options or words). Only the few items about the shown pages are read from disk,
+    for their predicate and options (the index row carries neither). A pointer, never the card. A
+    follow-up's question is synthesised at read (G141 PJ-6), not stored, so the gate has nothing to compare
+    and a follow-up never rides a note; ``cicada_check_nudges`` still serves it."""
+    from api.services import bank_index, inbox_ask_gate
+
     names = {p.id: p.name for p in pages}
     items = [d for d in reader.inbox_docs()
              if mcp_tools.nudge_visible(d.meta, wanted=frozenset(names), today=today)]
     if not items:
         return None, None
     items.sort(key=lambda d: (-float(d.meta.get("priority") or 0.0), d.ref))
-    item = items[0]
-    entity_id = str(item.meta.get("entity_id") or "")
-    words = "" if item.meta.get("kind") == "followup" else clip(str(item.meta.get("question") or ""), QUESTION_CHARS)
-    return recall_text.question_line(names[entity_id], item.ref, entity_id, words), item.ref
+    for item in items:
+        if item.meta.get("kind") == "followup":
+            continue
+        fm = dict(item.meta)
+        if memory_path is not None:
+            entry = bank_index.file(memory_path, "inbox", f"{item.ref}.md")
+            if entry is not None:
+                fm = {**entry.frontmatter, **{k: v for k, v in fm.items() if v not in (None, "")}}
+            fm = inbox_ask_gate.with_page_names(memory_path, fm)
+        if not inbox_ask_gate.relevant(fm, prompt, names)[0]:
+            continue
+        entity_id = str(item.meta.get("entity_id") or "")
+        words = clip(str(item.meta.get("question") or ""), QUESTION_CHARS)
+        return recall_text.question_line(names[entity_id], item.ref, entity_id, words), item.ref
+    return None, None
 
 
 def _owner_id(memory_path: Path) -> str | None:
@@ -430,7 +449,8 @@ def prompt_context(memory_path: Path, prompt: str, *, recent: frozenset[str] = f
                 break
         if not notes:
             return Injection.none("no_match")
-        question, inbox_id = _open_question(reader, notes, date.today().isoformat())
+        question, inbox_id = _open_question(reader, notes, date.today().isoformat(), memory_path=memory_path,
+                                            prompt=prompt_window(prompt))
     text, shown, kept = fit(notes, question)
     if not text:
         return Injection.none("no_match")

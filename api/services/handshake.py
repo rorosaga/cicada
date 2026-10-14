@@ -12,8 +12,8 @@ Shape: what Cicada is (3 lines) → a 2–3 line per-harness prelude (R11) →
 the contract → the now-view from ``_state.md`` → capability notes. The
 now-view is Standing (the person, their timezone, how to work with them,
 what lasts) then Current (G140). The
-contract's inbox paragraph is FIXED BY G115 (quoted verbatim from the G75
-row); the G121 sentence comes from ``state_dictionary.WORLD_FACTS_NOTE`` so
+contract's inbox paragraph is the owner's 2026-10-14 rule (questions come up
+naturally; it amends G115's copy of the G75 paragraph); the G121 sentence comes from ``state_dictionary.WORLD_FACTS_NOTE`` so
 there is exactly one source. Zero LLM, ≤ ``MAX_TOKENS`` by the chars/4
 proxy (R10 — no tokenizer, ``tiktoken`` fetches its BPE files over the
 network on first use and the suite is offline), cached under
@@ -67,7 +67,10 @@ from api.services.auth import cicada_home
 # 13: G61 S3 — the reading item names cicada_record_check (a report on a listed source; it settles nothing).
 # 14: G110 slice 1a — item 1 names cicada_continue (where the work in this folder stopped).
 # 15: G110 A2 — optional brief State line in working replies.
-CONTRACT_VERSION = 15
+# 16: owner 2026-10-14 — item 2: questions come up naturally (`mode="ask"`), answers already given are recorded
+#     with the person's words (`quote`), the inbox is listed on request (`mode="list"`).
+# 17: G198 — item 4 names cicada_edit_page (a page's words and aliases); one past both 16s (it and natural questions).
+CONTRACT_VERSION = 17
 MAX_TOKENS = 1800
 VARIANTS = ("claude-code", "codex", "generic")
 
@@ -89,7 +92,8 @@ REMOTE_VARIANT = "remote"
 # 7: G162 — the video clause, tool by tool. 8: the merge of both, one past either.
 # 9: G61 S3-a — the source sentence, each tool only where the connection holds it.
 # 10: G61 S3 — the same sentence, only where the connection holds the queue and cicada_record_check.
-REMOTE_CONTRACT_VERSION = 10
+# 11: owner 2026-10-14 — the inbox item says mode="ask"/"list" (questions come up naturally).
+REMOTE_CONTRACT_VERSION = 11
 # The runtime replaces this with a freshly minted handle AFTER the cache read,
 # so one cached primer serves every conversation of a tool set.
 CONVERSATION_SLOT = "{{conversation}}"
@@ -143,13 +147,15 @@ def _remote_contract(tools: frozenset[str], reading: bool = False) -> str:
         items.append("Recall first: " + ", ".join(reads) + ". State only what the tools returned.")
     if "cicada_check_nudges" in tools:
         answer = (
-            "resolve one with `cicada_resolve_inbox(id, option_key)` only with the person's own choice, "
-            "or `cicada_resolve_inbox(id, skip=true)` when they did not answer"
+            "resolve one with `cicada_resolve_inbox(id, option_key)` only with the person's own choice "
+            "(their words may already have given it), or `cicada_resolve_inbox(id, skip=true)` when they did not "
+            "answer"
             if "cicada_resolve_inbox" in tools
             else "only the person can answer them, in the Cicada app"
         )
-        items.append("`cicada_check_nudges(entity_ids=<recall ids>)` lists questions Cicada has for the "
-                     f"person; ask at most one per turn, after their request is done; {answer}.")
+        items.append("`cicada_check_nudges(mode=\"ask\", topic=<the person's words this turn>)` returns only "
+                     "questions about what they are talking about: ask one only if it fits, in your own words, "
+                     f"after their request; {answer}. Asked what is in their inbox, `mode=\"list\"` lists it.")
     if "cicada_save_episode" in tools:
         items.append("Save as you learn: `cicada_save_episode(content, title)` for a decision, plan or fact "
                      "worth keeping" + ("; `cicada_save_url(url, note)` for a link." if "cicada_save_url" in tools
@@ -244,7 +250,12 @@ _PRELUDE = {
     ),
 }
 
-# G115 discipline — item 2 is the G75 row's paragraph, with one honesty
+# Item 2 (owner, 2026-10-14, amends the G75/G115 discipline below): questions come up only when the
+# conversation is about them (`mode="ask"`, the server-side gate in `inbox_ask_gate`), are woven in by the
+# agent or not asked, and an answer the person already gave is recorded with their words (`quote`) without
+# asking; the whole inbox is listed only on request (`mode="list"`). The Cause line and the Recommended
+# option stay on the wire as context, never as copy to recite.
+# G115 discipline — item 2 was the G75 row's paragraph, with one honesty
 # edit (final review, 2026-09-03): the Cause line and the `(Recommended)`
 # marker are G115 Phase 1 card work the inbox files do not carry yet, so the
 # sentence says "when the item shows them" instead of promising them; every
@@ -261,12 +272,12 @@ _CONTRACT = (
     "only what the tools returned. Ask where a project stands with `cicada_project(project)` and where the "
     "work in this folder stopped with `cicada_continue()`. When useful, end a working reply with a brief `State:` "
     "(in flight / blocked / next); optional, not a handoff ritual.\n"
-    "2. After `cicada_recall`, call `cicada_check_nudges(entity_ids=<recall ids>)`; at most one question per "
-    "turn, after the user's request is done; quote the Cause line and lead with the Recommended option when the "
-    "item shows them; never a blocking question at the end of an unrelated turn; "
-    "`cicada_resolve_inbox(id, skip=true)` when unanswered — it writes nothing and the item is not re-asked "
-    "that session; resolve only with the person's own answer; say what changed in one line; `normalization` "
-    "items are app-only and the ask path never returns them.\n"
+    "2. Questions come up naturally or not at all: after `cicada_recall`, `cicada_check_nudges(mode=\"ask\", "
+    "topic=<their words this turn>, entity_ids=<recall ids>)` returns only questions on what they are discussing; "
+    "ask one in your own words if it fits, after their request, never as a banner. If their words already answer "
+    "one, record it unasked: `cicada_resolve_inbox(id, option_key or answer, quote=<their exact words>)`, and say "
+    "what you noted in one line. Never guess an answer; `skip=true` if they let it pass. On request, "
+    "`mode=\"list\"` lists the inbox.\n"
     "3. Save as you learn: `cicada_save_episode(content, title)` for a decision, plan or fact worth keeping; "
     "`cicada_save_url` for a link; after watching a video the person saved, `cicada_record_watch(url, summary, "
     "excerpts=[{t, quote}], basis)` — short timestamped quotes, never the transcript, `basis` being "
@@ -282,7 +293,8 @@ _CONTRACT = (
     "sources=[url])` — quote the exact words you relied on, give `sources` for anything you looked up, and "
     "`expected_end` when the fact states an end; withdraw a claim you wrote that proved wrong with "
     "`cicada_retract_claim(subject, claim_id, reason)`. Sources: "
-    "`cicada_add_source` for one the person names; `cicada_change_source` to fix or drop your own.\n"
+    "`cicada_add_source` for one the person names; `cicada_change_source` to fix or drop your own. Fix a "
+    "page's text: `cicada_edit_page(subject, reason, edits)`.\n"
     f"5. {state_dictionary.WORLD_FACTS_NOTE}\n"
     "6. Ask before assuming: a pending clarification on an entity you are about to use means the person has "
     "not settled it — ask in flow, do not guess.\n"

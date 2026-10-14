@@ -92,7 +92,7 @@ def test_resolve_inbox_posts_the_option_key(server, monkeypatch):
     out = server.handle_resolve_inbox("inbox-001", "b", None, False, None)
 
     assert seen["path"] == "/inbox/inbox-001/resolve"
-    assert seen["payload"] == {"action": "resolve", "optionKey": "b"}
+    assert seen["payload"] == {"action": "resolve", "optionKey": "b", "via": "agent"}
     assert "resolved" in out
 
 
@@ -103,7 +103,7 @@ def test_resolve_inbox_defer_sends_remind_days(server, monkeypatch):
         lambda path, payload: seen.update(payload) or {"status": "deferred", "remindAfter": "2026-09-29"},
     )
     out = server.handle_resolve_inbox("inbox-001", None, None, True, 30)
-    assert seen == {"action": "defer", "remindDays": 30}
+    assert seen == {"action": "defer", "remindDays": 30, "via": "agent"}
     assert "2026-09-29" in out
 
 
@@ -114,7 +114,7 @@ def test_resolve_inbox_free_text(server, monkeypatch):
         lambda path, payload: seen.update(payload) or {"status": "resolved"},
     )
     server.handle_resolve_inbox("inbox-001", "neither", "Acme Robotics", False, None)
-    assert seen == {"action": "resolve", "optionKey": "neither", "answer": "Acme Robotics"}
+    assert seen == {"action": "resolve", "optionKey": "neither", "answer": "Acme Robotics", "via": "agent"}
 
 
 def test_resolve_inbox_reject_posts_reject_action(server, monkeypatch):
@@ -126,7 +126,7 @@ def test_resolve_inbox_reject_posts_reject_action(server, monkeypatch):
         lambda path, payload: seen.update(payload) or {"status": "resolved"},
     )
     out = server.handle_resolve_inbox("inbox-001", None, None, False, None, reject=True)
-    assert seen == {"action": "reject"}
+    assert seen == {"action": "reject", "via": "agent"}
     assert "resolved" in out
 
 
@@ -136,7 +136,7 @@ def test_resolve_inbox_tool_is_registered(server):
     tool = next(t for t in server.TOOLS if t["name"] == "cicada_resolve_inbox")
     assert tool["inputSchema"]["required"] == ["id"]
     assert set(tool["inputSchema"]["properties"]) == {
-        "id", "option_key", "answer", "defer", "remind_days", "skip", "reject",
+        "id", "option_key", "answer", "defer", "remind_days", "skip", "reject", "quote",
     }
 
 
@@ -153,7 +153,7 @@ def test_relevant_inbox_hides_deferred_items(server, tmp_path):
     deferred["remind_after"] = "2099-01-01"
     markdown_parser.write(memory / "inbox" / "inbox-002.md", deferred, "ctx")
 
-    blurbs = server._relevant_inbox(memory, "Rodrigo")
+    blurbs = server._relevant_inbox(memory, "where does Rodrigo work")
     assert len(blurbs) == 1
     assert all("Rodrigo" in b for b in blurbs)
 
@@ -233,7 +233,7 @@ def test_relevant_inbox_carries_the_cause(server, tmp_path):
               question="Where does Bob Example work now?",
               source_episode="ep_2026-08-20_001")
     markdown_parser.write(memory / "inbox" / "inbox-001.md", fm, "ctx")
-    [blurb] = server._relevant_inbox(memory, "Bob Example")
+    [blurb] = server._relevant_inbox(memory, "where does Bob Example work these days")
     assert 'Cause: “user: Bob Example moved to beta-corp last week.” — from "Jobs"' in blurb
 
 
@@ -340,7 +340,7 @@ def test_relevant_inbox_builds_one_inbox_context_for_the_whole_loop(server, tmp_
             super().__init__(*a, **kw)
 
     monkeypatch.setattr(inbox_context, "InboxContext", Counting)
-    assert len(server._relevant_inbox(memory, "Bob Example")) == 3
+    assert len(server._relevant_inbox(memory, "where does Bob Example work")) == 3
     assert len(built) == 1
 
 
@@ -357,7 +357,7 @@ def test_resolve_inbox_posts_removal_keys_unchanged(server, monkeypatch):
     monkeypatch.setattr(server, "_backend_post", fake_post)
     server.handle_resolve_inbox("inbox-001", "remove", None, False, None)
     assert posted["path"] == "/inbox/inbox-001/resolve"
-    assert posted["payload"] == {"action": "resolve", "optionKey": "remove"}
+    assert posted["payload"] == {"action": "resolve", "optionKey": "remove", "via": "agent"}
 
 
 def test_resolve_inbox_says_sleep_is_busy_on_a_409_not_that_the_backend_is_down(server, monkeypatch):

@@ -73,6 +73,33 @@ A page without an Article is the v2 fact sheet; nothing reads the two differentl
 wrote an Article by hand — `entity_body.has_human_prose` is true: the page is additive-only, like any hand-edited
 page, and the writer leaves it alone.
 
+**Agent page edits (G198, owner ruling 2026-10-14) — prose is no longer Sleep's alone.** An agent changes a page's words or
+aliases through `cicada_edit_page` (`mcp.md`), one writer, `page_edits`: it reads the page file's own body
+(`parse(ledger=False)`), edits only the prose before the claims fence and puts the fence and everything after it back as it
+was, so the fence and the claims ledger are never re-rendered (a write from a body read without the ledger leaves every ledger
+line where it is). A harness on the person's trust list (`page_editors`, `$CICADA_HOME/editors.json`, empty by default, written
+only by `PUT /settings/editors`) writes at once; any other agent's edit is a `page_edit` inbox item (`features.md`). What keeps
+an edit through Sleep, in the frontmatter:
+
+- `corrections: [{old, new, by, on}]` (≤ 30, newest kept) — an `old → new` fix the edit pinned (`pin`, default on with `all`;
+  `old` ≤ 200 characters). Every machine prose writer — Stage 3's update (`conflict_resolver.apply_changes`, on every branch,
+  before the stamp and the provenance refresh), `page_article_rebuild` and `source_rewrite` — applies them to what it is about
+  to write — the article writer's payload first, lead, paragraphs and their G118 records together
+  (`page_edits.correct_article`), so a corrected paragraph keeps its evidence, then the whole prose
+  (`apply_corrections`: exact, whole-word at a word edge, idempotent when `new` contains `old`, never in `## Related` or
+  the claims, never on a heading or code-fence line, and a fix whose result would change the text's `page_edits.shape` —
+  claims openers, where the claims block starts, the `#`/`##` headings, an open fence — is skipped) — and the article writer is given them as `CORRECTIONS` with one more rule line (its prompt is
+  byte-identical without them). A word-level fix restamps a stamped article (`entity_article.carry_stamp`), so the page stays
+  the writer's and keeps growing with the fix in. A later edit whose `new` is a pinned `old` drops that pin.
+- `aliases_removed: [{alias, by, on}]` (≤ 50) — like `sources_removed`: Sleep's alias merge (`page_edits.keep_aliases`) and a
+  page merge (`page_edits.carry_marks`, which also carries both pages' corrections) never add a removed alias back; matched
+  case-insensitively with accents kept. Adding the alias by an edit lifts the mark.
+- `human_edited: true` — set when an edit rewrites the Summary or an Article section whole: the page is the editor's from
+  then on, additive-only, as a person's edit of those halves already makes it. The record sections need no mark.
+
+An edited item's G118 row goes (`section_provenance.refresh`: its exact-text guard no longer matches); the edit's own
+provenance is its commit (Git, below).
+
 ### Decay classes (G66)
 One resolver, `api/services/decay_policy.py`. `resolve(fm)` returns `(class, rate)`: an explicit
 `decay_class:` wins; otherwise inferred from `type` (`media` → evergreen, `skill` → durable, else
@@ -380,7 +407,9 @@ trailer-only `git log` of the page — ETag includes `git_head` — conversation
 `session_id`/`source_id`, the best quote per conversation — the 50 rows with the most claims —, coverage over current
 claims, and `totals.firstSaid`/`lastSaid` with `firstConversation`/`lastConversation`: when the earliest and newest of
 *every* conversation was said, an episode's `timestamp` else its id's day, G194's basis — a memory export entry
-(`episode_time.counts_as_activity`, #242) still counts as a conversation but never dates one; the person card's facts read
+(`episode_time.counts_as_activity`, #242) still counts as a conversation but never dates one — so does an agent's
+relay of an inbox answer (`source: agent_relay`, 2026-10-14; it carries its conversation's `session_id`, so it groups
+with that conversation); the person card's facts read
 these, never the page's `created`/`last_referenced`, which are write dates), and `GET
 /episodes/{id}/citations` (every claim citing the document, by a raw-text prefilter over
 `entities/` — no index dependency). `/ask` citations also carry `claimId` + `evidence`, read from
@@ -921,7 +950,24 @@ Cicada-Session: <id>
 `user/companion_app` (also the Projects page's writes, G141 — `Project update <date>`,
 `Cicada-Author: user` — and the Backlog section's, `Backlog update <date>`), `user/backlog_import` (G150's
 importer),
-`mcp/<harness>` (a local agent's write), `remote/<harness>` (a remote connector's write, G135).
+`mcp/<harness>` (a local agent's write), `remote/<harness>` (a remote connector's write, G135),
+`inbox/page_edit/resolved:apply|dismiss` (the person's answer to an agent's proposed page edit, G198).
+
+**A page edit's commit (G198).** `Page edit <date>` (or `Page edit proposed <date>` for an inbox proposal), the manifest
+line `entities/<id>.md: edited (trigger: …)`, then a paragraph with the agent's `Reason: <one line>` and one
+`Evidence: <episode> <start>-<end> <kind> <hash>` line per located quote (spans, never words), then the trailers. A reason is
+collapsed to one line, so it can never open a trailer. An applied proposal names the agent first and `user` second
+(`Cicada-Author:` twice — who wrote the words, who accepted them) and says `Accepted by the person in the inbox.`;
+`_build_description` appends the reason to the history row. **Blame** (`page_blame`, `GET /entities/{id}/blame`): one
+`git blame --porcelain` over the prose lines (frontmatter and claims fence left out) and one `git log --no-walk` over the
+commits it names give, per `##` section (an Article's `###` sections apart), each contributor's line count, last change and
+commits, and per commit its author, kind, trigger, reason and `accepted_by`; heading and blank lines count to no one, an
+uncommitted line is `uncommitted`, never guessed. Blame walks the page's whole history (0.6 s at 600 commits, 1.9 s at
+2,000 on a 600 KB page, review round 1), so it is kept per (bank, page, the newest commit touching the page, mtime, size)
+in the process — a commit elsewhere does not empty it — with one computation in flight per key; a request waits ≤ 0.5 s
+(shielded) and is otherwise answered `pending: true`, which the app never draws (it keeps its last copy and asks again,
+a few times); every git call has a deadline (30 s, the process killed past it), and a failure is never cached. Never
+stored.
 
 **Three trailer families, all inert to entity-line parsing — extend them, don't break them:**
 
@@ -992,7 +1038,8 @@ by `agentic_write.write_claim`/`retract_claim`, `progress`'s event writers, `fac
 repo-link rewrites, the inbox's normalization answer (its covered pages, `_predicates.yaml` — written atomically — and
 the item, re-read under the lock, through its own `user` commit, inside the answer's write admission and with git's
 write lock held throughout; G98/G115), and by the MCP's page-writing tools (`write_claim`, `retract_claim`, `note_progress`,
-`add_source`, `change_source`, `record_check`, `record_read`, and `record_watch` around its record) across the write
+`add_source`, `change_source`, `record_check`, `record_read`, `edit_page` (G198; its inbox answers are posted after the
+lock is released), and `record_watch` around its record) across the write
 **and its commit**. Nothing waits on a network call under it: such a tool asks Sleep before it takes the lock and
 reuses the answer, and `record_watch`'s link save and queue credit stay outside. Some holders are `async` routes and
 the inbox's follow-up resolver, which wait on the event loop — one page operation is milliseconds. **Order:** the write

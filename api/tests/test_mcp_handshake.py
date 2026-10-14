@@ -47,7 +47,7 @@ def test_initialize_returns_instructions_and_captures_client_info(server, bank):
     assert server.CLIENT_INFO == {"name": "claude-code", "version": "2.1"}
     text = result["instructions"]
     assert text.startswith("# Cicada") and "## Claude Code" in text
-    assert "`alpha-project`" in text and "cicada_check_nudges(entity_ids=" in text
+    assert "`alpha-project`" in text and 'cicada_check_nudges(mode="ask", ' in text
     assert len(text) // 4 <= 1800
 
 
@@ -129,4 +129,4 @@ def test_resolve_inbox_skip_writes_nothing_and_is_not_reasked(server, bank, monk
     assert (bank / "inbox" / "inbox-001.md").read_text() == before
     assert "inbox-001" not in server.handle_tool("cicada_check_nudges", {})
     # the primer names exactly this call
-    assert "cicada_resolve_inbox(id, skip=true)" in server.handle_tool("cicada_handshake", {})
+    assert "`skip=true`" in server.handle_tool("cicada_handshake", {})

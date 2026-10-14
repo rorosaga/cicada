@@ -19,6 +19,9 @@ enum InboxKind: String, Codable {
     // Sleep's tail writes it; before this case it decoded as `.unknown` and
     // wore the "Update available" label, which reads as a software update.
     case followup
+    // G198: an agent's change to a page's words or aliases, waiting for the person (the agent is not on their list
+    // of agents that edit pages directly). Options `apply` / `dismiss` come from the server; `body` previews it.
+    case pageEdit = "page_edit"
     // Forward-compat fallback (matches `EntityType`/`Epistemic`/`SourceTrust`'s
     // existing pattern in this codebase). Before this, an unrecognized raw
     // value threw `DecodingError.dataCorrupted` out of `InboxItem.init(from:)`,
@@ -43,6 +46,7 @@ enum InboxKind: String, Codable {
         case .normalization: "Predicate fold"
         case .removal: "Removed bookmark"
         case .followup: "Follow-up"
+        case .pageEdit: "Page edit"
         case .unknown: "Update available"
         }
     }
@@ -58,6 +62,7 @@ enum InboxKind: String, Codable {
         case .normalization: "arrow.triangle.merge"
         case .removal: "bookmark.slash"
         case .followup: "arrow.uturn.backward.circle"
+        case .pageEdit: "pencil"
         case .unknown: "questionmark.circle"
         }
     }

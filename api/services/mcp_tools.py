@@ -1292,10 +1292,12 @@ def _recall(ctx: ToolContext, query: str) -> str:
     # cicada_resolve_inbox. A remote connection keeps its current rendering until
     # its owner (G135) decides — see the finding in the G180 report.
     inbox_blurbs = _relevant_inbox(memory_path, query, raw_excerpts=ctx.raw_excerpts,
-                                   can_answer=ctx.is_remote or ctx.can("cicada_resolve_inbox"))
+                                   can_answer=ctx.is_remote or ctx.can("cicada_resolve_inbox"),
+                                   skipped=frozenset(ctx.skipped_inbox_ids))
     if inbox_blurbs:
         output_parts.append(
-            "**Pending inbox items relevant to this query:**\n"
+            "**Open question about this (ask only if it fits the turn, in your own words; if their words already "
+            "answer it, record that instead of asking):**\n"
             + "\n".join(inbox_blurbs)
         )
 
@@ -2691,6 +2693,153 @@ def change_source(ctx: ToolContext, subject: str, ref: str, predicate: str | Non
     return f"Changed the source {ref_text}{what}; the person sees it on the page."
 
 
+# --- G198: an agent edits a page's prose or aliases, with blame ------------------------------------------------------
+
+EDIT_SLEEPING = ("Nothing changed — Cicada is consolidating memory right now, and an edit made now could be swept "
+                 "into its commit under the wrong name. Try again in a few minutes.")
+#: Inbox kinds only the person answers, in the app: an edit can never resolve one (nor an agent its own proposal).
+APP_ONLY_INBOX_KINDS = frozenset({"normalization", "page_edit"})
+
+
+@_holding_pages
+def _edit_page_locked(ctx: ToolContext, subject: str, reason: str, request, evidence) -> dict:
+    """The write half of ``cicada_edit_page``, under admission and the page lock through its commit. Returns what
+    happened; the inbox answers are posted by the caller after the lock is released (the backend's resolve takes the
+    same page lock)."""
+    from api.services import evidence as evidence_mod
+    from api.services import page_edits, page_editors
+    from api.services.id_utils import resolve_entity_file
+
+    memory_path = ctx.memory_path()
+    if ctx.sleep_running():
+        return {"reply": EDIT_SLEEPING}
+    page = resolve_entity_file(memory_path, (subject or "").strip()) if (subject or "").strip() else None
+    if page is None:
+        return {"reply": f"No page named '{subject}' — nothing changed. Use the page's id as `subject`."}
+    entity_id = page.stem
+    spans = evidence_mod.verify_many(memory_path, evidence)
+    parsed = page_edits.read(page)
+    author = ctx.author
+    try:
+        outcome = page_edits.plan(parsed.frontmatter, parsed.body, request, author=author)
+    except page_edits.EditError as exc:
+        return {"reply": f"Nothing changed — {exc}"}
+    name = str(parsed.frontmatter.get("name") or entity_id)
+    if not page_editors.is_trusted(author, remote=ctx.is_remote):
+        try:
+            rel = page_edits.write_proposal(memory_path, entity_id=entity_id, name=name, request=request,
+                                            reason=reason, author=author, session=ctx.session_id or None,
+                                            spans=spans)
+        except page_edits.EditError as exc:
+            return {"reply": f"Nothing changed — {exc}"}
+        _source_event(ctx, memory_path, entity_id, "page_edit_proposed")
+        agent_commits.commit_write(
+            memory_path, subject=page_edits.PROPOSAL_SUBJECT,
+            lines=[f"{rel}: created (trigger: {ctx.trigger})", "", f"{page_edits.REASON_PREFIX}{reason}",
+                   *page_edits.evidence_lines(spans)],
+            paths=[rel], author=author, session=ctx.session_id)
+        item = rel.removeprefix("inbox/").removesuffix(".md")
+        return {"reply": (f"Proposed, not applied: {author} is not on the person's list of agents that edit pages "
+                          f"directly, so the change to {entity_id} waits in their inbox ({item}) with your reason, "
+                          "for them to apply or leave with one tap. Nothing on the page changed yet."),
+                "proposed": True, "spans": spans}
+    page_edits.write(page, outcome)
+    rel = f"entities/{page.name}"
+    _source_event(ctx, memory_path, entity_id, "page_edited")
+    agent_commits.commit_write(
+        memory_path, subject=page_edits.COMMIT_SUBJECT,
+        lines=page_edits.commit_lines(rel, ctx.trigger, reason, spans),
+        paths=[rel], author=author, session=ctx.session_id)
+    pinned = (f" {outcome.pinned} fix{'es' if outcome.pinned != 1 else ''} pinned, so Sleep writes the corrected "
+              "words from now on." if outcome.pinned else "")
+    return {"reply": (f"Edited {entity_id}: {'; '.join(outcome.changes)}. Committed under {author} with your "
+                      f"reason; the person sees who changed what in the page's history.{pinned}"),
+            "spans": spans, "edited": True}
+
+
+def _answer_inbox_by_edit(ctx: ToolContext, memory_path: Path, resolves, spans) -> list[str]:
+    """After an applied edit: answer the inbox items the agent named, with the person's own words as the evidence.
+    Never guessed — an item is answered only when it is named and a cited quote located as the person's (``user``)."""
+    if not resolves:
+        return []
+    if isinstance(resolves, dict):
+        resolves = [resolves]
+    if not isinstance(resolves, list):
+        return ["Inbox: `resolves` must be a list of {id, option_key or answer}; nothing was answered."]
+    persons = [s for s in spans or [] if getattr(s, "kind", None) == "user"]
+    if not persons:
+        return ["Inbox: nothing was answered — answering a question needs the person's own words: cite them in "
+                "`evidence` (an exact quote of theirs from a saved episode)."]
+    # The merge with natural questions (G115): the person's located words go with each answer as `quote`, so the
+    # answer cites them (a relay episode) instead of only being gated on them.
+    from api.services import evidence as evidence_mod
+
+    said = None
+    for span in persons:
+        text = evidence_mod.source_text(memory_path, span.episode)
+        if text and 0 <= span.start < span.end <= len(text):
+            said = text[span.start:span.end]
+            break
+    lines: list[str] = []
+    for raw in resolves[:10]:
+        if not isinstance(raw, dict):
+            continue
+        item_id = str(raw.get("id") or "").strip()
+        if not _REMOTE_INBOX_ID_RE.fullmatch(item_id):
+            lines.append(f"Inbox: '{item_id}' is not an inbox id (like 'inbox-012'); skipped.")
+            continue
+        path = memory_path / "inbox" / f"{item_id}.md"
+        if not path.is_file():
+            lines.append(f"Inbox: {item_id} is not open; skipped.")
+            continue
+        kind = str(parse_frontmatter(path.read_text(encoding="utf-8"))[0].get("kind") or "")
+        if kind in APP_ONLY_INBOX_KINDS:
+            lines.append(f"Inbox: {item_id} is answered in the app only; skipped.")
+            continue
+        option_key = raw.get("option_key")
+        answer = raw.get("answer")
+        if not option_key and not answer:
+            lines.append(f"Inbox: {item_id} needs `option_key` or `answer`; skipped.")
+            continue
+        lines.append(resolve_inbox(ctx, item_id, str(option_key) if option_key else None,
+                                   str(answer) if answer else None, False, None, quote=said))
+    return lines
+
+
+def edit_page(ctx: ToolContext, subject: str, reason: str, edits=None, section: str | None = None,
+              text: str | None = None, add_aliases=None, remove_aliases=None, evidence: list | None = None,
+              resolves=None) -> str:
+    """``cicada_edit_page`` (G198, owner ruling 2026-10-14): change a page's words or aliases, with a reason that
+    becomes the commit message. An agent on the person's trusted list (``page_editors``) applies it at once, under its
+    own name; any other files a proposal in the inbox. Facts stay with the claim tools: the claims fence and its
+    ledger are never touched. ``resolves`` answers inbox items the edit settles, only with the person's quoted words.
+    Refused, writing nothing: a demo bank, Sleep holding the pages, a remote app, words not on the page."""
+    from api.services import page_edits
+
+    if ctx.is_remote:
+        return "Page edits aren't available to a remote app; record the correction as a claim instead."
+    memory_path = ctx.memory_path()
+    if (refusal := _demo_refusal(memory_path)) is not None:
+        return refusal
+    try:
+        clean = page_edits.clean_reason(reason)
+        request = page_edits.parse_request(edits, section, text, add_aliases, remove_aliases)
+    except page_edits.EditError as exc:
+        return f"Nothing changed — {exc}"
+    pinned = ctx.memory_path
+    ctx.memory_path = lambda: memory_path        # one bank for the edit, its commit and the answers after it
+    try:
+        result = _edit_page_locked(ctx, subject, clean, request, evidence)
+        lines = [result["reply"]]
+        if result.get("edited"):
+            lines += _answer_inbox_by_edit(ctx, memory_path, resolves, result.get("spans"))
+        elif resolves and result.get("proposed"):
+            lines.append("Inbox: nothing was answered — the person answers those once they apply the change.")
+    finally:
+        ctx.memory_path = pinned
+    return "\n".join(lines)
+
+
 def get_perspective(
     ctx: ToolContext,
     subject: str, observer: str | None = None, context: str | None = None, history: bool = False,
@@ -3181,6 +3330,23 @@ def _inbox_dirs(memory_path: Path) -> list[Path]:
     return [d for d in legacy if d.exists()]
 
 
+def read_inbox_item(filepath: Path) -> tuple[dict, str]:
+    """One inbox item's frontmatter and body, read as YAML — the reader every inbox path of this module uses.
+
+    The line-based :func:`parse_frontmatter` flattens a nested list: a question's ``options`` (``- key: a`` /
+    ``label: …`` blocks, as ``markdown_parser.write`` writes them) came back as the strings ``"key: a"``, so the
+    question rendered as ``0) key: a`` and the ask gate had no option words to compare (G115 noted the
+    disagreement). A file YAML cannot read falls back to the line parser, as before."""
+    content = filepath.read_text(encoding="utf-8")
+    try:
+        parsed = markdown_parser.parse(filepath, ledger=False)
+        if isinstance(parsed.frontmatter, dict) and parsed.frontmatter:
+            return dict(parsed.frontmatter), parsed.body
+    except Exception:  # noqa: BLE001 — an unreadable item still renders what the line parser finds
+        pass
+    return parse_frontmatter(content)
+
+
 def _inbox_files(memory_path: Path):
     for d in _inbox_dirs(memory_path):
         for filepath in sorted(d.glob("*.md")):
@@ -3415,8 +3581,15 @@ def resolve_inbox(
     *,
     skip: bool = False,
     reject: bool = False,
+    quote: str | None = None,
 ) -> str:
     """Resolve (or defer) one inbox item through the backend (§2.7).
+
+    ``quote`` (owner, 2026-10-14) is what the person said in this conversation that answered the question —
+    asked, or settled before anyone asked — as this agent relays it. The backend keeps it as a small relay episode
+    (the agent's text, ``relayed_by`` = this harness, ``session_id`` = this conversation) and cites it as the
+    answer's evidence; the commit names both. A remote connection never sends it (R-R22: a remote app never
+    records the person's own words as theirs), and a demo bank never receives it (review B2).
 
     ``skip=True`` (G75 contract item 2, final review) is an in-process no-op:
     the id joins ``_SKIPPED_INBOX_IDS`` so ``handle_check_nudges`` stops
@@ -3432,18 +3605,25 @@ def resolve_inbox(
     """
     if ctx.is_remote:
         answer = None  # R-R22: option picks only — an app never invents the person's words
+        quote = None
     item_id = (item_id or "").strip()
     if not item_id:
         return "Error: id is required (e.g. 'inbox-001')."
-    if ctx.is_remote and not _REMOTE_INBOX_ID_RE.match(item_id):
+    if not _REMOTE_INBOX_ID_RE.fullmatch(item_id):
         # Task 5 review r1: the id is spliced into a loopback URL that carries
-        # the backend's bearer token; a remote caller gets the schema's shape
-        # and nothing else, so it can never steer that request elsewhere.
+        # the backend's bearer token; a caller gets the schema's shape and
+        # nothing else, so it can never steer that request elsewhere. G198
+        # review B1: local callers too — "INBOX-003" (a case-insensitive disk)
+        # or a percent-encoded id named the same file and slipped past the
+        # page_edit guard below.
         return "Error: id must look like 'inbox-001'."
 
     if skip:
         ctx.skipped_inbox_ids.add(item_id)
         return f"Skipped {item_id} — not re-asked this session (nothing written)."
+    if _inbox_kind(ctx, item_id) == "page_edit":
+        # G198: an edit proposal is the person's to apply — an agent (its author least of all) never answers one.
+        return f"{item_id} is a proposed page edit; only the person applies or leaves it, in the app. Nothing was written."
 
     if reject:
         payload: dict = {"action": "reject"}
@@ -3460,6 +3640,18 @@ def resolve_inbox(
         if not option_key and not answer:
             return ("Error: pass option_key, or defer=true." if ctx.is_remote
                     else "Error: pass option_key, answer, or defer=true.")
+        from api.services import inbox_ask_gate
+
+        # Never into a demo bank (review B2): the person's real conversation must not reach the demo's content.
+        if (words := inbox_ask_gate.clean_quote(quote)) and _demo_refusal(ctx.memory_path()) is None:
+            # Who relays it and from which conversation (review B1): the words are this agent's account of what the
+            # person said, kept and shown as relayed by it — never as the person's verbatim words.
+            payload["quote"] = words
+            payload["relayedBy"] = ctx.author
+            if ctx.session_id:
+                payload["sessionId"] = ctx.session_id
+    # G198 review B1: the backend knows an agent sent this, and refuses it an answer only the person gives.
+    payload["via"] = "agent"
 
     import urllib.error
 
@@ -3484,42 +3676,60 @@ def resolve_inbox(
     status = result.get("status", "unknown")
     if status == "deferred":
         return f"Deferred {item_id} until {result.get('remindAfter', 'later')}."
+    kept = result.get("quoteEpisode")
+    if kept:
+        return (f"Inbox item {item_id}: {status}. What you relayed of their answer is kept as its evidence, marked as "
+                f"relayed by you from this conversation ({kept}) — not as their own verbatim words. Tell them in one "
+                "short line what you noted.")
     return f"Inbox item {item_id}: {status}."
 
 
 _REMOTE_INBOX_ID_RE = re.compile(r"^inbox-\d+$")
 
 
+def _inbox_kind(ctx: ToolContext, item_id: str) -> str | None:
+    """The kind of an inbox item in the caller's bank, or ``None`` when it cannot be read here."""
+    if not _REMOTE_INBOX_ID_RE.fullmatch(item_id or ""):
+        return None
+    try:
+        path = ctx.memory_path() / "inbox" / f"{item_id}.md"
+        return str(parse_frontmatter(path.read_text(encoding="utf-8"))[0].get("kind") or "") or None
+    except Exception:  # noqa: BLE001 — unreadable here: the backend answers as it always did
+        return None
+
+
 def _relevant_inbox(memory_path: Path, query: str, *, raw_excerpts: bool = True,
-                    can_answer: bool = True) -> list[str]:
+                    can_answer: bool = True, skipped=frozenset()) -> list[str]:
     """Recall's proactive inbox block. ``raw_excerpts`` is the caller's
     ``ctx.raw_excerpts`` — False keeps the person's words out of each item's
-    ``Cause:`` line for a remote connector without ``sources`` (R-R22)."""
-    from api.services import inbox_questions
+    ``Cause:`` line for a remote connector without ``sources`` (R-R22).
 
-    q = query.lower()
+    Owner, 2026-10-14: an item comes up here only when the query is about the question's own subject — the
+    ``inbox_ask_gate`` rule ``cicada_check_nudges(mode="ask")`` applies — never because a word of the query
+    appeared somewhere in the item's body. It was a body-text token match, so any recall that named a project
+    surfaced every question about that project. ``skipped`` is the session's skipped ids, so an item the agent
+    let pass stays out of recall too."""
+    from api.services import inbox_ask_gate
+
     blurbs: list[str] = []
     # One read cache and one clock for the whole loop (final review H3).
     today = str(date.today())
     ctx = _inbox_ctx(memory_path, today)
     for filepath in _inbox_files(memory_path):
-        content = filepath.read_text(encoding="utf-8")
-        fm, body = parse_frontmatter(content)
-        haystack = (
-            f"{fm.get('entity_name', '')} "
-            f"{fm.get('entity_mention', '')} "
-            f"{fm.get('title', '')} "
-            f"{fm.get('short_description', '')} "
-            f"{body}"
-        ).lower()
-        if not _topic_matches(q, haystack):
+        if filepath.stem in skipped:
             continue
+        fm, body = read_inbox_item(filepath)
         # A deferred item is hidden everywhere it could be surfaced, the
         # proactive recall block included — the user asked to be reminded
         # later, not on the next unrelated question.
-        if inbox_questions.is_deferred(fm, today):
+        if not nudge_visible(fm, wanted=frozenset(), today=today):
+            continue
+        named = inbox_ask_gate.with_page_names(memory_path, fm)
+        if str(fm.get("kind") or "") in inbox_ask_gate.NEVER_ASKED or not inbox_ask_gate.named_in(named, query):
             continue
         fm, cause, rec = _agent_question(memory_path, fm, today, ctx=ctx, verbatim_ok=raw_excerpts)
+        if not inbox_ask_gate.relevant({**fm, "aliases": named.get("aliases") or []}, query)[0]:
+            continue
         blurbs.append(_format_inbox_blurb(
             fm, body, cause=cause, recommended_key=rec, raw_excerpts=raw_excerpts, can_answer=can_answer))
     return blurbs
@@ -3645,15 +3855,25 @@ def nudge_visible(fm: dict, *, wanted, today: str, skipped=frozenset(), stem: st
 
     if stem and stem in skipped:
         return False
-    if str(fm.get("kind") or "") == "normalization":
+    if str(fm.get("kind") or "") in APP_ONLY_INBOX_KINDS:
         return False
     if wanted and str(fm.get("entity_id") or "") not in wanted:
         return False
     return not inbox_questions.is_deferred(fm, today)
 
 
-def check_nudges(ctx: ToolContext, topic: str | None, entity_ids: list | None = None) -> str:
+#: At most this many questions come back in ``mode="ask"`` — the agent asks at most one per turn; the second is a
+#: choice, not a queue.
+ASK_LIMIT = 2
+
+
+def check_nudges(ctx: ToolContext, topic: str | None, entity_ids: list | None = None,
+                 mode: str | None = None) -> str:
     """Check for pending inbox items (decay/conflict/clarification/merge).
+
+    ``mode`` (owner, 2026-10-14): ``"ask"`` returns only the questions about what the person is talking about now
+    (:func:`ask_nudges`, the gate in ``inbox_ask_gate``); ``"list"`` — the default, and what the person gets when
+    they ask "what is in my inbox" — lists every visible item plainly, as this function always did.
 
     ``entity_ids`` (G75 R12) is an exact-match filter on ``entity_id`` so the
     primer's ``cicada_check_nudges(entity_ids=<recall ids>)`` is executable
@@ -3667,6 +3887,11 @@ def check_nudges(ctx: ToolContext, topic: str | None, entity_ids: list | None = 
     answer in conversation — and an id the agent ``skip``ped this session
     stays out (``_SKIPPED_INBOX_IDS``).
     """
+    mode = str(mode or "list").strip().lower()
+    if mode == "ask":
+        return ask_nudges(ctx, topic, entity_ids)
+    if mode != "list":
+        return "Error: mode is \"ask\" (questions about what the person is talking about) or \"list\" (all of them)."
     memory_path = ctx.memory_path()
     results = []
     wanted = {str(e).strip() for e in (entity_ids or []) if str(e).strip()}
@@ -3680,8 +3905,7 @@ def check_nudges(ctx: ToolContext, topic: str | None, entity_ids: list | None = 
     for filepath in _inbox_files(memory_path):
         if filepath.stem in ctx.skipped_inbox_ids:
             continue
-        content = filepath.read_text(encoding="utf-8")
-        fm, body = parse_frontmatter(content)
+        fm, body = read_inbox_item(filepath)
 
         if not nudge_visible(fm, wanted=wanted, today=today):
             continue
@@ -3731,6 +3955,88 @@ def check_nudges(ctx: ToolContext, topic: str | None, entity_ids: list | None = 
         return "No pending inbox items" + (f" related to '{topic}'" if topic else "") + "."
 
     return f"Found {len(results)} pending inbox items:\n\n" + "\n\n".join(results)
+
+
+ASK_NEEDS_TOPIC = ("Pass `topic` with the person's own words this turn: mode=\"ask\" returns only questions about "
+                   "what they are talking about. When they ask what is in their inbox, use mode=\"list\".")
+
+
+def ask_nudges(ctx: ToolContext, topic: str | None, entity_ids: list | None = None) -> str:
+    """``cicada_check_nudges(mode="ask")`` — the open questions about what the person is talking about NOW
+    (owner, 2026-10-14; ``inbox_ask_gate`` is the rule, this is its reader).
+
+    Every visibility rule of the list path still holds (skipped this session, deferred, ``normalization``); then
+    the gate keeps an item only when the conversation is about the question's own subject — its page in scope AND
+    its predicate, options or question words in what the person said. "Recall touched the page" alone is never
+    enough. At most :data:`ASK_LIMIT`, highest priority first.
+
+    The rendering is written for an agent to weave a question in, not to read one out: the question, the
+    possible answers in words, Cicada's current guess said once, and why it is open marked as context. No
+    ``Cause:`` banner, no option letters to recite. The resolve line sits on its own line so a remote connection
+    without the ``answer`` scope drops it (``runtime.strip_unavailable``)."""
+    from api.services import inbox_ask_gate, inbox_context, inbox_questions
+
+    topic = str(topic or "").strip()
+    if not topic:
+        return ASK_NEEDS_TOPIC
+    memory_path = ctx.memory_path()
+    wanted = {str(e).strip() for e in (entity_ids or []) if str(e).strip()}
+    today = str(date.today())
+    inbox_ctx = _inbox_ctx(memory_path, today)
+    passed: list[tuple[float, str, dict, dict | None, str | None]] = []
+    for filepath in _inbox_files(memory_path):
+        if filepath.stem in ctx.skipped_inbox_ids:
+            continue
+        fm, _body = read_inbox_item(filepath)
+        if not nudge_visible(fm, wanted=frozenset(), today=today):
+            continue
+        kind = str(fm.get("kind") or fm.get("type") or "")
+        # Cheap refusals first: a kind never asked, or a page the conversation is not on, costs no cause lookup.
+        if kind in inbox_ask_gate.NEVER_ASKED:
+            continue
+        named = inbox_ask_gate.with_page_names(memory_path, fm)
+        if not (inbox_ask_gate.named_in(named, topic) or str(fm.get("entity_id") or "") in wanted):
+            continue
+        fm, cause, rec = _agent_question(memory_path, fm, today, ctx=inbox_ctx, verbatim_ok=ctx.raw_excerpts)
+        ok, _reason = inbox_ask_gate.relevant({**fm, "aliases": named.get("aliases") or []}, topic, wanted)
+        if ok:
+            passed.append((-_float_or(fm.get("priority")), filepath.stem, fm, cause, rec))
+    if not passed:
+        return ("No open question is about what the person is talking about now — ask nothing. "
+                "(If they ask what is in their inbox, mode=\"list\" lists it.)")
+    passed.sort(key=lambda row: (row[0], row[1]))
+    blocks = []
+    for _p, item_id, fm, cause, rec in passed[:ASK_LIMIT]:
+        options = inbox_questions.normalize_options(fm.get("options"))
+        lines = [f"`{item_id}` · {fm.get('kind') or 'question'} · about {fm.get('entity_name') or fm.get('entity_id')}"
+                 f" (entity_id={fm.get('entity_id') or ''})",
+                 f"  Question: {str(fm.get('question') or fm.get('title') or '').strip()}"]
+        if options:
+            lines.append("  Possible answers: " + "; ".join(
+                f"{o.get('label')} (option_key={o.get('key')})" for o in options))
+        guess = next((o for o in options if str(o.get("key")) == rec), None)
+        if guess is not None:
+            lines.append(f"  Cicada's current guess: {guess.get('label')}")
+        if cause is not None:
+            if not ctx.raw_excerpts:
+                cause = {**cause, "excerpt": ""}
+            lines.append(f"  Why it is open (context for you, not to read out): "
+                         f"{inbox_context.cause_line(cause, today)}")
+        # R12: a remote connection's resolve takes an option only (never the person's words, R-R22).
+        how = "option_key" if ctx.is_remote else "option_key or answer, quote=\"<their exact words>\""
+        lines.append(f"  Their words already answer it? cicada_resolve_inbox(id=\"{item_id}\", {how}) — no need "
+                     "to ask.")
+        blocks.append("\n".join(lines))
+    head = ("Open question about what the person is talking about now. Ask it only if it fits this turn, after their "
+            "request, in your own words (no banner, no option letters, no quoted cause); otherwise leave it.")
+    return head + "\n\n" + "\n\n".join(blocks)
+
+
+def _float_or(value, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def _check_index(ctx: ToolContext, memory_path: Path) -> dict:

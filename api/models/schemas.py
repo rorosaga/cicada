@@ -2039,6 +2039,9 @@ class InboxKind(str, Enum):
     # G141 PJ-6: "how did it go?" on a quiet thread or an overdue milestone —
     # engine-free, question synthesised at read (like decay).
     followup = "followup"
+    # G198: an agent's edit of a page's words or aliases, waiting for the person (the agent is not on their list of
+    # agents that edit pages directly). `apply` writes it under the agent and the person; `dismiss` leaves the page.
+    page_edit = "page_edit"
 
 
 class RequiredInput(str, Enum):
@@ -2215,6 +2218,18 @@ class InboxResolveRequest(CamelModel):
     # When it names the cleaner mention instead, the surviving file is renamed to
     # the survivor's slug so a merge can go either direction.
     merge_survivor: Optional[str] = None
+    # Owner, 2026-10-14: what the person said in conversation that answered the question (asked or not), as the
+    # AGENT relays it — never verified as their verbatim words. Kept as a small episode marked relayed (the agent's
+    # text, `relayed_by` + `session_id`) and cited as the answer's evidence; never sent by a remote connection
+    # (R-R22); dropped in a demo bank.
+    quote: Optional[str] = None
+    # Who relayed ``quote``: the harness (its ``Cicada-Author`` name) and the conversation it came from.
+    relayed_by: Optional[str] = None
+    session_id: Optional[str] = None
+    # G198 review B1: "agent" when an agent's tool posted the answer (`cicada_resolve_inbox`, an edit's `resolves`).
+    # The backend refuses such a caller an answer only the person gives (a proposed page edit). Defense in depth: the
+    # tool refuses first; a process that skips the tool can write the bank's files anyway.
+    via: Optional[str] = None
 
 
 class CheckCensus(CamelModel):
@@ -3069,6 +3084,77 @@ class OwnerSettingsResponse(CamelModel):
     # name-derived slug. Always non-empty.
     observer: str = "owner"
     entity_id: Optional[str] = None
+
+
+# --- G198: agents that edit pages, and who wrote what ---
+
+
+class PageEditor(CamelModel):
+    harness: str
+    label: str
+    since: Optional[str] = None
+
+
+class PageEditorsResponse(CamelModel):
+    """``GET/PUT /settings/editors``: the harnesses the person lets edit a page directly, and the local ones they
+    could add. Machine-wide (``$CICADA_HOME/editors.json``), never in a bank."""
+    trusted: list[PageEditor] = Field(default_factory=list)
+    candidates: list[PageEditor] = Field(default_factory=list)
+
+
+class PageEditorsUpdate(CamelModel):
+    """A patch: ``{harness: true}`` adds one, ``{harness: false}`` removes it."""
+    trusted: dict[str, bool] = Field(default_factory=dict)
+
+
+class BlameCommit(CamelModel):
+    hash: str
+    date: str
+    subject: str = ""
+    author: str = "unknown"
+    author_kind: str = "unknown"
+    author_provider: Optional[str] = None
+    # An agent edit's reason (its commit's `Reason:` line); None for every other commit.
+    reason: Optional[str] = None
+    trigger: Optional[str] = None
+    # "user" when the person applied an agent's proposed edit (the commit names both).
+    accepted_by: Optional[str] = None
+
+
+class BlameContributor(CamelModel):
+    author: str
+    author_kind: str = "unknown"
+    author_provider: Optional[str] = None
+    lines: int = 0
+    last_date: Optional[str] = None
+    commits: list[str] = Field(default_factory=list)   # newest first
+
+
+class BlameSection(CamelModel):
+    title: str
+    line_start: int
+    line_end: int
+    contributors: list[BlameContributor] = Field(default_factory=list)
+
+
+class BlameLine(CamelModel):
+    line: int
+    section: str
+    commit: Optional[str] = None
+
+
+class PageBlameResponse(CamelModel):
+    """``GET /entities/{id}/blame``: who wrote each section of the page's prose, when and why — from git, never
+    stored (`page_blame`). ``lines`` only with ``?lines=true``. Not a Store domain: the app reads it when the card's
+    Where this comes from opens and caches it in memory."""
+    entity_id: str
+    commits: list[BlameCommit] = Field(default_factory=list)
+    sections: list[BlameSection] = Field(default_factory=list)
+    uncommitted_lines: int = 0
+    lines: Optional[list[BlameLine]] = None
+    # G198 review B3: the blame is still running (or git could not answer in time). The app keeps its last copy and
+    # asks again; nothing here is an empty page.
+    pending: bool = False
 
 
 # --- Conversation Upload ---
