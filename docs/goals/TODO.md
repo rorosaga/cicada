@@ -8,11 +8,17 @@
 
 ## Current state and evidence
 
-- **2026-10-14 (late evening) — exploring, slice 2, on branch `feat/explore-depth` (not merged).** Depth follows the
+- **2026-10-14 (night) — tracked sources re-checked, on branch `feat/source-refresh` (not merged; ruling 26).** A
+  trusted source is re-checked monthly (or on the person's ask) and what it says now is a new dated fact; the newest
+  evidence wins, even over the person's words; same-day/undated asks once; two failed visits a week apart mark it dead.
+  Public pages: the Sleep tail (`source_refresh.run_tail`, connector gate). Login-walled: only the person's agent
+  (`cicada_refresh_claim` / `cicada_record_refresh`, stdio). `GET /sources/due`, `POST /entities/{id}/sources/refresh`,
+  the SessionStart line. Not built: the app's rendering of `updates` / due state (the API serves them).
+- **2026-10-14 (late evening) — exploring, slice 2, merged as #286.** Depth follows the
   person's reason (G191 ids, their words, their conversations) through a deterministic plan (`explore_plan`; no model),
   a site map per explored site in the bank (`captures/_sites/<site>.md`, append-only, `cicada_site_map`,
-  `GET /explore/sites`), and auto-Looks for a design reason (G166, G196). The catalog pins `site-explore` to the
-  branch commit; **after the merge, re-pin it to the dev squash commit** as #283 did (`scripts/verify-skills.sh`).
+  `GET /explore/sites`), and auto-Looks for a design reason (G166, G196). The catalog pins `site-explore` to the dev
+  squash commit of #286 (`2a9b5990`; `scripts/verify-skills.sh` passes), as #283 did.
 - **2026-10-14 (evening) — exploring saved sites, slice 1, on branch `feat/explore-sites` (not merged).** The owner
   ruled D1–D6 (ruling 25). Built: the explore queue, dated captures with thumbnails in the bank and full images in
   `~/.cicada/captures/`, four stdio MCP tools (`cicada_explore_claim`, `cicada_record_capture`, `cicada_explore_queue`,
@@ -655,3 +661,27 @@ A whole row moves to DONE only after its remaining implementation and required a
     in words he signs.
     Revisit D2's default if a capture taken signed in is found to have kept another person's private data in a bank; D1
     if exported banks are measured to miss the full images people want.
+26. **Tracked sources: update, dated; the newest evidence wins (owner, 2026-10-14 evening; G61, amends the S3 rail).**
+    Owner: "Marking a dead site and being able to recheck a website after a certain time to see any updates … If I have
+    the LinkedIn of a person … I know that through LinkedIn I'm going to get it … being able to update these things
+    through consolidation would be nice." **What is re-checked:** a source the person added or took, or one Cicada's
+    own read confirmed (the existing trust rule), monthly by default (a per-source cadence) or when the person asks.
+    **What a re-check produces:** a new dated fact with the page and the capture date as evidence; the old fact's
+    validity closes (bi-temporal, nothing deleted); provenance is the agent or Cicada, the source, the date. **The newest
+    evidence wins, even over the person's own words** (owner amendment, same evening: "it can override something I
+    said if it has evidence, there is no problem with that"): a re-check dated after the person's statement supersedes
+    it and the statement stays as history; a statement dated after the capture stands; only a clash with no clear order
+    (the same day, or an undated statement) becomes one inbox question with both sides and their dates; nothing changes
+    silently (the page and the timeline say what changed, from where and when; git reverts it). **Dead:** "gone" needs
+    two failed visits a week apart (not found, gone, parked, moved); marked dead with the date, the last good capture
+    kept. **Who checks:** public pages, Cicada's own fetcher on the Sleep tail under the connector gate and the ToS rail;
+    login-walled sources only the person's own agent, through an explore-style queue, in the signed-in session per
+    ruling 25 D2 and its switch — Cicada never fetches them. **Ruling 4 holds:** due checks are only listed; the agent
+    works them when the person asks or when the hook's one line ("N tracked sources are due for a check") leads them to.
+    The inbox check (G61 S3) is unchanged: it still settles nothing.
+    **Why.** The owner tracks facts that change at their source (positions, roles) and wants memory to follow them
+    without maintenance; the S3 rail had been written for a check proposing an answer to an open question, where a
+    planted source could steer a belief — a dated re-check of a source the person chose is evidence he accepts.
+    Revisit if a re-check is found to have overwritten a statement the person had to restore (count the divergence
+    answers and `git revert`s of `Source refresh` / re-check commits first), or if a site's terms change for the walled
+    family.

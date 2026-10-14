@@ -861,6 +861,32 @@
       "disposition": "uninstrumented_guarded"
     }
   ],
+  "services/source_refresh.py": [
+    {
+      "function": "_ask",
+      "method": "write",
+      "frontmatter": "{'kind': 'divergence', 'required_input': 'choice', 'status': 'pending', 'priority': 0.6, 'entity_id': entity_id, 'entity_name': name, 'title': f'{host} says something different about {name}', 'created_date': date.today().isoformat(), 'options': [f'Keep {existing.object} ({when})', f'It ended ({host}, {captured})' if ending else f'Update to {new.object} ({host}, {captured})', 'Both true — different context'], 'predicate': predicate, 'question': f\"Which is current for {name}'s {_words(predicate)}?\", 'allow_other': False, 'allow_defer': True, 'claim_id': new.id, 'existing_claim_id': existing.id, 'source_episode': episode_id, 'trigger': TRIGGER}",
+      "disposition": "fresh_frontmatter_untracked"
+    },
+    {
+      "function": "apply",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "mark_asked",
+      "method": "write",
+      "frontmatter": "parsed.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "set_every",
+      "method": "write",
+      "frontmatter": "parsed.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    }
+  ],
   "services/skill_alias_repair.py": [
     {
       "function": "apply",

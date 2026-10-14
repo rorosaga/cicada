@@ -182,6 +182,12 @@ ROWS: tuple[Row, ...] = (
         (_f("scope"), _f("origins", "list", flag_name="origin")), mutates=True,
         mcp_only="a run starts only from the person's own request in a conversation, or their click (D5); never from "
                  "a shell"),
+    # G61, ruling 26: proposed spellings, not exposed yet.
+    Row(("source", "refresh-claim"), "cicada_refresh_claim", "Take a tracked source due a re-check, or hand one back.",
+        (_f("limit", "int"), _f("release", "json")), mutates=True),
+    Row(("source", "refresh-record"), "cicada_record_refresh", "Record what a tracked source says now.",
+        (_p("entity_id"), _p("source"), _p("lease_token"), _p("outcome"), _f("predicate"), _f("value"),
+         _f("ended", "json"), _f("quotes", "json"), _f("captured_at"), _f("summary"), _f("via")), mutates=True),
     Row(("read", "queue"), "cicada_reading_queue", "Pages the person asked to have read.", (_f("limit", "int"),)),
     Row(("read", "record"), "cicada_record_read", "Record what a page read found.",
         (_p("url"), _p("outcome"), _f("summary"), _f("excerpts", "json"), _f("via"), _f("note"), _f("title")),

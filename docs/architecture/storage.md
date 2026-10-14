@@ -541,6 +541,30 @@ Round 4 (C2–C4):
   is refused then too (it used to write uncommitted). The card reads a page's sources with the beliefs each backs (the
   page's current claims of the source's predicate), its non-source `## Links` and its conversations by app in one
   read, `GET /entities/{id}/sources/overview` (`page_sources`, owner 2026-10-14; `api.md`). A Contacts card row offers only Remove on the card.
+  **Re-checked, dated, the newest evidence wins (G61, TODO ruling 26, owner 2026-10-14).** A tracked source (trusted, not
+  `only_me`, a `url`) keeps its re-check state on its own entry: `refresh: {at, outcome, good, episode, hash, changed?,
+  asked?, tries?, blocked?, misses?: [{at, outcome}], dead?: {since, at, outcome}}` and the person's cadence
+  `recheck_days` (7–365; 30 when absent). `source_refresh.due` lists what is due (asked, changed, never, a failed read's
+  retry, cadence) from the frontmatter cache — no fetch, no model; `GET /sources/due` serves it with who works each and,
+  for the agent's, the switch it waits for; `GET /entities/{id}/sources` adds `refresh`, `recheckDays`, `tracked`,
+  `refreshChecker`, `refreshDue`. A reading that states the fact writes a `source-refresh` episode (processed from birth,
+  untimed in `episode_time`: a re-check is not a mention) and a claim `{origin: source-refresh, source_trust: external,
+  observer: cicada|agent, valid_from: <capture day>, evidence: a page-kind span into that episode}` whose text says what
+  changed, from where and when ("role updated <day> from <host>: …, was …"). **The fold** (`source_refresh.fold`): a
+  belief is dated by the day it was last said (`said_on`: a re-check's own by its capture, a conversation's by its latest
+  dated episode, a live write by `recorded_at`; a memory export entry alone is undated); a capture after that day closes it
+  (`valid_to` = the capture, `superseded_by`), **the person's own words included**; a belief said after the capture stands
+  and the page gains nothing; the same day or no date asks ONE `kind: divergence` question (trigger
+  `sleep/source-refresh`, both sides and dates; keep / update / both). Closing an older value needs a predicate the
+  vocabulary KNOWS is single-valued (Stage 3's own oracle, `predicates.build_cardinality_fn`); any other (`works-at`, and
+  every unseen one such as `role` or `studied-at`) gains each value the page states beside the others, and a value
+  closes only on the page's own `ended` evidence under the same dating. **Dead:** two
+  visits in `MISSES` (`not_found | gone | parked | moved`) at least 7 days apart set `dead` (the first strike's day as
+  `since`); `good`/`episode` keep the last good capture; a good visit clears the strikes; a dead source is due only when
+  the person asks. The card's overview serves `updates` (≤ 8, newest first: value, was, day, site, current, ended;
+  `SHAPE` page-sources-2). The tail's commit is `Source refresh <date>` as `cicada`; the person's click
+  (`POST /entities/{id}/sources/refresh`) commits as `cicada` with trigger `user/companion_app`, its cadence change and
+  a walled source's "asked" as `user`; an agent's reading as its harness.
 - `website` (G61 S3-b) — the official-site ROLE: a `sources:` entry with `predicate: website`, many allowed. Stage 1 may
   propose ONE for a `company`, `tool` or `project` (an optional `website` field on the extracted entity;
   `site_sources.sanitize_website` keeps only an https origin of a public host that is not a platform (`PLATFORM_HOSTS`:

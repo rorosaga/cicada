@@ -63,6 +63,16 @@ def reading_line(waiting: int, *, record: bool = True) -> str:
             f"done (or if it is about those links), `cicada_reading_queue(limit)` lists what is waiting{tail}.")
 
 
+def refresh_line(due: int) -> str:
+    """G61, ruling 26: one sentence at SessionStart, per request and never stored — how many tracked sources are due a
+    re-check that only the person's own agent can do (a login-walled page, or one that changed past what Cicada's
+    own read can state). A statement, not a command: nothing scheduled works them (ruling 4)."""
+    noun = "tracked source is" if due == 1 else "tracked sources are"
+    return (f"{due} {noun} due for a check (pages the person's memory follows for facts that change, which need "
+            "their own browser session). If they ask, or once their own request is done, `cicada_refresh_claim` "
+            "takes one and `cicada_record_refresh` records what it says now.")
+
+
 #: G110: what the SessionStart note says when even the primer cannot fit — a
 #: pointer to the tool that serves it whole. R12: the tool takes no argument.
 PRIMER_FALLBACK = "Cicada's primer did not fit here; `cicada_handshake` returns it."

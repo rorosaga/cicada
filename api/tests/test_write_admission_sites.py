@@ -435,6 +435,8 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /maintenance/enrich-links": (PROBE, None),
     "POST /maintenance/link-sources": (ADMITTED, None),
     "POST /maintenance/verify-sites": (PROBE, None),
+    # G61, ruling 26: the read runs before admission; the write and its commit (or the cadence / "asked") are admitted.
+    "POST /entities/{entity_id}/sources/refresh": (ADMITTED, None),
     "POST /maintenance/search-index/rebuild": (OUTSIDE, None),
     "PUT /memory/decay-tuning": (ADMITTED, None),
     "POST /connections/{connection_id}/login": (OUTSIDE, None),
@@ -488,6 +490,9 @@ TOOLS: dict[str, tuple[str, str | None]] = {
     "cicada_explore_claim": (OUTSIDE, None),
     "cicada_explore_start": (OUTSIDE, None),
     "cicada_record_capture": (ADMITTED, "record_capture"),
+    # G61, ruling 26: the claim touches only the lease file outside the bank; the record writes the page, committed alone.
+    "cicada_refresh_claim": (OUTSIDE, None),
+    "cicada_record_refresh": (ADMITTED, "record_refresh"),
     # G110: reads the bank's transcript episodes only (projection + paging); its metadata index and session registry
     # live in $CICADA_HOME/continuity, outside every bank — a reader, never a bank write.
     "cicada_continue": (NONE, None),

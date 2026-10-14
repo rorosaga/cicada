@@ -920,6 +920,37 @@ async def list_sources(
     return SourceListResponse(items=items, total=len(items))
 
 
+@router.get("/sources/due")
+async def sources_due(settings: Settings = Depends(get_settings)):
+    """G61, ruling 26 — the tracked sources due a re-check, and who works each: ``cicada`` (a public page, read on the
+    Sleep tail) or ``agent`` (a login-walled page, or one that changed past what Cicada's own read can state — only the
+    person's own agent reads it). Listing costs nothing: no fetch, no model. An agent row says why it cannot be worked
+    yet (``waitingFor``: a Reading-the-web switch), else null."""
+    from api.services import source_refresh
+
+    memory_path = settings.memory_path
+    items = await asyncio.to_thread(source_refresh.due, memory_path) or []
+    totals = await asyncio.to_thread(source_refresh.tracked_count, memory_path)
+    paused = source_refresh.paused_sites(memory_path)
+    consent = source_refresh.Consent.load()
+    rows = []
+    for d in items:
+        row = d.to_dict()
+        waiting = source_refresh.agent_refusal(d, consent) if d.checker == source_refresh.AGENT else None
+        if waiting is None and d.checker == source_refresh.AGENT and d.site in paused:
+            waiting = f"{d.site} asked for a sign-in; paused for a week"
+        row["waitingFor"] = waiting
+        rows.append(row)
+    agent_rows = [r for r in rows if r["checker"] == source_refresh.AGENT]
+    return {
+        "counts": {"tracked": totals["tracked"], "dead": totals["dead"], "due": len(rows),
+                   "cicada": len(rows) - len(agent_rows), "agent": len(agent_rows),
+                   "agentReady": sum(1 for r in agent_rows if r["waitingFor"] is None)},
+        "items": rows[:200],
+        "total": len(rows),
+    }
+
+
 @router.get("/sources/overview", response_model=SourceOverviewResponse)
 async def sources_overview(
     request: Request,
