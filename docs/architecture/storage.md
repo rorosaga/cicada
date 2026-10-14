@@ -277,9 +277,10 @@ automatic removes them). `api/tests/test_merge_edges.py` drives every door over 
 edges. **The file is written atomically, by one function:** all four writers (`repoint_edges`, `_write_graph_edges`,
 `graph_builder.regenerate_edges_from_claims`, `graph_builder.upsert_claim_edges`) call `markdown_parser.write_yaml` — a
 fsynced temp file beside it, then `os.replace`, the page rule — because a `write_text` cut short left a torn ~4 MB file
-that was unreadable or, cut at a line, parsed as a shorter one. **An unreadable file is never rewritten:** each writer
-logs and writes nothing when it cannot parse the file or it is not a mapping (Stage 5.7 used to read it as empty and
-write the claim rows alone, dropping every other edge).
+that was unreadable or, cut at a line, parsed as a shorter one. **An unreadable file is never rewritten:** when the file
+cannot be parsed or is not a mapping, Sleep's writer, Stage 5.7 and `upsert_claim_edges` log it and write nothing, and
+`repoint_edges` raises without writing it — a merge then fails, and the dedup sweep's transaction puts the merge's page
+writes back (Stage 5.7 used to read such a file as empty and write the claim rows alone, dropping every other edge).
 
 **Evidence spans (G118) — spans, not copies.** Every claim written since that slice carries
 `evidence: [{episode, start, end, kind, hash}]`. `start`/`end` are character offsets into the source
