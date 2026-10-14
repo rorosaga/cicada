@@ -227,3 +227,58 @@ def test_a_waiting_site_that_stopped_being_eligible_leaves_the_run_as_skipped(ba
     assert {r["key"] for r in data["items"]} == eligible, "the example.com pages left the queue"
     assert eq.batch_view(data, T0)["outcomes"] == {"skipped": 2}
     assert eq.claim(bank, session="s2", harness="h", saved=set(), now=T0) == [], "an empty index never wipes the run"
+
+
+@pytest.mark.parametrize("code", ["failed", "not_found", "gone", "skipped", "needs_login"])
+def test_a_hand_back_paces_the_site_like_a_record(bank, code):
+    many = [{"key": f"{i:012x}", "site": "example.com"} for i in range(3)]
+    _start(bank, sites=many)
+    (row,) = eq.claim(bank, session="s1", harness="h", now=T0)
+    url = "https://example.com/handed-back"
+    out = eq.release(bank, [{"url": url, "code": code}], session="s1", now=_at(0, 1), key_of=lambda u: row["key"])
+    assert out[0][1] in ("released", "skipped", "paused")
+    info = eq.view(bank, _at(0, 2))["sites"]["example.com"]
+    assert len(info["loads"]) == 1, "the hand-back counts a page load"
+    if code != "needs_login":
+        assert eq.claim(bank, session="s2", harness="h", now=_at(0, 5)) == [], "8 s before the next page of the site"
+        assert eq.claim(bank, session="s2", harness="h", now=_at(0, 10))
+
+
+def test_a_late_record_never_removes_another_agents_live_reclaim(bank):
+    _start(bank, sites=SITES[:1])
+    (first,) = eq.claim(bank, session="a", harness="h", now=T0)
+    (second,) = eq.claim(bank, session="b", harness="h", now=_at(16))   # A's lease lapsed; B re-claimed
+    late = eq.complete(bank, first["key"], first["lease_token"], outcome="captured", capture_id="cA", session="a",
+                       now=_at(17))
+    assert late["capture_id"] == "cA"
+    (row,) = eq.view(bank, _at(17))["items"]
+    assert row["state"] == "claimed" and row["lease_token"] == second["lease_token"], "B keeps its live lease"
+    assert eq.lease_status(bank, second["key"], second["lease_token"], session="b", now=_at(18))[0] == "ok"
+    eq.complete(bank, second["key"], second["lease_token"], outcome="captured", capture_id="cB", session="b",
+                now=_at(30))
+    assert eq.view(bank, _at(30))["items"] == [], "B's own record completes the row"
+
+
+def test_concurrent_late_and_live_records_keep_the_live_lease(bank):
+    import threading
+
+    _start(bank, sites=SITES[:1])
+    (first,) = eq.claim(bank, session="a", harness="h", now=T0)
+    (second,) = eq.claim(bank, session="b", harness="h", now=_at(16))
+    barrier = threading.Barrier(2)
+
+    def late():
+        barrier.wait()
+        eq.complete(bank, first["key"], first["lease_token"], outcome="captured", session="a", now=_at(17))
+
+    def refresh():
+        barrier.wait()
+        eq.lease_status(bank, second["key"], second["lease_token"], session="b", now=_at(17))
+
+    threads = [threading.Thread(target=late), threading.Thread(target=refresh)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    (row,) = eq.view(bank, _at(18))["items"]
+    assert row["lease_token"] == second["lease_token"] and row["state"] == "claimed"

@@ -666,7 +666,10 @@ def complete(memory_path: Path, key: str, lease_token: str, *, outcome: str, cap
         if capture_id:
             result["capture_id"] = capture_id
         data["results"][lease_token] = result
-        if row is not None:
+        # A late record (its lease lapsed) must never take the row from another agent that re-claimed it: the row
+        # leaves only when nobody holds it or this token does. The capture still stands and the result is remembered.
+        held_by_other = row is not None and row["state"] == "claimed" and row.get("lease_token") != lease_token
+        if row is not None and not held_by_other:
             data["items"] = [r for r in data["items"] if r["key"] != key]
             for batch in data["batches"].values():
                 if key in batch["keys"]:
@@ -678,12 +681,17 @@ def complete(memory_path: Path, key: str, lease_token: str, *, outcome: str, cap
                         batch["seconds"] = [*batch.get("seconds", []), max(1.0, (moment - started).total_seconds())][-50:]
                     batch["updated_at"] = _iso(moment)
         if site:
-            info = data["sites"].setdefault(site, {"loads": []})
-            info["loads"] = [*info.get("loads", []), *([_iso(moment)] * loads)][-MAX_LOADS_HOUR * 2:]
-            info["next_at"] = _iso(moment + timedelta(seconds=PACE_SECONDS))
+            _pace(data, site, moment, loads)
         _refresh(data["items"], session, moment)
         _write(target, data)
     return result
+
+
+def _pace(data: dict, site: str, moment: datetime, loads: int = 1) -> None:
+    """A page of ``site`` was loaded: count it against the hour and hold the site :data:`PACE_SECONDS`."""
+    info = data["sites"].setdefault(site, {"loads": []})
+    info["loads"] = [*info.get("loads", []), *([_iso(moment)] * max(1, loads))][-MAX_LOADS_HOUR * 2:]
+    info["next_at"] = _iso(moment + timedelta(seconds=PACE_SECONDS))
 
 
 def release(memory_path: Path, releases, *, session: str | None, now: datetime | None = None,
@@ -716,6 +724,9 @@ def release(memory_path: Path, releases, *, session: str | None, now: datetime |
                 continue
             code, reason = clean_code(item.get("code")), clean_text(item.get("reason"))
             _clear_lease(row)
+            # A hand-back follows a page load (or an attempt at one): it paces the site like a record does, so an
+            # agent handing sites back by hand can never hammer a host.
+            _pace(data, row["site"], moment)
             if code in PAUSING:
                 until = _iso(moment + timedelta(days=PAUSE_DAYS))
                 info = data["sites"].setdefault(row["site"], {"loads": []})

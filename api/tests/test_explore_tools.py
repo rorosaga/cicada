@@ -86,6 +86,31 @@ def test_the_why_steers_the_depth_through_an_optional_field(tmp_path):
     assert depths == {"media-look": "look", "media-prod": "product", "media-none": "capture"}
 
 
+def test_the_why_the_merged_g191_writer_stores_steers_the_depth(tmp_path):
+    """The real shape (#280): `saved_why.attach` writes `saved_why {reasons, project, text, at}` on the link's episode,
+    and `GET /sources` serves it as `savedWhy {reasons, labels, project, text, at, addedAt}`."""
+    from api.services import saved_why
+
+    memory, _ = bank_with_sites(tmp_path, 0)
+    add_site(memory, "look", url="https://look.bob-example.org/", n=1)
+    add_site(memory, "proj", url="https://proj.bob-example.org/", n=2)
+    look = saved_why.attach(memory, url="https://look.bob-example.org/", at="2026-10-14T09:00:00Z",
+                            answer=saved_why.validate(memory, reasons=["design", "read_later"], project=None,
+                                                      text="the type scale"))
+    assert set(look["saved_why"]) == {"reasons", "labels", "project", "text", "at", "added_at"}
+    saved_why.attach(memory, url="https://proj.bob-example.org/", at="2026-10-14T09:05:00Z",
+                     answer=saved_why.validate(memory, reasons=[], project="alpha-project", text=None))
+    from api.services import bank_index
+
+    bank_index.invalidate(memory)
+    enable_reading()
+    sites = {s.entity_id: s for s in explore_candidates.saved_sites(memory).values()}
+    assert sites["media-look"].depth == "look" and sites["media-proj"].depth == "product"
+    assert sites["media-look"].why == {"reasons": ["design", "read_later"], "text": "the type scale",
+                                       "at": "2026-10-14T09:00:00Z"}
+    assert sites["media-proj"].why["project"] == "alpha-project"
+
+
 def test_selection_by_browser_and_never_explored(tmp_path):
     memory, _ = bank_with_sites(tmp_path, 2)
     add_site(memory, "safari", origin="safari-bookmark", n=3)
