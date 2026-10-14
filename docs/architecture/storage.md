@@ -77,8 +77,9 @@ page, and the writer leaves it alone.
 aliases through `cicada_edit_page` (`mcp.md`), one writer, `page_edits`: it reads the page file's own body
 (`parse(ledger=False)`), edits only the prose before the claims fence and puts the fence and everything after it back as it
 was, so the fence and the claims ledger are never re-rendered (a write from a body read without the ledger leaves every ledger
-line where it is). A harness on the person's trust list (`page_editors`, `$CICADA_HOME/editors.json`, empty by default, written
-only by `PUT /settings/editors`) writes at once; any other agent's edit is a `page_edit` inbox item (`features.md`). What keeps
+line where it is). A harness on the person's trust list (`page_editors`, `$CICADA_HOME/editors.json`; until the person changes it — no
+`trusted` key — `claude-code` and `codex` are on it, owner 2026-10-14; once changed, even to empty, their list is the list;
+an unreadable file trusts nobody; written only by `PUT /settings/editors`) writes at once; any other agent's edit is a `page_edit` inbox item (`features.md`). What keeps
 an edit through Sleep, in the frontmatter:
 
 - `corrections: [{old, new, by, on}]` (≤ 30, newest kept) — an `old → new` fix the edit pinned (`pin`, default on with `all`;

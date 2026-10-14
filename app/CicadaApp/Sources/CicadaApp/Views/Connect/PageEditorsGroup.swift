@@ -3,7 +3,8 @@ import SwiftUI
 /// Settings → Agents → "Editing pages" (G198, owner ruling 2026-10-14: "a list of trusted models or agents that we give
 /// permission to write into the page directly"). One row per agent on this Mac with a switch: an agent that is on
 /// fixes a page's words or aliases at once, its reason in the page's history; any other agent's edit waits in the
-/// inbox for one tap (UX principle 3). The list lives outside every bank (`GET/PUT /settings/editors`); it is read
+/// inbox for one tap (UX principle 3). Until the person changes the list, the backend's defaults are on (owner,
+/// 2026-10-14: Claude Code and Codex) and a note under the header says so, naming them from the response. The list lives outside every bank (`GET/PUT /settings/editors`); it is read
 /// when the page appears and each switch is written optimistically, put back with the server's sentence on refusal.
 ///
 /// Its own file plus one line in `ConnectView`, like `AutoRecallGroup`. Marks are the shared Track L marks (DR-52),
@@ -16,6 +17,10 @@ struct PageEditorsGroup: View {
         SettingsGroupCard(header: Copy.PageEdits.groupHeader) {
             SettingsRow(.agentsEditors, title: Copy.PageEdits.rowTitle, detail: Copy.PageEdits.rowDetail)
             if let editors = model.editors {
+                if !editors.customized, let text = Copy.PageEdits.defaultsNote(editors.defaults.map(\.label)) {
+                    SettingsDivider()
+                    note(text)
+                }
                 if editors.rows.isEmpty {
                     SettingsDivider()
                     note(Copy.PageEdits.noAgents)
@@ -82,7 +87,10 @@ enum PageEditorsWords {
         guard let trusted = editors.trusted.first(where: { $0.harness == harness }) else {
             return Copy.PageEdits.asksFirst
         }
-        guard let day = EntityDates.shortDay(trusted.since, locale: locale) else { return Copy.PageEdits.allowed }
+        guard let day = EntityDates.shortDay(trusted.since, locale: locale) else {
+            // A default the person never set has no day it was granted on.
+            return editors.isDefault(harness) ? Copy.PageEdits.onByDefault : Copy.PageEdits.allowed
+        }
         return Copy.PageEdits.allowedSince(day)
     }
 }

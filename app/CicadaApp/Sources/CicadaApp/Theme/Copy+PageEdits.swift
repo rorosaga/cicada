@@ -27,6 +27,15 @@ extension Copy {
         static func allowedSince(_ day: String) -> String { "Allowed since \(day)" }
         static let asksFirst = "Asks in your inbox first"
         static let allowed = "Edits pages directly"
+        static let onByDefault = "On by default"
+        /// The note under the list while the person never changed it, naming their own agents the backend trusts by
+        /// default: "Claude Code and Codex edit pages directly unless you turn them off."
+        static func defaultsNote(_ agents: [String]) -> String? {
+            guard let last = agents.last else { return nil }
+            let names = agents.count == 1 ? last : agents.dropLast().joined(separator: ", ") + " and " + last
+            let verb = agents.count == 1 ? "edits" : "edit"
+            return "\(names) \(verb) pages directly unless you turn \(agents.count == 1 ? "it" : "them") off."
+        }
         static let saveFailed = "That change wasn't saved. Try again in a moment."
     }
 }

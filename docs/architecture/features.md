@@ -250,7 +250,8 @@ through `progress.py` (origin `clarification`) and grade the extractor: done/sti
 happen' overruled, a person's own thread always neutral.
 
 **An agent's proposed page edit (`page_edit`, G198, owner ruling 2026-10-14).** When an agent that is not on the person's
-list of agents that edit pages directly (Settings; `GET/PUT /settings/editors`, `page_editors`) calls `cicada_edit_page`,
+list of agents that edit pages directly (Settings; `GET/PUT /settings/editors`, `page_editors`; Claude Code and Codex are on
+it until the person changes it, owner 2026-10-14) calls `cicada_edit_page`,
 the edit is checked against the page and filed as one item: `question` "An agent suggests a change to <name>: <reason>",
 two closed options (`apply`, `dismiss`; no recommendation — Cicada proposed nothing), `allow_defer`, and a body that previews
 each change in plain words; the item keeps `proposed_by`, `reason`, the request (`edit`), its evidence spans and the

@@ -31,21 +31,33 @@ struct PageEditor: Decodable, Equatable, Identifiable {
 struct PageEditorsResponse: Decodable, Equatable {
     var trusted: [PageEditor]
     var candidates: [PageEditor]
+    /// The agents on the list while the person never changed it (owner, 2026-10-14: the person's own coding agents),
+    /// named by the backend so the app never hardcodes a provider.
+    var defaults: [PageEditor]
+    /// Whether the person ever changed the list; until then `defaults` are what is trusted.
+    var customized: Bool
 
-    enum CodingKeys: String, CodingKey { case trusted, candidates }
+    enum CodingKeys: String, CodingKey { case trusted, candidates, defaults, customized }
 
-    init(trusted: [PageEditor] = [], candidates: [PageEditor] = []) {
+    init(trusted: [PageEditor] = [], candidates: [PageEditor] = [], defaults: [PageEditor] = [],
+         customized: Bool = false) {
         self.trusted = trusted
         self.candidates = candidates
+        self.defaults = defaults
+        self.customized = customized
     }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         trusted = try c.decodeIfPresent([PageEditor].self, forKey: .trusted) ?? []
         candidates = try c.decodeIfPresent([PageEditor].self, forKey: .candidates) ?? []
+        defaults = try c.decodeIfPresent([PageEditor].self, forKey: .defaults) ?? []
+        customized = try c.decodeIfPresent(Bool.self, forKey: .customized) ?? false
     }
 
     func isTrusted(_ harness: String) -> Bool { trusted.contains { $0.harness == harness } }
+
+    func isDefault(_ harness: String) -> Bool { defaults.contains { $0.harness == harness } }
 
     /// The rows Settings lists: every local agent the person could allow, plus any already allowed that the
     /// backend no longer lists as a candidate (so it can still be turned off).
@@ -56,6 +68,8 @@ struct PageEditorsResponse: Decodable, Equatable {
     /// The same response with one agent turned on or off — what the switch shows before the server answers.
     func setting(_ harness: String, on: Bool, today: String) -> PageEditorsResponse {
         var copy = self
+        guard isTrusted(harness) != on else { return copy }     // a no-op leaves the list as it was, unset included
+        copy.customized = true
         copy.trusted.removeAll { $0.harness == harness }
         if on {
             let label = rows.first { $0.harness == harness }?.label ?? harness
