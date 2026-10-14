@@ -67,7 +67,8 @@ from api.services.auth import cicada_home
 # 13: G61 S3 — the reading item names cicada_record_check (a report on a listed source; it settles nothing).
 # 14: G110 slice 1a — item 1 names cicada_continue (where the work in this folder stopped).
 # 15: G110 A2 — optional brief State line in working replies.
-CONTRACT_VERSION = 15
+# 16: G198 — item 4 names cicada_edit_page (a page's words and aliases, with a reason).
+CONTRACT_VERSION = 16
 MAX_TOKENS = 1800
 VARIANTS = ("claude-code", "codex", "generic")
 
@@ -282,7 +283,8 @@ _CONTRACT = (
     "sources=[url])` — quote the exact words you relied on, give `sources` for anything you looked up, and "
     "`expected_end` when the fact states an end; withdraw a claim you wrote that proved wrong with "
     "`cicada_retract_claim(subject, claim_id, reason)`. Sources: "
-    "`cicada_add_source` for one the person names; `cicada_change_source` to fix or drop your own.\n"
+    "`cicada_add_source` for one the person names; `cicada_change_source` to fix or drop your own. Wrong page "
+    "text or aliases: `cicada_edit_page(subject, reason, edits)`.\n"
     f"5. {state_dictionary.WORLD_FACTS_NOTE}\n"
     "6. Ask before assuming: a pending clarification on an entity you are about to use means the person has "
     "not settled it — ask in flow, do not guess.\n"

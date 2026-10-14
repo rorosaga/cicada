@@ -2691,6 +2691,143 @@ def change_source(ctx: ToolContext, subject: str, ref: str, predicate: str | Non
     return f"Changed the source {ref_text}{what}; the person sees it on the page."
 
 
+# --- G198: an agent edits a page's prose or aliases, with blame ------------------------------------------------------
+
+EDIT_SLEEPING = ("Nothing changed — Cicada is consolidating memory right now, and an edit made now could be swept "
+                 "into its commit under the wrong name. Try again in a few minutes.")
+#: Inbox kinds only the person answers, in the app: an edit can never resolve one (nor an agent its own proposal).
+APP_ONLY_INBOX_KINDS = frozenset({"normalization", "page_edit"})
+
+
+@_holding_pages
+def _edit_page_locked(ctx: ToolContext, subject: str, reason: str, request, evidence) -> dict:
+    """The write half of ``cicada_edit_page``, under admission and the page lock through its commit. Returns what
+    happened; the inbox answers are posted by the caller after the lock is released (the backend's resolve takes the
+    same page lock)."""
+    from api.services import evidence as evidence_mod
+    from api.services import page_edits, page_editors
+    from api.services.id_utils import resolve_entity_file
+
+    memory_path = ctx.memory_path()
+    if ctx.sleep_running():
+        return {"reply": EDIT_SLEEPING}
+    page = resolve_entity_file(memory_path, (subject or "").strip()) if (subject or "").strip() else None
+    if page is None:
+        return {"reply": f"No page named '{subject}' — nothing changed. Use the page's id as `subject`."}
+    entity_id = page.stem
+    spans = evidence_mod.verify_many(memory_path, evidence)
+    parsed = page_edits.read(page)
+    author = ctx.author
+    try:
+        outcome = page_edits.plan(parsed.frontmatter, parsed.body, request, author=author)
+    except page_edits.EditError as exc:
+        return {"reply": f"Nothing changed — {exc}"}
+    name = str(parsed.frontmatter.get("name") or entity_id)
+    if not page_editors.is_trusted(author, remote=ctx.is_remote):
+        try:
+            rel = page_edits.write_proposal(memory_path, entity_id=entity_id, name=name, request=request,
+                                            reason=reason, author=author, session=ctx.session_id or None,
+                                            spans=spans)
+        except page_edits.EditError as exc:
+            return {"reply": f"Nothing changed — {exc}"}
+        _source_event(ctx, memory_path, entity_id, "page_edit_proposed")
+        agent_commits.commit_write(
+            memory_path, subject=page_edits.PROPOSAL_SUBJECT,
+            lines=[f"{rel}: created (trigger: {ctx.trigger})", "", f"{page_edits.REASON_PREFIX}{reason}",
+                   *page_edits.evidence_lines(spans)],
+            paths=[rel], author=author, session=ctx.session_id)
+        item = rel.removeprefix("inbox/").removesuffix(".md")
+        return {"reply": (f"Proposed, not applied: {author} is not on the person's list of agents that edit pages "
+                          f"directly, so the change to {entity_id} waits in their inbox ({item}) with your reason, "
+                          "for them to apply or leave with one tap. Nothing on the page changed yet."),
+                "proposed": True, "spans": spans}
+    page_edits.write(page, outcome)
+    rel = f"entities/{page.name}"
+    _source_event(ctx, memory_path, entity_id, "page_edited")
+    agent_commits.commit_write(
+        memory_path, subject=page_edits.COMMIT_SUBJECT,
+        lines=page_edits.commit_lines(rel, ctx.trigger, reason, spans),
+        paths=[rel], author=author, session=ctx.session_id)
+    pinned = (f" {outcome.pinned} fix{'es' if outcome.pinned != 1 else ''} pinned, so Sleep writes the corrected "
+              "words from now on." if outcome.pinned else "")
+    return {"reply": (f"Edited {entity_id}: {'; '.join(outcome.changes)}. Committed under {author} with your "
+                      f"reason; the person sees who changed what in the page's history.{pinned}"),
+            "spans": spans, "edited": True}
+
+
+def _answer_inbox_by_edit(ctx: ToolContext, memory_path: Path, resolves, spans) -> list[str]:
+    """After an applied edit: answer the inbox items the agent named, with the person's own words as the evidence.
+    Never guessed — an item is answered only when it is named and a cited quote located as the person's (``user``)."""
+    if not resolves:
+        return []
+    if isinstance(resolves, dict):
+        resolves = [resolves]
+    if not isinstance(resolves, list):
+        return ["Inbox: `resolves` must be a list of {id, option_key or answer}; nothing was answered."]
+    persons = [s for s in spans or [] if getattr(s, "kind", None) == "user"]
+    if not persons:
+        return ["Inbox: nothing was answered — answering a question needs the person's own words: cite them in "
+                "`evidence` (an exact quote of theirs from a saved episode)."]
+    lines: list[str] = []
+    for raw in resolves[:10]:
+        if not isinstance(raw, dict):
+            continue
+        item_id = str(raw.get("id") or "").strip()
+        if not _REMOTE_INBOX_ID_RE.match(item_id):
+            lines.append(f"Inbox: '{item_id}' is not an inbox id (like 'inbox-012'); skipped.")
+            continue
+        path = memory_path / "inbox" / f"{item_id}.md"
+        if not path.is_file():
+            lines.append(f"Inbox: {item_id} is not open; skipped.")
+            continue
+        kind = str(parse_frontmatter(path.read_text(encoding="utf-8"))[0].get("kind") or "")
+        if kind in APP_ONLY_INBOX_KINDS:
+            lines.append(f"Inbox: {item_id} is answered in the app only; skipped.")
+            continue
+        option_key = raw.get("option_key")
+        answer = raw.get("answer")
+        if not option_key and not answer:
+            lines.append(f"Inbox: {item_id} needs `option_key` or `answer`; skipped.")
+            continue
+        lines.append(resolve_inbox(ctx, item_id, str(option_key) if option_key else None,
+                                   str(answer) if answer else None, False, None))
+    return lines
+
+
+def edit_page(ctx: ToolContext, subject: str, reason: str, edits=None, section: str | None = None,
+              text: str | None = None, add_aliases=None, remove_aliases=None, evidence: list | None = None,
+              resolves=None) -> str:
+    """``cicada_edit_page`` (G198, owner ruling 2026-10-14): change a page's words or aliases, with a reason that
+    becomes the commit message. An agent on the person's trusted list (``page_editors``) applies it at once, under its
+    own name; any other files a proposal in the inbox. Facts stay with the claim tools: the claims fence and its
+    ledger are never touched. ``resolves`` answers inbox items the edit settles, only with the person's quoted words.
+    Refused, writing nothing: a demo bank, Sleep holding the pages, a remote app, words not on the page."""
+    from api.services import page_edits
+
+    if ctx.is_remote:
+        return "Page edits aren't available to a remote app; record the correction as a claim instead."
+    memory_path = ctx.memory_path()
+    if (refusal := _demo_refusal(memory_path)) is not None:
+        return refusal
+    try:
+        clean = page_edits.clean_reason(reason)
+        request = page_edits.parse_request(edits, section, text, add_aliases, remove_aliases)
+    except page_edits.EditError as exc:
+        return f"Nothing changed — {exc}"
+    pinned = ctx.memory_path
+    ctx.memory_path = lambda: memory_path        # one bank for the edit, its commit and the answers after it
+    try:
+        result = _edit_page_locked(ctx, subject, clean, request, evidence)
+        lines = [result["reply"]]
+        if result.get("edited"):
+            lines += _answer_inbox_by_edit(ctx, memory_path, resolves, result.get("spans"))
+        elif resolves and result.get("proposed"):
+            lines.append("Inbox: nothing was answered — the person answers those once they apply the change.")
+    finally:
+        ctx.memory_path = pinned
+    return "\n".join(lines)
+
+
 def get_perspective(
     ctx: ToolContext,
     subject: str, observer: str | None = None, context: str | None = None, history: bool = False,
@@ -3444,6 +3581,9 @@ def resolve_inbox(
     if skip:
         ctx.skipped_inbox_ids.add(item_id)
         return f"Skipped {item_id} — not re-asked this session (nothing written)."
+    if _inbox_kind(ctx, item_id) == "page_edit":
+        # G198: an edit proposal is the person's to apply — an agent (its author least of all) never answers one.
+        return f"{item_id} is a proposed page edit; only the person applies or leaves it, in the app. Nothing was written."
 
     if reject:
         payload: dict = {"action": "reject"}
@@ -3490,6 +3630,17 @@ def resolve_inbox(
 _REMOTE_INBOX_ID_RE = re.compile(r"^inbox-\d+$")
 
 
+def _inbox_kind(ctx: ToolContext, item_id: str) -> str | None:
+    """The kind of an inbox item in the caller's bank, or ``None`` when it cannot be read here."""
+    if not _REMOTE_INBOX_ID_RE.match(item_id or ""):
+        return None
+    try:
+        path = ctx.memory_path() / "inbox" / f"{item_id}.md"
+        return str(parse_frontmatter(path.read_text(encoding="utf-8"))[0].get("kind") or "") or None
+    except Exception:  # noqa: BLE001 — unreadable here: the backend answers as it always did
+        return None
+
+
 def _relevant_inbox(memory_path: Path, query: str, *, raw_excerpts: bool = True,
                     can_answer: bool = True) -> list[str]:
     """Recall's proactive inbox block. ``raw_excerpts`` is the caller's
@@ -3505,6 +3656,8 @@ def _relevant_inbox(memory_path: Path, query: str, *, raw_excerpts: bool = True,
     for filepath in _inbox_files(memory_path):
         content = filepath.read_text(encoding="utf-8")
         fm, body = parse_frontmatter(content)
+        if str(fm.get("kind") or "") == "page_edit":
+            continue   # G198: a proposed edit is the person's to apply, in the app — never raised in recall
         haystack = (
             f"{fm.get('entity_name', '')} "
             f"{fm.get('entity_mention', '')} "
@@ -3645,7 +3798,7 @@ def nudge_visible(fm: dict, *, wanted, today: str, skipped=frozenset(), stem: st
 
     if stem and stem in skipped:
         return False
-    if str(fm.get("kind") or "") == "normalization":
+    if str(fm.get("kind") or "") in APP_ONLY_INBOX_KINDS:
         return False
     if wanted and str(fm.get("entity_id") or "") not in wanted:
         return False

@@ -127,6 +127,11 @@ ROWS: tuple[Row, ...] = (
          _f("evidence", "json"), _f("expected_end")), mutates=True),
     Row(("claim", "retract"), "cicada_retract_claim", "Withdraw a claim you wrote; it stays as history.",
         (_p("subject"), _p("claim_id"), _p("reason"), _f("evidence", "json")), mutates=True),
+    # G198: a page's words or aliases, with a reason that becomes the commit message (a proposal when not trusted).
+    Row(("page", "edit"), "cicada_edit_page", "Fix a page's words or aliases, with your reason.",
+        (_p("subject"), _p("reason"), _f("edits", "json"), _f("section"), _f("text"),
+         _f("add_aliases", "list", flag_name="add-alias"), _f("remove_aliases", "list", flag_name="remove-alias"),
+         _f("evidence", "json"), _f("resolves", "json")), mutates=True),
     Row(("inbox", "list"), "cicada_check_nudges", "Questions Cicada has for the person on a topic.",
         (_f("topic"), _f("entity_ids", "list", flag_name="entity-id"))),
     Row(("inbox", "resolve"), "cicada_resolve_inbox", "Record the person's own answer to a question.",

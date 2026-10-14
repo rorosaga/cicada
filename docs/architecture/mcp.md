@@ -136,6 +136,26 @@ quote only where the item's `Cause:` quote shows (never to a remote connection w
 (`check_agent`, beside `read_agent`, out of every Usage view) is ids and enums only. The card shows "Your agent looked at
 <host> · <day>", the quote, what it points to and "What your agent reported, not checked by Cicada. Nothing changed; you
 decide." — no highlight, no tag, no reorder.
+**`cicada_edit_page(subject, reason, edits?, section?, text?, add_aliases?, remove_aliases?, evidence?, resolves?)`**
+(G198, owner ruling 2026-10-14; `page_edits`, `page_editors`) changes a page's **words or aliases**, never its facts:
+`edits` are exact `{old, new}` replacements in the prose before the claims fence (`all` for every occurrence, `pin` to keep
+the fix through Sleep's rewrites — on by default with `all`), `section` + `text` rewrites one `##` section or an Article
+`###` section (`Related` is refused: it is rebuilt from the graph), `add_aliases` / `remove_aliases` change its other names
+(a removal is remembered in `aliases_removed`). A code fence or a `#`/`##` heading in any of them is refused. The `reason`
+(one line, ≤ 500 characters) becomes the commit's `Reason:` line; `evidence` quotes become `Evidence:` span lines (offsets,
+never words). **Trust decides the path:** a harness on the person's list (`$CICADA_HOME/editors.json`, edited only by
+`PUT /settings/editors`, empty by default; `agent` and remote apps can never be on it) writes the page at once and commits
+it alone — `Page edit <date>`, `entities/<id>.md: edited (trigger: mcp/<harness>)`, `Cicada-Author: <harness>`,
+`Cicada-Session:`; any other files a `page_edit` inbox item (validated against the page first) committed as `Page edit
+proposed <date>`, and the reply says the person decides. `resolves: [{id, option_key|answer}]` answers inbox items through
+the same backend route as `cicada_resolve_inbox`, after the edit's commit and outside its page lock, and only when
+`evidence` holds a span located as the person's own words (`kind: user`) — never for a proposal, never a `normalization`
+or `page_edit` item. A `page_edit` item is app-only: `cicada_check_nudges`, recall's inbox block and the recall hook never
+serve it, and `cicada_resolve_inbox` refuses it (an agent never applies its own proposal). Refused with nothing written: a
+remote caller, a demo bank, Sleep holding the pages (asked inside the write admission, `EDIT_SLEEPING`), words not on the
+page or on it more than once without `all`, words only in the claims. Admission → page lock → commit, like every agent
+write. Stdio and the command line only (`catalog.NEVER_REMOTE`); the CLI spelling `cicada page edit` is a proposed row.
+The primer names it in one clause of item 4 (contract 16).
 **`cicada_backlog`**, **`cicada_add_backlog_item`** and **`cicada_add_backlog_note`** (G150) read and file a
 project's backlog — see Backlogs.
 **`cicada_save_design`** and **`cicada_design_search`** (design taste, 2026-10-14; `design_refs`, `design_index`).

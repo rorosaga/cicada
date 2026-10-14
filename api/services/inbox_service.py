@@ -55,7 +55,7 @@ def next_inbox_num(inbox_dir: Path) -> int:
 
 
 def _required_input_for(kind: str) -> str:
-    if kind in ("decay", "conflict", "divergence", "normalization", "removal", "followup"):
+    if kind in ("decay", "conflict", "divergence", "normalization", "removal", "followup", "page_edit"):
         return "choice"
     if kind == "merge_suggestion":
         return "merge"
@@ -540,6 +540,11 @@ def _action_label(kind: str, request: InboxResolveRequest, options: list[dict]) 
         if key in ("keep", "remove"):
             return key
         return action or "answer"
+    if kind == "page_edit":
+        # G198: the person applies an agent's proposed edit or leaves the page as it is.
+        if action in ("skip", "dismiss"):
+            return action
+        return key if key in ("apply", "dismiss") else (action or "answer")
     if kind in ("conflict", "divergence", "normalization"):
         if action == "dismiss":
             return "dismiss"
@@ -618,6 +623,9 @@ def _verdict(
         return {"answer": "agreed", "merge": "agreed", "dismiss": "overruled"}.get(label, "neutral")
     if kind == "merge_suggestion":
         return {"merge": "agreed", "reject": "overruled"}.get(label, "neutral")
+    if kind == "page_edit":
+        # G198: the agent's proposal, graded by the person — the reward signal for an edit (G113).
+        return {"apply": "agreed", "dismiss": "overruled"}.get(label, "neutral")
     return "neutral"
 
 
@@ -755,8 +763,8 @@ def recommended_key(kind: str, fm: dict, options: list[dict]) -> str | None:
     The name and date are irrelevant to the verdict table (only the KEYS are),
     so the cheap placeholder question is enough.
     """
-    if kind in ("merge_suggestion", "clarification", "removal", "followup"):
-        # G141 PJ-6: a follow-up proposes nothing — it asks how it went.
+    if kind in ("merge_suggestion", "clarification", "removal", "followup", "page_edit"):
+        # G141 PJ-6: a follow-up proposes nothing — it asks how it went. G198: Cicada proposed no edit; an agent did.
         return None
     if kind == "decay" and not options:
         options = inbox_questions.normalize_options(
@@ -1037,6 +1045,8 @@ async def _resolve_admitted(item_id: str, request: InboxResolveRequest, settings
         entity_id, skipped, extra_lines, emit_extra = await _resolve_followup(
             path, parsed, request, settings, item_id, label
         )
+    elif kind == "page_edit":
+        entity_id, skipped, committed = await _resolve_page_edit(path, parsed, settings, label, before)
     else:
         raise HTTPException(400, f"Unknown kind {kind}")
 
@@ -2060,6 +2070,66 @@ async def _resolve_name(path, parsed, request, settings) -> tuple[str, bool, lis
              for rel in outcome.paths if rel != f"entities/{outcome.page_id}.md"]
     lines += [f"{rel}: created (trigger: {trigger})" for rel in outcome.suggested]
     return outcome.page_id, False, lines
+
+
+# ---------- G198: an agent's proposed page edit ----------
+
+PAGE_EDIT_STALE = ("The page changed since this edit was proposed, so it no longer applies: {why} Leave it as it "
+                   "is, or ask the agent again.")
+
+
+async def _resolve_page_edit(path, parsed, settings, label: str, before) -> tuple[str, bool, bool]:
+    """``apply`` writes the agent's edit as it was proposed — planned again on the page as it is now, refused (409,
+    nothing written) when it no longer applies — and commits the page and the retired item together, under the agent
+    that wrote the words and the person who accepted them. ``dismiss`` retires the item and leaves the page.
+    ``(entity_id, skipped, committed)``; this resolver commits its own answer."""
+    import asyncio
+
+    entity_id = str(parsed.frontmatter.get("entity_id", "") or "")
+    if label == "skip":
+        return entity_id, True, False
+    if label not in ("apply", "dismiss"):
+        raise HTTPException(400, f"A proposed edit takes optionKey 'apply' or 'dismiss' — got {label!r}.")
+    await asyncio.to_thread(_answer_page_edit, path, dict(parsed.frontmatter), settings.memory_path, label, before)
+    return entity_id, False, True
+
+
+def _answer_page_edit(path: Path, fm: dict, memory_path: Path, label: str, before) -> None:
+    from api.services import git_service, page_edits, page_lock
+
+    day = date.today().isoformat()
+    rel_item = f"inbox/{path.name}"
+    kept = {"kept_subject": f"Uncommitted edit kept apart {day}", "kept_trigger": "inbox/kept-apart"}
+    with page_lock.page_lock(memory_path):
+        if label == "dismiss":
+            path.unlink(missing_ok=True)
+            message = git_service.build_commit_message(
+                f"Inbox resolution (page_edit) {day}",
+                [f"{rel_item}: removed (trigger: {page_edits.TRIGGER_DISMISS})"], authors=["user"])
+            git_service.commit_touched_sync(memory_path, message, [rel_item], before=before, **kept)
+            return
+        page = resolve_entity_file(memory_path, str(fm.get("entity_id") or ""))
+        if page is None:
+            raise HTTPException(409, PAGE_EDIT_STALE.format(why="the page is gone."))
+        author = str(fm.get("proposed_by") or "agent")
+        try:
+            request = page_edits.request_from_dict(fm.get("edit"))
+            reason = page_edits.clean_reason(fm.get("reason"))
+            current = page_edits.read(page)
+            outcome = page_edits.plan(current.frontmatter, current.body, request, author=author, day=day)
+        except page_edits.EditError as exc:
+            raise HTTPException(409, PAGE_EDIT_STALE.format(why=str(exc))) from exc
+        page_edits.write(page, outcome)
+        path.unlink(missing_ok=True)
+        rel = f"entities/{page.name}"
+        session = str(fm.get("session_id") or "").strip()
+        message = git_service.build_commit_message(
+            f"{page_edits.COMMIT_SUBJECT} {day}",
+            page_edits.commit_lines(rel, page_edits.TRIGGER_APPLY, reason, fm.get("evidence"), accepted=True,
+                                    extra=[f"{rel_item}: removed (trigger: {page_edits.TRIGGER_APPLY})"]),
+            authors=[author, "user"], sessions=[session] if session else None)
+        git_service.commit_touched_sync(memory_path, message, [rel, rel_item], before=before, **kept)
+    bank_index.invalidate(memory_path)
 
 
 async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, bool, list[str]]:

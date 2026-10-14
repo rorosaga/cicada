@@ -80,7 +80,7 @@ enum SettingsIndex {
         .scenerySource, .sceneryTime, .sceneryWeather, .sceneryPreview,
         .mascot,
         .calendarApp, .contactsApp,
-        .agentsInstall, .agentsCloud, .agentsSkill, .agentsAutoRecall, .agentsReading,
+        .agentsInstall, .agentsCloud, .agentsSkill, .agentsAutoRecall, .agentsEditors, .agentsReading,
         .readingAgent, .readingMethods, .watchingMethods, .readingSites,
         // Cicada's own skills — per-item ids (a `:`), so outside the bare-name lint
         .skill(CicadaSkillBundle.cicada.rawValue), .skill(CicadaSkillBundle.cicadaLibrarian.rawValue),
@@ -156,6 +156,9 @@ enum SettingsIndex {
         SettingsEntry(.agentsAutoRecall, .agents, Copy.autoRecallTitle,
                       keywords: ["remember", "recall", "automatic", "hooks", "context", "claude code", "codex"],
                       detail: Copy.autoRecallDetail),
+        SettingsEntry(.agentsEditors, .agents, Copy.PageEdits.rowTitle,
+                      keywords: ["edit", "edits", "pages", "trust", "trusted", "permission", "fix", "aliases", "write"],
+                      detail: Copy.PageEdits.rowDetail),
         SettingsEntry(.agentsReading, .agents, Copy.Reading.agentsRowTitle,
                       keywords: ["read", "pages", "browser", "sites"], detail: Copy.Reading.agentsRowDetail),
         // Reading the web (G166)

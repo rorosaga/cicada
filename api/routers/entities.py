@@ -10,6 +10,7 @@ from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
 from api.models.schemas import (
+    PageBlameResponse,
     SourcesOverview,
     ContextEpisodeExcerpt,
     ContextNeighbor,
@@ -539,6 +540,20 @@ async def get_entity_history(
     return await git_service.get_entity_history(
         entity_id, settings.memory_path, include_diff=include_diff, skip=max(0, skip)
     )
+
+
+@router.get("/entities/{entity_id}/blame", response_model=PageBlameResponse, response_model_exclude_none=True)
+async def get_entity_blame(entity_id: str, lines: bool = False, settings: Settings = Depends(get_settings)):
+    """Who wrote each section of the page's prose, when and why (G198) — one ``git blame`` and the commits' trailers,
+    never stored. ``?lines=true`` adds the commit behind every prose line."""
+    from api.services import page_blame
+
+    if not (settings.memory_path / "entities" / f"{entity_id}.md").is_file():
+        raise HTTPException(404, f"Entity {entity_id} not found")
+    result = await page_blame.blame(settings.memory_path, entity_id, with_lines=lines)
+    if result is None:
+        raise HTTPException(404, f"Entity {entity_id} not found")
+    return PageBlameResponse(**result)
 
 
 @router.get("/entities/{entity_id}/history/{commit_hash}/diff", response_model=EntityDiff)

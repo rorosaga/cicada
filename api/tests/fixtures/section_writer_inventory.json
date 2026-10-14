@@ -990,5 +990,19 @@
       "frontmatter": "fm",
       "disposition": "uninstrumented_guarded"
     }
+  ],
+  "services/page_edits.py": [
+    {
+      "function": "write",
+      "method": "write",
+      "frontmatter": "outcome.frontmatter",
+      "disposition": "refresh_or_preserve"
+    },
+    {
+      "function": "write_proposal",
+      "method": "write_new",
+      "frontmatter": "fm",
+      "disposition": "fresh_frontmatter_untracked"
+    }
   ]
 }
