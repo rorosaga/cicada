@@ -66,10 +66,61 @@ final class HomeFiguresTests: XCTestCase {
 
     func testLastReadLineStatesTheDayAndOnlyTheCountsThatHappened() throws {
         let en = Locale(identifier: "en_US")
-        XCTAssertEqual(HomeFigures.lastReadLine(try entry("s1", created: 9, updated: 1_024), locale: en),
+        let now = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-10-14T12:00:00Z"))
+        XCTAssertEqual(HomeFigures.lastReadLine(try entry("s1", created: 9, updated: 1_024), now: now, locale: en,
+                                                calendar: Self.calendar("UTC")),
                        "Sep 22 · 9 new · 1,024 updated")
-        XCTAssertEqual(HomeFigures.lastReadLine(try entry("s2", updated: 3), locale: en), "Sep 22 · 3 updated")
-        XCTAssertEqual(HomeFigures.lastReadLine(try entry("s3"), locale: en), "Sep 22 · nothing changed")
+        XCTAssertEqual(HomeFigures.lastReadLine(try entry("s2", updated: 3), now: now, locale: en,
+                                                calendar: Self.calendar("UTC")), "Sep 22 · 3 updated")
+        XCTAssertEqual(HomeFigures.lastReadLine(try entry("s3"), now: now, locale: en, calendar: Self.calendar("UTC")),
+                       "Sep 22 · nothing changed")
+    }
+
+    private static func calendar(_ zone: String) -> Calendar {
+        var c = Calendar(identifier: .gregorian)
+        c.timeZone = TimeZone(identifier: zone) ?? .current
+        return c
+    }
+
+    /// The brief's case: git's iso-strict instant, read in the viewer's zone — "Today 07:27 · 33 updated".
+    func testLastReadLineSaysTodayAndTheTimeInTheViewersClock() throws {
+        let gb = Locale(identifier: "en_GB")
+        let madrid = Self.calendar("Europe/Madrid")
+        let now = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-10-14T10:00:00Z"))
+        let object: [String: Any] = ["commitHash": "s9", "date": "2026-10-14T07:27:05+02:00", "message": "Sleep cycle",
+                                     "kind": "sleep", "entitiesCreated": 0, "entitiesUpdated": 33]
+        let e = try JSONDecoder().decode(SleepHistoryEntry.self, from: JSONSerialization.data(withJSONObject: object))
+        XCTAssertEqual(HomeFigures.lastReadLine(e, now: now, locale: gb, calendar: madrid), "Today 07:27 · 33 updated")
+        XCTAssertEqual(HomeFigures.when("2026-10-13T23:10:00+02:00", now: now, locale: gb, calendar: madrid),
+                       "Yesterday 23:10")
+        XCTAssertEqual(HomeFigures.when("2026-10-14T05:27:05Z", now: now, locale: gb, calendar: madrid), "Today 07:27",
+                       "an instant in another offset is shown on the viewer's own clock")
+        XCTAssertNil(HomeFigures.when("not a date", now: now, locale: gb, calendar: madrid))
+    }
+
+    /// Owner 2026-10-14 — every state of Last read, from launch to the newest read, never "—" for good.
+    func testLastReadGoesFromLoadingToTheEntryWithoutTheSleepPage() throws {
+        let sleep = try entry("s1", updated: 33), decay = try entry("d1", kind: "decay")
+        XCTAssertEqual(HomeFigures.lastRead([], loaded: false, hasRunBefore: true, lastSleepAt: "2026-10-14T07:27:05+02:00"),
+                       .loading, "before the history lands")
+        XCTAssertEqual(HomeFigures.lastRead([decay, sleep], loaded: true, hasRunBefore: true,
+                                            lastSleepAt: "2026-10-14T07:27:05+02:00"), .entry(sleep))
+    }
+
+    func testLastReadNeverRunSaysSoInWords() {
+        XCTAssertEqual(HomeFigures.lastRead([], loaded: true, hasRunBefore: false, lastSleepAt: nil), .never)
+        XCTAssertEqual(HomeFigures.lastRead([], loaded: false, failed: true, hasRunBefore: false, lastSleepAt: nil),
+                       .never, "a failed history fetch with a status that says no read ran is still 'Nothing read yet'")
+    }
+
+    func testAFailedHistoryFallsBackToTheStatussLastRead() {
+        XCTAssertEqual(HomeFigures.lastRead([], loaded: false, failed: true, hasRunBefore: true,
+                                            lastSleepAt: "2026-10-14T07:27:05+02:00"),
+                       .earlier("2026-10-14T07:27:05+02:00"))
+        XCTAssertEqual(HomeFigures.lastRead([], loaded: false, failed: true, hasRunBefore: true, lastSleepAt: nil),
+                       .earlier(nil))
+        XCTAssertEqual(HomeFigures.lastRead([], loaded: false, failed: true, hasRunBefore: nil, lastSleepAt: nil),
+                       .failed, "nothing says whether a read ran: it says the lookup failed, never '—'")
     }
 
     func testChipsAreEntityPagesThatStillExistInTheGraph() throws {

@@ -110,13 +110,15 @@ struct HomeView: View {
             }
         }
         .onAppear { tour.adoptOffer() }
-        // Sleep history is not disk-cached (design §6.3): fetch it on every
-        // arrival so LAST READ is "—" only until it lands, never a stale read.
-        // A load whose schedule fetch failed is retried here too, or Getting
-        // started's schedule question would never be asked (R-IB20).
-        .task {
-            if sleepVM.status == nil || !sleepVM.scheduleLoaded { await sleepVM.load() } else { await sleepVM.loadHistory() }
-        }
+        // Sleep history is not a Store domain and is not disk-cached (design
+        // §6.3): fetch it on every arrival, and again whenever the status's last
+        // read moves (a read that finished while Home is up, a status that only
+        // arrived once the backend came up after a failed first fetch), so LAST
+        // READ says "Looking up…" only until it lands, never a stale read. A
+        // bank switch rereads it in `SleepViewModel.bankChanged()`. A load whose
+        // schedule fetch failed is retried here too, or Getting started's
+        // schedule question would never be asked (R-IB20).
+        .task(id: store.status.value?.lastSleepAt) { await sleepVM.refreshForHome() }
     }
 
     // MARK: The blocks
@@ -157,6 +159,7 @@ struct HomeView: View {
     private func emptiness(today: Date, gettingStartedVisible: Bool) -> HomeEmptiness {
         let hasRunBefore = sleepVM.status?.debt.hasRunBefore ?? (store.status.value?.lastSleepAt != nil)
         let lastRead = HomeFigures.lastRead(sleepVM.history, loaded: sleepVM.historyLoaded,
+                                            failed: sleepVM.historyFailed,
                                             hasRunBefore: sleepVM.status?.debt.hasRunBefore
                                                 ?? store.status.value.map { $0.lastSleepAt != nil },
                                             lastSleepAt: store.status.value?.lastSleepAt)

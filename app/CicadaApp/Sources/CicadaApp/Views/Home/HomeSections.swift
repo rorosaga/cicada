@@ -333,11 +333,23 @@ struct LastReadSection: View {
     var body: some View {
         HomeBlock(title: Copy.homeLastRead, emptyNote: empty ? Copy.homeLastReadNotYet : nil) {
             switch HomeFigures.lastRead(sleepVM.history, loaded: sleepVM.historyLoaded,
+                                        failed: sleepVM.historyFailed,
                                         hasRunBefore: sleepVM.status?.debt.hasRunBefore
                                             ?? store.status.value.map { $0.lastSleepAt != nil },
                                         lastSleepAt: store.status.value?.lastSleepAt) {
             case .loading:
-                HomeLine { HomeUnknown() }
+                // Owner 2026-10-14 — words, not a bare "—": a box that is only a dash reads as broken.
+                HomeLine {
+                    Text(Copy.homeLastReadLoading)
+                        .font(CicadaTheme.bodyFont)
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                }
+            case .failed:
+                HomeRowButton(help: Copy.homeLastReadHelp, action: openDetails) {
+                    Text(Copy.homeLastReadFailed)
+                        .font(CicadaTheme.bodyFont)
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                }
             case .never:
                 HomeLine {
                     Text(Copy.homeNothingReadYet)
@@ -350,13 +362,15 @@ struct LastReadSection: View {
                 // Off the history page: the day the status gives, and the page
                 // that owns the rest — never counts this block did not read.
                 HomeRowButton(help: Copy.homeLastReadHelp, action: openDetails) {
-                    if let day = at.flatMap({ HomeFigures.day($0, locale: .autoupdatingCurrent) }) {
-                        Text(day)
+                    if let when = at.flatMap({ HomeFigures.when($0) }) {
+                        Text(when)
                             .font(CicadaTheme.bodyFont)
                             .monospacedDigit()
                             .foregroundStyle(CicadaTheme.textPrimary)
                     } else {
-                        HomeUnknown()
+                        Text(Copy.homeLastReadEarlier)
+                            .font(CicadaTheme.bodyFont)
+                            .foregroundStyle(CicadaTheme.textSecondary)
                     }
                 }
             }
