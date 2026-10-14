@@ -36,6 +36,9 @@ struct SettingsPanel: View {
     @State private var query = ""
     /// Picking a sidebar row after typing shows that section; typing again brings the results back.
     @State private var pickedSinceTyping = false
+    /// The one sidebar row under the pointer — one value for the whole sidebar, never a flag per row (owner's live
+    /// check 2026-10-14: a row's own `.onHover` missed its exit and kept its fill beside the selected row's).
+    @State private var hoveredSection: SettingsSection?
     @Environment(Store.self) private var store
     @Environment(SleepViewModel.self) private var sleepVM
     @Environment(AppRouter.self) private var router
@@ -136,7 +139,12 @@ struct SettingsPanel: View {
                                 ForEach(sections) { section in
                                     SettingsSidebarRow(section: section,
                                                        isSelected: selection == section && !showingResults,
-                                                       count: trimmedQuery.isEmpty ? 0 : counts[section, default: 0]) {
+                                                       hovering: hoveredSection == section,
+                                                       count: trimmedQuery.isEmpty ? 0 : counts[section, default: 0],
+                                                       onHover: { inside in
+                                                           hoveredSection = SettingsSidebarHover.next(
+                                                               hoveredSection, row: section, inside: inside)
+                                                       }) {
                                         selection = section
                                         pickedSinceTyping = true
                                     }
@@ -154,7 +162,14 @@ struct SettingsPanel: View {
                 .padding(.horizontal, CicadaTheme.scaled(10))
                 .padding(.bottom, CicadaTheme.spacingLG)
             }
+            // The pointer leaving the sidebar clears any row's hover, even one whose own exit never arrived.
+            .onContinuousHover { phase in
+                if case .ended = phase { hoveredSection = nil }
+            }
         }
+        // A pick, by pointer, search or link, settles which row is lit: the selected one alone.
+        .onChange(of: selection) { _, _ in hoveredSection = SettingsSidebarHover.afterPick }
+        .onDisappear { hoveredSection = nil }
     }
 
     private var detail: some View {
@@ -245,12 +260,34 @@ enum SettingsPanelLayout {
 /// the pointer, `rowFont`. `textTertiary` at rest; `bgHover` + `textPrimary` on hover;
 /// `bgSelected` + `textPrimary` when chosen — never the accent. While a query is active it
 /// carries its match count in tabular figures, and VoiceOver reads it as a value.
+/// The Settings sidebar's hover, as one value (owner's live check 2026-10-14: "Skills" kept a fill while "Agents", then
+/// "Search & files", was selected, with the pointer elsewhere — a per-row `.onHover` flag whose exit AppKit never
+/// delivered). Entering a row replaces whatever was hovered, so at most one row is ever lit by hover; a row's exit
+/// clears only its own hover, so a late exit never unlights the row the pointer has since entered; a pick clears it.
+enum SettingsSidebarHover {
+    static func next(_ current: SettingsSection?, row: SettingsSection, inside: Bool) -> SettingsSection? {
+        if inside { return row }
+        return current == row ? nil : current
+    }
+
+    static let afterPick: SettingsSection? = nil
+
+    /// The row's fill: the selected row's `bgSelected`, a hovered one's `bgHover` (DR-48), none otherwise.
+    enum Fill: Equatable { case selected, hover, none }
+
+    static func fill(isSelected: Bool, hovering: Bool) -> Fill {
+        isSelected ? .selected : (hovering ? .hover : .none)
+    }
+}
+
 private struct SettingsSidebarRow: View {
     let section: SettingsSection
     let isSelected: Bool
+    /// Owned by the panel (`SettingsSidebarHover`), never by the row.
+    let hovering: Bool
     var count: Int = 0
+    let onHover: (Bool) -> Void
     let action: () -> Void
-    @State private var hovering = false
 
     var body: some View {
         Button(action: action) {
@@ -273,13 +310,20 @@ private struct SettingsSidebarRow: View {
             .foregroundStyle(isSelected || hovering ? CicadaTheme.textPrimary : CicadaTheme.textTertiary)
             .padding(.horizontal, CicadaTheme.scaled(10))
             .frame(height: CicadaTheme.scaled(32))
-            .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
-                .fill(isSelected ? CicadaTheme.bgSelected : (hovering ? CicadaTheme.bgHover : Color.clear)))
+            .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).fill(fill))
             .contentShape(Rectangle())
         }
         .buttonStyle(.cicadaPlain)
-        .onHover { hovering = $0 }
+        .onHover(perform: onHover)
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
         .accessibilityValue(count > 0 ? Copy.matchingSettings(count) : "")
+    }
+
+    private var fill: Color {
+        switch SettingsSidebarHover.fill(isSelected: isSelected, hovering: hovering) {
+        case .selected: CicadaTheme.bgSelected
+        case .hover: CicadaTheme.bgHover
+        case .none: Color.clear
+        }
     }
 }
