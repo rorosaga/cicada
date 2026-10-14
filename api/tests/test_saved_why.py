@@ -349,12 +349,14 @@ def test_a_held_answer_keeps_the_time_the_person_gave_it(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize("at", [
-    "2026-10-14T09:30:00",                                                        # naive: never assumed UTC
-    (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat(),             # the future
-    (datetime.now(timezone.utc) - timedelta(hours=25)).isoformat(),               # over a day old
+    "2026-10-14T09:30:00",          # naive: never assumed UTC
+    timedelta(minutes=10),          # the future (an offset from now, computed when the test runs)
+    -timedelta(hours=25),           # over a day old
     "yesterday",
 ])
 def test_a_client_time_is_bounded(tmp_path, monkeypatch, at):
+    if isinstance(at, timedelta):
+        at = (datetime.now(timezone.utc) + at).isoformat()
     memory = _bank(tmp_path)
     episode_id = _saved_c(memory)
     before = (memory / "episodes" / f"{episode_id}.md").read_text()
