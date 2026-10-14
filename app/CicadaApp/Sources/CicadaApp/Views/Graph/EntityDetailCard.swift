@@ -810,7 +810,7 @@ struct EntityDetailCard: View {
                 // The full page is on its way, said in words (it lands in well under a second); a failed read says so.
                 SectionLoading(text: Copy.Graph.readingPage)
             } else {
-                WikiPageView(key: articleKey, onLineSource: openLineSource)
+                WikiPageView(key: articleKey, onLineSource: openLineSource, entityId: isStub ? nil : entity.id)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

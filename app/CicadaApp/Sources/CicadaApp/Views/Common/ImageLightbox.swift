@@ -1,77 +1,74 @@
+import AppKit
 import SwiftUI
 
-// MARK: - ImageThumbnail (G11)
+// MARK: - ImageThumbnail (G11; owner rulings 2026-10-14)
 //
-// A small, rounded, tappable inline image. On tap it presents an `ImageLightbox`
-// overlay showing the image large with zoom. Reused by `MediaPreview` (media
-// entities) and by `TranscludingMarkdownView` (inline `![alt](url)` images).
+// A small, rounded, tappable picture. On tap it presents an `ImageLightbox` with the picture large and zoomable.
+//
+// **It loads only a picture Cicada stores** — a path on Cicada's own API (`/entities/…`, `/design/…`), through
+// `PictureStore` with the bearer (`StoredPreviewPath`). It used to hand any https URL written into a page's prose to
+// `AsyncImage`: the app made its own network call to whatever host an agent wrote, outside the picture gate and its
+// "fetched once, then served from the store" rule. A web image in prose now draws as a bookmark of its URL
+// (`ProseImage`), and `AsyncImageLintTests` keeps `AsyncImage` out of every surface that draws a page.
 struct ImageThumbnail: View {
-    let url: URL
+    /// A picture path on Cicada's API. Anything else draws the placeholder and loads nothing.
+    let path: String
     var width: CGFloat = 320
     var height: CGFloat = 180
+    var caption: String? = nil
     var cornerRadius: CGFloat = CicadaTheme.cornerRadiusSmall
 
+    @Environment(Store.self) private var store: Store?
+    @State private var image: NSImage?
     @State private var showLightbox = false
     @State private var isHovered = false
 
     var body: some View {
-        Button { showLightbox = true } label: {
-            AsyncImage(url: url) { phase in
-                switch phase {
-                case .success(let image):
-                    image.resizable().scaledToFill()
-                case .failure:
-                    placeholder(symbol: "photo")
-                case .empty:
-                    ZStack {
-                        CicadaTheme.surfaceHover
-                        ProgressView().controlSize(.small)
-                    }
-                @unknown default:
-                    placeholder(symbol: "photo")
+        Button { if image != nil { showLightbox = true } } label: {
+            ZStack {
+                if let image {
+                    Image(nsImage: image).resizable().scaledToFill()
+                } else {
+                    CicadaTheme.bgPane
+                    Image(systemName: "photo")
+                        .font(CicadaTheme.font(size: 24))
+                        .foregroundStyle(CicadaTheme.textTertiary)
                 }
             }
             .frame(width: width, height: height)
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
-            .overlay(
-                RoundedRectangle(cornerRadius: cornerRadius)
-                    .stroke(CicadaTheme.border, lineWidth: 1)
-            )
+            .ringed(.resting, in: RoundedRectangle(cornerRadius: cornerRadius))
             .overlay(alignment: .bottomTrailing) {
                 Image(systemName: "arrow.up.left.and.arrow.down.right")
                     .font(CicadaTheme.font(size: 10, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(CicadaTheme.textPrimary)
                     .padding(5)
-                    .background(.black.opacity(0.45))
-                    .clipShape(RoundedRectangle(cornerRadius: 5))
+                    .background(CicadaTheme.shape(5).fill(CicadaTheme.bgFocus))
                     .padding(6)
-                    .opacity(isHovered ? 1 : 0)
+                    .opacity(isHovered && image != nil ? 1 : 0)
             }
         }
         .buttonStyle(.cicadaPlain)
         .onHover { isHovered = $0 }
-        .help("Click to enlarge")
-        .sheet(isPresented: $showLightbox) {
-            ImageLightbox(url: url)
+        .help(Copy.Links.enlarge)
+        .task(id: "\(store?.bank ?? "")|\(path)") {
+            image = nil
+            guard let url = StoredPreviewPath.url(path) else { return }
+            image = await PictureStore.shared.image(url, bank: store?.bank ?? "")
         }
-    }
-
-    private func placeholder(symbol: String) -> some View {
-        ZStack {
-            CicadaTheme.mediaPink.opacity(0.1)
-            Image(systemName: symbol)
-                .font(CicadaTheme.font(size: 24))
-                .foregroundStyle(CicadaTheme.mediaPink.opacity(0.6))
+        .sheet(isPresented: $showLightbox) {
+            if let image { ImageLightbox(image: image, caption: caption) }
         }
     }
 }
 
 // MARK: - ImageLightbox
 //
-// Full-size image overlay with scroll-to-zoom and an ✕ to dismiss. Loads only
-// the url it is handed (always the media entity's own stored/thumbnail url).
+// A picture already loaded, large, with scroll-to-zoom, its caption (a capture keeps its date line) and an ✕. It
+// loads nothing of its own.
 struct ImageLightbox: View {
-    let url: URL
+    let image: NSImage
+    var caption: String? = nil
     @Environment(\.dismiss) private var dismiss
     @State private var zoom: CGFloat = 1.0
     @State private var committedZoom: CGFloat = 1.0
@@ -81,36 +78,23 @@ struct ImageLightbox: View {
             Color.black.opacity(0.92)
                 .onTapGesture { dismiss() }
 
-            AsyncImage(url: url) { phase in
-                switch phase {
-                case .success(let image):
-                    image
-                        .resizable()
-                        .scaledToFit()
-                        .scaleEffect(zoom)
-                        .gesture(
-                            MagnificationGesture()
-                                .onChanged { value in
-                                    // Accumulate against the last committed zoom so
-                                    // repeated pinches don't snap back to 1x.
-                                    zoom = max(1.0, min(5.0, committedZoom * value))
-                                }
-                                .onEnded { _ in
-                                    committedZoom = zoom
-                                }
-                        )
-                case .failure:
-                    VStack(spacing: CicadaTheme.spacingSM) {
-                        Image(systemName: "exclamationmark.triangle")
-                            .font(CicadaTheme.font(size: 32))
-                        Text("Couldn't load image")
-                            .font(CicadaTheme.bodyFont)
-                    }
-                    .foregroundStyle(CicadaTheme.textSecondary)
-                case .empty:
-                    ProgressView().controlSize(.large)
-                @unknown default:
-                    EmptyView()
+            VStack(spacing: CicadaTheme.spacingSM) {
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .scaleEffect(zoom)
+                    .gesture(
+                        MagnificationGesture()
+                            .onChanged { value in
+                                // Accumulate against the last committed zoom so repeated pinches don't snap back.
+                                zoom = max(1.0, min(5.0, committedZoom * value))
+                            }
+                            .onEnded { _ in committedZoom = zoom }
+                    )
+                if let caption {
+                    Text(caption)
+                        .font(CicadaTheme.metaFont)
+                        .foregroundStyle(.white.opacity(0.8))
                 }
             }
             .padding(CicadaTheme.spacingXL)
@@ -127,6 +111,7 @@ struct ImageLightbox: View {
                             .clipShape(Circle())
                     }
                     .buttonStyle(.cicadaPlain)
+                    .help(Copy.Looks.closeHelp)
                     .padding(CicadaTheme.spacingLG)
                 }
                 Spacer()

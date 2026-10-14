@@ -941,6 +941,41 @@ read by the Inbox's quote and the Reader's turns since DS-2 (a mention found by 
 `SleepMotion` a duration is spelled; `hoverLift()` for things that open, `iconHover()` for glyphs; a keyboard action
 never animates. Sprites play per frame from their sheets within `CicadaMotion`'s sprite caps (ruling 18).
 
+**Links show as what they are (owner rulings 2026-10-14; DR-5, 9, 13, 32, 37, 45, 52, 53, 58, 61, 63, 71).** A link on a
+page draws the way its markdown title asks (`storage.md`, the link-title grammar; `LinkGrammar` in `LinkView.swift`, one
+fixture with the backend). In the article (`WikiArticle`/`WikiInline`): a link in a sentence is accent and underlined; a bare
+URL or `<URL>` is a live link that reads as its address (`example.com/guide` — the design guessed a bare URL was dead text,
+`LinkViewTests` shows Foundation links it, so the fix is its words); a **mention** — `"mention"`, a block view written
+inside a sentence, or a plain link in a `## Links` bullet — reads as the site in `textTertiary` (a `WikiInline.SitePart`
+run, coloured when the row is drawn so a cached article follows the theme) then the title with a 30% underline; a view
+word is never shown. A link alone on its line asking for a block view is a row of its own (`WikiRow.Kind.link`) drawn by
+`LinkBlockView`: **bookmark** → `BookmarkCard` (title, two lines of description, mark · site · one date — "Read Oct 2"
+when Cicada read the site's words, else "Saved Oct 2", else "Not read yet" — the stored picture left at ≥ 440 pt, on top
+when narrower, on a ring, hover a fill); **screenshot** → `CaptureCard` (16:10, the caption below the picture never over
+it: "Captured Oct 14, 2026 · 3 months ago", or "Saved to Looks Oct 14 · today" while a saved look stands in, "· nearest
+to Oct 14" for a pinned day with none that day; ⤢ opens the lightbox with the date line); **captures** → `CaptureStrip`;
+**look** → `LookSwatch` (the crop, `LooksPaletteStrip`, site · "Saved to Looks Oct 14"). Each degrades one step and says
+so: "No capture of this page yet", "No captures of this page yet", "No saved look of this page yet" (DR-32). ⧗ Site
+exploration's dated captures (the screenshot from a capture, the gallery, "Changed since you saved it", a gone site, the
+Reader's "How it looked when you saved it", ⌘K's site mark) wait for that pipeline; until then `captures[]` is empty and
+a look's screenshot of the same URL stands in. Every fact comes from `GET /entities/{id}/links` through `LinkFactsCache`
+(in memory, not a Store domain); the app fetches nothing of the web: a click opens the saved item's page when the backend
+matched the URL to one, else the browser, and ⌘-click always opens the browser (`LinkOpen`). A line with links has a 🔗
+in the gutter (and an accessibility action, `LineLinksAction`) opening `LinkLinePopover`: each link's bookmark card, then
+**the person's view switcher** — text tabs (DR-45) of the views Cicada has something for (Link, Mention; and for a link
+alone on its line Bookmark, Screenshot with a picture of the page, Captures with a capture, Look with a saved look), ↗ and
+Copy link (DR-53). Choosing one is `POST /entities/{id}/edits` with the link's token as `old` and the same link with its
+view word as `new`, `all` and `pinned`, committed under the person with the reason "Shown as a bookmark." (owner ruling
+4: the choice is memory, in git, visible to every agent; undo is the page's history). `PageLinkRow` (Where this comes
+from) adds the link's date to its URL line and opens the same bookmark card after a short hover
+(`CicadaMotion.linkPreviewOpenDelay` 0.25 s / `linkPreviewCloseDelay` 0.08 s). A media page's website card is now a
+`BookmarkCard` (no all-caps site, a ring, DR-20/9). **Pictures in prose go through the gate:** `ImageThumbnail` loads only a
+path on Cicada's own API (`StoredPreviewPath`, through `PictureStore`), and `ProseImage` draws a web image named in a
+page's prose as a bookmark of its URL ("A picture from the web, not kept by Cicada") — the app used to hand any https
+image a page named to `AsyncImage`; a saved image's hero and media card draw its stored copy. `LinkViewTests` keeps
+`AsyncImage(` out of every page surface (the contributors view's avatar is the one left); `LinkRenderTests` draws every
+view light and dark (`LINK_RENDER_DIR` writes the PNGs).
+
 **Video (Track V).** A saved video plays where the user already is — a saved item's detail column in the
 Feed, the entity Content tab and the entity hero, all through `MediaPreview`/`HeroPreview` — and the provider is
 derived from the URL at read time (`VideoRef.resolve`), never read out of the page, so a bank never

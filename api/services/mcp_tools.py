@@ -37,7 +37,7 @@ from typing import Callable
 
 from api.services import agent_commits, agentic_write, demo_guard, episode_ids, episode_scrub, search_service
 # One fence rule for every frontmatter reader (L final review, finding 2).
-from api.services import bank_index, markdown_parser, page_lock, search_index, write_admission
+from api.services import bank_index, link_views, markdown_parser, page_lock, search_index, write_admission
 
 
 def _loopback_post(url: str, payload: dict, headers: dict[str, str], timeout: float = 8) -> dict:
@@ -1395,7 +1395,7 @@ def _recall(ctx: ToolContext, query: str) -> str:
             r_fm, r_body = parse_frontmatter(related_path.read_text(encoding="utf-8"))
             hop_blurbs.append(
                 f"- **{r_fm.get('name', related_id)}** (via [[{fm.get('name', eid)}]]): "
-                f"{strip_claims_block(r_body)[:240].strip()}"
+                f"{link_views.plain(strip_claims_block(r_body))[:240].strip()}"
             )
     if hop_blurbs:
         output_parts.append("**Related (one hop out):**\n" + "\n".join(hop_blurbs))
@@ -3077,7 +3077,9 @@ def _render_entity_summary(entities_dir: Path, hit: dict) -> str:
 
 def _type_aware_truncate(body: str, entity_type: str) -> str:
     from api.services.claims import strip_claims_block
-    body = strip_claims_block(body)
+    # A recall quotes the page's words, never its link views (`[T](url "bookmark")` → `[T](url)`); recall_detail
+    # keeps them, since it is the text an edit copies from.
+    body = link_views.plain(strip_claims_block(body))
     if not body:
         return ""
     if entity_type in SHORT_TYPES:

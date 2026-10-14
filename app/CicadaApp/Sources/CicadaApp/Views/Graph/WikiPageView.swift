@@ -8,18 +8,34 @@ struct WikiPageView: View {
     let key: WikiArticleCache.Key
     /// Opens a line's provenance in the Reader (`LineProvenance`); nil hides the affordance.
     var onLineSource: ((WikiRow) -> Void)? = nil
+    /// The page the article is (owner rulings 2026-10-14): its link facts draw the link cards and its edit route
+    /// takes the person's view switch. Nil: links draw from their own words and nothing can be switched.
+    var entityId: String? = nil
 
     var body: some View {
         let article = WikiArticleCache.shared.article(key)
         LazyVStack(alignment: .leading, spacing: 0) {
             // Identified by its scroll anchor, so the card can scroll a lazy row into view (`anchor`).
             ForEach(article.rows, id: \.anchor) { row in
-                WikiRowView(row: row, onSource: onLineSource)
+                WikiRowView(row: row, onSource: onLineSource, entityId: entityId)
                     .padding(.top, row.id == 0 ? 0 : WikiRowView.gap(above: row, after: article.rows[row.id - 1]))
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .task(id: key) { await WikiArticleCache.shared.build(key) }
+        .task(id: "\(entityId ?? "")|\(key.markdown.count)") {
+            // A page's link facts, only when its prose links to the web (an ETag makes an unchanged page a 304).
+            guard let entityId, Self.linksTheWeb(article) else { return }
+            await LinkFactsCache.shared.refresh(entityId)
+        }
+    }
+
+    /// Whether any row of the article carries a web link (a card or a preview would draw from link facts).
+    static func linksTheWeb(_ article: WikiArticle) -> Bool {
+        article.rows.contains { row in
+            if case .image = row.kind { return true }
+            return !row.links.isEmpty
+        }
     }
 }
 
@@ -45,7 +61,9 @@ extension WikiRow {
 struct WikiRowView: View {
     let row: WikiRow
     let onSource: ((WikiRow) -> Void)?
+    var entityId: String? = nil
     @State private var hovering = false
+    @State private var showLinks = false
 
     /// `MarkdownBody`'s rhythm: blocks `spacingSM` apart, a list's items 4 apart, a heading given room above.
     static func gap(above row: WikiRow, after previous: WikiRow) -> CGFloat {
@@ -58,39 +76,56 @@ struct WikiRowView: View {
 
     private var hasSource: Bool {
         switch row.kind {
-        case .rule, .embed, .image: false
+        case .rule, .embed, .image, .link: false
         default: onSource != nil
         }
     }
+
+    /// The line's web links have a 🔗 in the gutter: their previews and, on the page's own card, the view switcher.
+    private var hasLinks: Bool { !row.links.isEmpty }
 
     var body: some View {
         content
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.trailing, hasSource ? CicadaTheme.scaled(28) : 0)
+            .padding(.trailing, CicadaTheme.scaled(28) * CGFloat((hasSource ? 1 : 0) + (hasLinks ? 1 : 0)))
             .overlay(alignment: .topTrailing) {
-                if hasSource, hovering, let onSource {
-                    IconButton(systemName: "text.quote", help: Copy.Graph.lineSource) { onSource(row) }
-                        .offset(y: -CicadaTheme.scaled(5))
+                HStack(spacing: 0) {
+                    if hasLinks, hovering || showLinks {
+                        IconButton(systemName: "link", help: Copy.Links.linksOnLine) { showLinks = true }
+                            .popover(isPresented: $showLinks, arrowEdge: .trailing) {
+                                LinkLinePopover(refs: row.links, entityId: entityId, inLinks: row.inLinks)
+                            }
+                    }
+                    if hasSource, hovering, let onSource {
+                        IconButton(systemName: "text.quote", help: Copy.Graph.lineSource) { onSource(row) }
+                    }
                 }
+                .offset(y: -CicadaTheme.scaled(5))
             }
             .onHover { hovering = $0 }
+            .modifier(LineLinksAction(enabled: hasLinks) { showLinks = true })
     }
 
     private var lineSource: LineSourceAction { LineSourceAction(enabled: hasSource) { onSource?(row) } }
+
+    /// The row's text in the current theme (a mention's site in the tertiary colour, `WikiInline.themed`).
+    private var text: AttributedString {
+        row.links.isEmpty ? row.text : WikiInline.themed(row.text)
+    }
 
     @ViewBuilder
     private var content: some View {
         switch row.kind {
         case .heading(let level):
-            Text(row.text)
+            Text(text)
                 .font(Self.headingFont(level))
                 .foregroundStyle(CicadaTheme.textPrimary)
                 .textSelection(.enabled)
                 .accessibilityAddTraits(.isHeader)
                 .modifier(lineSource)
         case .paragraph:
-            Text(row.text)
+            Text(text)
                 .font(CicadaTheme.bodyFont)
                 .lineSpacing(CicadaTheme.scaled(2))
                 .foregroundStyle(CicadaTheme.textPrimary)
@@ -103,7 +138,7 @@ struct WikiRowView: View {
                     .foregroundStyle(CicadaTheme.textTertiary)
                     .frame(minWidth: 16, alignment: .trailing)
                     .accessibilityHidden(true)
-                Text(row.text)
+                Text(text)
                     .font(CicadaTheme.bodyFont)
                     .lineSpacing(CicadaTheme.scaled(2))
                     .foregroundStyle(CicadaTheme.textPrimary)
@@ -126,7 +161,7 @@ struct WikiRowView: View {
         case .quote:
             HStack(alignment: .top, spacing: 0) {
                 Rectangle().fill(CicadaTheme.ring(.strong)).frame(width: 3)
-                Text(row.text)
+                Text(text)
                     .font(CicadaTheme.bodyFont)
                     .foregroundStyle(CicadaTheme.textSecondary)
                     .italic()
@@ -141,7 +176,9 @@ struct WikiRowView: View {
         case .embed(let ref):
             TranscludingMarkdownView(body: "![[\(ref)]]")
         case .image(let url, let alt):
-            TranscludingMarkdownView(body: "![\(alt)](\(url))")
+            ProseImage(url: url, alt: alt, entityId: entityId)
+        case .link(let ref, let note):
+            LinkBlockView(ref: ref, note: note, entityId: entityId)
         }
     }
 
@@ -151,6 +188,20 @@ struct WikiRowView: View {
         case 2: CicadaTheme.headingFont
         case 3: CicadaTheme.bodyFont.weight(.semibold)
         default: CicadaTheme.captionFont.weight(.semibold)
+        }
+    }
+}
+
+/// VoiceOver reaches a line's links without hovering: the same popover the 🔗 opens.
+struct LineLinksAction: ViewModifier {
+    let enabled: Bool
+    let action: () -> Void
+
+    func body(content: Content) -> some View {
+        if enabled {
+            content.accessibilityAction(named: Copy.Links.linksOnLine, action)
+        } else {
+            content
         }
     }
 }

@@ -39,6 +39,8 @@ struct MediaPreviewModel {
     /// The picture as Cicada stores it (`StoredPreview`); the provider's `thumbnail` URL is never loaded.
     let preview: String?
     var description: String? = nil
+    /// When it was saved (the card's date line, DR-58).
+    var savedAt: String? = nil
 
     init(block: MediaBlock, title: String, description: String? = nil) {
         self.url = block.url
@@ -49,6 +51,7 @@ struct MediaPreviewModel {
         self.thumbnail = block.thumbnail
         self.preview = block.preview
         self.description = description
+        self.savedAt = block.savedAt
     }
 
     init(item: MediaFeedItem) {
@@ -101,6 +104,13 @@ struct MediaPreviewModel {
     }
 
     var resolvedURL: URL? { URL(string: url) }
+
+    /// The item as a link card's facts: everything is the page's own (it IS the saved page), so its click opens the
+    /// browser, and its site draws a monogram (a media page never draws a mark, G159).
+    var linkFact: LinkFact {
+        LinkFact(url: url, site: (site?.isEmpty == false ? site : nil) ?? LinkGrammar.site(url),
+                 title: title.isEmpty ? nil : title, description: description, savedAt: savedAt, preview: preview)
+    }
     /// Whether there is a stored picture to draw (a path on Cicada's own API).
     var hasPicture: Bool { StoredPreviewPath.loads(preview) }
 }
@@ -151,13 +161,16 @@ struct MediaPreview: View {
 
     // MARK: image
 
+    /// The saved image as Cicada stores it — never the provider's URL (owner rulings 2026-10-14).
     @ViewBuilder
     private var imagePreview: some View {
-        if let url = model.resolvedURL {
-            ImageThumbnail(url: url, width: 360, height: 220)
+        if model.hasPicture, let path = model.preview {
+            ImageThumbnail(path: path, width: 360, height: 220, caption: model.title.isEmpty ? nil : model.title)
         } else {
-            unavailable
+            BookmarkCard(fact: model.linkFact, status: Copy.Links.image)
+                .frame(maxWidth: 420, alignment: .leading)
         }
+        openExternallyButton
     }
 
     // MARK: embed video (YouTube, Vimeo, TikTok, Loom)
@@ -281,44 +294,12 @@ struct MediaPreview: View {
 
     // MARK: website / bookmark
 
+    /// The saved page as a bookmark card (owner rulings 2026-10-14; DR-9 ring, DR-20 no all-caps site): its picture,
+    /// title, description and site with the day it was saved.
     @ViewBuilder
     private var websitePreview: some View {
-        // Open-Graph preview card: thumbnail (og:image) + title + site + description.
-        VStack(alignment: .leading, spacing: 0) {
-            if model.hasPicture {
-                StoredPreview(path: model.preview) { siteThumbPlaceholder }
-                .frame(height: 160)
-                .frame(maxWidth: .infinity)
-                .clipped()
-            }
-
-            VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-                if let site = model.site, !site.isEmpty {
-                    Text(site.uppercased())
-                        .font(CicadaTheme.font(size: 10, weight: .semibold))
-                        .foregroundStyle(CicadaTheme.textTertiary)
-                }
-                Text(model.title.isEmpty ? model.url : model.title)
-                    .font(CicadaTheme.font(size: 14, weight: .semibold))
-                    .foregroundStyle(CicadaTheme.textPrimary)
-                    .lineLimit(2)
-                if let desc = model.description, !desc.isEmpty {
-                    Text(desc)
-                        .font(CicadaTheme.captionFont)
-                        .foregroundStyle(CicadaTheme.textSecondary)
-                        .lineLimit(3)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(CicadaTheme.spacingMD)
-        }
-        .frame(maxWidth: 420, alignment: .leading)
-        .background(CicadaTheme.surface)
-        .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
-        .overlay(
-            RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall)
-                .stroke(CicadaTheme.border, lineWidth: 1)
-        )
+        BookmarkCard(fact: model.linkFact)
+            .frame(maxWidth: 520, alignment: .leading)
 
         HStack(spacing: CicadaTheme.spacingMD) {
             Button { showSitePreview = true } label: {
@@ -330,15 +311,6 @@ struct MediaPreview: View {
             .help("Preview the saved page in-app")
 
             openExternallyButton
-        }
-    }
-
-    private var siteThumbPlaceholder: some View {
-        ZStack {
-            CicadaTheme.surfaceHover
-            Image(systemName: "globe")
-                .font(CicadaTheme.font(size: 28))
-                .foregroundStyle(CicadaTheme.textTertiary)
         }
     }
 
@@ -377,16 +349,6 @@ struct MediaPreview: View {
         }
         .buttonStyle(.cicadaPlain)
         .help("Open in your browser")
-    }
-
-    private var unavailable: some View {
-        HStack(spacing: CicadaTheme.spacingXS) {
-            Image(systemName: "questionmark.circle")
-                .font(CicadaTheme.font(size: 12))
-            Text("No preview available")
-                .font(CicadaTheme.captionFont)
-        }
-        .foregroundStyle(CicadaTheme.textTertiary)
     }
 
     // MARK: sheets

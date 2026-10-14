@@ -62,6 +62,11 @@ enum CicadaMotion {
     static let railTooltipDelay: TimeInterval = 0.45
     static let railTooltipWarmWindow: TimeInterval = 1.0
 
+    /// Links show as what they are (owner rulings 2026-10-14) — a link row's preview card opens after a short hover
+    /// and closes soon after the pointer leaves (research-hub's HoverCard 250 / 80). Hover delays, not animations.
+    static let linkPreviewOpenDelay: TimeInterval = 0.25
+    static let linkPreviewCloseDelay: TimeInterval = 0.08
+
     /// Clouds drift, grass never moves (R-M6): at most 8 pt either way over a
     /// 60–120 s period — peripheral, never noticed as movement — at no more
     /// than 30 frames a second.

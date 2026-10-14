@@ -98,6 +98,35 @@ an edit through Sleep, in the frontmatter:
 - `human_edited: true` — set when an edit rewrites the Summary or an Article section whole: the page is the editor's from
   then on, additive-only, as a person's edit of those halves already makes it. The record sections need no mark.
 
+**How a link is drawn: the link-title grammar (owner rulings 2026-10-14).** A link on a page may name its *view* in its
+standard markdown title, so the line stays a working link in git, GitHub, Obsidian and every other reader (research-hub's
+grammar, extended): `[T](url)` is a link; `[T](url "mention")` draws site · title inline; `"bookmark"` a card;
+`"screenshot"` a picture of the page, `"screenshot 2026-10-14"` the one from that day (else the nearest earlier, said in
+words); `"captures"` every capture, oldest to newest; `"look"` / `"look 2026-10-14"` a saved look (G196) of the URL;
+`"embed"` (research-hub's word) reads as a screenshot. The title is exactly `<view>` or `<view> <yyyy-mm-dd>`, lower
+case, a date only with `screenshot` or `look`; any other title is a real tooltip and means a link. A block view is drawn
+as a block only when the link stands alone on its line (after a list marker, before an optional ` — note`); in a sentence
+it draws as a mention. A bare URL or `<URL>` reads as its address (`example.com/guide`). **One grammar, two sides:**
+`api/services/link_views.py` and the app's `LinkGrammar` (`LinkView.swift`) both read
+`api/tests/fixtures/link_views.json`. **Sleep writes plain links** — context decides how one is drawn (a `## Links`
+bullet as a mention, a link in a sentence as a link) — and a view word is written only on purpose: by an agent through
+`cicada_edit_page`, or by the person's switcher (`POST /entities/{id}/edits`, `api.md`), which is a pinned `corrections`
+row (`[T](url)` → `[T](url "bookmark")`), so Sleep's next rewrite writes the view back. The three backend link readers
+(`entity_body`'s `## Links` dedup, `page_sources`, `site_sources`) read a titled link by its URL
+(`link_views.LINK_TAIL`); recall's quotes drop the view word (`link_views.plain`) while `cicada_recall_detail` keeps it,
+since an edit copies its words from there.
+
+**A page's link facts.** `page_links.facts` answers `GET /entities/{id}/links`: per distinct URL in the served prose (code
+fences out, ≤ 200), the views it is written with, its site (`reading_hosts.site_of`), and — when the person saved it — the
+saved `media` page (matched through `url_index.json` by `media_ingestor.url_hash`, the one normaliser): `pageId`, its
+name, `## Description` (else Summary), `savedAt` (the person's own save date, else ingest), `readAt` and its stored
+picture (`entity_picture.media_picture`); the looks saved of the same URL (`looks[]`, newest first: id, day, the
+screenshot's `/design/<id>/image` path, the palette); `captures[]`, empty until site exploration lands; and `icon`, whether
+the page's icon route serves the site's mark. Nothing is fetched to answer: a link Cicada never read carries only its
+site (ruling 3). **`read_at`** on a media page is stamped by `link_enrichment` when it read the site's words (the in-cycle
+summary of a fetched page, or the backfill's fetch-and-summarise); a page the person's agent read keeps `read.at`, which
+the facts fall back to.
+
 An edited item's G118 row goes (`section_provenance.refresh`: its exact-text guard no longer matches); the edit's own
 provenance is its commit (Git, below).
 

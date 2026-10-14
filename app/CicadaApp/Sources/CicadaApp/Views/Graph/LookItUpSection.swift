@@ -84,6 +84,10 @@ struct LookItUpSection: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        // Owner rulings 2026-10-14: the links' dates and previews come from the page's link facts.
+        .task(id: "\(entityId)|\(overview?.links.count ?? 0)") {
+            if !(overview?.links ?? []).isEmpty { await LinkFactsCache.shared.refresh(entityId) }
+        }
     }
 
     private func groupTitle(_ text: String) -> some View {

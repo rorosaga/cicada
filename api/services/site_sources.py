@@ -34,7 +34,7 @@ from urllib.parse import urlparse
 
 from loguru import logger
 
-from api.services import entity_body, fact_sources, git_service, markdown_parser, reading_hosts, text_fold
+from api.services import entity_body, fact_sources, git_service, link_views, markdown_parser, reading_hosts, text_fold
 
 TRIGGER = "sleep/site-check"
 ROUTE_TRIGGER = "user/companion_app"
@@ -60,7 +60,8 @@ PLATFORM_HOSTS = frozenset({
 _STOP = frozenset("""about above after again against because before between could during every first found from have
 into more most other should since some such than that their them then there these they this those through under until
 very what when where which while with would your yours""".split())
-_URL_LINK = re.compile(r"\[([^\]]*)\]\((https?://[^)\s]+)\)|(https?://[^\s<>\")\]]+)")
+# A titled link (`[T](url "bookmark")`, `link_views`) keeps its title; a bare URL is group 3.
+_URL_LINK = re.compile(r"\[([^\]]*)\]" + link_views.LINK_TAIL + r"|(https?://[^\s<>\")\]]+)")
 _OFFICIAL = re.compile(r"\b(official|homepage|home page|website|web site)\b", re.IGNORECASE)
 _SUBSTANTIAL = 200   # characters of visible text below which a page is "thin" (a JS shell says nothing either way)
 
@@ -146,7 +147,7 @@ def _links_origin(fm: dict, body: str) -> str | None:
     names = _names(fm)
     for line in section.splitlines():
         for m in _URL_LINK.finditer(line):
-            title, url = (m.group(1) or ""), (m.group(2) or m.group(3) or "").rstrip(").,")
+            title, url = (m.group(1) or ""), (m.group(2) or link_views.trim_bare(m.group(3) or ""))
             origin = origin_of(url)
             if not origin:
                 continue

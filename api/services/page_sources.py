@@ -35,6 +35,7 @@ from api.services import (
     episode_ids,
     evidence,
     fact_sources,
+    link_views,
     markdown_parser,
     provenance,
     reading_hosts,
@@ -49,9 +50,9 @@ MAX_LINKS = 12
 #: Bumped when the payload changes for the same files (the route's ETag ``extra``).
 SHAPE = "page-sources-1"
 
-_LINK = re.compile(r"\[([^\]]*)\]\((https?://[^)\s]+)\)|(https?://[^\s<>\")\]]+)")
+# A titled link (`[T](url "bookmark")`, `link_views`) keeps its title; a bare URL is group 3.
+_LINK = re.compile(r"\[([^\]]*)\]" + link_views.LINK_TAIL + r"|(https?://[^\s<>\")\]]+)")
 _NOTE_LEAD = re.compile(r"^[\s\-–—:·|]+")
-_TRAIL = ".,;:!?)"
 
 
 def _opt(value) -> str | None:
@@ -78,7 +79,8 @@ def _parse_link(text: str) -> tuple[str, str, str | None] | None:
     if not m:
         return None
     title = (m.group(1) or "").strip()
-    url = (m.group(2) or m.group(3) or "").rstrip(_TRAIL)
+    # A link's own URL is whole (a balanced ``)`` is part of it); only a bare URL sheds the sentence's punctuation.
+    url = m.group(2) or link_views.trim_bare(m.group(3) or "")
     rest = (text[m.end():] or "").strip()
     note = _NOTE_LEAD.sub("", rest).strip() or None
     return url, title, note

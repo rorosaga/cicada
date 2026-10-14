@@ -185,7 +185,11 @@ the file read. A remote caller can never name a path. The palette is read before
 the screenshot's and reference's file paths so a local agent can open the picture. **Both are stdio-only in this slice**
 (`catalog.NEVER_REMOTE`): which scope a remote picture belongs under is an open question for the owner. CLI spellings
 `cicada design save` / `cicada design search` are proposed rows, not exposed. The portable skill
-`skills/design-taste/SKILL.md` tells an agent to search the board before building UI and to cite what it drew from.
+`skills/design-taste/SKILL.md` tells an agent to search the board before building UI and to cite what it drew from. **A link's view (owner rulings 2026-10-14):** the tool's description teaches the link-title grammar (`storage.md`) —
+`[Title](url "bookmark")` is a card; `mention`, `bookmark`, `screenshot`, `captures`, `look`, and `screenshot`/`look`
+with a ` yyyy-mm-dd` day — in the schema, not the handshake (the 1,800-token note does not grow, and R12 holds:
+`test_link_views` checks every view word the description names parses). An agent writes one only when it means it, alone
+on the link's line for a block view, with `pin` so Sleep keeps it; a plain `[Title](url)` stays a link.
 
 **Video watch (G162, TODO ruling 17).** `cicada_record_watch` takes three more arguments the agent states about its
 own work — `basis` (`transcript | frames | both`), `engine` (`captions | video_link | local_frames | speech_to_text |

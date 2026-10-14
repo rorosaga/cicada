@@ -3454,3 +3454,27 @@ extension APIClient: DesignAPI {
 
 /// G191 — the panel's two calls, live.
 extension APIClient: SavedWhyAPI {}
+
+// MARK: - Links show as what they are (owner rulings 2026-10-14)
+
+/// The person's own page edit: `POST /entities/{id}/edits`, the same body as `cicada_edit_page`.
+struct PageEditAnswer: Decodable, Equatable, Sendable {
+    var entityId: String
+    var changes: [String]
+    var sections: [String]
+    var pinned: Int
+}
+
+extension APIClient {
+    /// A page's link facts, `GET /entities/{id}/links` (ETagged, on demand — `LinkFactsCache`).
+    func fetchEntityLinks(entityId: String, etag: String?) async throws -> Conditional<PageLinkFacts> {
+        try await getConditional(Self.provenancePath("/entities", entityId, "/links"), etag: etag)
+    }
+
+    /// One exact-words edit of a page as the person, pinned so Sleep's next rewrite keeps it (G198's corrections).
+    /// The link-view switcher's door: `old` is the link's token, `new` the same link with its view word.
+    func editPage(entityId: String, reason: String, old: String, new: String) async throws -> PageEditAnswer {
+        try await post(Self.provenancePath("/entities", entityId, "/edits"),
+                       body: ["reason": reason, "edits": [["old": old, "new": new, "all": true, "pin": true]]])
+    }
+}

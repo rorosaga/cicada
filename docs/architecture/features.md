@@ -57,7 +57,9 @@ is one row whose range is its `article` provenance item's and cached by text
 draws blank, and `WikiPageView` draws the rows in a `LazyVStack`: only the lines on screen are laid out. Until the full page lands the card says "Reading the page…"; a failed read says "Couldn't read this page." with Retry, never a spinner forever (DR-32). One claims read per card is shared by every section and tab that asks at once. Every line
 offers *Where this line came from* on hover and as an accessibility action: the `/provenance` section item whose
 `bodyRanges` cover the line opens its evidence in the Reader (checked against `pageBodyHash`); a line no item covers
-opens the page's Where this comes from and scrolls to it. `/provenance` is read when the card opens — the header's
+opens the page's Where this comes from and scrolls to it. A line with web links has a 🔗 beside it (and an accessibility
+action) that opens each link's bookmark card and the person's view switcher; a link alone on its line asking for a block
+view is a card row of its own (app.md, *Links show as what they are*). `/provenance` is read when the card opens — the header's
 facts are when the conversations were said (G194) and every evidence chip names its agent from it — but drawn only
 when asked; a person's Works at and Role read only those beliefs (`GET /entities/{id}/claims?predicate=…`), never the
 whole list. Measured on a synthetic owner page of the real one's size (5.6 MB, 5,921 claims, ~180 KB of prose;

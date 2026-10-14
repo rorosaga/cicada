@@ -4442,3 +4442,69 @@ class RemoteStatusOut(CamelModel):
     reachable: Optional[bool] = None
     funnel_command: str
     ngrok_command: str
+
+
+class PageEditRequest(CamelModel):
+    """``POST /entities/{id}/edits`` — the person's own edit of a page's words or aliases (owner rulings 2026-10-14):
+    the same request ``cicada_edit_page`` takes (``page_edits``), committed alone under the person. The link-view
+    switcher sends one ``edits`` row, ``[T](url)`` → ``[T](url "bookmark")``, with ``all`` and ``pin`` set, so Sleep's
+    next rewrite keeps the view (G198's ``corrections``)."""
+
+    reason: str
+    edits: Optional[list[dict]] = None
+    section: Optional[str] = None
+    text: Optional[str] = None
+    add_aliases: Optional[list[str]] = None
+    remove_aliases: Optional[list[str]] = None
+
+
+class PageEditResponse(CamelModel):
+    entity_id: str
+    changes: list[str] = []
+    sections: list[str] = []
+    pinned: int = 0
+
+
+class LinkCapture(CamelModel):
+    """One dated picture of a linked page. Empty until the exploration pipeline lands; a Looks screenshot of the same
+    URL stands in meanwhile (``kind: look``)."""
+
+    day: str
+    at: Optional[str] = None
+    kind: str = "capture"
+    image: str
+
+
+class LinkLook(CamelModel):
+    """A saved look (G196) of the same URL: its day, its screenshot on Cicada's API, its palette."""
+
+    id: str
+    day: str = ""
+    image: str
+    palette: list[dict] = []
+
+
+class LinkFact(CamelModel):
+    """What Cicada knows about one URL a page's prose links to — every fact a link card draws. Nothing here was
+    fetched to answer: a URL Cicada never read carries only what the page itself says (owner ruling 3, 2026-10-14)."""
+
+    url: str
+    views: list[str] = []
+    site: Optional[str] = None
+    page_id: Optional[str] = None
+    title: Optional[str] = None
+    description: Optional[str] = None
+    saved_at: Optional[str] = None
+    read_at: Optional[str] = None
+    preview: Optional[str] = None
+    captures: list[LinkCapture] = []
+    looks: list[LinkLook] = []
+    icon: bool = False
+
+
+class PageLinksResponse(CamelModel):
+    """``GET /entities/{id}/links``: the link facts of a page's prose, one per distinct URL, in first-seen order.
+    Engine-free, never fetches, on demand and ETagged — not a Store domain (the card's in-memory cache)."""
+
+    entity_id: str
+    links: list[LinkFact] = []
