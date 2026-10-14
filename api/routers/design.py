@@ -85,6 +85,7 @@ class DesignVision(CamelModel):
     supported: bool = False
     installed: bool = False
     download_bytes: int = 0
+    includes_text: bool = False   # the size covers the text encoder too (the Looks click fetches both)
     installing: bool = False
     step: str = ""
     error: str = ""

@@ -261,8 +261,9 @@ A preview line or the Sleep page's button that runs on an `openrouter/` model na
 *standing* connection (sign in once, polled on the Sleep tail, disconnect here) lives in
 Integrations; a *one-shot* import (drop an export, sync a folder once) stays where it already was,
 behind the Feed's `+`. Both read the same `channel_registry`, so a channel never drifts between the
-two surfaces. Round 3 added **Notes & files** (Apple Notes, every watched folder, *Add a folder* and,
-when Obsidian is installed, *Obsidian vault*) and **Voice & meetings** (Wispr Flow once it is on this
+two surfaces. Round 3 added **Notes & files** (Apple Notes and, when Obsidian is installed, *Obsidian vault*; the
+watched folders and *Add a folder* moved to Settings → Search & files on 2026-10-14, and Notes & files keeps one
+pointer, "Folders are in Search & files ›") and **Voice & meetings** (Wispr Flow once it is on this
 Mac) — both standing connections, so both live here; their marks are the installed apps' own icons.
 Harness rows wear their app's real mark ("Other agents" a neutral glyph); a folder's Manage, Wispr
 Flow and a connector's Connect/Manage open as sheets (`SettingsSheet`), never popovers; the
@@ -523,8 +524,11 @@ moves; the placement is the owner's call). A board of the looks the person likes
 `design` or `bank` (`LooksRefresh`), and is emptied on a bank switch. `LooksBoardView` is pure over its inputs (the page
 feeds it the cache; the offscreen renders feed it fixtures): the eyebrow (`Looks · 5 saved`, `… · 3 matches`), a search
 field (⏎ searches by words through `POST /design/search`; the board re-ranks), `+` (an image file), and, when this Mac
-supports it but the image model isn't here, one row (DR-37) saying what it is for and its download size with *Turn on*
-(`POST /embeddings/install` with `part: vision`; the page polls while it installs). Tiles: the screenshot through
+supports it but images aren't understood here yet, one row (DR-37) saying what it is for and its download size with
+*Turn on* (`POST /embeddings/install` with `part: vision`; the page polls while it installs). This is the in-context
+shortcut to Settings → Search & files → *Understand images* and keeps its one click: on a Mac without the meaning part
+it fetches both, and `vision.includesText` makes the row state the combined size ("…which also sets up Understand what
+you mean") before the click. Tiles: the screenshot through
 `StoredPreview` (`PictureURL` accepts `/design/…` as Cicada's own API), its colours as one proportional strip, the site
 and the day. A click opens the reference beside the board: the screenshot, the link, *What you liked*, the colours with
 their share and words (pills), the type, the snippets (`MarkdownBody` code blocks), who saved it and how, *Remove from
@@ -1049,17 +1053,48 @@ shows once in the Version row ("couldn't be installed … You're still on 0.3.0"
 reinstalled once on that launch. The zip must be one of the same release's own assets, over https. The new copy rewrites the
 `~/.cicada/bin` launchers when it opens. Log: `~/.cicada/logs/update.log`.
 
-**Settings → Memory → Search model (G182 phase 3; EmbeddingGemma 2, owner 2026-10-09).** A row in the Search index
-card (DR-37): a picker of the models `GET /embeddings` offers — *Neural Engine* (EmbeddingGemma 2, on a Mac with macOS 15+
-on Apple silicon), *Small* (built in) and, only where the Neural Engine model can't run or the bank already uses it,
-*Larger* (EmbeddingGemma-300M) — and a line saying what this memory searches with now (with a one-line suggestion when
-`recommended` names a better model this Mac runs but hasn't downloaded), how a download is going, or how far the
-background re-embed is ("Moving search to Neural Engine: 1 of 3 parts re-read. Search keeps working meanwhile.";
-"…when Sleep finishes" while a run holds it). Picking the Neural Engine model when it isn't here starts its one-click
-download (`POST /embeddings/install` with `model` — no token, no sheet; `SearchModelRoute.download`); picking the larger
-model opens `LargerSearchModelSheet`: why a token is needed (the model's license is accepted on Hugging Face, so the
-person's own read token downloads it once), links to accept the license and create a token, a secure field, Install.
-The token goes only in the one request body and is cleared from the view at once; nothing stores it. The row polls
-while a download or the re-embed runs (`EmbeddingsStatus.isBusy`) and is disabled while Sleep writes (DR-41).
+**Settings → Search & files (owner, 2026-10-14; G182 phase 3, EmbeddingGemma 2 owner 2026-10-09, G133, G195 frame).**
+A section in the Cicada group between Privacy & data and Memory (`SettingsSection.searchFiles`, a new case): sidebar
+*Search & files*, page title *What Cicada can look through* (`SettingsSection.pageTitle`; the header shows it, the
+sidebar and search show the short name). One place for what Cicada can look through, in plain words — the owner: "without
+mentioning embeddings". `SearchFilesView`, top to bottom:
+- **Folders** — one row per watched folder (`FolderChannelRow`, moved from Integrations → Notes & files): name, its depth
+  as a `Tag` (DR-44) — *Kept in memory* today, the one depth that exists (G133) — and one state line ("312 notes · Last
+  synced 2 hours ago", `LocalSourceRowText.folderState`); the path is the row's `.help` (DR-19/DR-54); *Manage* is the
+  one control and the sheet holds *Read now*, the agent-folder checklist and *Stop watching* (behind a confirmation).
+  *Add a folder* is the list's last row; on an empty list it is the page's one `PrimaryActionButton` (DR-40); in the
+  demo it is dimmed and says "Folders are added to your own memory, not the demo" (DR-41). The add sheet keeps *Look
+  inside* before *Start watching* (R-LS13) and now says "Sleep will read 9 notes of your own" (a count of notes, never
+  of passes). The onboarding Import page's *Add a folder* opens the same sheet. Failures lead with one `warning` glyph
+  and are never `danger` text (DR-7, `WarningLine`).
+- **How search understands** — two consent rows, each one `NeutralButton` that names what it does, with the size in the
+  detail before the click (`SearchUnderstanding`, pure and tested in every state): *Understand what you mean* ("On, built
+  in. A sharper version finds looser matches, in any language: a one-time download of about 585 MB…" — the built-in
+  version already understands meaning, so the download is framed as sharper, never as turning meaning on); *Turn on*
+  downloads it (`POST /embeddings/install` with `model`, the size from the catalog's `downloadBytes`) and clears a
+  choice that would keep it off first, so one click means "use it" (the backend's re-read follows the download). While
+  it runs: the backend's step in words and a native linear bar from `install.done/total` (bytes); then "Re-reading your
+  memory for sharper matches — step 1 of 3. Search keeps working meanwhile."; while Sleep runs the button is dimmed with
+  the reason (DR-41). *Understand images* is its own second click (`POST /embeddings/install` with `part: vision`),
+  dimmed with "Turn on Understand what you mean first — images build on it." until the text part is here, so the two
+  clicks stay two; on an unsupported Mac it is a fact with no button. It reads `vision`, which `GET /embeddings` already
+  served and the app now decodes (`EmbeddingVisionState`; nil from an older backend hides the row). `install.part`
+  (`text`|`vision`|`larger`) puts a step on the right row.
+- One privacy line ("Folders are read on this Mac, and everything search downloads stays here.").
+- **Advanced**, collapsed by default and remembered per viewer (`cicada.searchFiles.advancedOpen`, DR-39): *Search
+  version* — the `PillPicker` of the catalog's labels (*Sharper*, *Built in*, and *Larger* only where Sharper can't run
+  or the bank already uses it) with its detail line (`SearchModelLogic.detail`); picking *Larger* opens
+  `LargerSearchModelSheet` (the terms are accepted on Hugging Face with the person's own account, so a read-only key from
+  that account downloads it once; the key rides one request body, is cleared from the view at once and is never
+  stored); and *Rebuild search* (the old Search index row; costs only time, no confirmation, TODO ruling 3). Version
+  names appear here and nowhere else.
+`SearchFilesTests.testDefaultVisibleWordsAreNeverTechnical` holds every default-visible string (`Copy.SearchFiles.
+defaultVisible` and every state the two rows can render) free of model, embedding, index, vector, token, runtime and
+checksum; Advanced is exempt; the hidden Settings-search keywords keep every technical word so "embeddings" still lands
+on *Understand what you mean* and "rebuild" opens Advanced (`SettingsIndex`, anchors on `.searchAdvanced`). The backend
+writes its catalog labels, steps and errors in the same words (`api/tests/test_search_words_are_plain.py`). Folder
+channels index on this page, and a Feed folder row opens it (`ChannelActions.settingsSection`). **Memory** keeps *Fetch
+link previews* and *How things fade*. Not yet (G195): the search-only depth, kinds per folder, reading N of M files and
+the idle/on-power pause — none is rendered until something computes it.
 
 ---

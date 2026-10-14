@@ -11,7 +11,7 @@ default changed.
 
 The model a bank's vectors are built with, first hit wins:
 
-1. the person's choice for that bank (Settings → Memory → Search model), kept in
+1. the person's choice for that bank (Settings → Search & files), kept in
    ``$CICADA_HOME/embedding-models.json`` — outside every bank and every git repo;
 2. the model the bank's index already records, when this machine can run it and the
    embedding settings were not set explicitly (an explicit ``CICADA_EMBEDDING_*``
@@ -86,11 +86,14 @@ class ModelInfo:
 
 
 CATALOG: tuple[ModelInfo, ...] = (
-    ModelInfo(PREFERRED_ID, "Neural Engine", 768,
-              "Runs on this Mac's Neural Engine. Finds looser matches, across languages. "
-              "A one-time download of about 585 MB.", True),
-    ModelInfo(SMALL_ID, "Small", 384, "Built in. Quick, reads about 100 languages, good for most memories.", False),
-    ModelInfo(LARGE_ID, "Larger", 768, "Finds looser matches. A one-time download of about 2 GB.", True, True),
+    # Labels and details are the person's words (Search & files, owner 2026-10-14): what each version does, never the
+    # hardware or the family it runs on — "Sharper", not "Neural Engine" (``test_search_words_are_plain``).
+    ModelInfo(PREFERRED_ID, "Sharper", 768,
+              "Finds looser matches, in any language. A one-time download of about 585 MB that stays on this Mac.",
+              True),
+    ModelInfo(SMALL_ID, "Built in", 384, "Quick, reads about 100 languages, good for most memories.", False),
+    ModelInfo(LARGE_ID, "Larger", 768, "For a Mac that can't run Sharper. A one-time download of about 2 GB.",
+              True, True),
 )
 
 
@@ -255,18 +258,39 @@ def pending_switch(bank: Path, settings, environ=os.environ) -> tuple[str, list[
 # The optional larger model: one install at a time, in the background
 # --------------------------------------------------------------------------- #
 
+#: Which download the one job is running (Search & files, 2026-10-14): Settings shows the meaning download and the
+#: image download on two rows, so the row a step belongs to is said, never guessed from the step's words.
+PART_TEXT, PART_VISION, PART_LARGER = "text", "vision", "larger"
+
+#: The steps every download says, in the person's words: what is happening, never which model or runtime does it
+#: (``test_search_words_are_plain``). The row the step sits on already names the part.
+STEP_STARTING = "Getting ready"
+STEP_CHECKING = "Checking the download"
+STEP_SETTING_UP = "Setting up on this Mac — about a minute and a half, once"
+STEP_LARGER_RUNTIME = "Getting what it needs to run — about 1 GB"
+STEP_LARGER_DOWNLOAD = "Downloading — about 1.2 GB"
+
+
+def step_downloading(done: int, total: int) -> str:
+    return f"Downloading — {done / 1e6:.0f} of {total / 1e6:.0f} MB"
+
+
 @dataclass
 class InstallJob:
     state: str = "idle"            # idle | installing | done | failed
     step: str = ""                 # what it is doing now, in words
     error: str = ""
+    part: str = ""                 # PART_TEXT | PART_VISION | PART_LARGER: which download this is
+    done: int = 0                  # bytes fetched so far, while a pinned download streams
+    total: int = 0                 # bytes it fetches in all (0: not known, or not downloading now)
     started_at: float | None = None
     finished_at: float | None = None
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
     def snapshot(self) -> dict:
         with self._lock:
-            return {"state": self.state, "step": self.step, "error": self.error}
+            return {"state": self.state, "step": self.step, "error": self.error, "part": self.part,
+                    "done": self.done, "total": self.total}
 
     def _set(self, **kw) -> None:
         with self._lock:
@@ -290,12 +314,12 @@ def _pip_install(target: Path, environ) -> None:
              "-r", str(EXTRAS_LOCK)],
             capture_output=True, text=True, timeout=INSTALL_TIMEOUT_S, env=env)
     except subprocess.TimeoutExpired as exc:
-        raise RuntimeError("The install took over an hour and was stopped. Check your connection and try again.") from exc
+        raise RuntimeError("The download took over an hour and was stopped. Check your connection and try again.") from exc
     if done.returncode != 0:
         tail = (done.stderr or done.stdout).strip().splitlines()[-1:] or [""]
         logger.warning(f"embedding_models: pip failed: {tail[0][:300]}")
-        raise RuntimeError("Couldn't install the larger model's runtime. Check your connection and free space, "
-                           "then try again.")
+        raise RuntimeError("Couldn't get what the larger version needs to run. Check your connection and free "
+                           "space, then try again.")
 
 
 def _download_model(token: str, environ) -> str:
@@ -307,12 +331,12 @@ def _download_model(token: str, environ) -> str:
     try:
         path = snapshot_download(LARGE_ID, token=token, local_dir=str(dest))
     except GatedRepoError as exc:
-        raise RuntimeError("Your Hugging Face account hasn't accepted this model's license yet — accept it on the "
-                           "model's page, then try again.") from exc
+        raise RuntimeError("Your Hugging Face account hasn't accepted the terms on its page yet — accept them, "
+                           "then try again.") from exc
     except HfHubHTTPError as exc:
         status = getattr(getattr(exc, "response", None), "status_code", None)
         if status in (401, 403):
-            raise RuntimeError("Hugging Face didn't accept that token. Check it has read access and try again.") from exc
+            raise RuntimeError("Hugging Face didn't accept that key. Check it can read, then try again.") from exc
         raise RuntimeError("The download stopped. Check your connection and try again.") from exc
     except OSError as exc:
         raise RuntimeError("The download couldn't be saved. Check the free space on this Mac and try again.") from exc
@@ -320,13 +344,14 @@ def _download_model(token: str, environ) -> str:
 
 
 def _run_install(token: str, environ) -> None:
-    JOB._set(state="installing", step="Preparing", error="", started_at=time.time(), finished_at=None)
+    JOB._set(state="installing", step=STEP_STARTING, error="", part=PART_LARGER, done=0, total=0,
+             started_at=time.time(), finished_at=None)
     staging = extras_site(environ).with_name("site-packages.partial")
     try:
         if not sentence_transformers_available():
             site = extras_site(environ)
             shutil.rmtree(staging, ignore_errors=True)
-            JOB._set(step="Installing the model's runtime (about 1 GB)")
+            JOB._set(step=STEP_LARGER_RUNTIME)
             _pip_install(staging, environ)
             shutil.rmtree(site, ignore_errors=True)
             staging.rename(site)
@@ -334,8 +359,8 @@ def _run_install(token: str, environ) -> None:
 
             site_module.addsitedir(str(site))
             if not sentence_transformers_available():
-                raise RuntimeError("The runtime installed but can't be loaded; open Cicada again and retry.")
-        JOB._set(step="Downloading the model (about 1.2 GB)")
+                raise RuntimeError("It installed but can't start; open Cicada again and retry.")
+        JOB._set(step=STEP_LARGER_DOWNLOAD)
         path = _download_model(token, environ)
         data = _read_json(models_path(environ))
         data[LARGE_ID] = path
@@ -343,7 +368,7 @@ def _run_install(token: str, environ) -> None:
         JOB._set(state="done", step="", finished_at=time.time())
         logger.info("embedding_models: the larger model is installed")
     except Exception as exc:  # noqa: BLE001 — every failure becomes a sentence the person reads
-        message = str(exc) if isinstance(exc, RuntimeError) else "The install stopped unexpectedly. Try again."
+        message = str(exc) if isinstance(exc, RuntimeError) else "The download stopped unexpectedly. Try again."
         shutil.rmtree(staging, ignore_errors=True)  # never leave a half-installed gigabyte behind
         JOB._set(state="failed", step="", error=message, finished_at=time.time())
         logger.warning(f"embedding_models: install failed: {type(exc).__name__}")
@@ -363,21 +388,24 @@ def start_install(token: str, environ=os.environ) -> bool:
 # EmbeddingGemma 2: the one-click download (no account, no token)
 # --------------------------------------------------------------------------- #
 
+def _pinned_progress(phase: str, done: int, total: int) -> None:
+    """A pinned download's progress, for either part: bytes while it streams, then the two setup steps."""
+    if phase == "download":
+        JOB._set(step=step_downloading(done, total), done=int(done), total=int(total))
+    elif phase == "prepare":
+        JOB._set(step=STEP_CHECKING, done=0, total=0)
+    elif phase == "warm":
+        JOB._set(step=STEP_SETTING_UP, done=0, total=0)
+
+
 def _run_download(bank: Path | None, settings, environ) -> None:
     from api.services import model_fetch
 
-    JOB._set(state="installing", step="Preparing", error="", started_at=time.time(), finished_at=None)
-
-    def progress(phase: str, done: int, total: int) -> None:
-        if phase == "download":
-            JOB._set(step=f"Downloading the search model ({done / 1e6:.0f} of {total / 1e6:.0f} MB)")
-        elif phase == "prepare":
-            JOB._set(step="Checking and preparing the search model")
-        elif phase == "warm":
-            JOB._set(step="Getting the search model ready on this Mac (about a minute and a half, once)")
+    JOB._set(state="installing", step=STEP_STARTING, error="", part=PART_TEXT, done=0, total=0,
+             started_at=time.time(), finished_at=None)
 
     try:
-        model_fetch.install(_home(environ) / "models", progress=progress)
+        model_fetch.install(_home(environ) / "models", progress=_pinned_progress)
         JOB._set(state="done", step="", finished_at=time.time())
         logger.info("embedding_models: the Neural Engine search model is installed")
     except Exception as exc:  # noqa: BLE001 — every failure becomes a sentence the person reads
@@ -403,18 +431,11 @@ def start_download(bank: Path | None = None, settings=None, environ=os.environ) 
 def _run_vision_download(environ) -> None:
     from api.services import model_fetch
 
-    JOB._set(state="installing", step="Preparing", error="", started_at=time.time(), finished_at=None)
-
-    def progress(phase: str, done: int, total: int) -> None:
-        if phase == "download":
-            JOB._set(step=f"Downloading the image model ({done / 1e6:.0f} of {total / 1e6:.0f} MB)")
-        elif phase == "prepare":
-            JOB._set(step="Checking and preparing the image model")
-        elif phase == "warm":
-            JOB._set(step="Getting the search model ready on this Mac (about a minute and a half, once)")
+    JOB._set(state="installing", step=STEP_STARTING, error="", part=PART_VISION, done=0, total=0,
+             started_at=time.time(), finished_at=None)
 
     try:
-        model_fetch.install_vision(_home(environ) / "models", progress=progress)
+        model_fetch.install_vision(_home(environ) / "models", progress=_pinned_progress)
         JOB._set(state="done", step="", finished_at=time.time())
         logger.info("embedding_models: the image model is installed")
     except Exception as exc:  # noqa: BLE001 — every failure becomes a sentence the person reads
@@ -438,9 +459,12 @@ def start_vision_download(environ=os.environ) -> bool:
 
 def vision_status(environ=os.environ) -> dict:
     """Whether this Mac can search by image: ``supported`` (macOS 15+ on Apple silicon), ``installed`` (the image
-    encoder sits beside the text encoder at the pinned revision), and the one-time download's size."""
+    encoder sits beside the text encoder at the pinned revision), the one-time download's size, and whether that size
+    ``includes_text`` — the text encoder is fetched first when it isn't here, so the Looks page's one click states the
+    combined size before it is pressed."""
     from api.services import model_fetch
 
+    text_here = False
     try:
         p = model_fetch.pins()
         folder = model_fetch.destination(_home(environ) / "models", p)
@@ -450,7 +474,8 @@ def vision_status(environ=os.environ) -> dict:
     except model_fetch.FetchError:
         installed, size = False, 0
     supported = neural_engine_supported()
-    return {"supported": supported, "installed": bool(installed and supported), "download_bytes": int(size)}
+    return {"supported": supported, "installed": bool(installed and supported), "download_bytes": int(size),
+            "includes_text": bool(size and not text_here)}
 
 
 # --------------------------------------------------------------------------- #
@@ -565,7 +590,7 @@ def _run_reindex(bank: Path, settings, kinds: list[str]) -> None:
         kind = embedding_health.classify(exc)
         REINDEX._set(state="failed", finished_at=time.time(),
                      error=embedding_health.sentence(kind) if kind else
-                     "Search couldn't move to the new model; it keeps the one it had. The next Sleep tries again.")
+                     "Search couldn't switch, so it keeps working as before. The next Sleep tries again.")
         logger.warning(f"embedding_models: re-embed failed: {type(exc).__name__}")
         return
     # The person may have picked another model while this ran: one more look — only for a model other than the
@@ -578,8 +603,21 @@ def _run_reindex(bank: Path, settings, kinds: list[str]) -> None:
         start_reindex_if_needed(bank, settings)
 
 
+def _download_bytes(model_id: str) -> int:
+    """What the one-click download of ``model_id`` fetches, from Cicada's own pins — so the button states its size
+    before it is pressed (Search & files). 0 when it isn't a pinned download or the pins can't be read."""
+    if model_id != PREFERRED_ID:
+        return 0
+    from api.services import model_fetch
+
+    try:
+        return int(model_fetch.total_bytes())
+    except (model_fetch.FetchError, KeyError, TypeError, ValueError):
+        return 0
+
+
 def status(bank: Path, settings, environ=os.environ) -> dict:
-    """What Settings → Memory → Search model shows for the active bank."""
+    """What Settings → Search & files shows for the active bank."""
     building = build_model(bank, settings, environ)
     recorded = recorded_model(bank)
     choice = bank_choice(bank, environ)
@@ -597,7 +635,7 @@ def status(bank: Path, settings, environ=os.environ) -> dict:
         "models": [
             {"id": m.id, "label": m.label, "dimensions": m.dimensions, "detail": m.detail,
              "needs_download": m.needs_download, "needs_token": m.needs_token,
-             "available": is_available(m.id, environ)}
+             "available": is_available(m.id, environ), "download_bytes": _download_bytes(m.id)}
             for m in offered
         ],
         "install": JOB.snapshot(),

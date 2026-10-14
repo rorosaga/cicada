@@ -142,9 +142,9 @@ enum MemoryMaintenanceText {
         case "ready":
             guard let built = StatusSnapshot.parseDate(status.builtAt) else { return "Up to date." }
             let ago = RelativeDateTimeFormatter().localizedString(for: built, relativeTo: now)
-            return "Up to date · rebuilt \(ago)"
+            return "Up to date · rebuilt \(ago). Rebuilding costs only time."
         case "stale": return "Catching up with your latest pages…"
-        case "building": return "Building for the first time…"
+        case "building": return "Getting search ready for the first time…"
         default: return "Not available on this Mac — search still works from your pages."
         }
     }

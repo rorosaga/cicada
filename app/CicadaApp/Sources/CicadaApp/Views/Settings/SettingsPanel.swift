@@ -185,6 +185,7 @@ struct SettingsPanel: View {
         case .general: SettingsGeneralView()
         case .you: YouView()
         case .privacy: PrivacyView()
+        case .searchFiles: SearchFilesView()
         case .memory: MemoryView()
         case .sleep: SettingsSleepView()
         case .integrations: IntegrationsView()

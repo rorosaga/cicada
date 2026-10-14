@@ -90,6 +90,12 @@ struct SettingsRowID: RawRepresentable, Hashable, Codable, Sendable {
     static let transcripts = SettingsRowID("transcripts")
     // Memory (Task 6)
     static let searchIndex = SettingsRowID("searchIndex")
+    // Search & files (owner, 2026-10-14): the folder list, the two consent rows and the Advanced disclosure
+    // (Search version and Rebuild search land on it and open it).
+    static let searchFolders = SettingsRowID("searchFolders")
+    static let searchMeaning = SettingsRowID("searchMeaning")
+    static let searchImages = SettingsRowID("searchImages")
+    static let searchAdvanced = SettingsRowID("searchAdvanced")
     // Memory → Search model (G182 phase 3)
     static let searchModel = SettingsRowID("searchModel")
     static let enrichLinks = SettingsRowID("enrichLinks")

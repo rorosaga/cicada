@@ -42,12 +42,12 @@ _SENTENCES = {
                    "The next Sleep tries again.",
     "unavailable": f"{_LEAD}: the embedding service is down for now. {_TAIL} The next Sleep tries again.",
     "model_missing": f"{_LEAD}: the search model isn't installed on this Mac. {_TAIL} "
-                     "Run `make embedding-model`, or pick a model in Settings → Memory → Search model.",
+                     "Run `make embedding-model`, or open Settings → Search & files.",
 }
 #: A release app carries its model inside the app, so the fix there is a choice in Settings, never a make target.
 _RELEASE_SENTENCES = {
     "model_missing": f"{_LEAD}: the search model this memory uses isn't installed on this Mac. {_TAIL} "
-                     "Install it or pick another in Settings → Memory → Search model.",
+                     "Download it or choose another in Settings → Search & files.",
 }
 
 _CREDIT_WORDS = ("insufficient_quota", "exceeded your current quota", "credit", "payment required",

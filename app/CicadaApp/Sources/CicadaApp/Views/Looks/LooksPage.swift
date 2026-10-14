@@ -220,14 +220,15 @@ struct LooksBoardView: View {
         }
     }
 
-    /// DR-37 — one line, so a row, never a card: what the image model is for and its size, and the click.
+    /// DR-37 — one line, so a row, never a card: what understanding images is for, its download size (both parts when
+    /// the meaning part isn't here yet), and the click.
     private func pictureRow(_ vision: DesignVision) -> some View {
         HStack(spacing: CicadaTheme.spacingMD) {
             Image(systemName: "photo.on.rectangle.angled")
                 .font(CicadaTheme.icon(.inline))
                 .foregroundStyle(CicadaTheme.textTertiary)
             Text(vision.installing ? (vision.step.isEmpty ? Copy.Looks.saving : vision.step)
-                 : "\(Copy.Looks.pictureOff) \(Copy.Looks.pictureDownload(vision.downloadBytes))")
+                 : "\(Copy.Looks.pictureOff) \(Copy.Looks.pictureDownload(vision.downloadBytes, includesMeaning: vision.includesText))")
                 .font(CicadaTheme.metaFont)
                 .foregroundStyle(CicadaTheme.textSecondary)
                 .lineLimit(2)

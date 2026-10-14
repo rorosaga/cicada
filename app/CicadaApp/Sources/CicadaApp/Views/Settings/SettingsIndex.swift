@@ -75,7 +75,8 @@ enum SettingsIndex {
         .ownerName, .ownerHandle, .ownerEmail, .ownerPage,
         .memoryLocation, .banks, .bankExport, .bankDelete, .telemetry,
         .outboundConnectors, .outboundFeeds, .outboundLogos, .credentials, .remoteAccess, .transcripts,
-        .searchIndex, .searchModel, .enrichLinks, .fadePace,
+        .searchFolders, .searchMeaning, .searchImages, .searchAdvanced, .searchModel, .searchIndex,
+        .enrichLinks, .fadePace,
         .sleepRuns, .sleepTime, .sleepInterval, .sleepEngine,
         .scenerySource, .sceneryTime, .sceneryWeather, .sceneryPreview,
         .mascot,
@@ -130,10 +131,29 @@ enum SettingsIndex {
         SettingsEntry(.credentials, .privacy, Copy.credentialsTitle, keywords: ["api keys", "secrets", "remove keys", "secrets.env"]),
         SettingsEntry(.remoteAccess, .privacy, Copy.remoteAccessTitle, keywords: ["remote", "outside", "from anywhere"]),
         SettingsEntry(.transcripts, .privacy, Copy.transcriptsTitle, keywords: ["transcripts", "conversations", "claude code"], detail: Copy.transcriptsFact),
+        // Search & files (owner, 2026-10-14). The page never shows a technical word; these hidden keywords keep every
+        // one the old Memory rows carried ("index", "model", "embedding", "embeddings", "semantic", "vectors"), so a
+        // technical search still lands on the right row (REVIEW §1e).
+        SettingsEntry(.searchFolders, .searchFiles, Copy.SearchFiles.foldersGroup,
+                      keywords: ["folder", "folders", "add a folder", "notes", "markdown", "files", "directory", "watch",
+                                 "watched folders", "vault", "notes & files", "documents"],
+                      detail: Copy.SearchFiles.addFolderDetail),
+        SettingsEntry(.searchMeaning, .searchFiles, Copy.SearchFiles.meaningTitle,
+                      keywords: ["meaning", "semantic", "embedding", "embeddings", "model", "vectors", "sharper",
+                                 "search model", "download", "neural engine", "languages", "smarter search"]),
+        SettingsEntry(.searchImages, .searchFiles, Copy.SearchFiles.imagesTitle,
+                      keywords: ["image", "images", "picture", "pictures", "photos", "screenshots", "vision", "looks",
+                                 "image model", "embedding"]),
+        SettingsEntry(.searchAdvanced, .searchFiles, Copy.SearchFiles.advanced,
+                      keywords: ["advanced", "search version", "rebuild"]),
+        // Advanced's two rows land on the disclosure, which opens on landing (R-O6: the row a hit names is on screen).
+        SettingsEntry(.searchModel, .searchFiles, Copy.SearchModel.title,
+                      keywords: ["model", "embedding", "embeddings", "semantic", "larger", "smaller", "built in",
+                                 "download", "vectors", "hugging face"],
+                      anchor: .searchAdvanced),
+        SettingsEntry(.searchIndex, .searchFiles, Copy.SearchFiles.rebuildTitle,
+                      keywords: ["search", "index", "rebuild", "find", "search index"], anchor: .searchAdvanced),
         // Memory
-        SettingsEntry(.searchIndex, .memory, Copy.searchIndexTitle, keywords: ["search", "index", "rebuild", "find"]),
-        SettingsEntry(.searchModel, .memory, Copy.SearchModel.title,
-                      keywords: ["model", "embedding", "embeddings", "semantic", "meaning", "larger", "smaller", "download", "vectors"]),
         SettingsEntry(.enrichLinks, .memory, Copy.enrichLinksTitle, keywords: ["links", "previews", "descriptions", "bookmarks"], detail: Copy.enrichLinksDetail),
         SettingsEntry(.fadePace, .memory, Copy.fadePaceTitle,
                       keywords: ["fade", "decay", "forget", "archive", "pace", "still tracking", "slower", "faster"],
@@ -208,8 +228,9 @@ enum SettingsIndex {
         SettingsEntry(.settingsFile, .advanced, Copy.settingsFileTitle, keywords: ["api/.env", ".env", "settings", "concurrency", "in effect"]),
     ]
 
+    /// A page whose header asks its own question (Search & files) is also found by it.
     static let pageEntries: [SettingsEntry] = SettingsSection.allCases.map {
-        SettingsEntry(.page($0), $0, $0.title, detail: $0.subtitle)
+        SettingsEntry(.page($0), $0, $0.title, keywords: $0.pageTitle == $0.title ? [] : [$0.pageTitle], detail: $0.subtitle)
     }
 
     /// Names and ids only: a connection's account line, an agent's install
@@ -221,8 +242,13 @@ enum SettingsIndex {
         var out: [SettingsEntry] = []
         // R-FA13 — `calendar-local` is `.calendarApp`'s row, never a second search entry; `contacts-local` is
         // `.contactsApp`'s (G154).
-        out += channels.filter { $0.id != CalendarRow.channelId && $0.id != ContactsReader.channel }.map { SettingsEntry(.channel($0.id), .integrations, $0.label,
-                                            keywords: [$0.id, IntegrationCategory.of(channelId: $0.id).title]) }
+        // A watched folder lists on Search & files (owner, 2026-10-14), every other channel on Integrations.
+        out += channels.filter { $0.id != CalendarRow.channelId && $0.id != ContactsReader.channel }.map {
+            $0.id.hasPrefix("folder:")
+                ? SettingsEntry(.channel($0.id), .searchFiles, $0.label, keywords: [$0.id, "folder", Copy.SearchFiles.foldersGroup])
+                : SettingsEntry(.channel($0.id), .integrations, $0.label,
+                                keywords: [$0.id, IntegrationCategory.of(channelId: $0.id).title])
+        }
         out += harnessRows.map { SettingsEntry(.harness($0.harness ?? $0.id), .integrations, $0.label,
                                                keywords: ["agent", "conversations"]) }
         out += exportOnly.map { SettingsEntry(.exportOnly($0.id), .integrations, $0.title, keywords: ["import", "export"]) }

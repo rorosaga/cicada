@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// G182 phase 3 — the larger search model's one-time install. The model is published under a license
+/// G182 phase 3 — the larger version's one-time download, behind Search & files → Advanced. It is published under terms
 /// the person accepts on Hugging Face with their own account, so the download needs their own
 /// read-access token. The sheet says that in plain words, links to the two pages they act on
 /// (DR-5 use 5, `InlineLink`), takes the token in a `SecureField` and sends it in one request body
@@ -51,10 +51,8 @@ struct LargerSearchModelSheet: View {
                     .onSubmit { if ready { send() } }
             }
             if let failure {
-                Text(failure)
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.danger)
-                    .fixedSize(horizontal: false, vertical: true)
+                // DR-7 — a failure is one `warning` glyph and untinted text; `danger` is for destructive actions.
+                WarningLine(text: failure, warning: true)
             }
             HStack(spacing: CicadaTheme.spacingSM) {
                 if sending { ProgressView().controlSize(.small) }
