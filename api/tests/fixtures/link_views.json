@@ -1,0 +1,75 @@
+{
+  "_comment": "The link-view grammar (owner rulings 2026-10-14): api/services/link_views.py and app LinkView.swift both read this file. Synthetic URLs only.",
+  "titles": [
+    {"title": null, "view": null, "day": null},
+    {"title": "", "view": null, "day": null},
+    {"title": "link", "view": "link", "day": null},
+    {"title": "raw", "view": "raw", "day": null},
+    {"title": "mention", "view": "mention", "day": null},
+    {"title": "bookmark", "view": "bookmark", "day": null},
+    {"title": "screenshot", "view": "screenshot", "day": null},
+    {"title": "screenshot 2026-10-14", "view": "screenshot", "day": "2026-10-14"},
+    {"title": "captures", "view": "captures", "day": null},
+    {"title": "look", "view": "look", "day": null},
+    {"title": "look 2026-03-02", "view": "look", "day": "2026-03-02"},
+    {"title": "embed", "view": "embed", "day": null},
+    {"title": "Bookmark", "view": null, "day": null},
+    {"title": " bookmark", "view": null, "day": null},
+    {"title": "bookmark 2026-10-14", "view": null, "day": null},
+    {"title": "captures 2026-10-14", "view": null, "day": null},
+    {"title": "screenshot 2026-13-40", "view": null, "day": null},
+    {"title": "screenshot 14-10-2026", "view": null, "day": null},
+    {"title": "screenshot  2026-10-14", "view": null, "day": null},
+    {"title": "The pricing guide", "view": null, "day": null},
+    {"title": "card", "view": null, "day": null}
+  ],
+  "lines": [
+    {"line": "They moved to usage billing after the [pricing page](https://example.com/pricing) redesign.",
+     "links": [{"label": "pricing page", "url": "https://example.com/pricing", "view": "link", "asked": "link", "day": null, "block": false, "markdown": "[pricing page](https://example.com/pricing)"}]},
+    {"line": "[How we priced seats](https://blog.example.com/seats \"bookmark\")",
+     "links": [{"label": "How we priced seats", "url": "https://blog.example.com/seats", "view": "bookmark", "asked": "bookmark", "day": null, "block": true, "markdown": "[How we priced seats](https://blog.example.com/seats \"bookmark\")"}]},
+    {"line": "The team wrote it up in [How we priced seats](https://blog.example.com/seats \"bookmark\") last year.",
+     "links": [{"label": "How we priced seats", "url": "https://blog.example.com/seats", "view": "mention", "asked": "bookmark", "day": null, "block": false, "markdown": "[How we priced seats](https://blog.example.com/seats \"bookmark\")"}]},
+    {"line": "- [Getting started](https://docs.example.com/start \"screenshot 2026-10-14\") — the setup guide we followed",
+     "links": [{"label": "Getting started", "url": "https://docs.example.com/start", "view": "screenshot", "asked": "screenshot", "day": "2026-10-14", "block": true, "markdown": "[Getting started](https://docs.example.com/start \"screenshot 2026-10-14\")"}]},
+    {"line": "- [Roadmap](https://alpha.example.org/roadmap) — linked when the launch date moved",
+     "links": [{"label": "Roadmap", "url": "https://alpha.example.org/roadmap", "view": "link", "asked": "link", "day": null, "block": true, "markdown": "[Roadmap](https://alpha.example.org/roadmap)"}]},
+    {"line": "See [the guide](https://docs.example.com/guide \"The setup guide\") for details.",
+     "links": [{"label": "the guide", "url": "https://docs.example.com/guide", "view": "link", "asked": "link", "day": null, "block": false, "markdown": "[the guide](https://docs.example.com/guide \"The setup guide\")"}]},
+    {"line": "Read [it](https://example.com/a 'mention') and [that](https://example.com/b \"look\").",
+     "links": [
+       {"label": "it", "url": "https://example.com/a", "view": "mention", "asked": "mention", "day": null, "block": false, "markdown": "[it](https://example.com/a 'mention')"},
+       {"label": "that", "url": "https://example.com/b", "view": "mention", "asked": "look", "day": null, "block": false, "markdown": "[that](https://example.com/b \"look\")"}]},
+    {"line": "The old plan is at https://example.com/plans/flat, now gone.",
+     "links": [{"label": "https://example.com/plans/flat", "url": "https://example.com/plans/flat", "view": "raw", "asked": "raw", "day": null, "block": false, "markdown": "https://example.com/plans/flat"}]},
+    {"line": "The redesign (https://example.com/pricing) shipped.",
+     "links": [{"label": "https://example.com/pricing", "url": "https://example.com/pricing", "view": "raw", "asked": "raw", "day": null, "block": false, "markdown": "https://example.com/pricing"}]},
+    {"line": "Autolinked: <https://example.com/x>.",
+     "links": [{"label": "https://example.com/x", "url": "https://example.com/x", "view": "raw", "asked": "raw", "day": null, "block": false, "markdown": "<https://example.com/x>"}]},
+    {"line": "[Notes \\[draft\\]](https://example.com/notes \"captures\")",
+     "links": [{"label": "Notes [draft]", "url": "https://example.com/notes", "view": "captures", "asked": "captures", "day": null, "block": true, "markdown": "[Notes \\[draft\\]](https://example.com/notes \"captures\")"}]},
+    {"line": "An image ![a chart](https://example.com/chart.png \"Oct 14\") is not a link.",
+     "links": []},
+    {"line": "Code `https://example.com/in-code` is not a link, nor `[x](https://example.com/y)`.",
+     "links": []},
+    {"line": "A wikilink [[alpha-project]] and a page [Alpha](cicada://entity/alpha-project) are not web links.",
+     "links": []}
+  ],
+  "plain": [
+    {"in": "See [T](https://example.com/t \"bookmark\") here.", "out": "See [T](https://example.com/t) here."},
+    {"in": "[T](https://example.com/t \"screenshot 2026-10-14\")", "out": "[T](https://example.com/t)"},
+    {"in": "[T](https://example.com/t \"A real tooltip\")", "out": "[T](https://example.com/t \"A real tooltip\")"},
+    {"in": "No links at all.", "out": "No links at all."},
+    {"in": "![img](https://example.com/i.png \"look\")", "out": "![img](https://example.com/i.png \"look\")"}
+  ],
+  "markdown": [
+    {"label": "How we priced seats", "url": "https://blog.example.com/seats", "view": "link", "day": null, "out": "[How we priced seats](https://blog.example.com/seats)"},
+    {"label": "How we priced seats", "url": "https://blog.example.com/seats", "view": "bookmark", "day": null, "out": "[How we priced seats](https://blog.example.com/seats \"bookmark\")"},
+    {"label": "Notes [draft]", "url": "https://example.com/a b", "view": "screenshot", "day": "2026-10-14", "out": "[Notes \\[draft\\]](https://example.com/a%20b \"screenshot 2026-10-14\")"}
+  ],
+  "display": [
+    {"url": "https://www.example.com/guide/", "out": "example.com/guide"},
+    {"url": "http://example.com", "out": "example.com"},
+    {"url": "https://docs.example.com/a?b=c", "out": "docs.example.com/a?b=c"}
+  ]
+}

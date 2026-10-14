@@ -31,6 +31,9 @@ from api.models.schemas import (
     EntitySourceCreate,
     EntitySourceList,
     LocationListing,
+    PageEditRequest,
+    PageEditResponse,
+    PageLinksResponse,
     PaperDetailResponse,
     PictureInputsModel,
     RepoContext,
@@ -921,12 +924,117 @@ async def get_entity_source_icon(
     # G159: a person's page never draws a mark — a personal domain can carry the name, and no service is sent it.
     if str(markdown_parser.parse(entity_path).frontmatter.get("type") or "").strip().lower() in ("person", "media"):
         raise HTTPException(404, "no icon for this site")
-    allowed = {reading_hosts.site_of(str(s.get("ref") or "")) for s in fact_sources.list_sources(settings.memory_path, entity_id)
-               if str(s.get("kind") or "") == "url" and fact_sources.trusted(s)}
+    allowed = _icon_sites(settings.memory_path, entity_id, entity_path)
     domain = reading_hosts.icon_host(site) if site in allowed else None
     if not domain:
         raise HTTPException(404, "no icon for this site")
     return await serve_site_icon(request, settings.memory_path, site, domain)
+
+
+def _icon_sites(memory_path: Path, entity_id: str, entity_path: Path) -> set[str]:
+    """The sites whose mark this page may draw: a trusted source's site (G61 S3-b), and — owner rulings 2026-10-14 —
+    the site of a page the person **saved** that this page's prose links to (``page_links.linked_sites``). Never a
+    site only named or linked: that draws a ring monogram. Callers refuse a ``person`` or ``media`` page first (G159)."""
+    from api.services import page_links, reading_hosts
+
+    allowed = {reading_hosts.site_of(str(s.get("ref") or "")) for s in fact_sources.list_sources(memory_path, entity_id)
+               if str(s.get("kind") or "") == "url" and fact_sources.trusted(s)}
+    try:
+        allowed |= page_links.linked_sites(memory_path, markdown_parser.parse(entity_path).body or "")
+    except Exception:  # noqa: BLE001 — an unreadable page vouches for nothing
+        pass
+    return allowed
+
+
+@router.get("/entities/{entity_id}/links", response_model=PageLinksResponse, response_model_exclude_none=True)
+async def get_entity_links(
+    entity_id: str,
+    request: Request,
+    response: Response,
+    settings: Settings = Depends(get_settings),
+):
+    """A page's link facts (owner rulings 2026-10-14): per URL in its prose, everything a link card draws — the saved
+    page's title, site, description, save and read dates and stored picture, the looks saved of it, its captures
+    (empty until site exploration lands) and whether its site's mark may be drawn (``page_links``). Engine-free, never
+    fetches, writes nothing. On demand, not a Store domain: the ETag (entities, sources — the URL index — and design,
+    plus the shape) serves the card's in-memory cache (``LinkFactsCache``), so there is no ``VersionVector`` mapping."""
+    from api.services import page_links
+    from api.services.id_utils import resolve_entity_file
+
+    memory_path = settings.memory_path
+    page = resolve_entity_file(memory_path, entity_id)
+    if page is None or not page.exists():
+        raise HTTPException(404, f"Entity {entity_id} not found")
+    etag = sync_service.etag_for(memory_path, "entities", "sources", "design", extra=f"{page_links.SHAPE}|{page.stem}")
+    if (early := sync_service.conditional(request, response, etag)) is not None:
+        return early
+
+    def build() -> dict:
+        kind = str(markdown_parser.parse(page).frontmatter.get("type") or "").strip().lower()
+        allowed = set() if kind in ("person", "media") else _icon_sites(memory_path, page.stem, page)
+        return page_links.facts(memory_path, page, icon_allowed=allowed)
+
+    return await run_in_threadpool(build)
+
+
+@router.post("/entities/{entity_id}/edits", response_model=PageEditResponse)
+@_admits(PAGE_BUSY)
+async def edit_entity_page(
+    entity_id: str,
+    request: PageEditRequest,
+    settings: Settings = Depends(get_settings),
+):
+    """The person's own edit of a page's words or aliases (owner rulings 2026-10-14) — the link-view switcher's door,
+    and any other prose fix the app offers. The same body as ``cicada_edit_page`` (``page_edits.plan``: never the
+    claims, never a heading or a fence, ``Related`` refused), applied at once and committed alone under the person
+    (``Cicada-Author: user``, trigger ``user/companion_app``) with the reason as its ``Reason:`` line. A second door onto
+    one writer, as the CLI is (ruling 21). 400: a request the editor refuses; 409: words no longer on the page, or Sleep
+    holding the pages (G177)."""
+    from api.services import page_edits
+
+    try:
+        reason = page_edits.clean_reason(request.reason)
+        edit = page_edits.parse_request(request.edits, request.section, request.text, request.add_aliases,
+                                        request.remove_aliases)
+    except page_edits.EditError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    outcome = await run_in_threadpool(_person_edit, settings.memory_path, entity_id, edit, reason)
+    return PageEditResponse(entity_id=entity_id, changes=outcome.changes, sections=outcome.sections,
+                            pinned=outcome.pinned)
+
+
+#: The person's page edits commit under this trigger, beside the app's other writes.
+PERSON_EDIT_TRIGGER = "user/companion_app"
+
+
+def _person_edit(memory_path: Path, entity_id: str, edit, reason: str):
+    """Plan, write and commit one person's edit as ONE page-lock section, in a worker thread (G183(a)), like
+    ``_rewrite_page_and_commit``: an edit already on the page is committed apart first, unauthored."""
+    from api.services import bank_index, page_edits
+    from api.services.id_utils import resolve_entity_file
+
+    with page_lock.page_lock(memory_path):
+        page = resolve_entity_file(memory_path, entity_id)
+        if page is None or not page.is_file():
+            raise HTTPException(404, f"Entity {entity_id} not found")
+        rel = f"entities/{page.name}"
+        tracked = (memory_path / ".git").exists()
+        before = None
+        if tracked:
+            before = {rel: page.read_bytes()} if rel in git_service.dirty_paths_sync(memory_path, rel) else {}
+        current = page_edits.read(page)
+        try:
+            outcome = page_edits.plan(current.frontmatter, current.body, edit, author="user")
+        except page_edits.EditError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        page_edits.write(page, outcome)
+        if tracked:
+            message = git_service.build_commit_message(
+                f"{page_edits.COMMIT_SUBJECT} {date.today().isoformat()}",
+                page_edits.commit_lines(rel, PERSON_EDIT_TRIGGER, reason), authors=["user"])
+            git_service.commit_touched_sync(memory_path, message, [rel], before=before)
+    bank_index.invalidate(memory_path)
+    return outcome
 
 
 @router.get("/entities/{entity_id}/paper", response_model=PaperDetailResponse)

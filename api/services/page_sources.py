@@ -35,6 +35,7 @@ from api.services import (
     episode_ids,
     evidence,
     fact_sources,
+    link_views,
     markdown_parser,
     provenance,
     reading_hosts,
@@ -49,7 +50,8 @@ MAX_LINKS = 12
 #: Bumped when the payload changes for the same files (the route's ETag ``extra``).
 SHAPE = "page-sources-1"
 
-_LINK = re.compile(r"\[([^\]]*)\]\((https?://[^)\s]+)\)|(https?://[^\s<>\")\]]+)")
+# A titled link (`[T](url "bookmark")`, `link_views`) keeps its title; a bare URL is group 3.
+_LINK = re.compile(r"\[([^\]]*)\]" + link_views.LINK_TAIL + r"|(https?://[^\s<>\")\]]+)")
 _NOTE_LEAD = re.compile(r"^[\s\-–—:·|]+")
 _TRAIL = ".,;:!?)"
 

@@ -210,12 +210,34 @@ private struct BackedFactRow: View {
 /// A link the page's conversations named: its mark (the page's own icon route answers only for a site it trusts; else
 /// a monogram), its title (else its host) in `accentText` (DR-6), the full URL, the line's note, then the conversation that named it —
 /// mark, app, title, day (DR-54) — which opens in the Reader. ↗ opens the link; the menu keeps it as a source.
+/// Owner rulings 2026-10-14: the URL line carries the date of what Cicada knows of the page ("Read Oct 2"), and a
+/// short hover opens the link's bookmark card (`CicadaMotion.linkPreviewOpenDelay`) — never inline in the row
+/// (DR-34/37).
 struct PageLinkRow: View {
     let link: PageLink
     let entityId: String
     let onOpenOrigin: (() -> Void)?
     let onUseAsSource: () -> Void
     @State private var hovering = false
+    @State private var previewing = false
+    @State private var hoverTask: Task<Void, Never>?
+
+    private var fact: LinkFact { LinkFactsCache.shared.fact(link.url, on: entityId) }
+
+    private var urlLine: String {
+        LinkCardModel.dateLine(fact).map { "\(link.url) · \($0)" } ?? link.url
+    }
+
+    private func hover(_ inside: Bool) {
+        hovering = inside
+        hoverTask?.cancel()
+        let delay = inside ? CicadaMotion.linkPreviewOpenDelay : CicadaMotion.linkPreviewCloseDelay
+        hoverTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            previewing = inside && link.link != nil
+        }
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: CicadaTheme.scaled(10)) {
@@ -227,7 +249,7 @@ struct PageLinkRow: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .help(link.url)
-                Text(link.url)
+                Text(urlLine)
                     .font(CicadaTheme.metaFont)
                     .foregroundStyle(CicadaTheme.textTertiary)
                     .lineLimit(1)
@@ -279,7 +301,18 @@ struct PageLinkRow: View {
         .padding(.trailing, CicadaTheme.spacingXS)
         .padding(.vertical, CicadaTheme.scaled(6))
         .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).fill(hovering ? CicadaTheme.bgHover : Color.clear))
-        .onHover { hovering = $0 }
+        .onHover { hover($0) }
+        .onDisappear { hoverTask?.cancel() }
+        .popover(isPresented: $previewing, arrowEdge: .leading) {
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+                BookmarkCard(fact: fact, entityId: entityId)
+                Text(Copy.Links.openHint)
+                    .font(CicadaTheme.metaFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+            }
+            .padding(CicadaTheme.spacingMD)
+            .frame(width: 380)
+        }
     }
 
     @ViewBuilder

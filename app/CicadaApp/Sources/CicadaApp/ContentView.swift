@@ -102,6 +102,7 @@ struct ContentView: View {
         .onChange(of: store.bank) { old, _ in
             provenance.close()
             provenanceCache.reset()
+            LinkFactsCache.shared.reset()
             projectsCache.reset()
             backlogCache.reset()
             channelItemsCache.reset()

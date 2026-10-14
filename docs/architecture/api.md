@@ -28,6 +28,19 @@ The ETag retains entities/episodes/git_head, author shape and current day, and a
 ship together. R-PB11 still applies:
 asked on demand, cached in memory, not a Store domain or a new VersionVector component.
 
+**A page's link facts and the person's page edit (owner rulings 2026-10-14).** `GET /entities/{id}/links`
+(`page_links.facts`, `storage.md`) is engine-free, never fetches and writes nothing; its ETag is entities + sources (the
+URL index) + design, plus `page_links.SHAPE` and the page id. **Not a Store domain** (R-PB11): the app reads it into
+`LinkFactsCache` (in memory, by entity id, revalidated on every ask, emptied on a bank switch), so it ships no
+`VersionVector` mapping. `GET /entities/{id}/sources/icon/{site}` also serves the site of a page the person **saved** that
+this page's prose links to (`page_links.linked_sites`), beside a trusted source's site; never on a `person` or `media`
+page (G159), never a site only linked. `POST /entities/{id}/edits` (`PageEditRequest`: `reason` plus the
+`cicada_edit_page` body — `edits`, `section`/`text`, `add_aliases`, `remove_aliases`) is the person's own page edit: the
+same `page_edits.plan`, under the route's write admission (409 while Sleep holds the pages, G177) and the page lock,
+committed alone as `Page edit <date>` with `entities/<id>.md: edited (trigger: user/companion_app)`, the `Reason:` line
+and `Cicada-Author: user` — a second door onto one writer, as the CLI is (ruling 21). 400: a request the editor refuses;
+409: words no longer on the page; 404: no page. The link-view switcher sends one `{old, new, all: true, pin: true}` row.
+
 **Where a page's knowledge comes from (owner 2026-10-14, G61).** `GET /entities/{id}/sources/overview`
 (`page_sources.overview`) answers the card's one section in one read: `sources[]` (each the `/sources` entry plus
 `site`, a `title` (the page's `## Links` title for that URL, else the name of the saved page `entity:` links it to —

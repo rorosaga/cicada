@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import re
 
-from api.services import fact_policy, summary_policy
+from api.services import fact_policy, link_views, summary_policy
 
 CANONICAL_SECTIONS = [
     "Summary",
@@ -36,7 +36,8 @@ CANONICAL_SECTIONS = [
 
 # H2 heading matcher. Captures the trimmed title after "## ".
 _H2 = re.compile(r"^##\s+(.+?)\s*$", re.MULTILINE)
-_URL_IN_LINK = re.compile(r"\]\((https?://[^)\s]+)\)")
+# A link's URL, titled or not (`[T](url "bookmark")` — the link-view grammar, `link_views`): `## Links` dedups by it.
+_URL_IN_LINK = re.compile(r"\]" + link_views.LINK_TAIL)
 
 
 def parse_sections(body: str) -> dict[str, str]:

@@ -241,6 +241,9 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   X or LinkedIn profile link (owner, 2026-10-09; `network.md`).
   Logos, pictures, media previews (fetched once, then served from the store) and repo observations are caches outside
   every bank.
+- **Link views (owner rulings 2026-10-14):** a link's view is a word in its markdown title (`[T](url "bookmark")`), one
+  grammar on both sides (`link_views`); Sleep writes plain links, a view is an agent's or the person's pinned edit, and
+  nothing is fetched to draw a card; the app loads no picture a page names from the web (`storage.md`, `app.md`).
 - **Backlogs (G150):** one markdown file per item, one writer behind every door, never an entity page.
 - **Design references (2026-10-14):** one markdown file plus its screenshot per look, in the bank, one writer
   (`design_refs`), never an entity page; palette and vectors are computed here, the index lives outside the bank.

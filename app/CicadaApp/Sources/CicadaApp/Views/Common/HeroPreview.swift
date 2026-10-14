@@ -19,7 +19,7 @@ import MapKit
 //     ONLY url ever loaded is the entity's own media url (or the embed url
 //     derived from it), mirroring the "only the media's url" invariant
 //     elsewhere.
-//   • `ImageLightbox` (ImageLightbox.swift) for tap-to-enlarge.
+//   • `StoredPreview` for every picture: the one Cicada stores, never a provider's URL (owner rulings 2026-10-14).
 //
 // KNOWN, DISCLOSED, NOT FIXED HERE: a `media` entity page renders BOTH this
 // hero and `MediaPreview` — `EntityDetailCard.contentTab` shows the preview
@@ -57,8 +57,11 @@ struct HeroPreview: View {
         guard let media = entity.media, media.hasURL else { return false }
         let model = MediaPreviewModel(block: media, title: entity.name)
         switch model.kind {
-        case .embedVideo, .fileVideo, .image:
+        case .embedVideo, .fileVideo:
             return true
+        case .image:
+            // Owner rulings 2026-10-14: only the picture Cicada stores — the provider's URL is never loaded.
+            return model.hasPicture
         case .instagram:
             return model.hasPicture
         case .website:
@@ -84,8 +87,8 @@ struct HeroPreview: View {
             FileVideoHero(ref: ref)
 
         case .image:
-            if let url = model.resolvedURL {
-                HeroImage(url: url)
+            if model.hasPicture {
+                HeroStoredImage(path: model.preview)
             }
 
         case .instagram:
@@ -202,57 +205,9 @@ private struct FileVideoHero: View {
     }
 }
 
-// MARK: - Hero image (any entity with a usable thumbnail/image url)
-
-private struct HeroImage: View {
-    let url: URL
-    @State private var showLightbox = false
-
-    var body: some View {
-        Button { showLightbox = true } label: {
-            AsyncImage(url: url) { phase in
-                switch phase {
-                case .success(let image):
-                    image.resizable().scaledToFill()
-                case .failure:
-                    placeholder(symbol: "photo")
-                case .empty:
-                    ZStack {
-                        CicadaTheme.surfaceHover
-                        ProgressView().controlSize(.small)
-                    }
-                @unknown default:
-                    placeholder(symbol: "photo")
-                }
-            }
-            .frame(maxWidth: .infinity)
-            .frame(height: HeroPreview.maxHeight)
-            .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadius))
-            .overlay(
-                RoundedRectangle(cornerRadius: CicadaTheme.cornerRadius)
-                    .stroke(CicadaTheme.border, lineWidth: 1)
-            )
-        }
-        .buttonStyle(.cicadaPlain)
-        .help("Click to enlarge")
-        .sheet(isPresented: $showLightbox) {
-            ImageLightbox(url: url)
-        }
-    }
-
-    private func placeholder(symbol: String) -> some View {
-        ZStack {
-            CicadaTheme.mediaPink.opacity(0.1)
-            Image(systemName: symbol)
-                .font(CicadaTheme.font(size: 28))
-                .foregroundStyle(CicadaTheme.mediaPink.opacity(0.6))
-        }
-    }
-}
-
 // MARK: - Hero stored picture (a login-walled page's saved preview)
 
-/// The stored preview at hero size — `HeroImage`'s frame without the lightbox, since the full image is the provider's.
+/// The stored preview at hero size — a saved image, or a login-walled page's saved preview.
 private struct HeroStoredImage: View {
     let path: String?
 
