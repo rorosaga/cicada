@@ -1080,6 +1080,45 @@ async def _site_sources_safely(memory_path: Path) -> None:
         await asyncio.to_thread(site_sources.restore, memory_path, report)
 
 
+async def _source_refresh_safely(memory_path: Path) -> None:
+    """G61, ruling 26 — re-check the tracked PUBLIC sources that are due (the person's own, or ones Cicada's read
+    confirmed) on Cicada's own rail, and fold what each page states as a new dated fact: the newest evidence wins
+    (`source_refresh`). At most `source_refresh.TAIL_BUDGET` fetches a night, one per site; a login-walled source is
+    never fetched here (it is only listed for the person's own agent). No model runs. Behind
+    `CICADA_ALLOW_CONNECTOR_FETCH`; one path-scoped `cicada` commit (`Source refresh <date>`, trigger
+    `sleep/source-refresh`); pages dirty before it ran are skipped and a failed commit restores them. Never raises."""
+    from api.services import source_refresh
+    from api.services.connectors.base import network_allowed
+
+    if not network_allowed():
+        logger.info("source refresh skipped: unattended fetches are off (CICADA_ALLOW_CONNECTOR_FETCH)")
+        return
+    skip: frozenset[str] = frozenset()
+    if (memory_path / ".git").exists():
+        try:
+            skip = await _dirty_paths(memory_path)
+        except Exception as exc:
+            logger.warning(f"Source refresh skipped: tree status unreadable ({type(exc).__name__})")
+            return
+    report = source_refresh.Report()
+    try:
+        await source_refresh.run_tail(memory_path, skip=skip, report=report)
+    except Exception as exc:
+        logger.warning(f"Source refresh failed — undoing {len(report.paths)} file(s): {type(exc).__name__}: {exc}")
+        await asyncio.to_thread(source_refresh.restore, memory_path, report)
+        return
+    logger.info(f"Source refresh: {report.counts}")   # counts only — never a host, a page or a value
+    if not report.paths or not (memory_path / ".git").exists():
+        return
+    try:
+        async with _lock:
+            await git_service.commit_paths(
+                memory_path, source_refresh.commit_message(report, date.today()), report.paths)
+    except Exception as exc:
+        logger.warning(f"Source refresh commit failed — undoing: {type(exc).__name__}: {exc}")
+        await asyncio.to_thread(source_refresh.restore, memory_path, report)
+
+
 async def _run_engine_independent_tail(
     memory_path: Path, settings: Settings, outcome: _StageOutcome, *, user_triggered: bool = True,
     skip_links: bool = False,
@@ -1173,6 +1212,8 @@ async def _run_engine_independent_tail(
         else:
             # G61 S3-b: before any poll's `git add -A`, so it cannot sweep this step's pages.
             await _site_sources_safely(memory_path)
+            # G61, ruling 26: tracked sources re-checked (public pages only), before any poll's `git add -A`.
+            await _source_refresh_safely(memory_path)
             await _poll_connectors_safely(memory_path)
             await _poll_feeds_and_calendars_safely(memory_path)
             if skip_links:

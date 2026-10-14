@@ -31,6 +31,7 @@ from api.models.schemas import (
     EntitySourceCreate,
     EntitySourceList,
     LocationListing,
+    SourceRefreshRequest,
     PageEditRequest,
     PageEditResponse,
     PageLinksResponse,
@@ -62,6 +63,7 @@ from api.services import (
     person_photo,
     repo_context,
     repo_observations,
+    source_refresh,
     sync_service,
     telemetry,
     write_admission,
@@ -842,6 +844,14 @@ def _sources_payload(memory_path: Path, entity_id: str) -> EntitySourceList:
         s["entity"] = fact_sources.linked_entity(memory_path, s, self_id=entity_id)
         s["effective_access"] = fact_sources.effective_access(s)
         s["trusted"] = fact_sources.trusted(s)
+        # G61, ruling 26: whether it is re-checked, by whom, and why it is due now — derived, never stored.
+        s["tracked"] = source_refresh.tracked(s)
+        s["refresh_checker"] = source_refresh.checker(s) if s["tracked"] else None
+        s["refresh_due"] = source_refresh.due_reason(s, date.today())
+        if not isinstance(s.get("refresh"), dict):
+            s.pop("refresh", None)
+        if not isinstance(s.get("recheck_days"), int):
+            s.pop("recheck_days", None)
         rows.append(EntitySource(**s))
     return EntitySourceList(entity_id=entity_id, sources=rows)
 
@@ -1128,6 +1138,85 @@ async def change_entity_source(
     await _commit_sources(
         settings.memory_path, entity_id, "Remove" if result.action == "removed" else "Change", extra)
     return _sources_payload(settings.memory_path, entity_id)
+
+
+_refresh_lock = asyncio.Lock()
+
+
+@router.post("/entities/{entity_id}/sources/refresh", response_model=EntitySourceList)
+async def refresh_entity_source(
+    entity_id: str,
+    request: SourceRefreshRequest,
+    settings: Settings = Depends(get_settings),
+):
+    """G61, ruling 26 — the person asks to re-check ONE tracked source now (or sets how often: ``everyDays``,
+    ``clear``). A public page is read now on Cicada's own rail (the person's click: ungated by
+    ``CICADA_ALLOW_CONNECTOR_FETCH``, never a walled host) and what it states is folded at once — the newest evidence
+    wins — in one ``cicada`` commit (trigger ``user/companion_app``). A login-walled page is never fetched here: it is
+    marked asked, so the person's own agent sees it first (``cicada_refresh_claim``), committed as ``user``. 409 on the
+    demo bank, while Sleep holds the pages, or while another re-check runs; 404 no page or no such source; 400 a
+    source that is not re-checked (an agent's unconfirmed proposal, a note, a path)."""
+    from api.services import demo_guard, sleep_cycle
+
+    memory_path = settings.memory_path
+    if demo_guard.is_demo(memory_path):
+        raise HTTPException(409, "this is the demo memory, made up for the tour — there are no real sources to check")
+    if not (memory_path / "entities" / f"{entity_id}.md").exists():
+        raise HTTPException(404, f"Entity {entity_id} not found")
+    ref = (request.ref or "").strip()
+    entry = next((s for s in fact_sources.list_sources(memory_path, entity_id)
+                  if str(s.get("ref", "")).strip() == ref
+                  and fact_sources.same_predicate(s.get("predicate"), request.predicate)), None)
+    if entry is None:
+        raise HTTPException(404, "No source with that link and fact on this page")
+    if request.every_days is not None or request.clear:
+        def cadence() -> None:
+            source_refresh.set_every(memory_path, entity_id, ref, request.predicate,
+                                     None if request.clear else request.every_days)
+
+        async def body():
+            await asyncio.to_thread(cadence)
+            await _commit_sources(memory_path, entity_id, "Change")
+        await write_admission.run_admitted(memory_path, body, refuse=lambda: SleepWriting(SOURCE_BUSY))
+        return _sources_payload(memory_path, entity_id)
+    if not source_refresh.tracked(entry):
+        raise HTTPException(400, "Only a source you added or took, or one Cicada's own read confirmed, is re-checked")
+    if source_refresh.checker(entry) == source_refresh.AGENT:
+        async def ask():
+            await asyncio.to_thread(source_refresh.mark_asked, memory_path, entity_id, ref, request.predicate)
+            await _commit_sources(memory_path, entity_id, "Ask to re-check")
+        await write_admission.run_admitted(memory_path, ask, refuse=lambda: SleepWriting(SOURCE_BUSY))
+        return _sources_payload(memory_path, entity_id)
+    if _refresh_lock.locked():
+        raise HTTPException(409, "a re-check is already running — try again when it finishes")
+    # An early answer, not admission: the read is a fetch, which no admission may span (G183) — the verify-sites rule.
+    if write_admission.probe():
+        raise SleepWriting(SOURCE_BUSY)
+    async with _refresh_lock:
+        item = await asyncio.to_thread(source_refresh.asked_item, memory_path, entity_id, ref, request.predicate)
+        if item is None:
+            raise HTTPException(404, "No source with that link and fact on this page")
+        skip: frozenset[str] = frozenset()
+        if (memory_path / ".git").exists():
+            skip = await sleep_cycle._dirty_paths(memory_path)
+        if f"entities/{entity_id}.md" in skip:
+            raise HTTPException(409, "this page has changes that are not saved yet — try again in a moment")
+        report = source_refresh.Report()
+        try:
+            await source_refresh.run_tail(memory_path, budget=1, only=item, report=report,
+                                          trigger=source_refresh.ROUTE_TRIGGER)
+        except Exception:
+            await asyncio.to_thread(source_refresh.restore, memory_path, report)
+            raise HTTPException(500, "the re-check stopped part-way; nothing was changed")
+        if report.paths and (memory_path / ".git").exists():
+            try:
+                await git_service.commit_paths(
+                    memory_path,
+                    source_refresh.commit_message(report, date.today(), source_refresh.ROUTE_TRIGGER), report.paths)
+            except Exception:
+                await asyncio.to_thread(source_refresh.restore, memory_path, report)
+                raise HTTPException(500, "the re-check could not be committed; nothing was changed")
+    return _sources_payload(memory_path, entity_id)
 
 
 @router.delete("/entities/{entity_id}/sources/{index}", response_model=EntitySourceList)

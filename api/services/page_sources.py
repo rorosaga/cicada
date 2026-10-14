@@ -30,6 +30,7 @@ from api.models.schemas import (
     OverviewSource,
     SourceFact,
     SourcesOverview,
+    SourceUpdate,
 )
 from api.services import (
     episode_ids,
@@ -48,7 +49,7 @@ MAX_FACTS = 4
 #: The ``## Links`` lines served; ``linksTotal`` says how many the page has.
 MAX_LINKS = 12
 #: Bumped when the payload changes for the same files (the route's ETag ``extra``).
-SHAPE = "page-sources-1"
+SHAPE = "page-sources-2"
 
 # A titled link (`[T](url "bookmark")`, `link_views`) keeps its title; a bare URL is group 3.
 _LINK = re.compile(r"\[([^\]]*)\]" + link_views.LINK_TAIL + r"|(https?://[^\s<>\")\]]+)")
@@ -102,13 +103,40 @@ def _scope(source: dict) -> str:
 
 
 def _checked_at(source: dict) -> str | None:
-    stamps = [str(block.get("at")) for key in ("verified", "checked")
+    stamps = [str(block.get("at")) for key in ("verified", "checked", "refresh")
               if isinstance(block := source.get(key), dict) and block.get("at")]
     return max(stamps, key=episode_ids.timestamp_sort_key) if stamps else None
 
 
 def _recency(claim) -> str:
     return str(claim.recorded_at or claim.valid_from or "")
+
+
+#: The re-check updates the card lists (G61, ruling 26).
+MAX_UPDATES = 8
+
+
+def _updates(memory_path: Path, claims: list) -> list[SourceUpdate]:
+    """What tracked sources changed on this page, newest first — read from the claims a re-check wrote (``origin:
+    source-refresh``) and the beliefs each closed; the site from the re-check's own episode."""
+    from api.services import bank_index, source_refresh
+
+    by_successor = {c.superseded_by: c for c in claims if c.superseded_by}
+    rows = []
+    for c in claims:
+        if (c.origin or "") != source_refresh.ORIGIN:
+            continue
+        site = None
+        for ep in c.source_episodes[:1]:
+            f = bank_index.file(Path(memory_path), "episodes", f"{ep}.md")
+            site = str(((f.frontmatter if f else {}) or {}).get("checked_host") or "") or None
+        ended = source_refresh.is_ending(c)
+        was = by_successor.get(c.id)
+        rows.append(SourceUpdate(claim_id=c.id, predicate=c.predicate, value=c.object,
+                                 was=was.object if was is not None else None, at=c.valid_from, site=site,
+                                 current=is_current(c), ended=ended))
+    rows.sort(key=lambda r: (r.at or "", r.claim_id), reverse=True)
+    return rows[:MAX_UPDATES]
 
 
 def overview(memory_path: Path, page: Path) -> SourcesOverview:
@@ -122,7 +150,8 @@ def overview(memory_path: Path, page: Path) -> SourcesOverview:
         parsed = markdown_parser.ParsedMarkdown()
     fm = parsed.frontmatter or {}
     body = parsed.body or ""
-    current = [c for c in parse_claims(body) if is_current(c)]
+    all_claims = parse_claims(body)
+    current = [c for c in all_claims if is_current(c)]
     # What a source can refresh: current beliefs. A withdrawal record is bookkeeping and a happening or milestone is
     # dated history (G141), neither a fact a source checks — both still count as what a conversation fed the page.
     beliefs = [c for c in current if not is_record(c) and not is_event(c)]
@@ -264,5 +293,6 @@ def overview(memory_path: Path, page: Path) -> SourcesOverview:
         facts_total=len(beliefs),
         facts_with_source=len(backed),
         last_checked=max(checked, key=episode_ids.timestamp_sort_key) if checked else None,
+        updates=_updates(memory_path, all_claims),
     )
 

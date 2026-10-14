@@ -22,7 +22,9 @@ from api.services import bank_index
 #: ``agent_relay`` (owner, 2026-10-14): an agent's relay of what the person said when they answered an inbox
 #: question in conversation. The conversation itself is captured on its own (the Stop hook), so counting the relay
 #: too would count one conversation twice — and lift a one-off to the 2-conversation floor.
-UNTIMED_SOURCES = frozenset({"claude_memory", "agent_relay"})
+#: ``source-refresh`` (G61, ruling 26): a tracked source's dated re-check — what a page said, never the person mentioning
+#: the thing (liveness is not mention); the re-check's own beliefs are dated by their capture instead.
+UNTIMED_SOURCES = frozenset({"claude_memory", "agent_relay", "source-refresh"})
 
 
 def counts_as_activity(frontmatter: dict | None) -> bool:

@@ -704,6 +704,24 @@ class EntitySource(CamelModel):
     effective_access: Optional[str] = None
     trusted: bool = True
     checked: Optional[dict] = None
+    # G61, ruling 26: a tracked source's re-check state as stored (`refresh`: `at`, `outcome`, `good`, `dead`…), the
+    # person's cadence (`recheckDays`, null = the default), and — derived at read — whether it is re-checked at all,
+    # who re-checks it (`cicada` | `agent`) and why it is due now (null when it is not).
+    refresh: Optional[dict] = None
+    recheck_days: Optional[int] = None
+    tracked: bool = False
+    refresh_checker: Optional[str] = None
+    refresh_due: Optional[str] = None
+
+
+class SourceRefreshRequest(CamelModel):
+    """``POST /entities/{id}/sources/refresh`` (G61, ruling 26): re-check ONE source now, keyed ``(ref, predicate)``.
+    ``everyDays`` instead sets the person's cadence for it (``clear`` puts it back to the default)."""
+
+    ref: str
+    predicate: Optional[str] = None
+    every_days: Optional[int] = None
+    clear: bool = False
 
 
 class EntitySourceCreate(CamelModel):
@@ -1351,6 +1369,21 @@ class OverviewConversations(CamelModel):
     apps: list[OverviewApp] = []
 
 
+class SourceUpdate(CamelModel):
+    """G61, ruling 26 — one fact a tracked source's re-check wrote: what it says now (``value``), what it replaced
+    (``was``, null when nothing did), the capture day (``at``), the site it was read on, whether it is still current,
+    and whether the reading said the value ENDED (``ended``)."""
+
+    claim_id: str
+    predicate: str = ""
+    value: str = ""
+    was: Optional[str] = None
+    at: Optional[str] = None
+    site: Optional[str] = None
+    current: bool = True
+    ended: bool = False
+
+
 class SourcesOverview(CamelModel):
     """``GET /entities/{id}/sources/overview`` (owner 2026-10-14) — where a page's knowledge comes from and how fresh
     it is, in one read the card asks for: its sources with the beliefs each backs, the links its conversations named,
@@ -1366,6 +1399,8 @@ class SourcesOverview(CamelModel):
     facts_total: int = 0
     facts_with_source: int = 0
     last_checked: Optional[str] = None
+    # G61, ruling 26: what tracked sources changed on this page, newest first (at most `page_sources.MAX_UPDATES`).
+    updates: list[SourceUpdate] = []
 
 
 class EpisodeCitation(CamelModel):

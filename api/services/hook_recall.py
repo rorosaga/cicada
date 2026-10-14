@@ -613,6 +613,20 @@ def reading_line_for(memory_path: Path, session_id: str, *, event: str,
     return recall_text.reading_line(waiting), (waiting, asks)
 
 
+def refresh_line_for(memory_path: Path) -> str | None:
+    """G61, ruling 26: the SessionStart sentence on tracked sources due for the person's own agent — only while their
+    Reading-the-web switches allow it, counted from the warm frontmatter cache (a cold cache says nothing). Never
+    raises; never stored."""
+    try:
+        from api.services import source_refresh
+
+        items = source_refresh.agent_due(memory_path, warm_only=True)
+    except Exception as exc:  # noqa: BLE001 — K9: the class, never the message
+        logger.warning(f"hook-context: refresh count failed ({type(exc).__name__})")
+        return None
+    return recall_text.refresh_line(len(items)) if items else None
+
+
 def _slice(deadline: float, seconds: float) -> float:
     return min(deadline, time.monotonic() + seconds)
 
@@ -641,6 +655,9 @@ def session_start_note(memory_path: Path, *, harness: str, session_id: str, cwd:
     primer, _meta = handshake.load_or_build(Path(memory_path), variant=variant,
                                             reserve=CONTINUITY_RESERVE if has_block else 0)
     line, seen = reading_line_for(memory_path, session_id, event="session_start", deadline=deadline)
+    refresh = refresh_line_for(memory_path)
+    if refresh:
+        line = f"{line}\n\n{refresh}" if line else refresh
     block_for = (lambda room: continuity.startup_block(ctx, max_chars=room)) if has_block else None
     text, rendering, reading_kept = recall_text.compose_note(recall_text.PRIMER_HEADER, primer, block_for=block_for,
                                                              reading=line, max_tokens=handshake.MAX_TOKENS)

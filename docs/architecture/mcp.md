@@ -136,6 +136,28 @@ quote only where the item's `Cause:` quote shows (never to a remote connection w
 (`check_agent`, beside `read_agent`, out of every Usage view) is ids and enums only. The card shows "Your agent looked at
 <host> · <day>", the quote, what it points to and "What your agent reported, not checked by Cicada. Nothing changed; you
 decide." — no highlight, no tag, no reorder.
+**Tracked sources re-checked (G61, TODO ruling 26, owner 2026-10-14: "Update, dated; the newest evidence wins").** The
+inbox check above still settles nothing; a *tracked* source is different: the person's own, one they took, or one
+Cicada's read confirmed (`fact_sources.trusted`) is re-checked on a cadence (30 days, the person's `recheck_days` 7–365)
+or when the person asks, and what it says now is a new dated belief (`source_refresh`). A public page is Cicada's own
+read on the Sleep tail (`network.md`); a login-walled one (LinkedIn and the like) and a public one Cicada saw change
+without a machine-readable fact are the person's own agent's, through two stdio-only tools on a small lease queue outside
+every bank (`$CICADA_HOME/refresh_queue/<bank>.json`, the explore queue's rules: one live lease per site across every
+agent, 15 minutes, a wall pauses the site a week). **`cicada_refresh_claim(limit?, release?)`** leases due sources (default
+1, ≤ 5) only while agent reading is on and acknowledged, the site is turned on in Reading the web, not Never explore, and —
+for a walled page — the signed-in session is allowed (ruling 25 D2); it lists what memory holds now for that fact.
+`release` hands one back (`needs_login | blocked` pause the site; `failed | skipped`). **`cicada_record_refresh(entity_id,
+source, lease_token, outcome, predicate?, value?, ended?, quotes?, captured_at?, summary?, via?)`** records `read` (the
+value now and/or `ended` values with their day, one to three quotes required) or a miss (`not_found | gone | parked |
+moved`); `captured_at` must be within the last two days. It writes one `source-refresh` episode (`attachment [<host>]: as
+<harness> read it on <day>` and the quotes: `page`-kind spans), folds the reading with the one rule (`source_refresh.fold`:
+a belief last said before the capture closes as history, one said after it stands, the same day or undated asks once — a
+`kind: divergence` item, trigger `sleep/source-refresh`), updates the source's `refresh` state, and commits alone under the
+harness (`Agent write`). Refused, writing nothing: a demo bank, reading off, an unknown outcome, a lease that is not this
+session's, a reading with no quote, a stale capture, Sleep running. **The hook's one line:** the SessionStart note adds "N
+tracked sources are due for a check …" (`recall_text.refresh_line`, counted from the warm cache by
+`source_refresh.agent_due`, only while the switches allow) — a statement; nothing scheduled works them (ruling 4). The CLI
+rows (`source refresh-claim`, `source refresh-record`) are proposed spellings, not exposed.
 **`cicada_edit_page(subject, reason, edits?, section?, text?, add_aliases?, remove_aliases?, evidence?, resolves?)`**
 (G198, owner ruling 2026-10-14; `page_edits`, `page_editors`) changes a page's **words or aliases**, never its facts:
 `edits` are exact `{old, new}` replacements in the prose before the claims fence (`all` for every occurrence, `pin` to keep
