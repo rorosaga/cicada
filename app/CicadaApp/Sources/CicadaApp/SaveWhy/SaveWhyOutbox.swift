@@ -10,7 +10,7 @@ struct SaveWhyOutbox {
     static let key = "cicada.saveWhy.pending"
     /// Matches `saved_why.MAX_CLIENT_AGE`: an older `at` would be refused anyway.
     static let maxAge: TimeInterval = 24 * 60 * 60
-    /// A small queue: one question per three minutes cannot fill it, a stuck backend must not grow it forever.
+    /// A small queue: one answer per link, and a stuck backend must not grow it forever.
     static let capacity = 20
 
     struct Entry: Codable, Equatable {

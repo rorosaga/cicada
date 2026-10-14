@@ -395,6 +395,7 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /sources/upload": (INTAKE, None),
     "POST /sources/rss": (INTAKE, None),
     "POST /sources/sync-bookmarks": (INTAKE, None),
+    "POST /sources/sync-bookmarks/fresh": (NONE, None),   # G191 live: the early look parses and reads the index
     "POST /sources/sync-safari-tabs": (INTAKE, None),
     "POST /sources/feeds": (REGISTRY, None),
     "DELETE /sources/feeds": (REGISTRY, None),

@@ -41,6 +41,8 @@ struct SaveWhyPanelState: Equatable {
         case escape
         case clickOutside
         case dontAskForSite
+        /// G191 live: a newer bookmark took the panel's place — closes like a timeout, keeping any tap.
+        case superseded
     }
 
     enum Effect: Equatable {
@@ -101,7 +103,7 @@ struct SaveWhyPanelState: Equatable {
         case .lingerElapsed:
             guard phase == .answered else { return [] }
             return finish(.answered(selection))
-        case .timeout, .escape, .clickOutside:
+        case .timeout, .escape, .clickOutside, .superseded:
             return finish(selection.isEmpty ? .dismissed : .answered(selection))
         case .dontAskForSite:
             let taps = selection

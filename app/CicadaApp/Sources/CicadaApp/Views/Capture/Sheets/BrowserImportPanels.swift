@@ -25,23 +25,25 @@ enum BrowserImportActions {
             return BrowserImportSummary.tabs(r)
         case "safari-bookmarks":
             let data = try await BrowserFileReader.read(.safariBookmarks)
+            let looked = await BookmarkSyncSignal.lookEarly(.safari(data))   // G191 live: ask before the sync
             let m = SyncBrowserBookmarks(chromeData: nil, safariData: data, folders: nil)
             guard await store.perform(m), let r = m.result else {
                 try Task.checkCancellation()
                 if m.wasBusy { throw ImportActionError.busy }
                 throw ImportActionError.failed(store.toast ?? "Sync failed")
             }
-            BookmarkSyncSignal.post(r)   // G191: the save-why question decides whether to ask
+            BookmarkSyncSignal.post(r, lookedEarly: looked)   // G191: the save-why question decides whether to ask
             return BrowserImportSummary.bookmarks(r)
         case "chrome-bookmarks":
             let data = try await BrowserFileReader.read(.chromeBookmarks)
+            let looked = await BookmarkSyncSignal.lookEarly(.chrome(data))   // G191 live: ask before the sync
             let m = SyncBrowserBookmarks(chromeData: data, safariData: nil, folders: nil)
             guard await store.perform(m), let r = m.result else {
                 try Task.checkCancellation()
                 if m.wasBusy { throw ImportActionError.busy }
                 throw ImportActionError.failed(store.toast ?? "Sync failed")
             }
-            BookmarkSyncSignal.post(r)   // G191: the save-why question decides whether to ask
+            BookmarkSyncSignal.post(r, lookedEarly: looked)   // G191: the save-why question decides whether to ask
             return BrowserImportSummary.bookmarks(r)
         default:
             // Round 4 (C9): a Chromium-family browser beyond Chrome — the same read, its own entry on the wire.
@@ -52,13 +54,14 @@ enum BrowserImportActions {
                 throw ImportActionError.failed("This source can't be synced from here.")
             }
             let data = try await BrowserFileReader.read(file)
+            let looked = await BookmarkSyncSignal.lookEarly(.chromium(browser: spec.id, data))   // G191 live
             let m = SyncChromiumBookmarks(browser: spec.id, data: data)
             guard await store.perform(m), let r = m.result else {
                 try Task.checkCancellation()
                 if m.wasBusy { throw ImportActionError.busy }
                 throw ImportActionError.failed(store.toast ?? "Sync failed")
             }
-            BookmarkSyncSignal.post(r)   // G191: the save-why question decides whether to ask
+            BookmarkSyncSignal.post(r, lookedEarly: looked)   // G191: the save-why question decides whether to ask
             return BrowserImportSummary.bookmarks(r)
         }
     }

@@ -492,6 +492,38 @@ async def sync_bookmarks(
     }
 
 
+def fresh_preview(
+    memory_path: Path,
+    *,
+    chrome_data: bytes | None = None,
+    safari_data: bytes | None = None,
+    chromium: list[tuple[str, bytes]] | None = None,
+) -> dict[str, Any]:
+    """G191 — the early look: which bookmarks in these bytes this bank does not hold yet, WITHOUT ingesting anything.
+
+    Measured 2026-10-14: the full sync answered 6-7 s after the browser wrote its file (each new link is enriched by a
+    page fetch, then two commits), and the panel waited for it and for the store's reconcile behind it — 18 s in all.
+    This is the same parse and the same ``url_index`` check the sync runs first (``_batches`` + ``_unseen``), so the
+    app can ask "what made you save this?" a moment after the save while the real sync runs. Read-only: no lock, no
+    write, no commit, no fetch. Returns the sync's own shape (``new``/``skipped`` 0, each source's ``first_sync``,
+    ``fresh`` without an episode yet) so one policy decides both.
+    """
+    memory_path = Path(memory_path)
+    prev_seen = bookmark_seen.read_seen(memory_path)
+    sources: list[dict[str, Any]] = []
+    fresh: list[dict[str, Any]] = []
+    for origin, items in _batches(chrome_data, safari_data, chromium):
+        channel = CHANNEL_BY_ORIGIN[origin]
+        sources.append({"origin": origin, "channel": channel, "found": len(items), "new": 0, "skipped": 0,
+                        "first_sync": channel not in prev_seen})
+        for item in _unseen(items, memory_path):
+            fresh.append({"url": item.url, "title": item.title or "", "origin": origin, "channel": channel,
+                          "episode_id": "", "media_entity_id": "",
+                          "added_at": saved_at.validate_instant(item.added_at)})
+    return {"new": 0, "skipped": 0, "sources": sources, "removals_proposed": 0, "removals_skipped": None,
+            "fresh": fresh[:FRESH_CAP], "fresh_total": len(fresh)}
+
+
 #: G191 — how many newly saved bookmarks a sync lists by name. The app asks only when exactly one is new, so a few is
 #: plenty to tell one from many; `fresh_total` carries the real count.
 FRESH_CAP = 3

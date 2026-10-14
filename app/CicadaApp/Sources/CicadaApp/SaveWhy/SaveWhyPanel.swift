@@ -3,10 +3,25 @@ import SwiftUI
 
 /// A panel that never activates the app: it floats over the browser (full screen included) and takes the keyboard
 /// only once the person clicks into it — then Esc closes it.
+///
+/// G191 live: "only once the person clicks into it" is enforced here, not hoped for. `canBecomeKey` is false until a
+/// mouse-down lands in this panel, so no app activation, window cycling or stray key can make it key and type into
+/// it or press a chip (the measured "Something else…" that opened by itself).
 final class SaveWhyNSPanel: NSPanel {
     var onEscape: (() -> Void)?
+    /// Whether the person has clicked inside this panel since it showed.
+    private(set) var clickedInside = false
 
-    override var canBecomeKey: Bool { true }
+    override var canBecomeKey: Bool { clickedInside }
+
+    override func sendEvent(_ event: NSEvent) {
+        if Self.isPersonsClick(event.type) { clickedInside = true }
+        super.sendEvent(event)
+    }
+
+    static func isPersonsClick(_ type: NSEvent.EventType) -> Bool {
+        type == .leftMouseDown || type == .rightMouseDown || type == .otherMouseDown
+    }
     override var canBecomeMain: Bool { false }
     override func cancelOperation(_ sender: Any?) { onEscape?() }
     /// AppKit keeps windows under the menu bar; this one is the notch growing, so its top is the screen's edge.
@@ -57,7 +72,9 @@ final class SaveWhyPanelController: SaveWhyPresenting {
         panel.appearance = NSAppearance(named: .darkAqua)
         panel.onEscape = { [weak center] in center?.send(.escape) }
 
-        let screen = NSScreen.main ?? NSScreen.screens.first
+        // G191 live: the screen the bookmark was made on — the browser's front window, else the front app's — and
+        // `NSScreen.main` only when neither is known (`SaveWhyScreen`). The notch is that screen's own.
+        let screen = SaveWhyScreen.live(channel: center.state?.item.channel)
         let screenFrame = screen?.frame ?? CGRect(x: 0, y: 0, width: 1440, height: 900)
         let visible = screen?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1440, height: 876)
         let notchRect = SaveWhyNotch.notchRect(screen: screenFrame, topLeft: screen?.auxiliaryTopLeftArea,
@@ -79,11 +96,11 @@ final class SaveWhyPanelController: SaveWhyPresenting {
         DispatchQueue.main.async { [notch] in notch.grown = true }
         // A click anywhere else — another app (global) or another of Cicada's windows (local) — closes it.
         if let global = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown], handler: {
-            [weak center] _ in Task { @MainActor in center?.send(.clickOutside) }
+            [weak center] _ in Task { @MainActor in center?.input(.clickOutside) }
         }) { monitors.append(global) }
         if let local = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown], handler: {
             [weak center, weak panel] event in
-            if event.window !== panel { Task { @MainActor in center?.send(.clickOutside) } }
+            if event.window !== panel { Task { @MainActor in center?.input(.clickOutside) } }
             return event
         }) { monitors.append(local) }
     }
@@ -180,15 +197,15 @@ struct SaveWhyPanelView: View {
             FlowLayout(spacing: CicadaTheme.scaled(6)) {
                 ForEach(center.options.reasons) { reason in
                     chip(reason.label, selected: state.isSelected(reason: reason.key)) {
-                        center.send(.tapReason(reason.key))
+                        center.input(.tapReason(reason.key))
                     }
                 }
                 ForEach(center.options.projects) { project in
                     chip(Copy.SaveWhy.forProject(project.name), selected: state.isSelected(project: project.id)) {
-                        center.send(.tapProject(project.id))
+                        center.input(.tapProject(project.id))
                     }
                 }
-                chip(Copy.SaveWhy.somethingElse, selected: state.phase == .writing) { center.send(.tapOther) }
+                chip(Copy.SaveWhy.somethingElse, selected: state.phase == .writing) { center.input(.tapOther) }
             }
             if state.phase == .writing {
                 TextField(Copy.SaveWhy.placeholder, text: $draft)
@@ -202,7 +219,7 @@ struct SaveWhyPanelView: View {
                     .font(CicadaTheme.captionFont)
                     .foregroundStyle(CicadaTheme.Notch.textTertiary)
                 Spacer()
-                Button(Copy.SaveWhy.dontAsk) { center.send(.dontAskForSite) }
+                Button(Copy.SaveWhy.dontAsk) { center.input(.dontAskForSite) }
                     .buttonStyle(.cicadaPlain)
                     .font(CicadaTheme.captionFont)
                     .foregroundStyle(CicadaTheme.Notch.textSecondary)
@@ -245,5 +262,70 @@ struct SaveWhyPanelView: View {
         }
         .buttonStyle(.cicadaPlain)
         .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}
+
+/// G191 live — which screen the panel grows on. The brief's measurement: Chrome on an external display, and the panel
+/// there — `NSScreen.main` (the screen with the key window) happened to be right, but for a background app it is only
+/// the screen of the last key window macOS reported, and it says nothing about the browser. So the panel goes where
+/// the bookmark was made: the screen holding most of the browser's front window, else the front app's front window,
+/// else `NSScreen.main`. Window bounds come from the window list (no Screen Recording needed for bounds and owner).
+enum SaveWhyScreen {
+    /// The index into `screens` (AppKit frames, origin bottom-left) for a window's AppKit frame, by the largest
+    /// overlap; nil when no screen holds any of it.
+    static func index(of window: CGRect, in screens: [CGRect]) -> Int? {
+        var best: (index: Int, area: CGFloat)?
+        for (i, screen) in screens.enumerated() {
+            let overlap = screen.intersection(window)
+            guard !overlap.isNull, overlap.width > 0, overlap.height > 0 else { continue }
+            let area = overlap.width * overlap.height
+            if area > (best?.area ?? 0) { best = (i, area) }
+        }
+        return best?.index
+    }
+
+    /// The first window rect any screen holds, in order of preference; else `fallback`.
+    static func choose(screens: [CGRect], candidates: [CGRect?], fallback: Int?) -> Int? {
+        for window in candidates.compactMap({ $0 }) {
+            if let i = index(of: window, in: screens) { return i }
+        }
+        return fallback
+    }
+
+    /// A window-list rect (origin top-left of the primary display, y down) as an AppKit frame (origin bottom-left).
+    static func appKitFrame(fromWindowList bounds: CGRect, primaryHeight: CGFloat) -> CGRect {
+        CGRect(x: bounds.minX, y: primaryHeight - bounds.maxY, width: bounds.width, height: bounds.height)
+    }
+
+    /// The front-most normal (layer 0) on-screen window of `pid`, as an AppKit frame.
+    @MainActor
+    static func frontWindow(pid: pid_t) -> CGRect? {
+        guard let primary = NSScreen.screens.first,
+              let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+                as? [[String: Any]] else { return nil }
+        for info in list {
+            guard (info[kCGWindowOwnerPID as String] as? Int).map(pid_t.init) == pid,
+                  (info[kCGWindowLayer as String] as? Int) == 0,
+                  let dict = info[kCGWindowBounds as String] as? NSDictionary,
+                  let bounds = CGRect(dictionaryRepresentation: dict as CFDictionary),
+                  bounds.width > 1, bounds.height > 1 else { continue }
+            return appKitFrame(fromWindowList: bounds, primaryHeight: primary.frame.height)
+        }
+        return nil
+    }
+
+    /// The live answer for a bookmark from `channel`'s browser.
+    @MainActor
+    static func live(channel: String?) -> NSScreen? {
+        let screens = NSScreen.screens
+        guard !screens.isEmpty else { return nil }
+        let browser = channel.flatMap(BrowserInventory.spec(forBookmarksChannel:))
+            .flatMap { NSRunningApplication.runningApplications(withBundleIdentifier: $0.bundleId).first }
+        let front = NSWorkspace.shared.frontmostApplication
+        let candidates: [CGRect?] = [browser.flatMap { frontWindow(pid: $0.processIdentifier) },
+                                     front.flatMap { frontWindow(pid: $0.processIdentifier) }]
+        let fallback = NSScreen.main.flatMap { main in screens.firstIndex { $0 == main } } ?? 0
+        let i = choose(screens: screens.map(\.frame), candidates: candidates, fallback: fallback) ?? fallback
+        return screens[i]
     }
 }

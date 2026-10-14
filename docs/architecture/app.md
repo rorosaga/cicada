@@ -301,8 +301,9 @@ Contacts (G154), both app-owned rows.
 the watcher sets; a catch-up, Sync now, Turn on or folder import is never live) and the result has exactly one fresh
 bookmark, `SaveWhyPolicy` asks "What made you save this?" — unless the switch is off, the channel's sync was a first
 sync, the browser's `addedAt` is older than 5 minutes (or 1 minute in the future), the site is muted ("Don't ask for
-this site", `cicada.saveWhy.mutedHosts`, cleared from the Settings row), a question was asked in the last 3 minutes,
-or one is showing. `SaveWhyCenter` fetches `GET /sources/saved-why/options` and shows `SaveWhyPanelController`: a
+this site", `cicada.saveWhy.mutedHosts`, cleared from the Settings row), the same save already asked (a question
+in the last 3 s, or the same link in the last 60 s), or the person is typing in "Something else…" (G191 live: no
+three-minute limit — each bookmark in a row asks, and a newer one replaces the open panel). `SaveWhyCenter` fetches `GET /sources/saved-why/options` and shows `SaveWhyPanelController`: a
 borderless non-activating `NSPanel` one level above the menu bar's (`.mainMenu + 3`, under menus) on every Space and
 over full screen, shown with `orderFrontRegardless` (never key until the person clicks it). **It is the notch growing**
 (v2, owner 2026-10-14): the window's top edge is the screen's top edge (`SaveWhyNotch.frame`, `constrainFrameRect`
@@ -326,6 +327,36 @@ Sleep's write window, so the answer can meet a 409: on a 409, a 5xx or an unreac
 given, and sent again — with that `at` — when the status's `writing` goes false, when the backend first answers and
 on launch; a 404/422 or an answer over 24 h old is dropped. Esc reaches the panel only once it is clicked, so its
 hint names a click elsewhere as the way to skip.
+
+**Ask why, live (2026-10-14, branch `fix/notch-live`).** Measured on the owner's Mac: the panel came 18 s after a
+Chrome save, a Safari save was never seen, and "Something else…" was found open with nothing chosen. Four changes:
+*Speed* — the 18 s were the sync itself (each new link's page fetch and two commits: 6-7 s) plus `Store.perform`
+reconciling four domains before `syncChannel` posted its result, plus a fresh options fetch. A live sync now first
+sends the same bytes to the read-only **`POST /sources/sync-bookmarks/fresh`** (`bookmark_sync.fresh_preview`: the
+sync's own parse and `url_index` check, no lock, no write, never a 409) through `BookmarkSyncSignal.lookEarly` →
+`SaveWhyCenter.lookEarly`, and the question is decided on that, with the options cached from the last fetch; the
+sync's own result then arrives as `.afterEarlyLook` and only says the links are saved. An answer given before that
+meets a 404, which is held (`awaitingIngest`) and sent when the sync lands; without the route (an older backend) the
+sync's result decides as before. The watch settles 300 ms (`BrowserWatchPolicy.bookmarkDebounce`; the folder
+watches keep 1.2 s), so save → panel is about 0.5 s; `SaveWhyLiveTests` drives the real watcher against a 3 s sync
+and holds it to `SaveWhyPolicy.showBudget` (2 s). A save inside the 5 s floor or during a sync is now owed and read
+after it, not dropped until the next save. *Safari* — the watch is an FSEvents stream per browser folder with
+per-file events (`BrowserFileEvents`), filtered to the bookmark file's own name, not a kqueue on the folder: a kqueue
+sees only entries added, removed or renamed in that folder, and its descriptor was opened once at launch, when
+Safari's folder may still have been refused. A stream armed while the file was refused is armed again once an open
+says it is readable (`BrowserWatcher.refreshAccess`: on the app becoming active, and every 5 s while one is refused),
+with a catch-up that is never live. *No self-opening field* — every chip and click from the panel goes through
+`SaveWhyCenter.input`, which ignores a choice (and a click elsewhere) within `SaveWhyPolicy.armDelay` (0.5 s) of the
+panel showing — at 0.5 s after a save the hand is still on the page beneath — and `SaveWhyNSPanel.canBecomeKey` is false
+until a mouse-down lands in it, so no activation or stray key can press a chip or type; only `tapOther` opens the field.
+*In a row* (owner, live: "shouldn't it be immediate?" — every bookmark after the first was silenced by the old
+three-minute limit) — the limit is gone. Each single fresh bookmark asks; a newer one **replaces** the open panel
+(`.superseded`, closing like a timeout, so a tap already made is posted) rather than queueing behind it: the person is
+looking at the new page, and a queued question would ask about one they have left. Floods stay structural (more than
+one fresh URL, a first sync, an import or a reorganisation never asks), plus `SaveWhyPolicy.repeatGuard` (3 s, one
+save's double event) and `sameLinkGuard` (60 s, `cicada.saveWhy.lastURL`); nothing replaces a panel the person is typing in.
+*Screen* — `SaveWhyScreen` puts the panel on the screen holding most of the browser's front window (window-list
+bounds; no Screen Recording needed), else the front app's, else `NSScreen.main`, and the notch is that screen's own.
 
 **Ask why: one switch that works (v2, 2026-10-14).** Measured on the owner's Mac: nothing appeared after a Chrome
 bookmark because the switch was off *and* both browsers' bookmark watches were off — the question can only follow a

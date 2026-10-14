@@ -531,6 +531,42 @@ async def sync_bookmarks(
     return BookmarkSyncResponse(**result)
 
 
+@router.post("/sources/sync-bookmarks/fresh", response_model=BookmarkSyncResponse, dependencies=_DEMO_GATE)
+async def sync_bookmarks_fresh(
+    request: BookmarkSyncRequest, settings: Settings = Depends(get_settings),
+) -> BookmarkSyncResponse:
+    """G191 — the early look (``bookmark_sync.fresh_preview``): the bookmarks in these bytes this bank does not hold
+    yet, and whether each channel was ever synced, WITHOUT ingesting. The app asks why from this a moment after the
+    save; the real ``/sources/sync-bookmarks`` follows with the same bytes. Read-only, so it takes no lock and is never
+    a 409 for a sync in progress. 422 without bookmark data, for bad base64 or an unknown browser, as the sync."""
+    import base64
+
+    def decode(value: str | None, name: str) -> bytes | None:
+        if not value:
+            return None
+        try:
+            return base64.b64decode(value, validate=True)
+        except Exception:
+            raise HTTPException(status_code=422, detail=f"Invalid {name}")
+
+    chrome_data = decode(request.chrome_data_b64, "chromeDataB64")
+    safari_data = decode(request.safari_data_b64, "safariDataB64")
+    chromium: list[tuple[str, bytes]] = []
+    for entry in request.chromium or []:
+        browser = entry.browser.strip().lower()
+        if browser not in bookmark_sync.CHROMIUM_BROWSERS:
+            raise HTTPException(status_code=422, detail=f"Unknown browser {entry.browser!r}")
+        if (browser == "chrome" and chrome_data is not None) or any(b == browser for b, _ in chromium):
+            raise HTTPException(status_code=422, detail=f"{browser} was sent twice")
+        chromium.append((browser, decode(entry.data_b64, f"dataB64 for {browser}") or b""))
+    if chrome_data is None and safari_data is None and not chromium:
+        raise HTTPException(status_code=422, detail="Send chromeDataB64, safariDataB64 or chromium")
+    # Off the event loop: a real Safari plist is a CPU-bound parse (the preview's reason).
+    result = await run_in_threadpool(bookmark_sync.fresh_preview, settings.memory_path, chrome_data=chrome_data,
+                                     safari_data=safari_data, chromium=chromium)
+    return BookmarkSyncResponse(**result)
+
+
 #: G191 — an answer that finds Sleep holding the pages.
 SAVED_WHY_BUSY = "Sleep is updating your memory — your answer wasn't saved. Try again in a moment."
 

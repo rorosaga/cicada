@@ -25,9 +25,9 @@ final class SaveWhyTests: XCTestCase {
     }
 
     private func inputs(_ r: BookmarkSyncResult, enabled: Bool = true, live: Bool = true, lastAsked: Date? = nil,
-                        muted: Set<String> = [], showing: Bool = false) -> SaveWhyPolicy.Inputs {
+                        muted: Set<String> = [], writing: Bool = false, lastURL: String? = nil) -> SaveWhyPolicy.Inputs {
         .init(enabled: enabled, live: live, result: r, now: now, lastAsked: lastAsked, mutedHosts: muted,
-              showing: showing)
+              writing: writing, lastURL: lastURL)
     }
 
     // MARK: - The trigger rules
@@ -71,13 +71,20 @@ final class SaveWhyTests: XCTestCase {
         XCTAssertEqual(SaveWhyPolicy.decide(inputs(result([fresh(ageSeconds: nil)]))), .ask(fresh(ageSeconds: nil)))
     }
 
-    func testTheRateLimitAndTheOpenPanelHoldTheNextQuestion() {
-        XCTAssertEqual(SaveWhyPolicy.decide(inputs(result([fresh()]), lastAsked: now.addingTimeInterval(-60))),
-                       .skip(.rateLimited))
+    /// G191 live: no three-minute limit — bookmarks in a row each ask. Only one save's double event, the same link
+    /// again within a minute, or a person mid-sentence holds the next question.
+    func testBookmarksInARowEachAskAndOnlyARepeatIsHeld() {
+        let other = "https://beta.example/next"
+        XCTAssertEqual(SaveWhyPolicy.decide(inputs(result([fresh(other)]), lastAsked: now.addingTimeInterval(-20),
+                                                   lastURL: fresh().url)), .ask(fresh(other)), "a second bookmark asks")
+        XCTAssertEqual(SaveWhyPolicy.decide(inputs(result([fresh(other)]), lastAsked: now.addingTimeInterval(-1),
+                                                   lastURL: fresh().url)), .skip(.repeated), "one save's double event")
+        XCTAssertEqual(SaveWhyPolicy.decide(inputs(result([fresh()]), lastAsked: now.addingTimeInterval(-30),
+                                                   lastURL: fresh().url)), .skip(.repeated), "the same link again")
         XCTAssertEqual(SaveWhyPolicy.decide(inputs(result([fresh()]),
-                                                   lastAsked: now.addingTimeInterval(-SaveWhyPolicy.minimumGap))),
-                       .ask(fresh()))
-        XCTAssertEqual(SaveWhyPolicy.decide(inputs(result([fresh()]), showing: true)), .skip(.showing))
+                                                   lastAsked: now.addingTimeInterval(-SaveWhyPolicy.sameLinkGuard),
+                                                   lastURL: fresh().url)), .ask(fresh()))
+        XCTAssertEqual(SaveWhyPolicy.decide(inputs(result([fresh()]), writing: true)), .skip(.writing))
     }
 
     func testAMutedSiteIsNeverAsked() {
@@ -243,13 +250,14 @@ final class SaveWhyTests: XCTestCase {
     // MARK: - The center
 
     @MainActor
-    func testTheCenterAsksOncePostsTheAnswerAndRespectsTheRateLimit() async {
+    func testTheCenterAsksPostsTheAnswerAndANewBookmarkReplacesTheOpenQuestion() async {
         let defaults = UserDefaults(suiteName: "SaveWhyTests.\(UUID().uuidString)")!
         let prefs = SaveWhyPrefs(defaults: defaults)
         prefs.enabled = true
         let api = FakeSavedWhyAPI()
         let presenter = FakePresenter()
-        let center = SaveWhyCenter(prefs: prefs, api: api, presenter: presenter, now: { [now] in now })
+        var clock = now
+        let center = SaveWhyCenter(prefs: prefs, api: api, presenter: presenter, now: { clock })
 
         await center.noticed(result([fresh()]), live: true)
         XCTAssertEqual(presenter.shown, 1)
@@ -263,10 +271,28 @@ final class SaveWhyTests: XCTestCase {
         XCTAssertEqual(posts.map(\.url), [fresh().url])
         XCTAssertEqual(posts.map(\.answer), [SavedWhyAnswer(reasons: ["product"])])
 
-        // The next new bookmark a minute later waits: one question per `minimumGap`.
+        // The next bookmark 20 s later asks too (G191 live: no three-minute limit)…
+        clock = now.addingTimeInterval(20)
         await center.noticed(result([fresh("https://beta.example/x")]), live: true)
-        XCTAssertEqual(center.lastDecision, .skip(.rateLimited))
-        XCTAssertEqual(presenter.shown, 1)
+        XCTAssertEqual(presenter.shown, 2)
+        center.send(.tapReason("design"))
+        // …and one made while that panel is open replaces it, keeping the tap already made.
+        clock = now.addingTimeInterval(40)
+        await center.noticed(result([fresh("https://gamma.example/y")]), live: true)
+        await center.settle()
+        XCTAssertEqual(presenter.shown, 3)
+        XCTAssertEqual(center.state?.item.url, "https://gamma.example/y")
+        let all = await api.posts
+        XCTAssertEqual(all.map(\.url), [fresh().url, "https://beta.example/x"], "the superseded tap was posted")
+        // A double event of the same save is held.
+        await center.noticed(result([fresh("https://delta.example/z")]), live: true)
+        XCTAssertEqual(center.lastDecision, .skip(.repeated))
+        // While the person writes in "Something else…", nothing replaces it.
+        center.send(.tapOther)
+        clock = now.addingTimeInterval(90)
+        await center.noticed(result([fresh("https://delta.example/z")]), live: true)
+        XCTAssertEqual(center.lastDecision, .skip(.writing))
+        XCTAssertEqual(presenter.shown, 3)
     }
 
     /// The debug harness shows the panel for a sample bookmark at once, past every rule, and writes nothing.
@@ -375,12 +401,14 @@ final class SaveWhyTests: XCTestCase {
 
     @MainActor
     func testTheSignalCarriesWhetherTheWatchStartedTheSync() async {
-        var seen: [Bool] = []
-        BookmarkSyncSignal.observer = { _, live in seen.append(live) }
+        var seen: [BookmarkSyncSignal.Delivery] = []
+        BookmarkSyncSignal.observer = { _, delivery in seen.append(delivery) }
         defer { BookmarkSyncSignal.observer = nil }
         BookmarkSyncSignal.post(result([]))
         await BookmarkSyncSignal.$live.withValue(true) { BookmarkSyncSignal.post(result([])) }
-        XCTAssertEqual(seen, [false, true])
+        // G191 live: a sync an early look already spoke for only says its links are saved — it never asks again.
+        await BookmarkSyncSignal.$live.withValue(true) { BookmarkSyncSignal.post(result([]), lookedEarly: true) }
+        XCTAssertEqual(seen, [.synced(live: false), .synced(live: true), .afterEarlyLook])
     }
 }
 
@@ -390,6 +418,10 @@ private actor FakeSavedWhyAPI: SavedWhyAPI {
     /// Errors to throw on the next posts, in order (then succeed).
     var failures: [Error] = []
     func fail(with errors: [Error]) { failures = errors }
+
+    func freshBookmarks(_ bytes: BookmarkBytes) async throws -> BookmarkSyncResult {
+        BookmarkSyncResult(new: 0, skipped: 0, sources: [])
+    }
 
     func savedWhyOptions() async throws -> SavedWhyOptions {
         SavedWhyOptions(reasons: [
