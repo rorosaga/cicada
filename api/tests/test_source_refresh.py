@@ -58,6 +58,16 @@ def _seed_claim(memory, *, obj="Engineer", predicate="role", eid="bob-example", 
     return claim.id
 
 
+def _single_valued(memory, predicate="role"):
+    """The bank's vocabulary says ``predicate`` holds ONE current value (only then may a re-check close an older one)."""
+    import yaml
+
+    path = memory / "_predicates.yaml"
+    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    data["single_valued"] = sorted(set(data.get("single_valued") or []) | {predicate})
+    path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+
+
 def _source(memory, ref=TEAM, predicate="role", **extra):
     fact_sources.add_source(memory, "bob-example", ref, predicate=predicate, added_by="user", kind="url")
     if extra:
@@ -130,6 +140,7 @@ def test_the_due_list_is_a_frontmatter_read_with_no_fetch_and_no_model(reading, 
 
 def test_a_public_recheck_writes_a_dated_claim_and_closes_the_old_one(reading):
     server, memory = reading
+    _single_valued(memory)
     old = _seed_claim(memory)
     _source(memory)
     _commit(memory)
@@ -189,6 +200,7 @@ def test_a_node_about_someone_else_is_not_read_as_this_pages_fact(reading):
 
 def test_a_newer_recheck_supersedes_the_persons_older_statement(reading):
     server, memory = reading
+    _single_valued(memory)
     mine = _seed_claim(memory, source_episodes=[], origin="manual_edit", source_trust="user_stated",
                        observer="owner-example", recorded_at=(TODAY - timedelta(days=13)).isoformat(),
                        valid_from=(TODAY - timedelta(days=13)).isoformat())
@@ -204,6 +216,7 @@ def test_a_newer_recheck_supersedes_the_persons_older_statement(reading):
 
 def test_a_statement_dated_after_the_capture_stands(reading):
     server, memory = reading
+    _single_valued(memory)
     mine = _seed_claim(memory, source_episodes=[], origin="manual_edit", source_trust="user_stated",
                        recorded_at=(TODAY + timedelta(days=2)).isoformat(),
                        valid_from=(TODAY + timedelta(days=2)).isoformat())
@@ -218,6 +231,7 @@ def test_a_statement_dated_after_the_capture_stands(reading):
 
 def test_a_same_day_clash_makes_exactly_one_inbox_question_with_both_dates(reading):
     server, memory = reading
+    _single_valued(memory)
     mine = _seed_claim(memory, source_episodes=[], origin="manual_edit", source_trust="user_stated",
                        recorded_at=T, valid_from=T)
     _source(memory)
@@ -479,3 +493,38 @@ def test_a_public_page_that_changed_without_a_readable_fact_goes_to_the_persons_
     asyncio.run(source_refresh.run_tail(memory, stream_fn=changed, today=later, budget=5))
     due = {d.ref: (d.checker, d.reason) for d in source_refresh.due(memory, today=later)}
     assert due == {TEAM: ("agent", "changed")}, "the site's own words changing is no fact to read"
+
+
+# ---------- review B1: an unknown cardinality coexists; only the page's own `ended` closes a value ----------
+
+
+def test_a_page_listing_two_alumni_closes_neither_and_adds_the_missing_one(reading):
+    server, memory = reading
+    beta = _seed_claim(memory, obj="Beta Institute", predicate="studied-at")
+    _source(memory, predicate="studied-at")
+    html = PAGE_WITH_ROLE.replace('"jobTitle": "Staff Engineer"',
+                                  '"alumniOf": [{"@type": "Organization", "name": "Alpha University"}, '
+                                  '{"@type": "Organization", "name": "Beta Institute"}]')
+    asyncio.run(source_refresh.run_tail(memory, stream_fn=_stream(html=html), today=TODAY))
+    claims = {c.id: c for c in _claims(memory)}
+    assert claims[beta].valid_to is None, "the page still lists it: nothing closes"
+    assert {c.object for c in claims.values() if c.valid_to is None and c.predicate == "studied-at"} == {
+        "Beta Institute", "Alpha University"}
+
+
+def test_one_job_title_never_closes_a_second_current_role_of_unknown_cardinality(reading):
+    server, memory = reading
+    first = _seed_claim(memory, obj="Engineer")
+    second = _seed_claim(memory, obj="Advisor")
+    _source(memory)
+    asyncio.run(source_refresh.run_tail(memory, stream_fn=_stream(), today=TODAY))
+    claims = {c.id: c for c in _claims(memory)}
+    assert claims[first].valid_to is None and claims[second].valid_to is None
+    assert {c.object for c in claims.values() if c.valid_to is None and c.predicate == "role"} == {
+        "Engineer", "Advisor", "Staff Engineer"}
+    # ...and when the vocabulary knows a role is ONE value, the newer reading does close both.
+    _single_valued(memory)
+    obs = _read("Principal Engineer", TODAY + timedelta(days=1))
+    _apply(memory, obs, today=TODAY + timedelta(days=1))
+    current = {c.object for c in _claims(memory) if c.valid_to is None and c.predicate == "role"}
+    assert current == {"Principal Engineer"}

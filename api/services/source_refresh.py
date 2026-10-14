@@ -13,8 +13,9 @@ something I said if it has evidence, there is no problem with that"). One rule, 
 * a belief said AFTER the capture stands, and the reading writes nothing on the page (its episode keeps it);
 * only a clash with no clear order — the same day, or a belief with no date — becomes ONE inbox question with both
   sides and their dates (``kind: divergence``, the existing two-claim answer path);
-* a predicate the vocabulary marks multi-valued (``works-at``) gains a value beside the others, and a value ends only
-  on the source's own evidence that it ended (``ended``), under the same dating rule.
+* only a predicate the vocabulary KNOWS is single-valued closes an older value (Stage 3's oracle); any other —
+  ``works-at``, and every unseen one — gains each value the page states beside the others, and a value ends only on
+  the source's own evidence that it ended (``ended``), under the same dating rule.
 
 Nothing changes silently: the new belief's text says what changed, from where and when ("role updated 2026-11-03 from
 example.com: …, was …"), the commit is one manifest line per file (``cicada_timeline``), and git reverts it.
@@ -682,7 +683,12 @@ def fold(memory_path: Path, claims: list, *, entity_id: str, name: str, predicat
     from api.services.claims import Claim, is_event, is_record
 
     out = Fold()
-    multi = predicates.cardinality(memory_path, predicate) == "multi"
+    # The Stage-3 reconciler's own oracle (`claim_reconciler._default_cardinality_fn`): only a predicate the vocabulary
+    # KNOWS is single-valued closes an older value; unseen or uncertain coexists, and a value then ends only on the
+    # page's own `ended` evidence (review B1: an "unknown" studied-at/role must never close what the page still lists).
+    single = (not is_event(Claim(id="", text="", predicate=predicate))
+              and predicates.build_cardinality_fn(memory_path)(predicate))
+    multi = not single
 
     def current():
         return [c for c in claims if c.valid_to is None and c.subject == entity_id and c.predicate == predicate
@@ -707,6 +713,7 @@ def fold(memory_path: Path, claims: list, *, entity_id: str, name: str, predicat
             return "clash"
         return "older" if captured > said else "newer"
 
+    # Every value the page states folds when values coexist; a single-valued fact has one current value, the first.
     for value in (values if multi else values[:1]):
         if not value:
             continue

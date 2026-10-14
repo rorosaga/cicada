@@ -555,8 +555,10 @@ Round 4 (C2–C4):
   dated episode, a live write by `recorded_at`; a memory export entry alone is undated); a capture after that day closes it
   (`valid_to` = the capture, `superseded_by`), **the person's own words included**; a belief said after the capture stands
   and the page gains nothing; the same day or no date asks ONE `kind: divergence` question (trigger
-  `sleep/source-refresh`, both sides and dates; keep / update / both). A multi-valued predicate (`works-at`) gains the value
-  beside the others, and a value closes only on the page's own `ended` evidence under the same dating. **Dead:** two
+  `sleep/source-refresh`, both sides and dates; keep / update / both). Closing an older value needs a predicate the
+  vocabulary KNOWS is single-valued (Stage 3's own oracle, `predicates.build_cardinality_fn`); any other (`works-at`, and
+  every unseen one such as `role` or `studied-at`) gains each value the page states beside the others, and a value
+  closes only on the page's own `ended` evidence under the same dating. **Dead:** two
   visits in `MISSES` (`not_found | gone | parked | moved`) at least 7 days apart set `dead` (the first strike's day as
   `since`); `good`/`episode` keep the last good capture; a good visit clears the strikes; a dead source is due only when
   the person asks. The card's overview serves `updates` (≤ 8, newest first: value, was, day, site, current, ended;
