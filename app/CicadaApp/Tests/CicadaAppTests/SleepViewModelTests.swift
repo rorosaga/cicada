@@ -554,6 +554,7 @@ final class SleepViewModelTests: XCTestCase {
     func test_aBankSwitchEmptiesThePerBankCaches() async throws {
         let detail = try runDetail("finished")
         let vm = SleepViewModel(store: idleStore(), fetchSleepStatus: { try self.sleepStatus(status: "idle", stage: 0) },
+                                fetchHistory: { [] },
                                 fetchRunOptions: { throw URLError(.notConnectedToInternet) },
                                 fetchRun: { _ in detail })
         await vm.loadRunDetail("r1")
@@ -563,6 +564,96 @@ final class SleepViewModelTests: XCTestCase {
         XCTAssertTrue(vm.runDetails.isEmpty)
         XCTAssertNil(vm.queue)
         XCTAssertNil(vm.expandedRun)
+    }
+
+    // MARK: Home's Last read (owner 2026-10-14: "—" forever on Home until the Sleep page was opened)
+
+    /// Home reads the history on its own: once the status and schedule are in, its arrival fetches the history alone,
+    /// and Last read has the newest read without the Sleep page ever being opened.
+    func test_homeArrivalLoadsTheHistoryWithoutTheSleepPage() async throws {
+        let entries = [try historyEntry(commitHash: "abc1")]
+        var historyFetches = 0
+        let vm = SleepViewModel(store: idleStore(), fetchSleepStatus: { try self.sleepStatus(status: "idle", stage: 0) },
+                                fetchHistory: { historyFetches += 1; return entries },
+                                putSchedule: { $0 })
+        await vm.refreshStatus()
+        await vm.updateSchedule(ScheduleConfig(mode: "manual", hour: 3, minute: 0))
+        XCTAssertFalse(vm.historyLoaded)
+        await vm.refreshForHome()
+        XCTAssertEqual(historyFetches, 1)
+        XCTAssertTrue(vm.historyLoaded)
+        XCTAssertFalse(vm.historyFailed)
+        XCTAssertEqual(vm.history.map(\.commitHash), ["abc1"])
+    }
+
+    /// The launch race, reproduced: Home's first fetch is in flight when the Store hydrates the real bank (the
+    /// default "default" → the roster's active bank fires `onBankChanged`). The bump drops that fetch; before this
+    /// fix nothing fetched again, so Last read waited on "—" until the Sleep page's own `load()`.
+    func test_aBankSwitchDuringHomesFirstFetchStillLandsTheHistory() async throws {
+        var gate: CheckedContinuation<Void, Never>?
+        var calls = 0
+        let vm = SleepViewModel(store: idleStore(), fetchSleepStatus: { try self.sleepStatus(status: "idle", stage: 0) },
+                                fetchHistory: {
+                                    calls += 1
+                                    if calls == 1 {
+                                        await withCheckedContinuation { gate = $0 }   // Home's fetch, parked
+                                        return [try self.historyEntry(commitHash: "old-bank")]
+                                    }
+                                    return [try self.historyEntry(commitHash: "new-bank")]
+                                },
+                                fetchRunOptions: { throw URLError(.notConnectedToInternet) })
+        let first = Task { await vm.loadHistory() }
+        try await Task.sleep(for: .milliseconds(100))
+        await vm.bankChanged()
+        XCTAssertTrue(vm.historyLoaded, "the switch reads the new bank's history itself")
+        XCTAssertEqual(vm.history.map(\.commitHash), ["new-bank"])
+        gate?.resume()
+        await first.value
+        XCTAssertEqual(vm.history.map(\.commitHash), ["new-bank"], "the old bank's late answer is dropped")
+    }
+
+    /// A switch empties the old bank's history at once: Home never shows one bank's read under another's name.
+    func test_aBankSwitchEmptiesTheHistoryBeforeTheNewOneLands() async throws {
+        var failNext = false
+        let vm = SleepViewModel(store: idleStore(), fetchSleepStatus: { try self.sleepStatus(status: "idle", stage: 0) },
+                                fetchHistory: {
+                                    if failNext { throw URLError(.cannotConnectToHost) }
+                                    return [try self.historyEntry(commitHash: "a1")]
+                                },
+                                fetchRunOptions: { throw URLError(.notConnectedToInternet) })
+        await vm.loadHistory()
+        XCTAssertEqual(vm.history.map(\.commitHash), ["a1"])
+        failNext = true
+        await vm.bankChanged()
+        XCTAssertTrue(vm.history.isEmpty)
+        XCTAssertFalse(vm.historyLoaded)
+        XCTAssertTrue(vm.historyFailed)
+    }
+
+    /// A failed fetch says so (`historyFailed`), and the next one that lands clears it.
+    func test_aFailedHistoryFetchIsRecordedAndClearedByTheNextOne() async throws {
+        var fail = true
+        let vm = SleepViewModel(store: idleStore(), fetchSleepStatus: { try self.sleepStatus(status: "idle", stage: 0) },
+                                fetchHistory: {
+                                    if fail { throw URLError(.cannotConnectToHost) }
+                                    return [try self.historyEntry(commitHash: "s1")]
+                                })
+        await vm.loadHistory()
+        XCTAssertTrue(vm.historyFailed)
+        XCTAssertFalse(vm.historyLoaded)
+        fail = false
+        await vm.loadHistory()
+        XCTAssertFalse(vm.historyFailed)
+        XCTAssertTrue(vm.historyLoaded)
+    }
+
+    /// A fetch cancelled with its task (Home's `.task(id:)` restarting) is not a failure.
+    func test_aCancelledHistoryFetchIsNotAFailure() async throws {
+        let vm = SleepViewModel(store: idleStore(), fetchSleepStatus: { try self.sleepStatus(status: "idle", stage: 0) },
+                                fetchHistory: { throw URLError(.cancelled) })
+        await vm.loadHistory()
+        XCTAssertFalse(vm.historyFailed)
+        XCTAssertNil(vm.errorMessage)
     }
 
     /// A pause the live event reports before its record has loaded reads as "Paused", never "0 of 0 filed".

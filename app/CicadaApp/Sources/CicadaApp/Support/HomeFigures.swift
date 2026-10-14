@@ -16,9 +16,12 @@ struct HomeToday: Equatable {
 enum HomeLastRead: Equatable {
     case loading, never
     case entry(SleepHistoryEntry)
-    /// A read happened, but its commit is past the history page (the status's
+    /// A read happened, but its commit is past the history page — or the
+    /// history could not be read and the status says a read ran (the status's
     /// `lastSleepAt`, when it has one, dates it).
     case earlier(String?)
+    /// The history could not be read and nothing else says whether a read ever ran.
+    case failed
 }
 
 struct HomeNeedsYou {
@@ -71,18 +74,27 @@ enum HomeFigures {
     /// commit only exists because a Sleep ran. "Nothing read yet" needs the
     /// status to say no read ever ran; a read that did run but is off the page
     /// is `.earlier` (I-b final review, finding 5). `hasRunBefore` nil = unknown.
-    static func lastRead(_ history: [SleepHistoryEntry], loaded: Bool,
+    ///
+    /// A failed fetch is never "Loading…" forever (owner 2026-10-14): the
+    /// status's own last read dates it when the status has one, the status's
+    /// "never ran" is still "Nothing read yet", and otherwise it says so.
+    static func lastRead(_ history: [SleepHistoryEntry], loaded: Bool, failed: Bool = false,
                          hasRunBefore: Bool?, lastSleepAt: String?) -> HomeLastRead {
         if let e = history.first(where: { $0.kind == "sleep" }) { return .entry(e) }
-        guard loaded else { return .loading }
-        if hasRunBefore == true || lastSleepAt != nil || history.contains(where: { $0.kind == "decay" }) {
-            return .earlier(lastSleepAt)
+        let ran = hasRunBefore == true || lastSleepAt != nil || history.contains(where: { $0.kind == "decay" })
+        guard loaded else {
+            guard failed else { return .loading }
+            if ran { return .earlier(lastSleepAt) }
+            return hasRunBefore == false ? .never : .failed
         }
+        if ran { return .earlier(lastSleepAt) }
         return hasRunBefore == false ? .never : .loading
     }
 
-    static func lastReadLine(_ e: SleepHistoryEntry, locale: Locale = .autoupdatingCurrent) -> String {
-        var parts = [day(e.date, locale: locale) ?? String(e.date.prefix(10))]
+    /// "Today 07:27 · 33 updated" — when the read was, then only the counts that happened.
+    static func lastReadLine(_ e: SleepHistoryEntry, now: Date = Date(), locale: Locale = .autoupdatingCurrent,
+                             calendar: Calendar = .autoupdatingCurrent) -> String {
+        var parts = [when(e.date, now: now, locale: locale, calendar: calendar) ?? String(e.date.prefix(10))]
         if e.entitiesCreated > 0 { parts.append("\(UsageFormat.count(e.entitiesCreated, locale: locale)) new") }
         if e.entitiesUpdated > 0 { parts.append("\(UsageFormat.count(e.entitiesUpdated, locale: locale)) updated") }
         if parts.count == 1 { parts.append(Copy.homeNothingChanged) }
@@ -104,18 +116,33 @@ enum HomeFigures {
         return HomeChips(shown: Array(known.prefix(chipLimit)), more: max(0, known.count - chipLimit))
     }
 
-    /// The day part of the history row's `date` (a `yyyy-MM-dd…` string), read
-    /// in UTC and shown as the viewer's short month-day.
-    static func day(_ raw: String, locale: Locale) -> String? {
-        let parse = DateFormatter()
-        parse.locale = Locale(identifier: "en_US_POSIX")
-        parse.timeZone = TimeZone(identifier: "UTC")
-        parse.dateFormat = "yyyy-MM-dd"
-        guard let date = parse.date(from: String(raw.prefix(10))) else { return nil }
-        let out = DateFormatter()
-        out.locale = locale
-        out.timeZone = TimeZone(identifier: "UTC")
-        out.setLocalizedDateFormatFromTemplate("MMMd")
-        return out.string(from: date)
+    /// When a read was, in the viewer's own words and clock: "Today 07:27", "Yesterday 23:10", "Oct 3 07:27".
+    /// `raw` is the history row's `date` or the status's `lastSleepAt` — git's ISO-8601 instant with its offset
+    /// (`--date=iso-strict`, R-A11), shown in the viewer's zone. A bare `yyyy-MM-dd` (an older backend) is the day
+    /// alone; anything else is nil. The day word is `RelativeDay`'s, the one place it is spelled.
+    static func when(_ raw: String, now: Date = Date(), locale: Locale = .autoupdatingCurrent,
+                     calendar: Calendar = .autoupdatingCurrent) -> String? {
+        let today = ISODay.today(now: now, calendar: calendar)
+        guard let instant = instant(raw) else {
+            guard raw.count == 10, let day = ISODay(raw) else { return nil }
+            return RelativeDay.phrase(day, today: today, locale: locale)
+        }
+        let c = calendar.dateComponents([.year, .month, .day], from: instant)
+        let day = ISODay(year: c.year ?? 1970, month: c.month ?? 1, day: c.day ?? 1)
+        let time = DateFormatter()
+        time.locale = locale
+        time.calendar = calendar
+        time.timeZone = calendar.timeZone
+        time.setLocalizedDateFormatFromTemplate("jmm")
+        return "\(RelativeDay.phrase(day, today: today, locale: locale)) \(time.string(from: instant))"
+    }
+
+    private static func instant(_ raw: String) -> Date? {
+        let plain = ISO8601DateFormatter()
+        plain.formatOptions = [.withInternetDateTime]
+        if let d = plain.date(from: raw) { return d }
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return fractional.date(from: raw)
     }
 }

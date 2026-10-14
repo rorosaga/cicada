@@ -186,8 +186,13 @@ on this Mac* as an offer. Your past chats has one 36 pt row per vendor still to 
 Home (`HomeWalkthroughLayer`), with waits above them leading with "Check your email for the … link". Today is one row to
 Sources (captured today, UTC, with the three busiest origins' marks, names and counts) plus the waiting count as a row
 to Sleep; Needs you is the Inbox's kind glyph, question and age, *Open Inbox* at the label's right, landing in STATE 1;
-Last read is the newest Sleep commit as a row to that read in Sleep's Details, its pages as `Tag`s in 24 pt hit frames —
-each number once, never a Consolidate. An empty block is only its label and a note ("Needs you · nothing right now");
+Last read is the newest Sleep commit as a row to that read in Sleep's Details ("Today 07:27 · 33 updated", the commit's
+instant on the viewer's clock), its pages as `Tag`s in 24 pt hit frames — each number once, never a Consolidate. The
+history is not a Store domain: `SleepViewModel` holds it in memory, Home fetches it on arrival and whenever the status's
+`lastSleepAt` moves (`refreshForHome`), and a bank switch empties and rereads it (`bankChanged`) — the launch's own
+switch to the roster's bank used to drop Home's first fetch, leaving "—" until the Sleep page was opened. Each state is
+in words (`HomeFigures.lastRead`): "Looking up the last read…" while it loads; "Nothing read yet" when the status says
+no read ran; a failed fetch falls back to the status's last read, or says "Couldn't look up the last read". An empty block is only its label and a note ("Needs you · nothing right now");
 all three empty is one `HomeEmptyBlock` (*Choose a file…*), or nothing while Getting started already says so. Every
 `InlineLink` hits 28 pt (layout-neutral, `LinkHitShape`). Right after onboarding ends (Open Cicada or *Set up later*),
 *Make it yours* (Appearance, and Scene only while the band shows; `AppearanceTipPolicy`, per viewer) is a row after

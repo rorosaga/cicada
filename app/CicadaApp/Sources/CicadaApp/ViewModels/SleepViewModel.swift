@@ -27,7 +27,10 @@ final class SleepViewModel {
     var errorMessage: String?
 
     /// G125 R4 — the consolidation history the Sleep page's history card
-    /// lists, newest first. Loaded alongside everything else in `load()`.
+    /// lists, newest first. Loaded alongside everything else in `load()`, on
+    /// its own by `loadHistory()` (Home's Last read asks for it on arrival and
+    /// whenever the status's last read moves), and again on a bank switch.
+    /// Not a Store domain: it is never disk-cached, only held here in memory.
     var history: [SleepHistoryEntry] = []
     /// Whether `history` has been fetched at least once (Task 8 review r1).
     /// An empty `history` is ambiguous — a bank with no cycle yet, or a page
@@ -36,6 +39,9 @@ final class SleepViewModel {
     /// the second kind: every older sleep commit would then read as "what
     /// this cycle changed".
     private(set) var historyLoaded = false
+    /// Whether the newest history fetch of the current generation failed (cleared by the next one that lands). Home's
+    /// Last read says so in words, or falls back to the status's date, instead of waiting on "Loading…" forever.
+    private(set) var historyFailed = false
     /// G125 R12 — a history row's expanded detail, cached by commit hash so
     /// a second click on an already-open row is a dictionary hit rather than
     /// a second fetch. Emptied on a bank switch (`bankChanged()`): the VM is
@@ -345,10 +351,23 @@ final class SleepViewModel {
         let token = loadToken
         do {
             let h = try await fetchHistory()
-            if token == loadToken { history = h; historyLoaded = true }
+            if token == loadToken { history = h; historyLoaded = true; historyFailed = false }
         } catch {
-            if token == loadToken { errorMessage = "History: \(error.localizedDescription)" }
+            // A fetch cancelled with its task (Home's `.task(id:)` restarting, a view leaving) is not a failure:
+            // whatever cancelled it starts the next one.
+            if error is CancellationError || (error as? URLError)?.code == .cancelled { return }
+            if token == loadToken {
+                historyFailed = true
+                errorMessage = "History: \(error.localizedDescription)"
+            }
         }
+    }
+
+    /// Home's arrival (and its last read moving): the whole load while the status or the schedule has not landed —
+    /// Getting started's schedule question waits on the real schedule (R-IB20) — else the history alone. Home's Last
+    /// read reads `history` without the Sleep page ever being opened.
+    func refreshForHome() async {
+        if status == nil || !scheduleLoaded { await load() } else { await loadHistory() }
     }
 
     /// Fetch one cycle's detail and cache it by commit hash (G125 R12) — a
@@ -552,7 +571,14 @@ final class SleepViewModel {
         expanded = nil
         runOptions = nil
         status = nil
+        // The history belongs to the bank it was read in, and the bump above drops any fetch still in flight — so
+        // read the new bank's here, or Home's Last read would wait on a fetch that will never land (or show the old
+        // bank's read) until the Sleep page is opened.
+        history = []
+        historyLoaded = false
+        historyFailed = false
         await refreshStatus()
+        await loadHistory()
         await loadRunOptions()
     }
 

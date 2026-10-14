@@ -38,6 +38,10 @@ extension Copy {
     static let homeTodayNothingYet = "nothing yet"
     static let homeNeedsYouNothing = "nothing right now"
     static let homeLastReadNotYet = "not yet"
+    /// Last read's honest states (owner 2026-10-14): never a bare "—" for any of them.
+    static let homeLastReadLoading = "Looking up the last read…"
+    static let homeLastReadFailed = "Couldn't look up the last read"
+    static let homeLastReadEarlier = "Before the newest history"
 
     static let homeFrontDoorLabels: [String] = [
         homeSetupLine(left: 1), homeSetupLine(left: 2), homeSetupShow, homeSetupShowHelp, homeSetupShowLess,
@@ -45,6 +49,7 @@ extension Copy {
         homeSeeHowHelp("ChatGPT"), homeOpenSleepHelp, homeLastReadHelp, homeNothingYetTitle,
         homeEmptyLabel(homeNeedsYou, note: homeNeedsYouNothing), homeEmptyLabel(homeToday, note: homeTodayNothingYet),
         homeEmptyLabel(homeLastRead, note: homeLastReadNotYet),
+        homeLastReadLoading, homeLastReadFailed, homeLastReadEarlier,
     ]
     static let homeFrontDoorSentences: [String] = [homeNothingYetLine,
                                                    homeWaitLine("ChatGPT", requested: "2 hours ago")]
