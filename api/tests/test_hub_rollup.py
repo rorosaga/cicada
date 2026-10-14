@@ -98,6 +98,7 @@ def _related(memory: Path) -> str:
     # The leading verb decides (re-check 2026-10-14): an activity or intent verb leading a fact phrase is activity.
     ("considered studying at", "planned"), ("planned to move to", "planned"), ("asked about working at", "asked"),
     ("thinking of applying to", "planned"), ("wanted to join", "planned"), ("hoped to live in", "planned"),
+    ("got hired at", "strong"), ("got married to", "strong"),
     ("planned to use", "planned"), ("considered applying for", "planned"), ("wanted to install", "planned"),
     ("developed", "built"), ("wrote", "built"), ("built", "built"),
     ("worked on", "used"), ("working on", "used"), ("uses", "used"), ("tried to deploy", "used"),
@@ -117,6 +118,15 @@ def _related(memory: Path) -> str:
 ])
 def test_a_free_form_label_falls_in_its_family_of_meaning(label, family):
     assert entity_body.relation_family(label) == family
+
+
+# The final re-check's reproduction (2026-10-14), kept: the vocabulary's fold wins over the leading-verb rule.
+def test_recheck_the_maps_fold_wins_over_a_leading_verb():
+    assert entity_body.relation_family("got hired at", lambda t: "works-at") == "strong"
+    assert entity_body.relation_family("considered studying at", lambda t: "studies-at") == "strong"
+    assert entity_body.relation_family("got hired at") == "strong"
+    assert entity_body.relation_family("got married to") == "strong"
+    assert entity_body.relation_family("considered studying at") == "planned"   # no fold: the leading verb decides
 
 
 def test_the_banks_own_vocabulary_makes_a_strong_fact():

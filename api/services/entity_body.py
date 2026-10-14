@@ -619,14 +619,15 @@ ROLLUP_NAMES = 8
 #:
 #: A label is read in this order (:func:`relation_family`), the first answer winning:
 #:
-#: 1. ``strong`` — a fact about the page the vocabulary knows: the label folds (the bank's predicate map, else the
-#:    seed's synonyms) to one of :data:`STRONG_PREDICATES` — ``works-at``, ``located-in``, ``part-of`` … — or says one
-#:    of them in another inflection (:data:`_STRONG`: "studying at", "living in", "got a job at", "received a degree
-#:    from", "graduate of", "sibling of"). Always its own line, never capped out, never a log.
-#: 2. an activity family — ``asked``, ``planned``, ``built``, ``used`` — when an activity verb says so positively,
+#: 1. ``strong`` when the label folds exactly (the bank's predicate map, else the seed's synonyms) to one of
+#:    :data:`STRONG_PREDICATES` — ``works-at``, ``located-in``, ``part-of`` …: the vocabulary always wins.
+#: 2. an activity family when the label STARTS with an activity or intent verb (:data:`_LEADING`).
+#: 3. ``strong`` when it says a fact in another inflection (:data:`_STRONG`: "studying at", "living in", "got a job
+#:    at", "received a degree from", "graduate of", "sibling of"). Never a log.
+#: 4. an activity family — ``asked``, ``planned``, ``built``, ``used`` — when an activity verb says so positively,
 #:    whatever preposition follows ("learned from", "received recommendation from" are activity).
-#: 3. ``relation`` — a weaker fact word with no activity verb ("colleague", "mentor", "joined", "founded").
-#: 4. ``other`` — anything nobody claims. When unsure, a label is a fact (review 2026-10-14).
+#: 5. ``relation`` — a weaker fact word with no activity verb ("colleague", "mentor", "joined", "founded").
+#: 6. ``other`` — anything nobody claims. When unsure, a label is a fact (review 2026-10-14).
 STRONG_PREDICATES = frozenset({
     "works-at", "studies-at", "lives-in", "located-in", "based-in", "born-in", "from", "part-of", "member-of",
     "is-a", "employed-by", "graduated-from", "alumnus-of", "founder-of", "owner-of", "citizen-of", "married-to",
@@ -672,15 +673,16 @@ _WEAK = re.compile(
     r"advisor|advised by|supervisor|supervised by|manages|managed by|reports to|joined|belongs to|founded|owns|"
     r"owned by|dating|neighbou?r|teammate|member|employer|employs|attend(s|ed|ing)?)\b")
 #: A label that STARTS with an activity or intent verb is activity, whatever follows: "considered studying at",
-#: "planned to move to", "asked about working at" (re-check 2026-10-14). Received/got/earned a degree, a job or a role
-#: is the one exception: a fact said with a verb of receiving.
+#: "planned to move to", "asked about working at" (re-check 2026-10-14) — after the vocabulary's own fold, which always
+#: wins. Received or earned a degree, a job or a role is a fact said with a verb of receiving; "got" is no activity
+#: verb ("got hired at", "got married to").
 _LEADING = re.compile(
     r"^(consider(s|ed|ing)?|plan(s|ned|ning)?|ask(s|ed|ing)?|learn(s|ed|t|ing)?|want(s|ed|ing)?|wish(es|ed|ing)?|"
     r"hop(e|es|ed|ing)|intend(s|ed|ing)?|think(s|ing)? (of|about)|thought (of|about)|appl(y|ies|ied|ying)|"
     r"tr(y|ies|ied|ying)|research(es|ed|ing)?|explor(e|es|ed|ing)|look(s|ed|ing)? (into|at|up)|compar(e|es|ed|ing)|"
     r"evaluat(e|es|ed|ing)|decid(e|es|ed|ing)|discuss(es|ed|ing)?|talk(s|ed|ing)? about|mention(s|ed|ing)?|"
     r"heard|read|curious|interested|wonder(s|ed|ing)?|search(es|ed|ing)?|"
-    r"(receiv(e|es|ed|ing)|got|get(s|ting)?|earn(s|ed|ing)?)"
+    r"(receiv(e|es|ed|ing)|earn(s|ed|ing)?)"
     r"(?! (a |an |the |his |her |their |new )?(degree|diploma|phd|doctorate|master'?s|bachelor'?s|mba|certificate|"
     r"certification|license|job|position|role|offer|internship|post)))\b")
 
@@ -717,12 +719,14 @@ def relation_family(label: str, normalize=None) -> str:
         canonical = (normalize or _seed_normalize)(text)
     except Exception:  # noqa: BLE001 - a map that cannot be read costs the fold, never the family
         canonical = ""
+    if canonical in STRONG_PREDICATES:   # the vocabulary's own fold always wins ("got hired at" → works-at)
+        return "strong"
     if _LEADING.search(text):
         for key, _label, pattern in _ACTIVITY:
             if pattern.search(text.split(" ", 1)[0]) or pattern.search(text):
                 return key
         return "planned"   # an intent verb no activity family spells ("hoped", "wished")
-    if canonical in STRONG_PREDICATES or _STRONG.search(text):
+    if _STRONG.search(text):
         return "strong"
     for key, _label, pattern in _ACTIVITY:
         if pattern.search(text):
