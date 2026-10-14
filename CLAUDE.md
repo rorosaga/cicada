@@ -258,6 +258,9 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 
 - The handshake rides `initialize`; recall fuses vectors, words and claims. **An agent's write carries provenance** (the
   harness as `Cicada-Author`, the session trailer) and an agent withdraws only what it wrote.
+- **Questions come up naturally (owner, 2026-10-14):** an inbox question reaches a conversation only when it is about
+  that question's subject (`inbox_ask_gate`), in the agent's own words; an answer the person already gave is recorded
+  with their words as evidence, never guessed; the whole inbox only on request (`mcp.md`).
 - **The CLI (G180, ruling 21)** is a second door onto the same bodies: in-process from one bootstrap that reads no
   `.env` (the root resolved once, canonical, pinned with the bank; `--bank` asserts, never selects), names from one
   tested CLI↔MCP table (`cli_map`), one JSON envelope, no generic dispatcher (`mcp.md`). **Ruling 21a (owner,

@@ -30,10 +30,18 @@ def is_injection(text: str | None) -> bool:
 def question_line(name: str, item_id: str, entity_id: str, question: str) -> str:
     """The one inbox pointer a note may carry (R-H5): the question's words when
     the item stores them, never its options or its cause. Those stay behind
-    ``cicada_check_nudges``, which also knows whether the agent skipped it."""
+    ``cicada_check_nudges``, which also knows whether the agent skipped it.
+
+    Owner, 2026-10-14: a question comes up naturally or not at all. The line says
+    so as a statement (the module note): the message may already answer it, in
+    which case it is recorded with the person's words and not asked; otherwise it
+    may come up in the agent's own words if it fits. Never a banner to append."""
     what = f": {question}" if question else " (a follow-up)"
-    return (f"Open question for the person about {name} (`{item_id}`){what} — it can wait until their request "
-            f"is done; `cicada_check_nudges(entity_ids=[\"{entity_id}\"])` shows the choices.")
+    return (f"Cicada has an open question on what this message is about — {name} (`{item_id}`){what} "
+            "If the message already answers it, it is recorded with "
+            "`cicada_resolve_inbox(id, option_key or answer, quote)` and not asked; otherwise it can come up in "
+            "the agent's own words once the request is done, only if it fits. "
+            f"`cicada_check_nudges(mode=\"list\", entity_ids=[\"{entity_id}\"])` shows the choices.")
 
 
 #: G166: the header of a note that only says links are waiting for an agent to

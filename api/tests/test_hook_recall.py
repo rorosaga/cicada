@@ -133,9 +133,20 @@ def test_the_note_says_what_the_page_holds_and_nothing_stale(bank):
     assert "  · Bob Example reviews the designs. (since 2026-08-20)" in text
     assert "September" not in text, "a closed claim is history, not recall"
     assert "shared board" not in text, "at most two current claims, newest first"
+    assert "inbox-" not in text and result.inbox_id is None, (
+        "naming the page is not enough: the message is not about the beta date (owner, 2026-10-14)")
+    assert result.tokens <= hook_recall.MAX_TOKENS
+
+
+def test_an_open_question_rides_the_note_only_when_the_message_is_about_it(bank):
+    """The ask gate (owner, 2026-10-14): the question comes up when the message is about its own subject — here
+    the beta's date — and as a statement the agent can act on naturally, never a banner to append."""
+    result = hook_recall.prompt_context(bank, "Is the Alpha Project beta still shipping in October?")
+    text = result.text
     assert "`inbox-001`" in text and "Is the beta still on October 1?" in text
     assert "inbox-003" not in text, "normalization items are app-only (check_nudges' filter)"
-    assert 'cicada_check_nudges(entity_ids=["alpha-project"])' in text
+    assert "not asked" in text and "cicada_resolve_inbox(id, option_key or answer, quote)" in text
+    assert 'cicada_check_nudges(mode="list", entity_ids=["alpha-project"])' in text
     assert result.inbox_id == "inbox-001" and result.tokens <= hook_recall.MAX_TOKENS
 
 

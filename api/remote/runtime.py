@@ -186,7 +186,7 @@ _DISPATCH: dict[str, Callable[[mcp_tools.ToolContext, dict], str]] = {
                                                                  start=mcp_tools.line_number(a.get("start"))),
     "cicada_get_perspective": lambda c, a: mcp_tools.get_perspective(
         c, str(a.get("subject") or ""), a.get("observer"), a.get("context"), bool(a.get("history", False))),
-    "cicada_check_nudges": lambda c, a: mcp_tools.check_nudges(c, a.get("topic"), a.get("entity_ids")),
+    "cicada_check_nudges": lambda c, a: mcp_tools.check_nudges(c, a.get("topic"), a.get("entity_ids"), a.get("mode")),
     "cicada_sources": lambda c, a: mcp_tools.sources(c, str(a.get("entity_id") or "")),
     "cicada_timeline": lambda c, a: mcp_tools.timeline(c, a.get("since")),
     "cicada_project": lambda c, a: mcp_tools.project(c, str(a.get("project") or ""), a.get("since"), a.get("tz")),

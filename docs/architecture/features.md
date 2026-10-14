@@ -251,6 +251,14 @@ touches no claim.
 **Three resolution paths for a clarification:** organic (the user provides context later, Sleep
 promotes it), agent-initiated (the agent asks in flow when the topic comes up), manual (the app).
 
+**In conversation, questions come up naturally (owner, 2026-10-14).** An agent sees an item only when the
+conversation is about that question's own subject — its page in scope AND its predicate, options or words in what the
+person said (`inbox_ask_gate`; a decay question never comes up in conversation). It asks in its own words, or not at
+all; when the person's words already answer it, it resolves it without asking (`cicada_resolve_inbox(…, quote=<their
+words>)`: the words are kept as their own episode, cited as the answer's evidence, `answered_in: conversation` on the
+ledger row) and says what it noted in one line. "What is in my inbox?" lists everything (`mode="list"`). Detail:
+`mcp.md`, *Questions come up naturally*.
+
 **"What's the name of your partner?" (placeholder people, 2026-10-14).** A `clarification` with `asks: name` is
 the question about a person Cicada knows only by a relation to the owner (`role_people`; written by Sleep's Stage
 5.4 or the repair script, one per page, never after a decline). It carries `question`, one option

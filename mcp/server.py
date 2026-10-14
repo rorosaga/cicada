@@ -197,13 +197,18 @@ TOOLS = [
     },
     {
         "name": "cicada_check_nudges",
-        "description": "Check for pending inbox items in Cicada's memory system. Returns items that need user attention — decaying entities, conflicts, ambiguous mentions, or possible duplicates. Use this proactively when a conversation touches topics that might have pending items. After `cicada_recall`, pass its suggested entity ids as `entity_ids`.",
+        "description": "Open questions Cicada has for the person — two facts that disagree, a name that could be two people, a follow-up. mode=\"ask\" (after `cicada_recall`, with `topic` = the person's own words this turn and `entity_ids` = recall's ids) returns at most two questions about what they are talking about now, and nothing when none is: ask one only if it fits, in your own words, or record an answer their words already gave. mode=\"list\" (the default) lists everything pending, for when the person asks what is in their inbox or what conflicts they have.",
         "inputSchema": {
             "type": "object",
             "properties": {
+                "mode": {
+                    "type": "string",
+                    "enum": ["ask", "list"],
+                    "description": "\"ask\": only questions about what the person is talking about now (needs `topic`). \"list\" (default): every pending question, plainly.",
+                },
                 "topic": {
                     "type": "string",
-                    "description": "Optional topic to filter inbox items by relevance",
+                    "description": "With mode=\"ask\": the person's own words this turn (or what the conversation is about now). With mode=\"list\": an optional word filter.",
                 },
                 "entity_ids": {
                     "type": "array",
@@ -625,7 +630,7 @@ TOOLS = [
     },
     {
         "name": "cicada_resolve_inbox",
-        "description": "Answer a pending Cicada inbox question on the user's behalf, after they told you the answer in conversation. Use ONLY with an answer the user actually gave — never guess. Pass the option_key shown by cicada_check_nudges (e.g. 'a', 'b', 'both', 'neither'), or `answer` with free text when none of the options is right (this records a user-stated, trust-protected claim and closes the competing ones), or defer=true when the user says they're not sure and want to be asked later. Pass skip=true when the user did not answer at all: nothing is written and cicada_check_nudges stops returning the item for the rest of this session.",
+        "description": "Answer a pending Cicada inbox question on the user's behalf, after they told you the answer in conversation — whether you asked or their words already settled it (pass those words as `quote`). Use ONLY with an answer the user actually gave — never guess. Pass the option_key shown by cicada_check_nudges (e.g. 'a', 'b', 'both', 'neither'), or `answer` with free text when none of the options is right (this records a user-stated, trust-protected claim and closes the competing ones), or defer=true when the user says they're not sure and want to be asked later. Pass skip=true when the user did not answer at all: nothing is written and cicada_check_nudges stops returning the item for the rest of this session.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -656,6 +661,10 @@ TOOLS = [
                 "reject": {
                     "type": "boolean",
                     "description": "For a merge_suggestion: these are NOT the same entity — remember that and stop proposing it.",
+                },
+                "quote": {
+                    "type": "string",
+                    "description": "The person's exact words in this conversation that answer the question (at most 500 characters). Kept as the answer's evidence, so pass it whenever their words settled it — asked or not.",
                 },
             },
             "required": ["id"],
@@ -973,7 +982,7 @@ def handle_tool(name: str, arguments: dict) -> str:
             arguments.get("title"),
         )
     elif name == "cicada_check_nudges":
-        return handle_check_nudges(arguments.get("topic"), arguments.get("entity_ids"))
+        return handle_check_nudges(arguments.get("topic"), arguments.get("entity_ids"), arguments.get("mode"))
     elif name == "cicada_handshake":
         return handle_handshake()
     elif name == "cicada_timeline":
@@ -1088,6 +1097,7 @@ def handle_tool(name: str, arguments: dict) -> str:
             arguments.get("remind_days"),
             skip=bool(arguments.get("skip", False)),
             reject=bool(arguments.get("reject", False)),
+            quote=arguments.get("quote"),
         )
     else:
         raise ValueError(f"Unknown tool: {name}")
@@ -1212,12 +1222,14 @@ def handle_get_perspective(subject, observer=None, context=None, history=False) 
     return mcp_tools.get_perspective(_ctx(), subject, observer, context, history)
 
 
-def handle_check_nudges(topic, entity_ids=None) -> str:
-    return mcp_tools.check_nudges(_ctx(), topic, entity_ids)
+def handle_check_nudges(topic, entity_ids=None, mode=None) -> str:
+    return mcp_tools.check_nudges(_ctx(), topic, entity_ids, mode)
 
 
-def handle_resolve_inbox(item_id, option_key, answer, defer, remind_days, *, skip=False, reject=False) -> str:
-    return mcp_tools.resolve_inbox(_ctx(), item_id, option_key, answer, defer, remind_days, skip=skip, reject=reject)
+def handle_resolve_inbox(item_id, option_key, answer, defer, remind_days, *, skip=False, reject=False,
+                         quote=None) -> str:
+    return mcp_tools.resolve_inbox(_ctx(), item_id, option_key, answer, defer, remind_days, skip=skip, reject=reject,
+                                   quote=quote)
 
 
 def handle_save_episode(content, title) -> str:

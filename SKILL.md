@@ -58,13 +58,14 @@ it).
 The contract lives in one generated text: the `instructions` your harness received
 from the Cicada MCP server on connect, or `cicada_handshake()` if it did not surface
 them. Read it once per conversation — it carries what Cicada is, when to recall,
-how to check nudges after a recall, how to save and write with evidence, the
+how open questions come up in conversation, how to save and write with evidence, the
 bank's current projects and pending questions, and which conversations resume.
 This file only adds the traversal notes below.
 
 ## Two-pass recall (small-model friendly)
-1. `cicada_recall(query)` — Pass 1. Returns concise entity summaries plus any
-   relevant pending inbox items. Read the summaries and the "Related" list.
+1. `cicada_recall(query)` — Pass 1. Returns concise entity summaries plus an
+   open question only when the query is about that question's own subject.
+   Read the summaries and the "Related" list.
 2. `cicada_recall_detail(entity_id)` — Pass 2. Returns the FULL entity page for
    the most relevant hit. Use this only when you need the complete body/history,
    not a summary.
@@ -79,6 +80,27 @@ This file only adds the traversal notes below.
   `cicada_recall_detail`. State only facts the tools returned — never fill
   gaps with general knowledge.
 - For a direct factual question, `cicada_ask` is usually the best single call.
+  It reads the pages it cites with their other names and the people linked to
+  them, so "what is X's full name" or "who works on X" are answered from the
+  page, not from its first lines.
+
+## Questions in conversation
+Cicada keeps questions it could not settle on its own (two facts that disagree,
+a name that could be two people). They come up naturally or not at all:
+- After a recall, `cicada_check_nudges(mode="ask", topic=<the person's words this
+  turn>, entity_ids=<recall ids>)`. It returns a question only when the
+  conversation is about that question's subject — naming the project is not
+  enough; talking about the project's database is, for a database question.
+- If one fits, ask it in your own words once their request is done, as part of
+  the reply. No "Cicada conflict:" banner, no option letters, no quoted cause,
+  no "Recommended option". If it does not fit, leave it.
+- If what they already said answers it, do not ask: record it with
+  `cicada_resolve_inbox(id, option_key or answer, quote=<their exact words>)`
+  and say in one short line what you noted (for example "Noted: the beta ships
+  in October."). The person sees what changed; nothing is settled silently.
+- Never guess an answer. If they let a question pass, `skip=true`.
+- When they ask "what is in my inbox" or "what conflicts do I have", use
+  `mode="list"` and list them plainly.
 
 ## Hub browsing (filesystem traversal)
 For structured exploration rather than fuzzy search, walk the hub tier:

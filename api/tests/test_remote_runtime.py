@@ -189,11 +189,18 @@ def _private_cause(memory):
                           "user: my private words about beta project VERBATIM-SECRET-PHRASE\n")
     _entity(memory, "beta-project", type="project", confidence=0.4, last_referenced="2026-03-01",
             source_episodes=["ep_2026-08-20_001"])
+    # Recall surfaces only a question about what the query is about (owner, 2026-10-14) — never a decay one —
+    # so the recall half of this check needs a conflict whose subject the query names.
+    markdown_parser.write(memory / "inbox" / "inbox-002.md",
+                          {"kind": "conflict", "status": "pending", "entity_id": "beta-project",
+                           "entity_name": "Beta Project", "predicate": "status",
+                           "question": "Is Beta Project paused or shipping?", "source_episode": "ep_2026-08-20_001",
+                           "options": [{"key": "a", "label": "paused"}, {"key": "b", "label": "shipping"}]}, "ctx")
 
 
 @pytest.mark.parametrize("tool, args, scopes", [
     ("cicada_check_nudges", {}, {"read"}),
-    ("cicada_recall", {"query": "beta project"}, {"search"}),
+    ("cicada_recall", {"query": "is beta project paused"}, {"search"}),
 ])
 def test_the_cause_line_never_quotes_the_person_without_sources(runtime, memory, monkeypatch, tool, args, scopes):
     """G135 final review (R-R22): the inbox `Cause:` line quoted up to 200

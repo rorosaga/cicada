@@ -736,22 +736,24 @@ _ROLE_BY_TYPE = {"person": "with", "tool": "used", "directory": "used", "media":
 
 
 def write_note_episode(memory_path: Path, text: str, *, origin: str, title: str, now: datetime,
-                       key: str | None = None) -> str:
+                       key: str | None = None, source: str = "companion_app") -> str:
     """R-PJ18: the person's Log text is a SPAN, not a copy — a small companion
     episode holding the person's words exactly (scrubbed like every writer, R-N3),
     already processed (`processed_by: user`) so Sleep never re-extracts it, with a
     turn stamp so the Reader shows when it was written. `source_id` carries the
     instant: two identical notes on two days are two episodes, never a dedup.
     `key` (an inbox item id) is appended when a caller can answer several items in
-    one second, so their notes never share a `source_id` (G141 final review)."""
+    one second, so their notes never share a `source_id` (G141 final review).
+    `source` names the door the words came through: the app (default) or an agent
+    relaying the person's answer in conversation (`mcp`, owner 2026-10-14)."""
     from api.services import episode_staging
 
     instant = when_mod.utc_z(now)
     draft = episode_staging.EpisodeDraft(
-        title=title, source_id=f"companion-app:{instant}" + (f":{key}" if key else ""), timestamp=instant,
+        title=title, source_id=f"{source.replace('_', '-')}:{instant}" + (f":{key}" if key else ""), timestamp=instant,
         original_date=now.date().isoformat(),
-        source="companion_app", origin=origin, turns=[episode_staging.Turn(text=text, speaker="user", ts=instant)],
-        queue_for_sleep=False, processed_by="user", writer="companion_app")
+        source=source, origin=origin, turns=[episode_staging.Turn(text=text, speaker="user", ts=instant)],
+        queue_for_sleep=False, processed_by="user", writer=source)
     result = episode_staging.stage([draft], Path(memory_path) / "episodes", bank=Path(memory_path).name)
     return result.episode_ids[draft.source_id]
 

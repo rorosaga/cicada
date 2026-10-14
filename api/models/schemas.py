@@ -2215,6 +2215,10 @@ class InboxResolveRequest(CamelModel):
     # When it names the cleaner mention instead, the surviving file is renamed to
     # the survivor's slug so a merge can go either direction.
     merge_survivor: Optional[str] = None
+    # Owner, 2026-10-14: the person's own words, relayed by an agent, that answered the question in conversation
+    # (asked or not). Kept as a small episode of their words and cited as the answer's evidence; never sent by a
+    # remote connection (R-R22).
+    quote: Optional[str] = None
 
 
 class CheckCensus(CamelModel):
