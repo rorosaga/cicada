@@ -151,6 +151,9 @@ extension Copy.Graph {
     static let detailsSummary = "· tags, related, dates, how it fades"
     static let tags = "Tags"
     static let related = "Related"
+    /// Owner page, 2026-10-14 — the Details row of a hub that links thousands of pages: the rest are one click away.
+    static func relatedMore(_ n: Int) -> String { "and \(UsageFormat.count(n)) more" }
+    static let relatedMoreHelp = "Show every related page in this page's Related section"
     static let firstNoted = "First noted"
     static let lastMentioned = "Last mentioned"
     static let fades = "Fades"
