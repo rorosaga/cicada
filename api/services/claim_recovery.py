@@ -337,9 +337,8 @@ def _head_state(bank: Path, blobs: _Blobs) -> _Head:
         held = blobs.read("HEAD", ledger) if ledger else None
         if held and version.entries is not None:
             # A page's older claims live in its ledger (`claims_ledger`): an id moved there is on the page, not lost.
-            on_page = {str(e.get("id") or "") for e in version.entries}
-            version.entries = [*(e for e in _ledger_entries(held) if str(e.get("id") or "") not in on_page),
-                               *version.entries]
+            # A line in both files (a crash between the two writes) counts once; two copies under one id both count.
+            version.entries = [*(e for e in _ledger_entries(held) if e not in version.entries), *version.entries]
         state.pages[path] = version
         if version.entries is None and version.loose is None:
             state.opaque = True

@@ -19,8 +19,8 @@ from fastapi.testclient import TestClient
 from api import config, main
 from api.config import Settings
 from api.services import (
-    claim_recovery, claims, claims_ledger, conflict_resolver, entity_body, entity_merge, git_service, hub_pages,
-    markdown_parser, mcp_tools,
+    agentic_write, claim_recovery, claims, claims_ledger, conflict_resolver, dedup_sweep, entity_body, entity_merge,
+    git_service, hub_pages, markdown_parser, mcp_tools,
 )
 from api.services.claims import Claim, Evidence
 
@@ -373,3 +373,161 @@ def test_the_card_does_not_wait_on_a_slow_blame(tmp_path, monkeypatch):
     (elapsed, window, truncated), later = asyncio.run(both())
     assert elapsed < 1.2 and window == 2 and truncated
     assert later > window and slow["calls"] == 1                  # the seed's lines, found once and kept
+
+
+# --------------------------------------------------------------------------- review 2026-10-14
+
+
+def test_a_withdrawn_claim_in_the_ledger_survives_its_restatement_under_the_same_id(tmp_path):
+    """Ids come from the fact: withdraw → spill → restate leaves a closed and an open copy under one id. Both are read,
+    and both survive an unrelated write (the reviewer's reproduction, kept)."""
+    mem = tmp_path / "memory"
+    (mem / "entities").mkdir(parents=True)
+    markdown_parser.write(mem / "entities" / "synthetic-university.md",
+                          {"name": "Synthetic University", "type": "organization", "status": "active"}, "## Summary\nX.")
+    markdown_parser.write(mem / "entities" / "example-city.md",
+                          {"name": "Example City", "type": "location", "status": "active"}, "## Summary\nX.")
+    page = mem / "entities" / "owner-example.md"
+    rows = [Claim(id=f"clm_{i:05d}", text=f"Owner Example asked about Alpha {i}", subject=OWNER,
+                  predicate="asked-about", object=f"alpha-{i:04d}", valid_from="2026-01-01",
+                  recorded_at=f"2026-01-{1 + i % 28:02d}",
+                  evidence=[Evidence(episode="ep_2026-01-01_001", start=i, end=i + 40, kind="user", hash="a" * 12)])
+            for i in range(700)]
+    markdown_parser.write(page, {"name": "Owner Example", "type": "person", "status": "active", "owner": True},
+                          claims.write_claims("## Summary\nOwner Example.", rows))
+    kw = dict(observer="agent-example", origin="claude-code", authored_by="claude-code",
+              text="Owner Example studies at Synthetic University")
+    cid = agentic_write.write_claim(mem, OWNER, "studies-at", "synthetic-university", **kw)["claim_id"]
+    assert agentic_write.retract_claim(mem, OWNER, cid, reason="wrong", author="claude-code",
+                                       origin="claude-code")["action"] == "retracted"
+    p = markdown_parser.parse(page)
+    more = [Claim(id=f"clm_pad{i:05d}", text=f"Owner Example worked on Beta {i}", subject=OWNER,
+                  predicate="worked-on", object=f"beta-{i:04d}", valid_from="2026-03-01", recorded_at="2026-03-01")
+            for i in range(500)]
+    markdown_parser.write(page, p.frontmatter,
+                          claims.write_claims(p.body, [*claims.parse_claims(p.body, strict=True), *more]))
+    assert any(claims_ledger.line_id(line) == cid for line in claims_ledger.ledger_lines(page))
+
+    def copies():
+        return [(c.valid_to, c.superseded_by) for c in claims.parse_claims(markdown_parser.parse(page).body)
+                if c.id == cid]
+
+    agentic_write.write_claim(mem, OWNER, "studies-at", "synthetic-university", **kw)   # restated
+    assert len(copies()) == 2
+    agentic_write.write_claim(mem, OWNER, "lives-in", "example-city", observer="agent-example",
+                              origin="claude-code", text="Owner Example lives in Example City")
+    after = copies()
+    assert len(after) == 2 and any(v for v, _ in after) and any(v is None for v, _ in after)
+
+
+def test_an_edited_ledger_claim_is_replaced_in_place_and_never_duplicated(tmp_path):
+    memory = _owner_bank(tmp_path, git=False)
+    page = memory / "entities" / f"{OWNER}.md"
+    parsed = markdown_parser.parse(page)
+    markdown_parser.write(page, parsed.frontmatter, parsed.body)
+    moved = claims_ledger.line_id(claims_ledger.ledger_lines(page)[-1])
+    every = claims.parse_claims(markdown_parser.parse(page).body, strict=True)
+    for c in every:
+        if c.id == moved:
+            c.valid_to = "2026-10-01"
+    p = markdown_parser.parse(page)
+    markdown_parser.write(page, p.frontmatter, claims.write_claims(p.body, every))
+    copies = [c for c in claims.parse_claims(markdown_parser.parse(page).body) if c.id == moved]
+    assert len(copies) == 1 and copies[0].valid_to == "2026-10-01"
+    assert any(claims_ledger.line_id(line) == moved for line in claims_ledger.ledger_lines(page))
+
+
+def test_a_failed_dedup_merge_leaves_no_ledger_behind(tmp_path, monkeypatch):
+    """A merge whose winner write created its first ledger and then failed puts the winner back without it (the
+    reviewer's reproduction, kept): nothing for the winner's next write to adopt."""
+    mem = tmp_path / "memory"
+    (mem / "entities").mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", str(mem)], check=True)
+    for k, v in (("user.email", "t@example.invalid"), ("user.name", "t")):
+        _git(mem, "config", k, v)
+
+    def rows(subject, n, tag):
+        return [Claim(id=f"clm_{subject}_{i:05d}", text=f"{subject} {tag} item {i} " + "x" * 60, subject=subject,
+                      predicate=f"{tag}-{i % 5}", object=f"thing-{tag}-{i}", valid_from="2026-01-01",
+                      recorded_at="2026-01-01") for i in range(n)]
+
+    win, lose = mem / "entities" / "alpha-project.md", mem / "entities" / "alpha-proj.md"
+    markdown_parser.write(win, {"name": "Alpha Project", "type": "project", "status": "active"},
+                          claims.write_claims("## Summary\nA.", rows("alpha-project", 80, "w")))
+    markdown_parser.write(lose, {"name": "Alpha Proj", "type": "project", "status": "active"},
+                          claims.write_claims("## Summary\nA.", rows("alpha-proj", 80, "l")))
+    assert not claims_ledger.path_for(win).exists()
+    _git(mem, "add", "-A")
+    _git(mem, "commit", "-qm", "seed")
+
+    def boom(*a, **k):
+        raise RuntimeError("synthetic failure after the winner write")
+
+    monkeypatch.setattr(entity_merge, "repoint_references", boom)
+    assert dedup_sweep._merge_and_commit(mem, "alpha-proj", "alpha-project", None) == dedup_sweep.FAILED
+    assert not claims_ledger.path_for(win).exists()
+    assert _git(mem, "status", "--porcelain", "--untracked-files=all").strip() == ""
+
+
+def test_a_successful_dedup_merge_commits_the_ledger_its_winner_write_created(tmp_path):
+    mem = tmp_path / "memory"
+    (mem / "entities").mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", str(mem)], check=True)
+    for k, v in (("user.email", "t@example.invalid"), ("user.name", "t")):
+        _git(mem, "config", k, v)
+    win, lose = mem / "entities" / "alpha-project.md", mem / "entities" / "alpha-proj.md"
+    for path, eid in ((win, "alpha-project"), (lose, "alpha-proj")):
+        rows = [Claim(id=f"clm_{eid}_{i:05d}", text=f"{eid} item {i} " + "x" * 60, subject=eid, predicate=f"p-{i % 5}",
+                      object=f"thing-{eid}-{i}", valid_from="2026-01-01", recorded_at="2026-01-01") for i in range(80)]
+        markdown_parser.write(path, {"name": eid.replace("-", " ").title(), "type": "project", "status": "active"},
+                              claims.write_claims("## Summary\nA.", rows))
+    _git(mem, "add", "-A")
+    _git(mem, "commit", "-qm", "seed")
+    ids = _record(mem, "alpha-project")[0] | _record(mem, "alpha-proj")[0]
+    assert dedup_sweep._merge_and_commit(mem, "alpha-proj", "alpha-project", None) == dedup_sweep.MERGED
+    assert claims_ledger.path_for(win).exists()
+    assert _git(mem, "status", "--porcelain", "--untracked-files=all").strip() == ""
+    assert _record(mem, "alpha-project")[0] == ids
+
+
+def test_a_rerun_finishes_an_interrupted_split(tmp_path, monkeypatch):
+    memory = _owner_bank(tmp_path)
+    ids, spans = _record(memory)
+    real = git_service.commit_paths_sync
+
+    def interrupted(*a, **k):
+        raise RuntimeError("synthetic stop before the commit")
+
+    monkeypatch.setattr(git_service, "commit_paths_sync", interrupted)
+    with pytest.raises(RuntimeError):
+        hub_pages.apply(memory, sleep_running=lambda: False)
+    assert _git(memory, "status", "--porcelain").strip()            # written, not committed
+    monkeypatch.setattr(git_service, "commit_paths_sync", real)
+    again = hub_pages.apply(memory, sleep_running=lambda: False)
+    assert again.resumed >= 1 and again.committed and again.dirty == 0
+    assert _git(memory, "status", "--porcelain", "--untracked-files=all").strip() == ""
+    assert _record(memory) == (ids, spans)
+    assert hub_pages.TRIGGER in _git(memory, "log", "-1", "--format=%B")
+
+
+def test_a_rerun_finishes_a_split_stopped_between_the_ledger_and_the_page(tmp_path):
+    memory = _owner_bank(tmp_path)
+    page = memory / "entities" / f"{OWNER}.md"
+    ids, spans = _record(memory)
+    plan = hub_pages.survey(memory)._todo[page]
+    _fm, _body, ledger = claims_ledger.split(page, plan[1], plan[2])
+    claims_ledger.path_for(page).write_bytes(ledger)                 # the ledger landed; the page did not
+    result = hub_pages.apply(memory, sleep_running=lambda: False)
+    assert result.committed and result.dirty == 0
+    assert _git(memory, "status", "--porcelain", "--untracked-files=all").strip() == ""
+    assert _record(memory) == (ids, spans)
+    assert page.stat().st_size < 60_000
+
+
+def test_a_persons_edit_on_a_hub_page_is_never_committed_by_the_split(tmp_path):
+    memory = _owner_bank(tmp_path)
+    page = memory / "entities" / f"{OWNER}.md"
+    page.write_text(page.read_text() + "\nA note the person typed.\n")
+    result = hub_pages.apply(memory, sleep_running=lambda: False)
+    assert result.dirty == 1 and "A note the person typed." in page.read_text()
+    assert f"entities/{OWNER}.md" in _git(memory, "status", "--porcelain")

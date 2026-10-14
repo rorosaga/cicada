@@ -13,7 +13,8 @@ still a line, an edge or a ``related:`` slug; a page that fails is left as it wa
 
 The dry run prints the counts (pages, claims moved, bytes before and after, Related lines before and after) and writes
 nothing. ``--apply`` writes exactly that in one `cicada` commit (trigger ``maintenance/hub-pages``), refused while Sleep
-runs or holds the pages; a page dirty in git or written since the survey is skipped. A second run changes nothing.
+runs or holds the pages; a page dirty in git or written since the survey is skipped, unless it holds exactly what an
+interrupted run wrote (a rerun finishes that run: ``resumed``). A second run changes nothing.
 The article for such a page is then ``api.scripts.rebuild_page_articles``'s to write.
 
 The bank is named explicitly; nothing is resolved from the environment's active bank. Prints one JSON object of

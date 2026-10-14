@@ -124,21 +124,26 @@ few KB), `entities/<id>.claims.jsonl`: the fence's own JSON lines, oldest first,
 owner's page carried ~5,900 claims, mostly a per-conversation activity log ("<owner> asked about X"), 4.5 MB of a
 4.7 MB file every reader and writer moved. The split is invisible above `markdown_parser`: `parse` of a page whose
 frontmatter carries the `claims_ledger: {claims, hash}` stamp folds the ledger's lines back in at the head of the
-fence (each id once — the fence's copy wins), so all ~70 claim readers and writers see one set; `parse(...,
-ledger=False)` (a frontmatter scan, the card) never opens it. `write` hands every claim whose id the ledger holds back
-to the ledger (replaced in place), keeps the rest in the fence, and when the fence is over the budget moves lines to
-the ledger until it is under `SPILL_TO` (half), in order: closed claims, then a log's (a predicate the page holds for
+fence (a line in both files byte for byte — a crash between the two writes — is read once), so all ~70 claim readers
+and writers see one set; `parse(..., ledger=False)` (a frontmatter scan, the card) never opens it. `write` leaves in
+the ledger every line the body carries back byte for byte; a ledger line the body edited is replaced in place only
+when its id is unambiguous (one ledger line, one edited body line). **Two copies under one id are never merged**: ids
+come from the fact, so a withdrawn or expired claim and its restatement share one, and both are the record (review
+2026-10-14). The rest stays in the fence, and when the fence is over the budget lines move to the ledger until it is
+under `SPILL_TO` (half), in order: closed claims, then a log's (a predicate the page holds for
 more than `entity_body.RELATION_FAMILY_MAX` = 3 objects), then the rest, each oldest first — so what stays on the page
 is what it says about its subject plus the newest activity. **A write never removes a ledger line** (a body read
 without the ledger leaves it as it is); only `claims_ledger.remove` (a merged-away page, after its claims moved) and
 `move` (the inbox's rename) take one away. The ledger is written before the page (a crash leaves a line in both, never
 in neither) and the stamp changes with every ledger write, so every cache keyed on the page's bytes sees it. A page
 and its ledger are one unit to git: `commit_paths_sync`, `commit_touched_sync` and a `checkout --` restore through
-`run_git_write_sync` add the ledger of every page they name; a dedup merge's footprint names both ledgers; claim
-recovery reads HEAD's ledgers as present. `write_new` and `write_document` (raw writers) never split. An existing bank
+`run_git_write_sync` add the ledger of every page they name; a dedup merge snapshots every footprint page's ledger,
+there or not, so a failed merge puts back (or removes) a ledger its winner write created; claim recovery reads HEAD's
+ledgers as present. `write_new` and `write_document` (raw writers) never split. An existing bank
 is split once by `python -m api.scripts.split_hub_pages --bank <path>` (dry run: counts only; `--apply`: one `cicada`
 commit, refused unless Sleep is idle, each page checked to read back every claim id, evidence span and Related link
-before it is written; `hub_pages`).
+before it is written; a rerun finishes an interrupted run, committing the pages it left dirty with exactly this
+migration's bytes and nothing else; `hub_pages`).
 
 **Contexts and the fence (F1).** `context` is an open vocabulary whose *shape* is pinned by
 `claim_contexts` — a short lowercase slug. Any other value (G60's `as of <date>`) keeps its job as a

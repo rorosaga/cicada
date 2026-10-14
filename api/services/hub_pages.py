@@ -15,11 +15,15 @@ line. A page that fails the check is left as it was and counted.
 * :func:`survey` counts, read-only, never a name or a word of the bank;
 * :func:`apply` writes the survey's pages and commits them in ONE ``cicada`` commit (trigger
   ``maintenance/hub-pages``), refused while Sleep runs or holds the pages; a page dirty in git or written since the
-  survey is skipped (its writer's to commit). A second run changes nothing.
+  survey is skipped (its writer's to commit) — unless it holds exactly what an interrupted run of this migration
+  wrote, which a rerun finishes and commits. A second run changes nothing.
 """
 from __future__ import annotations
 
+import os
 import re
+import subprocess
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
@@ -57,6 +61,7 @@ class Survey:
     unreadable: int = 0
     dirty: int = 0
     written: int = 0
+    resumed: int = 0
     committed: bool = False
     _todo: dict = field(default_factory=dict, repr=False)
 
@@ -153,35 +158,99 @@ def survey(memory_path) -> Survey:
     return result
 
 
+def _head_bytes(memory_path: Path, rel: str) -> bytes | None:
+    proc = subprocess.run(["git", "-C", str(memory_path), "cat-file", "blob", f"HEAD:{rel}"], capture_output=True,
+                          env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"})
+    return proc.stdout if proc.returncode == 0 else None
+
+
+def _expected(memory_path: Path, rel: str, edges_by_entity: dict) -> tuple[bytes, bytes | None] | None:
+    """What this migration writes for the page as HEAD holds it — ``(page bytes, ledger bytes or None)`` — computed on
+    a scratch copy of HEAD's page and ledger, never touching the bank. ``None`` when HEAD has no such page."""
+    page = _head_bytes(memory_path, rel)
+    if page is None:
+        return None
+    ledger = _head_bytes(memory_path, claims_ledger.rel_for(rel))
+    with tempfile.TemporaryDirectory(prefix="cicada-hub-") as scratch:
+        tmp = Path(scratch) / "entities" / Path(rel).name
+        tmp.parent.mkdir()
+        tmp.write_bytes(page)
+        if ledger is not None:
+            claims_ledger.path_for(tmp).write_bytes(ledger)
+        plan = _plan(tmp, memory_path, edges_by_entity, Survey())
+        if plan is None:
+            return page, ledger
+        _text, fm, body = plan
+        fm, body, written = claims_ledger.split(tmp, fm, body)
+        return markdown_parser._render(fm, body), (written if written is not None else ledger)
+
+
+def _read(path: Path) -> bytes | None:
+    return path.read_bytes() if path.is_file() else None
+
+
+def _resumable(memory_path: Path, dirty: frozenset, edges_by_entity: dict) -> dict[str, tuple[bytes, bytes | None]]:
+    """The pages left dirty by an interrupted run of this migration, ``{rel: expected bytes}``: every dirty page, or
+    page whose ledger is dirty, whose page and ledger each hold either HEAD's bytes or exactly what this migration
+    writes from HEAD's (the ledger is written before its page, so a run can stop between the two). Anything else on a
+    dirty page is someone's edit: never this migration's to commit."""
+    pages = sorted({rel[:-len(claims_ledger.SUFFIX)] + ".md" if rel.endswith(claims_ledger.SUFFIX) else rel
+                    for rel in dirty if rel.startswith("entities/")
+                    and (rel.endswith(".md") or rel.endswith(claims_ledger.SUFFIX)) and rel.count("/") == 1})
+    out = {}
+    for rel in pages:
+        try:
+            expected = _expected(memory_path, rel, edges_by_entity)
+        except (claims.MalformedClaimsBlockError, ValueError, OSError):
+            continue
+        if expected is None:
+            continue
+        lrel = claims_ledger.rel_for(rel)
+        now_page, now_ledger = _read(memory_path / rel), _read(memory_path / lrel)
+        if now_page in (_head_bytes(memory_path, rel), expected[0]) and \
+                now_ledger in (_head_bytes(memory_path, lrel), expected[1]):
+            out[rel] = expected
+    return out
+
+
 def apply(memory_path, *, sleep_running: Callable[[], bool]) -> Survey:
     """Write the survey's pages and commit them in ONE commit authored ``cicada``. Raises :class:`SleepRunning` before
-    writing anything when Sleep holds the pages or a run is in progress."""
+    writing anything when Sleep holds the pages or a run is in progress. A rerun after an interrupted run finishes it:
+    the pages that run left dirty with exactly this migration's bytes (:func:`_resumable`) are written if still
+    needed and committed with the rest (``resumed``)."""
     memory_path = Path(memory_path)
     written: list[Path] = []
+    git = (memory_path / ".git").exists()
     with write_admission.admitted(memory_path, refuse=lambda: SleepRunning("Sleep is holding this bank's pages")):
         if sleep_running():
             raise SleepRunning("a Sleep run is in progress; split after it ends")
         with page_lock.page_lock(memory_path):
             result = survey(memory_path)
-            rels = {path: f"entities/{path.name}" for path in result._todo}
-            dirty = git_service.dirty_paths_sync(memory_path, *claims_ledger.with_ledgers(
-                memory_path, list(rels.values()))) if rels and (memory_path / ".git").exists() else frozenset()
+            dirty = git_service.dirty_paths_sync(memory_path, "entities") if git else frozenset()
+            ours = _resumable(memory_path, dirty, conflict_resolver._edges_by_entity(memory_path)) if dirty else {}
             for path, (surveyed, fm, body) in result._todo.items():
-                ledger_rel = claims_ledger.rel_for(rels[path])
-                if path.read_text(encoding="utf-8") != surveyed or rels[path] in dirty or ledger_rel in dirty:
+                rel = f"entities/{path.name}"
+                touched = rel in dirty or claims_ledger.rel_for(rel) in dirty
+                if path.read_text(encoding="utf-8") != surveyed or (touched and rel not in ours):
                     result.dirty += 1
                     continue
                 markdown_parser.write(path, fm, body)
                 written.append(path)
             result.written = len(written)
-            if written and (memory_path / ".git").exists():
+            done = {f"entities/{p.name}" for p in written}
+            # An interrupted run's pages: committed now when they hold exactly what this migration writes.
+            resumed = [rel for rel, (page, _ledger) in ours.items()
+                       if rel not in done and _read(memory_path / rel) == page]
+            result.resumed = len(resumed)
+            rels = sorted(done | set(resumed))
+            if rels and git:
                 message = git_service.build_commit_message(
-                    f"Hub pages: {len(written)} page(s) split",
-                    [f"entities/{p.name}: updated (trigger: {TRIGGER})" for p in written],
+                    f"Hub pages: {len(rels)} page(s) split",
+                    [f"{rel}: updated (trigger: {TRIGGER})" for rel in rels],
                     authors=["cicada"],
                 )
-                git_service.commit_paths_sync(memory_path, message, [rels[p] for p in written])
+                git_service.commit_paths_sync(memory_path, message, rels)
                 result.committed = True
-    if written:
-        logger.info(f"hub pages: {len(written)} page(s) split")
+    if written or result.resumed:
+        logger.info(f"hub pages: {len(written)} page(s) split, {result.resumed} finished from an interrupted run")
     return result
