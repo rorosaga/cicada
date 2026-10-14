@@ -8,7 +8,20 @@
 
 ## Current state and evidence
 
-- **2026-10-14 (acting-owner session, overnight) — pick up here.** Merged to dev, in three themed PRs per the owner's "fewer, bigger contributions":
+- **2026-10-14 (acting-owner session, afternoon) — pick up here.** Merged to dev after the overnight entry below:
+  - **#273:** docs for the overnight state.
+  - **#274, every agent:** a paste-able setup prompt for Cursor and for "another agent" (G76); Cursor and Gemini CLI conversations are captured through their prompt/reply hooks, built from the documented payloads and not yet seen in the real apps (G197, with a capture matrix in `capture-and-sleep.md`); the owner's ruling on file search (G195).
+  - **This PR, agents as contributors:**
+    - trusted agents edit a page's text and aliases directly, with blame from git (G198);
+    - an untrusted agent's edit becomes a one-tap inbox proposal;
+    - inbox questions come up only when the conversation is about them, and an answer the person already gave is relayed with attribution (G115);
+    - `cicada_ask` reads a hub page's aliases, summary and linked people.
+  - **Found:** an MCP server process started before an update keeps running old code. One refused an owner-page write after the claims-ledger change; it refused safely, without corrupting the page. Opening a new session fixes it. A server that notices a code change and restarts is not built yet.
+  - **Owner, open:**
+    - whether to turn on the SessionStart/UserPromptSubmit recall hooks in Claude Code and Codex (only the Stop capture hook is installed);
+    - which agents go on the page-edit trust list;
+    - Cursor capture is the owner's click (Agents → Cursor).
+- **2026-10-14 (acting-owner session, overnight) — previous state.** Merged to dev, in three themed PRs per the owner's "fewer, bigger contributions":
   - **#270 memory quality:** a very large page's older claims go to a claims ledger beside it; unnamed people get relation titles and a "What's the name of your partner?" question; `works-at` holds several places at once and ends only on evidence; a project name typed in another case finds its page.
   - **#271:** "Where this comes from" on every page (G61), and the Looks board (G196).
   - **#272:** merges and renames keep every edge whole (a placeholder merge on the real bank had stripped 14,298 claim-backed edges; reverted the same night, nothing lost); hub Related at most 60 lines by meaning; the owner card opens in ~0.1 s; session titles in the person's words.
