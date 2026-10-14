@@ -29,7 +29,9 @@ and it keeps its heat — and a full push rebinds a drag in progress to the live
 graph live without moving what was there, and a push that lands while the page is
 hidden no longer replays whole-graph motion on return. Only a first paint (and a filter change) lays out everything.
 Measured in WebKit at 2,000 nodes (`GraphWebKitBenchTests`, opt-in): draw 1–2 ms, a tick 7 ms, a cold layout 135
-ticks; 20 new pages settle in 112 ticks with 0 settled nodes moved. Per-type zones are the existing `typeClusterPositions`
+ticks; 20 new pages settle in 112 ticks with 0 settled nodes moved. At the live bank's shape (3,698 nodes, 41,570 links, the opt-in
+bank-shape bench, G109 2026-10-14): a tick 12 ms, a cold layout stops at ~129 steps (1.7 s of tick CPU) at rest. A hold
+on a settled graph is a push of its own kind: every node but the dragged page and its neighbours is held the same way. Per-type zones are the existing `typeClusterPositions`
 anchors; `graph-zones.bench.js` measures their strength (no overlap at rest at any strength; stronger = more separate
 zones, same settle time).
 

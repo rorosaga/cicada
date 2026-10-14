@@ -30,6 +30,16 @@ above 16.7 ms on the live bank, or a graph well past ~10k nodes. **Two rules fol
 `app/CicadaApp/Tests/graph/graph-physics.test.js` (real d3, real `graph.js`) is the regression net;
 a KE/node plateau at tick 400 is the signature of a force that broke rule 1.
 
+**The layout settles and stops (G109, 2026-10-14).** Collide is alpha-scaled too (below alpha 0.03), so every force
+cools together and the layout comes to rest instead of freezing mid-motion at the alpha cut-off; a settle check ends a
+cooled layout once it looks still. The simulation keeps one link per connected pair at d3's default strength (every
+link still draws, batched into one path per colour and alpha), charge grows with a page's neighbours, and leaves sit
+close to their page. Every component of ≤ 30 nodes other than the largest — isolates, pairs, triples — is packed in a
+band just outside the body, one sector per type, out of the body's charge. A hold on a settled graph moves only the
+dragged page and its neighbours. `graph-settle.test.js` holds this on a synthetic with the live bank's shape
+(`graph-bank-shape.js`, 3,698 nodes / 41,570 links): the timer stops within ~130 steps with no node faster than
+1 wu/tick, nothing beyond 1.4 giant radii, and no frame requested after the stop. The numbers are in G109.
+
 **The graph rests when nobody can see it (audit 2026-10-02 A07–A09).** `GraphPage` stays mounted under
 every tab, so it tells the page whether it is on screen: `GraphView(isActive:)` is the Graph tab
 selected *and* its window visible (`WindowVisibilityReader`: occluded, minimized or hidden reads
