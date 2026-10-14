@@ -194,12 +194,13 @@ final class SaveWhyLiveTests: XCTestCase {
             performSync: { _, _ in
                 // What `syncChannel` does: read, look early, then the slow sync, then its result.
                 syncs += 1
+                let look = BookmarkSyncSignal.takeLook()   // before the read, as `syncChannel` does
                 let data = try Data(contentsOf: bookmarks)
-                let looked = await BookmarkSyncSignal.lookEarly(.chrome(data))
+                let looked = await BookmarkSyncSignal.lookEarly(.chrome(data), look: look)
                 if BookmarkSyncSignal.live { try await Task.sleep(for: .seconds(3)) }
-                if BookmarkSyncSignal.live { await api.markSaved() }
+                let result = await api.ingest(data)
                 ingested = BookmarkSyncSignal.live
-                BookmarkSyncSignal.post(api.synced, lookedEarly: looked)
+                BookmarkSyncSignal.post(result, lookedEarly: looked)
                 return "ok"
             })
         watcher.start(store: store)
@@ -229,6 +230,140 @@ final class SaveWhyLiveTests: XCTestCase {
         watcher.stop()
     }
 
+    /// Measured 2026-10-14 after #288: the second of two bookmarks 12 s apart asked only at +12 s, when the first's
+    /// sync finished. Two saves 10 s apart with a first sync that takes 14 s: each panel within the budget of its own
+    /// save; the first, still unsaved, never makes the second look like two; the second's answer lands once its own
+    /// sync does; and no sync asks a third time.
+    func testTwoSavesTenSecondsApartEachAskWithinTheBudgetWhileTheFirstSyncRuns() async throws {
+        let bookmarks = dir.appendingPathComponent("Bookmarks")
+        try "{\"seed\": 1}".write(to: bookmarks, atomically: false, encoding: .utf8)
+        defaults.set(true, forKey: BrowserWatchPolicy.enabledKey("chrome-bookmarks"))
+        let clock = Date()
+        let prefs = SaveWhyPrefs(defaults: defaults)
+        prefs.enabled = true
+        let api = LiveFakeAPI(now: clock)
+        let presenter = TimingPresenter()
+        let center = SaveWhyCenter(prefs: prefs, api: api, presenter: presenter, now: Date.init)   // real time: the repeat guard counts
+        center.start()
+        await center.refreshOptions()
+
+        var landed: [Int] = []
+        var syncs = 0
+        let watcher = BrowserWatcher(
+            defaults: defaults, channels: [("chrome-bookmarks", .chromeBookmarks)],
+            paths: { _ in [bookmarks] }, minimumInterval: .milliseconds(1),
+            performSync: { _, _ in
+                syncs += 1
+                let n = syncs
+                let look = BookmarkSyncSignal.takeLook()   // before the read, as `syncChannel` does
+                let data = try Data(contentsOf: bookmarks)
+                let looked = await BookmarkSyncSignal.lookEarly(.chrome(data), look: look)
+                if BookmarkSyncSignal.live && n == 2 { try await Task.sleep(for: .seconds(14)) }   // the slow one
+                let result = await api.ingest(data)
+                landed.append(n)
+                BookmarkSyncSignal.post(result, lookedEarly: looked)
+                return "ok"
+            },
+            peek: { _ in
+                let look = BookmarkSyncSignal.$live.withValue(true) { BookmarkSyncSignal.takeLook() }
+                guard let data = try? Data(contentsOf: bookmarks) else { return }
+                _ = await BookmarkSyncSignal.$live.withValue(true) {
+                    await BookmarkSyncSignal.lookEarly(.chrome(data), look: look)
+                }
+            })
+        watcher.start(store: store)
+        try await eventually("the catch-up sync") { landed == [1] }
+
+        let first = "https://alpha.example/one", second = "https://beta.example/two"
+        try replaceBeside(bookmarks, with: "{\"a\": \"\(first)\"}")
+        var saved = ContinuousClock.now
+        try await eventually("the first panel", timeout: .seconds(4)) { presenter.shows == 1 }
+        XCTAssertLessThanOrEqual(presenter.shownAt! - saved, .seconds(SaveWhyPolicy.showBudget))
+        XCTAssertEqual(center.state?.item.url, first)
+
+        try await Task.sleep(for: .seconds(10))
+        XCTAssertEqual(landed, [1], "the first save's sync is still running")
+        try replaceBeside(bookmarks, with: "{\"a\": \"\(first)\", \"b\": \"\(second)\"}")
+        saved = ContinuousClock.now
+        try await eventually("the second panel", timeout: .seconds(4)) { presenter.shows == 2 }
+        let latency = presenter.shownAt! - saved
+        print("G191 live: second save during a running sync → panel \(latency)")
+        XCTAssertLessThanOrEqual(latency, .seconds(SaveWhyPolicy.showBudget), "second save → panel took \(latency)")
+        XCTAssertEqual(center.state?.item.url, second, "one new since the last look, not two")
+        XCTAssertEqual(landed, [1], "it did not wait for the first sync")
+
+        // Answered before either sync lands: held on the 404, sent once the second save's own sync has.
+        center.send(.tapReason("design"))
+        center.send(.escape)
+        await center.settle()
+        XCTAssertEqual(center.heldCount, 1)
+        try await eventually("both syncs and the answer", timeout: .seconds(15)) {
+            landed.count == 3 && center.heldCount == 0
+        }
+        let posts = await api.posts
+        XCTAssertEqual(posts, [second])
+        XCTAssertEqual(presenter.shows, 2, "no sync asks a third time")
+        watcher.stop()
+    }
+
+    /// Review B2's interleaving. A sync reads the file before bookmark C exists, but its early look answers last;
+    /// C's peek reads after C was saved and answers first. Numbered by answer, the sync's look outranked C's, so its
+    /// landing released C's held answer to a 404 that is final — the answer was lost. Numbered before the read, the
+    /// sync's landing leaves C held until a sync that read C lands, and C is asked once.
+    func testASyncThatReadBeforeABookmarkNeverReleasesThatBookmarksHeldAnswer() async throws {
+        let prefs = SaveWhyPrefs(defaults: defaults)
+        prefs.enabled = true
+        let api = LiveFakeAPI(now: Date())
+        let presenter = TimingPresenter()
+        let center = SaveWhyCenter(prefs: prefs, api: api, presenter: presenter, now: Date.init)
+        await center.refreshOptions()
+        let a = "https://alpha.example/a", c = "https://gamma.example/c"
+        func file(_ urls: String...) -> BookmarkBytes {
+            .chrome(Data(urls.map { "\"\($0)\"" }.joined(separator: ",").utf8))
+        }
+
+        // A was asked about and its sync has landed.
+        let lookA = center.takeLook()
+        _ = await center.lookEarly(file(a), look: lookA)
+        _ = await api.ingest(Data("\"\(a)\"".utf8))
+        await center.ingested(BookmarkSyncResult(new: 1, skipped: 0, sources: [
+            BookmarkSyncSourceSummary(origin: "chrome-bookmark", channel: "chrome-bookmarks", found: 1, new: 1,
+                                      skipped: 0, firstSync: false)]), look: lookA)
+        center.send(.escape)
+
+        // The sync S reads the file before C exists: its number is taken now…
+        let lookS = center.takeLook()
+        let bytesS = file(a)
+        // …C is saved, and its peek reads after: a higher number, though it answers first.
+        try await Task.sleep(for: .seconds(SaveWhyPolicy.repeatGuard + 0.1))
+        let lookC = center.takeLook()
+        XCTAssertGreaterThan(lookC, lookS)
+        _ = await center.lookEarly(file(a, c), look: lookC)
+        XCTAssertEqual(center.state?.item.url, c)
+        center.send(.tapReason("design"))
+        center.send(.escape)
+        await center.settle()
+        XCTAssertEqual(center.heldCount, 1, "C's answer meets a 404: held")
+
+        // S's look answers last (nothing new in its bytes), S ingests A only and lands.
+        _ = await center.lookEarly(bytesS, look: lookS)
+        let resultS = await api.ingest(Data("\"\(a)\"".utf8))
+        await center.ingested(resultS, look: lookS)
+        XCTAssertEqual(center.heldCount, 1, "S read before C existed: C's answer stays held")
+        let early = await api.posts
+        XCTAssertTrue(early.isEmpty)
+
+        // The sync that read C lands: the answer goes, and C was asked once.
+        let lookT = center.takeLook()
+        _ = await center.lookEarly(file(a, c), look: lookT)
+        let resultT = await api.ingest(Data("\"\(a)\",\"\(c)\"".utf8))
+        await center.ingested(resultT, look: lookT)
+        XCTAssertEqual(center.heldCount, 0)
+        let posts = await api.posts
+        XCTAssertEqual(posts, [c])
+        XCTAssertEqual(presenter.shows, 2, "A once, C once")
+    }
+
     /// The budget's parts: the settle and stream latency leave room for the read, the look and the show.
     func testTheWatchDelayLeavesRoomInTheBudget() {
         XCTAssertLessThanOrEqual(BrowserWatchPolicy.watchDelay, SaveWhyPolicy.showBudget / 4)
@@ -242,13 +377,13 @@ final class SaveWhyLiveTests: XCTestCase {
         let api = LiveFakeAPI(now: Date())
         let center = SaveWhyCenter(prefs: prefs, api: api, presenter: TimingPresenter())
         let off = await center.lookEarly(.chrome(Data()))
-        XCTAssertFalse(off)
+        XCTAssertNil(off)
         let looks = await api.looks
         XCTAssertEqual(looks, 0, "off: not even asked")
         prefs.enabled = true
         await api.refuseLooks()
         let unanswered = await center.lookEarly(.chrome(Data()))
-        XCTAssertFalse(unanswered, "no answer: the sync's own result decides")
+        XCTAssertNil(unanswered, "no answer: the sync's own result decides")
     }
 
     // MARK: - No self-opening field
@@ -371,48 +506,61 @@ private final class TimingPresenter: SaveWhyPresenting {
     func focusText() {}
 }
 
-/// A backend that parses in 150 ms (the early look), refuses an answer with 404 until the sync saved its link, and
-/// answers options at once.
+/// A backend over a synthetic bookmarks file (every `https://…` in it is a bookmark): the early look parses in 150 ms
+/// and lists the links not saved yet; `ingest` (the sync) saves them; an answer for a link not saved is a 404.
 private actor LiveFakeAPI: SavedWhyAPI {
     let now: Date
     private(set) var looks = 0
     private(set) var posts: [String] = []
     private var refusing = false
-    nonisolated let synced: BookmarkSyncResult
+    private var saved: Set<String> = []
 
-    init(now: Date) {
-        self.now = now
-        var r = BookmarkSyncResult(new: 1, skipped: 1, sources: [
-            BookmarkSyncSourceSummary(origin: "chrome-bookmark", channel: "chrome-bookmarks", found: 2, new: 1,
-                                      skipped: 1, firstSync: false),
-        ])
-        r.fresh = [FreshBookmark(url: "https://alpha.example/notes", title: "Alpha notes", origin: "chrome-bookmark",
-                                 channel: "chrome-bookmarks", episodeId: "ep_x",
-                                 addedAt: ISO8601DateFormatter().string(from: now.addingTimeInterval(-3)))]
-        r.freshTotal = 1
-        synced = r
-    }
+    init(now: Date) { self.now = now }
 
     func refuseLooks() { refusing = true }
+
+    private func urls(_ data: Data) -> [String] {
+        let text = String(decoding: data, as: UTF8.self)
+        let re = try! NSRegularExpression(pattern: "https://[^\"\\s]+")
+        return re.matches(in: text, range: NSRange(text.startIndex..., in: text))
+            .compactMap { Range($0.range, in: text).map { String(text[$0]) } }
+    }
+
+    private func result(_ fresh: [String], episode: Bool) -> BookmarkSyncResult {
+        var r = BookmarkSyncResult(new: episode ? fresh.count : 0, skipped: 0, sources: [
+            BookmarkSyncSourceSummary(origin: "chrome-bookmark", channel: "chrome-bookmarks", found: fresh.count,
+                                      new: fresh.count, skipped: 0, firstSync: false),
+        ])
+        r.fresh = fresh.map {
+            FreshBookmark(url: $0, title: "Placeholder", origin: "chrome-bookmark", channel: "chrome-bookmarks",
+                          episodeId: episode ? "ep_x" : "",
+                          addedAt: ISO8601DateFormatter().string(from: now.addingTimeInterval(-3)))
+        }
+        r.freshTotal = fresh.count
+        return r
+    }
+
+    /// The sync: saves every link in the file and reports the ones it newly saved.
+    func ingest(_ data: Data) -> BookmarkSyncResult {
+        let fresh = urls(data).filter { !saved.contains($0) }
+        saved.formUnion(fresh)
+        return result(fresh, episode: true)
+    }
 
     func freshBookmarks(_ bytes: BookmarkBytes) async throws -> BookmarkSyncResult {
         looks += 1
         if refusing { throw APIError.httpError(404, "Not Found") }
+        guard case .chrome(let data) = bytes else { return result([], episode: false) }
         try await Task.sleep(for: .milliseconds(150))
-        var r = synced
-        r.fresh = r.fresh.map { var f = $0; f.episodeId = ""; return f }
-        return r
+        return result(urls(data).filter { !saved.contains($0) }, episode: false)
     }
 
     func savedWhyOptions() async throws -> SavedWhyOptions {
         SavedWhyOptions(reasons: [.init(key: "design", label: "The design")], projects: [], maxText: 500)
     }
 
-    private var saved = false
-    func markSaved() { saved = true }
-
     func saveWhy(url: String, answer: SavedWhyAnswer, at: Date) async throws {
-        guard saved else { throw APIError.httpError(404, "That link isn't saved yet") }
+        guard saved.contains(url) else { throw APIError.httpError(404, "That link isn't saved yet") }
         posts.append(url)
     }
 }

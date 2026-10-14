@@ -278,6 +278,8 @@ final class BrowserWatcher {
     private let activity: SyncActivity?
     /// Injected so tests drive the watcher without touching a real browser.
     private let performSync: @MainActor (String, Store) async throws -> String
+    /// G191 live — the early look for a save that cannot sync yet (`BrowserImportActions.peek`); injected for tests.
+    private let peek: @MainActor (String) async -> Void
 
     /// Everything a real browser supplies — the channel list, where its files
     /// live, the timings — is injectable, because the behaviour worth testing
@@ -293,8 +295,10 @@ final class BrowserWatcher {
         activity: SyncActivity? = nil,
         performSync: @escaping @MainActor (String, Store) async throws -> String = {
             try await BrowserImportActions.syncChannel($0, store: $1)
-        }
+        },
+        peek: @escaping @MainActor (String) async -> Void = { await BrowserImportActions.peek($0) }
     ) {
+        self.peek = peek
         self.defaults = defaults
         self.channels = channels
         self.paths = paths
@@ -541,6 +545,7 @@ final class BrowserWatcher {
             // G191 live: owed, not dropped — before, a save inside the floor waited for the next save to be read.
             let wait = minimumInterval - (ContinuousClock.now - started)
             owed[channel] = (owed[channel] ?? false) || live
+            if live { Task { await peek(channel) } }   // ask now; the sync follows after the floor
             pending[channel]?.cancel()
             pending[channel] = Task { [weak self] in
                 try? await Task.sleep(for: wait)
@@ -569,6 +574,7 @@ final class BrowserWatcher {
             // G191 live: a save during a sync is read right after it (the signature taken before this one started
             // differs), not lost until the next save.
             owed[channel] = (owed[channel] ?? false) || live
+            if live { Task { await peek(channel) } }   // ask now; the sync follows after the one running
             return nil
         }
         // Read the signature BEFORE the sync: a bookmark saved while the sync

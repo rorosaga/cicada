@@ -407,8 +407,8 @@ final class SaveWhyTests: XCTestCase {
         BookmarkSyncSignal.post(result([]))
         await BookmarkSyncSignal.$live.withValue(true) { BookmarkSyncSignal.post(result([])) }
         // G191 live: a sync an early look already spoke for only says its links are saved — it never asks again.
-        await BookmarkSyncSignal.$live.withValue(true) { BookmarkSyncSignal.post(result([]), lookedEarly: true) }
-        XCTAssertEqual(seen, [.synced(live: false), .synced(live: true), .afterEarlyLook])
+        await BookmarkSyncSignal.$live.withValue(true) { BookmarkSyncSignal.post(result([]), lookedEarly: 7) }
+        XCTAssertEqual(seen, [.synced(live: false), .synced(live: true), .afterEarlyLook(look: 7)])
     }
 }
 

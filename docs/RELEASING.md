@@ -156,6 +156,28 @@ To rotate it (only if it leaks): generate a new pair, `gh secret set CICADA_UPDA
 new-key.pem`, commit the new public key, and cut a release **signed with the old key** that carries the new public key
 — an installed app only trusts the key it was built with. Then the next release can be signed with the new key.
 
+## Keeping macOS permissions across updates
+
+macOS (TCC) files every privacy grant — Full Disk Access, Contacts, Calendar, Automation, Screen Recording — against
+the app's *designated requirement*. An ad-hoc signature has no signer, so its requirement is the build's own code hash
+(cdhash): every new build is a new app to TCC, and an update silently drops every grant. Measured 2026-10-14 on a dev
+install: Full Disk Access granted at one build read "Needs Full Disk Access" again after the next auto-update.
+
+- **A developer install** (`make install-app`, `make dev`, the dev auto-update) signs with the self-signed
+  **Cicada Local** identity when the keychain has it (`app/CicadaApp/sign_identity.sh`); its requirement is "this
+  bundle id, signed by this certificate", which every rebuild keeps. Once per Mac, at the keyboard: `make signing-identity`
+  (creates the identity, authorises codesign to use its key with the login password, proves it with a trial signature),
+  then `make install-app`, then grant the permissions one last time (`scripts/dev/README.md`). Unattended, the install
+  signs under a time limit and skips the update rather than wait on a prompt. Free, no Apple account. It is not a Gatekeeper-trusted signature and signs
+  nothing for anyone else's Mac.
+- **A release** is still signed ad hoc in CI, so a tester's in-app update drops their grants the same way until a
+  Developer ID is in place. The update's own checks — sha256 and the Ed25519 signature over `latest.json` — are
+  unaffected by either signature.
+
+**What a Developer ID adds (not done):** a requirement anchored on Apple's certificate chain and the Team ID, so every
+release keeps every grant on every tester's Mac; Gatekeeper trust; and, with notarization, a browser download that
+opens without **Open Anyway**. Steps below.
+
 ## Adding a Developer ID and notarization later
 
 Without a Developer ID, builds are signed ad hoc — inside out, never with `--deep` — so the move is small:

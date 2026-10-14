@@ -97,7 +97,8 @@ if ! moved app; then
 fi
 flags=(--release)
 pgrep -x CicadaApp >/dev/null 2>&1 && flags+=(--relaunch)
-if app/CicadaApp/install_app.sh "${flags[@]}" >> "$LOG_DIR/auto-update.log" 2>&1; then
+# Unattended: install_app.sh bounds codesign, so a key prompt nobody answers skips this update instead of hanging.
+if CICADA_UNATTENDED=1 app/CicadaApp/install_app.sh "${flags[@]}" >> "$LOG_DIR/auto-update.log" 2>&1; then
   echo "$target" > "$STAMP"
   log "app installed (${target:0:7})"
 else
