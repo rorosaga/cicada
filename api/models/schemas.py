@@ -3097,9 +3097,12 @@ class PageEditor(CamelModel):
 
 class PageEditorsResponse(CamelModel):
     """``GET/PUT /settings/editors``: the harnesses the person lets edit a page directly, and the local ones they
-    could add. Machine-wide (``$CICADA_HOME/editors.json``), never in a bank."""
+    could add. Machine-wide (``$CICADA_HOME/editors.json``), never in a bank. ``defaults`` are the agents trusted
+    while the person never changed the list (owner, 2026-10-14); ``customized`` says whether they have."""
     trusted: list[PageEditor] = Field(default_factory=list)
     candidates: list[PageEditor] = Field(default_factory=list)
+    defaults: list[PageEditor] = Field(default_factory=list)
+    customized: bool = False
 
 
 class PageEditorsUpdate(CamelModel):

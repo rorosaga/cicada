@@ -144,7 +144,8 @@ the fix through Sleep's rewrites — on by default with `all`), `section` + `tex
 (a removal is remembered in `aliases_removed`). A code fence or a `#`/`##` heading in any of them is refused. The `reason`
 (one line, ≤ 500 characters) becomes the commit's `Reason:` line; `evidence` quotes become `Evidence:` span lines (offsets,
 never words). **Trust decides the path:** a harness on the person's list (`$CICADA_HOME/editors.json`, edited only by
-`PUT /settings/editors`, empty by default; `agent` and remote apps can never be on it) writes the page at once and commits
+`PUT /settings/editors`; `claude-code` and `codex` until the person changes it, then exactly their list, an empty one
+included — owner 2026-10-14; `agent` and remote apps can never be on it, and a remote caller is refused whatever its label) writes the page at once and commits
 it alone — `Page edit <date>`, `entities/<id>.md: edited (trigger: mcp/<harness>)`, `Cicada-Author: <harness>`,
 `Cicada-Session:`; any other files a `page_edit` inbox item (validated against the page first) committed as `Page edit
 proposed <date>`, and the reply says the person decides. `resolves: [{id, option_key|answer}]` answers inbox items through

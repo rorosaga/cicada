@@ -12,10 +12,18 @@ which is no more than it can already do with the files on the same Mac. Two name
 (a client that said nothing about itself) and every remote connector's app (``catalog``-style remote labels): the edit
 tool is stdio and command line only in this slice.
 
-**Empty by default.** Nobody edits a page directly until the person adds an agent in Settings; until then every edit
-is a proposal. Only the backend's ``PUT /settings/editors`` writes this file (the app's Settings); no MCP tool or
-agent-shell command can. Read on every call and never cached — the stdio MCP server and the backend are two
-processes that both read it (the split-brain rule).
+**Claude Code and Codex by default (owner, 2026-10-14, amends "empty by default").** A person who never changed the
+list trusts ``DEFAULT_TRUSTED`` and nothing else; once they change it — even to remove both — their list is the list,
+and an empty one stays empty. "Never set" is the *absence* of the ``trusted`` key (no file, or a file without it);
+every write from ``update`` stores the key, so "set to empty" is ``{"trusted": {}}``. Key presence was chosen over
+writing the default on first read because reading must never write (the stdio MCP server and the backend both read
+this file, and only Settings may write it), and over a version field because the key's presence already says
+everything a version would. A file that exists but cannot be read as a map is a choice we cannot see, so it trusts
+nobody (fail closed), never the default.
+
+Only the backend's ``PUT /settings/editors`` writes this file (the app's Settings); no MCP tool or agent-shell command
+can. Read on every call and never cached — the stdio MCP server and the backend are two processes that both read it
+(the split-brain rule).
 """
 from __future__ import annotations
 
@@ -34,6 +42,13 @@ _NEVER = frozenset({"agent", "unknown", "user", "cicada", "claude-web", "chatgpt
                     "claude-code-remote", "codex-remote", "remote-app"})
 
 
+#: Trusted when the person never changed the list (owner, 2026-10-14): the two local coding harnesses.
+DEFAULT_TRUSTED = ("claude-code", "codex")
+
+#: What ``_load`` returns for a file that exists but cannot be read: nobody is trusted (fail closed).
+_UNREADABLE = {"trusted": {}}
+
+
 class EditorsError(ValueError):
     """A change the trust list refuses, with a sentence the person can read."""
 
@@ -43,11 +58,24 @@ def path() -> Path:
 
 
 def _load() -> dict:
+    """The file as a map. No file is ``{}`` (never set: the defaults); a file that exists but is not a JSON map is
+    ``{"trusted": {}}`` (a choice we cannot read trusts nobody)."""
     try:
-        data = json.loads(path().read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+        text = path().read_text(encoding="utf-8")
+    except FileNotFoundError:
         return {}
-    return data if isinstance(data, dict) else {}
+    except OSError:
+        return dict(_UNREADABLE)
+    try:
+        data = json.loads(text)
+    except ValueError:
+        return dict(_UNREADABLE)
+    return data if isinstance(data, dict) else dict(_UNREADABLE)
+
+
+def customized() -> bool:
+    """Has the person ever set the list? False means the defaults apply."""
+    return "trusted" in _load()
 
 
 def _save(data: dict) -> None:
@@ -80,8 +108,12 @@ def trustable(harness: str | None) -> bool:
 
 
 def trusted() -> dict[str, str]:
-    """``{harness: day granted}`` as stored; an entry that could never be trusted grants nothing."""
-    raw = _load().get("trusted")
+    """``{harness: day granted}`` as stored, or the defaults (no day) when the person never set the list; an entry
+    that could never be trusted grants nothing, and a ``trusted`` value that is not a map trusts nobody."""
+    data = _load()
+    if "trusted" not in data:
+        return {key: "" for key in sorted(DEFAULT_TRUSTED)}
+    raw = data.get("trusted")
     out: dict[str, str] = {}
     if isinstance(raw, dict):
         for key in sorted(raw):
@@ -99,14 +131,18 @@ def snapshot() -> dict:
     held = trusted()
     names = candidates()
     return {
-        "trusted": [{"harness": h, "label": names.get(h, h), "since": day} for h, day in held.items()],
+        "trusted": [{"harness": h, "label": names.get(h, h), "since": day or None} for h, day in held.items()],
         "candidates": [{"harness": h, "label": label} for h, label in names.items()],
+        "defaults": [{"harness": h, "label": names.get(h, h)} for h in DEFAULT_TRUSTED],
+        "customized": customized(),
     }
 
 
 def update(changes: dict, *, today: date | None = None) -> dict:
     """Apply a patch ``{harness: bool}`` (True adds with today's date, False removes) and return the snapshot.
-    A name that can never be trusted refuses the whole call, nothing written; a no-op writes nothing."""
+    A name that can never be trusted refuses the whole call, nothing written; a no-op writes nothing (so turning on
+    a default agent that is already on leaves the list unset). The first real change writes the whole list, the
+    defaults included as they were (no day), so from then on the person's list is the list."""
     if not isinstance(changes, dict):
         raise EditorsError("Send a map of agent to true or false.")
     bad = sorted(str(k) for k, v in changes.items() if v and not trustable(str(k)))

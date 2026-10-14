@@ -312,8 +312,10 @@ CLI/cloud/remote boundaries. No app launch is needed to configure or test this s
 
 Settings → Agents → **Editing pages** (G198, `PageEditorsGroup`, its own file plus one line in `ConnectView`, row id
 `agentsEditors` in the index): one row per local agent `GET /settings/editors` lists as a candidate (plus any already
-allowed that it no longer lists), its Track L mark (DR-52), "Allowed since <day>" or "Asks in your inbox first", and a
-system switch with its label spoken (DR-40/41). `PageEditorsModel` reads the list when the page appears (and on the SSE
+allowed that it no longer lists), its Track L mark (DR-52), "Allowed since <day>", "On by default" (a default with no
+day) or "Asks in your inbox first", and a system switch with its label spoken (DR-40/41). While the response says
+`customized: false`, a note names its `defaults` (owner 2026-10-14: "Claude Code and Codex edit pages directly unless you
+turn them off.") — the names come from the backend, never from app copy. `PageEditorsModel` reads the list when the page appears (and on the SSE
 reachability flip), writes one switch at a time with `PUT /settings/editors` (`{trusted: {harness: bool}}`), shows the
 change at once and puts it back with the server's sentence on a refusal. Machine-wide, outside every bank, not a Store
 domain (no ETag). Copy names only the agent's app (provider-neutral).

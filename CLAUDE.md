@@ -260,8 +260,8 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 - The handshake rides `initialize`; recall fuses vectors, words and claims. **An agent's write carries provenance** (the
   harness as `Cicada-Author`, the session trailer) and an agent withdraws only what it wrote.
 - **Prose is no longer Sleep's alone (G198, owner 2026-10-14):** `cicada_edit_page` changes a page's words or aliases, never
-  its claims, with a reason that is the commit message; only a harness on the person's trust list writes at once, any other
-  proposes in the inbox; pinned fixes and removed aliases outlive Sleep; blame is read from git (`storage.md`, `mcp.md`).
+  its claims, with a reason that is the commit message; only a harness on the person's trust list writes at once (Claude Code
+  and Codex until the person changes it, owner 2026-10-14; never remote, never `agent`), any other proposes in the inbox; pinned fixes and removed aliases outlive Sleep; blame is read from git (`storage.md`, `mcp.md`).
 - **Questions come up naturally (owner, 2026-10-14):** an inbox question reaches a conversation only when it is about
   that question's subject (`inbox_ask_gate`), in the agent's own words; an answer the person already gave is recorded
   with their words as evidence, never guessed; the whole inbox only on request (`mcp.md`).

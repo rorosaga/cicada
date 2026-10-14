@@ -128,6 +128,36 @@ final class PageEditsTests: XCTestCase {
         XCTAssertEqual(empty, PageEditorsResponse())
     }
 
+    // Owner, 2026-10-14: a list the person never changed trusts the backend's defaults, and says so.
+    private static let defaultsJSON = #"""
+    {"trusted":[{"harness":"claude-code","label":"Claude Code","since":null},{"harness":"codex","label":"Codex"}],
+     "candidates":[{"harness":"claude-code","label":"Claude Code"},{"harness":"codex","label":"Codex"},
+                   {"harness":"cursor","label":"Cursor"}],
+     "defaults":[{"harness":"claude-code","label":"Claude Code"},{"harness":"codex","label":"Codex"}],
+     "customized":false}
+    """#
+
+    func testTheDefaultsShowAsOnAndTheNoteNamesThem() throws {
+        let editors = try JSONDecoder().decode(PageEditorsResponse.self, from: Data(Self.defaultsJSON.utf8))
+        XCTAssertTrue(editors.isTrusted("claude-code") && editors.isTrusted("codex"))
+        XCTAssertFalse(editors.isTrusted("cursor") || editors.customized)
+        XCTAssertEqual(PageEditorsWords.detail("codex", in: editors), Copy.PageEdits.onByDefault)
+        XCTAssertEqual(PageEditorsWords.detail("cursor", in: editors), Copy.PageEdits.asksFirst)
+        XCTAssertEqual(Copy.PageEdits.defaultsNote(editors.defaults.map(\.label)),
+                       "Claude Code and Codex edit pages directly unless you turn them off.")
+        XCTAssertEqual(Copy.PageEdits.defaultsNote(["Codex"]), "Codex edits pages directly unless you turn it off.")
+        XCTAssertNil(Copy.PageEdits.defaultsNote([]))
+        // Turning one off is the person's choice from then on; turning on one that is on changes nothing.
+        let off = editors.setting("codex", on: false, today: "2026-10-14")
+        XCTAssertTrue(off.customized)
+        XCTAssertEqual(off.trusted.map(\.harness), ["claude-code"])
+        XCTAssertEqual(editors.setting("codex", on: true, today: "2026-10-14"), editors)
+        // An older backend that sends neither field decodes as "no defaults, unchanged".
+        let old = try JSONDecoder().decode(PageEditorsResponse.self, from: Data(Self.editorsJSON.utf8))
+        XCTAssertEqual(old.defaults, [])
+        XCTAssertFalse(old.customized)
+    }
+
     @MainActor
     func testATurnedOnSwitchShowsAtOnceAndComesBackOnRefusal() async throws {
         let start = try JSONDecoder().decode(PageEditorsResponse.self, from: Data(Self.editorsJSON.utf8))

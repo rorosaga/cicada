@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import subprocess
+from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -207,6 +208,91 @@ def test_the_unidentified_agent_and_a_remote_app_are_never_trusted(bank):
     assert "remote app" in mcp_tools.edit_page(
         mcp_tools.ToolContext(memory_path=lambda: bank, session_id="s", harness="claude-web", connector_id="ab12cd34"),
         "alpha-project", REASON, edits=FIX)
+
+
+# --------------------------------------------------------------------------- the default list (owner, 2026-10-14)
+
+
+def test_a_fresh_home_trusts_claude_code_and_codex_and_nothing_else(bank):
+    assert not page_editors.path().exists()
+    assert page_editors.trusted() == {"claude-code": "", "codex": ""}
+    assert page_editors.is_trusted("claude-code") and page_editors.is_trusted("codex")
+    assert not page_editors.is_trusted("cursor") and not page_editors.is_trusted("agent")
+    snap = page_editors.snapshot()
+    assert [t["harness"] for t in snap["trusted"]] == ["claude-code", "codex"]
+    assert all(t["since"] is None for t in snap["trusted"]), "a default was never granted on a day"
+    assert [d["harness"] for d in snap["defaults"]] == ["claude-code", "codex"] and snap["customized"] is False
+    out = mcp_tools.edit_page(_ctx(bank, harness="codex"), "alpha-project", REASON, edits=FIX)
+    assert out.startswith("Edited alpha-project") and "Owner Example" in _page(bank).body
+    assert not page_editors.path().exists(), "reading the default never writes the file"
+
+
+def test_a_removed_default_stays_removed(bank):
+    page_editors.update({"codex": False}, today=date(2026, 10, 14))
+    assert page_editors.trusted() == {"claude-code": ""} and page_editors.customized()
+    assert json.loads(page_editors.path().read_text())["trusted"] == {"claude-code": ""}
+    page_editors.update({"cursor": True}, today=date(2026, 10, 15))
+    assert page_editors.trusted() == {"claude-code": "", "cursor": "2026-10-15"}
+    mcp_tools.edit_page(_ctx(bank, harness="codex"), "alpha-project", REASON, edits=FIX)
+    assert (bank / "inbox/inbox-003.md").exists() and "Owner Exampel" in _page(bank).body
+
+
+def test_an_emptied_list_stays_empty(bank):
+    page_editors.update({"claude-code": False, "codex": False})
+    assert page_editors.trusted() == {} and page_editors.customized()
+    assert json.loads(page_editors.path().read_text()) == {"trusted": {}}
+    assert not page_editors.is_trusted("claude-code") and not page_editors.is_trusted("codex")
+    assert page_editors.snapshot()["trusted"] == []
+    mcp_tools.edit_page(_ctx(bank), "alpha-project", REASON, edits=FIX)
+    assert (bank / "inbox/inbox-003.md").exists() and "Owner Exampel" in _page(bank).body
+
+
+def test_turning_on_a_default_that_is_on_writes_nothing_and_a_new_one_keeps_the_defaults(bank):
+    page_editors.update({"claude-code": True})
+    assert not page_editors.path().exists() and not page_editors.customized()
+    snap = page_editors.update({"cursor": True}, today=date(2026, 10, 14))
+    assert [(t["harness"], t["since"]) for t in snap["trusted"]] == [
+        ("claude-code", None), ("codex", None), ("cursor", "2026-10-14")]
+    assert snap["customized"] is True
+
+
+def test_an_unreadable_list_trusts_nobody(bank):
+    page_editors.path().parent.mkdir(parents=True, exist_ok=True)
+    for text in ("{not json", "[]", '{"trusted": ["claude-code"]}'):
+        page_editors.path().write_text(text)
+        assert page_editors.trusted() == {}, text
+        assert not page_editors.is_trusted("claude-code"), text
+
+
+def test_a_remote_caller_with_a_default_label_is_still_refused(bank):
+    assert page_editors.is_trusted("claude-code") and not page_editors.is_trusted("claude-code", remote=True)
+    before = (bank / "entities/alpha-project.md").read_bytes()
+    out = mcp_tools.edit_page(
+        mcp_tools.ToolContext(memory_path=lambda: bank, session_id="s", harness="claude-code",
+                              connector_id="ab12cd34"),
+        "alpha-project", REASON, edits=FIX)
+    assert "remote app" in out
+    assert (bank / "entities/alpha-project.md").read_bytes() == before
+    assert not (bank / "inbox/inbox-003.md").exists()
+
+
+def test_the_route_shows_the_defaults_and_keeps_an_explicit_choice(bank, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from api import config, main
+
+    monkeypatch.setenv("CICADA_MEMORY_PATH", str(bank))
+    config.get_settings.cache_clear()
+    try:
+        client = TestClient(main.app)
+        body = client.get("/settings/editors").json()
+        assert [t["harness"] for t in body["trusted"]] == ["claude-code", "codex"]
+        assert body["customized"] is False and [d["harness"] for d in body["defaults"]] == ["claude-code", "codex"]
+        body = client.put("/settings/editors", json={"trusted": {"claude-code": False}}).json()
+        assert [t["harness"] for t in body["trusted"]] == ["codex"] and body["customized"] is True
+        assert [t["harness"] for t in client.get("/settings/editors").json()["trusted"]] == ["codex"]
+    finally:
+        config.get_settings.cache_clear()
 
 
 # --------------------------------------------------------------------------- Sleep never undoes it
