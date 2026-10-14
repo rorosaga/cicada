@@ -11,6 +11,9 @@ before the rule existed: nothing is rewritten, and the episodes themselves keep 
 """
 from __future__ import annotations
 
+import os
+import re
+import subprocess
 from pathlib import Path
 
 from api.services import bank_index
@@ -39,4 +42,101 @@ def untimed_ids(memory_path: Path | str | None) -> frozenset[str]:
                     out.add(eid)
     except OSError:
         return frozenset()
+    return frozenset(out)
+
+
+_SOURCE_LINE = re.compile(r"^source:[ \t]*['\"]?([^'\"\r\n#]*?)['\"]?[ \t]*(?:#.*)?$")
+
+
+#: One awk pass prints each episode's top-level ``source:`` value, reading only its frontmatter (``nextfile`` at the
+#: closing fence). One process instead of one open-and-read per episode: the card is often opened while a startup
+#: index build holds the interpreter, and each of thousands of file reads then waited its turn (owner page, 2026-10-14:
+#: 1.7 s of a cold open on a synthetic bank of 2,000 conversations, ~0.1 s of it the reads themselves).
+_AWK = r"""
+FNR == 1 { inside = ($0 == "---"); if (!inside) nextfile; next }
+inside && $0 == "---" { nextfile }
+inside && /^source:/ { v = $0; sub(/^source:[ \t]*/, "", v); sub(/[ \t]*#.*$/, "", v); gsub(/^['"]|['"]$/, "", v);
+                       print FILENAME "\t" v; nextfile }
+"""
+
+
+#: ``{episodes dir: (its mtime, {path: source})}`` — an episode's source never changes, and a new or removed episode
+#: changes the directory's mtime. Per process, disposable, like `bank_index`.
+_MEMO: dict[str, tuple[int | None, dict[str, str]]] = {}
+
+
+def _sources(paths: list[Path]) -> dict[str, str] | None:
+    """``{path: source}`` for the episodes that state one (one awk pass, in batches); ``None`` when awk cannot run."""
+    out: dict[str, str] = {}
+    for start in range(0, len(paths), 500):
+        batch = [str(p) for p in paths[start:start + 500]]
+        try:
+            proc = subprocess.run(["awk", _AWK, *batch], capture_output=True, timeout=30)
+        except (OSError, subprocess.SubprocessError):
+            return None
+        if proc.returncode != 0:
+            return None
+        for line in proc.stdout.decode("utf-8", errors="replace").splitlines():
+            name, _, value = line.partition("\t")
+            out[name] = value.strip()
+    return out
+
+
+def _source_of(path: Path) -> str | None:
+    """One episode's ``source:`` read from its frontmatter lines without YAML; ``None`` when it cannot be read."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            if fh.readline().rstrip("\r\n") != "---":
+                return ""
+            for line in fh:
+                line = line.rstrip("\r\n")
+                if line == "---":
+                    return ""
+                match = _SOURCE_LINE.match(line)
+                if match:
+                    return match.group(1).strip()
+    except OSError:
+        return None
+    return ""
+
+
+def untimed_among(memory_path: Path | str | None, ids) -> frozenset[str]:
+    """:func:`untimed_ids` restricted to ``ids`` — what one page's decay reads (its ``source_episodes``) — without a
+    YAML parse of every episode in the bank: a cold card open used to parse every episode's frontmatter for it (owner
+    page, 2026-10-14: seconds on a bank of imported conversations). The ``source:`` lines come from one awk pass
+    (:data:`_AWK`), or a line-by-line read when awk cannot run. An id with no file of its own name falls back to the
+    full scan, which also matches episodes by their ``id:`` field."""
+    if memory_path is None:
+        return frozenset()
+    episodes = Path(memory_path) / "episodes"
+    wanted = sorted({str(i) for i in ids or () if i})
+    try:
+        present = set(os.listdir(episodes))   # one listing, not a stat per episode
+    except OSError:
+        return frozenset()
+    paths = []
+    for eid in wanted:
+        if "/" in eid or eid.startswith(".") or f"{eid}.md" not in present:
+            return frozenset(untimed_ids(memory_path) & set(wanted))
+        paths.append(episodes / f"{eid}.md")
+    try:
+        stamp = os.stat(episodes).st_mtime_ns
+    except OSError:
+        stamp = None
+    memo = _MEMO.get(str(episodes))
+    if memo is None or memo[0] != stamp:
+        memo = (stamp, {})
+        _MEMO[str(episodes)] = memo
+    known = memo[1]
+    missing = [p for p in paths if str(p) not in known]
+    found = _sources(missing) if missing else {}
+    if found is not None:
+        for path in missing:
+            known[str(path)] = found.get(str(path), "")
+        found = known
+    out: set[str] = set()
+    for eid, path in zip(wanted, paths):
+        source = found.get(str(path), "") if found is not None else _source_of(path)
+        if (source or "").strip().lower() in UNTIMED_SOURCES:
+            out.add(eid)
     return frozenset(out)

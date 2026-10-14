@@ -608,38 +608,103 @@ def _related_bullets(related: list[tuple[str, str]]) -> str:
 
 #: A page linked to more pages than this is a hub (the owner's page links ~2,000): its ``## Related`` rolls up.
 RELATED_MAX = 60
-#: A verb a page holds for at most this many pages is a relation ("studies at", "sibling of"); one it holds for
-#: hundreds is a log ("asked about"). The same line `entity_article.FACT_FAMILY_MAX` draws for the article's inputs.
+#: A verb a page holds for at most this many pages, in no activity family, is a relation of its own ("sibling of").
 RELATION_FAMILY_MAX = 3
 #: Names a rolled-up line shows.
 ROLLUP_NAMES = 8
 
+#: What a relation label MEANS, not how it is spelled (hub rollup, 2026-10-14). The real owner page's labels are
+#: free-form — "asked how to use", "asked for explanation of", "planned to use", "received recommendation for": hundreds
+#: of verbs, the commonest three times each — so grouping by exact verb left 1,676 of 2,024 lines. Each label falls in
+#: the first family whose stems it holds; the order settles "asked how to use" (asked) and "planned to use" (planned).
+#: ``relation`` is a fact about the page ("studies at", "works at", "sibling of"): never a log, always its own line.
+FAMILIES: tuple[tuple[str, str, re.Pattern], ...] = tuple((key, label, re.compile(pattern)) for key, label, pattern in (
+    ("relation", "", r"\b(studies at|studied at|study at|enrolled|enrols?|works? (at|for)|worked (at|for)|employed|"
+                     r"employs?|lives? in|lived in|living in|resides?|born|member of|attends?|attended|graduated|"
+                     r"alumn\w*|founded|co-?founded|owns|owned by|married|spouse|partner of|partners? with|sibling|"
+                     r"brother|sister|parent|mother|father|son of|daughter|child of|friend|colleague|classmate|"
+                     r"roommate|mentor|mentee|manager of|manages|reports to|supervis\w*|advis\w*|teaches|teacher|"
+                     r"student (at|of)|relative|cousin|aunt|uncle|grand\w+|neighbou?r)\b"),
+    ("asked", "asked or learned about",
+     r"\b(ask\w*|question\w*|learn\w*|explain\w*|explanation|research\w*|read|reads|reading|stud(y|ied|ies|ying)|"
+     r"explor\w*|curious|inquir\w*|look(ed|ing|s)? (into|up|at)|wonder\w*|understand\w*|clarif\w*|how to|"
+     r"what (is|are)|recommend\w*|advice|advis\w*|help with|received|got|seek\w*|sought|discuss\w*|talk\w* about|"
+     r"interested in|mention\w*|search\w*|watch\w*|listen\w*|review\w*)\b"),
+    ("planned", "planned or considered",
+     r"\b(plan\w*|consider\w*|intend\w*|want\w*|appl(y|ied|ies|ying)|think\w* (about|of)|thought (about|of)|"
+     r"evaluat\w*|compar\w*|decid\w*|schedul\w*|aim\w*|goal|hop(e|es|ed|ing)|prepar\w*|weigh\w*|choos\w*|"
+     r"chose|pick\w*|propos\w*|expect\w*|wish\w*|might|will|would|could)\b"),
+    ("built", "built or wrote",
+     r"\b(buil\w*|creat\w*|develop\w*|writ\w*|wrote|implement\w*|design\w*|made|mak\w*|draft\w*|"
+     r"publish\w*|launch\w*|ship\w*|cod(e|ed|es|ing)|prototyp\w*|author\w*|produc\w*|compos\w*|record\w*|"
+     r"generat\w*|refactor\w*|redesign\w*|start\w*|found)\b"),
+    ("used", "used or worked with",
+     r"\b(us(e|es|ed|ing)|work\w*|tr(y|ied|ies|ying)|test\w*|install\w*|configur\w*|set(s|ting)? up|setup|"
+     r"run\w*|ran|deploy\w*|debug\w*|fix\w*|troubleshoot\w*|integrat\w*|migrat\w*|maintain\w*|operat\w*|"
+     r"practic\w*|adopt\w*|switch\w*|upgrad\w*|connect\w*|host\w*|play\w*|visit\w*|bought|buy\w*|"
+     r"subscrib\w*|joined|join\w*|follow\w*|track\w*|manag\w*|edit\w*|analy[sz]\w*|measur\w*|benchmark\w*)\b"),
+))
+#: Families whose links are activity: a conversation touching a page, not a fact about the person.
+ACTIVITY_FAMILIES = frozenset({"asked", "planned", "built", "used"})
+
+
+def relation_family(label: str) -> str:
+    """The family a relation label or predicate belongs to (``relation``, ``asked``, ``planned``, ``built``, ``used``),
+    or ``other``. Predicates are slugs: ``asked-how-to-use`` reads as "asked how to use"."""
+    text = " ".join(re.sub(r"[-_]+", " ", str(label or "")).lower().split())
+    if not text:
+        return "other"
+    for key, _label, pattern in FAMILIES:
+        if pattern.search(text):
+            return key
+    return "other"
+
+
+def is_log(label: str, objects: int) -> bool:
+    """Is a label a log of activity rather than a fact about the page? An activity family's always is (whatever its
+    spelling); a ``relation`` never is; any other label is a log once the page holds it for more than
+    :data:`RELATION_FAMILY_MAX` objects. One rule for a hub's Related, the article's inputs and the ledger's spill."""
+    family = relation_family(label)
+    if family in ACTIVITY_FAMILIES:
+        return True
+    if family == "relation":
+        return False
+    return objects > RELATION_FAMILY_MAX
+
 
 def _rolled_up(pairs: list[tuple[str, str]], id_types: dict[str, str]) -> str:
-    """A hub page's Related (owner page, 2026-10-14): the page's relations — a verb it holds for at most
-    :data:`RELATION_FAMILY_MAX` pages — and its people (the latest, up to :data:`RELATED_MAX` lines in all) keep a
-    line each; every other link is counted on one line per verb with the latest few names. Related is a view of ``graph_edges.yaml`` (rebuilt on every write), so nothing
-    is lost: each rolled-up link is still an edge, still on the linked page's own Related, and its claims, with their
-    evidence, are still this page's (its ledger, ``claims_ledger``)."""
-    families: dict[str, list[str]] = {}
-    for name, verb in pairs:
-        families.setdefault(verb, []).append(name)
-    relations = [(n, v) for n, v in pairs if v and len(families[v]) <= RELATION_FAMILY_MAX]
-    people = [(n, v) for n, v in pairs if (n, v) not in relations and id_types.get(n.lower()) == "person"]
-    people = people[-max(RELATED_MAX - len(relations), 0):] if RELATED_MAX > len(relations) else []
-    keep = set(relations) | set(people)
-    lines = [pair for pair in pairs if pair in keep]
+    """A hub page's Related (owner page, 2026-10-14; families 2026-10-14): its facts — a ``relation`` label, or a rare
+    label that is no activity — then its people, keep a line each, up to :data:`RELATED_MAX` lines (facts first, then
+    the latest people and facts); every other link is counted on one line per family of meaning
+    (:func:`relation_family`), with the latest few names. Related is a view of ``graph_edges.yaml`` (rebuilt on every
+    write), so nothing is lost: each rolled-up link is still an edge, still on the linked page's own Related, and its
+    claims, with their evidence, are still this page's (its ledger, ``claims_ledger``)."""
+    counts: dict[str, int] = {}
+    for _name, verb in pairs:
+        counts[verb] = counts.get(verb, 0) + 1
+    facts = [(n, v) for n, v in pairs if v and not is_log(v, counts[v])]
+    hard = [(n, v) for n, v in facts if relation_family(v) == "relation"]
+    rare = [pair for pair in facts if pair not in set(hard)]
+    people = [(n, v) for n, v in pairs if (n, v) not in set(facts) and id_types.get(n.lower()) == "person"]
+    keep: list[tuple[str, str]] = list(hard)
+    for group in (people, rare):            # the latest first, while there is room
+        room = RELATED_MAX - len(keep)
+        if room > 0:
+            keep += group[-room:]
+    kept = set(keep)
+    lines = [pair for pair in pairs if pair in kept]
     rolled: dict[str, list[str]] = {}
     for name, verb in pairs:
-        if (name, verb) not in keep:
-            rolled.setdefault(verb, []).append(name)
+        if (name, verb) not in kept:
+            rolled.setdefault(relation_family(verb) if verb else "", []).append(name)
+    labels = {key: label for key, label, _p in FAMILIES} | {"other": "other links", "": "linked"}
     out = _related_bullets(lines)
     rows = []
-    for verb, names in sorted(rolled.items(), key=lambda kv: (-len(kv[1]), kv[0])):
+    for family, names in sorted(rolled.items(), key=lambda kv: (-len(kv[1]), kv[0])):
         latest = names[-ROLLUP_NAMES:][::-1]
         shown = ", ".join(f"[[{n}]]" for n in latest)
         more = f" and {len(names) - len(latest):,} more" if len(names) > len(latest) else ""
-        what = verb or "linked"
+        what = labels.get(family) or family
         rows.append(f"- {what}: {len(names):,} page{'s' if len(names) != 1 else ''} — latest {shown}{more}")
     return "\n".join(part for part in (out, "\n".join(rows)) if part)
 

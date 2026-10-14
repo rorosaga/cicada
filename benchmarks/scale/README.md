@@ -25,6 +25,16 @@ cp -R $S/bank $S/run && api/.venv/bin/python -m benchmarks.scale.owner_page --ba
                                                                        # the article's input, one stage write
 ```
 
+The real labels are free-form (hundreds of verbs) and the real episodes are imported conversations with long
+`turns:` lists; `--free-labels` writes `graph_edges.yaml` and Related lines from combinatorial labels, `--turns-max`
+sets the turns per episode (2026-10-14 re-check: 2,024 Related lines, 3,000 episodes of up to 120 turns):
+
+```sh
+api/.venv/bin/python -m benchmarks.scale.synth --bank $S/bank --pages 2100 --claims 5400 --related 2024 \
+    --related-section --activity --jsonl --free-labels --owner-facts 30 --owner-history 800 --turns-max 120 \
+    --episodes 3000 --processed 2000 --commits 60
+```
+
 - `synth` builds the bank: one owner page with N claims, rewritten by `--commits` synthetic Sleep commits; 2,000 other
   pages with a Pareto tail of claims; 1,500 staged episodes, 975 of them processed.
 - `profile_sleep` runs one `sleep_cycle.run` batch through the system benchmark's fake engine. The probe's grammar also

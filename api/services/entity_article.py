@@ -326,11 +326,6 @@ def build(*, name: str, entity_type: str, frontmatter: dict, original_body: str,
     return Inputs(sources, data)
 
 
-#: A predicate a page holds for at most this many objects reads as a fact about it ("studies at", "lives in"); one it
-#: holds for hundreds reads as a log ("asked about"). :func:`fit` leaves a log's inputs out first.
-FACT_FAMILY_MAX = entity_body.RELATION_FAMILY_MAX
-
-
 def _item(source: Source) -> dict:
     return {"id": source.id, "kind": source.kind, "text": source.text,
             **({"said_on": source.said_on} if source.said_on else {})}
@@ -382,8 +377,8 @@ def fit(inputs: Inputs, *, max_chars: int, people=()) -> Inputs:
     Unchanged when the prompt already fits. Otherwise, in order, until it fits:
 
     1. claims sharing a predicate and an object fold into one input (:func:`_fold_claims`);
-    2. claim inputs are left out, a log's before a fact's — a predicate held for more than :data:`FACT_FAMILY_MAX`
-       objects is a log, unless its object is one of ``people`` (the person pages: who is in a life is never a log) —
+    2. claim inputs are left out, a log's before a fact's — ``entity_body.is_log``: an activity predicate however it
+       is spelled, or one held for many objects — unless its object is one of ``people`` (the person pages: who is in a life is never a log) —
        and within each, the ones said in the fewest conversations, then the longest ago, first;
     3. then History lines, the oldest first.
 
@@ -400,7 +395,8 @@ def fit(inputs: Inputs, *, max_chars: int, people=()) -> Inputs:
             families.setdefault(source.group[0], set()).add(source.group[1])
 
     def claim_order(source: Source):
-        log = (len(families.get(source.group[0] if source.group else "", ())) > FACT_FAMILY_MAX
+        predicate = source.group[0] if source.group else ""
+        log = (entity_body.is_log(predicate, len(families.get(predicate, ())))
                and not (source.group and source.group[1] in people))
         return (0 if log else 1, source.heard, max(source.said_on) if source.said_on else "")
 

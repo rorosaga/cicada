@@ -41,6 +41,9 @@ def sentence(rng: random.Random, n: int) -> str:
     return " ".join(rng.choice(WORDS) for _ in range(n)).capitalize() + "."
 
 
+TURNS_MAX = 18   # `--turns-max`: an imported conversation's turns, each a `turns:` row in its frontmatter
+
+
 def make_episodes(bank: Path, rng: random.Random, n: int, processed: int) -> list[str]:
     from api.services import episode_staging
     from api.services.episode_staging import EpisodeDraft, Turn
@@ -51,7 +54,7 @@ def make_episodes(bank: Path, rng: random.Random, n: int, processed: int) -> lis
         project = f"{rng.choice(['alpha', 'beta', 'gamma', 'delta', 'epsilon'])}{i % 97}-project"
         tool = f"tool{rng.randrange(400)}"
         turns = []
-        for t in range(rng.randint(6, 18)):
+        for t in range(rng.randint(6, max(6, TURNS_MAX))):
             text = sentence(rng, rng.randint(25, 120))
             if t == 0:
                 text = f"{project} uses {tool}. " + text
@@ -99,7 +102,11 @@ def activity_claim(rng: random.Random, cid: str, subject: str, objects: list[str
     from api.services.claims import Claim, Evidence
 
     obj = rng.choice(objects)
-    pred, label = rng.choice(ACTIVITY)
+    if LABELS:   # the owner's edge label to that page, as a slugged predicate
+        label = LABELS[objects.index(obj) % len(LABELS)]
+        pred = label.replace(" ", "-")
+    else:
+        pred, label = rng.choice(ACTIVITY)
     eps = rng.sample(episodes, 1)
     evidence = []
     for ep in eps + rng.sample(episodes, rng.choice((0, 1))):
@@ -121,6 +128,29 @@ def activity_claim(rng: random.Random, cid: str, subject: str, objects: list[str
     return claim.to_dict()
 
 
+#: `--free-labels`: relation labels as the real bank writes them — free-form, hundreds of distinct verbs, the commonest a
+#: few times each (2026-10-14). Built combinatorially from synthetic stems; a few facts ("studies at") among them.
+_LEAD = ["asked how to", "asked about", "asked for help to", "wanted to", "planned to", "considered how to",
+         "tried to", "learned how to", "received advice on how to", "decided to", "started to", "compared ways to",
+         "researched how to", "was unsure how to", "explored how to", "hoped to", "needed to", "attempted to"]
+_VERB = ["use", "install", "configure", "deploy", "build", "write", "read", "apply for", "enroll in", "debug", "test",
+         "upgrade", "migrate", "compare", "explain", "document", "price", "schedule", "translate", "review", "host",
+         "visit", "benchmark", "design", "set up", "learn", "fix", "plan", "organise", "share", "sell", "replace",
+         "repair", "measure", "publish", "draw", "record", "track", "cancel", "renew", "teach", "practise", "join",
+         "follow", "subscribe to"]
+FACT_LABELS = ["studies at", "lives in", "works at", "sibling of", "enrolled in", "member of"]
+
+
+def free_labels(rng: random.Random, n: int) -> list[str]:
+    combos = [f"{lead} {verb}" for lead in _LEAD for verb in _VERB]
+    rng.shuffle(combos)
+    labels = []
+    for i in range(n):
+        labels.append(FACT_LABELS[i % len(FACT_LABELS)] if i % 400 == 7 else combos[i % len(combos)])
+    return labels
+
+
+LABELS: list[str] = []   # set by `--free-labels`: the owner's edge label per page, in page order
 JSONL = False   # `--jsonl`: fences as JSON Lines, the form every production writer emits since DECIDE-1
 
 
@@ -194,9 +224,15 @@ def build(bank: Path, n_claims: int, n_pages: int, n_episodes: int, processed: i
     owner_fm.update({"source_episodes": done, "related": page_ids[:related],
                      "aliases": [f"alias-{k}" for k in range(12)]})
     owner_prose = prose_for(rng, OWNER_NAME, owner_facts, owner_history)
+    if LABELS:
+        LABELS[:] = free_labels(rng, len(page_ids))
+        import yaml
+        edges = [{"source": owner_id, "target": eid, "label": LABELS[i]} for i, eid in enumerate(page_ids[:related])]
+        (bank / "graph_edges.yaml").write_text(yaml.safe_dump({"edges": edges}, sort_keys=False), encoding="utf-8")
     if related_section:
-        owner_prose += "\n\n## Related\n\n" + "\n".join(f"- [[{eid.replace('-', ' ').title()}]]"
-                                                         for eid in page_ids[:related])
+        owner_prose += "\n\n## Related\n\n" + "\n".join(
+            f"- [[{eid.replace('-', ' ').title()}]]" + (f" — {LABELS[i]}" if LABELS else "")
+            for i, eid in enumerate(page_ids[:related]))
     owner_entries = []
     for k in range(n_claims):
         day = f"2026-0{1 + (k * 9) // n_claims}-{1 + k % 28:02d}"
@@ -259,10 +295,15 @@ def main() -> None:
     ap.add_argument("--jsonl", action="store_true", help="JSON Lines fences (the production form)")
     ap.add_argument("--owner-facts", type=int, default=320)
     ap.add_argument("--owner-history", type=int, default=160)
+    ap.add_argument("--free-labels", action="store_true", help="free-form relation labels, hundreds of verbs")
+    ap.add_argument("--turns-max", type=int, default=18, help="most turns (frontmatter `turns:` rows) per episode")
     a = ap.parse_args()
     import json
-    global JSONL
+    global JSONL, TURNS_MAX
     JSONL = a.jsonl
+    TURNS_MAX = a.turns_max
+    if a.free_labels:
+        LABELS.append("asked about")   # replaced by `free_labels` once the pages exist
     print(json.dumps(build(a.bank.resolve(), a.claims, a.pages, a.episodes, a.processed, a.commits, a.seed,
                            related=a.related, related_section=a.related_section, activity=a.activity,
                            owner_facts=a.owner_facts, owner_history=a.owner_history)))

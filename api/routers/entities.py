@@ -41,6 +41,7 @@ from api.models.schemas import (
     VideoChapter,
 )
 from api.services import (
+    claims_ledger,
     decay_policy,
     decay_tuning,
     entity_bands,
@@ -71,6 +72,9 @@ router = APIRouter()
 #: Copy ask ``GET /entities/{id}/raw`` for the whole file. Every page but an owner-sized one is far below it (the largest others measured
 #: ~70 KB); the owner's is ~2.6 MB, 96% of it the claims fence the card already reads from ``/claims``.
 RAW_INLINE_MAX_BYTES = 256 * 1024
+#: Owner page, 2026-10-14: a page whose claims live partly in its ledger, or whose fence alone is over this, withholds
+#: the fence too — the card reads claims from `/claims`, and the fence was the largest machine block left in the card.
+RAW_INLINE_FENCE_MAX_CHARS = 16 * 1024
 
 # G59: bound concurrent first-fetches so opening a graph full of new companies
 # can't fan out into dozens of simultaneous outbound requests.
@@ -104,7 +108,8 @@ async def get_entity(
     alpha, floor = decay_policy.spacing_params(settings)
     effective = decay_policy.effective(
         fm, alpha=alpha, floor=floor, tuning=decay_tuning.load(settings.memory_path),
-        untimed=episode_time.untimed_ids(settings.memory_path),
+        # Only this page's conversations are read (a full episode scan was most of a cold open's time).
+        untimed=episode_time.untimed_among(settings.memory_path, fm.get("source_episodes") or []),
     )
     # C11 (G146) — the page's picture, resolved at read like everything else on this card (plan R-PE5).
     page_stat = entity_path.stat()
@@ -112,7 +117,15 @@ async def get_entity(
         settings.memory_path, entity_id, fm, parsed.body, page_mtime=page_stat.st_mtime)
     raw = entity_path.read_text(encoding="utf-8")
     raw_omitted = False
-    if page_stat.st_size > RAW_INLINE_MAX_BYTES and (fence := claims_block_start(raw)) is not None:
+    fence = claims_block_start(raw)
+    big_fence = page_stat.st_size > RAW_INLINE_MAX_BYTES or claims_ledger.STAMP in fm \
+        or (fence is not None and len(raw) - fence > RAW_INLINE_FENCE_MAX_CHARS)
+    if claims_ledger.STAMP in fm and (split := markdown_parser.split_frontmatter(raw)) is not None:
+        # A hub page (its claims partly in its ledger): the frontmatter alone — every frontmatter reader (a location's
+        # lat/lon, a media block) keeps its input, the prose is `markdown_content` already, and Source and Copy read
+        # `/raw` for the file (owner page, 2026-10-14: the prose twice was a third of a 490 KB card).
+        raw, raw_omitted = raw[:len(raw) - len(split[1])], True
+    elif big_fence and fence is not None:
         # Review r1 #4: withhold only the fence. The frontmatter and prose stay verbatim, so every frontmatter reader
         # (a location's declared lat/lon, a media block) keeps its input; Source and Copy read `/raw` for the rest.
         raw, raw_omitted = raw[:fence], True

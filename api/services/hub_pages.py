@@ -58,6 +58,7 @@ class Survey:
     related_lines_before: int = 0
     related_lines_after: int = 0
     failed_check: int = 0
+    lines_kept_as_were: int = 0
     unreadable: int = 0
     dirty: int = 0
     written: int = 0
@@ -93,7 +94,20 @@ def _fingerprint(body: str) -> tuple[set, set]:
     return ids, spans
 
 
-def _plan(path: Path, memory_path: Path, edges_by_entity: dict, result: Survey):
+def _covered(link: str, names: set[str], ids: set[str], memory_path: Path, name_index: dict | None) -> bool:
+    """A link the old Related showed is still there: a line, an edge or a ``related:`` slug, by name, slug or id."""
+    from api.services.id_utils import resolve_entity_id
+
+    key = link.strip().lower()
+    if key in names or key.replace(" ", "-") in names:
+        return True
+    if name_index is None:
+        return False
+    resolved = resolve_entity_id(Path(memory_path) / "entities", link.strip(), name_index)
+    return bool(resolved) and resolved.lower() in ids
+
+
+def _plan(path: Path, memory_path: Path, edges_by_entity: dict, result: Survey, name_index: dict | None = None):
     """``(text as read, frontmatter, body)`` to write, or ``None`` when the page needs nothing."""
     text = path.read_text(encoding="utf-8")
     split = markdown_parser.split_frontmatter(text)
@@ -108,7 +122,17 @@ def _plan(path: Path, memory_path: Path, edges_by_entity: dict, result: Survey):
         return None
     new_body = body
     if over_related:
-        block = conflict_resolver._reconcile_related(path.stem, parsed.frontmatter, memory_path, edges_by_entity)
+        block = conflict_resolver._reconcile_related(path.stem, parsed.frontmatter, memory_path, edges_by_entity) or ""
+        # A link the old Related showed that is no edge and no `related:` slug — a hand-added line, or a name with no
+        # page — keeps its line as it was: the rollup is a view of the edges, and this run never drops a link.
+        ids = {str(e.get("target", "")).lower() for e in edges_by_entity.get(path.stem, ())}
+        ids |= {str(s).lower() for s in parsed.frontmatter.get("related") or []}
+        names = {n.strip().lower() for n in _LINK.findall(block)} | ids
+        kept_lines = [line for line in old_related.splitlines() if line.lstrip().startswith("- ")
+                      and any(not _covered(n, names, ids, memory_path, name_index) for n in _LINK.findall(line))]
+        if kept_lines:
+            block = "\n".join(part for part in (block, "\n".join(kept_lines)) if part)
+            result.lines_kept_as_were += len(kept_lines)
         if block:
             new_body = _with_related(new_body, block)
     fm, page_body, ledger = claims_ledger.split(path, parsed.frontmatter, new_body)
@@ -122,11 +146,11 @@ def _plan(path: Path, memory_path: Path, edges_by_entity: dict, result: Survey):
         return None
     rolled = _related_block(page_body)
     if over_related:
-        kept = {n.strip().lower() for n in _LINK.findall(rolled)}
-        edges = {str(e.get("target", "")).lower() for e in edges_by_entity.get(path.stem, ())}
-        names = kept | edges | {str(s).lower() for s in parsed.frontmatter.get("related") or []}
-        # A link the old Related showed is still a line, an edge or a `related:` slug (by name or id).
-        if not all(n in names or n.replace(" ", "-") in names for n in links_before):
+        ids = {str(e.get("target", "")).lower() for e in edges_by_entity.get(path.stem, ())}
+        ids |= {str(s).lower() for s in parsed.frontmatter.get("related") or []}
+        names = {n.strip().lower() for n in _LINK.findall(rolled)} | ids
+        # A link the old Related showed is still a line, an edge or a `related:` slug (by name, slug or id).
+        if not all(_covered(n, names, ids, memory_path, name_index) for n in links_before):
             result.failed_check += 1
             return None
     result.over_fence += over_fence
@@ -145,10 +169,13 @@ def survey(memory_path) -> Survey:
     memory_path = Path(memory_path)
     result = Survey()
     edges_by_entity = conflict_resolver._edges_by_entity(memory_path)
+    from api.services.id_utils import build_name_index
+
+    name_index = build_name_index(memory_path / "entities")
     for path in sorted((memory_path / "entities").glob("*.md")):
         result.pages += 1
         try:
-            plan = _plan(path, memory_path, edges_by_entity, result)
+            plan = _plan(path, memory_path, edges_by_entity, result, name_index)
         except (claims.MalformedClaimsBlockError, ValueError, OSError):
             result.unreadable += 1
             continue
@@ -164,7 +191,8 @@ def _head_bytes(memory_path: Path, rel: str) -> bytes | None:
     return proc.stdout if proc.returncode == 0 else None
 
 
-def _expected(memory_path: Path, rel: str, edges_by_entity: dict) -> tuple[bytes, bytes | None] | None:
+def _expected(memory_path: Path, rel: str, edges_by_entity: dict,
+              name_index: dict | None = None) -> tuple[bytes, bytes | None] | None:
     """What this migration writes for the page as HEAD holds it — ``(page bytes, ledger bytes or None)`` — computed on
     a scratch copy of HEAD's page and ledger, never touching the bank. ``None`` when HEAD has no such page."""
     page = _head_bytes(memory_path, rel)
@@ -177,7 +205,7 @@ def _expected(memory_path: Path, rel: str, edges_by_entity: dict) -> tuple[bytes
         tmp.write_bytes(page)
         if ledger is not None:
             claims_ledger.path_for(tmp).write_bytes(ledger)
-        plan = _plan(tmp, memory_path, edges_by_entity, Survey())
+        plan = _plan(tmp, memory_path, edges_by_entity, Survey(), name_index)
         if plan is None:
             return page, ledger
         _text, fm, body = plan
@@ -198,9 +226,12 @@ def _resumable(memory_path: Path, dirty: frozenset, edges_by_entity: dict) -> di
                     for rel in dirty if rel.startswith("entities/")
                     and (rel.endswith(".md") or rel.endswith(claims_ledger.SUFFIX)) and rel.count("/") == 1})
     out = {}
+    from api.services.id_utils import build_name_index
+
+    name_index = build_name_index(memory_path / "entities") if pages else None
     for rel in pages:
         try:
-            expected = _expected(memory_path, rel, edges_by_entity)
+            expected = _expected(memory_path, rel, edges_by_entity, name_index)
         except (claims.MalformedClaimsBlockError, ValueError, OSError):
             continue
         if expected is None:

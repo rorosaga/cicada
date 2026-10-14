@@ -210,15 +210,10 @@ def merged(body: str, ledger: list[str]) -> str:
     return _with_fence(body, match, kept + fence)
 
 
-#: A predicate a page holds for at most this many objects is a fact about it ("studies at", "lives in"); one it holds
-#: for hundreds is a log ("asked about"). One line for the ledger, the article's inputs and a hub's Related.
-FACT_FAMILY_MAX = entity_body.RELATION_FAMILY_MAX
-
-
 def _spill_order(lines: list[str]) -> list[tuple]:
     """Each line's place in the spill order: closed claims first (``valid_to`` or ``superseded_by`` set), then a log's
-    (a predicate the page holds for more than :data:`FACT_FAMILY_MAX` objects: "<owner> asked about X" — activity,
-    not a fact about the page), then the rest; within each, the longest ago recorded first. What stays on the page is
+    (``entity_body.is_log``: an activity predicate however it is spelled — "<owner> asked how to use X" — or any
+    predicate the page holds for many objects; never a fact about the page), then the rest; within each, the longest ago recorded first. What stays on the page is
     what it most says about its subject, and the newest of the rest."""
     entries = []
     for line in lines:
@@ -233,7 +228,8 @@ def _spill_order(lines: list[str]) -> list[tuple]:
     keys = []
     for entry in entries:
         closed = bool(entry.get("valid_to") or entry.get("superseded_by"))
-        log = len(objects.get(str(entry.get("predicate") or ""), ())) > FACT_FAMILY_MAX
+        predicate = str(entry.get("predicate") or "")
+        log = entity_body.is_log(predicate, len(objects.get(predicate, ())))
         keys.append((0 if closed else 1 if log else 2, str(entry.get("recorded_at") or entry.get("valid_from") or "")))
     return keys
 
