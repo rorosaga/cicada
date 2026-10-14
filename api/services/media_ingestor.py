@@ -78,6 +78,11 @@ class RawItem:
     # must never be guessed at downstream. Distinct from the episode's
     # ``timestamp``/entity's ``created`` (when Cicada ingested the item).
     added: str | None = None
+    # G191: the same save as an exact instant (aware UTC ISO, seconds), only from a
+    # source that records one — Chrome's ``date_added``, Safari's Reading List
+    # ``DateAdded`` (``saved_at.instant_from_*``). Written to the episode as
+    # ``added_at`` so the record says WHEN the page was saved, not only the day.
+    added_at: str | None = None
     note: str | None = None
     # Human-readable source folder/category path, e.g. "Bookmarks Bar/AI/Papers"
     # (Chrome/Safari folder tree) or a single enclosing folder name (Netscape
@@ -605,14 +610,16 @@ def parse_safari_bookmarks(data: bytes) -> list[RawItem]:
                 # cached — which this walk used to drop. `ReadingListNonSync` is
                 # offline-cache bookkeeping and stays unread.
                 reading = node.get("ReadingList")
-                added = preview = None
+                added = added_at = preview = None
                 if isinstance(reading, dict):
                     added = saved_at.from_plist_date(reading.get("DateAdded"))
+                    added_at = saved_at.instant_from_plist_date(reading.get("DateAdded"))
                     text = reading.get("PreviewText")
                     if isinstance(text, str) and text.strip():
                         cleaned, _ = episode_scrub.scrub(" ".join(text.split()))
                         preview = cleaned[:SAFARI_PREVIEW_CAP] or None
-                items.append(RawItem(url=url, title=title or None, folder=folder, added=added, preview=preview))
+                items.append(RawItem(url=url, title=title or None, folder=folder, added=added, added_at=added_at,
+                                     preview=preview))
             return
         title = node.get("Title")
         new_path = path + (title,) if title else path
@@ -644,6 +651,7 @@ def parse_chrome_bookmarks_json(data: dict) -> list[RawItem]:
                 url=node["url"],
                 title=node.get("name") or None,
                 added=saved_at.from_webkit_micros(node.get("date_added")),
+                added_at=saved_at.instant_from_webkit_micros(node.get("date_added")),
                 folder="/".join(path) if path else None,
             ))
             return
@@ -1753,6 +1761,10 @@ def write_media_episode(
         # (never a guess) when the source gave no date or it failed to parse.
         # Distinct from `timestamp` above, which is when Cicada ingested it.
         frontmatter["saved_at"] = validated_added
+    validated_instant = saved_at.validate_instant(item.added_at)
+    if validated_instant:
+        # G191 — the instant the browser recorded the save, when it records one.
+        frontmatter["added_at"] = validated_instant
     if item.origin:
         frontmatter["origin"] = item.origin
     if item.session_id:

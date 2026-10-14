@@ -417,6 +417,65 @@ def reattribute(path: Path, *, extra: dict, queue_for_sleep: bool) -> bool:
         return True
 
 
+def _section_bounds(body: str, heading: str) -> tuple[int, int] | None:
+    """``(start, end)`` of the ``## heading`` section in ``body`` — from its heading line to the next ``## `` heading
+    (or the end) — or ``None`` when the body has none. Only a whole line matches."""
+    lines = body.splitlines(keepends=True)
+    offset = 0
+    start = None
+    for line in lines:
+        bare = line.rstrip("\r\n")
+        if start is None and bare == heading:
+            start = offset
+        elif start is not None and bare.startswith("## "):
+            return start, offset
+        offset += len(line)
+    return (start, len(body)) if start is not None else None
+
+
+def amend_section(path: Path, heading: str, text: str, *, extra: dict | None = None,
+                  writer: str, bank: str | None = None, before: tuple[str, ...] = ()) -> bool:
+    """The person added words to an episode that already exists (G191): one ``## `` section, written in place.
+
+    The section is the person's to replace — a second answer rewrites it, never appends a twin — and every other
+    byte of the body is kept. The new text is scrubbed (the R-N3 rule every staged turn follows) before it is
+    written, ``extra`` lands in the frontmatter, and the episode is queued for Sleep again (``processed: false``):
+    the body changed, and it changed with the person's own words, so Sleep must read it — the queue rule an edit in
+    place has always followed (G20). The section goes before the first heading named in ``before`` when the body
+    has one (so it is never read as part of an agent's ``## Note``), else at the end. Under ``STAGE_LOCK`` and the
+    bank's episode lock, so Sleep's revision-checked retirement sees this edit or retires before it (audit A01).
+    Returns whether the file changed."""
+    cleaned = episode_scrub.scrub_body(text.strip(), writer=writer, bank=bank)
+    section = f"{heading}\n{cleaned}\n"
+    with STAGE_LOCK, episode_ids.episode_lock(Path(path).parent):
+        parsed = markdown_parser.parse(path)
+        fm = dict(parsed.frontmatter)
+        body = parsed.body
+        bounds = _section_bounds(body, heading)
+        if bounds is not None:
+            start, end = bounds
+            tail = body[end:]
+            new_body = body[:start] + section + ("\n" + tail if tail else "")
+        else:
+            cut = min((b[0] for b in (_section_bounds(body, h) for h in before) if b is not None), default=None)
+            if cut is not None:
+                new_body = body[:cut] + section + "\n" + body[cut:]
+            else:
+                new_body = body.rstrip("\n") + "\n\n" + section
+        before_fm = dict(fm)
+        fm.update(extra or {})
+        if new_body == body and fm == before_fm:
+            return False
+        if new_body != body:
+            fm["processed"] = False
+            # G114 R6: `processed_by` is written only beside `processed: true`.
+            fm.pop("processed_by", None)
+        if "turns" in fm:
+            fm["turns"] = fm.pop("turns")  # R-PB4: the sidecar stays the last key
+        markdown_parser.write(path, fm, new_body)
+        return True
+
+
 @_under_episode_lock
 def _restamp(path: Path, draft: EpisodeDraft) -> None:
     parsed = markdown_parser.parse(path)

@@ -44,7 +44,8 @@ from typing import Any, Awaitable, Callable
 
 from loguru import logger
 
-from api.services import bookmark_seen, episode_ids, inbox_generator, inbox_service, markdown_parser, media_ingestor
+from api.services import (bookmark_seen, episode_ids, inbox_generator, inbox_service, markdown_parser, media_ingestor,
+                          saved_at)
 from api.services.media_ingestor import RawItem
 
 # (items, memory_path, from_bookmark_file) -> (created, duplicates), matching
@@ -405,8 +406,15 @@ async def sync_bookmarks(
     Returns ``{"new": <total newly-ingested>, "skipped": <total already
     present>, "sources": [{"origin", "channel", "found", "new", "skipped"},
     ...], "removals_proposed": <total removal items written>,
-    "removals_skipped": <"; "-joined per-channel reasons, or None>}`` —
-    ``channel`` is the ``sync_state`` key the router stamps (R4).
+    "removals_skipped": <"; "-joined per-channel reasons, or None>,
+    "fresh": [...], "fresh_total": <int>}`` — ``channel`` is the
+    ``sync_state`` key the router stamps (R4). G191 adds ``first_sync`` to
+    each source (no seen-set before this pass) and ``fresh``: the bookmarks
+    this sync newly saved (``FRESH_CAP`` of them, each with its episode and
+    the browser's own ``added_at`` instant when the file records one), so the
+    app can ask "what made you save this?" about one bookmark made a moment
+    ago — and never after a first sync, a bulk import or a reorganisation
+    (moved bookmarks are known URLs, so they are never fresh).
 
     Every ``removal`` item this call wrote, plus a touched
     ``sources/bookmark_seen.json``, are committed together at the end
@@ -428,17 +436,23 @@ async def sync_bookmarks(
     seen_touched = False
 
     at = episode_ids.utc_now_iso()
-    prev_seen = bookmark_seen.read_seen(memory_path) if propose_removals else {}
+    # G191: read regardless of `propose_removals` — a channel with no seen-set has never been synced, and a first sync
+    # is never a moment to ask "what made you save this?".
+    prev_seen = bookmark_seen.read_seen(memory_path)
+    fresh: list[dict[str, Any]] = []
 
     for origin, items in _batches(chrome_data, safari_data, chromium):
         items = filter_by_folders(items, folders) if folders else items
         channel = CHANNEL_BY_ORIGIN[origin]
         created = duplicates = 0
         if items:
+            unseen = _unseen(items, memory_path)
             created, duplicates = await fn(items, memory_path, from_bookmark_file=True)
             total_new += created
             total_skipped += duplicates
-        entry = {"origin": origin, "channel": channel, "found": len(items), "new": created, "skipped": duplicates}
+            fresh.extend(_fresh(unseen, memory_path, origin=origin, channel=channel))
+        entry = {"origin": origin, "channel": channel, "found": len(items), "new": created, "skipped": duplicates,
+                 "first_sync": channel not in prev_seen}
         if origin == SAFARI_ORIGIN:
             entry.update(safari_parts(items))
         sources.append(entry)
@@ -472,7 +486,54 @@ async def sync_bookmarks(
         "sources": sources,
         "removals_proposed": total_removals_proposed,
         "removals_skipped": "; ".join(removals_skip_reasons) or None,
+        # G191: what THIS sync newly saved, so the app can ask why about a single bookmark made a moment ago.
+        "fresh": fresh[:FRESH_CAP],
+        "fresh_total": len(fresh),
     }
+
+
+#: G191 — how many newly saved bookmarks a sync lists by name. The app asks only when exactly one is new, so a few is
+#: plenty to tell one from many; `fresh_total` carries the real count.
+FRESH_CAP = 3
+
+
+def _unseen(items: list[RawItem], memory_path: Path) -> list[RawItem]:
+    """The items no ``url_index`` row holds yet, one per URL — what this sync can newly save (G191)."""
+    idx = media_ingestor.load_url_index(memory_path)
+    out: list[RawItem] = []
+    seen: set[str] = set()
+    for item in items:
+        if not item.url or media_ingestor.existing_hash(item, idx) is not None:
+            continue
+        h = media_ingestor.url_hash(item.url)
+        if h not in seen:
+            seen.add(h)
+            out.append(item)
+    return out
+
+
+def _fresh(unseen: list[RawItem], memory_path: Path, *, origin: str, channel: str) -> list[dict[str, Any]]:
+    """The unseen items the ingest really saved, read back from ``url_index`` (an item the ingest dropped — a junk
+    URL, a failed write — has no row and is not listed)."""
+    if not unseen:
+        return []
+    idx = media_ingestor.load_url_index(memory_path)
+    out: list[dict[str, Any]] = []
+    for item in unseen:
+        h = media_ingestor.existing_hash(item, idx)
+        row = idx.get(h) if h else None
+        if not row or not row.get("episode_id"):
+            continue
+        out.append({
+            "url": item.url,
+            "title": str(row.get("title") or item.title or ""),
+            "origin": origin,
+            "channel": channel,
+            "episode_id": str(row.get("episode_id") or ""),
+            "media_entity_id": str(row.get("media_entity_id") or ""),
+            "added_at": saved_at.validate_instant(item.added_at),
+        })
+    return out
 
 
 async def _commit_removals(memory_path: Path, removal_paths: list[str], seen_touched: bool) -> None:

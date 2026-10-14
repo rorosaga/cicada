@@ -21,6 +21,10 @@ from api.models.schemas import (
     SafariTabsPreview,
     SafariTabsSyncRequest,
     SafariTabsSyncResponse,
+    SavedWhyOptions,
+    SavedWhyRecord,
+    SavedWhyRequest,
+    SavedWhyResponse,
     SourceChannel,
     SourceChannelsResponse,
     SourceListResponse,
@@ -35,6 +39,7 @@ from api.models.schemas import (
 )
 from api.services import (
     agent_commits,
+    bank_index,
     bookmark_sync,
     calendar_registry,
     channel_items,
@@ -50,6 +55,7 @@ from api.services import (
     reading_walls,
     safari_tabs,
     saved_at as saved_at_service,
+    saved_why,
     source_overview,
     sync_service,
     sync_state,
@@ -525,6 +531,53 @@ async def sync_bookmarks(
     return BookmarkSyncResponse(**result)
 
 
+#: G191 — an answer that finds Sleep holding the pages.
+SAVED_WHY_BUSY = "Sleep is updating your memory — your answer wasn't saved. Try again in a moment."
+
+
+@router.get("/sources/saved-why/options", response_model=SavedWhyOptions)
+async def saved_why_options(settings: Settings = Depends(get_settings)) -> SavedWhyOptions:
+    """G191 — the one-tap answers to "What made you save this?": the fixed reasons plus up to three of the person's
+    live projects (open backlog first, then the most recently mentioned). Deterministic — no model call."""
+    return SavedWhyOptions.model_validate(await run_in_threadpool(saved_why.options, settings.memory_path))
+
+
+@router.post("/sources/saved-why", response_model=SavedWhyResponse, dependencies=_DEMO_GATE)
+async def save_why(request: SavedWhyRequest, settings: Settings = Depends(get_settings)) -> SavedWhyResponse:
+    """G191 — the person's answer to "What made you save this?", attached to that link's episode.
+
+    The episode gains (or rewrites) its ``## Why it was saved`` section, scrubbed, with the time the answer was
+    given beside the time the browser says the bookmark was made, and is queued for Sleep again; its frontmatter
+    carries the structured answer (``saved_why``) that ``GET /sources`` serves as ``savedWhy``. 404 for a link that
+    is not saved, 422 for an answer that names nothing or something unknown, 409 in a demo bank or while Sleep holds
+    the pages. Committed alone, as the person (``Cicada-Author: user``)."""
+    memory_path = settings.memory_path
+    try:
+        answer = saved_why.validate(memory_path, reasons=request.reasons, project=request.project, text=request.text)
+        saved_why.find_episode(memory_path, request.url)
+    except saved_why.SavedWhyError as e:
+        raise HTTPException(status_code=e.status, detail=str(e))
+
+    async def write() -> dict:
+        result = await run_in_threadpool(saved_why.attach, memory_path, url=request.url, answer=answer)
+        if result["changed"]:
+            from api.services import git_service
+
+            try:
+                await git_service.commit_paths(memory_path, saved_why.commit_message(result["episode_id"]),
+                                               [f"episodes/{result['episode_id']}.md"])
+            except Exception as e:  # noqa: BLE001 — a non-git bank (tests) keeps the answer
+                logger.warning(f"saved-why commit failed: {type(e).__name__}: {e}")
+        return result
+
+    try:
+        result = await write_admission.run_admitted(memory_path, write, refuse=lambda: SleepWriting(SAVED_WHY_BUSY))
+    except saved_why.SavedWhyError as e:
+        raise HTTPException(status_code=e.status, detail=str(e))
+    return SavedWhyResponse(episode_id=result["episode_id"], media_entity_id=result["media_entity_id"],
+                            saved_why=SavedWhyRecord.model_validate(result["saved_why"]))
+
+
 @router.post("/sources/sync-safari-tabs", response_model=None, dependencies=_DEMO_GATE)
 async def sync_safari_tabs(
     request: SafariTabsSyncRequest,
@@ -620,8 +673,17 @@ def _read_block(entry, fm_read, ask_rows, *, enabled: bool, allowed, wall=None, 
         return None
 
 
+def _saved_why_of(fm: dict) -> SavedWhyRecord | None:
+    """G191: the source record's ``savedWhy`` from its episode's frontmatter — never raises."""
+    try:
+        shaped = saved_why.wire(fm.get("saved_why"), added_at=str(fm.get("added_at") or "") or None)
+        return SavedWhyRecord.model_validate(shaped) if shaped is not None else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
 #: The `/sources` payload's shape version (the `preview` field), folded into its ETag.
-SHAPE = "preview-1"
+SHAPE = "saved-why-1"
 
 
 @router.get("/sources", response_model=SourceListResponse)
@@ -654,6 +716,8 @@ async def list_sources(
     except ValueError:
         ask_rows = {}
     reading_paused = reading_queue.paused_sites(list(ask_rows.values()))
+    # G191: the person's answer lives on the link's episode; one cached listing of `episodes/` answers every row.
+    episode_fm = {f.stem: f.frontmatter for f in bank_index.files(memory_path, "episodes")}
 
     items = []
     for entry in idx.values():
@@ -779,6 +843,7 @@ async def list_sources(
                 preview=preview,
                 saved_at=entry.get("saved_at", ""),
                 content_saved_at=entry.get("content_saved_at"),
+                saved_why=_saved_why_of(episode_fm.get(str(entry.get("episode_id") or "")) or {}),
                 tags=tags,
                 status=status,
                 related_count=related_count,

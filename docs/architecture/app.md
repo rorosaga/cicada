@@ -279,8 +279,26 @@ Safari, Brave, Vivaldi, Comet and Dia as `SourceRow`s (Turn on / Sync now, or Tr
 Full Disk Access fix under Safari when a read was refused, 'Last synced …'); under Chrome, *Open tab groups* is a
 sub-row with its own switch and the open groups as tags in Chrome's colours (G160); and the ones Cicada cannot sync
 yet (Arc, Firefox, Edge, Opera) named once in the header, never as a row. Safari's source page groups its items as
-Recently saved · Favorites · Other bookmarks. **Calendars, contacts & feeds** offers Calendar on this Mac and
+Recently saved · Favorites · Other bookmarks. Under the browsers, **Ask why when I bookmark something** (G191, `saveWhy`,
+off by default; `cicada.saveWhy.enabled`, per Mac like the watch's consent flags) — see *Ask why* below.
+**Calendars, contacts & feeds** offers Calendar on this Mac and
 Contacts (G154), both app-owned rows.
+
+**Ask why (G191).** When the bookmark watch's own file event starts a sync (`BookmarkSyncSignal.live`, a task-local
+the watcher sets; a catch-up, Sync now, Turn on or folder import is never live) and the result has exactly one fresh
+bookmark, `SaveWhyPolicy` asks "What made you save this?" — unless the switch is off, the channel's sync was a first
+sync, the browser's `addedAt` is older than 5 minutes (or 1 minute in the future), the site is muted ("Don't ask for
+this site", `cicada.saveWhy.mutedHosts`, cleared from the Settings row), a question was asked in the last 3 minutes,
+or one is showing. `SaveWhyCenter` fetches `GET /sources/saved-why/options` and shows `SaveWhyPanelController`: a
+borderless non-activating `NSPanel` at `.statusBar` level on every Space and over full screen, shown with
+`orderFrontRegardless` (never key until the person clicks it), placed top centre just under the menu bar — under the
+notch on a Mac that has one (`SaveWhyPlacement`) — and dropping out of it (`CicadaMotion.notchDrop`, no movement under
+Reduce Motion). Its surface is chrome glass (`liquidGlass(.control)`, DR-14) with a ring, never a shadow. The chips are
+the backend's reasons, "For <project>" per offered project, and "Something else…" (a text field; Return sends).
+Answers are multi-select without a confirm: a tap starts a 2.5 s linger, another tap adds, then the answer posts
+(`SaveWhyPanelState`, pure and tested). A click elsewhere (global and local mouse monitors), Esc (once the panel is
+key) or the 12 s timeout closes it — silently with nothing tapped; a tap already made is kept, an unsent draft is
+dropped. The bookmark itself is captured as always; the app posts only the answer.
 
 **Agent wiring (Track I T3/T7).** `GET /agents/wiring` is read-only: per harness it reports
 *recall* (the MCP server registered — `claude mcp get cicada` / `codex mcp get cicada --json`, 6 s

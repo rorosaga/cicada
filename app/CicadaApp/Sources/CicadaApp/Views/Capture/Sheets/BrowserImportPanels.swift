@@ -31,6 +31,7 @@ enum BrowserImportActions {
                 if m.wasBusy { throw ImportActionError.busy }
                 throw ImportActionError.failed(store.toast ?? "Sync failed")
             }
+            BookmarkSyncSignal.post(r)   // G191: the save-why question decides whether to ask
             return BrowserImportSummary.bookmarks(r)
         case "chrome-bookmarks":
             let data = try await BrowserFileReader.read(.chromeBookmarks)
@@ -40,6 +41,7 @@ enum BrowserImportActions {
                 if m.wasBusy { throw ImportActionError.busy }
                 throw ImportActionError.failed(store.toast ?? "Sync failed")
             }
+            BookmarkSyncSignal.post(r)   // G191: the save-why question decides whether to ask
             return BrowserImportSummary.bookmarks(r)
         default:
             // Round 4 (C9): a Chromium-family browser beyond Chrome — the same read, its own entry on the wire.
@@ -56,6 +58,7 @@ enum BrowserImportActions {
                 if m.wasBusy { throw ImportActionError.busy }
                 throw ImportActionError.failed(store.toast ?? "Sync failed")
             }
+            BookmarkSyncSignal.post(r)   // G191: the save-why question decides whether to ask
             return BrowserImportSummary.bookmarks(r)
         }
     }

@@ -445,11 +445,13 @@ final class BrowserWatcher {
         pending[channel] = Task { [weak self] in
             try? await Task.sleep(for: self?.debounce ?? BrowserWatchPolicy.debounce)
             guard !Task.isCancelled, let self else { return }
-            await self.syncIfChanged(channel: channel, file: file)
+            // G191: a sync the watch itself started, seconds after the browser wrote its file — the only kind that
+            // may ask "what made you save this?".
+            await self.syncIfChanged(channel: channel, file: file, live: true)
         }
     }
 
-    private func syncIfChanged(channel: String, file: BrowserFile) async {
+    private func syncIfChanged(channel: String, file: BrowserFile, live: Bool = false) async {
         if let started = lastSyncStarted[channel],
            ContinuousClock.now - started < minimumInterval {
             return
@@ -460,14 +462,14 @@ final class BrowserWatcher {
             refreshState(channel: channel, file: file)
             return
         }
-        await sync(channel: channel, file: file)
+        await sync(channel: channel, file: file, live: live)
     }
 
     /// Returns the outcome so `syncNow` can hand it to the button that asked;
     /// the watch's own callers ignore it. `nil` when nothing ran (no store yet,
     /// or this channel is already syncing).
     @discardableResult
-    private func sync(channel: String, file: BrowserFile) async -> Result<String, Error>? {
+    private func sync(channel: String, file: BrowserFile, live: Bool = false) async -> Result<String, Error>? {
         guard let store, !syncing.contains(channel) else { return nil }
         // Read the signature BEFORE the sync: a bookmark saved while the sync
         // is in flight must not be recorded as already synced.
@@ -478,7 +480,10 @@ final class BrowserWatcher {
 
         // R-SR11 — the read-and-post runs as its own task so × (`cancel`) can stop it; awaiting it inline left
         // nothing to cancel.
-        let work = Task { @MainActor [performSync] in try await performSync(channel, store) }
+        // G191: `live` rides the read-and-post as a task-local, so `syncChannel` hands it to the save-why question.
+        let work = Task { @MainActor [performSync] in
+            try await BookmarkSyncSignal.$live.withValue(live) { try await performSync(channel, store) }
+        }
         running[channel] = work
         activity?.began(channel, cancel: { [weak self] in self?.cancel(channel) })
         let result: Result<String, Error>

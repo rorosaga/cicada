@@ -31,6 +31,23 @@ Seven rails hold across all of them:
   Safari's excerpt, and a sync reads recently saved first and stamps Reading List / Favorites
   counts as the channel's `parts`. Safari's excerpt is scrubbed, capped at 500 characters and used
   only when the page gave no description of its own.
+- **Ask why at the moment of saving (G191).** A bookmark sync reports what it newly saved: each source's
+  `first_sync` (no seen-set before this pass) and `fresh` / `fresh_total` — the bookmarks that got a `url_index` row
+  this pass (at most `FRESH_CAP` = 3 listed), each with its episode and `added_at`, the browser's own instant (aware
+  UTC, seconds; Chrome's `date_added`, Safari's Reading List `DateAdded`, `saved_at.instant_from_*`). The episode
+  keeps `added_at` beside the day in `saved_at`, so the record says *when* a page that may since have changed was
+  saved. A moved bookmark is a URL already held, so a reorganisation is never fresh. The app decides whether to ask
+  (see `app.md`, *Ask why*); the answer is `POST /sources/saved-why` `{url, reasons[], project?, text?}` → the link's
+  episode through `episode_staging.amend_section`: one `## Why it was saved` section (rewritten, never twinned, placed
+  above an agent's `## Note` so `speaker_kind` reads it as the person's), the words scrubbed (writer `saved-why`),
+  `saved_why: {reasons, project, text, at}` in the frontmatter, `processed: false` so Sleep reads it again, committed
+  alone as `user` (trigger `user/saved_why`) inside the write admission (409 while Sleep holds the pages, 409 in a demo
+  bank, 404 for a link not saved, 422 for an empty or unknown answer). Reason ids are a closed, stable set —
+  `design`, `product`, `technique`, `read_later` — labels separate; `project` is a live project page's id; `text`
+  is the person's own words (≤ 500). `GET /sources/saved-why/options` serves the reasons and up to three live
+  projects (open backlog first, then the most recently referenced) — deterministic, no model. The wire for a later
+  reader is the source record: `GET /sources` → `items[].savedWhy` `{reasons, labels, project, text, at, addedAt}`,
+  read from the episode (null when nobody was asked).
 - **Capture must not depend on a model deciding to call a tool** (G105). Every Claude Code and
   Codex session is captured by the harness's own `Stop` hook
   (`api/hooks/capture.py` → `POST /capture/transcript`). Cursor and Gemini CLI are captured by their own

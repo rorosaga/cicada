@@ -81,6 +81,11 @@ struct CicadaApp: App {
     @State private var browserWatcher: BrowserWatcher
     /// Round 4 (R-SR17) — the one registry of running syncs every `SourceRow` reads, and where its × goes.
     @State private var syncActivity: SyncActivity
+    /// G191 — "What made you save this?": listens to the bookmark watch's syncs and, when the person turned it on,
+    /// drops a small panel from the notch for one bookmark made a moment ago. The controller is held here because the
+    /// center keeps its presenter weakly.
+    @State private var saveWhy = SaveWhyCenter()
+    @State private var saveWhyPanel = SaveWhyPanelController()
     /// G133 / G134: watched folders and Wispr Flow, read by the app (the backend
     /// never opens them). Lights ride `browserWatcher` (R-LS26).
     @State private var localSources: LocalSourceWatcher
@@ -226,6 +231,7 @@ struct CicadaApp: App {
                 .environment(findModel)
                 .environment(homeSearch)
                 .environment(browserWatcher)
+                .environment(saveWhy)
                 .environment(syncActivity)
                 .environment(localSources)
                 .environment(calendarReader)
@@ -292,6 +298,9 @@ struct CicadaApp: App {
                     // Arms the per-browser watches and catches up on anything
                     // saved while the app was closed.
                     browserWatcher.start(store: store)
+                    // G191 — off until the person turns it on (Settings → Integrations → Browsers).
+                    saveWhy.attach(presenter: saveWhyPanel)
+                    saveWhy.start()
                     // Track I T5 — the one intake owns `store.intakeInFlight`
                     // through its request counter, and the Dock's opens wait in
                     // `DockOpenQueue` until this line attaches it (R-IA25).
