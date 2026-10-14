@@ -90,6 +90,9 @@ extension Copy {
         static let sheetOnlyAsks = "Cicada only asks. What your agent does in your browser is up to it and you."
         static let sheetTerms = "Some sites, LinkedIn and X among them, forbid automated access even when you are signed in. You are responsible for following a site’s terms, and the site may restrict your account."
         static let sheetInstruction = "Cicada asks your agent not to type credentials, and not to post, message or change anything. It can’t see or enforce what happens in your browser."
+        /// Ack v3 (owner 2026-10-14, D3): the exploring paragraph. Its wording change is why an earlier "I understand"
+        /// no longer counts (`reading_settings.ACK_VERSION`).
+        static let sheetExploring = "Exploring your saved sites opens each one in your browser, one after another, and keeps a dated picture of it. By default it uses your signed-in session, so sites see you as you; you can turn that off below. Some sites’ terms don’t allow automated visits: if a site objects, it is your account and your connection it objects to, not Cicada’s. You can mark any site Never explore."
         static let sheetSaferExport = "If a site offers a download of your own data, that is safer."
         static func sheetAlsoAllows(_ site: String) -> String { "This also lets an agent read pages from \(site)." }
         static let sheetUnderstand = "I understand"

@@ -84,16 +84,26 @@ struct ReadingSettingsResponse: Decodable, Equatable {
     var ackCurrent: Bool
     /// The day of the last read an agent recorded, `nil` until one has.
     var lastAgentRead: String?
+    /// G166 exploring (D2 amended): an agent explores saved sites in the person's signed-in session unless they turn it
+    /// off — true by default, and when an older backend sends nothing.
+    var exploreSignedIn: Bool
+    /// `{site: day}` the person said never to explore (D3).
+    var neverExplore: [String: String]
 
-    enum CodingKeys: String, CodingKey { case agentEnabled, allowedSites, ackedAt, ackCurrent, lastAgentRead }
+    enum CodingKeys: String, CodingKey {
+        case agentEnabled, allowedSites, ackedAt, ackCurrent, lastAgentRead, exploreSignedIn, neverExplore
+    }
 
     init(agentEnabled: Bool = false, allowedSites: [String: String] = [:], ackedAt: String? = nil,
-         ackCurrent: Bool = false, lastAgentRead: String? = nil) {
+         ackCurrent: Bool = false, lastAgentRead: String? = nil, exploreSignedIn: Bool = true,
+         neverExplore: [String: String] = [:]) {
         self.agentEnabled = agentEnabled
         self.allowedSites = allowedSites
         self.ackedAt = ackedAt
         self.ackCurrent = ackCurrent
         self.lastAgentRead = lastAgentRead
+        self.exploreSignedIn = exploreSignedIn
+        self.neverExplore = neverExplore
     }
 
     init(from decoder: Decoder) throws {
@@ -103,6 +113,8 @@ struct ReadingSettingsResponse: Decodable, Equatable {
         ackedAt = try? c.decodeIfPresent(String.self, forKey: .ackedAt)
         ackCurrent = (try? c.decode(Bool.self, forKey: .ackCurrent)) ?? false
         lastAgentRead = try? c.decodeIfPresent(String.self, forKey: .lastAgentRead)
+        exploreSignedIn = (try? c.decode(Bool.self, forKey: .exploreSignedIn)) ?? true
+        neverExplore = (try? c.decode([String: String].self, forKey: .neverExplore)) ?? [:]
     }
 }
 

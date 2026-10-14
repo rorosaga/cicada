@@ -52,6 +52,8 @@ struct CicadaApp: App {
     /// G162 — every saved video's state and the person's video queue; app-level for ProjectsCache's reason, never a
     /// Store domain.
     @State private var videoStateCache = VideoStateCache()
+    /// G166 exploring — the explore run and the Explore sheet's counts, for Sources.
+    @State private var exploreCache = ExploreCache()
     /// G166 — the sites Cicada's reader could not read, for Home's one line; app-level for ProjectsCache's reason.
     @State private var readingSitesCache = ReadingSitesCache()
     @State private var banksVM: BanksViewModel
@@ -221,6 +223,7 @@ struct CicadaApp: App {
                 .environment(backlogCache)
                 .environment(channelItemsCache)
                 .environment(videoStateCache)
+                .environment(exploreCache)
                 .environment(readingSitesCache)
                 .environment(banksVM)
                 .environment(feedVM)

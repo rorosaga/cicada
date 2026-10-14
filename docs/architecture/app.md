@@ -425,6 +425,22 @@ agent reads (`agent_methods`), not an install.
   remembered disclosure on the old toggle's `cicada.usageMode` key. "Add a source" is a neutral button in the
   eyebrow row, which reads "Sources · n connected".
 
+**Explore saved sites (G166 slice 1, owner 2026-10-14).** A neutral **Explore saved sites** button beside "Add a source"
+in the Sources eyebrow (hidden when the backend answers 404) opens `ExploreSheet`: sites not explored yet or every saved
+site, with counts, a checkbox per browser when there are several, the run's size (Light / Medium / Heavy and minutes with
+four agents, never a price — ruling 12), whether the agent will use the signed-in session, and what is left out. The
+Explore button is disabled with a `.help` saying why (reading off, no site, the demo, an unverified capture script;
+DR-41). After the click the sheet shows the hand-off prompt with **Copy for an agent** (`AppPasteboard`). While a run
+exists, `ExploreRunCard` sits atop the grid: one line ("Exploring 212 of 534 · 4 agents working · 3 need your sign-in ·
+2 gone · about 40 min left"), "Started by <agent> at your request" for an agent's start (D5), **Copy for an agent** (to
+add a worker) and **Stop** (one tap). `ExploreCache` (owned by `CicadaApp`, in memory, never a Store domain) reads
+`GET /explore/state` and `/explore/candidates` by ETag, revalidates when `exploreQueue`, `captures`, `sources`, `reading`
+or `bank` moves (`ExploreRefresh`), and is emptied on a bank switch. Per-row chips and the capture gallery are the
+link-render branch's (it reads `GET /explore/captures/{entity_id}`, `storage.md`). Settings → Reading the web gains
+**Explore in your signed-in browser** (on by default, D2 amended; `ReadingAgentModel.setExploreSignedIn`, row
+`readingExploreSignedIn`) and the first-use sheet's exploring paragraph (ack v3, D3). Copy: `Theme/Copy+Explore.swift`.
+Tests: `ExploreTests`.
+
 **Source rows and last sync (round 4).** Every source that keeps up renders one `SourceRow`
 (`Views/Common/SourceRow.swift`) from a pure `SourceRowModel`: the bare mark, name and what it reads, what came in
 (`SourceRowText.countLine`: the count in the reader's locale and the channel's `parts`), and on the right 'Syncing now'

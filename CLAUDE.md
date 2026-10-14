@@ -245,6 +245,8 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   grammar both sides (`link_views`); Sleep writes plain links, the person's switch is a pinned edit, no linked page is
   fetched to draw a card, and the app loads no picture a page names from the web (`storage.md`, `app.md`).
 - **Backlogs (G150):** one markdown file per item, one writer behind every door, never an entity page.
+- **Site captures (G166, ruling 25):** one append-only dated record per visit, a ≤ 640×400 thumbnail in the bank only
+  when the look changed, full images and page text outside every bank (`$CICADA_HOME/captures`); one writer (`site_captures`).
 - **Design references (2026-10-14):** one markdown file plus its screenshot per look, in the bank, one writer
   (`design_refs`), never an entity page; palette and vectors are computed here, the index lives outside the bank.
 - **`_state.md` is a cursor, never a copy**; it commits ALONE, the read path too (the G85-class smear). **The handshake is
@@ -279,7 +281,8 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   revocable; a remote claim is never the person's own words.
 - **Reading with the person's own agent (G166):** Cicada never spawns a browser and never signs in; it only asks. Only a
   link the person asked about, or a wall page of a site they allowed, can be recorded. The backend never fetches a
-  login-walled page.
+  login-walled page. **Exploring saved sites (ruling 25):** only the person's click or a trusted local agent they asked
+  starts a run; the agent uses their signed-in session unless they turn it off, every capture says which (`mcp.md`).
 - **Video (G162):** Cicada never downloads a video or derives a stream; a video's state is derived, never stored; the
   queue lives outside every bank.
 - **Continuity (G110, slice 1a/1b):** SessionStart carries a light pointer inside the whole 1,800-token note;

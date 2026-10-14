@@ -66,6 +66,10 @@ struct SettingsRowID: RawRepresentable, Hashable, Codable, Sendable {
     // Reading the web (G166): the master switch, the hand-off prompt, how the agent reads, the sites that need a browser
     static let readingAgent = SettingsRowID("readingAgent")
     static let readingPrompt = SettingsRowID("reading:prompt")
+    // G166 exploring (D2 amended): explore in the signed-in session, or a private context
+    static let readingExploreSignedIn = SettingsRowID("readingExploreSignedIn")
+    static let readingNeverExplore = SettingsRowID("readingNeverExplore")
+    static func readingNever(_ site: String) -> SettingsRowID { SettingsRowID("reading:never:\(site)") }
     static let readingMethods = SettingsRowID("readingMethods")
     static let watchingMethods = SettingsRowID("watchingMethods")
     static let readingSites = SettingsRowID("readingSites")

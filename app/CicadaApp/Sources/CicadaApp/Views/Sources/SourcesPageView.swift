@@ -18,6 +18,9 @@ struct SourcesPageView: View {
     @State private var columns = ListColumns<SourcesSelection>()
     /// R-S7/R-S9 — the catalog ROOT opens here, in place; `AddSourceSheet` owns its own state.
     @State private var showAddSheet = false
+    /// G166 exploring — the Explore sheet; the run card sits atop the grid.
+    @State private var showExploreSheet = false
+    @Environment(ExploreCache.self) private var exploreCache
     @FocusState private var focus: ListFocus?
 
     private var rows: [SourceOverview] { SourceOverview.gridOrder(store.sourcesOverview.value ?? []) }
@@ -36,8 +39,14 @@ struct SourcesPageView: View {
             EyebrowRow(eyebrow: SourcesModel.eyebrow(sections: sections, open: detailOpen ? columns.openId : nil),
                        horizontalPadding: !detailOpen && !provenance.isPresented ? plan.gutter : CicadaTheme.spacingXL) {
                 // R-S7 / §10 — the way in lives in the eyebrow row at all times, as a neutral button (DR-40).
-                NeutralButton(title: "Add a source", systemImage: "plus", size: .compact,
-                              help: Copy.Lists.addSourceHelp) { showAddSheet = true }
+                HStack(spacing: CicadaTheme.spacingSM) {
+                    if !exploreCache.isGone {
+                        NeutralButton(title: Copy.Explore.button, systemImage: "safari", size: .compact,
+                                      help: Copy.Explore.buttonHelp) { showExploreSheet = true }
+                    }
+                    NeutralButton(title: "Add a source", systemImage: "plus", size: .compact,
+                                  help: Copy.Lists.addSourceHelp) { showAddSheet = true }
+                }
             }
         } list: { plan in
             if plan.listStyle == .wide {
@@ -59,6 +68,10 @@ struct SourcesPageView: View {
         .sheet(isPresented: $showAddSheet) {
             AddSourceSheet(initialTile: nil) { showAddSheet = false }
         }
+        .sheet(isPresented: $showExploreSheet) {
+            ExploreSheet { showExploreSheet = false }
+        }
+        .task { await exploreCache.refresh() }
         // Track Z §7.1 — a Sleep spine's "Open in Sources ›" lands here with the tab switch.
         .onAppear { openPendingSource() }
         .onChange(of: router.pendingSourceDetail) { _, _ in openPendingSource() }

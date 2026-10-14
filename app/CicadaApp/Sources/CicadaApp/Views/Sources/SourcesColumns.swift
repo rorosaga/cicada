@@ -84,10 +84,16 @@ struct SourcesOverviewColumn: View {
     var onSelectEntity: ((String) -> Void)?
 
     @Environment(UsageViewModel.self) private var usageVM
+    @Environment(ExploreCache.self) private var exploreCache
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingXL) {
+                // G166 exploring — the run's one line of progress, Stop and Copy for an agent, while a run exists.
+                if exploreCache.showsCard {
+                    ExploreRunCard()
+                        .padding(.horizontal, CicadaTheme.spacingGutter)
+                }
                 SourceCardGrid(rows: rows, hasLoaded: hasLoaded, onOpen: { onOpen(.source($0.id)) }) {
                     ContributorsStrip { onOpen(.contributor($0.author)) }
                 }
