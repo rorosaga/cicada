@@ -311,3 +311,65 @@ def test_an_unreadable_edges_file_is_never_replaced_by_the_new_edges_alone(tmp_p
     (memory / "graph_edges.yaml").write_text("edges: [unterminated")
     inbox_generator._write_graph_edges(memory, [{"source": "a", "target": "b", "label": "c"}])
     assert (memory / "graph_edges.yaml").read_text() == "edges: [unterminated"
+
+
+# --- one atomic write for graph_edges.yaml -----------------------------------------------------------------------
+
+
+def _writers(memory: Path):
+    """Each of the four writers, called so that it writes the file."""
+    from api.services import graph_builder, inbox_generator
+
+    return {
+        "repoint_edges": lambda: entity_merge.repoint_edges(memory, "bob-ex", "bob-example"),
+        "sleep_edges": lambda: inbox_generator._write_graph_edges(memory, [{"source": "z", "target": "y", "label": "x"}]),
+        "regenerate": lambda: graph_builder.regenerate_edges_from_claims(memory),
+        "upsert": lambda: graph_builder.upsert_claim_edges(memory, ["bob-example"]),
+    }
+
+
+@pytest.mark.parametrize("writer", ["repoint_edges", "sleep_edges", "regenerate", "upsert"])
+def test_a_write_that_fails_part_way_leaves_the_old_edges_file_whole(tmp_path, monkeypatch, writer):
+    memory = _bank(tmp_path, "bob-ex", "bob-example", old_fm={"name": "Bob Ex"}, new_fm={"name": "Bob Example"})
+    if writer == "upsert":   # a claim the file does not show yet, so the projection has a row to write
+        _page(memory, "bob-example", {"name": "Bob Example"}, claims=[
+            Claim(id="c-new-2", text="mentors", subject="bob-example", predicate="mentors", object="delta",
+                  valid_from="2026-01-03")])
+    before = (memory / "graph_edges.yaml").read_bytes()
+    real_fdopen = __import__("os").fdopen
+
+    class Torn:
+        def __init__(self, fh):
+            self.fh = fh
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            self.fh.close()
+            return False
+
+        def write(self, data):
+            self.fh.write(data[: len(data) // 2])   # half the file lands, then the disk is full
+            raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr("api.services.markdown_parser.os.fdopen", lambda fd, mode: Torn(real_fdopen(fd, mode)))
+    with pytest.raises(OSError):
+        _writers(memory)[writer]()
+    assert (memory / "graph_edges.yaml").read_bytes() == before
+    assert sorted(p.name for p in memory.iterdir() if p.name.startswith(".graph_edges")) == []   # no temp left
+
+
+def test_every_writer_of_the_edges_file_goes_through_the_one_atomic_write():
+    import ast
+    root = Path(__file__).resolve().parents[1]
+    offenders = []
+    for path in sorted((root / "services").glob("*.py")):
+        text = path.read_text()
+        if "graph_edges" not in text:
+            continue
+        for node in ast.walk(ast.parse(text)):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in (
+                    "write_text", "write_bytes") and "edges" in ast.unparse(node.func.value):
+                offenders.append(f"{path.name}:{node.lineno}")
+    assert offenders == []

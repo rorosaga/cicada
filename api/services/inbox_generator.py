@@ -666,10 +666,7 @@ def _write_graph_edges(memory_path: Path, new_edges: list[dict]) -> None:
     if not added and edges_file.exists():
         return
     data["edges"] = existing_edges + added
-    edges_file.write_text(
-        yaml.dump(data, default_flow_style=False, sort_keys=False, allow_unicode=True),
-        encoding="utf-8",
-    )
+    markdown_parser.write_yaml(edges_file, data)
 
 
 def _update_related_fields(entities_dir: Path, relationships: list[dict]) -> None:

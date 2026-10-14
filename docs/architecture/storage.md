@@ -274,7 +274,12 @@ claim rows, so each Sleep write left a bare copy of every claim row behind. It n
 adds a new edge as `{source, target, label}` only when no bare edge of that triple is already there; an unreadable file
 is never replaced by the new edges alone. The bare copies already in a bank stay (they are edges, and nothing
 automatic removes them). `api/tests/test_merge_edges.py` drives every door over one file of mixed bare and claim-backed
-edges.
+edges. **The file is written atomically, by one function:** all four writers (`repoint_edges`, `_write_graph_edges`,
+`graph_builder.regenerate_edges_from_claims`, `graph_builder.upsert_claim_edges`) call `markdown_parser.write_yaml` — a
+fsynced temp file beside it, then `os.replace`, the page rule — because a `write_text` cut short left a torn ~4 MB file
+that was unreadable or, cut at a line, parsed as a shorter one. **An unreadable file is never rewritten:** each writer
+logs and writes nothing when it cannot parse the file or it is not a mapping (Stage 5.7 used to read it as empty and
+write the claim rows alone, dropping every other edge).
 
 **Evidence spans (G118) — spans, not copies.** Every claim written since that slice carries
 `evidence: [{episode, start, end, kind, hash}]`. `start`/`end` are character offsets into the source

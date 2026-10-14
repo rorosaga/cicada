@@ -331,8 +331,7 @@ def repoint_edges(memory_path: Path, old_id: str, new_id: str) -> int | None:
         kept_keys.add(key)
         out.append(moved)
     data["edges"] = out
-    dumper = getattr(yaml, "CSafeDumper", yaml.SafeDumper)   # tens of thousands of rows on a real bank
-    edges_file.write_text(yaml.dump(data, Dumper=dumper, sort_keys=False, allow_unicode=True), encoding="utf-8")
+    markdown_parser.write_yaml(edges_file, data)   # atomic: tens of thousands of rows on a real bank
     return repointed
 
 
