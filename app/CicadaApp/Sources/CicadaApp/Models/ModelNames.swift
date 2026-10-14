@@ -7,6 +7,10 @@ enum ModelNames {
     /// Harnesses whose Stop hook reads the transcript (G105), so their turns can carry a model. Any other app that
     /// writes through MCP never tells Cicada its model — D1's "model not shared by this app".
     static let capturingHarnesses: Set<String> = ["claude-code", "codex"]
+    /// Harnesses whose own hooks save their chats: the Stop-hook pair plus Cursor's and Gemini CLI's per-turn hooks
+    /// (capture-everywhere). Their MCP writes are not yet joined to a captured turn, so they stay out of
+    /// `capturingHarnesses` — "model not shared" remains the true line for those writes.
+    static let savingHarnesses: Set<String> = capturingHarnesses.union(["cursor", "gemini-cli"])
 
     private static let claudeFamilies = ["opus": "Opus", "sonnet": "Sonnet", "haiku": "Haiku"]
     private static let words = ["codex": "Codex", "mini": "mini", "nano": "nano", "pro": "Pro", "max": "Max",

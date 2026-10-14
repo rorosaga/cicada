@@ -23,6 +23,10 @@ G149 adds the recall hook (``api/hooks/recall.py``, registered under
 marker (:data:`MARKERS`), so installing one never collapses the other, and
 ``uninstall --hook recall`` removes only the recall entries.
 
+Gemini CLI (capture-everywhere) registers the capture script under
+``AfterAgent`` in ``~/.gemini/settings.json`` — the same nested shape, but a
+``timeout`` in milliseconds (:func:`default_timeout`).
+
 G182: a release app registers ``"$CICADA_HOME/bin/cicada-hook" capture|recall``
 instead of a script path; each script's markers include that form, so a
 release install UPDATES a checkout's entry (and back) rather than adding a
@@ -56,6 +60,14 @@ MARKERS = {
 }
 _ALL_MARKERS = tuple(m for forms in MARKERS.values() for m in forms)
 DEFAULT_TIMEOUT_S = 5
+#: Gemini CLI (capture-everywhere) uses the same nested shape in
+#: ``~/.gemini/settings.json`` but counts ``timeout`` in MILLISECONDS; its
+#: events are named apart from Claude Code's and Codex's, so the event says which.
+MS_EVENTS = frozenset({"AfterAgent", "BeforeAgent"})
+
+
+def default_timeout(event: str) -> int:
+    return DEFAULT_TIMEOUT_S * 1000 if event in MS_EVENTS else DEFAULT_TIMEOUT_S
 
 
 class RegistryError(Exception):
@@ -116,7 +128,8 @@ def _entries(data: dict, event: str) -> list:
     return entries
 
 
-def install(path: Path, *, event: str, command: str, timeout: int = DEFAULT_TIMEOUT_S) -> str:
+def install(path: Path, *, event: str, command: str, timeout: int | None = None) -> str:
+    timeout = default_timeout(event) if timeout is None else timeout
     data = load(path)
     entries = _entries(data, event)
     mine = _markers_for(command)
@@ -200,7 +213,8 @@ def main(argv=None) -> int:
     ap.add_argument("--settings", required=True)
     ap.add_argument("--event", default="Stop")
     ap.add_argument("--command", default="")
-    ap.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT_S)
+    ap.add_argument("--timeout", type=int, default=None,
+                    help=f"seconds ({DEFAULT_TIMEOUT_S}); Gemini CLI's events count milliseconds")
     ap.add_argument("--hook", choices=tuple(MARKERS), default=None)
     args = ap.parse_args(argv)
     path = Path(args.settings).expanduser()

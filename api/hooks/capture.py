@@ -47,6 +47,16 @@ extraction prompts are never captured back into the bank (R8) — without it a
 Sleep cycle on a plan engine would fire this hook on its own prompts and
 write them back as episodes, a feedback loop.
 
+Gemini CLI (capture-everywhere): registered under ``AfterAgent`` as
+``--harness gemini-cli``. Its payload carries the exchange itself — ``prompt``
+and ``prompt_response``, plus ``stop_hook_active`` on a retry of the same
+prompt — so this script posts those two strings to ``POST /capture/turn``
+(``turn_capture``) instead of a transcript path: Gemini CLI does send one, but
+documents neither its format nor a confined root, while the two strings already
+are what is kept — so the path is never forwarded and the backend opens nothing. Gemini CLI reads a hook's
+stdout as JSON, so for it this script prints ``{}``. Unverified against an
+installed Gemini CLI; the log line is the verification signal.
+
 Codex (R9): its Stop payload is unverified, so a payload without
 ``transcript_path`` is logged as ``skipped: no transcript_path`` and exits 0
 — nothing breaks, and that log line is the verification signal.
@@ -77,8 +87,30 @@ TIMEOUT_S = 3.0
 #: gives up early and says so in the log (the backend finishes the write regardless).
 SESSION_END_TIMEOUT_S = 1.2
 #: The events this script is registered under; anything else logs as ``other``.
-EVENTS = ("Stop", "PreCompact", "SessionEnd")
+EVENTS = ("Stop", "PreCompact", "SessionEnd", "AfterAgent")
 LOG_MAX_BYTES = 1024 * 1024
+#: Harnesses whose hook carries the turn's words, posted to ``/capture/turn``.
+TURN_HARNESSES = ("gemini-cli",)
+#: A turn payload holds the person's prompt and the reply; read at most this much.
+TURN_INPUT_BYTES = 1024 * 1024
+#: What one turn may post (the backend's ``turn_capture.TEXT_MAX_CHARS``).
+TEXT_MAX_CHARS = 256 * 1024
+
+
+def _post_exchange(payload: dict, *, harness: str, session_id: str, home: Path, environ, post, token: str):
+    """Gemini CLI's ``AfterAgent``: the prompt and the final reply, as one exchange."""
+    prompt, reply = payload.get("prompt"), payload.get("prompt_response")
+    messages = [{"speaker": speaker, "text": text[:TEXT_MAX_CHARS]}
+             for speaker, text in (("user", prompt), ("assistant", reply))
+             if isinstance(text, str) and text.strip()]
+    if not messages:
+        return None, "skipped: no prompt"
+    body = {"harness": harness, "session_id": session_id, "messages": messages,
+            "retry": payload.get("stop_hook_active") is True,
+            "cwd": payload.get("cwd") if isinstance(payload.get("cwd"), str) else None,
+            "hook_event": payload.get("hook_event_name")}
+    port = str(environ.get("CICADA_PORT") or "8000")
+    return post(f"http://127.0.0.1:{port}/capture/turn", json.dumps(body).encode("utf-8"), token, TIMEOUT_S), None
 
 
 def _default_post(url: str, body: bytes, token: str, timeout: float) -> tuple[int, str]:
@@ -111,7 +143,23 @@ def _log(path: Path, message: str) -> None:
         pass
 
 
-def main(argv=None, *, stdin=None, environ=None, post=None, log_path=None, token_path=None) -> int:
+def _outcome(text: str) -> str:
+    try:
+        parsed = json.loads(text)
+        outcome = parsed.get("status") or parsed.get("detail") or ""
+        # A validation error's `detail` is a list that echoes the request — the
+        # person's words, for a turn — so only a plain string reason is logged.
+        outcome = outcome if isinstance(outcome, str) else "invalid request"
+        if parsed.get("redirectedFrom"):
+            # R-CS12: the demo bank was open, so the backend saved this
+            # session into a real bank — say which (a name, never a path).
+            outcome += f" into {parsed.get('bank')} (the demo memory is open)"
+        return outcome
+    except (ValueError, AttributeError):
+        return ""
+
+
+def main(argv=None, *, stdin=None, stdout=None, environ=None, post=None, log_path=None, token_path=None) -> int:
     """Forward the harness payload; return 0 unconditionally.
 
     Every collaborator is injectable (``stdin``, ``environ``, ``post``,
@@ -133,12 +181,25 @@ def main(argv=None, *, stdin=None, environ=None, post=None, log_path=None, token
         except IndexError:
             pass
     tag = f"{harness} ? ?"
+    turn_harness = harness in TURN_HARNESSES
+    if turn_harness:
+        # Gemini CLI parses a hook's stdout as JSON; an empty object changes nothing.
+        stdout = sys.stdout if stdout is None else stdout
+        try:
+            stdout.write("{}\n")
+            stdout.flush()
+        except (OSError, ValueError):
+            pass
     try:
         if str(environ.get("CICADA_CAPTURE", "")).strip().lower() == "off":
             _log(log_path, f"{tag} skipped: CICADA_CAPTURE=off")
             return 0
         try:
-            payload = json.loads(stdin.read() or "{}")
+            raw = stdin.read(TURN_INPUT_BYTES + 1) if turn_harness else stdin.read()
+            if turn_harness and len(raw.encode("utf-8")) > TURN_INPUT_BYTES:
+                _log(log_path, f"{tag} skipped: payload too large")
+                return 0
+            payload = json.loads(raw or "{}")
         except ValueError:
             _log(log_path, f"{tag} skipped: stdin is not JSON")
             return 0
@@ -150,6 +211,25 @@ def main(argv=None, *, stdin=None, environ=None, post=None, log_path=None, token
         event = event if event in EVENTS else "other"
         tag = f"{harness} {session_id[:8] or '?'} {event}"
         transcript_path = payload.get("transcript_path")
+        if turn_harness:
+            if not session_id or event != "AfterAgent":
+                _log(log_path, f"{tag} skipped: not an AfterAgent payload")
+                return 0
+            try:
+                token = token_path.read_text(encoding="utf-8").strip()
+            except OSError:
+                token = ""
+            if not token:
+                _log(log_path, f"{tag} skipped: no api_token at {token_path.name}")
+                return 0
+            answer, skipped = _post_exchange(payload, harness=harness, session_id=session_id, home=home,
+                                             environ=environ, post=post, token=token)
+            if skipped:
+                _log(log_path, f"{tag} {skipped}")
+                return 0
+            status, text = answer
+            _log(log_path, f"{tag} http {status} {_outcome(text)}".rstrip())
+            return 0
         if not session_id or not transcript_path:
             _log(log_path, f"{tag} skipped: no transcript_path")
             return 0
@@ -184,17 +264,7 @@ def main(argv=None, *, stdin=None, environ=None, post=None, log_path=None, token
         status, text = post(url, body, token, SESSION_END_TIMEOUT_S if event == "SessionEnd" else TIMEOUT_S)
         if status == 200:
             remember(home, harness, session_id, workspace, environ=environ)
-        outcome = ""
-        try:
-            parsed = json.loads(text)
-            outcome = str(parsed.get("status") or parsed.get("detail") or "")
-            if parsed.get("redirectedFrom"):
-                # R-CS12: the demo bank was open, so the backend saved this
-                # session into a real bank — say which (a name, never a path).
-                outcome += f" into {parsed.get('bank')} (the demo memory is open)"
-        except (ValueError, AttributeError):
-            pass
-        _log(log_path, f"{tag} http {status} {outcome}".rstrip())
+        _log(log_path, f"{tag} http {status} {_outcome(text)}".rstrip())
     except Exception as exc:  # noqa: BLE001 - the harness must never see a failure
         _log(log_path, f"{tag} error: {type(exc).__name__}: {exc}")
     return 0

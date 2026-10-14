@@ -19,6 +19,8 @@ extension Copy {
     static let agentStepPreparing = "Getting the setup ready…"
     static let agentStepOpenCursor = "Open in Cursor"
     static let agentStepCursorHow = "Cursor asks you to confirm. Then open a new chat."
+    static let agentStepSaveChats = "Save chats on their own"
+    static let agentStepSaveChatsHow = "Cicada keeps what you type and each final reply in a local chat — never files, tools or thinking."
     static let agentStepClaudeApp = "Set up the Claude app on this Mac"
     static let agentStepClaudeAppHow = "One click adds Cicada to Claude's settings. Then quit and reopen Claude."
     static let agentStepClaudeWeb = "Use it on claude.ai and your phone too"

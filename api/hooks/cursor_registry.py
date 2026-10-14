@@ -1,8 +1,15 @@
 #!/usr/bin/env python3
-"""Merge/uninstall ONLY Cicada's user-level Cursor startup command; stdlib.
+"""Merge/uninstall ONLY Cicada's user-level Cursor hook entries; stdlib.
 
 hooks.json v1 uses flat event arrays, unlike Claude/Codex nested hook lists.
-Invalid/unknown configs are untouched. No stop hook: capture is unsupported.
+Invalid/unknown configs are untouched; every other tool's entry is kept.
+
+One command (``api/hooks/cursor.py``) in two groups, each its own switch
+(``--hook``): ``startup`` is ``sessionStart`` (startup context, G149) and
+``capture`` is ``beforeSubmitPrompt`` + ``afterAgentResponse`` (the person's
+turns and the agent's replies, capture-everywhere). Turning one group off never
+touches the other; ``uninstall`` with no ``--hook`` removes both. No ``stop``,
+thought or tool hook is ever registered.
 """
 from __future__ import annotations
 
@@ -22,6 +29,12 @@ else:
 
 MAX_BYTES = 256 * 1024
 EVENT = "sessionStart"
+#: group -> {event: timeout in seconds}. ``beforeSubmitPrompt`` holds the person's
+#: message until it answers, so its bound is tight (the hook's request gives up first).
+HOOKS = {
+    "startup": {EVENT: 2},
+    "capture": {"beforeSubmitPrompt": 2, "afterAgentResponse": 5},
+}
 
 
 def _ours(entry):
@@ -65,27 +78,36 @@ def load(path: Path):
         raise RegistryError("Cursor hooks config cannot be read as JSON; repair it before retrying") from exc
 
 
-def install(path: Path, *, command: str):
+def install(path: Path, *, command: str, hook: str = "startup"):
     if not _ours({"command": command}):
-        raise RegistryError("Only Cicada's Cursor startup command may be installed")
+        raise RegistryError("Only Cicada's Cursor hook command may be installed")
     data = load(path)
     hooks = data.setdefault("hooks", {})
-    entries = hooks.get(EVENT, [])
-    ours = [e for e in entries if _ours(e)]
-    desired = {"command": command, "timeout": 2}
-    if ours == [desired] and data.get("version") == 1:
+    present, had = True, False
+    for event, timeout in HOOKS[hook].items():
+        entries = hooks.get(event, [])
+        ours = [e for e in entries if _ours(e)]
+        desired = {"command": command, "timeout": timeout}
+        had = had or bool(ours)
+        if ours == [desired]:
+            continue
+        present = False
+        hooks[event] = [e for e in entries if not _ours(e)] + [desired]
+    if present and data.get("version") == 1:
         return "present"
-    hooks[EVENT] = [e for e in entries if not _ours(e)] + [desired]
     data["version"] = 1
     _save(path, data)
-    return "updated" if ours else "added"
+    return "updated" if had else "added"
 
 
-def uninstall(path: Path):
+def uninstall(path: Path, *, hook: str | None = None):
     data = load(path)
     hooks = data.get("hooks", {})
+    events = set(HOOKS[hook]) if hook else None
     count = 0
     for event, entries in list(hooks.items()):
+        if events is not None and event not in events:
+            continue
         keep = [e for e in entries if not _ours(e)]
         count += len(entries) - len(keep)
         if keep:
@@ -99,15 +121,17 @@ def uninstall(path: Path):
     return count
 
 
-def status(path: Path, *, command: str):
+def status(path: Path, *, command: str, hook: str = "startup"):
     try:
         data = load(path)
     except RegistryError:
         return "invalid"
-    ours = [e for e in data.get("hooks", {}).get(EVENT, []) if _ours(e)]
-    if not ours:
-        return "absent"
-    return "present" if ours == [{"command": command, "timeout": 2}] else "stale"
+    states = set()
+    for event, timeout in HOOKS[hook].items():
+        ours = [e for e in data.get("hooks", {}).get(event, []) if _ours(e)]
+        states.add("absent" if not ours else "present" if ours == [{"command": command, "timeout": timeout}]
+                   else "stale")
+    return states.pop() if len(states) == 1 else "stale"
 
 
 def main(argv=None):
@@ -115,14 +139,17 @@ def main(argv=None):
     parser.add_argument("action", choices=("install", "uninstall", "status"))
     parser.add_argument("--settings", required=True)
     parser.add_argument("--command", default=default_command())
+    parser.add_argument("--hook", choices=tuple(HOOKS), default=None,
+                        help="startup (sessionStart) or capture (prompt + reply); "
+                             "install/status default to startup, uninstall without it removes both")
     args = parser.parse_args(argv)
     path = Path(args.settings).expanduser()
     try:
         if args.action == "install":
-            print(install(path, command=args.command)); return 0
+            print(install(path, command=args.command, hook=args.hook or "startup")); return 0
         if args.action == "uninstall":
-            print(f"removed {uninstall(path)} Cicada hook(s)"); return 0
-        state = status(path, command=args.command)
+            print(f"removed {uninstall(path, hook=args.hook)} Cicada hook(s)"); return 0
+        state = status(path, command=args.command, hook=args.hook or "startup")
         print(state)
         return {"present": 0, "absent": 1, "stale": 2, "invalid": 3}[state]
     except RegistryError as exc:

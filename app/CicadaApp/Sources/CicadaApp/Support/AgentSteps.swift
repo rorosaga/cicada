@@ -66,6 +66,12 @@ enum AgentSteps {
                 out.append((Copy.agentStepOrSend(entry.name), Copy.agentStepSendConfig(entry.name), false,
                             [.copy(text)], text, false))
             }
+            // Capture-everywhere: saving chats is its own click, the wire's `connect` (the capture hooks), offered
+            // only while they are off or need an update.
+            if let wiring, wiring.installed, !wiring.connect.isEmpty, wiring.autosave != "invalid" {
+                out.append((Copy.agentStepSaveChats, Copy.agentStepSaveChatsHow, false,
+                            [.connectForMe(wiring.connect)], nil, false))
+            }
             let recall = recallSteps(for: wiring)
             if !recall.isEmpty {
                 let detail = wiring?.capabilities["startup"] == "documented" ? Copy.agentStepStartupHow : Copy.agentStepRecallHow
@@ -131,9 +137,9 @@ enum AgentSteps {
         return Copy.agentConnectedAgo(formatter.localizedString(for: seen, relativeTo: now))
     }
 
-    /// D1 / G105: only a harness with a capture hook saves on its own.
+    /// D1 / G105: only a harness with a capture hook saves on its own (capture-everywhere adds Cursor and Gemini CLI).
     static func honesty(for entry: AgentCatalogEntry) -> String? {
-        ModelNames.capturingHarnesses.contains(entry.id) ? nil : Copy.agentNoAutosave
+        ModelNames.savingHarnesses.contains(entry.id) ? nil : Copy.agentNoAutosave
     }
 
     /// The line under the header: found on this Mac, not yet, or in the cloud.
