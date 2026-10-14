@@ -12,12 +12,18 @@
 // organisation of the equilibrium can be measured: `community` is a test-only field graph.js never reads.
 "use strict";
 
-function bankShaped(seed = 7) {
+// `opts.isolates`: [[type, count], ...] replaces the 138 isolates of random type — e.g. LIVE_ISOLATES_2026_10_14, the
+// 1,000 isolates (bookmarks just imported, mostly `media`) the live graph carried after #285.
+const LIVE_ISOLATES_2026_10_14 = [["media", 860], ["skill", 87], ["concept", 23], ["tool", 13], ["company", 8],
+                                  ["project", 3], ["location", 3], ["person", 2], ["directory", 1]];
+
+function bankShaped(seed = 7, opts = {}) {
     let s = seed >>> 0;
     const rnd = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
     const pick = (arr) => arr[Math.floor(rnd() * arr.length)];
-    const TYPE_MIX = [["person", 25], ["concept", 25], ["project", 12], ["tool", 12], ["company", 10],
-                      ["location", 5], ["skill", 5], ["media", 3], ["directory", 2], ["repo", 1]];
+    // `opts.typeMix` replaces the pages' type mix (e.g. one type dominating, which pulls the body toward its anchor)
+    const TYPE_MIX = opts.typeMix || [["person", 25], ["concept", 25], ["project", 12], ["tool", 12], ["company", 10],
+                                      ["location", 5], ["skill", 5], ["media", 3], ["directory", 2], ["repo", 1]];
     const typeTotal = TYPE_MIX.reduce((a, [, w]) => a + w, 0);
     const randType = () => { let r = rnd() * typeTotal; for (const [t, w] of TYPE_MIX) { if ((r -= w) < 0) return t; } return "concept"; };
     const nodes = [], links = [];
@@ -121,8 +127,13 @@ function bankShaped(seed = 7) {
         // a star for the 6, a path otherwise
         for (let j = 1; j < sz; j++) link(sz === 6 ? ids[0] : ids[j - 1], ids[j]);
     });
-    // ---- 138 isolated singletons ----
-    for (let i = 0; i < 138; i++) node("iso" + i);
+    // ---- isolated singletons: 138 of random type, or the given mix ----
+    if (opts.isolates) {
+        let k = 0;
+        for (const [type, count] of opts.isolates) for (let i = 0; i < count; i++) node("iso" + k++, { type });
+    } else {
+        for (let i = 0; i < 138; i++) node("iso" + i);
+    }
 
     for (const n of nodes) delete n._w;
     return { nodes, links };
@@ -200,7 +211,32 @@ function bankGeometry(get, g) {
             if (Math.hypot(a.x - b.x, a.y - b.y) < (ra + rad(b)) * 0.9) { inOverlap.add(a.id); inOverlap.add(b.id); }
         }
     }
+    // roundness. coverage: degrees around the centroid that satellites (nodes outside the giant) occupy, i.e. 360
+    // minus the largest empty angular gap. hullFill: the convex hull of every node over the centroid-centred circle
+    // through the farthest node (1 = a disc). rimSpread: over 24 angular bins, the farthest node per bin, max / min
+    // (1 = round; a slab or a line on one side shows as a large ratio).
+    const angles = vis.filter(n => !giantIds.has(n.id)).map(n => Math.atan2(n.y - cy, n.x - cx)).sort((a, b) => a - b);
+    let gap = angles.length ? angles[0] + 2 * Math.PI - angles[angles.length - 1] : 2 * Math.PI;
+    for (let i = 1; i < angles.length; i++) gap = Math.max(gap, angles[i] - angles[i - 1]);
+    const pts = vis.map(n => [n.x, n.y]).sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+    const lower = [], upper = [];
+    for (const p of pts) { while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) lower.pop(); lower.push(p); }
+    for (const p of [...pts].reverse()) { while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) upper.pop(); upper.push(p); }
+    const hull = lower.slice(0, -1).concat(upper.slice(0, -1));
+    let hullArea = 0;
+    for (let i = 0; i < hull.length; i++) { const a = hull[i], b = hull[(i + 1) % hull.length]; hullArea += a[0] * b[1] - b[0] * a[1]; }
+    hullArea = Math.abs(hullArea) / 2;
+    const rMax = Math.max(...vis.map(r));
+    const BINS = 24, rim = new Array(BINS).fill(0);
+    for (const n of vis) {
+        const b = Math.min(BINS - 1, Math.floor(((Math.atan2(n.y - cy, n.x - cx) + Math.PI) / (2 * Math.PI)) * BINS));
+        rim[b] = Math.max(rim[b], r(n));
+    }
     return {
+        coverageDeg: Math.round(360 - gap * 180 / Math.PI),
+        hullFill: +(hullArea / (Math.PI * rMax * rMax)).toFixed(2),
+        rimSpread: +(Math.max(...rim) / Math.max(1, Math.min(...rim))).toFixed(2),
         giantN: giant.length, R95: Math.round(R95),
         farthestR: +(Math.max(...vis.map(r)) / R95).toFixed(2),
         outsideMinR: +outside[0].toFixed(2), outsideMaxR: +outside[outside.length - 1].toFixed(2),
@@ -214,9 +250,9 @@ function bankGeometry(get, g) {
 // A cold open of the bank-shaped graph through graph.js's real entry points (updateGraph, then the filter Swift
 // re-asserts), stepped like d3's own timer until it stops. Times every tick; the only machine-dependent numbers are
 // the ms ones.
-function coldOpen(harness, seed = 7) {
+function coldOpen(harness, seed = 7, opts = {}) {
     const h = harness.loadGraph({ frames: true });
-    const g = bankShaped(seed);
+    const g = bankShaped(seed, opts);
     h.call("updateGraph", g);
     h.call("applyFilters", SWIFT_DEFAULT_FILTER);
     h.get("simulation").stop();   // the harness steps by hand; d3's own timer must not run beside it
@@ -253,6 +289,6 @@ function coldOpen(harness, seed = 7) {
     };
 }
 
-module.exports = { bankShaped, components, shapeSummary, bankGeometry, coldOpen, SWIFT_DEFAULT_FILTER };
+module.exports = { LIVE_ISOLATES_2026_10_14, bankShaped, components, shapeSummary, bankGeometry, coldOpen, SWIFT_DEFAULT_FILTER };
 
 if (require.main === module) console.log(JSON.stringify(shapeSummary(bankShaped())));

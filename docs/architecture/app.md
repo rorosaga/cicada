@@ -35,7 +35,8 @@ cools together and the layout comes to rest instead of freezing mid-motion at th
 cooled layout once it looks still. The simulation keeps one link per connected pair at d3's default strength (every
 link still draws, batched into one path per colour and alpha), charge grows with a page's neighbours, and leaves sit
 close to their page. Every component of ≤ 30 nodes other than the largest — isolates, pairs, triples — is packed in a
-band just outside the body, one sector per type, out of the body's charge. A hold on a settled graph moves only the
+ring that wraps the whole body (an annulus as thick as their number needs, each type an arc sized by its count), out
+of the body's charge, so the settled graph reads as one circle. A hold on a settled graph moves only the
 dragged page and its neighbours. `graph-settle.test.js` holds this on a synthetic with the live bank's shape
 (`graph-bank-shape.js`, 3,698 nodes / 41,570 links): the timer stops within ~130 steps with no node faster than
 1 wu/tick, nothing beyond 1.4 giant radii, and no frame requested after the stop. The numbers are in G109.

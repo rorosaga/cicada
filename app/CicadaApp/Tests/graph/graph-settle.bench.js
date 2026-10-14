@@ -22,13 +22,17 @@
 //   strokesPerFrame  canvas stroke() calls for one frame at zoom 1 (every link drawn)
 "use strict";
 const harness = require("./graph-physics-harness.js");
-const { coldOpen } = require("./graph-bank-shape.js");
+const { coldOpen, LIVE_ISOLATES_2026_10_14 } = require("./graph-bank-shape.js");
 
 console.log("graph.js:", harness.GRAPH_JS);
-for (const seed of [7, 3, 11]) {
-    const { h, metrics } = coldOpen(harness, seed);
+//   coverageDeg      degrees around the centroid the nodes outside the giant occupy (360 - largest empty gap)
+//   hullFill         convex hull area / the circle through the farthest node (1 = a disc)
+//   rimSpread        farthest node per 15° bin, max / min (1 = round; a slab or a line shows here)
+// "live" rows: 1,000 isolates in the live graph's mix (86 % one type), the shape that made #285's band a slab.
+for (const [seed, opts] of [[7, {}], [3, {}], [11, {}], [7, { isolates: LIVE_ISOLATES_2026_10_14 }], [3, { isolates: LIVE_ISOLATES_2026_10_14 }]]) {
+    const { h, metrics } = coldOpen(harness, seed, opts);
     h.get("transform = d3.zoomIdentity");
     harness.drawCounters.stroke = 0;
     h.get("draw()");
-    console.log(JSON.stringify({ seed, ...metrics, strokesPerFrame: harness.drawCounters.stroke }));
+    console.log(JSON.stringify({ seed, live: Boolean(opts.isolates), ...metrics, strokesPerFrame: harness.drawCounters.stroke }));
 }

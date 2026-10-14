@@ -1068,8 +1068,9 @@ function hubGravityForce(strength) {
 //   - A link's rest length is the two discs plus a gap, shorter for a leaf, so a star reads as a star.
 //   - Components: the largest, and any bigger than SATELLITE_MAX, are BODIES and repel each other. Every smaller
 //     component — an isolate, a pair, a triple — is a SATELLITE: the bodies' charge neither reaches it nor counts
-//     it, and it is held by an alpha-scaled spring to a slot in a band just outside the bodies' edge, one 30° sector
-//     per type so the band reads by colour (Obsidian rings its orphans around the main cluster the same way;
+//     it, and it is held by an alpha-scaled spring to a slot in a ring just outside the bodies' edge — an annulus that
+//     wraps the whole body, as thick as their number needs, each type an arc sized by its count so the ring reads by
+//     colour, and the whole layout reads as one circle (Obsidian rings its orphans around the main cluster the same way;
 //     cytoscape's fcose/cola pack disconnected components beside the main one rather than simulating them against
 //     it). The band follows the body's edge as the layout breathes, so nothing is ever parked in a corner.
 const SATELLITE_MAX = 30;            // a component this size or smaller (and not the largest) is packed in the band
@@ -1079,18 +1080,17 @@ const CHARGE_K = 40;                 // charge exerted = -CHARGE_K * sqrt(neighb
 const CHARGE_DISTANCE_MAX = 700;
 const CHARGE_THETA = 1.2;            // Barnes-Hut accuracy; 0.9 -> 1.2 took the charge from ~14 to ~10 ms a tick here
 const BAND_GAP = 40;                 // wu from the bodies' p99 radius to the band's inner edge
-const BAND_ROW_GAP = 6;              // wu between two rows of one sector
+const BAND_ROW_GAP = 6;              // wu between two satellites stacked in the ring
 const BAND_SLOT_PAD = 4;             // wu around each satellite's footprint
 const BAND_SPRING = 0.6;             // strength of the pull to a satellite's slot (x alpha, like forceX)
 const VMAX_WU_PER_TICK = 60;         // speed clamp; a 1000 px/s flick at k=0.6 seeds ~28
 
-// The band's sectors, in the angular order of the type anchors so a type's satellites sit outside its own region.
+// The order types take around the ring (the angular order of their anchors); each one's arc is sized by its count.
 const BAND_SECTORS = Object.keys(typeClusterPositions)
     .filter(t => t !== "hub")
     .sort((a, b) => Math.atan2(typeClusterPositions[a][1], typeClusterPositions[a][0]) -
                     Math.atan2(typeClusterPositions[b][1], typeClusterPositions[b][0]));
 BAND_SECTORS.push("other");
-const BAND_SECTOR_SPAN = (2 * Math.PI) / BAND_SECTORS.length;
 const BAND_SECTOR_START = -Math.PI;
 
 let simLinks = [];                    // one per connected pair, endpoints resolved to node objects
@@ -1191,8 +1191,7 @@ function assignComponents() {
     satelliteUnits.sort((a, b) => (a.sector === b.sector ? a.index - b.index : BAND_SECTORS.indexOf(a.sector) - BAND_SECTORS.indexOf(b.sector)));
 }
 
-// Where the band is this tick: around the bodies' centroid, just past their p99 radius. Each sector packs its units
-// in index order along an arc, row after row outward. Exposed for the tests.
+// Where the band is this tick: a ring around the bodies' centroid, just past their p99 radius. Exposed for the tests.
 function layoutBand() {
     let cx = 0, cy = 0;
     const radii = new Float64Array(bodyNodes.length);
@@ -1202,25 +1201,44 @@ function layoutBand() {
     radii.sort();
     const edge = radii.length ? radii[Math.floor(0.99 * (radii.length - 1))] : 0;
     const inner = edge + BAND_GAP;
-    let i = 0;
-    while (i < satelliteUnits.length) {
-        const sector = satelliteUnits[i].sector;
-        const a0 = BAND_SECTOR_START + BAND_SECTORS.indexOf(sector) * BAND_SECTOR_SPAN;
-        // Rows fill outward: each row is as deep as its own largest unit, every unit sits on the row's inner edge.
-        let rowStart = inner, rowDepth = 0, cursor = 0;
-        for (; i < satelliteUnits.length && satelliteUnits[i].sector === sector; i++) {
-            const u = satelliteUnits[i];
-            if (cursor > 0 && cursor + u.footprint > BAND_SECTOR_SPAN * rowStart) {
-                rowStart += rowDepth + BAND_ROW_GAP;
-                rowDepth = 0;
-                cursor = 0;
-            }
-            const rr = rowStart + u.footprint / 2;
-            const a = a0 + (cursor + u.footprint / 2) / rowStart;
+    // G109 (2026-10-14, owner: "would be nice if it resembled a circle in the end"): the band is an annulus that
+    // wraps the whole body, never a sector's slab. Its thickness is what the satellites' total footprint needs at
+    // this radius (the area of a ring of inner radius `inner`), never less than the largest unit. Units, in sector
+    // then index order, stack outward into columns as deep as the ring; the columns then share 360° in proportion to
+    // their width, so each type is an arc sized by its count and the ring closes on itself.
+    let area = 0, deepest = 0;
+    for (const u of satelliteUnits) {
+        const f = u.footprint + BAND_ROW_GAP;
+        area += f * f;
+        deepest = Math.max(deepest, f);
+    }
+    const thickness = Math.max(deepest, Math.sqrt(inner * inner + area / Math.PI) - inner);
+    const columns = [];     // [{ width, units: [[unit, radial offset]] }]
+    let col = null, depth = 0;
+    for (const u of satelliteUnits) {
+        const f = u.footprint + BAND_ROW_GAP;
+        if (!col || depth + f > thickness + 1e-6) {
+            col = { width: 0, units: [] };
+            columns.push(col);
+            depth = 0;
+        }
+        col.units.push([u, depth + f / 2]);
+        col.width = Math.max(col.width, f);
+        depth += f;
+    }
+    let total = 0;
+    for (const c of columns) total += c.width;
+    let along = 0;
+    for (const c of columns) {
+        const a = BAND_SECTOR_START + ((along + c.width / 2) / total) * 2 * Math.PI;
+        along += c.width;
+        // a column shorter than the ring sits at the ring's middle, not on its inner edge
+        const used = c.units.reduce((m, [u, off]) => Math.max(m, off + (u.footprint + BAND_ROW_GAP) / 2), 0);
+        const lift = (thickness - used) / 2;
+        for (const [u, off] of c.units) {
+            const rr = inner + lift + off;
             u.x = cx + rr * Math.cos(a);
             u.y = cy + rr * Math.sin(a);
-            cursor += u.footprint;
-            rowDepth = Math.max(rowDepth, u.footprint);
         }
     }
     return { cx, cy, edge, inner };

@@ -14,7 +14,7 @@
 "use strict";
 
 const harness = require("./graph-physics-harness.js");
-const { coldOpen, bankShaped, components, SWIFT_DEFAULT_FILTER } = require("./graph-bank-shape.js");
+const { coldOpen, bankShaped, components, SWIFT_DEFAULT_FILTER, LIVE_ISOLATES_2026_10_14 } = require("./graph-bank-shape.js");
 
 let failures = 0;
 const check = (label, cond, actual) => {
@@ -56,6 +56,30 @@ for (const seed of [7, 3, 11]) {
     check(`${tag} planted communities read as clusters (separation >= 4)`, m.commSep >= 4, m.commSep);
     // measured 43 / 37 / 40 % (before: 48 / 49 / 48 %)
     check(`${tag} no more overlapping discs than before (<= 50 %)`, m.overlapPct <= 50, m.overlapPct);
+    // the ring (2026-10-14): measured coverage 342°, hull fill 0.95, rim spread 1.06
+    check(`${tag} the satellites wrap the body (coverage >= 330°)`, m.coverageDeg >= 330, m.coverageDeg);
+    check(`${tag} the layout is round (hull >= 0.85 of its circle, rim spread <= 1.15)`, m.hullFill >= 0.85 && m.rimSpread <= 1.15, `${m.hullFill}, ${m.rimSpread}`);
+}
+
+// ---- 1b. the live graph after #285: 1,000 isolates, 86 % of one type (bookmarks just imported) ----
+// Owner, 2026-10-14: "would be nice if it resembled a circle in the end". #285 packed each type in its own 30° sector,
+// so 860 isolates of one type became a slab: coverage 302°, hull fill 0.40, rim spread 2.07, farthest node 2.05 R95.
+for (const seed of [7, 3]) {
+    const { metrics: m } = coldOpen(harness, seed, { isolates: LIVE_ISOLATES_2026_10_14 });
+    const tag = `live mix, seed ${seed}:`;
+    // measured 128-133 steps, KE 0.014-0.016, vmax 0.8-1.0
+    check(`${tag} the timer stops within 150 steps, at rest`, m.stopTick !== null && m.stopTick <= 150 && m.keAtStop < 0.05 && m.vmaxAtStop < 1.5,
+          `${m.stopTick} steps, KE ${m.keAtStop}, vmax ${m.vmaxAtStop}`);
+    // measured 357° (before: 302°)
+    check(`${tag} the satellites wrap the body (coverage >= 330°)`, m.coverageDeg >= 330, m.coverageDeg);
+    // measured 0.95-0.97 (before: 0.40)
+    check(`${tag} the hull fills >= 0.85 of the circle through its farthest node`, m.hullFill >= 0.85, m.hullFill);
+    // measured 1.04-1.05 (before: 2.07) — a slab or a line on one side shows here
+    check(`${tag} no slab: the farthest node per 15° bin varies <= 1.15x`, m.rimSpread <= 1.15, m.rimSpread);
+    // measured 1.24-1.25 (before: 2.05)
+    check(`${tag} no node beyond 1.4 giant radii`, m.farthestR <= 1.4, m.farthestR);
+    // measured 104-105 / 162-170 wu
+    check(`${tag} the 44-leaf star stays tight (median <= 200, max <= 300 wu)`, m.star44LeafMed <= 200 && m.star44LeafMax <= 300, `${m.star44LeafMed} / ${m.star44LeafMax}`);
 }
 
 // ---- 2. structure: one spring per pair, every small component in the band ----
