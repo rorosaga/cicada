@@ -56,6 +56,8 @@ ASKS = "name"
 DECLINE_KEY = "rather_not_say"
 DECLINE_LABEL = "I'd rather not say"
 UNCERTAINTY = "Unnamed person"
+#: Inbox: a possible-duplicate question whose subject was already a page when it was asked (`answer_name`).
+FOLD_PAGE_KEY = "fold_page"
 TRIGGER = "maintenance/placeholder-people"
 MAX_NAME_CHARS = 120
 
@@ -159,12 +161,13 @@ def _spanish_re(owner_names: Iterable[str]) -> re.Pattern:
     return re.compile(rf"^(.+?)\s+de\s+(?:{names})$", re.IGNORECASE)
 
 
-def parse(name: str, owner_names: Iterable[str] = ()) -> Role | None:
+def parse(name: str, owner_names: Iterable[str] = (), *, bare: bool = False) -> Role | None:
     """The relation ``name`` stands for, or ``None`` when it is a name (or anything else).
 
     Recognised: "<owner>'s partner", "<owner first name>'s dad", "the user's friend", "my mom", "mi pareja",
-    "padre de <owner>", "Replacement roommate (unnamed)", "Unnamed partner", and a bare relation ("Partner",
-    "Former roommate") — the page titles this module writes, so a title reads back as the same relation. A name
+    "padre de <owner>", "Replacement roommate (unnamed)", "Unnamed partner". A bare relation ("Partner",
+    "Former roommate") is read only with ``bare=True`` — on a page that carries ``unnamed: true``, the titles this
+    module writes — because a bare word can be a real name ("Tia", "Mama"): a name is never read as a relation. A name
     after the role ("friend Alice"), someone else's relation ("<owner>'s daughter's teacher") or any word outside
     the vocabulary is not a relation."""
     owner_names = [n for n in owner_names if n]
@@ -195,6 +198,8 @@ def parse(name: str, owner_names: Iterable[str] = ()) -> Role | None:
     if found is None:
         return None
     key, title, head, singular = found
+    if not marked and not bare:
+        return None
     return Role(key=key, title=title, head=head, singular=singular, marked=marked)
 
 
@@ -266,7 +271,8 @@ def _carriers(existing: list[dict], names: list[str]) -> dict[str, list[_Carrier
         if fm.get("owner") or not _person(fm) or str(fm.get("status") or "") == "dropped":
             continue
         name = str(fm.get("name") or page.get("id") or "")
-        titled = parse(name, names)
+        # A bare title counts only on a page this module marked; "Tia" the friend is a name.
+        titled = parse(name, names, bare=bool(fm.get(UNNAMED_KEY)))
         keys = set(roles_of(fm))
         if titled is not None:
             keys.add(titled.key)
@@ -286,7 +292,7 @@ def _target(role: Role, carriers: dict[str, list[_Carrier]], taken: set[str]) ->
     if unnamed:
         return unnamed[0].name, False
     title = role.title
-    if title.lower() in taken:   # a non-person (or unrelated) page already has the bare title
+    if title.lower() in taken:   # another page (a person called "Tia", a company "Partner") already has the title
         title = f"{title} (unnamed)"
     return title, True
 
@@ -312,8 +318,9 @@ def canonicalize(extracted: list[dict], existing: list[dict], owner_fm: dict | N
     Promotion is untouched: the renamed mentions are counted, parked and promoted exactly as any name."""
     names = owner_names(owner_fm)
     carriers = _carriers(existing, names)
+    carrier_ids = {c.id for holders in carriers.values() for c in holders}
     taken = {str(((p or {}).get("frontmatter") or {}).get("name") or "").lower() for p in existing or []
-             if not _person((p or {}).get("frontmatter") or {})}
+             if str((p or {}).get("id")) not in carrier_ids}
     renames: dict[str, str] = {}
     for extraction in extracted or []:
         for entity in extraction.get("entities", []) or []:
@@ -422,7 +429,7 @@ def ensure_question(memory_path: Path, page_id: str, *, owner_fm: dict | None = 
     if str(fm.get("status") or "") == "dropped" or open_question(memory_path, page_id) is not None:
         return None
     keys = roles_of(fm)
-    role = parse(str(fm.get("name") or ""), owner_names(owner_fm))
+    role = parse(str(fm.get("name") or ""), owner_names(owner_fm), bare=True)
     key = keys[0] if keys else (role.key if role is not None else "")
     if not key:
         return None
@@ -486,7 +493,9 @@ def _drop_role_aliases(fm: dict, names: list[str], only: set[str] | None = None)
     aliases = fm.get("aliases")
     if not isinstance(aliases, list):
         return
-    kept = [a for a in aliases if not (isinstance(a, str) and parse(a, names) is not None
+    # With ``only`` (a merged placeholder's own title) a bare title is that placeholder's; otherwise only a form that
+    # says whose relation it is ("<owner>'s partner") is dropped — a bare word may be a real alias.
+    kept = [a for a in aliases if not (isinstance(a, str) and parse(a, names, bare=only is not None) is not None
                                        and (only is None or a.lower() in only))]
     if kept:
         fm["aliases"] = kept
@@ -555,7 +564,7 @@ def _free_id(entities: Path, name: str, own: str) -> str:
     return candidate
 
 
-def check_name(name: str, owner_fm: dict | None) -> str:
+def check_name(name: str, owner_fm: dict | None, role_key: str = "") -> str:
     from api.services import owner_identity
 
     text = _clean(name)
@@ -563,7 +572,11 @@ def check_name(name: str, owner_fm: dict | None) -> str:
         raise NotAName("a name is needed")
     if len(text) > MAX_NAME_CHARS:
         raise NotAName("that is longer than a name")
-    if parse(text, owner_names(owner_fm)) is not None or owner_identity.is_self_reference(text):
+    # "my girlfriend" or the asked relation itself ("Partner" for the partner) is not a name; a bare word that is
+    # also a name ("Tia") is one.
+    bare = parse(text, owner_names(owner_fm), bare=True)
+    if (parse(text, owner_names(owner_fm)) is not None or owner_identity.is_self_reference(text)
+            or (bare is not None and role_key and bare.key == role_key)):
         raise NotAName("that reads as a relation, not a name")
     return text
 
@@ -656,7 +669,7 @@ def answer_name(memory_path: Path, page_id: str, role_key: str, answer: str, own
     placeholder merges into it — the person's own answer is the evidence. Otherwise the page takes the name; a
     person page whose name contains it or is contained in it ("Carl" / "Carl Example"), or several pages of exactly
     that name, get a "Possible duplicate" question each — never a merge."""
-    name = check_name(answer, owner_fm)
+    name = check_name(answer, owner_fm, role_key)
     matches = same_name(memory_path, name, exclude=page_id)
     if len(matches) == 1:
         return merge_into(memory_path, page_id, matches[0], role_key, owner_fm,
@@ -686,6 +699,9 @@ def answer_name(memory_path: Path, page_id: str, role_key: str, answer: str, own
             item_parsed = markdown_parser.parse(item_path)
             item_parsed.frontmatter["entity_id"] = outcome.page_id
             item_parsed.frontmatter["merge_target_hint"] = other
+            # The subject was a page when this was asked, and the person is told so: a "merge" folds that page in
+            # (`inbox_service._resolve_clarification`). An item without the flag keeps the note-only answer.
+            item_parsed.frontmatter[FOLD_PAGE_KEY] = True
             markdown_parser.write(item_path, item_parsed.frontmatter, item_parsed.body)
             outcome.suggested.append(f"inbox/{item}.md")
     return outcome
@@ -699,7 +715,7 @@ def decline(memory_path: Path, page_id: str, role_key: str, owner_fm: dict | Non
     parsed = markdown_parser.parse(path)
     fm = dict(parsed.frontmatter)
     names = owner_names(owner_fm)
-    role = parse(str(fm.get("name") or ""), names)
+    role = parse(str(fm.get("name") or ""), names, bare=True)
     fm[DECLINED_KEY] = True
     fm[UNNAMED_KEY] = True
     _add_role(fm, role_key)
@@ -790,15 +806,15 @@ def _tokens(label: str) -> list[str]:
 
 
 def _names_role(label: str, head: str, *, from_owner: bool) -> bool:
-    """Does a predicate or edge label say the role? "partner-of" from the person to the owner does; from the owner
-    it does only for a symmetric relation or a "has-…" form. A past relation ("ex-partner", "former partner of")
-    never does."""
+    """Does a predicate or edge label name exactly this relation? From the person to the owner: "<head>",
+    "<head>-of" or "is-<head>-of" — "father-of" does, "father-in-law-of", "step-father-of" and "former-father-of" do
+    not. From the owner to the person: "has-<head>", or the same forms for a symmetric relation ("partner-of") —
+    "business-partner-of" does not. Any other token makes it another relation, and no evidence."""
     tokens = _tokens(label)
-    if head not in tokens or any(t in PAST_QUALIFIERS for t in tokens):
-        return False
+    exact = tokens in ([head], [head, "of"], ["is", head, "of"])
     if from_owner:
-        return head in {"partner", "spouse", "pareja"} or "has" in tokens or "tiene" in tokens
-    return True
+        return tokens in (["has", head], ["tiene", head]) or (head in {"partner", "spouse", "pareja"} and exact)
+    return exact
 
 
 def evidence_holders(memory_path: Path, pages: dict[str, tuple[dict, str]], owner_id: str, role: Role,
@@ -858,9 +874,9 @@ def survey(memory_path: Path, *, settings=None) -> Plan:
     for pid, (fm, _b) in pages.items():
         if pid == plan.owner_id or fm.get("owner") or not _person(fm) or str(fm.get("status") or "") == "dropped":
             continue
-        role = parse(str(fm.get("name") or ""), names)
+        role = parse(str(fm.get("name") or ""), names, bare=bool(fm.get(UNNAMED_KEY)))
         if role is None and fm.get(UNNAMED_KEY) and roles_of(fm):
-            role = parse(roles_of(fm)[0], names)
+            role = parse(roles_of(fm)[0], names, bare=True)
         if role is not None:
             found[pid] = role
     plan.placeholders = len(found)

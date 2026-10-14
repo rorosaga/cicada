@@ -779,20 +779,24 @@ most important people in the owner's life; one person split across "<owner>'s fr
 partner" (archived), so a fresh session said the partner's name was not recorded; and the owner's name in titles
 and ids (a portability bug). `api/services/role_people.py` is the one place that knows what a role-only name is:
 - **The vocabulary is closed** (`parse`): a possessive of the owner (the owner page's name, its first word, its
-  aliases, "the user's", "my", "mi", "… de <owner>"), "(unnamed)", or a bare relation, over a list of relation words
-  with a few qualifiers ("former", "replacement", "best") and a trailing "from …". A name after the role ("friend
-  Alice"), someone else's relation ("<owner>'s daughter's teacher") or any word outside the list is not a relation.
+  aliases, "the user's", "my", "mi", "… de <owner>") or "(unnamed)", over a list of relation words with a few
+  qualifiers ("former", "replacement", "best") and a trailing "from …". A bare relation ("Partner") is read as one
+  only on a page already marked `unnamed: true` — a bare word can be a real name ("Tia", "Mama"), and a name is never
+  read as a relation. A name after the role ("friend Alice"), someone else's relation ("<owner>'s daughter's
+  teacher") or any word outside the list is not a relation.
   **Singular** relations (partner, spouse, girlfriend, father, mother…) are held by one person; the rest, and any
   past relation ("former", "ex-"), are plural.
 - **Stage 2 renames before anything keys a name** (`canonicalize`, first thing in `entity_resolver.resolve`, in
   place on the batch, so promotion, claims and wikilink edges all read the same names): a role-only *person* (a
   company "Partner" keeps its name) and any endpoint that says whose relation it is take the name of the one page
   holding that relation — the named page whose `owner_roles` holds a singular relation (the person said so), else the
-  placeholder page for it — or, when none does, the relation's title ("Partner"), marked `unnamed: true` with
+  placeholder page for it — or, when none does, the relation's title ("Partner"; "Tia (unnamed)" when another page
+  already has that name, so an aunt's mention never lands on a friend called Tia), marked `unnamed: true` with
   `owner_roles` for its page (`conflict_resolver.apply_changes` → `create_fields`). Promotion is unchanged: the renamed
   mentions are counted, parked and promoted as any name. A role-only person below the confidence bar no longer files
-  "Who or what is Partner?" (its answer would become prose, not a name). Stage 1's owner block also tells the model to
-  name such a person by the relation alone; the deterministic pass is what holds when it does not.
+  "Who or what is Partner?" (its answer would become prose, not a name). Stage 1's owner block asks the model to
+  name such a person "<Relation> (unnamed)" — a marked form; a bare "Partner" from the model stays an ordinary name
+  (no mark, no question), because a bare word cannot be told from a name.
 - **Stage 5.4 asks** (`ask_after_write`): after the pages are written, each unnamed person page the batch touched
   gets one inbox question, "What's the name of your partner?" (`features.md`), unless one is open or the person
   declined. It rides the cycle's commit like every question the cycle opens.
@@ -803,10 +807,13 @@ and ids (a portability bug). `api/services/role_people.py` is the one place that
   counts only) and `--apply` (one `cicada` commit, trigger `maintenance/placeholder-people`; refused while Sleep runs
   or holds the pages; a page dirty in git, or one a merge would touch, is skipped and counted; a second run changes
   nothing). Each placeholder page **merges** into a named person only when its relation is singular and exactly one
-  named person holds it on the record — an open claim (no `valid_to`, not superseded) or a `graph_edges.yaml` edge from
-  that person to the owner whose predicate names the relation ("father-of"), or from the owner for a symmetric one
-  ("partner-of") or a "has-…" form, never a past one ("former-…", "ex-…"), or an `owner_roles` entry; two holders is
-  ambiguous and asked. Every other placeholder is **retitled** by its relation (claims, edges and references follow
+  named person holds it on the record — an open, non-event claim (no `valid_to`, not superseded) or a
+  `graph_edges.yaml` edge whose predicate names **exactly** that relation: from the person to the owner "<head>",
+  "<head>-of" or "is-<head>-of"; from the owner "has-<head>", or those forms for a symmetric relation ("partner-of").
+  Any other token makes it another relation and no evidence: "father-in-law-of", "step-father-of",
+  "business-partner-of", "former-partner-of". An `owner_roles` entry also counts; two holders is ambiguous and
+  asked. A page whose bare title is a relation word but carries no `unnamed` mark ("Tia") is a name, never a
+  placeholder. Every other placeholder is **retitled** by its relation (claims, edges and references follow
   the new id) and **asked**. The merge is `entity_merge.merge_entities`: claims with provenance, sources, history and
   every reference move, the loser's title is not kept as an alias (Stage 2 finds the person by `owner_roles`).
 - **Disclosed:** a plural relation's placeholder ("Friend") still gathers every unnamed friend's role-only mentions,

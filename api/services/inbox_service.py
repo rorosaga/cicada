@@ -2288,10 +2288,12 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
             note = f"\n\n_Resolved ambiguous mention '{mention}' into this entity._"
             new_body = append_note(target.body, note)
             markdown_parser.write(target_path, target.frontmatter, new_body)
-            # The mention may already be a page of its own (a placeholder person named in the inbox,
-            # `role_people.answer_name`): it folds into the target through the one merge primitive — its claims,
-            # sources and references follow — rather than staying beside it.
-            mention_path = resolve_entity_file(settings.memory_path, entity_id) if entity_id else None
+            # A question asked about a PAGE (a placeholder person named in the inbox, `role_people.answer_name`,
+            # flagged `fold_page`) folds that page into the target through the one merge primitive — its claims,
+            # sources and references follow. Any other item was asked about a mention: a page promoted under that
+            # slug since is not what the person answered about, so it is left alone (the note above, as before).
+            mention_path = (resolve_entity_file(settings.memory_path, entity_id)
+                            if entity_id and parsed.frontmatter.get("fold_page") is True else None)
             if mention_path is not None and not mention_path.samefile(target_path):
                 try:
                     merged = merge_entities(settings.memory_path, loser_id=mention_path.stem,

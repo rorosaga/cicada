@@ -237,12 +237,15 @@ page's name or alias (case, accents and spacing aside) folds the placeholder int
 any other name renames the page (`rename_references`: its claims, the graph's edges, every other page's `related`
 and wikilinks follow; the id moves to the name's), and a person page whose name contains it or is contained in it
 ("Carl" / "Carl Example"), or several pages of exactly that name, gets a "Possible duplicate" `merge_suggestion`
-each — never a merge. An answer that reads as a relation or a self-reference is a 400 and writes nothing.
+each — never a merge; such an item carries `fold_page: true`, and only a flagged item's "merge" folds its page into
+the target. An answer that reads as a relation ("my girlfriend", or the asked relation itself) or a self-reference
+is a 400 and writes nothing; a bare word that is also a name ("Tia") is a name.
 `rather_not_say` (or a dismiss) keeps a role title, never the owner's name, and sets `name_declined`. The commit is
 the person's (`Cicada-Author: user`, `inbox/clarification/resolved:answer|rather_not_say`). The question is served
 while its page is archived (it is about who the person is, not whether the page is live; `_hidden` asks
 `_subject_gone` with `clarification:name`): only a dropped or merged-away page retires it. A `merge_suggestion`
-whose mention is itself a page now folds that page into the target on `merge` (before, only a note was written).
+flagged `fold_page` folds its page into the target on `merge`; every other item (Stage 2's, asked about a mention)
+keeps the note-only answer, even when a page was promoted under the mention's slug since.
 The app draws a name field, Submit and "I'd rather not say" (`NameBody`, `app.md`); an older build sees the option
 and Other… and still answers it.
 

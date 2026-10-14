@@ -195,9 +195,9 @@ def owner_block(name: str | None) -> str:
         "- A real company, product, tool or concept that happens to be called one of those words keeps its own\n"
         "  name and type.\n"
         f"- A person the conversation names only by their relation to {name} (a partner, a parent, a friend, a\n"
-        '  teacher) and never by a name: name the entity by the relation alone — "Partner", "Father", "Former\n'
-        f'  roommate" — never "{name}\'s partner" and never "(unnamed)". When the conversation gives their name,\n'
-        "  use the name and keep the relation as a key fact."
+        '  teacher) and never by a name: name the entity by the relation followed by "(unnamed)" — "Partner (unnamed)",\n'
+        f'  "Father (unnamed)", "Former roommate (unnamed)" — never "{name}\'s partner". When the conversation gives\n'
+        "  their name, use the name and keep the relation as a key fact."
     )
 
 

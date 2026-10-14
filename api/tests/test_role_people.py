@@ -50,9 +50,7 @@ EP_B, TS_B = "ep_2026-09-21_001", "2026-09-21T10:00:00+00:00"
     ("the user's girlfriend", "girlfriend", True),
     ("my mom", "mom", True),
     ("pareja de Alpha Owner", "pareja", True),
-    ("Partner", "partner", True),
-    ("Partner (another)", "partner", True),
-    ("Friend from university", "friend from university", False),
+    ("Partner (unnamed)", "partner", True),
     ("Alpha Owner's ex-girlfriend", "ex-girlfriend", False),
 ])
 def test_a_relation_to_the_owner_is_read_from_the_name(name, key, singular):
@@ -61,9 +59,17 @@ def test_a_relation_to_the_owner_is_read_from_the_name(name, key, singular):
     assert "Alpha" not in role.title
 
 
+@pytest.mark.parametrize("name,key", [
+    ("Partner", "partner"), ("Partner (another)", "partner"), ("Friend from university", "friend from university"),
+])
+def test_a_bare_title_is_a_relation_only_on_a_page_marked_unnamed(name, key):
+    assert role_people.parse(name, role_people.owner_names(OWNER_FM)) is None
+    assert role_people.parse(name, role_people.owner_names(OWNER_FM), bare=True).key == key
+
+
 @pytest.mark.parametrize("name", [
     "Alice Example", "friend Alice", "Doctor Who", "Alpha Owner's daughter's teacher", "Beta Other's partner",
-    "Alpha Owner", "Partners Example", "",
+    "Alpha Owner", "Partners Example", "", "Tia", "Mama", "Primo",
 ])
 def test_a_name_is_never_read_as_a_relation(name):
     assert role_people.parse(name, role_people.owner_names(OWNER_FM)) is None
@@ -427,3 +433,13 @@ def test_a_page_someone_is_editing_is_never_swept_into_the_repairs_commit(tmp_pa
     assert (memory / "entities" / "alpha-owner's-partner.md").exists()   # its retitle waits for a clean tree
     assert "A hand edit in progress." in gamma.read_text()
     assert _git(memory, "status", "--porcelain").strip() == "M entities/gamma-studio.md"
+
+
+def test_a_bare_word_that_is_also_a_name_is_accepted_as_the_answer(tmp_path):
+    memory = _git_bank(tmp_path)
+    _page(memory, OWNER_ID, {**OWNER_FM}, "The owner.")
+    _page(memory, "friend", {"name": "Friend", "unnamed": True, "owner_roles": ["friend"]}, "Climbs on Sundays.")
+    path = role_people.ensure_question(memory, "friend", owner_fm=OWNER_FM)
+    _resolve(memory, path.stem, action="resolve", answer="Tia")
+    page = markdown_parser.parse(memory / "entities" / "tia.md").frontmatter
+    assert page["name"] == "Tia" and "unnamed" not in page and page["owner_roles"] == ["friend"]
