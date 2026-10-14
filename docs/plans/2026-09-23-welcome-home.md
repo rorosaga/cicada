@@ -363,7 +363,8 @@ the brief or the design left open, decided here with its reason, so no task re-o
   conversations fed at least one page, from `GET /sources/overview`'s existing `entities` count; unknown is never an
   answer): it becomes one line at the foot of Home, "Setup · N things left · Show ›", counting rows that are not On
   (the schedule question and Also found no longer keep it alive), and leaves when nothing is left. The record gains
-  `expanded` (per bank, DR-39); *Show setup checklist* and any `record` set it, so setup stays reachable from Settings.
+  `expanded` (per bank, DR-39); only *Show setup checklist* sets it (`GettingStartedState.showChecklist`) — the Welcome's
+  Start and an Also-found turn-on record without opening — so setup stays reachable from Settings.
   A returning person's Home leads with Needs you (`HomeArrangement`). The export rows are onboarding's provider rows
   opening the walkthrough, and a vendor whose export is in the bank is not asked again. R-IB18's Done rule and its
   "You're set up." are unchanged for a card shown whole.

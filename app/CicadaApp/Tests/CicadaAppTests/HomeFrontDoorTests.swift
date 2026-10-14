@@ -69,11 +69,11 @@ final class HomeFrontDoorTests: XCTestCase {
         XCTAssertEqual(GettingStartedPresentation.of(visible: false, graduated: true, expanded: true, left: 2), .none)
     }
 
-    func testHomeIsOrderedByThePersonsState() {
+    func testHomeIsOrderedByThePersonsState() throws {
         let firstWeek = HomeArrangement.of(setupVisible: true, graduated: false)
         XCTAssertEqual(firstWeek, .firstWeek)
-        XCTAssertEqual(firstWeek.order.first, .setup, "setup leads in the first week")
-        XCTAssertEqual(Array(firstWeek.order.prefix(2)), [.setup, .today])
+        XCTAssertEqual(Array(firstWeek.order.prefix(3)), [.tour, .setup, .today],
+                       "setup leads the first week, under the tour offer onboarding asked for (never off-screen)")
 
         // Returning: graduated, or no card at all — what is waiting on the person leads, setup is last.
         for returning in [HomeArrangement.of(setupVisible: true, graduated: true),
@@ -90,8 +90,10 @@ final class HomeFrontDoorTests: XCTestCase {
             XCTAssertEqual(order.count, HomeBlockID.allCases.count)
             let needsYou = try! XCTUnwrap(order.firstIndex(of: .needsYou))
             XCTAssertGreaterThan(try! XCTUnwrap(order.firstIndex(of: .tip)), needsYou, "Make it yours never above Needs you")
-            XCTAssertGreaterThan(try! XCTUnwrap(order.firstIndex(of: .tour)), needsYou, "the tour offer never above it")
         }
+        let returning = HomeArrangement.returning.order
+        XCTAssertGreaterThan(try XCTUnwrap(returning.firstIndex(of: .tour)), try XCTUnwrap(returning.firstIndex(of: .needsYou)),
+                             "for a returning person the tour offer follows Needs you")
     }
 
     // MARK: Empty Home (review #8)
@@ -220,14 +222,44 @@ final class HomeFrontDoorTests: XCTestCase {
 
     func testShowSetupChecklistOpensTheWholeCard() throws {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: "cicada.test.gs.\(UUID().uuidString)"))
-        GettingStartedState.record(bank: "alpha", enabled: [.agent("codex")], defaults: defaults)
+        GettingStartedState.showChecklist(bank: "alpha", defaults: defaults)
         XCTAssertEqual(GettingStartedState.load(bank: "alpha", defaults: defaults)?.expanded, true)
         GettingStartedState.setExpanded(false, bank: "alpha", defaults: defaults)
         XCTAssertEqual(GettingStartedState.load(bank: "alpha", defaults: defaults)?.expanded, false,
                        "the viewer's closed choice is remembered (DR-39)")
-        GettingStartedState.record(bank: "alpha", enabled: [], defaults: defaults)
+        GettingStartedState.record(bank: "alpha", enabled: [.browser("safari-bookmarks")], defaults: defaults)
+        XCTAssertEqual(GettingStartedState.load(bank: "alpha", defaults: defaults)?.expanded, false,
+                       "an Also-on-this-Mac turn-on never reopens it")
+        GettingStartedState.showChecklist(bank: "alpha", defaults: defaults)
         XCTAssertEqual(GettingStartedState.load(bank: "alpha", defaults: defaults)?.expanded, true,
                        "Settings' Show setup checklist opens it again")
+        let settings = try source("Views/Settings/SettingsGeneralView.swift")
+        XCTAssertTrue(settings.contains("GettingStartedState.showChecklist(bank: store.bank)"))
+    }
+
+    /// Review B1 — the Welcome's record must not keep the card whole: record → chats in memory → one line → nothing.
+    func testAWelcomeRecordGraduatesToALineThenLeaves() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "cicada.test.gs.\(UUID().uuidString)"))
+        GettingStartedState.record(bank: "alpha", enabled: [.agent("codex"), .browser("safari-bookmarks")],
+                                   defaults: defaults)
+        let record = try XCTUnwrap(GettingStartedState.load(bank: "alpha", defaults: defaults))
+        XCTAssertFalse(record.expanded, "Start records the card; it does not hold it open")
+        let visible = GettingStartedProgress.visible(record: record)
+
+        let before = HomeSetup.hasChatsInMemory([row("chat-export:claude", .harness, episodes: 30)]) == true
+        XCTAssertEqual(GettingStartedPresentation.of(visible: visible, graduated: before, expanded: record.expanded,
+                                                     left: 1), .card, "first week: the whole card")
+        XCTAssertEqual(HomeArrangement.of(setupVisible: visible, graduated: before), .firstWeek)
+
+        let after = HomeSetup.hasChatsInMemory([row("chat-export:claude", .harness, episodes: 30, entities: 9)]) == true
+        XCTAssertTrue(after, "Sleep wrote pages from the import")
+        let rows = [gsRow("agent:codex", .on), gsRow("browser:safari-bookmarks", .needsAction("Allow"))]
+        XCTAssertEqual(GettingStartedPresentation.of(visible: visible, graduated: after, expanded: record.expanded,
+                                                     left: HomeSetup.thingsLeft(rows)), .line(left: 1))
+        XCTAssertEqual(HomeArrangement.of(setupVisible: visible, graduated: after), .returning)
+        let done = [gsRow("agent:codex", .on), gsRow("browser:safari-bookmarks", .on)]
+        XCTAssertEqual(GettingStartedPresentation.of(visible: visible, graduated: after, expanded: record.expanded,
+                                                     left: HomeSetup.thingsLeft(done)), .none)
     }
 
     // MARK: Words (review #6, #11)

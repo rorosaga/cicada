@@ -53,9 +53,8 @@ enum GettingStartedState {
             expanded: defaults.bool(forKey: key(bank, "expanded")))
     }
 
-    /// Unions, keeps first-seen order, un-hides and opens: a rerun that turns more on must show the card again, and
-    /// *Show setup checklist* on a graduated bank must show the whole card, not one line (owner 2026-10-14: setup stays
-    /// reachable from Settings).
+    /// Unions, keeps first-seen order, and un-hides: a rerun that turns more on
+    /// must show the card again. It never opens a graduated card — only *Show setup checklist* does (`showChecklist`).
     static func record(bank: String, enabled: [FoundItemID], defaults: UserDefaults = .standard) {
         var keys = defaults.stringArray(forKey: key(bank, "enabled")) ?? []
         for id in enabled {
@@ -64,7 +63,14 @@ enum GettingStartedState {
         }
         defaults.set(keys, forKey: key(bank, "enabled"))
         defaults.set(false, forKey: key(bank, "hidden"))
-        defaults.set(true, forKey: key(bank, "expanded"))
+    }
+
+    /// Settings → General's *Show setup checklist* (R-IB17): records the bank and opens the card whole, even once it has
+    /// graduated to its one line (owner 2026-10-14: setup stays reachable from Settings). The Welcome's Start and an
+    /// Also-on-this-Mac turn-on record through `record` and never open it.
+    static func showChecklist(bank: String, defaults: UserDefaults = .standard) {
+        record(bank: bank, enabled: [], defaults: defaults)
+        setExpanded(true, bank: bank, defaults: defaults)
     }
 
     /// R-OB8 — an untick in onboarding takes its row off the card rather than leaving it Off. A bank with no record

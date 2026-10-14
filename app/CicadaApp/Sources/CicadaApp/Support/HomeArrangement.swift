@@ -69,10 +69,12 @@ enum HomeArrangement: Equatable {
         setupVisible && !graduated ? .firstWeek : .returning
     }
 
-    /// *Make it yours* and the tour offer never sit above Needs you (DR-38, P-a "the work leads").
+    /// *Make it yours* never sits above Needs you (DR-38, P-a "the work leads"). The tour offer leads the first week:
+    /// onboarding's last page asked for it, and below the tall setup card it would start off-screen; for a returning
+    /// person it follows Needs you.
     var order: [HomeBlockID] {
         switch self {
-        case .firstWeek: [.setup, .today, .needsYou, .readingSites, .lastRead, .tour, .tip]
+        case .firstWeek: [.tour, .setup, .today, .needsYou, .readingSites, .lastRead, .tip]
         case .returning: [.needsYou, .readingSites, .today, .lastRead, .tour, .tip, .setup]
         }
     }

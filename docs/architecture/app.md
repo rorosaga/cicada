@@ -173,13 +173,14 @@ results showing the page pins to the window (never `scrollDisabled`, which the r
 the results fill it, with no animation. The field's Find/Ask switch is DR-45 text tabs inside it with a neutral glyph,
 and it never animates. Below it, in one 760 pt column, blocks **ordered by the person's state** (owner ruling
 2026-10-14, "Graduate + Needs you first"; `HomeArrangement`, `HomeSetup`, `HomeEmptiness` in `Support/HomeArrangement.swift`,
-`HomeFrontDoorTests`): while the whole Getting started card is up and the person has no chats in memory, Getting
-started → Today → Needs you → Needs your browser → Last time Cicada read; otherwise Needs you leads (→ Needs your
+`HomeFrontDoorTests`): while the whole Getting started card is up and the person has no chats in memory, (the tour
+offer →) Getting started → Today → Needs you → Needs your browser → Last time Cicada read; otherwise Needs you leads (→ Needs your
 browser → Today → Last read) and setup is the last line. "Chats in memory" is a fact of the bank: a `harness` row of
 `/sources/overview` (an imported export or a connected agent) with `entities > 0`, i.e. its conversations fed a page;
 unknown is never an answer. Graduated, Getting started is one line, "Setup · N things left · Show ›" (rows not On), and
-gone when nothing is left; its open/closed choice is `GettingStartedState.expanded`, per bank, and *Show setup
-checklist* opens it whole. Inside, three labelled groups 20 pt apart — Connected, Your past chats, First read — and *Also
+gone when nothing is left; its open/closed choice is `GettingStartedState.expanded`, per bank, set only by *Show
+setup checklist* (`showChecklist`; the Welcome's record never opens it). The tour offer leads the first week, above the
+card, so it is never off-screen. Inside, three labelled groups 20 pt apart — Connected, Your past chats, First read — and *Also
 on this Mac* as an offer. Your past chats has one 36 pt row per vendor still to ask (`ExportVendorRow`; a vendor whose
 `chat-export:<vendor>` row has episodes is not asked again), the whole row opening onboarding's drawn walkthrough over
 Home (`HomeWalkthroughLayer`), with waits above them leading with "Check your email for the … link". Today is one row to

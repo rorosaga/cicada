@@ -44,12 +44,13 @@ struct HomeView: View {
         let _ = runner.checklistRevision
         // Owner 2026-10-14 — the person's state orders the page: setup leads only while it is whole and the person has
         // no chats in memory yet (`HomeArrangement`, `HomeSetup.hasChatsInMemory`).
-        let setupVisible = GettingStartedProgress.visible(record: GettingStartedState.load(bank: store.bank))
-            || runner.sawDoneThisSession
+        let setupRecord = GettingStartedState.load(bank: store.bank)
+        let setupVisible = GettingStartedProgress.visible(record: setupRecord) || runner.sawDoneThisSession
         let graduated = HomeSetup.hasChatsInMemory(store.sourcesOverview.value) == true
         let arrangement = HomeArrangement.of(setupVisible: setupVisible, graduated: graduated)
-        // While the card's read row shows, TODAY omits its own waiting clause (`HomeLayout`, every number once).
-        let gettingStartedVisible = arrangement == .firstWeek
+        // While the whole card (and so its read row) shows — the first week, or a graduated card its viewer opened —
+        // TODAY omits its own waiting clause (`HomeLayout`, every number once).
+        let gettingStartedVisible = setupVisible && (!graduated || setupRecord?.expanded == true)
         let empty = emptiness(today: today, gettingStartedVisible: gettingStartedVisible)
         // F-09 (R-HO15) — the first-time "Make it yours", never beside search results, one session only.
         let tipShown = AppearanceTipPolicy.visible(armed: tipArmed, dismissed: tipDismissed, seenBefore: tipSeen,
