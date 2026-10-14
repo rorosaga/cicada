@@ -336,25 +336,47 @@ at once on Sources and stoppable in one tap (`POST /explore/stop`: waiting sites
 never opens a browser and never schedules an agent.
 - **The candidates** (`explore_candidates.py`): saved links minus `reading_hosts.classify`'s refusals (secrets, local,
   AI apps, videos, papers, redirectors), private workspaces, junk/archived pages, walled sites the person has not turned
-  on in Reading the web, and **Never explore** sites. Depth comes from G191's optional `saved_why` on the link's episode
-  (`design` → look, `product`/a project → product, `technique` → read, else capture; D4).
+  on in Reading the web, and **Never explore** sites. Depth comes from the person's reason (D4; slice 2 below).
+- **Depth follows the person's reason (slice 2, owner 2026-10-14 evening; `explore_plan.py`).** By default a visit is
+  the saved page alone: a viewport, a thumbnail and the metadata. The reason is read deterministically — **no model in
+  the backend** — from G191's `saved_why.reasons` ids and project, the person's own words (`saved_why.text`, a
+  `## Saved because` section) and what they said about the page in conversations (current claims on the saved page
+  whose evidence is the person's turn or that are `user_stated`), through closed keyword families (English and Spanish:
+  design, product, technique, read later, "every page"/"the whole site", and page words like docs or pricing). It
+  becomes a **plan**: `{depth, max_pages, pace_seconds, pages: [{kind, shots, match?, known?}], avoid, avoid_urls?,
+  focus?, section?, auto_look?, lift?, because}`. Design opens the front page, pricing, docs, a product page and a blog
+  post with full page, mobile and dark on each and keeps Looks; product opens the front page, pricing, about and docs;
+  technique stays on the saved page and finds the section matching the person's words; "every page" widens to six;
+  a page the person named is opened. At most six pages a visit (`explore_plan.MAX_PAGES`), cut to the hour's room on
+  the site (`explore_queue.room`, so 30 loads an hour still holds). **The split:** Cicada's plan is the floor and the
+  ceiling; the person's agent supplies judgment while it explores — the script picks a page per kind from the links
+  the site shows (or the page the site map says an earlier visit opened), and the agent may swap in its own
+  (`pages=[url, …]`) or name the section (`focus_heading`). On record, Cicada recomputes the plan and **vets every
+  further page** (`explore_plan.vet`): same host as the landing page, never a sign-in or account page or one found
+  walled before, allowed by robots.txt as the agent's browser read it (`urllib.robotparser` on both sides; robots.txt
+  not read means no further page), loaded inside the lease window and at least 8 s after the page before, within the
+  plan's count. A dropped page is counted in the reply, never kept.
 - **`cicada_explore_claim(limit?, release?)`** leases one site (at most 5) per call: **one live lease per site** across
   every agent, at least 8 s between page loads on a site and at most 30 an hour (`sites` in the file), 15-minute leases
   that any call from the session extends, three tries, a lapse judged only while Sleep does not hold the pages. Each row
-  carries a 128-bit `lease_token`, the depth, the saved date, the person's why, and the previous capture's viewport hash.
+  carries a 128-bit `lease_token`, the plan (one JSON line) and why it goes that deep, the saved date, the person's why,
+  the previous capture's viewport hash, and what the site map knows (pages opened before, walled pages never to open).
   The reply names the pinned capture script **only after `explore_skill.verified()` re-checks its sha256** against the
   catalog pin; otherwise nothing is leased. `release` codes: `needs_login` and `blocked` pause the **whole site** for 7
   days or until the person asks again (*Try again*); `skipped`, `not_found`, `gone`, `failed`. Only the queue is written,
   so it is not refused while Sleep runs.
-- **`cicada_record_capture(url, lease_token, outcome, captured_at, final_url, http_status, shots, page, signed_in, …)`**
-  writes the dated record (`storage.md`, *Site captures*) under write admission and commits it alone as the harness;
+- **`cicada_record_capture(url, lease_token, outcome, captured_at, final_url, http_status, shots, page, signed_in, …,
+  loaded_at, pages, found, robots, section)`** writes the dated record (`storage.md`, *Site captures*) with the further
+  pages that pass the vet, updates the site's map (`site_map`), keeps a design visit's best pictures as Looks
+  (`design_refs`, `via: explore`), all under one write admission and one commit as the harness;
   idempotent on `(url, lease_token)`; a late record after a lapse is accepted unless another agent was handed the site;
   refused with "keep the files and record again" while Sleep writes. A shot is a file the agent saved (the design board's
   by-identity refusal of `~/.claude`, `~/.codex`, `~/.cicada`, `~/Library` and the bank) or base64, ≤ 12 MB. When the
   person turned signed-in exploring off, a record claiming `signed_in: true` is refused.
-- **`cicada_explore_queue(limit?)`** is the read-only list. All four tools are stdio-only (`catalog.NEVER_REMOTE`),
-  refused in a demo bank, and refused while "Let an agent read pages for you" is off. Telemetry: one `explore` ledger
-  row per start, claim, release or capture — ids and enums only.
+- **`cicada_explore_queue(limit?)`** is the read-only list; **`cicada_site_map(site?)`** (slice 2) reads a site's map
+  by name or by any link on it, or lists the explored sites. All five tools are stdio-only (`catalog.NEVER_REMOTE`);
+  the four that act are refused in a demo bank and while "Let an agent read pages for you" is off. Telemetry: one
+  `explore` ledger row per start, claim, release or capture — ids, enums and counts (pages kept, Looks kept) only.
 - **The skill** (`skills/site-explore/`): `SKILL.md` and `explore_capture.py`, run by the person's agent in ONE
   `browser-harness` call per site (`exec(open(<script>).read()); print(explore_capture(url, depth=…, context=…))`). It
   opens its own background tab — in the signed-in session, or for `context="isolated"` a fresh
@@ -362,7 +384,10 @@ never opens a browser and never schedules an agent.
   description, JSON-LD, the h1–h3 outline, fonts, `:root` custom properties, typography, components, ≤ 1,500 words),
   classifies walls (401/403 or a lone password field → `needs_login`; 429/451, a captcha frame or a full-page consent
   wall → `blocked`) **before** any screenshot, and saves JPEG q80 shots (viewport, a 640×400 thumbnail; full page, mobile
-  and dark at the deeper depths). It never signs in, types, clicks or hides a consent banner, changes the user agent,
+  and dark as the plan asks). Version 2 (slice 2) takes `plan=`: past the saved page it reads `/robots.txt` once from
+  the page's own origin with `credentials: 'omit'`, picks pages as above, waits at least `pace_seconds` + 0.5 s between
+  loads, stops at the first wall, and prints `loaded_at`, `pages`, `found` (≤ 120 same-host links), `robots` and a
+  technique's `section`. It carries no page-kind table of its own: the plan hands it the words. It never signs in, types, clicks or hides a consent banner, changes the user agent,
   retries, or activates a tab. Pinned in `recommended_skills.json` (id `site-explore`, `pin.files` holds the script's
   hash; `scripts/verify-skills.sh` checks every pinned file).
 - **Verified (2026-10-14)** against a local fixture site in a headless Chrome started for the test (never the person's):

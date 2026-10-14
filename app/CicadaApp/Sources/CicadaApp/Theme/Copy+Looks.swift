@@ -48,6 +48,7 @@ extension Copy {
             case "paste": "pasted"
             case "drop": "dropped in"
             case "agent": "sent by an agent"
+            case "explore": "kept while exploring"
             case "demo": "example"
             default: ""
             }

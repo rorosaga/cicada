@@ -62,6 +62,11 @@ MAX_COMPONENTS = 24
 MAX_FONTS = 12
 MAX_TOKENS = 40
 MAX_JSONLD = 6
+#: Slice 2 (owner 2026-10-14 evening): the pages a visit opened past the landing page, and what each keeps.
+MAX_EXTRA_PAGES = 5
+PAGE_OUTLINE = 20
+SECTION_WORDS = 400
+EXCERPT_CHARS = 240
 TITLE_CHARS = 200
 DESC_CHARS = 500
 HEADING_CHARS = 160
@@ -244,6 +249,11 @@ def jaccard_distance(a: list[str], b: list[str]) -> float:
     if not sa and not sb:
         return 0.0
     return round(1.0 - len(sa & sb) / max(1, len(sa | sb)), 2)
+
+
+def _unmarked(title) -> str:
+    """A page title without the tab marker browser-harness prepends to the tabs it drives (🐴): the site's own title."""
+    return re.sub(r"^\U0001F434\s*", "", str(title or ""))
 
 
 def _outline(raw, bank: str) -> list[dict]:
@@ -442,12 +452,21 @@ def record(memory_path, *, entity_id: str, url: str, lease_token: str, outcome: 
            account_visible: bool = False, consent_overlay: bool = False, consent_box=None, depth: str = "capture",
            saved_at: str | None = None, why_at: str | None = None, last_modified: str | None = None,
            author: str = "agent", session: str | None = None, via: str | None = None,
-           next_pages=None, now: datetime | None = None) -> dict:
+           next_pages=None, pages: list[dict] | None = None, section: dict | None = None,
+           plan: dict | None = None, robots: dict | None = None, previous: dict | None = None,
+           now: datetime | None = None) -> dict:
     """File one capture. ``{"action": "added" | "duplicate", "id", "capture", "paths"}`` or a refusal.
 
     ``shots`` are ``(kind, bytes)``: a ``viewport`` is required for ``captured``; ``thumb`` is optional (Cicada makes
     one from the viewport when it can). Images go to the outside store first (content-addressed, so a retry writes
-    nothing new); the bank gets the record and, only when the look changed, the thumbnail."""
+    nothing new); the bank gets the record and, only when the look changed, the thumbnail.
+
+    Slice 2: ``pages`` are the further pages this visit opened, already vetted against the plan by the caller
+    (``explore_plan.vet``): ``{url, kind, title, loaded_at, http_status, outcome, chosen_by, page, shots: [(kind,
+    bytes)]}``. Each keeps its own images outside the bank and a thumbnail in it when its look changed since the
+    site map's ``previous[url]`` (``{dhash, thumb}``). ``section`` is the part of the page the person's words point
+    at (``{heading, text}``; the text goes outside the bank, an excerpt of at most 240 characters stays). ``plan`` is
+    recorded as why the visit went this deep."""
     bank = Path(memory_path).name
     moment = _now(now)
     outcome = str(outcome or "").strip().lower()
@@ -488,7 +507,7 @@ def record(memory_path, *, entity_id: str, url: str, lease_token: str, outcome: 
         images.append({"kind": kind, "sha256": sha, "ext": ext, "width": w, "height": h, "bytes": len(data)})
 
     page = page if isinstance(page, dict) else {}
-    title = _line(page.get("title"), TITLE_CHARS, bank)
+    title = _line(_unmarked(page.get("title")), TITLE_CHARS, bank)
     description = _line(page.get("description"), DESC_CHARS, bank)
     outline = _outline(page.get("outline"), bank)
     words = " ".join(_scrub(str(page.get("text") or ""), bank).split()[:MAX_TEXT_WORDS])
@@ -556,6 +575,17 @@ def record(memory_path, *, entity_id: str, url: str, lease_token: str, outcome: 
                 thumb = {"file": rel_thumb, "sha256": sha, "width": int(tw), "height": int(th), "bytes": len(made)}
                 thumb_paths.append(rel_thumb)
 
+    kept_pages: list[dict] = []
+    for raw in list(pages or [])[:MAX_EXTRA_PAGES] if outcome in ("captured", "moved", "unchanged") else []:
+        got = _page(memory_path, raw, bank=bank, account_visible=account_visible,
+                    previous=(previous or {}).get(str(raw.get("url") or "")))
+        if isinstance(got, str):
+            return _error(got)
+        kept_pages.append(got)
+        thumb_paths += [got["thumb"]["file"]] if (got.get("thumb") or {}).get("file") and \
+            not got["thumb"].get("reused") and "sha256" in got["thumb"] else []
+    kept_section = _section(memory_path, section, bank=bank)
+
     try:
         status = int(http_status) if http_status is not None and str(http_status).strip() else None
     except (TypeError, ValueError):
@@ -618,6 +648,14 @@ def record(memory_path, *, entity_id: str, url: str, lease_token: str, outcome: 
         fm["next_pages"] = pages
     if change:
         fm["change"] = change
+    if kept_pages:
+        fm["pages"] = kept_pages
+    if kept_section:
+        fm["section"] = kept_section
+    if isinstance(plan, dict) and plan:
+        fm["plan"] = _plan_note(plan, bank)
+    if isinstance(robots, dict) and robots.get("status") is not None:
+        fm["robots"] = {k: robots[k] for k in ("status", "sha256") if robots.get(k) is not None}
     folder.mkdir(parents=True, exist_ok=True)
     try:
         markdown_parser.write_new(folder / f"{cid}.md", fm, _body(fm))
@@ -625,6 +663,131 @@ def record(memory_path, *, entity_id: str, url: str, lease_token: str, outcome: 
         return {"action": "duplicate", "id": cid, "capture": get_capture(memory_path, entity_id, cid), "paths": []}
     fm["path"] = rel
     return {"action": "added", "id": cid, "capture": fm, "paths": [rel, *thumb_paths]}
+
+
+def _thumb_for(memory_path, viewport: bytes, *, account_visible: bool, bank: str) -> tuple[dict | None, dict | None]:
+    """``(thumb, outside_image)``: a ≤ 640×400 JPEG of ``viewport`` in the bank, or — when the person's own account
+    showed — outside it. ``(None, None)`` when this host cannot make one (the record stands)."""
+    made = make_thumbnail(viewport)
+    if made is None:
+        return None, None
+    sha = hashlib.sha256(made).hexdigest()
+    tw, th = image_decode.dimensions(made) or (0, 0)
+    if account_visible:
+        _write_atomic(full_image_path(memory_path, sha, "jpg"), made)
+        return None, {"kind": "thumb", "sha256": sha, "ext": "jpg", "width": tw, "height": th, "bytes": len(made)}
+    rel = _thumb_rel(sha)
+    _write_atomic(Path(memory_path) / rel, made)
+    return {"file": rel, "sha256": sha, "width": int(tw), "height": int(th), "bytes": len(made)}, None
+
+
+def _page(memory_path, raw: dict, *, bank: str, account_visible: bool, previous: dict | None) -> dict | str:
+    """One further page of a visit, as its record keeps it — or a sentence when one of its pictures is refused."""
+    from api.services import design_refs
+
+    url = str(raw.get("url") or "")[:2000]
+    outcome = str(raw.get("outcome") or "captured")
+    page = raw.get("page") if isinstance(raw.get("page"), dict) else {}
+    out: dict = {"url": url, "kind": str(raw.get("kind") or "other")[:20], "outcome": outcome,
+                 "loaded_at": str(raw.get("loaded_at") or "")[:40], "chosen_by": str(raw.get("chosen_by") or "script")}
+    if (title := _line(_unmarked(raw.get("title") or page.get("title")), TITLE_CHARS, bank)):
+        out["title"] = title
+    try:
+        if raw.get("http_status") is not None:
+            out["http_status"] = int(raw["http_status"])
+    except (TypeError, ValueError):
+        pass
+    if outcome not in ("captured", "moved"):
+        return out   # a wall or a dead page: no picture is kept (design §5.3)
+    outline = _outline(page.get("outline"), bank)[:PAGE_OUTLINE]
+    if outline:
+        out["outline"] = outline
+    if (fonts := _fonts(page.get("fonts"), bank)):
+        out["fonts"] = fonts
+    if (comps := _components(page.get("components"))):
+        out["components"] = [c["name"] for c in comps]
+    images: list[dict] = []
+    by_kind: dict[str, bytes] = {}
+    for kind, data in raw.get("shots") or []:
+        if kind in SHOT_KINDS and kind != "thumb" and data:
+            by_kind.setdefault(kind, data)
+    for kind, data in list(by_kind.items()):
+        try:
+            ext, w, h = validate_shot(data)
+        except ValueError:
+            # A further page's picture Cicada does not keep is left out; the visit and the page stand (provenance
+            # never blocks memory). The saved page's own pictures are still held to the refusal above.
+            out.setdefault("refused", []).append(kind)
+            del by_kind[kind]
+            continue
+        sha = hashlib.sha256(data).hexdigest()
+        try:
+            _write_atomic(full_image_path(memory_path, sha, ext), data)
+        except OSError as exc:
+            return f"The {out['kind']} page's {kind} screenshot couldn't be kept ({type(exc).__name__})."
+        images.append({"kind": kind, "sha256": sha, "ext": ext, "width": w, "height": h, "bytes": len(data)})
+    viewport = by_kind.get("viewport")
+    if viewport is not None:
+        out["dhash"] = image_dhash(viewport)
+        palette, look_words = design_refs.read_look(viewport)
+        if palette:
+            out["palette"] = palette[:6]
+        if look_words:
+            out["look"] = look_words
+        prev = previous or {}
+        change = look_change(hamming(out.get("dhash"), prev.get("dhash")))
+        if change:
+            out["change"] = {"look": change}
+        same = change == "same"
+        if same and prev.get("thumb"):
+            out["thumb"] = {"file": prev["thumb"], "reused": True}
+        else:
+            try:
+                thumb, outside = _thumb_for(memory_path, viewport, account_visible=account_visible, bank=bank)
+            except OSError as exc:
+                return f"The {out['kind']} page's thumbnail couldn't be kept ({type(exc).__name__})."
+            if thumb:
+                out["thumb"] = thumb
+            if outside:
+                images.append(outside)
+    if images:
+        out["images"] = images
+    return out
+
+
+def _section(memory_path, raw, *, bank: str) -> dict | None:
+    """The part of the page the person's words point at: its heading and an excerpt in the record (at most 240
+    characters, never the whole page), the section's text outside the bank beside the page text."""
+    if not isinstance(raw, dict):
+        return None
+    heading = _line(raw.get("heading"), HEADING_CHARS, bank)
+    words = " ".join(_scrub(str(raw.get("text") or ""), bank).split()[:SECTION_WORDS])
+    if not heading or not words:
+        return None
+    sha = hashlib.sha256(words.encode("utf-8")).hexdigest()
+    try:
+        _write_atomic(outside_root(memory_path) / "text" / f"{sha}.txt", words.encode("utf-8"))
+    except OSError:
+        pass
+    excerpt = words if len(words) <= EXCERPT_CHARS else words[:EXCERPT_CHARS].rsplit(" ", 1)[0] + " …"
+    out = {"heading": heading, "excerpt": excerpt, "text_sha256": sha}
+    if raw.get("chosen_by") in ("script", "agent"):
+        out["chosen_by"] = raw["chosen_by"]
+    return out
+
+
+def _plan_note(plan: dict, bank: str) -> dict:
+    """Why the visit went this deep, as the record keeps it: the depth, the cap, the page kinds and the signals."""
+    because = []
+    for b in list(plan.get("because") or [])[:12]:
+        if isinstance(b, dict):
+            item = {"from": str(b.get("from") or "")[:20], "signal": str(b.get("signal") or "")[:80]}
+            if b.get("words"):
+                item["words"] = [_line(w, 40, bank) for w in list(b["words"])[:8]]
+            because.append(item)
+    return {"depth": str(plan.get("depth") or "capture"), "max_pages": int(plan.get("max_pages") or 1),
+            "kinds": [str(p.get("kind")) for p in plan.get("pages") or [] if isinstance(p, dict)][:8],
+            "because": because, **({"auto_look": True} if plan.get("auto_look") else {})}
 
 
 def _body(fm: dict) -> str:
@@ -645,6 +808,25 @@ def _body(fm: dict) -> str:
         parts.append("")
     if fm.get("components"):
         parts += ["## Components", "", ", ".join(c["name"] for c in fm["components"]), ""]
+    if fm.get("section"):
+        sec = fm["section"]
+        parts += ["## The part they meant", "", f"Under \"{sec.get('heading')}\":", "",
+                  f"> {sec.get('excerpt')}", ""]
+    if fm.get("pages"):
+        parts += ["## Pages opened on this visit", ""]
+        for page in fm["pages"]:
+            name = page.get("title") or page.get("url")
+            parts.append(f"- **{page.get('kind')}** — [{name}](<{page.get('url')}>) · {page.get('outcome')}")
+            rel = (page.get("thumb") or {}).get("file")
+            if rel:
+                parts.append(f"  ![{page.get('kind')}](../../{rel})")
+        parts.append("")
+    if fm.get("plan"):
+        plan = fm["plan"]
+        why = "; ".join(f"{b.get('from')}: {b.get('signal')}" + (f" ({', '.join(b['words'])})" if b.get("words")
+                                                                    else "") for b in plan.get("because") or [])
+        parts += ["## Why this deep", "", f"Depth {plan.get('depth')}, up to {plan.get('max_pages')} page(s) — "
+                  + (why or "the default"), ""]
     return "\n".join(parts).rstrip() + "\n"
 
 
@@ -678,7 +860,29 @@ def wire(memory_path, cap: dict) -> dict:
         "thumb": thumb_out, "images": images, "palette": cap.get("palette") or [], "look": cap.get("look") or [],
         "fonts": cap.get("fonts") or [], "outline": cap.get("outline") or [],
         "components": cap.get("components") or [], "change": cap.get("change") or {}, "shape": SHAPE,
+        "pages": [_page_wire(memory_path, entity_id, cid, i, p) for i, p in enumerate(cap.get("pages") or [])
+                  if isinstance(p, dict)],
+        "section": cap.get("section"), "plan": cap.get("plan"),
     }
+
+
+def _page_wire(memory_path, entity_id: str, cid: str, index: int, page: dict) -> dict:
+    thumb = page.get("thumb") if isinstance(page.get("thumb"), dict) else None
+    thumb_url = (f"/explore/captures/{entity_id}/{cid}/pages/{index}/thumb"
+                 if thumb and thumb_file(memory_path, thumb.get("file")) is not None else None)
+    return {"url": page.get("url"), "kind": page.get("kind"), "title": page.get("title"),
+            "outcome": page.get("outcome"), "loadedAt": page.get("loaded_at"), "chosenBy": page.get("chosen_by"),
+            "thumbUrl": thumb_url, "look": page.get("look") or [], "palette": page.get("palette") or [],
+            "change": page.get("change")}
+
+
+def page_thumb(memory_path, cap: dict, index: int) -> Path | None:
+    """A further page's thumbnail, from the bank only."""
+    pages = [p for p in cap.get("pages") or [] if isinstance(p, dict)]
+    if not 0 <= index < len(pages):
+        return None
+    thumb = pages[index].get("thumb") if isinstance(pages[index].get("thumb"), dict) else None
+    return thumb_file(memory_path, (thumb or {}).get("file"))
 
 
 def image_for(memory_path, cap: dict, kind: str) -> tuple[Path, str] | None:

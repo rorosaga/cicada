@@ -32,7 +32,6 @@ _CLASS_REASON = {
 }
 #: G191's answer keys → the depth they ask for (design §2.5). The deepest one asked wins.
 WHY_DEPTH = {"design": "look", "product": "product", "technique": "read", "read_later": "capture"}
-_DEPTH_ORDER = ("capture", "read", "product", "look")
 #: Typical wall time per site with one agent (design §6.1, capture depth), and the default number of agents.
 SECONDS_PER_SITE = 35
 DEFAULT_AGENTS = 4
@@ -57,15 +56,12 @@ class SavedSite:
 
 
 def depth_for(why: dict | None) -> str:
-    """D4: ``capture`` unless the person's stated why asks for more — the look for "the design", the product's pages
-    for "the product" or a project, the matching section for "a technique"."""
-    if not isinstance(why, dict):
-        return "capture"
-    asked = [WHY_DEPTH.get(str(r)) for r in why.get("reasons") or []]
-    if why.get("project"):
-        asked.append("product")
-    asked = [a for a in asked if a]
-    return max(asked, key=_DEPTH_ORDER.index) if asked else "capture"
+    """D4: ``capture`` unless the person's reason asks for more — the look for "the design", the product's pages
+    for "the product" or a project, the matching section for "a technique" — read from the reason ids and, since
+    slice 2, the person's own words about the save (``explore_plan``; the claim adds their conversations)."""
+    from api.services import explore_plan
+
+    return explore_plan.depth_of(why)
 
 
 def _why(fm: dict) -> dict | None:
@@ -147,10 +143,14 @@ def saved_sites(memory_path: Path, *, include_excluded: bool = False) -> dict[st
 
 
 def explored_entities(memory_path: Path) -> set[str]:
-    """Pages that have at least one capture record (``captures/<entity-id>/`` holds a file)."""
+    """Pages that have at least one capture record (``captures/<entity-id>/`` holds a file). ``captures/_sites``
+    holds the site maps (``site_map``), never a page's captures: an entity id never starts with an underscore."""
+    from api.services import site_captures
+
     root = Path(memory_path) / "captures"
     try:
-        return {d.name for d in root.iterdir() if d.is_dir() and any(d.glob("*.md"))}
+        return {d.name for d in root.iterdir() if d.is_dir() and site_captures.ENTITY_RE.match(d.name)
+                and any(d.glob("*.md"))}
     except OSError:
         return set()
 

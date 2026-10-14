@@ -186,7 +186,10 @@ Chrome; an agent that cannot open one hands the site back as `skipped`, never fa
 The ToS rail's spirit binds the script: a wall or captcha is recorded `needs_login`/`blocked` with no screenshot and
 **never retried with different headers, a different user agent or a different context**; consent banners are never
 clicked or hidden (marked `consent_overlay`, a full-page one is `blocked`); one live lease per site, ≥ 8 s between pages
-of a site, ≤ 30 an hour, ≤ 3 a lease; private workspaces and walled sites the person has not turned on are never
+of a site, ≤ 30 an hour, ≤ 6 a lease and never past the hour's room (slice 2: only as many as the person's reason asks
+for); further pages stay on the saved page's host, never a sign-in or account page, and only where robots.txt allows —
+read once per visit by the agent's browser from the page's own origin without cookies (`credentials: 'omit'`), never
+by Cicada; unread means no further page. Private workspaces and walled sites the person has not turned on are never
 offered, and any site can be set to **Never explore**. Cicada's own "may have changed" probe (D6) is slice 3.
 
 **The ToS rail — this one is not negotiable.** A fetched page is 4 s / ≤ 512 KB / no cookies / never

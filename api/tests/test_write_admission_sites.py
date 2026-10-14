@@ -496,7 +496,7 @@ TOOLS: dict[str, tuple[str, str | None]] = {
         "cicada_handshake", "cicada_recall", "cicada_recall_detail", "cicada_open_hub", "cicada_get_perspective",
         "cicada_check_nudges", "cicada_timeline", "cicada_project", "cicada_sources", "cicada_ask",
         "cicada_backlog", "cicada_reading_queue", "cicada_video_queue", "cicada_pending", "cicada_repo_context",
-        "cicada_explore_queue")},
+        "cicada_explore_queue", "cicada_site_map")},
 }
 
 #: `write_admission.holding()` is the in-hold question: each site and what holds the bank around it.

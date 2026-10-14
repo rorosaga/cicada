@@ -14,7 +14,10 @@ hand-off prompt to copy for their agent. Their agent does the rest through the M
 * ``GET /explore/prompt`` — the hand-off prompt again ("Copy for an agent", to add another worker).
 * ``GET /explore/captures/{entity_id}`` — every dated capture of one saved page, newest first, for the link renderer;
   ``…/{capture_id}/thumb`` serves the thumbnail from the bank, ``…/{capture_id}/image/{kind}`` a full image from the
-  store outside it (404 when it is not on this Mac).
+  store outside it (404 when it is not on this Mac), ``…/{capture_id}/pages/{index}/thumb`` a further page's
+  thumbnail (slice 2).
+* ``GET /explore/sites`` and ``GET /explore/sites/{site}`` — the site maps explore visits leave in the bank
+  (``captures/_sites/<site>.md``, ``site_map``): every page found or opened on a site, append-only over visits.
 
 None of these is a Store domain: the app keeps them in memory and revalidates with the ETag (the ``exploreQueue``,
 ``captures``, ``sources`` and ``reading`` components). No route writes the bank, so none answers 409 while Sleep runs;
@@ -31,7 +34,7 @@ from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
 from api.services import (demo_guard, entity_picture, explore_candidates, explore_queue, explore_skill,
-                          reading_settings, site_captures, sync_service)
+                          reading_hosts, reading_settings, site_captures, site_map, sync_service)
 
 router = APIRouter()
 
@@ -65,9 +68,11 @@ def prompt_text(count: int) -> str:
     return (
         f"Explore {count} of my saved sites for Cicada, with the site-explore skill and browser-harness. "
         "Take one site at a time with cicada_explore_claim; for each, run Cicada's capture script in one "
-        "browser-harness call exactly as the claim's reply says, then record what it printed with "
+        "browser-harness call exactly as the claim's reply says, with the plan it gives for the site (how far to "
+        "go: the saved page alone unless my reason for saving it asks for more), then record what it printed with "
         "cicada_record_capture(url, lease_token, outcome, captured_at, final_url, http_status, shots, page, "
-        "signed_in). Repeat until cicada_explore_claim says nothing is waiting. You may run up to four sub-agents "
+        "signed_in, loaded_at, pages, found, robots, section). Repeat until cicada_explore_claim says nothing is "
+        "waiting. You may run up to four sub-agents "
         "in parallel, each with its own browser-harness daemon name and its own tab; each stops after about five "
         f"sites and a fresh one takes over. {context} Rules: never sign in or type a password; never click or hide a "
         "cookie or consent banner; when a sign-in, a captcha or a block stops you, hand the site back with "
@@ -239,3 +244,43 @@ async def get_capture_image(entity_id: str, capture_id: str, kind: str, request:
     if found is None:
         raise HTTPException(404, "that image is not on this Mac")
     return await _serve(request, *found)
+
+
+@router.get("/explore/captures/{entity_id}/{capture_id}/pages/{index}/thumb")
+async def get_capture_page_thumb(entity_id: str, capture_id: str, index: int, request: Request,
+                                 settings: Settings = Depends(get_settings)):
+    cap = await run_in_threadpool(site_captures.get_capture, settings.memory_path, entity_id, capture_id)
+    path = site_captures.page_thumb(settings.memory_path, cap, index) if cap is not None else None
+    if path is None:
+        raise HTTPException(404, "no thumbnail for this page")
+    return await _serve(request, path, "image/jpeg")
+
+
+@router.get("/explore/sites")
+async def get_site_maps(request: Request, response: Response, settings: Settings = Depends(get_settings)):
+    """Every explored site's map, summarised: the site, its page count and when it was last seen."""
+    memory_path = settings.memory_path
+    etag = sync_service.etag_for(memory_path, "captures", extra=f"sites|{SHAPE}")
+    if (early := sync_service.conditional(request, response, etag)) is not None:
+        return early
+
+    def read():
+        return {"sites": [{"site": m.get("site"), "pages": len(m.get("pages") or []),
+                           "visits": len(m.get("visits") or []), "lastSeen": m.get("last_seen")}
+                          for m in site_map.all_maps(memory_path)], "shape": SHAPE}
+
+    return await run_in_threadpool(read)
+
+
+@router.get("/explore/sites/{site}")
+async def get_site_map(site: str, request: Request, response: Response, settings: Settings = Depends(get_settings)):
+    """One site's map (``site_map.wire``) by its name (``bob-example.org``). 404 when it was never explored."""
+    memory_path = settings.memory_path
+    name = reading_hosts.site_of(site)
+    etag = sync_service.etag_for(memory_path, "captures", extra=f"site|{name}|{SHAPE}")
+    if (early := sync_service.conditional(request, response, etag)) is not None:
+        return early
+    smap = await run_in_threadpool(site_map.read, memory_path, name)
+    if smap is None:
+        raise HTTPException(404, "that site has not been explored")
+    return site_map.wire(smap)
