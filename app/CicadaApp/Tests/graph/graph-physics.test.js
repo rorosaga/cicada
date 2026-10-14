@@ -66,7 +66,9 @@ check("dense: other nodes move < 40 wu in the 60 ticks after a release", rows.de
 for (const [size, r] of Object.entries(rows)) {
     // measured: 13 / 13 / 10 ticks, 96 / 97 / 85 wu (2026-10-14; was 12-13 ticks / 63-100 wu with the fixed 0.28
     // link strength — d3's default strength holds a low-degree node a little harder)
-    check(`${size}: a 28 wu/tick flick from rest coasts >= 10 ticks`, r.freeCoastTicks >= 10, r.freeCoastTicks);
+    // 2026-10-14 (the ring): measured 13 / 9 / 10 — the peripheral node starts ~70 wu inside the satellite ring,
+    // which now wraps the whole body, and an outward throw ends against it after ~86 wu.
+    check(`${size}: a 28 wu/tick flick from rest coasts >= 9 ticks`, r.freeCoastTicks >= 9, r.freeCoastTicks);
     check(`${size}: ... and gains >= 60 wu`, r.freeCoastDist >= 60, r.freeCoastDist);
     // 2026-10-14: isolates (and every component of <= 30 nodes but the largest) sit in a band just outside the
     // body instead of on discs inside it. measured isoMedian/coreP90 1.39 / 1.34 / 1.38, isoMax/coreMax 1.19 / 1.16 /
