@@ -7,7 +7,9 @@ extension Copy {
         static let question = "What made you save this?"
         static let somethingElse = "Something else…"
         static let placeholder = "In a few words — Return to save"
-        static let hint = "Tap one or more. Esc or a click elsewhere skips it."
+        /// Esc reaches the panel only once it has been clicked (it never takes the keyboard from the browser), so
+        /// the hint names the way that always works.
+        static let hint = "Tap one or more. Click anywhere else to skip it."
         static let savingHint = "Saving your answer…"
         static let dontAsk = "Don’t ask for this site"
         static func forProject(_ name: String) -> String { "For \(name)" }

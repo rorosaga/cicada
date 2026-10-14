@@ -34,9 +34,12 @@ final class SaveWhyCenter {
     private(set) var lastOutcome: SaveWhyPanelState.Outcome?
     /// The last decision the policy took, likewise.
     private(set) var lastDecision: SaveWhyPolicy.Decision?
-    private(set) var lastPostFailed = false
+    /// Answers held for a retry (review B1) — how many, for tests and diagnostics.
+    var heldCount: Int { outbox.entries.count }
 
     @ObservationIgnored let prefs: SaveWhyPrefs
+    @ObservationIgnored let outbox: SaveWhyOutbox
+    @ObservationIgnored private var retrying = false
     @ObservationIgnored private let api: any SavedWhyAPI
     @ObservationIgnored private weak var presenter: (any SaveWhyPresenting)?
     @ObservationIgnored private let now: () -> Date
@@ -46,6 +49,7 @@ final class SaveWhyCenter {
     init(prefs: SaveWhyPrefs = SaveWhyPrefs(defaults: .standard), api: any SavedWhyAPI = APIClient.shared,
          presenter: (any SaveWhyPresenting)? = nil, now: @escaping () -> Date = Date.init) {
         self.prefs = prefs
+        self.outbox = SaveWhyOutbox(defaults: prefs.defaults)
         self.api = api
         self.presenter = presenter
         self.now = now
@@ -100,10 +104,8 @@ final class SaveWhyCenter {
                 presenter?.focusText()
             case .post(let answer):
                 guard let url = state?.item.url else { continue }
-                posting = Task { @MainActor [weak self, api] in
-                    do { try await api.saveWhy(url: url, answer: answer); self?.lastPostFailed = false }
-                    catch { self?.lastPostFailed = true }
-                }
+                let entry = SaveWhyOutbox.Entry(url: url, answer: answer, at: now())
+                posting = Task { @MainActor [weak self] in await self?.deliver(entry) }
             case .mute(let host):
                 prefs.mute(host)
             case .close:
@@ -111,6 +113,33 @@ final class SaveWhyCenter {
                 timer = nil
                 if case .closed(let outcome)? = state?.phase { lastOutcome = outcome }
                 presenter?.hide()
+            }
+        }
+    }
+
+    /// Send one answer; a failure that may pass (Sleep writing, the backend away) holds it for `retryHeld`.
+    private func deliver(_ entry: SaveWhyOutbox.Entry) async {
+        do {
+            try await api.saveWhy(url: entry.url, answer: entry.answer, at: entry.at)
+        } catch {
+            if SaveWhyOutbox.verdict(for: error) == .hold { outbox.hold(entry) }
+        }
+    }
+
+    /// Send every held answer again — called when Sleep's writing flag goes false and on launch. One pass at a time;
+    /// an answer that fails again with a passing error stays held, one refused for good or over a day old is dropped.
+    func retryHeld() async {
+        guard !retrying else { return }
+        retrying = true
+        defer { retrying = false }
+        for entry in outbox.entries {
+            if outbox.expired(entry, now: now()) { outbox.remove(entry); continue }
+            do {
+                try await api.saveWhy(url: entry.url, answer: entry.answer, at: entry.at)
+                outbox.remove(entry)
+            } catch {
+                if SaveWhyOutbox.verdict(for: error) == .drop { outbox.remove(entry) }
+                else { break }   // still refused (Sleep again, or away): wait for the next signal
             }
         }
     }

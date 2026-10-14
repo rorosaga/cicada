@@ -468,7 +468,7 @@ struct SavedWhyOptions: Codable, Equatable, Sendable {
 }
 
 /// G191 — what the person answered, posted to `POST /sources/saved-why`.
-struct SavedWhyAnswer: Equatable, Sendable {
+struct SavedWhyAnswer: Codable, Equatable, Sendable {
     var reasons: [String] = []
     var project: String? = nil
     var text: String? = nil
@@ -486,7 +486,8 @@ struct SavedWhyAnswer: Equatable, Sendable {
 /// G191 — the two calls the panel makes; `APIClient` is the live one, tests inject their own.
 protocol SavedWhyAPI: Sendable {
     func savedWhyOptions() async throws -> SavedWhyOptions
-    func saveWhy(url: String, answer: SavedWhyAnswer) async throws
+    /// `at` is when the person answered — sent so an answer held through a 409 keeps its own time (review B1).
+    func saveWhy(url: String, answer: SavedWhyAnswer, at: Date) async throws
 }
 
 /// `POST /sources/sync-notes` result — Apple Notes one-way sync tally. Mirrors
@@ -2152,9 +2153,10 @@ actor APIClient {
     }
 
     /// G191 — the person's answer, attached by the backend to that bookmark's episode (`POST /sources/saved-why`).
-    func saveWhy(url: String, answer: SavedWhyAnswer) async throws {
+    func saveWhy(url: String, answer: SavedWhyAnswer, at: Date) async throws {
         var body = answer.body
         body["url"] = url
+        body["at"] = ISO8601DateFormatter().string(from: at)
         try await post("/sources/saved-why", body: body)
     }
 

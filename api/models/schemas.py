@@ -3712,6 +3712,9 @@ class SavedWhyRequest(CamelModel):
     reasons: list[str] = []
     project: Optional[str] = None
     text: Optional[str] = None
+    # Review B1 — when the person answered, as the app recorded it: an answer the app held through Sleep's write
+    # window (a 409) or a backend restart keeps its own time. Aware, not in the future, at most a day old.
+    at: Optional[str] = None
 
 
 class SavedWhyResponse(CamelModel):

@@ -298,7 +298,12 @@ the backend's reasons, "For <project>" per offered project, and "Something else�
 Answers are multi-select without a confirm: a tap starts a 2.5 s linger, another tap adds, then the answer posts
 (`SaveWhyPanelState`, pure and tested). A click elsewhere (global and local mouse monitors), Esc (once the panel is
 key) or the 12 s timeout closes it — silently with nothing tapped; a tap already made is kept, an unsent draft is
-dropped. The bookmark itself is captured as always; the app posts only the answer.
+dropped. The bookmark itself is captured as always; the app posts only the answer. The bookmark sync runs inside
+Sleep's write window, so the answer can meet a 409: on a 409, a 5xx or an unreachable backend it is held in
+`SaveWhyOutbox` (`cicada.saveWhy.pending`, per Mac, outside every bank, one per link, at most 20) with the time it was
+given, and sent again — with that `at` — when the status's `writing` goes false, when the backend first answers and
+on launch; a 404/422 or an answer over 24 h old is dropped. Esc reaches the panel only once it is clicked, so its
+hint names a click elsewhere as the way to skip.
 
 **Agent wiring (Track I T3/T7).** `GET /agents/wiring` is read-only: per harness it reports
 *recall* (the MCP server registered — `claude mcp get cicada` / `codex mcp get cicada --json`, 6 s

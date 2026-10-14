@@ -317,3 +317,48 @@ def test_the_options_are_the_fixed_reasons_plus_live_projects_backlog_first(tmp_
     assert [r["key"] for r in body["reasons"]] == list(saved_why.REASONS)
     assert [p["id"] for p in body["projects"]] == ["gamma-project", "delta-project", "beta-project"]
     assert body["maxText"] == saved_why.MAX_TEXT
+
+
+def test_a_renamed_folder_saves_nothing_new(tmp_path):
+    memory = _bank(tmp_path)
+    _sync(memory, _chrome({"type": "folder", "name": "Reading", "children": [OLD_A, OLD_B]}))
+    r = _sync(memory, _chrome({"type": "folder", "name": "Reading (old)", "children": [OLD_A, OLD_B]}))
+    assert r["fresh_total"] == 0 and r["sources"][0]["first_sync"] is False
+
+
+def test_a_bookmark_deleted_and_added_again_is_not_new(tmp_path):
+    memory = _bank(tmp_path)
+    _sync(memory, _chrome(OLD_A, NEW_C))
+    _sync(memory, _chrome(OLD_A))                                      # deleted in the browser
+    readded = _leaf(NEW_C["url"], "Gamma three", NOW)                  # re-added a moment ago
+    r = _sync(memory, _chrome(OLD_A, readded))
+    assert r["fresh_total"] == 0, "the URL is already held: nothing to ask about"
+
+
+def test_a_held_answer_keeps_the_time_the_person_gave_it(tmp_path, monkeypatch):
+    memory = _bank(tmp_path)
+    episode_id = _saved_c(memory)
+    client = _client(memory, monkeypatch)
+    said = (datetime.now(timezone.utc) - timedelta(hours=3)).replace(microsecond=0)
+    r = client.post("/sources/saved-why", json={"url": NEW_C["url"], "reasons": ["design"],
+                                                "at": said.isoformat().replace("+00:00", "Z")})
+    assert r.status_code == 200, r.text
+    assert r.json()["savedWhy"]["at"] == said.isoformat()
+    fm = markdown_parser.parse(memory / "episodes" / f"{episode_id}.md").frontmatter
+    assert fm["saved_why"]["at"] == said.isoformat()
+
+
+@pytest.mark.parametrize("at", [
+    "2026-10-14T09:30:00",                                                        # naive: never assumed UTC
+    (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat(),             # the future
+    (datetime.now(timezone.utc) - timedelta(hours=25)).isoformat(),               # over a day old
+    "yesterday",
+])
+def test_a_client_time_is_bounded(tmp_path, monkeypatch, at):
+    memory = _bank(tmp_path)
+    episode_id = _saved_c(memory)
+    before = (memory / "episodes" / f"{episode_id}.md").read_text()
+    r = _client(memory, monkeypatch).post("/sources/saved-why",
+                                          json={"url": NEW_C["url"], "reasons": ["design"], "at": at})
+    assert r.status_code == 422
+    assert (memory / "episodes" / f"{episode_id}.md").read_text() == before

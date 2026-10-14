@@ -238,6 +238,58 @@ final class SaveWhyTests: XCTestCase {
     }
 
     @MainActor
+    func testAnAnswerRefusedWhileSleepWritesIsHeldAndSentWithItsOwnTime() async {
+        let defaults = UserDefaults(suiteName: "SaveWhyTests.\(UUID().uuidString)")!
+        let prefs = SaveWhyPrefs(defaults: defaults)
+        prefs.enabled = true
+        let api = FakeSavedWhyAPI()
+        await api.fail(with: [APIError.httpError(409, "{\"code\":\"sleep_writing\"}")])
+        var clock = now
+        let center = SaveWhyCenter(prefs: prefs, api: api, presenter: FakePresenter(), now: { clock })
+
+        await center.noticed(result([fresh()]), live: true)
+        center.send(.tapReason("design"))
+        center.send(.clickOutside)
+        await center.settle()
+        XCTAssertEqual(center.heldCount, 1, "a 409 holds the answer instead of losing it")
+        XCTAssertEqual(SaveWhyOutbox(defaults: defaults).entries.first?.at, now, "held with the time it was given")
+
+        // Sleep is still writing at the first retry: kept.
+        await api.fail(with: [APIError.httpError(409, "")])
+        clock = now.addingTimeInterval(60)
+        await center.retryHeld()
+        XCTAssertEqual(center.heldCount, 1)
+
+        // Sleep let go: sent, with the original time, and gone from the queue.
+        clock = now.addingTimeInterval(300)
+        await center.retryHeld()
+        XCTAssertEqual(center.heldCount, 0)
+        let posts = await api.posts
+        let times = await api.times
+        XCTAssertEqual(posts.map(\.answer), [SavedWhyAnswer(reasons: ["design"])])
+        XCTAssertEqual(times, [now])
+    }
+
+    @MainActor
+    func testAHeldAnswerIsDroppedWhenRefusedForGoodOrADayOld() async {
+        let defaults = UserDefaults(suiteName: "SaveWhyTests.\(UUID().uuidString)")!
+        let outbox = SaveWhyOutbox(defaults: defaults)
+        outbox.hold(.init(url: "https://alpha.example/a", answer: SavedWhyAnswer(reasons: ["design"]), at: now))
+        outbox.hold(.init(url: "https://beta.example/b", answer: SavedWhyAnswer(reasons: ["product"]),
+                          at: now.addingTimeInterval(-25 * 3600)))
+        let api = FakeSavedWhyAPI()
+        await api.fail(with: [APIError.httpError(404, "That link isn't saved yet")])
+        let center = SaveWhyCenter(prefs: SaveWhyPrefs(defaults: defaults), api: api, now: { [now] in now })
+        await center.retryHeld()
+        XCTAssertEqual(center.heldCount, 0, "404 drops the first; the second is over a day old")
+        let posts = await api.posts
+        XCTAssertTrue(posts.isEmpty)
+        XCTAssertEqual(SaveWhyOutbox.verdict(for: APIError.serverUnreachable), .hold)
+        XCTAssertEqual(SaveWhyOutbox.verdict(for: URLError(.cannotConnectToHost)), .hold)
+        XCTAssertEqual(SaveWhyOutbox.verdict(for: APIError.httpError(422, "")), .drop)
+    }
+
+    @MainActor
     func testTheSignalCarriesWhetherTheWatchStartedTheSync() async {
         var seen: [Bool] = []
         BookmarkSyncSignal.observer = { _, live in seen.append(live) }
@@ -250,6 +302,10 @@ final class SaveWhyTests: XCTestCase {
 
 private actor FakeSavedWhyAPI: SavedWhyAPI {
     var posts: [(url: String, answer: SavedWhyAnswer)] = []
+    var times: [Date] = []
+    /// Errors to throw on the next posts, in order (then succeed).
+    var failures: [Error] = []
+    func fail(with errors: [Error]) { failures = errors }
 
     func savedWhyOptions() async throws -> SavedWhyOptions {
         SavedWhyOptions(reasons: [
@@ -258,7 +314,11 @@ private actor FakeSavedWhyAPI: SavedWhyAPI {
         ], projects: [.init(id: "alpha-project", name: "Alpha project")], maxText: 500)
     }
 
-    func saveWhy(url: String, answer: SavedWhyAnswer) async throws { posts.append((url, answer)) }
+    func saveWhy(url: String, answer: SavedWhyAnswer, at: Date) async throws {
+        if !failures.isEmpty { throw failures.removeFirst() }
+        posts.append((url, answer))
+        times.append(at)
+    }
 }
 
 @MainActor

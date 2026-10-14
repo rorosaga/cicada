@@ -262,6 +262,15 @@ struct CicadaApp: App {
                 }
                 // G133 / G134: folders and Wispr Flow settings are per memory, so a
                 // bank switch re-reads them and re-arms the watches.
+                // G191, review B1 — Sleep let go of the pages (the SSE `sleep` event's `writing`): send any answer the
+                // backend refused while it held them.
+                .onChange(of: ProjectWriteGate.blocked(store.status.value)) { was, now in
+                    if was && !now { Task { await saveWhy.retryHeld() } }
+                }
+                // …and when the backend first answers after launch (a launch-time retry can beat its start).
+                .onChange(of: store.status.value == nil) { _, missing in
+                    if !missing { Task { await saveWhy.retryHeld() } }
+                }
                 .onChange(of: store.bank) { _, _ in
                     Task { await localSources.reload() }
                     // Round-4 D2 — the new memory gets the calendar too (a demo's 409 is said in words).
@@ -301,6 +310,8 @@ struct CicadaApp: App {
                     // G191 — off until the person turns it on (Settings → Integrations → Browsers).
                     saveWhy.attach(presenter: saveWhyPanel)
                     saveWhy.start()
+                    // Review B1 — an answer held through a 409 or a restart goes out again now.
+                    Task { await saveWhy.retryHeld() }
                     // Track I T5 — the one intake owns `store.intakeInFlight`
                     // through its request counter, and the Dock's opens wait in
                     // `DockOpenQueue` until this line attaches it (R-IA25).

@@ -550,16 +550,19 @@ async def save_why(request: SavedWhyRequest, settings: Settings = Depends(get_se
     given beside the time the browser says the bookmark was made, and is queued for Sleep again; its frontmatter
     carries the structured answer (``saved_why``) that ``GET /sources`` serves as ``savedWhy``. 404 for a link that
     is not saved, 422 for an answer that names nothing or something unknown, 409 in a demo bank or while Sleep holds
-    the pages. Committed alone, as the person (``Cicada-Author: user``)."""
+    the pages. Committed alone, as the person (``Cicada-Author: user``). An optional ``at`` (review B1) is when the
+    person answered, as the app recorded it — an answer the app held through a 409 keeps its own time; 422 when it is
+    naive, in the future or more than a day old."""
     memory_path = settings.memory_path
     try:
         answer = saved_why.validate(memory_path, reasons=request.reasons, project=request.project, text=request.text)
+        said_at = saved_why.client_at(request.at)
         saved_why.find_episode(memory_path, request.url)
     except saved_why.SavedWhyError as e:
         raise HTTPException(status_code=e.status, detail=str(e))
 
     async def write() -> dict:
-        result = await run_in_threadpool(saved_why.attach, memory_path, url=request.url, answer=answer)
+        result = await run_in_threadpool(saved_why.attach, memory_path, url=request.url, answer=answer, at=said_at)
         if result["changed"]:
             from api.services import git_service
 

@@ -37,7 +37,9 @@ Seven rails hold across all of them:
   UTC, seconds; Chrome's `date_added`, Safari's Reading List `DateAdded`, `saved_at.instant_from_*`). The episode
   keeps `added_at` beside the day in `saved_at`, so the record says *when* a page that may since have changed was
   saved. A moved bookmark is a URL already held, so a reorganisation is never fresh. The app decides whether to ask
-  (see `app.md`, *Ask why*); the answer is `POST /sources/saved-why` `{url, reasons[], project?, text?}` → the link's
+  (see `app.md`, *Ask why*); the answer is `POST /sources/saved-why` `{url, reasons[], project?, text?, at?}` (`at`: when the person answered,
+  as the app recorded it — aware, not in the future, at most 24 h old, else 422 — so an answer the app held through a
+  409 keeps its own time) → the link's
   episode through `episode_staging.amend_section`: one `## Why it was saved` section (rewritten, never twinned, placed
   above an agent's `## Note` so `speaker_kind` reads it as the person's), the words scrubbed (writer `saved-why`),
   `saved_why: {reasons, project, text, at}` in the frontmatter, `processed: false` so Sleep reads it again, committed

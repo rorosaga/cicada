@@ -19,6 +19,7 @@ like any other text the person wrote (no turn marker, so ``evidence.speaker_kind
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from api.services import backlog, bank_index, episode_ids, episode_scrub, episode_staging, media_ingestor
@@ -123,6 +124,36 @@ def validate(memory_path: Path, *, reasons: list[str] | None, project: str | Non
     if not picked and project is None and words is None:
         raise SavedWhyError(422, "Pick a reason or say one")
     return Answer(reasons=picked, project=project, project_name=project_name, text=words)
+
+
+#: G191 (review B1) — how old a client's ``at`` may be: an answer held by the app while Sleep wrote (a 409) or the
+#: backend was down is retried later, and keeps the time the person actually said it, for at most this long.
+MAX_CLIENT_AGE = timedelta(hours=24)
+#: A client clock a little ahead of the backend's is still "now", never later.
+CLIENT_SKEW = timedelta(seconds=60)
+
+
+def client_at(raw: str | None, *, now: datetime | None = None) -> str | None:
+    """The answer's time as the app recorded it (aware UTC ISO, seconds), or ``None`` when the client sent none.
+    :class:`SavedWhyError` (422) for a naive, unparseable, future or over-a-day-old value — never guessed."""
+    if raw is None or not str(raw).strip():
+        return None
+    text = str(raw).strip()
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        dt = datetime.fromisoformat(text)
+    except ValueError:
+        raise SavedWhyError(422, "`at` must be an ISO time with a zone")
+    if dt.tzinfo is None:
+        raise SavedWhyError(422, "`at` must carry its zone")
+    now = now or datetime.now(timezone.utc)
+    dt = dt.astimezone(timezone.utc).replace(microsecond=0)
+    if dt > now + CLIENT_SKEW:
+        raise SavedWhyError(422, "`at` is in the future")
+    if now - dt > MAX_CLIENT_AGE:
+        raise SavedWhyError(422, "`at` is more than a day old")
+    return dt.isoformat()
 
 
 def render(answer: Answer, *, at: str, added_at: str | None) -> str:
