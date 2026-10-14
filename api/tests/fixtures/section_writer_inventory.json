@@ -373,6 +373,14 @@
       "disposition": "uninstrumented_guarded"
     }
   ],
+  "services/episode_title.py": [
+    {
+      "function": "apply",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    }
+  ],
   "services/export_origin_migration.py": [
     {
       "function": "_rewrite",
