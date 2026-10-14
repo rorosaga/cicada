@@ -16,7 +16,7 @@ PAGE = "https://example.com/company-b/team"
 LINKEDIN = "https://www.linkedin.com/in/bob-example"
 
 
-def _conflict(predicate="works-at", *, claim_id="clm_b", b_seen="2026-09-01", **extra) -> dict:
+def _conflict(predicate="takes-place-in", *, claim_id="clm_b", b_seen="2026-09-01", **extra) -> dict:
     fm = {"kind": "conflict", "entity_id": "bob-example", "predicate": predicate, "claim_id": claim_id,
           "options": [{"key": "a", "label": "company-a", "claim_id": "clm_a", "last_referenced": "2026-05-01"},
                       {"key": "b", "label": "company-b", "claim_id": "clm_b", "last_referenced": b_seen},
@@ -25,7 +25,7 @@ def _conflict(predicate="works-at", *, claim_id="clm_b", b_seen="2026-09-01", **
     return fm
 
 
-def _src(ref=PAGE, *, predicate="works-at", added_by="user", **extra) -> dict:
+def _src(ref=PAGE, *, predicate="takes-place-in", added_by="user", **extra) -> dict:
     s = {"ref": ref, "kind": "url" if ref.startswith("http") else "note", "added_by": added_by}
     if predicate:
         s["predicate"] = predicate
@@ -44,7 +44,7 @@ def _check(fm, *, sources=(), owner=False, claims=None, subject=True):
 
 
 def _human(key="a") -> dict:
-    return {key: Claim(id="clm_a", text="x", subject="bob-example", predicate="works-at", object="company-a",
+    return {key: Claim(id="clm_a", text="x", subject="bob-example", predicate="takes-place-in", object="company-a",
                        source_trust="user_stated", origin="clarification")}
 
 
@@ -86,7 +86,7 @@ def test_an_unseen_predicate_needs_a_source_the_person_attached():
 
 
 def test_the_worked_example_is_settle_eligible():
-    """Spec §4.4: two agent options on works-at, a person-added public page."""
+    """Spec §4.4: two agent options on takes-place-in (works-at coexists since 2026-10-14), a person-added public page."""
     c = _check(_conflict(), sources=[_src(access="public")])
     assert (c.state, c.reason, c.locus, c.rungs, c.settle_eligible) == (
         "checkable", "settle_eligible", "world", ("fetch", "agent"), True)
@@ -121,7 +121,7 @@ def test_an_accepted_agent_source_is_settle_grade():
 
 
 def test_only_i_know_silences_the_fact_and_is_never_a_target():
-    only_me = {"ref": "Only I know", "kind": "note", "predicate": "works-at", "added_by": "user", "only_me": True}
+    only_me = {"ref": "Only I know", "kind": "note", "predicate": "takes-place-in", "added_by": "user", "only_me": True}
     c = _check(_conflict(), sources=[_src(access="public"), only_me])
     assert (c.state, c.reason, c.targets) == ("inform_only", "only_me", ())
     agents = dict(only_me, added_by="claude-code")
@@ -149,12 +149,12 @@ def test_a_refused_host_is_an_own_session_agent_rung_only():
     ({"ref": PAGE, "kind": "url"}, ("fetch", "agent"), "unknown"),
 ])
 def test_the_rungs_follow_the_kind_and_the_access(source, rungs, access):
-    c = _check(_conflict(), sources=[dict(source, predicate="works-at", added_by="user")])
+    c = _check(_conflict(), sources=[dict(source, predicate="takes-place-in", added_by="user")])
     assert (c.targets[0].rungs, c.targets[0].access, c.rungs) == (rungs, access, rungs)
 
 
 def test_divergence_and_clarification_are_inform_only():
-    div = {"kind": "divergence", "entity_id": "bob-example", "predicate": "works-at", "options": []}
+    div = {"kind": "divergence", "entity_id": "bob-example", "predicate": "takes-place-in", "options": []}
     assert (_check(div, sources=[_src()]).state, _check(div, sources=[_src()]).reason) == ("inform_only", "divergence")
     assert _check(div).state == "needs_source"
     clar = {"kind": "clarification", "entity_id": "sam-example", "options": []}

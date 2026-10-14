@@ -81,6 +81,48 @@ private struct FactCell: View {
 
     @ViewBuilder
     private var value: some View {
+        if fact.values.count > 1 { values } else { single }
+    }
+
+    /// Several current values (a person's places, 2026-10-14): each its own page link, a dot between them, then
+    /// "+N" in tertiary text whose help names the rest (DR-51, DR-56). One line; the type dots are left to a single value.
+    private var values: some View {
+        HStack(spacing: CicadaTheme.scaled(4)) {
+            ForEach(Array(fact.values.enumerated()), id: \.element.id) { index, item in
+                if index > 0 {
+                    Text(Copy.People.dot).font(CicadaTheme.font(size: 13)).foregroundStyle(CicadaTheme.textTertiary)
+                }
+                valueWord(item)
+            }
+            if !fact.more.isEmpty {
+                Text(Copy.People.more(fact.more.count))
+                    .font(CicadaTheme.font(size: 13))
+                    .monospacedDigit()
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .help(Copy.People.alsoAt(fact.more))
+            }
+        }
+        .lineLimit(1)
+    }
+
+    @ViewBuilder
+    private func valueWord(_ item: PersonFactValue) -> some View {
+        let words = Text(item.name)
+            .font(CicadaTheme.font(size: 13, weight: .medium))
+            .foregroundStyle(CicadaTheme.textPrimary)
+            .lineLimit(1)
+            .truncationMode(.tail)
+        if let id = item.entity, let onOpenEntity {
+            Button { onOpenEntity(id) } label: { words }
+                .buttonStyle(.cicadaPlain)
+                .help(Copy.People.openHelp(item.name))
+        } else {
+            words
+        }
+    }
+
+    @ViewBuilder
+    private var single: some View {
         let words = HStack(spacing: CicadaTheme.scaled(5)) {
             if let type = fact.valueType {
                 Circle().fill(CicadaTheme.entityColor(for: type))

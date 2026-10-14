@@ -213,7 +213,8 @@ def test_item_from_file_without_context_keeps_the_legacy_shape(memory):
 
 def test_cardinality_unions_the_runtime_map_and_the_seed_with_multi_winning(tmp_path):
     assert predicates.cardinality(tmp_path, "uses") == "multi"          # seed, no runtime map
-    assert predicates.cardinality(tmp_path, "works-at") == "single"
+    assert predicates.cardinality(tmp_path, "part-of") == "single"
+    assert predicates.cardinality(tmp_path, "works-at") == "multi"          # 2026-10-14
     assert predicates.cardinality(tmp_path, "description") == "unknown"
     assert predicates.cardinality(None, "uses") == "multi"
     # A bank map adds predicates the seed never had.

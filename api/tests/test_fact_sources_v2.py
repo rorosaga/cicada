@@ -173,11 +173,11 @@ def test_only_a_conflict_derives_its_hint():
 
 
 def test_the_sleep_writers_no_longer_store_a_hint(tmp_path):
-    memory = _bank(tmp_path, sources=[{"ref": TEAM, "kind": "url", "predicate": "works-at",
+    memory = _bank(tmp_path, sources=[{"ref": TEAM, "kind": "url", "predicate": "takes-place-in",
                                        "added_by": "user"}])
     inbox_generator.write_claim_nudges([{
         "id": "bob-example", "action": "conflict_nudge", "entity": {"name": "Bob Example"},
-        "predicate": "works-at", "question": "Where does Bob Example work now?",
+        "predicate": "takes-place-in", "question": "Where does Bob Example take place?",
         "allow_other": True, "allow_defer": True, "conflict_context": "conflict",
         "options": [{"key": "a", "label": "company-a", "claim_id": "clm_a"}], "claim_id": "clm_a",
     }], memory)
@@ -190,7 +190,7 @@ def test_the_sleep_writers_no_longer_store_a_hint(tmp_path):
         assert "hint" not in markdown_parser.parse(path).frontmatter, path.name
     bank_index.invalidate()
     served = {i.predicate: i.hint for i in inbox_service.load_inbox(memory)}
-    assert served["works-at"] == served["description"] == f"You said {TEAM} is where to check this"
+    assert served["takes-place-in"] == served["description"] == f"You said {TEAM} is where to check this"
 
 
 def test_logo_service_reads_a_trusted_website_source_never_another_facts():

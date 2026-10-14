@@ -137,14 +137,15 @@ def test_a_held_claim_keeps_its_span_when_the_episode_grew_since(tmp_path):
 
 
 def test_a_newer_claim_supersedes_the_released_one_instead_of_asking(tmp_path):
+    # A single-valued key (part-of): works-at coexists since 2026-10-14.
     memory = _bank(tmp_path)
     text_a = _episode(memory, EP_A, TS_A, BODY_A)
     _park(memory, "Zed Unknown")
-    _run(memory, _extracted(EP_A, TS_A, _rel("Zed Unknown", "works at", "Alpha Lab", EP_A, TS_A, text_a,
+    _run(memory, _extracted(EP_A, TS_A, _rel("Zed Unknown", "part of", "Alpha Lab", EP_A, TS_A, text_a,
                                              "Zed Unknown works at Alpha Lab")), now="2026-09-20")
     text_b = _episode(memory, EP_B, TS_B, BODY_B)
     _page(memory, "zed-unknown", "Zed Unknown")
-    result = _run(memory, _extracted(EP_B, TS_B, _rel("Zed Unknown", "works at", "Beta Lab", EP_B, TS_B, text_b,
+    result = _run(memory, _extracted(EP_B, TS_B, _rel("Zed Unknown", "part of", "Beta Lab", EP_B, TS_B, text_b,
                                                       "Zed Unknown works at Beta Lab")),
                   now="2026-09-22", name_to_id={"zed unknown": "zed-unknown"})
     by_object = {c.object: c for c in _claims(memory, "zed-unknown")}
@@ -204,6 +205,7 @@ def test_a_held_claim_already_on_its_page_is_not_offered_to_stage3_again(tmp_pat
 
 
 def test_owner_surfaces_events_and_claims_closed_in_their_batch_are_never_held(tmp_path):
+    # A single-valued key (part-of): works-at coexists since 2026-10-14.
     memory = _bank(tmp_path)
     text_a = _episode(memory, EP_A, TS_A, BODY_A)
     text_b = _episode(memory, EP_B, TS_B, BODY_B)
@@ -212,10 +214,10 @@ def test_owner_surfaces_events_and_claims_closed_in_their_batch_are_never_held(t
     extracted = _extracted(
         EP_A, TS_A,
         _rel("the user", "connects to", "Lab Cluster Example", EP_A, TS_A, text_a, "Zed Unknown"),
-        _rel("Zed Unknown", "works at", "Alpha Lab", EP_A, TS_A, text_a, "Zed Unknown works at Alpha Lab"),
+        _rel("Zed Unknown", "part of", "Alpha Lab", EP_A, TS_A, text_a, "Zed Unknown works at Alpha Lab"),
     ) + _extracted(
         EP_B, TS_B,
-        _rel("Zed Unknown", "works at", "Beta Lab", EP_B, TS_B, text_b, "Zed Unknown works at Beta Lab"),
+        _rel("Zed Unknown", "part of", "Beta Lab", EP_B, TS_B, text_b, "Zed Unknown works at Beta Lab"),
     )
     result = _run(memory, extracted, now="2026-09-22")
     held = {e.name: [d["object"] for d in e.held_claims] for e in pending_store.load(memory)}

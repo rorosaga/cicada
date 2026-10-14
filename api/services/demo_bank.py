@@ -75,7 +75,8 @@ _ALL_ENTITIES = _PEOPLE + _PROJECTS + _TOOLS + _COMPANIES + _CONCEPTS  # 60
 _ORIGINS = ("claude-code", "safari-tab", "telegram", "rss")
 
 # G61 phase 2 S0 (plan R-AC26): the works-at conflict (`inbox-003`) gets one
-# person-added source, so a freshly generated demo shows the derived hint.
+# person-added source, so a freshly generated demo shows the derived hint. Since 2026-10-14 a person's places
+# coexist, so this card is served informational (never checked); the hint still rides it.
 _SOURCED_SUBJECT = "dana-example"
 _SOURCED_REF = "https://example.com/dana-example/team"
 

@@ -73,6 +73,14 @@
       "disposition": "uninstrumented_guarded"
     }
   ],
+  "services/coexist_reopen.py": [
+    {
+      "function": "_apply_locked",
+      "method": "write",
+      "frontmatter": "parsed.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    }
+  ],
   "services/claims_jsonl_migration.py": [
     {
       "function": "apply",

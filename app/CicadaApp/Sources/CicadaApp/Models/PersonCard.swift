@@ -15,7 +15,22 @@ struct PersonFact: Equatable, Identifiable {
     /// Origins whose real marks lead the line (≤ 4; DR-52).
     var marks: [String] = []
 
+    /// Every value when the cell holds more than one (a person's places, 2026-10-14): at most
+    /// `PersonFacts.maxPlaces`, newest first, each opening its own page; `value` is their words joined for reading.
+    var values: [PersonFactValue] = []
+    /// The current values past the cap — shown as "+N", their names in the help tag.
+    var more: [String] = []
+
     var id: String { kind.rawValue }
+}
+
+/// One named value in a facts cell, with the page it names when it names one.
+struct PersonFactValue: Equatable, Identifiable {
+    let name: String
+    var entity: String? = nil
+    var type: EntityType? = nil
+
+    var id: String { entity ?? name }
 }
 
 enum PersonFacts {
@@ -26,6 +41,8 @@ enum PersonFacts {
     /// (`GET /entities/{id}/claims?predicate=…`), never the page's whole claims list.
     static let predicates: [String] = worksAt.sorted() + role
     static let maxMarks = 4
+    /// A person holds more than one place at once (2026-10-14): the cell names this many, then "+N".
+    static let maxPlaces = 2
 
     static func cells(entity: Entity, claims: [Claim], provenance: EntityProvenance?, names: EntityNames,
                       typeOf: @escaping (String) -> EntityType?, picture: EntityPictureRef?, docs: EvidenceDocIndex,
@@ -46,8 +63,22 @@ enum PersonFacts {
                               valueType: page.flatMap(typeOf),
                               line: evidenceLine(claim, docs: docs, locale: locale, timeZone: timeZone))
         }
-        if let claim = latest(worksAt) {
-            cells.append(valueCell(.worksAt, Copy.People.worksAt, claim))
+        let places = current(worksAt, in: claims, today: today, names: names)
+        if let newest = places.first {
+            if places.count == 1 {
+                cells.append(valueCell(.worksAt, Copy.People.worksAt, newest))
+            } else {
+                let shown = places.prefix(maxPlaces).map { claim -> PersonFactValue in
+                    let page = names.name(for: claim.object) != nil ? claim.object : nil
+                    return PersonFactValue(name: names.display(claim.object), entity: page, type: page.flatMap(typeOf))
+                }
+                let more = places.dropFirst(maxPlaces).map { names.display($0.object) }
+                let words = shown.map(\.name).joined(separator: " \(Copy.People.dot) ")
+                cells.append(PersonFact(kind: .worksAt, label: Copy.People.worksAt,
+                                        value: more.isEmpty ? words : "\(words) \(Copy.People.more(more.count))",
+                                        line: evidenceLine(newest, docs: docs, locale: locale, timeZone: timeZone),
+                                        values: shown, more: more))
+            }
         }
         if let claim = role.lazy.compactMap({ latest([$0]) }).first {
             cells.append(valueCell(.role, Copy.People.role, claim))
@@ -90,6 +121,20 @@ enum PersonFacts {
                                     line: Copy.People.photoMatched))
         }
         return cells
+    }
+
+    /// Every current belief with one of `predicates`, one per place (named the same way twice is one place), newest
+    /// first — when it became true, then when it was written; ties keep page order.
+    static func current(_ predicates: Set<String>, in claims: [Claim], today: ISODay, names: EntityNames) -> [Claim] {
+        var seen = Set<String>()
+        return claims.enumerated()
+            .filter { predicates.contains($0.element.predicate) && $0.element.isCurrent(on: today) }
+            .sorted { a, b in
+                let (ka, kb) = ((a.element.validFrom, a.element.recordedAt ?? ""), (b.element.validFrom, b.element.recordedAt ?? ""))
+                return ka != kb ? ka > kb : a.offset < b.offset
+            }
+            .map(\.element)
+            .filter { seen.insert(names.display($0.object).lowercased()).inserted }
     }
 
     /// "You said · Mar 12" — the belief's first evidence chip, in the chip's own words (DR-57).

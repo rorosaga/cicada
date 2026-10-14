@@ -149,6 +149,39 @@ commit, refused unless Sleep is idle, each page checked to read back every claim
 before it is written; a rerun finishes an interrupted run, committing the pages it left dirty with exactly this
 migration's bytes and nothing else; `hub_pages`).
 
+**A person holds more than one place at once (2026-10-14).** `works-at` is multi-valued: as a single-valued key, Stage 3
+closed the open place whenever another was mentioned, and one measured owner page held 26 `works-at` claims, 25 closed,
+flipping between six places 1–60 days apart while two were true at once. The reconciler's oracle
+(`predicates.build_cardinality_fn`) applies `cardinality`'s rule too — the committed seed's `multi_valued` wins over a
+bank's stale `single_valued` (an uncertain cardinality never auto-closes), and the seed's singles are not imported, so a
+bank with no map still coexists everything. The same rule reaches every predicate the seed moved: a bank seeded before
+G98 still lists `uses`, `is-a`, `located-in` and `depends-on` single-valued, and in Stage 3 those coexist now too (as
+the inbox already said); their values closed under the old rule are not repaired. `runs-on`, `takes-place-in` and `part-of` stay single-valued: no evidence
+says they fail the same way. **A place ends only on evidence that it ended:** a stated end (`expected_end`,
+`claim_expiry`), the person's own edit or answer, or an ending label (`endings` in the seed, `predicates.build_endings_fn`,
+seed ∪ bank, compared slugged, a label two canonicals claim ends nothing). Stage 3 reads the label as said
+(`predicate_raw`, else an agent's predicate; `claim_reconciler._place_ending`): `over` ("left", "previously worked at")
+closes every open belief on that subject and object, dated when it was said and never before it opened — never the
+person's own statement under an agent's word, never one last said after the ending — and keeps the ending as closed
+history; with none open, a label that is a synonym ("previously worked at") is closed history and any other ("left")
+keeps its own label. `past` ("worked at", "interned at") reinforces an open place and never closes it; with none open
+it is closed history, never a current place. **Order never decides:** a mention said on or before a departure already on
+the page (a "left" claim, or an ending record's own words) is kept as closed history, whatever order the claims are
+read in, and a re-read of a claim the page holds closed (same id, G104) only adds its sources — a page never holds one
+id twice. No fold question is raised for an ending. Stage 1's prompt says "works at" means current.
+**Repairing a bank:** `python -m api.services.coexist_reopen --bank <path> [--plan <file>] [--said-since <day> | --all]`
+is a dry run (counts by reason, and the places it would reopen — and those the window keeps closed — by when they were
+last said; the plan holds ids, paths, commits and reasons, never text). **The window defaults to places said in the
+last 180 days**; `--all` lifts it: a place closed once by a new job and never said again passes every check and is as
+often a real job change, so read the age groups before widening; `--apply` reopens, in one `Reopen coexisting places <date>` commit as `cicada`, only a
+`works-at` belief the old rule alone closed — its successor on the same page has the same slot, a different object,
+`supersedes` it back and opened the day it closed; neither is the person's; the close was made by a model's `Sleep cycle`
+commit (found by bisecting the page's history, its claims ledger included); no stated end has passed; its own words are
+not past tense or an ending and the page does not say the person left that place; and it is the newest closed copy of a
+place not already current. Everything else stays closed, counted by reason — when in doubt, history. It refuses unless
+Sleep is idle (admission held, the backend must answer `writing: false`), skips a dirty page, writes through the one
+claims writer and deletes nothing: the close stays in git.
+
 **Contexts and the fence (F1).** `context` is an open vocabulary whose *shape* is pinned by
 `claim_contexts` — a short lowercase slug. Any other value (G60's `as of <date>`) keeps its job as a
 claim key but is never a graph satellite, a legend row or an edge colour. `general` means "no
@@ -203,7 +236,12 @@ supersedes/superseded_by untouched (a `page` span that cited the loser keeps nam
 into that text, which git holds). An id the winner already uses is kept as `<id>-from-<loser>` (the loser's own
 supersession links follow; a re-run after a crash finds its earlier copy); a claim identical once re-subjected is kept
 once; two open claims that disagree stay two — a merge never closes a belief. A corrupt fence on either page aborts
-the merge (the inbox answers 409), and two ids for one file (a case-insensitive disk) are refused. Before the loser's
+the merge (the inbox answers 409), and two ids for one file (a case-insensitive disk) are refused. **A ref resolves to
+the page's own id whatever case was typed (2026-10-14):** `id_utils.resolve_entity_file` returns the path spelled as
+the directory lists it (`id_utils.on_disk`; the listing is cached by the folder's mtime), because macOS finds
+`entities/Cicada.md` when the page is `cicada.md` and a caller that took that stem as the id knew no page by it —
+`cicada_note_progress(project="Cicada")` called a project "a page". The readers that join a ref onto `entities/`
+themselves (`recall_detail`, `sources`, progress participants, the backlog's project page) use the same rule. Before the loser's
 page is deleted, `graph_edges.yaml` and every other page's `related:`, `[[wikilinks]]` (with `|label` or `#section`),
 source `entity:` links and claims whose subject or node object named it are repointed (`repoint_references`), the
 loser's name joins the winner's `aliases`, and the result lists the paths it wrote. The inbox's

@@ -1753,13 +1753,16 @@ def recall_detail(ctx: ToolContext, entity_id: str, *, start: int | None = None,
     if resolved and resolved != entity_id:
         candidate_ids.append(resolved)
 
-    from api.services.id_utils import bank_file
+    from api.services.id_utils import bank_file, on_disk
 
     for cid in candidate_ids:
         # Task 5 review r1: `../episodes/<id>` or an absolute path is refused
         # here, not read — a raw episode is `sources`' to give (R-R22).
         path = bank_file(entities_dir, cid)
         if path is not None and path.exists():
+            # The page's own id, whatever case was typed (a case-insensitive disk finds `cicada.md` for "Cicada").
+            path = on_disk(path)
+            cid = path.stem
             from api.services import telemetry  # G124 R11: ids only, never the page text
             telemetry.record_read(cid, surface=ctx.read_surface, bank=memory_path.name)
             page_text = path.read_text(encoding="utf-8")
