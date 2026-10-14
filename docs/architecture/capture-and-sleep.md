@@ -772,6 +772,55 @@ and becomes its own page.
   It now contributes only its Summary and new History lines (`entity_body.adopt_rewrite`); see *Off: the legacy
   rewrite keeps every item*.
 
+### Placeholder people (2026-10-14)
+A conversation often names someone only by role — "my partner", "my dad", "my old roommate". Stage 1 used to title
+such a person after the owner ("<owner>'s partner"): measured on the owner's bank, 6 of 251 person pages, among the
+most important people in the owner's life; one person split across "<owner>'s friend" (active) and "<owner>'s
+partner" (archived), so a fresh session said the partner's name was not recorded; and the owner's name in titles
+and ids (a portability bug). `api/services/role_people.py` is the one place that knows what a role-only name is:
+- **The vocabulary is closed** (`parse`): a possessive of the owner (the owner page's name, its first word, its
+  aliases, "the user's", "my", "mi", "… de <owner>") or "(unnamed)", over a list of relation words with a few
+  qualifiers ("former", "replacement", "best") and a trailing "from …". A bare relation ("Partner") is read as one
+  only on a page already marked `unnamed: true` — a bare word can be a real name ("Tia", "Mama"), and a name is never
+  read as a relation. A name after the role ("friend Alice"), someone else's relation ("<owner>'s daughter's
+  teacher") or any word outside the list is not a relation.
+  **Singular** relations (partner, spouse, girlfriend, father, mother…) are held by one person; the rest, and any
+  past relation ("former", "ex-"), are plural.
+- **Stage 2 renames before anything keys a name** (`canonicalize`, first thing in `entity_resolver.resolve`, in
+  place on the batch, so promotion, claims and wikilink edges all read the same names): a role-only *person* (a
+  company "Partner" keeps its name) and any endpoint that says whose relation it is take the name of the one page
+  holding that relation — the named page whose `owner_roles` holds a singular relation (the person said so), else the
+  placeholder page for it — or, when none does, the relation's title ("Partner"; "Tia (unnamed)" when another page
+  already has that name, so an aunt's mention never lands on a friend called Tia), marked `unnamed: true` with
+  `owner_roles` for its page (`conflict_resolver.apply_changes` → `create_fields`). Promotion is unchanged: the renamed
+  mentions are counted, parked and promoted as any name. A role-only person below the confidence bar no longer files
+  "Who or what is Partner?" (its answer would become prose, not a name). Stage 1's owner block asks the model to
+  name such a person "<Relation> (unnamed)" — a marked form; a bare "Partner" from the model stays an ordinary name
+  (no mark, no question), because a bare word cannot be told from a name.
+- **Stage 5.4 asks** (`ask_after_write`): after the pages are written, each unnamed person page the batch touched
+  gets one inbox question, "What's the name of your partner?" (`features.md`), unless one is open or the person
+  declined. It rides the cycle's commit like every question the cycle opens.
+- **The answer** names the page or folds it into the person of that name (`features.md`); after it, a later
+  "<owner>'s partner" mention attaches to that named page, because the record says it holds the relation.
+- **Never a merge on a guess.** Two people are merged only on the person's answer or on evidence on the record.
+- **The repair** for an existing bank: `python -m api.scripts.repair_placeholder_people --bank <path>` (dry run:
+  counts only) and `--apply` (one `cicada` commit, trigger `maintenance/placeholder-people`; refused while Sleep runs
+  or holds the pages; a page dirty in git, or one a merge would touch, is skipped and counted; a second run changes
+  nothing). Each placeholder page **merges** into a named person only when its relation is singular and exactly one
+  named person holds it on the record — an open, non-event claim (no `valid_to`, not superseded) or a
+  `graph_edges.yaml` edge whose predicate names **exactly** that relation: from the person to the owner "<head>",
+  "<head>-of" or "is-<head>-of"; from the owner "has-<head>", or those forms for a symmetric relation ("partner-of").
+  Any other token makes it another relation and no evidence: "father-in-law-of", "step-father-of",
+  "business-partner-of", "former-partner-of". An `owner_roles` entry also counts; two holders is ambiguous and
+  asked. A page whose bare title is a relation word but carries no `unnamed` mark ("Tia") is a name, never a
+  placeholder. Every other placeholder is **retitled** by its relation (claims, edges and references follow
+  the new id) and **asked**. The merge is `entity_merge.merge_entities`: claims with provenance, sources, history and
+  every reference move, the loser's title is not kept as an alias (Stage 2 finds the person by `owner_roles`).
+- **Disclosed:** a plural relation's placeholder ("Friend") still gathers every unnamed friend's role-only mentions,
+  as "<owner>'s friend" did; the question shows the page's own summary so the person can tell which one, and naming
+  it moves those mentions to that person. A relation word outside the list stays a page of its own, as before.
+  Claim *text* written before a rename keeps the old title (it is the record of what was said); ids and links move.
+
 ### Page quality (2026-10-09)
 The owner, on a clean run: "the markdowns of each page are too short and some saved facts are useless." A page should
 read like a short wiki article about the thing as it figures in the person's life — what it is, what it is to them,
@@ -825,8 +874,22 @@ constraining the prose; git is the safety net, the claims and the dated timeline
   like the synthesis switch): in Stage 3, a machine page resting on 2+ conversations once the update lands, that
   gains anything (the re-read gate still applies), gets ONE JSON call in place of the synthesis call; the
   contradiction call is unchanged. A one-conversation page is a stub: the deterministic merge, no call (short because
-  it is a stub, not because of a cap). A page whose prompt is over `CICADA_PAGE_ARTICLE_MAX_INPUT_CHARS` (60,000; never
-  clipped) keeps the deterministic merge if it has an article, else today's path. A page with a stamped article is
+  it is a stub, not because of a cap). A page whose prompt is over `CICADA_PAGE_ARTICLE_MAX_INPUT_CHARS` (60,000) is fitted, never
+  clipped mid-input (`entity_article.fit`, owner page 2026-10-14): claims sharing a predicate and an object fold into
+  one input (the latest text, how many conversations said it, first and last day, every evidence row); then claim
+  inputs are left out — a log's (a predicate held for more than 3 objects: "asked about") before a fact's
+  ("studies at") or one about a person page (who is in a life is never a log), the fewest conversations and the
+  longest ago first — then History lines, oldest first; this
+  update's words, the earlier lead and article, facts, questions and links never; LINKABLE keeps the names a kept
+  input mentions. The record keeps every claim and line. Only a page whose own record is still over the budget
+  keeps the deterministic merge if it has an article, else today's path.
+- **A hub's Related rolls up** (`entity_body.RELATED_MAX`, 60 linked pages; owner page 2026-10-14): `## Related` is a
+  view of `graph_edges.yaml` rebuilt on every write, so on a page linking more pages than that, its relations (a verb
+  it holds for at most 3 pages) and its people (the latest, up to 60 lines in all) keep a line each and every other
+  link is one line per verb (`- asked about: 1,203 pages — latest [[A]], [[B]] … and 1,195 more`). Each rolled-up
+  link is still an edge, still on the linked page's own Related (inbound edges are mirrored there), and its claims
+  are still the owner's, in the page's ledger. Per-conversation activity is not a fact about the person: its home
+  is the linked page, the claims ledger and the timeline, not the person's article or its Related. A page with a stamped article is
   never handed to the orientation or legacy rewrite, whatever the settings: both replace the lead the writer owns; an
   inbox answer on it takes the fallback append.
 - **Inputs**, numbered: the record after this update's deterministic union (`f` facts with the days their rows'

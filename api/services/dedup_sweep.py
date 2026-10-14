@@ -21,8 +21,8 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import Callable
-from api.services import (entity_merge, git_service, markdown_parser, merge_rejections, page_lock, telemetry,
-                          write_admission)
+from api.services import (claims_ledger, entity_merge, git_service, markdown_parser, merge_rejections, page_lock,
+                          telemetry, write_admission)
 from api.services.entity_merge import merge_entities
 
 logger = logging.getLogger(__name__)
@@ -252,12 +252,15 @@ def _merge_and_commit(memory_path: Path, loser: str, winner: str, engine: str | 
 
 def _merge_transaction(memory_path: Path, loser: str, winner: str, engine: str | None) -> str:
     footprint = entity_merge.merge_footprint(memory_path, loser, winner)
-    index = _index_entries(memory_path, footprint)
-    if _unsafe(memory_path, footprint, index):
+    # Each footprint page's claims ledger, there or not (`claims_ledger`): a page write may create one, so it is
+    # snapshotted (absent) with its page and a put-back removes it — never left behind for the next writer to adopt.
+    guarded = claims_ledger.with_ledgers(memory_path, footprint)
+    index = _index_entries(memory_path, guarded)
+    if _unsafe(memory_path, guarded, index):
         return UNSAFE
-    if git_service.dirty_paths_sync(memory_path, *footprint):
+    if git_service.dirty_paths_sync(memory_path, *guarded):
         return DIRTY
-    found = {rel: _found(memory_path / rel, index.get(rel, [])) for rel in footprint}
+    found = {rel: _found(memory_path / rel, index.get(rel, [])) for rel in guarded}
     head = _head(memory_path)
     try:
         written = list(dict.fromkeys(
@@ -266,6 +269,7 @@ def _merge_transaction(memory_path: Path, loser: str, winner: str, engine: str |
         if outside:
             _recover(memory_path, found, head)
             raise RecoveryFailed(f"the merge wrote {len(outside)} path(s) outside its footprint")
+        written += [rel for rel in guarded if rel not in written and rel.endswith(claims_ledger.SUFFIX)]
         changed = [rel for rel in written if _read(memory_path / rel) != found[rel].data]
         git_service.commit_paths_sync(memory_path, commit_message(changed, loser, date.today(), engine), changed)
         return MERGED

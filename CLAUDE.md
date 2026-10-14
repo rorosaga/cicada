@@ -204,6 +204,8 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   never guessed (`promotion`). What is said about a name with no page yet is held (`pending_store`), never lost.
   A Stage-4 skill needs 2+ conversations too; one is held in its own store, `skill_hold` (G112, owner 2026-10-09).
   A speaker's self-reference ("the user", "me", "yo"…) is the owner's page, never a page of its own (G169).
+  A person known only by a relation to the owner is titled by the relation, never the owner's name, and asked their
+  name; it is merged only on the person's answer or evidence on the record (`role_people`, `capture-and-sleep.md`).
 - **Temporal decay is a signal; age counts from when it was said** (owner 2026-10-09/13, amends G170): what the
   conversations prove silent is charged once, when read; a one-off may archive by age, a page or claim on 2+ dated
   conversations floors at 0.39 and only live silence archives it; ruling 1's one-week cap governs live silence; a
@@ -214,6 +216,9 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 
 - **The filesystem is the single source of truth**: wikilinked markdown with YAML frontmatter, git-versioned; the API
   and Sleep read and write the same files. No changelog in frontmatter — git holds history.
+- **A page's claims are its fence plus, past 64k characters, its ledger** `entities/<id>.claims.jsonl` (owner page,
+  2026-10-14): `markdown_parser` folds it on read and splits on write; a write never drops a ledger line; git commits
+  and restores a page with its ledger (`storage.md`).
 - **Entity types are a closed set of 10**; Stage 1 never produces `deadline` or `media`. Status: active → decaying →
   archived → dropped.
 - **Decay classes (G66):** one resolver; Stage 1 may propose `durable|active|volatile`, **never `evergreen`**, enforced at

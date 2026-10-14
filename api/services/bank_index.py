@@ -120,7 +120,7 @@ def files(memory_path: Path, subdir: str) -> list[IndexedFile]:
     for name, mtime_ns, size in to_parse:
         path = directory / name
         try:
-            fm = markdown_parser.parse(path).frontmatter
+            fm = markdown_parser.parse(path, ledger=False).frontmatter
         except Exception as exc:  # malformed file: skip, never crash a caller
             logger.warning(f"bank_index: skipping malformed {path}: {exc}")
             with _lock:

@@ -106,7 +106,7 @@ struct InboxFocusCard: View {
             guard field == nil else { return .ignored }
             switch variant {
             case .options where item.allowOther: selection.openOther(); field = .other
-            case .freeText: field = .answer
+            case .freeText, .name: field = .answer
             default: return .ignored
             }
             return .handled
@@ -245,6 +245,7 @@ struct InboxFocusCard: View {
         case .options: optionsBody
         case .informational: InformationalBody(item: item, names: store.entityNames, onAnswer: onAnswer)
         case .freeText: FreeTextBody(item: item, field: $field, onAnswer: onAnswer)
+        case .name: NameBody(item: item, field: $field, onAnswer: onAnswer)
         case .merge: MergeBody(item: item, names: store.entityNames, field: $field, onAnswer: onAnswer)
         case .legacyDecay: LegacyDecayBody(onAnswer: onAnswer)
         case .dismissOnly: DismissBody(onAnswer: onAnswer)

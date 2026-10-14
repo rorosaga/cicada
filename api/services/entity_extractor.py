@@ -169,6 +169,9 @@ EXTRACTION GUIDELINES:
 - Relationships are critical — capture every meaningful connection between entities with a specific
   verb phrase (e.g. "works at", "built with", "supervised by", "depends on", "evaluated against",
   "replaced by", "due"). Use short verb phrases, not full sentences or generic "related to".
+- "works at" says the place is CURRENT. A job or role that ended is labelled by its ending — "left",
+  "previously worked at" — never "works at". Two places at once (a job and a lab, a day job and a side
+  project) are two "works at" relationships; one never replaces the other.
 - EVIDENCE QUOTE (required on every relationship): copy the shortest passage of the transcript,
   VERBATIM and at most 240 characters, that states this relationship — the sentence the user or
   assistant actually wrote, not your paraphrase. If the relationship is your own inference across
@@ -193,7 +196,11 @@ def owner_block(name: str | None) -> str:
         f'  {self_reference_list()}; write "{name}" in a conversation in any language.\n'
         f'- Their own facts go on one entity named exactly "{name}" (type person); never a second entity for them.\n'
         "- A real company, product, tool or concept that happens to be called one of those words keeps its own\n"
-        "  name and type."
+        "  name and type.\n"
+        f"- A person the conversation names only by their relation to {name} (a partner, a parent, a friend, a\n"
+        '  teacher) and never by a name: name the entity by the relation followed by "(unnamed)" — "Partner (unnamed)",\n'
+        f'  "Father (unnamed)", "Former roommate (unnamed)" — never "{name}\'s partner". When the conversation gives\n'
+        "  their name, use the name and keep the relation as a key fact."
     )
 
 

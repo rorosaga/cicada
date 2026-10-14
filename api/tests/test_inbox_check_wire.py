@@ -23,14 +23,14 @@ def _bank(root: Path) -> Path:
     for sub in ("entities", "episodes", "inbox"):
         (memory / sub).mkdir(parents=True, exist_ok=True)
     body = write_claims("## Summary\nA synthetic person.\n", [
-        Claim(id="clm_a", text="bob-example works at company-a", subject="bob-example", predicate="works-at",
+        Claim(id="clm_a", text="bob-example takes place in company-a", subject="bob-example", predicate="takes-place-in",
               object="company-a", valid_from="2026-05-01", recorded_at="2026-05-01"),
-        Claim(id="clm_b", text="bob-example works at company-b", subject="bob-example", predicate="works-at",
+        Claim(id="clm_b", text="bob-example takes place in company-b", subject="bob-example", predicate="takes-place-in",
               object="company-b", valid_from="2026-08-01", recorded_at="2026-08-01"),
     ])
     markdown_parser.write(memory / "entities" / "bob-example.md",
                           {"name": "Bob Example", "type": "person", "status": "active",
-                           "sources": [{"ref": PAGE, "kind": "url", "predicate": "works-at",
+                           "sources": [{"ref": PAGE, "kind": "url", "predicate": "takes-place-in",
                                         "access": "public", "added_by": "user", "added_at": "2026-09-01"}]},
                           body)
     markdown_parser.write(memory / "entities" / "beta-project.md",
@@ -38,8 +38,8 @@ def _bank(root: Path) -> Path:
                            "last_referenced": "2026-03-01"}, "## Summary\nQuiet.\n")
     markdown_parser.write(memory / "inbox" / "inbox-001.md", {
         "kind": "conflict", "required_input": "choice", "status": "pending", "entity_id": "bob-example",
-        "entity_name": "Bob Example", "title": "Where does Bob Example work now?", "predicate": "works-at",
-        "question": "Where does Bob Example work now?", "claim_id": "clm_b", "created_date": "2026-08-02",
+        "entity_name": "Bob Example", "title": "Where does Bob Example take place?", "predicate": "takes-place-in",
+        "question": "Where does Bob Example take place?", "claim_id": "clm_b", "created_date": "2026-08-02",
         "options": [{"key": "a", "label": "company-a", "claim_id": "clm_a", "last_referenced": "2026-05-01"},
                     {"key": "b", "label": "company-b", "claim_id": "clm_b", "last_referenced": "2026-08-01"}],
     }, "Conflicting beliefs.")

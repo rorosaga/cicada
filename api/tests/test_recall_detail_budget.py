@@ -40,17 +40,23 @@ def _big_page(memory, n=400):
     rows.append(Claim(id="clm_ancient", text=ANCIENT, subject="owner-example", predicate="supports",
                       object="garnet-protocol", valid_from="2020-01-01", valid_to="2020-02-01"))
     body = claims.write_claims("## Summary\nThe owner of this synthetic bank.\n", rows)
-    markdown_parser.write(memory / "entities" / "owner-example.md",
-                          {"name": "Owner Example", "type": "person", "owner": True}, body)
-    return (memory / "entities" / "owner-example.md").read_text(encoding="utf-8")
+    page = memory / "entities" / "owner-example.md"
+    markdown_parser.write(page, {"name": "Owner Example", "type": "person", "owner": True}, body)
+    # As an agent reads it: the page file, then its claims ledger when its older claims moved there (owner page,
+    # 2026-10-14) — every claim is in this text.
+    return mcp_tools._with_ledger(page, page.read_text(encoding="utf-8"))
 
 
 _NEXT = re.compile(r"cicada_recall_detail\(entity_id=\"owner-example\", start=(\d+)\)")
 
 
 def _read_all(ctx, budget):
-    """Follow the continuation calls the replies name, as an agent would."""
-    parts, start, calls = [], None, 0
+    """Follow the continuation calls the replies name, as an agent would: the first answer is the page's prose
+    (`_page_digest`), whose footer names the whole page's read from line 1."""
+    first = str(mcp_tools.recall_detail(ctx, "owner-example"))
+    assert len(first) <= budget + 400 and "## Summary" in first
+    assert 'cicada_recall_detail(entity_id="owner-example", start=1)' in first
+    parts, start, calls = [], 1, 1
     while True:
         out = str(mcp_tools.recall_detail(ctx, "owner-example", start=start))
         calls += 1
@@ -105,7 +111,7 @@ def test_cli_get_pages_with_start_and_a_bounded_read_still_slices_the_whole_page
     memory = _bank(tmp_path, git=False)
     page = _big_page(memory)
     first = envelope(run_cli(["get", "owner-example", "--json"], _env(tmp_path, memory), cwd=_work(tmp_path)))
-    assert first["ok"] is True and "cicada get owner-example --start " in first["text"]
+    assert first["ok"] is True and "cicada get owner-example --start 1" in first["text"]
     total = len(page.splitlines())
     part = envelope(run_cli(["get", "owner-example", "--from", "1", "--count", str(total), "--json"],
                             _env(tmp_path, memory), cwd=_work(tmp_path)))

@@ -32,19 +32,19 @@ def demo(tmp_path):
 
 
 def test_a_fresh_demo_banks_census(demo):
-    """inbox-003 (works-at, the person's example.com source, access unverified);
-    inbox-005 (a clarification with no page); two decays; the `uses` conflict;
+    """inbox-003 (works-at: since 2026-10-14 a person's places coexist, so this conflict is informational — never
+    checked — though its source hint is still served); inbox-005 (a clarification with no page); two decays; the `uses` conflict;
     the merge suggestion's subject has no page, so it is not served; and G141
     PJ-6's one follow-up (the quiet camera thread): only the person knows how it
     went, so it is never checked (person_locus)."""
     c = source_check.census(demo)
     assert c["total"] == 6 and c["deferred"] == 0
-    assert c["by_state"] == {"checkable": 1, "needs_source": 1, "inform_only": 0, "never": 4}
-    assert c["by_reason"] == {"checkable/access_unverified": 1, "needs_source/no_source": 1,
-                              "never/informational": 1, "never/not_a_question": 2, "never/person_locus": 1}
-    assert c["by_rung"] == {"fetch": 1, "agent": 1, "agent_local": 0}
-    assert c["targets_by_access"] == {"public": 0, "signed_in": 0, "local": 0, "unknown": 1}
-    assert c["settle_eligible"] == 0 and c["checkable_share"] == 0.167
+    assert c["by_state"] == {"checkable": 0, "needs_source": 1, "inform_only": 0, "never": 5}
+    assert c["by_reason"] == {"needs_source/no_source": 1,
+                              "never/informational": 2, "never/not_a_question": 2, "never/person_locus": 1}
+    assert c["by_rung"] == {"fetch": 0, "agent": 0, "agent_local": 0}
+    assert c["targets_by_access"] == {"public": 0, "signed_in": 0, "local": 0, "unknown": 0}
+    assert c["settle_eligible"] == 0 and c["checkable_share"] == 0.0
 
 
 def test_the_census_names_nothing(tmp_path):
@@ -70,7 +70,7 @@ def test_the_endpoint_serves_the_same_counts(demo, monkeypatch):
     finally:
         config.get_settings.cache_clear()
     assert body["byState"] == source_check.census(demo)["by_state"]
-    assert body["checkableShare"] == 0.167
+    assert body["checkableShare"] == 0.0
 
 
 def test_the_script_prints_the_census_and_refuses_a_non_bank(demo, tmp_path):

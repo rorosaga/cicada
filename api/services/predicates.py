@@ -36,7 +36,7 @@ from __future__ import annotations
 import re
 from functools import lru_cache
 from pathlib import Path
-from typing import Callable
+from typing import Callable, NamedTuple
 
 import yaml
 from loguru import logger
@@ -225,16 +225,27 @@ def build_cardinality_fn(memory_path: Path | None) -> CardinalityFn:
     normal coexistence (multi-valued).
 
     Resolution order (cheapest first, $0):
-    1. canonical is in ``single_valued`` -> True;
-    2. canonical is in ``multi_valued`` -> False;
-    3. **unseen predicate => default to multi-valued (coexist).** This is the safe
+    1. canonical is in the committed seed's ``multi_valued`` -> False;
+    2. canonical is in the bank's ``single_valued`` -> True;
+    3. canonical is in the bank's ``multi_valued`` -> False;
+    4. **unseen predicate => default to multi-valued (coexist).** This is the safe
        default per §5/§9 — never auto-close on an uncertain cardinality. (The
        LLM-cardinality fallback for genuinely-new conflicting predicates is a
        documented, cached future extension; coexisting is correct in the meantime.)
+
+    Step 1 is :func:`cardinality`'s "``multi`` wins" rule, applied here too:
+    :func:`install_predicate_map` never refreshes a populated map, so a bank
+    seeded before a predicate moved to ``multi_valued`` (``uses`` in ``e9a7c6b``,
+    ``works-at`` on 2026-10-14) still lists it single-valued, and Stage 3 kept
+    closing one value whenever another arrived while the inbox already called
+    them a set. A seed and a bank that disagree are an uncertain cardinality, and
+    an uncertain cardinality never auto-closes. The seed's ``single_valued`` is
+    NOT imported: a bank with no map still coexists everything, as before.
     """
     data = _read_runtime_map(memory_path) if memory_path is not None else {}
-    single = {str(p).strip().lower() for p in (data.get("single_valued") or [])}
-    multi = {str(p).strip().lower() for p in (data.get("multi_valued") or [])}
+    seed_multi = {str(p).strip().lower() for p in (_load_seed_map().get("multi_valued") or [])}
+    single = {str(p).strip().lower() for p in (data.get("single_valued") or [])} - seed_multi
+    multi = {str(p).strip().lower() for p in (data.get("multi_valued") or [])} | seed_multi
 
     def is_single_valued(predicate: str) -> bool:
         p = (predicate or "").strip().lower()
@@ -245,6 +256,73 @@ def build_cardinality_fn(memory_path: Path | None) -> CardinalityFn:
         return False  # conservative: unseen => coexist, never auto-close
 
     return is_single_valued
+
+
+#: What an ending label does (``endings`` in the seed): ``over`` closes the open
+#: belief on the same object; ``past`` reinforces it and never closes it.
+ENDING_OVER, ENDING_PAST = "over", "past"
+
+class Ending(NamedTuple):
+    canonical: str     # the predicate whose belief the label ends
+    mode: str          # ENDING_OVER | ENDING_PAST
+    synonym: bool      # the label is itself a synonym of `canonical` ("previously worked at"), not "left"
+
+
+EndingFn = Callable[[str], "Ending | None"]
+
+
+def build_endings_fn(memory_path: Path | None) -> EndingFn:
+    """A ``label -> Ending(canonical, "over" | "past", synonym) | None`` oracle over
+    the seed's ``endings`` and the bank's (union; a bank may add labels, never
+    remove one). ``synonym`` says the label folds into ``canonical`` through the
+    vocabulary's synonyms (either source), so with nothing open it is still a
+    statement about that predicate; "left" is not, and keeps its own label.
+
+    A label that says a belief stopped being true — "left", "previously worked
+    at" — is the only thing that ends a multi-valued place in Stage 3 besides a
+    stated end and the person's own edit (2026-10-14). Labels compare slugged, so
+    "Previously  Worked At" and ``previously-worked-at`` are one label. A label
+    listed under two canonicals is ambiguous and dropped: when unsure, nothing
+    closes. ``over`` wins over ``past`` for one canonical (the stronger reading
+    is the curated one; both lists are hand-written)."""
+    sources = [_load_seed_map()]
+    if memory_path is not None:
+        sources.append(_read_runtime_map(memory_path))
+    found: dict[str, set[tuple[str, str]]] = {}
+    folds: dict[str, set[str]] = {}
+    for data in sources:
+        for k, v in ((data.get("synonyms") or {}) if isinstance(data, dict) else {}).items():
+            folds.setdefault(_slugify_predicate(str(k)), set()).add(_slugify_predicate(str(v)))
+        raw = data.get("endings") if isinstance(data, dict) else None
+        if not isinstance(raw, dict):
+            continue
+        for canonical, modes in raw.items():
+            canon = _slugify_predicate(str(canonical))
+            if not canon or not isinstance(modes, dict):
+                continue
+            for mode in (ENDING_OVER, ENDING_PAST):
+                for label in modes.get(mode) or []:
+                    slug = _slugify_predicate(str(label))
+                    if slug:
+                        found.setdefault(slug, set()).add((canon, mode))
+    table: dict[str, Ending] = {}
+    for slug, hits in found.items():
+        if len({c for c, _ in hits}) != 1:
+            continue   # two canonicals claim one label: ambiguous, never closes
+        canon = next(iter(hits))[0]
+        table[slug] = Ending(canon, ENDING_OVER if (canon, ENDING_OVER) in hits else ENDING_PAST,
+                             folds.get(slug) == {canon})
+
+    def ending(label: str) -> Ending | None:
+        return table.get(_slugify_predicate(label or ""))
+
+    # Every `over` label, by the canonical it ends — Stage 3 looks for a departure already on the page.
+    over: dict[str, set[str]] = {}
+    for slug, hit in table.items():
+        if hit.mode == ENDING_OVER:
+            over.setdefault(hit.canonical, set()).add(slug)
+    ending.over = over  # type: ignore[attr-defined]
+    return ending
 
 
 def is_single_valued(memory_path: Path | None, predicate: str) -> bool:

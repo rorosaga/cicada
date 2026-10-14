@@ -340,13 +340,36 @@ enum FreeTextSubmit {
     }
 }
 
+/// A placeholder person's question (`asks: name`): the typed name answers through `resolve` (the backend names
+/// the page, or folds it into the person already called that); "I'd rather not say" is the item's own option key.
+enum NameAnswer {
+    static let asks = "name"
+    static let declineKey = "rather_not_say"
+
+    static func resolution(name: String) -> QuestionResolution? {
+        let t = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty else { return nil }
+        return QuestionResolution(action: "resolve", answer: t)
+    }
+
+    static let decline = QuestionResolution(action: "resolve", optionKey: declineKey)
+
+    /// The decline button's words: the server's own option label when it sent one.
+    static func declineLabel(_ item: InboxItem) -> String {
+        item.options.first { $0.key == declineKey }?.label ?? Copy.Inbox.ratherNotSay
+    }
+}
+
 /// DR-43 / R-DI15 — which body the focus card draws. Order matters: G98's informational flag
 /// outranks the options it lists; options outrank the legacy shapes they replaced.
 enum FocusCardVariant: Equatable {
-    case informational, options, merge, legacyDecay, freeText, dismissOnly
+    case informational, name, options, merge, legacyDecay, freeText, dismissOnly
 
     static func of(_ item: InboxItem) -> FocusCardVariant {
         if item.informational { return .informational }
+        // A person known only by their relation ("What's the name of your partner?"): a name is typed, not
+        // picked, so the field outranks the one option it carries.
+        if item.asks == NameAnswer.asks { return .name }
         if !item.options.isEmpty { return .options }
         if item.kind == .mergeSuggestion || item.requiredInput == .merge { return .merge }
         if item.kind == .decay { return .legacyDecay }

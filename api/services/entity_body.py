@@ -606,7 +606,46 @@ def _related_bullets(related: list[tuple[str, str]]) -> str:
     return _bullets_block(items)
 
 
-def render_related(related_slugs: list[str], edges: list[dict], id_to_name: dict) -> str:
+#: A page linked to more pages than this is a hub (the owner's page links ~2,000): its ``## Related`` rolls up.
+RELATED_MAX = 60
+#: A verb a page holds for at most this many pages is a relation ("studies at", "sibling of"); one it holds for
+#: hundreds is a log ("asked about"). The same line `entity_article.FACT_FAMILY_MAX` draws for the article's inputs.
+RELATION_FAMILY_MAX = 3
+#: Names a rolled-up line shows.
+ROLLUP_NAMES = 8
+
+
+def _rolled_up(pairs: list[tuple[str, str]], id_types: dict[str, str]) -> str:
+    """A hub page's Related (owner page, 2026-10-14): the page's relations — a verb it holds for at most
+    :data:`RELATION_FAMILY_MAX` pages — and its people (the latest, up to :data:`RELATED_MAX` lines in all) keep a
+    line each; every other link is counted on one line per verb with the latest few names. Related is a view of ``graph_edges.yaml`` (rebuilt on every write), so nothing
+    is lost: each rolled-up link is still an edge, still on the linked page's own Related, and its claims, with their
+    evidence, are still this page's (its ledger, ``claims_ledger``)."""
+    families: dict[str, list[str]] = {}
+    for name, verb in pairs:
+        families.setdefault(verb, []).append(name)
+    relations = [(n, v) for n, v in pairs if v and len(families[v]) <= RELATION_FAMILY_MAX]
+    people = [(n, v) for n, v in pairs if (n, v) not in relations and id_types.get(n.lower()) == "person"]
+    people = people[-max(RELATED_MAX - len(relations), 0):] if RELATED_MAX > len(relations) else []
+    keep = set(relations) | set(people)
+    lines = [pair for pair in pairs if pair in keep]
+    rolled: dict[str, list[str]] = {}
+    for name, verb in pairs:
+        if (name, verb) not in keep:
+            rolled.setdefault(verb, []).append(name)
+    out = _related_bullets(lines)
+    rows = []
+    for verb, names in sorted(rolled.items(), key=lambda kv: (-len(kv[1]), kv[0])):
+        latest = names[-ROLLUP_NAMES:][::-1]
+        shown = ", ".join(f"[[{n}]]" for n in latest)
+        more = f" and {len(names) - len(latest):,} more" if len(names) > len(latest) else ""
+        what = verb or "linked"
+        rows.append(f"- {what}: {len(names):,} page{'s' if len(names) != 1 else ''} — latest {shown}{more}")
+    return "\n".join(part for part in (out, "\n".join(rows)) if part)
+
+
+def render_related(related_slugs: list[str], edges: list[dict], id_to_name: dict,
+                   id_to_type: dict | None = None) -> str:
     """Build the ``## Related`` bullet block from the related slug list +
     ``graph_edges.yaml`` labels.
 
@@ -646,6 +685,10 @@ def render_related(related_slugs: list[str], edges: list[dict], id_to_name: dict
         seen.add(key)
         pairs.append((name, ""))
 
+    unique = {name.lower() for name, _ in pairs}
+    if len(unique) > RELATED_MAX:
+        types = {str(id_to_name.get(i, i)).lower(): str(t) for i, t in (id_to_type or {}).items()}
+        return _rolled_up(pairs, types)
     return _related_bullets(pairs)
 
 

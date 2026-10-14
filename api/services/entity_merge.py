@@ -276,7 +276,11 @@ def merge_footprint(memory_path: Path, loser_id: str, winner_id: str) -> list[st
             continue
         if _repoint_page(ep, old, loser_id, winner_id, winner_name, wikilink_re, warn=False)[0]:
             paths.append(f"entities/{ep.name}")
-    return paths
+    # Each page's claims ledger that exists: the merge folds it in and writes it back (the loser's is removed). A ledger
+    # a write creates is committed with its page (`git_service`), never left behind.
+    from api.services import claims_ledger
+
+    return claims_ledger.with_ledgers(memory_path, paths, existing_only=True)
 
 
 def repoint_edges(memory_path: Path, old_id: str, new_id: str) -> int | None:
@@ -477,6 +481,12 @@ def merge_entities(memory_path: Path, loser_id: str, winner_id: str,
 
     lp.unlink()
     paths.append(f"entities/{loser_id}.md")
+    # The loser's ledger claims were read with its page (`markdown_parser.parse` folds them in) and now sit on the
+    # winner's page or its ledger; git keeps the loser's file.
+    from api.services import claims_ledger
+
+    if claims_ledger.remove(lp):
+        paths.append(claims_ledger.rel_for(f"entities/{loser_id}.md"))
     return {"winner": winner_id, "merged_source_episodes": len(wfm.get("source_episodes", [])),
             "merged_claims": len(all_claims) - len(winner_claims),
             "repointed_edges": repointed or 0, "repointed_refs": len(others), "paths": paths}

@@ -2094,6 +2094,9 @@ class InboxItem(CamelModel):
     suggested_classification: Optional[str] = None
     suggested_confidence: Optional[float] = None
     merge_target_hint: Optional[str] = None
+    # A clarification that asks for a person's name (``"name"``, `role_people`): the app draws a name field and
+    # "I'd rather not say"; an older build sees its option and Other… and still answers it. Null otherwise.
+    asks: Optional[str] = None
     # G115 Phase 1 — all additive so an older app build still decodes.
     entity_type: Optional[str] = None
     source_episode: Optional[str] = None

@@ -26,6 +26,9 @@ PREDICATES = [
     "recommends", "asked-about", "compared", "measured", "documented", "taught",
 ]
 CONTEXTS = ["engineering", "general", "work", "study", "health", "travel", "finance", "hobby", "family", "cross"]
+#: The brief's shape (2026-10-14): most of the owner page's claims are a per-conversation activity log.
+ACTIVITY = [("asked-about", "asked about"), ("worked-on", "worked on"),
+            ("asked-for-an-explanation-of", "asked for an explanation of"), ("developed", "developed")]
 WORDS = ("signal graph memory sleep decay claim span evidence vector index lexical prose fence batch drain resolve "
          "ledger trailer session harness backend frontend render decode parse serialize cache page bank owner").split()
 
@@ -89,9 +92,44 @@ def claim_dict(rng: random.Random, cid: str, subject: str, objects: list[str], e
     return claim.to_dict()
 
 
+def activity_claim(rng: random.Random, cid: str, subject: str, objects: list[str], episodes: list[str],
+                   day: str, closed: bool) -> dict:
+    """An "<owner> asked about X" claim shaped like the real bank's median line (~740 characters: two or three
+    evidence spans, uuid session ids, premises)."""
+    from api.services.claims import Claim, Evidence
+
+    obj = rng.choice(objects)
+    pred, label = rng.choice(ACTIVITY)
+    eps = rng.sample(episodes, 1)
+    evidence = []
+    for ep in eps + rng.sample(episodes, rng.choice((0, 1))):
+        start = rng.randrange(40, 9000)
+        evidence.append(Evidence(episode=ep, start=start, end=start + rng.randrange(40, 260), kind="user",
+                                 hash=hashlib.sha256(f"{ep}{start}".encode()).hexdigest()[:12]))
+    sessions = ["%08x-%04x-%04x-%04x-%012x" % (rng.getrandbits(32), rng.getrandbits(16), rng.getrandbits(16),
+                                             rng.getrandbits(16), rng.getrandbits(48)) for _ in range(rng.choice((1, 2)))]
+    claim = Claim(
+        id=cid, text=f"{OWNER_NAME} {label} {obj.replace('-', ' ').title()}", subject=subject, predicate=pred,
+        object=obj, observer="agent", context=rng.choice(CONTEXTS), confidence=round(rng.uniform(0.5, 0.95), 2),
+        valid_from=day, recorded_at=day, source_episodes=eps, premises=[f"clm_{rng.getrandbits(40):010x}"],
+        authored_by=rng.choice(("claude-code", "codex", "cicada")), origin="chatgpt", session_id=sessions[0],
+        session_ids=sessions, decayed_through=day, evidence=evidence,
+    )
+    if closed:
+        claim.valid_to = day
+        claim.superseded_by = cid + "_next"
+    return claim.to_dict()
+
+
+JSONL = False   # `--jsonl`: fences as JSON Lines, the form every production writer emits since DECIDE-1
+
+
 def render_entries(entries: list[dict]) -> str:
     """One item at a time, so a history of growing fences costs one dump per claim (the concatenation equals
     ``claims._render_claims_block``'s list dump; ``build`` asserts it on the final page)."""
+    if JSONL:
+        from api.services.claims import _jsonl_line
+        return "".join(_jsonl_line(e) + "\n" for e in entries)
     import yaml
     return "".join(yaml.dump([e], default_flow_style=False, sort_keys=False, allow_unicode=True) for e in entries)
 
@@ -117,7 +155,9 @@ def prose_for(rng: random.Random, name: str, facts: int, history: int) -> str:
     return "\n".join(out)
 
 
-def build(bank: Path, n_claims: int, n_pages: int, n_episodes: int, processed: int, commits: int, seed: int) -> dict:
+def build(bank: Path, n_claims: int, n_pages: int, n_episodes: int, processed: int, commits: int, seed: int,
+          *, related: int = 250, related_section: bool = False, activity: bool = False, owner_facts: int = 320,
+          owner_history: int = 160) -> dict:
     isolate.pin_bank(bank)
     from api.services import bank_registry, claims as claims_mod, markdown_parser, owner_identity
 
@@ -151,13 +191,18 @@ def build(bank: Path, n_claims: int, n_pages: int, n_episodes: int, processed: i
     owner_path = bank / "entities" / f"{owner_id}.md"
     owner = markdown_parser.parse(owner_path)
     owner_fm = dict(owner.frontmatter)
-    owner_fm.update({"source_episodes": done, "related": page_ids[:250],
+    owner_fm.update({"source_episodes": done, "related": page_ids[:related],
                      "aliases": [f"alias-{k}" for k in range(12)]})
-    owner_prose = prose_for(rng, OWNER_NAME, 320, 160)
+    owner_prose = prose_for(rng, OWNER_NAME, owner_facts, owner_history)
+    if related_section:
+        owner_prose += "\n\n## Related\n\n" + "\n".join(f"- [[{eid.replace('-', ' ').title()}]]"
+                                                         for eid in page_ids[:related])
     owner_entries = []
     for k in range(n_claims):
         day = f"2026-0{1 + (k * 9) // n_claims}-{1 + k % 28:02d}"
-        owner_entries.append(claim_dict(rng, f"clm_{day}_{k:05d}", owner_id, page_ids, done, day, rng.random() < 0.3))
+        make = activity_claim if activity else claim_dict
+        owner_entries.append(make(rng, f"clm_{day}_{k:05d}", owner_id, page_ids, done, day,
+                                  rng.random() < (0.05 if activity else 0.3)))
     rendered = [render_entries([e]) for e in owner_entries]
 
     git(bank, "add", "-A")
@@ -208,9 +253,19 @@ def main() -> None:
     ap.add_argument("--processed", type=int, default=975)
     ap.add_argument("--commits", type=int, default=40)
     ap.add_argument("--seed", type=int, default=7)
+    ap.add_argument("--related", type=int, default=250, help="owner pages linked in frontmatter `related:`")
+    ap.add_argument("--related-section", action="store_true", help="and one `## Related` line per linked page")
+    ap.add_argument("--activity", action="store_true", help="owner claims shaped as '<owner> asked about X'")
+    ap.add_argument("--jsonl", action="store_true", help="JSON Lines fences (the production form)")
+    ap.add_argument("--owner-facts", type=int, default=320)
+    ap.add_argument("--owner-history", type=int, default=160)
     a = ap.parse_args()
     import json
-    print(json.dumps(build(a.bank.resolve(), a.claims, a.pages, a.episodes, a.processed, a.commits, a.seed)))
+    global JSONL
+    JSONL = a.jsonl
+    print(json.dumps(build(a.bank.resolve(), a.claims, a.pages, a.episodes, a.processed, a.commits, a.seed,
+                           related=a.related, related_section=a.related_section, activity=a.activity,
+                           owner_facts=a.owner_facts, owner_history=a.owner_history)))
 
 
 if __name__ == "__main__":
