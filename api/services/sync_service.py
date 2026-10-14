@@ -15,7 +15,7 @@ from pathlib import Path
 
 from fastapi import Request, Response
 
-from api.services import (backlog, bank_index, logo_service, markdown_parser, person_photo, reading_asks,
+from api.services import (backlog, bank_index, design_refs, logo_service, markdown_parser, person_photo, reading_asks,
                           reading_settings, telemetry, video_queue)
 from api.services.calendar_registry import CALENDARS_FILENAME
 from api.services.feed_registry import FEEDS_FILENAME
@@ -183,6 +183,8 @@ def components(memory_path: Path, *, sleep_state=None) -> dict[str, str]:
         # Projects page's backlog reads and `_state.md`'s `backlog_open` move
         # on it; nothing in `entities`/`episodes` notices a backlog write.
         "backlog": backlog.stamp(mp),
+        # Design taste (2026-10-14): every reference file's stamp — the Looks page's board revalidates on it.
+        "design": design_refs.stamp(mp),
         # `feeds.yaml` / `calendars.yaml` (the RSS + ICS subscription registries)
         # ride the `sources` component: subscribing or unsubscribing changes
         # neither the sources dir nor the url index, so without them the app's

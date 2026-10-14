@@ -448,6 +448,9 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /videos/run/handoff": (OUTSIDE, None),
     "POST /embeddings/choice": (OUTSIDE, None),
     "POST /embeddings/install": (OUTSIDE, None),
+    "POST /design": (ADMITTED, None),                 # design taste: the reference and its screenshot, committed alone
+    "DELETE /design/{ref_id}": (ADMITTED, None),
+    "POST /design/search": (OUTSIDE, None),           # the derived index in $CICADA_HOME only
 }
 
 #: Every MCP tool (stdio and remote): the mcp_tools function it runs and its class.
@@ -462,6 +465,7 @@ TOOLS: dict[str, tuple[str, str | None]] = {
     "cicada_record_watch": (ADMITTED, "record_watch"),
     "cicada_add_backlog_item": (ADMITTED, "add_backlog_item"),
     "cicada_add_backlog_note": (ADMITTED, "add_backlog_note"),
+    "cicada_save_design": (ADMITTED, "save_design"),
     "cicada_save_url": (ADMITTED, "save_url"),                  # backend up: POST /sources/save admits itself
     "cicada_resolve_inbox": (ADMITTED, None),                   # posts to /inbox/{id}/resolve, which admits
     "cicada_save_episode": (CAPTURE, None),
@@ -470,6 +474,8 @@ TOOLS: dict[str, tuple[str, str | None]] = {
     # G110: reads the bank's transcript episodes only (projection + paging); its metadata index and session registry
     # live in $CICADA_HOME/continuity, outside every bank — a reader, never a bank write.
     "cicada_continue": (NONE, None),
+    # Design taste: reads the board; may embed into its derived index in $CICADA_HOME — never a bank write.
+    "cicada_design_search": (NONE, None),
     **{t: (NONE, None) for t in (
         "cicada_handshake", "cicada_recall", "cicada_recall_detail", "cicada_open_hub", "cicada_get_perspective",
         "cicada_check_nudges", "cicada_timeline", "cicada_project", "cicada_sources", "cicada_ask",

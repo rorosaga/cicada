@@ -57,7 +57,10 @@ TOOL_SCOPE: dict[str, str | None] = {
 }
 # G110 slice 1a: `cicada_continue` reads the person's verbatim words for a folder
 # the caller names; slice 4 (G135) decides whether and under which scope it goes remote.
-NEVER_REMOTE = frozenset({"cicada_pending", "cicada_mark_processed", "cicada_repo_context", "cicada_continue"})
+# Design taste (2026-10-14): the two board tools are stdio-only in their first slice — `image_path` reads a file the
+# local agent saved, and which scope a remote picture belongs under is the owner's open question.
+NEVER_REMOTE = frozenset({"cicada_pending", "cicada_mark_processed", "cicada_repo_context", "cicada_continue",
+                          "cicada_save_design", "cicada_design_search"})
 WRITE_TOOLS = frozenset({"cicada_save_episode", "cicada_write_claim", "cicada_retract_claim",
                          "cicada_save_url", "cicada_record_watch", "cicada_record_read", "cicada_record_check", "cicada_add_source",
                          "cicada_change_source",

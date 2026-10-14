@@ -4,7 +4,14 @@ One implementation for every door: Settings → Memory → Search model in a rel
 install job), ``make embedding-model-gemma2`` and ``install.sh`` in a checkout (``python -m
 api.services.model_fetch``). It reads the pins in ``api/data/embeddinggemma-2.lock.json`` — one revision of
 ``FluidInference/embeddinggemma-2-coreml``, every file's size and sha256 — and nothing else is fetched: no
-other URL, no other revision, never the audio or vision encoders.
+other URL, no other revision, never the audio encoder.
+
+**The image encoder is its own click** (design taste, 2026-10-14): ``install_vision`` fetches the pinned
+``vision_files`` (≈ 309 MB: the vision ``.mlpackage`` and its patch-position table) into the same folder, beside the
+text encoder it needs — an image's tokens are embedded by the text model, which is what puts a screenshot in the same
+space as the text vectors. It stages in ``.<dir>.vision.partial``, verifies every file, compiles the package, moves the
+compiled model and the table in, and writes ``cicada-vision.json`` last, so a half-done graft never counts. It is asked
+for only from the Looks page or ``make embedding-model-vision``; nothing else ever fetches it.
 
 **Not bundled.** The model is about 585 MB to download (≈ 340 MB more in the release zip) and runs only on
 macOS 15 and later; the release keeps the small multilingual model bundled as the floor that runs everywhere.
@@ -39,7 +46,7 @@ TRIES = 3
 
 Progress = Callable[[str, int, int], None]   # (phase, done bytes, total bytes)
 
-NOTICE = """EmbeddingGemma 2 — text encoder, Core ML export for the Apple Neural Engine.
+NOTICE = """EmbeddingGemma 2 — text encoder (and, when asked for, its image encoder), Core ML export for Apple silicon.
 
 Source: https://huggingface.co/{repo} at revision {revision}
 Base model: https://huggingface.co/{base_model} (Google DeepMind)
@@ -50,6 +57,13 @@ https://ai.google.dev/gemma/prohibited_use_policy
 Downloaded by Cicada from the pinned revision above; each file was checked against its sha256 before it was
 installed. Cicada does not redistribute these files. README.md beside this notice is the export's own card.
 """
+
+
+#: The image encoder's files beside the text encoder's (``install_vision``).
+VISION_PACKAGE = "EmbeddingGemma2Vision.mlpackage"
+VISION_COMPILED = "EmbeddingGemma2Vision.mlmodelc"
+POSITIONS = "position_embeddings.f16"
+VISION_MARK = "cicada-vision.json"
 
 
 class FetchError(RuntimeError):
@@ -138,15 +152,15 @@ def _client():
                         headers={"User-Agent": "Cicada (search model download)"})
 
 
-def _compile(stage: Path) -> None:
+def _compile(stage: Path, *, package_name: str | None = None, compiled_name: str | None = None) -> None:
     import warnings
 
     from api.services import coreml_embedder
 
     ct = coreml_embedder.import_coremltools()
 
-    package = stage / coreml_embedder.PACKAGE
-    compiled = stage / coreml_embedder.COMPILED
+    package = stage / (package_name or coreml_embedder.PACKAGE)
+    compiled = stage / (compiled_name or coreml_embedder.COMPILED)
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -232,6 +246,78 @@ def install(models_dir: Path, *, progress: Progress | None = None, client=None, 
     return out
 
 
+def vision_total_bytes(p: dict | None = None) -> int:
+    return sum(int(f["size"]) for f in (p or pins()).get("vision_files") or [])
+
+
+def vision_installed(folder: Path, p: dict | None = None) -> bool:
+    """Whether ``folder`` holds the image encoder at the pinned revision, beside a complete text encoder."""
+    p = p or pins()
+    folder = Path(folder)
+    try:
+        mark = json.loads((folder / VISION_MARK).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    return (str(mark.get("revision") or "") == str(p["revision"]) and installed_revision(folder) == p["revision"]
+            and (folder / VISION_COMPILED).is_dir() and (folder / POSITIONS).is_file())
+
+
+def install_vision(models_dir: Path, *, progress: Progress | None = None, client=None, compile_fn=None,
+                   warm: bool = True) -> Path:
+    """The image encoder into the text encoder's folder (fetched first when it isn't here); returns the folder.
+    Only on the person's click. ``compile_fn`` is called as ``compile_fn(stage, package_name=…, compiled_name=…)``."""
+    from api.services import coreml_embedder
+
+    p = pins()
+    files = p.get("vision_files") or []
+    if not files:
+        raise FetchError("This copy of Cicada has no pinned image model, so nothing was downloaded. Update Cicada.")
+    out = destination(models_dir, p)
+    if installed_revision(out) != p["revision"]:
+        install(models_dir, progress=progress, client=client,
+                compile_fn=(lambda stage: compile_fn(stage)) if compile_fn else None, warm=warm)
+    if vision_installed(out, p):
+        return out
+    if not coreml_embedder.supported() and compile_fn is None:
+        raise FetchError("Searching by image needs macOS 15 or later on Apple silicon.")
+    report = progress or (lambda phase, done, total: None)
+    stage = Path(models_dir) / f".{out.name}.vision.partial"
+    shutil.rmtree(stage, ignore_errors=True)
+    stage.mkdir(parents=True)
+    total = vision_total_bytes(p)
+    done = 0
+
+    def on_bytes(n: int) -> None:
+        nonlocal done
+        done += n
+        report("download", done, total)
+
+    try:
+        own = client is None
+        http = _client() if own else client
+        try:
+            for f in files:
+                _download(_url(p, f["path"]), stage / f["path"], int(f["size"]), str(f["sha256"]), on_bytes, http)
+        finally:
+            if own:
+                http.close()
+        report("prepare", total, total)
+        (compile_fn or _compile)(stage, package_name=VISION_PACKAGE, compiled_name=VISION_COMPILED)
+        # The graft: the compiled model and the table move in beside the text encoder, the mark last.
+        (out / VISION_MARK).unlink(missing_ok=True)
+        shutil.rmtree(out / VISION_COMPILED, ignore_errors=True)
+        shutil.move(str(stage / VISION_COMPILED), str(out / VISION_COMPILED))
+        os.replace(stage / POSITIONS, out / POSITIONS)
+        (out / VISION_MARK).write_text(json.dumps({"revision": p["revision"],
+                                                   "files": [f["path"] for f in files]}, indent=2) + "\n",
+                                       encoding="utf-8")
+    except BaseException:
+        shutil.rmtree(stage, ignore_errors=True)
+        raise
+    shutil.rmtree(stage, ignore_errors=True)
+    return out
+
+
 def _warm(folder: Path, report: Progress) -> None:
     """Load every function once from its final path: the Neural Engine compile (≈ 90 s the first time)."""
     from api.services import coreml_embedder, onnx_embedder
@@ -255,10 +341,13 @@ def _warm(folder: Path, report: Progress) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """``python -m api.services.model_fetch [MODELS_DIR]`` — what ``make embedding-model-gemma2`` runs."""
+    """``python -m api.services.model_fetch [--vision] [MODELS_DIR]`` — what ``make embedding-model-gemma2`` (and,
+    with ``--vision``, ``make embedding-model-vision``) runs."""
     from api.services import coreml_embedder, runtime_layout
 
     args = list(sys.argv[1:] if argv is None else argv)
+    vision = "--vision" in args
+    args = [a for a in args if a != "--vision"]
     models = Path(args[0]).expanduser() if args else runtime_layout.cicada_home() / "models"
     if not coreml_embedder.supported():
         print("  EmbeddingGemma 2 needs macOS 15 or later on Apple silicon (and coremltools in this "
@@ -279,7 +368,7 @@ def main(argv: list[str] | None = None) -> int:
             print("  loading it on the Neural Engine once (about 90 s the first time)", file=sys.stderr, flush=True)
 
     try:
-        out = install(models, progress=show)
+        out = install_vision(models, progress=show) if vision else install(models, progress=show)
     except FetchError as exc:
         print(f"  {exc}", file=sys.stderr)
         return 1

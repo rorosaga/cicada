@@ -6,7 +6,8 @@ this Mac can run, how a download is going and how far the background re-embed is
 re-embed (``embedding_models.start_reindex_if_needed``; search keeps answering from the
 old tables meanwhile). ``POST /embeddings/install`` starts a one-time download: with
 ``model`` = EmbeddingGemma 2 (owner 2026-10-09), the pinned Neural Engine model, no account
-and no token; otherwise the larger model's install with the person's own Hugging Face token,
+and no token — and with ``part: "vision"`` its image encoder (design taste, 2026-10-14: the Looks page's own click,
+≈ 309 MB beside the text encoder, which is fetched first when it isn't here); otherwise the larger model's install with the person's own Hugging Face token,
 used for that download only and never stored or logged. No ETag: not a Store domain; the app
 reads it when the page opens and polls while a download or a re-embed runs.
 """
@@ -48,6 +49,12 @@ class EmbeddingReindexState(CamelModel):
     error: str = ""
 
 
+class EmbeddingVisionState(CamelModel):
+    supported: bool = False       # macOS 15+ on Apple silicon
+    installed: bool = False       # the image encoder sits beside the text encoder
+    download_bytes: int = 0       # what the one-time download would fetch now
+
+
 class EmbeddingsStatus(CamelModel):
     model: str
     next_model: str
@@ -57,6 +64,7 @@ class EmbeddingsStatus(CamelModel):
     models: list[EmbeddingModelOption]
     install: EmbeddingInstallState
     reindex: EmbeddingReindexState = EmbeddingReindexState()
+    vision: EmbeddingVisionState = EmbeddingVisionState()
 
 
 class EmbeddingChoiceRequest(CamelModel):
@@ -66,6 +74,7 @@ class EmbeddingChoiceRequest(CamelModel):
 class EmbeddingInstallRequest(CamelModel):
     hf_token: str = Field(default="", repr=False)
     model: str | None = None
+    part: str | None = None       # "vision": EmbeddingGemma 2's image encoder
 
 
 @router.get("/embeddings", response_model=EmbeddingsStatus)
@@ -93,6 +102,15 @@ async def choose_model(body: EmbeddingChoiceRequest, settings: Settings = Depend
 
 @router.post("/embeddings/install", response_model=EmbeddingsStatus, status_code=202)
 async def install_larger_model(body: EmbeddingInstallRequest, settings: Settings = Depends(get_settings)):
+    if body.model == embedding_models.PREFERRED_ID and body.part == "vision":
+        if not embedding_models.neural_engine_supported():
+            raise HTTPException(status_code=409, detail="Searching by image needs macOS 15 or later on Apple silicon.")
+        if not embedding_models.start_vision_download():
+            raise HTTPException(status_code=409, detail="A search model is already being installed.")
+        payload = await run_in_threadpool(embedding_models.status, settings.memory_path, settings)
+        return EmbeddingsStatus.model_validate(payload)
+    if body.part not in (None, ""):
+        raise HTTPException(status_code=400, detail="That isn't a part of a search model Cicada offers.")
     if body.model == embedding_models.PREFERRED_ID:
         if not embedding_models.neural_engine_supported():
             raise HTTPException(status_code=409, detail="This search model needs macOS 15 or later on Apple silicon.")

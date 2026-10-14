@@ -236,6 +236,8 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   Logos, pictures, media previews (fetched once, then served from the store) and repo observations are caches outside
   every bank.
 - **Backlogs (G150):** one markdown file per item, one writer behind every door, never an entity page.
+- **Design references (2026-10-14):** one markdown file plus its screenshot per look, in the bank, one writer
+  (`design_refs`), never an entity page; palette and vectors are computed here, the index lives outside the bank.
 - **`_state.md` is a cursor, never a copy**; it commits ALONE, the read path too (the G85-class smear). **The handshake is
   ≤ 1,800 tokens, and R12 holds: every argument a primer names exists in the tool schema.**
 - **Derived indexes are disposable** (vectors, FTS): rebuilt, never an error; never tracked by git; **the query is never
@@ -295,7 +297,8 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 - **Update check (G182):** release builds only, behind Settings → General's *Install updates automatically* (on by
   default; off = only Check for Updates… asks); a download installs only after its sha256 and Ed25519 signature verify.
 - **Search model download (2026-10-09):** EmbeddingGemma 2 is fetched only on the person's click or command — one pinned
-  revision, every file sha256-checked, into `~/.cicada/models`, never bundled (`network.md`). A model change re-embeds in
+  revision, every file sha256-checked, into `~/.cicada/models`, never bundled; its image encoder is a second click
+  (`network.md`). A model change re-embeds in
   the background, never during Sleep, and recall keeps the old table until the new one commits (`storage.md`).
 - **Study room weather (G176):** its own opt-out app gate reads only public city weather while the room is visible and Settings is closed, at 4 s / ≤ 64 KB / no cookies or identifiers; see `docs/architecture/network.md`.
 - **The ToS rail — not negotiable.** A fetched page is 4 s / ≤ 512 KB / no cookies / never behind auth. Consent

@@ -533,6 +533,47 @@ idea, later findings are notes. Both reads ETag over the `backlog` sync componen
 is a Store domain (`BacklogCache` in the app, like `ProjectsCache`). A note's model and effort are joined to its turn at
 read once round 4's per-turn join lands; until then a note names its harness.
 
+### Design references — the Looks board (design taste, owner 2026-10-14)
+
+A look the person likes is memory: **one markdown file per reference** at `<bank>/design/<id>.md` plus its screenshot
+at `<bank>/assets/design/<id>.<png|jpg>`, both **in the bank and committed together** — the screenshot is the person's
+own capture of a page that may not look the same tomorrow, so it is an asset like an uploaded picture, not a cache.
+Ids are `<UTC day>-<site slug>` (`2026-10-14-dashboard-example-com`), `-2`, `-3`… on collision, claimed by an exclusive
+create (`markdown_parser.write_new`). Frontmatter: `id`, `title`, `url` (http/https only, no credentials), `site`,
+`captured` (UTC `Z`), `added_by` (`user` | a harness), `session`, `via` (`app_capture | drop | paste | agent | demo`),
+`image: {file, sha256, width, height, bytes}`, `region` (optional), `palette: [{hex, share}]`, `look` (the palette's
+words: dark/light, muted/vivid, hue names), `tokens: {fonts, generic, colors, font_sizes, spacing, radii}` (from the
+snippets), `tags`, `entity` (optional; a page it is about, never created). Body: the title, the screenshot embedded as
+`![Screenshot](../assets/design/<id>.png)`, the link, `## What I liked` (the person's words; any heading in it demoted),
+`## Snippets` (fenced code). **One writer**, `api/services/design_refs.py`, behind every door: REST (`routers/design.py`),
+MCP (`mcp_tools.save_design`) and the demo. Every text is scrubbed (writer `design`); one screenshot (by sha256) is one
+reference; PNG or JPEG only, 32–8192 px, ≤ 4 MB (the app shrinks to ≤ 2560 px first). **Never an entity page** (the 10
+types stay closed): Stage 1 never reads `design/`, nothing here writes `entities/`, and a reference never decays. The
+person's writes commit alone as `Design reference <day>` / `Cicada-Author: user` / `user/companion_app` and are refused
+in a demo bank and while Sleep holds the pages; an agent's as `Agent write` with its harness and session. An agent
+removes only what it added. `sync_service`'s `design` component (a stat walk of `design/`) is the board's ETag; it is
+not a Store domain.
+
+**What is read locally, with no model:** the palette (`design_palette.palette`: pixels at ≤ 256 px, 5-bit bins merged
+greedily under an RGB distance of 28, every colour ≥ 1 %, largest first — deterministic) and its words, and the CSS
+tokens of the snippets (regular expressions over the text as given; nothing is fetched or run). Pixels come from
+`image_decode`: macOS's `sips` in a child process over a temporary file the backend wrote itself (never a path a
+request names), returning an uncompressed BMP parsed with numpy — no image library in the server; a decode failure
+means no palette, never a failed save.
+
+**The design index** (`design_index.py`) is derived and disposable **outside every bank**:
+`$CICADA_HOME/design-index/<bank-id>.sqlite`, one row per reference and kind (`image`: the screenshot's EmbeddingGemma 2
+vector; `note`: the note plus the look's words, same model's text encoder), each stamped with the model and the hash
+of what was embedded. A damaged file is rebuilt. Search fuses up to three legs by reciprocal rank (k = 60): words
+(whole word 2, prefix 1, the exact phrase +3 — DigUp's exact-word boost, credited), the query against the screenshots
+(one shared text–image space) and against the notes; or an example picture against the screenshots. A meaning leg keeps only
+hits within 80 % of its best cosine (a relative floor: the text–image and text–text bands differ by model), and a text
+query's results are tiered — what the words found first, then what only meaning found — so a word search never returns
+the whole board. Without the image
+encoder the picture leg is absent (`missing: image_model`); without EmbeddingGemma 2, words only. It embeds on a search
+(at most 64 pictures a call) and in the background after a save — never by Sleep, and never while a Sleep run is going
+(a search then answers from the vectors already stored). The query is never logged or stored.
+
 ### Live state + handshake (G53 / G75)
 
 **`<bank>/_state.md` is a *cursor* into the graph, never a copy of it** — YAML frontmatter plus a
