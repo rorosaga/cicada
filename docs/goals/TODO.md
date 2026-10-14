@@ -8,11 +8,11 @@
 
 ## Current state and evidence
 
-- **2026-10-14 (late evening) — exploring, slice 2, on branch `feat/explore-depth` (not merged).** Depth follows the
+- **2026-10-14 (late evening) — exploring, slice 2, merged as #286.** Depth follows the
   person's reason (G191 ids, their words, their conversations) through a deterministic plan (`explore_plan`; no model),
   a site map per explored site in the bank (`captures/_sites/<site>.md`, append-only, `cicada_site_map`,
-  `GET /explore/sites`), and auto-Looks for a design reason (G166, G196). The catalog pins `site-explore` to the
-  branch commit; **after the merge, re-pin it to the dev squash commit** as #283 did (`scripts/verify-skills.sh`).
+  `GET /explore/sites`), and auto-Looks for a design reason (G166, G196). The catalog pins `site-explore` to the dev
+  squash commit of #286 (`2a9b5990`; `scripts/verify-skills.sh` passes), as #283 did.
 - **2026-10-14 (evening) — exploring saved sites, slice 1, on branch `feat/explore-sites` (not merged).** The owner
   ruled D1–D6 (ruling 25). Built: the explore queue, dated captures with thumbnails in the bank and full images in
   `~/.cicada/captures/`, four stdio MCP tools (`cicada_explore_claim`, `cicada_record_capture`, `cicada_explore_queue`,
