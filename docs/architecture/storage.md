@@ -197,7 +197,12 @@ supersedes/superseded_by untouched (a `page` span that cited the loser keeps nam
 into that text, which git holds). An id the winner already uses is kept as `<id>-from-<loser>` (the loser's own
 supersession links follow; a re-run after a crash finds its earlier copy); a claim identical once re-subjected is kept
 once; two open claims that disagree stay two — a merge never closes a belief. A corrupt fence on either page aborts
-the merge (the inbox answers 409), and two ids for one file (a case-insensitive disk) are refused. Before the loser's
+the merge (the inbox answers 409), and two ids for one file (a case-insensitive disk) are refused. **A ref resolves to
+the page's own id whatever case was typed (2026-10-14):** `id_utils.resolve_entity_file` returns the path spelled as
+the directory lists it (`id_utils.on_disk`; the listing is cached by the folder's mtime), because macOS finds
+`entities/Cicada.md` when the page is `cicada.md` and a caller that took that stem as the id knew no page by it —
+`cicada_note_progress(project="Cicada")` called a project "a page". The readers that join a ref onto `entities/`
+themselves (`recall_detail`, `sources`, progress participants, the backlog's project page) use the same rule. Before the loser's
 page is deleted, `graph_edges.yaml` and every other page's `related:`, `[[wikilinks]]` (with `|label` or `#section`),
 source `entity:` links and claims whose subject or node object named it are repointed (`repoint_references`), the
 loser's name joins the winner's `aliases`, and the result lists the paths it wrote. The inbox's

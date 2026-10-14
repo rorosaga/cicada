@@ -11,7 +11,9 @@ Every code path that turns an entity or skill name into a markdown filename
 must go through :func:`sanitize_id` so the filesystem layout stays flat.
 """
 
+import os
 import re
+import unicodedata
 from pathlib import Path
 
 
@@ -52,6 +54,47 @@ def bank_file(directory: Path, stem: str) -> Path | None:
     return Path(directory) / f"{raw}.md"
 
 
+def _fold(name: str) -> str:
+    return unicodedata.normalize("NFC", name).casefold()
+
+
+_LISTINGS: dict[str, tuple[int, frozenset[str]]] = {}
+
+
+def _listing(directory: Path) -> frozenset[str] | None:
+    """A directory's names, re-read only when its mtime moves (an entry added, removed or renamed), so a caller that
+    resolves many refs in a loop lists the folder once."""
+    key = str(directory)
+    try:
+        stamp = os.stat(directory).st_mtime_ns
+        cached = _LISTINGS.get(key)
+        if cached is not None and cached[0] == stamp:
+            return cached[1]
+        names = frozenset(os.listdir(directory))
+    except OSError:
+        return None
+    _LISTINGS[key] = (stamp, names)
+    return names
+
+
+def on_disk(path: Path) -> Path:
+    """``path`` spelled as its file is actually named in its directory (2026-10-14).
+
+    macOS's filesystem ignores case (and Unicode normalization) when it looks a name up, so ``entities/Cicada.md``
+    "exists" when the page is ``entities/cicada.md`` — and every caller that takes the returned stem as the page's
+    id (``project_timeline``'s type lookup, the backlog, sources) then knew no page by that id: ``cicada_note_progress
+    (project="Cicada")`` answered "Cicada is a page" about a project. The directory listing is the authority: the
+    exact name when it is there, else the one entry equal to it ignoring case and normalization, else ``path`` as
+    given (a case-sensitive filesystem already answered exactly)."""
+    path = Path(path)
+    names = _listing(path.parent)
+    if names is None or path.name in names:
+        return path
+    want = _fold(path.name)
+    matches = sorted(n for n in names if _fold(n) == want)
+    return path.parent / matches[0] if matches else path
+
+
 def resolve_entity_file(memory_path: Path, name_or_slug: str) -> Path | None:
     """Map an entity slug or display name to its markdown file, tolerantly.
 
@@ -63,7 +106,8 @@ def resolve_entity_file(memory_path: Path, name_or_slug: str) -> Path | None:
     2. sanitized — ``entities/<sanitize_id(name_or_slug)>.md``;
     3. case-insensitive stem scan over ``entities/*.md``.
 
-    Returns the resolved ``Path`` or ``None`` when nothing matches.
+    Returns the resolved ``Path`` — always spelled as the file is on disk (:func:`on_disk`) — or ``None`` when
+    nothing matches.
     """
     raw = (name_or_slug or "").strip()
     if not raw:
@@ -72,11 +116,11 @@ def resolve_entity_file(memory_path: Path, name_or_slug: str) -> Path | None:
 
     direct = bank_file(entities_dir, raw)  # never a path out of the bank
     if direct is not None and direct.exists():
-        return direct
+        return on_disk(direct)
 
     sanitized = entities_dir / f"{sanitize_id(raw)}.md"
     if sanitized.exists():
-        return sanitized
+        return on_disk(sanitized)
 
     if not entities_dir.exists():
         return None
