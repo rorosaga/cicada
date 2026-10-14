@@ -142,6 +142,17 @@ Seven rails hold across all of them:
   discloses the count. The textual `is_injection` deletion and the hook-tag span/first-tag rules were removed for
   person text; G105 R5's tool-output rules — the `<system-reminder>` span strip and the first-tag skip for harness tags —
   are a different rail and stay.
+- **A captured session's title is the person's own words, never a wrapper tag** (2026-10-14, `episode_title`). The
+  first person message can open with a wrapper — `<pasted_content id="…">` around a paste, or a harness block that
+  arrived inside the person's text (G110 gate C) — and the old first-line rule (G105 R12) titled the session by the
+  bare tag. The title is now the first real line outside every wrapper, else the first inside one (a message that is
+  only a paste); text inside a harness tag (`CLAUDE_HARNESS_TAGS`/`CODEX_HARNESS_TAGS`) never counts; a tag opens a
+  wrapper only at a line's start, so `Vec<String>` mid-sentence is words. A turn with no real line (only a command tag)
+  passes to the next person turn, then `<Product> session`. Title only: the body is kept as captured. Episodes titled
+  before the fix are retitled once from their own stored body — the transcript is never re-read — by
+  `api/scripts/retitle_wrapped_episodes.py` (the dry run prints counts; `--apply` is refused while Sleep runs, makes one
+  `cicada` commit and re-queues nothing — the title is outside `content_hash`; a run that fails before its commit puts
+  back every file and index entry it changed). The scan is linear: it runs in the Stop hook.
 - **Transcripts under `~/.claude/` are never read anywhere else.** The MCP seam and the resume path
   only ever `isfile()` them to answer "is this session still resumable"; that answer is computed
   per request and never persisted.

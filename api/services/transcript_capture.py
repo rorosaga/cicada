@@ -41,8 +41,8 @@ from pathlib import Path
 from loguru import logger
 
 from api.services import (
-    agent_turns, continuity_sessions, demo_guard, episode_ids, episode_staging, evidence, markdown_parser, session_stats,
-    telemetry,
+    agent_turns, continuity_sessions, demo_guard, episode_ids, episode_staging, episode_title, evidence, markdown_parser,
+    session_stats, telemetry,
 )
 from api.services.transcript_extract import HARNESSES, Conversation, extract
 
@@ -50,9 +50,9 @@ from api.services.transcript_extract import HARNESSES, Conversation, extract
 #: 2026-09-03 schema peek was 85 MB; the cap is a ceiling against a runaway
 #: file, not a budget.
 MAX_TRANSCRIPT_BYTES = 256 * 1024 * 1024
-TITLE_MAX = 72
+TITLE_MAX = episode_title.TITLE_MAX
 CAPTURE_KIND = "transcript"
-PRODUCT = {"claude-code": "Claude Code", "codex": "Codex"}
+PRODUCT = episode_title.PRODUCT
 
 _SESSION_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{7,127}$")
 _lock = threading.Lock()
@@ -397,13 +397,9 @@ def _agent_fields(sidecar: list[dict], previous, effort: str | None, last_offset
 
 
 def _title(conv: Conversation, harness: str) -> str:
-    """R12: the first kept user turn's first line, else ``<Product> session``."""
-    for t in conv.turns:
-        if t.role == "user":
-            first = t.text.strip().splitlines()[0].strip()
-            if first:
-                return first if len(first) <= TITLE_MAX else first[: TITLE_MAX - 1] + "…"
-    return f"{PRODUCT.get(harness, harness)} session"
+    """R12: the first person turn's own first line — never a wrapper tag (``episode_title``) — else
+    ``<Product> session``."""
+    return episode_title.title_for((t.text for t in conv.turns if t.role == "user"), harness)
 
 
 def _is_session_episode(fp: Path, session_id: str) -> bool:
