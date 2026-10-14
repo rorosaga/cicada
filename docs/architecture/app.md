@@ -353,7 +353,9 @@ until a mouse-down lands in it, so no activation or stray key can press a chip o
 first's sync — ingest plus the store's reconcile — let the owed one start): a live change that cannot sync yet (a sync
 running, or inside the 5 s floor) is looked at at once (`BrowserImportActions.peek` → the early look), and the sync
 follows when the way is clear. Its bytes still hold the earlier bookmark, not saved yet, so every link an early look
-saw is remembered with the look's number (`SaveWhyCenter.seenFresh`) until a sync that read after it lands
+saw is remembered with the look's number — taken before its file is read (`BookmarkSyncSignal.takeLook`), so a
+higher number always read newer bytes and a sync that read before a bookmark existed never releases its held answer
+(review B2) — (`SaveWhyCenter.seenFresh`) until a sync that read after it lands
 (`.afterEarlyLook(look:)`), and a later look counts only what is new since — one fresh bookmark, not two. An answer's
 404 is held until the sync of the look that asked it lands. Tested: two saves 10 s apart under a 14 s first sync, each
 panel in ≈ 0.5 s.

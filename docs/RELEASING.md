@@ -165,9 +165,10 @@ install: Full Disk Access granted at one build read "Needs Full Disk Access" aga
 
 - **A developer install** (`make install-app`, `make dev`, the dev auto-update) signs with the self-signed
   **Cicada Local** identity when the keychain has it (`app/CicadaApp/sign_identity.sh`); its requirement is "this
-  bundle id, signed by this certificate", which every rebuild keeps. Once per Mac: `make signing-identity`, then
-  `make install-app` by hand once (answer **Always Allow** to codesign's key prompt), then grant the permissions one
-  last time (`scripts/dev/README.md`). Free, no Apple account. It is not a Gatekeeper-trusted signature and signs
+  bundle id, signed by this certificate", which every rebuild keeps. Once per Mac, at the keyboard: `make signing-identity`
+  (creates the identity, authorises codesign to use its key with the login password, proves it with a trial signature),
+  then `make install-app`, then grant the permissions one last time (`scripts/dev/README.md`). Unattended, the install
+  signs under a time limit and skips the update rather than wait on a prompt. Free, no Apple account. It is not a Gatekeeper-trusted signature and signs
   nothing for anyone else's Mac.
 - **A release** is still signed ad hoc in CI, so a tester's in-app update drops their grants the same way until a
   Developer ID is in place. The update's own checks — sha256 and the Ed25519 signature over `latest.json` — are

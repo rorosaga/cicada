@@ -107,7 +107,22 @@ sign_args=(--force --deep --sign "$SIGN_IDENTITY")
 # local build has no use for a trusted timestamp and must not need the network.
 [ "$SIGN_IDENTITY" = "-" ] || sign_args+=(--timestamp=none)
 step "Code-signing the staged build (${SIGN_LABEL})…"
-if ! codesign "${sign_args[@]}" "$STAGING"; then
+# Unattended (the dev auto-update sets CICADA_UNATTENDED=1), a certificate signature runs under a time limit: a key
+# macOS never authorised for codesign raises a dialog nobody will answer. Past the limit the update is skipped and the
+# installed app kept (`make signing-identity` authorises the key). At the keyboard, the dialog waits for the person.
+sign_status=0
+if [ "${CICADA_UNATTENDED:-0}" = "1" ] && [ "$SIGN_IDENTITY" != "-" ]; then
+  cicada_codesign_bounded "${CICADA_CODESIGN_TIMEOUT:-120}" "${sign_args[@]}" "$STAGING" || sign_status=$?
+else
+  codesign "${sign_args[@]}" "$STAGING" || sign_status=$?
+fi
+if [ "$sign_status" -eq 124 ]; then
+  err "codesign did not finish within ${CICADA_CODESIGN_TIMEOUT:-120} s — it is waiting on macOS's key prompt (${SIGN_LABEL})."
+  err "Update skipped; the installed Cicada.app at $DEST was never touched. Authorise the key once: make signing-identity"
+  rm -rf "$STAGING"
+  exit 1
+fi
+if [ "$sign_status" -ne 0 ]; then
   err "Code-signing failed on the staged build (${SIGN_LABEL})."
   err "The previously installed Cicada.app at $DEST was never touched."
   rm -rf "$STAGING"

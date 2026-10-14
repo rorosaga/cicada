@@ -24,8 +24,9 @@ enum BrowserImportActions {
             guard await store.perform(m), let r = m.result else { try Task.checkCancellation(); throw ImportActionError.failed(store.toast ?? "Sync failed") }
             return BrowserImportSummary.tabs(r)
         case "safari-bookmarks":
+            let look = BookmarkSyncSignal.takeLook()   // review B2: numbered before the read
             let data = try await BrowserFileReader.read(.safariBookmarks)
-            let looked = await BookmarkSyncSignal.lookEarly(.safari(data))   // G191 live: ask before the sync
+            let looked = await BookmarkSyncSignal.lookEarly(.safari(data), look: look)   // G191 live: ask before the sync
             let m = SyncBrowserBookmarks(chromeData: nil, safariData: data, folders: nil)
             guard await store.perform(m), let r = m.result else {
                 try Task.checkCancellation()
@@ -35,8 +36,9 @@ enum BrowserImportActions {
             BookmarkSyncSignal.post(r, lookedEarly: looked)   // G191: the save-why question decides whether to ask
             return BrowserImportSummary.bookmarks(r)
         case "chrome-bookmarks":
+            let look = BookmarkSyncSignal.takeLook()   // review B2: numbered before the read
             let data = try await BrowserFileReader.read(.chromeBookmarks)
-            let looked = await BookmarkSyncSignal.lookEarly(.chrome(data))   // G191 live: ask before the sync
+            let looked = await BookmarkSyncSignal.lookEarly(.chrome(data), look: look)   // G191 live: ask before the sync
             let m = SyncBrowserBookmarks(chromeData: data, safariData: nil, folders: nil)
             guard await store.perform(m), let r = m.result else {
                 try Task.checkCancellation()
@@ -53,8 +55,9 @@ enum BrowserImportActions {
                 // internal id never belongs in the person's copy (L final review, finding 1).
                 throw ImportActionError.failed("This source can't be synced from here.")
             }
+            let look = BookmarkSyncSignal.takeLook()   // review B2: numbered before the read
             let data = try await BrowserFileReader.read(file)
-            let looked = await BookmarkSyncSignal.lookEarly(.chromium(browser: spec.id, data))   // G191 live
+            let looked = await BookmarkSyncSignal.lookEarly(.chromium(browser: spec.id, data), look: look)   // G191 live
             let m = SyncChromiumBookmarks(browser: spec.id, data: data)
             guard await store.perform(m), let r = m.result else {
                 try Task.checkCancellation()
@@ -72,8 +75,9 @@ enum BrowserImportActions {
     /// look still decides.
     @MainActor
     static func peek(_ id: String) async {
-        let bytes: BookmarkBytes
+        let (bytes, look): (BookmarkBytes, Int?)
         do {
+            look = BookmarkSyncSignal.$live.withValue(true) { BookmarkSyncSignal.takeLook() }   // before the read
             switch id {
             case "safari-bookmarks": bytes = .safari(try await BrowserFileReader.read(.safariBookmarks))
             case "chrome-bookmarks": bytes = .chrome(try await BrowserFileReader.read(.chromeBookmarks))
@@ -83,7 +87,7 @@ enum BrowserImportActions {
                 bytes = .chromium(browser: spec.id, try await BrowserFileReader.read(file))
             }
         } catch { return }
-        _ = await BookmarkSyncSignal.$live.withValue(true) { await BookmarkSyncSignal.lookEarly(bytes) }
+        _ = await BookmarkSyncSignal.$live.withValue(true) { await BookmarkSyncSignal.lookEarly(bytes, look: look) }
     }
 
     enum ImportActionError: Error, LocalizedError, Equatable {

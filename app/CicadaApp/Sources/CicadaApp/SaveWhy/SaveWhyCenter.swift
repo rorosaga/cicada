@@ -25,12 +25,22 @@ enum BookmarkSyncSignal {
     /// The one listener (the app's `SaveWhyCenter`); nil in tests and before launch finishes.
     @MainActor static var observer: (@MainActor (BookmarkSyncResult, Delivery) -> Void)?
     /// The early look (the center's `lookEarly`): the look's number when it looked, whatever it decided; nil when not.
-    @MainActor static var early: (@MainActor (BookmarkBytes) async -> Int?)?
+    @MainActor static var early: (@MainActor (BookmarkBytes, Int) async -> Int?)?
+    /// The center's look numbers (`SaveWhyCenter.takeLook`).
+    @MainActor static var numberLook: (@MainActor () -> Int)?
+
+    /// A look's number, taken BEFORE its file is read (review B2): a sync that read the file before bookmark C existed
+    /// must never carry a higher number than C's own look, or its landing would release C's held answer to a 404 that
+    /// is then final. Numbering by read order means a higher number always read newer bytes. Nil when not live.
+    @MainActor static func takeLook() -> Int? {
+        guard live, let numberLook else { return nil }
+        return numberLook()
+    }
 
     /// Only a live sync looks early — a catch-up, Sync now, Turn on or import is never a moment of saving.
-    @MainActor static func lookEarly(_ bytes: BookmarkBytes) async -> Int? {
-        guard live, let early else { return nil }
-        return await early(bytes)
+    @MainActor static func lookEarly(_ bytes: BookmarkBytes, look: Int?) async -> Int? {
+        guard live, let look, let early else { return nil }
+        return await early(bytes, look)
     }
 
     @MainActor static func post(_ result: BookmarkSyncResult, lookedEarly: Int? = nil) {
@@ -107,7 +117,8 @@ final class SaveWhyCenter {
                 }
             }
         }
-        BookmarkSyncSignal.early = { [weak self] bytes in await self?.lookEarly(bytes) }
+        BookmarkSyncSignal.early = { [weak self] bytes, look in await self?.lookEarly(bytes, look: look) }
+        BookmarkSyncSignal.numberLook = { [weak self] in self?.takeLook() ?? 0 }
         Task { await refreshOptions() }
     }
 
@@ -121,23 +132,33 @@ final class SaveWhyCenter {
     /// for the sync ahead. Its bytes then hold the earlier bookmark too, not saved yet — so every link a look saw as
     /// fresh is remembered (`seenFresh`) until a sync that read after it lands, and a later look subtracts what an
     /// earlier one already saw: "one fresh bookmark" means one new since the last look, not two.
-    func lookEarly(_ bytes: BookmarkBytes) async -> Int? {
+    func lookEarly(_ bytes: BookmarkBytes, look given: Int? = nil) async -> Int? {
         guard prefs.enabled, state?.phase != .writing else { return nil }
+        let look = given ?? takeLook()   // the caller's, taken before it read `bytes`
         let options = cachedOptions == nil ? Task { await refreshOptions() } : nil
         guard let result = try? await api.freshBookmarks(bytes) else { return nil }
         await options?.value
-        lookCount += 1
-        let look = lookCount
         await noticed(newSinceEarlierLooks(result, look: look), live: true, early: look)
         return look
     }
 
-    /// `result` without the links an earlier look already saw (their syncs not landed yet); records the rest.
+    /// The next look's number — the caller takes it just before reading the file (`BookmarkSyncSignal.takeLook`).
+    func takeLook() -> Int {
+        lookCount += 1
+        return lookCount
+    }
+
+    /// `result` without the links another look already saw (their syncs not landed yet); records the rest. A link
+    /// keeps the lowest number that saw it: a sync whose look read it is the one whose landing saves it.
     func newSinceEarlierLooks(_ result: BookmarkSyncResult, look: Int) -> BookmarkSyncResult {
         var out = result
         let seenBefore = result.fresh.filter { seenFresh[$0.url] != nil }
-        for item in result.fresh where seenFresh[item.url] == nil { seenFresh[item.url] = (item.channel, look) }
-        out.fresh = result.fresh.filter { seenFresh[$0.url]?.look == look }
+        for item in result.fresh {
+            if let seen = seenFresh[item.url] { seenFresh[item.url] = (seen.channel, min(seen.look, look)) }
+            else { seenFresh[item.url] = (item.channel, look) }
+        }
+        let before = Set(seenBefore.map(\.url))
+        out.fresh = result.fresh.filter { !before.contains($0.url) }
         out.freshTotal = max(0, result.freshTotal - seenBefore.count)
         return out
     }

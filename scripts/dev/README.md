@@ -28,13 +28,17 @@ and Screen Recording are all dropped silently by every update.
 
 Once per Mac, make a self-signed code-signing certificate (free, no Apple account):
 
-1. `make signing-identity` (`scripts/dev/make-signing-identity.sh`). It creates **Cicada Local** in the login keychain
-   with `openssl` and `security import … -T /usr/bin/codesign`, and does nothing if it is already there. (By hand
-   instead: Keychain Access → Certificate Assistant → Create a Certificate…, name **Cicada Local**, Self-Signed Root,
-   Code Signing.)
-2. Run `make install-app` by hand once. macOS asks whether codesign may use the new key: **Always Allow**. An
-   unattended auto-update would otherwise wait on that dialog.
-3. Grant Full Disk Access (and any other permission) once more, to this first certificate-signed build.
+1. `make signing-identity` (`scripts/dev/make-signing-identity.sh`), at the keyboard. It (1) creates **Cicada Local**
+   in the login keychain with `openssl` and `security import … -T /usr/bin/codesign`, keeping one already there;
+   (2) authorises codesign to use that key without a dialog — `security set-key-partition-list -S apple-tool:,apple: -s
+   -l "Cicada Local"`, asking for the login password once, `-l` so no other key changes; (3) signs a throwaway copy of
+   `/usr/bin/true` under a 30 s limit to prove it. Each failure names its step and the reason.
+2. `make install-app`, then grant Full Disk Access (and any other permission) once more, to this first
+   certificate-signed build.
+
+The auto-update installs with `CICADA_UNATTENDED=1`: `install_app.sh` then signs under a time limit
+(`CICADA_CODESIGN_TIMEOUT`, 120 s; `cicada_codesign_bounded`), and a key prompt nobody answers skips the update — the
+installed app kept, a log line naming `make signing-identity` — instead of hanging the job.
 
 The install then says `Signed and verified with "Cicada Local" (<hash>)`. It finds the certificate in
 `security find-identity -p codesigning`, where an untrusted self-signed one is listed only without `-v`, and signs by

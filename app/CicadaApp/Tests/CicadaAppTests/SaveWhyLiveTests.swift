@@ -194,8 +194,9 @@ final class SaveWhyLiveTests: XCTestCase {
             performSync: { _, _ in
                 // What `syncChannel` does: read, look early, then the slow sync, then its result.
                 syncs += 1
+                let look = BookmarkSyncSignal.takeLook()   // before the read, as `syncChannel` does
                 let data = try Data(contentsOf: bookmarks)
-                let looked = await BookmarkSyncSignal.lookEarly(.chrome(data))
+                let looked = await BookmarkSyncSignal.lookEarly(.chrome(data), look: look)
                 if BookmarkSyncSignal.live { try await Task.sleep(for: .seconds(3)) }
                 let result = await api.ingest(data)
                 ingested = BookmarkSyncSignal.live
@@ -254,8 +255,9 @@ final class SaveWhyLiveTests: XCTestCase {
             performSync: { _, _ in
                 syncs += 1
                 let n = syncs
+                let look = BookmarkSyncSignal.takeLook()   // before the read, as `syncChannel` does
                 let data = try Data(contentsOf: bookmarks)
-                let looked = await BookmarkSyncSignal.lookEarly(.chrome(data))
+                let looked = await BookmarkSyncSignal.lookEarly(.chrome(data), look: look)
                 if BookmarkSyncSignal.live && n == 2 { try await Task.sleep(for: .seconds(14)) }   // the slow one
                 let result = await api.ingest(data)
                 landed.append(n)
@@ -263,8 +265,11 @@ final class SaveWhyLiveTests: XCTestCase {
                 return "ok"
             },
             peek: { _ in
+                let look = BookmarkSyncSignal.$live.withValue(true) { BookmarkSyncSignal.takeLook() }
                 guard let data = try? Data(contentsOf: bookmarks) else { return }
-                _ = await BookmarkSyncSignal.$live.withValue(true) { await BookmarkSyncSignal.lookEarly(.chrome(data)) }
+                _ = await BookmarkSyncSignal.$live.withValue(true) {
+                    await BookmarkSyncSignal.lookEarly(.chrome(data), look: look)
+                }
             })
         watcher.start(store: store)
         try await eventually("the catch-up sync") { landed == [1] }
@@ -299,6 +304,64 @@ final class SaveWhyLiveTests: XCTestCase {
         XCTAssertEqual(posts, [second])
         XCTAssertEqual(presenter.shows, 2, "no sync asks a third time")
         watcher.stop()
+    }
+
+    /// Review B2's interleaving. A sync reads the file before bookmark C exists, but its early look answers last;
+    /// C's peek reads after C was saved and answers first. Numbered by answer, the sync's look outranked C's, so its
+    /// landing released C's held answer to a 404 that is final — the answer was lost. Numbered before the read, the
+    /// sync's landing leaves C held until a sync that read C lands, and C is asked once.
+    func testASyncThatReadBeforeABookmarkNeverReleasesThatBookmarksHeldAnswer() async throws {
+        let prefs = SaveWhyPrefs(defaults: defaults)
+        prefs.enabled = true
+        let api = LiveFakeAPI(now: Date())
+        let presenter = TimingPresenter()
+        let center = SaveWhyCenter(prefs: prefs, api: api, presenter: presenter, now: Date.init)
+        await center.refreshOptions()
+        let a = "https://alpha.example/a", c = "https://gamma.example/c"
+        func file(_ urls: String...) -> BookmarkBytes {
+            .chrome(Data(urls.map { "\"\($0)\"" }.joined(separator: ",").utf8))
+        }
+
+        // A was asked about and its sync has landed.
+        let lookA = center.takeLook()
+        _ = await center.lookEarly(file(a), look: lookA)
+        _ = await api.ingest(Data("\"\(a)\"".utf8))
+        await center.ingested(BookmarkSyncResult(new: 1, skipped: 0, sources: [
+            BookmarkSyncSourceSummary(origin: "chrome-bookmark", channel: "chrome-bookmarks", found: 1, new: 1,
+                                      skipped: 0, firstSync: false)]), look: lookA)
+        center.send(.escape)
+
+        // The sync S reads the file before C exists: its number is taken now…
+        let lookS = center.takeLook()
+        let bytesS = file(a)
+        // …C is saved, and its peek reads after: a higher number, though it answers first.
+        try await Task.sleep(for: .seconds(SaveWhyPolicy.repeatGuard + 0.1))
+        let lookC = center.takeLook()
+        XCTAssertGreaterThan(lookC, lookS)
+        _ = await center.lookEarly(file(a, c), look: lookC)
+        XCTAssertEqual(center.state?.item.url, c)
+        center.send(.tapReason("design"))
+        center.send(.escape)
+        await center.settle()
+        XCTAssertEqual(center.heldCount, 1, "C's answer meets a 404: held")
+
+        // S's look answers last (nothing new in its bytes), S ingests A only and lands.
+        _ = await center.lookEarly(bytesS, look: lookS)
+        let resultS = await api.ingest(Data("\"\(a)\"".utf8))
+        await center.ingested(resultS, look: lookS)
+        XCTAssertEqual(center.heldCount, 1, "S read before C existed: C's answer stays held")
+        let early = await api.posts
+        XCTAssertTrue(early.isEmpty)
+
+        // The sync that read C lands: the answer goes, and C was asked once.
+        let lookT = center.takeLook()
+        _ = await center.lookEarly(file(a, c), look: lookT)
+        let resultT = await api.ingest(Data("\"\(a)\",\"\(c)\"".utf8))
+        await center.ingested(resultT, look: lookT)
+        XCTAssertEqual(center.heldCount, 0)
+        let posts = await api.posts
+        XCTAssertEqual(posts, [c])
+        XCTAssertEqual(presenter.shows, 2, "A once, C once")
     }
 
     /// The budget's parts: the settle and stream latency leave room for the read, the look and the show.
