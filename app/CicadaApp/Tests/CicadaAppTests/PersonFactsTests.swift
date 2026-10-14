@@ -7,10 +7,12 @@ final class PersonFactsTests: XCTestCase {
     private let utc = TimeZone(identifier: "UTC")!
     private let today = ISODay(year: 2026, month: 9, day: 24)
 
-    private func claim(_ id: String, _ predicate: String, _ object: String, episode: String) throws -> Claim {
-        try JSONDecoder().decode(Claim.self, from: Data(#"""
+    private func claim(_ id: String, _ predicate: String, _ object: String, episode: String,
+                       validFrom: String = "2026-03-12", validTo: String? = nil) throws -> Claim {
+        let closed = validTo.map { #","validTo":"\#($0)""# } ?? ""
+        return try JSONDecoder().decode(Claim.self, from: Data(#"""
         {"id":"\#(id)","text":"t","subject":"leo-example","predicate":"\#(predicate)","object":"\#(object)",
-         "context":"general","observer":"owner-example","validFrom":"2026-03-12",
+         "context":"general","observer":"owner-example","validFrom":"\#(validFrom)"\#(closed),
          "evidence":[{"episode":"\#(episode)","start":0,"end":10,"kind":"user","hash":"abc"}]}
         """#.utf8))
     }
@@ -34,8 +36,10 @@ final class PersonFactsTests: XCTestCase {
     private func cells(claims: [Claim], picture: EntityPictureRef? = nil, entity: Entity? = nil,
                        provenance: EntityProvenance? = nil) -> [PersonFact] {
         PersonFacts.cells(entity: entity ?? leo(), claims: claims, provenance: provenance,
-                          names: EntityNames(byId: ["northwind-example": "Northwind Example"]),
-                          typeOf: { $0 == "northwind-example" ? .company : nil }, picture: picture,
+                          names: EntityNames(byId: ["northwind-example": "Northwind Example",
+                                                    "lab-example": "Lab Example"]),
+                          typeOf: { ["northwind-example", "lab-example"].contains($0) ? .company : nil },
+                          picture: picture,
                           docs: EvidenceDocIndex(), today: today, locale: us, timeZone: utc)
     }
 
@@ -60,6 +64,47 @@ final class PersonFactsTests: XCTestCase {
         XCTAssertEqual(facts[4].marks, ["claude-export", "wispr-flow", "codex", "claude-code"], "oldest first, ≤ 4")
         XCTAssertEqual(facts[4].line, "3 pages")
         XCTAssertEqual(facts[5].value, "Matched")
+    }
+
+    /// 2026-10-14 — a person holds more than one place at once: the cell names every current one, newest first,
+    /// each opening its own page, and past the cap says "+N" with the rest in its help.
+    func testWorksAtNamesEveryCurrentPlaceNewestFirst() throws {
+        let facts = cells(claims: [
+            try claim("c1", "works-at", "northwind-example", episode: "ep_2026-03-12_001", validFrom: "2026-03-12"),
+            try claim("c2", "works-at", "lab-example", episode: "ep_2026-09-01_001", validFrom: "2026-09-01"),
+            try claim("c3", "works-at", "old-example", episode: "ep_2025-01-01_001", validFrom: "2025-01-01",
+                      validTo: "2026-02-01"),
+            try claim("c4", "works-at", "northwind-example", episode: "ep_2026-04-01_001", validFrom: "2026-04-01"),
+        ])
+        let cell = try XCTUnwrap(facts.first { $0.kind == .worksAt })
+        XCTAssertEqual(cell.value, "Lab Example · Northwind Example", "a closed place is history, a repeat is one place")
+        XCTAssertEqual(cell.values.map(\.entity), ["lab-example", "northwind-example"])
+        XCTAssertEqual(cell.values.map(\.type), [.company, .company])
+        XCTAssertNil(cell.valueEntity, "each place opens its own page")
+        XCTAssertEqual(cell.more, [])
+        XCTAssertEqual(cell.line, "You said · Sep 1", "the newest place's evidence")
+    }
+
+    func testPlacesPastTheCapReadPlusN() throws {
+        let facts = cells(claims: [
+            try claim("c1", "works-at", "northwind-example", episode: "ep_2026-03-12_001", validFrom: "2026-03-12"),
+            try claim("c2", "works-at", "lab-example", episode: "ep_2026-09-01_001", validFrom: "2026-09-01"),
+            try claim("c3", "works-at", "side project", episode: "ep_2026-01-01_001", validFrom: "2026-01-01"),
+            try claim("c4", "works-at", "night school", episode: "ep_2025-06-01_001", validFrom: "2025-06-01"),
+        ])
+        let cell = try XCTUnwrap(facts.first { $0.kind == .worksAt })
+        XCTAssertEqual(cell.value, "Lab Example · Northwind Example +2")
+        XCTAssertEqual(cell.values.count, PersonFacts.maxPlaces)
+        XCTAssertEqual(cell.more, ["side project", "night school"])
+        XCTAssertEqual(Copy.People.alsoAt(cell.more), "Also side project, night school")
+    }
+
+    func testOnePlaceIsTheCellItWasBefore() throws {
+        let facts = cells(claims: [try claim("c1", "works-at", "northwind-example", episode: "ep_2026-03-12_001")])
+        let cell = try XCTUnwrap(facts.first)
+        XCTAssertEqual(cell.value, "Northwind Example")
+        XCTAssertEqual(cell.valueEntity, "northwind-example")
+        XCTAssertEqual(cell.values, [])
     }
 
     func testNoCellIsEverAPlaceholder() {

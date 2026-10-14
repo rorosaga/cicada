@@ -619,7 +619,7 @@ def test_every_reopen_in_the_code_consults_the_recovered_history_test():
         if reopen.search(text):
             sites.append(rel)
             assert "is_recovered_history" in text, f"{rel} reopens a claim without asking is_recovered_history"
-    assert sites == ["api/services/inbox_service.py", "api/services/papers.py"], sites
+    assert sites == ["api/services/coexist_reopen.py", "api/services/inbox_service.py", "api/services/papers.py"], sites
 
 
 def test_an_escaped_id_in_a_readable_yaml_of_an_unreadable_page_counts_as_present(bank):

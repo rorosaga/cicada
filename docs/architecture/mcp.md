@@ -9,7 +9,13 @@ handshake as `instructions`. On query: check `memory/inbox/` for relevant pendin
 vector index → search the markdown graph → follow wikilinks for relational depth → progressive
 disclosure (cluster pages → entity pages → episodic sources).
 Recall prose summaries, including related-page blurbs, strip closed claims fences
-before truncation; `cicada_recall_detail` returns the complete page for structured reads. A page over the
+before truncation; `cicada_recall_detail` returns the complete page for structured reads — the file, then, when
+its older claims live in its ledger (`claims_ledger`, `storage.md`), a `## Claims ledger` block with those lines. A
+page over the caller's budget answers first with its prose (`_page_digest`, owner page 2026-10-14): a header (name,
+type, status, aliases, how many conversations, related pages and claims it rests on), then the body from Summary
+on, in page order, without the frontmatter lists or the claims — on the owner's page three quarters of the old first
+part was `related:` and `source_episodes:` — and a footer naming the call that reads the whole page from line 1 (and
+where the prose shown stops). Read with `start`, a page over the
 caller's budget (`RECALL_DETAIL_BUDGET` 60,000 characters; `REMOTE_DETAIL_BUDGET` 20,000 on the remote connector,
 under its 24,000-character result cap) comes in consecutive line ranges: each part is whole lines and ends with
 one line naming its range and the exact next call (`start=<line>`), so every byte — claim ids, evidence, old

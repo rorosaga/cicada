@@ -110,7 +110,8 @@ picture (ImageIO, ≤ 512 px) and `EntityPictureWrite` paints the answer before 
 with mock C's top (F-12): an 88 pt picture, the name at 24, the Summary as a two-line standfirst (a click unfolds it and the header grows; *Show less* folds it —
 a capped Summary or name is never selectable, since a selectable field opens over its neighbours on a click), the
 picture's source line and a
-facts strip whose every cell comes from something the card loaded (`PersonFacts`; Known since, Last mentioned and
+facts strip whose every cell comes from something the card loaded (`PersonFacts`; Works at names every current place,
+newest first, each opening its own page, two then "+N" with the rest in its help — 2026-10-14; Known since, Last mentioned and
 Conversations are when the conversations were said, over all of them — `/provenance`'s `totals` — with the page's own
 dates only as a fallback); then the tabs, and in Content the page like every other type, one column; behind its
 disclosures, beliefs signed with who wrote them (`SignedLine`: harness, model and effort from the captured turn), Where
@@ -244,6 +245,28 @@ touches no claim.
 
 **Three resolution paths for a clarification:** organic (the user provides context later, Sleep
 promotes it), agent-initiated (the agent asks in flow when the topic comes up), manual (the app).
+
+**"What's the name of your partner?" (placeholder people, 2026-10-14).** A `clarification` with `asks: name` is
+the question about a person Cicada knows only by a relation to the owner (`role_people`; written by Sleep's Stage
+5.4 or the repair script, one per page, never after a decline). It carries `question`, one option
+(`rather_not_say`, "I'd rather not say"), `allow_other` and `allow_defer`, and `owner_role`. The answer
+(`inbox_service._resolve_name`): a typed name (`resolve` or `answer` with `answer`) that is exactly one person
+page's name or alias (case, accents and spacing aside) folds the placeholder into that page through
+`entity_merge.merge_entities` — the person's answer is the evidence — and records the relation in `owner_roles`;
+any other name renames the page (`rename_references`: its claims, the graph's edges, every other page's `related`
+and wikilinks follow; the id moves to the name's), and a person page whose name contains it or is contained in it
+("Carl" / "Carl Example"), or several pages of exactly that name, gets a "Possible duplicate" `merge_suggestion`
+each — never a merge; such an item carries `fold_page: true`, and only a flagged item's "merge" folds its page into
+the target. An answer that reads as a relation ("my girlfriend", or the asked relation itself) or a self-reference
+is a 400 and writes nothing; a bare word that is also a name ("Tia") is a name.
+`rather_not_say` (or a dismiss) keeps a role title, never the owner's name, and sets `name_declined`. The commit is
+the person's (`Cicada-Author: user`, `inbox/clarification/resolved:answer|rather_not_say`). The question is served
+while its page is archived (it is about who the person is, not whether the page is live; `_hidden` asks
+`_subject_gone` with `clarification:name`): only a dropped or merged-away page retires it. A `merge_suggestion`
+flagged `fold_page` folds its page into the target on `merge`; every other item (Stage 2's, asked about a mention)
+keeps the note-only answer, even when a page was promoted under the mention's slug since.
+The app draws a name field, Submit and "I'd rather not say" (`NameBody`, `app.md`); an older build sees the option
+and Other… and still answers it.
 
 **Observer inconsistency — resolved (G117).** All five sites (the inbox resolve path, Telegram
 capture, `agentic_write`'s trust/origin gate, and MCP `cicada_write_claim`'s schema/description) now

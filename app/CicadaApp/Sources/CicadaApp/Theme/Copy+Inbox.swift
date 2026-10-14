@@ -34,6 +34,10 @@ extension Copy {
         static let other = "Other…"
         static let otherPrompt = "What's actually true?"
         static let answerPrompt = "Type your answer…"
+        static let namePrompt = "Their name…"
+        static let nameNeedsText = "Type their name first"
+        static let ratherNotSay = "I'd rather not say"
+        static let ratherNotSayHelp = "Keep this person under the relation; Cicada won't ask again"
         static let submit = "Submit"
         /// DR-41 — a disabled control says why in `.help`.
         static let submitNeedsText = "Type what's actually true first"

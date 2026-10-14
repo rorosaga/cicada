@@ -40,6 +40,7 @@ source_episodes: [ep_2026-01-10_001]
 tags: []                   # open set, freeform
 related: []                # duplicates wikilinks for programmatic access
 version: 3
+claims_ledger: {claims: 5835, hash: 1a2b3c4d5e6f}  # only on a page whose older claims live in its ledger
 ---
 ```
 
@@ -117,6 +118,70 @@ claims, paid by every full-bank reader); a JSON line is ~3 µs (`benchmarks/scal
 evidence offset points into the body with the fence stripped, which is the same text in either form.
 A predicate the vocabulary marks multi-valued (`predicates.cardinality`) never opens a conflict.
 
+**The claims ledger — a very large page's older claims, beside it (owner page, 2026-10-14).** A page's claims are
+its fence **plus**, once the fence passes `claims_ledger.FENCE_MAX_CHARS` (64,000 characters — a median page holds a
+few KB), `entities/<id>.claims.jsonl`: the fence's own JSON lines, oldest first, tracked by git with the page. Why: the
+owner's page carried ~5,900 claims, mostly a per-conversation activity log ("<owner> asked about X"), 4.5 MB of a
+4.7 MB file every reader and writer moved. The split is invisible above `markdown_parser`: `parse` of a page whose
+frontmatter carries the `claims_ledger: {claims, hash}` stamp folds the ledger's lines back in at the head of the
+fence (a line in both files byte for byte — a crash between the two writes — is read once), so all ~70 claim readers
+and writers see one set; `parse(..., ledger=False)` (a frontmatter scan, the card) never opens it. `parse` also marks the frontmatter dict it
+returns with the hash of the ledger it folded (`claims_ledger.READ`, never written to disk). `write` leaves in the
+ledger every line the body carries back byte for byte. A ledger line the body does not carry leaves the ledger only
+when the writer handed back that mark for the ledger as it still is — it read the whole set and wrote its change
+(a rename re-subjecting every claim, a pass editing each); any other body (read without the ledger, or against a
+ledger changed since) leaves every ledger line as it is. Nothing is matched by id: a withdrawn or expired claim and
+its restatement share one, and both are the record (review 2026-10-14). Lines the ledger gains are written before the
+page and lines it loses after it (`write_plan`), so a crash leaves a duplicate, never a loss. The rest stays in the
+fence, and when the fence is over the budget lines move to the ledger until it is
+under `SPILL_TO` (half), in order: closed claims, then a log's (a predicate the page holds for
+more than `entity_body.RELATION_FAMILY_MAX` = 3 objects), then the rest, each oldest first — so what stays on the page
+is what it says about its subject plus the newest activity. **A write never removes a ledger line** (a body read
+without the ledger leaves it as it is); only `claims_ledger.remove` (a merged-away page, after its claims moved) and
+`move` (the inbox's rename) take one away. The ledger is written before the page (a crash leaves a line in both, never
+in neither) and the stamp changes with every ledger write, so every cache keyed on the page's bytes sees it. A page
+and its ledger are one unit to git: `commit_paths_sync`, `commit_touched_sync` and a `checkout --` restore through
+`run_git_write_sync` add the ledger of every page they name; a dedup merge snapshots every footprint page's ledger,
+there or not, so a failed merge puts back (or removes) a ledger its winner write created; claim recovery reads HEAD's
+ledgers as present. `write_new` and `write_document` (raw writers) never split. An existing bank
+is split once by `python -m api.scripts.split_hub_pages --bank <path>` (dry run: counts only; `--apply`: one `cicada`
+commit, refused unless Sleep is idle, each page checked to read back every claim id, evidence span and Related link
+before it is written; a rerun finishes an interrupted run, committing the pages it left dirty with exactly this
+migration's bytes and nothing else; `hub_pages`).
+
+**A person holds more than one place at once (2026-10-14).** `works-at` is multi-valued: as a single-valued key, Stage 3
+closed the open place whenever another was mentioned, and one measured owner page held 26 `works-at` claims, 25 closed,
+flipping between six places 1–60 days apart while two were true at once. The reconciler's oracle
+(`predicates.build_cardinality_fn`) applies `cardinality`'s rule too — the committed seed's `multi_valued` wins over a
+bank's stale `single_valued` (an uncertain cardinality never auto-closes), and the seed's singles are not imported, so a
+bank with no map still coexists everything. The same rule reaches every predicate the seed moved: a bank seeded before
+G98 still lists `uses`, `is-a`, `located-in` and `depends-on` single-valued, and in Stage 3 those coexist now too (as
+the inbox already said); their values closed under the old rule are not repaired. `runs-on`, `takes-place-in` and `part-of` stay single-valued: no evidence
+says they fail the same way. **A place ends only on evidence that it ended:** a stated end (`expected_end`,
+`claim_expiry`), the person's own edit or answer, or an ending label (`endings` in the seed, `predicates.build_endings_fn`,
+seed ∪ bank, compared slugged, a label two canonicals claim ends nothing). Stage 3 reads the label as said
+(`predicate_raw`, else an agent's predicate; `claim_reconciler._place_ending`): `over` ("left", "previously worked at")
+closes every open belief on that subject and object, dated when it was said and never before it opened — never the
+person's own statement under an agent's word, never one last said after the ending — and keeps the ending as closed
+history; with none open, a label that is a synonym ("previously worked at") is closed history and any other ("left")
+keeps its own label. `past` ("worked at", "interned at") reinforces an open place and never closes it; with none open
+it is closed history, never a current place. **Order never decides:** a mention said on or before a departure already on
+the page (a "left" claim, or an ending record's own words) is kept as closed history, whatever order the claims are
+read in, and a re-read of a claim the page holds closed (same id, G104) only adds its sources — a page never holds one
+id twice. No fold question is raised for an ending. Stage 1's prompt says "works at" means current.
+**Repairing a bank:** `python -m api.services.coexist_reopen --bank <path> [--plan <file>] [--said-since <day> | --all]`
+is a dry run (counts by reason, and the places it would reopen — and those the window keeps closed — by when they were
+last said; the plan holds ids, paths, commits and reasons, never text). **The window defaults to places said in the
+last 180 days**; `--all` lifts it: a place closed once by a new job and never said again passes every check and is as
+often a real job change, so read the age groups before widening; `--apply` reopens, in one `Reopen coexisting places <date>` commit as `cicada`, only a
+`works-at` belief the old rule alone closed — its successor on the same page has the same slot, a different object,
+`supersedes` it back and opened the day it closed; neither is the person's; the close was made by a model's `Sleep cycle`
+commit (found by bisecting the page's history, its claims ledger included); no stated end has passed; its own words are
+not past tense or an ending and the page does not say the person left that place; and it is the newest closed copy of a
+place not already current. Everything else stays closed, counted by reason — when in doubt, history. It refuses unless
+Sleep is idle (admission held, the backend must answer `writing: false`), skips a dirty page, writes through the one
+claims writer and deletes nothing: the close stays in git.
+
 **Contexts and the fence (F1).** `context` is an open vocabulary whose *shape* is pinned by
 `claim_contexts` — a short lowercase slug. Any other value (G60's `as of <date>`) keeps its job as a
 claim key but is never a graph satellite, a legend row or an edge colour. `general` means "no
@@ -171,7 +236,12 @@ supersedes/superseded_by untouched (a `page` span that cited the loser keeps nam
 into that text, which git holds). An id the winner already uses is kept as `<id>-from-<loser>` (the loser's own
 supersession links follow; a re-run after a crash finds its earlier copy); a claim identical once re-subjected is kept
 once; two open claims that disagree stay two — a merge never closes a belief. A corrupt fence on either page aborts
-the merge (the inbox answers 409), and two ids for one file (a case-insensitive disk) are refused. Before the loser's
+the merge (the inbox answers 409), and two ids for one file (a case-insensitive disk) are refused. **A ref resolves to
+the page's own id whatever case was typed (2026-10-14):** `id_utils.resolve_entity_file` returns the path spelled as
+the directory lists it (`id_utils.on_disk`; the listing is cached by the folder's mtime), because macOS finds
+`entities/Cicada.md` when the page is `cicada.md` and a caller that took that stem as the id knew no page by it —
+`cicada_note_progress(project="Cicada")` called a project "a page". The readers that join a ref onto `entities/`
+themselves (`recall_detail`, `sources`, progress participants, the backlog's project page) use the same rule. Before the loser's
 page is deleted, `graph_edges.yaml` and every other page's `related:`, `[[wikilinks]]` (with `|label` or `#section`),
 source `entity:` links and claims whose subject or node object named it are repointed (`repoint_references`), the
 loser's name joins the winner's `aliases`, and the result lists the paths it wrote. The inbox's
@@ -495,6 +565,14 @@ Round 4 (C2–C4):
   Sleep never writes a page for a speaker reference, routes every such entity, edge, claim and wikilink here
   (a non-person page holding the name, a company "Owner", keeps its own), and its prompts call the person by
   this page's `name` (`capture-and-sleep.md`, "Entity promotion").
+- `owner_roles:` / `unnamed:` / `name_declined:` (placeholder people, 2026-10-14; `role_people`) — a `person` page
+  known only by a relation to the owner is titled by the relation ("Partner", "Former roommate"; never "<owner>'s
+  partner", and never a number — "(another)" when a second page of one relation is kept), with `unnamed: true` and the
+  relation's key in `owner_roles`. A named page carries a relation in `owner_roles` only when the person's answer or a
+  merge on evidence put it there; Stage 2 attaches a later role-only mention to the one named page holding a
+  **singular** relation (partner, spouse, father, mother…), never to a named page on a plural one (a friend, a
+  roommate). `name_declined: true` is "I'd rather not say": the page keeps its role title and is never asked again.
+  `capture-and-sleep.md`, "Placeholder people", has the rules; `features.md` the question.
 - `kept_on:` (G147) — the days the person answered *keep* to a decay question; each joins the page's
   mention weeks, so a kept page fades a little slower. Written only by the decay resolver, deduped,
   capped at 52. Not an episode id and never read as one.
@@ -959,7 +1037,11 @@ the provenance strip counts. It replaced `git blame` plus one `git log -1` per s
 3,500–6,000-claim page, ~30 ms now; `benchmarks/scale`). Past the cap nothing the page still shows is lost:
 every commit whose lines survive (the creation row and its conversation) is added after the window from
 `git blame --incremental` and one batched `git log`, `EntityResponse.history_truncated` says older touches were
-left out, and `GET /entities/{id}/history?skip=N` reads them (review round 1). Repo-level history uses `git log`. **No changelog in frontmatter** — git handles all history, zero storage
+left out, and `GET /entities/{id}/history?skip=N` reads them (review round 1). That blame diffs every revision it walks
+back through — 2.3 s on a synthetic owner page with 520 commits of a 5 MB file, paid by the card and its History tab on
+every open — so its answer is kept per (bank, page, newest touching commit, file mtime and size) in the process, and a
+request waits for it at most `_SURVIVORS_WAIT_S` (0.5 s): past that the window is served while the blame finishes in the
+background for the next open (owner page, 2026-10-14). Repo-level history uses `git log`. **No changelog in frontmatter** — git handles all history, zero storage
 overhead, no growing fields.
 
 ---

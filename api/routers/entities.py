@@ -94,7 +94,9 @@ async def get_entity(
     if not entity_path.exists():
         raise HTTPException(404, f"Entity {entity_id} not found")
 
-    parsed = markdown_parser.parse(entity_path)
+    # The page file alone: the card shows prose and reads claims from `/claims`, so an owner-sized page's ledger
+    # (`claims_ledger`) is never opened here.
+    parsed = markdown_parser.parse(entity_path, ledger=False)
     fm = parsed.frontmatter
     history, history_truncated = await git_service.entity_history(entity_id, settings.memory_path)
     decay_class, decay_rate = decay_policy.resolve(fm)

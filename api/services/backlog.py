@@ -198,8 +198,8 @@ def status_line(old: str, new: str) -> str:
 def project_page(memory_path: Path, project: str) -> tuple[str, dict] | dict:
     """`(stem, frontmatter)` for a live project page, or a refusal (R-B14).
 
-    Resolves ids, names and aliases like every project reader; re-reads the
-    real stem on a case-insensitive filesystem (`progress._page`'s reason). A
+    Resolves ids, names and aliases like every project reader; the resolver
+    hands back the real stem on a case-insensitive filesystem (`id_utils.on_disk`). A
     miss, a non-project and a dropped page are refused, and nothing here ever
     creates a page."""
     from api.services.id_utils import resolve_entity_file
@@ -208,7 +208,6 @@ def project_page(memory_path: Path, project: str) -> tuple[str, dict] | dict:
     page = resolve_entity_file(Path(memory_path), ref) if ref else None
     if page is None or not page.is_file():
         return {"action": "not_found", "error": f"no project {ref!r}; nothing was written"}
-    page = next((f for f in page.parent.glob("*.md") if f.name.lower() == page.name.lower()), page)
     try:
         fm = markdown_parser.parse(page).frontmatter or {}
     except Exception:  # noqa: BLE001 — an unreadable page is a refusal, never a raise

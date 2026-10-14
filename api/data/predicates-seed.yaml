@@ -193,7 +193,6 @@ inverse_pairs:
 single_valued:
   - runs-on           # primary runtime/platform
   - takes-place-in    # an event has one primary place/time
-  - works-at          # primary current employer (historical via valid_* bi-temporal)
   - part-of           # a part belongs to one primary whole
 
 multi_valued:
@@ -228,10 +227,51 @@ multi_valued:
   - is-a              # multiple type facets can coexist (e.g. tool + concept)
   - located-in        # an entity/event can have more than one associated place
   - depends-on        # often multi in practice (see historical note above)
+  # 2026-10-14: a person holds more than one place at once (a contract role and
+  # a research lab; a day job and a side project; a student who interns). As a
+  # single-valued key every mention of one place closed the other: one measured
+  # owner page held 26 works-at claims, 25 closed, flipping between six places
+  # 1-60 days apart. A place now ends only on evidence that it ended — an
+  # `endings` label below, a stated end (`expected_end`), or the person's own
+  # edit — never because another place was mentioned.
+  - works-at
   # G141 R-PJ5: event cardinality also lives in code; spec facts coexist
   - happened
   - milestone
   - spec
+
+# ---------------------------------------------------------------------------
+# ENDINGS (2026-10-14): a label that says a belief STOPPED being true. Keyed by
+# the canonical predicate it ends; labels are compared slugged. Resolved over
+# this seed AND a bank's _predicates.yaml (union). Stage 3 reads the label as
+# said (`predicate_raw`, else the predicate an agent wrote):
+#   over: it is over. The open belief on the same subject and object closes,
+#         dated when it was said (an agent's word never closes the person's own).
+#         With none open, a label that is itself a synonym of the canonical
+#         ("previously worked at") is kept as closed history; any other
+#         ("left") keeps its own label — "left Lisbon" is no job.
+#   past: said in the past tense. It reinforces the open belief on the same
+#         object and never closes it ("worked at the lab today"); with none
+#         open it is kept as closed history, never a current place.
+# ---------------------------------------------------------------------------
+endings:
+  works-at:
+    over:
+      - previously worked at
+      - formerly worked at
+      - used to work at
+      - no longer works at
+      - stopped working at
+      - former employee of
+      - left
+      - left job at
+      - quit
+      - resigned from
+      - laid off from
+      - was laid off from
+    past:
+      - worked at
+      - interned at       # a synonym of works-at above: said, it is never a current place on its own
 
 # ---------------------------------------------------------------------------
 # WHERE THE TRUTH LIVES (G61 phase 2 S1, spec R-AC8 — G121's world/personal

@@ -826,7 +826,9 @@ chose D from three mocked directions (the Inbox and the Reader). DS-1 shipped th
 Settings panel; DS-2 (2026-09-24) shipped the Inbox in progressive columns and the Reader as a column; DS-3b
 (2026-09-24) shipped Home, the Sleep page's engine menu and Details, and the Settings panel's fixes. DS-3a (2026-09-24)
 shipped the Graph page and the entity card, and DS-3c (2026-09-24) shipped Clusters, the Feed and Sources in progressive
-columns. Every other
+columns. The Inbox's focus card gained a name variant on 2026-10-14 (`NameBody`, `FocusCardVariant.name`, chosen by an
+item's `asks: "name"` before its options; DR-43's table and §9): the question about a person Cicada knows only by a
+relation (`features.md`) takes a typed name through `resolve`, or "I'd rather not say" (`NameAnswer.decline`). Every other
 page paragraph below describes what ships until that page's DS track lands.
 
 **Graphite and Meadow (Direction D, G137).** Working surfaces are graphite — `bgRail` · `bgBase` · `bgPane` · `bgHover`

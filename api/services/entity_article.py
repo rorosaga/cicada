@@ -204,6 +204,8 @@ class Source:
     said_on: list[str] = field(default_factory=list)
     evidence: list[dict] = field(default_factory=list)
     retain: bool = False  # orientation text that is not yet record: kept as a Key Fact unless the article carries it
+    group: tuple[str, str] | None = None   # a claim's (predicate, object): what :func:`fit` folds by
+    heard: int = 1        # conversations a folded claim input stands for (:func:`fit`)
 
 
 @dataclass
@@ -257,13 +259,16 @@ def build(*, name: str, entity_type: str, frontmatter: dict, original_body: str,
     incoming_rows = _records(incoming)
     sources: list[Source] = []
 
-    def add(prefix: str, kind: str, text: str, rows: list[dict], said_on=None, retain=False) -> None:
+    counts: dict[str, int] = {}
+
+    def add(prefix: str, kind: str, text: str, rows: list[dict], said_on=None, retain=False, group=None) -> None:
         text = " ".join(str(text or "").split()) if kind != "fact" else str(text or "").strip()
         if not text:
             return
-        count = sum(1 for s in sources if s.id[0] == prefix)
+        count = counts.get(prefix, 0)
+        counts[prefix] = count + 1
         sources.append(Source(f"{prefix}{count}", kind, text, said_on if said_on is not None else _days(rows),
-                              rows, retain))
+                              rows, retain, group))
 
     first_article = not str(page.get(SECTION) or "").strip()
     # A legacy page's opening text (before any `## `) is its lead: `upgrade_legacy_to_v2` reads it the way
@@ -303,7 +308,8 @@ def build(*, name: str, entity_type: str, frontmatter: dict, original_body: str,
         current = []
     for claim in current:
         rows = _ev_dicts(claim.evidence)
-        add("c", "claim", claim.text, rows, said_on=[claim.valid_from] if claim.valid_from else _days(rows))
+        add("c", "claim", claim.text, rows, said_on=[claim.valid_from] if claim.valid_from else _days(rows),
+            group=(claim.predicate or "", claim.object or claim.text))
 
     owner_name = owner or "the person whose wiki this is"
     suggested = [t.format(owner=owner_name) for t in SUGGESTED_SECTIONS.get(entity_type, ["What it is",
@@ -318,6 +324,114 @@ def build(*, name: str, entity_type: str, frontmatter: dict, original_body: str,
                   for s in sources],
     }
     return Inputs(sources, data)
+
+
+#: A predicate a page holds for at most this many objects reads as a fact about it ("studies at", "lives in"); one it
+#: holds for hundreds reads as a log ("asked about"). :func:`fit` leaves a log's inputs out first.
+FACT_FAMILY_MAX = entity_body.RELATION_FAMILY_MAX
+
+
+def _item(source: Source) -> dict:
+    return {"id": source.id, "kind": source.kind, "text": source.text,
+            **({"said_on": source.said_on} if source.said_on else {})}
+
+
+def _size(item) -> int:
+    return len(json.dumps(item, ensure_ascii=False, indent=0)) + 2
+
+
+def _fold_claims(sources: list[Source]) -> list[Source]:
+    """Claims sharing a predicate and an object as one input: the latest one's text and how many conversations said
+    it, the first and last day, and every row of evidence (a paragraph that cites it keeps up to
+    :data:`MAX_EVIDENCE_PER_ITEM`). Every other input as it was, ids renumbered so they stay in order."""
+    out: list[Source] = []
+    groups: dict[tuple[str, str], list[Source]] = {}
+    for source in sources:
+        if source.kind == "claim" and source.group:
+            if source.group not in groups:
+                groups[source.group] = []
+                out.append(source)   # its place in the list
+            groups[source.group].append(source)
+        else:
+            out.append(source)
+    folded: list[Source] = []
+    n = 0
+    for source in out:
+        if source.kind != "claim" or not source.group:
+            folded.append(source)
+            continue
+        members = groups[source.group]
+        days = sorted({d for m in members for d in m.said_on})
+        rows: list[dict] = []
+        for m in members:
+            rows += [r for r in m.evidence if r not in rows]
+        episodes = {r.get("episode") for r in rows if r.get("episode")}
+        conversations = (len(episodes) or len(days)) if len(members) > 1 else 0
+        latest = max(enumerate(members), key=lambda im: (max(im[1].said_on) if im[1].said_on else "", im[0]))[1]
+        text = latest.text + (f" (said in {conversations} conversations)" if conversations > 1 else "")
+        folded.append(Source(f"c{n}", "claim", text, [days[0], days[-1]] if len(days) > 2 else days, rows,
+                             False, source.group, max(conversations, 1)))
+        n += 1
+    return folded
+
+
+def fit(inputs: Inputs, *, max_chars: int, people=()) -> Inputs:
+    """Inputs whose prompt fits ``max_chars`` — the page's own record, never clipped mid-input (owner page,
+    2026-10-14: ~5,900 activity claims put the owner's page over the budget, so it never got an article).
+
+    Unchanged when the prompt already fits. Otherwise, in order, until it fits:
+
+    1. claims sharing a predicate and an object fold into one input (:func:`_fold_claims`);
+    2. claim inputs are left out, a log's before a fact's — a predicate held for more than :data:`FACT_FAMILY_MAX`
+       objects is a log, unless its object is one of ``people`` (the person pages: who is in a life is never a log) —
+       and within each, the ones said in the fewest conversations, then the longest ago, first;
+    3. then History lines, the oldest first.
+
+    This update's words, the page's earlier lead and article, its facts, questions and links are never left out:
+    when they alone are over the budget, the result still is, and :func:`prompt` refuses it (today's merge). Nothing
+    left out of the prompt leaves the page — the record keeps every claim and line. LINKABLE keeps only the names a
+    kept input mentions (a link must come from an input anyway)."""
+    if prompt(inputs, max_chars=max_chars) is not None:
+        return inputs
+    sources = _fold_claims(inputs.sources)
+    families: dict[str, set[str]] = {}
+    for source in sources:
+        if source.kind == "claim" and source.group:
+            families.setdefault(source.group[0], set()).add(source.group[1])
+
+    def claim_order(source: Source):
+        log = (len(families.get(source.group[0] if source.group else "", ())) > FACT_FAMILY_MAX
+               and not (source.group and source.group[1] in people))
+        return (0 if log else 1, source.heard, max(source.said_on) if source.said_on else "")
+
+    drop_order = sorted((s for s in sources if s.kind == "claim"), key=claim_order)
+    drop_order += sorted((s for s in sources if s.kind == "history"),
+                         key=lambda s: (max(s.said_on) if s.said_on else "", s.id))
+    base = dict(inputs.data, INPUT=[])
+    links = list(inputs.data.get("LINKABLE") or [])
+    overhead = len(PROMPT.replace("OWNER", inputs.data["OWNER"])) + len("\nDATA:\n") \
+        + len(json.dumps(dict(base, LINKABLE=[]), ensure_ascii=False, indent=0))
+    sizes = {s.id: _size(_item(s)) for s in sources}
+    kept = {s.id for s in sources}
+
+    def linkable(keep: set[str]) -> list[str]:
+        said = " ".join(s.text.lower() for s in sources if s.id in keep)
+        return [name for name in links if name.lower() in said]
+
+    nxt = 0
+    over = overhead + sum(sizes.values()) - max_chars   # LINKABLE shrinks with the inputs: measured below
+    while True:
+        while over > 0 and nxt < len(drop_order):   # the estimate: each input's own JSON, as the prompt dumps it
+            kept.discard(drop_order[nxt].id)
+            over -= sizes[drop_order[nxt].id]
+            nxt += 1
+        chosen = [s for s in sources if s.id in kept]
+        trimmed = Inputs(chosen, dict(inputs.data, LINKABLE=linkable(kept), INPUT=[_item(s) for s in chosen]))
+        text = prompt(trimmed, max_chars=max_chars)
+        if text is not None or nxt >= len(drop_order):
+            return trimmed
+        over = len(PROMPT.replace("OWNER", inputs.data["OWNER"]) + "\nDATA:\n"
+                   + json.dumps(trimmed.data, ensure_ascii=False, indent=0)) - max_chars
 
 
 def prompt(inputs: Inputs, *, max_chars: int) -> str | None:

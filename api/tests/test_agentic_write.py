@@ -177,15 +177,15 @@ def test_agent_claim_never_overwrites_user_stated_claim(tmp_path):
     conflicting object on a single-valued predicate. reconcile_stage3 must
     COEXIST-flag the agent claim rather than closing the human one.
     """
-    predicates.install_predicate_map(tmp_path)  # 'works-at' is single_valued
+    predicates.install_predicate_map(tmp_path)  # 'part-of' is single_valued ('works-at' coexists, 2026-10-14)
 
     entities_dir = tmp_path / "entities"
     entities_dir.mkdir(parents=True)
     human_claim = Claim(
         id="clm_seed_human",
-        text="Rodrigo works-at Acme Robotics",
+        text="Rodrigo part-of Acme Robotics",
         subject="rodrigo",
-        predicate="works-at",
+        predicate="part-of",
         object="Acme Robotics",
         observer="agent",  # matches the K-slot entities_to_claims/write_claim use
         context="general",
@@ -202,7 +202,7 @@ def test_agent_claim_never_overwrites_user_stated_claim(tmp_path):
     result = agentic_write.write_claim(
         tmp_path,
         "Rodrigo",
-        "works-at",
+        "part-of",
         "Globex Corp",
         observer="agent",
         source_episode="ep_2026-06-01_001",
