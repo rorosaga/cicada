@@ -32,7 +32,7 @@ from typing import Callable
 from loguru import logger
 
 from api.config import Settings
-from api.services import json_parse, markdown_parser
+from api.services import json_parse, markdown_parser, text_fold
 from api.services.claims import current_day, is_current, is_event, is_record, parse_claims, stated_end, strip_claims_block
 
 RetrieveFn = Callable[[str, int], list[dict]]
@@ -41,6 +41,28 @@ LlmFn = Callable[[str], str]
 # Body excerpt length carried into each citation (enough to audit the claim,
 # short enough not to dump the whole page into the response).
 _SNIPPET_CHARS = 280
+
+# What one retrieved page may put in front of the model (owner, 2026-10-14). The claims and the prose used to share
+# ONE 3,000-character budget, claims first: on a hub page (the owner's: ~178 KB, 6,008 claims) the claims took all
+# of it and the prose got `body[:remaining]` — one character, the summary "truncated at 'R'" — and the page's other
+# names were never sent at all, so "what is the owner's full name?" was answered "only a first name is recorded"
+# while eleven aliases held it. Each part now has its own budget, and the header always carries the page's names.
+_CLAIMS_CHARS = 2400
+_PROSE_CHARS = 2400
+_LEAD_CHARS = 700
+_PARAGRAPH_CHARS = 600
+_ALIASES_CHARS = 800
+_SUMMARY_CHARS = 600
+#: Pages after the first three get half of each budget: they are context, not the answer.
+_FULL_BUDGET_PAGES = 3
+# People linked to a retrieved page (owner, 2026-10-14): "who is helping on <project>?" missed the people recorded on
+# the project's page and on a page that links to it — the context never followed a link.
+_MAX_LINKED_PEOPLE = 8
+_LINK_LINES = 2
+_LINK_LINE_CHARS = 240
+_WIKILINK = re.compile(r"\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|[^\]]*)?\]\]")
+# The person asking about themselves, the way an agent relays it (G169's forms, plus the possessives a question uses).
+_SELF_PHRASES = ("the owner", "the user", "the person", "owner s", "user s", "my", "me", "myself", "mine", "i")
 
 ASK_SYSTEM_PROMPT = """You answer questions using ONLY the retrieved memory context below. \
 This is a personal knowledge graph; the context is the ONLY source of truth you may use. \
@@ -67,6 +89,10 @@ For current beliefs use only claims with current=true. If only history \
 supports a value, report that the current value is unknown. A dated event \
 may ground recent progress when labeled with its day, never a continuing state. Unversioned prose \
 is background; structured claim validity takes precedence over it.
+7. ``also called`` lists other names of the SAME entity — a full name or another spelling \
+is often among them. LINKED PEOPLE are people whose pages link to a retrieved entity or that \
+it links to; their ``linked`` lines say how. Use them to answer who is involved, and cite them \
+by their entity_id.
 
 Return ONLY a JSON object with exactly these keys:
 {
@@ -96,10 +122,15 @@ def _wants_history(query: str) -> bool:
     ))
 
 
-def _claim_context(claim, all_claims: list) -> dict:
+def _claim_context(claim, all_claims) -> dict:
+    """``all_claims`` is the page's claims, as a list or (on a hub page, where a scan per claim was quadratic —
+    ~1.7 s for 6,008 claims) an ``{id: claim}`` map."""
     current = is_current(claim)
     validity = "current" if current else "history"
-    successor = next((c for c in all_claims if c.id == claim.superseded_by), None)
+    if isinstance(all_claims, dict):
+        successor = all_claims.get(claim.superseded_by) if claim.superseded_by else None
+    else:
+        successor = next((c for c in all_claims if c.id == claim.superseded_by), None) if claim.superseded_by else None
     if not current:
         if successor is not None and is_record(successor):
             validity += "; withdrawn"
@@ -154,7 +185,24 @@ def _load_entity(memory_path: Path, entity_id: str) -> dict | None:
         "source_episodes": list(fm.get("source_episodes", []) or []),
         "type": str(fm.get("type", "concept") or "concept"),
         "body": parsed.body or "",
+        "aliases": [str(a).strip() for a in (fm.get("aliases") or []) if str(a or "").strip()],
+        "summary": _page_summary(fm, parsed.body or ""),
+        "related": [str(r).strip() for r in (fm.get("related") or []) if str(r or "").strip()],
+        "owner": fm.get("owner") is True,
     }
+
+
+def _page_summary(fm: dict, body: str) -> str:
+    """The page's one-paragraph lead: the frontmatter ``summary`` when a writer kept one, else ``## Summary``."""
+    summary = str(fm.get("summary") or "").strip()
+    if summary:
+        return summary
+    from api.services import entity_body
+
+    try:
+        return str(entity_body.parse_sections(strip_claims_block(body)).get("Summary") or "").strip()
+    except Exception:  # noqa: BLE001 — a page without sections has no lead to add
+        return ""
 
 
 def _coerce_str_list(value) -> list[str]:
@@ -269,15 +317,16 @@ def _retrieved_entities(memory_path: Path, hits: list[dict], *, include_history:
             continue
         page_claims = parse_claims(loaded["body"])
         eligible = [c for c in page_claims if not is_record(c) and (include_history or is_current(c) or (is_event(c) and not c.superseded_by))]
-        words = set(re.findall(r"\w+", query.lower()))
-        eligible.sort(key=lambda c: -len(words & set(re.findall(r"\w+", c.text.lower()))))
+        terms = text_fold.subject_terms(query)
+        eligible.sort(key=lambda c: -len(terms & text_fold.subject_terms(f"{c.text} {c.predicate} {c.object}")))
         if include_history:
             current = [c for c in eligible if is_current(c)]
             history = [c for c in eligible if not is_current(c)]
             # Reserve representation for both sides of a change before the
             # prompt budget is applied; a large current list cannot hide history.
             eligible = [c for pair in zip(history, current) for c in pair] + history[len(current):] + current[len(history):]
-        loaded["claims"] = [_claim_context(c, page_claims) for c in eligible]
+        by_id = {c.id: c for c in page_claims}
+        loaded["claims"] = [_claim_context(c, by_id) for c in eligible]
         loaded["context_body"] = _background(loaded["body"], page_claims, include_history=include_history)
         if not eligible and not loaded["context_body"].strip():
             continue
@@ -288,7 +337,7 @@ def _retrieved_entities(memory_path: Path, hits: list[dict], *, include_history:
         # at claim_id + valid-window + observer (M5e). Absent for entity-only hits.
         cited = next((c for c in eligible if c.id == meta.get("claim_id")), None)
         if cited is not None:
-            context = _claim_context(cited, page_claims)
+            context = _claim_context(cited, by_id)
             loaded["snippet"] = _snippet(f"{context['validity']}: {context['text']}")
             loaded["claim_provenance"] = {
                 "claim_id": cited.id, "observer": cited.observer, "context": cited.context,
@@ -299,31 +348,254 @@ def _retrieved_entities(memory_path: Path, hits: list[dict], *, include_history:
     return out
 
 
+def _clip(text: str, limit: int) -> str:
+    text = " ".join((text or "").split())
+    return text if len(text) <= limit else text[: max(0, limit - 1)].rstrip() + "…"
+
+
+def _prose_context(prose: str, summary: str, terms: set[str], budget: int) -> str:
+    """What of a page's prose fits ``budget``: its lead, then the paragraphs that share the most words with the
+    question, in page order. The summary is already in the header, so it is not repeated."""
+    if budget <= 0 or not (prose or "").strip():
+        return ""
+    if summary and summary in prose:
+        prose = prose.replace(summary, "", 1)
+    paragraphs = [p.strip() for p in re.split(r"\n\s*\n", prose) if p.strip()]
+    paragraphs = [p for p in paragraphs if not re.fullmatch(r"#+\s.*", p)]
+    if not paragraphs:
+        return ""
+    chosen: dict[int, str] = {0: _clip(paragraphs[0], min(_LEAD_CHARS, budget))}
+    used = len(chosen[0])
+    scored = sorted(((len(terms & text_fold.subject_terms(p)), i) for i, p in enumerate(paragraphs) if i),
+                    key=lambda row: (-row[0], row[1]))
+    for score, i in scored:
+        if score <= 0 or used >= budget:
+            break
+        text = _clip(paragraphs[i], min(_PARAGRAPH_CHARS, budget - used))
+        if len(text) < 40:
+            break
+        chosen[i] = text
+        used += len(text) + 2
+    return "\n…\n".join(chosen[i] for i in sorted(chosen))
+
+
+def _header_lines(ent: dict, scale: float) -> list[str]:
+    lines = [f"### entity_id: {ent['entity_id']}", f"name: {ent['entity_name']}",
+             f"type: {ent.get('type', 'concept')}"]
+    if ent.get("owner"):
+        lines.append("this is the page of the person this memory belongs to")
+    aliases = [a for a in ent.get("aliases") or [] if a != ent["entity_name"]]
+    if aliases:
+        lines.append("also called: " + _clip("; ".join(aliases), int(_ALIASES_CHARS * scale)))
+    if ent.get("summary"):
+        lines.append("summary: " + _clip(ent["summary"], int(_SUMMARY_CHARS * scale)))
+    return lines
+
+
 def _build_prompt(query: str, entities: list[dict]) -> str:
+    terms = text_fold.subject_terms(query)
     blocks: list[str] = []
-    for ent in entities:
-        body = ent.get("context_body", "")
+    people: list[dict] = []
+    for rank, ent in enumerate(entities):
+        if ent.get("linked_from"):
+            people.append(ent)
+            continue
+        scale = 1.0 if rank < _FULL_BUDGET_PAGES else 0.5
         claim_lines = []
-        remaining = 3000
+        remaining = int(_CLAIMS_CHARS * scale)
         for claim in ent.get("claims", []):
             line = "claim: " + json.dumps(claim, ensure_ascii=False)
             if len(line) > remaining:
                 break
             claim_lines.append(line)
             remaining -= len(line) + 1
+        prose = _prose_context(ent.get("context_body", ""), ent.get("summary", ""), terms, int(_PROSE_CHARS * scale))
         blocks.append(
-            f"### entity_id: {ent['entity_id']}\n"
-            f"name: {ent['entity_name']}\n"
-            f"type: {ent.get('type', 'concept')}\n"
-            + "\n".join(claim_lines)
-            + (f"\nunversioned background — may be outdated; never contradict current=true claims:\n{body[:remaining]}" if body and remaining > 0 else "")
+            "\n".join(_header_lines(ent, scale))
+            + ("\n" + "\n".join(claim_lines) if claim_lines else "")
+            + (f"\nunversioned background — may be outdated; never contradict current=true claims:\n{prose}"
+               if prose else "")
         )
     context = "\n\n".join(blocks)
+    if people:
+        context += "\n\nLINKED PEOPLE (pages linked to the entities above):\n\n" + "\n\n".join(
+            "\n".join(_header_lines(p, 0.5) + [f"linked: {line}" for line in p.get("linked_lines", [])])
+            for p in people)
     return (
         f"QUESTION:\n{query}\n\n"
         f"CURRENT LOCAL DAY: {current_day().isoformat()}\n"
         f"RETRIEVED MEMORY CONTEXT ({len(entities)} entities):\n\n{context}"
     )
+
+
+# --------------------------------------------------------------------------- #
+# Linked people and the person's own page (owner, 2026-10-14)
+# --------------------------------------------------------------------------- #
+
+
+def _key(text: str) -> str:
+    return " ".join(text_fold.words(text))
+
+
+def _says(text: str, names: list[str]) -> bool:
+    """Does ``text`` say one of ``names`` as whole words (folded)?"""
+    folded = f" {_key(text)} "
+    return any(name and f" {name} " in folded for name in names)
+
+
+class _People:
+    """The bank's person pages and its owner page, from the cached frontmatter scan (``bank_index``)."""
+
+    def __init__(self, memory_path: Path):
+        from api.services import bank_index
+
+        self.memory_path = memory_path
+        self.pages: dict[str, dict] = {}
+        self.by_name: dict[str, str] = {}
+        self.owner: str | None = None
+        for f in bank_index.files(memory_path, "entities"):
+            fm = f.frontmatter or {}
+            if fm.get("owner") is True and self.owner is None:
+                self.owner = f.stem
+            if str(fm.get("type") or "") != "person" or str(fm.get("status") or "") in ("dropped", "archived"):
+                continue
+            self.pages[f.stem] = fm
+            for name in (fm.get("name"), *(fm.get("aliases") or []), f.stem.replace("-", " ")):
+                key = _key(str(name or ""))
+                if len(key) >= 3:
+                    self.by_name.setdefault(key, f.stem)
+
+    def resolve(self, ref: str) -> str | None:
+        ref = str(ref or "").strip()
+        if ref in self.pages:
+            return ref
+        return self.by_name.get(_key(ref))
+
+    def find_in(self, text: str) -> list[str]:
+        """The person pages ``text`` names by a name or an alias, as whole words — by n-gram lookup, so a hub page's
+        thousands of claims cost a dictionary probe per word, never a scan of every person per line."""
+        if not self.by_name:
+            return []
+        if not hasattr(self, "_longest"):
+            self._longest = max(len(k.split()) for k in self.by_name)
+        words = text_fold.words(text)
+        out: list[str] = []
+        for i in range(len(words)):
+            for n in range(min(self._longest, len(words) - i), 0, -1):
+                pid = self.by_name.get(" ".join(words[i:i + n]))
+                if pid and pid not in out:
+                    out.append(pid)
+                    break
+        return out
+
+    def names(self, person_id: str) -> list[str]:
+        fm = self.pages.get(person_id) or {}
+        out = [_key(str(n or "")) for n in (fm.get("name"), *(fm.get("aliases") or []), person_id.replace("-", " "))]
+        return [n for n in dict.fromkeys(out) if len(n) >= 3]
+
+
+def _mentions_owner(query: str) -> bool:
+    folded = f" {_key(query)} "
+    return any(f" {phrase} " in folded for phrase in _SELF_PHRASES)
+
+
+def _pin_owner(hits: list[dict], query: str, people: "_People | None") -> list[dict]:
+    """A question about the person themselves ("the owner's full name", "who helps me…") reads their page first,
+    whatever the vectors ranked — a hub page's 6,000 claims make it a poor nearest neighbour for any one question."""
+    if people is None or people.owner is None or not _mentions_owner(query):
+        return hits
+    if any((h.get("metadata") or {}).get("entity_id") == people.owner for h in hits):
+        return hits
+    pinned = {"score": 1.0, "text": "", "metadata": {"entity_id": people.owner, "entity_name": people.owner,
+                                                     "type": "person", "status": "active", "file_path": ""}}
+    return [pinned, *hits]
+
+
+def _linked_people(memory_path: Path, entities: list[dict], query: str, people: "_People | None") -> list[dict]:
+    """The people linked to the retrieved pages, at most :data:`_MAX_LINKED_PEOPLE`, each with the lines that link
+    them: a claim or a wikilinked sentence on the page, its ``related`` list, and person pages whose own ``related``
+    or claims name the page (a backlink). The owner's page is never a source (it links to everyone) and never a
+    linked person (the question is about who ELSE). Ranked by the words the lines share with the question, then by
+    where they were found — never by confidence."""
+    if people is None or not people.pages:
+        return []
+    shown = {e["entity_id"] for e in entities}
+    terms = text_fold.subject_terms(query)
+    found: dict[str, dict] = {}
+
+    def note(person_id: str | None, source: dict, line: str, order: int) -> None:
+        if not person_id or person_id in shown or person_id == people.owner or person_id == source["entity_id"]:
+            return
+        row = found.setdefault(person_id, {"order": order, "lines": [], "from": source["entity_id"]})
+        line = _clip(line, _LINK_LINE_CHARS)
+        if line and line not in row["lines"] and len(row["lines"]) < _LINK_LINES:
+            row["lines"].append(line)
+
+    order = 0
+    for ent in entities:
+        if ent.get("owner") or ent["entity_id"] == people.owner:
+            continue
+        page_id, page_name = ent["entity_id"], ent["entity_name"]
+        page_names = [n for n in {_key(page_name), _key(page_id.replace("-", " ")), *map(_key, ent.get("aliases") or [])}
+                      if len(n) >= 3]
+        try:
+            rows = parse_claims(ent.get("body", ""))
+        except Exception:  # noqa: BLE001 — an unreadable fence links nobody
+            rows = []
+        for claim in rows:
+            if is_record(claim) or not (is_current(claim) or is_event(claim)):
+                continue
+            targets = [people.resolve(claim.object)] if claim.object_kind != "literal" else []
+            for target in [t for t in targets if t] or people.find_in(claim.text):
+                order += 1
+                note(target, ent, f"{page_name}: {claim.text}", order)
+        prose = strip_claims_block(ent.get("body", ""))
+        for sentence in re.split(r"(?<=[.!?])\s+|\n", prose):
+            plain = _WIKILINK.sub(lambda m: m.group(1), sentence)
+            linked = [people.resolve(ref) for ref in _WIKILINK.findall(sentence)]
+            for target in dict.fromkeys([t for t in linked if t] + people.find_in(plain)):
+                order += 1
+                note(target, ent, f"{page_name}: {plain}", order)
+        for ref in ent.get("related") or []:
+            order += 1
+            note(people.resolve(ref), ent, f"{page_name} lists them as related", order)
+        for person_id, fm in people.pages.items():
+            related = [str(r or "") for r in (fm.get("related") or [])]
+            if any(r == page_id or _key(r) in page_names for r in related):
+                order += 1
+                note(person_id, ent, f"their page lists {page_name} as related", order)
+
+    for person_id, row in found.items():
+        # The person's own page: what it says about the page that linked them (a claim naming it, else its lead).
+        loaded = _load_entity(memory_path, person_id)
+        row["loaded"] = loaded
+        if loaded is None:
+            continue
+        source = next((e for e in entities if e["entity_id"] == row["from"]), None)
+        source_names = [_key(source["entity_name"]), _key(source["entity_id"].replace("-", " "))] if source else []
+        try:
+            own = parse_claims(loaded["body"])
+        except Exception:  # noqa: BLE001
+            own = []
+        for claim in own:
+            if is_record(claim) or not is_current(claim):
+                continue
+            if (source and claim.object == source["entity_id"]) or _says(claim.text, source_names):
+                line = _clip(f"{loaded['entity_name']}: {claim.text}", _LINK_LINE_CHARS)
+                if line not in row["lines"]:
+                    row["lines"].insert(0, line)
+                break
+        row["score"] = len(terms & text_fold.subject_terms(" ".join(row["lines"])))
+
+    ranked = sorted(((pid, row) for pid, row in found.items() if row.get("loaded") is not None),
+                    key=lambda item: (-item[1]["score"], item[1]["order"]))
+    out = []
+    for person_id, row in ranked[:_MAX_LINKED_PEOPLE]:
+        loaded = dict(row["loaded"])
+        loaded.update(linked_from=row["from"], linked_lines=row["lines"][:_LINK_LINES + 1], claims=[],
+                      context_body="", snippet=_snippet(" ".join(row["lines"])), score=0.0)
+        out.append(loaded)
+    return out
 
 
 def _clamp_confidence(value, default: float) -> float:
@@ -542,6 +814,12 @@ def answer_query(
     except Exception as exc:  # noqa: BLE001 — retrieval must never crash the answer
         logger.warning(f"ask retrieval failed: {exc}")
         hits = []
+    try:
+        people = _People(memory_path)
+    except Exception as exc:  # noqa: BLE001 — links are context; their absence never fails an answer
+        logger.debug(f"ask people scan unavailable ({type(exc).__name__})")
+        people = None
+    hits = _pin_owner(hits, query, people)
 
     include_history = _wants_history(query)
     entities = _retrieved_entities(memory_path, hits, include_history=include_history, query=query)
@@ -558,6 +836,11 @@ def answer_query(
     # hallucinate. This is the key auditable-synthesis behaviour.
     if not entities:
         return _gap_response(query)
+
+    try:
+        entities = entities + _linked_people(memory_path, entities, query, people)
+    except Exception as exc:  # noqa: BLE001 — links are context; their absence never fails an answer
+        logger.debug(f"ask linked people skipped ({type(exc).__name__})")
 
     retrieved_ids = [e["entity_id"] for e in entities]
     prompt = _build_prompt(query, entities)

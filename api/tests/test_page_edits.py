@@ -396,7 +396,10 @@ def test_an_edit_answers_the_inbox_item_it_settles_with_the_persons_words(bank):
         _ctx(bank, posts=posts), "alpha-project", "Not a name it ever had.", remove_aliases=["Alpha Projekt"],
         evidence=[{"episode": "ep_2026-10-14_001", "quote": "Alpha Projekt was never its name"}],
         resolves=[{"id": "inbox-003", "answer": "No — it was never its name."}])
+    # The person's located words go with the answer as the relayed quote (merge with natural questions, G115).
     assert posts == [("/inbox/inbox-003/resolve", {"action": "resolve", "answer": "No — it was never its name.",
+                                                   "quote": "Alpha Projekt was never its name",
+                                                   "relayedBy": "claude-code", "sessionId": SESSION,
                                                    "via": "agent"})]
     assert "Inbox item inbox-003: resolved." in out
 

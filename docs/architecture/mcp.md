@@ -5,8 +5,8 @@ session). **`CLAUDE.md` keeps the rails and the map; this file keeps the detail.
 a change makes this file wrong, update it in the same PR (repository paths below are relative to the repository root).
 
 The interface between any LLM and the memory system. On `initialize` the server returns the G75
-handshake as `instructions`. On query: check `memory/inbox/` for relevant pending items → search the
-vector index → search the markdown graph → follow wikilinks for relational depth → progressive
+handshake as `instructions`. On query: check `memory/inbox/` for an open question about what the query is about
+(the ask gate below) → search the vector index → search the markdown graph → follow wikilinks for relational depth → progressive
 disclosure (cluster pages → entity pages → episodic sources).
 Recall prose summaries, including related-page blurbs, strip closed claims fences
 before truncation; `cicada_recall_detail` returns the complete page for structured reads — the file, then, when
@@ -330,7 +330,9 @@ same way.
 - **The note.** `hook_recall` answers engine-free from the derived FTS index. SessionStart gets the primer. A
   prompt gets at most three pages it **names**: a whole name or alias, and one word only for a person, project,
   company, tool or place. Each page comes with its summary and at most two current claims with their dates,
-  plus at most one open inbox question as a pointer to `cicada_check_nudges`. The note is ≤ 400 tokens or
+  plus at most one open inbox question — only one the message is ABOUT (the ask gate below), worded as a statement
+  the agent can act on naturally ("if the message already answers it, it is recorded … and not asked"), with a
+  pointer to `cicada_check_nudges(mode="list")`. A follow-up never rides a note. The note is ≤ 400 tokens or
   nothing, produced within a hard 300 ms.
 - **The vectors.** They only re-order pages already named, and only when the on-device embedder is already
   loaded. A hosted embedder is never sent a prompt.
@@ -492,6 +494,64 @@ Unsuperseded dated events also vote for subject relevance: that leg returns
 page ids, never an assertion that the event is a current belief. Claim text in
 implicit recall remains current-only; history readers expose events with dates
 and state. Closure and successor metadata are preserved for every search hit.
+
+**Questions come up naturally (owner, 2026-10-14).** Owner: questions should be "only relevant to the current
+conversation", come up and be answered naturally, and be listed only when the person asks for them. The old contract
+(call `cicada_check_nudges(entity_ids=<recall ids>)` after every recall, quote the Cause line, lead with the
+Recommended option) appended a "conflict on <project>" block to an answer about who helps on that project, and
+recall's own inbox block was a body-text token match (a recall for "alpha project" surfaced the decay question of
+"beta project" through the word "project"). Now:
+- **The server decides what may come up** (`inbox_ask_gate`, pure): an item passes only when its page is in scope
+  (recall's `entity_ids` hold it, or the conversation names it — name, mention, id or the page's aliases, whole
+  words) AND the conversation shares a subject word with the question beyond the page's name (its predicate, its
+  options other than both/neither, its own words; `text_fold.subject_terms`, folded and lightly stemmed). An
+  identity question (`clarification`, `merge_suggestion`) needs the name said. `decay` never comes up (a
+  conversation about the page is its answer — the mention lifts decay) and `normalization` stays app-only.
+- **Three readers, one gate:** `cicada_check_nudges(mode="ask", topic=<the person's words>, entity_ids)` (at most
+  2, highest priority first; no `topic`, no question), recall's proactive block (`_relevant_inbox`, the query as the
+  conversation, the session's skips honoured) and the recall hook (`hook_recall._open_question`, the prompt as the
+  conversation; the item's predicate and options read from its file through `bank_index`).
+- **The agent decides whether it fits** (contract item 2, the tool descriptions, the skill): ask in its own words
+  after the request, never a banner, option letters or a quoted cause; otherwise leave it. `mode="ask"` renders a
+  question to weave in — the question, the answers in words with their keys, Cicada's current guess once, why it is
+  open as context — never the `Cause:` card.
+- **Answered naturally:** when the person's words already answer an item, the agent records it without asking,
+  `cicada_resolve_inbox(id, option_key or answer, quote=<their exact words>)`, and says what it noted in one short
+  line (UX principle 2: a change the person never saw asked is still shown). Nothing can verify that an agent's
+  `quote` is what the person typed, so it is kept as **the agent's relay, never as the person's verbatim words**
+  (review B1): a small already-processed episode (`inbox_service._write_relay_episode`, `source: agent_relay`,
+  `origin: inbox`) whose one turn is the agent's (`assistant`), stamped `relayed_by` (the harness's
+  `Cicada-Author` name, sent by `cicada_resolve_inbox`), `session_id` and `inbox_item`. It is committed with the
+  answer — the commit carries `Cicada-Author: user` and the relaying agent, plus `Cicada-Session:` — and cited as
+  evidence on the claim the answer picks or writes (conflict pick, free text, clarification), so the span reads as
+  the agent's words. `agent_relay` is untimed (`episode_time.UNTIMED_SOURCES`): the conversation is captured on its
+  own by the Stop hook, so the relay never counts as a second conversation (no 2-conversation floor from one turn,
+  G170). The ledger row says `answered_in: conversation` (an enum). A refused answer leaves no episode. A remote
+  connection never sends `quote` (R-R22), and a demo bank never receives it — dropped by the tool and by the backend
+  (review B2). Never a guess: only what the person said resolves an item.
+- **On request:** `mode="list"` (the default) lists every visible item plainly — "what is in my inbox", "what
+  conflicts do I have". Every inbox reader in `mcp_tools` now reads an item as YAML (`read_inbox_item`); the line
+  parser flattened a question's `options` into strings ("0) key: a").
+- **Relation to G115/G98.** This is G115 item 6's relevance half (`inbox_ask_gate`, the `mode` argument) without its
+  vector-score leg, and it amends G115's copy-only discipline (quote the Cause, lead with the Recommended option) —
+  `recommended` and `cause` stay on the wire for agents and tests, never as copy to recite. G98's subject gates are
+  unchanged and still run first (`nudge_visible`, `load_inbox`).
+
+**Ask reads what is on the page (owner, 2026-10-14).** Two reproductions on a real bank (values redacted): "what is
+the owner's full name?" answered "only a first name is recorded", the summary "truncated at 'R'"; "who is helping the
+owner create <project>?" missed the people. The cause: each page's claims and prose shared one 3,000-character
+budget, claims first, so a hub page (the owner's: ~178 KB, 6,008 claims) sent `body[:1]` of its prose and never its
+aliases; and the context never followed a link. Now each page block carries its name, type, `also called:` (every
+alias), its summary whole (frontmatter `summary`, else `## Summary`), claims ranked by subject words within 2,400
+characters, and prose within its own 2,400 — the lead plus the paragraphs that share the most words with the
+question, in page order (pages after the third get half). A question about the person themselves ("the owner", "the
+user", "my", "me", …) reads the owner's page first. **Linked people:** up to 8 person pages linked to a retrieved page
+— its claims (object or named in the text), its wikilinked or named sentences, its `related`, and person pages whose
+own `related` names it (a backlink) — each with the lines that link them and, from its own page, a claim naming the
+retrieved page; ranked by words shared with the question, then by where they were found, never by confidence. The
+owner's page is never a source of links (it links to everyone) nor a linked person. Linked people are citable. The
+synthesis rule 7 says what `also called` and `LINKED PEOPLE` are. `_claim_context` takes an id map (a scan per claim
+was ~1.7 s on a 6,008-claim page). `api/tests/test_ask_hub_context.py` reproduces both at hub scale.
 
 **Ask grounding (G93/G118, 2026-10-07).** `/ask` and `cicada_ask` use the same
 validity-aware context. Each structured claim sent to synthesis has its id,

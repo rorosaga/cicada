@@ -136,7 +136,7 @@ def test_resolve_inbox_tool_is_registered(server):
     tool = next(t for t in server.TOOLS if t["name"] == "cicada_resolve_inbox")
     assert tool["inputSchema"]["required"] == ["id"]
     assert set(tool["inputSchema"]["properties"]) == {
-        "id", "option_key", "answer", "defer", "remind_days", "skip", "reject",
+        "id", "option_key", "answer", "defer", "remind_days", "skip", "reject", "quote",
     }
 
 
@@ -153,7 +153,7 @@ def test_relevant_inbox_hides_deferred_items(server, tmp_path):
     deferred["remind_after"] = "2099-01-01"
     markdown_parser.write(memory / "inbox" / "inbox-002.md", deferred, "ctx")
 
-    blurbs = server._relevant_inbox(memory, "Rodrigo")
+    blurbs = server._relevant_inbox(memory, "where does Rodrigo work")
     assert len(blurbs) == 1
     assert all("Rodrigo" in b for b in blurbs)
 
@@ -233,7 +233,7 @@ def test_relevant_inbox_carries_the_cause(server, tmp_path):
               question="Where does Bob Example work now?",
               source_episode="ep_2026-08-20_001")
     markdown_parser.write(memory / "inbox" / "inbox-001.md", fm, "ctx")
-    [blurb] = server._relevant_inbox(memory, "Bob Example")
+    [blurb] = server._relevant_inbox(memory, "where does Bob Example work these days")
     assert 'Cause: “user: Bob Example moved to beta-corp last week.” — from "Jobs"' in blurb
 
 
@@ -340,7 +340,7 @@ def test_relevant_inbox_builds_one_inbox_context_for_the_whole_loop(server, tmp_
             super().__init__(*a, **kw)
 
     monkeypatch.setattr(inbox_context, "InboxContext", Counting)
-    assert len(server._relevant_inbox(memory, "Bob Example")) == 3
+    assert len(server._relevant_inbox(memory, "where does Bob Example work")) == 3
     assert len(built) == 1
 
 

@@ -7,6 +7,7 @@ loads them into ``InboxItem`` and resolves them by routing on ``kind``.
 
 from __future__ import annotations
 
+import contextvars
 import logging
 import re
 from collections import Counter
@@ -965,6 +966,62 @@ def _check_item_id(item_id: str, memory_path: Path | None = None) -> None:
             raise HTTPException(400, "An inbox id is the item's own name, exactly as listed (e.g. 'inbox-001').")
 
 
+#: What the agent relayed of the person's answer to the item being resolved, as ``[{episode, quote}]`` (owner, 2026-10-14):
+#: set by :func:`_resolve_admitted` for the length of one answer, read by the resolvers that write or confirm a
+#: claim, so the claim cites the person's words. A ContextVar, not an argument threaded through every resolver:
+#: most kinds write no claim, and the ones that do read it in one line.
+_ANSWER_QUOTE: "contextvars.ContextVar[list[dict] | None]" = contextvars.ContextVar("inbox_answer_quote", default=None)
+
+
+def _quote_spans(memory_path: Path) -> list:
+    """The evidence spans for the relayed answer (G118: located in its relay episode, so the span is the relaying
+    agent's text, kind ``assistant``), or ``[]`` without one."""
+    items = _ANSWER_QUOTE.get()
+    if not items:
+        return []
+    from api.services import evidence as evidence_mod
+
+    return evidence_mod.verify_many(memory_path, items)
+
+
+#: What may name the relaying agent or its conversation in frontmatter and a git trailer: a short id, nothing else.
+_RELAY_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:@-]{0,79}$")
+RELAY_SOURCE = "agent_relay"
+
+
+def _relay_id(value) -> str | None:
+    text = str(value or "").strip()
+    return text if _RELAY_ID.match(text) else None
+
+
+def _write_relay_episode(memory_path: Path, fm: dict, item_id: str, words: str, *, relayed_by: str,
+                         session_id: str | None) -> str:
+    """What the agent relayed of the person's answer to ``item_id``, kept as a small episode of its own — as the
+    AGENT's text, never as the person's verbatim words (review B1, 2026-10-14). Nothing verifies that an agent's
+    ``quote`` is what the person typed, so the turn is the relaying agent's (``assistant``: a span into it reads as
+    the agent's words, not ``user``), and the episode says who relayed it and from which conversation
+    (``relayed_by``, ``session_id``, ``harness``). ``source: agent_relay`` is untimed (``episode_time``): the
+    conversation itself is captured on its own, so the relay never counts as a second conversation. Already
+    processed: Sleep never re-reads it."""
+    from datetime import timezone
+
+    from api.services import episode_staging, when as when_mod
+
+    name = str(fm.get("entity_name") or fm.get("entity_mention") or fm.get("entity_id") or item_id)
+    now = datetime.now(timezone.utc)
+    instant = when_mod.utc_z(now)
+    extra = {"relayed_by": relayed_by, "harness": relayed_by, "inbox_item": item_id}
+    if session_id:
+        extra["session_id"] = session_id
+    draft = episode_staging.EpisodeDraft(
+        title=f"Answer on {name}, relayed by {relayed_by}", source_id=f"agent-relay:{instant}:{item_id}",
+        timestamp=instant, original_date=now.date().isoformat(), source=RELAY_SOURCE, origin="inbox",
+        turns=[episode_staging.Turn(text=words, speaker="assistant", ts=instant)], extra=extra,
+        queue_for_sleep=False, writer="mcp")
+    result = episode_staging.stage([draft], Path(memory_path) / "episodes", bank=Path(memory_path).name)
+    return result.episode_ids[draft.source_id]
+
+
 async def resolve(
     item_id: str, request: InboxResolveRequest, settings: Settings
 ) -> dict:
@@ -998,7 +1055,8 @@ async def _resolve_admitted(item_id: str, request: InboxResolveRequest, settings
 
     parsed = markdown_parser.parse(path)
     kind = str(parsed.frontmatter.get("kind", "decay"))
-    if kind == "page_edit" and (request.via or "").strip().lower() == "agent":
+    if kind == "page_edit" and ((request.via or "").strip().lower() == "agent" or request.relayed_by or request.quote):
+        # A relayed quote is an agent's account (G115): it never stands in for the person applying a proposal either.
         # G198 review B1: only the person applies or leaves a proposed edit — an agent's answer, its author's least
         # of all, would be committed as the person's acceptance.
         raise HTTPException(403, "A proposed page edit is the person's to apply or leave, in the app.")
@@ -1045,6 +1103,58 @@ async def _resolve_admitted(item_id: str, request: InboxResolveRequest, settings
     extra_lines: list[str] = []
     emit_extra: dict = {}
     committed = False   # a resolver that commits inside its own page-lock section says so
+    # Owner, 2026-10-14: an answer the person gave in conversation carries what the agent relayed of it. It is kept
+    # as a small relay episode (the agent's text, who relayed it, which conversation) and cited as the answer's
+    # evidence; the commit names the relaying agent and the conversation. A normalization answer commits inside its
+    # own lock section, so it never takes one (and it never reaches the conversation anyway).
+    from api.services import demo_guard, inbox_ask_gate
+
+    # Never into a demo bank (review B2): the person's real conversation must not leak into the demo's content.
+    words = ("" if kind == "normalization" or demo_guard.is_demo(settings.memory_path)
+             else inbox_ask_gate.clean_quote(request.quote))
+    relayed_by = _relay_id(request.relayed_by) or "agent"
+    session_id = _relay_id(request.session_id)
+    quote_episode = (_write_relay_episode(settings.memory_path, parsed.frontmatter, item_id, words,
+                                          relayed_by=relayed_by, session_id=session_id) if words else None)
+    token = _ANSWER_QUOTE.set([{"episode": quote_episode, "quote": words}] if quote_episode else None)
+    try:
+        entity_id, skipped, extra_lines, emit_extra, committed = await _route_resolution(
+            kind, path, parsed, request, settings, item_id, label, synthesis, before)
+    except BaseException:
+        if quote_episode:
+            (settings.memory_path / "episodes" / f"{quote_episode}.md").unlink(missing_ok=True)
+            bank_index.invalidate()
+        raise
+    finally:
+        _ANSWER_QUOTE.reset(token)
+    if quote_episode and skipped:
+        (settings.memory_path / "episodes" / f"{quote_episode}.md").unlink(missing_ok=True)
+        bank_index.invalidate()
+        quote_episode = None
+    if quote_episode:
+        extra_lines = [*extra_lines,
+                       f"episodes/{quote_episode}.md: created (source: {item_id}, trigger: inbox/{kind}/resolved)"]
+        emit_extra = {**emit_extra, "extra_refs": {**(emit_extra.get("extra_refs") or {}),
+                                                   "answered_in": "conversation"}}
+
+    # A skip is a neutral row, not a missing one — "asked, not answered" is
+    # itself informative about the question.
+    _emit_resolution(parsed.frontmatter, item_id, kind, request, label, settings, **feedback, **emit_extra)
+
+    if skipped:
+        return {"status": "skipped", "id": item_id}
+
+    relay = {"relayed_by": relayed_by, "sessions": [session_id] if session_id else None} if quote_episode else {}
+    return await _commit_answer(settings, item_id, kind, label, entity_id, extra_lines, committed, path, before,
+                                quote_episode, relay)
+
+
+async def _route_resolution(kind: str, path, parsed, request, settings, item_id: str, label: str, synthesis,
+                            before=None):
+    """The per-kind resolver, by ``kind``: ``(entity_id, skipped, extra_lines, emit_extra, committed)``."""
+    extra_lines: list[str] = []
+    emit_extra: dict = {}
+    committed = False
     if kind == "decay":
         entity_id, skipped = await _resolve_decay(path, parsed, request, settings)
     elif kind == "removal":
@@ -1075,14 +1185,12 @@ async def _resolve_admitted(item_id: str, request: InboxResolveRequest, settings
         entity_id, skipped, committed = await _resolve_page_edit(path, parsed, settings, label, before)
     else:
         raise HTTPException(400, f"Unknown kind {kind}")
+    return entity_id, skipped, extra_lines, emit_extra, committed
 
-    # A skip is a neutral row, not a missing one — "asked, not answered" is
-    # itself informative about the question.
-    _emit_resolution(parsed.frontmatter, item_id, kind, request, label, settings, **feedback, **emit_extra)
 
-    if skipped:
-        return {"status": "skipped", "id": item_id}
-
+async def _commit_answer(settings, item_id: str, kind: str, label: str, entity_id: str, extra_lines: list[str],
+                         committed: bool, path, before, quote_episode: str | None, relay: dict | None = None) -> dict:
+    """Commit one answer as the person's and refresh the state projection (the tail of :func:`resolve`)."""
     # Avoid the local import becoming a hard module-load dependency cycle.
     from api.services import git_service
 
@@ -1108,6 +1216,7 @@ async def _resolve_admitted(item_id: str, request: InboxResolveRequest, settings
             # file are read from the manifest itself — nothing else is committed.
             paths=[path.relative_to(settings.memory_path).as_posix()],
             before=before,
+            **(relay or {}),
         )
     # G53 (R4) — the pending count just changed; refresh the projection
     # cheaply (repo blocks are the app's last look, never a git run) and commit it
@@ -1125,7 +1234,10 @@ async def _resolve_admitted(item_id: str, request: InboxResolveRequest, settings
         await state_dictionary.refresh_and_commit(settings.memory_path, settings)
     except Exception as exc:
         logger.warning(f"state refresh after resolution skipped: {type(exc).__name__}: {exc}")
-    return {"status": "resolved", "id": item_id}
+    out = {"status": "resolved", "id": item_id}
+    if quote_episode:
+        out["quoteEpisode"] = quote_episode
+    return out
 
 
 async def _defer(path, parsed, request, settings, item_id: str, *, label: str = "defer") -> dict:
@@ -1618,6 +1730,9 @@ def _conflict_plan(path, parsed, request, settings) -> "_ConflictPlan":
         winner = by_id.get(str(chosen.get("claim_id") or ""))
         if winner is not None:
             winner.confidence = max(winner.confidence, 0.9)
+            # The person's words that picked it, when they came from a conversation (owner, 2026-10-14).
+            winner.evidence = [*winner.evidence, *(e for e in _quote_spans(settings.memory_path)
+                                                   if e not in winner.evidence)]
         for loser in option_claims:
             if winner is not None and loser.id == winner.id:
                 continue
@@ -1674,6 +1789,7 @@ def _conflict_plan(path, parsed, request, settings) -> "_ConflictPlan":
                     confidence=0.95,
                     valid_from=today,
                     recorded_at=today,
+                    evidence=_quote_spans(settings.memory_path),
                 )
                 for loser in option_claims:
                     if loser.valid_to is None:
@@ -2288,6 +2404,7 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
                     subject=entity_id, predicate=predicate, object=answer_text, object_kind="literal",
                     observer=_owner_observer(settings, settings.memory_path), source_trust="user_stated", origin="clarification",
                     authored_by="user", confidence=0.95, valid_from=today, recorded_at=today,
+                    evidence=_quote_spans(settings.memory_path),
                 ))
                 body = write_claims(body, claims)
             else:

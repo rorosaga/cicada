@@ -1671,6 +1671,8 @@ async def commit_resolution(
     change: str = "updated",
     paths: list[str] | None = None,
     before: dict[str, bytes | None] | None = None,
+    relayed_by: str | None = None,
+    sessions: list[str] | None = None,
 ) -> None:
     """Commit after an inbox (nudge/clarification/conflict) resolution.
 
@@ -1693,7 +1695,7 @@ async def commit_resolution(
     with no author claimed (:func:`commit_touched_sync`).
     """
     await asyncio.to_thread(commit_resolution_sync, memory_path, entity_id, trigger, extra_lines,
-                            change=change, paths=paths, before=before)
+                            change=change, paths=paths, before=before, relayed_by=relayed_by, sessions=sessions)
 
 
 def commit_resolution_sync(
@@ -1705,6 +1707,8 @@ def commit_resolution_sync(
     change: str = "updated",
     paths: list[str] | None = None,
     before: dict[str, bytes | None] | None = None,
+    relayed_by: str | None = None,
+    sessions: list[str] | None = None,
 ) -> None:
     """:func:`commit_resolution` for a resolver that already holds the bank's
     page lock in a worker thread and commits inside it (G98/G115: a
@@ -1730,8 +1734,10 @@ def commit_resolution_sync(
     for line in extra_lines or []:
         if line not in body_lines:
             body_lines.append(line)
-    # An inbox resolution is a user/companion-app action -> attribute to "user".
-    message = build_commit_message(subject, body_lines, authors=["user"])
+    # An inbox resolution is a user/companion-app action -> attribute to "user". An answer an agent relayed from a
+    # conversation (owner, 2026-10-14) also names that agent and the conversation, so git says who carried it.
+    message = build_commit_message(subject, body_lines, authors=["user", *([relayed_by] if relayed_by else [])],
+                                   sessions=sessions)
     touched = [line.split(": ", 1)[0].strip() for line in body_lines if ": " in line]
     touched += list(paths or [])
     commit_touched_sync(memory_path, message, touched, before=before,
