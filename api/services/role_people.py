@@ -805,7 +805,7 @@ def evidence_holders(memory_path: Path, pages: dict[str, tuple[dict, str]], owne
                      placeholders: set[str]) -> set[str]:
     """Named person pages the record says hold ``role``: ``owner_roles`` (the person said so), an open claim between
     the owner and the page whose predicate names the relation, or an edge in ``graph_edges.yaml`` that does."""
-    from api.services.claims import parse_claims
+    from api.services.claims import is_event, parse_claims
 
     named = {pid for pid, (fm, _b) in pages.items()
              if pid != owner_id and pid not in placeholders and _person(fm) and not fm.get(UNNAMED_KEY)
@@ -824,7 +824,8 @@ def evidence_holders(memory_path: Path, pages: dict[str, tuple[dict, str]], owne
         except Exception:  # noqa: BLE001 - an unreadable block is no evidence
             continue
         for c in claims:
-            if c.object_kind == "literal" or c.valid_to or c.superseded_by:
+            # A dated happening is not a relation, and a closed or replaced claim no longer holds one.
+            if c.object_kind == "literal" or is_event(c) or c.valid_to or c.superseded_by:
                 continue
             consider(str(c.subject or ""), str(c.object or ""), c.predicate)
     edges_file = Path(memory_path) / "graph_edges.yaml"
