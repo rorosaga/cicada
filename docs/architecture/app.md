@@ -280,7 +280,9 @@ Full Disk Access fix under Safari when a read was refused, 'Last synced …'); u
 sub-row with its own switch and the open groups as tags in Chrome's colours (G160); and the ones Cicada cannot sync
 yet (Arc, Firefox, Edge, Opera) named once in the header, never as a row. Safari's source page groups its items as
 Recently saved · Favorites · Other bookmarks. Under the browsers, **Ask why when I bookmark something** (G191, `saveWhy`,
-off by default; `cicada.saveWhy.enabled`, per Mac like the watch's consent flags) — see *Ask why* below.
+off by default; `cicada.saveWhy.enabled`, per Mac like the watch's consent flags) — one switch that works: turning it
+on also turns on the bookmark watch of every installed browser Cicada can sync (`SaveWhySetup`), named under the switch
+before the flip — see *Ask why* below.
 **Calendars, contacts & feeds** offers Calendar on this Mac and
 Contacts (G154), both app-owned rows.
 
@@ -290,10 +292,19 @@ bookmark, `SaveWhyPolicy` asks "What made you save this?" — unless the switch 
 sync, the browser's `addedAt` is older than 5 minutes (or 1 minute in the future), the site is muted ("Don't ask for
 this site", `cicada.saveWhy.mutedHosts`, cleared from the Settings row), a question was asked in the last 3 minutes,
 or one is showing. `SaveWhyCenter` fetches `GET /sources/saved-why/options` and shows `SaveWhyPanelController`: a
-borderless non-activating `NSPanel` at `.statusBar` level on every Space and over full screen, shown with
-`orderFrontRegardless` (never key until the person clicks it), placed top centre just under the menu bar — under the
-notch on a Mac that has one (`SaveWhyPlacement`) — and dropping out of it (`CicadaMotion.notchDrop`, no movement under
-Reduce Motion). Its surface is chrome glass (`liquidGlass(.control)`, DR-14) with a ring, never a shadow. The chips are
+borderless non-activating `NSPanel` one level above the menu bar's (`.mainMenu + 3`, under menus) on every Space and
+over full screen, shown with `orderFrontRegardless` (never key until the person clicks it). **It is the notch growing**
+(v2, owner 2026-10-14): the window's top edge is the screen's top edge (`SaveWhyNotch.frame`, `constrainFrameRect`
+overridden), centred under the hardware notch (`SaveWhyNotch.notchRect`, the gap between `auxiliaryTopLeftArea` and
+`auxiliaryTopRightArea`), and its body is pure notch black in both appearances (`CicadaTheme.Notch`, the dark ladder's
+text, `darkAqua` for AppKit's own field). `SaveWhyNotchShape` is the outline: at progress 0 it is exactly the notch
+(its width plus two outward ears where it meets the top edge, the notch's height, its 9 pt bottom corners), at 1 the
+whole panel (22 pt continuous bottom corners); `CicadaMotion.notchGrow` springs it out (0.34 s, bounce 0.16) and
+`notchShrink` back in (0.22 s) before the window orders out. Under Reduce Motion it is drawn grown and only fades. The
+top band (the notch's height, else the menu bar's) stays empty — the camera sits there — with the content under it. On a
+Mac without a notch the same shape grows from a zero-height sliver at the top centre. One hairline sheen
+(`CicadaTheme.Notch.edge`) marks the grown edge, faded out across the band; no glass, no shadow (DESIGN_RULES §9,
+2026-10-14). The header carries the bookworm, `curious` room art (64 × 48) on its sheet's own frame timings. The chips are
 the backend's reasons, "For <project>" per offered project, and "Something else…" (a text field; Return sends).
 Answers are multi-select without a confirm: a tap starts a 2.5 s linger, another tap adds, then the answer posts
 (`SaveWhyPanelState`, pure and tested). A click elsewhere (global and local mouse monitors), Esc (once the panel is
@@ -304,6 +315,23 @@ Sleep's write window, so the answer can meet a 409: on a 409, a 5xx or an unreac
 given, and sent again — with that `at` — when the status's `writing` goes false, when the backend first answers and
 on launch; a 404/422 or an answer over 24 h old is dropped. Esc reaches the panel only once it is clicked, so its
 hint names a click elsewhere as the way to skip.
+
+**Ask why: one switch that works (v2, 2026-10-14).** Measured on the owner's Mac: nothing appeared after a Chrome
+bookmark because the switch was off *and* both browsers' bookmark watches were off — the question can only follow a
+bookmark the watch sees. Turning the switch on (`SaveWhySetup.turnOn`) records it and calls `BrowserWatcher.enable` for
+every installed, supported browser whose watch is off, explicit offs included — the row names those browsers before
+the flip ("Turning this on also watches your bookmarks in Chrome and Safari."). Turning it off leaves the watches on:
+bookmarks are still captured. Once on, the row says, in order: a browser whose file macOS refuses ("Safari keeps its
+bookmarks in a folder macOS protects…", with **Open Full Disk Access** and **Check again**, which re-arms and re-probes
+through `enable`), what is watched plus the seed sentence ("Your next bookmark will ask — the ones you already have
+never do": `enable` syncs through the watch but never live, and a first read is a first sync), and a browser left off.
+Access, as the watch already reads it: Chrome and the Chromium family live under `~/Library/Application Support` and
+need nothing; Safari's `Bookmarks.plist` is in `~/Library/Safari`, which needs Full Disk Access to read *and* to watch
+its folder — Safari exposes no bookmarks API to another app or a web extension, so there is no lighter route.
+**Developer harness:** with `defaults write <bundle id> cicada.debug.saveWhyPreview -bool YES` in a developer build
+(never a release app, `SaveWhyPreview.isAvailable`), the menu-bar menu gains *Preview "Ask why" (Chrome)* and
+*(Safari)*: the panel for a placeholder bookmark at once, past every rule, posting and muting nothing
+(`SaveWhyCenter.preview`).
 
 **Agent wiring (Track I T3/T7).** `GET /agents/wiring` is read-only: per harness it reports
 *recall* (the MCP server registered — `claude mcp get cicada` / `codex mcp get cicada --json`, 6 s
@@ -813,7 +841,9 @@ cheer), gated by one state × response matrix (`BookwormState.allows`, `acceptsG
 shut and the X-eyed error worm never looks away. The selected mascot resolves through `MascotRegistry`; the current
 Bookworm entry is the owner's design as Aseprite sheets
 (`Resources/sprites/bookworm-<state>`, 64 × 48; the menu bar's `bookworm-small`, 18 × 18, with badge and stage dots
-drawn in code); a beat settles within 800 ms, a perk within 400 ms, and the yawn and stretch within 1.6 s (ruling 18).
+drawn in code — the badge counts the inbox's questions up to 99, then "99+" (`BookwormOverlays.badgeText`, a 13-pixel
+pill), and says so in words: the header's "133 questions waiting", the inbox line and the status item's tooltip,
+2026-10-14); a beat settles within 800 ms, a perk within 400 ms, and the yawn and stretch within 1.6 s (ruling 18).
 Tags derive from `BookwormLook.keySegment` and are tested to match each sheet exactly; reading cycles three book
 covers on its own loop. A transition always uses the sleeping sheet from the current room lighting/lamp set; a cold page never transitions, and a real
 completion's cheer wins in either callback order. A lint bans `.offset`/`.scaleEffect`/`.rotationEffect`/`.spring(`

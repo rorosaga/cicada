@@ -14,7 +14,7 @@ enum BookwormState: Equatable {
     case digesting
     /// Inbox empty, fed, idle.
     case happy
-    /// Inbox has `count` pending items; the badge renders `min(count, 99)`.
+    /// Inbox has `count` questions waiting; the badge renders the count up to 99, then "99+".
     case curious(count: Int)
     /// No episode ingested in 48h (or never).
     case hungry
@@ -52,7 +52,7 @@ enum BookwormState: Equatable {
         case .awake: "idle — listening for episodes"
         case .sleeping(let stage): "stage \(stage)/5"
         case .digesting: "chewing on new memories…"
-        case .curious(let n): "\(n) item\(n == 1 ? "" : "s") waiting"
+        case .curious(let n): Copy.questionsWaiting(n)
         case .hungry: "no episodes in 48h"
         case .reading: "reading what's waiting"
         case .error: "last sleep cycle failed"
@@ -77,9 +77,10 @@ enum BookwormState: Equatable {
         }
     }
 
-    /// The inbox count the badge draws (1…99) — `0` for every other state.
+    /// The inbox count the badge draws (1…99, and 100 for every count over 99, which draws "99+") — `0` for every
+    /// other state. Capped so 133 and 140 share one cached frame set.
     var badgeCount: Int {
-        if case .curious(let n) = self { return max(1, min(99, n)) }
+        if case .curious(let n) = self { return max(1, min(100, n)) }
         return 0
     }
 

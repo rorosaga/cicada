@@ -411,6 +411,8 @@ struct CicadaApp: App {
                             intakeRouter.present(from: .menuBar)
                         }
                     )
+                    // G191 v2 — the developer-only preview (hidden unless its defaults key is set; never in a release).
+                    menuBarManager.onPreviewSaveWhy = { [saveWhy] channel in Task { await saveWhy.preview(channel: channel) } }
                     // R-HO16 — the switch, applied at launch too.
                     menuBarManager.setVisible(menuBarVisible)
 

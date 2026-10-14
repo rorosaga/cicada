@@ -134,22 +134,26 @@ enum CicadaMotion {
     static let reducedFadeDuration: TimeInterval = 0.1
     static var fade: Animation { .linear(duration: reducedFadeDuration) }
 
-    // MARK: - G191: the "what made you save this?" panel dropping from the notch
-    /// The panel arriving: it slides down out of the menu bar (the notch on a Mac that has one) and fades in.
-    static let notchDropDuration: TimeInterval = 0.3
-    /// The panel leaving, a little quicker than it came.
-    static let notchLeaveDuration: TimeInterval = 0.18
-    /// How far above its resting place the panel starts — inside the menu bar, so it reads as coming out of it.
-    static let notchDropDistance: CGFloat = 14
+    // MARK: - G191: the "what made you save this?" panel growing out of the notch
+    /// The panel arriving: the notch's own black shape grows down and out into the panel, a quick spring with a
+    /// little give (owner 2026-10-14: "the thing coming down out of the notch").
+    static let notchGrowDuration: TimeInterval = 0.34
+    static let notchGrowBounce: Double = 0.16
+    /// Leaving: the shape shrinks back into the notch, a little quicker than it came and without the give.
+    static let notchShrinkDuration: TimeInterval = 0.22
 
-    /// AppKit's half (the panel is an `NSPanel`, animated by `NSAnimationContext`): `(duration, distance)` for the
-    /// drop. Under Reduce Motion there is no movement, only the shortened fade DR-66 keeps.
-    static func notchDrop(reduceMotion: Bool) -> (duration: TimeInterval, distance: CGFloat) {
-        reduceMotion ? (reducedFadeDuration, 0) : (notchDropDuration, notchDropDistance)
+    /// The grow. Under Reduce Motion there is no growing (the panel is drawn at full size), only DR-66's short fade.
+    static func notchGrow(reduceMotion: Bool) -> Animation {
+        reduceMotion ? fade : .spring(duration: notchGrowDuration, bounce: notchGrowBounce)
     }
 
-    static func notchLeave(reduceMotion: Bool) -> (duration: TimeInterval, distance: CGFloat) {
-        reduceMotion ? (reducedFadeDuration, 0) : (notchLeaveDuration, notchDropDistance / 2)
+    static func notchShrink(reduceMotion: Bool) -> Animation {
+        reduceMotion ? fade : .spring(duration: notchShrinkDuration)
+    }
+
+    /// How long AppKit waits before ordering the window out after the shrink starts — the shrink's own length.
+    static func notchShrinkLength(reduceMotion: Bool) -> TimeInterval {
+        reduceMotion ? reducedFadeDuration : notchShrinkDuration
     }
 
     /// STATE 0 → 1 by pointer: the list's width on the drawer curve. Width is movement, so nil under

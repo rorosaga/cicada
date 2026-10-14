@@ -45,6 +45,8 @@ final class SaveWhyCenter {
     @ObservationIgnored private let now: () -> Date
     @ObservationIgnored private var timer: Task<Void, Never>?
     @ObservationIgnored private var posting: Task<Void, Never>?
+    /// The debug harness's panel (`preview`): answered like any other, but nothing is posted or muted.
+    @ObservationIgnored private(set) var previewing = false
 
     init(prefs: SaveWhyPrefs = SaveWhyPrefs(defaults: .standard), api: any SavedWhyAPI = APIClient.shared,
          presenter: (any SaveWhyPresenting)? = nil, now: @escaping () -> Date = Date.init) {
@@ -77,7 +79,23 @@ final class SaveWhyCenter {
         prefs.lastAsked = now()
         guard let fetched = try? await api.savedWhyOptions(), !fetched.reasons.isEmpty else { return }
         guard !isShowing else { return }
+        previewing = false
         options = fetched
+        state = SaveWhyPanelState(item: item, order: fetched.reasons.map(\.key), maxText: fetched.maxText)
+        presenter?.show(self)
+        run(SaveWhyPanelState.opening())
+    }
+
+    /// The debug harness (`SaveWhyPreview`): show the panel now for a sample bookmark from `channel`'s browser, with
+    /// the backend's options when it answers and the sample's when it does not. Skips every rule — that is the point —
+    /// and writes nothing: an answer is not posted, a muted site is not remembered, the rate limit is not touched.
+    func preview(channel: String) async {
+        let fetched = (try? await api.savedWhyOptions()).flatMap { $0.reasons.isEmpty ? nil : $0 }
+            ?? SaveWhyPreview.sampleOptions
+        if isShowing { send(.escape) }
+        previewing = true
+        options = fetched
+        let item = SaveWhyPreview.sample(channel: channel)
         state = SaveWhyPanelState(item: item, order: fetched.reasons.map(\.key), maxText: fetched.maxText)
         presenter?.show(self)
         run(SaveWhyPanelState.opening())
@@ -103,11 +121,11 @@ final class SaveWhyCenter {
             case .focusText:
                 presenter?.focusText()
             case .post(let answer):
-                guard let url = state?.item.url else { continue }
+                guard !previewing, let url = state?.item.url else { continue }
                 let entry = SaveWhyOutbox.Entry(url: url, answer: answer, at: now())
                 posting = Task { @MainActor [weak self] in await self?.deliver(entry) }
             case .mute(let host):
-                prefs.mute(host)
+                if !previewing { prefs.mute(host) }
             case .close:
                 timer?.cancel()
                 timer = nil
