@@ -37,8 +37,8 @@ enum ProvenanceSectionState {
 struct WhereThisCameFromSection: View {
     let entityId: String
     let state: ProvenanceSectionState
-    /// False inside the card's own "Where this came from" disclosure, which already names the section (DR-38).
-    var showsLabel = true
+    /// False inside "Where this comes from", whose rows per app already say how many conversations and where (DR-38).
+    var showsConversationsSentence = true
 
     @Environment(ProvenanceRouter.self) private var router: ProvenanceRouter?
     @State private var showAll = false
@@ -51,7 +51,6 @@ struct WhereThisCameFromSection: View {
             EmptyView()
         default:
             VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                if showsLabel { SectionLabel(Copy.Provenance.whereThisCameFrom) }
                 content
             }
         }
@@ -83,7 +82,7 @@ struct WhereThisCameFromSection: View {
     private func loaded(_ p: EntityProvenance) -> some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(ProvenanceSummary.conversationsSentence(p))
+                if showsConversationsSentence { Text(ProvenanceSummary.conversationsSentence(p)) }
                 if let writers = ProvenanceSummary.writersSentence(p) { Text(writers) }
             }
             .font(CicadaTheme.bodyFont)

@@ -46,8 +46,7 @@ final class CardOpenProbeTests: XCTestCase {
         let id = env["CICADA_CARD_PROBE_ID"] ?? "owner-example"
         let seconds = Double(env["CICADA_CARD_PROBE_SECONDS"] ?? "") ?? 6
         // Every section open (each remembered per viewer, DR-39): what a card costs when everything has been asked for.
-        for key in [CardSections.beliefsKey, CardSections.provenanceKey, CardSections.connectionsKey,
-                    CardSections.sourcesKey] {
+        for key in [CardSections.beliefsKey, CardSections.provenanceKey, CardSections.connectionsKey] {
             UserDefaults.standard.set(env["CICADA_CARD_PROBE_OPEN_ALL"] == "1", forKey: key)
         }
 

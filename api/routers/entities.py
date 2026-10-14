@@ -10,6 +10,7 @@ from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
 from api.models.schemas import (
+    SourcesOverview,
     ContextEpisodeExcerpt,
     ContextNeighbor,
     EntityContextResponse,
@@ -57,6 +58,7 @@ from api.services import (
     person_photo,
     repo_context,
     repo_observations,
+    sync_service,
     telemetry,
     write_admission,
 )
@@ -852,6 +854,33 @@ async def get_entity_sources(
     if not entity_path.exists():
         raise HTTPException(404, f"Entity {entity_id} not found")
     return _sources_payload(settings.memory_path, entity_id)
+
+
+@router.get("/entities/{entity_id}/sources/overview", response_model=SourcesOverview)
+async def get_entity_sources_overview(
+    entity_id: str,
+    request: Request,
+    response: Response,
+    settings: Settings = Depends(get_settings),
+):
+    """Where this page's knowledge comes from, and how fresh it is (owner 2026-10-14, G61): its sources with the
+    beliefs each backs, the links its conversations named, and those conversations by app — the card's one read for
+    "Where this comes from" (``page_sources``). Engine-free, never fetches, writes nothing. On demand, not a Store
+    domain: the ETag (entities + episodes, the shape and today — what counts as a current belief moves at midnight)
+    serves the card's in-memory cache (``ProvenanceCache.sourcesOverview``), so there is no ``VersionVector`` mapping."""
+    from api.services import page_sources
+    from api.services.claims import current_day
+    from api.services.id_utils import resolve_entity_file
+
+    memory_path = settings.memory_path
+    page = resolve_entity_file(memory_path, entity_id)
+    if page is None or not page.exists():
+        raise HTTPException(404, f"Entity {entity_id} not found")
+    etag = sync_service.etag_for(memory_path, "entities", "episodes",
+                                 extra=f"{page_sources.SHAPE}|{page.stem}|{current_day()}")
+    if (early := sync_service.conditional(request, response, etag)) is not None:
+        return early
+    return await run_in_threadpool(page_sources.overview, memory_path, page)
 
 
 @router.get("/entities/{entity_id}/sources/icon/{site}")

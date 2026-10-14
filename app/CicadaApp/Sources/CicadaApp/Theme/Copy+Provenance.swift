@@ -119,11 +119,6 @@ extension Copy.Provenance {
 // MARK: - "Where this came from" on the entity card (§4.5) — Task 4
 
 extension Copy.Provenance {
-    static let whereThisCameFrom = "Where this came from"
-    /// G61's "Sources" section, renamed so "where to refresh this fact" can
-    /// never be read as "where this belief came from" (§4.5, R6 §5.3.7).
-    static let lookItUpAt = "Look it up at"
-
     static let noConversations = "Recorded before Cicada kept conversation links."
     static let noBeliefs = "No beliefs are recorded on this page yet."
     static let unavailable = "Couldn't load where this came from."

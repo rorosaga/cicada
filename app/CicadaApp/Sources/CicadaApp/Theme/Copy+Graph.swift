@@ -203,7 +203,4 @@ extension Copy.Graph {
     static let lineSource = "Where this line came from"
     /// A closed section's count, after its name ("What Cicada believes · 4,770").
     static func sectionCount(_ n: Int) -> String { "· \(UsageFormat.count(n))" }
-    static func conversationsSummary(_ n: Int) -> String {
-        n == 1 ? "· 1 conversation" : "· \(UsageFormat.count(n)) conversations"
-    }
 }

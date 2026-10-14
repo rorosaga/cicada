@@ -76,12 +76,17 @@ struct EntityDetailCard: View {
     @AppStorage(CardSections.beliefsKey) private var beliefsOpen = false
     @AppStorage(CardSections.provenanceKey) private var provenanceOpen = false
     @AppStorage(CardSections.connectionsKey) private var connectionsOpen = false
-    @AppStorage(CardSections.sourcesKey) private var sourcesOpen = false
     /// A person's "Works at" and "Role" cells, read on open as the few current beliefs with those predicates — the
     /// header never waits for (or reads) every belief on the page.
     @State private var factClaims: [Claim] = []
-    /// `sources` has been read for this page (the "Look it up at" section reads it when opened).
+    /// `sources` has been read for this page (from the overview, else `/sources` when the section opens).
     @State private var sourcesLoaded = false
+    /// Owner 2026-10-14 — "Where this comes from" (`/sources/overview`), read when the section opens or the beliefs
+    /// list is shown: it fills the section, and a belief's chip points at the source its fact can be checked at.
+    @State private var overview: PageSourcesOverview?
+    /// The source a belief's chip asked for: selected in the section and scrolled to.
+    @State private var highlightedSource: String?
+    @State private var sourceScroll = 0
     /// Bumped to scroll the card to "Where this came from" (a line with no recorded source of its own).
     @State private var provenanceScroll = 0
     @State private var relatedScroll = 0
@@ -240,6 +245,14 @@ struct EntityDetailCard: View {
                     }
                 }
                 .onChange(of: provenanceScroll) { proxy.scrollTo(Self.provenanceAnchor, anchor: .top) }
+                .onChange(of: sourceScroll) {
+                    // The section opened in this same click: let it lay out its rows before landing on one.
+                    let anchor = highlightedSource.map(PageSourcesWords.anchor) ?? Self.provenanceAnchor
+                    Task { @MainActor in
+                        await Task.yield()
+                        proxy.scrollTo(anchor, anchor: .center)
+                    }
+                }
                 .onChange(of: relatedScroll) {
                     let rows = WikiArticleCache.shared.article(articleKey).rows
                     if let row = rows.first(where: { WikiPageView.isSection($0, Copy.Graph.related) }) {
@@ -304,9 +317,8 @@ struct EntityDetailCard: View {
             // The sections behind a click sit together, closer than the blocks above (DR-35).
             VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
                 beliefsSection
-                provenanceSection.id(Self.provenanceAnchor)
+                originsSection.id(Self.provenanceAnchor)
                 if entity.type == .person { connectionsSection }
-                sourcesSection
                 detailsSection
             }
         }
@@ -324,6 +336,8 @@ struct EntityDetailCard: View {
             repoContexts = []
             sources = []
             sourcesLoaded = false
+            overview = nil
+            highlightedSource = nil
             factClaims = []
             pageReadFailed = false
             paperDetail = nil
@@ -418,13 +432,14 @@ struct EntityDetailCard: View {
             Group {
                 if claimsLoaded {
                     if !validClaims.isEmpty {
-                        WhatCicadaKnowsSection(claims: validClaims) { claim in openTimeline(for: claim) }
+                        WhatCicadaKnowsSection(claims: validClaims, onOpenTimeline: { claim in openTimeline(for: claim) },
+                                               lookUp: lookUp(for:), onLookUp: openSource)
                     }
                 } else {
                     SectionLoading(text: Copy.Graph.readingBeliefs)
                 }
             }
-            .task(id: entity.id) { await loadClaimsIfNeeded() }
+            .task(id: entity.id) { await loadBeliefs() }
         } else if !isStub {
             CardDisclosure(title: Copy.Graph.beliefsTitle,
                            summary: claimsLoaded ? Copy.Graph.sectionCount(validClaims.count) : nil,
@@ -436,26 +451,38 @@ struct EntityDetailCard: View {
                         Text(Copy.Graph.noBeliefsYet).font(CicadaTheme.font(size: 13))
                             .foregroundStyle(CicadaTheme.textTertiary)
                     } else if entity.type == .person {
-                        PersonBeliefsSection(ordered: digest.newestFirst, showsLabel: false) { claim in
-                            openTimeline(for: claim)
-                        }
+                        PersonBeliefsSection(ordered: digest.newestFirst, showsLabel: false,
+                                             onOpenTimeline: { claim in openTimeline(for: claim) },
+                                             lookUp: lookUp(for:), onLookUp: openSource)
                     } else {
-                        WhatCicadaKnowsSection(claims: validClaims, showsLabel: false) { claim in openTimeline(for: claim) }
+                        WhatCicadaKnowsSection(claims: validClaims, showsLabel: false,
+                                               onOpenTimeline: { claim in openTimeline(for: claim) },
+                                               lookUp: lookUp(for:), onLookUp: openSource)
                     }
                 }
-                .task(id: entity.id) { await loadClaimsIfNeeded() }
+                .task(id: entity.id) { await loadBeliefs() }
             }
         }
     }
 
-    @ViewBuilder
-    private var provenanceSection: some View {
-        if !provenanceState.isUnavailable {
-            CardDisclosure(title: Copy.Provenance.whereThisCameFrom,
-                           summary: provenanceState.value.map { Copy.Graph.conversationsSummary($0.totals.conversations) },
-                           isOpen: $provenanceOpen) {
-                WhereThisCameFromSection(entityId: entity.id, state: provenanceState, showsLabel: false)
-            }
+    /// Owner 2026-10-14 — "Where this comes from": the sources (with what each backs), the links the conversations
+    /// named and the conversations by app, in one disclosure (it replaces "Where this came from" and "Look it up at",
+    /// and keeps the former's remembered choice). Its data is read when the card opens; the sources fall back to
+    /// `/sources` on a backend without the overview.
+    private var originsSection: some View {
+        CardDisclosure(title: Copy.PageSources.title,
+                       summary: PageSourcesWords.summary(overview, conversations: provenanceState.value?.totals.conversations),
+                       isOpen: $provenanceOpen) {
+            PageSourcesSection(entityId: entity.id, entityType: entity.type, overview: overview,
+                               sourcesLoaded: sourcesLoaded, sources: $sources, provenance: provenanceState,
+                               highlighted: highlightedSource, navigate: { navigate(to: $0) },
+                               isCurrent: { [id = entity.id] in activeEntityId == id },
+                               onOpenFact: { fact in openTimeline(for: fact.key) },
+                               onChanged: { Task { await loadOverview() } })
+                .task(id: entity.id) {
+                    await loadOverview()
+                    await loadSourcesIfNeeded()   // only an older backend, with no overview, gets here unloaded
+                }
         }
     }
 
@@ -472,23 +499,39 @@ struct EntityDetailCard: View {
         }
     }
 
-    /// "Look it up at" (G61), its sources read when opened.
-    private var sourcesSection: some View {
-        CardDisclosure(title: Copy.Provenance.lookItUpAt, isOpen: $sourcesOpen) {
-            Group {
-                if sourcesLoaded {
-                    // `.id` — the add field's draft belongs to one page, as the card's own field was reset per id.
-                    LookItUpSection(entityId: entity.id, entityType: entity.type, showsLabel: false, sources: $sources,
-                                    navigate: { navigate(to: $0) },
-                                    isCurrent: { [id = entity.id] in activeEntityId == id }).id(entity.id)
-                } else {
-                    SectionLoading(text: Copy.Graph.readingSources)
-                }
-            }
-            .task(id: entity.id) { await loadSourcesIfNeeded() }
-        }
+    /// The beliefs list and, for its "Check at …" chips, the overview — both only once the list is shown.
+    private func loadBeliefs() async {
+        await loadClaimsIfNeeded()
+        if overview == nil { await loadOverview() }
     }
 
+    /// The page's "Where this comes from" through the in-memory cache (ETag-revalidated, never a Store domain), read
+    /// when the section opens or the beliefs list is shown — never on every card open, which already reads
+    /// `/provenance` (review B1: on an owner-sized page that route alone is ~850 ms warm). A failure keeps whatever
+    /// the card already shows; the sources are taken from it so the section needs no second read.
+    private func loadOverview() async {
+        guard let provenanceCache else { return }
+        let id = entity.id
+        let result = await provenanceCache.sourcesOverview(entityId: id)
+        guard !Task.isCancelled, id == entity.id, let value = result.value else { return }
+        overview = value
+        sources = value.sources.map(\.source)
+        sourcesLoaded = true
+    }
+
+    /// A belief's best source to check it at (`PageSourcesOverview.lookUps`); nil before the overview lands.
+    private func lookUp(for claim: Claim) -> PageSource? {
+        overview?.lookUps(predicate: claim.predicate).first
+    }
+
+    /// The way back from a belief: "Where this comes from" opens on its source, selected and scrolled to.
+    private func openSource(_ source: PageSource) {
+        highlightedSource = source.id
+        provenanceOpen = true
+        sourceScroll &+= 1
+    }
+
+    /// Only an older backend (no overview) reads `/sources` on its own.
     private func loadSourcesIfNeeded() async {
         guard !sourcesLoaded else { return }
         let id = entity.id
@@ -1200,8 +1243,9 @@ struct EntityDetailCard: View {
     // MARK: - Timeline Tab (§4)
 
     /// R-DG23 — a belief's clock: the Timeline tab, that belief open.
-    private func openTimeline(for claim: Claim) {
-        let key = BeliefKey(claim)
+    private func openTimeline(for claim: Claim) { openTimeline(for: BeliefKey(claim)) }
+
+    private func openTimeline(for key: BeliefKey) {
         requestedKey = key
         expandedKeys.insert(key)
         selectedTab = .timeline

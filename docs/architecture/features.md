@@ -46,8 +46,8 @@ known (the belief counts once the claims are read, when a section or tab asks). 
 2026-10-09): every type, a person's too, shows its prose first as an article, and everything else waits behind a
 click.** Content: Rendered/Source and Copy; the article; its folder or repository in words; then the sections, each a
 remembered disclosure (`CardDisclosure`, DR-39) that reads its data only when opened — What Cicada believes (the
-claims; shown open on an R-FX11 page, whose beliefs are its content), Where this came from, a person's *How you know
-<name>* (*What you're connected to* on the owner's page) with *What's happening*, Look it up at and Details. The
+claims; shown open on an R-FX11 page, whose beliefs are its content), Where this comes from, a person's *How you know
+<name>* (*What you're connected to* on the owner's page) with *What's happening*, and Details. The
 article is `WikiArticle`: the served prose without `## Summary` (the header's), `## Description` (a media card's) or
 a claims fence, parsed once into flat rows — one per list item or paragraph — off the main actor. `## Article` (G194
 articles, `storage.md`) is a container: its heading row is not drawn and its `### ` titles are drawn as level-2
@@ -57,17 +57,35 @@ is one row whose range is its `article` provenance item's and cached by text
 draws blank, and `WikiPageView` draws the rows in a `LazyVStack`: only the lines on screen are laid out. Until the full page lands the card says "Reading the page…"; a failed read says "Couldn't read this page." with Retry, never a spinner forever (DR-32). One claims read per card is shared by every section and tab that asks at once. Every line
 offers *Where this line came from* on hover and as an accessibility action: the `/provenance` section item whose
 `bodyRanges` cover the line opens its evidence in the Reader (checked against `pageBodyHash`); a line no item covers
-opens the page's Where this came from and scrolls to it. `/provenance` is read when the card opens — the header's
+opens the page's Where this comes from and scrolls to it. `/provenance` is read when the card opens — the header's
 facts are when the conversations were said (G194) and every evidence chip names its agent from it — but drawn only
 when asked; a person's Works at and Role read only those beliefs (`GET /entities/{id}/claims?predicate=…`), never the
 whole list. Measured on a synthetic owner page of the real one's size (5.6 MB, 5,921 claims, ~180 KB of prose;
 `CardOpenProbeTests`, opt-in, against a scratch backend; debug build): `MarkdownBody` laid the whole prose out at once,
 a 2.1–3.2 s main-thread stall when the page landed and ~0.5 s on every graph push while it was shown; the article
-costs ~60 ms of first screen and no stall over 16 ms on a push. Look it up at shows each G61 source's fact ("For
-uses"), how it can be read (the
-stated `access`, else a path or repo is "A file on this Mac" and an app "An app"; `effective_access` is not on
-this endpoint), who added it with their mark, "You chose to use this" / "Only you know this", no check line
-until G61 S3 serves one, and the page's open inbox question with Open in Inbox; Details:
+costs ~60 ms of first screen and no stall over 16 ms on a push. **Where this comes from (owner 2026-10-14, G61)** is
+one disclosure for where the page's knowledge comes from and how fresh it is (it replaced *Where this came from* and
+*Look it up at*, and keeps the former's remembered choice). Closed, it says only "· 3 conversations" (from `/provenance`,
+known before the section is read, so the words never change on a first open and never claim a page with unread sources
+has nothing). Open: how
+many beliefs have a place to check them, when the page was last said and its sources last checked; **Sources and
+links** — each G61 source grouped by its fact ("Employs · backs 5 beliefs"), its row leading with the site's name (the
+page's own `## Links` title for that URL, or the name of the saved page it is linked to, else its host) over the full
+URL, then as before (the fact, how it can
+be read, who added it with their mark, "You chose to use this" / "Only you know this", the official site's
+confirmation, ↗ and the menu), under each fact group the beliefs its sources back (four, then "and N more"), each a
+way into that belief's timeline; then *Named in conversations*, the page's `## Links` lines that are not sources, each
+with its title (else its host), its URL, its note and the conversation that named it (mark, app, title, day — opens in the Reader), ↗, and
+*Use as a source* in its menu; the add field and the page's open inbox question with Open in Inbox; **Conversations**
+— one row per app (mark, name, conversations, beliefs and passages they back, last day), then *Where this came
+from*'s writers, conversation rows and coverage. It reads `GET /entities/{id}/sources/overview` (`page_sources`, one
+bounded read — ~170 ms warm on an owner-sized page of 5,900 beliefs over 3,000 conversations, pinned under 500 ms by
+`test_page_sources_owner_scale.py` — through `ProvenanceCache`, ETag-revalidated, never a Store domain) only when the
+section opens or the beliefs list is shown (for its chips), never on every card open, which already reads
+`/provenance`; never the claims list. A belief whose fact has a source wears a *Check at example.org* chip beside its
+evidence (`PageSourcesOverview.lookUps`: the person's, then a taken or confirmed one, then the rest; never the
+official-site or page-wide ones): it opens the section on that source, selected (DR-48) and scrolled to — the way back
+from a fact to where to check it. Nothing here says a source WAS checked against a belief (S3 is shadow); Details:
 tags, related, dates, how it fades — related as its first 12 names and "and K more" (`RelatedLinksRow`, owner page
 2026-10-14: a hub's 2,024 chips, each scanning the graph for its page, took ~1 s a render), which opens the Content
 tab at the page's own `## Related` heading (DR-38, DR-5 link); a page with no such section says the count in words.

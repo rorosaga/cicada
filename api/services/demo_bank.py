@@ -126,6 +126,7 @@ def populate(bank_dir: Path, today: date | None = None) -> None:
     scenario = _write_scenario(bank_dir, today)
     _commit_scenario(bank_dir, today, scenario)
     _write_scenario_backlog(bank_dir, today)   # G150 R-B26 — before the events: a test reads their commits as newest
+    _write_design_board(bank_dir, today)   # design taste (2026-10-14) — before the events, for the same reason
     _expire_scenario(bank_dir, today)
     _write_scenario_events(bank_dir, today, scenario)
     _write_scenario_person(bank_dir, today)
@@ -904,3 +905,63 @@ def _write_scenario_backlog(bank_dir: Path, today: date) -> None:
         commit(backlog.add_note(bank_dir, project="rover-arm-project", item=item, note=text, status=status,
                                 author=author, session=session, now=at(offset), tz_name="UTC"),
                author, session, "updated")
+
+
+# --- Design taste (2026-10-14): the demo's board of looks, through the one writer ------------------------------------
+#
+# (offset, author, title, url, palette (background, surface, text, accent), layout, note, snippets). Made-up pages on
+# example domains, drawn by `demo_pictures.website`; the person saved four, an agent one (with its session), so the
+# board shows both kinds of provenance.
+
+_DESIGN_LOOKS = (
+    (-21, "user", "Quiet dark dashboard", "https://dashboard.example.com/overview",
+     ((20, 22, 28), (29, 32, 41), (226, 230, 240), (124, 156, 255)), {},
+     "The calm dark panels and one soft blue for the only action. Nothing shouts.",
+     [{"lang": "css", "code": ":root { --bg: #14161c; --panel: #1d2029; --ink: #e2e6f0; --accent: #7c9cff; }\n"
+                               ".panel { border-radius: 10px; padding: 18px 20px; gap: 12px; }\n"
+                               "body { font-family: 'Inter', system-ui, sans-serif; font-size: 14px; }"}]),
+    (-14, "user", "Warm editorial essay page", "https://journal.example.com/essays/slow-reading",
+     ((246, 241, 231), (237, 229, 214), (43, 38, 32), (200, 85, 61)), {"rounded": 2, "centred": True},
+     "Serif headlines on warm paper, generous margins, a single rust accent. It reads like a printed page.",
+     [{"lang": "css", "code": "h1 { font-family: 'Fraunces', Georgia, serif; font-size: 44px; }\n"
+                               "body { font-family: Georgia, serif; background: #f6f1e7; color: #2b2620; }\n"
+                               "article { padding: 48px 0; max-width: 38rem; }"}]),
+    (-9, "user", "Bright product launch", "https://launch.example.com",
+     ((255, 255, 255), (242, 244, 255), (17, 24, 39), (59, 91, 253)), {"rounded": 14, "dense": True},
+     "Lots of white, rounded cards, a confident blue button. Friendly without being cute.", []),
+    (-4, "claude-code", "Terminal-green docs", "https://docs.example.com/getting-started",
+     ((13, 18, 16), (20, 28, 24), (182, 242, 193), (54, 208, 122)), {"rounded": 4},
+     "Docs that feel like a terminal: mono type, green on near-black, tight spacing.",
+     [{"lang": "css", "code": "body { font-family: 'JetBrains Mono', ui-monospace, monospace; color: #b6f2c1; "
+                               "background: #0d1210; }\ncode { border-radius: 4px; padding: 2px 6px; }"}]),
+    (-1, "user", "Pastel portfolio", "https://studio.example.com/work",
+     ((253, 232, 239), (250, 245, 248), (58, 42, 82), (90, 62, 140)), {"rounded": 18, "centred": True},
+     "Soft pink and plum, big rounded tiles. Playful but the type stays serious.", []),
+)
+
+
+def _write_design_board(bank_dir: Path, today: date) -> None:
+    """Five looks on the demo's board (design taste), each committed at once under whoever saved it — the person's
+    as `Design reference` / `user/companion_app` (what the app commits), the agent's as `Agent write` /
+    `mcp/claude-code` with its session (what MCP commits). Pinned clocks, so the files never move."""
+    from datetime import datetime, time, timezone
+
+    from api.services import demo_pictures, design_refs
+
+    for offset, author, title, url, colours, layout, note, snippets in _DESIGN_LOOKS:
+        background, surface, text, accent = colours
+        image = demo_pictures.website(background, surface, text, accent, **layout)
+        now = datetime.combine(today + timedelta(days=offset), time(16, 30), tzinfo=timezone.utc)
+        session = _AGENT_SESSION if author != "user" else None
+        result = design_refs.add_ref(bank_dir, image=image, url=url, title=title, note=note, snippets=snippets,
+                                     via="demo", author=author, session=session, now=now)
+        if result.get("action") != "added":
+            continue
+        if author == "user":
+            message = design_refs.commit_message(result["paths"], action="created", subject="Design reference",
+                                                 trigger="user/companion_app", day=str(today))
+        else:
+            message = design_refs.commit_message(result["paths"], action="created", subject="Agent write",
+                                                 trigger=f"mcp/{author}", day=str(today), author=author,
+                                                 session=session)
+        _run_commit(bank_dir, message, result["paths"])

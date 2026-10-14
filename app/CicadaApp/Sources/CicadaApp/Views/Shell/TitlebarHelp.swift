@@ -20,6 +20,7 @@ enum HelpContent: Equatable {
     case feed
     case sources
     case projects
+    case looks
 
     static func page(_ tab: AppTab) -> HelpContent {
         switch tab {
@@ -30,6 +31,7 @@ enum HelpContent: Equatable {
         case .feed: .feed
         case .sources: .sources
         case .projects: .projects
+        case .looks: .looks
         default: .aboutCicada
         }
     }
@@ -56,6 +58,7 @@ struct TitlebarHelpButton: View {
                     case .feed: ListHelpPopover(page: ListHelp.feed)
                     case .sources: ListHelpPopover(page: ListHelp.sources)
                     case .projects: ListHelpPopover(page: ListHelp.projects)
+                    case .looks: ListHelpPopover(page: ListHelp.looks)
                     }
                     // G152 — every page's `?` replays the tour; the closure is built here, where the environment is.
                     TourReplayRow {
@@ -123,6 +126,16 @@ enum ListHelp {
             .init(key: "⏎", does: "Step into the card"),
             .init(key: "⌘[", does: "Back to the previous card"),
             .init(key: "Esc", does: "Close the rightmost column"),
+        ])
+
+    static let looks = Page(
+        title: "How Looks works",
+        subtitle: "Screenshots of sites whose look you like, with what you liked and their colours. Drop or paste one "
+            + "to save it, or to find the looks like it; your agents search the same board before they build.",
+        keys: [
+            .init(key: "⌘V", does: "Paste a screenshot"),
+            .init(key: "⏎", does: "Search by the words in the field"),
+            .init(key: "Esc", does: "Close the open look"),
         ])
 
     static let feed = Page(

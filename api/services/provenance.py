@@ -337,6 +337,37 @@ def _best_span(docs: _Episodes, episode_ids: list[str],
     return None
 
 
+def cited_episodes(claim: Claim) -> set[str]:
+    """The conversations a belief cites: its ``source_episodes`` and its evidence's episodes (never a page)."""
+    episodes = {e for e in claim.source_episodes if evidence.is_episode_id(e)}
+    episodes.update(ev.episode for ev in claim.evidence if evidence.is_episode_id(ev.episode))
+    return episodes
+
+
+def conversation_groups(docs: _Episodes, episode_ids_in_order) -> list[dict]:
+    """Episodes grouped into conversations — one session id (a hook's turns), else one source id (an import's
+    conversation), else the episode alone — the one grouping ``/provenance`` and the card's page-sources overview
+    share, so both count the same conversations. Each group is ``{id, episodes, said}``: ``episodes`` sorted by
+    instant as ``(timestamp, episode id, frontmatter, exists)``; ``said`` the ``(first, last)`` time it was said,
+    or ``None`` when no episode is a dated mention (#242: a memory export entry is facts, not activity)."""
+    groups: dict[str, dict] = {}
+    for ep_id in episode_ids_in_order:
+        indexed = docs.meta(ep_id)
+        efm = indexed.frontmatter if indexed is not None else {}
+        conversation_id = _opt(efm.get("session_id")) or _opt(efm.get("source_id"))
+        group = groups.setdefault(conversation_id or ep_id, {"id": conversation_id, "episodes": []})
+        group["episodes"].append((str(efm.get("timestamp") or ""), ep_id, efm, indexed is not None))
+    for group in groups.values():
+        # By instant, never by string (G114 R2): a bank holds naive, `Z` and
+        # `+00:00` stamps side by side, and lexical order across them is wrong.
+        group["episodes"].sort(key=lambda e: (episode_ids.timestamp_sort_key(e[0]), e[1]))
+        stamps = [stamp for e in group["episodes"]
+                  if episode_time.counts_as_activity(e[2]) and (stamp := _said(e[0], e[1]))]
+        group["said"] = ((min(stamps, key=episode_ids.timestamp_sort_key),
+                          max(stamps, key=episode_ids.timestamp_sort_key)) if stamps else None)
+    return list(groups.values())
+
+
 def entity_provenance(
     memory_path: Path,
     page: Path,
@@ -412,20 +443,9 @@ def entity_provenance(
     fed_by = [str(e) for e in (fm.get("source_episodes") or []) if evidence.is_episode_id(str(e))]
     ordered = list(dict.fromkeys(fed_by + sorted({e for eps in cited.values() for e in eps})))
 
-    groups: dict[str, dict] = {}
-    for ep_id in ordered:
-        indexed = docs.meta(ep_id)
-        efm = indexed.frontmatter if indexed is not None else {}
-        conversation_id = _opt(efm.get("session_id")) or _opt(efm.get("source_id"))
-        group = groups.setdefault(conversation_id or ep_id, {"id": conversation_id, "episodes": []})
-        group["episodes"].append((str(efm.get("timestamp") or ""), ep_id, efm, indexed is not None))
-
     rows: list[ProvenanceConversation] = []
     said: dict[int, tuple[str, str]] = {}   # id(row) -> (first, last) said, over every conversation
-    for group in groups.values():
-        # By instant, never by string (G114 R2): a bank holds naive, `Z` and
-        # `+00:00` stamps side by side, and lexical order across them is wrong.
-        group["episodes"].sort(key=lambda e: (episode_ids.timestamp_sort_key(e[0]), e[1]))
+    for group in conversation_groups(docs, ordered):
         ep_ids = [e[1] for e in group["episodes"]]
         first, last = group["episodes"][0], group["episodes"][-1]
         members = set(ep_ids)
@@ -442,12 +462,8 @@ def entity_provenance(
             available=any(e[3] for e in group["episodes"]),
         )
         rows.append(row)
-        # #242: a memory export entry is facts, not activity — its date is the summary's, never when it was said.
-        stamps = [stamp for e in group["episodes"]
-                  if episode_time.counts_as_activity(e[2]) and (stamp := _said(e[0], e[1]))]
-        if stamps:
-            said[id(row)] = (min(stamps, key=episode_ids.timestamp_sort_key),
-                             max(stamps, key=episode_ids.timestamp_sort_key))
+        if group["said"]:
+            said[id(row)] = group["said"]
     dated = [r for r in rows if id(r) in said]
     first = min(dated, key=lambda r: episode_ids.timestamp_sort_key(said[id(r)][0]), default=None)
     last = max(dated, key=lambda r: episode_ids.timestamp_sort_key(said[id(r)][1]), default=None)

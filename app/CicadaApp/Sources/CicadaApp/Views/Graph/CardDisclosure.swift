@@ -42,7 +42,6 @@ enum CardSections {
     static let beliefsKey = "cicada.card.beliefsOpen"
     static let provenanceKey = "cicada.card.provenanceOpen"
     static let connectionsKey = "cicada.card.connectionsOpen"
-    static let sourcesKey = "cicada.card.sourcesOpen"
 }
 
 /// A section reading its data, said in words beside a small spinner (DR-32's rule: never a blank).

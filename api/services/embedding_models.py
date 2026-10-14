@@ -400,6 +400,59 @@ def start_download(bank: Path | None = None, settings=None, environ=os.environ) 
     return True
 
 
+def _run_vision_download(environ) -> None:
+    from api.services import model_fetch
+
+    JOB._set(state="installing", step="Preparing", error="", started_at=time.time(), finished_at=None)
+
+    def progress(phase: str, done: int, total: int) -> None:
+        if phase == "download":
+            JOB._set(step=f"Downloading the image model ({done / 1e6:.0f} of {total / 1e6:.0f} MB)")
+        elif phase == "prepare":
+            JOB._set(step="Checking and preparing the image model")
+        elif phase == "warm":
+            JOB._set(step="Getting the search model ready on this Mac (about a minute and a half, once)")
+
+    try:
+        model_fetch.install_vision(_home(environ) / "models", progress=progress)
+        JOB._set(state="done", step="", finished_at=time.time())
+        logger.info("embedding_models: the image model is installed")
+    except Exception as exc:  # noqa: BLE001 — every failure becomes a sentence the person reads
+        message = str(exc) if isinstance(exc, model_fetch.FetchError) else "The download stopped unexpectedly. Try again."
+        JOB._set(state="failed", step="", error=message, finished_at=time.time())
+        logger.warning(f"embedding_models: image model download failed: {type(exc).__name__}")
+
+
+def start_vision_download(environ=os.environ) -> bool:
+    """Start the image encoder's download in the background (design taste, 2026-10-14) — the person's click on the
+    Looks page, never on its own; False when an install is already running. Fetches the text encoder first when it
+    isn't here (an image's tokens are embedded by it)."""
+    with JOB._lock:
+        if JOB.state == "installing":
+            return False
+        JOB.state = "installing"
+    threading.Thread(target=_run_vision_download, args=(environ,), name="cicada-vision-download",
+                     daemon=True).start()
+    return True
+
+
+def vision_status(environ=os.environ) -> dict:
+    """Whether this Mac can search by image: ``supported`` (macOS 15+ on Apple silicon), ``installed`` (the image
+    encoder sits beside the text encoder at the pinned revision), and the one-time download's size."""
+    from api.services import model_fetch
+
+    try:
+        p = model_fetch.pins()
+        folder = model_fetch.destination(_home(environ) / "models", p)
+        installed = model_fetch.vision_installed(folder, p)
+        text_here = model_fetch.installed_revision(folder) == p["revision"]
+        size = 0 if installed else model_fetch.vision_total_bytes(p) + (0 if text_here else model_fetch.total_bytes(p))
+    except model_fetch.FetchError:
+        installed, size = False, 0
+    supported = neural_engine_supported()
+    return {"supported": supported, "installed": bool(installed and supported), "download_bytes": int(size)}
+
+
 # --------------------------------------------------------------------------- #
 # The background re-embed after a model change
 # --------------------------------------------------------------------------- #
@@ -549,4 +602,5 @@ def status(bank: Path, settings, environ=os.environ) -> dict:
         ],
         "install": JOB.snapshot(),
         "reindex": REINDEX.snapshot(bank),
+        "vision": vision_status(environ),
     }

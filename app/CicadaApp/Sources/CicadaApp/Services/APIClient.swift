@@ -3272,3 +3272,90 @@ extension APIClient {
         _ = try await delete(path)
     }
 }
+
+// MARK: - Design taste (2026-10-14) — the Looks page's board
+
+/// The board's reads and the person's two writes (`api/routers/design.py`). A protocol so `LooksCache` is tested
+/// against a fake, the `BacklogAPI` way.
+protocol DesignAPI: Sendable {
+    func fetchDesignBoard(etag: String?) async throws -> Conditional<DesignBoard>
+    func fetchDesignRef(id: String, etag: String?) async throws -> Conditional<DesignRef>
+    func saveDesignRef(_ upload: DesignUpload) async throws -> DesignRef
+    func deleteDesignRef(id: String) async throws
+    func searchDesign(query: String?, image: Data?, ext: String?) async throws -> DesignSearchResult
+    func installImageModel() async throws
+}
+
+extension APIClient: DesignAPI {
+    nonisolated static func designPath(_ id: String, _ tail: String...) -> String {
+        var allowed = CharacterSet.urlPathAllowed
+        allowed.remove(charactersIn: "/?#")
+        return "/design/" + ([id] + tail).map { $0.addingPercentEncoding(withAllowedCharacters: allowed) ?? $0 }
+            .joined(separator: "/")
+    }
+
+    func fetchDesignBoard(etag: String?) async throws -> Conditional<DesignBoard> {
+        try await getConditional("/design", etag: etag)
+    }
+
+    func fetchDesignRef(id: String, etag: String?) async throws -> Conditional<DesignRef> {
+        try await getConditional(Self.designPath(id), etag: etag)
+    }
+
+    /// `multipart/form-data`: the image as `image`, every other field as text — nothing the server would have to guess.
+    private func designMultipart(_ path: String, fields: [(String, String)], image: Data?, ext: String?) async throws -> Data {
+        var request = makeRequest(path, method: "POST", json: false)
+        let boundary = UUID().uuidString
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        var body = Data()
+        for (name, value) in fields {
+            body.append("--\(boundary)\r\nContent-Disposition: form-data; name=\"\(name)\"\r\n\r\n".data(using: .utf8)!)
+            body.append(value.data(using: .utf8)!)
+            body.append("\r\n".data(using: .utf8)!)
+        }
+        if let image {
+            let kind = ext == "png" ? "png" : "jpg"
+            body.append("--\(boundary)\r\n".data(using: .utf8)!)
+            body.append("Content-Disposition: form-data; name=\"image\"; filename=\"look.\(kind)\"\r\n".data(using: .utf8)!)
+            body.append("Content-Type: \(kind == "png" ? "image/png" : "image/jpeg")\r\n\r\n".data(using: .utf8)!)
+            body.append(image)
+            body.append("\r\n".data(using: .utf8)!)
+        }
+        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+        request.httpBody = body
+        let (reply, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw APIError.serverUnreachable }
+        guard (200...299).contains(http.statusCode) else {
+            if http.statusCode == 401 { Self.invalidateToken() }
+            throw APIError.httpError(http.statusCode, String(data: reply, encoding: .utf8) ?? "Unknown error")
+        }
+        return reply
+    }
+
+    func saveDesignRef(_ upload: DesignUpload) async throws -> DesignRef {
+        var fields: [(String, String)] = [("via", upload.via)]
+        if let url = upload.url, !url.isEmpty { fields.append(("url", url)) }
+        if let title = upload.title, !title.isEmpty { fields.append(("title", title)) }
+        if let note = upload.note, !note.isEmpty { fields.append(("note", note)) }
+        let reply = try await designMultipart("/design", fields: fields, image: upload.image, ext: upload.ext)
+        do { return try decoder.decode(DesignRef.self, from: reply) } catch { throw APIError.decodingError("\(error)") }
+    }
+
+    func deleteDesignRef(id: String) async throws {
+        _ = try await delete(Self.designPath(id))
+    }
+
+    func searchDesign(query: String?, image: Data?, ext: String?) async throws -> DesignSearchResult {
+        var fields: [(String, String)] = []
+        if let query, !query.isEmpty { fields.append(("query", query)) }
+        let reply = try await designMultipart("/design/search", fields: fields, image: image, ext: ext)
+        do { return try decoder.decode(DesignSearchResult.self, from: reply) } catch {
+            throw APIError.decodingError("\(error)")
+        }
+    }
+
+    /// The image model's own click (`POST /embeddings/install` with `part: vision`, 202).
+    func installImageModel() async throws {
+        _ = try await post("/embeddings/install", body: ["model": "google/embeddinggemma-2:768", "part": "vision"]) as Data
+    }
+}

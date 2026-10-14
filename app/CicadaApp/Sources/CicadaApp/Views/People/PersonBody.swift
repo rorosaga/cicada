@@ -51,6 +51,9 @@ struct PersonBeliefsSection: View {
     /// False inside the card's "What Cicada believes" disclosure: it names the section, this says the order (DR-38).
     var showsLabel = true
     var onOpenTimeline: (Claim) -> Void = { _ in }
+    /// Owner 2026-10-14 — the source a belief can be checked at, and opening it in "Where this comes from".
+    var lookUp: (Claim) -> PageSource? = { _ in nil }
+    var onLookUp: ((PageSource) -> Void)? = nil
     @State private var shown = PersonBeliefs.collapsed
 
     var body: some View {
@@ -65,7 +68,8 @@ struct PersonBeliefsSection: View {
                 }
                 LazyVStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
                     ForEach(ordered.prefix(shown)) { claim in
-                        BeliefRow(claim: claim, onOpenTimeline: { onOpenTimeline(claim) }, signed: true)
+                        BeliefRow(claim: claim, onOpenTimeline: { onOpenTimeline(claim) }, signed: true,
+                                  lookUp: lookUp(claim), onLookUp: onLookUp)
                     }
                 }
                 .padding(.horizontal, -CicadaTheme.scaled(10))
