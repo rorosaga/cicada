@@ -591,6 +591,63 @@ TOOLS = [
         },
     },
     {
+        # G198 (owner ruling 2026-10-14): a page's words and aliases, with a reason that becomes the commit message.
+        # Stdio and the command line only in this slice (`catalog.NEVER_REMOTE`).
+        "name": "cicada_edit_page",
+        "description": "Fix the words of a page or its aliases when they are wrong — a misspelled name, a stale sentence, an alias that is not a name for it — never to record a new fact (that is cicada_write_claim). Give a `reason` in one sentence: it becomes the commit message the person sees. `edits` replace exact words on the page (copy them from cicada_recall_detail); `section` + `text` rewrite one section; `add_aliases` / `remove_aliases` change its other names (a removed one is never added back automatically). The claims on the page are never touched. If the person has not listed your app as one that may edit pages, the change waits in their inbox for one tap instead, and the reply says so. `resolves` answers inbox questions this change settles, only with the person's own words cited in `evidence`.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "subject": {"type": "string", "description": "The page — its id (e.g. 'alpha-project') or name."},
+                "reason": {"type": "string", "maxLength": 500, "description": "Why, in one sentence (e.g. 'the person spelled their surname for me'). It becomes the commit message."},
+                "edits": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "old": {"type": "string", "description": "The exact words on the page now, character for character."},
+                            "new": {"type": "string", "description": "What they become; an empty string deletes them."},
+                            "all": {"type": "boolean", "description": "Change every place the words appear (default: they must appear once)."},
+                            "pin": {"type": "boolean", "description": "Keep the fix when Sleep rewrites the page: Cicada writes `new` wherever a rewrite would write `old` on this page. Defaults to `all`."},
+                        },
+                        "required": ["old", "new"],
+                    },
+                    "description": "Optional: exact words → new words in the page's text.",
+                },
+                "section": {"type": "string", "description": "Optional: the title of one section to rewrite whole (e.g. 'Summary', or a section inside the Article). Needs `text`."},
+                "text": {"type": "string", "description": "The section's new content, without its heading."},
+                "add_aliases": {"type": "array", "items": {"type": "string"}, "description": "Optional: other names the thing goes by."},
+                "remove_aliases": {"type": "array", "items": {"type": "string"}, "description": "Optional: aliases that are wrong, spelled exactly as listed (accents included)."},
+                "evidence": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "episode": {"type": "string", "description": "The episode the words are in."},
+                            "quote": {"type": "string", "description": "The exact words, copied verbatim (at most 240 characters)."},
+                        },
+                        "required": ["episode", "quote"],
+                    },
+                    "description": "Optional: the person's exact words that justify the change, from a saved episode — verified and stored as offsets in the commit, never copied.",
+                },
+                "resolves": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": {"type": "string", "description": "The inbox item (e.g. 'inbox-012')."},
+                            "option_key": {"type": "string", "description": "The option the person's words pick."},
+                            "answer": {"type": "string", "description": "Or their answer in their own words."},
+                        },
+                        "required": ["id"],
+                    },
+                    "description": "Optional: inbox questions this change answers. Each is answered only when `evidence` cites the person's own words.",
+                },
+            },
+            "required": ["subject", "reason"],
+        },
+    },
+    {
         "name": "cicada_pending",
         "description": "List Cicada episodes not yet consolidated into the knowledge graph (processed: false), each with its rev (the version of its text). Use this to see what raw conversation material is waiting, then use cicada_write_claim to consolidate atomic facts out of it yourself, and cicada_mark_processed once you're done with an episode — this lets an agent do its own lightweight consolidation between Sleep cycles.",
         "inputSchema": {
@@ -1071,6 +1128,11 @@ def handle_tool(name: str, arguments: dict) -> str:
             arguments.get("access"),
             arguments.get("entity"),
         )
+    elif name == "cicada_edit_page":
+        return mcp_tools.edit_page(
+            _ctx(), arguments.get("subject", ""), arguments.get("reason", ""), arguments.get("edits"),
+            arguments.get("section"), arguments.get("text"), arguments.get("add_aliases"),
+            arguments.get("remove_aliases"), arguments.get("evidence"), arguments.get("resolves"))
     elif name == "cicada_pending":
         return handle_pending(arguments.get("limit"))
     elif name == "cicada_mark_processed":

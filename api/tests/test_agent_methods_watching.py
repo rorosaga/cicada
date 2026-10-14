@@ -169,7 +169,7 @@ def test_the_primer_with_every_method_line_and_all_bridges_stays_inside_the_unra
     assert len(methods) == 2 and methods[0].startswith("- Reading pages:") and methods[1].startswith("- Watching videos:")
     text = handshake.build(None, variant="claude-code", bank="memory", tz="Europe/Madrid", bridges=bridges,
                            reading=True, methods=methods, reading_tools="the tool the person chose")
-    assert len(text) // 4 <= 1600, len(text) // 4  # A2 State guidance: leaves ≥200 of the unchanged 1,800
+    assert len(text) // 4 <= 1616, len(text) // 4  # A2 State guidance + G198 cicada_edit_page: leaves ≥184 of the unchanged 1,800
     assert "brief `State:`" in text and "optional" in text
 
 

@@ -102,6 +102,9 @@ def rewrite_entity_from_sources(memory_path: Path, entity_id: str, settings, *,
         final_body = write_claims(final_body, existing_claims)
     fm = dict(par.frontmatter)
     fm["layout_version"] = 2
+    from api.services import page_edits
+
+    final_body, _ = page_edits.apply_corrections(fm, final_body)   # G198: an edit's pinned fixes outlive the rewrite
     markdown_parser.write(ent, fm, final_body)
     return {"entity_id": entity_id, "changed": True,
             "before_words": before, "after_words": _words(final_body)}

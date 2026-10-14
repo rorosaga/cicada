@@ -259,6 +259,9 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 
 - The handshake rides `initialize`; recall fuses vectors, words and claims. **An agent's write carries provenance** (the
   harness as `Cicada-Author`, the session trailer) and an agent withdraws only what it wrote.
+- **Prose is no longer Sleep's alone (G198, owner 2026-10-14):** `cicada_edit_page` changes a page's words or aliases, never
+  its claims, with a reason that is the commit message; only a harness on the person's trust list writes at once, any other
+  proposes in the inbox; pinned fixes and removed aliases outlive Sleep; blame is read from git (`storage.md`, `mcp.md`).
 - **The CLI (G180, ruling 21)** is a second door onto the same bodies: in-process from one bootstrap that reads no
   `.env` (the root resolved once, canonical, pinned with the bank; `--bank` asserts, never selects), names from one
   tested CLI↔MCP table (`cli_map`), one JSON envelope, no generic dispatcher (`mcp.md`). **Ruling 21a (owner,

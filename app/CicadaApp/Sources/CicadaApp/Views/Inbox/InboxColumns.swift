@@ -163,7 +163,7 @@ enum InboxEyebrow {
 /// DR-45 — "All 6 · Decay 1 · Conflict 2 …": the kinds present, in a stable order, never a dot.
 enum InboxTabs {
     static let order: [InboxKind] = [.decay, .conflict, .clarification, .followup, .mergeSuggestion,
-                                     .removal, .divergence, .normalization]
+                                     .removal, .divergence, .normalization, .pageEdit]
 
     static func tabs(_ items: [InboxItem]) -> [TextTab<InboxKind>] {
         let counts = Dictionary(grouping: items, by: \.kind).mapValues(\.count)

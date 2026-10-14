@@ -310,6 +310,14 @@ user's `~/.cursor/hooks.json`, and the hook group to `--hook startup | capture` 
 timing/tool choice and visual rendering are unverified; `mcp.md` and `capture-and-sleep.md` specify the capture,
 CLI/cloud/remote boundaries. No app launch is needed to configure or test this seam.
 
+Settings → Agents → **Editing pages** (G198, `PageEditorsGroup`, its own file plus one line in `ConnectView`, row id
+`agentsEditors` in the index): one row per local agent `GET /settings/editors` lists as a candidate (plus any already
+allowed that it no longer lists), its Track L mark (DR-52), "Allowed since <day>" or "Asks in your inbox first", and a
+system switch with its label spoken (DR-40/41). `PageEditorsModel` reads the list when the page appears (and on the SSE
+reachability flip), writes one switch at a time with `PUT /settings/editors` (`{trusted: {harness: bool}}`), shows the
+change at once and puts it back with the server's sentence on a refusal. Machine-wide, outside every bank, not a Store
+domain (no ETag). Copy names only the agent's app (provider-neutral).
+
 Settings → Agents (round-4 D5) adds, per harness, Connect for me (the same `AgentConnect.run`), Copy
 setup prompt (`GET /agents/setup`'s prompt shown verbatim, then copied — the agent runs the install itself), Open in
 Cursor (the catalog's own deeplink) and Set up Claude (`ClaudeDesktopConfig` merges `mcpServers.cicada` into Claude
@@ -847,7 +855,12 @@ Settings panel; DS-2 (2026-09-24) shipped the Inbox in progressive columns and t
 shipped the Graph page and the entity card, and DS-3c (2026-09-24) shipped Clusters, the Feed and Sources in progressive
 columns. The Inbox's focus card gained a name variant on 2026-10-14 (`NameBody`, `FocusCardVariant.name`, chosen by an
 item's `asks: "name"` before its options; DR-43's table and §9): the question about a person Cicada knows only by a
-relation (`features.md`) takes a typed name through `resolve`, or "I'd rather not say" (`NameAnswer.decline`). Every other
+relation (`features.md`) takes a typed name through `resolve`, or "I'd rather not say" (`NameAnswer.decline`). A
+`page_edit` item (G198, an agent's proposed change to a page's words or aliases) is `InboxKind.pageEdit` ("Page edit",
+`pencil`, clarification's hue in both palettes — no new hue, DR-8) and renders as an options card (`apply` / `dismiss`
+from the server, Not now); `InboxBodyPreview` draws its `body` — "Why: …" and the changes as "- Replace “old” with
+“new”" lines — even beside a cause quote, because the body is the change itself (every other kind keeps the old rule:
+the body only when there is neither a cause nor a quote). Every other
 page paragraph below describes what ships until that page's DS track lands.
 
 **Graphite and Meadow (Direction D, G137).** Working surfaces are graphite — `bgRail` · `bgBase` · `bgPane` · `bgHover`
@@ -915,7 +928,17 @@ inferred / truncated in words — a span its rewritten document no longer reache
 stale too, never "couldn't open". The entity card's "Where this comes from" (Content, after the page and its beliefs) reads
 `/entities/{id}/provenance` once per card and `/entities/{id}/sources/overview` when the section or the beliefs list
 opens (both through `ProvenanceCache`);
-G61's sources, the page's links and its conversations by app are one section since 2026-10-14 (`features.md`). Chips read the router
+G61's sources, the page's links and its conversations by app are one section since 2026-10-14 (`features.md`). Its last part,
+**Who wrote it** (G198, `WhoWroteItSection`), is `GET /entities/{id}/blame` read when the section shows
+(`PageSourcesSection` asks `ProvenanceCache.blame`; no ETag, so it asks again on every show, keeps the last answer on a
+failure and draws the held one at once on a re-open; a 404 — an older backend — leaves it out; a `pending` answer, the
+backend's blame still running, never replaces the held copy and is asked again `CicadaTiming.blamePendingTries` times,
+`blamePendingRetry` apart): per part of the page's
+text (an H2, an Article section as "Article › title", the opening before any heading), who last changed its lines with
+the shared marks and names (`ContributorAvatar`, `ContributorIdentity.displayName`), how many lines and the day
+(`EntityDates.shortDay`, DR-58), and an agent edit's reason in quotes, "· accepted by you" when the person applied it
+from the inbox; at most three writers a part and four parts before "Show all" (DR-38/39). Words in `PageBlameWords`,
+copy in `Copy+PageEdits.swift`. Chips read the router
 and cache as optional environment values, so a chip outside the main window renders without a
 click-through rather than trapping; the Ask sheet steps aside when the Reader
 opens (the Belief Timeline is inline in its tab since DS-3a), and a bank switch closes it and empties the cache (episode ids repeat across banks).

@@ -31,8 +31,8 @@ from typing import Callable
 from loguru import logger
 
 from api.services import (
-    claims, conflict_resolver, entity_article, entity_body, git_service, json_parse, markdown_parser, page_lock,
-    section_provenance, write_admission,
+    claims, conflict_resolver, entity_article, entity_body, git_service, json_parse, markdown_parser, page_edits,
+    page_lock, section_provenance, write_admission,
 )
 
 TRIGGER = "maintenance/page-articles"
@@ -316,11 +316,13 @@ def compose(job: Job, *, today: str) -> tuple[dict, str]:
     paragraph's provenance."""
     fm = dict(job.frontmatter)
     prose = claims.strip_claims_block(job.body)
-    sections = entity_article.compose(prose, str(fm.get("type") or "concept"), {}, job.article)
+    article = page_edits.correct_article(fm, job.article)   # G198: an edit's pinned fixes outlive the rewrite
+    sections = entity_article.compose(prose, str(fm.get("type") or "concept"), {}, article)
     body = claims.preserve_claims_blocks(job.body, entity_body.render_sections(sections))
+    body, _ = page_edits.apply_corrections(fm, body)   # and in the record the rebuild carried over
     entity_article.stamp(fm, entity_body.parse_sections(claims.strip_claims_block(body)), written=today)
-    section_provenance.refresh(fm, job.body, body, {"summary": job.article["lead"],
-                                                    section_provenance.INPUTS: list(job.article["records"])})
+    section_provenance.refresh(fm, job.body, body, {"summary": article["lead"],
+                                                    section_provenance.INPUTS: list(article["records"])})
     return fm, body
 
 

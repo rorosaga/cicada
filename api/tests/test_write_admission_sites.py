@@ -408,6 +408,7 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /banks/leave-demo": (BANKS, None),
     "POST /banks/{name}/import": (CAPTURE, None),
     "PUT /settings/owner": (ADMITTED, None),
+    "PUT /settings/editors": (OUTSIDE, None),         # G198: $CICADA_HOME/editors.json, never the bank
     "POST /sources/folders": (ADMITTED, None),
     "PUT /sources/folders/{folder_id}": (HELD, None),
     "DELETE /sources/folders/{folder_id}": (REGISTRY, None),
@@ -467,6 +468,7 @@ TOOLS: dict[str, tuple[str, str | None]] = {
     "cicada_add_backlog_item": (ADMITTED, "add_backlog_item"),
     "cicada_add_backlog_note": (ADMITTED, "add_backlog_note"),
     "cicada_save_design": (ADMITTED, "save_design"),
+    "cicada_edit_page": (ADMITTED, "_edit_page_locked"),        # G198: the page or the proposal, committed alone
     "cicada_save_url": (ADMITTED, "save_url"),                  # backend up: POST /sources/save admits itself
     "cicada_resolve_inbox": (ADMITTED, None),                   # posts to /inbox/{id}/resolve, which admits
     "cicada_save_episode": (CAPTURE, None),
@@ -642,6 +644,7 @@ GET_ROUTES: dict[str, tuple[str, str]] = {
     "GET /inbox": (NONE, "names a commit in a comment only"),
     "GET /entities/{entity_id}/history": (NONE, "reads commits"),
     "GET /entities/{entity_id}/history/{commit_hash}/diff": (NONE, "reads a commit"),
+    "GET /entities/{entity_id}/blame": (NONE, "reads commits (G198: git blame and the commits' trailers)"),
     "GET /entities/{entity_id}/provenance": (NONE, "reads commits"),
     "GET /contributors/commits": (NONE, "reads commits"),
     "GET /contributors/calendar": (NONE, "reads commits"),

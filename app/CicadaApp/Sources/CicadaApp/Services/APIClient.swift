@@ -2613,6 +2613,16 @@ actor APIClient {
         return try await put("/reading/settings", body: body)
     }
 
+    /// G198 — `GET /settings/editors`: the agents the person lets edit a page's words directly, and the local ones
+    /// they could add. Machine-wide (outside every bank); not a Store domain.
+    func fetchPageEditors() async throws -> PageEditorsResponse { try await get("/settings/editors") }
+
+    /// G198 — `PUT /settings/editors` with a one-agent patch (`true` adds it, `false` removes it). A refusal is a 400
+    /// whose `detail` is the sentence to show.
+    func setPageEditor(_ harness: String, trusted: Bool) async throws -> PageEditorsResponse {
+        try await put("/settings/editors", body: ["trusted": [harness: trusted]])
+    }
+
     /// `GET /reading/sites` — the sites Cicada's own reader could not read, with counts. Not a Store domain.
     func fetchReadingSites() async throws -> ReadingSitesResponse { try await get("/reading/sites") }
 

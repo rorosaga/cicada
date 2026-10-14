@@ -18,6 +18,15 @@ protocol ProvenanceAPI: Sendable {
     func fetchEpisodeCitations(episode: String, etag: String?) async throws -> Conditional<EpisodeCitations>
     /// Owner 2026-10-14 — "Where this comes from": `GET /entities/{id}/sources/overview`.
     func fetchSourcesOverview(entityId: String, etag: String?) async throws -> Conditional<PageSourcesOverview>
+    /// G198 — "Who wrote it": `GET /entities/{id}/blame`. No ETag (read from git on demand).
+    func fetchEntityBlame(entityId: String) async throws -> PageBlame
+}
+
+extension ProvenanceAPI {
+    /// A provenance source that predates the route answers as the backend would: not here (404), so the section hides.
+    func fetchEntityBlame(entityId: String) async throws -> PageBlame {
+        throw APIError.httpError(404, "no blame route")
+    }
 }
 
 /// What `/episodes/{id}/text` is asked to focus (R-PB5): an asserted span
@@ -87,5 +96,12 @@ extension APIClient: ProvenanceAPI {
 
     func fetchSourcesOverview(entityId: String, etag: String?) async throws -> Conditional<PageSourcesOverview> {
         try await getConditional(Self.provenancePath("/entities", entityId, "/sources/overview"), etag: etag)
+    }
+
+    func fetchEntityBlame(entityId: String) async throws -> PageBlame {
+        let result: Conditional<PageBlame> = try await getConditional(
+            Self.provenancePath("/entities", entityId, "/blame"), etag: nil)
+        guard let value = result.value else { throw APIError.decodingError("empty /blame response") }
+        return value
     }
 }

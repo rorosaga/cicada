@@ -323,7 +323,22 @@ def build(*, name: str, entity_type: str, frontmatter: dict, original_body: str,
         "INPUT": [{"id": s.id, "kind": s.kind, "text": s.text, **({"said_on": s.said_on} if s.said_on else {})}
                   for s in sources],
     }
+    fixes = _corrections(frontmatter)
+    if fixes:
+        data["CORRECTIONS"] = fixes
     return Inputs(sources, data)
+
+
+def _corrections(frontmatter: dict) -> list[dict]:
+    """G198: the page's pinned corrections (``page_edits``), for the writer to respect. The writer's output gets them
+    applied anyway; telling it keeps a sentence from being built around the wrong words."""
+    raw = (frontmatter or {}).get("corrections")
+    return [{"replaced": r["old"], "with": r["new"]} for r in raw if isinstance(r, dict)
+            and isinstance(r.get("old"), str) and r["old"] and isinstance(r.get("new"), str)] if isinstance(raw, list) else []
+
+
+_CORRECTIONS_RULE = ("\n- CORRECTIONS lists fixes made to this page's words: always write each `with`, never its "
+                     "`replaced`.")
 
 
 def _item(source: Source) -> dict:
@@ -434,8 +449,10 @@ def fit(inputs: Inputs, *, max_chars: int, people=()) -> Inputs:
 def prompt(inputs: Inputs, *, max_chars: int) -> str | None:
     """The writer's prompt, or ``None`` when it is over ``max_chars`` (never clipped: the latest dated input could be
     the part cut). The page then keeps the deterministic merge."""
-    text = (PROMPT.replace("OWNER", inputs.data["OWNER"]) + "\nDATA:\n"
-            + json.dumps(inputs.data, ensure_ascii=False, indent=0))
+    rules = PROMPT.replace("OWNER", inputs.data["OWNER"])
+    if inputs.data.get("CORRECTIONS"):
+        rules = rules.rstrip("\n") + _CORRECTIONS_RULE + "\n"
+    text = rules + "\nDATA:\n" + json.dumps(inputs.data, ensure_ascii=False, indent=0)
     return text if len(text) <= max_chars else None
 
 

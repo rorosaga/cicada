@@ -29,6 +29,9 @@ struct PageSourcesSection: View {
     var onChanged: () -> Void = {}
 
     @Environment(ProvenanceRouter.self) private var router: ProvenanceRouter?
+    @Environment(ProvenanceCache.self) private var provenanceCache: ProvenanceCache?
+    /// G198 — "Who wrote it", read when this section shows (`/blame`, not a Store domain).
+    @State private var blame: PageBlame?
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingCard) {
@@ -67,8 +70,33 @@ struct PageSourcesSection: View {
                                              showsConversationsSentence: overview == nil)
                 }
             }
+            // G198 — who last changed each part of the page's text, when and why (left out until it has something).
+            if WhoWroteItSection.shows(blame), let blame {
+                WhoWroteItSection(blame: blame).id(entityId)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .task(id: entityId) { await loadBlame() }
+    }
+
+    private func loadBlame() async {
+        guard let provenanceCache else { return }
+        blame = provenanceCache.cachedBlame(entityId: entityId)
+        // The backend answers `pending` while its blame runs (G198 review B3): keep what is held and ask again, a few
+        // times, a moment apart. The task ends when the section goes away.
+        for attempt in 0..<CicadaTiming.blamePendingTries {
+            switch await provenanceCache.blame(entityId: entityId) {
+            case let .loaded(value) where value.pending:
+                guard attempt + 1 < CicadaTiming.blamePendingTries else { return }
+                try? await Task.sleep(for: .seconds(CicadaTiming.blamePendingRetry))
+                if Task.isCancelled { return }
+                continue
+            case let .loaded(value): blame = value
+            case .gone: blame = nil
+            case .failed: break   // the last answer held stays (never blank)
+            }
+            return
+        }
     }
 
     /// The opening lines: coverage, then freshness. Nil when there is nothing to say yet.

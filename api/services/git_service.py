@@ -1052,11 +1052,12 @@ def _infer_change_type(subject: str, body: str, entity_id: str) -> str:
 
 
 def _build_description(subject: str, body: str, entity_id: str) -> str:
-    """Build a human-readable description from commit message."""
+    """Build a human-readable description from commit message. An agent's page edit (G198) adds its reason."""
+    reason = next((line[len("Reason: "):].strip() for line in body.splitlines() if line.startswith("Reason: ")), "")
     # Look for entity-specific line in body
     for line in body.splitlines():
         if entity_id in line.lower():
-            return line.strip()
+            return f"{line.strip()} — {reason}" if reason else line.strip()
     return subject
 
 

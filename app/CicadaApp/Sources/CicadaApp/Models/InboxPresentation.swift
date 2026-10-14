@@ -378,6 +378,18 @@ enum FocusCardVariant: Equatable {
     }
 }
 
+/// Whether the focus card draws the item's own `body` under the question. A legacy item with no cause and no quote
+/// has nothing else to show (owner defect 2, 2026-09-03). G198: a proposed page edit always shows it — the body is
+/// the change itself ("Why: …", then "- Replace “old” with “new”"), and the person's quoted words above it are only
+/// why the agent made it.
+enum InboxBodyPreview {
+    static func shows(_ item: InboxItem, hasQuote: Bool) -> Bool {
+        guard !item.body.isEmpty else { return false }
+        if item.kind == .pageEdit { return true }
+        return !hasQuote && !item.hasCause
+    }
+}
+
 /// The merge's direction in words: "Tool Example A (CLI) → tool-example-a".
 enum MergeDirection {
     static func line(survivorIsMention: Bool, mention: String, existing: String) -> String? {

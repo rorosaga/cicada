@@ -419,6 +419,11 @@ def merge_entities(memory_path: Path, loser_id: str, winner_id: str,
         if loser_name.lower() not in {str(a).lower() for a in aliases}:
             wfm["aliases"] = [*aliases, loser_name]
     _merge_sources(winner_id, loser_id, wfm, lfm)
+    # G198: both pages' pinned corrections and removed aliases travel to the winner, and an alias either page had
+    # removed is not unioned back in (the loser's own name included).
+    from api.services import page_edits
+
+    page_edits.carry_marks(wfm, lfm)
     wfm["confidence"] = max(float(wfm.get("confidence", 0) or 0),
                             float(lfm.get("confidence", 0) or 0))
     # Mentioned most recently on either page: a merge must not make the

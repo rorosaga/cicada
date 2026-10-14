@@ -223,7 +223,7 @@ def test_answer_takes_options_never_free_text(runtime, posts):
     text, _ = runtime.call(c, "cicada_resolve_inbox", {"id": "inbox-001", "answer": "made up words"})
     assert "option_key" in text and posts == []
     runtime.call(c, "cicada_resolve_inbox", {"id": "inbox-001", "option_key": "keep"})
-    assert posts == [("/inbox/inbox-001/resolve", {"action": "resolve", "optionKey": "keep"})]
+    assert posts == [("/inbox/inbox-001/resolve", {"action": "resolve", "optionKey": "keep", "via": "agent"})]
 
 
 def test_skip_is_remembered_per_conversation(runtime):
@@ -385,13 +385,15 @@ def test_a_remote_inbox_id_must_have_the_schemas_shape(runtime, posts, bad):
     assert posts == [] and "inbox-001" in text
 
 
-def test_stdio_inbox_ids_are_not_reshaped(memory):
-    """The shape rule is remote-only: stdio keeps posting what it was given."""
+def test_stdio_inbox_ids_take_the_same_shape(memory):
+    """G198 review B1: the shape rule is every caller's now — a local id of another shape (a case variant on a
+    case-insensitive disk, a percent-encoded one) reached a proposed page edit past the tool's guard."""
     sent = []
     ctx = mcp_tools.ToolContext(memory_path=lambda: memory, session_id="s", harness="codex",
                                 post=lambda p, d: sent.append(p) or {"status": "resolved"})
-    mcp_tools.resolve_inbox(ctx, "nudge_005", "keep", None, False, None)
-    assert sent == ["/inbox/nudge_005/resolve"]
+    assert mcp_tools.resolve_inbox(ctx, "nudge_005", "keep", None, False, None).startswith("Error: id must look like")
+    mcp_tools.resolve_inbox(ctx, "inbox-005", "keep", None, False, None)
+    assert sent == ["/inbox/inbox-005/resolve"]
 
 
 @pytest.mark.parametrize("raw, expected", [(None, 6), (3, 3), (10_000, 12), (-5, 1), ("abc", 6), (1e400, 6)])
