@@ -150,8 +150,10 @@ it alone — `Page edit <date>`, `entities/<id>.md: edited (trigger: mcp/<harnes
 proposed <date>`, and the reply says the person decides. `resolves: [{id, option_key|answer}]` answers inbox items through
 the same backend route as `cicada_resolve_inbox`, after the edit's commit and outside its page lock, and only when
 `evidence` holds a span located as the person's own words (`kind: user`) — never for a proposal, never a `normalization`
-or `page_edit` item. Those quotes are a gate and the edit's commit carries them as `Evidence:` lines; the answer itself
-is posted as `cicada_resolve_inbox` posts one and stores no evidence of its own. A `page_edit` item is app-only: `cicada_check_nudges`, recall's inbox block and the recall hook never
+or `page_edit` item. The edit's commit carries those quotes as `Evidence:` lines, and the person's located words go with
+each answer as `cicada_resolve_inbox`'s `quote` (a relay episode, `relayed_by` the harness — G115), so the answer cites
+them too. A relayed quote never reaches a `page_edit`: the tool refuses the item, `inbox_ask_gate.NEVER_ASKED` keeps it
+out of every ask path, and the backend refuses (403) any answer to one that says `via: "agent"` or carries a relay. A `page_edit` item is app-only: `cicada_check_nudges`, recall's inbox block and the recall hook never
 serve it, and `cicada_resolve_inbox` refuses it (an agent never applies its own proposal). Review round 1 (B1): every
 caller's inbox id must be exactly `inbox-<digits>` (a case variant or a percent-encoded id named the same file on a
 case-insensitive disk), the backend's resolve (every door) takes only a lowercase stem with no dot, slash or `%` that
