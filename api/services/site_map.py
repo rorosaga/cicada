@@ -13,8 +13,10 @@ is small (a few KB), committed with the capture it came from under the agent's o
 frontmatter for a program, a table for a person or an agent. ``_sites`` starts with an underscore, so it can never be a
 saved page's own capture folder (an entity id never does).
 
-**Append-only over visits.** A visit adds pages and adds a visit line; it never removes a page or a visit, never moves
-a ``first_seen``, and only ever moves a ``last_seen`` forward. A page a later visit no longer finds keeps its row (and its
+**Append-only over visits.** A visit adds pages and adds a visit line; it never removes a page, never moves a
+``first_seen``, and only ever moves a ``last_seen`` forward. It stays bounded: the newest :data:`MAX_VISITS` visit
+lines are listed and older ones are rolled into a count (``earlier_visits``), each page lists its newest
+:data:`MAX_PAGE_CAPTURES` capture ids (``earlier_captures`` counts the rest) — every capture record itself stays. A page a later visit no longer finds keeps its row (and its
 ``last_seen`` says when it was last there), so a later visit knows what existed before. Git keeps every version.
 
 A page found behind a sign-in or a block keeps that outcome, and the next plan never opens it again (the ToS rail: a
@@ -37,6 +39,13 @@ DIR = ("captures", "_sites")
 SHAPE = "sitemap-1"
 #: A map lists at most this many pages; past it, newly found pages are counted (``unlisted``), never listed.
 MAX_PAGES = 300
+#: The newest visits listed; older ones are rolled into ``earlier_visits`` ``{count, first_at, last_at}`` (review B1:
+#: a per-site map of a host with thousands of saved links must stay small enough to rewrite on every record).
+MAX_VISITS = 50
+#: The newest capture ids kept on a page; older ones are counted in ``earlier_captures``.
+MAX_PAGE_CAPTURES = 12
+#: Pages a reply to an agent lists (``cicada_site_map``); the file keeps up to :data:`MAX_PAGES`.
+REPLY_PAGES = 80
 TITLE_CHARS = 160
 LABEL_CHARS = 80
 SITE_RE = re.compile(r"^[a-z0-9][a-z0-9.-]{0,79}$")
@@ -171,7 +180,11 @@ def merge(existing: dict | None, *, site: str, visit: dict, bank: str = "") -> d
         if visited is not None:
             page["last_visited"] = max(str(page.get("last_visited") or at), at)
             if capture and capture not in (page.get("captures") or []):
-                page["captures"] = [*(page.get("captures") or []), capture]
+                caps = [*(page.get("captures") or []), capture]
+                if len(caps) > MAX_PAGE_CAPTURES:
+                    page["earlier_captures"] = int(page.get("earlier_captures") or 0) + len(caps) - MAX_PAGE_CAPTURES
+                    caps = caps[-MAX_PAGE_CAPTURES:]
+                page["captures"] = caps
             outcome = str(visited.get("outcome") or "captured")
             page["outcome"] = outcome
             for name in ("dhash", "thumb"):
@@ -203,15 +216,27 @@ def merge(existing: dict | None, *, site: str, visit: dict, bank: str = "") -> d
         line["depth"] = str(visit["depth"])
     if not any(v.get("capture") == capture and v.get("at") == at for v in smap["visits"]):
         smap["visits"].append(line)
+    if len(smap["visits"]) > MAX_VISITS:
+        smap["visits"].sort(key=lambda v: str(v.get("at") or ""))
+        rolled, smap["visits"] = smap["visits"][:-MAX_VISITS], smap["visits"][-MAX_VISITS:]
+        earlier = dict(smap.get("earlier_visits") or {})
+        ats = [str(v.get("at") or "") for v in rolled if v.get("at")]
+        earlier["count"] = int(earlier.get("count") or 0) + len(rolled)
+        if ats:
+            earlier["first_at"] = min([*ats, *([earlier["first_at"]] if earlier.get("first_at") else [])])
+            earlier["last_at"] = max([*ats, *([earlier["last_at"]] if earlier.get("last_at") else [])])
+        smap["earlier_visits"] = earlier
     smap["pages"].sort(key=lambda p: (_KIND_ORDER.index(p["kind"]) if p.get("kind") in _KIND_ORDER
                                       else len(_KIND_ORDER), str(p.get("first_seen") or ""), p["url"]))
     return smap
 
 
-def body(smap: dict) -> str:
-    """The map as an agent or a person reads it: what it is, a table of pages, the visits."""
+def body(smap: dict, *, max_pages: int | None = None) -> str:
+    """The map as an agent or a person reads it: what it is, a table of pages, the visits. ``max_pages`` bounds the
+    table for a reply (the most recently seen pages first are not reordered: the table keeps its kind order)."""
     site = smap.get("site") or "this site"
-    pages = smap.get("pages") or []
+    every = smap.get("pages") or []
+    pages = every if max_pages is None else every[:max_pages]
     parts = [f"# Site map: {site}", "",
              f"Pages the person's agents found on {site} while exploring their saved pages. Append-only: a page stays "
              "listed after a later visit stops finding it, and its last-seen date says when it was last there.", ""]
@@ -223,13 +248,21 @@ def body(smap: dict) -> str:
         name = (p.get("title") or p.get("label") or p["url"]).replace("|", "/")
         caps = ", ".join(p.get("captures") or []) or ("not opened" + (" (robots.txt)" if p.get("robots") ==
                                                                          "disallowed" else ""))
+        if p.get("earlier_captures"):
+            caps += f" (+{p['earlier_captures']} earlier)"
         if p.get("outcome") in _WALLS:
             caps += f" · {p['outcome'].replace('_', ' ')}"
         parts.append(f"| [{name}](<{p['url']}>) | {p.get('kind')} | {str(p.get('first_seen'))[:10]} | "
                      f"{str(p.get('last_seen'))[:10]} | {caps} |")
+    if len(pages) < len(every):
+        parts += ["", f"…and {len(every) - len(pages)} more listed in the map file."]
     if smap.get("unlisted"):
         parts += ["", f"…and {smap['unlisted']} more pages found but not listed (the map keeps {MAX_PAGES})."]
     parts += ["", "## Visits", ""]
+    earlier = smap.get("earlier_visits") or {}
+    if earlier.get("count"):
+        parts.append(f"- {earlier['count']} earlier visit(s), {str(earlier.get('first_at') or '')[:10]} to "
+                     f"{str(earlier.get('last_at') or '')[:10]}, rolled into this count")
     for v in smap.get("visits") or []:
         parts.append(f"- {v.get('at')} · capture {v.get('capture')} of `{v.get('entity')}` · {v.get('pages')} "
                      f"page(s) opened, {v.get('found')} link(s) found")
@@ -258,9 +291,11 @@ def wire(smap: dict | None) -> dict | None:
     return {
         "site": smap.get("site"), "firstSeen": smap.get("first_seen"), "lastSeen": smap.get("last_seen"),
         "robots": smap.get("robots"), "unlisted": int(smap.get("unlisted") or 0), "shape": SHAPE,
+        "earlierVisits": smap.get("earlier_visits") or {"count": 0},
         "pages": [{"url": p.get("url"), "title": p.get("title") or p.get("label"), "kind": p.get("kind"),
                    "firstSeen": p.get("first_seen"), "lastSeen": p.get("last_seen"),
                    "lastVisited": p.get("last_visited"), "captures": list(p.get("captures") or []),
+                   "earlierCaptures": int(p.get("earlier_captures") or 0),
                    "outcome": p.get("outcome"), "robots": p.get("robots")} for p in smap.get("pages") or []],
         "visits": [{"at": v.get("at"), "capture": v.get("capture"), "entityId": v.get("entity"),
                     "pages": v.get("pages"), "found": v.get("found"), "depth": v.get("depth")}

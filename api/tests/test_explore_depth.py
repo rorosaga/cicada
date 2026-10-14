@@ -608,3 +608,37 @@ def test_the_harness_tab_marker_never_reaches_a_title():
     assert site_captures._unmarked("\U0001F434 Alpha Example") == "Alpha Example"
     assert site_captures._unmarked("Alpha \U0001F434") == "Alpha \U0001F434"
     assert "replace(/^\\u{1F434}\\s*/u, '')" in (ROOT / "skills" / "site-explore" / "explore_capture.py").read_text()
+
+
+def test_the_site_map_stays_bounded_over_two_thousand_visits(tmp_path):
+    """Review B1: one map per site, so a host with thousands of saved links must not grow a file rewritten and
+    committed on every record. Visits roll into a count, each page keeps its newest capture ids, replies are capped."""
+    import yaml
+
+    smap = None
+    for i in range(2000):
+        at = (datetime(2026, 1, 1, tzinfo=timezone.utc) + timedelta(minutes=i)).isoformat().replace("+00:00", "Z")
+        smap = site_map.merge(smap, site="bob-example.org", visit={
+            "at": at, "capture": f"{i:08d}T000000Z-{i % 0xffffff:06x}", "entity": f"media-p{i}", "depth": "look",
+            "landing": {"url": "https://alpha.bob-example.org/", "title": "Alpha", "outcome": "captured"},
+            "pages": [{"url": "https://alpha.bob-example.org/pricing", "kind": "pricing", "outcome": "captured"}],
+            "found": [{"url": f"https://alpha.bob-example.org/post/{i}", "label": "Post"}]})
+    assert len(smap["visits"]) == site_map.MAX_VISITS
+    assert smap["earlier_visits"] == {"count": 2000 - site_map.MAX_VISITS, "first_at": "2026-01-01T00:00:00Z",
+                                      "last_at": smap["earlier_visits"]["last_at"]}
+    assert smap["earlier_visits"]["last_at"] < smap["visits"][0]["at"], "the newest lines are the ones listed"
+    assert len(smap["visits"]) + smap["earlier_visits"]["count"] == 2000, "every visit is still counted"
+    assert len(smap["pages"]) == site_map.MAX_PAGES and smap["unlisted"] == 2000 + 2 - site_map.MAX_PAGES
+    home = next(p for p in smap["pages"] if p["url"] == "https://alpha.bob-example.org/")
+    assert len(home["captures"]) == site_map.MAX_PAGE_CAPTURES
+    assert home["earlier_captures"] == 2000 - site_map.MAX_PAGE_CAPTURES
+    size = len(yaml.safe_dump(smap, allow_unicode=True)) + len(site_map.body(smap))
+    assert size < 120_000, size
+
+    memory, _ = bank_with_sites(tmp_path, 0)
+    path = site_map.path_for(memory, "bob-example.org")
+    path.parent.mkdir(parents=True)
+    markdown_parser.write(path, smap, site_map.body(smap))
+    ctx = mcp_tools.ToolContext(memory_path=lambda: memory, session_id="s1", harness="claude-code")
+    reply = mcp_tools.site_map_read(ctx, "bob-example.org")
+    assert len(reply) < 40_000 and "more listed in the map file" in reply and "1950 earlier visit(s)" in reply

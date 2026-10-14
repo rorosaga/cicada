@@ -786,8 +786,11 @@ writer, `api/services/site_captures.py`, turns each visit into memory; every doo
   captures?, outcome?, robots?, dhash?, thumb?}], visits: [{at, capture, entity, pages, found, depth}]}` and a body
   with a table of pages and a list of visits. `site` is `reading_hosts.site_of` (every saved page of a site shares a
   map); URLs keep no query or fragment; sign-in, account and cart pages are never listed. **Append-only:** a visit adds
-  pages and a visit line, never removes either, never moves a `first_seen`, only moves `last_seen` forward; a page a
-  later visit no longer finds keeps its row. At most 300 pages are listed (`unlisted` counts the rest). A page found
+  pages and a visit line, never removes a page, never moves a `first_seen`, only moves `last_seen` forward; a page a
+  later visit no longer finds keeps its row. **Bounded (review B1):** at most 300 pages are listed (`unlisted` counts
+  the rest), the newest 50 visit lines (older ones roll into `earlier_visits: {count, first_at, last_at}`), and each
+  page's newest 12 capture ids (`earlier_captures` counts the rest; every capture record stays). A site with 2,000
+  visits stays under ~120 KB, and `cicada_site_map` lists at most 80 pages. A page found
   walled is never planned again. `_sites` starts with an underscore, so it can never be a page's capture folder
   (`explored_entities` skips it). Read with `cicada_site_map` (stdio) and `GET /explore/sites[/{site}]`; the
   `captures` sync component's stat walk covers it.
