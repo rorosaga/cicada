@@ -593,6 +593,16 @@ def claim(memory_path: Path, *, session: str | None, harness: str | None, limit=
     with _locked(memory_path) as target:
         data = _open(memory_path, moment, holding)
         _refresh(data["items"], session, moment)
+        if saved:
+            # A waiting site that stopped being eligible (set to Never explore, its page archived) leaves the run as
+            # skipped. Only on affirmative evidence: an empty ``saved`` is what an unreadable index looks like.
+            gone = [r for r in data["items"] if r["state"] in ("queued", "paused", "failed") and r["key"] not in saved]
+            for row in gone:
+                data["items"].remove(row)
+                for batch in data["batches"].values():
+                    if row["key"] in batch["keys"] and row["key"] not in batch["done"]:
+                        batch["done"].append(row["key"])
+                        batch["outcomes"]["skipped"] = int(batch["outcomes"].get("skipped", 0)) + 1
         queued = sorted((r for r in data["items"] if r["state"] == "queued" and (saved is None or r["key"] in saved)),
                         key=lambda r: (r.get("requested_at") or "", r["key"]))
         leased: list[dict] = []

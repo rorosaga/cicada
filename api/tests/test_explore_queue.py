@@ -216,3 +216,14 @@ def test_the_eta_counts_the_agents_working(bank):
     view = eq.batch_view(eq.view(bank, _at(1)), _at(1))
     assert view["agents"] == 2 and view["claimed"] == 2 and view["waiting"] == 6
     assert view["etaMinutes"] == 4, "60 s a site × 8 sites ÷ 2 agents"
+
+
+def test_a_waiting_site_that_stopped_being_eligible_leaves_the_run_as_skipped(bank):
+    _start(bank)
+    eligible = {_key(B1), _key(C1)}
+    rows = eq.claim(bank, session="s1", harness="h", limit=5, saved=eligible, now=T0)
+    assert {r["key"] for r in rows} == eligible
+    data = eq.view(bank, T0)
+    assert {r["key"] for r in data["items"]} == eligible, "the example.com pages left the queue"
+    assert eq.batch_view(data, T0)["outcomes"] == {"skipped": 2}
+    assert eq.claim(bank, session="s2", harness="h", saved=set(), now=T0) == [], "an empty index never wipes the run"
