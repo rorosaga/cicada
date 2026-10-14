@@ -97,6 +97,8 @@ PROBE_SITES = {
     "api/routers/embeddings.py": "the search model choice — a derived index, never a page",
     "api/routers/videos.py": "the video queue's lease judgement — the queue lives outside every bank",
     "api/services/video_queue.py": "the same lease judgement and the sync stamp",
+    "api/routers/explore.py": "the explore queue's lease judgement (G166) — the queue lives outside every bank",
+    "api/services/explore_queue.py": "the same lease judgement and the sync stamp",
     "api/services/inbox_service.py": "the early 409 before an answer's model call; the admitted write asks again",
     "api/services/paper_metadata.py": "a long networked run's stop check; its writes are left to the tail (disclosed)",
 }
@@ -455,6 +457,10 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /design": (ADMITTED, None),                 # design taste: the reference and its screenshot, committed alone
     "DELETE /design/{ref_id}": (ADMITTED, None),
     "POST /design/search": (OUTSIDE, None),           # the derived index in $CICADA_HOME only
+    # G166 exploring: the queue file in $CICADA_HOME only; the bank is written by cicada_record_capture alone.
+    "POST /explore/batches": (OUTSIDE, None),
+    "POST /explore/stop": (OUTSIDE, None),
+    "POST /explore/queue/{key}/retry": (OUTSIDE, None),
 }
 
 #: Every MCP tool (stdio and remote): the mcp_tools function it runs and its class.
@@ -476,6 +482,11 @@ TOOLS: dict[str, tuple[str, str | None]] = {
     "cicada_save_episode": (CAPTURE, None),
     "cicada_mark_processed": (CAPTURE, None),                   # an episode's cursor, revision-checked (A01)
     "cicada_video_claim": (OUTSIDE, None),
+    # G166 exploring: the claim and the start touch only the queue file outside the bank; the record writes the
+    # capture and its thumbnail, committed alone, inside its own shared() hold.
+    "cicada_explore_claim": (OUTSIDE, None),
+    "cicada_explore_start": (OUTSIDE, None),
+    "cicada_record_capture": (ADMITTED, "record_capture"),
     # G110: reads the bank's transcript episodes only (projection + paging); its metadata index and session registry
     # live in $CICADA_HOME/continuity, outside every bank — a reader, never a bank write.
     "cicada_continue": (NONE, None),
@@ -484,7 +495,8 @@ TOOLS: dict[str, tuple[str, str | None]] = {
     **{t: (NONE, None) for t in (
         "cicada_handshake", "cicada_recall", "cicada_recall_detail", "cicada_open_hub", "cicada_get_perspective",
         "cicada_check_nudges", "cicada_timeline", "cicada_project", "cicada_sources", "cicada_ask",
-        "cicada_backlog", "cicada_reading_queue", "cicada_video_queue", "cicada_pending", "cicada_repo_context")},
+        "cicada_backlog", "cicada_reading_queue", "cicada_video_queue", "cicada_pending", "cicada_repo_context",
+        "cicada_explore_queue")},
 }
 
 #: `write_admission.holding()` is the in-hold question: each site and what holds the bank around it.

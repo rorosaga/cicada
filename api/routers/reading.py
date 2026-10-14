@@ -52,6 +52,10 @@ class SettingsUpdate(BaseModel):
     acknowledge: bool = False
     #: A patch ``{site: bool}``: true lets an agent read that site with the person's browser, false takes it back.
     sites: dict[str, bool] | None = None
+    #: G166 exploring (D2 amended): false explores in a private, cookie-less context instead of the signed-in session.
+    exploreSignedIn: bool | None = None
+    #: A patch ``{site: bool}``: true never explores that site (D3), false lifts it.
+    neverExplore: dict[str, bool] | None = None
 
 
 class AskRequest(BaseModel):
@@ -89,7 +93,7 @@ async def put_reading_settings(update: SettingsUpdate, settings: Settings = Depe
     try:
         reading_settings.update(
             agent_enabled_=update.agentEnabled, acknowledge=update.acknowledge, sites=update.sites,
-            surfaced=surfaced)
+            surfaced=surfaced, explore_signed_in_=update.exploreSignedIn, never_explore_=update.neverExplore)
     except reading_settings.SettingsError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     for site, on in (update.sites or {}).items():

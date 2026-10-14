@@ -295,6 +295,47 @@
       },
       "cicadaNote": "Cicada only asks your agent to use it. It can't see or limit what your agent does on your Mac.",
       "bridge": null
+    },
+    {
+      "id": "site-explore",
+      "kind": "skill",
+      "rank": 12,
+      "invoke": "site-explore",
+      "title": "Explore your saved sites",
+      "publisher": "Cicada",
+      "licence": "MIT",
+      "sourceUrl": "https://github.com/rorosaga/cicada/tree/dev/skills/site-explore",
+      "symbol": "globe",
+      "mark": null,
+      "summary": "Your agent visits the sites you saved, one at a time, and keeps a dated picture of how each looks.",
+      "why": "A bookmark is only a title. With this, your agent captures how each saved site looks and what it is made of, so you can find it again by its look and see when it changed.",
+      "reach": "Uses your own Chrome through browser-harness: your signed-in session unless you turn that off.",
+      "pin": {
+        "repo": "rorosaga/cicada",
+        "ref": "feat/explore-sites",
+        "sha": "062d7a6674d7a0eee60e8016578f7afad007d128",
+        "path": "skills/site-explore",
+        "skillMdSha256": "9cf4d213ab8a671ff6a0188288e11eb777e60160860cc4f2781b4cdb4033196f",
+        "files": {"explore_capture.py": "5d06a284f4af0770272bf6e8b83a9d26b4770a1661acf9b352489d3ef6f423c6"}
+      },
+      "agents": {
+        "claude-code": {"method": "skills-cli"},
+        "codex": {"method": "skills-cli"}
+      },
+      "detect": {"skillDirs": ["site-explore"]},
+      "needs": {
+        "binaries": ["browser-harness", "Chrome"],
+        "network": ["each saved site you chose, opened in your own browser"],
+        "writes": ["screenshots in a temporary folder until Cicada keeps them"],
+        "limits": ["One site at a time per agent, at most one page every 8 seconds on a site."]
+      },
+      "terms": {
+        "summary": "Some sites' terms don't allow automated visits, including from your own browser. Your agent, using your accounts, is doing it.",
+        "url": "https://github.com/rorosaga/cicada/blob/dev/docs/architecture/network.md",
+        "safeUses": ["sites you may visit yourself", "your own sites"]
+      },
+      "cicadaNote": "Cicada never opens a browser itself. It only keeps what your agent captured, and checks the capture script against this reviewed version.",
+      "bridge": null
     }
   ]
 }

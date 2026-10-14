@@ -19,7 +19,8 @@ def _home(tmp_path, monkeypatch):
 
 def test_the_default_is_off_and_empty():
     snap = reading_settings.snapshot()
-    assert snap == {"agentEnabled": False, "allowedSites": {}, "ackedAt": None, "ackCurrent": False}
+    assert snap == {"agentEnabled": False, "allowedSites": {}, "ackedAt": None, "ackCurrent": False,
+                    "exploreSignedIn": True, "neverExplore": {}}
     assert not reading_settings.path().exists(), "reading never creates the file"
 
 
@@ -111,10 +112,11 @@ def test_a_site_grant_while_off_needs_the_sheet_and_the_acknowledgement_can_ride
     assert reading_settings.site_allowed("linkedin") is False
 
 
-def test_ack_version_2_re_asks_a_v1_acknowledgement():
-    assert reading_settings.ACK_VERSION == 2
+def test_ack_version_3_re_asks_an_earlier_acknowledgement():
+    # 3 (owner 2026-10-14, D3): the sheet gained the exploring paragraph, so a v2 "I understand" no longer counts.
+    assert reading_settings.ACK_VERSION == 3
     reading_settings.path().parent.mkdir(parents=True, exist_ok=True)
-    reading_settings.path().write_text(json.dumps({"agent": True, "agent_ack": {"date": "2026-09-29", "v": 1}}))
+    reading_settings.path().write_text(json.dumps({"agent": True, "agent_ack": {"date": "2026-09-29", "v": 2}}))
     assert reading_settings.ack_current() is False
     assert reading_settings.agent_enabled() is False, "the switch reads off until they read the new sheet"
     assert reading_settings.snapshot()["ackCurrent"] is False

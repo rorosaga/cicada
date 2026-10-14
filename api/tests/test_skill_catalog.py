@@ -21,7 +21,7 @@ LOGOS = Path(__file__).resolve().parents[2] / "app/CicadaApp/Sources/CicadaApp/R
 def test_the_brief_s_list_is_the_catalog():
     assert set(BY_ID) == {"watch", "skill-creator", "pdf", "paper-lookup", "literature-review",
                           "arxiv-mcp-server", "transcribe", "granola", "wispr-flow", "browser-harness",
-                          "macos-harness"}
+                          "macos-harness", "site-explore"}
     assert CATALOG["maxShown"] <= 5
     assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", CATALOG["reviewedAt"])
 
@@ -156,7 +156,7 @@ def test_at_most_five_by_rank_and_installed_ones_step_aside(tmp_path):
     home = tmp_path / "h"
     fresh = skill_catalog.recommended(home=home)
     assert [s["id"] for s in fresh["recommended"]] == ["watch", "paper-lookup", "wispr-flow", "granola", "skill-creator"]
-    assert fresh["installed"] == [] and fresh["catalogSize"] == 11
+    assert fresh["installed"] == [] and fresh["catalogSize"] == 12
     _skill(home, ".claude/skills", "watch")
     after = skill_catalog.recommended(home=home)
     assert [s["id"] for s in after["installed"]] == ["watch"]
@@ -252,7 +252,9 @@ def test_the_three_role_skills_are_pinned_to_a_real_sha_and_hash():
 
 def test_new_entries_do_not_displace_the_top_five():
     assert BY_ID["browser-harness"]["rank"] == 10 and BY_ID["macos-harness"]["rank"] == 11
-    assert max(s["rank"] for s in SKILLS if s["id"] not in ROLE_SKILLS) < 10
+    # Cicada's own site-explore skill (G166 exploring) ranks after the role skills: it needs browser-harness first.
+    assert BY_ID["site-explore"]["rank"] == 12
+    assert max(s["rank"] for s in SKILLS if s["id"] not in (*ROLE_SKILLS, "site-explore")) < 10
 
 
 def test_agent_prompt_plans_are_copy_only_and_run_nothing():
