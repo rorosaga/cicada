@@ -29,6 +29,9 @@ struct GettingStartedRecord: Equatable {
     var settled: Set<FoundItemID> = []
     var hidden = false
     var scheduleAsked = false
+    /// Owner 2026-10-14 ("Graduate + Needs you first", DR-39) — a graduated card is one line until its viewer opens it;
+    /// the choice is remembered per bank. Meaningless before graduation (the card is whole then).
+    var expanded = false
 }
 
 /// Track I part b (R-IB17) — the Getting started card's memory, per bank, in
@@ -46,11 +49,12 @@ enum GettingStartedState {
             enabled: keys.compactMap(FoundItemID.init(key:)),
             settled: Set((defaults.stringArray(forKey: key(bank, "settled")) ?? []).compactMap(FoundItemID.init(key:))),
             hidden: defaults.bool(forKey: key(bank, "hidden")),
-            scheduleAsked: defaults.bool(forKey: key(bank, "scheduleAsked")))
+            scheduleAsked: defaults.bool(forKey: key(bank, "scheduleAsked")),
+            expanded: defaults.bool(forKey: key(bank, "expanded")))
     }
 
     /// Unions, keeps first-seen order, and un-hides: a rerun that turns more on
-    /// must show the card again.
+    /// must show the card again. It never opens a graduated card — only *Show setup checklist* does (`showChecklist`).
     static func record(bank: String, enabled: [FoundItemID], defaults: UserDefaults = .standard) {
         var keys = defaults.stringArray(forKey: key(bank, "enabled")) ?? []
         for id in enabled {
@@ -59,6 +63,14 @@ enum GettingStartedState {
         }
         defaults.set(keys, forKey: key(bank, "enabled"))
         defaults.set(false, forKey: key(bank, "hidden"))
+    }
+
+    /// Settings → General's *Show setup checklist* (R-IB17): records the bank and opens the card whole, even once it has
+    /// graduated to its one line (owner 2026-10-14: setup stays reachable from Settings). The Welcome's Start and an
+    /// Also-on-this-Mac turn-on record through `record` and never open it.
+    static func showChecklist(bank: String, defaults: UserDefaults = .standard) {
+        record(bank: bank, enabled: [], defaults: defaults)
+        setExpanded(true, bank: bank, defaults: defaults)
     }
 
     /// R-OB8 — an untick in onboarding takes its row off the card rather than leaving it Off. A bank with no record
@@ -78,6 +90,10 @@ enum GettingStartedState {
 
     static func setHidden(_ hidden: Bool, bank: String, defaults: UserDefaults = .standard) {
         defaults.set(hidden, forKey: key(bank, "hidden"))
+    }
+
+    static func setExpanded(_ expanded: Bool, bank: String, defaults: UserDefaults = .standard) {
+        defaults.set(expanded, forKey: key(bank, "expanded"))
     }
 
     static func setScheduleAsked(bank: String, defaults: UserDefaults = .standard) {

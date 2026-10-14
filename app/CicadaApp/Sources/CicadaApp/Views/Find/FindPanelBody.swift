@@ -69,9 +69,10 @@ struct FindPanelBody: View {
 
     private var field: some View {
         HStack(spacing: CicadaTheme.spacingSM) {
+            // Home review #10 (DR-5) — a field glyph is not one of the accent's six uses.
             Image(systemName: model.mode == .find ? "magnifyingglass" : "sparkle.magnifyingglass")
                 .font(CicadaTheme.font(size: 15))
-                .foregroundStyle(CicadaTheme.accent)
+                .foregroundStyle(CicadaTheme.textTertiary)
                 .accessibilityHidden(true)
             TextField(model.mode == .find ? (prompt ?? "Search your memory") : "Ask your memory",
                       text: Binding(get: { model.fieldText }, set: { model.setFieldText($0) }))
@@ -88,15 +89,14 @@ struct FindPanelBody: View {
                 }
                 .accessibilityLabel(model.mode == .find ? "Search your memory" : "Ask your memory")
             if model.mode == .ask, model.ask.isAsking { ProgressView().controlSize(.small) }
-            Picker("Find or ask", selection: Binding(get: { model.mode }, set: { newMode in
-                withAnimation(CicadaMotion.morph(reduceMotion: reduceMotion)) { model.setMode(newMode) }
-            })) {
-                Text("Find").tag(FindMode.find)
-                Text("Ask").tag(FindMode.ask)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .fixedSize()
+            // Home review #10 — DR-45 text tabs inside the field (26 pt, `bgSelected` when active), never the native
+            // segmented control, whose selected segment paints the accent (DR-5). One mode is always on: tapping the
+            // active tab keeps it. The switch is instant (DR-60/61): ⌘⏎ and a click share this path.
+            TextTabs(tabs: [TextTab(id: FindMode.find, label: "Find"), TextTab(id: FindMode.ask, label: "Ask")],
+                     selection: Binding(get: { model.mode }, set: { if let mode = $0 { model.setMode(mode) } }),
+                     showsCounts: false)
+                .fixedSize()
+                .accessibilityLabel("Find or ask")
             if placement == .palette {
                 Button(action: close) {
                     Image(systemName: "xmark.circle.fill")

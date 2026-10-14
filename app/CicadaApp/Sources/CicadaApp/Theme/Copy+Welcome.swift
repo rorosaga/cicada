@@ -17,7 +17,7 @@ extension Copy {
     static let homeFieldPrompt = "Search, paste a link, or drop a file"
     static let homeToday = "Today"
     static let homeNeedsYou = "Needs you"
-    static let homeLastRead = "Last read"
+    static let homeLastRead = "Last time Cicada read"
     /// The TODAY sum is the UTC bucket `source_overview` writes (R-A16), so the
     /// hover says which midnight it counts from rather than pretending local.
     static let homeCapturedHelp = "Captured since 00:00 UTC"
@@ -29,7 +29,8 @@ extension Copy {
     static let homeNothingChanged = "nothing changed"
     /// A Last read chip's hover (DR-69): where the click goes.
     static func homeShowOnGraph(_ name: String) -> String { "Show \(name) on the graph" }
-    /// A link to the Sleep page, never a trigger (G125 R10 in steady state).
+    /// Retired as a link label (owner 2026-10-14, review #9): the waiting line and Last read are whole-row buttons now,
+    /// and their hover says where they go (`homeOpenSleepHelp`). Kept for the Welcome/Home copy lint.
     static let homeOpenSleep = "Sleep ›"
     static let homeSaveLink = "Save this link"
     static func homeCapturedToday(_ n: Int, locale: Locale = .autoupdatingCurrent) -> String {
@@ -75,12 +76,12 @@ extension Copy {
     static let gsWatchOnSleep = "Watch on the Sleep page"
     static let gsOpenGraph = "Open the graph"
     static let gsTryAgain = "Try again"
-    static let gsScheduleQuestion = "Keep reading on its own?"
+    static let gsScheduleQuestion = "Read new conversations automatically?"
     static let gsWhenIAsk = "When I ask"
-    static let gsAfterImports = "After imports"
+    static let gsAfterImports = "After each import"
     static let gsNightly = "Every night at 3:00"
     static let gsNotNow = "Not now"
-    static let gsAlsoFound = "Also found"
+    static let gsAlsoFound = "Also on this Mac"
     static let gsDismiss = "Dismiss"
     static let gsShowChecklist = "Show setup checklist"
     /// The disclosure under a failed first read: change who reads, then try again.

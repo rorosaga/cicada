@@ -154,7 +154,7 @@ struct SettingsGeneralView: View {
                         }
                         // R-IB17 — the checklist is re-openable, beside Run setup again so G139's index lands on both.
                         TextButton(title: Copy.gsShowChecklist) {
-                            GettingStartedState.record(bank: store.bank, enabled: [])
+                            GettingStartedState.showChecklist(bank: store.bank)
                             // A card already seen done this session would otherwise reopen as "You're set up."
                             runner.sawDoneThisSession = false
                             runner.checklistChanged()

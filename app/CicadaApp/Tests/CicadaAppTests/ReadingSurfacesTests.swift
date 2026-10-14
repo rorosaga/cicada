@@ -90,7 +90,8 @@ final class ReadingSurfacesTests: XCTestCase {
 
     func testTheHomeBlockIsItsOwnAndLinksToReadingTheWeb() throws {
         let sections = try source("Views/Home/HomeSections.swift")
-        XCTAssertTrue(sections.contains("ReadingSitesSection()"))
+        // Owner 2026-10-14 — HomeView places the blocks in `HomeArrangement`'s order.
+        XCTAssertTrue(try source("Views/Home/HomeView.swift").contains("ReadingSitesSection()"))
         XCTAssertTrue(sections.contains("router.openSettings(.reading, row: .readingSites)"))
         let needsYou = try XCTUnwrap(sections.range(of: "struct NeedsYouSection").map { sections[$0.lowerBound...] })
         let end = try XCTUnwrap(needsYou.range(of: "// MARK: - Needs your browser"))

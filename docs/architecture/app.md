@@ -170,12 +170,28 @@ sits on paint — then the palette's own `FindPanelBody` in `.page` placement in
 *Save this link*. The headline, the field and the blocks scroll as one page (owner 2026-10-06), under macOS 26's soft top scroll edge
 (`softTopScrollEdge()`), so no card is cut under the field; the first block sits one 24 pt block gap below it, and with
 results showing the page pins to the window (never `scrollDisabled`, which the results' own scroll could inherit) and
-the results fill it, with no animation. Below it, in one 760 pt column: Getting started (while it lasts), Today (one row to Sources:
-captured today, UTC, with the three busiest origins' marks, names and counts), Needs you (the Inbox's kind glyph,
-question and age, *Open Inbox* at the label's right, landing in STATE 1) and Last read (the newest Sleep commit, its
-pages as `Tag`s) — each number once, each a link to the page that owns it; the waiting count links to Sleep, never a
-Consolidate. Right after onboarding ends (Open Cicada or *Set up later*), *Make it yours* (Appearance and Scene; `AppearanceTipPolicy`, per
-viewer) sits beside the column where it fits, else atop it; once hidden it lives only in Settings.
+the results fill it, with no animation. The field's Find/Ask switch is DR-45 text tabs inside it with a neutral glyph,
+and it never animates. Below it, in one 760 pt column, blocks **ordered by the person's state** (owner ruling
+2026-10-14, "Graduate + Needs you first"; `HomeArrangement`, `HomeSetup`, `HomeEmptiness` in `Support/HomeArrangement.swift`,
+`HomeFrontDoorTests`): while the whole Getting started card is up and the person has no chats in memory, (the tour
+offer →) Getting started → Today → Needs you → Needs your browser → Last time Cicada read; otherwise Needs you leads (→ Needs your
+browser → Today → Last read) and setup is the last line. "Chats in memory" is a fact of the bank: a `harness` row of
+`/sources/overview` (an imported export or a connected agent) with `entities > 0`, i.e. its conversations fed a page;
+unknown is never an answer. Graduated, Getting started is one line, "Setup · N things left · Show ›" (rows not On), and
+gone when nothing is left; its open/closed choice is `GettingStartedState.expanded`, per bank, set only by *Show
+setup checklist* (`showChecklist`; the Welcome's record never opens it). The tour offer leads the first week, above the
+card, so it is never off-screen. Inside, three labelled groups 20 pt apart — Connected, Your past chats, First read — and *Also
+on this Mac* as an offer. Your past chats has one 36 pt row per vendor still to ask (`ExportVendorRow`; a vendor whose
+`chat-export:<vendor>` row has episodes is not asked again), the whole row opening onboarding's drawn walkthrough over
+Home (`HomeWalkthroughLayer`), with waits above them leading with "Check your email for the … link". Today is one row to
+Sources (captured today, UTC, with the three busiest origins' marks, names and counts) plus the waiting count as a row
+to Sleep; Needs you is the Inbox's kind glyph, question and age, *Open Inbox* at the label's right, landing in STATE 1;
+Last read is the newest Sleep commit as a row to that read in Sleep's Details, its pages as `Tag`s in 24 pt hit frames —
+each number once, never a Consolidate. An empty block is only its label and a note ("Needs you · nothing right now");
+all three empty is one `HomeEmptyBlock` (*Choose a file…*), or nothing while Getting started already says so. Every
+`InlineLink` hits 28 pt (layout-neutral, `LinkHitShape`). Right after onboarding ends (Open Cicada or *Set up later*),
+*Make it yours* (Appearance, and Scene only while the band shows; `AppearanceTipPolicy`, per viewer) is a row after
+Needs you for that one session; once hidden or seen it lives only in Settings.
 
 **Onboarding (G145, round 4 phase B).** Six pages in one full-window layer, raised by the unchanged `FirstRunGate`
 (unknown is never empty) or by the one door, `OnboardingState.reset` + `AppRouter.requestFirstRun` (Settings →
@@ -200,8 +216,8 @@ writing only on a click; Keep it running holds the same switches as Settings →
 set shows one public-domain quote (`MemoryQuotes`, G153, kept per install) and Open Cicada marks the bank, records
 the connected agents, asks `TourOffer` and lands on Home. *Set up later* and *Try the demo* (`SetupRunner.demoPlan`)
 remain; export reminders (`ExportWaits`) ask for notification permission only when a delay is chosen. Getting started
-continues on Home — the first read (*Read now*, G125 R10's second narrow amendment, only inside the card) and "Keep
-reading on its own?" asked once of a person still on `manual`, its options gated by ruling 4.
+continues on Home — the first read (*Read now*, G125 R10's second narrow amendment, only inside the card) and "Read
+new conversations automatically?" asked once of a person still on `manual`, its options gated by ruling 4.
 The first-read failure row uses the same calm “Reading stopped” / “See what needs a fix in Details, then try again”
 copy as Sleep (DR-7/59), never a raw server sentence. Its one Details action (DR-40) stages Sleep's Last cycle
 section through `AppRouter`; Sleep consumes it once on appear/change, expands Details and scrolls to the diagnosis.
