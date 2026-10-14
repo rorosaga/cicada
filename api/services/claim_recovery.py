@@ -67,8 +67,8 @@ from typing import Callable, Iterator
 
 import yaml
 
-from api.services import claim_expiry, entity_body, evidence, git_service, markdown_parser, page_lock, \
-    predicates, write_admission
+from api.services import claim_expiry, claims_ledger, entity_body, evidence, git_service, markdown_parser, \
+    page_lock, predicates, write_admission
 from api.services.claims import (
     FENCE_NONE,
     FENCE_OK,
@@ -333,12 +333,33 @@ def _head_state(bank: Path, blobs: _Blobs) -> _Head:
         version = _version(blobs.read("HEAD", path))
         if version is None:
             continue
+        ledger = claims_ledger.rel_for(path)
+        held = blobs.read("HEAD", ledger) if ledger else None
+        if held and version.entries is not None:
+            # A page's older claims live in its ledger (`claims_ledger`): an id moved there is on the page, not lost.
+            on_page = {str(e.get("id") or "") for e in version.entries}
+            version.entries = [*(e for e in _ledger_entries(held) if str(e.get("id") or "") not in on_page),
+                               *version.entries]
         state.pages[path] = version
         if version.entries is None and version.loose is None:
             state.opaque = True
         state.present.update(version.ids())
         state.retracted.update(version.markers())
     return state
+
+
+def _ledger_entries(text: str) -> list[dict]:
+    out = []
+    for line in text.split("\n"):
+        if not line.strip():
+            continue
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(entry, dict):
+            out.append(entry)
+    return out
 
 
 def analyze(bank) -> Plan:

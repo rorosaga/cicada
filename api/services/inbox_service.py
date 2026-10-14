@@ -462,6 +462,11 @@ async def _git_move(memory_path: Path, src: Path, dst: Path) -> None:
     except Exception:
         if src.exists():
             src.replace(dst)
+    from api.services import claims_ledger
+
+    if claims_ledger.is_page(src) and claims_ledger.path_for(src).exists():
+        # A page's claims ledger moves with it (`claims_ledger`); the commit names the page and takes its ledger.
+        await _git_move(memory_path, claims_ledger.path_for(src), claims_ledger.path_for(dst))
 
 
 async def _git_remove(memory_path: Path, target: Path) -> None:

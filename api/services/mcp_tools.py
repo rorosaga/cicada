@@ -1668,10 +1668,80 @@ def _page_part(ctx: ToolContext, page_id: str, text: str, start: int | None) -> 
     return f"{part}\n— lines {first}–{last} of {total}; the rest: {following}"
 
 
+#: The digest's list of names from the frontmatter (aliases) stops here; the full list is in the page's lines.
+_DIGEST_ALIASES = 12
+
+
+def _with_ledger(path: Path, text: str) -> str:
+    """The page as an agent reads it: the file, then — when its older claims live in its ledger (``claims_ledger``) —
+    those claims after it, oldest first, one per line, under a heading that says where they are kept. Every claim
+    the page holds is in this text, so a read in parts reaches each id, its evidence and its history."""
+    from api.services import claims_ledger
+
+    lines = claims_ledger.ledger_lines(path)
+    if not lines:
+        return text
+    rel = f"entities/{claims_ledger.path_for(path).name}"
+    return (f"{text.rstrip()}\n\n## Claims ledger\n\nThis page's {len(lines):,} older claims, oldest first, kept "
+            f"beside it in `{rel}` — one claim per line, in the claims fence's own form.\n\n"
+            f"```claims-ledger\n" + "\n".join(lines) + "\n```\n")
+
+
+def _page_digest(ctx: ToolContext, path: Path, text: str, fm: dict, total: int) -> str:
+    """The first answer for a page over the caller's budget (owner page, 2026-10-14): what the page SAYS — its lead,
+    article and record sections, in page order — before its frontmatter lists and claims, which on a hub page filled
+    the whole first part (on the owner's page, three quarters of it was ``related:`` and ``source_episodes:``).
+    Nothing is left out of reach: the footer names the call that reads the page whole, line by line, from line 1, and
+    the line where the prose shown stops."""
+    from api.services import claims, claims_ledger
+
+    budget = REMOTE_DETAIL_BUDGET if ctx.is_remote else RECALL_DETAIL_BUDGET
+    lines = text.splitlines(keepends=True)   # the page file alone; ``total`` counts the page with its ledger
+    body_start = 0
+    if lines and lines[0].rstrip("\r\n") == "---":
+        body_start = next((i + 1 for i in range(1, len(lines)) if lines[i].rstrip("\r\n") == "---"), 0)
+    fence = claims.claims_block_start(text)
+    fence_line = text.count("\n", 0, fence) if fence is not None else len(lines)
+    in_ledger = len(claims_ledger.ledger_lines(path))
+    on_page = len(claims.parse_claims(text))   # the page's own fence: the ledger's block is ```claims-ledger
+    name = str(fm.get("name") or path.stem)
+    aliases = [str(a) for a in (fm.get("aliases") or []) if a]
+    facts = [f"type {fm.get('type') or 'unknown'}", f"status {fm.get('status') or 'unknown'}"]
+    for key in ("created", "last_referenced"):
+        if fm.get(key):
+            facts.append(f"{key} {fm.get(key)}")
+    counts = [f"{len(fm.get('source_episodes') or []):,} conversation(s)", f"{len(fm.get('related') or []):,} related "
+              f"page(s)", f"{on_page:,} claim(s) on the page" + (f" and {in_ledger:,} in its ledger" if in_ledger else "")]
+    head = [f"# {name}{' (the owner)' if fm.get('owner') else ''}\n", "; ".join(facts) + ".\n"]
+    if aliases:
+        more = f" (+{len(aliases) - _DIGEST_ALIASES:,} more)" if len(aliases) > _DIGEST_ALIASES else ""
+        head.append("Also called: " + ", ".join(aliases[:_DIGEST_ALIASES]) + more + ".\n")
+    head.append("Rests on " + ", ".join(counts) + ".\n\n")
+    whole = (_cli_spell("cicada_recall_detail", entity_id=path.stem, start=1) if ctx.is_cli
+             else f'cicada_recall_detail(entity_id="{path.stem}", start=1)')
+    shown, size = [], sum(len(h) for h in head) + 600   # the footer's room
+    i = body_start
+    while i < fence_line and (not shown or size + len(lines[i]) <= budget):
+        shown.append(lines[i])
+        size += len(lines[i])
+        i += 1
+    prose = "".join(shown).strip("\n")
+    if i < fence_line:
+        rest = (_cli_spell("cicada_recall_detail", entity_id=path.stem, start=i + 1) if ctx.is_cli
+                else f'cicada_recall_detail(entity_id="{path.stem}", start={i + 1})')
+        tail = f"the prose shown stops at line {i} of {total}; it continues with {rest}"
+    else:
+        tail = "that is all of its prose"
+    footer = (f"\n\n— The whole page — frontmatter, prose, claims{' and its ledger' if in_ledger else ''}, "
+              f"{total:,} lines — reads in parts from {whole}. Shown here: its prose first ({tail}).")
+    return "".join(head) + prose + footer
+
+
 def recall_detail(ctx: ToolContext, entity_id: str, *, start: int | None = None, whole: bool = False) -> str:
-    """Return the full entity page for one entity (Pass 2). A page over the caller's budget, or any read given a
-    ``start`` line, comes in parts (:func:`_page_part`); ``whole`` — the command line's bounded read, which slices the
-    page itself — always returns it all."""
+    """Return the full entity page for one entity (Pass 2), its claims ledger after it when it has one
+    (:func:`_with_ledger`). A page over the caller's budget answers first with its prose (:func:`_page_digest`); a
+    read given a ``start`` line comes in parts (:func:`_page_part`); ``whole`` — the command line's bounded read,
+    which slices the page itself — always returns it all."""
     memory_path = ctx.memory_path()
     entities_dir = memory_path / "entities"
     if not entity_id:
@@ -1692,10 +1762,18 @@ def recall_detail(ctx: ToolContext, entity_id: str, *, start: int | None = None,
         if path is not None and path.exists():
             from api.services import telemetry  # G124 R11: ids only, never the page text
             telemetry.record_read(cid, surface=ctx.read_surface, bank=memory_path.name)
-            text = path.read_text(encoding="utf-8")
-            fm = parse_frontmatter(text)[0]
+            page_text = path.read_text(encoding="utf-8")
+            fm = parse_frontmatter(page_text)[0]
+            text = _with_ledger(path, page_text)
             budget = REMOTE_DETAIL_BUDGET if ctx.is_remote else RECALL_DETAIL_BUDGET
-            if not whole and (start is not None or len(text) > budget):
+            if not whole and start is None and len(text) > budget:
+                try:
+                    full_fm = markdown_parser.parse(path, ledger=False).frontmatter
+                except Exception:  # noqa: BLE001 — the flat reader's view is enough for a header
+                    full_fm = fm
+                text = _page_digest(ctx, path, page_text, full_fm if isinstance(full_fm, dict) else fm,
+                                    len(text.splitlines()))
+            elif not whole and (start is not None or len(text) > budget):
                 text = _page_part(ctx, path.stem, text, start)
                 if isinstance(text, Reply):
                     return text

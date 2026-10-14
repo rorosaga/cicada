@@ -342,9 +342,12 @@ def _article_context(existing: list[dict], settings: Settings, today: str, memor
     (the rebuild script), else the settings' bank (Sleep)."""
     known: set[str] = set()
     names: dict[str, str] = {}
+    people: set[str] = set()
     for page in existing:
         fm = page.get("frontmatter") or {}
         names[page["id"]] = str(fm.get("name") or page["id"])
+        if fm.get("type") == "person":
+            people.add(page["id"])
         known |= {page["id"], names[page["id"]], *(str(a) for a in fm.get("aliases") or [] if a)}
     owner = None
     try:
@@ -352,7 +355,7 @@ def _article_context(existing: list[dict], settings: Settings, today: str, memor
         owner = owner_identity.owner_name(memory_path or getattr(settings, "memory_path", None), settings)
     except Exception:  # noqa: BLE001 - a missing owner costs the name, never the article
         owner = None
-    return {"known": known, "names": names, "owner": owner, "today": today,
+    return {"known": known, "names": names, "people": people, "owner": owner, "today": today,
             "max_chars": int(getattr(settings, "page_article_max_input_chars", 60000) or 60000)}
 
 
@@ -387,6 +390,9 @@ def _article_job(change: dict, existing_entity: dict, new_entity: dict, context:
         name=name, entity_type=str(entity_type), frontmatter=fm, original_body=original, record=record,
         incoming=new_entity, today=context["today"], update_days=_change_dates(change), owner=context["owner"],
         linkable=_linkable(original, record, context["names"], context["known"]))
+    # A hub page's record (the owner's: thousands of activity claims) is more than one prompt holds: the writer gets
+    # its strongest inputs (`entity_article.fit`); the record below the article keeps every one.
+    inputs = entity_article.fit(inputs, max_chars=context["max_chars"], people=context.get("people") or ())
     prompt = entity_article.prompt(inputs, max_chars=context["max_chars"])
     if prompt is None:
         return None
@@ -1030,6 +1036,7 @@ def _reconcile_related(entity_id: str, frontmatter: dict, memory_path, edges_by_
 
     referenced = {str(e.get("target", "")) for e in edges} | {str(s) for s in related_slugs}
     id_to_name: dict[str, str] = {}
+    id_to_type: dict[str, str] = {}
     entities_dir = memory_path / "entities"
     for ref in referenced:
         if not ref:
@@ -1038,15 +1045,16 @@ def _reconcile_related(entity_id: str, frontmatter: dict, memory_path, edges_by_
         if not filepath.exists():
             continue
         try:
-            fm = markdown_parser.parse(filepath).frontmatter or {}
+            fm = markdown_parser.parse(filepath, ledger=False).frontmatter or {}
             id_to_name[ref] = str(fm.get("name", ref.replace("-", " ").title()))
+            id_to_type[ref] = str(fm.get("type") or "")
         except Exception:
             continue
 
     # Drop dangling references — an edge to a deleted entity shouldn't render.
     edges = [e for e in edges if str(e.get("target", "")) in id_to_name]
     related_slugs = [s for s in related_slugs if str(s) in id_to_name]
-    return entity_body.render_related(related_slugs, edges, id_to_name)
+    return entity_body.render_related(related_slugs, edges, id_to_name, id_to_type)
 
 
 def _compose_entity_body(description: str, history_entries: list[dict]) -> str:

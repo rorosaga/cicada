@@ -15,6 +15,16 @@ api/.venv/bin/python -m benchmarks.scale.sweep_mcp --bank $S/run                
 api/.venv/bin/python -m benchmarks.scale.profile_route --bank $S/run /state /graph          # cProfile one route
 ```
 
+The owner page as measured on 2026-10-14 (real values redacted): ~5,900 activity claims (~740-880 characters a line),
+2,024 Related lines, hundreds of Sleep commits —
+
+```sh
+api/.venv/bin/python -m benchmarks.scale.synth --bank $S/bank --pages 2100 --claims 5921 --related 2024 \
+    --related-section --activity --jsonl --owner-facts 6 --owner-history 100 --commits 520           # ~80 s
+cp -R $S/bank $S/run && api/.venv/bin/python -m benchmarks.scale.owner_page --bank $S/run --write  # sizes, recall_detail,
+                                                                       # the article's input, one stage write
+```
+
 - `synth` builds the bank: one owner page with N claims, rewritten by `--commits` synthetic Sleep commits; 2,000 other
   pages with a Pareto tail of claims; 1,500 staged episodes, 975 of them processed.
 - `profile_sleep` runs one `sleep_cycle.run` batch through the system benchmark's fake engine. The probe's grammar also

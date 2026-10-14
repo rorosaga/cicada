@@ -64,8 +64,12 @@ def split_frontmatter(content: str) -> tuple[str, str] | None:
     return parts[1], parts[2]
 
 
-def parse(filepath: Path) -> ParsedMarkdown:
-    """Parse a markdown file with YAML frontmatter delimited by --- fences."""
+def parse(filepath: Path, *, ledger: bool = True) -> ParsedMarkdown:
+    """Parse a markdown file with YAML frontmatter delimited by --- fences.
+
+    An entity page whose claims overflowed into its ledger (``claims_ledger``) comes back with the ledger's claims
+    folded into its fence, so every reader sees the page's whole claim set. ``ledger=False`` — a frontmatter-only
+    scan — never opens the ledger (the body is then the page file's own)."""
     content = filepath.read_text(encoding="utf-8")
     split = split_frontmatter(content)
     if split is None:
@@ -73,7 +77,26 @@ def parse(filepath: Path) -> ParsedMarkdown:
 
     fm = yaml.load(split[0].strip(), Loader=_SAFE_LOADER) or {}
     _normalize_dates(fm)
-    return ParsedMarkdown(frontmatter=fm, body=split[1].strip())
+    body = split[1].strip()
+    if ledger and isinstance(fm, dict) and _LEDGER_STAMP in fm:
+        from api.services import claims_ledger
+
+        if claims_ledger.is_page(filepath):
+            body = claims_ledger.fold(filepath, fm, body).strip()
+    return ParsedMarkdown(frontmatter=fm, body=body)
+
+
+_LEDGER_STAMP = "claims_ledger"   # `claims_ledger.STAMP`, spelled here so a plain parse imports nothing
+
+
+def _split_ledger(filepath: Path, frontmatter: dict, body: str) -> tuple[dict, str, bytes | None]:
+    """An entity page's write: the claims its ledger holds, and the oldest of an over-budget fence, go to the ledger
+    (``claims_ledger.split``); every other file is written as given."""
+    from api.services import claims_ledger
+
+    if not claims_ledger.is_page(filepath):
+        return frontmatter, body, None
+    return claims_ledger.split(filepath, frontmatter, body)
 
 
 def _render(frontmatter: dict, body: str) -> bytes:
@@ -118,7 +141,15 @@ def write(filepath: Path, frontmatter: dict, body: str) -> None:
     permission bits; a symlinked page is replaced at its target, so the link
     survives as it did with ``write_text``. The file is fsynced; the directory
     is not (the guarantee is "never a torn page", not "the rename survives a
-    power cut")."""
+    power cut").
+
+    An entity page's claims are split with its ledger first (``claims_ledger``): the ledger is written before the
+    page, so a crash between the two leaves a claim in both files, never in neither."""
+    frontmatter, body, ledger = _split_ledger(Path(filepath), frontmatter, body)
+    if ledger is not None:
+        from api.services import claims_ledger
+
+        _replace(claims_ledger.path_for(filepath), ledger)
     _replace(filepath, _render(frontmatter, body))
 
 

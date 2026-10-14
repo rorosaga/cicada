@@ -433,6 +433,14 @@
       "disposition": "uninstrumented_guarded"
     }
   ],
+  "services/hub_pages.py": [
+    {
+      "function": "apply",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    }
+  ],
   "services/inbox_generator.py": [
     {
       "function": "_cover_fold",

@@ -529,10 +529,58 @@ def _git_sync(memory_path: Path, *args: str) -> str:
 
 def run_git_write_sync(memory_path, *args: str) -> str:
     """One mutating git command under the bank's write lock (R-B1) — for a sync
-    caller (the expiry restore) and for `_run_git`'s write branch."""
+    caller (the expiry restore) and for `_run_git`'s write branch. A ``checkout``
+    that puts pages back puts back each page's claims ledger with it, when git
+    has one (``claims_ledger``)."""
     memory_path = Path(memory_path)
     with write_lock(memory_path):
+        if args and args[0] == "checkout" and "--" in args:
+            cut = args.index("--") + 1
+            rev = [a for a in args[1:cut - 1] if not a.startswith("-")]
+            args = (*args[:cut], *_with_tracked_ledgers(memory_path, list(args[cut:]), rev[0] if rev else None))
         return _git_sync(memory_path, *args)
+
+
+def _ledger_rels(paths) -> list[str]:
+    from api.services import claims_ledger
+
+    return [companion for p in paths if (companion := claims_ledger.rel_for(str(p)))]
+
+
+def _with_tracked_ledgers(memory_path: Path, paths: list[str], rev: str | None) -> list[str]:
+    """``paths`` plus the ledger of each page among them that git holds (in ``rev``, else the index) — a pathspec git
+    does not know would fail the whole checkout. Called with the write lock held."""
+    wanted = _ledger_rels(paths)
+    if not wanted:
+        return paths
+    try:
+        listing = (_git_sync(memory_path, "ls-tree", "-r", "-z", "--name-only", rev, "--", *wanted) if rev
+                   else _git_sync(memory_path, "ls-files", "-z", "--", *wanted))
+    except GitError:
+        return paths
+    known = {r for r in listing.split("\0") if r}
+    return list(dict.fromkeys([*paths, *(w for w in wanted if w in known)]))
+
+
+def _with_ledgers(memory_path: Path, paths: list[str]) -> list[str]:
+    """``paths`` plus the claims ledger of each page among them that exists or that git knows (a page and its ledger
+    are committed as one unit: a page write moves claims between them, ``claims_ledger``). Write lock held."""
+    wanted = [w for w in _ledger_rels(paths) if w not in paths]
+    if not wanted:
+        return paths
+    present = [w for w in wanted if (memory_path / w).exists()]
+    # A ledger is removed only with its page (a merge, a rename): git is asked only about a gone page's ledger, so an
+    # ordinary commit spawns nothing more than before.
+    absent = [w for w in wanted if w not in present and not (memory_path / (w[:-len(".claims.jsonl")] + ".md")).exists()]
+    known: set[str] = set()
+    if absent:
+        try:
+            known = {r for r in _git_sync(memory_path, "ls-files", "-z", "--", *absent).split("\0") if r}
+            known |= {r for r in _git_sync(memory_path, "ls-tree", "-r", "-z", "--name-only", "HEAD", "--",
+                                           *absent).split("\0") if r}
+        except GitError:
+            pass
+    return list(dict.fromkeys([*paths, *present, *(w for w in absent if w in known)]))
 
 
 def commit_paths_sync(memory_path, message: str, paths) -> None:
@@ -548,6 +596,7 @@ def commit_paths_sync(memory_path, message: str, paths) -> None:
         return
     memory_path = Path(memory_path)
     with write_lock(memory_path):
+        paths = _with_ledgers(memory_path, paths)
         _git_sync(memory_path, "add", "--", *paths)
         if not _git_sync(memory_path, "status", "--porcelain", "--", *paths).strip():
             return  # Nothing to commit
@@ -645,6 +694,7 @@ def commit_touched_sync(memory_path, message: str, paths, *, before: dict[str, b
     if not paths:
         return
     with write_lock(memory_path):
+        paths = _with_ledgers(memory_path, paths)
         missing = [p for p in paths if not (memory_path / p).exists()]
         known = set()
         if missing:
@@ -838,17 +888,7 @@ async def entity_history(
     truncated = len(records) > limit
     records = records[:limit]
     if truncated and not skip:
-        shown = {r.split("\x1f", 1)[0].strip() for r in records}
-        try:
-            blame = await _run_git(memory_path, "blame", "--incremental", "--", entity_file)
-            survivors = [h for h in dict.fromkeys(_BLAME_HEADER.findall(blame))
-                         if h not in shown and not h.startswith("0000000")]
-            if survivors:
-                older = await _run_git(memory_path, "log", "--no-walk=sorted", _HISTORY_FORMAT, "--date=short",
-                                       *survivors, "--")
-                records += older.split("\x1e")[1:]
-        except GitError:
-            pass   # the window still stands; `truncated` already says it is partial
+        records += await _older_survivors(memory_path, entity_file, entity_path, records)
 
     entries: list[EntityHistoryEntry] = []
     for record in records:
@@ -890,6 +930,62 @@ async def entity_history(
         ))
 
     return entries, truncated
+
+
+#: Owner page, 2026-10-14: ``git blame`` over a page rewritten by hundreds of Sleep commits diffs every multi-MB
+#: revision it walks back through — 2.3 s on a synthetic owner page with 520 commits, paid on every card open (the
+#: card and its History tab both ask). What it finds depends only on the page as it stands and its history, so it is
+#: kept per (bank, page, newest touching commit, the file's mtime and size) for this process, and a card does not wait
+#: for it longer than :data:`_SURVIVORS_WAIT_S`: past that the window is served (``truncated`` already says older
+#: touches are left out) while the blame finishes in the background for the next open. Process-local, disposable.
+_SURVIVORS: dict[tuple, list[str]] = {}
+_SURVIVORS_MAX = 64
+_SURVIVORS_WAIT_S = 0.5
+_SURVIVORS_PENDING: dict[tuple, "asyncio.Task"] = {}
+
+
+async def _blame_survivors(memory_path: Path, entity_file: str, shown: set[str], key) -> list[str]:
+    try:
+        blame = await _run_git(memory_path, "blame", "--incremental", "--", entity_file)
+        survivors = [h for h in dict.fromkeys(_BLAME_HEADER.findall(blame))
+                     if h not in shown and not h.startswith("0000000")]
+        older: list[str] = []
+        if survivors:
+            out = await _run_git(memory_path, "log", "--no-walk=sorted", _HISTORY_FORMAT, "--date=short",
+                                 *survivors, "--")
+            older = out.split("\x1e")[1:]
+    except GitError:
+        return []
+    finally:
+        _SURVIVORS_PENDING.pop(key, None)
+    if key is not None:
+        while len(_SURVIVORS) >= _SURVIVORS_MAX:
+            _SURVIVORS.pop(next(iter(_SURVIVORS)))
+        _SURVIVORS[key] = older
+    return older
+
+
+async def _older_survivors(memory_path: Path, entity_file: str, entity_path: Path, records: list[str]) -> list[str]:
+    """The history rows of commits older than the window whose lines the page still shows (``git blame``), or ``[]``
+    when git cannot say or has not said within :data:`_SURVIVORS_WAIT_S` — the window still stands, and
+    ``truncated`` already says it is partial."""
+    shown = {r.split("\x1f", 1)[0].strip() for r in records}
+    try:
+        st = entity_path.stat()
+        key = (str(memory_path), entity_file, records[0].split("\x1f", 1)[0].strip(), st.st_mtime_ns, st.st_size)
+    except (OSError, IndexError):
+        return await _blame_survivors(memory_path, entity_file, shown, None)
+    if key in _SURVIVORS:
+        return list(_SURVIVORS[key])
+    loop = asyncio.get_running_loop()
+    task = _SURVIVORS_PENDING.get(key)
+    if task is None or task.done() or task.get_loop() is not loop:
+        task = loop.create_task(_blame_survivors(memory_path, entity_file, shown, key))
+        _SURVIVORS_PENDING[key] = task
+    try:
+        return list(await asyncio.wait_for(asyncio.shield(task), timeout=_SURVIVORS_WAIT_S))
+    except asyncio.TimeoutError:
+        return []
 
 
 # G118 slice 2 (R-PB6): enough history for "N changes by <author>" on the

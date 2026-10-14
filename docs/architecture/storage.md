@@ -40,6 +40,7 @@ source_episodes: [ep_2026-01-10_001]
 tags: []                   # open set, freeform
 related: []                # duplicates wikilinks for programmatic access
 version: 3
+claims_ledger: {claims: 5835, hash: 1a2b3c4d5e6f}  # only on a page whose older claims live in its ledger
 ---
 ```
 
@@ -116,6 +117,28 @@ node in Python even on the C loader (~150 µs a claim: 0.5 s for a 3,500-claim p
 claims, paid by every full-bank reader); a JSON line is ~3 µs (`benchmarks/scale`). Spans are unaffected: a `page`
 evidence offset points into the body with the fence stripped, which is the same text in either form.
 A predicate the vocabulary marks multi-valued (`predicates.cardinality`) never opens a conflict.
+
+**The claims ledger — a very large page's older claims, beside it (owner page, 2026-10-14).** A page's claims are
+its fence **plus**, once the fence passes `claims_ledger.FENCE_MAX_CHARS` (64,000 characters — a median page holds a
+few KB), `entities/<id>.claims.jsonl`: the fence's own JSON lines, oldest first, tracked by git with the page. Why: the
+owner's page carried ~5,900 claims, mostly a per-conversation activity log ("<owner> asked about X"), 4.5 MB of a
+4.7 MB file every reader and writer moved. The split is invisible above `markdown_parser`: `parse` of a page whose
+frontmatter carries the `claims_ledger: {claims, hash}` stamp folds the ledger's lines back in at the head of the
+fence (each id once — the fence's copy wins), so all ~70 claim readers and writers see one set; `parse(...,
+ledger=False)` (a frontmatter scan, the card) never opens it. `write` hands every claim whose id the ledger holds back
+to the ledger (replaced in place), keeps the rest in the fence, and when the fence is over the budget moves lines to
+the ledger until it is under `SPILL_TO` (half), in order: closed claims, then a log's (a predicate the page holds for
+more than `entity_body.RELATION_FAMILY_MAX` = 3 objects), then the rest, each oldest first — so what stays on the page
+is what it says about its subject plus the newest activity. **A write never removes a ledger line** (a body read
+without the ledger leaves it as it is); only `claims_ledger.remove` (a merged-away page, after its claims moved) and
+`move` (the inbox's rename) take one away. The ledger is written before the page (a crash leaves a line in both, never
+in neither) and the stamp changes with every ledger write, so every cache keyed on the page's bytes sees it. A page
+and its ledger are one unit to git: `commit_paths_sync`, `commit_touched_sync` and a `checkout --` restore through
+`run_git_write_sync` add the ledger of every page they name; a dedup merge's footprint names both ledgers; claim
+recovery reads HEAD's ledgers as present. `write_new` and `write_document` (raw writers) never split. An existing bank
+is split once by `python -m api.scripts.split_hub_pages --bank <path>` (dry run: counts only; `--apply`: one `cicada`
+commit, refused unless Sleep is idle, each page checked to read back every claim id, evidence span and Related link
+before it is written; `hub_pages`).
 
 **Contexts and the fence (F1).** `context` is an open vocabulary whose *shape* is pinned by
 `claim_contexts` — a short lowercase slug. Any other value (G60's `as of <date>`) keeps its job as a
@@ -916,7 +939,11 @@ the provenance strip counts. It replaced `git blame` plus one `git log -1` per s
 3,500–6,000-claim page, ~30 ms now; `benchmarks/scale`). Past the cap nothing the page still shows is lost:
 every commit whose lines survive (the creation row and its conversation) is added after the window from
 `git blame --incremental` and one batched `git log`, `EntityResponse.history_truncated` says older touches were
-left out, and `GET /entities/{id}/history?skip=N` reads them (review round 1). Repo-level history uses `git log`. **No changelog in frontmatter** — git handles all history, zero storage
+left out, and `GET /entities/{id}/history?skip=N` reads them (review round 1). That blame diffs every revision it walks
+back through — 2.3 s on a synthetic owner page with 520 commits of a 5 MB file, paid by the card and its History tab on
+every open — so its answer is kept per (bank, page, newest touching commit, file mtime and size) in the process, and a
+request waits for it at most `_SURVIVORS_WAIT_S` (0.5 s): past that the window is served while the blame finishes in the
+background for the next open (owner page, 2026-10-14). Repo-level history uses `git log`. **No changelog in frontmatter** — git handles all history, zero storage
 overhead, no growing fields.
 
 ---

@@ -825,8 +825,22 @@ constraining the prose; git is the safety net, the claims and the dated timeline
   like the synthesis switch): in Stage 3, a machine page resting on 2+ conversations once the update lands, that
   gains anything (the re-read gate still applies), gets ONE JSON call in place of the synthesis call; the
   contradiction call is unchanged. A one-conversation page is a stub: the deterministic merge, no call (short because
-  it is a stub, not because of a cap). A page whose prompt is over `CICADA_PAGE_ARTICLE_MAX_INPUT_CHARS` (60,000; never
-  clipped) keeps the deterministic merge if it has an article, else today's path. A page with a stamped article is
+  it is a stub, not because of a cap). A page whose prompt is over `CICADA_PAGE_ARTICLE_MAX_INPUT_CHARS` (60,000) is fitted, never
+  clipped mid-input (`entity_article.fit`, owner page 2026-10-14): claims sharing a predicate and an object fold into
+  one input (the latest text, how many conversations said it, first and last day, every evidence row); then claim
+  inputs are left out — a log's (a predicate held for more than 3 objects: "asked about") before a fact's
+  ("studies at") or one about a person page (who is in a life is never a log), the fewest conversations and the
+  longest ago first — then History lines, oldest first; this
+  update's words, the earlier lead and article, facts, questions and links never; LINKABLE keeps the names a kept
+  input mentions. The record keeps every claim and line. Only a page whose own record is still over the budget
+  keeps the deterministic merge if it has an article, else today's path.
+- **A hub's Related rolls up** (`entity_body.RELATED_MAX`, 60 linked pages; owner page 2026-10-14): `## Related` is a
+  view of `graph_edges.yaml` rebuilt on every write, so on a page linking more pages than that, its relations (a verb
+  it holds for at most 3 pages) and its people (the latest, up to 60 lines in all) keep a line each and every other
+  link is one line per verb (`- asked about: 1,203 pages — latest [[A]], [[B]] … and 1,195 more`). Each rolled-up
+  link is still an edge, still on the linked page's own Related (inbound edges are mirrored there), and its claims
+  are still the owner's, in the page's ledger. Per-conversation activity is not a fact about the person: its home
+  is the linked page, the claims ledger and the timeline, not the person's article or its Related. A page with a stamped article is
   never handed to the orientation or legacy rewrite, whatever the settings: both replace the lead the writer owns; an
   inbox answer on it takes the fallback append.
 - **Inputs**, numbered: the record after this update's deterministic union (`f` facts with the days their rows'

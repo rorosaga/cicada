@@ -214,6 +214,9 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 
 - **The filesystem is the single source of truth**: wikilinked markdown with YAML frontmatter, git-versioned; the API
   and Sleep read and write the same files. No changelog in frontmatter — git holds history.
+- **A page's claims are its fence plus, past 64k characters, its ledger** `entities/<id>.claims.jsonl` (owner page,
+  2026-10-14): `markdown_parser` folds it on read and splits on write; a write never drops a ledger line; git commits
+  and restores a page with its ledger (`storage.md`).
 - **Entity types are a closed set of 10**; Stage 1 never produces `deadline` or `media`. Status: active → decaying →
   archived → dropped.
 - **Decay classes (G66):** one resolver; Stage 1 may propose `durable|active|volatile`, **never `evergreen`**, enforced at
