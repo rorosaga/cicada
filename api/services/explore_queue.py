@@ -55,7 +55,9 @@ PAUSE_DAYS = 7
 #: Never faster than a person would browse (design §5.4).
 PACE_SECONDS = 8
 MAX_LOADS_HOUR = 30
-MAX_LOADS_PER_LEASE = 3
+#: Slice 2: a visit the person's reason makes deeper opens at most ``explore_plan.MAX_PAGES`` pages, each at least
+#: :data:`PACE_SECONDS` after the one before, and never more than the hour has room for (:func:`room`).
+MAX_LOADS_PER_LEASE = 6
 RESULTS_KEEP_DAYS = 2
 MAX_REASON_CHARS = 200
 DEPTHS = ("capture", "look", "product", "read")
@@ -577,6 +579,14 @@ def _site_free(data: dict, site: str, now: datetime, leased_now: set[str]) -> bo
     if len(info.get("loads") or []) >= MAX_LOADS_HOUR:
         return False
     return not any(r["site"] == site and r["state"] == "claimed" and not _lapsed(r, now) for r in data["items"])
+
+
+def room(memory_path: Path, site: str, now: datetime | None = None) -> int:
+    """How many page loads ``site`` may still take this hour (at most :data:`MAX_LOADS_PER_LEASE`): a deep plan is cut
+    to it, so no visit ever takes a site past :data:`MAX_LOADS_HOUR` loads an hour. At least 1 for a leased site."""
+    data = view(memory_path, now)
+    loads = len((data["sites"].get(site) or {}).get("loads") or [])
+    return max(1, min(MAX_LOADS_PER_LEASE, MAX_LOADS_HOUR - loads))
 
 
 def claim(memory_path: Path, *, session: str | None, harness: str | None, limit=None, saved=None,

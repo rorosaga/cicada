@@ -1,11 +1,11 @@
 """Cicada's site-explore capture: one scripted visit to one saved site, inside browser-harness.
 
 Run it in ONE browser-harness call (the harness's helpers — cdp, switch_tab, js, wait_for_load,
-wait_for_network_idle — are already in scope there):
+wait_for_network_idle — are already in scope there), with the plan Cicada's claim gave for the site:
 
     browser-harness <<'PY'
     exec(open("/path/to/skills/site-explore/explore_capture.py").read())
-    print(explore_capture("https://example.com/", depth="capture", context="signed_in"))
+    print(explore_capture("https://example.com/", plan={...the plan JSON...}, context="signed_in"))
     PY
 
 It prints one JSON object: the outcome, when it was captured (aware UTC), the final URL and HTTP status, the paths of
@@ -13,18 +13,20 @@ the screenshots it saved, and the page's structure (title, description, JSON-LD,
 custom properties, notable components, at most 1,500 words of visible text). Hand those fields to
 `cicada_record_capture`. Cicada reads the colours and the look's hash from the pixels itself.
 
+The plan (Cicada's, from the person's reason; G166 slice 2) says how far to go. With no reason it is the saved page
+alone: a viewport and a thumbnail. A reason adds page kinds (``pages``: the front page, pricing, docs, a product page,
+a blog post…) with the shots each wants (full page, mobile, dark), a section to find (``focus``), and a cap
+(``max_pages``). For each further kind the script picks a link the site itself shows whose path or label names that
+kind — or the page an earlier visit opened (``known``) — on the same host only, never a sign-in or account page, never
+a page robots.txt disallows (read once, cookie-less, from the page's own origin; not read means no further page), and
+at least ``pace_seconds`` (8) after the page before. A wall on a further page ends the visit there. ``pages=[url, …]``
+lets the agent swap in its own picks (still same host, robots, cap); ``focus_heading`` names the section itself.
+
 What it never does: sign in, type anything, click or hide a cookie or consent banner, change the user agent or any
 header, retry a page that refused, touch a tab it did not open, or bring a tab to the front. A sign-in, a captcha or a
 block ends the visit with outcome needs_login or blocked and no screenshot. It opens its own background tab — in the
 person's signed-in session (context="signed_in") or in a fresh cookie-less browser context it creates and disposes
 (context="isolated") — and closes it when done.
-
-Depth (the person's reason for saving it decides; the default is capture):
-  capture  the viewport at 1440×900 (2×) and a 640×400 thumbnail;
-  look     + the full page (lazy images scrolled in at a reading pace), mobile at 390×844, and dark mode when the
-             site has one;
-  product  + the full page;
-  read     + the full page.
 """
 import base64
 import json
@@ -32,9 +34,14 @@ import os
 import tempfile
 import time
 from datetime import datetime, timezone
-from urllib.parse import urlsplit
+from urllib import robotparser
+from urllib.parse import urlsplit, urlunsplit
 
-EXPLORE_VERSION = "1"
+EXPLORE_VERSION = "2"
+MAX_PAGES = 6
+PACE_SECONDS = 8
+ROBOTS_MAX = 65536
+SECTION_WORDS = 400
 VIEW_W, VIEW_H, VIEW_DPR = 1440, 900, 2
 THUMB_W = 640
 MOBILE_W, MOBILE_H = 390, 844
@@ -110,22 +117,53 @@ _PAGE_JS = r"""
     .map(a => ({url: a.href.split('#')[0], label: (a.innerText || '').trim().slice(0, 80), rank: score(a)}))
     .filter(l => l.rank >= 0).sort((a, b) => a.rank - b.rank);
   const seen = new Set(); const next = []; for (const l of links) { if (!seen.has(l.url) && next.length < 2) { seen.add(l.url); next.push({url: l.url, label: l.label}); } }
+  const found = []; const fseen = new Set();
+  q('nav a[href], header a[href], footer a[href], main a[href], [role=navigation] a[href]').forEach(a => {
+    if (found.length >= 120 || a.hostname !== host) return;
+    const u = a.href.split('#')[0].split('?')[0]; if (fseen.has(u)) return; fseen.add(u);
+    found.push({url: u, label: (a.innerText || a.getAttribute('aria-label') || '').replace(/\s+/g, ' ').trim().slice(0, 80)}); });
   return JSON.stringify({
-    title: document.title || '', description: meta('description') || meta('og:description'),
+    title: (document.title || '').replace(/^\u{1F434}\s*/u, ''), description: meta('description') || meta('og:description'),
     og: {site_name: meta('og:site_name'), title: meta('og:title'), image: meta('og:image')},
     jsonld: ld, outline, fonts: fonts.slice(0, 12), typography, tokens, components: comps,
     text: text.replace(/\s+/g, ' ').trim().split(' ').slice(0, 1500).join(' '),
     final_url: location.href, http_status: nav.responseStatus || null, last_modified: document.lastModified || null,
     scroll_height: Math.min(document.documentElement.scrollHeight || 0, 100000),
     consent_overlay: !!consentBox, consent_box: consentBox, consent_wall: consentWall,
-    account_visible: account, captcha, password_wall: password, parked, dark_rule: darkRule, next_pages: next
+    account_visible: account, captcha, password_wall: password, parked, dark_rule: darkRule, next_pages: next,
+    found
   });
 })()
 """
 
 
+_ROBOTS_JS = r"""
+fetch('/robots.txt', {credentials: 'omit', redirect: 'follow', cache: 'no-store'})
+  .then(r => r.text().then(t => JSON.stringify({status: r.status, text: t.slice(0, %d)})))
+  .catch(e => JSON.stringify({status: null, error: String(e).slice(0, 120)}))
+""" % ROBOTS_MAX
+
+_SECTION_JS = r"""
+((want) => {
+  const norm = s => (s || '').replace(/\s+/g, ' ').trim();
+  const h = Array.from(document.querySelectorAll('h1,h2,h3,h4')).find(e => norm(e.innerText) === want);
+  if (!h) return JSON.stringify(null);
+  const level = +h.tagName[1]; const out = [];
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT); walker.currentNode = h;
+  let n; while ((n = walker.nextNode())) {
+    if (/^H[1-4]$/.test(n.tagName) && +n.tagName[1] <= level) break;
+    if (['P', 'LI', 'PRE', 'BLOCKQUOTE', 'DD'].includes(n.tagName)) out.push(norm(n.innerText)); }
+  return JSON.stringify({heading: want, text: out.join(' ').split(' ').slice(0, %d).join(' ')});
+})(%%s)
+""" % SECTION_WORDS
+
+
 def _now_iso():
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _now_ms():
+    return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
 def _shot(out_dir, name, **params):
@@ -192,9 +230,197 @@ def _classify(page, nav_error):
     return "captured"
 
 
-def explore_capture(url, depth="capture", context="signed_in", out_dir=None):
-    """Visit ``url`` once and capture it. Returns the JSON string to hand to ``cicada_record_capture``."""
-    depth = depth if depth in ("capture", "look", "product", "read") else "capture"
+def _plan_from_depth(depth):
+    """A plan for a bare depth word (a call without Cicada's plan): the saved page with the depth's shots."""
+    shots = {"capture": ["viewport"], "look": ["viewport", "full", "mobile", "dark"], "product": ["viewport", "full"],
+             "read": ["viewport", "full"]}.get(depth, ["viewport"])
+    return {"depth": depth, "max_pages": 1, "pace_seconds": PACE_SECONDS, "pages": [{"kind": "saved", "shots": shots}]}
+
+
+def _clean(url):
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return None
+    if parts.scheme not in ("http", "https") or not parts.hostname:
+        return None
+    return urlunsplit((parts.scheme, parts.netloc.lower(), parts.path or "/", "", ""))
+
+
+def _segments(url):
+    path = (urlsplit(url).path or "/").lower()
+    return [s for s in path.replace("_", "/").replace(".", "/").split("/") if s]
+
+
+def _matches(url, label, words):
+    segs = _segments(url)
+    if any(s == w or s.startswith(w + "-") for s in segs for w in words):
+        return True
+    lab = " " + " ".join((label or "").lower().split()) + " "
+    return any(f" {w} " in lab for w in words)
+
+
+def _avoided(url, label, plan):
+    segs = _segments(url)
+    joined = "/".join(segs)
+    avoid = plan.get("avoid") or []
+    if any(w in segs or joined.startswith(w) for w in avoid):
+        return True
+    lab = " " + " ".join((label or "").lower().split()) + " "
+    return any(f" {w} " in lab for w in avoid) or url in set(plan.get("avoid_urls") or [])
+
+
+def _read_robots():
+    """robots.txt as this tab's own origin serves it, cookie-less. ``(raw, parser)``; parser None when unread."""
+    try:
+        raw = json.loads(js(_ROBOTS_JS) or "null") or {}
+    except Exception as exc:  # noqa: BLE001
+        raw = {"status": None, "error": f"{type(exc).__name__}"}
+    status = raw.get("status")
+    if not isinstance(status, int):
+        return {"status": None}, None
+    parser = robotparser.RobotFileParser()
+    if status in (401, 403) or status >= 500:
+        parser.disallow_all = True
+    elif status >= 400:
+        parser.allow_all = True
+    else:
+        parser.parse(str(raw.get("text") or "").splitlines()[:2000])
+    return {"status": status, "text": str(raw.get("text") or "")[:ROBOTS_MAX]}, parser
+
+
+def _robots_ok(parser, url):
+    if parser is None:
+        return False
+    try:
+        return bool(parser.can_fetch("*", url))
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _pick_pages(plan, landing, found, parser, chosen=None):
+    """``[(kind, url, chosen_by)]`` for the plan's further kinds: the agent's own picks first (same host, robots,
+    cap), else for each kind the page an earlier visit opened when the site still links it, else the first link the
+    site shows whose path or label names the kind. Never the saved page again, a sign-in page or a disallowed one."""
+    host = (urlsplit(landing).hostname or "").lower()
+    cap = max(0, min(int(plan.get("max_pages") or 1), MAX_PAGES) - 1)
+    wanted = [p for p in plan.get("pages") or [] if p.get("kind") not in ("saved",)]
+    landing_root = len(_segments(landing)) == 0
+    links = [(c, l.get("label") or "") for l in found or [] if (c := _clean(l.get("url") or ""))]
+    usable = lambda u, lab="": (u and (urlsplit(u).hostname or "").lower() == host and u != _clean(landing)  # noqa: E731
+                                and not _avoided(u, lab, plan) and _robots_ok(parser, u))
+    picks, used = [], set()
+    for url in chosen or []:
+        u = _clean(str(url))
+        if len(picks) < cap and usable(u) and u not in used:
+            kind = next((p["kind"] for p in wanted if _matches(u, "", p.get("match") or [])), "other")
+            picks.append((kind, u, "agent"))
+            used.add(u)
+    if chosen:
+        return picks
+    for page in wanted:
+        if len(picks) >= cap:
+            break
+        kind = page.get("kind")
+        if kind == "home":
+            if landing_root:
+                continue
+            u = _clean(f"{urlsplit(landing).scheme}://{urlsplit(landing).netloc}/")
+            if usable(u) and u not in used:
+                picks.append((kind, u, "script"))
+                used.add(u)
+            continue
+        known = _clean(page.get("known") or "")
+        if known and known in {c for c, _ in links} and usable(known) and known not in used:
+            picks.append((kind, known, "script"))
+            used.add(known)
+            continue
+        for u, label in links:
+            if u not in used and _matches(u, label, page.get("match") or []) and usable(u, label):
+                picks.append((kind, u, "script"))
+                used.add(u)
+                break
+    return picks
+
+
+def _section(page, plan, focus_heading=None):
+    """The part of the saved page the person's words point at: the outline heading with the most focus words (or
+    the agent's ``focus_heading``), and its text."""
+    outline = [h.get("text") for h in page.get("outline") or [] if h.get("text")]
+    want, by = None, "script"
+    if focus_heading and focus_heading in outline:
+        want, by = focus_heading, "agent"
+    else:
+        terms = [t.lower() for t in plan.get("focus") or []]
+        best = 0
+        for text in outline:
+            score = sum(1 for t in terms if t in text.lower())
+            if score > best:
+                want, best = text, score
+    if not want:
+        return None
+    try:
+        got = json.loads(js(_SECTION_JS % json.dumps(want)) or "null")
+    except Exception:  # noqa: BLE001
+        return None
+    if not got or not got.get("text"):
+        return None
+    got["chosen_by"] = by
+    return got
+
+
+def _shots(out_dir, prefix, wants, page):
+    """The shots ``wants`` asks for on the page in the attached tab; returns ``[{kind, path}]``."""
+    out = [{"kind": "viewport", "path": _shot(out_dir, f"{prefix}viewport")},
+           {"kind": "thumb", "path": _shot(out_dir, f"{prefix}thumb", clip={"x": 0, "y": 0, "width": VIEW_W,
+                                                                             "height": VIEW_H,
+                                                                             "scale": THUMB_W / VIEW_W / VIEW_DPR})}]
+    if "full" in wants:
+        height = int(page.get("scroll_height") or VIEW_H)
+        _scroll_through(height)
+        _metrics(VIEW_W, VIEW_H, 1)
+        full_h = max(VIEW_H, min(int(js("document.documentElement.scrollHeight") or height), FULL_MAX_PX))
+        out.append({"kind": "full", "path": _shot(out_dir, f"{prefix}full", captureBeyondViewport=True,
+                                                   clip={"x": 0, "y": 0, "width": VIEW_W, "height": full_h,
+                                                         "scale": 1})})
+        _metrics(VIEW_W, VIEW_H, VIEW_DPR)
+    if "mobile" in wants:
+        _metrics(MOBILE_W, MOBILE_H, 2, mobile=True)   # viewport emulation only: the user agent is never changed
+        time.sleep(0.8)
+        out.append({"kind": "mobile", "path": _shot(out_dir, f"{prefix}mobile")})
+        _metrics(VIEW_W, VIEW_H, VIEW_DPR)
+    if "dark" in wants:
+        light_bg = js("getComputedStyle(document.body).backgroundColor")
+        cdp("Emulation.setEmulatedMedia", features=[{"name": "prefers-color-scheme", "value": "dark"}])
+        time.sleep(0.6)
+        dark_bg = js("getComputedStyle(document.body).backgroundColor")
+        if page.get("dark_rule") or dark_bg != light_bg:
+            out.append({"kind": "dark", "path": _shot(out_dir, f"{prefix}dark")})
+        cdp("Emulation.setEmulatedMedia", features=[])
+    return out
+
+
+def _wait_pace(last_load, pace):
+    """Never sooner than ``pace`` seconds after the page before (a person's pace), with half a second to spare."""
+    if last_load is not None:
+        left = pace + 0.5 - (time.monotonic() - last_load)
+        if left > 0:
+            time.sleep(left)
+
+
+def _page_fields(page):
+    return {k: page.get(k) for k in ("title", "description", "outline", "fonts", "tokens", "components")}
+
+
+def explore_capture(url, depth="capture", context="signed_in", out_dir=None, plan=None, pages=None,
+                    focus_heading=None):
+    """Visit ``url`` and capture it as ``plan`` says. Returns the JSON string to hand to ``cicada_record_capture``."""
+    if isinstance(plan, str):
+        plan = json.loads(plan)
+    plan = plan if isinstance(plan, dict) and plan.get("pages") else _plan_from_depth(
+        depth if depth in ("capture", "look", "product", "read") else "capture")
+    depth = str(plan.get("depth") or "capture")
+    pace = max(PACE_SECONDS, int(plan.get("pace_seconds") or PACE_SECONDS))
     isolated = context == "isolated"
     out_dir = out_dir or tempfile.mkdtemp(prefix="cicada-explore-")
     os.makedirs(out_dir, exist_ok=True)
@@ -215,6 +441,8 @@ def explore_capture(url, depth="capture", context="signed_in", out_dir=None):
         except Exception:
             pass
         _metrics(VIEW_W, VIEW_H, VIEW_DPR)
+        result["loaded_at"] = _now_ms()
+        last_load = time.monotonic()
         nav = cdp("Page.navigate", url=url, _response_timeout=30)
         nav_error = nav.get("errorText") or ""
         if nav_error:
@@ -246,30 +474,43 @@ def explore_capture(url, depth="capture", context="signed_in", out_dir=None):
                                                    "typography", "tokens", "components", "text")}
         if outcome in ("not_found", "parked"):
             return json.dumps(result)
-        result["shots"].append({"kind": "viewport", "path": _shot(out_dir, "viewport")})
-        result["shots"].append({"kind": "thumb", "path": _shot(
-            out_dir, "thumb", clip={"x": 0, "y": 0, "width": VIEW_W, "height": VIEW_H, "scale": THUMB_W / VIEW_W / VIEW_DPR})})
-        if depth in ("look", "product", "read"):
-            height = int(page.get("scroll_height") or VIEW_H)
-            _scroll_through(height)
-            _metrics(VIEW_W, VIEW_H, 1)
-            full_h = max(VIEW_H, min(int(js("document.documentElement.scrollHeight") or height), FULL_MAX_PX))
-            result["shots"].append({"kind": "full", "path": _shot(
-                out_dir, "full", captureBeyondViewport=True, clip={"x": 0, "y": 0, "width": VIEW_W, "height": full_h,
-                                                                  "scale": 1})})
-            _metrics(VIEW_W, VIEW_H, VIEW_DPR)
-        if depth == "look":
-            _metrics(MOBILE_W, MOBILE_H, 2, mobile=True)   # viewport emulation only: the user agent is never changed
-            time.sleep(0.8)
-            result["shots"].append({"kind": "mobile", "path": _shot(out_dir, "mobile")})
-            _metrics(VIEW_W, VIEW_H, VIEW_DPR)
-            light_bg = js("getComputedStyle(document.body).backgroundColor")
-            cdp("Emulation.setEmulatedMedia", features=[{"name": "prefers-color-scheme", "value": "dark"}])
-            time.sleep(0.6)
-            dark_bg = js("getComputedStyle(document.body).backgroundColor")
-            if page.get("dark_rule") or dark_bg != light_bg:
-                result["shots"].append({"kind": "dark", "path": _shot(out_dir, "dark")})
-            cdp("Emulation.setEmulatedMedia", features=[])
+        wants = (plan.get("pages") or [{}])[0].get("shots") or ["viewport"]
+        result["shots"] = _shots(out_dir, "", wants, page)
+        if plan.get("section"):
+            section = _section(page, plan, focus_heading)
+            if section:
+                result["section"] = section
+        further = [p for p in plan.get("pages") or [] if p.get("kind") != "saved"]
+        if not further and not pages:
+            return json.dumps(result)
+        result["found"] = (page.get("found") or [])[:120]
+        robots, parser = _read_robots()
+        result["robots"] = robots
+        picks = _pick_pages(plan, final_url, result["found"], parser, chosen=pages)
+        by_kind = {p.get("kind"): p for p in plan.get("pages") or []}
+        result["pages"] = []
+        for i, (kind, page_url, chosen_by) in enumerate(picks, 1):
+            _wait_pace(last_load, pace)
+            entry = {"url": page_url, "kind": kind, "chosen_by": chosen_by, "loaded_at": _now_ms()}
+            last_load = time.monotonic()
+            result["loads"] += 1
+            nav = cdp("Page.navigate", url=page_url, _response_timeout=30)
+            if nav.get("errorText"):
+                entry["outcome"] = _classify({}, nav.get("errorText"))
+                result["pages"].append(entry)
+                continue
+            _settle()
+            sub = _read_page()
+            entry.update(outcome=_classify(sub, ""), http_status=sub.get("http_status"),
+                         final_url=sub.get("final_url") or page_url)
+            if entry["outcome"] in ("needs_login", "blocked"):
+                result["pages"].append(entry)
+                break   # a wall ends the visit: no screenshot of it, nothing after it
+            entry["page"] = _page_fields(sub)
+            if entry["outcome"] == "captured":
+                wants = (by_kind.get(kind) or {}).get("shots") or ["viewport"]
+                entry["shots"] = _shots(out_dir, f"p{i}-", wants, sub)
+            result["pages"].append(entry)
         return json.dumps(result)
     except Exception as exc:  # noqa: BLE001 — the agent records a failure; it never retries another way
         result.update(outcome="failed", captured_at=_now_iso(), error=f"{type(exc).__name__}: {str(exc)[:120]}")

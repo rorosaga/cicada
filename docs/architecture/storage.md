@@ -746,6 +746,7 @@ writer, `api/services/site_captures.py`, turns each visit into memory; every doo
 | Full-resolution images (viewport 2×, full page, mobile, dark) | `$CICADA_HOME/captures/<bank>/<sha256>.<jpg|png>`, outside every bank and git repo, never evicted | Size: ~1 GB a first pass of 1,000 sites would bloat git forever (D1) |
 | The page's visible text (≤ 1,500 words, scrubbed) | `$CICADA_HOME/captures/<bank>/text/<sha256>.txt` | Change detection and recon, and no copy of someone else's page in git |
 | The queue | `$CICADA_HOME/explore_queue/<bank>.json` (`explore_queue`) | An intent, not a memory (keys only, no URL) |
+| **The site map** (slice 2): every page found or opened on a site, its kind, first and last seen, capture ids; robots.txt as last read; one line per visit | `<bank>/captures/_sites/<site>.md`, one writer (`site_map`), committed with the capture it came from | Memory: what existed on a site on a day cannot be fetched again, and the capture ids it names are bank paths — outside the bank it would point at nothing once handed over |
 
 - **Append-only.** A re-visit writes a new file and never edits one (`markdown_parser.write_new`, exclusive create). The
   record id is the capture's instant plus the lease token's first six hex digits, so a retry finds its own record and
@@ -772,7 +773,33 @@ writer, `api/services/site_captures.py`, turns each visit into memory; every doo
   record names; 404 "not on this Mac" when absent, and the wire says `onThisMac: false`). The `captures` sync component is
   a two-level stat walk of `captures/`. Export of the outside store with the bank is slice 3.
 - **Never an entity page.** Exploring creates no page; a capture names its saved-link page (`entity`) and Stage 1 never
-  reads `captures/`. Sleep's recon over the captured outline (G102) is slice 2.
+  reads `captures/`. Sleep's recon over the captured outline (G102) is still open.
+- **Further pages (slice 2, owner 2026-10-14 evening).** A visit the person's reason makes deeper (`explore_plan`,
+  `mcp.md`) keeps the further pages it opened in the same record, `pages: [{url, kind, title, loaded_at, outcome,
+  chosen_by, outline, fonts, components, dhash, palette, look, change, thumb, images}]` — at most five, each with its
+  own images outside the bank and a ≤ 640×400 thumbnail in it only when its look changed since the site map's last
+  picture of that URL. A page behind a wall keeps its outcome and no picture. A technique's `section: {heading,
+  excerpt ≤ 240 characters, text_sha256}` keeps the section's text outside the bank. `plan: {depth, max_pages, kinds,
+  because, auto_look}` says why the visit went that deep; `robots: {status, sha256}` what robots.txt said.
+- **The site map (slice 2).** `site_map.py` is its one reader and writer. Frontmatter `{shape: sitemap-1, site,
+  first_seen, last_seen, robots, unlisted?, pages: [{url, kind, title|label, first_seen, last_seen, last_visited?,
+  captures?, outcome?, robots?, dhash?, thumb?}], visits: [{at, capture, entity, pages, found, depth}]}` and a body
+  with a table of pages and a list of visits. `site` is `reading_hosts.site_of` (every saved page of a site shares a
+  map); URLs keep no query or fragment; sign-in, account and cart pages are never listed. **Append-only:** a visit adds
+  pages and a visit line, never removes a page, never moves a `first_seen`, only moves `last_seen` forward; a page a
+  later visit no longer finds keeps its row. **Bounded (review B1):** at most 300 pages are listed (`unlisted` counts
+  the rest), the newest 50 visit lines (older ones roll into `earlier_visits: {count, first_at, last_at}`), and each
+  page's newest 12 capture ids (`earlier_captures` counts the rest; every capture record stays). A site with 2,000
+  visits stays under ~120 KB, and `cicada_site_map` lists at most 80 pages. A page found
+  walled is never planned again. `_sites` starts with an underscore, so it can never be a page's capture folder
+  (`explored_entities` skips it). Read with `cicada_site_map` (stdio) and `GET /explore/sites[/{site}]`; the
+  `captures` sync component's stat walk covers it.
+- **Looks from exploring (G196, slice 2).** When the plan's reason is the design, `cicada_record_capture` keeps the
+  visit's best pictures as Looks through `design_refs.add_ref` (`via: explore`, tags `explored` and the page kind, the
+  person's own words about the save as the note, `explored: {site, captured_at, capture, entity, page_kind, page_url}`
+  as provenance, the capture's instant as `captured`): the saved page first, then each page whose look is new, never
+  two within a dHash distance of 5, at most three a visit, never a page that showed the person's account. A Look keeps
+  its full viewport in the bank (G196's rule), committed with the capture.
 
 ### Live state + handshake (G53 / G75)
 

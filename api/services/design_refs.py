@@ -55,7 +55,8 @@ MAX_SNIPPETS = 12
 MAX_TAGS = 12
 URL_CHARS = 2_000
 USER = "user"
-VIAS = ("app_capture", "drop", "paste", "agent", "import", "demo")
+#: ``explore``: kept automatically from an explore visit whose reason was the design (G166 slice 2).
+VIAS = ("app_capture", "drop", "paste", "agent", "import", "demo", "explore")
 SNIPPET_LANGS = ("html", "css", "js", "jsx", "tsx", "svg", "swift", "text")
 LIKED_HEAD = "## What I liked"
 SNIPPETS_HEAD = "## Snippets"
@@ -271,6 +272,11 @@ def _body(ref: Reference) -> str:
         parts += [f"![Screenshot](../{ref.image_path})", ""]
     if ref.url:
         parts += [f"From <{ref.url}>", ""]
+    explored = ref.extra.get("explored") if isinstance(ref.extra.get("explored"), dict) else None
+    if explored:
+        parts += [f"Kept while exploring {explored.get('site') or 'the site'} on "
+                  f"{str(explored.get('captured_at') or '')[:10]} — the {explored.get('page_kind') or 'home'} page, "
+                  f"capture {explored.get('capture')}.", ""]
     parts += [LIKED_HEAD, "", _HEADING.sub(lambda m: "#" * 4, ref.note) if ref.note else NO_NOTE, ""]
     if ref.snippets:
         parts += [SNIPPETS_HEAD, ""]
@@ -330,11 +336,13 @@ def read_look(data: bytes) -> tuple[list[dict], list[str]]:
 def add_ref(memory_path, *, image: bytes, url: str | None = None, title: str | None = None, note: str | None = None,
             snippets=None, tags=None, region=None, entity: str | None = None, via: str = "drop",
             author: str = USER, session: str | None = None, now: datetime | None = None,
-            look: tuple[list[dict], list[str]] | None = None) -> dict:
+            look: tuple[list[dict], list[str]] | None = None, explored: dict | None = None) -> dict:
     """File one reference: ``{"action": "added", "ref", "paths"}``, or a refusal that wrote nothing.
 
     ``look`` is the palette and its words when the caller already read them (a route reads them before it takes
-    the write admission, so Sleep never waits on a decode)."""
+    the write admission, so Sleep never waits on a decode). ``explored`` is an explore visit's provenance for a Look
+    kept automatically (G166 slice 2): ``{site, captured_at, capture, entity, page_kind}`` — the site and the date the
+    picture is of, and the dated capture record it came from."""
     bank = Path(memory_path).name
     try:
         ext = validate_image(image)
@@ -367,6 +375,10 @@ def add_ref(memory_path, *, image: bytes, url: str | None = None, title: str | N
         session=session or None, via=via if via in VIAS else "drop", palette=colours, look=words, tokens=tokens,
         tags=[_clean_line(t, 40) for t in list(tags or [])[:MAX_TAGS] if _clean_line(t, 40)],
         entity=entity_id, region=_region(region), note=note_kept, snippets=kept_snippets)
+    if isinstance(explored, dict):
+        ref.extra["explored"] = {k: _clean_line(str(explored[k]), 200) for k in
+                                 ("site", "captured_at", "capture", "entity", "page_kind", "page_url")
+                                 if explored.get(k)}
     root = _root(memory_path)
     root.mkdir(parents=True, exist_ok=True)
     assets = Path(memory_path).joinpath(*ASSETS)

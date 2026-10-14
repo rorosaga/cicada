@@ -482,9 +482,31 @@ TOOLS = [
             "consent_box": {"type": "object", "description": "The banner's box in viewport pixels: x, y, width, height."},
             "next_pages": {"type": "array", "description": "Up to two same-site pages worth a later visit.", "items": {
                 "type": "object", "properties": {"url": {"type": "string"}, "label": {"type": "string"}}}},
-            "loads": {"type": "integer", "description": "How many pages of the site you loaded under this lease (1 to 3)."},
+            "loads": {"type": "integer", "description": "How many pages of the site you loaded under this lease (1 to 6)."},
             "via": {"type": "string", "description": "Optional: the browser tool you used. Shown as what you said."},
-            "last_modified": {"type": "string", "description": "The page's own last-modified date, when it gave one."}}},
+            "last_modified": {"type": "string", "description": "The page's own last-modified date, when it gave one."},
+            "loaded_at": {"type": "string", "description": "When the saved page itself was loaded, ISO 8601 with a timezone (the script prints it)."},
+            "pages": {"type": "array", "description": "The further pages the plan let you open, as the script printed them: each with url, kind, chosen_by, loaded_at, http_status, outcome, shots and page. Cicada keeps only pages within the plan's count, at least 8 seconds apart, on the same host and allowed by robots.txt.", "items": {
+                "type": "object", "required": ["url"], "properties": {
+                    "url": {"type": "string"}, "kind": {"type": "string"}, "chosen_by": {"type": "string", "enum": ["script", "agent"]},
+                    "loaded_at": {"type": "string"}, "http_status": {"type": "integer"},
+                    "outcome": {"type": "string", "enum": ["captured", "moved", "not_found", "gone", "needs_login", "blocked", "failed"]},
+                    "shots": {"type": "array", "items": {"type": "object", "required": ["kind"], "properties": {
+                        "kind": {"type": "string", "enum": ["viewport", "thumb", "full", "mobile", "dark"]},
+                        "path": {"type": "string"}, "base64": {"type": "string"}}}},
+                    "page": {"type": "object", "description": "title, description, outline, fonts, tokens, components."}}}},
+            "found": {"type": "array", "description": "Same-site links the script found (url, label): they go into the site's map.", "items": {
+                "type": "object", "properties": {"url": {"type": "string"}, "label": {"type": "string"}}}},
+            "robots": {"type": "object", "description": "robots.txt as your browser read it: status (the HTTP status) and text. Without it no further page is kept."},
+            "section": {"type": "object", "description": "For a technique: the part of the page the person's words point at — heading and text (only an excerpt stays in memory)."}}},
+    },
+    {
+        # G166 slice 2: the site maps explore visits leave in the bank (captures/_sites/<site>.md). Read-only, stdio.
+        "name": "cicada_site_map",
+        "description": "The map of a site the person's agents explored: every page found or opened there, its kind, when it was first and last seen, and the captures that hold its pictures — append-only over visits. Pass a site name or any of its links; with neither, lists the explored sites.",
+        "inputSchema": {"type": "object", "properties": {
+            "site": {"type": "string", "description": "Optional: a site (bob-example.org) or a link on it."}}},
+        "annotations": {"readOnlyHint": True},
     },
     {
         "name": "cicada_explore_start",
@@ -1162,7 +1184,10 @@ def handle_tool(name: str, arguments: dict) -> str:
             arguments.get("shots"), arguments.get("page"), arguments.get("signed_in"),
             bool(arguments.get("account_visible", False)), bool(arguments.get("consent_overlay", False)),
             arguments.get("consent_box"), arguments.get("next_pages"), arguments.get("loads"),
-            arguments.get("via"), arguments.get("last_modified"))
+            arguments.get("via"), arguments.get("last_modified"), arguments.get("loaded_at"), arguments.get("pages"),
+            arguments.get("found"), arguments.get("robots"), arguments.get("section"))
+    elif name == "cicada_site_map":
+        return mcp_tools.site_map_read(_ctx(), arguments.get("site"))
     elif name == "cicada_explore_start":
         return mcp_tools.explore_start(_ctx(), arguments.get("scope"), arguments.get("origins"))
     elif name == "cicada_record_check":

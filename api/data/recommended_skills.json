@@ -312,11 +312,11 @@
       "reach": "Uses your own Chrome through browser-harness: your signed-in session unless you turn that off.",
       "pin": {
         "repo": "rorosaga/cicada",
-        "ref": "dev",
-        "sha": "e4fdf846591e238347484a9520c58792f7414457",
+        "ref": "feat/explore-depth",
+        "sha": "fdcf66b823dd412c8537da2cead660e1a5a28994",
         "path": "skills/site-explore",
-        "skillMdSha256": "9cf4d213ab8a671ff6a0188288e11eb777e60160860cc4f2781b4cdb4033196f",
-        "files": {"explore_capture.py": "5d06a284f4af0770272bf6e8b83a9d26b4770a1661acf9b352489d3ef6f423c6"}
+        "skillMdSha256": "c9d69519b00a028dfefad93c08b29c491d8373603f6f6ed6b32a7577142e75cc",
+        "files": {"explore_capture.py": "b0ab6df8b26973acdb637441e026f87197d2a363c7141fe3c90a700bc7817221"}
       },
       "agents": {
         "claude-code": {"method": "skills-cli"},

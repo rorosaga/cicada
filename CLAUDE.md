@@ -247,6 +247,8 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 - **Backlogs (G150):** one markdown file per item, one writer behind every door, never an entity page.
 - **Site captures (G166, ruling 25):** one append-only dated record per visit, a ≤ 640×400 thumbnail in the bank only
   when the look changed, full images and page text outside every bank (`$CICADA_HOME/captures`); one writer (`site_captures`).
+  Depth follows the person's reason through a plan Cicada computes with no model (`explore_plan`); each site's map is
+  append-only in the bank beside its captures (`captures/_sites/`, one writer `site_map`; `storage.md`).
 - **Design references (2026-10-14):** one markdown file plus its screenshot per look, in the bank, one writer
   (`design_refs`), never an entity page; palette and vectors are computed here, the index lives outside the bank.
 - **`_state.md` is a cursor, never a copy**; it commits ALONE, the read path too (the G85-class smear). **The handshake is

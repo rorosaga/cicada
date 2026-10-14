@@ -175,7 +175,9 @@ ROWS: tuple[Row, ...] = (
         (_p("url"), _p("lease_token"), _p("outcome"), _f("captured_at"), _f("final_url"), _f("http_status", "int"),
          _f("shots", "json"), _f("page", "json"), _f("signed_in", "bool"), _f("account_visible", "bool"),
          _f("consent_overlay", "bool"), _f("consent_box", "json"), _f("next_pages", "json"), _f("loads", "int"),
-         _f("via"), _f("last_modified")), mutates=True),
+         _f("via"), _f("last_modified"), _f("loaded_at"), _f("pages", "json"), _f("found", "json"),
+         _f("robots", "json"), _f("section", "json")), mutates=True),
+    Row(("explore", "map"), "cicada_site_map", "The pages found and opened on an explored site.", (_f("site"),)),
     Row(("explore", "start"), "cicada_explore_start", "Start exploring the person's saved sites.",
         (_f("scope"), _f("origins", "list", flag_name="origin")), mutates=True,
         mcp_only="a run starts only from the person's own request in a conversation, or their click (D5); never from "
