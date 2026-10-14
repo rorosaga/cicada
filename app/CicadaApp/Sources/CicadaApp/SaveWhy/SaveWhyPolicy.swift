@@ -16,14 +16,22 @@ import Foundation
 /// - **Made in the last minutes.** When the browser records the instant (Chrome; Safari's Reading List), it must be
 ///   within `recentWindow` — a bookmark another device synced in hours later is not a moment of saving.
 /// - **Not a muted site** ("Don't ask for this site").
-/// - **Rate-limited.** At most one question per `minimumGap`, and never while one is showing.
+/// - **One save, one question** (G191 live, owner 2026-10-14: "shouldn't it be immediate?" — bookmarking several
+///   sites in a row, every one after the first was silenced by the old three-minute limit). Each single fresh bookmark
+///   asks, even in a row; a new one replaces the open panel (`SaveWhyCenter`). Flood protection is structural — the
+///   rules above — plus `repeatGuard` against the double events of one save, and the same link is never asked twice
+///   within `sameLinkGuard`. Never while the person is writing in "Something else…".
 enum SaveWhyPolicy {
     /// How old (by the browser's own clock) a bookmark may be and still be asked about.
     static let recentWindow: TimeInterval = 5 * 60
     /// A clock-skew allowance: a bookmark stamped slightly in the future is still now.
     static let futureSkew: TimeInterval = 60
     /// The least time between two questions.
-    static let minimumGap: TimeInterval = 3 * 60
+    /// The least time between two questions: one save can report twice (a swap's two names, an owed re-read), and two
+    /// deliberate bookmarks take longer than this to make.
+    static let repeatGuard: TimeInterval = 3
+    /// The same link is not asked about again within this.
+    static let sameLinkGuard: TimeInterval = 60
     /// How long an unanswered question stays before it leaves on its own.
     static let askTimeout: TimeInterval = 12
     /// After a tap, how long the panel waits for another tap before it saves the answer (multi-select without a
@@ -45,7 +53,10 @@ enum SaveWhyPolicy {
         var now: Date
         var lastAsked: Date?
         var mutedHosts: Set<String>
-        var showing: Bool
+        /// The person is typing in the open panel's "Something else…" — never interrupted.
+        var writing: Bool
+        /// The link last asked about (with `lastAsked`).
+        var lastURL: String? = nil
     }
 
     enum Decision: Equatable {
@@ -54,13 +65,13 @@ enum SaveWhyPolicy {
     }
 
     enum Reason: String, Equatable {
-        case off, notLive, firstSync, noneNew, bulk, notRecent, muted, rateLimited, showing, noHost
+        case off, notLive, firstSync, noneNew, bulk, notRecent, muted, repeated, writing, noHost
     }
 
     static func decide(_ i: Inputs) -> Decision {
         guard i.enabled else { return .skip(.off) }
         guard i.live else { return .skip(.notLive) }
-        guard !i.showing else { return .skip(.showing) }
+        guard !i.writing else { return .skip(.writing) }
         if i.result.sources.contains(where: { $0.firstSync == true }) { return .skip(.firstSync) }
         let total = max(i.result.freshTotal, i.result.fresh.count)
         guard total > 0, let item = i.result.fresh.first else { return .skip(.noneNew) }
@@ -71,7 +82,11 @@ enum SaveWhyPolicy {
         }
         guard let host = item.host else { return .skip(.noHost) }
         if i.mutedHosts.contains(host) { return .skip(.muted) }
-        if let last = i.lastAsked, i.now.timeIntervalSince(last) < minimumGap { return .skip(.rateLimited) }
+        if let last = i.lastAsked {
+            let since = i.now.timeIntervalSince(last)
+            if since >= 0, since < repeatGuard { return .skip(.repeated) }
+            if since >= 0, since < sameLinkGuard, i.lastURL == item.url { return .skip(.repeated) }
+        }
         return .ask(item)
     }
 }
@@ -81,6 +96,7 @@ enum SaveWhyPolicy {
 struct SaveWhyPrefs {
     static let enabledKey = "cicada.saveWhy.enabled"
     static let lastAskedKey = "cicada.saveWhy.lastAsked"
+    static let lastURLKey = "cicada.saveWhy.lastURL"
     static let mutedKey = "cicada.saveWhy.mutedHosts"
 
     let defaults: UserDefaults
@@ -94,6 +110,12 @@ struct SaveWhyPrefs {
     var lastAsked: Date? {
         get { defaults.object(forKey: Self.lastAskedKey) as? Date }
         nonmutating set { defaults.set(newValue, forKey: Self.lastAskedKey) }
+    }
+
+    /// The link last asked about — for `SaveWhyPolicy.sameLinkGuard`.
+    var lastURL: String? {
+        get { defaults.string(forKey: Self.lastURLKey) }
+        nonmutating set { defaults.set(newValue, forKey: Self.lastURLKey) }
     }
 
     var mutedHosts: Set<String> {

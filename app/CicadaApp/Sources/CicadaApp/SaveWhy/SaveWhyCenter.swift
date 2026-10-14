@@ -111,7 +111,7 @@ final class SaveWhyCenter {
     /// that saves them. False when it did not look (the switch off, a panel open, or no answer — an older backend),
     /// so the sync's own result decides as before.
     func lookEarly(_ bytes: BookmarkBytes) async -> Bool {
-        guard prefs.enabled, !isShowing else { return false }
+        guard prefs.enabled, state?.phase != .writing else { return false }
         let options = cachedOptions == nil ? Task { await refreshOptions() } : nil
         guard let result = try? await api.freshBookmarks(bytes) else { return false }
         await options?.value
@@ -136,11 +136,12 @@ final class SaveWhyCenter {
     func noticed(_ result: BookmarkSyncResult, live: Bool, early: Bool = false) async {
         let decision = SaveWhyPolicy.decide(.init(
             enabled: prefs.enabled, live: live, result: result, now: now(), lastAsked: prefs.lastAsked,
-            mutedHosts: prefs.mutedHosts, showing: isShowing))
+            mutedHosts: prefs.mutedHosts, writing: state?.phase == .writing, lastURL: prefs.lastURL))
         lastDecision = decision
         guard case .ask(let item) = decision else { return }
         // Counted from the decision, so a second sync during the options read cannot ask twice.
         prefs.lastAsked = now()
+        prefs.lastURL = item.url
         // The options already in hand show it at once (G191 live); the first question waits for them.
         let fetched: SavedWhyOptions
         if let cachedOptions {
@@ -151,7 +152,13 @@ final class SaveWhyCenter {
             guard let cachedOptions else { return }
             fetched = cachedOptions
         }
-        guard !isShowing else { return }
+        // G191 live: a newer bookmark replaces the open question — the person is looking at the new page now, and the
+        // old one's moment has passed; a tap already made there is kept and posted (`superseded` closes like a
+        // timeout). A queue would ask about a page they have left. Never while they are writing (the policy).
+        if isShowing {
+            guard state?.phase != .writing else { return }
+            send(.superseded)
+        }
         if early { awaitingIngest[item.url] = item.channel }
         previewing = false
         options = fetched

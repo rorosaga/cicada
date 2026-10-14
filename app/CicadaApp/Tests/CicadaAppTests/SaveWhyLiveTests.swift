@@ -258,7 +258,7 @@ final class SaveWhyLiveTests: XCTestCase {
         let item = FreshBookmark(url: "https://alpha.example/a", channel: "chrome-bookmarks")
         let others: [SaveWhyPanelState.Event] = [.tapReason("design"), .tapProject("alpha-project"),
                                                  .draftChanged("x"), .submitText, .lingerElapsed, .timeout, .escape,
-                                                 .clickOutside, .dontAskForSite]
+                                                 .clickOutside, .dontAskForSite, .superseded]
         for a in others { for b in others { for c in others {
             var state = SaveWhyPanelState(item: item, order: ["design"])
             var effects: [SaveWhyPanelState.Effect] = []

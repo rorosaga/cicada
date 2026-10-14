@@ -26,6 +26,9 @@ GATED = {
     ("POST", "/sources/upload"): "/sources/upload",
     ("POST", "/sources/rss"): "/sources/rss",
     ("POST", "/sources/sync-bookmarks"): "/sources/sync-bookmarks",
+    # G191 live: the early look writes nothing, but asking why about a bookmark a demo bank will not capture is
+    # pointless — gated like the sync it precedes.
+    ("POST", "/sources/sync-bookmarks/fresh"): "/sources/sync-bookmarks/fresh",
     ("POST", "/sources/sync-safari-tabs"): "/sources/sync-safari-tabs",
     ("POST", "/sources/feeds"): "/sources/feeds",
     ("POST", "/sources/poll-feeds"): "/sources/poll-feeds",
