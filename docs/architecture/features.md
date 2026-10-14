@@ -86,7 +86,12 @@ section opens or the beliefs list is shown (for its chips), never on every card 
 evidence (`PageSourcesOverview.lookUps`: the person's, then a taken or confirmed one, then the rest; never the
 official-site or page-wide ones): it opens the section on that source, selected (DR-48) and scrolled to — the way back
 from a fact to where to check it. Nothing here says a source WAS checked against a belief (S3 is shadow); Details:
-tags, related, dates, how it fades. Beliefs are rows — the sentence, its evidence chip and its age, the rest in
+tags, related, dates, how it fades — related as its first 12 names and "and K more" (`RelatedLinksRow`, owner page
+2026-10-14: a hub's 2,024 chips, each scanning the graph for its page, took ~1 s a render), which opens the Content
+tab at the page's own `## Related` heading (DR-38, DR-5 link); a page with no such section says the count in words.
+A page sent `rawOmitted` (its fence withheld, or for a page with a ledger its frontmatter alone) is never shown,
+copied or reconstructed from that head — Source and Copy read `/raw` (`RawFile`); the app has no flow that writes a
+page body back. Beliefs are rows — the sentence, its evidence chip and its age, the rest in
 `.help`. A location page's map is a picture of where it is, never a scroll trap: it takes no pointer events, so
 the column scrolls with the pointer over it, and *Open in Maps* is the way to pan (`LocationMap`). A page with
 thousands of beliefs stays usable: what the tabs show from the claims is derived once per load,

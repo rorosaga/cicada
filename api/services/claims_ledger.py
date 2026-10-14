@@ -210,15 +210,10 @@ def merged(body: str, ledger: list[str]) -> str:
     return _with_fence(body, match, kept + fence)
 
 
-#: A predicate a page holds for at most this many objects is a fact about it ("studies at", "lives in"); one it holds
-#: for hundreds is a log ("asked about"). One line for the ledger, the article's inputs and a hub's Related.
-FACT_FAMILY_MAX = entity_body.RELATION_FAMILY_MAX
-
-
 def _spill_order(lines: list[str]) -> list[tuple]:
     """Each line's place in the spill order: closed claims first (``valid_to`` or ``superseded_by`` set), then a log's
-    (a predicate the page holds for more than :data:`FACT_FAMILY_MAX` objects: "<owner> asked about X" — activity,
-    not a fact about the page), then the rest; within each, the longest ago recorded first. What stays on the page is
+    (``entity_body.is_log``: a predicate whose stems positively say activity — "<owner> asked how to use X" — in a
+    family the page holds for more than a few objects; never a fact, and never a label nobody can read), then the rest; within each, the longest ago recorded first. What stays on the page is
     what it most says about its subject, and the newest of the rest."""
     entries = []
     for line in lines:
@@ -227,13 +222,15 @@ def _spill_order(lines: list[str]) -> list[tuple]:
         except ValueError:
             entry = None
         entries.append(entry if isinstance(entry, dict) else {})
-    objects: dict[str, set] = {}
+    objects: dict[str, set] = {}   # objects per family of meaning, not per spelling (free-form predicates)
     for entry in entries:
-        objects.setdefault(str(entry.get("predicate") or ""), set()).add(str(entry.get("object") or ""))
+        family = entity_body.relation_family(str(entry.get("predicate") or ""))
+        objects.setdefault(family, set()).add(str(entry.get("object") or ""))
     keys = []
     for entry in entries:
         closed = bool(entry.get("valid_to") or entry.get("superseded_by"))
-        log = len(objects.get(str(entry.get("predicate") or ""), ())) > FACT_FAMILY_MAX
+        predicate = str(entry.get("predicate") or "")
+        log = entity_body.is_log(predicate, len(objects.get(entity_body.relation_family(predicate), ())))
         keys.append((0 if closed else 1 if log else 2, str(entry.get("recorded_at") or entry.get("valid_from") or "")))
     return keys
 

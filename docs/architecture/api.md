@@ -180,7 +180,11 @@ schedules one revalidation there. The queue's writes (`PUT|DELETE /videos/queue/
   item whose range would cross a removed block gets no ranges rather than shortened ones).
   `rawMarkdown` is the whole file up to `RAW_INLINE_MAX_BYTES` (256 KiB); above it (and only when the file has a
   closed fence) it is the file verbatim *up to its first claims fence* with `rawOmitted: true` — every frontmatter
-  reader keeps its input — and the Source view and Copy read `GET /entities/{id}/raw` for the whole file. A client
+  reader keeps its input — and the Source view and Copy read `GET /entities/{id}/raw` for the whole file. The fence is
+  also withheld when it alone is over 16 KiB, and a page whose older claims live in its ledger sends its frontmatter
+  alone (its prose is `markdownContent`; owner page 2026-10-14: 490 KB → ~275 KB on a synthetic page of the measured
+  shape). The card's decay pace reads only the page's own conversations' `source:` lines (`episode_time.untimed_among`,
+  one awk pass), never a YAML parse of every episode — that scan was 4.4 s of a 4.4 s cold first open there. A client
   never treats that head as the file, and never substitutes a reconstruction when `/raw` fails (`RawFile`).
   Neither is a Store domain: no ETag, no `VersionVector` mapping.
 - `GET /entities/{id}/history/{commit}/diff` — a file's FIRST commit has no parent, so `git show`

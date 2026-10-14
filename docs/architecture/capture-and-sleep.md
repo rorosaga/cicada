@@ -142,6 +142,17 @@ Seven rails hold across all of them:
   discloses the count. The textual `is_injection` deletion and the hook-tag span/first-tag rules were removed for
   person text; G105 R5's tool-output rules — the `<system-reminder>` span strip and the first-tag skip for harness tags —
   are a different rail and stay.
+- **A captured session's title is the person's own words, never a wrapper tag** (2026-10-14, `episode_title`). The
+  first person message can open with a wrapper — `<pasted_content id="…">` around a paste, or a harness block that
+  arrived inside the person's text (G110 gate C) — and the old first-line rule (G105 R12) titled the session by the
+  bare tag. The title is now the first real line outside every wrapper, else the first inside one (a message that is
+  only a paste); text inside a harness tag (`CLAUDE_HARNESS_TAGS`/`CODEX_HARNESS_TAGS`) never counts; a tag opens a
+  wrapper only at a line's start, so `Vec<String>` mid-sentence is words. A turn with no real line (only a command tag)
+  passes to the next person turn, then `<Product> session`. Title only: the body is kept as captured. Episodes titled
+  before the fix are retitled once from their own stored body — the transcript is never re-read — by
+  `api/scripts/retitle_wrapped_episodes.py` (the dry run prints counts; `--apply` is refused while Sleep runs, makes one
+  `cicada` commit and re-queues nothing — the title is outside `content_hash`; a run that fails before its commit puts
+  back every file and index entry it changed). The scan is linear: it runs in the Stop hook.
 - **Transcripts under `~/.claude/` are never read anywhere else.** The MCP seam and the resume path
   only ever `isfile()` them to answer "is this session still resumable"; that answer is computed
   per request and never persisted.
@@ -805,7 +816,8 @@ and ids (a portability bug). `api/services/role_people.py` is the one place that
 - **Never a merge on a guess.** Two people are merged only on the person's answer or on evidence on the record.
 - **The repair** for an existing bank: `python -m api.scripts.repair_placeholder_people --bank <path>` (dry run:
   counts only) and `--apply` (one `cicada` commit, trigger `maintenance/placeholder-people`; refused while Sleep runs
-  or holds the pages; a page dirty in git, or one a merge would touch, is skipped and counted; a second run changes
+  or holds the pages; a page another writer left dirty in git, or one a merge would touch, is skipped and counted —
+  what is dirty is read once, before the run writes, so the run's own writes never count; a second run changes
   nothing). Each placeholder page **merges** into a named person only when its relation is singular and exactly one
   named person holds it on the record — an open, non-event claim (no `valid_to`, not superseded) or a
   `graph_edges.yaml` edge whose predicate names **exactly** that relation: from the person to the owner "<head>",
@@ -877,16 +889,28 @@ constraining the prose; git is the safety net, the claims and the dated timeline
   it is a stub, not because of a cap). A page whose prompt is over `CICADA_PAGE_ARTICLE_MAX_INPUT_CHARS` (60,000) is fitted, never
   clipped mid-input (`entity_article.fit`, owner page 2026-10-14): claims sharing a predicate and an object fold into
   one input (the latest text, how many conversations said it, first and last day, every evidence row); then claim
-  inputs are left out — a log's (a predicate held for more than 3 objects: "asked about") before a fact's
-  ("studies at") or one about a person page (who is in a life is never a log), the fewest conversations and the
+  inputs are left out — a log's (`entity_body.is_log`: a predicate the stems positively call activity, in a family held
+  for more than 3 objects; when unsure, a fact) before a fact's ("studies at") or one about a person page (who is in a life is never a log), the fewest conversations and the
   longest ago first — then History lines, oldest first; this
   update's words, the earlier lead and article, facts, questions and links never; LINKABLE keeps the names a kept
   input mentions. The record keeps every claim and line. Only a page whose own record is still over the budget
   keeps the deterministic merge if it has an article, else today's path.
 - **A hub's Related rolls up** (`entity_body.RELATED_MAX`, 60 linked pages; owner page 2026-10-14): `## Related` is a
-  view of `graph_edges.yaml` rebuilt on every write, so on a page linking more pages than that, its relations (a verb
-  it holds for at most 3 pages) and its people (the latest, up to 60 lines in all) keep a line each and every other
-  link is one line per verb (`- asked about: 1,203 pages — latest [[A]], [[B]] … and 1,195 more`). Each rolled-up
+  view of `graph_edges.yaml` rebuilt on every write, so on a page linking more pages than that, the block is **never
+  more than 60 lines, family lines included**; lines go, in order of right, to its **strong facts**, then its weaker
+  facts (the latest) — facts take at most 40, and strong facts past that go on one `facts` line, never dropped —
+  then its latest people in the room left; every other link is one line per **family of meaning** (`- asked or
+  learned about: 1,203 pages — latest [[A]], [[B]] … and 1,195 more`), the people who did not fit on a `people`
+  line. Labels are free-form — the real owner page had hundreds of verbs, the commonest three times each, so
+  grouping by exact verb left 1,676 of 2,024 lines (2026-10-14). `entity_body.relation_family` reads a label in this
+  order: activity when it **starts** with an activity or intent verb ("considered studying at", "planned to move
+  to"; received or got a degree, a job or a role excepted), whatever follows; `strong` when it folds (the bank's predicate map, else the seed's synonyms) to a fact predicate
+  (`STRONG_PREDICATES`: works-at, studies-at, located-in, part-of, family relations…) or says one in another
+  inflection ("studying at", "got a job at", "received a degree from", "graduate of"); then an activity family
+  (`asked`, `planned`, `built`, `used`) when an activity verb says so, whatever preposition follows ("learned from"
+  is activity); then `relation` for a weaker fact word ("colleague", "joined"); else `other`. **When unsure, a label
+  is a fact** (reviews 2026-10-14): `is_log` is true only for an activity family the page holds for more than 3
+  objects — the same rule orders the ledger's spill and the article's inputs. Each rolled-up
   link is still an edge, still on the linked page's own Related (inbound edges are mirrored there), and its claims
   are still the owner's, in the page's ledger. Per-conversation activity is not a fact about the person: its home
   is the linked page, the claims ledger and the timeline, not the person's article or its Related. A page with a stamped article is

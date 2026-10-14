@@ -1056,7 +1056,12 @@ def _reconcile_related(entity_id: str, frontmatter: dict, memory_path, edges_by_
     # Drop dangling references — an edge to a deleted entity shouldn't render.
     edges = [e for e in edges if str(e.get("target", "")) in id_to_name]
     related_slugs = [s for s in related_slugs if str(s) in id_to_name]
-    return entity_body.render_related(related_slugs, edges, id_to_name, id_to_type)
+    try:   # the bank's own vocabulary decides which labels are facts (`entity_body.relation_family`)
+        from api.services import predicates
+        normalize = predicates.load_normalizer(memory_path)
+    except Exception:  # noqa: BLE001 - no map: the seed's synonyms
+        normalize = None
+    return entity_body.render_related(related_slugs, edges, id_to_name, id_to_type, normalize)
 
 
 def _compose_entity_body(description: str, history_entries: list[dict]) -> str:

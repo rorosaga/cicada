@@ -89,6 +89,7 @@ struct EntityDetailCard: View {
     @State private var sourceScroll = 0
     /// Bumped to scroll the card to "Where this came from" (a line with no recorded source of its own).
     @State private var provenanceScroll = 0
+    @State private var relatedScroll = 0
     /// The full page could not be read: the card says so, with a retry, instead of "Reading the page…" forever (DR-32).
     @State private var pageReadFailed = false
     /// The one claims read in flight for this card: the beliefs section and the Perspectives or Timeline tab opening
@@ -250,6 +251,12 @@ struct EntityDetailCard: View {
                     Task { @MainActor in
                         await Task.yield()
                         proxy.scrollTo(anchor, anchor: .center)
+                    }
+                }
+                .onChange(of: relatedScroll) {
+                    let rows = WikiArticleCache.shared.article(articleKey).rows
+                    if let row = rows.first(where: { WikiPageView.isSection($0, Copy.Graph.related) }) {
+                        proxy.scrollTo(WikiPageView.anchor(row.id), anchor: .top)
                     }
                 }
             }
@@ -885,9 +892,9 @@ struct EntityDetailCard: View {
                 if !entity.related.isEmpty {
                     GridRow {
                         detailLabel(Copy.Graph.related)
-                        FlowLayout(spacing: CicadaTheme.spacingMD) {
-                            ForEach(entity.related, id: \.self) { rel in relatedLink(rel) }
-                        }
+                        RelatedLinksRow(related: entity.related, entities: graphVM.entities,
+                                        onOpen: { navigate(to: $0) },
+                                        onMore: hasRelatedSection ? { openRelatedSection() } : nil)
                     }
                 }
                 GridRow {
@@ -915,17 +922,17 @@ struct EntityDetailCard: View {
         Text(text).font(CicadaTheme.font(size: 13)).foregroundStyle(CicadaTheme.textSecondary)
     }
 
-    /// A related name opens its page when one matches (DR-5 link); otherwise it is plain text.
-    @ViewBuilder
-    private func relatedLink(_ rel: String) -> some View {
-        if let id = DetailsWords.relatedTarget(rel, in: graphVM.entities) {
-            Button { navigate(to: id) } label: {
-                Text(rel).font(CicadaTheme.font(size: 13, weight: .medium)).foregroundStyle(CicadaTheme.accentText)
-            }
-            .buttonStyle(.cicadaPlain)
-        } else {
-            detailValue(rel)
-        }
+    /// The page's own `## Related` section, when its article has one: where "and K more" leads.
+    private var hasRelatedSection: Bool {
+        !isStub && WikiArticleCache.shared.article(articleKey).rows.contains { WikiPageView.isSection($0, Copy.Graph.related) }
+    }
+
+    /// "and K more" (owner page, 2026-10-14): the page's own Related section lists every link — the rendered page, on
+    /// the Content tab, scrolled to that heading at once (a click is no animation's cue here, CLAUDE.md motion rail).
+    private func openRelatedSection() {
+        showRawMarkdown = false
+        selectedTab = .content
+        relatedScroll &+= 1
     }
 
     // MARK: - Fades (G66 §1.7)
@@ -1544,5 +1551,52 @@ struct OlderChangesRow: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+
+/// Details' Related row (owner page, 2026-10-14): the first `DetailsWords.relatedShown` names, each a link when it names
+/// a page (DR-5 link), then "and K more", which opens the page's own Related section (DR-38: that section already lists
+/// every one). Only the names shown are looked up: a hub's thousands of chips, each scanning the graph for its page,
+/// were the lag on opening the owner's card.
+struct RelatedLinksRow: View {
+    let related: [String]
+    let entities: [Entity]
+    var onOpen: (String) -> Void
+    /// Opens the page's Related section; nil when the page has none (the count is then words, not a link).
+    var onMore: (() -> Void)? = nil
+
+    var body: some View {
+        let preview = DetailsWords.relatedPreview(related)
+        FlowLayout(spacing: CicadaTheme.spacingMD) {
+            ForEach(Array(preview.shown.enumerated()), id: \.offset) { _, rel in link(rel) }
+            if preview.more > 0 { more(preview.more) }
+        }
+    }
+
+    @ViewBuilder
+    private func link(_ rel: String) -> some View {
+        if let id = DetailsWords.relatedTarget(rel, in: entities) {
+            Button { onOpen(id) } label: {
+                Text(rel).font(CicadaTheme.font(size: 13, weight: .medium)).foregroundStyle(CicadaTheme.accentText)
+            }
+            .buttonStyle(.cicadaPlain)
+        } else {
+            Text(rel).font(CicadaTheme.font(size: 13)).foregroundStyle(CicadaTheme.textSecondary)
+        }
+    }
+
+    @ViewBuilder
+    private func more(_ n: Int) -> some View {
+        if let onMore {
+            Button(action: onMore) {
+                Text(Copy.Graph.relatedMore(n)).font(CicadaTheme.font(size: 13, weight: .medium))
+                    .foregroundStyle(CicadaTheme.accentText)
+            }
+            .buttonStyle(.cicadaPlain)
+            .help(Copy.Graph.relatedMoreHelp)
+        } else {
+            Text(Copy.Graph.relatedMore(n)).font(CicadaTheme.font(size: 13)).foregroundStyle(CicadaTheme.textTertiary)
+        }
     }
 }

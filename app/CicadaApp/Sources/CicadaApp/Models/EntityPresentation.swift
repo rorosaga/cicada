@@ -303,6 +303,16 @@ enum DetailsWords {
         return "\(day) · \(InboxAge.phrase(days: InboxAge.days(since: iso, now: now)))"
     }
 
+    /// Owner page, 2026-10-14 — how many related names Details shows. A hub links thousands of pages (the owner's
+    /// 2,024): one chip each made opening the card lag, and the page's own `## Related` already lists them (DR-38).
+    static let relatedShown = 12
+
+    /// The related names Details shows, and how many more there are.
+    static func relatedPreview(_ related: [String]) -> (shown: [String], more: Int) {
+        let shown = Array(related.prefix(relatedShown))
+        return (shown, related.count - shown.count)
+    }
+
     /// `related:` holds ids or names; a link opens only when one matches a page in the graph.
     static func relatedTarget(_ related: String, in entities: [Entity]) -> String? {
         let key = related.trimmingCharacters(in: .whitespaces)

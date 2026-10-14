@@ -339,7 +339,7 @@ def test_the_owner_card_opens_fast_and_never_reads_the_ledger(tmp_path, monkeypa
     elapsed = time.perf_counter() - started
     assert response.status_code == 200 and elapsed < 1.5, elapsed
     data = response.json()
-    assert not data["rawOmitted"] and len(response.content) < 200_000
+    assert data["rawOmitted"] and len(response.content) < 200_000   # a hub page: its frontmatter, Source reads /raw
     assert "## Summary" in data["markdownContent"] and opened == []
 
 

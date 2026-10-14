@@ -40,6 +40,22 @@ def load_yaml(text: str):
     return yaml.load(text, Loader=_SAFE_LOADER)  # noqa: S506 — a SAFE loader
 
 
+_SAFE_DUMPER = getattr(yaml, "CSafeDumper", yaml.SafeDumper)
+
+
+def write_yaml(filepath: Path, data) -> None:
+    """Write a whole YAML file atomically: a temp file beside it, fsynced, then ``os.replace``d over it (the page
+    rule, :func:`write`). For ``graph_edges.yaml`` (~4 MB on a real bank, four writers): ``write_text`` truncated
+    first, so a write cut short left a torn file — unreadable, or worse, one that parses as a shorter file and loses
+    its tail edges. A reader now sees the old file or the new one. Dumped by the libyaml safe dumper when PyYAML has
+    it: for plain rows the same text ``yaml.dump`` writes, except that a character outside the Basic Multilingual Plane
+    (an emoji) is written escaped (``"\U0001F389"``) — the first write after the change rewrites such a line once.
+    The safe dumper refuses a value that is not a plain YAML type rather than writing a ``!!python/`` tag the safe
+    loader could not read back."""
+    text = yaml.dump(data, Dumper=_SAFE_DUMPER, default_flow_style=False, sort_keys=False, allow_unicode=True)
+    _replace(Path(filepath), text.encode("utf-8"))
+
+
 @dataclass
 class ParsedMarkdown:
     frontmatter: dict = field(default_factory=dict)
