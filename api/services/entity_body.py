@@ -671,14 +671,28 @@ _WEAK = re.compile(
     r"\b(friends? (of|with)|best friend|colleague|coworker|co-worker|classmate|roommate|flatmate|mentor|mentee|"
     r"advisor|advised by|supervisor|supervised by|manages|managed by|reports to|joined|belongs to|founded|owns|"
     r"owned by|dating|neighbou?r|teammate|member|employer|employs|attend(s|ed|ing)?)\b")
+#: A label that STARTS with an activity or intent verb is activity, whatever follows: "considered studying at",
+#: "planned to move to", "asked about working at" (re-check 2026-10-14). Received/got/earned a degree, a job or a role
+#: is the one exception: a fact said with a verb of receiving.
+_LEADING = re.compile(
+    r"^(consider(s|ed|ing)?|plan(s|ned|ning)?|ask(s|ed|ing)?|learn(s|ed|t|ing)?|want(s|ed|ing)?|wish(es|ed|ing)?|"
+    r"hop(e|es|ed|ing)|intend(s|ed|ing)?|think(s|ing)? (of|about)|thought (of|about)|appl(y|ies|ied|ying)|"
+    r"tr(y|ies|ied|ying)|research(es|ed|ing)?|explor(e|es|ed|ing)|look(s|ed|ing)? (into|at|up)|compar(e|es|ed|ing)|"
+    r"evaluat(e|es|ed|ing)|decid(e|es|ed|ing)|discuss(es|ed|ing)?|talk(s|ed|ing)? about|mention(s|ed|ing)?|"
+    r"heard|read|curious|interested|wonder(s|ed|ing)?|search(es|ed|ing)?|"
+    r"(receiv(e|es|ed|ing)|got|get(s|ting)?|earn(s|ed|ing)?)"
+    r"(?! (a |an |the |his |her |their |new )?(degree|diploma|phd|doctorate|master'?s|bachelor'?s|mba|certificate|"
+    r"certification|license|job|position|role|offer|internship|post)))\b")
+
+
 #: The families a line can roll into, with the words a rolled line says.
 FAMILIES: tuple[tuple[str, str], ...] = (
     ("strong", "facts"), *((key, label) for key, label, _p in _ACTIVITY), ("relation", "relations"),
 )
 #: Families whose links are activity: a conversation touching a page, not a fact about the person.
 ACTIVITY_FAMILIES = frozenset(key for key, _l, _p in _ACTIVITY)
-#: Of the 60 lines, how many the weaker facts may take; the strong facts are never capped out.
-RELATION_LINES_MAX = 40
+#: Of the 60 lines, how many facts may take — strong ones first, then the weaker — so people keep the rest.
+FACT_LINES_MAX = 40
 
 
 def _seed_normalize(label: str) -> str:
@@ -703,6 +717,11 @@ def relation_family(label: str, normalize=None) -> str:
         canonical = (normalize or _seed_normalize)(text)
     except Exception:  # noqa: BLE001 - a map that cannot be read costs the fold, never the family
         canonical = ""
+    if _LEADING.search(text):
+        for key, _label, pattern in _ACTIVITY:
+            if pattern.search(text.split(" ", 1)[0]) or pattern.search(text):
+                return key
+        return "planned"   # an intent verb no activity family spells ("hoped", "wished")
     if canonical in STRONG_PREDICATES or _STRONG.search(text):
         return "strong"
     for key, _label, pattern in _ACTIVITY:
@@ -732,18 +751,19 @@ def family_counts(labels, normalize=None) -> dict[str, int]:
 
 
 def _rolled_up(pairs: list[tuple[str, str]], id_types: dict[str, str], normalize=None) -> str:
-    """A hub page's Related (owner page, 2026-10-14; families and two reviews of 2026-10-14), in order of right:
+    """A hub page's Related (owner page, 2026-10-14; families and the reviews of 2026-10-14): never more than
+    :data:`RELATED_MAX` lines, family lines included. In order of right:
 
-    1. its strong facts (``strong``: the vocabulary's facts — works at, studies at, lives in, part of, family) — every
-       one keeps its line, never capped out;
+    1. its strong facts (``strong``: the vocabulary's facts — works at, studies at, lives in, part of, family), up to
+       :data:`FACT_LINES_MAX`; any more go on one "facts" line, never dropped;
     2. its weaker facts (``relation``, ``other``, and an activity family the page holds for few objects), the latest
-       first, up to :data:`RELATION_LINES_MAX` and the :data:`RELATED_MAX` lines;
-    3. its people, the latest, while room is left.
+       first, in what is left of :data:`FACT_LINES_MAX`;
+    3. its people, the latest, in the room left.
 
     Everything else is one line per family of meaning, the people who did not fit on a "people" line, each with the
     latest few names. Related is a view of ``graph_edges.yaml`` (rebuilt on every write), so nothing is lost: each
-    rolled-up link is still an edge, still on the linked page's own Related, and its claims, with their evidence, are
-    still this page's (its ledger, ``claims_ledger``)."""
+    rolled-up link is still an edge, still on the linked page's own Related and in its family line, and its claims,
+    with their evidence, are still this page's (its ledger, ``claims_ledger``)."""
     family = {v: relation_family(v, normalize) for v in {v for _n, v in pairs if v}}
     counts: dict[str, int] = {}
     for _n, v in pairs:
@@ -754,22 +774,31 @@ def _rolled_up(pairs: list[tuple[str, str]], id_types: dict[str, str], normalize
             and not (family[v] in ACTIVITY_FAMILIES and counts[family[v]] > RELATION_FAMILY_MAX)]
     taken = set(strong) | set(weak)
     people = [(n, v) for n, v in pairs if (n, v) not in taken and id_types.get(n.lower()) == "person"]
-    keep: list[tuple[str, str]] = list(strong)
-    room = min(RELATION_LINES_MAX, RELATED_MAX - len(keep))
-    if room > 0:
-        keep += weak[-room:]
-    room = RELATED_MAX - len(keep)
-    if room > 0:
-        keep += people[-room:]
-    kept = set(keep)
-    lines = [pair for pair in pairs if pair in kept]
     people_set = set(people)
-    rolled: dict[str, list[str]] = {}
-    for name, verb in pairs:
-        if (name, verb) in kept:
-            continue
-        key = "people" if (name, verb) in people_set else (family[verb] if verb else "")
-        rolled.setdefault(key, []).append(name)
+
+    def plan(budget: int) -> tuple[set, dict[str, list[str]]]:
+        keep = strong[:min(FACT_LINES_MAX, budget)]           # the earliest strong facts: they were said first
+        room = min(FACT_LINES_MAX, budget) - len(keep)
+        if room > 0:
+            keep += weak[-room:]
+        room = budget - len(keep)
+        if room > 0:
+            keep += people[-room:]
+        kept = set(keep)
+        rolled: dict[str, list[str]] = {}
+        for name, verb in pairs:
+            if (name, verb) not in kept:
+                key = "people" if (name, verb) in people_set else (family[verb] if verb else "")
+                rolled.setdefault(key, []).append(name)
+        return kept, rolled
+
+    budget = RELATED_MAX
+    while True:   # family lines count against the 60: give up a line for each until the block fits
+        kept, rolled = plan(budget)
+        if len(kept) + len(rolled) <= RELATED_MAX or budget == 0:
+            break
+        budget -= 1
+    lines = [pair for pair in pairs if pair in kept]
     labels = dict(FAMILIES) | {"other": "other links", "": "linked", "people": "people"}
     out = _related_bullets(lines)
     rows = []

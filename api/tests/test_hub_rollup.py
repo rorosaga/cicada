@@ -95,6 +95,9 @@ def _related(memory: Path) -> str:
     # An activity verb is activity whatever preposition follows (re-check 2026-10-14).
     ("learned from", "asked"), ("received recommendation from", "asked"), ("heard from", "asked"),
     ("asked for advice from", "asked"),
+    # The leading verb decides (re-check 2026-10-14): an activity or intent verb leading a fact phrase is activity.
+    ("considered studying at", "planned"), ("planned to move to", "planned"), ("asked about working at", "asked"),
+    ("thinking of applying to", "planned"), ("wanted to join", "planned"), ("hoped to live in", "planned"),
     ("planned to use", "planned"), ("considered applying for", "planned"), ("wanted to install", "planned"),
     ("developed", "built"), ("wrote", "built"), ("built", "built"),
     ("worked on", "used"), ("working on", "used"), ("uses", "used"), ("tried to deploy", "used"),
@@ -160,15 +163,58 @@ def test_a_rare_label_no_family_claims_outranks_people():
     assert "- [[Example Club]] — prefers" in block and "- [[Example Region]] — attended" in block
 
 
-def test_weak_facts_are_capped_and_strong_facts_never_are():
+def test_facts_take_at_most_forty_lines_and_never_drop_a_link():
     pairs = [(f"Alpha {i:03d}", "colleague of") for i in range(200)]
     pairs += [(f"Beta {i:03d}", "prefers") for i in range(30)]
     pairs += [(f"Gamma {i:03d}", "works at") for i in range(25)]
     block = entity_body._rolled_up(pairs, {})
     lines = [line for line in block.splitlines() if line.startswith("- [[")]
-    assert sum("works at" in line for line in lines) == 25          # every strong fact
-    assert sum("colleague of" in line or "prefers" in line for line in lines) == entity_body.RELATED_MAX - 25
+    assert sum("works at" in line for line in lines) == 25          # strong facts first
+    assert sum("colleague of" in line or "prefers" in line for line in lines) == entity_body.FACT_LINES_MAX - 25
     assert "- relations: " in block
+    counted = sum(int(m.replace(",", "")) for m in re.findall(r"^- [^\[][^:]*: ([\d,]+) page", block, re.M))
+    assert len(lines) + counted == len(pairs)                       # every link: a line or counted in a family line
+
+
+def test_more_strong_facts_than_the_cap_go_on_one_facts_line():
+    pairs = [(f"Corp {i:03d}", "works at") for i in range(70)] + [(f"Person {i:03d}", "talked about") for i in range(30)]
+    block = entity_body._rolled_up(pairs, {f"person {i:03d}": "person" for i in range(30)})
+    bullets = [line for line in block.splitlines() if line.startswith("- ")]
+    assert len(bullets) <= entity_body.RELATED_MAX
+    assert sum("works at" in line for line in bullets) == entity_body.FACT_LINES_MAX
+    assert any(line.startswith("- facts: 30 pages") for line in bullets)
+    assert sum(line.startswith("- [[Person") for line in bullets) > 0     # people keep room
+
+
+def test_recheck_an_intent_verb_leading_a_fact_never_crowds_out_facts_or_people():
+    """The re-check's reproduction: 65 "considered studying at" links were strong facts, uncapped — they pushed the
+    weak facts and all 30 people out, and the block ran to 68 lines."""
+    pairs = [(f"School {i:03d}", "considered studying at") for i in range(65)]
+    pairs += [(f"Weak {i:03d}", "colleague of") for i in range(10)]
+    pairs += [(f"Person {i:03d}", "talked about") for i in range(30)]
+    pairs += [("Synthetic University", "studies at")]
+    block = entity_body._rolled_up(pairs, {f"person {i:03d}": "person" for i in range(30)})
+    bullets = [line for line in block.splitlines() if line.startswith("- ")]
+    assert len(bullets) <= entity_body.RELATED_MAX
+    assert "- [[Synthetic University]] — studies at" in block
+    assert sum(line.startswith("- [[Weak") for line in bullets) == 10
+    assert sum(line.startswith("- [[Person") for line in bullets) == 30
+    assert "- planned or considered: 65 pages" in block
+
+
+def test_no_input_ever_makes_more_than_sixty_lines():
+    labels = ["works at", "studies at", "lives in", "considered studying at", "colleague of", "prefers", "asked about",
+              "learned from", "planned to use", "worked on", "built", "talked about", ""]
+    rng = random.Random(11)
+    for trial in range(60):
+        n = rng.choice([61, 80, 150, 400, 1200])
+        pairs = [(f"Page {trial:02d}-{i:04d}", rng.choice(labels)) for i in range(n)]
+        types = {name.lower(): "person" for name, _v in pairs if rng.random() < 0.3}
+        block = entity_body._rolled_up(pairs, types)
+        bullets = [line for line in block.splitlines() if line.startswith("- ")]
+        assert len(bullets) <= entity_body.RELATED_MAX, (trial, n, len(bullets))
+        counted = sum(int(m.replace(",", "")) for m in re.findall(r"^- [^\[][^:]*: ([\d,]+) page", block, re.M))
+        assert sum(line.startswith("- [[") for line in bullets) + counted == len(pairs)
 
 
 # The re-check's reproduction (2026-10-14), kept: activity "from" labels never push real facts out.

@@ -884,13 +884,15 @@ constraining the prose; git is the safety net, the claims and the dated timeline
   input mentions. The record keeps every claim and line. Only a page whose own record is still over the budget
   keeps the deterministic merge if it has an article, else today's path.
 - **A hub's Related rolls up** (`entity_body.RELATED_MAX`, 60 linked pages; owner page 2026-10-14): `## Related` is a
-  view of `graph_edges.yaml` rebuilt on every write, so on a page linking more pages than that, lines go, in order
-  of right, to its **strong facts** — every one, never capped out — then its weaker facts (the latest, up to 40),
-  then its latest people, up to 60 lines in all; every other link is one line per **family of meaning** (`- asked or
+  view of `graph_edges.yaml` rebuilt on every write, so on a page linking more pages than that, the block is **never
+  more than 60 lines, family lines included**; lines go, in order of right, to its **strong facts**, then its weaker
+  facts (the latest) — facts take at most 40, and strong facts past that go on one `facts` line, never dropped —
+  then its latest people in the room left; every other link is one line per **family of meaning** (`- asked or
   learned about: 1,203 pages — latest [[A]], [[B]] … and 1,195 more`), the people who did not fit on a `people`
   line. Labels are free-form — the real owner page had hundreds of verbs, the commonest three times each, so
   grouping by exact verb left 1,676 of 2,024 lines (2026-10-14). `entity_body.relation_family` reads a label in this
-  order: `strong` when it folds (the bank's predicate map, else the seed's synonyms) to a fact predicate
+  order: activity when it **starts** with an activity or intent verb ("considered studying at", "planned to move
+  to"; received or got a degree, a job or a role excepted), whatever follows; `strong` when it folds (the bank's predicate map, else the seed's synonyms) to a fact predicate
   (`STRONG_PREDICATES`: works-at, studies-at, located-in, part-of, family relations…) or says one in another
   inflection ("studying at", "got a job at", "received a degree from", "graduate of"); then an activity family
   (`asked`, `planned`, `built`, `used`) when an activity verb says so, whatever preposition follows ("learned from"
