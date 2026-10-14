@@ -615,36 +615,43 @@ ROLLUP_NAMES = 8
 
 #: What a relation label MEANS, not how it is spelled (hub rollup, 2026-10-14). The real owner page's labels are
 #: free-form — "asked how to use", "asked for explanation of", "planned to use", "received recommendation for": hundreds
-#: of verbs, the commonest three times each — so grouping by exact verb left 1,676 of 2,024 lines. Each label falls in
-#: the first family whose stems it holds. ``relation`` is tested first and holds the facts about the page in every
-#: inflection ("studies at", "studying at", "working for", "got a job at", "graduate of", "moved to", "sibling of"):
-#: never a log. The four activity families name activity only where the stems say so positively; a label no family
-#: claims is ``other`` — when unsure, a label is a fact (review 2026-10-14).
-FAMILIES: tuple[tuple[str, str, re.Pattern], ...] = tuple((key, label, re.compile(pattern)) for key, label, pattern in (
-    ("relation", "relations",
-     r"\b((stud(y|ies|ied|ying)|work(s|ed|ing)?|intern(s|ed|ing)?|teach(es|ing)?|taught|lectur(es|ed|ing)|"
-     r"volunteer(s|ed|ing)?|employed|hired|enrolled|enrolls?|enrolling|registered|"
-     r"(started|began|starting|beginning)( working| studying| a job)?|accepted|admitted|placed) (at|for|in|into)|"
-     r"(liv(e|es|ed|ing)|resid(e|es|ed|ing)|based|located|born|raised|grew up|settled|stay(s|ed|ing)?|"
-     r"moved|moving|relocated|relocating) (at|in|to|on)|"
-     r"serv(es|ed|ing) (at|in|on|with)|"
-     r"(got|landed|accepted|started|began|has|had|holds?|held|took) (a |an |the )?(job|position|role|offer|"
-     r"internship|place|seat|degree|diploma|scholarship|fellowship)|"
-     r"(received|earned|got|completed|finished|obtained|holds?|has) (a |an |the |his |her |their )?"
-     r"(degree|diploma|phd|master'?s|bachelor'?s|certificate|certification|license)|"
-     r"(employee|graduate|alumn\w*|founder|co-?founder|owner|ceo|cto|director|head|member|fellow|student|"
-     r"resident|citizen|native|manager|lead|partner|president|chair|intern) (of|at|in|from)|"
-     r"enrolled|employed by|hired by|graduated|alumn\w*|co-?founded|founded|owns|owned by|married|spouse|"
-     r"engaged to|dating|partner of|partners? with|sibling|brother|sister|parent of|mother|father|son of|"
-     r"daughter|child of|friends? (of|with)|best friend|colleague|coworker|co-worker|classmate|roommate|"
-     r"flatmate|mentor|mentee|manages|managed by|reports to|supervised by|supervisor of|advised by|advisor|"
-     r"relative|cousin|aunt|uncle|grand(mother|father|parent|son|daughter)|neighbou?r|joined|belongs to|"
-     r"part of|from|nationality|citizen)\b"),
+#: of verbs, the commonest three times each — so grouping by exact verb left 1,676 of 2,024 lines.
+#:
+#: A label is read in this order (:func:`relation_family`), the first answer winning:
+#:
+#: 1. ``strong`` — a fact about the page the vocabulary knows: the label folds (the bank's predicate map, else the
+#:    seed's synonyms) to one of :data:`STRONG_PREDICATES` — ``works-at``, ``located-in``, ``part-of`` … — or says one
+#:    of them in another inflection (:data:`_STRONG`: "studying at", "living in", "got a job at", "received a degree
+#:    from", "graduate of", "sibling of"). Always its own line, never capped out, never a log.
+#: 2. an activity family — ``asked``, ``planned``, ``built``, ``used`` — when an activity verb says so positively,
+#:    whatever preposition follows ("learned from", "received recommendation from" are activity).
+#: 3. ``relation`` — a weaker fact word with no activity verb ("colleague", "mentor", "joined", "founded").
+#: 4. ``other`` — anything nobody claims. When unsure, a label is a fact (review 2026-10-14).
+STRONG_PREDICATES = frozenset({
+    "works-at", "studies-at", "lives-in", "located-in", "based-in", "born-in", "from", "part-of", "member-of",
+    "is-a", "employed-by", "graduated-from", "alumnus-of", "founder-of", "owner-of", "citizen-of", "married-to",
+    "partner-of", "spouse-of", "sibling-of", "brother-of", "sister-of", "parent-of", "mother-of", "father-of",
+    "child-of", "son-of", "daughter-of", "cousin-of", "relative-of", "grandparent-of", "grandchild-of",
+})
+_STRONG = re.compile(
+    r"\b((stud(y|ies|ied|ying)|work(s|ed|ing)?|intern(s|ed|ing)?|teach(es|ing)?|taught|lectur(es|ed|ing)|"
+    r"employed|hired|enrolled|enrolls?|enrolling) (at|for|in)|"
+    r"(liv(e|es|ed|ing)|resid(e|es|ed|ing)|based|located|born|raised|grew up|settled|moved|relocated|relocating) "
+    r"(in|to|at)|"
+    r"(got|landed|accepted|started|began|took|holds?|held|has|had) (a |an |the )?(new )?(job|position|role|offer|"
+    r"internship|post)|"
+    r"(received|earned|got|completed|finished|obtained|holds?|has) (a |an |the |his |her |their )?"
+    r"(degree|diploma|phd|doctorate|master'?s|bachelor'?s|mba|certificate|certification|license)|"
+    r"(employee|graduate|alumn\w*|founder|co-?founder|owner|ceo|cto|member|student|citizen|resident|native) "
+    r"(of|at|in|from)|graduated( from)?|co-?founded|(is|are|comes|came|was) from|"
+    r"(married|engaged) to|spouse of|partner of|(sibling|brother|sister|parent|mother|father|son|daughter|child|"
+    r"cousin|aunt|uncle|niece|nephew|grandmother|grandfather|grandparent|grandson|granddaughter|relative) of)\b")
+_ACTIVITY: tuple[tuple[str, str, re.Pattern], ...] = tuple((key, label, re.compile(pattern)) for key, label, pattern in (
     ("asked", "asked or learned about",
      r"\b(ask(s|ed|ing)?|question(s|ed|ing)?|learn(s|ed|t|ing)?|explain\w*|explanation|research\w*|read|reads|"
      r"reading|explor\w*|curious|inquir\w*|look(ed|ing|s)? (into|up|at)|wonder\w*|understand\w*|clarif\w*|how to|"
      r"what (is|are)|recommend\w*|advice|help with|received|sought|seek(s|ing)?|discuss\w*|talk(s|ed|ing)? about|"
-     r"interested in|mention\w*|search\w*|watch\w*|listen\w*|review\w*)\b"),
+     r"interested in|mention\w*|search\w*|watch\w*|listen\w*|review\w*|heard)\b"),
     ("planned", "planned or considered",
      r"\b(plan(s|ned|ning)?|consider\w*|intend\w*|want(s|ed|ing)?|appl(y|ied|ies|ying)|think(s|ing)? (about|of)|"
      r"thought (about|of)|evaluat\w*|compar\w*|decid\w*|schedul\w*|aim(s|ed|ing)?|hop(e|es|ed|ing)|prepar\w*|"
@@ -660,84 +667,123 @@ FAMILIES: tuple[tuple[str, str, re.Pattern], ...] = tuple((key, label, re.compil
      r"visit\w*|bought|buy(s|ing)?|subscrib\w*|follow(s|ed|ing)?|track(s|ed|ing)?|edit(s|ed|ing)?|analy[sz]\w*|"
      r"measur\w*|benchmark\w*|work(s|ed|ing)? (on|with))\b"),
 ))
+_WEAK = re.compile(
+    r"\b(friends? (of|with)|best friend|colleague|coworker|co-worker|classmate|roommate|flatmate|mentor|mentee|"
+    r"advisor|advised by|supervisor|supervised by|manages|managed by|reports to|joined|belongs to|founded|owns|"
+    r"owned by|dating|neighbou?r|teammate|member|employer|employs|attend(s|ed|ing)?)\b")
+#: The families a line can roll into, with the words a rolled line says.
+FAMILIES: tuple[tuple[str, str], ...] = (
+    ("strong", "facts"), *((key, label) for key, label, _p in _ACTIVITY), ("relation", "relations"),
+)
 #: Families whose links are activity: a conversation touching a page, not a fact about the person.
-ACTIVITY_FAMILIES = frozenset({"asked", "planned", "built", "used"})
-#: Of the 60 lines, how many the ``relation`` family may take: its stems are broad, so it never crowds out the rest.
+ACTIVITY_FAMILIES = frozenset(key for key, _l, _p in _ACTIVITY)
+#: Of the 60 lines, how many the weaker facts may take; the strong facts are never capped out.
 RELATION_LINES_MAX = 40
 
 
-def relation_family(label: str) -> str:
-    """The family a relation label or predicate belongs to (``relation``, ``asked``, ``planned``, ``built``, ``used``),
-    or ``other``. Predicates are slugs: ``asked-how-to-use`` reads as "asked how to use"."""
+def _seed_normalize(label: str) -> str:
+    """The seed vocabulary's fold of a label (``predicates-seed.yaml``), for a caller with no bank map in hand."""
+    from api.services import predicates
+
+    key = " ".join(re.sub(r"[-_]+", " ", str(label or "")).lower().split())
+    synonyms = (predicates._load_seed_map().get("synonyms") or {})
+    folded = synonyms.get(key)
+    return str(folded) if folded else predicates._slugify_predicate(key)
+
+
+def relation_family(label: str, normalize=None) -> str:
+    """The family a relation label or predicate belongs to: ``strong``, ``asked``, ``planned``, ``built``, ``used``,
+    ``relation`` or ``other`` (the order above :data:`STRONG_PREDICATES`). ``normalize`` folds a label to its
+    canonical predicate (the bank's ``predicates.load_normalizer``); without one, the seed's synonyms. Predicates are
+    slugs: ``asked-how-to-use`` reads as "asked how to use"."""
     text = " ".join(re.sub(r"[-_]+", " ", str(label or "")).lower().split())
     if not text:
         return "other"
-    for key, _label, pattern in FAMILIES:
+    try:
+        canonical = (normalize or _seed_normalize)(text)
+    except Exception:  # noqa: BLE001 - a map that cannot be read costs the fold, never the family
+        canonical = ""
+    if canonical in STRONG_PREDICATES or _STRONG.search(text):
+        return "strong"
+    for key, _label, pattern in _ACTIVITY:
         if pattern.search(text):
             return key
+    if _WEAK.search(text):
+        return "relation"
     return "other"
 
 
-def is_log(label: str, objects: int) -> bool:
+def is_log(label: str, objects: int, normalize=None) -> bool:
     """Is a label a log of activity rather than a fact about the page? Only when its stems positively say activity
     (:data:`ACTIVITY_FAMILIES`) AND the page holds more than :data:`RELATION_FAMILY_MAX` objects under that family —
     ``objects`` counts the family, not the exact spelling, since the real labels are free-form. Anything else is a
     fact: when unsure, a label is a fact (review 2026-10-14). One rule for a hub's Related, the ledger's spill order
     and the article's inputs."""
-    return relation_family(label) in ACTIVITY_FAMILIES and objects > RELATION_FAMILY_MAX
+    return relation_family(label, normalize) in ACTIVITY_FAMILIES and objects > RELATION_FAMILY_MAX
 
 
-def family_counts(labels) -> dict[str, int]:
+def family_counts(labels, normalize=None) -> dict[str, int]:
     """How many of ``labels`` (one per object) fall in each family — the ``objects`` :func:`is_log` takes."""
     counts: dict[str, int] = {}
     for label in labels:
-        family = relation_family(label)
+        family = relation_family(label, normalize)
         counts[family] = counts.get(family, 0) + 1
     return counts
 
 
-def _rolled_up(pairs: list[tuple[str, str]], id_types: dict[str, str]) -> str:
-    """A hub page's Related (owner page, 2026-10-14; families and the review of 2026-10-14). Up to
-    :data:`RELATED_MAX` lines, in this order of right: its facts — ``relation`` labels first (at most
-    :data:`RELATION_LINES_MAX`, the latest), then every other label that is no log (:func:`is_log`), the latest —
-    then its people, the latest, while room is left. Everything else is one line per family of meaning, the people
-    who did not fit on a "people" line, each with the latest few names. Related is a view of ``graph_edges.yaml``
-    (rebuilt on every write), so nothing is lost: each rolled-up link is still an edge, still on the linked page's own
-    Related, and its claims, with their evidence, are still this page's (its ledger, ``claims_ledger``)."""
-    counts = family_counts(v for _n, v in pairs if v)
-    relations = [(n, v) for n, v in pairs if v and relation_family(v) == "relation"]
-    facts = [(n, v) for n, v in pairs if v and relation_family(v) != "relation"
-             and not is_log(v, counts.get(relation_family(v), 0))]
-    taken = set(relations) | set(facts)
+def _rolled_up(pairs: list[tuple[str, str]], id_types: dict[str, str], normalize=None) -> str:
+    """A hub page's Related (owner page, 2026-10-14; families and two reviews of 2026-10-14), in order of right:
+
+    1. its strong facts (``strong``: the vocabulary's facts — works at, studies at, lives in, part of, family) — every
+       one keeps its line, never capped out;
+    2. its weaker facts (``relation``, ``other``, and an activity family the page holds for few objects), the latest
+       first, up to :data:`RELATION_LINES_MAX` and the :data:`RELATED_MAX` lines;
+    3. its people, the latest, while room is left.
+
+    Everything else is one line per family of meaning, the people who did not fit on a "people" line, each with the
+    latest few names. Related is a view of ``graph_edges.yaml`` (rebuilt on every write), so nothing is lost: each
+    rolled-up link is still an edge, still on the linked page's own Related, and its claims, with their evidence, are
+    still this page's (its ledger, ``claims_ledger``)."""
+    family = {v: relation_family(v, normalize) for v in {v for _n, v in pairs if v}}
+    counts: dict[str, int] = {}
+    for _n, v in pairs:
+        if v:
+            counts[family[v]] = counts.get(family[v], 0) + 1
+    strong = [(n, v) for n, v in pairs if v and family[v] == "strong"]
+    weak = [(n, v) for n, v in pairs if v and family[v] != "strong"
+            and not (family[v] in ACTIVITY_FAMILIES and counts[family[v]] > RELATION_FAMILY_MAX)]
+    taken = set(strong) | set(weak)
     people = [(n, v) for n, v in pairs if (n, v) not in taken and id_types.get(n.lower()) == "person"]
-    keep: list[tuple[str, str]] = relations[-RELATION_LINES_MAX:]
-    for group in (facts, people):           # the latest first, while there is room
-        room = RELATED_MAX - len(keep)
-        if room > 0:
-            keep += group[-room:]
+    keep: list[tuple[str, str]] = list(strong)
+    room = min(RELATION_LINES_MAX, RELATED_MAX - len(keep))
+    if room > 0:
+        keep += weak[-room:]
+    room = RELATED_MAX - len(keep)
+    if room > 0:
+        keep += people[-room:]
     kept = set(keep)
     lines = [pair for pair in pairs if pair in kept]
-    people_ids = {pair for pair in people}
+    people_set = set(people)
     rolled: dict[str, list[str]] = {}
     for name, verb in pairs:
         if (name, verb) in kept:
             continue
-        family = "people" if (name, verb) in people_ids else (relation_family(verb) if verb else "")
-        rolled.setdefault(family, []).append(name)
-    labels = {key: label for key, label, _p in FAMILIES} | {"other": "other links", "": "linked", "people": "people"}
+        key = "people" if (name, verb) in people_set else (family[verb] if verb else "")
+        rolled.setdefault(key, []).append(name)
+    labels = dict(FAMILIES) | {"other": "other links", "": "linked", "people": "people"}
     out = _related_bullets(lines)
     rows = []
-    for family, names in sorted(rolled.items(), key=lambda kv: (-len(kv[1]), kv[0])):
+    for key, names in sorted(rolled.items(), key=lambda kv: (-len(kv[1]), kv[0])):
         latest = names[-ROLLUP_NAMES:][::-1]
         shown = ", ".join(f"[[{n}]]" for n in latest)
         more = f" and {len(names) - len(latest):,} more" if len(names) > len(latest) else ""
-        what = labels.get(family) or family
+        what = labels.get(key) or key
         rows.append(f"- {what}: {len(names):,} page{'s' if len(names) != 1 else ''} — latest {shown}{more}")
     return "\n".join(part for part in (out, "\n".join(rows)) if part)
 
 
 def render_related(related_slugs: list[str], edges: list[dict], id_to_name: dict,
-                   id_to_type: dict | None = None) -> str:
+                   id_to_type: dict | None = None, normalize=None) -> str:
     """Build the ``## Related`` bullet block from the related slug list +
     ``graph_edges.yaml`` labels.
 
@@ -780,7 +826,7 @@ def render_related(related_slugs: list[str], edges: list[dict], id_to_name: dict
     unique = {name.lower() for name, _ in pairs}
     if len(unique) > RELATED_MAX:
         types = {str(id_to_name.get(i, i)).lower(): str(t) for i, t in (id_to_type or {}).items()}
-        return _rolled_up(pairs, types)
+        return _rolled_up(pairs, types, normalize)
     return _related_bullets(pairs)
 
 

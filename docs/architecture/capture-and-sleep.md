@@ -884,16 +884,19 @@ constraining the prose; git is the safety net, the claims and the dated timeline
   input mentions. The record keeps every claim and line. Only a page whose own record is still over the budget
   keeps the deterministic merge if it has an article, else today's path.
 - **A hub's Related rolls up** (`entity_body.RELATED_MAX`, 60 linked pages; owner page 2026-10-14): `## Related` is a
-  view of `graph_edges.yaml` rebuilt on every write, so on a page linking more pages than that, up to 60 lines go,
-  in order of right, to its facts — `relation` labels first (at most 40), then every label that is no log — then its
-  latest people; every other link is one line per **family of meaning** (`- asked or learned about: 1,203 pages —
-  latest [[A]], [[B]] … and 1,195 more`), the people who did not fit on a `people` line. Labels are free-form — the
-  real owner page had hundreds of verbs, the commonest three times each, so grouping by exact verb left 1,676 of
-  2,024 lines (2026-10-14) — and `entity_body.relation_family` reads each by its stems: `relation` first, in every
-  inflection ("studying at", "working for", "got a job at", "received degree from", "graduate of", "moved to"), then
-  `asked`, `planned`, `built`, `used`, else `other`. **When unsure, a label is a fact** (review 2026-10-14): `is_log`
-  is true only for a label the stems positively call activity in a family the page holds for more than 3 objects —
-  the same rule orders the ledger's spill and the article's inputs. Each rolled-up
+  view of `graph_edges.yaml` rebuilt on every write, so on a page linking more pages than that, lines go, in order
+  of right, to its **strong facts** — every one, never capped out — then its weaker facts (the latest, up to 40),
+  then its latest people, up to 60 lines in all; every other link is one line per **family of meaning** (`- asked or
+  learned about: 1,203 pages — latest [[A]], [[B]] … and 1,195 more`), the people who did not fit on a `people`
+  line. Labels are free-form — the real owner page had hundreds of verbs, the commonest three times each, so
+  grouping by exact verb left 1,676 of 2,024 lines (2026-10-14). `entity_body.relation_family` reads a label in this
+  order: `strong` when it folds (the bank's predicate map, else the seed's synonyms) to a fact predicate
+  (`STRONG_PREDICATES`: works-at, studies-at, located-in, part-of, family relations…) or says one in another
+  inflection ("studying at", "got a job at", "received a degree from", "graduate of"); then an activity family
+  (`asked`, `planned`, `built`, `used`) when an activity verb says so, whatever preposition follows ("learned from"
+  is activity); then `relation` for a weaker fact word ("colleague", "joined"); else `other`. **When unsure, a label
+  is a fact** (reviews 2026-10-14): `is_log` is true only for an activity family the page holds for more than 3
+  objects — the same rule orders the ledger's spill and the article's inputs. Each rolled-up
   link is still an edge, still on the linked page's own Related (inbound edges are mirrored there), and its claims
   are still the owner's, in the page's ledger. Per-conversation activity is not a fact about the person: its home
   is the linked page, the claims ledger and the timeline, not the person's article or its Related. A page with a stamped article is

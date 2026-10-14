@@ -92,21 +92,36 @@ def _related(memory: Path) -> str:
     ("asked how to use", "asked"), ("asked for explanation of", "asked"), ("received recommendation for", "asked"),
     ("asked about using", "asked"), ("asked-how-to-use", "asked"), ("researched how to fix", "asked"),
     ("talked about", "asked"),
+    # An activity verb is activity whatever preposition follows (re-check 2026-10-14).
+    ("learned from", "asked"), ("received recommendation from", "asked"), ("heard from", "asked"),
+    ("asked for advice from", "asked"),
     ("planned to use", "planned"), ("considered applying for", "planned"), ("wanted to install", "planned"),
     ("developed", "built"), ("wrote", "built"), ("built", "built"),
     ("worked on", "used"), ("working on", "used"), ("uses", "used"), ("tried to deploy", "used"),
-    # Facts, in every inflection (review 2026-10-14): progressive and participle forms included.
-    ("studies at", "relation"), ("studying at", "relation"), ("studied at", "relation"), ("enrolled in", "relation"),
-    ("lives in", "relation"), ("living in", "relation"), ("lived in", "relation"), ("moved to", "relation"),
-    ("works at", "relation"), ("working at", "relation"), ("worked for", "relation"), ("working for", "relation"),
-    ("interning at", "relation"), ("teaching at", "relation"), ("started at", "relation"),
-    ("got a job at", "relation"), ("landed a role at", "relation"), ("received degree from", "relation"),
-    ("earned a master's from", "relation"), ("graduate of", "relation"), ("graduated from", "relation"),
-    ("employee of", "relation"), ("founder of", "relation"), ("joined", "relation"), ("sibling of", "relation"),
-    ("relates to", "other"), ("prefers", "other"), ("attended", "other"),
+    # Strong facts: the vocabulary's (seed synonyms: worked at, works for, interned at, based in, part of) and their
+    # inflections, progressive and participle forms included.
+    ("studies at", "strong"), ("studying at", "strong"), ("studied at", "strong"), ("enrolled in", "strong"),
+    ("lives in", "strong"), ("living in", "strong"), ("lived in", "strong"), ("moved to", "strong"),
+    ("works at", "strong"), ("working at", "strong"), ("worked for", "strong"), ("working for", "strong"),
+    ("worked at", "strong"), ("works for", "strong"), ("interned at", "strong"), ("based in", "strong"),
+    ("part of", "strong"), ("interning at", "strong"), ("teaching at", "strong"), ("got a job at", "strong"),
+    ("landed a role at", "strong"), ("received degree from", "strong"), ("earned a master's from", "strong"),
+    ("graduate of", "strong"), ("graduated from", "strong"), ("employee of", "strong"), ("founder of", "strong"),
+    ("sibling of", "strong"), ("is from", "strong"), ("works-at", "strong"),
+    # Weaker facts, and what nobody claims.
+    ("joined", "relation"), ("colleague of", "relation"), ("attended", "relation"),
+    ("relates to", "other"), ("prefers", "other"),
 ])
 def test_a_free_form_label_falls_in_its_family_of_meaning(label, family):
     assert entity_body.relation_family(label) == family
+
+
+def test_the_banks_own_vocabulary_makes_a_strong_fact():
+    def normalize(label):
+        return {"is employed at": "works-at"}.get(label, label.replace(" ", "-"))
+
+    assert entity_body.relation_family("is employed at", normalize) == "strong"
+    assert entity_body.relation_family("is employed at") != "asked"
 
 
 def test_only_positive_activity_held_for_many_objects_is_a_log():
@@ -145,27 +160,42 @@ def test_a_rare_label_no_family_claims_outranks_people():
     assert "- [[Example Club]] — prefers" in block and "- [[Example Region]] — attended" in block
 
 
-def test_a_broad_relation_family_cannot_take_every_line():
-    pairs = [(f"Alpha {i:03d}", "member of") for i in range(200)]
+def test_weak_facts_are_capped_and_strong_facts_never_are():
+    pairs = [(f"Alpha {i:03d}", "colleague of") for i in range(200)]
     pairs += [(f"Beta {i:03d}", "prefers") for i in range(30)]
+    pairs += [(f"Gamma {i:03d}", "works at") for i in range(25)]
     block = entity_body._rolled_up(pairs, {})
     lines = [line for line in block.splitlines() if line.startswith("- [[")]
-    assert sum("member of" in line for line in lines) == entity_body.RELATION_LINES_MAX
-    assert sum("prefers" in line for line in lines) == entity_body.RELATED_MAX - entity_body.RELATION_LINES_MAX
-    assert "- relations: " in block and "- other links: " in block
+    assert sum("works at" in line for line in lines) == 25          # every strong fact
+    assert sum("colleague of" in line or "prefers" in line for line in lines) == entity_body.RELATED_MAX - 25
+    assert "- relations: " in block
 
 
-def test_a_hub_with_hundreds_of_distinct_labels_rolls_up_near_the_target():
-    pairs = [(f"Alpha {i:04d}", label) for i, label in enumerate(_labels(900))]
-    pairs += [(name, label) for _e, name, label, _k in FACTS]
-    types = {f"alpha {i:04d}": "person" for i in range(40)} | {"bob example": "person"}
+# The re-check's reproduction (2026-10-14), kept: activity "from" labels never push real facts out.
+def test_recheck_activity_from_labels_never_push_facts_out():
+    pairs = [("Synthetic University", "studies at"), ("Example City", "lives in")]
+    pairs += [(f"Teacher {i:03d}", label) for i, label in enumerate(
+        ["learned from", "received recommendation from", "heard from", "got advice from", "asked for help from"] * 9)]
+    pairs += [(f"Topic {i:03d}", "asked about") for i in range(200)]
+    block = entity_body._rolled_up(pairs, {})
+    assert "- [[Synthetic University]] — studies at" in block and "- [[Example City]] — lives in" in block
+
+
+@pytest.mark.parametrize("weak, activity, people", [(0, 0, 0), (80, 0, 0), (0, 400, 0), (80, 400, 90), (300, 900, 300)])
+def test_strong_facts_keep_their_lines_under_any_flood(weak, activity, people):
+    strong = [("Synthetic University", "studying at"), ("Example City", "living in"), ("Example Corp", "worked at"),
+              ("Bob Example", "sibling of"), ("Example Lab", "part of"), ("Example Region", "is from")]
+    pairs = list(strong)
+    pairs += [(f"Weak {i:03d}", "colleague of" if i % 2 else "prefers") for i in range(weak)]
+    pairs += [(f"Topic {i:03d}", ["asked about", "learned from", "planned to use", "worked on", "built"][i % 5])
+              for i in range(activity)]
+    pairs += [(f"Person {i:03d}", "talked about") for i in range(people)]
+    types = {f"person {i:03d}": "person" for i in range(people)} | {"bob example": "person"}
     block = entity_body._rolled_up(pairs, types)
+    for name, label in strong:
+        assert f"- [[{name}]] — {label}" in block, (name, label)
     bullets = [line for line in block.splitlines() if line.startswith("- ")]
-    assert len(bullets) <= entity_body.RELATED_MAX + len(entity_body.FAMILIES) + 2
-    for _e, name, label, _k in FACTS:
-        assert f"- [[{name}]] — {label}" in block            # facts keep their own line
-    assert "- [[Alpha 0039]]" in block                        # so do people
-    assert any(line.startswith("- asked or learned about: ") for line in bullets)
+    assert len(bullets) <= entity_body.RELATED_MAX + len(entity_body.FAMILIES) + 3
 
 
 # --------------------------------------------------------------------------- the migration, on an already-split bank
