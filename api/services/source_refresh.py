@@ -1074,14 +1074,12 @@ def asked_item(memory_path: Path, entity_id: str, ref: str, predicate: str | Non
                every=every_days(entry), dead_since=(dead(entry) or {}).get("since"))
 
 
-async def run_tail(memory_path: Path, *, budget: int = TAIL_BUDGET, skip: frozenset[str] = frozenset(),
-                   stream_fn: StreamFn | None = None, today: date | None = None, report: Report | None = None,
-                   only: Due | None = None, trigger: str = TRIGGER) -> Report:
-    """Re-check the due PUBLIC sources on Cicada's own rail: at most ``budget`` fetches, one per site per run, never a
-    walled host (refused before any request). All fetches first, then each page written under the bank's page lock —
-    never held across a fetch. The caller gates it (``CICADA_ALLOW_CONNECTOR_FETCH`` for the tail; a person's click is
-    ungated) and commits ``report.paths`` (``commit_message``) or restores them (``restore``). ``only`` (from
-    :func:`asked_item`) re-checks that one source now, whatever its cadence."""
+async def observe_due(memory_path: Path, *, budget: int = TAIL_BUDGET, skip: frozenset[str] = frozenset(),
+                      stream_fn: StreamFn | None = None, today: date | None = None, report: Report | None = None,
+                      only: Due | None = None) -> list[tuple[Due, Observation]]:
+    """The network half: read the due PUBLIC sources on Cicada's own rail — at most ``budget`` fetches, one per site
+    per run, never a walled host (refused before any request), nothing written. ``only`` (from :func:`asked_item`)
+    reads that one source now, whatever its cadence."""
     import asyncio
 
     memory_path = Path(memory_path)
@@ -1103,15 +1101,33 @@ async def run_tail(memory_path: Path, *, budget: int = TAIL_BUDGET, skip: frozen
         report.bump("fetched")
         names = await asyncio.to_thread(_names, memory_path, d.entity_id)
         planned.append((d, await observe(d.ref, d.predicate, names, stream_fn=stream_fn, today=today)))
+    return planned
 
-    def write(d: Due, obs: Observation) -> Applied:
-        with page_lock.page_lock(memory_path):
-            return apply(memory_path, entity_id=d.entity_id, ref=d.ref, predicate=d.predicate, obs=obs,
-                         checker_kind=CICADA, label="Cicada", author=AUTHOR, trigger=trigger, today=today)
 
+def write_observed(memory_path: Path, planned: list[tuple[Due, Observation]], *, trigger: str = TRIGGER,
+                   today: date | None = None, report: Report | None = None) -> Report:
+    """The write half (synchronous, a worker thread): each page under the bank's page lock — never held across a
+    fetch. The caller commits ``report.paths`` or restores them."""
+    memory_path = Path(memory_path)
+    report = report if report is not None else Report()
     for d, obs in planned:
-        report.add(await asyncio.to_thread(write, d, obs))
+        with page_lock.page_lock(memory_path):
+            report.add(apply(memory_path, entity_id=d.entity_id, ref=d.ref, predicate=d.predicate, obs=obs,
+                             checker_kind=CICADA, label="Cicada", author=AUTHOR, trigger=trigger, today=today))
     return report
+
+
+async def run_tail(memory_path: Path, *, budget: int = TAIL_BUDGET, skip: frozenset[str] = frozenset(),
+                   stream_fn: StreamFn | None = None, today: date | None = None, report: Report | None = None,
+                   trigger: str = TRIGGER) -> Report:
+    """The Sleep tail's step: :func:`observe_due`, then :func:`write_observed`. The caller gates it
+    (``CICADA_ALLOW_CONNECTOR_FETCH``) and commits ``report.paths`` (``commit_message``) or restores them
+    (``restore``)."""
+    import asyncio
+
+    report = report if report is not None else Report()
+    planned = await observe_due(memory_path, budget=budget, skip=skip, stream_fn=stream_fn, today=today, report=report)
+    return await asyncio.to_thread(write_observed, memory_path, planned, trigger=trigger, today=today, report=report)
 
 
 def mark_asked(memory_path: Path, entity_id: str, ref: str, predicate: str | None, *,

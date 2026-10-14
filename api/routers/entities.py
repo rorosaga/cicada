@@ -1140,9 +1140,6 @@ async def change_entity_source(
     return _sources_payload(settings.memory_path, entity_id)
 
 
-_refresh_lock = asyncio.Lock()
-
-
 @router.post("/entities/{entity_id}/sources/refresh", response_model=EntitySourceList)
 async def refresh_entity_source(
     entity_id: str,
@@ -1153,10 +1150,11 @@ async def refresh_entity_source(
     ``clear``). A public page is read now on Cicada's own rail (the person's click: ungated by
     ``CICADA_ALLOW_CONNECTOR_FETCH``, never a walled host) and what it states is folded at once — the newest evidence
     wins — in one ``cicada`` commit (trigger ``user/companion_app``). A login-walled page is never fetched here: it is
-    marked asked, so the person's own agent sees it first (``cicada_refresh_claim``), committed as ``user``. 409 on the
-    demo bank, while Sleep holds the pages, or while another re-check runs; 404 no page or no such source; 400 a
-    source that is not re-checked (an agent's unconfirmed proposal, a note, a path)."""
-    from api.services import demo_guard, sleep_cycle
+    marked asked, so the person's own agent sees it first (``cicada_refresh_claim``), committed as ``user``. The read
+    runs before admission and the write and its commit inside it. 409 on the demo bank or while Sleep holds the pages;
+    404 no page or no such source; 400 a source that is not re-checked (an agent's unconfirmed proposal, a note, a
+    path)."""
+    from api.services import demo_guard
 
     memory_path = settings.memory_path
     if demo_guard.is_demo(memory_path):
@@ -1187,35 +1185,30 @@ async def refresh_entity_source(
             await _commit_sources(memory_path, entity_id, "Ask to re-check")
         await write_admission.run_admitted(memory_path, ask, refuse=lambda: SleepWriting(SOURCE_BUSY))
         return _sources_payload(memory_path, entity_id)
-    if _refresh_lock.locked():
-        raise HTTPException(409, "a re-check is already running — try again when it finishes")
-    # An early answer, not admission: the read is a fetch, which no admission may span (G183) — the verify-sites rule.
-    if write_admission.probe():
-        raise SleepWriting(SOURCE_BUSY)
-    async with _refresh_lock:
-        item = await asyncio.to_thread(source_refresh.asked_item, memory_path, entity_id, ref, request.predicate)
-        if item is None:
-            raise HTTPException(404, "No source with that link and fact on this page")
-        skip: frozenset[str] = frozenset()
-        if (memory_path / ".git").exists():
-            skip = await sleep_cycle._dirty_paths(memory_path)
-        if f"entities/{entity_id}.md" in skip:
+    item = await asyncio.to_thread(source_refresh.asked_item, memory_path, entity_id, ref, request.predicate)
+    if item is None:
+        raise HTTPException(404, "No source with that link and fact on this page")
+    if (memory_path / ".git").exists():
+        from api.services import sleep_cycle
+
+        if f"entities/{entity_id}.md" in await sleep_cycle._dirty_paths(memory_path):
             raise HTTPException(409, "this page has changes that are not saved yet — try again in a moment")
-        report = source_refresh.Report()
+    # The fetch first, outside admission (no admission spans a fetch, G183); then the write and its commit admitted.
+    planned = await source_refresh.observe_due(memory_path, budget=1, only=item)
+    report = source_refresh.Report()
+
+    async def write():
         try:
-            await source_refresh.run_tail(memory_path, budget=1, only=item, report=report,
-                                          trigger=source_refresh.ROUTE_TRIGGER)
-        except Exception:
-            await asyncio.to_thread(source_refresh.restore, memory_path, report)
-            raise HTTPException(500, "the re-check stopped part-way; nothing was changed")
-        if report.paths and (memory_path / ".git").exists():
-            try:
+            await asyncio.to_thread(source_refresh.write_observed, memory_path, planned,
+                                    trigger=source_refresh.ROUTE_TRIGGER, report=report)
+            if report.paths and (memory_path / ".git").exists():
                 await git_service.commit_paths(
                     memory_path,
                     source_refresh.commit_message(report, date.today(), source_refresh.ROUTE_TRIGGER), report.paths)
-            except Exception:
-                await asyncio.to_thread(source_refresh.restore, memory_path, report)
-                raise HTTPException(500, "the re-check could not be committed; nothing was changed")
+        except Exception:
+            await asyncio.to_thread(source_refresh.restore, memory_path, report)
+            raise HTTPException(500, "the re-check could not be saved; nothing was changed")
+    await write_admission.run_admitted(memory_path, write, refuse=lambda: SleepWriting(SOURCE_BUSY))
     return _sources_payload(memory_path, entity_id)
 
 
