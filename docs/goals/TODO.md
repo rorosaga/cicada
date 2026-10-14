@@ -12,8 +12,8 @@
   ruled D1–D6 (ruling 25). Built: the explore queue, dated captures with thumbnails in the bank and full images in
   `~/.cicada/captures/`, four stdio MCP tools (`cicada_explore_claim`, `cicada_record_capture`, `cicada_explore_queue`,
   `cicada_explore_start`), `/explore/*` routes, the pinned `skills/site-explore` capture script, the Sources sheet and run
-  card, the signed-in switch and Never explore in Settings. The catalog pins the skill's branch commit; after the merge,
-  re-pin `site-explore` to the dev commit (`scripts/verify-skills.sh`). Slices 2 and 3 are open on G166.
+  card, the signed-in switch and Never explore in Settings. The catalog pins `site-explore` to its dev squash commit
+  (#283; `scripts/verify-skills.sh` passes). Slices 2 and 3 are open on G166.
 - **2026-10-14 (acting-owner session, afternoon) — pick up here.** Merged to dev after the overnight entry below:
   - **#273:** docs for the overnight state.
   - **#274, every agent:** a paste-able setup prompt for Cursor and for "another agent" (G76); Cursor and Gemini CLI conversations are captured through their prompt/reply hooks, built from the documented payloads and not yet seen in the real apps (G197, with a capture matrix in `capture-and-sleep.md`); the owner's ruling on file search (G195).

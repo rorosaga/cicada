@@ -312,8 +312,8 @@
       "reach": "Uses your own Chrome through browser-harness: your signed-in session unless you turn that off.",
       "pin": {
         "repo": "rorosaga/cicada",
-        "ref": "feat/explore-sites",
-        "sha": "062d7a6674d7a0eee60e8016578f7afad007d128",
+        "ref": "dev",
+        "sha": "e4fdf846591e238347484a9520c58792f7414457",
         "path": "skills/site-explore",
         "skillMdSha256": "9cf4d213ab8a671ff6a0188288e11eb777e60160860cc4f2781b4cdb4033196f",
         "files": {"explore_capture.py": "5d06a284f4af0770272bf6e8b83a9d26b4770a1661acf9b352489d3ef6f423c6"}
