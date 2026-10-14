@@ -21,7 +21,7 @@ The rest of this page installs Cicada **from source**, for developers.
 
 ## The one-paste way
 
-Open Claude Code or Codex in a terminal and paste this:
+Open Claude Code, Codex, Cursor's agent or any agent that can run commands in a terminal, and paste this:
 
 > Install Cicada on this Mac for me. Follow https://github.com/rorosaga/cicada/blob/main/install.md step
 > by step, ask me before installing any tool that's missing, and tell me when the app is open.
@@ -56,7 +56,8 @@ You can follow along, or run the steps yourself. You need a Mac with macOS 14 or
 
    If `~/.cursor` already exists, it also merges Cicada's user-level `sessionStart` hook into
    `~/.cursor/hooks.json` (unless `CICADA_RECALL=off`). This adds startup context only; automatic
-   Cursor capture is unsupported. Add MCP separately with Settings → Agents → Open in Cursor.
+   Cursor capture is unsupported. Add MCP separately with Settings → Agents → Open in Cursor, or copy the
+   prompt beside it into Cursor's agent. Any other agent: Settings → Agents → *Another agent*.
    Remembers automatically turns the startup hook on/off independently; `./install.sh --uninstall`
    removes only Cicada's hook entries. `make doctor` reports configuration separately from connectivity.
    Invalid hook JSON is left unchanged. The local IDE path follows the

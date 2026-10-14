@@ -60,6 +60,12 @@ enum AgentSteps {
         case .deeplink:
             out.append((Copy.agentStepOpenCursor, setups[entry.id]?.note ?? Copy.agentStepCursorHow, false,
                         [.openCursor], nil, false))
+            // 2026-10-14 — the same server, by a prompt Cursor's own agent carries out (MCP only: the startup hook
+            // below stays its own click, R-H11). Absent until the setup arrives; an older backend sends none.
+            if let text = setups[entry.id]?.prompt, !text.isEmpty {
+                out.append((Copy.agentStepOrSend(entry.name), Copy.agentStepSendConfig(entry.name), false,
+                            [.copy(text)], text, false))
+            }
             let recall = recallSteps(for: wiring)
             if !recall.isEmpty {
                 let detail = wiring?.capabilities["startup"] == "documented" ? Copy.agentStepStartupHow : Copy.agentStepRecallHow
@@ -69,6 +75,12 @@ enum AgentSteps {
             out.append((Copy.agentStepClaudeApp, Copy.agentStepClaudeAppHow, false, [.setUpClaude], nil, false))
             out.append((Copy.agentStepClaudeWeb, setups["claude"]?.display.last ?? Copy.agentNeedsReach, true,
                         remoteReady ? [.createLink(.claude, enabled: true)] : [.openFromAnywhere], nil, false))
+        case .anyAgent:
+            // The generic row (2026-10-14): one prompt, sent to whatever agent the person uses.
+            let setup = setups[entry.id]
+            let text = setup?.kind == "prompt" ? setup?.prompt.flatMap { $0.isEmpty ? nil : $0 } : nil
+            out.append((Copy.agentStepSend(Copy.agentAnyAddressee), text == nil ? Copy.agentStepPreparing : Copy.agentStepSendAny,
+                        false, text.map { [.copy($0)] } ?? [], text, false))
         case .remote(let app):
             let display = setups[entry.id]?.display ?? []
             out.append((Copy.agentStepReach(entry.name), display.first ?? Copy.agentNeedsReach, true,
@@ -79,11 +91,22 @@ enum AgentSteps {
         var steps = out.enumerated().map { index, s in
             AgentStep(id: index + 1, title: s.0, detail: s.1, advanced: s.2, actions: s.3, snippet: s.4, done: s.5)
         }
+        let who = addressee(for: entry)
         steps.append(AgentStep(id: steps.count + 1, title: Copy.agentStepConfirm,
-                               detail: Copy.agentStepConfirmHow(entry.name), isConfirm: true,
+                               detail: Copy.agentStepConfirmHow(who), isConfirm: true,
                                done: live?.connected == true,
-                               trailing: confirmLine(live: live, name: entry.name, now: now, locale: locale)))
+                               trailing: confirmLine(live: live, name: who, now: now, locale: locale)))
         return steps
+    }
+
+    /// How a sentence names the agent: its own name, or "your agent" on the generic row (provider-neutral copy).
+    static func addressee(for entry: AgentCatalogEntry) -> String {
+        entry.kind == .anyAgent ? Copy.agentAnyAddressee : entry.name
+    }
+
+    /// The card's title: "Connect <name>", or "Connect another agent".
+    static func title(for entry: AgentCatalogEntry) -> String {
+        entry.kind == .anyAgent ? Copy.agentAnyTitle : Copy.agentConnectTitle(entry.name)
     }
 
     /// The recall hooks' install argv when they are off or stale (`AutoRecall`'s one rule) — only Claude Code and
@@ -117,6 +140,7 @@ enum AgentSteps {
     static func header(for entry: AgentCatalogEntry, wiring: AgentWiring?) -> String? {
         switch entry.kind {
         case .remote: Copy.agentRunsInCloud
+        case .anyAgent: Copy.agentAnyHeader
         case .claude, .deeplink: nil
         case .prompt: wiring.map { $0.installed ? Copy.agentFoundOnMac : Copy.agentNotFoundOnMac }
         }

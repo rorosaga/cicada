@@ -225,7 +225,7 @@ enum SettingsIndex {
         out += exportOnly.map { SettingsEntry(.exportOnly($0.id), .integrations, $0.title, keywords: ["import", "export"]) }
         out += connections.map { SettingsEntry(.connection($0.id), .plansAndKeys, $0.label,
                                                keywords: [$0.planLabel ?? "", "sign in", "key", "plan"].filter { !$0.isEmpty }) }
-        out += agents.map { SettingsEntry(.agent($0.id), .agents, $0.name, keywords: ["mcp", "connect", "register"]) }
+        out += agents.map { SettingsEntry(.agent($0.id), .agents, $0.name, keywords: ["mcp", "connect", "register"] + $0.searchTerms) }
         // G138 — the recommended and installed skills the window already
         // fetched; a title, a publisher and an id, never an install command.
         out += skills.map { SettingsEntry(.skill($0.id), .skills, $0.title,

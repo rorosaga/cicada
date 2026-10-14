@@ -104,7 +104,8 @@ final class AgentQuickSetupTests: XCTestCase {
         XCTAssertEqual(AgentQuickSetup.actions(catalogId: "hermes", setup: prompt, wiring: nil), [.copyPrompt("Hi")])
         XCTAssertEqual(AgentCatalog.setupHarnesses,
                        ["claude-code", "codex", "gemini-cli", "cursor", "claude-desktop", "opencode", "hermes", "openclaw",
-                        "claude", "chatgpt", "grok"])
+                        "claude", "chatgpt", "grok", "other"])
+        XCTAssertEqual(AgentQuickSetup.actions(catalogId: "other", setup: prompt, wiring: nil), [.copyPrompt("Hi")])
     }
 
     /// G110 gate A — the capture flush (`flushOn`) rides with a Connect the app is already running, never on its own:

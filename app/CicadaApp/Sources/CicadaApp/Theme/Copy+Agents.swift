@@ -37,4 +37,12 @@ extension Copy {
     static let agentNeedsReach = "Turn on From anywhere first. It needs a tunnel you run."
     static let agentsFooter = "Connect or disconnect agents any time in Settings → Agents"
     static let agentsDoItByHand = "Do it by hand"
+
+    // 2026-10-14 — a paste-able prompt beside every one-click path, and a row for any other agent.
+    /// Who the generic row's prompt goes to: whichever agent the person uses, never a name Cicada picks.
+    static let agentAnyAddressee = "your agent"
+    static let agentAnyTitle = "Connect another agent"
+    static let agentAnyHeader = "For an agent that isn't in the list."
+    static let agentStepSendAny = "It adds Cicada to its own settings and changes nothing else. If it can't, it tells you what to add."
+    static func agentStepOrSend(_ name: String) -> String { "Or copy and send this to \(name)" }
 }

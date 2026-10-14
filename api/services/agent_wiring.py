@@ -28,7 +28,12 @@ performs. Round 4 C8 adds two more shapes. OpenCode, Hermes and OpenClaw get a
 prompt with no commands (``argv: []``) that names the server and where it lives
 in the agent's own settings, so the agent writes the entry itself — their CLIs'
 registration flags could not be verified, and a wrong argv the app runs is worse
-than a prompt an agent reads (R-AG3). Claude (on the web), ChatGPT and Grok get
+than a prompt an agent reads (R-AG3). 2026-10-14: Cursor's link carries a
+prompt too (MCP only, ``mcp.json``), and ``other`` serves one generic prompt —
+the server spec and "add it to your own MCP settings" — for any agent not in
+the list; the Claude app keeps its merge alone (its chat cannot edit its own
+config). Every prompt names the server through ``server_lines``, so a release
+app's argument-less launcher (G182) reads right. Claude (on the web), ChatGPT and Grok get
 ``kind: "remote"``: the two steps before Confirm on the G135 connector, worded
 here so Settings and onboarding read one source (R-AG19). No probe, no
 subprocess, no harness file read.
@@ -312,15 +317,44 @@ def config_value(agent_id: str, spec: dict) -> dict:
     return spec
 
 
+def server_lines(spec: dict) -> str:
+    """The server as the lines a prompt names: its command, one ``argument:``
+    line per argument — none for a release app, whose launcher takes none (G182,
+    ``runtime_layout.mcp_argv``) — and its environment. Every value verbatim."""
+    lines = [f"command: {spec['command']}", *(f"argument: {arg}" for arg in spec["args"]),
+             *(f"environment: {name}={value}" for name, value in spec["env"].items())]
+    return "\n".join(lines)
+
+
 def config_prompt(product: str, where: str, key: str, spec: dict) -> str:
     """C5's promises, for an agent that edits a file instead of running a
     command: what to add, where, change nothing else, nothing is uploaded."""
-    memory = spec["env"]["CICADA_MEMORY_PATH"]
     return (f"Please connect Cicada, the memory app on this Mac, to {product}. Add one MCP server named cicada "
             f"to your own settings — {where}, at {key} — and change nothing else. It runs:\n\n"
-            f"command: {spec['command']}\nargument: {spec['args'][0]}\nenvironment: CICADA_MEMORY_PATH={memory}\n\n"
+            f"{server_lines(spec)}\n\n"
             "It lets you read and add to my memory. If Cicada is already there, that's fine. This uploads nothing: "
             "my memory stays on this computer. Then tell me in one sentence whether it worked.")
+
+
+#: The Agents page's "another agent" row (2026-10-14): any agent that keeps its
+#: own MCP servers — Windsurf, Zed, VS Code, Cline, Goose, one not written yet.
+GENERIC_AGENT = "other"
+
+
+def generic_prompt(spec: dict) -> str:
+    """C5's promises for an agent Cicada knows nothing about: the server spec, a
+    request to add it to the agent's OWN MCP settings in whatever shape they
+    take, change nothing else, nothing uploaded, a one-sentence answer. The
+    agent is never named — the person chose it, not Cicada (provider-neutral
+    copy) — and an agent that cannot change its own settings says where they
+    are instead of guessing."""
+    return ("Please connect Cicada, the memory app on this Mac, to yourself. Add one MCP server named cicada to "
+            "your own MCP settings, in the shape they already use, and change nothing else. It is a local "
+            f"stdio server that runs:\n\n{server_lines(spec)}\n\n"
+            "It lets you read and add to my memory. If Cicada is already there, that's fine. If you can't change "
+            "your own settings, don't guess: tell me which file they live in and what to add. This uploads "
+            "nothing: my memory stays on this computer. Then tell me in one sentence whether it worked and "
+            "whether I need to restart you.")
 
 
 # Round 4 C8 (R-AG19): cloud agents reach this Mac only through the G135 connector.
@@ -363,6 +397,9 @@ def setup(harness: str, *, home: Path, memory_root: Path, repo: Path = REPO_ROOT
     if harness in harness_integrations.LOCAL:
         return harness_integrations.LOCAL[harness].setup(home=home, repo=repo, python=python, spec=spec)
     if harness == "claude-desktop":
+        # No prompt (2026-10-14): the Claude app's chat cannot edit its own config file, and handing the job
+        # to some other agent would ask a stranger to hand-edit a file that holds other servers' secrets —
+        # the app's own merge does it with a backup first, merging, never replacing.
         return {"harness": harness, "kind": "config-merge", "title": "Connect the Claude app",
                 "config": {"path": CLAUDE_DESKTOP_CONFIG, "key": "mcpServers.cicada", "value": spec},
                 "note": "Quit and reopen Claude so it picks Cicada up."}
@@ -372,6 +409,10 @@ def setup(harness: str, *, home: Path, memory_root: Path, repo: Path = REPO_ROOT
         return {"harness": harness, "kind": "prompt", "title": f"Connect {product}",
                 "prompt": config_prompt(product, where, key, spec), "argv": [], "display": [],
                 "config": {"path": where, "key": key, "value": value}, "note": note}
+    if harness == GENERIC_AGENT:
+        return {"harness": harness, "kind": "prompt", "title": "Connect another agent",
+                "prompt": generic_prompt(spec), "argv": [], "display": [],
+                "note": "Once it says it worked, start a new conversation with it so it can see your memory."}
     if harness in REMOTE_SETUPS:
         title, product, link_step = REMOTE_SETUPS[harness]
         return {"harness": harness, "kind": "remote", "title": title, "display": [REACH_STEP, link_step],

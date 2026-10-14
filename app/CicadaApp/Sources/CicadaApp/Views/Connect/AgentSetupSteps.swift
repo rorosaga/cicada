@@ -68,7 +68,7 @@ struct AgentSetupSteps: View {
         HStack(alignment: .center, spacing: CicadaTheme.spacingSM) {
             AgentMark(entry: entry, size: 24)
             VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
-                Text(Copy.agentConnectTitle(entry.name))
+                Text(AgentSteps.title(for: entry))
                     .font(CicadaTheme.font(size: 14, weight: .semibold))
                     .foregroundStyle(CicadaTheme.textPrimary)
                 if let header { caption(header, color: CicadaTheme.textSecondary) }

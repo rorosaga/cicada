@@ -336,6 +336,9 @@ installation adds the hook when `~/.cursor` already exists and `CICADA_RECALL` i
 offers it separately under Remembers automatically. Release commands use the stable
 `cicada-hook cursor` / `cursor_registry` launcher verbs, not bundle paths. MCP uses its existing
 install link or [global MCP config](https://cursor.com/docs/mcp); enabling MCP never implies hook delivery.
+`/agents/setup?harness=cursor` also carries a paste-able prompt (2026-10-14) asking Cursor's own agent to add the
+same server to `~/.cursor/mcp.json` at `mcpServers.cicada`; it adds MCP only and names no hook, so the startup hook
+stays its own click (R-H11).
 
 `api/hooks/cursor.py` is stdlib/run-by-path, accepts at most64KB of synthetic-schema-equivalent input,
 allowlists `sessionStart`, uses equal stable `conversation_id`/`session_id` (never generation id), and

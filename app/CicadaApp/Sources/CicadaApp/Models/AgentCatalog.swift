@@ -1,8 +1,9 @@
 import Foundation
 
-/// R-AG1 — the ten agents Settings → Agents offers, in the order the owner named them, pinned to the backend's
+/// R-AG1 — the agents Settings → Agents offers, in the order the owner named them, pinned to the backend's
 /// `agent_live.LIVE_AGENTS` by `api/tests/fixtures/agent_catalog.json`. `featured` (the first nine) is what phase
-/// B's onboarding shows; Gemini CLI stays for installs that already registered it.
+/// B's onboarding shows; Gemini CLI stays for installs that already registered it, and "Another agent" (last)
+/// covers every agent the list does not name.
 struct AgentCatalogEntry: Identifiable, Equatable {
     enum Kind: Equatable {
         /// Copy and send a prompt; `runsItself` = it runs a command (vs. edits its own settings, R-AG3).
@@ -11,6 +12,9 @@ struct AgentCatalogEntry: Identifiable, Equatable {
         /// R-AG2: the Claude app (config merge) first, claude.ai (remote) as Advanced.
         case claude
         case remote(RemoteApp)
+        /// 2026-10-14 — "another agent": any agent not in the list adds Cicada to its own MCP settings from one
+        /// pasted prompt (`GET /agents/setup?harness=other`). It is never named — the person chose it.
+        case anyAgent
     }
 
     let id: String
@@ -22,6 +26,8 @@ struct AgentCatalogEntry: Identifiable, Equatable {
     /// The `GET /agents/setup` harness ids this pill reads.
     let setupHarnesses: [String]
     let featured: Bool
+    /// Extra words Settings search finds this row by (names only, never a command).
+    var searchTerms: [String] = []
 }
 
 enum AgentCatalog {
@@ -46,6 +52,10 @@ enum AgentCatalog {
               kind: .remote(.grok), setupHarnesses: ["grok"], featured: true),
         .init(id: "gemini-cli", name: "Gemini CLI", mark: "gemini-cli", symbol: "terminal",
               kind: .prompt(runsItself: true), setupHarnesses: ["gemini-cli"], featured: false),
+        // No vendor, so no mark: the neutral glyph Integrations' "Other agents" wears (DR-52).
+        .init(id: "other", name: "Another agent", mark: nil, symbol: IntegrationHarnessRows.otherAgentsSymbol,
+              kind: .anyAgent, setupHarnesses: ["other"], featured: false,
+              searchTerms: ["other", "any agent", "windsurf", "zed", "vs code", "copilot", "cline", "goose"]),
     ]
 
     static var featured: [AgentCatalogEntry] { all.filter(\.featured) }

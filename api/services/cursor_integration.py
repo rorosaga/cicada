@@ -35,10 +35,19 @@ def steps(*, home, repo, python):
             "off": [_step("autorecall-off", prefix + ["uninstall", "--settings", path], touches)]}
 
 
+MCP_CONFIG = "~/.cursor/mcp.json"
+MCP_KEY = "mcpServers.cicada"
+
+
 def setup(*, home, repo, python, spec):
-    from api.services.agent_wiring import cursor_deeplink
+    """The install link, plus (2026-10-14) a prompt for Cursor's own agent that
+    adds the same server to ``~/.cursor/mcp.json``. The prompt adds MCP only:
+    the startup hook stays its own click on the row, its command shown first
+    (R-H11), so a paste never registers something that runs on every chat."""
+    from api.services.agent_wiring import config_prompt, cursor_deeplink
     on = steps(home=home, repo=repo, python=python)["on"]
     return {"harness": ID, "kind": "deeplink", "title": "Connect Cursor", "deeplink": cursor_deeplink(spec),
+            "prompt": config_prompt("Cursor", MCP_CONFIG, MCP_KEY, spec),
             "argv": [s["argv"] for s in on], "display": [s["display"] for s in on], "note": NOTE}
 
 

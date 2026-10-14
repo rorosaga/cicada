@@ -3319,7 +3319,9 @@ class AgentSetupResponse(CamelModel):
     exactly those commands, ``display == shlex.join(argv)``), ``deeplink`` or
     ``config`` is set. A ``prompt`` with ``argv: []`` (OpenCode, Hermes,
     OpenClaw) is a config registration the agent performs itself, with
-    ``config`` riding along for doing it by hand (round 4 C8, R-AG3).
+    ``config`` riding along for doing it by hand (round 4 C8, R-AG3); ``other``
+    is the same with no ``config`` — any agent, its own MCP settings. A
+    ``deeplink`` (Cursor) also carries a ``prompt`` for Cursor's own agent.
     ``remote`` is produced by ``claude``/``chatgpt``/``grok``: ``display`` holds
     exactly the two steps before Confirm on the G135 connector and ``note`` the
     honesty line; nothing is set to run (R-AG19)."""

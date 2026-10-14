@@ -32,10 +32,15 @@ from api.services import agent_wiring, telemetry
 from api.services.auth import cicada_home
 
 LIVE_AGENTS = ("claude-code", "codex", "claude", "chatgpt", "cursor", "opencode", "hermes", "openclaw", "grok",
-               "gemini-cli")
-FEATURED = LIVE_AGENTS[:9]   # R-AG1: the owner's nine; Gemini CLI is Settings-only
+               "gemini-cli", "other")
+FEATURED = LIVE_AGENTS[:9]   # R-AG1: the owner's nine; Gemini CLI and "another agent" are Settings-only
+#: The "another agent" row (2026-10-14): a local ``initialize`` whose client names
+#: itself but matches no rule below is some other agent the person connected.
+OTHER_AGENT = "other"
+#: Cicada's own MCP clients, never "another agent" (the release smoke test).
+_OWN_CLIENTS = frozenset({"smoke-test"})
 
-# R-AG6: ordered — `claude-code` before `claude`; unmatched names are ignored.
+# R-AG6: ordered — `claude-code` before `claude`; an unmatched name is `other`, no name is nobody.
 _CLIENT_RULES = (("claude-code", "claude-code"), ("claude code", "claude-code"), ("codex", "codex"),
                  ("cursor", "cursor"), ("opencode", "opencode"), ("openclaw", "openclaw"), ("hermes", "hermes"),
                  ("gemini", "gemini-cli"), ("grok", "grok"), ("claude", "claude"))
@@ -54,7 +59,7 @@ def agent_for(harness: str | None, client_name: str | None) -> str | None:
     for needle, agent in _CLIENT_RULES:
         if needle in name:
             return agent
-    return None
+    return OTHER_AGENT if name and name not in _OWN_CLIENTS else None
 
 
 def _iso(value) -> str | None:
