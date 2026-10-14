@@ -117,6 +117,32 @@ claims, paid by every full-bank reader); a JSON line is ~3 µs (`benchmarks/scal
 evidence offset points into the body with the fence stripped, which is the same text in either form.
 A predicate the vocabulary marks multi-valued (`predicates.cardinality`) never opens a conflict.
 
+**A person holds more than one place at once (2026-10-14).** `works-at` is multi-valued: as a single-valued key, Stage 3
+closed the open place whenever another was mentioned, and one measured owner page held 26 `works-at` claims, 25 closed,
+flipping between six places 1–60 days apart while two were true at once. The reconciler's oracle
+(`predicates.build_cardinality_fn`) applies `cardinality`'s rule too — the committed seed's `multi_valued` wins over a
+bank's stale `single_valued` (an uncertain cardinality never auto-closes), and the seed's singles are not imported, so a
+bank with no map still coexists everything. `runs-on`, `takes-place-in` and `part-of` stay single-valued: no evidence
+says they fail the same way. **A place ends only on evidence that it ended:** a stated end (`expected_end`,
+`claim_expiry`), the person's own edit or answer, or an ending label (`endings` in the seed, `predicates.build_endings_fn`,
+seed ∪ bank, compared slugged, a label two canonicals claim ends nothing). Stage 3 reads the label as said
+(`predicate_raw`, else an agent's predicate; `claim_reconciler._place_ending`): `over` ("left", "previously worked at")
+closes every open belief on that subject and object, dated when it was said and never before it opened — never the
+person's own statement under an agent's word, never one last said after the ending — and keeps the ending as closed
+history; with none open, a label that is a synonym ("previously worked at") is closed history and any other ("left")
+keeps its own label. `past` ("worked at") reinforces an open place and never closes it; with none open it is closed
+history, never a current place. No fold question is raised for an ending. Stage 1's prompt says "works at" means current.
+**Repairing a bank:** `python -m api.services.coexist_reopen --bank <path> [--plan <file>] [--said-since <day>]` is a
+dry run (counts by reason, and the places it would reopen by when they were last said; the plan holds ids, paths,
+commits and reasons, never text); `--apply` reopens, in one `Reopen coexisting places <date>` commit as `cicada`, only a
+`works-at` belief the old rule alone closed — its successor on the same page has the same slot, a different object,
+`supersedes` it back and opened the day it closed; neither is the person's; the close was made by a model's `Sleep cycle`
+commit (found by bisecting the page's history, its claims ledger included); no stated end has passed; its own words are
+not past tense or an ending and the page does not say the person left that place; and it is the newest closed copy of a
+place not already current. Everything else stays closed, counted by reason — when in doubt, history. It refuses unless
+Sleep is idle (admission held, the backend must answer `writing: false`), skips a dirty page, writes through the one
+claims writer and deletes nothing: the close stays in git.
+
 **Contexts and the fence (F1).** `context` is an open vocabulary whose *shape* is pinned by
 `claim_contexts` — a short lowercase slug. Any other value (G60's `as of <date>`) keeps its job as a
 claim key but is never a graph satellite, a legend row or an edge colour. `general` means "no

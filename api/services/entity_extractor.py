@@ -169,6 +169,9 @@ EXTRACTION GUIDELINES:
 - Relationships are critical — capture every meaningful connection between entities with a specific
   verb phrase (e.g. "works at", "built with", "supervised by", "depends on", "evaluated against",
   "replaced by", "due"). Use short verb phrases, not full sentences or generic "related to".
+- "works at" says the place is CURRENT. A job or role that ended is labelled by its ending — "left",
+  "previously worked at" — never "works at". Two places at once (a job and a lab, a day job and a side
+  project) are two "works at" relationships; one never replaces the other.
 - EVIDENCE QUOTE (required on every relationship): copy the shortest passage of the transcript,
   VERBATIM and at most 240 characters, that states this relationship — the sentence the user or
   assistant actually wrote, not your paraphrase. If the relationship is your own inference across

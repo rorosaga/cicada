@@ -87,7 +87,8 @@ def test_scaffold_seeds_the_real_predicate_map_not_an_empty_placeholder(tmp_path
     assert predicates_path.read_text(encoding="utf-8").strip() != "{}"
 
     card = predicates.build_cardinality_fn(tmp_path)
-    assert card("works-at") is True  # still single-valued
+    assert card("part-of") is True  # still single-valued
+    assert card("works-at") is False  # a person holds more than one place (2026-10-14)
     # moved to multi-valued (G98: set-valued predicates, not primary choices)
     assert card("uses") is False
     assert card("is-a") is False

@@ -101,9 +101,9 @@ def test_wired_agent_cannot_supersede_human_claim(tmp_path):
     memory = _seed_workspace(tmp_path)
     human = Claim(
         id="clm_human_001",
-        text="Rodrigo works at acme",
+        text="Rodrigo part of acme",
         subject="rodrigo",
-        predicate="works-at",
+        predicate="part-of",
         object="acme",
         observer="agent",
         context="general",
@@ -115,10 +115,10 @@ def test_wired_agent_cannot_supersede_human_claim(tmp_path):
     body = write_claims("## Summary\nThe user.", [human])
     _write_entity(memory, "rodrigo", {"name": "Rodrigo", "type": "person"}, body)
 
-    # Agent now extracts a CONTRADICTING single-valued belief (works-at is
-    # single-valued in the seeded _predicates.yaml — one primary current employer).
+    # Agent now extracts a CONTRADICTING single-valued belief (part-of is
+    # single-valued in the seeded _predicates.yaml — one primary whole).
     extracted = _extracted(
-        [{"source": "Rodrigo", "target": "globex", "label": "works at"}]
+        [{"source": "Rodrigo", "target": "globex", "label": "part of"}]
     )
     result = claim_pipeline.run_claim_pipeline(
         extracted, [], memory, _settings(memory), now_date="2026-06-18"
@@ -138,9 +138,9 @@ def test_wired_human_over_human_supersedes(tmp_path):
     memory = _seed_workspace(tmp_path)
     old_human = Claim(
         id="clm_old_human",
-        text="Rodrigo works at acme",
+        text="Rodrigo part of acme",
         subject="rodrigo",
-        predicate="works-at",
+        predicate="part-of",
         object="acme",
         observer="agent",
         context="general",
@@ -155,9 +155,9 @@ def test_wired_human_over_human_supersedes(tmp_path):
     # A NEWER human-sourced claim (origin=clarification) legitimately supersedes.
     new_human = Claim(
         id="clm_new_human",
-        text="Rodrigo works at globex",
+        text="Rodrigo part of globex",
         subject="rodrigo",
-        predicate="works-at",
+        predicate="part-of",
         object="globex",
         observer="agent",
         context="general",

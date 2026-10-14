@@ -641,12 +641,62 @@ def _place_claim(new: Claim, slot: list[Claim], settings, today: str, cardinalit
     return None
 
 
+def _place_ending(new: Claim, ending: "predicates.Ending", slot: list[Claim], settings, today: str,
+                  audit: list[dict], untimed=frozenset()) -> "Claim | bool":
+    """A claim whose label says a belief stopped being true (``predicates.build_endings_fn``; 2026-10-14).
+
+    A multi-valued place ends only on evidence that it ended — this, a stated end (``claim_expiry``) or the
+    person's own edit — never because another place was mentioned. Returns ``False`` when the label does not
+    apply here (``left`` with no open place of that name: kept under its own label, so "left Lisbon" never
+    becomes a job), else the claim the page keeps for it.
+
+    * ``over`` — every open belief with the canonical predicate on this subject and object, in any context or
+      observer, closes, dated when it was said and never before it opened (``_close_event``'s rule); an
+      agent's word never closes the person's own (``is_human``), and an ending said before the belief was last
+      said closes nothing (left, then went back) — both stay open, counted. The ending itself is kept as closed
+      history (``valid_to = valid_from``) under the canonical predicate.
+    * ``past`` — "worked at": an open belief on the same object is reinforced, never closed; with none open
+      the claim is kept as closed history, never a current place.
+
+    No fold question is raised for either: the endings list is curated, not a guess.
+    """
+    canonical = ending.canonical
+    targets = [c for c in slot if open_(c) and c.subject == new.subject and c.predicate == canonical
+               and same_object(c, new) and not is_event(c) and not is_record(c)]
+    if not targets and not (ending.synonym or new.predicate == canonical):
+        return False
+    if ending.mode == predicates.ENDING_PAST and targets:
+        _reinforce(targets[0], new, today=today, untimed=untimed)
+        return targets[0]
+    new.predicate = canonical
+    dup = next((c for c in slot if c.id == new.id), None)
+    if dup is not None:
+        # The same ending read again (a G104 re-read): one record, its sources merged.
+        _merge_episodes(dup, new)
+        return dup
+    _stamp_new(new, settings, today=today)
+    said = _said(new, untimed) or new.valid_from
+    for t in targets:
+        if is_human(t) and not is_human(new):
+            audit.append({"action": "ending_shadowed_by_human", "kept": t.id, "by": new.id})
+            continue
+        if _date_key(said) < _date_key(_max_date(t.valid_from, _said(t, untimed))):
+            audit.append({"action": "ending_older", "kept": t.id, "by": new.id})
+            continue
+        _close_event(t, by=new)
+        audit.append({"action": "ended", "closed": t.id, "by": new.id})
+    new.valid_to = new.valid_from
+    slot.append(new)
+    return new
+
+
 def reconcile_stage3(
     incoming_claims: list[Claim],
     existing_claims_by_subject: dict[str, list[Claim]],
     settings,
     *,
     cardinality_fn: CardinalityFn | None = None,
+    endings_fn: "predicates.EndingFn | None" = None,
     now_date: str | None = None,
     decay_class_fn: DecayClassFn | None = None,
     subject_fn: SubjectFn | None = None,
@@ -667,6 +717,9 @@ def reconcile_stage3(
             ``decay_nudge_threshold``.
         cardinality_fn: ``predicate -> is_single_valued``. Defaults to the
             ``_predicates.yaml`` cardinality oracle for ``settings.memory_path``.
+        endings_fn: ``label -> (canonical, over|past) | None`` — the labels
+            that say a belief stopped being true (:func:`_place_ending`).
+            Defaults to ``predicates.build_endings_fn`` for the bank.
         now_date: decay reference date (ISO); defaults to today.
         decay_class_fn: ``subject_id -> DecayClass``, multiplying each claim's
             decay by its subject entity's class (G66). Defaults to the
@@ -686,6 +739,8 @@ def reconcile_stage3(
     if cardinality_fn is None:
         cardinality_fn = _default_cardinality_fn(settings)
     memory_path = getattr(settings, "memory_path", None)
+    if endings_fn is None:
+        endings_fn = predicates.build_endings_fn(memory_path)
     if subject_fn is None:
         # No bank path, no page to read: every subject is neutral. Never "." —
         # this module does not resolve a bank from the process's cwd (R-FD13).
@@ -736,6 +791,9 @@ def reconcile_stage3(
         # One question per pair, raised after the pass so it names every claim
         # the pages keep for it — a reinforced restatement keeps the OLD id.
         raw_label = getattr(new, "predicate_raw", None)
+        ending = endings_fn(str(raw_label or new.predicate))
+        if ending is not None and _place_ending(new, ending, slot, settings, today, audit, untimed) is not False:
+            continue
         kept = _place_claim(new, slot, settings, today, cardinality_fn, nudges, audit, untimed)
         if raw_label:
             raw_slug = predicates._slugify_predicate(str(raw_label))

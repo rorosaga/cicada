@@ -33,6 +33,9 @@ extension Copy {
         static func firstIn(_ app: String) -> String { "first in \(app)" }
         static func pages(_ n: Int) -> String { n == 1 ? "1 page" : "\(UsageFormat.count(n)) pages" }
         static func openHelp(_ name: String) -> String { "Open \(name)" }
+        /// The places past the cell's cap (DR-51: a count is text, never a capsule).
+        static func more(_ n: Int) -> String { "+\(UsageFormat.count(n))" }
+        static func alsoAt(_ names: [String]) -> String { "Also \(names.joined(separator: ", "))" }
 
         // The person body (F-12)
         static let you = "you"
