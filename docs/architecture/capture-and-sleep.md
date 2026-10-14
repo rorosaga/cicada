@@ -151,7 +151,8 @@ Seven rails hold across all of them:
   passes to the next person turn, then `<Product> session`. Title only: the body is kept as captured. Episodes titled
   before the fix are retitled once from their own stored body — the transcript is never re-read — by
   `api/scripts/retitle_wrapped_episodes.py` (the dry run prints counts; `--apply` is refused while Sleep runs, makes one
-  `cicada` commit and re-queues nothing — the title is outside `content_hash`).
+  `cicada` commit and re-queues nothing — the title is outside `content_hash`; a run that fails before its commit puts
+  back every file and index entry it changed). The scan is linear: it runs in the Stop hook.
 - **Transcripts under `~/.claude/` are never read anywhere else.** The MCP seam and the resume path
   only ever `isfile()` them to answer "is this session still resumable"; that answer is computed
   per request and never persisted.

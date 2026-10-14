@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -64,6 +65,29 @@ def test_a_long_line_is_clipped_and_never_empty():
     title = title_from_text(f"{PASTE}\n{'x' * 200}\n</pasted_content>")
     assert len(title) == tc.TITLE_MAX and title.endswith("…")
     assert title_from_text("") is None and title_from_text("   \n<br/>\n") is None
+
+
+@pytest.mark.parametrize("message", [
+    "<word" + " " * 16_000,                    # an open tag and a long run of whitespace with no `>`
+    "<pasted_content" + " \t" * 8_000,
+    "<a " + "x" * 16_000,
+    "x" + "<b>" * 5_333,                       # thousands of mid-line tags, each skipped as words
+    "x" + " <b>" * 4_000,
+    "<a>\n" * 4_000,                           # thousands of wrappers open at once
+    "<a>\n" * 2_000 + "</a>" * 2_000,
+    "<" * 16_000,
+    "<system-reminder>\n" * 888,
+])
+def test_a_16k_adversarial_message_titles_in_linear_time(message):
+    started = time.perf_counter()
+    title = title_from_text(message)
+    assert (time.perf_counter() - started) < 0.05
+    assert title is None or not episode_title.is_wrapper_title(title)
+
+
+def test_a_tag_left_open_or_past_the_attribute_bound_is_never_the_title():
+    assert title_from_text("<word   \nWhat is this?") == "What is this?"
+    assert title_from_text(f'<pasted_content id="{"x" * 600}">\nThe paste\n</pasted_content>') == "The paste"
 
 
 # --- the capture writes it -----------------------------------------------------------
@@ -187,3 +211,39 @@ def test_apply_is_refused_while_sleep_runs(bank, monkeypatch, capsys):
 
 def test_the_script_refuses_a_directory_that_is_not_a_bank(tmp_path, capsys):
     assert script.main(["--bank", str(tmp_path)]) == 2
+
+
+def test_a_run_that_fails_midway_puts_back_what_it_rewrote(bank, monkeypatch):
+    before = {p.name: p.read_bytes() for p in (bank / "episodes").iterdir()}
+    real_write, calls = markdown_parser.write, []
+
+    def flaky(path, fm, body):
+        calls.append(path)
+        if len(calls) == 2:
+            raise OSError("disk full")
+        real_write(path, fm, body)
+
+    monkeypatch.setattr(markdown_parser, "write", flaky)
+    with pytest.raises(OSError):
+        episode_title.apply(bank, sleep_running=lambda: False)
+    assert {p.name: p.read_bytes() for p in (bank / "episodes").iterdir()} == before
+    assert _git(bank, "status", "--porcelain").strip() == "M episodes/ep_2026-09-03_005.md"
+    assert len(_git(bank, "log", "--format=%H").split()) == 1
+
+
+def test_a_commit_that_fails_after_staging_leaves_neither_files_nor_index_changed(bank, monkeypatch):
+    from api.services import git_service
+
+    before = {p.name: p.read_bytes() for p in (bank / "episodes").iterdir()}
+
+    def staged_then_failed(memory_path, message, paths):
+        _git(memory_path, "add", "--", *paths)
+        raise git_service.GitError("commit failed")
+
+    monkeypatch.setattr(git_service, "commit_paths_sync", staged_then_failed)
+    with pytest.raises(git_service.GitError):
+        episode_title.apply(bank, sleep_running=lambda: False)
+    assert {p.name: p.read_bytes() for p in (bank / "episodes").iterdir()} == before
+    assert _git(bank, "status", "--porcelain").strip() == "M episodes/ep_2026-09-03_005.md"
+    monkeypatch.undo()
+    assert episode_title.apply(bank, sleep_running=lambda: False).written == 3   # the next run starts over cleanly

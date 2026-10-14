@@ -10,9 +10,11 @@ right after another tag), so a mid-sentence ``Vec<String>`` is just words; a clo
 wrapper of its name wherever it sits; a wrapper the per-turn cap cut off before its close runs to the end. Text inside
 a harness wrapper (the extractor's own ``CLAUDE_HARNESS_TAGS`` / ``CODEX_HARNESS_TAGS``) is the harness talking, never
 a title. The title is the first real line OUTSIDE every wrapper; when the message is only wrapped text (a paste and
-nothing else), the first real line inside it. A real line is not empty, not only tags, and not the extractor's
-``[code omitted]`` marker. Nothing qualifies → ``None``, and :func:`title_for` moves to the next person turn, then to
-``<Product> session``. Never a tag, never empty. Title only: the body is the person's words as captured.
+nothing else), the first real line inside it. A real line is not empty, not only tags, does not still open like
+a tag (one left unterminated, or past the attribute bound), and is not the extractor's ``[code omitted]`` marker.
+Nothing qualifies → ``None``, and :func:`title_for` moves to the next person turn, then to ``<Product> session``.
+Never a tag, never empty. Title only: the body is the person's words as captured. The scan is linear in the message
+(it runs in the Stop hook): a 16k adversarial message titles in well under 50 ms.
 
 :func:`survey` / :func:`apply` are the one-off retitle for episodes captured before this (``api.scripts.
 retitle_wrapped_episodes``): a transcript episode whose stored title opens with a tag is retitled from its own stored
@@ -36,44 +38,60 @@ HARNESS_TAGS = CLAUDE_HARNESS_TAGS | CODEX_HARNESS_TAGS
 TRIGGER = "maintenance/episode-titles"
 
 # One tag: `<name attrs>`, `</name>` or `<name/>`. Names start with a letter or `_` (so `<3` and `a < b` are words).
-_TAG_RE = re.compile(r"<(/?)([A-Za-z_][A-Za-z0-9_.:-]*)((?:\s[^<>]*?)?)\s*(/?)>")
-_TAG_ONLY_LINE_RE = re.compile(r"^\s*(?:" + _TAG_RE.pattern + r"\s*)+$")
+# Linear by construction (it runs in the Stop hook): the name and the attribute run are bounded, the attribute run
+# stops at the next `<`, and nothing after it can match the same characters twice.
+_TAG_RE = re.compile(r"<(/?)([A-Za-z_][A-Za-z0-9_.:-]{0,63})(\s[^<>]{0,512}|/)?>")
 _LEADS_WITH_TAG_RE = re.compile(r"^\s*</?[A-Za-z_]")
 
 
 def _segments(text: str) -> list[tuple[str, int]]:
     """``(text, depth)`` pieces in order; ``depth`` 0 is outside every wrapper. Text inside a harness wrapper is
-    dropped. A tag piece is never returned."""
+    dropped. A tag piece is never returned. One pass: every slice and scan covers characters no other one does."""
     out: list[tuple[str, int]] = []
     stack: list[str] = []
+    open_count: dict[str, int] = {}
+    harness_open = 0
     pos = 0
-    line_start = True  # at the start of a line, or only whitespace/tags since it
+    line_start = True  # `pos` is at the start of a line, or only whitespace/tags since it
 
     def emit(piece: str) -> None:
         nonlocal line_start
         if not piece:
             return
-        if not any(name in HARNESS_TAGS for name in stack):
+        if not harness_open:
             out.append((piece, len(stack)))
-        tail = piece.rsplit("\n", 1)
-        line_start = (len(tail) == 2 and not tail[1].strip()) or (line_start and not piece.strip())
+        head, nl, tail = piece.rpartition("\n")
+        line_start = (bool(nl) and not tail.strip()) or (line_start and not piece.strip())
+
+    def pop() -> str:
+        nonlocal harness_open
+        name = stack.pop()
+        open_count[name] -= 1
+        harness_open -= name in HARNESS_TAGS
+        return name
 
     for m in _TAG_RE.finditer(text):
         closing, name = m.group(1) == "/", m.group(2).lower()
-        self_closing = m.group(4) == "/"
-        between = text[pos:m.start()]
-        at_line_start = (line_start and not between.strip()) or bool(re.search(r"\n[ \t]*\Z", between))
+        self_closing = (m.group(3) or "").rstrip().endswith("/")
+        # Only the spaces and tabs right before this tag are scanned back over.
+        j = m.start()
+        while j > pos and text[j - 1] in " \t":
+            j -= 1
+        at_line_start = (line_start if j == pos else text[j - 1] == "\n")
+        is_open = open_count.get(name, 0) > 0
         if closing:
-            if name not in stack and not at_line_start:
+            if not is_open and not at_line_start:
                 continue  # a stray closing tag mid-line is words
-            emit(between)
-            if name in stack:
-                while stack and stack.pop() != name:
+            emit(text[pos:m.start()])
+            if is_open:
+                while pop() != name:
                     pass
         elif at_line_start:
-            emit(between)
+            emit(text[pos:m.start()])
             if not self_closing:
                 stack.append(name)
+                open_count[name] = open_count.get(name, 0) + 1
+                harness_open += name in HARNESS_TAGS
         else:
             continue  # a tag mid-line is words (`Vec<String>`)
         pos = m.end()
@@ -86,7 +104,11 @@ def _real_lines(pieces: Iterable[str]) -> Iterable[str]:
     for piece in pieces:
         for line in piece.splitlines():
             line = line.strip()
-            if line and line != CODE_OMITTED and not _TAG_ONLY_LINE_RE.match(line):
+            if not line or line == CODE_OMITTED:
+                continue
+            words = _TAG_RE.sub("", line).strip()
+            # Only tags, or a line that still opens like one (a tag left open, or past the attribute bound).
+            if words and not _LEADS_WITH_TAG_RE.match(words):
                 yield line
 
 
@@ -181,7 +203,7 @@ def survey(memory_path) -> Survey:
             dirty = frozenset()
     for path in sorted((memory_path / "episodes").glob("ep_*.md")):
         try:
-            text = path.read_text(encoding="utf-8")
+            raw = path.read_bytes()
             parsed = markdown_parser.parse(path)
         except Exception:  # noqa: BLE001 — a malformed episode is skipped, never fatal
             continue
@@ -199,44 +221,74 @@ def survey(memory_path) -> Survey:
             result.dirty += 1
             continue
         result.would_retitle += 1
-        result._todo[path] = (text, new)
+        result._todo[path] = (raw, new)
     return result
 
 
 def apply(memory_path, *, sleep_running: Callable[[], bool]) -> Survey:
     """Retitle what :func:`survey` found and commit it in ONE commit authored ``cicada``. Raises
-    :class:`SleepRunning` before writing anything when Sleep holds the pages or a run is in progress."""
+    :class:`SleepRunning` before writing anything when Sleep holds the pages or a run is in progress.
+
+    All or nothing: if anything raises after the first rewrite — a write, or the commit itself — every episode
+    already rewritten is put back byte for byte, its index entry too (unless something else wrote it since), so a
+    failed run leaves no uncommitted retitle behind and the next run starts from the same survey."""
     from api.services import episode_ids, git_service, markdown_parser, page_lock, write_admission
 
     memory_path = Path(memory_path)
     episodes_dir = memory_path / "episodes"
-    written: list[Path] = []
+    written: list[tuple[Path, bytes, bytes]] = []   # (path, as surveyed, as rewritten)
     with write_admission.admitted(memory_path, refuse=lambda: SleepRunning("Sleep is holding this bank's pages")):
         if sleep_running():
             raise SleepRunning("a Sleep run is in progress; retitle after it ends")
         with page_lock.page_lock(memory_path):
             result = survey(memory_path)
-            for path, (surveyed, title) in result._todo.items():
-                with episode_ids.episode_lock(episodes_dir):
-                    if path.read_text(encoding="utf-8") != surveyed:  # captured again since the survey
-                        result.dirty += 1
-                        result.would_retitle -= 1
-                        continue
-                    parsed = markdown_parser.parse(path)
-                    fm = dict(parsed.frontmatter)
-                    fm["title"] = title
-                    markdown_parser.write(path, fm, parsed.body)
-                written.append(path)
-            rels = [f"episodes/{p.name}" for p in written]
-            result.written = len(rels)
-            if rels and (memory_path / ".git").exists():
-                message = git_service.build_commit_message(
-                    f"Episode titles: {len(rels)} episode(s) named by the person's words, not a wrapper tag",
-                    [f"{rel}: title (trigger: {TRIGGER})" for rel in rels],
-                    authors=["cicada"],
-                )
-                git_service.commit_paths_sync(memory_path, message, rels)
-                result.committed = True
+            try:
+                for path, (surveyed, title) in result._todo.items():
+                    with episode_ids.episode_lock(episodes_dir):
+                        if path.read_bytes() != surveyed:  # captured again since the survey
+                            result.dirty += 1
+                            result.would_retitle -= 1
+                            continue
+                        parsed = markdown_parser.parse(path)
+                        fm = dict(parsed.frontmatter)
+                        fm["title"] = title
+                        markdown_parser.write(path, fm, parsed.body)
+                        written.append((path, surveyed, path.read_bytes()))
+                rels = [f"episodes/{p.name}" for p, _, _ in written]
+                if rels and (memory_path / ".git").exists():
+                    message = git_service.build_commit_message(
+                        f"Episode titles: {len(rels)} episode(s) named by the person's words, not a wrapper tag",
+                        [f"{rel}: title (trigger: {TRIGGER})" for rel in rels],
+                        authors=["cicada"],
+                    )
+                    git_service.commit_paths_sync(memory_path, message, rels)
+                    result.committed = True
+            except BaseException:
+                if not result.committed:
+                    _restore(memory_path, written)
+                raise
+            result.written = len(written)
     if written:
         logger.info(f"episode retitle: {len(written)} episode(s)")
     return result
+
+
+def _restore(memory_path: Path, written: list[tuple[Path, bytes, bytes]]) -> None:
+    """Put back what a failed :func:`apply` rewrote — the file, and the index if the commit failed after staging; an
+    episode written again since (a capture) is left to its writer."""
+    from api.services import episode_ids, git_service, markdown_parser
+
+    episodes_dir = memory_path / "episodes"
+    if written and (memory_path / ".git").exists():
+        try:   # the surveyed files were clean, so their index entry is HEAD's
+            rels = [f"episodes/{p.name}" for p, _, _ in written]
+            git_service.run_git_write_sync(memory_path, "reset", "-q", "--", *rels)
+        except Exception as exc:  # noqa: BLE001 — restore the files regardless
+            logger.warning(f"episode retitle: could not unstage ({type(exc).__name__})")
+    for path, before, after in reversed(written):
+        try:
+            with episode_ids.episode_lock(episodes_dir):
+                if path.read_bytes() == after:
+                    markdown_parser._replace(path, before)
+        except Exception as exc:  # noqa: BLE001 — restore the rest; the original error is what is raised
+            logger.warning(f"episode retitle: could not restore one episode ({type(exc).__name__})")
