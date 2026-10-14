@@ -56,6 +56,7 @@ struct ContentView: View {
     @Environment(ReadingSitesCache.self) private var readingSitesCache
     @Environment(ChannelItemsCache.self) private var channelItemsCache
     @Environment(VideoStateCache.self) private var videoStateCache
+    @Environment(ExploreCache.self) private var exploreCache
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// True while a file is dragged over the window — shows the drop veil (I1).
     @State private var dropTargeted = false
@@ -109,6 +110,9 @@ struct ContentView: View {
             videoStateCache.reset()
             // G162 — a page on screen keeps its video rows: the reset forgot the answers, never what was asked.
             if videoStateCache.wantsReads { Task { await videoStateCache.revalidate() } }
+            // G166 exploring — the run is per bank; a page on screen reads the new bank's at once.
+            exploreCache.reset()
+            Task { await exploreCache.revalidate() }
             // G166 — the sites list and its icons are per bank.
             readingSitesCache.reset()
             Task { await SiteIconStore.shared.clear(bank: old) }
@@ -123,6 +127,12 @@ struct ContentView: View {
         .onChange(of: store.version) { old, new in
             guard VideoRefresh.shouldRevalidate(old: old, new: new), videoStateCache.wantsReads else { return }
             Task { await videoStateCache.revalidate() }
+        }
+        // G166 exploring — "Picked up" and each recorded capture show within a second of the queue file or a capture
+        // record moving (the `exploreQueue` and `captures` components); unread until Sources asks.
+        .onChange(of: store.version) { old, new in
+            guard ExploreRefresh.shouldRevalidate(old: old, new: new), exploreCache.wantsReads else { return }
+            Task { await exploreCache.revalidate() }
         }
         // The engine choice changed somewhere else (or a run started or ended on another engine): the Sleep page's
         // button, lamp and answers follow it without a revisit.

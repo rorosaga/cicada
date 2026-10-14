@@ -63,5 +63,15 @@ for entry in catalog["skills"]:
             ok = False
         print(f"{'OK ' if ok else 'BAD'} {entry['id']:<20} SKILL.md sha256")
         failures += 0 if ok else 1
+    # A skill that ships more than its SKILL.md (Cicada's own site-explore, G166) pins every other file too.
+    for name, sha in (pin.get("files") or {}).items():
+        url = raw_url({**pin, "path": pin["path"]}).rsplit("/", 1)[0] + "/" + name
+        try:
+            _, body = fetch(url)
+            ok = hashlib.sha256(body).hexdigest() == sha
+        except Exception:
+            ok = False
+        print(f"{'OK ' if ok else 'BAD'} {entry['id']:<20} {name} sha256")
+        failures += 0 if ok else 1
 sys.exit(1 if failures else 0)
 PYEOF

@@ -2687,9 +2687,13 @@ actor APIClient {
     /// switch or a site on needs a current acknowledgement, given in the same call (`acknowledge`) or already stored;
     /// a 422 carries the sentence why.
     func setReadingSettings(agentEnabled: Bool? = nil, sites: [String: Bool]? = nil,
-                            acknowledge: Bool = false) async throws -> ReadingSettingsResponse {
+                            acknowledge: Bool = false, exploreSignedIn: Bool? = nil,
+                            neverExplore: [String: Bool]? = nil) async throws -> ReadingSettingsResponse {
         var body: [String: Any] = [:]
         if let agentEnabled { body["agentEnabled"] = agentEnabled }
+        // G166 exploring: the signed-in switch (D2 amended) and a Never explore patch (D3).
+        if let exploreSignedIn { body["exploreSignedIn"] = exploreSignedIn }
+        if let neverExplore { body["neverExplore"] = neverExplore }
         if let sites { body["sites"] = sites }
         if acknowledge { body["acknowledge"] = true }
         return try await put("/reading/settings", body: body)

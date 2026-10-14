@@ -62,7 +62,11 @@ TOOL_SCOPE: dict[str, str | None] = {
 # G198: page edits are stdio and command line only in their first slice — the trust list names local harnesses, and
 # whether a remote app may ever edit a page is the owner's open question.
 NEVER_REMOTE = frozenset({"cicada_pending", "cicada_mark_processed", "cicada_repo_context", "cicada_continue",
-                          "cicada_save_design", "cicada_design_search", "cicada_edit_page"})
+                          "cicada_save_design", "cicada_design_search", "cicada_edit_page",
+                          # G166 exploring (2026-10-14): stdio only in slice 1 — the record reads image files the agent
+                          # saved, and a run starts only from the person in a local conversation (D5: never remote).
+                          "cicada_explore_queue", "cicada_explore_claim", "cicada_record_capture",
+                          "cicada_explore_start"})
 WRITE_TOOLS = frozenset({"cicada_save_episode", "cicada_write_claim", "cicada_retract_claim",
                          "cicada_save_url", "cicada_record_watch", "cicada_record_read", "cicada_record_check", "cicada_add_source",
                          "cicada_change_source",

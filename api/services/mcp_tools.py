@@ -4322,3 +4322,321 @@ def design_search(ctx: ToolContext, query=None, image_path=None, image_base64=No
     if not lines:
         return "Nothing on the person's design board matches that." + (f"\n{notes[0]}" if notes else "")
     return "The person's saved looks, best match first:\n" + "\n".join(lines) + ("\n" + "\n".join(notes) if notes else "")
+
+
+# --------------------------------------------------------------------------- exploring saved sites (G166, 2026-10-14)
+#
+# The person picks saved sites and clicks Explore (or asks a trusted local agent in chat, D5); their own agent leases
+# one site at a time, runs Cicada's pinned capture script inside browser-harness, and records what it saw. All four
+# tools are stdio-only in this slice (`catalog.NEVER_REMOTE`): the record reads image files the agent saved, and the
+# start is the person's spoken request in a local conversation.
+
+_EXPLORE_OFF = ("Exploring is off: the person has not turned on \"Let an agent read pages for you\" in Cicada "
+                "(Settings, Reading the web). Nothing was leased or recorded.")
+EXPLORE_SLEEPING = ("Not recorded: Cicada is consolidating memory right now. Keep the screenshots and record the "
+                    "capture again with cicada_record_capture in a minute; your lease is still yours.")
+_EXPLORE_WALL = ("Recorded: {host} {what}. The whole site is paused and no screenshot of it was kept. Do not sign in, "
+                 "type credentials, click a consent banner or try another context or headers. Move to the next site.")
+
+
+def _explore_ledger(ctx: ToolContext, memory_path: Path, action: str, **refs) -> None:
+    """One ids-and-enums row per start, claim, release or capture — never a link, a site, a title or a reason."""
+    from api.services import telemetry
+
+    row = {"action": action, "harness": ctx.harness, **{k: v for k, v in refs.items() if v is not None}}
+    telemetry.record(telemetry.UsageEvent(
+        kind=telemetry.EXPLORE_KIND, stage="driver", connection="session", engine="mcp-client", model=None,
+        bank=memory_path.name, billing="free", invocations=0, refs=row))
+
+
+def _explore_context_line() -> str:
+    from api.services import reading_settings
+
+    if reading_settings.explore_signed_in():
+        return ("Browser context: the person's everyday signed-in Chrome session (their setting). Every capture is "
+                "recorded as taken signed in; pass signed_in=true.")
+    return ("Browser context: a private, cookie-less context — the person turned signed-in exploring off. Run the "
+            "capture with context=\"isolated\" and pass signed_in=false. If your browser tool cannot open a private "
+            "context, hand the site back with code skipped; never fall back to the signed-in session.")
+
+
+def _explore_why_line(ctx: ToolContext, why: dict | None) -> str | None:
+    if not why:
+        return None
+    labels = {"design": "the design, the look", "product": "the product itself", "technique": "a technique to reuse",
+              "read_later": "to read later"}
+    bits = [labels.get(r, r) for r in why.get("reasons") or []]
+    if why.get("project"):
+        bits.append(f"for {why['project']}")
+    line = "   why they saved it: " + ", ".join(bits)
+    if why.get("text"):
+        line += f" — \"{_one_line(why['text'], 200)}\""
+    if why.get("at"):
+        line += f" (said {str(why['at'])[:10]})"
+    return line
+
+
+def explore_queue_list(ctx: ToolContext, limit=None) -> str:
+    """``cicada_explore_queue``: the person's explore run, read-only — what is waiting, picked up and paused."""
+    from api.services import explore_candidates, explore_queue
+
+    memory_path = ctx.memory_path()
+    try:
+        cap = max(1, min(int(limit), 50)) if limit is not None else 20
+    except (TypeError, ValueError):
+        cap = 20
+    try:
+        data = explore_queue.view(memory_path, holding=ctx.pages_held)
+        saved = explore_candidates.saved_sites(memory_path, include_excluded=True)
+    except (OSError, ValueError):
+        return "Error: could not read the explore queue."
+    batch = explore_queue.batch_view(data)
+    live = [r for r in data["items"] if r["state"] in ("queued", "claimed", "paused") and r["key"] in saved]
+    if not live:
+        return "Nothing is waiting in the person's explore queue."
+    live.sort(key=lambda r: (r.get("requested_at") or "", r["key"]))
+    head = (f"The person's explore run: {sum(1 for r in live if r['state'] == 'queued')} waiting, "
+            f"{sum(1 for r in live if r['state'] == 'claimed')} picked up, "
+            f"{sum(1 for r in live if r['state'] == 'paused')} paused at a sign-in or a block"
+            + (f", {batch['done']} of {batch['total']} done" if batch else "")
+            + ". This list took no lease. Use cicada_explore_claim to take a site.")
+    lines = []
+    for i, row in enumerate(live[:cap], 1):
+        site = saved[row["key"]]
+        state = {"queued": "waiting", "claimed": "picked up by " + (row.get("claimed_by") or "an agent"),
+                 "paused": "paused"}[row["state"]]
+        lines.append(f"{i}. {site.url} — \"{_one_line(site.title, 120) or 'Untitled'}\" · {state}")
+    more = len(live) - cap
+    return "\n".join([head, *_untrusted_block(ctx, lines), *([f"…and {more} more."] if more > 0 else [])])
+
+
+def explore_claim(ctx: ToolContext, limit=None, release: list | None = None) -> str:
+    """``cicada_explore_claim``: lease saved sites to explore (one live lease per site across every agent; at most
+    ``min(limit or 1, 5)`` a call), or, with ``release``, hand leased ones back. Writes only the queue file outside
+    the bank, so it is not refused while Sleep runs; refused in a demo bank and while agent reading is off."""
+    from api.services import explore_candidates, explore_queue, explore_skill, media_ingestor, reading_settings, \
+        site_captures
+
+    memory_path = ctx.memory_path()
+    if (refusal := _demo_refusal(memory_path)) is not None:
+        return refusal
+    if not reading_settings.agent_enabled():
+        return _EXPLORE_OFF
+    try:
+        if release:
+            results = explore_queue.release(memory_path, release, session=ctx.session_id, holding=ctx.pages_held,
+                                            key_of=media_ingestor.url_hash)
+            done = [o for _, o in results if o in ("paused", "released", "skipped")]
+            if done:
+                _explore_ledger(ctx, memory_path, "release", count=len(done))
+            lines = [f"Handed back {len(done)} site(s)." if done else "Nothing was handed back."]
+            for url, outcome in results:
+                if outcome == "paused":
+                    lines.append(f"Paused the whole site: {_one_line(url, 200)}. Nothing on it will be tried again "
+                                 "until the person asks. Do not sign in or try another route.")
+                elif outcome in ("not_claimed", "not_yours"):
+                    lines.append(f"Not yours to hand back: {_one_line(url, 200)}")
+                elif outcome == "unknown":
+                    lines.append(f"Not in the person's explore queue: {_one_line(url, 200)}")
+            return "\n".join(lines)
+        ok, why = explore_skill.verified()
+        if not ok:
+            return (f"Nothing was leased: {why}. Ask the person to update Cicada; never use another copy of the "
+                    "capture script.")
+        saved = explore_candidates.saved_sites(memory_path)
+        rows = explore_queue.claim(memory_path, session=ctx.session_id, harness=ctx.harness, limit=limit,
+                                   saved=set(saved), holding=ctx.pages_held)
+        if not rows:
+            data = explore_queue.view(memory_path)
+            waiting = sum(1 for r in data["items"] if r["state"] == "queued")
+            if waiting:
+                return (f"No site is free right now: {waiting} are waiting, but each is held by another agent or "
+                        "paced (8 seconds between pages of one site). Try again in a few seconds.")
+            return "Nothing is waiting in the person's explore queue."
+        _explore_ledger(ctx, memory_path, "claim", count=len(rows))
+        script = explore_skill.script_path()
+        lines = []
+        for i, row in enumerate(rows, 1):
+            site = saved[row["key"]]
+            bits = [f"\"{_one_line(site.title, 120) or 'Untitled'}\"", f"depth {row['depth']}",
+                    f"lease_token {row['lease_token']}"]
+            if site.saved_at:
+                bits.append(f"saved {site.saved_at[:10]}")
+            prev = site_captures.last_look(site_captures.list_captures(memory_path, site.entity_id))
+            if prev is not None:
+                bits.append(f"last captured {str(prev.get('captured_at'))[:10]} (viewport hash {prev.get('dhash')})")
+            lines.append(f"{i}. {site.url} — " + " · ".join(bits))
+            if (w := _explore_why_line(ctx, site.why)) is not None:
+                lines.append(w)
+        head = (f"Leased {len(rows)} site(s) for about {explore_queue.LEASE_MINUTES} minutes. For each, run Cicada's "
+                f"capture script in one browser-harness call — `exec(open(\"{script}\").read())` then "
+                "`print(explore_capture(url, depth=..., context=...))` — and record what it printed with "
+                "cicada_record_capture(url, lease_token, outcome, captured_at, final_url, http_status, shots, page, "
+                "signed_in). When a sign-in, a captcha or a block stops you, hand the site back with "
+                "cicada_explore_claim(release=[{url, code, reason}]) using code needs_login or blocked. Never sign in, "
+                "never click or hide a consent banner, never retry with other headers or another context. Then call "
+                "cicada_explore_claim again for the next site.")
+        return "\n".join([head, _explore_context_line(), *_untrusted_block(ctx, lines)])
+    except explore_queue.QueueError as exc:
+        return f"Error: {exc}"
+    except (OSError, ValueError):
+        return "Error: could not reach the explore queue."
+
+
+def _explore_shot_bytes(ctx: ToolContext, memory_path: Path, shot) -> bytes | str:
+    """One screenshot the agent sent: a file it saved (stdio; the design board's identity rule refuses the
+    harnesses' homes, Cicada's home, ~/Library and the bank) or base64."""
+    import base64
+    import binascii
+    import os
+
+    from api.services import site_captures
+
+    cap = site_captures.MAX_SHOT_BYTES
+    if not isinstance(shot, dict):
+        return "each shot is {kind, path} or {kind, base64}"
+    if shot.get("base64"):
+        raw = str(shot["base64"])
+        if raw.startswith("data:") and "," in raw:
+            raw = raw.split(",", 1)[1]
+        if len(raw) > (cap * 4) // 3 + 8:
+            return "a picture is over 12 MB"
+        try:
+            return base64.b64decode(raw, validate=True)
+        except (binascii.Error, ValueError):
+            return "a shot's base64 isn't base64"
+    if shot.get("path"):
+        given = Path(os.path.expanduser(str(shot["path"])))
+        if not given.is_absolute():
+            return "give each screenshot's absolute path"
+        got = _design_read_file(given, memory_path, cap)
+        return got if isinstance(got, bytes) else got.removeprefix("Not saved: ").rstrip(".")
+    return "a shot needs a path or base64"
+
+
+def record_capture(ctx: ToolContext, url: str, lease_token: str, outcome: str, captured_at=None, final_url=None,
+                   http_status=None, shots=None, page=None, signed_in=None, account_visible=False,
+                   consent_overlay=False, consent_box=None, next_pages=None, loads=None, via=None,
+                   last_modified=None) -> str:
+    """``cicada_record_capture``: what the agent's capture saw on a site it leased — a dated, append-only record in the
+    bank (``site_captures``), the thumbnail when the look changed, the full images outside the bank. Refused in a demo
+    bank, while agent reading is off, without a lease, and while Sleep writes. A wall (``needs_login``, ``blocked``) is
+    never a capture: it pauses the site and keeps no screenshot."""
+    from api.services import explore_candidates, explore_queue, media_ingestor, reading_settings, site_captures
+
+    memory_path = ctx.memory_path()
+    if (refusal := _demo_refusal(memory_path)) is not None:
+        return refusal
+    if not reading_settings.agent_enabled():
+        return _EXPLORE_OFF
+    url, outcome = str(url or "").strip(), str(outcome or "").strip().lower()
+    key = media_ingestor.url_hash(url) if url else ""
+    if outcome in explore_queue.PAUSING:
+        results = explore_queue.release(memory_path, [{"url": url, "code": outcome, "lease_token": lease_token}],
+                                        session=ctx.session_id, holding=ctx.pages_held, key_of=media_ingestor.url_hash)
+        if not results or results[0][1] != "paused":
+            return "Not recorded: that site is not leased to you. Call cicada_explore_claim to take one."
+        _explore_ledger(ctx, memory_path, "release", count=1, code=outcome)
+        host = reading_hosts_display(url)
+        return _EXPLORE_WALL.format(host=host, what="needs the person to sign in" if outcome == "needs_login"
+                                    else "blocked the visit")
+    if outcome not in site_captures.OUTCOMES:
+        return f"Error: outcome must be one of {', '.join(site_captures.OUTCOMES + explore_queue.PAUSING)}."
+    site = explore_candidates.saved_sites(memory_path, include_excluded=True).get(key)
+    if site is None:
+        return "Not recorded: that link is not saved in Cicada, so there is no page to keep a capture on."
+    status, row = explore_queue.lease_status(memory_path, key, str(lease_token or ""), session=ctx.session_id,
+                                             holding=ctx.pages_held)
+    if status == "duplicate":
+        return (f"Already recorded: capture {row.get('capture_id') or '(none)'} ({row.get('outcome')}). "
+                "Nothing new was written. Call cicada_explore_claim for the next site.")
+    if status == "taken":
+        return "Not recorded: this site was handed to another agent after your lease lapsed. Drop it and move on."
+    if status == "unknown":
+        return "Not recorded: that site is not leased to you (or the lease_token is wrong). Call cicada_explore_claim."
+    signed = bool(signed_in) if signed_in is not None else True
+    if signed and not reading_settings.explore_signed_in():
+        return ("Not recorded: the person turned off exploring in their signed-in browser session. Capture it again "
+                "with context=\"isolated\" (a private, cookie-less context) and pass signed_in=false.")
+    shot_bytes: list[tuple[str, bytes]] = []
+    for shot in list(shots or [])[:len(site_captures.SHOT_KINDS)]:
+        got = _explore_shot_bytes(ctx, memory_path, shot)
+        if isinstance(got, str):
+            return f"Not recorded: {got}."
+        shot_bytes.append((str(shot.get("kind") or ""), got))
+    claimed_at = explore_queue._parse((row or {}).get("claimed_at"))
+    with write_admission.shared(memory_path):   # G183: from the probe through the commit
+        if ctx.sleep_running():
+            return EXPLORE_SLEEPING
+        result = site_captures.record(
+            memory_path, entity_id=site.entity_id, url=site.url, lease_token=str(lease_token), outcome=outcome,
+            captured_at=captured_at, window_start=claimed_at, final_url=final_url, http_status=http_status,
+            shots=shot_bytes, page=page if isinstance(page, dict) else None, signed_in=signed,
+            account_visible=bool(account_visible), consent_overlay=bool(consent_overlay), consent_box=consent_box,
+            depth=(row or {}).get("depth") or "capture", saved_at=site.saved_at,
+            why_at=(site.why or {}).get("at"), last_modified=last_modified, author=ctx.author,
+            session=ctx.session_id, via=via, next_pages=next_pages)
+        if result["action"] == "error":
+            return f"Not recorded: {result['error']}"
+        if result["paths"]:
+            agent_commits.commit_write(
+                memory_path, subject=ctx.commit_subject, lines=site_captures.commit_lines(result["paths"], ctx.trigger),
+                paths=result["paths"], author=ctx.author, session=ctx.session_id)
+    cap = result["capture"] or {}
+    explore_queue.complete(memory_path, key, str(lease_token), outcome=str(cap.get("outcome") or outcome),
+                           capture_id=result["id"], loads=loads or 1, session=ctx.session_id, holding=ctx.pages_held)
+    _explore_ledger(ctx, memory_path, "capture", outcome=str(cap.get("outcome") or outcome),
+                    depth=str(cap.get("depth") or "capture"),
+                    shots=",".join(sorted({k for k, _ in shot_bytes})) or None)
+    change = cap.get("change") or {}
+    bits = [f"Recorded capture {result['id']} of \"{_one_line(cap.get('title') or site.title, 120) or site.url}\"",
+            f"outcome {cap.get('outcome')}",
+            "taken in the person's signed-in browser" if signed else "taken in a private context"]
+    if change.get("look"):
+        bits.append(f"look since {change.get('since')}: {change['look']}")
+    if cap.get("look"):
+        bits.append("Cicada read the colours itself: " + ", ".join(cap["look"]))
+    if result["action"] == "duplicate":
+        bits = [f"Already recorded as {result['id']}; nothing new was written"]
+    return " · ".join(bits) + ". Call cicada_explore_claim for the next site."
+
+
+def reading_hosts_display(url: str) -> str:
+    from api.services import reading_hosts
+
+    return reading_hosts.display_host(reading_hosts.host_of(url)) or "the site"
+
+
+def explore_start(ctx: ToolContext, scope=None, origins=None) -> str:
+    """``cicada_explore_start`` (D5): a trusted local agent starts a run because the person asked in this
+    conversation. Stamped with who started it, shown in Cicada at once and stoppable with one tap. Never remote,
+    never from the command line, never an untrusted harness; refused in a demo bank and while agent reading is off."""
+    from api.services import explore_candidates, explore_queue, page_editors, reading_settings
+
+    memory_path = ctx.memory_path()
+    if ctx.is_remote or ctx.is_cli:
+        return "Not started: a run starts only from the person's own request in a local conversation, or their click."
+    if (refusal := _demo_refusal(memory_path)) is not None:
+        return refusal
+    if not page_editors.is_trusted(ctx.author):
+        return ("Not started: this agent is not on the person's trusted list (Settings, Agents). Ask them to click "
+                "Explore saved sites in Cicada's Sources instead.")
+    if not reading_settings.agent_enabled():
+        return _EXPLORE_OFF
+    scope = str(scope or "never_explored")
+    if scope not in ("all", "never_explored"):
+        return "Error: scope must be all or never_explored."
+    picked = explore_candidates.select(memory_path, {"scope": scope, "origins": origins or []})
+    if not picked:
+        return "Nothing to explore: no saved site matches (or every one is excluded, explored or set to Never explore)."
+    try:
+        batch = explore_queue.start(memory_path, [{"key": s.key, "site": s.site, "depth": s.depth} for s in picked],
+                                    started_by={"kind": "agent", "harness": ctx.author, "session": ctx.session_id},
+                                    holding=ctx.pages_held)
+    except explore_queue.QueueError as exc:
+        return f"Error: {exc}"
+    _explore_ledger(ctx, memory_path, "start", count=batch["total"])
+    est = explore_candidates.estimate(batch["total"], [s.depth for s in picked])
+    return (f"Started exploring {batch['total']} saved site(s) for the person ({est['size']}, about {est['minutes']} "
+            "minutes with four agents). It shows in Cicada now, stamped as started by you, and the person can stop it "
+            "with one tap. Take sites with cicada_explore_claim.")

@@ -8,6 +8,12 @@
 
 ## Current state and evidence
 
+- **2026-10-14 (evening) — exploring saved sites, slice 1, on branch `feat/explore-sites` (not merged).** The owner
+  ruled D1–D6 (ruling 25). Built: the explore queue, dated captures with thumbnails in the bank and full images in
+  `~/.cicada/captures/`, four stdio MCP tools (`cicada_explore_claim`, `cicada_record_capture`, `cicada_explore_queue`,
+  `cicada_explore_start`), `/explore/*` routes, the pinned `skills/site-explore` capture script, the Sources sheet and run
+  card, the signed-in switch and Never explore in Settings. The catalog pins the skill's branch commit; after the merge,
+  re-pin `site-explore` to the dev commit (`scripts/verify-skills.sh`). Slices 2 and 3 are open on G166.
 - **2026-10-14 (acting-owner session, afternoon) — pick up here.** Merged to dev after the overnight entry below:
   - **#273:** docs for the overnight state.
   - **#274, every agent:** a paste-able setup prompt for Cursor and for "another agent" (G76); Cursor and Gemini CLI conversations are captured through their prompt/reply hooks, built from the documented payloads and not yet seen in the real apps (G197, with a capture matrix in `capture-and-sleep.md`); the owner's ruling on file search (G195).
@@ -622,4 +628,25 @@ A whole row moves to DONE only after its remaining implementation and required a
 24. **Pages, age, pictures and the CLI (owner, 2026-10-09 to 2026-10-13).** **Pages are articles (G194):** a lead and prose sections with no length cap, written for pages on 2+ conversations, over a record (Key Facts, History, Links, Open Questions, claims) that is unioned and never shortened; provenance per paragraph; an edited article is the person's. **Age counts from when it was said (G170 amended):** what the conversations prove silent is charged once, when read; a one-off may archive by age; a page or claim on 2+ dated conversations floors at 0.39 and only live silence archives it; a mention never lowers; a decay question only when live silence crosses 0.4. **Pictures (G159/G162):** Gravatar (the owner's hashed email) and GitHub for people, X and LinkedIn through unavatar.io behind their own default-off gate as the ToS rail's one exception — only from a link given as the person's own account; link-card icons only from the page's own tags; a YouTube still from its id when oEmbed gives none. **CLI (ruling 21a):** commands on state the backend owns go through its routes after `/healthz` confirms the root; person-only commands refuse from an agent's shell. **Web:** keep the door open — new features live behind the backend API, no browser front end yet.
     **Why.** Pages: rich pages had a median 26 facts and a 36-word summary because the merge prompt capped summaries at 1–3 sentences; the owner pointed at gbrain and Cognition's agent-memory repo — free prose, git as the safety net. Age: the owner's own reading ("if we track the time where i did that work, then it would be irrelevant now"); a straight age rule archived 79% of the bank (601/664 projects) in a dry run, so repeats floor. Pictures: the owner's own chain from another app, minus guessing. CLI: one implementation for the app, the CLI and a future browser front end; no second Sleep.
     Revisit articles if G148 measures a recall loss or the plan limit bites; the age floor if the owner reports losing things he needed (count revivals first); the unavatar exception if the provider changes terms or starts scraping behind a login for X.
-
+25. **Exploring saved sites (owner, 2026-10-14; G166, G196 open question 2).** **D1 storage (b):** one thumbnail per
+    changed look in the bank, full images in `~/.cicada/captures/` outside git, kept and exportable with the bank;
+    deliberate Looks keep their full image in the bank. **D2 browser context, amended by the owner:** "My signed-in
+    sessions by default, but I can choose to disable this in Settings" — agents explore in the person's everyday
+    signed-in Chrome session and every capture taken signed in is marked `signed_in: true`; the Settings switch (Reading
+    the web) turns it off, and off is a private, cookie-less browser context (`Target.createBrowserContext`, verified
+    drivable through browser-harness in a test Chrome; an agent that cannot open one hands the site back, never falls
+    back to the signed-in session). Still binding: private workspaces excluded; walls and captchas recorded
+    `needs_login`/`blocked`, never retried with different headers; consent banners never clicked or hidden; one agent per
+    site, ≥ 8 s between pages. **D3 consent (a):** the reading acknowledgement is v3 with an exploring paragraph saying
+    plainly that exploring uses the signed-in session by default and the person's accounts carry the terms-of-service
+    risk, plus a per-site *Never explore*. **D4 depth (a):** a scripted capture of the viewport and metadata by default;
+    Sleep's recon finds the relations; full page, mobile, dark and second pages only where the person's why (G191) asks.
+    **D5 who starts (b):** the person's click, or a trusted local agent they asked in chat, stamped with who started it,
+    shown at once and stoppable in one tap; never remote, never from an agent's shell. **D6 change detection (a):**
+    Cicada's own fetcher may check an explored public page at most monthly on the Sleep tail, under the connector gate
+    and the ToS rail, and only marks "may have changed" — slice 3.
+    **Why.** The design (2026-10-14) measured ~1 GB of images a first pass of 1,000 sites, which in git would grow
+    forever (ruling 3's failure); the owner wants his logged-in view of the sites he saved, accepting the account risk
+    in words he signs.
+    Revisit D2's default if a capture taken signed in is found to have kept another person's private data in a bank; D1
+    if exported banks are measured to miss the full images people want.

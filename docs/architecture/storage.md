@@ -734,6 +734,46 @@ encoder the picture leg is absent (`missing: image_model`); without EmbeddingGem
 (at most 64 pictures a call) and in the background after a save — never by Sleep, and never while a Sleep run is going
 (a search then answers from the vectors already stored). The query is never logged or stored.
 
+### Site captures — exploring saved sites (G166, owner 2026-10-14, D1 (b))
+
+An agent the person asked explores their saved sites (`mcp.md`, *Exploring saved sites*) and records what it saw. One
+writer, `api/services/site_captures.py`, turns each visit into memory; every door (the MCP tool, the demo) goes through it.
+
+| What | Where | Why |
+|---|---|---|
+| The capture record: frontmatter (dates, outcome, title, outline, components, fonts, tokens, JSON-LD fields, palette, hashes, change block, `signed_in`) and a short body | `<bank>/captures/<media-entity-id>/<YYYYMMDDTHHMMSSZ>-<tok6>.md`, committed as the agent's harness | Memory: dated, 2–6 KB, legible to an agent, portable |
+| One thumbnail per capture that **changed the look** (JPEG, at most 640×400) | `<bank>/assets/captures/<sha256[:16]>.jpg`, content-addressed | "How it looked then" survives a handed-over bank, at ~40 KB a changed look |
+| Full-resolution images (viewport 2×, full page, mobile, dark) | `$CICADA_HOME/captures/<bank>/<sha256>.<jpg|png>`, outside every bank and git repo, never evicted | Size: ~1 GB a first pass of 1,000 sites would bloat git forever (D1) |
+| The page's visible text (≤ 1,500 words, scrubbed) | `$CICADA_HOME/captures/<bank>/text/<sha256>.txt` | Change detection and recon, and no copy of someone else's page in git |
+| The queue | `$CICADA_HOME/explore_queue/<bank>.json` (`explore_queue`) | An intent, not a memory (keys only, no URL) |
+
+- **Append-only.** A re-visit writes a new file and never edits one (`markdown_parser.write_new`, exclusive create). The
+  record id is the capture's instant plus the lease token's first six hex digits, so a retry finds its own record and
+  writes nothing (`duplicate`). "Changed since" is a comparison between dated records.
+- **Every date.** `captured_at` (the agent's clock, kept only inside its lease window, else the server's clock and
+  `captured_at_flagged: true`), `recorded_at` (the server's), `saved_at` (the bookmark's own instant from G191's
+  `added_at`, else the save day), `why_at` (when the person said why, G191) and `last_modified` (only when the page gave
+  one that is not "now").
+- **Computed by Cicada, never the agent's word.** The palette and its look words (`design_palette`, as for Looks), a
+  64-bit dHash of the viewport (9×8 grayscale through `image_decode`'s `sips` child process), and sha256 of the
+  normalized text and outline (whitespace folded, digits masked, so a footer year is not a change). The change block:
+  `look` is `same` (Hamming ≤ 5), `small` or `new` (≥ 12); `words` is `same` or `changed(<outline Jaccard distance>)`;
+  `moved` when the final site differs from the saved one.
+- **The thumbnail.** Made by Cicada from the viewport (`sips -z`, quality 80, fit inside 640×400, never enlarged); the
+  agent's own `thumb` is used only when `sips` is missing and it already fits. An unchanged look (`same`, or outcome
+  `unchanged`) points at the previous thumbnail (`thumb.reused`) and adds no bytes. A page that showed the person's own
+  account (`account_visible`) keeps even its thumbnail outside the bank: the scrub cannot clean pixels.
+- **Signed in or not (D2 amended).** Every record carries `context: signed_in|isolated` and `signed_in`, shown on every
+  surface ("taken in your signed-in browser").
+- **Outcomes.** `captured`, `unchanged`, `moved`, and the dead ones — `not_found`, `gone`, `parked` — recorded with no
+  images. A wall (`needs_login`, `blocked`) is **never** a capture: no screenshot of it is kept; the queue pauses the site.
+- **Reading them.** `GET /explore/captures/{entity_id}` (newest first, the wire `site_captures.wire`), `…/{id}/thumb`
+  (from the bank only, `assets/captures/<16 hex>.jpg`), `…/{id}/image/{kind}` (from the outside store, by the hash the
+  record names; 404 "not on this Mac" when absent, and the wire says `onThisMac: false`). The `captures` sync component is
+  a two-level stat walk of `captures/`. Export of the outside store with the bank is slice 3.
+- **Never an entity page.** Exploring creates no page; a capture names its saved-link page (`entity`) and Stage 1 never
+  reads `captures/`. Sleep's recon over the captured outline (G102) is slice 2.
+
 ### Live state + handshake (G53 / G75)
 
 **`<bank>/_state.md` is a *cursor* into the graph, never a copy of it** — YAML frontmatter plus a

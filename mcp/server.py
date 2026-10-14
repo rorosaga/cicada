@@ -425,6 +425,75 @@ TOOLS = [
         },
     },
     {
+        # G166 exploring (2026-10-14): read-only over the queue file outside the bank. Stdio only in this slice.
+        "name": "cicada_explore_queue",
+        "description": "The person's explore run, read-only: the saved sites they asked an agent to explore, and whether each is waiting, picked up or paused at a sign-in. Takes no lease and changes nothing. Use cicada_explore_claim to take a site.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "limit": {"type": "integer", "description": "Optional. How many to list (default 20, at most 50)."},
+            },
+        },
+        "annotations": {"readOnlyHint": True},
+    },
+    {
+        "name": "cicada_explore_claim",
+        "description": "Take saved sites the person asked to have explored. With no `release`, leases one site (up to `limit`, at most 5) to this session, never a site another agent holds, and returns its link, depth, lease_token and how to run Cicada's capture script in browser-harness; call it again for the next site. With `release`, hands sites back with a code: needs_login or blocked when a sign-in, a captcha or a block stops you (the whole site is paused; never sign in yourself), not_found, gone, skipped or failed. It changes only the person's queue, not their memory. Record each site you capture with cicada_record_capture.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "limit": {"type": "integer", "description": "Optional. How many sites to take (default 1, at most 5)."},
+                "release": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "url": {"type": "string", "description": "The site's link as leased."},
+                            "code": {"type": "string", "enum": ["needs_login", "blocked", "not_found", "gone", "skipped", "failed"], "description": "Why it could not be done."},
+                            "reason": {"type": "string", "description": "One short line (at most 200 characters)."},
+                            "lease_token": {"type": "string", "description": "Optional: the lease_token you were given."},
+                        },
+                        "required": ["url"],
+                    },
+                    "description": "Optional. Sites to hand back instead of taking more.",
+                },
+            },
+        },
+    },
+    {
+        "name": "cicada_record_capture",
+        "description": "Record what Cicada's capture script saw on a site you leased with cicada_explore_claim: pass the url and lease_token, the outcome, when you captured it, and the screenshots and page data the script printed. Cicada keeps a dated record (never replacing an earlier one), reads the colours from the pixels itself, keeps a small thumbnail in memory when the look changed and the full images on this Mac outside memory. A wall is never a capture: for a sign-in or a block send outcome needs_login or blocked with no screenshots.",
+        "inputSchema": {"type": "object", "required": ["url", "lease_token", "outcome"], "properties": {
+            "url": {"type": "string", "description": "The site's link as leased."},
+            "lease_token": {"type": "string", "description": "The lease_token cicada_explore_claim gave you."},
+            "outcome": {"type": "string", "enum": ["captured", "unchanged", "not_found", "gone", "parked", "moved", "failed", "needs_login", "blocked"], "description": "What happened."},
+            "captured_at": {"type": "string", "description": "When you captured it, ISO 8601 with a timezone (the script prints it)."},
+            "final_url": {"type": "string", "description": "Where the page ended up after redirects."},
+            "http_status": {"type": "integer", "description": "The page's HTTP status, when the script read it."},
+            "shots": {"type": "array", "description": "The screenshots the script saved.", "items": {
+                "type": "object", "required": ["kind"], "properties": {
+                    "kind": {"type": "string", "enum": ["viewport", "thumb", "full", "mobile", "dark"]},
+                    "path": {"type": "string", "description": "Absolute path of the JPEG or PNG the script saved."},
+                    "base64": {"type": "string", "description": "The picture itself, base64 (when you have no file)."}}}},
+            "page": {"type": "object", "description": "The page data the script printed: title, description, jsonld, outline, fonts, tokens, components, text."},
+            "signed_in": {"type": "boolean", "description": "True when captured in the person's signed-in browser session, false in a private context."},
+            "account_visible": {"type": "boolean", "description": "True when the page showed the person's own account (an avatar or account menu)."},
+            "consent_overlay": {"type": "boolean", "description": "True when a cookie or consent banner covered part of the page (never click or hide one)."},
+            "consent_box": {"type": "object", "description": "The banner's box in viewport pixels: x, y, width, height."},
+            "next_pages": {"type": "array", "description": "Up to two same-site pages worth a later visit.", "items": {
+                "type": "object", "properties": {"url": {"type": "string"}, "label": {"type": "string"}}}},
+            "loads": {"type": "integer", "description": "How many pages of the site you loaded under this lease (1 to 3)."},
+            "via": {"type": "string", "description": "Optional: the browser tool you used. Shown as what you said."},
+            "last_modified": {"type": "string", "description": "The page's own last-modified date, when it gave one."}}},
+    },
+    {
+        "name": "cicada_explore_start",
+        "description": "Start exploring the person's saved sites — only when the person asked you to in this conversation (\"explore my bookmarks\"). The run shows in Cicada at once, stamped as started by you, and the person can stop it with one tap. Then take sites with cicada_explore_claim.",
+        "inputSchema": {"type": "object", "properties": {
+            "scope": {"type": "string", "enum": ["never_explored", "all"], "description": "Optional: never_explored (default) or all."},
+            "origins": {"type": "array", "items": {"type": "string"}, "description": "Optional: only bookmarks from these browsers, e.g. chrome-bookmark, safari-bookmark."}}},
+    },
+    {
         "name": "cicada_sources",
         "description": "Return the primary source conversation chunks that produced an entity "
                        "(the episodes it was consolidated from). Use this to ground or verify a "
@@ -1082,6 +1151,20 @@ def handle_tool(name: str, arguments: dict) -> str:
         return handle_video_queue(arguments.get("limit"))
     elif name == "cicada_video_claim":
         return handle_video_claim(arguments.get("limit"), arguments.get("release"))
+    elif name == "cicada_explore_queue":
+        return mcp_tools.explore_queue_list(_ctx(), arguments.get("limit"))
+    elif name == "cicada_explore_claim":
+        return mcp_tools.explore_claim(_ctx(), arguments.get("limit"), arguments.get("release"))
+    elif name == "cicada_record_capture":
+        return mcp_tools.record_capture(
+            _ctx(), arguments.get("url", ""), arguments.get("lease_token", ""), arguments.get("outcome", ""),
+            arguments.get("captured_at"), arguments.get("final_url"), arguments.get("http_status"),
+            arguments.get("shots"), arguments.get("page"), arguments.get("signed_in"),
+            bool(arguments.get("account_visible", False)), bool(arguments.get("consent_overlay", False)),
+            arguments.get("consent_box"), arguments.get("next_pages"), arguments.get("loads"),
+            arguments.get("via"), arguments.get("last_modified"))
+    elif name == "cicada_explore_start":
+        return mcp_tools.explore_start(_ctx(), arguments.get("scope"), arguments.get("origins"))
     elif name == "cicada_record_check":
         return handle_record_check(
             arguments.get("item_id", ""), arguments.get("source", ""), arguments.get("outcome", ""),

@@ -175,6 +175,20 @@ the site, so a remote connection holding `read` sees them (TODO ruling 14; a sit
 person's own words needs `sources`); `sources` still gates every verbatim word of the person's conversations and any
 chat-harvested URL.
 
+**Exploring saved sites (G166, owner 2026-10-14) is the agent's browsing, not Cicada's fetch.** No server-side fetch is
+added: the backend and the MCP server never open a site (`test_explore_tools.py` refuses every outbound connection
+through the whole flow), so none of the three gates applies to it, and the connector gate is untouched. The person's own
+agent visits each saved site **in their everyday signed-in Chrome session by default** (owner D2, amended): every
+capture is marked `signed_in: true`, and the person's accounts carry the terms-of-service risk (the v3 acknowledgement
+says so, D3). A switch in Settings, Reading the web, turns that off: the agent then explores in a private, cookie-less
+`Target.createBrowserContext` the script creates and disposes of (verified drivable through browser-harness in a test
+Chrome; an agent that cannot open one hands the site back as `skipped`, never falling back to the signed-in session).
+The ToS rail's spirit binds the script: a wall or captcha is recorded `needs_login`/`blocked` with no screenshot and
+**never retried with different headers, a different user agent or a different context**; consent banners are never
+clicked or hidden (marked `consent_overlay`, a full-page one is `blocked`); one live lease per site, ≥ 8 s between pages
+of a site, ≤ 30 an hour, ≤ 3 a lease; private workspaces and walled sites the person has not turned on are never
+offered, and any site can be set to **Never explore**. Cicada's own "may have changed" probe (D6) is slice 3.
+
 **The ToS rail — this one is not negotiable.** A fetched page is 4 s / ≤ 512 KB / no cookies / never
 behind auth. Consent interstitials and login walls are classified and retired as `junk` **without a
 byte fetched**. **A block is never retried with different headers.** No scraping behind

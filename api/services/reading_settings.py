@@ -14,6 +14,12 @@
   switch is on. Empty by default. The earlier ``agent_hosts`` key is ignored by
   every reader and dropped on the next write: no carry-over, the branch had not
   shipped.
+* ``explore_signed_in`` (G166 exploring, owner 2026-10-14, D2 amended) — whether
+  an agent exploring saved sites uses the person's everyday signed-in browser
+  session. **On by default** (stored only when the person turns it off); off
+  means a private, cookie-less browser context. Every capture records which.
+* ``never_explore`` — ``{site: day}``: sites the person said never to explore (a
+  standing deny, machine-wide, D3).
 * ``agent_ack`` — ``{date, v}``: the person's "I understand" on the first-use
   sheet. Turning the switch on needs a current one; a change of the sheet's
   wording bumps ``ACK_VERSION`` and asks again (until they do, the switch reads
@@ -37,8 +43,10 @@ from api.services.auth import cicada_home
 FILENAME = "reading.json"
 #: Bump when the first-use sheet's wording changes: every earlier "I understand"
 #: stops counting and the person is asked again. (2: the sheet lost its site
-#: picker and gained the credentials line.)
-ACK_VERSION = 2
+#: picker and gained the credentials line. 3, owner 2026-10-14 D3: the exploring
+#: paragraph — exploring uses the signed-in session by default, and the person's
+#: accounts carry the terms-of-service risk.)
+ACK_VERSION = 3
 
 
 def path() -> Path:
@@ -117,6 +125,22 @@ def ack_current() -> bool:
     return held is not None and held["v"] >= ACK_VERSION
 
 
+def explore_signed_in() -> bool:
+    """Does exploring use the person's signed-in browser session? True unless they turned it off (D2 amended)."""
+    return _load().get("explore_signed_in") is not False
+
+
+def never_explore() -> dict[str, str]:
+    """``{site: day}`` the person said never to explore, in site order (a bad key denies nothing)."""
+    raw = _load().get("never_explore")
+    out: dict[str, str] = {}
+    if isinstance(raw, dict):
+        for key in sorted(raw):
+            if isinstance(key, str) and reading_hosts.valid_site_key(key):
+                out[key] = str(raw[key] or "")[:10]
+    return out
+
+
 def snapshot() -> dict:
     held = ack()
     return {
@@ -124,6 +148,8 @@ def snapshot() -> dict:
         "allowedSites": allowed_sites(),
         "ackedAt": held["date"] if held else None,
         "ackCurrent": ack_current(),
+        "exploreSignedIn": explore_signed_in(),
+        "neverExplore": never_explore(),
     }
 
 
@@ -132,7 +158,8 @@ class SettingsError(ValueError):
 
 
 def update(*, agent_enabled_: bool | None = None, acknowledge: bool = False, sites=None,
-           surfaced=None, today: date | None = None) -> dict:
+           surfaced=None, today: date | None = None, explore_signed_in_: bool | None = None,
+           never_explore_=None) -> dict:
     """Apply one change and return the new snapshot.
 
     Turning the switch on needs a current acknowledgement — either already
@@ -155,8 +182,32 @@ def update(*, agent_enabled_: bool | None = None, acknowledge: bool = False, sit
         bad = sorted(str(k) for k in sites if not reading_hosts.valid_site_key(str(k)))
         if bad:
             raise SettingsError(f"That is not a site name: {', '.join(bad)}. Nothing was changed.")
+    if never_explore_ is not None:
+        if not isinstance(never_explore_, dict):
+            raise SettingsError("neverExplore must be a map of site to true or false.")
+        bad = sorted(str(k) for k in never_explore_ if not reading_hosts.valid_site_key(str(k)))
+        if bad:
+            raise SettingsError(f"That is not a site name: {', '.join(bad)}. Nothing was changed.")
     if acknowledge:
         data["agent_ack"] = {"date": (today or date.today()).isoformat(), "v": ACK_VERSION}
+    if explore_signed_in_ is not None:
+        # Stored only when off: the default is the person's signed-in session (D2 amended).
+        if explore_signed_in_:
+            data.pop("explore_signed_in", None)
+        else:
+            data["explore_signed_in"] = False
+    if never_explore_:
+        held_never = data.get("never_explore") if isinstance(data.get("never_explore"), dict) else {}
+        held_never = {str(k): str(v) for k, v in held_never.items() if reading_hosts.valid_site_key(str(k))}
+        for key, on in never_explore_.items():
+            if on:
+                held_never.setdefault(str(key), (today or date.today()).isoformat())
+            else:
+                held_never.pop(str(key), None)
+        if held_never:
+            data["never_explore"] = dict(sorted(held_never.items()))
+        else:
+            data.pop("never_explore", None)
     if agent_enabled_ is not None:
         if agent_enabled_ and not _ack_ok(data):
             raise SettingsError(

@@ -326,6 +326,50 @@ toasts a link that just hit one (`ReadWords.newlyWalled`; the first look after l
 nothing). The wall reads in the text ladder with a neutral glyph, never `warning` (DR-7), and the agent's own note shows
 as "<agent> noted: …". No line says "in your browser" of what an agent did, or promises what it will not do.
 
+**Exploring saved sites (G166 slice 1, owner 2026-10-14, rulings D1–D6 in TODO ruling 25).** The person picks saved
+sites in Sources and clicks **Explore** (`POST /explore/batches`), or asks a trusted local agent in chat, which calls
+`cicada_explore_start(scope?, origins?)` (D5: only a harness on the person's G198 trust list, stdio, never remote and
+never from the CLI — the `explore start` row is MCP-only). Either way one batch lands in the explore queue
+(`explore_queue.py`, `$CICADA_HOME/explore_queue/<bank>.json`, the video queue's twin: keys only, `fcntl.flock` plus
+atomic replace, expiry and lapse applied in memory), stamped `started_by: {kind: person|agent, harness, session}`, shown
+at once on Sources and stoppable in one tap (`POST /explore/stop`: waiting sites dropped, a held one finishes). Cicada
+never opens a browser and never schedules an agent.
+- **The candidates** (`explore_candidates.py`): saved links minus `reading_hosts.classify`'s refusals (secrets, local,
+  AI apps, videos, papers, redirectors), private workspaces, junk/archived pages, walled sites the person has not turned
+  on in Reading the web, and **Never explore** sites. Depth comes from G191's optional `saved_why` on the link's episode
+  (`design` → look, `product`/a project → product, `technique` → read, else capture; D4).
+- **`cicada_explore_claim(limit?, release?)`** leases one site (at most 5) per call: **one live lease per site** across
+  every agent, at least 8 s between page loads on a site and at most 30 an hour (`sites` in the file), 15-minute leases
+  that any call from the session extends, three tries, a lapse judged only while Sleep does not hold the pages. Each row
+  carries a 128-bit `lease_token`, the depth, the saved date, the person's why, and the previous capture's viewport hash.
+  The reply names the pinned capture script **only after `explore_skill.verified()` re-checks its sha256** against the
+  catalog pin; otherwise nothing is leased. `release` codes: `needs_login` and `blocked` pause the **whole site** for 7
+  days or until the person asks again (*Try again*); `skipped`, `not_found`, `gone`, `failed`. Only the queue is written,
+  so it is not refused while Sleep runs.
+- **`cicada_record_capture(url, lease_token, outcome, captured_at, final_url, http_status, shots, page, signed_in, …)`**
+  writes the dated record (`storage.md`, *Site captures*) under write admission and commits it alone as the harness;
+  idempotent on `(url, lease_token)`; a late record after a lapse is accepted unless another agent was handed the site;
+  refused with "keep the files and record again" while Sleep writes. A shot is a file the agent saved (the design board's
+  by-identity refusal of `~/.claude`, `~/.codex`, `~/.cicada`, `~/Library` and the bank) or base64, ≤ 12 MB. When the
+  person turned signed-in exploring off, a record claiming `signed_in: true` is refused.
+- **`cicada_explore_queue(limit?)`** is the read-only list. All four tools are stdio-only (`catalog.NEVER_REMOTE`),
+  refused in a demo bank, and refused while "Let an agent read pages for you" is off. Telemetry: one `explore` ledger
+  row per start, claim, release or capture — ids and enums only.
+- **The skill** (`skills/site-explore/`): `SKILL.md` and `explore_capture.py`, run by the person's agent in ONE
+  `browser-harness` call per site (`exec(open(<script>).read()); print(explore_capture(url, depth=…, context=…))`). It
+  opens its own background tab — in the signed-in session, or for `context="isolated"` a fresh
+  `Target.createBrowserContext` it disposes of afterwards — emulates 1440×900 at 2×, reads the page's structure (title,
+  description, JSON-LD, the h1–h3 outline, fonts, `:root` custom properties, typography, components, ≤ 1,500 words),
+  classifies walls (401/403 or a lone password field → `needs_login`; 429/451, a captcha frame or a full-page consent
+  wall → `blocked`) **before** any screenshot, and saves JPEG q80 shots (viewport, a 640×400 thumbnail; full page, mobile
+  and dark at the deeper depths). It never signs in, types, clicks or hides a consent banner, changes the user agent,
+  retries, or activates a tab. Pinned in `recommended_skills.json` (id `site-explore`, `pin.files` holds the script's
+  hash; `scripts/verify-skills.sh` checks every pinned file).
+- **Verified (2026-10-14)** against a local fixture site in a headless Chrome started for the test (never the person's):
+  isolated contexts are drivable and cookies do not cross; three daemons with separate runtime dirs capture in parallel;
+  walls, a 404 and an unresolvable host classify as designed; the script's output records end to end. **Unverified:** a
+  headed Chrome behind the `chrome://inspect` approval, and background-tab rendering there.
+
 **Implicit recall (G149).** G105 stopped capture depending on a model's tool call, and recall now works the
 same way.
 

@@ -43,6 +43,10 @@ READ_AGENT_KIND = "read_agent"
 # enum, an `effect` enum (`noted` | `recommended`), the harness label and the connector id. Never the source, its host, a
 # quote or a proposed value. A per-call receipt filed beside `read_agent`, out of every Usage view.
 CHECK_AGENT_KIND = "check_agent"
+# G166 exploring: one row per explore start, claim, release or recorded capture — `action`, `count`, an `outcome` or
+# release-code enum, a `depth` enum, the shot kinds, the harness label. Never a link, a title, a site or a reason.
+# A per-call receipt filed beside `read_agent`, out of every Usage view.
+EXPLORE_KIND = "explore"
 # G113: grounded-feedback rows — a user's verdict on an inbox item, a reconcile
 # supersede/reject, a dedup judgement. Ids/enums/numbers only, never claim text
 # or an answer string (the ledger is machine-global and outside the bank).
@@ -61,7 +65,7 @@ FEEDBACK_KINDS = ("resolution", "audit", "dedup_verdict")
 # connection, the same class. G149: a ``hook_recall`` row is a per-prompt
 # receipt with no spend and no connection.
 NON_SPEND_KINDS = FEEDBACK_KINDS + ("capture", "handshake", "read", "remote_call", "connector_auth",
-                                    HOOK_RECALL_KIND, READ_AGENT_KIND, VIDEO_QUEUE_KIND, CHECK_AGENT_KIND)
+                                    HOOK_RECALL_KIND, READ_AGENT_KIND, VIDEO_QUEUE_KIND, CHECK_AGENT_KIND, EXPLORE_KIND)
 
 
 def now_iso() -> str:
@@ -172,7 +176,7 @@ READS_KIND = "read"
 # `/consumption/*` endpoint. G149 R-H9: a hook row fires on every prompt, so
 # it is filed here for the same reason.
 SIBLING_KINDS = frozenset({READS_KIND, "remote_call", HOOK_RECALL_KIND, READ_AGENT_KIND, VIDEO_QUEUE_KIND,
-                           CHECK_AGENT_KIND})
+                           CHECK_AGENT_KIND, EXPLORE_KIND})
 _PREFIX_EVENTS = "events"
 _PREFIX_READS = "reads"
 

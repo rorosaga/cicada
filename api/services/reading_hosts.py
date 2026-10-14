@@ -219,6 +219,14 @@ def _side_effect(parsed, host: str) -> bool:
     return _any_on(host, _PRIVATE_WORKSPACE)
 
 
+def is_private_workspace(url_or_host: str) -> bool:
+    """A private-workspace host (docs, drive, notion, figma, slack…): the person's own documents, never a site to
+    explore (G166 exploring, design §1.2). Part of class S for the reader; named apart for the explore sheet."""
+    raw = url_or_host or ""
+    host = host_of(raw) if "://" in raw else raw.strip().lower().rstrip(".")
+    return bool(host) and _any_on(host, _PRIVATE_WORKSPACE)
+
+
 def _vendor(parsed, host: str) -> bool:
     if _any_on(host, _VENDOR_HOSTS):
         return True

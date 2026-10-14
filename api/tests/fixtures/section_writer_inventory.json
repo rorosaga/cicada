@@ -279,6 +279,14 @@
       "disposition": "uninstrumented_guarded"
     }
   ],
+  "services/site_captures.py": [
+    {
+      "function": "record",
+      "method": "write_new",
+      "frontmatter": "fm",
+      "disposition": "fresh_frontmatter_untracked"
+    }
+  ],
   "services/design_refs.py": [
     {
       "function": "add_ref",

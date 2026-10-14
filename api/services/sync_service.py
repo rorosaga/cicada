@@ -17,6 +17,7 @@ from fastapi import Request, Response
 
 from api.services import (backlog, bank_index, design_refs, logo_service, markdown_parser, person_photo, reading_asks,
                           reading_settings, telemetry, video_queue)
+from api.services import explore_queue, site_captures
 from api.services.calendar_registry import CALENDARS_FILENAME
 from api.services.feed_registry import FEEDS_FILENAME
 from api.services.folder_source import FOLDERS_FILENAME
@@ -224,6 +225,12 @@ def components(memory_path: Path, *, sleep_state=None) -> dict[str, str]:
         # changes what /videos/state says). The app revalidates its VideoStateCache on this
         # component (VideoRefresh); it is NOT a Store domain and NOT in `_state.md`'s digest.
         "videoQueue": video_queue.stamp(mp),
+        # G166 exploring (2026-10-14): the explore queue lives at `$CICADA_HOME/explore_queue/<bank>.json`, outside the
+        # bank, with the video queue's stamp rule (mtime plus what came due with nothing written). `captures` is every
+        # capture record's stamp in `<bank>/captures/` (a stat walk, two levels). The app revalidates its
+        # ExploreCache on both; neither is a Store domain.
+        "exploreQueue": explore_queue.stamp(mp),
+        "captures": site_captures.stamp(mp),
         # G166: the reading asks live at `$CICADA_HOME/reading_asks/<bank>.json`
         # and the person's reading settings at `$CICADA_HOME/reading.json` —
         # both OUTSIDE the bank, so nothing above notices a "needs you to sign

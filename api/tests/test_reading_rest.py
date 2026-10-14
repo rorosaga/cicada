@@ -33,7 +33,7 @@ def test_get_settings_has_no_agent_hosts_or_host_switches(api):
     body = client.get("/reading/settings").json()
     assert (body["agentEnabled"], body["allowedSites"], body["ackedAt"], body["ackCurrent"]) == (False, {}, None, False)
     assert "agentHosts" not in body and "hostSwitches" not in body, "no pre-picked list of sites"
-    assert body["lastAgentRead"] is None and body["ackVersion"] == reading_settings.ACK_VERSION == 2
+    assert body["lastAgentRead"] is None and body["ackVersion"] == reading_settings.ACK_VERSION == 3
     assert body["shape"] == "reading-2"
 
 
