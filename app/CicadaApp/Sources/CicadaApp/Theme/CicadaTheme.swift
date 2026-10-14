@@ -184,6 +184,21 @@ enum CicadaTheme {
     /// Disabled states only (DR-3) — never the only cue, never text a reader needs.
     static var textQuaternary: Color { mode == .dark ? Dark.textQuaternary : Light.textQuaternary }
 
+    // MARK: - The notch surface (G191, ruling of 2026-10-14 in DESIGN_RULES §9)
+    /// The ask-why panel is the notch growing, so it is the notch's black in both appearances, and every colour on it
+    /// is the dark ladder's — fixed, never following Appearance (light text on black always).
+    enum Notch {
+        static let surface = Color.black
+        /// The one sheen: a hairline along the grown edge, so the shape reads where it leaves the hardware notch.
+        static let edge = Color.white.opacity(0.10)
+        static let textPrimary = Dark.textPrimary
+        static let textSecondary = Dark.textSecondary
+        static let textTertiary = Dark.textTertiary
+        static let chipRing = Dark.borderLight
+        static let chipSelected = Dark.bgSelected
+        static let chipSelectedRing = Dark.textSecondary
+    }
+
     // MARK: - Accent (DR-4 … DR-6)
     /// DR-4 — one accent, and it is the Mac's. Native toggles, sliders, segmented controls and
     /// `.borderedProminent` then match with no `.tint`, which removes the two-accent problem at

@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 @testable import CicadaApp
 
@@ -163,34 +164,80 @@ final class SaveWhyTests: XCTestCase {
 
     // MARK: - Placement and motion
 
-    func testThePanelSitsTopCentreUnderTheMenuBarWithOrWithoutANotch() {
-        let size = CGSize(width: 440, height: 120)
-        // A notched laptop: a 32 pt menu bar the notch sits in.
-        let notched = SaveWhyPlacement.frames(screen: CGRect(x: 0, y: 0, width: 1512, height: 982),
-                                              visible: CGRect(x: 0, y: 0, width: 1512, height: 950),
-                                              notchTop: 32, size: size, distance: 14)
-        XCTAssertEqual(notched.end, CGRect(x: 536, y: 982 - 32 - SaveWhyPlacement.gap - 120, width: 440, height: 120))
-        XCTAssertEqual(notched.start.minY - notched.end.minY, 14, "it drops out of the menu bar")
-        // No notch, a 24 pt menu bar: the same place.
-        let plain = SaveWhyPlacement.frames(screen: CGRect(x: 0, y: 0, width: 1920, height: 1080),
-                                            visible: CGRect(x: 0, y: 0, width: 1920, height: 1056),
-                                            notchTop: 0, size: size, distance: 14)
-        XCTAssertEqual(plain.end.midX, 960)
-        XCTAssertEqual(plain.end.maxY, 1080 - 24 - SaveWhyPlacement.gap)
-        // A hidden menu bar (full screen): the notch's height, else the usual one.
-        let hidden = SaveWhyPlacement.frames(screen: CGRect(x: 0, y: 0, width: 1920, height: 1080),
-                                             visible: CGRect(x: 0, y: 0, width: 1920, height: 1080),
-                                             notchTop: 0, size: size, distance: 0)
-        XCTAssertEqual(hidden.end.maxY, 1080 - SaveWhyPlacement.fallbackMenuBar - SaveWhyPlacement.gap)
-        XCTAssertEqual(hidden.start, hidden.end)
+    /// A 14-inch notched laptop, in screen points: the notch is the gap between the two menu-bar areas.
+    private let notchedScreen = CGRect(x: 0, y: 0, width: 1512, height: 982)
+    private var notch: CGRect? {
+        SaveWhyNotch.notchRect(screen: notchedScreen,
+                               topLeft: CGRect(x: 0, y: 950, width: 662, height: 32),
+                               topRight: CGRect(x: 850, y: 950, width: 662, height: 32), topInset: 32)
     }
 
-    func testTheDropIsInTheMotionBudgetAndStillUnderReduceMotion() {
-        XCTAssertLessThanOrEqual(CicadaMotion.notchDropDuration, CicadaMotion.maxDuration)
-        XCTAssertLessThanOrEqual(CicadaMotion.notchLeaveDuration, CicadaMotion.maxDuration)
-        XCTAssertEqual(CicadaMotion.notchDrop(reduceMotion: true).distance, 0)
-        XCTAssertEqual(CicadaMotion.notchLeave(reduceMotion: true).distance, 0)
-        XCTAssertGreaterThan(CicadaMotion.notchDrop(reduceMotion: false).distance, 0)
+    func testTheNotchIsTheGapBetweenTheMenuBarAreas() {
+        XCTAssertEqual(notch, CGRect(x: 662, y: 950, width: 188, height: 32))
+        XCTAssertNil(SaveWhyNotch.notchRect(screen: notchedScreen, topLeft: nil, topRight: nil, topInset: 0),
+                     "a screen with no notch has none")
+        XCTAssertNil(SaveWhyNotch.notchRect(screen: notchedScreen, topLeft: .zero, topRight: .zero, topInset: 0))
+    }
+
+    func testOnANotchedMacThePanelIsTheNotchGrown() {
+        let size = CGSize(width: 460, height: 200)
+        let frame = SaveWhyNotch.frame(screen: notchedScreen, notch: notch, size: size)
+        XCTAssertEqual(frame.maxY, notchedScreen.maxY, "the top edge is flush with the screen's — the notch's own")
+        XCTAssertEqual(frame.midX, notch!.midX, "centred under the notch")
+        XCTAssertEqual(frame.size, size)
+        XCTAssertEqual(SaveWhyNotch.band(screen: notchedScreen, visible: notchedScreen, notch: notch), 32,
+                       "the empty band is the notch's height, so nothing sits behind the camera")
+        let rest = SaveWhyNotch.collapsed(notch: notch)
+        XCTAssertEqual(rest, CGSize(width: 188 + 2 * SaveWhyNotch.ear, height: 32),
+                       "at rest the body is exactly the notch, so the start is invisible against it")
+    }
+
+    func testWithoutANotchTheSameShapeDropsFromTheTopCentre() {
+        let screen = CGRect(x: 0, y: 0, width: 1920, height: 1080)
+        let size = CGSize(width: 460, height: 190)
+        let frame = SaveWhyNotch.frame(screen: screen, notch: nil, size: size)
+        XCTAssertEqual(frame.maxY, 1080)
+        XCTAssertEqual(frame.midX, 960)
+        XCTAssertEqual(SaveWhyNotch.band(screen: screen, visible: CGRect(x: 0, y: 0, width: 1920, height: 1056),
+                                         notch: nil), 24, "the band is the menu bar")
+        XCTAssertEqual(SaveWhyNotch.band(screen: screen, visible: screen, notch: nil), SaveWhyNotch.fallbackMenuBar,
+                       "a hidden menu bar (full screen) keeps the usual band")
+        XCTAssertEqual(SaveWhyNotch.collapsed(notch: nil).height, 0, "it grows from a sliver at the top edge")
+        // A second display's own origin: centred on that screen, flush with its top.
+        let side = CGRect(x: 1920, y: 200, width: 1440, height: 900)
+        let onSide = SaveWhyNotch.frame(screen: side, notch: nil, size: size)
+        XCTAssertEqual(onSide.midX, side.midX)
+        XCTAssertEqual(onSide.maxY, side.maxY)
+    }
+
+    func testTheShapeGrowsFromTheNotchToTheWholePanel() {
+        let bounds = CGRect(x: 0, y: 0, width: 460, height: 200)
+        let rest = SaveWhyNotch.collapsed(notch: notch)
+        let atRest = SaveWhyNotchShape(progress: 0, collapsed: rest).path(in: bounds).boundingRect
+        XCTAssertEqual(atRest.width, rest.width, accuracy: 0.5)
+        XCTAssertEqual(atRest.height, rest.height, accuracy: 0.5)
+        XCTAssertEqual(atRest.midX, bounds.midX, accuracy: 0.5)
+        XCTAssertEqual(atRest.minY, 0, accuracy: 0.5, "top-anchored: it hangs from the screen's edge")
+        let grown = SaveWhyNotchShape(progress: 1, collapsed: rest).path(in: bounds).boundingRect
+        XCTAssertEqual(grown.width, bounds.width, accuracy: 0.5)
+        XCTAssertEqual(grown.height, bounds.height, accuracy: 0.5)
+        let overshoot = SaveWhyNotchShape(progress: 1.2, collapsed: rest).path(in: bounds).boundingRect
+        XCTAssertLessThanOrEqual(overshoot.width, bounds.width + 0.5, "a spring's give never leaves the window")
+        XCTAssertTrue(SaveWhyNotchShape(progress: 0, collapsed: SaveWhyNotch.collapsed(notch: nil))
+            .path(in: bounds).isEmpty, "no notch: nothing shows before it grows")
+    }
+
+    func testTheGrowIsInTheMotionBudgetAndOnlyFadesUnderReduceMotion() {
+        XCTAssertLessThanOrEqual(CicadaMotion.notchGrowDuration, CicadaMotion.maxDuration)
+        XCTAssertLessThanOrEqual(CicadaMotion.notchShrinkDuration, CicadaMotion.maxDuration)
+        XCTAssertLessThan(CicadaMotion.notchShrinkDuration, CicadaMotion.notchGrowDuration, "it leaves quicker")
+        XCTAssertEqual(CicadaMotion.notchShrinkLength(reduceMotion: true), CicadaMotion.reducedFadeDuration)
+        XCTAssertEqual(CicadaMotion.notchShrinkLength(reduceMotion: false), CicadaMotion.notchShrinkDuration)
+    }
+
+    func testThePanelIsAboveTheMenuBarAndBelowMenus() {
+        XCTAssertGreaterThan(SaveWhyPanelController.level.rawValue, NSWindow.Level.statusBar.rawValue)
+        XCTAssertLessThan(SaveWhyPanelController.level.rawValue, NSWindow.Level.popUpMenu.rawValue)
     }
 
     // MARK: - The center
@@ -220,6 +267,43 @@ final class SaveWhyTests: XCTestCase {
         await center.noticed(result([fresh("https://beta.example/x")]), live: true)
         XCTAssertEqual(center.lastDecision, .skip(.rateLimited))
         XCTAssertEqual(presenter.shown, 1)
+    }
+
+    /// The debug harness shows the panel for a sample bookmark at once, past every rule, and writes nothing.
+    @MainActor
+    func testThePreviewShowsAtOnceAndWritesNothing() async {
+        let defaults = UserDefaults(suiteName: "SaveWhyTests.\(UUID().uuidString)")!
+        let prefs = SaveWhyPrefs(defaults: defaults)   // the switch is off: the preview does not care
+        let api = FakeSavedWhyAPI()
+        let presenter = FakePresenter()
+        let center = SaveWhyCenter(prefs: prefs, api: api, presenter: presenter, now: { [now] in now })
+        await center.preview(channel: "safari-bookmarks")
+        XCTAssertEqual(presenter.shown, 1)
+        XCTAssertEqual(center.state?.item.channel, "safari-bookmarks")
+        XCTAssertEqual(center.state?.item.host, "alpha.example", "a placeholder site, never a real one")
+        center.send(.tapReason("design"))
+        center.send(.dontAskForSite)
+        await center.settle()
+        let posts = await api.posts
+        XCTAssertTrue(posts.isEmpty, "a preview's answer is never posted")
+        XCTAssertTrue(prefs.mutedHosts.isEmpty, "nor is its site muted")
+        XCTAssertNil(prefs.lastAsked, "nor does it spend the rate limit")
+        // The next real bookmark is asked as usual.
+        prefs.enabled = true
+        await center.noticed(result([fresh()]), live: true)
+        XCTAssertEqual(presenter.shown, 2)
+        center.send(.tapReason("product"))
+        center.send(.escape)
+        await center.settle()
+        let real = await api.posts
+        XCTAssertEqual(real.map(\.url), [fresh().url])
+    }
+
+    func testThePreviewExistsOnlyInADeveloperBuildWithItsKeySet() {
+        XCTAssertTrue(SaveWhyPreview.isAvailable(flag: true, distribution: .developer))
+        XCTAssertFalse(SaveWhyPreview.isAvailable(flag: false, distribution: .developer), "hidden by default")
+        XCTAssertFalse(SaveWhyPreview.isAvailable(flag: true, distribution: .release), "never in a release app")
+        XCTAssertEqual(SaveWhyPreview.browsers.map(\.channel), ["chrome-bookmarks", "safari-bookmarks"])
     }
 
     @MainActor

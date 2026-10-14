@@ -27,7 +27,7 @@ struct BrowsersSection: View {
                     }
                 }
                 // G191 — next to where the bookmark watch is turned on: the question it may ask.
-                SaveWhySwitchRow()
+                SaveWhySwitchRow(inventory: inventory)
             }
         }
     }
@@ -111,30 +111,73 @@ private struct BrowserSourceRow: View {
 }
 
 /// G191 — Settings → Integrations → Browsers: "Ask why when I bookmark something". Off by default (G191 (7)); per Mac,
-/// beside the bookmark watch's own consent flags (`SaveWhyPrefs`). Muted sites can be asked about again here.
+/// beside the bookmark watch's own consent flags (`SaveWhyPrefs`). v2 (2026-10-14): one switch that works — turning
+/// it on turns on the bookmark watch of every browser here (`SaveWhySetup`), named before the flip; once on, the row
+/// says what is watched, names a missing permission with its one click, and says the next bookmark is the first asked.
+/// Muted sites can be asked about again here.
 struct SaveWhySwitchRow: View {
+    let inventory: BrowserInventory
     @AppStorage(SaveWhyPrefs.enabledKey) private var enabled = false
+    @Environment(BrowserWatcher.self) private var watcher
     @State private var muted = 0
+
+    private var prefs: SaveWhyPrefs { SaveWhyPrefs(defaults: .standard) }
+
+    private var isOn: Binding<Bool> {
+        Binding(get: { enabled }, set: { on in
+            if on { SaveWhySetup.turnOn(prefs: prefs, inventory: inventory, watcher: watcher) }
+            else { prefs.enabled = false }
+        })
+    }
+
+    private var status: SaveWhySetup.Status {
+        SaveWhySetup.status(inventory: inventory, state: watcher.state(for:), isEnabled: watcher.isEnabled)
+    }
 
     var body: some View {
         SettingsRow(.saveWhy, title: Copy.SaveWhy.switchTitle, detail: Copy.SaveWhy.switchDetail) {
-            Toggle(Copy.SaveWhy.switchTitle, isOn: $enabled)
+            Toggle(Copy.SaveWhy.switchTitle, isOn: isOn)
                 .toggleStyle(.switch)
                 .controlSize(.mini)
                 .labelsHidden()
         } below: {
-            if muted > 0 {
-                HStack(spacing: CicadaTheme.spacingSM) {
-                    Text(Copy.SaveWhy.mutedLine(muted))
-                        .font(CicadaTheme.captionFont)
-                        .foregroundStyle(CicadaTheme.textTertiary)
-                    TextButton(title: Copy.SaveWhy.unmuteAll, help: Copy.SaveWhy.unmuteAll) {
-                        SaveWhyPrefs(defaults: .standard).mutedHosts = []
-                        muted = 0
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+                if !enabled {
+                    let names = inventory.supported.map(\.name)
+                    if !names.isEmpty { caption(Copy.SaveWhy.willWatch(names)) }
+                } else {
+                    let status = status
+                    ForEach(SaveWhySetup.lines(enabled: enabled, status: status), id: \.self) { caption($0) }
+                    if !status.needsFullDiskAccess.isEmpty {
+                        HStack(spacing: CicadaTheme.spacingSM) {
+                            NeutralButton(title: Copy.SaveWhy.openFullDiskAccess, size: .compact) {
+                                NSWorkspace.shared.open(BrowserFileError.fullDiskAccessURL)
+                            }
+                            TextButton(title: Copy.SaveWhy.checkAgain, help: Copy.SaveWhy.checkAgain) {
+                                for channel in SaveWhySetup.channels(inventory: inventory)
+                                where watcher.state(for: channel) == .blocked { watcher.enable(channel) }
+                            }
+                        }
+                    }
+                }
+                if muted > 0 {
+                    HStack(spacing: CicadaTheme.spacingSM) {
+                        caption(Copy.SaveWhy.mutedLine(muted))
+                        TextButton(title: Copy.SaveWhy.unmuteAll, help: Copy.SaveWhy.unmuteAll) {
+                            prefs.mutedHosts = []
+                            muted = 0
+                        }
                     }
                 }
             }
         }
-        .onAppear { muted = SaveWhyPrefs(defaults: .standard).mutedHosts.count }
+        .onAppear { muted = prefs.mutedHosts.count }
+    }
+
+    private func caption(_ text: String) -> some View {
+        Text(text)
+            .font(CicadaTheme.captionFont)
+            .foregroundStyle(CicadaTheme.textTertiary)
+            .fixedSize(horizontal: false, vertical: true)
     }
 }
