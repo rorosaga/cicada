@@ -953,8 +953,13 @@ def apply(memory_path: Path, *, sleep_running: Callable[[], bool], settings=None
             owner_fm = pages[plan.owner_id][0] if plan.owner_id in pages else None
             has_git = (memory_path / ".git").exists()
 
+            # What someone else left uncommitted, read ONCE before this run writes anything. Asked per step, git
+            # would also report this run's own writes (the merge's `graph_edges.yaml`, the pages a retitle
+            # repointed) and every later step touching them was skipped as "dirty" — 5 of 6 on a clean tree.
+            others_dirty = frozenset(git_service.dirty_paths_sync(memory_path)) if has_git else frozenset()
+
             def dirty(paths: list[str]) -> bool:
-                return bool(has_git and git_service.dirty_paths_sync(memory_path, *paths))
+                return bool(others_dirty.intersection(paths))
 
             written: list[str] = []
             lines: list[str] = []

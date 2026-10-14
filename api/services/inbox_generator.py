@@ -5,6 +5,7 @@ from datetime import date
 from pathlib import Path
 
 import yaml
+from loguru import logger
 
 from api.services import inbox_questions, markdown_parser, predicates
 from api.services.conflict_resolver import apply_changes
@@ -626,32 +627,47 @@ def write_claim_nudges(
 
 
 def _write_graph_edges(memory_path: Path, new_edges: list[dict]) -> None:
-    """Merge new edges into graph_edges.yaml (dedup by source+target+label)."""
+    """Add Sleep's new edges (Stage 2's relationships, Stage 4's ``draws on``, 5.5's ``mentions``, 5.55's media
+    ``about``) to graph_edges.yaml. Every edge already in the file stays exactly as it is, every field and in order —
+    a claim-backed row's ``claim_id``, ``observer``, ``context``, ``valid_from`` included (Stage 5.7 owns those rows).
+    A new edge is added as ``{source, target, label}`` unless a bare edge (one with no ``claim_id``) of the same
+    source, target and label (case aside) is already there, or an earlier new edge was. Before 2026-10-14 this
+    rewrote the whole file as bare triples deduped by (source, target, label), so every Sleep write stripped the claim
+    rows (5.7 put them back) and left a bare copy of each behind for good."""
     edges_file = memory_path / "graph_edges.yaml"
 
-    existing_edges: list[dict] = []
+    data: dict = {}
     if edges_file.exists():
         try:
             data = markdown_parser.load_yaml(edges_file.read_text(encoding="utf-8")) or {}
-            existing_edges = data.get("edges", [])
         except Exception:
-            existing_edges = []
+            # Unreadable: never overwritten with the new edges alone (that would drop every edge it holds).
+            logger.warning("graph_edges.yaml is unreadable; new edges not written")
+            return
+        if not isinstance(data, dict):
+            logger.warning("graph_edges.yaml is not a mapping; new edges not written")
+            return
+    existing_edges = list(data.get("edges") or [])
 
-    # Dedup by (source, target, label)
-    seen: set[tuple[str, str, str]] = set()
-    merged: list[dict] = []
-    for edge in existing_edges + new_edges:
-        key = (edge.get("source", ""), edge.get("target", ""), edge.get("label", "").lower())
-        if key not in seen:
-            seen.add(key)
-            merged.append({
-                "source": edge.get("source", ""),
-                "target": edge.get("target", ""),
-                "label": edge.get("label", "related to"),
-            })
+    def key(edge: dict) -> tuple[str, str, str]:
+        return (edge.get("source", ""), edge.get("target", ""), str(edge.get("label", "") or "").lower())
 
+    seen = {key(e) for e in existing_edges if isinstance(e, dict) and not e.get("claim_id")}
+    added: list[dict] = []
+    for edge in new_edges:
+        if key(edge) in seen:
+            continue
+        seen.add(key(edge))
+        added.append({
+            "source": edge.get("source", ""),
+            "target": edge.get("target", ""),
+            "label": edge.get("label", "related to"),
+        })
+    if not added and edges_file.exists():
+        return
+    data["edges"] = existing_edges + added
     edges_file.write_text(
-        yaml.dump({"edges": merged}, default_flow_style=False, sort_keys=False),
+        yaml.dump(data, default_flow_style=False, sort_keys=False, allow_unicode=True),
         encoding="utf-8",
     )
 

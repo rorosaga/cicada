@@ -253,7 +253,7 @@ def _edges_name(memory_path: Path, old_id: str) -> bool:
     edges_file = Path(memory_path) / "graph_edges.yaml"
     if not edges_file.exists():
         return False
-    data = yaml.safe_load(edges_file.read_text()) or {}
+    data = markdown_parser.load_yaml(edges_file.read_text(encoding="utf-8")) or {}
     return any(e.get(end) == old_id for e in data.get("edges", []) for end in ("source", "target"))
 
 
@@ -284,34 +284,55 @@ def merge_footprint(memory_path: Path, loser_id: str, winner_id: str) -> list[st
 
 
 def repoint_edges(memory_path: Path, old_id: str, new_id: str) -> int | None:
-    """Repoint ``graph_edges.yaml`` endpoints old -> new, dropping the self-loops
-    and duplicates that creates. The number of endpoints moved, or ``None``
-    when nothing was written: no edges file, or no endpoint named ``old_id``
-    (G183(e): an untouched graph is never rewritten, so it never enters a
-    merge's manifest — or its commit)."""
+    """Repoint ``graph_edges.yaml`` endpoints old -> new. The number of endpoints moved, or ``None`` when nothing was
+    written: no edges file, or no endpoint named ``old_id`` (G183(e): an untouched graph is never rewritten, so it
+    never enters a merge's manifest — or its commit).
+
+    Only an edge that named ``old_id`` changes, and only its ``source``/``target``: every other field — a
+    claim-backed row's ``claim_id``, ``observer``, ``context``, ``valid_from`` — and every other edge stay exactly as
+    they were, in their order. A moved edge is dropped only when it now runs from a page to itself (the merge made
+    it, and the claim projection never draws one, ``graph_builder._claim_edge_row``) or is now identical, field for
+    field, to an edge already in the file. Edges that differ in any field are never collapsed: before 2026-10-14 this
+    deduped the WHOLE file by (source, target, label), which on a real bank turned a 45,786-edge file into 31,545 and
+    dropped the claim fields of all but 59 of its 14,298 claim-backed rows on one merge."""
+    import json
+
     edges_file = Path(memory_path) / "graph_edges.yaml"
     if not edges_file.exists():
         return None
-    data = yaml.safe_load(edges_file.read_text()) or {}
-    repointed = 0
-    for e in data.get("edges", []):
-        for end in ("source", "target"):
-            if e.get(end) == old_id:
-                e[end] = new_id; repointed += 1
-    if not repointed:
+    data = markdown_parser.load_yaml(edges_file.read_text(encoding="utf-8")) or {}
+    edges = data.get("edges") or []
+
+    def canon(edge: dict) -> str:
+        return json.dumps(edge, sort_keys=True, default=str)
+
+    def names_old(edge) -> bool:
+        return isinstance(edge, dict) and old_id in (edge.get("source"), edge.get("target"))
+
+    if not any(names_old(e) for e in edges):
         return None
-    seen = set()
-    cleaned = []
-    for e in data.get("edges", []):
-        if e.get("source") == e.get("target"):
-            continue  # drop self-loop created by repointing
-        key = (e.get("source"), e.get("target"), e.get("label"))
-        if key in seen:
-            continue  # drop duplicate
-        seen.add(key)
-        cleaned.append(e)
-    data["edges"] = cleaned
-    edges_file.write_text(yaml.safe_dump(data, sort_keys=False))
+    kept_keys = {canon(e) for e in edges if isinstance(e, dict) and not names_old(e)}
+    repointed = 0
+    out = []
+    for e in edges:
+        if not names_old(e):
+            out.append(e)
+            continue
+        moved = dict(e)
+        for end in ("source", "target"):
+            if moved.get(end) == old_id:
+                moved[end] = new_id
+                repointed += 1
+        if moved.get("source") == moved.get("target"):
+            continue
+        key = canon(moved)
+        if key in kept_keys:
+            continue
+        kept_keys.add(key)
+        out.append(moved)
+    data["edges"] = out
+    dumper = getattr(yaml, "CSafeDumper", yaml.SafeDumper)   # tens of thousands of rows on a real bank
+    edges_file.write_text(yaml.dump(data, Dumper=dumper, sort_keys=False, allow_unicode=True), encoding="utf-8")
     return repointed
 
 

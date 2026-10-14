@@ -260,6 +260,22 @@ or commit gets the footprint back as found, never HEAD's version, and nothing ou
 a write outside the footprint, a put-back that cannot be done, or a HEAD that moved inside the transaction stops the
 sweep (`recoveryFailed`). `repoint_edges` leaves an untouched graph alone. A dry run writes and commits nothing.
 
+**A merge or rename keeps every edge whole (2026-10-14).** `entity_merge.repoint_edges` — run by every door that merges
+or renames a page: `merge_entities` (the dedup sweep, the inbox's merge answers, the placeholder-people name answer and
+repair) and `rename_references` (the inbox's keep-the-cleaner-name rename, a placeholder's rename or retitle) — changes
+only the `source`/`target` that named the moved page. Every other field (a claim-backed row's `claim_id`, `observer`,
+`context`, `valid_from`, or anything else) and every other edge stays as it was, in order. A moved edge is dropped only
+when it now runs from a page to itself (the claim projection never draws one) or is now identical, field for field, to an
+edge already in the file. It used to dedupe the whole file by (source, target, label): one repair merge on a real bank took
+45,786 edges to 31,545 and left 59 of 14,298 claim-backed rows with their fields (the bank commit was reverted). Sleep's
+own writer, `inbox_generator._write_graph_edges` (Stage 5's relationships, 5.5's `mentions`, 5.55's media edges), had
+the same shape — it rewrote the file as bare triples deduped by (source, target, label), and Stage 5.7 then re-added the
+claim rows, so each Sleep write left a bare copy of every claim row behind. It now keeps every existing edge verbatim and
+adds a new edge as `{source, target, label}` only when no bare edge of that triple is already there; an unreadable file
+is never replaced by the new edges alone. The bare copies already in a bank stay (they are edges, and nothing
+automatic removes them). `api/tests/test_merge_edges.py` drives every door over one file of mixed bare and claim-backed
+edges.
+
 **Evidence spans (G118) — spans, not copies.** Every claim written since that slice carries
 `evidence: [{episode, start, end, kind, hash}]`. `start`/`end` are character offsets into the source
 document's *evidence text* (the body as `markdown_parser.parse` returns it, with the ```claims fence

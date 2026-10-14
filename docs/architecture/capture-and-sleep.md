@@ -805,7 +805,8 @@ and ids (a portability bug). `api/services/role_people.py` is the one place that
 - **Never a merge on a guess.** Two people are merged only on the person's answer or on evidence on the record.
 - **The repair** for an existing bank: `python -m api.scripts.repair_placeholder_people --bank <path>` (dry run:
   counts only) and `--apply` (one `cicada` commit, trigger `maintenance/placeholder-people`; refused while Sleep runs
-  or holds the pages; a page dirty in git, or one a merge would touch, is skipped and counted; a second run changes
+  or holds the pages; a page another writer left dirty in git, or one a merge would touch, is skipped and counted —
+  what is dirty is read once, before the run writes, so the run's own writes never count; a second run changes
   nothing). Each placeholder page **merges** into a named person only when its relation is singular and exactly one
   named person holds it on the record — an open, non-event claim (no `valid_to`, not superseded) or a
   `graph_edges.yaml` edge whose predicate names **exactly** that relation: from the person to the owner "<head>",
