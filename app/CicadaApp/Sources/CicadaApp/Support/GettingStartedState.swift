@@ -29,6 +29,9 @@ struct GettingStartedRecord: Equatable {
     var settled: Set<FoundItemID> = []
     var hidden = false
     var scheduleAsked = false
+    /// Owner 2026-10-14 ("Graduate + Needs you first", DR-39) — a graduated card is one line until its viewer opens it;
+    /// the choice is remembered per bank. Meaningless before graduation (the card is whole then).
+    var expanded = false
 }
 
 /// Track I part b (R-IB17) — the Getting started card's memory, per bank, in
@@ -46,11 +49,13 @@ enum GettingStartedState {
             enabled: keys.compactMap(FoundItemID.init(key:)),
             settled: Set((defaults.stringArray(forKey: key(bank, "settled")) ?? []).compactMap(FoundItemID.init(key:))),
             hidden: defaults.bool(forKey: key(bank, "hidden")),
-            scheduleAsked: defaults.bool(forKey: key(bank, "scheduleAsked")))
+            scheduleAsked: defaults.bool(forKey: key(bank, "scheduleAsked")),
+            expanded: defaults.bool(forKey: key(bank, "expanded")))
     }
 
-    /// Unions, keeps first-seen order, and un-hides: a rerun that turns more on
-    /// must show the card again.
+    /// Unions, keeps first-seen order, un-hides and opens: a rerun that turns more on must show the card again, and
+    /// *Show setup checklist* on a graduated bank must show the whole card, not one line (owner 2026-10-14: setup stays
+    /// reachable from Settings).
     static func record(bank: String, enabled: [FoundItemID], defaults: UserDefaults = .standard) {
         var keys = defaults.stringArray(forKey: key(bank, "enabled")) ?? []
         for id in enabled {
@@ -59,6 +64,7 @@ enum GettingStartedState {
         }
         defaults.set(keys, forKey: key(bank, "enabled"))
         defaults.set(false, forKey: key(bank, "hidden"))
+        defaults.set(true, forKey: key(bank, "expanded"))
     }
 
     /// R-OB8 — an untick in onboarding takes its row off the card rather than leaving it Off. A bank with no record
@@ -78,6 +84,10 @@ enum GettingStartedState {
 
     static func setHidden(_ hidden: Bool, bank: String, defaults: UserDefaults = .standard) {
         defaults.set(hidden, forKey: key(bank, "hidden"))
+    }
+
+    static func setExpanded(_ expanded: Bool, bank: String, defaults: UserDefaults = .standard) {
+        defaults.set(expanded, forKey: key(bank, "expanded"))
     }
 
     static func setScheduleAsked(bank: String, defaults: UserDefaults = .standard) {

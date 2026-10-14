@@ -49,13 +49,13 @@ enum WalkthroughVendor: String, CaseIterable, Identifiable {
         case .claude: [
             "Open Settings → Privacy on claude.ai.",
             "Click “Export data” and confirm.",
-            "Anthropic emails you a link to a .zip.",
+            "Claude emails you a link to a .zip.",
             "Drop the .zip here, just as it arrived.",
         ]
         case .chatgpt: [
             "Open Settings → Data controls on chatgpt.com.",
             "Click “Export data” and confirm.",
-            "OpenAI emails you a link to a .zip.",
+            "ChatGPT emails you a link to a .zip.",
             "Drop the .zip here, just as it arrived.",
         ]
         case .gemini: [

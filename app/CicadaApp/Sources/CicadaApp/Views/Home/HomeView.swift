@@ -15,6 +15,10 @@ import SwiftUI
 ///
 /// Home adds no drop target (R-IB8): the window-level drop already covers it
 /// and raises the one intake.
+///
+/// Owner ruling 2026-10-14, "Graduate + Needs you first": the blocks follow the person's state (`HomeArrangement`).
+/// In the first week Getting started leads; once the person has chats in memory it graduates to one line at the foot,
+/// and Needs you leads. *Make it yours* and the tour offer never sit above Needs you.
 struct HomeView: View {
     let open: (FindDestination) -> Void
     @Binding var selectedTab: AppTab
@@ -28,6 +32,9 @@ struct HomeView: View {
     @Environment(TourController.self) private var tour
     @AppStorage(AppearanceTipPolicy.armedKey) private var tipArmed = false
     @AppStorage(AppearanceTipPolicy.dismissedKey) private var tipDismissed = false
+    @AppStorage(AppearanceTipPolicy.seenKey) private var tipSeen = false
+    /// Review #1 — the vendor whose drawn export walkthrough is open over Home.
+    @State private var seeHow: ChatVendor?
 
     var body: some View {
         let showsResults = FindPanelBody.showsBody(placement: .page, query: search.model.query,
@@ -35,15 +42,20 @@ struct HomeView: View {
         // One clock per evaluation, so every section agrees on which UTC day "today" is.
         let today = Date()
         let _ = runner.checklistRevision
-        // While the card's read row shows, TODAY omits its own waiting clause
-        // (`HomeLayout`, every number once).
-        let gettingStartedVisible = GettingStartedProgress.visible(record: GettingStartedState.load(bank: store.bank))
+        // Owner 2026-10-14 — the person's state orders the page: setup leads only while it is whole and the person has
+        // no chats in memory yet (`HomeArrangement`, `HomeSetup.hasChatsInMemory`).
+        let setupVisible = GettingStartedProgress.visible(record: GettingStartedState.load(bank: store.bank))
             || runner.sawDoneThisSession
-        // F-09 (R-HO15) — the first-time "Make it yours", never beside search results.
-        let tipShown = AppearanceTipPolicy.visible(armed: tipArmed, dismissed: tipDismissed) && !showsResults
+        let graduated = HomeSetup.hasChatsInMemory(store.sourcesOverview.value) == true
+        let arrangement = HomeArrangement.of(setupVisible: setupVisible, graduated: graduated)
+        // While the card's read row shows, TODAY omits its own waiting clause (`HomeLayout`, every number once).
+        let gettingStartedVisible = arrangement == .firstWeek
+        let empty = emptiness(today: today, gettingStartedVisible: gettingStartedVisible)
+        // F-09 (R-HO15) — the first-time "Make it yours", never beside search results, one session only.
+        let tipShown = AppearanceTipPolicy.visible(armed: tipArmed, dismissed: tipDismissed, seenBefore: tipSeen,
+                                                   shownThisSession: AppearanceTipPolicy.shownThisSession)
+            && !showsResults
         GeometryReader { geo in
-            let tipPlacement = AppearanceTipLayout.placement(pageWidth: geo.size.width,
-                                                             scale: CGFloat(CicadaTheme.uiScale))
             VStack(spacing: 0) {
                 // DR-13 — paint only: no word, no number and nothing over it (`HomeBandLayoutTests`). The framing owns
                 // the band's height, crop and fade (C10).
@@ -66,17 +78,15 @@ struct HomeView: View {
                             fieldColumn(showsResults: showsResults)
                                 .frame(maxWidth: CicadaTheme.scaled(HomeLayout.fieldWidth))
                             if !showsResults {
+                                // Between the field and the end of the page, and only while the blocks show (R-IB6): the
+                                // first keystroke replaces them too.
                                 VStack(alignment: .leading, spacing: CicadaTheme.scaled(HomeLayout.blockGap)) {
-                                    if tipShown && tipPlacement == .inline { AppearanceTip() }
-                                    // Seam 3 — onboarding's "Open Cicada" asked for the tour's offer; Home asks once.
-                                    if tour.offerPending { TourOfferCard() }
-                                    // Between the field and TODAY, and only while the blocks show
-                                    // (R-IB6): the first keystroke replaces it too.
-                                    GettingStartedCard(selectedTab: $selectedTab)
-                                    HomeSections(today: today, gettingStartedVisible: gettingStartedVisible,
-                                                 selectedTab: $selectedTab)
-                                        .tourAnchor(.home)
+                                    ForEach(arrangement.order, id: \.self) { id in
+                                        block(id, today: today, gettingStartedVisible: gettingStartedVisible,
+                                              graduated: graduated, empty: empty, tipShown: tipShown)
+                                    }
                                 }
+                                .tourAnchor(.home)
                                 .frame(maxWidth: CicadaTheme.scaled(HomeLayout.columnWidth))
                                 .padding(.top, CicadaTheme.scaled(HomeLayout.fieldToFirstBlock))
                                 .padding(.bottom, CicadaTheme.scaled(HomeLayout.bottomPadding))
@@ -85,17 +95,6 @@ struct HomeView: View {
                         .padding(.horizontal, CicadaTheme.spacingGutter)
                         .frame(maxWidth: .infinity, alignment: .top)
                         .frame(height: showsResults ? viewport.size.height : nil, alignment: .top)
-                        // F-09 — beside the column at the headline's height, never over the band: an overlay on the
-                        // page below it, never a layer over the paint (`HomeBandLayoutTests`), riding the scroll with
-                        // the headline. No comment here may spell the stack type's name — that test greps this file.
-                        .overlay(alignment: .topTrailing) {
-                            if tipShown && tipPlacement == .side {
-                                AppearanceTip()
-                                    .frame(width: CicadaTheme.scaled(AppearanceTipLayout.width))
-                                    .padding(.top, CicadaTheme.scaled(HomeLayout.headlineTopInset(showsBand: HomeBandLayout.showsBand)))
-                                    .padding(.trailing, CicadaTheme.scaled(AppearanceTipLayout.edgeInset))
-                            }
-                        }
                     }
                     .modifier(HomePageScroll(pinned: showsResults))
                 }
@@ -103,6 +102,12 @@ struct HomeView: View {
             .frame(width: geo.size.width, height: geo.size.height)
         }
         .background(CicadaTheme.bgBase)
+        // Review #1 — onboarding's drawn walkthrough, over Home, from a vendor row's "See how ›".
+        .overlay {
+            if let vendor = seeHow {
+                HomeWalkthroughLayer(vendor: vendor) { seeHow = nil }
+            }
+        }
         .onAppear { tour.adoptOffer() }
         // Sleep history is not disk-cached (design §6.3): fetch it on every
         // arrival so LAST READ is "—" only until it lands, never a stale read.
@@ -111,6 +116,56 @@ struct HomeView: View {
         .task {
             if sleepVM.status == nil || !sleepVM.scheduleLoaded { await sleepVM.load() } else { await sleepVM.loadHistory() }
         }
+    }
+
+    // MARK: The blocks
+
+    /// One block of the column, by id — `HomeArrangement` owns the order, this owns nothing but the mapping.
+    @ViewBuilder
+    private func block(_ id: HomeBlockID, today: Date, gettingStartedVisible: Bool, graduated: Bool,
+                       empty: HomeEmptiness, tipShown: Bool) -> some View {
+        let mode = empty.mode(setupCardShown: gettingStartedVisible)
+        switch id {
+        case .setup:
+            GettingStartedCard(selectedTab: $selectedTab, seeHow: $seeHow, graduated: graduated)
+        case .today:
+            switch mode {
+            case .blocks:
+                TodaySection(today: today, gettingStartedVisible: gettingStartedVisible, empty: empty.todayEmpty,
+                             selectedTab: $selectedTab)
+            case .one:
+                HomeEmptyBlock()   // review #8 — one block says it once, where Today would be
+            case .hidden:
+                EmptyView()
+            }
+        case .needsYou:
+            if mode == .blocks { NeedsYouSection(empty: empty.needsYouEmpty, selectedTab: $selectedTab) }
+        case .readingSites:
+            ReadingSitesSection()
+        case .lastRead:
+            if mode == .blocks { LastReadSection(empty: empty.lastReadNever, selectedTab: $selectedTab) }
+        case .tour:
+            // Seam 3 — onboarding's "Open Cicada" asked for the tour's offer; Home asks once.
+            if tour.offerPending { TourOfferCard() }
+        case .tip:
+            if tipShown { AppearanceTip() }
+        }
+    }
+
+    /// Review #8 — the three blocks' emptiness, from the same figures they render. Unknown is never empty (R-A14).
+    private func emptiness(today: Date, gettingStartedVisible: Bool) -> HomeEmptiness {
+        let hasRunBefore = sleepVM.status?.debt.hasRunBefore ?? (store.status.value?.lastSleepAt != nil)
+        let lastRead = HomeFigures.lastRead(sleepVM.history, loaded: sleepVM.historyLoaded,
+                                            hasRunBefore: sleepVM.status?.debt.hasRunBefore
+                                                ?? store.status.value.map { $0.lastSleepAt != nil },
+                                            lastSleepAt: store.status.value?.lastSleepAt)
+        return HomeEmptiness(captured: HomeFigures.today(store.sourcesOverview.value, today: today).captured,
+                             waiting: store.status.value?.episodes.unprocessed,
+                             showsWaiting: HomeLayout.showsWaitingInToday(gettingStartedVisible: gettingStartedVisible,
+                                                                          hasRunBefore: hasRunBefore),
+                             needsYou: store.visibleInbox.count,
+                             inboxLoaded: store.inbox.value != nil,
+                             lastReadNever: lastRead == .never)
     }
 
     // MARK: The field

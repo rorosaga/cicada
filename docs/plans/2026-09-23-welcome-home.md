@@ -358,6 +358,15 @@ the brief or the design left open, decided here with its reason, so no task re-o
   the card finish). **Done** = every row On (or settled) + `hasRunBefore` + the schedule answered;
   the card then says "You're set up." for the session and hides itself persistently. *Hide* ends
   the session's "You're set up." too.
+- **R-IB17/R-IB18 amendment — owner ruling 2026-10-14, "Graduate + Needs you first".** Getting started retires
+  itself once the person has chats in memory (a conversation source — an imported export or a connected agent — whose
+  conversations fed at least one page, from `GET /sources/overview`'s existing `entities` count; unknown is never an
+  answer): it becomes one line at the foot of Home, "Setup · N things left · Show ›", counting rows that are not On
+  (the schedule question and Also found no longer keep it alive), and leaves when nothing is left. The record gains
+  `expanded` (per bank, DR-39); *Show setup checklist* and any `record` set it, so setup stays reachable from Settings.
+  A returning person's Home leads with Needs you (`HomeArrangement`). The export rows are onboarding's provider rows
+  opening the walkthrough, and a vendor whose export is in the bank is not asked again. R-IB18's Done rule and its
+  "You're set up." are unchanged for a card shown whole.
 - **R-IB19 — The first read, and G125 R10's second narrow amendment.** `FirstReadStep` is the design
   §4.2 table as a total function (nothing yet · N waiting · reading · finished · capped · failed), each
   with its line (the text twin), its worm and its one action. *Read now* (and *Read the next N*,

@@ -11,21 +11,12 @@ import SwiftUI
 /// block, 36 pt rows, links in `accentText` (R-HS6). F-09: Today is one row to
 /// Sources (R-HO11), Needs you the Inbox's icon rows with *Open Inbox* (R-HO12).
 ///
+/// Owner 2026-10-14 ("Graduate + Needs you first"; Home review #5, #8, #9): `HomeView` places the blocks in the
+/// order `HomeArrangement` gives; a line with one destination is a whole-row button (no trailing "Sleep ›" — the
+/// waiting line opens Sleep, Last read opens that read in Sleep's Details); an empty block is its label and a short
+/// note, never a card holding one grey line (DR-37); and when all three are empty, one block says so once.
+///
 /// Internal, not `private`: `HomeView.swift` composes them from another file.
-struct HomeSections: View {
-    let today: Date
-    let gettingStartedVisible: Bool
-    @Binding var selectedTab: AppTab
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.scaled(HomeLayout.blockGap)) {
-            TodaySection(today: today, gettingStartedVisible: gettingStartedVisible, selectedTab: $selectedTab)
-            NeedsYouSection(selectedTab: $selectedTab)
-            ReadingSitesSection()
-            LastReadSection(selectedTab: $selectedTab)
-        }
-    }
-}
 
 // MARK: - The block and its lines
 
@@ -38,22 +29,96 @@ struct HomeBlock<Content: View>: View {
     /// F-09 — a block may carry one link at its label's right (Needs you's *Open Inbox*, DR-5 use 5).
     var linkTitle: String? = nil
     var linkAction: (() -> Void)? = nil
+    /// Owner 2026-10-14 (review #8, DR-37) — set when the block has nothing to show: the label reads
+    /// "Needs you · nothing right now" and no card is drawn under it.
+    var emptyNote: String? = nil
     @ViewBuilder let content: Content
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.scaled(HomeLayout.labelGap)) {
             HStack(alignment: .firstTextBaseline) {
-                SectionLabel(title)
+                SectionLabel(emptyNote.map { Copy.homeEmptyLabel(title, note: $0) } ?? title)
                 Spacer(minLength: CicadaTheme.spacingSM)
                 if let linkTitle, let linkAction { InlineLink(title: linkTitle, action: linkAction) }
             }
             .padding(.horizontal, CicadaTheme.scaled(10))
-            VStack(alignment: .leading, spacing: 0) { content }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(CicadaTheme.scaled(HomeLayout.blockInset))
-                .glassCard()
+            if emptyNote == nil {
+                VStack(alignment: .leading, spacing: 0) { content }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(CicadaTheme.scaled(HomeLayout.blockInset))
+                    .glassCard()
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// Review #5, #9 — a line with one destination is one button: the whole 36 pt row, a `bgHover` fill on hover (DR-48),
+/// a trailing chevron, and its hover says where it goes (DR-69). Never a trigger.
+struct HomeRowButton<Content: View>: View {
+    let help: String
+    /// Words in place of the chevron ("Show ›"), drawn as a text button's label: the row itself is the button.
+    var trailingLabel: String? = nil
+    let action: () -> Void
+    @ViewBuilder let content: Content
+
+    @State private var hovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        Button(action: action) {
+            HomeLine {
+                content
+                Spacer(minLength: CicadaTheme.spacingSM)
+                if let trailingLabel {
+                    Text(trailingLabel)
+                        .font(CicadaTheme.font(size: 13))
+                        .foregroundStyle(hovering ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
+                } else {
+                    Image(systemName: "chevron.right")
+                        .font(CicadaTheme.icon(.list))
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                        .accessibilityHidden(true)
+                }
+            }
+            .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
+                .fill(hovering ? CicadaTheme.bgHover : Color.clear))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.cicadaPlain)
+        .help(help)
+        .onHover { hovering = $0 }
+        .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering)
+    }
+}
+
+/// Review #8 (DR-37, DR-38, DR-50's content rule) — Today, Needs you and Last read all empty: one block with the
+/// truthful line and at most one action, instead of three cards of "nothing". Not `EmptyStateView` itself: that is a
+/// whole page's state, with art and a primary, and Home has no primary (R-HS3).
+struct HomeEmptyBlock: View {
+    @Environment(IntakeRouter.self) private var intake
+
+    var body: some View {
+        HStack(alignment: .center, spacing: CicadaTheme.spacingMD) {
+            BookwormView(state: .awake, pointSize: 24)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(Copy.homeNothingYetTitle)
+                    .font(CicadaTheme.rowFont)
+                    .foregroundStyle(CicadaTheme.textPrimary)
+                    .accessibilityAddTraits(.isHeader)
+                Text(Copy.homeNothingYetLine)
+                    .font(CicadaTheme.metaFont)
+                    .foregroundStyle(CicadaTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: CicadaTheme.spacingSM)
+            NeutralButton(title: Copy.intakeChooseFile, size: .compact) { intake.present(from: .home) }
+        }
+        .padding(CicadaTheme.spacingMD)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassCard()
+        .accessibilityElement(children: .contain)
     }
 }
 
@@ -85,6 +150,8 @@ private struct HomeUnknown: View {
 struct TodaySection: View {
     let today: Date
     let gettingStartedVisible: Bool
+    /// Review #8 — nothing captured and nothing waiting: the label says it, no card.
+    var empty = false
     @Binding var selectedTab: AppTab
 
     @Environment(Store.self) private var store
@@ -92,7 +159,7 @@ struct TodaySection: View {
 
     var body: some View {
         let figures = HomeFigures.today(store.sourcesOverview.value, today: today)
-        HomeBlock(title: Copy.homeToday) {
+        HomeBlock(title: Copy.homeToday, emptyNote: empty ? Copy.homeTodayNothingYet : nil) {
             captured(figures)
             if HomeLayout.showsWaitingInToday(gettingStartedVisible: gettingStartedVisible,
                                               hasRunBefore: hasRunBefore) {
@@ -120,49 +187,41 @@ struct TodaySection: View {
             }
         case let n?:
             // F-09 (R-HO11) — one row, one link: the Sources page owns what came in.
-            Button { selectedTab = .sources } label: {
-                HomeLine {
-                    Text(Copy.homeCapturedToday(n))
-                        .font(CicadaTheme.bodyFont)
-                        .monospacedDigit()
-                        .foregroundStyle(CicadaTheme.textPrimary)
-                    if !figures.origins.isEmpty {
-                        HStack(spacing: CicadaTheme.scaled(6)) {
-                            Text(Copy.homeMostly)
-                                .font(CicadaTheme.metaFont)
-                                .foregroundStyle(CicadaTheme.textTertiary)
-                            ForEach(Array(figures.origins.enumerated()), id: \.element.sourceId) { index, chip in
-                                if index > 0 {
-                                    Text(Copy.Inbox.dot).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
-                                }
-                                // DR-52 — the service's real mark beside its name.
-                                OriginMark(origin: chip.mark, size: CicadaTheme.scaled(14))
-                                Text(Copy.homeOriginCount(chip.label, chip.count))
-                                    .font(CicadaTheme.metaFont)
-                                    .monospacedDigit()
-                                    .foregroundStyle(CicadaTheme.textSecondary)
-                                    .lineLimit(1)
+            HomeRowButton(help: Copy.homeCapturedHelp, action: { selectedTab = .sources }) {
+                Text(Copy.homeCapturedToday(n))
+                    .font(CicadaTheme.bodyFont)
+                    .monospacedDigit()
+                    .foregroundStyle(CicadaTheme.textPrimary)
+                if !figures.origins.isEmpty {
+                    HStack(spacing: CicadaTheme.scaled(6)) {
+                        Text(Copy.homeMostly)
+                            .font(CicadaTheme.metaFont)
+                            .foregroundStyle(CicadaTheme.textTertiary)
+                        ForEach(Array(figures.origins.enumerated()), id: \.element.sourceId) { index, chip in
+                            if index > 0 {
+                                Text(Copy.Inbox.dot).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
                             }
+                            // DR-52 — the service's real mark beside its name.
+                            OriginMark(origin: chip.mark, size: CicadaTheme.scaled(14))
+                            Text(Copy.homeOriginCount(chip.label, chip.count))
+                                .font(CicadaTheme.metaFont)
+                                .monospacedDigit()
+                                .foregroundStyle(CicadaTheme.textSecondary)
+                                .lineLimit(1)
                         }
                     }
-                    Spacer(minLength: CicadaTheme.spacingSM)
-                    Image(systemName: "chevron.right")
-                        .font(CicadaTheme.icon(.list))
-                        .foregroundStyle(CicadaTheme.textTertiary)
-                        .accessibilityHidden(true)
                 }
-                .contentShape(Rectangle())
             }
-            .buttonStyle(.cicadaPlain)
-            .help(Copy.homeCapturedHelp)
             .accessibilityLabel(Copy.homeTodayAccessibility(n, origins: figures.origins.map { ($0.label, $0.count) }))
         }
     }
 
+    /// Review #5/#9 — the whole line opens the Sleep page, the page that owns the queue; never a Sleep trigger
+    /// (G125 R10), and no trailing "Sleep ›" beside it.
     private var waiting: some View {
         let status = store.status.value
         let worm = status.map { deriveBookwormState($0, justFinishedAt: nil) } ?? .awake
-        return HomeLine {
+        return HomeRowButton(help: Copy.homeOpenSleepHelp, action: { selectedTab = .sleep }) {
             BookwormView(state: worm, pointSize: 24)
                 .accessibilityHidden(true)
             switch status?.episodes.unprocessed {
@@ -178,9 +237,6 @@ struct TodaySection: View {
                     .monospacedDigit()
                     .foregroundStyle(CicadaTheme.textPrimary)
             }
-            Spacer(minLength: CicadaTheme.spacingSM)
-            // A link to the page that owns the queue — never a Sleep trigger (G125 R10).
-            InlineLink(title: Copy.homeOpenSleep) { selectedTab = .sleep }
         }
     }
 }
@@ -188,6 +244,8 @@ struct TodaySection: View {
 // MARK: - Needs you
 
 struct NeedsYouSection: View {
+    /// Review #8 — the inbox is loaded and empty: "Needs you · nothing right now", no card.
+    var empty = false
     @Binding var selectedTab: AppTab
 
     @Environment(Store.self) private var store
@@ -200,7 +258,7 @@ struct NeedsYouSection: View {
         // F-09 (R-HO12) — the count on the label and the one link at its right; the Inbox's own rows cut to glyph ·
         // question · age (no entity or source column, no chevron — the row opens the question in STATE 1).
         HomeBlock(title: Copy.homeNeedsYouCount(figures.total), linkTitle: Copy.homeOpenInbox,
-                  linkAction: { selectedTab = .inbox }) {
+                  linkAction: { selectedTab = .inbox }, emptyNote: empty ? Copy.homeNeedsYouNothing : nil) {
             if figures.shown.isEmpty {
                 HomeLine {
                     Text(Copy.homeNothingNeedsYou)
@@ -263,14 +321,17 @@ struct ReadingSitesSection: View {
 // MARK: - Last read
 
 struct LastReadSection: View {
+    /// Review #8 — no read ever ran: "Last time Cicada read · not yet", no card.
+    var empty = false
     @Binding var selectedTab: AppTab
 
     @Environment(Store.self) private var store
     @Environment(SleepViewModel.self) private var sleepVM
     @Environment(GraphViewModel.self) private var graphVM
+    @Environment(AppRouter.self) private var router
 
     var body: some View {
-        HomeBlock(title: Copy.homeLastRead) {
+        HomeBlock(title: Copy.homeLastRead, emptyNote: empty ? Copy.homeLastReadNotYet : nil) {
             switch HomeFigures.lastRead(sleepVM.history, loaded: sleepVM.historyLoaded,
                                         hasRunBefore: sleepVM.status?.debt.hasRunBefore
                                             ?? store.status.value.map { $0.lastSleepAt != nil },
@@ -288,7 +349,7 @@ struct LastReadSection: View {
             case .earlier(let at):
                 // Off the history page: the day the status gives, and the page
                 // that owns the rest — never counts this block did not read.
-                HomeLine {
+                HomeRowButton(help: Copy.homeLastReadHelp, action: openDetails) {
                     if let day = at.flatMap({ HomeFigures.day($0, locale: .autoupdatingCurrent) }) {
                         Text(day)
                             .font(CicadaTheme.bodyFont)
@@ -297,8 +358,6 @@ struct LastReadSection: View {
                     } else {
                         HomeUnknown()
                     }
-                    Spacer(minLength: CicadaTheme.spacingSM)
-                    InlineLink(title: Copy.homeOpenSleep) { selectedTab = .sleep }
                 }
             }
         }
@@ -307,13 +366,11 @@ struct LastReadSection: View {
     private func read(_ entry: SleepHistoryEntry) -> some View {
         let chips = HomeFigures.chips(entry, nodes: store.graph.value?.nodes ?? [])
         return VStack(alignment: .leading, spacing: 0) {
-            HomeLine {
+            HomeRowButton(help: Copy.homeLastReadHelp, action: openDetails) {
                 Text(HomeFigures.lastReadLine(entry))
                     .font(CicadaTheme.bodyFont)
                     .monospacedDigit()
                     .foregroundStyle(CicadaTheme.textPrimary)
-                Spacer(minLength: CicadaTheme.spacingSM)
-                InlineLink(title: Copy.homeOpenSleep) { selectedTab = .sleep }
             }
             if !chips.shown.isEmpty {
                 // DR-44 — the one pill, with the page type's dot inside it; a click opens the graph.
@@ -323,7 +380,10 @@ struct LastReadSection: View {
                             selectedTab = .graph
                             graphVM.revealEntity(id: chip.id)
                         } label: {
+                            // Review #5 — the 18 pt pill (DR-44) inside a 24 pt hit frame.
                             Tag(text: chip.name, dot: CicadaTheme.entityColor(for: chip.type))
+                                .frame(minHeight: CicadaTheme.scaled(HomeTargets.tagHitHeight))
+                                .contentShape(Rectangle())
                         }
                         .buttonStyle(.cicadaPlain)
                         .help(Copy.homeShowOnGraph(chip.name))
@@ -336,8 +396,11 @@ struct LastReadSection: View {
                     }
                 }
                 .padding(.horizontal, CicadaTheme.scaled(10))
-                .padding(.vertical, CicadaTheme.spacingSM)
+                .padding(.bottom, CicadaTheme.spacingXS)
             }
         }
     }
+
+    /// Review #9 — Last read opens *that read* in the Sleep page's Details, not the page again.
+    private func openDetails() { router.routeToSleepDetails(.lastCycle) }
 }
