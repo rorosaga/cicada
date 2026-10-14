@@ -12,7 +12,8 @@ struct WikiPageView: View {
     var body: some View {
         let article = WikiArticleCache.shared.article(key)
         LazyVStack(alignment: .leading, spacing: 0) {
-            ForEach(article.rows) { row in
+            // Identified by its scroll anchor, so the card can scroll a lazy row into view (`anchor`).
+            ForEach(article.rows, id: \.anchor) { row in
                 WikiRowView(row: row, onSource: onLineSource)
                     .padding(.top, row.id == 0 ? 0 : WikiRowView.gap(above: row, after: article.rows[row.id - 1]))
             }
@@ -20,6 +21,25 @@ struct WikiPageView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .task(id: key) { await WikiArticleCache.shared.build(key) }
     }
+}
+
+extension WikiPageView {
+    /// A row's scroll anchor inside the card's scroll view (a string, so it never meets another section's ids).
+    static func anchor(_ rowId: Int) -> String { "wiki-row-\(rowId)" }
+
+    /// Is ``row`` the heading of the page section titled ``title``? (`## Related` is promoted a level like every
+    /// record heading; the level does not matter here.)
+    static func isSection(_ row: WikiRow, _ title: String) -> Bool {
+        if case .heading = row.kind {
+            return String(row.text.characters).trimmingCharacters(in: .whitespaces)
+                .caseInsensitiveCompare(title) == .orderedSame
+        }
+        return false
+    }
+}
+
+extension WikiRow {
+    var anchor: String { WikiPageView.anchor(id) }
 }
 
 struct WikiRowView: View {
