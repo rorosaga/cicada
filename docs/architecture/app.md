@@ -487,7 +487,8 @@ Looks*. A picture dropped anywhere on the page or pasted (⌘V, `onPasteCommand`
 shrunk by `DesignImageShrink` (≤ 2560 px; PNG ≤ 1.5 MB else JPEG) and opens `LooksComposer`: link, name, note,
 *Find similar* (a picture search) or *Save to Looks* (the one primary action). The app reads the file or the image and
 posts bytes; every colour, token and ranking is the server's. Copy is `Theme/Copy+Looks.swift`, provider-neutral.
-Renders: `LooksTests.testRenderTheBoardForReview` with `LOOKS_RENDER_DIR`.
+Renders: `LooksTests.testRenderTheBoardForReview` with `LOOKS_RENDER_DIR`; a hosting-view capture cannot draw Liquid
+Glass, so the composer's action row (`LooksComposerActions`, Save the one primary) is also rendered with `ImageRenderer`.
 
 **Sleep page — the study room (G125 v4, Track Z).** The room and the worm are Aseprite sprite sheets; to watch every
 animation, open `app/CicadaApp/Art/sprites/bookworm-2026-10-01/preview.html` in a browser (*The sprite art and its

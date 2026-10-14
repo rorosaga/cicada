@@ -28,7 +28,7 @@ from starlette.concurrency import run_in_threadpool
 from api.config import Settings, get_settings
 from api.models.schemas import CamelModel
 from api.services import (demo_guard, design_index, design_refs, embedding_models, entity_picture, git_service,
-                          sync_service, write_admission)
+                          sleep_cycle, sync_service, write_admission)
 from api.services.sleep_refusal import SleepWriting
 
 router = APIRouter()
@@ -243,6 +243,8 @@ async def add_design_ref(image: UploadFile = File(...), url: str | None = Form(N
 @write_admission.route(refuse=lambda: SleepWriting(BUSY))
 async def remove_design_ref(ref_id: str, settings: Settings = Depends(get_settings)):
     mp = settings.memory_path
+    if demo_guard.is_demo(mp):
+        raise HTTPException(409, demo_guard.REFUSAL)
     async with _write_lock:
         result = await asyncio.to_thread(design_refs.remove_ref, mp, ref_id, author=design_refs.USER)
         if result["action"] == "not_found":
@@ -267,6 +269,8 @@ async def search_design(query: str | None = Form(None), image: UploadFile | None
             data = None
     if not (query or "").strip() and data is None:
         raise HTTPException(400, "Search with some words or a picture.")
-    out = await asyncio.to_thread(design_index.search, settings.memory_path, query=query, image=data)
+    # Never embed the board while Sleep runs (the rail): the search answers from the vectors already there.
+    embed = sleep_cycle.get_sleep_state().status != "running"
+    out = await asyncio.to_thread(design_index.search, settings.memory_path, query=query, image=data, embed=embed)
     return DesignSearchResult(results=[DesignHit(**r) for r in out["results"]], mode=out["mode"],
                               missing=out["missing"])

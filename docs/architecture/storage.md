@@ -564,10 +564,13 @@ means no palette, never a failed save.
 vector; `note`: the note plus the look's words, same model's text encoder), each stamped with the model and the hash
 of what was embedded. A damaged file is rebuilt. Search fuses up to three legs by reciprocal rank (k = 60): words
 (whole word 2, prefix 1, the exact phrase +3 — DigUp's exact-word boost, credited), the query against the screenshots
-(one shared text–image space) and against the notes; or an example picture against the screenshots. Without the image
+(one shared text–image space) and against the notes; or an example picture against the screenshots. A meaning leg keeps only
+hits within 80 % of its best cosine (a relative floor: the text–image and text–text bands differ by model), and a text
+query's results are tiered — what the words found first, then what only meaning found — so a word search never returns
+the whole board. Without the image
 encoder the picture leg is absent (`missing: image_model`); without EmbeddingGemma 2, words only. It embeds on a search
-(at most 64 pictures a call) and in the background after a save — never by Sleep, and in the background never while
-Sleep runs. The query is never logged or stored.
+(at most 64 pictures a call) and in the background after a save — never by Sleep, and never while a Sleep run is going
+(a search then answers from the vectors already stored). The query is never logged or stored.
 
 ### Live state + handshake (G53 / G75)
 

@@ -452,17 +452,31 @@ struct LooksComposer: View {
             if let error {
                 Text(error).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textSecondary)
             }
-            HStack(spacing: CicadaTheme.spacingSM) {
-                NeutralButton(title: Copy.Looks.cancel, shortcut: .cancelAction, action: onCancel)
-                Spacer()
-                NeutralButton(title: Copy.Looks.findSimilar) { onFindSimilar(upload) }
-                PrimaryActionButton(title: saving ? Copy.Looks.saving : Copy.Looks.save) { onSave(upload) }
-                    .disabled(saving)
-            }
+            LooksComposerActions(saving: saving, onCancel: onCancel, onFindSimilar: { onFindSimilar(upload) },
+                                 onSave: { onSave(upload) })
         }
         .padding(CicadaTheme.spacingXL)
         .frame(width: CicadaTheme.scaled(460))
         .background(CicadaTheme.bgPane)
+    }
+}
+
+/// The composer's actions (DR-40): Cancel and Find similar neutral, *Save to Looks* the surface's one primary action —
+/// the accent fill (glass-prominent on macOS 26).
+struct LooksComposerActions: View {
+    let saving: Bool
+    let onCancel: () -> Void
+    let onFindSimilar: () -> Void
+    let onSave: () -> Void
+
+    var body: some View {
+        HStack(spacing: CicadaTheme.spacingSM) {
+            NeutralButton(title: Copy.Looks.cancel, shortcut: .cancelAction, action: onCancel)
+            Spacer()
+            NeutralButton(title: Copy.Looks.findSimilar, action: onFindSimilar)
+            PrimaryActionButton(title: saving ? Copy.Looks.saving : Copy.Looks.save, action: onSave)
+                .disabled(saving)
+        }
     }
 }
 

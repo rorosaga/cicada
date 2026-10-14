@@ -328,6 +328,25 @@ def test_a_sentence_finds_screenshots_through_the_shared_space(bank):
     assert design_index.status(bank) == {"images": 2, "notes": 2}
 
 
+def test_a_word_search_never_returns_the_whole_board(bank):
+    dark = _add(bank, image=DARK, note="Moody panels.", look=([], []))["ref"]
+    light = _add(bank, image=LIGHT, note="Bright cards.", look=([], []), url="https://launch.example.com")["ref"]
+    warm = _add(bank, image=WARM, note="Serif headlines.", look=([], []), url="https://journal.example.com")["ref"]
+    out = design_index.search(bank, query="night", emb=_fake_embedders())
+    ids = [r["id"] for r in out["results"]]
+    assert ids[0] == dark.id and light.id not in ids, "a meaning leg keeps only hits close to its best"
+    out = design_index.search(bank, query="serif", emb=_fake_embedders())
+    assert "words" in out["results"][0]["legs"]
+    assert out["results"][0]["id"] == warm.id, "what the words found ranks above what only a meaning leg found"
+
+
+def test_while_sleep_runs_a_search_embeds_nothing_new(bank):
+    _add(bank, image=DARK, note="Moody panels.", look=([], ["dark"]))
+    out = design_index.search(bank, query="dark", emb=_fake_embedders(), embed=False)
+    assert design_index.status(bank) == {"images": 0, "notes": 0}
+    assert out["results"] and out["results"][0]["legs"] == ["words"]
+
+
 def test_an_example_picture_finds_the_look_like_it(bank):
     dark = _add(bank, image=DARK, look=([], []))["ref"]
     _add(bank, image=LIGHT, look=([], []), url="https://launch.example.com")
@@ -446,6 +465,26 @@ def test_a_demo_bank_refuses_a_screenshot(client):
     r = c.post("/design", files={"image": ("shot.png", DARK, "image/png")})
     assert r.status_code == 409 and "demo" in r.json()["detail"]
     assert not (bank / "design").exists()
+
+
+def test_a_demo_bank_refuses_a_removal_too(client):
+    c, bank = client
+    ref = c.post("/design", files={"image": ("shot.png", DARK, "image/png")}).json()
+    demo_guard.write_manifest(bank)
+    r = c.delete(f"/design/{ref['id']}")
+    assert r.status_code == 409 and "demo" in r.json()["detail"]
+    assert (bank / "design" / f"{ref['id']}.md").is_file()
+
+
+def test_the_search_route_embeds_nothing_while_sleep_runs(client, monkeypatch):
+    from api.services import sleep_cycle
+
+    c, bank = client
+    c.post("/design", files={"image": ("a.png", DARK, "image/png")}, data={"note": "dark panels"})
+    monkeypatch.setattr(sleep_cycle, "get_sleep_state", lambda: SimpleNamespace(status="running"))
+    r = c.post("/design/search", data={"query": "dark"})
+    assert r.status_code == 200 and r.json()["results"]
+    assert design_index.status(bank) == {"images": 0, "notes": 0}
 
 
 def test_a_bad_upload_says_why(client):

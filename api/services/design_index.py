@@ -41,6 +41,8 @@ INDEX_DIR = "design-index"
 SCHEMA = "1"
 REFRESH_LIMIT = 64
 RRF_K = 60
+#: A meaning leg's hit counts only when its cosine is at least this share of the leg's best (``_close``).
+RELATIVE_FLOOR = 0.8
 _WORD = re.compile(r"[a-z0-9#][a-z0-9#._-]*")
 
 
@@ -276,10 +278,27 @@ def _ranked(vectors: dict[str, np.ndarray], query: np.ndarray) -> list[tuple[str
     return [(ids[i], float(sims[i])) for i in order]
 
 
+def _close(ranking: list[tuple[str, float]]) -> list[tuple[str, float]]:
+    """A meaning leg keeps only the hits within ``RELATIVE_FLOOR`` of its best cosine: a model's similarities sit in
+    a band that depends on the pair (text–image ≈ 0.2–0.35, text–text ≈ 0.5–0.8), so an absolute floor would be a
+    guess per model; "nearly as close as the closest" is not."""
+    if not ranking:
+        return ranking
+    best = ranking[0][1]
+    if best <= 0:
+        return ranking[:1]
+    return [(rid, sim) for rid, sim in ranking if sim >= best * RELATIVE_FLOOR]
+
+
 def search(memory_path, *, query: str | None = None, image: bytes | None = None, limit: int = 24,
-           emb: Embedders | None | str = "default") -> dict:
+           emb: Embedders | None | str = "default", embed: bool = True) -> dict:
     """``{"results": [{"id", "score", "legs"}], "mode", "missing"}``. ``mode`` names the legs that ran; ``missing``
-    says why a leg didn't (``image_model`` — the image encoder isn't here; ``model`` — no EmbeddingGemma 2)."""
+    says why a leg didn't (``image_model`` — the image encoder isn't here; ``model`` — no EmbeddingGemma 2).
+
+    **Order (review 2026-10-14):** a text query's results are tiered — every reference the words found comes first,
+    in fused order, then the references only a meaning leg found — and a meaning leg keeps only hits close to its best
+    (``_close``), so a word search never returns the whole board. ``embed=False`` (Sleep is running) answers from the
+    vectors already stored and embeds nothing new for the board."""
     refs = design_refs.list_refs(memory_path)
     if emb == "default":
         emb = default_embedders()
@@ -291,7 +310,8 @@ def search(memory_path, *, query: str | None = None, image: bytes | None = None,
         if words:
             legs["words"] = sorted(words.items(), key=lambda kv: (-kv[1], kv[0]))
     if emb is not None:
-        refresh(memory_path, emb, refs=refs)
+        if embed:
+            refresh(memory_path, emb, refs=refs)
         conn = _connect(index_path(memory_path))
         try:
             have = _rows(conn)
@@ -307,9 +327,9 @@ def search(memory_path, *, query: str | None = None, image: bytes | None = None,
                 q = None
             if q is not None:
                 if images:
-                    legs["picture"] = _ranked(images, q)
+                    legs["picture"] = _close(_ranked(images, q))
                 if notes:
-                    legs["note"] = _ranked(notes, q)
+                    legs["note"] = _close(_ranked(notes, q))
         if image is not None:
             if emb.image is None:
                 missing.append("image_model")
@@ -320,7 +340,7 @@ def search(memory_path, *, query: str | None = None, image: bytes | None = None,
                     logger.debug(f"design_index: the example picture didn't embed ({type(exc).__name__})")
                     v = None
                 if v is not None and images:
-                    legs["picture"] = _ranked(images, v)
+                    legs["picture"] = _close(_ranked(images, v))
         if emb.image is None and "image_model" not in missing:
             missing.append("image_model")
     else:
@@ -336,6 +356,7 @@ def search(memory_path, *, query: str | None = None, image: bytes | None = None,
     if not query and image is None:
         results = [{"id": r.id, "score": 0.0, "legs": []} for r in refs[:limit]]
     else:
-        order = sorted(fused, key=lambda rid: (-fused[rid], rid))[:limit]
+        worded = set(dict(legs.get("words", [])))
+        order = sorted(fused, key=lambda rid: (rid not in worded, -fused[rid], rid))[:limit]
         results = [{"id": rid, "score": round(fused[rid], 6), "legs": hits[rid]} for rid in order]
     return {"results": results, "mode": "+".join(sorted(legs)) or "none", "missing": missing}

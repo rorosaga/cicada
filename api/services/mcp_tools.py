@@ -3700,34 +3700,95 @@ DESIGN_SLEEPING = "Sleep is consolidating memory right now — try again in a mi
 _DESIGN_REFUSED_ROOTS = ("~/.claude", "~/.codex", "~/.cicada", "~/Library")
 
 
-def _design_refused(path: Path, memory_path: Path) -> bool:
+def _design_refused_ids(memory_path: Path) -> set[tuple[int, int]]:
+    """The refused folders as file identities ``(st_dev, st_ino)`` — never as spellings. On macOS a path can be
+    re-cased (case-insensitive APFS), re-normalised (Unicode) or reached through a firmlink
+    (``/System/Volumes/Data/…``) and still name the same folder; its identity cannot change (review blocker,
+    2026-10-14)."""
     import os
 
     from api.services import runtime_layout
 
     roots = [Path(os.path.expanduser(r)) for r in _DESIGN_REFUSED_ROOTS]
-    roots += [runtime_layout.cicada_home(), memory_path]
+    roots += [runtime_layout.cicada_home(), Path(memory_path)]
     for env in ("CLAUDE_CONFIG_DIR", "CODEX_HOME"):
         if os.environ.get(env):
             roots.append(Path(os.environ[env]).expanduser())
+    ids: set[tuple[int, int]] = set()
     for root in roots:
         try:
-            real = Path(os.path.realpath(root))
+            st = os.stat(root)
         except OSError:
             continue
-        if path == real or real in path.parents:
+        ids.add((st.st_dev, st.st_ino))
+    return ids
+
+
+def _design_inside_refused(path: Path, refused: set[tuple[int, int]]) -> bool:
+    """Whether ``path`` or any folder above it IS one of the refused folders, by identity."""
+    import os
+
+    for node in (path, *path.parents):
+        try:
+            st = os.stat(node)
+        except OSError:
+            continue
+        if (st.st_dev, st.st_ino) in refused:
             return True
     return False
+
+
+def _design_read_file(given: Path, memory_path: Path, cap: int) -> bytes | str:
+    """Open the agent's file once — ``O_NOFOLLOW | O_NONBLOCK`` on its resolved path — and decide on the open
+    descriptor (``fstat``: a regular file under the cap), so the file checked is the file read. Refused when the
+    opened file, or any folder above it, is (by identity) a refused folder."""
+    import os
+    import stat
+
+    from api.services import entity_picture
+
+    refusal = "Not saved: Cicada doesn't read pictures from that folder. Save the screenshot somewhere else."
+    real = Path(os.path.realpath(given))
+    refused = _design_refused_ids(memory_path)
+    if _design_inside_refused(real, refused):
+        return refusal
+    try:
+        fd = os.open(real, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except OSError:
+        return "Not saved: there's no file Cicada can read at that path."
+    try:
+        st = os.fstat(fd)
+        if (st.st_dev, st.st_ino) in refused:
+            return refusal
+        try:
+            named = os.stat(real)
+        except OSError:
+            return "Not saved: that file moved while it was read."
+        if (named.st_dev, named.st_ino) != (st.st_dev, st.st_ino):
+            return "Not saved: that file moved while it was read."
+        if _design_inside_refused(real, refused):   # asked again after the open: the folders above the read file
+            return refusal
+        if not stat.S_ISREG(st.st_mode):
+            return "Not saved: that path isn't a file."
+        if st.st_size > cap:
+            return "Not saved: that picture is over 4 MB. Save a smaller PNG or JPEG."
+        with os.fdopen(os.dup(fd), "rb") as fh:
+            head = fh.read(16)
+            if entity_picture.sniff(head) is None:
+                return "Not saved: that file isn't a PNG or JPEG."
+            return head + fh.read(cap + 1 - len(head))
+    finally:
+        os.close(fd)
 
 
 def _design_image(ctx: ToolContext, memory_path: Path, image_path, image_base64) -> bytes | str:
     """The picture an agent sent: base64 bytes (any connection), or a file the agent itself saved (stdio only — the
     MCP server runs as the agent's own child, so this is the agent's own read; never a remote caller's path). A file
-    must be a regular PNG or JPEG under the size cap, outside the refused roots. Returns bytes or a refusal."""
+    must be a regular PNG or JPEG under the size cap, outside the refused folders, judged by identity
+    (`_design_read_file`). Returns bytes or a refusal."""
     import base64
     import binascii
     import os
-    import stat
 
     from api.services import design_refs, entity_picture
 
@@ -3748,24 +3809,14 @@ def _design_image(ctx: ToolContext, memory_path: Path, image_path, image_base64)
         given = Path(os.path.expanduser(str(image_path)))
         if not given.is_absolute():
             return "Not saved: give the screenshot's absolute path."
-        real = Path(os.path.realpath(given))
-        if _design_refused(real, memory_path):
-            return "Not saved: Cicada doesn't read pictures from that folder. Save the screenshot somewhere else."
-        try:
-            st = os.stat(real)
-        except OSError:
-            return "Not saved: there's no file at that path."
-        if not stat.S_ISREG(st.st_mode):
-            return "Not saved: that path isn't a file."
-        if st.st_size > cap:
-            return "Not saved: that picture is over 4 MB. Save a smaller PNG or JPEG."
-        with open(real, "rb") as fh:
-            head = fh.read(16)
-            if entity_picture.sniff(head) is None:
-                return "Not saved: that file isn't a PNG or JPEG."
-            data = head + fh.read(cap + 1)
+        got = _design_read_file(given, memory_path, cap)
+        if isinstance(got, str):
+            return got
+        data = got
     else:
         return "Not saved: send the screenshot as `image_path` (a file you saved) or `image_base64`."
+    if len(data) > cap:
+        return "Not saved: that picture is over 4 MB. Send a smaller PNG or JPEG."
     if entity_picture.sniff(data) is None:
         return "Not saved: that picture isn't a PNG or JPEG."
     return data
@@ -3866,7 +3917,8 @@ def design_search(ctx: ToolContext, query=None, image_path=None, image_base64=No
     if not (query or "").strip() and image is None:
         rows = [_design_line(r, memory_path=None if ctx.is_remote else memory_path) for r in list(refs.values())[:limit]]
         return f"The person's design board, newest first ({len(refs)} saved):\n" + "\n".join(rows)
-    out = design_index.search(memory_path, query=query, image=image, limit=limit)
+    # Never embed the board while Sleep runs (the rail); the vectors already there still answer.
+    out = design_index.search(memory_path, query=query, image=image, limit=limit, embed=not ctx.sleep_running())
     lines = []
     for hit in out["results"]:
         ref = refs.get(hit["id"])

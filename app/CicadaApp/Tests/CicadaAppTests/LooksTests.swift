@@ -153,6 +153,15 @@ final class LooksTests: XCTestCase {
         XCTAssertTrue(cache.visible.isEmpty && cache.phase == .idle, "a bank switch empties it")
     }
 
+    /// DR-40 — the composer has exactly one primary action, Save, and it is the house primary button.
+    func testTheComposerHasOnePrimaryActionAndItIsSave() throws {
+        let file = try XCTUnwrap(ThemeTokenTests.swiftSources().first { $0.path.hasSuffix("Views/Looks/LooksPage.swift") })
+        let text = try String(contentsOf: file, encoding: .utf8)
+        XCTAssertEqual(text.components(separatedBy: "PrimaryActionButton(").count - 1, 1)
+        XCTAssertTrue(text.contains("PrimaryActionButton(title: saving ? Copy.Looks.saving : Copy.Looks.save"))
+        XCTAssertFalse(text.contains(".borderedProminent"), "never a hand-rolled primary")
+    }
+
     // MARK: Before a screenshot leaves the Mac
 
     func testABigCaptureIsShrunkUnderTheServersBound() throws {
@@ -250,9 +259,15 @@ final class LooksTests: XCTestCase {
     private func snapshot<V: View>(_ view: V, size: CGSize, mode: AppColorScheme, to url: URL) throws {
         let host = NSHostingView(rootView: view.environment(\.colorScheme, mode == .dark ? .dark : .light))
         host.frame = NSRect(origin: .zero, size: size)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        // Rendered as the key window draws it, far off screen: the composer is a sheet the person is typing in, and an
+        // inactive window's prominent button gives up its accent fill (`PrimaryActionInk`, AppKit's own rule).
+        let window = KeyableWindow(contentRect: host.frame.offsetBy(dx: -20_000, dy: -20_000), styleMask: [.borderless],
+                                   backing: .buffered, defer: false)
         window.appearance = NSAppearance(named: mode == .dark ? .darkAqua : .aqua)
         window.contentView = host
+        window.orderFrontRegardless()
+        window.makeKey()
+        defer { window.orderOut(nil) }
         host.layoutSubtreeIfNeeded()
         RunLoop.main.run(until: Date().addingTimeInterval(0.4))
         host.layoutSubtreeIfNeeded()
@@ -305,8 +320,22 @@ final class LooksTests: XCTestCase {
                                          onSave: { _ in })
             try snapshot(composer, size: CGSize(width: 460, height: 560), mode: mode,
                          to: URL(fileURLWithPath: dir).appendingPathComponent("looks-composer-\(name).png"))
+            // A hosting view's capture cannot draw Liquid Glass (the window server composites it), so the actions row —
+            // whose Save is the glass-prominent primary — is also rendered through SwiftUI's own renderer.
+            let actions = LooksComposerActions(saving: false, onCancel: {}, onFindSimilar: {}, onSave: {})
+                .frame(width: 412).padding(24).background(CicadaTheme.bgPane)
+                .environment(\.colorScheme, mode == .dark ? .dark : .light)
+            let renderer = ImageRenderer(content: actions)
+            renderer.scale = 2
+            let tiff = try XCTUnwrap(renderer.nsImage?.tiffRepresentation)
+            let png = try XCTUnwrap(NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]))
+            try png.write(to: URL(fileURLWithPath: dir).appendingPathComponent("looks-composer-actions-\(name).png"))
         }
     }
+}
+
+private final class KeyableWindow: NSWindow {
+    override var canBecomeKey: Bool { true }
 }
 
 private extension NSColor {

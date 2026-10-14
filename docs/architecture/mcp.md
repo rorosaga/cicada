@@ -137,8 +137,12 @@ Save: when the person says they like how a site or screen looks, the agent sends
 (an absolute path to a PNG or JPEG it saved, ≤ 4 MB) or `image_base64` — with `url`, the person's `note`, and any
 HTML/CSS they pointed at as `snippets` (`title`, `tags`, `region` optional). The stdio server reads that file as the
 agent's own child process, and only a regular PNG/JPEG outside `~/.claude`, `~/.codex`, `~/.cicada` / `CICADA_HOME`,
-`~/Library` and the bank (the transcript rail, and the app-reads-`~/Library` rail); a remote caller can never name a
-path. The palette is read before the write admission; the write holds it through its own commit as the harness with
+`~/Library` and the bank (the transcript rail, and the app-reads-`~/Library` rail). The refusal is **by file identity,
+never by spelling** (review 2026-10-14): the resolved file and every folder above it are compared by `(st_dev,
+st_ino)` with each refused folder, so a re-cased path (case-insensitive APFS), another Unicode form or a firmlink
+(`/System/Volumes/Data/…`) is refused like the plain one; the file is opened once with `O_NOFOLLOW | O_NONBLOCK` and
+judged on that descriptor (`fstat`: a regular file under 4 MB, the same identity as the path), so the file checked is
+the file read. A remote caller can never name a path. The palette is read before the write admission; the write holds it through its own commit as the harness with
 `Cicada-Session:`; refused in a demo bank and while Sleep runs. Search: words, a picture (`image_path` /
 `image_base64`) or nothing (the newest); each row gives the link, palette, look words, fonts, what the person liked, and
 the screenshot's and reference's file paths so a local agent can open the picture. **Both are stdio-only in this slice**
