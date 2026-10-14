@@ -1283,6 +1283,89 @@ class EntityProvenance(CamelModel):
     last_conversation: Optional[ProvenanceConversation] = None
 
 
+class SourceFact(CamelModel):
+    """One current belief a source backs (owner 2026-10-14): the page's own claim of the source's predicate — the
+    sentence, and the key the card's Timeline opens (``predicate`` + ``context``)."""
+
+    claim_id: str
+    text: str
+    predicate: str = ""
+    context: str = "general"
+
+
+class OverviewSource(EntitySource):
+    """A ``sources:`` entry as ``GET /entities/{id}/sources`` serves it, plus what the card says about it: its
+    ``site`` key (``reading_hosts.site_of``, a url only), a ``title`` the page's own ``## Links`` gives that URL,
+    its ``scope`` (``fact``: it backs one predicate; ``site``: the official-site role; ``page``: no predicate) and
+    the current beliefs it backs (at most ``page_sources.MAX_FACTS``, newest first; ``fact_count`` is all of them)."""
+
+    site: Optional[str] = None
+    title: Optional[str] = None
+    scope: str = "page"
+    facts: list[SourceFact] = []
+    fact_count: int = 0
+
+
+class OverviewLinkOrigin(CamelModel):
+    """The conversation a ``## Links`` line came from, by its section-provenance record: what the Reader opens."""
+
+    episode: str
+    title: str = ""
+    harness: Optional[str] = None
+    origin: Optional[str] = None
+    said: Optional[str] = None
+    available: bool = True
+    evidence: Optional[EvidenceModel] = None
+
+
+class OverviewLink(CamelModel):
+    """A URL from the page's ``## Links`` that is not one of its sources: its title, site and note as the line says
+    them, and the conversation that named it when the page recorded one."""
+
+    url: str
+    title: str = ""
+    site: Optional[str] = None
+    note: Optional[str] = None
+    came_from: Optional[OverviewLinkOrigin] = None
+
+
+class OverviewApp(CamelModel):
+    """The conversations that fed a page from one app (a harness, else an origin): how many, the beliefs and the
+    page's passages they back, and when the newest was said."""
+
+    harness: Optional[str] = None
+    origin: Optional[str] = None
+    source: Optional[str] = None
+    conversations: int = 0
+    facts: int = 0
+    passages: int = 0
+    last_said: Optional[str] = None
+
+
+class OverviewConversations(CamelModel):
+    total: int = 0
+    first_said: Optional[str] = None
+    last_said: Optional[str] = None
+    apps: list[OverviewApp] = []
+
+
+class SourcesOverview(CamelModel):
+    """``GET /entities/{id}/sources/overview`` (owner 2026-10-14) — where a page's knowledge comes from and how fresh
+    it is, in one read the card asks for: its sources with the beliefs each backs, the links its conversations named,
+    and those conversations by app. Engine-free, never fetches, writes nothing; bounded by the ``MAX_*`` caps in
+    ``page_sources`` so an owner-sized page answers in kilobytes. On demand, ETagged, not a Store domain."""
+
+    entity_id: str
+    entity_type: str = ""
+    sources: list[OverviewSource] = []
+    links: list[OverviewLink] = []
+    links_total: int = 0
+    conversations: OverviewConversations = OverviewConversations()
+    facts_total: int = 0
+    facts_with_source: int = 0
+    last_checked: Optional[str] = None
+
+
 class EpisodeCitation(CamelModel):
     """One belief a document contributed (G118 slice 2, design §4.8.3).
     ``evidence`` is the stored entry for a span or reasoning row, ``None`` for

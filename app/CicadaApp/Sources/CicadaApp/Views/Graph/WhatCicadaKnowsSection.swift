@@ -9,6 +9,9 @@ struct WhatCicadaKnowsSection: View {
     /// False inside the card's "What Cicada believes" disclosure, which already names the section (DR-38).
     var showsLabel = true
     var onOpenTimeline: (Claim) -> Void = { _ in }
+    /// Owner 2026-10-14 — the source a belief can be checked at (nil: none), and opening it in "Where this comes from".
+    var lookUp: (Claim) -> PageSource? = { _ in nil }
+    var onLookUp: ((PageSource) -> Void)? = nil
     /// A page at a time (`BeliefPaging`): a summary-only page can carry thousands of beliefs.
     @State private var shown = BeliefPaging.step
 
@@ -20,7 +23,8 @@ struct WhatCicadaKnowsSection: View {
                 .foregroundStyle(CicadaTheme.textTertiary)
             LazyVStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
                 ForEach(claims.prefix(shown)) { claim in
-                    BeliefRow(claim: claim) { onOpenTimeline(claim) }
+                    BeliefRow(claim: claim, onOpenTimeline: { onOpenTimeline(claim) }, lookUp: lookUp(claim),
+                              onLookUp: onLookUp)
                 }
             }
             .padding(.horizontal, -CicadaTheme.scaled(10))

@@ -386,7 +386,9 @@ Round 4 (C2–C4):
   linked source as a read-time edge labelled by its predicate (never persisted, like `has repo`; `kind: "source"` on the link,
   which the person map and "What's happening" skip — a source is where to look, not a relationship); the card's row wears the linked
   page's picture and offers "Open page ›". The person's three source routes answer 409 while Sleep runs; `cicada_add_source`
-  is refused then too (it used to write uncommitted). A Contacts card row offers only Remove on the card.
+  is refused then too (it used to write uncommitted). The card reads a page's sources with the beliefs each backs (the
+  page's current claims of the source's predicate), its non-source `## Links` and its conversations by app in one
+  read, `GET /entities/{id}/sources/overview` (`page_sources`, owner 2026-10-14; `api.md`). A Contacts card row offers only Remove on the card.
 - `website` (G61 S3-b) — the official-site ROLE: a `sources:` entry with `predicate: website`, many allowed. Stage 1 may
   propose ONE for a `company`, `tool` or `project` (an optional `website` field on the extracted entity;
   `site_sources.sanitize_website` keeps only an https origin of a public host that is not a platform (`PLATFORM_HOSTS`:

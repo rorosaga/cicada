@@ -873,8 +873,9 @@ so there is no `VersionVector` mapping — slices every offset as a Unicode scal
 `quoteParts`: deletion only, so every span maps exactly; the Reader keeps a turn's lines, drawing a bullet as "•"),
 shows a time only when the episode stores one, and says stale / grown / derived /
 inferred / truncated in words — a span its rewritten document no longer reaches (the server's 422) is
-stale too, never "couldn't open". The entity card's "Where this came from" (Content, after the page and its beliefs) reads
-`/entities/{id}/provenance` once per card; G61's section is "Look it up at". Chips read the router
+stale too, never "couldn't open". The entity card's "Where this comes from" (Content, after the page and its beliefs) reads
+`/entities/{id}/provenance` and `/entities/{id}/sources/overview` once per card (both through `ProvenanceCache`);
+G61's sources, the page's links and its conversations by app are one section since 2026-10-14 (`features.md`). Chips read the router
 and cache as optional environment values, so a chip outside the main window renders without a
 click-through rather than trapping; the Ask sheet steps aside when the Reader
 opens (the Belief Timeline is inline in its tab since DS-3a), and a bank switch closes it and empties the cache (episode ids repeat across banks).
