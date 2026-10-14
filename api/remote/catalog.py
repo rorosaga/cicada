@@ -66,7 +66,10 @@ NEVER_REMOTE = frozenset({"cicada_pending", "cicada_mark_processed", "cicada_rep
                           # G166 exploring (2026-10-14): stdio only in slice 1 — the record reads image files the agent
                           # saved, and a run starts only from the person in a local conversation (D5: never remote).
                           "cicada_explore_queue", "cicada_explore_claim", "cicada_record_capture",
-                          "cicada_explore_start", "cicada_site_map"})
+                          "cicada_explore_start", "cicada_site_map",
+                          # G61, ruling 26: a tracked source's re-check reads in the person's own browser session —
+                          # a local agent's job; a remote one is the owner's open question.
+                          "cicada_refresh_claim", "cicada_record_refresh"})
 WRITE_TOOLS = frozenset({"cicada_save_episode", "cicada_write_claim", "cicada_retract_claim",
                          "cicada_save_url", "cicada_record_watch", "cicada_record_read", "cicada_record_check", "cicada_add_source",
                          "cicada_change_source",

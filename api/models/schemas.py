@@ -709,7 +709,7 @@ class EntitySource(CamelModel):
     # who re-checks it (`cicada` | `agent`) and why it is due now (null when it is not).
     refresh: Optional[dict] = None
     recheck_days: Optional[int] = None
-    tracked: bool = False
+    tracked: Optional[bool] = None
     refresh_checker: Optional[str] = None
     refresh_due: Optional[str] = None
 
