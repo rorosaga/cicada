@@ -263,6 +263,44 @@ final class SearchFilesTests: XCTestCase {
         XCTAssertNil(larger?.button, "the larger version needs the account sheet, under Advanced")
     }
 
+    // MARK: Review fixes (B1, B2 and the 409)
+
+    /// B1 — selecting a not-installed option never calls install: the pick only raises a confirm that names the size,
+    /// and the one `installEmbeddingModel` in the picker's path is behind the confirm's explicit Download.
+    func testSelectingANotInstalledVersionDoesNotDownload() throws {
+        let status = Self.status()
+        XCTAssertEqual(SearchModelLogic.route(picked: Self.sharper, status: status, sleepWriting: false), .confirmDownload(Self.sharper))
+        let confirm = SearchModelLogic.confirmation(for: Self.sharper, in: status)
+        XCTAssertTrue(confirm.contains("585 MB"), "the size before the click: \(confirm)")
+        XCTAssertFalse(Copy.SearchModel.usesNowBetterHere("Built in", better: "Sharper").contains("download it once"))
+        let page = try String(contentsOf: Self.source("Views/Settings/SearchFilesView.swift"), encoding: .utf8)
+        let pick = try XCTUnwrap(page.components(separatedBy: "private func pick(").dropFirst().first?
+            .components(separatedBy: "private func confirmDownload(").first)
+        XCTAssertFalse(pick.contains("installEmbeddingModel"), "a pick sends no install request")
+        XCTAssertTrue(pick.contains("pendingDownload = id"))
+        let confirmBody = try XCTUnwrap(page.components(separatedBy: "private func confirmDownload(").dropFirst().first?
+            .components(separatedBy: "private func send(").first)
+        XCTAssertTrue(confirmBody.contains("installEmbeddingModel"), "only the explicit Download sends it")
+    }
+
+    /// B2 — a failed re-read on the default view is the page's own sentence, whatever the backend's diagnostic said.
+    func testAFailedReReadIsSaidInThePagesOwnWords() {
+        let diagnostic = EmbeddingReindexState(state: "failed", model: Self.sharper,
+                                               error: "the search model this memory uses isn't installed; run `make embedding-model`")
+        let row = SearchUnderstanding.meaning(Self.status(next: Self.sharper, sharperAvailable: true, reindex: diagnostic), sleeping: false)
+        XCTAssertEqual(row?.detail, Copy.SearchFiles.rereadFailed)
+        XCTAssertTrue(row?.failed == true)
+    }
+
+    /// While the image download runs (or the Looks shortcut fetches both), Turn on is dimmed with the reason, not a 409.
+    func testTurnOnWaitsWhileAnyDownloadRuns() {
+        let vision = EmbeddingInstallState(state: "installing", step: "Downloading — 1 of 894 MB", part: "vision", done: 1, total: 894)
+        let row = SearchUnderstanding.meaning(Self.status(install: vision), sleeping: false)
+        XCTAssertEqual(row?.button, Copy.SearchFiles.turnOn)
+        XCTAssertFalse(row?.enabled ?? true)
+        XCTAssertEqual(row?.help, Copy.SearchFiles.downloadRunningHelp)
+    }
+
     // MARK: Understand images
 
     func testImagesWaitForMeaningSoTheTwoClicksStayTwo() {

@@ -36,6 +36,8 @@ struct SearchFilesView: View {
     @State private var rebuilding = false
     @State private var installModelID: String?
     @State private var showInstall = false
+    /// A picked version not on this Mac: the confirm that names its size. Nothing is sent until its *Download*.
+    @State private var pendingDownload: String?
 
     static let advancedKey = "cicada.searchFiles.advancedOpen"
 
@@ -223,9 +225,10 @@ struct SearchFilesView: View {
         .settingsRow(.searchAdvanced)
     }
 
-    /// The catalog's versions by their own labels — the one place they are named. A version not on this Mac routes
-    /// to its download (`SearchModelLogic.route`): the sharper version's one click, or the account sheet for the
-    /// larger one. Disabled at 45 % with the reason in `.help` while Sleep writes (DR-41).
+    /// The catalog's versions by their own labels — the one place they are named. A selection is never the consent
+    /// (review B1): a version not on this Mac raises a confirm that names its size, and only its *Download* button
+    /// sends; the larger one opens the account sheet. Disabled at 45 % with the reason in `.help` while Sleep writes
+    /// (DR-41).
     @ViewBuilder
     private var searchVersionRow: some View {
         SettingsRow(.searchModel, title: Copy.SearchModel.title, detail: modelNote ?? SearchModelLogic.detail(embeddings)) {
@@ -237,11 +240,30 @@ struct SearchFilesView: View {
                     .opacity(sleeping ? NeutralButton.disabledOpacity : 1)
                     .help(sleeping ? Copy.SearchModel.sleepRunningHelp : Copy.SearchModel.pickerHelp)
             }
+        } below: {
+            if let id = pendingDownload, let embeddings {
+                HStack(spacing: CicadaTheme.spacingSM) {
+                    Text(SearchModelLogic.confirmation(for: id, in: embeddings))
+                        .font(CicadaTheme.captionFont)
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: CicadaTheme.spacingSM)
+                    TextButton(title: Copy.SearchModel.confirmCancel) { pendingDownload = nil }
+                    NeutralButton(title: Copy.SearchModel.confirmDownloadButton, size: .compact,
+                                  isDisabled: sleeping || acting || embeddings.install.isInstalling,
+                                  help: Copy.SearchModel.confirmDownloadHelp,
+                                  disabledHelp: sleeping ? Copy.SearchModel.sleepRunningHelp : Copy.SearchFiles.downloadRunningHelp) {
+                        confirmDownload(id)
+                    }
+                }
+            }
         }
     }
 
+    /// A pick never downloads (review B1): `.confirmDownload` only raises the confirm.
     private func pick(_ id: String) {
         guard let status = embeddings else { return }
+        pendingDownload = nil
         switch SearchModelLogic.route(picked: id, status: status, sleepWriting: sleeping) {
         case .nothing:
             break
@@ -250,11 +272,17 @@ struct SearchFilesView: View {
         case .install:
             installModelID = id
             showInstall = true
-        case .download(let id):
-            send { try await APIClient.shared.installEmbeddingModel(id) }
+        case .confirmDownload(let id):
+            pendingDownload = id
         case .choose(let id):
             send { try await APIClient.shared.chooseEmbeddingModel(id) }
         }
+    }
+
+    /// The confirm's explicit *Download*: the person's click, after the size was said.
+    private func confirmDownload(_ id: String) {
+        pendingDownload = nil
+        send { try await APIClient.shared.installEmbeddingModel(id) }
     }
 
     private func send(_ work: @escaping @MainActor () async throws -> EmbeddingsStatus) {

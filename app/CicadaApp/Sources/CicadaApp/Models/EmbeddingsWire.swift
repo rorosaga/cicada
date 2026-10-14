@@ -184,8 +184,10 @@ enum SearchModelRoute: Equatable {
     case blocked
     /// Not on this Mac yet and its download needs the person's token — the pick opens the install sheet.
     case install
-    /// Not on this Mac yet, no account needed — the pick starts the one-time download (`POST /embeddings/install`).
-    case download(String)
+    /// Not on this Mac yet, no account needed. The pick sends NOTHING: a selection is never the consent. It asks for a
+    /// confirm that names the size (`SearchModelLogic.confirmation`), and only that explicit *Download* button sends
+    /// `POST /embeddings/install` (review B1, 2026-10-14).
+    case confirmDownload(String)
     /// `POST /embeddings/choice` with this id.
     case choose(String)
 }
@@ -200,7 +202,7 @@ enum SearchModelLogic {
         guard let option = status.option(id) else { return .nothing }
         if !option.available {
             if status.install.isInstalling { return .nothing }
-            return option.needsToken ? .install : .download(id)
+            return option.needsToken ? .install : .confirmDownload(id)
         }
         return .choose(id)
     }
@@ -247,6 +249,12 @@ enum SearchModelLogic {
             return Copy.SearchModel.usesNowBetterHere(current.label, better: better.label)
         }
         return Copy.SearchModel.usesNow(current.label, detail: current.detail)
+    }
+
+    /// The confirm a not-installed pick raises, naming what it fetches before the explicit *Download* click.
+    static func confirmation(for id: String, in status: EmbeddingsStatus) -> String {
+        let option = status.option(id)
+        return Copy.SearchModel.confirmDownload(option?.label ?? Copy.SearchModel.anotherModel, bytes: option?.downloadBytes ?? 0)
     }
 
     static func label(_ id: String, in status: EmbeddingsStatus) -> String {
@@ -308,15 +316,17 @@ enum SearchUnderstanding {
            let sharper, !sharper.available {
             return gated(UnderstandRow(detail: install.error, failed: true, button: Copy.SearchFiles.tryAgain,
                                        action: .fetchMeaning(sharper.id), help: Copy.SearchFiles.meaningTurnOnHelp),
-                         sleeping: sleeping)
+                         sleeping: sleeping, downloading: install.isInstalling)
         }
         let reindex = status.reindex
         if reindex.state == "running" {
             return UnderstandRow(detail: Copy.SearchFiles.rereading(done: reindex.done, total: reindex.total), busy: true)
         }
         if reindex.state == "waiting" { return UnderstandRow(detail: Copy.SearchFiles.waitsForSleep) }
-        if reindex.state == "failed", !reindex.error.isEmpty, status.nextModel != status.model {
-            return UnderstandRow(detail: reindex.error, failed: true)
+        // Review B2 — the backend's sentence here can be a health diagnostic (a hosted service, a dev command); the
+        // default view says it in its own words. Advanced's line keeps the backend's detail.
+        if reindex.state == "failed", status.nextModel != status.model {
+            return UnderstandRow(detail: Copy.SearchFiles.rereadFailed, failed: true)
         }
         if !status.nextModel.isEmpty, status.nextModel != status.model {
             return UnderstandRow(detail: Copy.SearchFiles.switchesAtNextSleep)
@@ -327,7 +337,7 @@ enum SearchUnderstanding {
             if current.needsToken { return UnderstandRow(detail: Copy.SearchFiles.meaningMissingLarger) }
             return gated(UnderstandRow(detail: Copy.SearchFiles.meaningMissing(bytes: current.downloadBytes),
                                        button: Copy.SearchFiles.download, action: .fetchMeaning(current.id),
-                                       help: Copy.SearchFiles.meaningTurnOnHelp), sleeping: sleeping)
+                                       help: Copy.SearchFiles.meaningTurnOnHelp), sleeping: sleeping, downloading: install.isInstalling)
         }
         if current.needsDownload {
             return UnderstandRow(detail: current.needsToken ? Copy.SearchFiles.meaningLarger : Copy.SearchFiles.meaningSharper,
@@ -337,11 +347,11 @@ enum SearchUnderstanding {
             if !sharper.available {
                 return gated(UnderstandRow(detail: Copy.SearchFiles.meaningOffer(bytes: sharper.downloadBytes),
                                            button: Copy.SearchFiles.turnOn, action: .fetchMeaning(sharper.id),
-                                           help: Copy.SearchFiles.meaningTurnOnHelp), sleeping: sleeping)
+                                           help: Copy.SearchFiles.meaningTurnOnHelp), sleeping: sleeping, downloading: install.isInstalling)
             }
             return gated(UnderstandRow(detail: Copy.SearchFiles.meaningReadyHere, button: Copy.SearchFiles.turnOn,
                                        action: .chooseMeaning(sharper.id), help: Copy.SearchFiles.meaningUseHelp),
-                         sleeping: sleeping)
+                         sleeping: sleeping, downloading: install.isInstalling)
         }
         return UnderstandRow(detail: Copy.SearchFiles.meaningBuiltIn, on: true)
     }
@@ -374,12 +384,13 @@ enum SearchUnderstanding {
                              action: .fetchImages, help: Copy.SearchFiles.imagesTurnOnHelp)
     }
 
-    /// Sleep running: the button stays, dimmed, and says why (DR-41).
-    private static func gated(_ row: UnderstandRow, sleeping: Bool) -> UnderstandRow {
-        guard sleeping, row.action != nil else { return row }
+    /// Sleep running, or another download (the image part, or the Looks shortcut fetching both) already going: the
+    /// button stays, dimmed, and says why (DR-41) — never an enabled click that answers 409.
+    private static func gated(_ row: UnderstandRow, sleeping: Bool, downloading: Bool = false) -> UnderstandRow {
+        guard sleeping || downloading, row.action != nil else { return row }
         var row = row
         row.enabled = false
-        row.help = Copy.SearchFiles.sleepRunningHelp
+        row.help = sleeping ? Copy.SearchFiles.sleepRunningHelp : Copy.SearchFiles.downloadRunningHelp
         return row
     }
 }

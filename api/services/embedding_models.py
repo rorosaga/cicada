@@ -379,7 +379,10 @@ def start_install(token: str, environ=os.environ) -> bool:
     with JOB._lock:
         if JOB.state == "installing":
             return False
-        JOB.state = "installing"
+        # One lock for the whole claim: a poll between here and the runner's first step never reads the previous
+        # download's part or bytes (review, 2026-10-14).
+        JOB.state, JOB.step, JOB.error, JOB.done, JOB.total = "installing", STEP_STARTING, "", 0, 0
+        JOB.part = PART_LARGER
     threading.Thread(target=_run_install, args=(token, environ), name="cicada-embedding-install", daemon=True).start()
     return True
 
@@ -422,7 +425,10 @@ def start_download(bank: Path | None = None, settings=None, environ=os.environ) 
     with JOB._lock:
         if JOB.state == "installing":
             return False
-        JOB.state = "installing"
+        # One lock for the whole claim: a poll between here and the runner's first step never reads the previous
+        # download's part or bytes (review, 2026-10-14).
+        JOB.state, JOB.step, JOB.error, JOB.done, JOB.total = "installing", STEP_STARTING, "", 0, 0
+        JOB.part = PART_TEXT
     threading.Thread(target=_run_download, args=(bank, settings, environ), name="cicada-embedding-download",
                      daemon=True).start()
     return True
@@ -451,7 +457,10 @@ def start_vision_download(environ=os.environ) -> bool:
     with JOB._lock:
         if JOB.state == "installing":
             return False
-        JOB.state = "installing"
+        # One lock for the whole claim: a poll between here and the runner's first step never reads the previous
+        # download's part or bytes (review, 2026-10-14).
+        JOB.state, JOB.step, JOB.error, JOB.done, JOB.total = "installing", STEP_STARTING, "", 0, 0
+        JOB.part = PART_VISION
     threading.Thread(target=_run_vision_download, args=(environ,), name="cicada-vision-download",
                      daemon=True).start()
     return True

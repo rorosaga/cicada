@@ -305,7 +305,8 @@ final class NeuralEngineSearchModelTests: XCTestCase {
     }
 
     func testPickingItStartsTheDownloadNotTheTokenSheet() {
-        XCTAssertEqual(SearchModelLogic.route(picked: Self.neural, status: status(), sleepWriting: false), .download(Self.neural))
+        XCTAssertEqual(SearchModelLogic.route(picked: Self.neural, status: status(), sleepWriting: false), .confirmDownload(Self.neural),
+                       "a selection is never the consent: it raises the confirm, nothing is sent (review B1)")
         XCTAssertEqual(SearchModelLogic.route(picked: Self.neural, status: status(install: .init(state: "installing")),
                                               sleepWriting: false), .nothing)
         XCTAssertEqual(SearchModelLogic.route(picked: Self.neural, status: status(neuralAvailable: true), sleepWriting: false),
@@ -346,7 +347,7 @@ final class NeuralEngineSearchModelTests: XCTestCase {
 
     func testTheDetailLineSaysWhereSearchIsAndThatItKeepsWorking() {
         XCTAssertEqual(SearchModelLogic.detail(status()),
-                       "Searching with Small. Neural Engine runs on this Mac too and finds looser matches — pick it to download it once.")
+                       "Searching with Small. Neural Engine runs on this Mac too and finds looser matches — pick it to see its download size.")
         XCTAssertEqual(SearchModelLogic.detail(status(neuralAvailable: true, recommended: nil)),
                        "Searching with Small. Built in.", "nothing to recommend once it's here")
         let running = EmbeddingReindexState(state: "running", model: Self.neural, done: 1, total: 3)

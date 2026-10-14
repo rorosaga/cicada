@@ -63,6 +63,9 @@ extension Copy {
         static let download = "Download"
         static let on = "On"
         static let sleepRunningHelp = "Sleep is running — change this when it finishes."
+        static let downloadRunningHelp = "One download at a time — this one can start when the current one finishes."
+        /// Review B2 — a failed re-read says it in the page's own words, never the backend's diagnostic sentence.
+        static let rereadFailed = "Search couldn't switch, so it keeps working as before. The next Sleep tries again."
 
         static func megabytes(_ bytes: Int) -> String {
             "\(UsageFormat.count(max(1, Int((Double(bytes) / 1_000_000).rounded())))) MB"
@@ -137,7 +140,7 @@ extension Copy {
             rereading(done: 1, total: 3), rereading(done: 0, total: 0), waitsForSleep, switchesAtNextSleep, loadFailed,
             imagesOffer(bytes: 309_000_000), imagesOffer(bytes: 0), imagesTurnOnHelp, imagesWaitsForMeaning,
             imagesWaitsHelp, imagesWaitsForDownload, imagesWaitsForDownloadHelp, imagesOn, imagesUnsupported,
-            privacyLine, advanced, integrationsLinkLead, folderNotSetUpHere,
+            privacyLine, advanced, downloadRunningHelp, rereadFailed, integrationsLinkLead, folderNotSetUpHere,
         ]
     }
 }

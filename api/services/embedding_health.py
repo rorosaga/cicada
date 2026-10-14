@@ -31,23 +31,24 @@ KINDS = ("credits", "rate_limited", "auth", "unreachable", "unavailable", "model
 
 _LEAD = "Search by meaning wasn't updated"
 _TAIL = "Search still finds exact words."
+#: The person reads these (the Sleep page, Settings → Search & files' Advanced line, doctor), so they say what happened
+#: in the same plain words as Search & files: no model, embedding, index or vector (``test_search_words_are_plain``).
 _SENTENCES = {
-    "credits": f"{_LEAD}: the embedding service says the account is out of credits. {_TAIL} "
+    "credits": f"{_LEAD}: the search service says the account is out of credits. {_TAIL} "
                "Add credits, or switch search to run on this Mac.",
-    "rate_limited": f"{_LEAD}: the embedding service is limiting requests. {_TAIL} "
+    "rate_limited": f"{_LEAD}: the search service is limiting requests. {_TAIL} "
                     "The next Sleep tries again.",
-    "auth": f"{_LEAD}: the embedding service didn't accept the key. {_TAIL} "
+    "auth": f"{_LEAD}: the search service didn't accept the key. {_TAIL} "
             "Check the key, or switch search to run on this Mac.",
-    "unreachable": f"{_LEAD}: the embedding service couldn't be reached. {_TAIL} "
+    "unreachable": f"{_LEAD}: the search service couldn't be reached. {_TAIL} "
                    "The next Sleep tries again.",
-    "unavailable": f"{_LEAD}: the embedding service is down for now. {_TAIL} The next Sleep tries again.",
-    "model_missing": f"{_LEAD}: the search model isn't installed on this Mac. {_TAIL} "
-                     "Run `make embedding-model`, or open Settings → Search & files.",
-}
-#: A release app carries its model inside the app, so the fix there is a choice in Settings, never a make target.
-_RELEASE_SENTENCES = {
-    "model_missing": f"{_LEAD}: the search model this memory uses isn't installed on this Mac. {_TAIL} "
+    "unavailable": f"{_LEAD}: the search service is down for now. {_TAIL} The next Sleep tries again.",
+    "model_missing": f"{_LEAD}: what this memory searches with isn't on this Mac. {_TAIL} "
                      "Download it or choose another in Settings → Search & files.",
+}
+#: A developer checkout can also fetch it from the terminal — a hint that never reaches a release app's copy.
+_CHECKOUT_HINTS = {
+    "model_missing": "In a developer checkout, `make embedding-model` fetches it.",
 }
 
 _CREDIT_WORDS = ("insufficient_quota", "exceeded your current quota", "credit", "payment required",
@@ -56,9 +57,10 @@ _lock = threading.Lock()
 
 
 def sentence(kind: str, environ=os.environ) -> str:
-    if runtime_layout.is_release(environ) and kind in _RELEASE_SENTENCES:
-        return _RELEASE_SENTENCES[kind]
-    return _SENTENCES[kind]
+    text = _SENTENCES[kind]
+    if not runtime_layout.is_release(environ) and kind in _CHECKOUT_HINTS:
+        return f"{text} {_CHECKOUT_HINTS[kind]}"
+    return text
 
 
 def _status_code(exc: BaseException) -> int | None:

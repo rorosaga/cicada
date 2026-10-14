@@ -1083,11 +1083,15 @@ mentioning embeddings". `SearchFilesView`, top to bottom:
 - One privacy line ("Folders are read on this Mac, and everything search downloads stays here.").
 - **Advanced**, collapsed by default and remembered per viewer (`cicada.searchFiles.advancedOpen`, DR-39): *Search
   version* — the `PillPicker` of the catalog's labels (*Sharper*, *Built in*, and *Larger* only where Sharper can't run
-  or the bank already uses it) with its detail line (`SearchModelLogic.detail`); picking *Larger* opens
+  or the bank already uses it) with its detail line (`SearchModelLogic.detail`). A selection is never the consent: picking
+a version not on this Mac sends nothing and raises a confirm that names its size (`SearchModelRoute.confirmDownload`,
+`SearchModelLogic.confirmation`), and only its *Download* button starts the download; picking *Larger* opens
   `LargerSearchModelSheet` (the terms are accepted on Hugging Face with the person's own account, so a read-only key from
   that account downloads it once; the key rides one request body, is cleared from the view at once and is never
   stored); and *Rebuild search* (the old Search index row; costs only time, no confirmation, TODO ruling 3). Version
   names appear here and nowhere else.
+A failed re-read on the default view is the page's own sentence, never the backend's diagnostic; *Turn on* is dimmed
+with the reason while any download runs (the Looks shortcut included), never an enabled click that answers 409.
 `SearchFilesTests.testDefaultVisibleWordsAreNeverTechnical` holds every default-visible string (`Copy.SearchFiles.
 defaultVisible` and every state the two rows can render) free of model, embedding, index, vector, token, runtime and
 checksum; Advanced is exempt; the hidden Settings-search keywords keep every technical word so "embeddings" still lands

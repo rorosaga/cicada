@@ -184,3 +184,34 @@ def test_the_sharper_option_states_its_download_size(tmp_path, monkeypatch):
 
     monkeypatch.setattr(model_fetch, "total_bytes", broken)
     assert em._download_bytes(em.PREFERRED_ID) == 0, "no pins: no size, never a guess"
+
+
+def test_the_health_sentences_are_plain_and_the_dev_hint_stays_out_of_a_release():
+    """Review B2: a failed re-read can carry these sentences onto the Sleep page and Search & files' Advanced line."""
+    from api.services import embedding_health
+
+    release = {"CICADA_DISTRIBUTION": "release"}
+    for kind in embedding_health.KINDS:
+        _plain(embedding_health.sentence(kind, release))
+        assert "make" not in embedding_health.sentence(kind, release)
+        checkout = embedding_health.sentence(kind, {})
+        hint = embedding_health._CHECKOUT_HINTS.get(kind, "")
+        _plain(checkout.replace(hint, ""))
+    assert "`make embedding-model`" in embedding_health.sentence("model_missing", {}), "a checkout keeps its command"
+
+
+def test_a_claim_resets_the_previous_downloads_part_and_bytes(monkeypatch):
+    import threading
+
+    monkeypatch.setattr(threading.Thread, "start", lambda self: None)  # claim only; never run a download here
+    try:
+        for start, part in [(lambda: em.start_vision_download(), em.PART_VISION),
+                            (lambda: em.start_download(), em.PART_TEXT),
+                            (lambda: em.start_install("hf_" + "x" * 30), em.PART_LARGER)]:
+            em.JOB._set(state="done", step="old", error="old", part="stale", done=9, total=9)
+            assert start() is True
+            snap = em.JOB.snapshot()
+            assert snap == {"state": "installing", "step": em.STEP_STARTING, "error": "", "part": part,
+                            "done": 0, "total": 0}, snap
+    finally:
+        _reset()

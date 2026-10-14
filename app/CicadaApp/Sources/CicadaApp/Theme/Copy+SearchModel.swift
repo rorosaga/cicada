@@ -23,7 +23,7 @@ extension Copy {
             "Switches to \(label) at the next Sleep, which re-reads your memory once."
         }
         static func usesNowBetterHere(_ label: String, better: String) -> String {
-            "Searching with \(label). \(better) runs on this Mac too and finds looser matches — pick it to download it once."
+            "Searching with \(label). \(better) runs on this Mac too and finds looser matches — pick it to see its download size."
         }
         static func moving(_ label: String, done: Int, total: Int) -> String {
             total > 0
@@ -34,6 +34,15 @@ extension Copy {
             "Switching to \(label) waits for Sleep to finish. Search keeps working."
         }
         static let installingGeneric = "Getting it ready…"
+        /// Review B1 — picking a version not on this Mac asks first; the size is said before the click.
+        static func confirmDownload(_ label: String, bytes: Int) -> String {
+            bytes > 0
+                ? "\(label) isn't on this Mac yet: a one-time download of about \(Copy.SearchFiles.megabytes(bytes)) that stays on this Mac. Then search switches to it."
+                : "\(label) isn't on this Mac yet: a one-time download that stays on this Mac. Then search switches to it."
+        }
+        static let confirmDownloadButton = "Download"
+        static let confirmDownloadHelp = "Downloads it once, then switches search to it."
+        static let confirmCancel = "Not now"
         static func installing(_ step: String) -> String { "\(step)…" }
         static func installedChoose(_ label: String) -> String { "\(label) is on this Mac — pick it to switch." }
         static let loadFailed = "Couldn't check how search is set up. Open this page again to retry."

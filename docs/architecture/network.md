@@ -94,7 +94,8 @@ the app before anything is unzipped, and nothing reaches the backend. The tester
 
 **The Neural Engine search model's download (owner 2026-10-09).** EmbeddingGemma 2 (`api/services/model_fetch.py`) is
 fetched only when the person asks: *Turn on* beside *Understand what you mean* in Settings → Search & files, or the
-*Sharper* pick under its Advanced (`POST /embeddings/install` with `model`; the size is stated before the click from
+*Download* in the confirm a *Sharper* pick under its Advanced raises — a selection alone never downloads
+(`POST /embeddings/install` with `model`; the size is stated before the click from
 the pins, `downloadBytes`), `make embedding-model-gemma2`, or `install.sh` on macOS 15+ — never on a schedule, never by Sleep,
 never by the backend on its own. It reads one pinned revision of `FluidInference/embeddinggemma-2-coreml` from
 `huggingface.co/<repo>/resolve/<revision>/<path>` (redirects followed to Hugging Face's own storage), the seven files
