@@ -3577,6 +3577,10 @@ class MediaSourceItem(CamelModel):
     # (GET /sources ?sort=recent, the app's Recent toggle) should prefer this
     # and fall back to `saved_at`.
     content_saved_at: Optional[str] = None
+    # G191 — the person's answer to "What made you save this?", read from the link's episode (the one record of it),
+    # with when they said it and when the browser says the bookmark was made. `None` when nobody was asked or the
+    # person dismissed the question. Additive and defaulted: an older client is unaffected.
+    saved_why: Optional["SavedWhyRecord"] = None
     # G102 cheap slice (R12): the link's own description — OpenGraph at ingest
     # or the Sleep-tail backfill's summary — cut at ~280 chars on a word
     # boundary, and the ids of the entities the page is `about` (the media
@@ -3654,6 +3658,21 @@ class BookmarkSyncSourceSummary(CamelModel):
     # R-SR13 — Safari only; 0 for every other browser.
     reading_list: int = 0
     favorites: int = 0
+    # G191 — this channel had no seen-set before this pass: a first sync, which never asks why.
+    first_sync: bool = False
+
+
+class FreshBookmark(CamelModel):
+    """G191 — one bookmark this sync newly saved. `added_at` is the browser's own instant (aware UTC), when the
+    file records one (Chrome; Safari's Reading List); absent, never a guess."""
+
+    url: str
+    title: str = ""
+    origin: str = ""
+    channel: str = ""
+    episode_id: str = ""
+    media_entity_id: str = ""
+    added_at: Optional[str] = None
 
 
 class BookmarkSyncResponse(CamelModel):
@@ -3666,6 +3685,58 @@ class BookmarkSyncResponse(CamelModel):
     # sync on some channel this pass touched).
     removals_proposed: int = 0
     removals_skipped: Optional[str] = None
+    # G191 — what this sync newly saved (at most `bookmark_sync.FRESH_CAP`) and how many in all.
+    fresh: list[FreshBookmark] = []
+    fresh_total: int = 0
+
+
+class SavedWhyRecord(CamelModel):
+    """G191 — the person's answer to "What made you save this?" on a saved link's source record: the reason keys
+    (with their labels), the project it was for, their own words, when they said it (`at`) and when the browser
+    says the bookmark was made (`added_at`)."""
+
+    reasons: list[str] = []
+    labels: list[str] = []
+    project: Optional[str] = None
+    text: Optional[str] = None
+    at: Optional[str] = None
+    added_at: Optional[str] = None
+
+
+MediaSourceItem.model_rebuild()
+
+
+class SavedWhyRequest(CamelModel):
+    model_config = ConfigDict(extra="forbid")
+    url: str
+    reasons: list[str] = []
+    project: Optional[str] = None
+    text: Optional[str] = None
+    # Review B1 — when the person answered, as the app recorded it: an answer the app held through Sleep's write
+    # window (a 409) or a backend restart keeps its own time. Aware, not in the future, at most a day old.
+    at: Optional[str] = None
+
+
+class SavedWhyResponse(CamelModel):
+    episode_id: str
+    media_entity_id: str = ""
+    saved_why: SavedWhyRecord
+
+
+class SavedWhyOption(CamelModel):
+    key: str
+    label: str
+
+
+class SavedWhyProject(CamelModel):
+    id: str
+    name: str
+
+
+class SavedWhyOptions(CamelModel):
+    reasons: list[SavedWhyOption] = []
+    projects: list[SavedWhyProject] = []
+    max_text: int = 500
 
 
 class BookmarkFolderNode(CamelModel):

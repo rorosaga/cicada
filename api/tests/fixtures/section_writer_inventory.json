@@ -355,6 +355,12 @@
       "disposition": "uninstrumented_guarded"
     },
     {
+      "function": "amend_section",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
       "function": "_restamp",
       "method": "write",
       "frontmatter": "fm",

@@ -48,6 +48,8 @@ struct SettingsRowID: RawRepresentable, Hashable, Codable, Sendable {
     static let engineAutoClaude = SettingsRowID("engineAutoClaude")
     // Integrations (round-4 D2)
     static let calendarApp = SettingsRowID("calendarApp")
+    // Integrations → Browsers (G191): ask why when a bookmark is made
+    static let saveWhy = SettingsRowID("saveWhy")
     // Integrations (round 4, G154)
     static let contactsApp = SettingsRowID("contactsApp")
     // Agents and From anywhere (Task 3)

@@ -129,6 +129,24 @@ enum CicadaMotion {
     static let reducedFadeDuration: TimeInterval = 0.1
     static var fade: Animation { .linear(duration: reducedFadeDuration) }
 
+    // MARK: - G191: the "what made you save this?" panel dropping from the notch
+    /// The panel arriving: it slides down out of the menu bar (the notch on a Mac that has one) and fades in.
+    static let notchDropDuration: TimeInterval = 0.3
+    /// The panel leaving, a little quicker than it came.
+    static let notchLeaveDuration: TimeInterval = 0.18
+    /// How far above its resting place the panel starts — inside the menu bar, so it reads as coming out of it.
+    static let notchDropDistance: CGFloat = 14
+
+    /// AppKit's half (the panel is an `NSPanel`, animated by `NSAnimationContext`): `(duration, distance)` for the
+    /// drop. Under Reduce Motion there is no movement, only the shortened fade DR-66 keeps.
+    static func notchDrop(reduceMotion: Bool) -> (duration: TimeInterval, distance: CGFloat) {
+        reduceMotion ? (reducedFadeDuration, 0) : (notchDropDuration, notchDropDistance)
+    }
+
+    static func notchLeave(reduceMotion: Bool) -> (duration: TimeInterval, distance: CGFloat) {
+        reduceMotion ? (reducedFadeDuration, 0) : (notchLeaveDuration, notchDropDistance / 2)
+    }
+
     /// STATE 0 → 1 by pointer: the list's width on the drawer curve. Width is movement, so nil under
     /// Reduce Motion.
     static func columns(reduceMotion: Bool) -> Animation? {

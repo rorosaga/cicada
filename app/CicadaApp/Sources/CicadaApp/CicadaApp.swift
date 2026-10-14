@@ -81,6 +81,11 @@ struct CicadaApp: App {
     @State private var browserWatcher: BrowserWatcher
     /// Round 4 (R-SR17) — the one registry of running syncs every `SourceRow` reads, and where its × goes.
     @State private var syncActivity: SyncActivity
+    /// G191 — "What made you save this?": listens to the bookmark watch's syncs and, when the person turned it on,
+    /// drops a small panel from the notch for one bookmark made a moment ago. The controller is held here because the
+    /// center keeps its presenter weakly.
+    @State private var saveWhy = SaveWhyCenter()
+    @State private var saveWhyPanel = SaveWhyPanelController()
     /// G133 / G134: watched folders and Wispr Flow, read by the app (the backend
     /// never opens them). Lights ride `browserWatcher` (R-LS26).
     @State private var localSources: LocalSourceWatcher
@@ -226,6 +231,7 @@ struct CicadaApp: App {
                 .environment(findModel)
                 .environment(homeSearch)
                 .environment(browserWatcher)
+                .environment(saveWhy)
                 .environment(syncActivity)
                 .environment(localSources)
                 .environment(calendarReader)
@@ -256,6 +262,15 @@ struct CicadaApp: App {
                 }
                 // G133 / G134: folders and Wispr Flow settings are per memory, so a
                 // bank switch re-reads them and re-arms the watches.
+                // G191, review B1 — Sleep let go of the pages (the SSE `sleep` event's `writing`): send any answer the
+                // backend refused while it held them.
+                .onChange(of: ProjectWriteGate.blocked(store.status.value)) { was, now in
+                    if was && !now { Task { await saveWhy.retryHeld() } }
+                }
+                // …and when the backend first answers after launch (a launch-time retry can beat its start).
+                .onChange(of: store.status.value == nil) { _, missing in
+                    if !missing { Task { await saveWhy.retryHeld() } }
+                }
                 .onChange(of: store.bank) { _, _ in
                     Task { await localSources.reload() }
                     // Round-4 D2 — the new memory gets the calendar too (a demo's 409 is said in words).
@@ -292,6 +307,11 @@ struct CicadaApp: App {
                     // Arms the per-browser watches and catches up on anything
                     // saved while the app was closed.
                     browserWatcher.start(store: store)
+                    // G191 — off until the person turns it on (Settings → Integrations → Browsers).
+                    saveWhy.attach(presenter: saveWhyPanel)
+                    saveWhy.start()
+                    // Review B1 — an answer held through a 409 or a restart goes out again now.
+                    Task { await saveWhy.retryHeld() }
                     // Track I T5 — the one intake owns `store.intakeInFlight`
                     // through its request counter, and the Dock's opens wait in
                     // `DockOpenQueue` until this line attaches it (R-IA25).

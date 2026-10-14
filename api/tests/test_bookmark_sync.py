@@ -160,10 +160,14 @@ def test_sync_bookmarks_reports_new_and_skipped_via_injected_ingest_fn(tmp_path)
         "new": 1,
         "skipped": 1,
         "sources": [
-            {"origin": "chrome-bookmark", "channel": "chrome-bookmarks", "found": 2, "new": 1, "skipped": 1},
+            {"origin": "chrome-bookmark", "channel": "chrome-bookmarks", "found": 2, "new": 1, "skipped": 1,
+             "first_sync": True},
         ],
         "removals_proposed": 0,
         "removals_skipped": None,
+        # G191: the injected ingest wrote no url_index row, so nothing is reported as newly saved.
+        "fresh": [],
+        "fresh_total": 0,
     }
     # The injected fn was actually invoked with the parsed items, tagged with
     # their origin, and from_bookmark_file=True (bookmark, not raw url paste).
@@ -181,7 +185,7 @@ def test_sync_bookmarks_no_data_provided_ingests_nothing(tmp_path):
     result = run(bookmark_sync.sync_bookmarks(tmp_path / "memory", ingest_fn=unreachable))
     assert result == {
         "new": 0, "skipped": 0, "sources": [],
-        "removals_proposed": 0, "removals_skipped": None,
+        "removals_proposed": 0, "removals_skipped": None, "fresh": [], "fresh_total": 0,
     }
 
 
@@ -203,7 +207,7 @@ def test_sync_bookmarks_safari_fixture_flows_through(tmp_path):
     assert result["skipped"] == 0
     assert result["sources"] == [
         {"origin": "safari-bookmark", "channel": "safari-bookmarks", "found": 4, "new": 4, "skipped": 0,
-         "reading_list": 1, "favorites": 3},
+         "first_sync": True, "reading_list": 1, "favorites": 3},
     ]
     # Folder path threaded through parse_safari_bookmarks survives into the
     # items handed to ingest_fn — raw plist keys, never display names (R5).
@@ -411,7 +415,7 @@ def test_sync_bookmarks_with_folders_ingests_only_that_folder(tmp_path):
         folders=["BookmarksBar/Big Folder"], ingest_fn=fake_ingest_fn))
     assert result["sources"] == [
         {"origin": "safari-bookmark", "channel": "safari-bookmarks", "found": 2, "new": 2, "skipped": 0,
-         "reading_list": 0, "favorites": 2},
+         "first_sync": True, "reading_list": 0, "favorites": 2},
     ]
     assert {i.url for i in captured} == {"https://example.org/a", "https://example.org/b"}
 
@@ -620,7 +624,8 @@ def test_a_chromium_browser_syncs_under_its_own_origin_and_channel(tmp_path):
     result = run(bookmark_sync.sync_bookmarks(tmp_path / "memory", chromium=[("brave", data)],
                                               ingest_fn=fake_ingest_fn))
     assert result["sources"] == [
-        {"origin": "brave-bookmark", "channel": "brave-bookmarks", "found": 2, "new": 2, "skipped": 0},
+        {"origin": "brave-bookmark", "channel": "brave-bookmarks", "found": 2, "new": 2, "skipped": 0,
+         "first_sync": True},
     ]
     assert {i.origin for i in captured} == {"brave-bookmark"}
     assert bookmark_sync.CHANNEL_BY_ORIGIN["dia-bookmark"] == "dia-bookmarks"

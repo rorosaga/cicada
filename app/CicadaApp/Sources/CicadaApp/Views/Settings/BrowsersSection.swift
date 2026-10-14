@@ -26,6 +26,8 @@ struct BrowsersSection: View {
                         TabGroupRow(channel: channels.first { $0.id == TabGroupWatcher.channel }, now: context.date)
                     }
                 }
+                // G191 — next to where the bookmark watch is turned on: the question it may ask.
+                SaveWhySwitchRow()
             }
         }
     }
@@ -105,5 +107,34 @@ private struct BrowserSourceRow: View {
             catch BrowserFileError.notReadable { feedback = nil }
             catch { feedback = AddSourceSheet.friendlyError(error) }
         }
+    }
+}
+
+/// G191 — Settings → Integrations → Browsers: "Ask why when I bookmark something". Off by default (G191 (7)); per Mac,
+/// beside the bookmark watch's own consent flags (`SaveWhyPrefs`). Muted sites can be asked about again here.
+struct SaveWhySwitchRow: View {
+    @AppStorage(SaveWhyPrefs.enabledKey) private var enabled = false
+    @State private var muted = 0
+
+    var body: some View {
+        SettingsRow(.saveWhy, title: Copy.SaveWhy.switchTitle, detail: Copy.SaveWhy.switchDetail) {
+            Toggle(Copy.SaveWhy.switchTitle, isOn: $enabled)
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+                .labelsHidden()
+        } below: {
+            if muted > 0 {
+                HStack(spacing: CicadaTheme.spacingSM) {
+                    Text(Copy.SaveWhy.mutedLine(muted))
+                        .font(CicadaTheme.captionFont)
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                    TextButton(title: Copy.SaveWhy.unmuteAll, help: Copy.SaveWhy.unmuteAll) {
+                        SaveWhyPrefs(defaults: .standard).mutedHosts = []
+                        muted = 0
+                    }
+                }
+            }
+        }
+        .onAppear { muted = SaveWhyPrefs(defaults: .standard).mutedHosts.count }
     }
 }

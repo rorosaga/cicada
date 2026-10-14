@@ -22,6 +22,7 @@ from api.services import bank_registry, demo_guard, sleep_cycle
 #: with a concrete path to call (R-CS15).
 GATED = {
     ("POST", "/sources/save"): "/sources/save",
+    ("POST", "/sources/saved-why"): "/sources/saved-why",
     ("POST", "/sources/upload"): "/sources/upload",
     ("POST", "/sources/rss"): "/sources/rss",
     ("POST", "/sources/sync-bookmarks"): "/sources/sync-bookmarks",

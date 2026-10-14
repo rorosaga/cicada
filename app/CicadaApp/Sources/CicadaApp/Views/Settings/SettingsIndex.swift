@@ -80,7 +80,7 @@ enum SettingsIndex {
         .sleepRuns, .sleepTime, .sleepInterval, .sleepEngine,
         .scenerySource, .sceneryTime, .sceneryWeather, .sceneryPreview,
         .mascot,
-        .calendarApp, .contactsApp,
+        .calendarApp, .contactsApp, .saveWhy,
         .agentsInstall, .agentsCloud, .agentsSkill, .agentsAutoRecall, .agentsEditors, .agentsReading,
         .readingAgent, .readingMethods, .watchingMethods, .readingSites,
         // Cicada's own skills — per-item ids (a `:`), so outside the bare-name lint
@@ -169,6 +169,10 @@ enum SettingsIndex {
         // Round 4 (G154): Contacts, the second row the app owns there.
         SettingsEntry(.contactsApp, .integrations, Copy.contactsTitle,
                       keywords: ["contacts", "address book", "people", "photos", "birthday"]),
+        // G191: the save-why question, under the browsers it listens to.
+        SettingsEntry(.saveWhy, .integrations, Copy.SaveWhy.switchTitle,
+                      keywords: ["bookmark", "why", "intent", "reason", "notch", "prompt", "ask"],
+                      detail: Copy.SaveWhy.switchDetail),
         // Agents
         SettingsEntry(.agentsInstall, .agents, Copy.agentsInstallTitle, keywords: ["make install", "setup", "python", "service"]),
         SettingsEntry(.agentsCloud, .agents, Copy.agentsCloudTitle, keywords: ["web", "cloud", "mobile", "claude.ai", "chatgpt"]),

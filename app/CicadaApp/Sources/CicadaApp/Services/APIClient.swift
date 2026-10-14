@@ -387,6 +387,30 @@ struct BookmarkSyncSourceSummary: Codable {
     /// before round 4 still decodes; declared last so the memberwise init keeps its order.
     var readingList: Int? = nil
     var favorites: Int? = nil
+    /// G191 — this channel had never been synced before this pass. Optional so an older backend still decodes.
+    var firstSync: Bool? = nil
+}
+
+/// G191 — one bookmark a sync newly saved (`POST /sources/sync-bookmarks` → `fresh`). `addedAt` is the browser's own
+/// instant (aware UTC ISO), present only when its file records one (Chrome; Safari's Reading List).
+struct FreshBookmark: Codable, Equatable, Sendable {
+    let url: String
+    var title: String = ""
+    var origin: String = ""
+    var channel: String = ""
+    var episodeId: String = ""
+    var addedAt: String? = nil
+
+    /// The page's host without `www.`, lower-cased — the key "Don't ask for this site" remembers.
+    var host: String? {
+        guard let host = URL(string: url)?.host?.lowercased(), !host.isEmpty else { return nil }
+        return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
+    }
+
+    var addedDate: Date? {
+        guard let addedAt else { return nil }
+        return ISO8601DateFormatter().date(from: addedAt)
+    }
 }
 
 /// `POST /sources/sync-bookmarks` result — aggregate new/skipped plus the
@@ -401,6 +425,9 @@ struct BookmarkSyncResult {
     /// Non-nil only when the correctness rails refused to compute removals
     /// this sync (a folder-scope change since the last sync on some channel).
     var removalsSkipped: String? = nil
+    /// G191 — the bookmarks this sync newly saved (at most a few) and how many in all. Empty from an older backend.
+    var fresh: [FreshBookmark] = []
+    var freshTotal: Int = 0
 }
 
 // `Codable` conformance lives in an extension, not the primary declaration,
@@ -409,7 +436,7 @@ struct BookmarkSyncResult {
 // memberwise init that `BrowserImportModelTests.swift` and call sites across
 // the app construct `BookmarkSyncResult` with directly.
 extension BookmarkSyncResult: Codable {
-    enum CodingKeys: String, CodingKey { case new, skipped, sources, removalsProposed, removalsSkipped }
+    enum CodingKeys: String, CodingKey { case new, skipped, sources, removalsProposed, removalsSkipped, fresh, freshTotal }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -418,7 +445,49 @@ extension BookmarkSyncResult: Codable {
         sources = try c.decodeIfPresent([BookmarkSyncSourceSummary].self, forKey: .sources) ?? []
         removalsProposed = try c.decodeIfPresent(Int.self, forKey: .removalsProposed) ?? 0
         removalsSkipped = try c.decodeIfPresent(String.self, forKey: .removalsSkipped)
+        fresh = (try? c.decodeIfPresent([FreshBookmark].self, forKey: .fresh)) ?? []
+        freshTotal = (try? c.decodeIfPresent(Int.self, forKey: .freshTotal)) ?? fresh.count
     }
+}
+
+/// G191 — `GET /sources/saved-why/options`: the fixed one-tap reasons and up to three of the person's live projects,
+/// chosen by the backend (deterministic; no model call).
+struct SavedWhyOptions: Codable, Equatable, Sendable {
+    struct Reason: Codable, Equatable, Sendable, Identifiable {
+        let key: String
+        let label: String
+        var id: String { key }
+    }
+    struct Project: Codable, Equatable, Sendable, Identifiable {
+        let id: String
+        let name: String
+    }
+    var reasons: [Reason] = []
+    var projects: [Project] = []
+    var maxText: Int = 500
+}
+
+/// G191 — what the person answered, posted to `POST /sources/saved-why`.
+struct SavedWhyAnswer: Codable, Equatable, Sendable {
+    var reasons: [String] = []
+    var project: String? = nil
+    var text: String? = nil
+
+    var isEmpty: Bool { reasons.isEmpty && project == nil && (text?.isEmpty ?? true) }
+
+    var body: [String: Any] {
+        var out: [String: Any] = ["reasons": reasons]
+        if let project { out["project"] = project }
+        if let text, !text.isEmpty { out["text"] = text }
+        return out
+    }
+}
+
+/// G191 — the two calls the panel makes; `APIClient` is the live one, tests inject their own.
+protocol SavedWhyAPI: Sendable {
+    func savedWhyOptions() async throws -> SavedWhyOptions
+    /// `at` is when the person answered — sent so an answer held through a 409 keeps its own time (review B1).
+    func saveWhy(url: String, answer: SavedWhyAnswer, at: Date) async throws
 }
 
 /// `POST /sources/sync-notes` result — Apple Notes one-way sync tally. Mirrors
@@ -2078,6 +2147,19 @@ actor APIClient {
                        body: ["chromium": [["browser": browser, "dataB64": data.base64EncodedString()]]])
     }
 
+    /// G191 — the one-tap answers to "What made you save this?" (`GET /sources/saved-why/options`).
+    func savedWhyOptions() async throws -> SavedWhyOptions {
+        try await get("/sources/saved-why/options")
+    }
+
+    /// G191 — the person's answer, attached by the backend to that bookmark's episode (`POST /sources/saved-why`).
+    func saveWhy(url: String, answer: SavedWhyAnswer, at: Date) async throws {
+        var body = answer.body
+        body["url"] = url
+        body["at"] = ISO8601DateFormatter().string(from: at)
+        try await post("/sources/saved-why", body: body)
+    }
+
     /// `POST /sources/sync-safari-tabs` — CloudTabs.db bytes the app read,
     /// plus the WAL sidecar when one exists (R2) and an exact-name device
     /// filter (nil = every device).
@@ -3369,3 +3451,6 @@ extension APIClient: DesignAPI {
         _ = try await post("/embeddings/install", body: ["model": "google/embeddinggemma-2:768", "part": "vision"]) as Data
     }
 }
+
+/// G191 — the panel's two calls, live.
+extension APIClient: SavedWhyAPI {}
