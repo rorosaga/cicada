@@ -682,6 +682,27 @@ markdown; every type's recall summary strips claim fences before truncation.
 
 ---
 
+**Skills through Cicada (the Skills page, owner 2026-10-15).** Three stdio tools, never remote (`NEVER_REMOTE`),
+each with an exposed CLI row (`cicada skills list|propose|create`), one body each in `mcp_tools`:
+- **`cicada_skills`** — every skill in this Mac's agents' folders (`skill_folders`), per agent (*on*, *through* another
+  folder it reads, *off*), its source and version, the last update check (no fetch: the person checks), a tool skill
+  whose text is older than its tool, permissions in words; then the catalog's suggestions, agents' drafts and the
+  requests waiting. Third-party SKILL.md names and descriptions are fenced as reference data.
+- **`cicada_propose_skill(action, reason, source?, skill?, agents?)`** — `install` (a GitHub link, `owner/repo[@skill]`
+  or an `npx skills add …` line, parsed by `skill_sources.parse`) and `update` **always** become a request the person
+  approves on the Skills page, where they see the files first: an agent never installs third-party code through
+  Cicada. `on`/`off` (one agent) and `refresh` (a tool's skill text from the tool the person installed) bring in no new
+  code, so a harness on the G198 trust list (`page_editors.is_trusted`) applies them at once; any other files a request.
+  Requests live in `$CICADA_HOME/skills/requests.json`, not the bank inbox: the inbox is bank files, and nothing a
+  skill does is written into a bank. The reply tells the agent to mention it in one line.
+- **`cicada_create_skill(skill, description, body, reason?)`** — an agent's SKILL.md for a workflow (G112), held in
+  `$CICADA_HOME/skills/drafts/<name>/` with its author and session; it reaches an agent's folder only when the person
+  publishes it, choosing agents (`POST /skills/drafts/{name}/publish`). Another agent's draft of the same name is refused.
+
+The person's side is the CLI's app rows (`cicada skills check|add|install|update|update-all|on|off|refresh|remove|
+publish`), all person-only (`require_person`) and all through the backend's routes (`api.md`); `skills add` shows the
+preview and installs only with `--yes`.
+
 **The CLI (G180, TODO ruling 21; plan revision 3, build unit 1, 2026-10-07).** `cicada` is a second, thin door onto the
 same bodies as the MCP server, for agents with a shell: they run a command and read `--help` only when they need it,
 instead of loading every tool schema up front. The MCP stays for clients without a shell, and stays registered beside

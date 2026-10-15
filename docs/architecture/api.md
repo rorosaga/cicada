@@ -197,6 +197,33 @@ schedules one revalidation there. The queue's writes (`PUT|DELETE /videos/queue/
 `/sources/`, so queueing works in a demo bank (the demo's queue is a picture of the flow: `cicada_video_claim` and
 `cicada_record_watch` refuse it). `GET /videos/run/prompt?count=&method=` is the pure preview.
 
+**Skills (the Skills page, owner 2026-10-15; `routers/skills.py`).** The backend owns the logic; the app, the CLI's
+person rows and the MCP tools share one set of bodies — `skill_folders` (the agents' folders, read-only), `skill_inventory`
+(what the page shows), `skill_sources` (parsing and GitHub), `skill_tools` (uv, a tool's `skill` and `doctor`),
+`skill_actions` (what a click does) and **`skill_store`, the one writer** (`test_only_skill_store_writes_into_an_agents_
+skill_folder`). Nothing is written into a bank: agent folders, and `$CICADA_HOME/skills/{library,drafts,removed}` plus
+`requests.json`, `updates.json`, `onboarding.json`; write admission classes every route `OUTSIDE`.
+- `GET /skills` — installed rows (source, version, update with its `changes`, agents, tool, permissions, details),
+  `suggested` (catalog, with `method` `tool|copy|manual|own`), `drafts`, `noticed` (the bank's held and page skills,
+  G112), `requests`, `checkedAt`, `uv`, `jobs`. No ETag: not a Store domain.
+- `POST /skills/check {auto}` — fetches upstream: a repo-folder skill's newest commits that touched its folder
+  (against the commit recorded at install) or a tool's/tag's newer releases, each with its `changes` (≤ 20, titles and
+  cut notes) and a compare or release link. `auto` (the page opening) only past an hour; a click past a minute.
+- `POST /skills/preview {source, choose?}` → `{planId, name, description, skillMd, files, scripts, repo}` or
+  `{choices}`; `POST /skills/install {planId | suggestion, agents, requestId?}` installs exactly the preview's files at
+  its commit (a plan lives 30 min in memory), or a catalog suggestion at its reviewed pin (a tool: a job).
+- `POST /skills/{name}/update` and `/skills/update-all` (jobs), `PUT /skills/{name}/agents/{agent} {on}`,
+  `POST /skills/{name}/refresh`, `DELETE /skills/{name}`, `POST /skills/drafts/{name}/publish {agents}`,
+  `DELETE /skills/drafts/{name}`, `POST /skills/requests/{id}/dismiss`, `GET /skills/jobs/{id}`.
+- `GET /skills/onboarding` (the three suggestions, their defaults, uv, the earlier answer) and `POST /skills/onboarding
+  {install, agents}` — the answer is recorded (an empty list is "No thanks"), and the rest installs as a job.
+- **Fetches** go through `net_guard` (a hook on every hop), 4 s, ≤ 512 KB per response, no cookies, no token, ≤ 64
+  files / 5 MB per skill; only on the person's click or the open page, never in Sleep, never an agent's call. A refusal
+  is 400 (a source or GitHub problem) or 409 (a write the store refuses), each with a sentence.
+- **Commands** (uv, `<tool> skill`, `<tool> doctor`) are argvs through `connections.base.run_cli` (scrubbed env,
+  `CICADA_CAPTURE=off`), bounded; a uv install is pinned to a commit (`git+https://github.com/<repo>@<sha>`).
+  `doctor` reports permissions for the app that started the tool, so the page names that app.
+
 **Endpoint traps worth knowing before you touch them:**
 
 - `GET /entities/{id}/claims` answers every belief on the page (an owner-sized page's are ~6 MB of JSON, ~90 ms to
