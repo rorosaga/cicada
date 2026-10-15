@@ -25,9 +25,10 @@ final class SaveWhyTests: XCTestCase {
     }
 
     private func inputs(_ r: BookmarkSyncResult, enabled: Bool = true, live: Bool = true, lastAsked: Date? = nil,
-                        muted: Set<String> = [], writing: Bool = false, lastURL: String? = nil) -> SaveWhyPolicy.Inputs {
+                        muted: Set<String> = [], writing: Bool = false, lastURL: String? = nil,
+                        lastAddedAt: String? = nil) -> SaveWhyPolicy.Inputs {
         .init(enabled: enabled, live: live, result: r, now: now, lastAsked: lastAsked, mutedHosts: muted,
-              writing: writing, lastURL: lastURL)
+              writing: writing, lastURL: lastURL, lastAddedAt: lastAddedAt)
     }
 
     // MARK: - The trigger rules
@@ -87,6 +88,22 @@ final class SaveWhyTests: XCTestCase {
         XCTAssertEqual(SaveWhyPolicy.decide(inputs(result([fresh()]), writing: true)), .skip(.writing))
     }
 
+    /// G191 v3 (owner 2026-10-15: "If I remove the bookmark and bookmark it again, the prompt doesn't appear") — the
+    /// same link saved again carries its own browser instant, so it asks even inside the minute; the same save
+    /// reported twice (the same instant) or a browser that records none (Safari) is still held.
+    func testTheSameLinkSavedAgainAsksButTheSameSaveTwiceIsHeld() {
+        let first = fresh(ageSeconds: 40)
+        var again = fresh(ageSeconds: 2)
+        again.resave = true
+        XCTAssertEqual(SaveWhyPolicy.decide(inputs(result([again]), lastAsked: now.addingTimeInterval(-30),
+                                                   lastURL: first.url, lastAddedAt: first.addedAt)), .ask(again))
+        XCTAssertEqual(SaveWhyPolicy.decide(inputs(result([first]), lastAsked: now.addingTimeInterval(-30),
+                                                   lastURL: first.url, lastAddedAt: first.addedAt)), .skip(.repeated))
+        let safari = fresh(ageSeconds: nil)
+        XCTAssertEqual(SaveWhyPolicy.decide(inputs(result([safari]), lastAsked: now.addingTimeInterval(-30),
+                                                   lastURL: safari.url)), .skip(.repeated))
+    }
+
     func testAMutedSiteIsNeverAsked() {
         XCTAssertEqual(fresh().host, "alpha.example", "www. is the same site")
         XCTAssertEqual(SaveWhyPolicy.decide(inputs(result([fresh()]), muted: ["alpha.example"])), .skip(.muted))
@@ -98,65 +115,68 @@ final class SaveWhyTests: XCTestCase {
         SaveWhyPanelState(item: fresh(), order: ["design", "product", "technique", "read_later"], maxText: 20)
     }
 
-    func testOneTapSavesAfterTheLingerWithNoConfirm() {
+    /// G191 v3 — one tap and leaving is an answer: the panel waits for more (no linger that closes it under the
+    /// person's hand) and a click elsewhere keeps the tap.
+    func testOneTapAndLeavingIsAnAnswer() {
         var s = panel()
         XCTAssertEqual(SaveWhyPanelState.opening(), [.startTimer(SaveWhyPolicy.askTimeout)])
-        XCTAssertEqual(s.send(.tapReason("design")), [.startTimer(SaveWhyPolicy.linger)])
+        XCTAssertEqual(s.send(.tapReason("design")), [.startTimer(SaveWhyPolicy.answerIdle)])
         XCTAssertEqual(s.phase, .answered)
+        XCTAssertEqual(s.send(.timeout), [], "the question's own timer no longer closes a chosen answer")
         let answer = SavedWhyAnswer(reasons: ["design"])
-        XCTAssertEqual(s.send(.lingerElapsed), [.post(answer), .close])
+        XCTAssertEqual(s.send(.clickOutside), [.post(answer), .close])
         XCTAssertEqual(s.phase, .closed(.answered(answer)))
         XCTAssertEqual(s.send(.tapReason("product")), [], "a closed panel ignores everything")
+        var idle = panel()
+        _ = idle.send(.tapReason("technique"))
+        XCTAssertEqual(idle.send(.idleElapsed), [.post(SavedWhyAnswer(reasons: ["technique"])), .close],
+                       "the idle timeout keeps what was chosen")
     }
 
-    func testASecondTapAddsInThePanelsOrderAndATapCanBeTakenBack() {
+    /// G191 v3 — the chips are toggles: any number on, in the panel's order whatever the tap order; a second tap
+    /// takes one back; all off is asking again, on the question's own timer.
+    func testAnyNumberOfReasonsAreTogglesInThePanelsOrder() {
         var s = panel()
+        _ = s.send(.tapReason("read_later"))
         _ = s.send(.tapReason("product"))
         _ = s.send(.tapReason("design"))
         _ = s.send(.tapProject("alpha-project"))
-        XCTAssertEqual(s.selection, SavedWhyAnswer(reasons: ["design", "product"], project: "alpha-project"))
+        XCTAssertEqual(s.selection, SavedWhyAnswer(reasons: ["design", "product", "read_later"], project: "alpha-project"))
+        XCTAssertTrue(s.isSelected(reason: "product") && s.isSelected(project: "alpha-project"))
         _ = s.send(.tapProject("alpha-project"))
         _ = s.send(.tapReason("product"))
+        _ = s.send(.tapReason("read_later"))
         XCTAssertEqual(s.send(.tapReason("design")), [.startTimer(SaveWhyPolicy.askTimeout)],
                        "nothing chosen again: back to asking, on the question's own timer")
         XCTAssertEqual(s.phase, .asking)
     }
 
+    /// G191 v3 — the words are always there: typing waits longer, Return (or Save) sends taps and words together,
+    /// and leaving keeps them too — never lost.
+    func testWordsAndTapsGoTogetherOnSaveAndOnLeaving() {
+        var s = panel()
+        _ = s.send(.tapReason("design"))
+        XCTAssertEqual(s.send(.draftChanged("  the   onboarding flow and much more text ")),
+                       [.startTimer(SaveWhyPolicy.writingIdle)])
+        XCTAssertEqual(s.draft.count, 20, "capped at the backend's maxText")
+        XCTAssertTrue(s.isWriting)
+        XCTAssertEqual(s.send(.submit),
+                       [.post(SavedWhyAnswer(reasons: ["design"], text: "the onboarding f")), .close])
+        var leaving = panel()
+        _ = leaving.send(.draftChanged("half a thought"))
+        XCTAssertEqual(leaving.phase, .answered, "words alone are an answer")
+        XCTAssertEqual(leaving.send(.escape), [.post(SavedWhyAnswer(text: "half a thought")), .close])
+        var blank = panel()
+        _ = blank.send(.draftChanged("   "))
+        XCTAssertEqual(blank.send(.submit), [.close], "blank words and no taps: nothing to post")
+    }
+
     func testClosingWithNothingChosenIsSilent() {
-        for event in [SaveWhyPanelState.Event.escape, .clickOutside, .timeout] {
+        for event in [SaveWhyPanelState.Event.escape, .clickOutside, .timeout, .submit] {
             var s = panel()
             XCTAssertEqual(s.send(event), [.close], "\(event) posts nothing")
             XCTAssertEqual(s.phase, .closed(.dismissed))
         }
-    }
-
-    func testATapIsAnAnswerEvenIfThePanelIsClosedEarly() {
-        var s = panel()
-        _ = s.send(.tapReason("technique"))
-        XCTAssertEqual(s.send(.clickOutside), [.post(SavedWhyAnswer(reasons: ["technique"])), .close])
-    }
-
-    func testSomethingElseSendsTheWordsWithTheTapsOnReturn() {
-        var s = panel()
-        _ = s.send(.tapReason("design"))
-        XCTAssertEqual(s.send(.tapOther), [.startTimer(SaveWhyPolicy.writingTimeout), .focusText])
-        XCTAssertEqual(s.send(.tapReason("product")), [], "a tap while writing waits for Return")
-        _ = s.send(.draftChanged("  the   onboarding flow and much more text "))
-        XCTAssertEqual(s.draft.count, 20, "capped at the backend's maxText")
-        XCTAssertEqual(s.send(.submitText),
-                       [.post(SavedWhyAnswer(reasons: ["design", "product"], text: "the onboarding f")), .close])
-    }
-
-    func testAnUnsentDraftIsDroppedButTheTapsAreKept() {
-        var s = panel()
-        _ = s.send(.tapReason("read_later"))
-        _ = s.send(.tapOther)
-        _ = s.send(.draftChanged("half a thought"))
-        XCTAssertEqual(s.send(.escape), [.post(SavedWhyAnswer(reasons: ["read_later"])), .close])
-        var empty = panel()
-        _ = empty.send(.tapOther)
-        _ = empty.send(.draftChanged("   "))
-        XCTAssertEqual(empty.send(.submitText), [.close], "blank words and no taps: nothing to post")
     }
 
     func testDontAskMutesTheSiteAndKeepsWhatWasTapped() {
@@ -167,6 +187,24 @@ final class SaveWhyTests: XCTestCase {
         _ = tapped.send(.tapReason("design"))
         XCTAssertEqual(tapped.send(.dontAskForSite),
                        [.mute("alpha.example"), .post(SavedWhyAnswer(reasons: ["design"])), .close])
+    }
+
+    /// G191 v3 — the pending panel (Chrome's bubble seen, the file not written): taps and words are live, there is no
+    /// site to mute yet, a withdraw keeps nothing, and binding the bookmark keeps every input.
+    func testThePendingPanelBindsTheBookmarkKeepingTheInputOrWithdrawsKeepingNothing() {
+        var s = SaveWhyPanelState(pendingIn: "chrome-bookmarks", order: ["design", "product"], maxText: 50)
+        XCTAssertTrue(s.isPending)
+        _ = s.send(.tapReason("product"))
+        _ = s.send(.draftChanged("their pricing page"))
+        XCTAssertEqual(s.send(.dontAskForSite), [], "no site to name while pending")
+        s.bind(fresh())
+        XCTAssertFalse(s.isPending)
+        XCTAssertEqual(s.item?.url, fresh().url)
+        XCTAssertEqual(s.selection, SavedWhyAnswer(reasons: ["product"], text: "their pricing page"))
+        var gone = SaveWhyPanelState(pendingIn: "chrome-bookmarks", order: ["design"])
+        _ = gone.send(.tapReason("design"))
+        XCTAssertEqual(gone.send(.withdraw), [.close], "no bookmark came: the tap is dropped, never posted")
+        XCTAssertEqual(gone.phase, .closed(.withdrawn))
     }
 
     // MARK: - Placement and motion
@@ -281,14 +319,14 @@ final class SaveWhyTests: XCTestCase {
         await center.noticed(result([fresh("https://gamma.example/y")]), live: true)
         await center.settle()
         XCTAssertEqual(presenter.shown, 3)
-        XCTAssertEqual(center.state?.item.url, "https://gamma.example/y")
+        XCTAssertEqual(center.state?.item?.url, "https://gamma.example/y")
         let all = await api.posts
         XCTAssertEqual(all.map(\.url), [fresh().url, "https://beta.example/x"], "the superseded tap was posted")
         // A double event of the same save is held.
         await center.noticed(result([fresh("https://delta.example/z")]), live: true)
         XCTAssertEqual(center.lastDecision, .skip(.repeated))
-        // While the person writes in "Something else…", nothing replaces it.
-        center.send(.tapOther)
+        // While the person writes in the panel's field, nothing replaces it.
+        center.send(.draftChanged("half a thought"))
         clock = now.addingTimeInterval(90)
         await center.noticed(result([fresh("https://delta.example/z")]), live: true)
         XCTAssertEqual(center.lastDecision, .skip(.writing))
@@ -305,8 +343,8 @@ final class SaveWhyTests: XCTestCase {
         let center = SaveWhyCenter(prefs: prefs, api: api, presenter: presenter, now: { [now] in now })
         await center.preview(channel: "safari-bookmarks")
         XCTAssertEqual(presenter.shown, 1)
-        XCTAssertEqual(center.state?.item.channel, "safari-bookmarks")
-        XCTAssertEqual(center.state?.item.host, "alpha.example", "a placeholder site, never a real one")
+        XCTAssertEqual(center.state?.item?.channel, "safari-bookmarks")
+        XCTAssertEqual(center.state?.item?.host, "alpha.example", "a placeholder site, never a real one")
         center.send(.tapReason("design"))
         center.send(.dontAskForSite)
         await center.settle()
@@ -430,7 +468,7 @@ private actor FakeSavedWhyAPI: SavedWhyAPI {
         ], projects: [.init(id: "alpha-project", name: "Alpha project")], maxText: 500)
     }
 
-    func saveWhy(url: String, answer: SavedWhyAnswer, at: Date) async throws {
+    func saveWhy(url: String, answer: SavedWhyAnswer, at: Date, addedAt: String?) async throws {
         if !failures.isEmpty { throw failures.removeFirst() }
         posts.append((url, answer))
         times.append(at)

@@ -392,6 +392,8 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /agent-methods/skills/{skill}/page": (HELD, "api.services.skill_pages.ensure"),
     "POST /sources/save": (ADMITTED, None),
     "POST /sources/saved-why": (ADMITTED, None),       # G191: the answer on the link's episode, committed alone
+    "PUT /sources/saved-why": (ADMITTED, None),        # G191 v3: the person's edit of one answer, committed alone
+    "POST /sources/bookmarks/remove": (ADMITTED, None),   # G191 v3: the page archived, the episode tombstoned
     "POST /sources/upload": (INTAKE, None),
     "POST /sources/rss": (INTAKE, None),
     "POST /sources/sync-bookmarks": (INTAKE, None),

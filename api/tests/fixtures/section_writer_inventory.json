@@ -39,6 +39,12 @@
       "method": "write",
       "frontmatter": "frontmatter",
       "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "_revive",
+      "method": "write",
+      "frontmatter": "parsed.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
     }
   ],
   "services/check_record.py": [
@@ -371,7 +377,7 @@
       "disposition": "uninstrumented_guarded"
     },
     {
-      "function": "amend_section",
+      "function": "revise_section",
       "method": "write",
       "frontmatter": "fm",
       "disposition": "uninstrumented_guarded"
@@ -384,6 +390,12 @@
     },
     {
       "function": "_repoint",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "mark_removed",
       "method": "write",
       "frontmatter": "fm",
       "disposition": "uninstrumented_guarded"
@@ -1051,6 +1063,14 @@
       "method": "write_new",
       "frontmatter": "fm",
       "disposition": "fresh_frontmatter_untracked"
+    }
+  ],
+  "services/bookmark_forget.py": [
+    {
+      "function": "forget",
+      "method": "write",
+      "frontmatter": "parsed.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
     }
   ]
 }

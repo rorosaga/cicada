@@ -195,15 +195,22 @@ def test_the_answer_lands_on_the_bookmark_episode_scrubbed_and_queued(tmp_path, 
     assert f"episodes/{episode_id}.md" in log
 
 
-def test_a_second_answer_replaces_the_first_and_never_twins_the_section(tmp_path, monkeypatch):
+def test_the_same_answer_again_replaces_itself_and_never_twins_the_section(tmp_path, monkeypatch):
+    """The app's retry of a held answer (the same `at`) or the same moment of saving answered again (the same
+    `addedAt`) replaces its own answer; G191 v3 keeps every other moment's answer (test_bookmark_resave.py)."""
     memory = _bank(tmp_path)
     episode_id = _saved_c(memory)
     client = _client(memory, monkeypatch)
-    assert client.post("/sources/saved-why", json={"url": NEW_C["url"], "reasons": ["design"]}).status_code == 200
-    assert client.post("/sources/saved-why", json={"url": NEW_C["url"], "reasons": ["read_later"]}).status_code == 200
-    body = markdown_parser.parse(memory / "episodes" / f"{episode_id}.md").body
-    assert body.count(saved_why.HEADING) == 1
-    assert "To read later" in body and "The design, the look" not in body
+    said = (datetime.now(timezone.utc) - timedelta(minutes=2)).replace(microsecond=0).isoformat()
+    added = (NOW - timedelta(seconds=40)).isoformat()
+    assert client.post("/sources/saved-why", json={"url": NEW_C["url"], "reasons": ["design"], "at": said,
+                                                   "addedAt": added}).status_code == 200
+    assert client.post("/sources/saved-why", json={"url": NEW_C["url"], "reasons": ["read_later"],
+                                                   "addedAt": added}).status_code == 200
+    parsed = markdown_parser.parse(memory / "episodes" / f"{episode_id}.md")
+    assert parsed.body.count(saved_why.HEADING) == 1
+    assert "To read later" in parsed.body and "The design, the look" not in parsed.body
+    assert saved_why.EARLIER_KEY not in parsed.frontmatter
 
 
 def test_the_section_sits_above_an_agents_note_so_it_is_read_as_the_persons(tmp_path):
@@ -326,13 +333,17 @@ def test_a_renamed_folder_saves_nothing_new(tmp_path):
     assert r["fresh_total"] == 0 and r["sources"][0]["first_sync"] is False
 
 
-def test_a_bookmark_deleted_and_added_again_is_not_new(tmp_path):
+def test_a_bookmark_deleted_and_added_again_is_a_new_moment_of_saving(tmp_path):
+    """G191 v3 (owner 2026-10-15) — was "is not new": removing and bookmarking again now asks, as a re-save."""
     memory = _bank(tmp_path)
     _sync(memory, _chrome(OLD_A, NEW_C))
     _sync(memory, _chrome(OLD_A))                                      # deleted in the browser
     readded = _leaf(NEW_C["url"], "Gamma three", NOW)                  # re-added a moment ago
     r = _sync(memory, _chrome(OLD_A, readded))
-    assert r["fresh_total"] == 0, "the URL is already held: nothing to ask about"
+    assert r["fresh_total"] == 1
+    (item,) = r["fresh"]
+    assert item["url"] == NEW_C["url"] and item["resave"] is True and item["episode_id"]
+    assert r["new"] == 0                                               # nothing re-ingested: the link is held
 
 
 def test_a_held_answer_keeps_the_time_the_person_gave_it(tmp_path, monkeypatch):

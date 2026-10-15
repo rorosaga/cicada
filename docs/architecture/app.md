@@ -332,7 +332,8 @@ the watcher sets; a catch-up, Sync now, Turn on or folder import is never live) 
 bookmark, `SaveWhyPolicy` asks "What made you save this?" — unless the switch is off, the channel's sync was a first
 sync, the browser's `addedAt` is older than 5 minutes (or 1 minute in the future), the site is muted ("Don't ask for
 this site", `cicada.saveWhy.mutedHosts`, cleared from the Settings row), the same save already asked (a question
-in the last 3 s, or the same link in the last 60 s), or the person is typing in "Something else…" (G191 live: no
+in the last 3 s, or the same save of the same link in the last 60 s — v3: a link saved again carries a new browser
+instant, so it asks), or the person is typing in the panel's field (G191 live: no
 three-minute limit — each bookmark in a row asks, and a newer one replaces the open panel). `SaveWhyCenter` fetches `GET /sources/saved-why/options` and shows `SaveWhyPanelController`: a
 borderless non-activating `NSPanel` one level above the menu bar's (`.mainMenu + 3`, under menus) on every Space and
 over full screen, shown with `orderFrontRegardless` (never key until the person clicks it). **It is the notch growing**
@@ -347,13 +348,12 @@ top band (the notch's height, else the menu bar's) stays empty — the camera si
 Mac without a notch the same shape grows from a zero-height sliver at the top centre. One hairline sheen
 (`CicadaTheme.Notch.edge`) marks the grown edge, faded out across the band; no glass, no shadow (DESIGN_RULES §9,
 2026-10-14). The header carries the bookworm, `curious` room art (64 × 48) on its sheet's own frame timings. The chips are
-the backend's reasons, "For <project>" per offered project, and "Something else…" (a text field; Return sends).
-Answers are multi-select without a confirm: a tap starts a 2.5 s linger, another tap adds, then the answer posts
-(`SaveWhyPanelState`, pure and tested). A click elsewhere (global and local mouse monitors), Esc (once the panel is
-key) or the 12 s timeout closes it — silently with nothing tapped; a tap already made is kept, an unsent draft is
-dropped. The bookmark itself is captured as always; the app posts only the answer. The bookmark sync runs inside
+the backend's reasons and "For <project>" per offered project, drawn as toggles (v3, below); under them a field that
+is always there and **Save** (Return in the field). A click elsewhere (global and local mouse monitors), Esc (once the
+panel is key) or the timeout closes it — silently with nothing chosen; what was chosen and typed is kept
+(`SaveWhyPanelState`, pure and tested). The bookmark itself is captured as always; the app posts only the answer. The bookmark sync runs inside
 Sleep's write window, so the answer can meet a 409: on a 409, a 5xx or an unreachable backend it is held in
-`SaveWhyOutbox` (`cicada.saveWhy.pending`, per Mac, outside every bank, one per link, at most 20) with the time it was
+`SaveWhyOutbox` (`cicada.saveWhy.pending`, per Mac, outside every bank, one per moment of saving, at most 20) with the time it was
 given, and sent again — with that `at` — when the status's `writing` goes false, when the backend first answers and
 on launch; a 404/422 or an answer over 24 h old is dropped. Esc reaches the panel only once it is clicked, so its
 hint names a click elsewhere as the way to skip.
@@ -419,6 +419,78 @@ release keeps it only once a Developer ID signs it (`docs/RELEASING.md`, "Keepin
 (never a release app, `SaveWhyPreview.isAvailable`), the menu-bar menu gains *Preview "Ask why" (Chrome)* and
 *(Safari)*: the panel for a placeholder bookmark at once, past every rule, posting and muting nothing
 (`SaveWhyCenter.preview`).
+
+**Ask why, v3 (2026-10-15, branch `feat/bookmarks-v3`; owner: "When I bookmark something in Chrome, it takes quite a
+bit for the prompt to appear … If I remove the bookmark and bookmark it again, the prompt doesn't appear … We should
+have the option to select various reasons … as well as input something in the text bar").**
+*At once in Chrome, no extension.* Chrome holds a bookmark change for `BookmarkStorage::kSaveDelay` = 2,500 ms before
+it writes `Bookmarks`, so no file watch can ask sooner. But ⌘D or the star opens Chrome's "Bookmark added" bubble as a
+window of its own, and the window list (`CGWindowListCopyWindowInfo`) gives every window's owner, number, layer and
+bounds without Screen Recording — never a title. `BookmarkBubbleWatcher` runs only while Chrome is the frontmost app:
+each 50 ms tick asks `CGEventSource.secondsSinceLastEventType` (no permission) and only in the 1.2 s after the
+person's own key or click reads Chrome's windows (at most every 100 ms). `BookmarkBubbleDetector` (pure) takes a new
+window of a bubble's size (280–420 × 100–480), under the toolbar (56–170 pt below the browser window's top), its right
+edge within 320 pt of the window's right edge and its left edge in the window's right part, on a browser window at
+least 700 pt wide, within 1 s of the person's input. Chromium's other bubbles there share the bubble width: the
+password and translate bubbles open on their own (no input), permission prompts and suggestions sit elsewhere, and the
+extensions/profile/downloads menus are learned away — a size that came with no bookmark `refuseAfter` (3) times, and
+never with one, is refused (one miss never is: Chrome's "Edit bookmark" bubble on a page already bookmarked, or Remove
+pressed in the bubble, brings no new bookmark from the real bubble), and once one came with a bookmark only that size
+counts (`BubbleMemory`, `cicada.saveWhy.bubble.<bundle id>`, sizes and miss counts only). A bookmark is recorded for
+the bubble as soon as the app's diff (or the look) sees one new bookmark on that browser, whatever the ask-or-skip
+decision — a muted site never teaches a miss. The center
+(`SaveWhyCenter.bubbleSeen`) opens the panel at once, **pending**: "Saving in Chrome…", the toggles and field live,
+"Don't ask for this site" held in place but hidden. *The link before the backend answers.* Each read of a bookmark
+file is parsed and diffed in the app too (`BookmarkFileDiff`, beside the early look: `BookmarkSyncSignal.diffAndLook`):
+one link the last read did not hold, or a node newer than any it saw, is named at once (`candidate`) — the link fills
+in, or the panel opens with it (Safari, a missed bubble). The baseline is per channel in memory, seeded at launch when
+the switch is on; with none yet the backend's look decides alone. *Confirmed, never guessed.* A panel opened by the
+bubble or the diff is unconfirmed: nothing is posted until the early look or the sync agrees about a bookmark on that
+browser (`noticed` binds it and sends an answer already given, with that save's `addedAt`); a refusal (first sync, many,
+old, muted) or no bookmark within `SaveWhyPolicy.pendingBound` (6 s; `confirmBound`, 15 s, once the diff named one)
+withdraws it and drops the taps. Measured on a synthetic 20,000-bookmark Chrome file (2.4 MB): the app's read < 1 ms,
+its parse 78 ms and diff 82 ms; the early look's round trip (base64 3.3 MB body, the backend's parse and `url_index`
+check) 343–401 ms in process. So click → panel went from ≈ 3.25 s (2.5 s Chrome + 0.35 s watch + 0.4 s look) to
+≈ 0.1 s (the bubble), with the link at ≈ 3.0 s and the confirmation at ≈ 3.25 s. Safari's ⌘D opens its own popover
+*before* anything is saved (the bookmark is made only on Add), so no bubble path there: Safari asks on the diff
+(Cicada's part on a synthetic 20k-leaf binary plist: parse 39 ms, diff 14 ms; Safari's own write delay is not measurable from synthetic files).
+*Re-saving asks again.* The backend reports a link saved again as fresh with `resave: true`
+(`bookmark_sync._resaved`: absent from the channel's last seen-set and present now, or a browser instant newer than the
+newest the last sync saw — a move keeps both); the panel's subject says "Saved again"; `sameLinkGuard` holds only the
+same save (the same `addedAt`, `cicada.saveWhy.lastAddedAt`). *Several reasons, plus words.* The chips are toggles with
+a check slot that is always there (one weight both ways, so a tap never reflows the row); the field and Save are there
+from the first frame, so the shape grows once and never jumps. After a tap the panel waits `answerIdle` (10 s;
+`writingIdle`, 45 s, once words are typed) and then keeps what was chosen; Save, Return, a click elsewhere, Esc or a
+newer bookmark keep it too; one tap and leaving is an answer. *Settings* adds, under the switch while Chrome is
+watched: "To ask at once, Cicada notices when Chrome shows its bookmark bubble — it looks only at where Chrome's windows
+are, never at what they show, and needs no permission." The optional instant link through Apple Events (`URL of active
+tab`) is not built: the diff fills it 2.5 s after the click without a permission.
+
+**Bookmarks in the menu bar (G191 v3).** The status menu's **Bookmarks…** (⌘B) opens `BookmarkHistoryController`, a
+Maccy-like panel under the status item (borderless, key without activating the app, closed by Esc, a click elsewhere or
+opening a row): a search field, then every bookmark (`origin` `<browser>-bookmark`) from the Store's `sources`
+snapshot — warm, no new fetch — newest saved first (`lastSavedAt`, a re-save moving it up), the first 300 shown and
+the rest one search away; ⌘1…⌘9 open the first nine, ↑/↓ and Return the selection. A row (`BookmarkHistory.row`, pure)
+is a picture, the title, the newest answer's reasons and words (else the site) and the age. **Pictures:** the site
+capture's thumbnail when Cicada holds one (`captureThumb`, `/explore/captures/…/thumb` from the bank), else the stored
+preview (`/entities/{id}/preview`, fetched once by the backend under its gates), else a monogram — both through
+`StoredPreview` with the bearer; never a URL the page names (`PictureURL.parse` admits `/explore/captures/` as an API
+path). A row opens the app on that bookmark's page: the Feed's detail (`AppRouter.routeToBookmark` → `pendingFeedItem`,
+the window opened if closed) — the saved item's established landing (R-DL16), a Store domain in memory, showing the
+link itself; the entity page is one click on. There `BookmarkReasonsSection` lists every answer newest first ("Saved
+again 15 Oct, 12:00 · said …"), each editable with the same toggles and words (`SavedWhyWrite` → `PUT /sources/saved-why`,
+or `POST` for a first answer; painted at once, rolled back on a refusal), and **Remove bookmark…**: asked first in words.
+Cicada forgets it first (`BookmarkRemove` → `POST /sources/bookmarks/remove`; a refusal such as a 409 while Sleep writes
+leaves Chrome untouched — `BookmarkRemoveFlow`), and only then is Chrome changed. Only the copy this save made is
+targeted: the node in Chrome's default-profile file whose `date_added` matches the record's `lastSavedAt`
+(`ChromeRemovalPlan`); with several copies of the link the confirmation says so and offers "Remove the copy saved …" or
+"Remove all N copies". The script (`ChromeBookmarkScript`, `osascript` as Cicada's child, so the one-time "Cicada
+wants to control Google Chrome" comes only now) addresses each node by id and folder chain (digits only) but deletes it
+only `if URL of b is targetURL` — Chrome's Apple Events act on the last-used profile, where the same id can be another
+bookmark — with the URL passed as `on run argv`'s argument, never in the source, and returns how many it really
+deleted (0: "the Chrome profile that's open doesn't hold this bookmark"). Mobile bookmarks cannot be reached and are
+named. A refused Automation or a failure leaves it removed in Cicada and says how to finish in Chrome. Safari offers no way for another app to edit its bookmarks: the section
+says so and offers **Open Safari** (Bookmarks › Edit Bookmarks).
 
 **Agent wiring (Track I T3/T7).** `GET /agents/wiring` is read-only: per harness it reports
 *recall* (the MCP server registered — `claude mcp get cicada` / `codex mcp get cicada --json`, 6 s

@@ -19,27 +19,35 @@ import Foundation
 /// - **One save, one question** (G191 live, owner 2026-10-14: "shouldn't it be immediate?" — bookmarking several
 ///   sites in a row, every one after the first was silenced by the old three-minute limit). Each single fresh bookmark
 ///   asks, even in a row; a new one replaces the open panel (`SaveWhyCenter`). Flood protection is structural — the
-///   rules above — plus `repeatGuard` against the double events of one save, and the same link is never asked twice
-///   within `sameLinkGuard`. Never while the person is writing in "Something else…".
+///   rules above — plus `repeatGuard` against the double events of one save, and the same save is never asked twice
+///   within `sameLinkGuard`. Never while the person is writing in the panel's field.
+/// - **A re-save asks** (G191 v3, owner 2026-10-15: "If I remove the bookmark and bookmark it again, the prompt doesn't
+///   appear. Is that on purpose?"). The backend now reports a link saved again (`FreshBookmark.resave`), and the same
+///   link within `sameLinkGuard` is held only when it is the same save: the same browser instant, or none recorded
+///   (Safari). A bookmark removed and made again carries a new `date_added`, so it asks.
 enum SaveWhyPolicy {
     /// How old (by the browser's own clock) a bookmark may be and still be asked about.
     static let recentWindow: TimeInterval = 5 * 60
     /// A clock-skew allowance: a bookmark stamped slightly in the future is still now.
     static let futureSkew: TimeInterval = 60
-    /// The least time between two questions.
     /// The least time between two questions: one save can report twice (a swap's two names, an owed re-read), and two
     /// deliberate bookmarks take longer than this to make.
     static let repeatGuard: TimeInterval = 3
-    /// The same link is not asked about again within this.
+    /// The same save is not asked about again within this (G191 v3: a re-save with its own instant is another save).
     static let sameLinkGuard: TimeInterval = 60
     /// How long an unanswered question stays before it leaves on its own.
     static let askTimeout: TimeInterval = 12
-    /// After a tap, how long the panel waits for another tap before it saves the answer (multi-select without a
-    /// confirm button).
-    static let linger: TimeInterval = 2.5
-    /// How long a half-written "Something else…" may sit before the panel leaves (keeping the taps, dropping the
-    /// unsent words).
-    static let writingTimeout: TimeInterval = 60
+    /// G191 v3 — after a tap, how long the panel waits for the next input before it keeps what was chosen and leaves.
+    /// Long enough for a second and third tap and a reach for the field; Save or Return is quicker.
+    static let answerIdle: TimeInterval = 10
+    /// Once words are typed, how long the panel waits between keystrokes before it keeps them and leaves.
+    static let writingIdle: TimeInterval = 45
+    /// G191 v3 — how long a pending panel (opened on Chrome's bookmark bubble) waits for the bookmark: Chrome writes
+    /// 2.5 s after the click, the watch settles 0.3 s, the read and the look take well under a second. Past this,
+    /// no bookmark came (the bubble was another one), and the panel withdraws, keeping nothing.
+    static let pendingBound: TimeInterval = 6
+    /// And how long a panel the app's own diff named waits for the backend to agree before it withdraws.
+    static let confirmBound: TimeInterval = 15
     /// G191 live — how long after the panel appears a click on it still counts as aimed at what was beneath it
     /// (`SaveWhyCenter.input`). Inside the grow (`CicadaMotion`'s notch spring) and well under a deliberate reach.
     static let armDelay: TimeInterval = 0.5
@@ -57,6 +65,8 @@ enum SaveWhyPolicy {
         var writing: Bool
         /// The link last asked about (with `lastAsked`).
         var lastURL: String? = nil
+        /// That save's browser instant (G191 v3): the same link with another instant is another save.
+        var lastAddedAt: String? = nil
     }
 
     enum Decision: Equatable {
@@ -85,7 +95,8 @@ enum SaveWhyPolicy {
         if let last = i.lastAsked {
             let since = i.now.timeIntervalSince(last)
             if since >= 0, since < repeatGuard { return .skip(.repeated) }
-            if since >= 0, since < sameLinkGuard, i.lastURL == item.url { return .skip(.repeated) }
+            if since >= 0, since < sameLinkGuard, i.lastURL == item.url,
+               item.addedAt == nil || i.lastAddedAt == nil || item.addedAt == i.lastAddedAt { return .skip(.repeated) }
         }
         return .ask(item)
     }
@@ -97,6 +108,7 @@ struct SaveWhyPrefs {
     static let enabledKey = "cicada.saveWhy.enabled"
     static let lastAskedKey = "cicada.saveWhy.lastAsked"
     static let lastURLKey = "cicada.saveWhy.lastURL"
+    static let lastAddedAtKey = "cicada.saveWhy.lastAddedAt"
     static let mutedKey = "cicada.saveWhy.mutedHosts"
 
     let defaults: UserDefaults
@@ -116,6 +128,12 @@ struct SaveWhyPrefs {
     var lastURL: String? {
         get { defaults.string(forKey: Self.lastURLKey) }
         nonmutating set { defaults.set(newValue, forKey: Self.lastURLKey) }
+    }
+
+    /// That link's browser instant — for `SaveWhyPolicy.sameLinkGuard` (G191 v3).
+    var lastAddedAt: String? {
+        get { defaults.string(forKey: Self.lastAddedAtKey) }
+        nonmutating set { defaults.set(newValue, forKey: Self.lastAddedAtKey) }
     }
 
     var mutedHosts: Set<String> {

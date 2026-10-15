@@ -348,6 +348,17 @@ final class FakeSyncAPI: SyncAPI {
     func addBacklogItem(project: String, title: String, description: String) async throws -> BacklogItem {
         try await backlogWrite("addBacklogItem:\(project):\(title)")
     }
+    /// G191 v3 — the bookmark page's writes; `savedWhyError` makes the next one fail.
+    var savedWhyError: Error?
+    func writeSavedWhy(url: String, at: String?, answer: SavedWhyAnswer) async throws -> SavedWhyReply {
+        try await record("writeSavedWhy:\(url):\(at ?? "new"):\(answer.reasons.joined(separator: ","))")
+        if let savedWhyError { throw savedWhyError }
+        return SavedWhyReply(savedWhy: SavedWhyRecord(reasons: answer.reasons, text: answer.text, at: at))
+    }
+    func removeBookmark(url: String) async throws {
+        try await record("removeBookmark:\(url)")
+        if let savedWhyError { throw savedWhyError }
+    }
     func addBacklogNote(project: String, item: String, note: String, status: String?) async throws -> BacklogItem {
         try await backlogWrite("addBacklogNote:\(project):\(item):\(status ?? "nil")")
     }

@@ -76,8 +76,17 @@ live bank is ~1.8 MB. **Ship the ETag and its client mapping together** — `GET
 `.inbox`; change one half, change both. `/graph`'s `extra` carries a node-shape tag
 (`graph.NODE_SHAPE`), bumped when a node gains a field a client must see or the body changes for
 the same files (F1's context filter and fence strip; `+previews` when a media node's `picture` became the stored
-preview path); `/sources` carries `sources.SHAPE` in its `extra` the same way (`preview-1`: items gained `preview`).
-Neither moved a component, so `VersionVector` is unchanged. An entity node's hash also folds its derived
+preview path); `/sources` carries `sources.SHAPE` in its `extra` the same way (`preview-1`: items gained `preview`;
+`saved-why-2`, G191 v3: items gained `savedWhyHistory`, `lastSavedAt` and `captureThumb`). Neither moved a component,
+so `VersionVector` was unchanged by those — but G191 v3 also folds the `captures` component into `/sources`' ETag (a
+new site capture gives a bookmark's row its thumbnail), so `VersionVector` maps `captures` → `.sources`.
+**G191 v3 bookmark writes** (both 409 in a demo bank and while Sleep holds the pages, both committed alone as
+`Cicada-Author: user`): `PUT /sources/saved-why` `{url, at, reasons[], project?, text?}` changes the one answer given at
+`at` (404 when there is none; its `at` and `addedAt` kept, `editedAt` stamped); `POST /sources/bookmarks/remove`
+`{url}` archives the link's media page (never deleted) and stamps its episode `source_deleted_at` (trigger
+`user/bookmark_remove`; 404 for a link not held, idempotent). `POST /sources/saved-why` gained `addedAt` (the moment of
+saving it answers) and answers with `history`. The app reaches both through `Store.perform` (`SavedWhyWrite`,
+`BookmarkRemove`), refreshing `.sources`. An entity node's hash also folds its derived
 `contexts` and `summary`, so `GraphDiff` re-pushes a node whose derivation changed. `/projects` and
 `/projects/{id}/timeline` (G141) ETag over `entities`+`episodes`+`inbox` with `extra` =
 `projects|<shape>|<author shape>|<machine zone>` (`git_service.AUTHOR_SHAPE` since round 4, R4B-9) — never today, never a viewer zone — and are **not** Store domains

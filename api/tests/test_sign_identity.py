@@ -153,6 +153,10 @@ MAKE_IDENTITY = ROOT / "scripts" / "dev" / "make-signing-identity.sh"
 AUTO_UPDATE = ROOT / "scripts" / "dev" / "auto-update.sh"
 
 
+KEY_A = "D" * 40   # the public-key hash ("hpky") of the certificate HASH_A
+KEY_B = "E" * 40   # ... of a second certificate of the same name, HASH_B
+
+
 def _fakes(bin_dir: Path, *, has_identity: bool, codesign: str = "exit 0", partition_ok: bool = True) -> Path:
     bin_dir.mkdir(parents=True, exist_ok=True)
     log = bin_dir / "calls.log"
@@ -160,22 +164,39 @@ def _fakes(bin_dir: Path, *, has_identity: bool, codesign: str = "exit 0", parti
     if has_identity:
         state.write_text("yes")
     security = bin_dir / "security"
+    # find-certificate -Z lists HASH_B's certificate first, so the key is read from the block of the chosen hash.
     security.write_text(f"""#!/bin/bash
 echo "security $@" >> "{log}"
 case "$1" in
   find-identity)
     if [ -f "{state}" ]; then echo '  1) {HASH_A} "Cicada Local" (CSSMERR_TP_NOT_TRUSTED)'; fi
     echo '     1 identities found' ;;
+  find-certificate)
+    printf 'SHA-256 hash: %s\nSHA-1 hash: {HASH_B}\nkeychain: "x"\nattributes:\n    "hpky"<blob>=0x{KEY_B}  "junk"\n' "{"F" * 64}"
+    printf 'SHA-256 hash: %s\nSHA-1 hash: {HASH_A}\nkeychain: "x"\nattributes:\n    "alis"<blob>="Cicada Local"\n    "hpky"<blob>=0x{KEY_A}  "junk"\n' "{"0" * 64}" ;;
   import) cp "$2" "{bin_dir}/imported.p12"; echo yes > "{state}" ;;
-  set-key-partition-list) {"exit 0" if partition_ok else 'echo "security: SecKeychainItemSetAccessWithPassword: The user name or passphrase you entered is not correct." >&2; exit 51'} ;;
 esac
+""")
+    # A fake Swift compiler: the helper it "builds" logs its arguments and the password it was handed.
+    refused = ('echo "authorise-signing-key: unlocking $1: The user name or passphrase you entered is not correct." >&2; '
+               "exit 3")
+    swiftc = bin_dir / "swiftc"
+    swiftc.write_text(f"""#!/bin/bash
+echo "swiftc $@" >> "{log}"
+out=""; while [ $# -gt 0 ]; do [ "$1" = "-o" ] && {{ out="$2"; shift; }}; shift; done
+cat > "$out" <<'HELPER'
+#!/bin/bash
+echo "authorise-signing-key $@ password=${{CICADA_KEYCHAIN_PASSWORD:-}}" >> "{log}"
+{"echo authorised" if partition_ok else refused}
+HELPER
+chmod +x "$out"
 """)
     fake_codesign = bin_dir / "codesign"
     fake_codesign.write_text(f"""#!/bin/bash
 echo "codesign $@" >> "{log}"
 {codesign}
 """)
-    for f in (security, fake_codesign):
+    for f in (security, swiftc, fake_codesign):
         f.chmod(f.stat().st_mode | stat.S_IEXEC)
     return log
 
@@ -200,12 +221,16 @@ def test_make_signing_identity_creates_authorises_and_proves_the_key(tmp_path):
     assert len(imports) == 1
     assert f"-k {keychain}" in imports[0], "into the keychain named, never another"
     assert "-T /usr/bin/codesign" in imports[0], "only codesign is pre-approved to use the key"
-    # Authorised for codesign without a dialog — and only the key labelled Cicada Local.
-    partition = [c for c in calls if c.startswith("security set-key-partition-list")]
-    assert partition == [f"security set-key-partition-list -S apple-tool:,apple: -s -l Cicada Local {keychain}"]
+    # Authorised for codesign without a dialog — only the private key of the chosen certificate, named by its public-key
+    # hash read from that certificate's own block (never the label: every imported key is "Imported Private Key").
+    assert not any(c.startswith("security set-key-partition-list") for c in calls)
+    assert any(c.startswith("swiftc -o ") and c.endswith("/scripts/dev/authorise-signing-key.swift") for c in calls)
+    authorise = [c for c in calls if c.startswith("authorise-signing-key ")]
+    assert authorise == [f"authorise-signing-key {keychain} {KEY_A} apple-tool:,apple: password="], authorise
     # The trial signs a throwaway copy of /usr/bin/true by the identity's hash, offline.
     trial = [c for c in calls if c.startswith("codesign ")]
     assert len(trial) == 1 and f"--sign {HASH_A}" in trial[0] and "--timestamp=none" in trial[0]
+    assert f"--keychain {keychain}" in trial[0], "the trial signs from the keychain just set up"
     assert trial[0].endswith("/trial")
     # The PKCS#12 holds a self-signed certificate named Cicada Local, for code signing only.
     password = imports[0].split(" -P ")[1].split(" ")[0]
@@ -222,7 +247,7 @@ def test_make_signing_identity_keeps_an_existing_identity_and_still_authorises_i
     done, calls, _bin, _kc = _run_make_identity(tmp_path, has_identity=True)
     assert done.returncode == 0, done.stderr
     assert not any(c.startswith("security import ") for c in calls)
-    assert any(c.startswith("security set-key-partition-list") for c in calls), "an older setup gets authorised too"
+    assert any(c.startswith(f"authorise-signing-key {_kc} {KEY_A} ") for c in calls), "an older setup gets authorised too"
     assert "kept" in done.stdout
 
 
@@ -230,7 +255,7 @@ def test_make_signing_identity_says_why_when_the_password_is_refused(tmp_path):
     done, calls, _bin, _kc = _run_make_identity(tmp_path, has_identity=True, partition_ok=False)
     assert done.returncode != 0
     assert "failed while authorising codesign" in done.stderr
-    assert "passphrase you entered is not correct" in done.stderr
+    assert "passphrase you entered is not correct" in done.stderr and "password was refused" in done.stderr
     assert not any(c.startswith("codesign ") for c in calls), "no trial after a failed step"
 
 

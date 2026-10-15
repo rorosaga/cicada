@@ -55,6 +55,10 @@ struct FeedItemDetail: View {
                 whySection
                 savedFromSection
             }
+            // G191 v3 — a bookmark's page: why it was saved (every time), editable, and Remove.
+            if BookmarkHistory.isBookmark(item) {
+                BookmarkReasonsSection(item: item, onRemoved: onClose)
+            }
             // G166 — what an agent did with this link, and "Ask an agent".
             FeedReadSection(item: item)
             Text(meta)
