@@ -8,6 +8,12 @@
 
 ## Current state and evidence
 
+- **2026-10-15 — Messages conversations, Instinct first, on branch `feat/imessage-instinct` (not merged; G179, G188's
+  minimal slice).** Settings → Integrations → Messages: tick a one-to-one conversation, mark who it is with (detector
+  registry, Instinct first; the person's mark wins). The app reads only ticked rows past a ROWID cursor; the backend
+  decodes `attributedBody`, stages one episode per 3 h sitting, keeps a texted agent's words as `assistant:` turns and
+  their claims as `external:<name>`. Bubbles on the Sleep page's What's waiting and Home. Pick up: the coordinator
+  ticks the real conversation on the owner's Mac and runs consolidation.
 - **2026-10-14 (night) — tracked sources re-checked, on branch `feat/source-refresh` (not merged; ruling 26).** A
   trusted source is re-checked monthly (or on the person's ask) and what it says now is a new dated fact; the newest
   evidence wins, even over the person's words; same-day/undated asks once; two failed visits a week apart mark it dead.
