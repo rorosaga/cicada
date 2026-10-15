@@ -27,6 +27,10 @@ final class NavRailTests: XCTestCase {
         XCTAssertEqual(RailItem.shortcut(for: .projects), "⌘8", "the eighth page, after Sources — no shortcut moved")
         XCTAssertEqual(RailItem.shortcut(for: .looks), "⌘9", "the ninth page, after Projects — no shortcut moved")
         XCTAssertEqual(RailItem.key(for: .graph), KeyEquivalent("2"))
+        // The Skills page (2026-10-15): the tenth page has no digit — ⌘0 is Actual Size — and never traps on "10".
+        XCTAssertEqual(AppTab.allCases.last, .skills)
+        XCTAssertNil(RailItem.key(for: .skills))
+        XCTAssertEqual(RailItem.shortcut(for: .skills), "")
     }
 
     func testTooltipsAndLabelsSayWhatTheCellIsDoing() {

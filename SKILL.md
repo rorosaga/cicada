@@ -34,10 +34,13 @@ it).
 | `cicada save "<content>"` | Stage a note for the next Sleep (content `-` reads stdin). |
 | `cicada handshake` | The contract and the current state, for an agent arriving cold. |
 | `cicada timeline` | What changed in memory, day by day. |
+| `cicada skills list` | Agent skills on this Mac, per agent, with updates and requests. |
+| `cicada skills propose <action> <reason>` | Ask the person to install or update a skill (on/off/refresh apply at once if you're trusted). |
+| `cicada skills create <skill> <description> <body>` | Draft a skill for a workflow; held until the person publishes it. |
 | `cicada status` | Which memory this command uses, and whether the app's backend agrees. |
 | `cicada commands` | Every command, and the MCP tool each one mirrors. |
 
-- **Options:** get: `--start`, `--from`, `--count`, `--line-numbers`; project: `--since`, `--tz`; continue: `--session`, `--before`; save: `--title`; timeline: `--since`. `get` also takes `<entity-id>:<start>[:<end>]`; `save` reads the
+- **Options:** get: `--start`, `--from`, `--count`, `--line-numbers`; project: `--since`, `--tz`; continue: `--session`, `--before`; save: `--title`; timeline: `--since`; skills propose: `--source`, `--skill`, `--agent`; skills create: `--reason`. `get` also takes `<entity-id>:<start>[:<end>]`; `save` reads the
   text from stdin when it is `-`.
 - **`--json`** (before or after the command) prints one envelope: `{schema, command, ok, code, bank, data,
   text, warnings, version}`. `text` is what the matching MCP tool says; `data` is the structured part.

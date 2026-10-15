@@ -9,7 +9,7 @@ final class SidebarTabTests: XCTestCase {
 
     /// G108 ruled (spec decision 12): Home is the front door at ⌘1, Graph follows at ⌘2.
     func testTheSidebarIsNineRowsInVisualOrder() {
-        XCTAssertEqual(AppTab.allCases, [.home, .graph, .clusters, .feed, .sleep, .inbox, .sources, .projects, .looks])
+        XCTAssertEqual(AppTab.allCases, [.home, .graph, .clusters, .feed, .sleep, .inbox, .sources, .projects, .looks, .skills])
     }
 
     /// Raw values ARE the persisted identity. A surviving tab must never
@@ -56,13 +56,14 @@ final class SidebarTabTests: XCTestCase {
         }
     }
 
-    /// ⌘1–9 follow the visual order, and every row has an icon.
+    /// ⌘1–9 follow the visual order, and every row has an icon. The tenth page (Skills, 2026-10-15) is the one past
+    /// the digit row: it has no ⌘ slot (⌘0 is Actual Size) and opens from the rail and the palette.
     func testEveryTabHasAShortcutSlotAndAnIcon() {
-        XCTAssertEqual(AppTab.allCases.count, 9)
+        XCTAssertEqual(AppTab.allCases.count, 10)
         XCTAssertEqual(AppTab.allCases.firstIndex(of: .home), 0, "⌘1 is Home")
         XCTAssertEqual(AppTab.allCases.firstIndex(of: .graph), 1, "⌘2 is Graph")
         for (index, tab) in AppTab.allCases.enumerated() {
-            XCTAssertLessThan(index, 9, "\(tab.rawValue) has no ⌘ slot")
+            XCTAssertTrue(index < 9 || tab == .skills, "\(tab.rawValue) has no ⌘ slot")
             XCTAssertFalse(tab.icon.isEmpty, tab.rawValue)
             XCTAssertFalse(tab.icon.hasSuffix(".fill"), "DR-53: outline glyphs")
             XCTAssertEqual(tab.title, tab.rawValue, "the label and the identity must agree")

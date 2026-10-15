@@ -72,7 +72,9 @@ final class CommandBarTests: XCTestCase {
         XCTAssertEqual(HelpContent.page(.graph), .graph)
         XCTAssertEqual(HelpContent.page(.projects), .projects)
         XCTAssertEqual(HelpContent.page(.looks), .looks)
-        for tab in AppTab.allCases where ![.sleep, .inbox, .graph, .clusters, .feed, .sources, .projects, .looks].contains(tab) {
+        XCTAssertEqual(HelpContent.page(.skills), .skills)
+        for tab in AppTab.allCases
+        where ![.sleep, .inbox, .graph, .clusters, .feed, .sources, .projects, .looks, .skills].contains(tab) {
             XCTAssertEqual(HelpContent.page(tab), .aboutCicada, tab.rawValue)
         }
     }

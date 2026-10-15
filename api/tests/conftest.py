@@ -119,6 +119,27 @@ def _no_real_agent_home(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_real_skill_tools_or_network(monkeypatch):
+    """The Skills page runs `uv`, a tool's `skill` and `doctor`, and fetches GitHub. No test may run a real tool on
+    the developer's Mac or reach the network: every command answers "not found" and every fetch fails, unless the
+    test installs its own fakes."""
+    from api.services import skill_sources, skill_tools
+    from api.services.connections import base
+
+    async def no_tool(argv, **kwargs):
+        return base.CliResult(127, "", f"{argv[0]}: not found (test)")
+
+    async def no_network(url, accept=None):
+        raise OSError("no network in tests")
+
+    monkeypatch.setattr(skill_tools, "RUNNER", no_tool)
+    monkeypatch.setattr(skill_tools, "WHICH", lambda name: None)
+    monkeypatch.setattr(skill_sources, "FETCH", no_network)
+    skill_tools.clear_cache()
+    skill_sources._PLANS.clear()
+
+
+@pytest.fixture(autouse=True)
 def _no_live_sleep_probe(monkeypatch):
     """G135 final review: a stdio `cicada_write_claim` asks the backend's
     `GET /sleep/status` before committing. Unpinned, every such test would hit

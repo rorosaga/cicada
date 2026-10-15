@@ -21,6 +21,7 @@ enum HelpContent: Equatable {
     case sources
     case projects
     case looks
+    case skills
 
     static func page(_ tab: AppTab) -> HelpContent {
         switch tab {
@@ -32,6 +33,7 @@ enum HelpContent: Equatable {
         case .sources: .sources
         case .projects: .projects
         case .looks: .looks
+        case .skills: .skills
         default: .aboutCicada
         }
     }
@@ -59,6 +61,7 @@ struct TitlebarHelpButton: View {
                     case .sources: ListHelpPopover(page: ListHelp.sources)
                     case .projects: ListHelpPopover(page: ListHelp.projects)
                     case .looks: ListHelpPopover(page: ListHelp.looks)
+                    case .skills: ListHelpPopover(page: ListHelp.skills)
                     }
                     // G152 — every page's `?` replays the tour; the closure is built here, where the environment is.
                     TourReplayRow {
@@ -126,6 +129,16 @@ enum ListHelp {
             .init(key: "⏎", does: "Step into the card"),
             .init(key: "⌘[", does: "Back to the previous card"),
             .init(key: "Esc", does: "Close the rightmost column"),
+        ])
+
+    /// The Skills page (owner, 2026-10-15).
+    static let skills = Page(
+        title: "How Skills works",
+        subtitle: "Every skill your coding agents have, where it came from and whether it is current. Tick an agent "
+            + "to give it a skill. Cicada installs only what you have seen, fixed to that version, and your agents "
+            + "can ask, or write a skill for you to publish.",
+        keys: [
+            .init(key: "⌘K", does: "Go to Skills from anywhere"),
         ])
 
     static let looks = Page(

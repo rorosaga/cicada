@@ -3,9 +3,10 @@ import SwiftUI
 
 /// R-OB1 — the paged onboarding's six steps (G145). *See how* (F-03) is a sheet over Import, never a step.
 enum OnboardingPage: Int, CaseIterable, Comparable {
-    case welcome, `import`, agents, whoReads, keepRunning, ready
+    /// `skills` (owner 2026-10-15): after Agents — the skills that let those agents see websites and use apps.
+    case welcome, `import`, agents, skills, whoReads, keepRunning, ready
 
-    static let stepCount = 6
+    static let stepCount = 7
     static func < (a: OnboardingPage, b: OnboardingPage) -> Bool { a.rawValue < b.rawValue }
 
     var step: Int { rawValue + 1 }
@@ -18,7 +19,7 @@ enum OnboardingPage: Int, CaseIterable, Comparable {
     var pane: PaneFraming? {
         switch self {
         case .import: .import
-        case .agents: .agents
+        case .agents, .skills: .agents
         case .whoReads: .whoReads
         case .keepRunning: .keepRunning
         case .welcome, .ready: nil

@@ -25,7 +25,7 @@ def test_print_urls_builds_a_clean_join_for_a_root_and_a_subpath_skill():
                     "c24e5072ee66f8499bacd663f4f4bcb089bc4492/SKILL.md")
     sub = next(u for u in urls if "macos-harness" in u)
     assert sub == ("https://raw.githubusercontent.com/browser-use/macos-harness/"
-                   "b88e4d77403bbcac35752eef4f4dd72db3663fd6/skills/macos-harness/SKILL.md")
+                   "43d9edf8286153482348b15f7d8c22d9e38f6c6b/skills/macos-harness/SKILL.md")
     assert all(u.endswith("/SKILL.md") for u in urls)
 
 

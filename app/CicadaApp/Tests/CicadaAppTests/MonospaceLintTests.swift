@@ -14,7 +14,6 @@ final class MonospaceLintTests: XCTestCase {
         "Views/Common/FoundRow.swift": "the exact paths and commands shown before consent",
         "Views/Common/VideoPlayerView.swift": "a local file path",
         "Views/Settings/LocalSourceRows.swift": "watched folder paths",
-        "Views/Settings/SkillConsentSheet.swift": "an installer's output",
         "Views/Settings/AdvancedView.swift": "environment variable names",
         "Views/Home/GettingStartedCard.swift": "the refused paths, shown to inspect",
         "Views/Intake/OnThisMacStrip.swift": "the refused paths, shown to inspect",

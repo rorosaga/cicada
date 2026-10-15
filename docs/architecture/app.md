@@ -239,11 +239,11 @@ all three empty is one `HomeEmptyBlock` (*Choose a file…*), or nothing while G
 *Make it yours* (Appearance, and Scene only while the band shows; `AppearanceTipPolicy`, per viewer) is a row after
 Needs you for that one session; once hidden or seen it lives only in Settings.
 
-**Onboarding (G145, round 4 phase B).** Six pages in one full-window layer, raised by the unchanged `FirstRunGate`
+**Onboarding (G145, round 4 phase B).** Seven pages in one full-window layer, raised by the unchanged `FirstRunGate`
 (unknown is never empty) or by the one door, `OnboardingState.reset` + `AppRouter.requestFirstRun` (Settings →
 General's *Run setup again*, the demo's *Finish setting up*): Welcome and You're set on the full living painting
-with a card (`WelcomeHero`); Import, Agents, Who reads and Keep it running in a split frame — the page's pane
-painting (`OnboardingPane`, 540 pt, which gives way before the column does), the column with "Step n of 6 · k still
+with a card (`WelcomeHero`); Import, Agents, Skills, Who reads and Keep it running in a split frame — the page's pane
+painting (`OnboardingPane`, 540 pt, which gives way before the column does), the column with "Step n of 7 · k still
 coming in", Back and one primary (⏎ never animates). Get started is the owner PUT, alone and first; after it **a
 tick starts that source at once** through the one turn-on (`FoundTurnOn`; app-side sources register an
 `AppSourceDriver`), an untick stops it keeping up and keeps what came in, and × shows only where a run can stop
@@ -257,7 +257,13 @@ Chrome's open tab groups as a sub-row under Chrome (only where Chrome is), each 
 its own reader (`ContactsReader.connect`, `TabGroupWatcher.enable`), which Home's Getting started registers too. Every row, the topbar's count, You're set and Home's Getting started read one projection,
 `SetupProgress`, over `SetupRunner`, `SyncActivity` and the channels. Agents reuse `AgentSelector` /
 `AgentSetupSteps` with a live ✓; Claude Code's and Codex's *Connect for me* here also turns on *Remembers
-automatically* (its commands shown first; Settings → Agents keeps it its own click). Who reads is `EngineChooser`,
+automatically* (its commands shown first; Settings → Agents keeps it its own click). **Skills** (owner 2026-10-15,
+`SkillsStepPage` over `SkillsStepModel`, Agents' painting) is three switch tiles: Websites (browser-harness) and Mac
+apps (macos-harness; macOS asks once) on, Videos (the video skill) off; *Skip* beside Continue. Nothing installs on the
+page: **Continue is the consent** — `POST /skills/onboarding` records the answer (Skip too, never asked again) and
+installs what is on in the background. A saved answer is where a later run starts (rerun or a new bank): what the
+person declined starts off. Without uv it says so, shows the official install command and link, and the two can't be ticked until
+*Check again* finds it. Who reads is `EngineChooser`,
 writing only on a click; Keep it running holds the same switches as Settings → General and turns none on. You're
 set shows one public-domain quote (`MemoryQuotes`, G153, kept per install) and Open Cicada marks the bank, records
 the connected agents, asks `TourOffer` and lands on Home. *Set up later* and *Try the demo* (`SetupRunner.demoPlan`)
@@ -610,16 +616,30 @@ release smoke test is excluded). `GET /agents/live` lights a pill's ✓ from the
 rows, a used connector (`last_used_at`) or the agent's own config — no subprocess, never `~/Library`, never
 `~/.claude.json`; polled every 3 s while the page is visible.
 
+**The Skills page (owner 2026-10-15, third take).** The tenth rail page, after Looks (DR-22 as amended 2026-10-15: no
+shortcut moved; it has no ⌘ digit — the row ends at 9 and ⌘0 is Actual Size — so it opens from the rail and ⌘K; `RailItem.key` is nil
+past nine). `SkillsPage` over `SkillsPageModel` (in memory, not a Store domain; `SkillsAPI`, faked in `SkillsPageTests`)
+shows `GET /skills` as **one plain table** — Skill (the name and one muted line), Agents, Status — with no pictures.
+The Agents cell is one pull-down ("Claude Code, Codex +1 ▾", `SkillAgentWords`) listing every agent installed on this
+Mac: tick to turn the skill on for it, untick to turn it off; an agent that reads another's folder shows a hollow tick
+and "through Claude Code"; agents not installed are hidden. Status is one quiet word from the backend's `status`:
+"Up to date" with a dot, "Local", "⚠ Refresh" (a tool skill's text older than its tool), or an **Update** chip whose
+popover (`SkillChangesPopover`) lists what changed ("0.1.13 → 0.2.0", each commit or release) and holds the one Update.
+Selecting a row opens the side column (`SkillDetailColumn`: the repo link, versions, the Mac permissions in words
+labelled "Checked for Cicada" with a line that an agent in another app may differ, an instructions excerpt, Remove…). The header has the add field ("Add from GitHub, or paste npx skills add…", ⌘N), which
+opens `AddSkillSheet` (the SKILL.md, the files with scripts called out, the commit; Install installs exactly that); an
+agent's request is one line above the table; tabs Installed · Discover (the catalog) · Drafts (agents' drafts and what
+Sleep noticed). The page opening re-checks for updates only past an hour.
+
 **Settings → Skills (G138).** A reviewed catalog (`api/data/recommended_skills.json`: source,
 licence, the reviewed commit and SKILL.md hash, needs, agents, a terms note, the Cicada tool it
-bridges; `scripts/verify-skills.sh` re-checks it) served by `GET /skills/recommended` — at most
+bridges, and for the two harnesses a `tool` block and for them and the video skill an `onboarding` line;
+`scripts/verify-skills.sh` re-checks it) served by `GET /skills/recommended` — at most
 five not-installed entries by rank, install state derived per request from `SKILL.md` files and
-Claude Code plugin ids, never an agent's config. **The backend never installs anything.** The app
-runs only the agent's own installer (`claude`, `codex`, `npx skills` pinned to the reviewed
-commit), after a consent sheet that shows the exact command, as an argv with
-`CICADA_CAPTURE=off`; hosted MCP servers are copy-only. The app writes files only for Cicada's
-own `cicada` and `cicada-librarian` (`SkillInstaller`, a `.cicada-managed.json` marker, never
-over a changed copy). The handshake gains a capability line only for an installed, active bridge
+Claude Code plugin ids, never an agent's config. Since the Skills page (2026-10-15) **the app installs nothing and
+writes no skill folder**: `SkillInstaller` and its consent sheet are gone, Cicada's own `cicada` and
+`cicada-librarian` rows and a skill's detail hand off to the page (`AppRouter.routeToSkills`), and every install is the
+backend's `skill_store` (`api.md`, "Skills"). Hosted MCP servers and agent-prompt texts stay copy-only. The handshake gains a capability line only for an installed, active bridge
 whose tool exists: papers (`cicada_save_url`), video (`cicada_record_watch`) and meetings
 (`cicada_save_episode`, one `speaker:<name>:` line per utterance, never `user:`) are active;
 documents stays off until something says who wrote a document (F2-back R-B14).

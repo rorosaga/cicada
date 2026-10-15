@@ -61,7 +61,7 @@ struct NavRail: View {
             NavRailCell(tab: tab, labelled: labelled, selected: selected, badge: count, busy: busy)
         }
         .buttonStyle(.cicadaPlain)
-        .keyboardShortcut(RailItem.key(for: tab), modifiers: .command)
+        .keyboardShortcut(RailItem.key(for: tab).map { KeyboardShortcut($0, modifiers: .command) })
         .accessibilityLabel(RailItem.accessibilityLabel(tab, count: count, busy: busy))
         .accessibilityHint(RailItem.shortcut(for: tab))
         .accessibilityAddTraits(selected ? [.isSelected] : [])

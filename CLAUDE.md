@@ -287,6 +287,9 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   link the person asked about, or a wall page of a site they allowed, can be recorded. The backend never fetches a
   login-walled page. **Exploring saved sites (ruling 25):** only the person's click or a trusted local agent they asked
   starts a run; the agent uses their signed-in session unless they turn it off, every capture says which (`mcp.md`).
+- **Skills (2026-10-15):** Cicada installs third-party skills only on the person's consent, pinned to what they saw
+  (a commit, or a catalog tool's commit); one writer (`skill_store`), never into a bank, never hooks or settings; an
+  agent only asks (`cicada_propose_skill`) or drafts a held skill (`api.md`, "Skills").
 - **Video (G162):** Cicada never downloads a video or derives a stream; a video's state is derived, never stored; the
   queue lives outside every bank.
 - **Continuity (G110, slice 1a/1b):** SessionStart carries a light pointer inside the whole 1,800-token note;

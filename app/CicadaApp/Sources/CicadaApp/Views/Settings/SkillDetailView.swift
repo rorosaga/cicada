@@ -2,8 +2,9 @@ import SwiftUI
 
 /// One recommended skill (the sub-page, R-O5): why, where it comes from, what
 /// it needs in plain words, the terms note, Cicada's own note, and per agent
-/// either "Install in …" (the consent sheet) or — for a hosted connector —
-/// the command to paste into the agent. ⌘[ and Esc go back (Esc through
+/// either "Install on the Skills page" (the page shows the files and installs
+/// pinned, owner 2026-10-15) or — for a hosted connector or a text for the
+/// agent — what to paste into the agent. ⌘[ and Esc go back (Esc through
 /// `SettingsFocus.escapeBack`, which `SkillsView` sets while this is open).
 struct SkillDetailView: View {
     let skill: RecommendedSkill
@@ -11,9 +12,8 @@ struct SkillDetailView: View {
     /// opened it there (the Skills list shows only five, so a lower-ranked skill has no card to open there).
     var section: SettingsSection = .skills
     let back: () -> Void
-    @State private var consentAgent: String?
     @State private var copiedPrompt = false
-    @Environment(SkillsViewModel.self) private var vm
+    @Environment(AppRouter.self) private var router
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -38,16 +38,7 @@ struct SkillDetailView: View {
                 .frame(maxWidth: CicadaTheme.scaled(760), alignment: .leading)
             }
         }
-        .sheet(item: Binding(get: { consentAgent.map(AgentChoice.init) }, set: { consentAgent = $0?.id })) { choice in
-            // Handed on explicitly: the sheet reloads the catalog after an
-            // install, and a missing `@Observable` in the environment is a
-            // crash, not a no-op.
-            SkillConsentSheet(skill: skill, agent: choice.id) { consentAgent = nil }
-                .environment(vm)
-        }
     }
-
-    private struct AgentChoice: Identifiable { let id: String }
 
     private var header: some View {
         HStack(spacing: CicadaTheme.spacingMD) {
@@ -140,7 +131,7 @@ struct SkillDetailView: View {
                 Spacer()
                 // A plan with no steps has nothing to show consent for.
                 if plan.runnable && !plan.steps.isEmpty && skill.state[agent] != "installed" {
-                    Button(Copy.installIn(SkillAgent.label(agent))) { consentAgent = agent }
+                    Button(Copy.installOnSkillsPage) { router.routeToSkills() }
                 }
             }
             if !plan.runnable, let prompt = plan.prompt {

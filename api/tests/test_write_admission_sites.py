@@ -467,6 +467,12 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /explore/stop": (OUTSIDE, None),
     "POST /explore/queue/{key}/retry": (OUTSIDE, None),
     "POST /explore/look": (OUTSIDE, None),            # looks v2: "Save its look" writes the queue file only
+    # The Skills page (2026-10-15): the agents' own skill folders and $CICADA_HOME/skills only (skill_store).
+    **{route: (OUTSIDE, None) for route in (
+        "POST /skills/check", "POST /skills/preview", "POST /skills/install", "POST /skills/{name}/update",
+        "POST /skills/update-all", "PUT /skills/{name}/agents/{agent}", "POST /skills/{name}/refresh",
+        "DELETE /skills/{name}", "POST /skills/drafts/{name}/publish", "DELETE /skills/drafts/{name}",
+        "POST /skills/requests/{request_id}/dismiss", "POST /skills/onboarding")},
 }
 
 #: Every MCP tool (stdio and remote): the mcp_tools function it runs and its class.
@@ -501,6 +507,10 @@ TOOLS: dict[str, tuple[str, str | None]] = {
     "cicada_continue": (NONE, None),
     # Design taste: reads the board; may embed into its derived index in $CICADA_HOME — never a bank write.
     "cicada_design_search": (NONE, None),
+    # The Skills page: agent folders and $CICADA_HOME/skills only — never a bank write.
+    "cicada_skills": (NONE, None),
+    "cicada_propose_skill": (OUTSIDE, None),
+    "cicada_create_skill": (OUTSIDE, None),
     **{t: (NONE, None) for t in (
         "cicada_handshake", "cicada_recall", "cicada_recall_detail", "cicada_open_hub", "cicada_get_perspective",
         "cicada_check_nudges", "cicada_timeline", "cicada_project", "cicada_sources", "cicada_ask",

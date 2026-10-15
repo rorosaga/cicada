@@ -365,7 +365,7 @@ extension Copy {
     static let recommendedGroup = "Recommended"
     static func reviewedOn(_ date: String) -> String { "Reviewed \(date)" }
     static let installedGroup = "Already installed"
-    static let skillsFootnote = "Cicada never runs a skill itself. Installing one runs your agent's own installer, after you say yes."
+    static let skillsFootnote = "Cicada never runs a skill itself. It installs one only after you've seen what's inside, fixed to that version, on the Skills page."
     static let agentsSkillTitle = "Cicada's skill for your agents"
     static let agentsSkillDetail = "Tells an agent when to look things up in Cicada and when to save."
     static let openSkills = "Open Skills"
@@ -380,7 +380,7 @@ extension Copy {
     static let showExactCommand = "Show the exact command"
     static let copyCommand = "Copy command"
     static let understandThirdParty = "I understand this installs someone else's code on this Mac."
-    static func installIn(_ agent: String) -> String { "Install in \(agent)…" }
+    static let installOnSkillsPage = "Install on the Skills page"
     static func installTitle(_ skill: String, _ agent: String) -> String { "Install \(skill) in \(agent)?" }
     static func installLead(_ agent: String) -> String {
         "This runs \(agent)'s own installer on this Mac. Cicada never runs the skill itself."

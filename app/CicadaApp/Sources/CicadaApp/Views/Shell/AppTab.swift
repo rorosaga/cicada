@@ -31,6 +31,9 @@ enum AppTab: String, CaseIterable {
     /// Design taste (owner, 2026-10-14) — the ninth page, ⌘9: the board of looks the person likes. The first free
     /// cell after Projects, so no existing shortcut moves (the Projects ruling's reasoning; placement is the owner's).
     case looks = "Looks"
+    /// The Skills page (owner, 2026-10-15) — the tenth page, after Looks, so no existing shortcut moves (DR-22). It
+    /// has no ⌘ digit: the row ends at 9 and ⌘0 is Actual Size; the rail and the palette open it.
+    case skills = "Skills"
 
     /// Decodes a persisted selection, mapping every retired tab to whichever
     /// page inherited its content. Anything unrecognised falls back to Home.
@@ -56,6 +59,7 @@ enum AppTab: String, CaseIterable {
         case .sources: "tray.2"
         case .projects: "point.topleft.down.to.point.bottomright.curvepath"
         case .looks: "paintpalette"
+        case .skills: "puzzlepiece.extension"
         }
     }
 

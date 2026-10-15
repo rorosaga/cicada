@@ -68,6 +68,38 @@ from api.services.connections import base
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PROBE_TIMEOUT_S = 6.0
 
+
+@dataclass(frozen=True)
+class Agent:
+    """One of the person's local agents, as every surface names it. ``home`` (HOME-relative) existing means the
+    agent is on this Mac; ``skills`` is the user-level skills folder its own docs name (``None``: it has none, and it
+    is left out of every skill list); ``reads`` are other folders it also loads skills from."""
+
+    id: str
+    label: str
+    home: str
+    skills: str | None
+    reads: tuple[str, ...] = ()
+
+
+#: **The one list of the person's local agents** (owner 2026-10-15: "one place in the code"). The Skills page, its
+#: MCP tools and CLI rows, and the app (which reads it from ``GET /skills``) all derive from this tuple, so adding or
+#: removing an agent is this one change. Skill folders are from each agent's docs (2026-10-15): Codex also reads
+#: ``~/.agents/skills`` (openai/codex host_roots.rs), Cursor reads Claude Code's and Codex's folders and the shared one
+#: (cursor.com/docs), OpenCode reads Claude Code's and the shared one (opencode.ai/docs/skills), Hermes keeps
+#: ``~/.hermes/skills`` and OpenClaw ``~/.openclaw/skills`` (their docs; neither reads another's). Gemini CLI stays
+#: listed (``~/.gemini/skills`` and the shared folder) but, like every agent here, shows only when it is installed.
+#: The owner: "Gemini isn't a relevant provider for us right now. More relevant are Hermes and other personal agents."
+AGENTS: tuple[Agent, ...] = (
+    Agent("claude-code", "Claude Code", ".claude", ".claude/skills"),
+    Agent("codex", "Codex", ".codex", ".codex/skills", (".agents/skills",)),
+    Agent("cursor", "Cursor", ".cursor", ".cursor/skills", (".agents/skills", ".claude/skills", ".codex/skills")),
+    Agent("opencode", "OpenCode", ".config/opencode", ".config/opencode/skills", (".claude/skills", ".agents/skills")),
+    Agent("hermes", "Hermes", ".hermes", ".hermes/skills"),
+    Agent("openclaw", "OpenClaw", ".openclaw", ".openclaw/skills"),
+    Agent("gemini-cli", "Gemini CLI", ".gemini", ".gemini/skills", (".agents/skills",)),
+)
+
 Runner = Callable[..., Awaitable[base.CliResult]]
 
 

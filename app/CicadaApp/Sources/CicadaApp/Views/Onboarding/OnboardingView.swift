@@ -3,7 +3,7 @@ import SwiftUI
 
 /// Round-4 phase B (G145) — the paged onboarding, one full-window layer over the shell (R-IB11's placement kept):
 /// Welcome and You're set on the whole painting with a card; the four working pages in the split frame — the page's
-/// painting (`OnboardingPane`), then the column: the topbar ("Step n of 6 · k still coming in", Set up later), the page,
+/// painting (`OnboardingPane`), then the column: the topbar ("Step n of 7 · k still coming in", Set up later), the page,
 /// the foot (Back, the page's line, its one primary with ⏎). It decides nothing itself: pages are `OnboardingPage`,
 /// geometry `OnboardingLayout`, steps `OnboardingFlow` run by `SetupRunner`, every row and count `SetupProgress`
 /// (R-OB4). Get started is the owner PUT alone (R-OB2); after it a tick or a drop starts at once. Esc closes See how,
@@ -43,6 +43,8 @@ struct OnboardingView: View {
     @State private var seeHow: ChatVendor?
     /// Held here, not by F-04, so You're set reads the last answer (R-OB13).
     @State private var live = AgentLiveProbe()
+    /// The skills step's ticks, held by the frame: Continue posts them (the consent), wherever the page is.
+    @State private var skillsStep = SkillsStepModel()
     @State private var browsers = BrowserInventory.empty
     @State private var memoryRoot: String?
     @State private var allowRequested: Set<FoundItemID> = []
@@ -174,6 +176,7 @@ struct OnboardingView: View {
                        columnWidth: width - 2 * CicadaTheme.scaled(OnboardingLayout.columnPadding),
                        dropTargeted: dropTargeted, onTick: tick, onSeeHow: { seeHow = $0 })
         case .agents: AgentsPage(live: live)
+        case .skills: SkillsStepPage(model: skillsStep)
         case .whoReads: WhoReadsPage(scheduleLine: scheduleLine(.whoReads))
         case .keepRunning: KeepRunningPage()
         case .welcome, .ready: EmptyView()
@@ -198,6 +201,14 @@ struct OnboardingView: View {
                                   label: Copy.onboardingSettingsIntegrations)
         case .agents:
             OnboardingPointerLine(lead: Copy.agentsFoot, section: .agents, label: Copy.onboardingSettingsAgents)
+        case .skills:
+            // Skip: nothing installs, and the answer is kept so nothing asks again.
+            TextButton(title: Copy.Skills.skip) {
+                let step = skillsStep
+                step.noThanks()
+                Task { await step.submit() }
+                if let next = page.next { go(next, .pointer) }
+            }
         case .whoReads, .keepRunning:
             // R-OB17 — "Everything stays on this Mac" only when nothing is read off it; F-06 says the same as F-05.
             Label(WhoReadsPage.footLine(engineVM.response), systemImage: "lock")
@@ -256,6 +267,11 @@ struct OnboardingView: View {
         switch page {
         case .welcome: getStarted(input)
         case .ready: openCicada()
+        case .skills:
+            // Continuing past the skills step is the consent: what stays ticked installs in the background.
+            let step = skillsStep
+            Task { await step.submit() }
+            if let next = page.next { go(next, input) }
         default: if let next = page.next { go(next, input) }
         }
     }
@@ -373,7 +389,7 @@ struct OnboardingView: View {
     }
 }
 
-/// "Step n of 6 · k still coming in" and Set up later (R-OB1). The segments link to any page already reached, never
+/// "Step n of 7 · k still coming in" and Set up later (R-OB1). The segments link to any page already reached, never
 /// past Get started (`OnboardingNav.canJump`). Below the titlebar band, never in it (R-OB23).
 private struct OnboardingTopbar: View {
     let page: OnboardingPage

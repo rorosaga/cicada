@@ -308,6 +308,17 @@ PERSON_ARGV = {
     "bank use": ["bank", "use", "beta"],
     "bank rename": ["bank", "rename", "beta", "gamma"],
     "bank delete": ["bank", "delete", "beta"],
+    # The Skills page (2026-10-15): installing, updating and toggling skills are the person's.
+    "skills check": ["skills", "check"],
+    "skills add": ["skills", "add", "alice-example/handy-skills", "--yes"],
+    "skills install": ["skills", "install", "macos-harness"],
+    "skills update": ["skills", "update", "release-notes"],
+    "skills update-all": ["skills", "update-all"],
+    "skills on": ["skills", "on", "release-notes", "codex"],
+    "skills off": ["skills", "off", "release-notes", "codex"],
+    "skills refresh": ["skills", "refresh", "macos-harness"],
+    "skills remove": ["skills", "remove", "release-notes"],
+    "skills publish": ["skills", "publish", "release-notes", "--agent", "codex"],
 }
 
 
@@ -616,3 +627,33 @@ def test_a_page_the_intake_refuses_for_good_is_never_read_as_saved_items(env, mo
         code, out = _run(["import", str(path)], capsys)
     assert code == 1 and out["code"] == "refused" and out["text"] in intake.FINAL_REFUSALS, out
     assert server.seen == [] and not list((env / "entities").glob("media-*.md"))
+
+
+# --- skills (the Skills page, 2026-10-15) -------------------------------------------------------------------
+
+def test_skills_add_shows_first_and_installs_only_with_yes(env, monkeypatch, capsys):
+    preview = {"planId": "p1", "name": "release-notes", "description": "Writes release notes.", "agents": ["codex"],
+               "files": [{"path": "SKILL.md", "size": 10, "script": False}], "scripts": [],
+               "repo": {"repo": "alice-example/handy-skills", "commit": "a" * 40, "licence": "MIT"}}
+    routes = {("POST", "/skills/preview"): (200, preview),
+              ("POST", "/skills/install"): (200, {"name": "release-notes", "agents": ["codex"]})}
+    with _backend(env, monkeypatch, routes) as server:
+        code, out = _run(["skills", "add", "alice-example/handy-skills"], capsys)
+        assert code == 0 and "Nothing installed" in out["text"] and "aaaaaaa" in out["text"]
+        assert [r["path"] for r in server.seen] == ["/skills/preview"]
+        code, out = _run(["skills", "add", "alice-example/handy-skills", "--yes"], capsys)
+    assert code == 0 and "Installed for codex" in out["text"]
+    install = server.seen[-1]
+    assert install["path"] == "/skills/install" and _json(install) == {"planId": "p1", "agents": ["codex"]}
+
+
+def test_an_agent_drafts_a_skill_from_its_shell_and_nothing_installs(env, monkeypatch, capsys):
+    from api.services import skill_store
+
+    monkeypatch.setenv("CICADA_SESSION_HARNESS", "codex")
+    code, out = _run(["skills", "create", "release-notes", "Writes release notes.", "Read the log."], capsys)
+    assert code == 0 and "held" in out["text"]
+    assert [d["name"] for d in skill_store.drafts()] == ["release-notes"]
+    code, out = _run(["skills", "propose", "install", "You asked for it.", "--source", "alice-example/handy-skills"],
+                     capsys)
+    assert code == 0 and out["text"].startswith("Filed for the person")
