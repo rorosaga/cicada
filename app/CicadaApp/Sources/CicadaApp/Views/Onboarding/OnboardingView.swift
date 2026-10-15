@@ -202,7 +202,13 @@ struct OnboardingView: View {
         case .agents:
             OnboardingPointerLine(lead: Copy.agentsFoot, section: .agents, label: Copy.onboardingSettingsAgents)
         case .skills:
-            EmptyView()
+            // Skip: nothing installs, and the answer is kept so nothing asks again.
+            TextButton(title: Copy.Skills.skip) {
+                let step = skillsStep
+                step.noThanks()
+                Task { await step.submit() }
+                if let next = page.next { go(next, .pointer) }
+            }
         case .whoReads, .keepRunning:
             // R-OB17 — "Everything stays on this Mac" only when nothing is read off it; F-06 says the same as F-05.
             Label(WhoReadsPage.footLine(engineVM.response), systemImage: "lock")

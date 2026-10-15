@@ -49,6 +49,8 @@ final class SkillsStepModel {
     }
 }
 
+/// Three switch tiles (owner 2026-10-15): Websites and Mac apps on, Videos off. Skip sits in the frame's foot beside
+/// Continue (`OnboardingView.footLine`).
 struct SkillsStepPage: View {
     let model: SkillsStepModel
 
@@ -59,13 +61,9 @@ struct SkillsStepPage: View {
                 Text(problem).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textSecondary)
             }
             if let offer = model.offer {
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(offer.suggestions.enumerated()), id: \.element.id) { index, item in
-                        if index > 0 { Divider().overlay(CicadaTheme.border) }
-                        row(item)
-                    }
+                VStack(spacing: CicadaTheme.spacingSM) {
+                    ForEach(offer.suggestions) { item in tile(item) }
                 }
-                .settingsCardSurface()
                 if !offer.uv.present && offer.suggestions.contains(where: { $0.needsUv == true }) {
                     VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
                         Text(Copy.Skills.onboardingNoUv).font(CicadaTheme.metaFont)
@@ -81,43 +79,39 @@ struct SkillsStepPage: View {
                         }
                     }
                 }
-                HStack {
-                    Text(Copy.Skills.onboardingFoot).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
-                    Spacer()
-                    TextButton(title: Copy.Skills.noThanks) { model.noThanks() }
-                }
+                Text(Copy.Skills.onboardingFoot).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
             }
         }
         .task { await model.load() }
     }
 
-    private func row(_ item: SkillsOnboardingOffer.Suggestion) -> some View {
+    /// One switch tile: what it lets the agents do, and what macOS or the browser will ask. No picture.
+    private func tile(_ item: SkillsOnboardingOffer.Suggestion) -> some View {
         let available = model.available(item)
         return HStack(alignment: .top, spacing: CicadaTheme.spacingMD) {
-            Toggle("", isOn: Binding(get: { model.ticked.contains(item.id) || item.installed == true },
-                                     set: { on in
-                                         if on { model.ticked.insert(item.id) } else { model.ticked.remove(item.id) }
-                                     }))
-                .toggleStyle(.checkbox)
-                .labelsHidden()
-                .accessibilityLabel(item.title ?? item.id)
-                .disabled(!available)
             VStack(alignment: .leading, spacing: CicadaTheme.scaled(3)) {
-                HStack(spacing: CicadaTheme.spacingSM) {
-                    Text(item.title ?? item.id).font(CicadaTheme.font(size: 14, weight: .medium))
-                    if item.installed == true { Tag(text: Copy.Skills.alreadyInstalled) }
-                    else if item.default != true { Tag(text: Copy.Skills.offByDefault) }
-                }
+                Text(item.title ?? item.id).font(CicadaTheme.font(size: 14, weight: .medium))
                 if let line = item.line {
-                    Text(line).font(CicadaTheme.bodyFont).fixedSize(horizontal: false, vertical: true)
-                }
-                if let asks = item.asks {
-                    Text(asks).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textSecondary)
+                    Text(line).font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+                if let skill = item.skill {
+                    Text(item.installed == true ? "\(skill) · \(Copy.Skills.alreadyInstalled)" : skill)
+                        .font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
+                }
             }
+            Spacer(minLength: CicadaTheme.spacingMD)
+            Toggle(item.title ?? item.id, isOn: Binding(
+                get: { model.ticked.contains(item.id) || item.installed == true },
+                set: { on in if on { model.ticked.insert(item.id) } else { model.ticked.remove(item.id) } }))
+                .toggleStyle(.switch)
+                .labelsHidden()
+                .disabled(!available)
+                .help(item.asks ?? "")
         }
         .padding(CicadaTheme.spacingMD)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .settingsCardSurface()
         .opacity(available || item.installed == true ? 1 : NeutralButton.disabledOpacity)
     }
 }

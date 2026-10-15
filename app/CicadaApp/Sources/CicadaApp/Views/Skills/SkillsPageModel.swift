@@ -156,7 +156,8 @@ final class SkillsPageModel {
 /// Words for an agent's request, pure.
 enum SkillRequestWords {
     static func line(_ request: SkillRequest, agents: [SkillAgentInfo]) -> String {
-        let who = agents.first { $0.id == request.author }?.label ?? (request.author.isEmpty ? "An agent" : request.author)
+        let who = request.authorLabel ?? agents.first { $0.id == request.author }?.label
+            ?? (request.author.isEmpty ? "An agent" : request.author)
         let name = request.name ?? ""
         let agent = request.agents.first.map { id in agents.first { $0.id == id }?.label ?? id } ?? ""
         let what: String

@@ -187,6 +187,35 @@ def _update_view(name: str, src: dict, results: dict, checked_at: str | None) ->
     return {**hit, "checkedAt": checked_at}
 
 
+#: The one word a row's status shows (owner 2026-10-15), most urgent first.
+STATUSES = ("update", "refresh", "current", "local", "unchecked")
+EXCERPT_CHARS = 600
+
+
+def status(update: dict, tool: dict | None, src: dict) -> str:
+    """``update`` (an Update chip), ``refresh`` (a tool skill's text is older than its tool), ``current`` (Up to date),
+    ``local`` (nothing upstream to compare with), or ``unchecked`` (it has an upstream, not asked yet)."""
+    if update.get("state") == "available":
+        return "update"
+    if (tool or {}).get("text") == "older":
+        return "refresh"
+    if update.get("state") == "current":
+        return "current"
+    if update.get("state") == "unchecked":
+        return "unchecked"
+    return "local"
+
+
+def excerpt(text: str) -> str:
+    """The start of a SKILL.md's instructions (after its frontmatter), for the details column."""
+    body = text
+    if text.startswith("---"):
+        end = text.find("\n---", 3)
+        body = text[end + 4:] if end >= 0 else text
+    words = " ".join(line.strip() for line in body.strip().splitlines() if line.strip() and not line.startswith("#"))
+    return words[:EXCERPT_CHARS] + ("…" if len(words) > EXCERPT_CHARS else "")
+
+
 def checkable(src: dict) -> bool:
     return bool(src.get("repo")) and src.get("origin") in ("github", "npx", "catalog", "tool")
 
@@ -215,18 +244,25 @@ async def snapshot(*, base: Path | None = None, bank: Path | None = None, run_to
             src = {**src, "sha256": (marked or {}).get("sha256")}
         first = next((c for c in mine if not c.linked), mine[0] if mine else None)
         meta = first.meta if first else {}
-        if not meta and name in lib:
+        text = first.text if first else ""
+        if not text and name in lib:
             files = skill_store.library_files(name) or {}
-            meta = skill_folders.frontmatter(files.get(skill_folders.SKILL_FILE, b"").decode("utf-8", "replace"))
+            text = files.get(skill_folders.SKILL_FILE, b"").decode("utf-8", "replace")
+            meta = skill_folders.frontmatter(text)
         can_copy = name in lib or any(skill_folders.folder_files(c.path) is not None for c in mine)
         tool_view = await _tool_view(entry, mine, src, versions, base) if (entry and run_tools) else None
+        version = _version(src, (tool_view or {}).get("version"))
+        update = _update_view(name, src, results, checked_at)
+        if version.get("label"):
+            update["from"] = version["label"]
         row = {
             "name": name,
             "title": str((entry or {}).get("title") or meta.get("name") or name),
             "description": skill_folders.one_line(meta.get("description") or (entry or {}).get("summary") or ""),
             "source": _source_view(src, entry),
-            "version": _version(src, (tool_view or {}).get("version")),
-            "update": _update_view(name, src, results, checked_at),
+            "version": version,
+            "update": update,
+            "status": status(update, tool_view, src),
             "agents": _agents_view(mine, agents, can_copy),
             "tool": tool_view,
             "permissions": await _permissions(entry, tool_view) if (entry and run_tools) else None,
@@ -236,6 +272,7 @@ async def snapshot(*, base: Path | None = None, bank: Path | None = None, run_to
                              "byCicada": bool(c.marker) and c.cicadas} for c in mine],
                 "commit": src.get("commit"), "ref": src.get("ref"), "path": src.get("path"),
                 "installedAt": src.get("installedAt"), "licence": src.get("licence"),
+                "excerpt": excerpt(text),
             },
         }
         rows.append(row)
@@ -261,7 +298,8 @@ async def snapshot(*, base: Path | None = None, bank: Path | None = None, run_to
         "suggested": suggested,
         "drafts": [_draft_view(d) for d in skill_store.drafts()],
         "noticed": noticed(bank) if bank else [],
-        "requests": skill_store.requests(),
+        "requests": [{**r, "authorLabel": skill_catalog_label(str(r.get("author") or ""))}
+                     for r in skill_store.requests()],
         "checkedAt": checked_at,
         "uv": {"present": skill_tools.uv_present(), "installUrl": skill_tools.UV_INSTALL_URL,
                "installCommand": skill_tools.UV_INSTALL_COMMAND},

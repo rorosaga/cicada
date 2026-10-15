@@ -22,10 +22,9 @@ def catalog_entry(entry_id: str) -> dict:
 
 
 def default_agents(base: Path | None = None) -> list[str]:
-    """Where a suggested skill goes when the person didn't choose: every agent on this Mac with its own folder
-    already there, else Claude Code."""
-    base = base or skill_folders.home()
-    found = [a.id for a in skill_folders.present(base) if (base / a.home).is_dir()]
+    """Where a suggested skill goes when the person didn't choose: every agent installed on this Mac, else Claude
+    Code (a Mac with none of them yet)."""
+    found = [a.id for a in skill_folders.present(base)]
     return found or ["claude-code"]
 
 
@@ -153,7 +152,8 @@ def onboarding_offer(base: Path | None = None) -> dict:
             continue
         ob = entry.get("onboarding") or {}
         dirs = set((entry.get("detect") or {}).get("skillDirs", []))
-        rows.append({"id": entry_id, "title": entry.get("title"), "line": ob.get("line") or entry.get("summary"),
+        rows.append({"id": entry_id, "title": ob.get("title") or entry.get("title"),
+                     "line": ob.get("line") or entry.get("summary"), "skill": entry.get("title"),
                      "asks": ob.get("asks"), "default": bool(ob.get("default")),
                      "needsUv": skill_inventory.install_method(entry) == "tool",
                      "installed": bool(dirs & installed), "sourceUrl": entry.get("sourceUrl"),

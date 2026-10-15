@@ -20,7 +20,7 @@
         "codex": {"method": "skills-cli"}
       },
       "detect": {"skillDirs": ["watch"], "pluginIds": ["watch@claude-video"]},
-      "onboarding": {"default": false, "line": "Lets your agents watch a video you point them at.",
+      "onboarding": {"default": false, "title": "Videos", "line": "Watch videos you save. Try it later.",
                      "asks": "Needs ffmpeg and yt-dlp; it downloads the video to a temporary folder while it works."},
       "needs": {
         "binaries": ["ffmpeg", "yt-dlp"],
@@ -205,7 +205,7 @@
         ]
       },
       "tool": {"command": "browser-harness", "package": "browser-harness", "skill": ["skill"]},
-      "onboarding": {"default": true, "line": "Lets Cicada and your agents look at any website, in your own Chrome.",
+      "onboarding": {"default": true, "title": "Websites", "line": "Your agents can open and read any page for you.",
                      "asks": "Chrome asks once to allow remote debugging; macOS may ask for Accessibility."},
       "needs": {
         "binaries": [
@@ -275,7 +275,7 @@
         ]
       },
       "tool": {"command": "macos-harness", "package": "macos-harness", "skill": ["skill"], "doctor": ["doctor"]},
-      "onboarding": {"default": true, "line": "Lets Cicada and your agents use any app on this Mac.",
+      "onboarding": {"default": true, "title": "Mac apps", "line": "Your agents can use apps on this Mac. macOS asks once.",
                      "asks": "macOS will ask for Accessibility and Screen Recording the first time it's used."},
       "needs": {
         "binaries": [

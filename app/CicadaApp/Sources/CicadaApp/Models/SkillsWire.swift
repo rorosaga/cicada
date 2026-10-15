@@ -108,6 +108,8 @@ struct SkillChange: Decodable, Equatable, Sendable {
 struct SkillUpdate: Decodable, Equatable, Sendable {
     var state = "unknown"
     var latest: String?
+    /// The installed version, for "0.1.13 → 0.2.0".
+    var from: String?
     var changes: [SkillChange]?
     var link: String?
     var linkLabel: String?
@@ -152,6 +154,8 @@ struct SkillDetails: Decodable, Equatable, Sendable {
     var path: String?
     var installedAt: String?
     var licence: String?
+    /// The start of the instructions, for the details column.
+    var excerpt: String?
 }
 
 struct InstalledSkill: Decodable, Equatable, Sendable, Identifiable {
@@ -161,6 +165,8 @@ struct InstalledSkill: Decodable, Equatable, Sendable, Identifiable {
     var source = SkillSource()
     var version = SkillVersion()
     var update = SkillUpdate()
+    /// One word for the row (owner 2026-10-15): `update`, `refresh`, `current`, `local` or `unchecked`.
+    var status = "local"
     var agents: [SkillAgentState] = []
     var tool: SkillTool?
     var permissions: SkillPermissions?
@@ -170,7 +176,7 @@ struct InstalledSkill: Decodable, Equatable, Sendable, Identifiable {
     var id: String { name }
 
     enum CodingKeys: String, CodingKey {
-        case name, title, description, source, version, update, agents, tool, permissions, catalogId, details
+        case name, title, description, source, version, update, status, agents, tool, permissions, catalogId, details
     }
 
     init(name: String, title: String) { self.name = name; self.title = title }
@@ -183,6 +189,7 @@ struct InstalledSkill: Decodable, Equatable, Sendable, Identifiable {
         source = c.lenient(.source, SkillSource())
         version = c.lenient(.version, SkillVersion())
         update = c.lenient(.update, SkillUpdate())
+        status = c.lenient(.status, "local")
         agents = c.lenient(.agents, [])
         tool = c.lenient(.tool)
         permissions = c.lenient(.permissions)
@@ -259,9 +266,10 @@ struct SkillRequest: Decodable, Equatable, Sendable, Identifiable {
     var agents: [String] = []
     var reason = ""
     var author = ""
+    var authorLabel: String?
     var at: String?
 
-    enum CodingKeys: String, CodingKey { case id, action, name, source, agents, reason, author, at }
+    enum CodingKeys: String, CodingKey { case id, action, name, source, agents, reason, author, authorLabel, at }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -272,6 +280,7 @@ struct SkillRequest: Decodable, Equatable, Sendable, Identifiable {
         agents = c.lenient(.agents, [])
         reason = c.lenient(.reason, "")
         author = c.lenient(.author, "")
+        authorLabel = c.lenient(.authorLabel)
         at = c.lenient(.at)
     }
 }
@@ -321,6 +330,7 @@ struct SkillsOnboardingOffer: Decodable, Equatable, Sendable {
         var id: String
         var title: String?
         var line: String?
+        var skill: String?
         var asks: String?
         var `default`: Bool?
         var needsUv: Bool?

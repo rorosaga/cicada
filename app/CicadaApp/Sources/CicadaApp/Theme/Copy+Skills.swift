@@ -6,6 +6,33 @@ import Foundation
 extension Copy {
     enum Skills {
         static let page = "Skills"
+        static let discover = "Discover"
+        static let drafts = "Drafts"
+        static let skillColumn = "Skill"
+        static let agentsColumn = "Agents"
+        static let statusColumn = "Status"
+        static let noAgents = "None"
+        static let local = "Local"
+        static let notChecked = "Not checked"
+        static let addHelp = "Add a skill from a GitHub link, owner/repo or an npx skills add line (⌘N)"
+        static let closeHelp = "Close (Esc)"
+        static let versionLabel = "Version"
+        static let macAccess = "Mac access"
+        static let instructions = "Instructions"
+        static let refreshInstructions = "Refresh instructions"
+        static let removeEllipsis = "Remove…"
+        static func removeTitle(_ name: String) -> String { "Remove \(name) from every agent?" }
+        static func olderLine(tool: String?, text: String?) -> String {
+            if let tool, let text { return "The tool is \(tool) but its instructions are from \(text)." }
+            return "Its instructions are older than the tool it uses."
+        }
+        static func changesTitle(from: String?, to: String?) -> String {
+            switch (from, to) {
+            case let (from?, to?): "\(from) → \(to)"
+            case let (nil, to?): to
+            default: whatChanged
+            }
+        }
         static func eyebrowCount(_ n: Int) -> String { n == 1 ? "1 installed" : "\(UsageFormat.count(n)) installed" }
         static let check = "Check for updates"
         static let checking = "Checking…"
@@ -62,7 +89,7 @@ extension Copy {
         }
 
         // Requests
-        static func asked(_ who: String, _ what: String) -> String { "\(who) asked to \(what)" }
+        static func asked(_ who: String, _ what: String) -> String { "\(who) wants to \(what)" }
         static func askInstall(_ source: String) -> String { "add \(source)" }
         static func askUpdate(_ name: String) -> String { "update \(name)" }
         static func askOn(_ name: String, _ agent: String) -> String { "give \(name) to \(agent)" }
@@ -99,7 +126,7 @@ extension Copy {
         static let addTitle = "Add a skill"
         static let addLead = "Paste a GitHub link, owner/repo, or an npx skills add line. Cicada shows you what's "
             + "inside before anything installs."
-        static let addPlaceholder = "github.com/owner/repo, or npx skills add owner/repo"
+        static let addPlaceholder = "Add from GitHub, or paste npx skills add…"
         static let look = "Look"
         static let looking = "Looking…"
         static let chooseOne = "This holds several skills. Pick one:"
@@ -118,11 +145,11 @@ extension Copy {
         static func jobFailed(_ message: String) -> String { message }
 
         // Onboarding's step
-        static let onboardingTitle = "Let your agents see and use things"
-        static let onboardingLead = "Two skills let Cicada and your agents look at any website and use the apps on "
-            + "this Mac. They come with Cicada unless you say no."
-        static let noThanks = "No thanks"
-        static let onboardingFoot = "Installs when you continue. Change it any time on the Skills page."
+        static let onboardingTitle = "Give Cicada eyes and hands"
+        static let onboardingLead = "Skills that let your agents look at websites and use the apps on this Mac. "
+            + "Continue installs what's on."
+        static let skip = "Skip"
+        static let onboardingFoot = "You can change these on the Skills page."
         static let onboardingNoUv = "These need uv, a small installer for command-line tools. Install it, then "
             + "press Check again, or skip for now."
         static let checkAgain = "Check again"

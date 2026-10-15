@@ -45,7 +45,7 @@ final class SkillsPageTests: XCTestCase {
         XCTAssertFalse(skill.agents[1].canToggle)
         XCTAssertEqual(page.drafts.first?.authorLabel, "Codex")
         XCTAssertEqual(SkillRequestWords.line(page.requests[0], agents: page.agents),
-                       "cursor asked to give macos-harness to Codex")
+                       "cursor wants to give macos-harness to Codex")
     }
 
     func testABrokenSectionNeverBlanksThePage() throws {
@@ -93,6 +93,22 @@ final class SkillsPageTests: XCTestCase {
         XCTAssertEqual(model.message, "uv couldn't install it.")
         XCTAssertTrue(model.jobs.isEmpty)
         XCTAssertEqual(model.updatesAvailable.map(\.name), ["macos-harness"])
+    }
+
+    /// The agents cell reads "Claude Code, Codex +1 ▾"; a through-agent has a hollow tick and "through Claude Code".
+    func testTheAgentsCellSummarisesAndNamesTheFolderAnAgentReadsThrough() {
+        let agents = [SkillAgentState(id: "claude-code", label: "Claude Code", state: "on"),
+                      SkillAgentState(id: "codex", label: "Codex", state: "on"),
+                      SkillAgentState(id: "cursor", label: "Cursor", state: "through", canToggle: false,
+                                      note: "Has it through Claude Code's folder."),
+                      SkillAgentState(id: "hermes", label: "Hermes", state: "off")]
+        XCTAssertEqual(SkillAgentWords.summary(agents), "Claude Code, Codex +1")
+        XCTAssertEqual(SkillAgentWords.summary([agents[3]]), "None")
+        XCTAssertEqual(SkillAgentWords.through(agents[2]), "through Claude Code")
+        XCTAssertNil(SkillAgentWords.through(agents[0]))
+        XCTAssertEqual(agents.map(SkillAgentWords.glyph), ["checkmark.square", "checkmark.square",
+                                                           "checkmark.square.dashed", "square"])
+        XCTAssertEqual(Copy.Skills.changesTitle(from: "v0.1.13", to: "v0.2.0"), "v0.1.13 → v0.2.0")
     }
 
     /// The backend's `skill_store` writes every skill folder; the app names none (it used to, R-O26).

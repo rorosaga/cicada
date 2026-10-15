@@ -3,16 +3,8 @@
 Read-only. Every write into these folders is ``skill_store``'s (the one writer); this module only names them and
 reads them, so the inventory and the writer can never disagree about a path.
 
-**The table** comes from each harness's own documentation (fetched 2026-10-15), user level only — Cicada never
-installs into a project:
-
-| agent | its own folder | it also reads |
-|---|---|---|
-| Claude Code | ``~/.claude/skills`` | — |
-| Codex | ``~/.codex/skills`` | ``~/.agents/skills`` (openai/codex ``host_roots.rs``) |
-| Cursor | ``~/.cursor/skills`` | ``~/.agents/skills``, ``~/.claude/skills``, ``~/.codex/skills`` (cursor.com/docs) |
-| Gemini CLI | ``~/.gemini/skills`` | ``~/.agents/skills`` (geminicli.com/docs/cli/skills) |
-| OpenCode | ``~/.config/opencode/skills`` | ``~/.claude/skills``, ``~/.agents/skills`` (opencode.ai/docs/skills) |
+**The table** is ``agent_wiring.AGENTS`` — the one list of the person's agents (owner 2026-10-15), each with the
+user-level skills folder its own docs name and the folders it also reads. Cicada never installs into a project.
 
 So a skill is **on** for an agent when its own folder has it, **through** another folder when only a folder it also
 reads has it (Cursor sees Claude Code's skills), and **off** otherwise. ``~/.agents/skills`` is the shared folder:
@@ -32,7 +24,7 @@ from pathlib import Path
 
 import yaml
 
-from api.services import skill_catalog
+from api.services import agent_wiring, skill_catalog
 
 MARKER = ".cicada-managed.json"
 SKILL_FILE = "SKILL.md"
@@ -53,20 +45,15 @@ class Agent:
     home: str                  # HOME-relative; its existence means the agent is on this Mac
     own: str                   # HOME-relative skills folder Cicada writes for this agent
     reads: tuple[str, ...]     # other folders it reads skills from
-    always: bool = False       # listed even when its home is missing
 
 
-AGENTS: tuple[Agent, ...] = (
-    Agent("claude-code", "Claude Code", ".claude", ".claude/skills", (), True),
-    Agent("codex", "Codex", ".codex", ".codex/skills", (SHARED,), True),
-    Agent("cursor", "Cursor", ".cursor", ".cursor/skills", (SHARED, ".claude/skills", ".codex/skills")),
-    Agent("gemini-cli", "Gemini CLI", ".gemini", ".gemini/skills", (SHARED,)),
-    Agent("opencode", "OpenCode", ".config/opencode", ".config/opencode/skills", (".claude/skills", SHARED)),
-)
+#: Derived from ``agent_wiring.AGENTS``, the one list of the person's agents; an agent with no skills folder is left out.
+AGENTS: tuple[Agent, ...] = tuple(Agent(a.id, a.label, a.home, a.skills, a.reads)
+                                  for a in agent_wiring.AGENTS if a.skills)
 BY_ID = {a.id: a for a in AGENTS}
 #: `npx skills -a` names for the same agents (vercel-labs/skills README's table).
 NPX_AGENT = {"claude-code": "claude-code", "claude": "claude-code", "codex": "codex", "cursor": "cursor",
-             "gemini-cli": "gemini-cli", "gemini": "gemini-cli", "opencode": "opencode"}
+             "opencode": "opencode", "hermes-agent": "hermes", "openclaw": "openclaw", "gemini-cli": "gemini-cli"}
 
 
 def home() -> Path:
@@ -74,9 +61,9 @@ def home() -> Path:
 
 
 def present(base: Path | None = None) -> list[Agent]:
-    """The agents on this Mac: Claude Code and Codex always, the rest when their home folder exists."""
+    """The agents on this Mac: those whose home folder exists. An agent that isn't installed is hidden (owner)."""
     base = base or home()
-    return [a for a in AGENTS if a.always or (base / a.home).is_dir()]
+    return [a for a in AGENTS if (base / a.home).is_dir()]
 
 
 def folder_label(rel: str) -> str:

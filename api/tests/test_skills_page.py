@@ -165,6 +165,7 @@ def test_discovery_reads_every_agent_folder_and_says_who_sees_what(home):
 
 
 def test_a_skill_from_npx_skills_shows_its_repo_from_the_lock(home):
+    (home / ".codex").mkdir()           # an agent that reads the shared folder is installed
     skill(home / ".agents/skills", "web-design-guidelines")
     (home / ".agents" / ".skill-lock.json").write_text(json.dumps({"version": 3, "skills": {
         "web-design-guidelines": {"source": "alice-example/agent-skills", "sourceType": "github",
@@ -297,7 +298,8 @@ def test_an_update_is_found_and_lists_what_changed(home, gh):
                      commit("d" * 40, "10", "Fix the date line"), commit(SHA_PATH, "01", "First version")])
     run(skill_inventory.check_updates())
     row = rows(run(skill_inventory.snapshot(run_tools=False)))["release-notes"]
-    assert row["update"]["state"] == "available"
+    assert row["update"]["state"] == "available" and row["status"] == "update"
+    assert row["update"]["from"] == SHA_OLD[:7]
     assert [c["title"] for c in row["update"]["changes"]] == ["Group notes by area", "Fix the date line"]
     assert row["update"]["changes"][0]["date"] == "2026-10-14"
     assert row["update"]["link"] == (f"https://github.com/alice-example/handy-skills/compare/"
@@ -364,7 +366,8 @@ def test_skill_text_older_than_its_tool_is_detected_and_refreshed(home, tools):
     tools.doctor["macos-harness"] = {"ready": False, "app": "Terminal",
                                      "granted": {"accessibility": True, "screen_recording": False}}
     row = rows(run(skill_inventory.snapshot()))["macos-harness"]
-    assert row["tool"]["text"] == "older" and row["tool"]["version"] == "0.2.1"
+    assert row["tool"]["text"] == "older" and row["tool"]["version"] == "0.2.1" and row["status"] == "refresh"
+    assert row["details"]["excerpt"] == "old 0.1 text"
     assert row["version"]["label"] == "v0.2.1"
     assert row["permissions"]["line"] == "macOS has not given Screen Recording to Terminal yet."
     run(skill_actions.refresh("macos-harness"))
@@ -461,8 +464,9 @@ def test_onboarding_offers_the_two_harnesses_ticked_and_the_video_one_not(home):
     assert list(by_id) == ["browser-harness", "macos-harness", "watch"]
     assert by_id["browser-harness"]["default"] and by_id["macos-harness"]["default"]
     assert not by_id["watch"]["default"]
-    assert "any website" in by_id["browser-harness"]["line"]
-    assert "any app on this Mac" in by_id["macos-harness"]["line"]
+    assert [s["title"] for s in offer["suggestions"]] == ["Websites", "Mac apps", "Videos"]
+    assert "any page" in by_id["browser-harness"]["line"]
+    assert "apps on this Mac" in by_id["macos-harness"]["line"]
     assert "Accessibility and Screen Recording" in by_id["macos-harness"]["asks"]
     assert by_id["macos-harness"]["needsUv"] and not by_id["watch"]["needsUv"]
     assert offer["uv"]["present"] is False and offer["uv"]["installUrl"].startswith("https://docs.astral.sh/uv")
@@ -614,3 +618,27 @@ def test_only_skill_store_writes_into_an_agents_skill_folder():
         if names_folder and any(w in text for w in writes):
             offenders.append(path.relative_to(root).as_posix())
     assert offenders == ["services/skill_store.py"]
+
+
+def test_the_agent_list_is_one_place():
+    """Owner 2026-10-15: adding or removing an agent is one change. The skills table, the MCP schema's enum and the
+    agents `agent_wiring` wires all come from `agent_wiring.AGENTS`."""
+    from _stdio_server import stdio_server
+    from api.services import agent_wiring
+
+    ids = [a.id for a in agent_wiring.AGENTS]
+    assert ids == ["claude-code", "codex", "cursor", "opencode", "hermes", "openclaw", "gemini-cli"]
+    assert [a.id for a in skill_folders.AGENTS] == [a.id for a in agent_wiring.AGENTS if a.skills]
+    wired = {h.id for h in agent_wiring.HARNESSES} | set(agent_wiring.CONFIG_AGENT_BINARIES) | {"cursor"}
+    assert wired <= set(ids), "an agent the wiring knows is missing from the one list"
+    srv = stdio_server()
+    tool = next(t for t in srv.TOOLS if t["name"] == "cicada_propose_skill")
+    assert tool["inputSchema"]["properties"]["agents"]["items"]["enum"] == [a.id for a in skill_folders.AGENTS]
+
+
+def test_an_agent_that_is_not_installed_is_hidden(home):
+    skill(home / ".claude/skills", "notes-helper")
+    (home / ".hermes").mkdir()
+    snap = run(skill_inventory.snapshot(run_tools=False))
+    assert [a["id"] for a in snap["agents"]] == ["claude-code", "hermes"]
+    assert [a["id"] for a in rows(snap)["notes-helper"]["agents"]] == ["claude-code", "hermes"]
