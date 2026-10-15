@@ -1,10 +1,11 @@
 import SwiftUI
 
-/// Settings → Skills (G138, design §2.2 and A2): Cicada's own two skills,
-/// written by the app with a marker (R-O26); at most five recommended skills
-/// from the reviewed catalog, each a card that opens its detail (the one
-/// sub-page, R-O5); and what is already installed. Never a download count, a
-/// star count or a price.
+/// Settings → Skills (G138, design §2.2 and A2): Cicada's own two skills; at
+/// most five recommended skills from the reviewed catalog, each a card that
+/// opens its detail (the one sub-page, R-O5); and what is already installed.
+/// Never a download count, a star count or a price. Installing, updating and
+/// giving a skill to each agent live on the Skills page (owner 2026-10-15):
+/// every row here hands off to it.
 struct SkillsView: View {
     @Environment(SkillsViewModel.self) private var vm
     @Environment(SettingsFocus.self) private var focus: SettingsFocus?
@@ -69,65 +70,30 @@ struct SkillsView: View {
     }
 }
 
-/// One of Cicada's own skills: a pill per place it can go, each with the one
-/// action its state allows (install, update, remove) — never over a copy the
-/// person changed.
+/// One of Cicada's own skills: what it does, and the door to the Skills page, where it is installed, updated and
+/// given to each agent (the backend's `skill_store` writes it; the app writes no skill folder).
 private struct CicadaSkillRow: View {
     let bundle: CicadaSkillBundle
-    @State private var refresh = 0
-    @State private var problem: String?
-    private let home = FileManager.default.homeDirectoryForCurrentUser
-    /// G182 — `SKILL.md` and `skills/` ship in a release's `backend/app` too, so the code root serves both builds.
-    private let root = CicadaRuntime.current.codeRoot
+    @Environment(AppRouter.self) private var router
 
     var body: some View {
-        SettingsRow(.skill(bundle.rawValue), title: bundle.title, detail: problem ?? bundle.summary) {
-            EmptyView()
-        } below: {
-            VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-                ForEach(SkillInstaller.Target.allCases) { target in
-                    let state = SkillInstaller.ownState(bundle, target, home: home, installRoot: root)
-                    HStack(spacing: CicadaTheme.spacingSM) {
-                        LogoImage.platformTile(name: target.mark, size: CicadaTheme.scaled(16), systemFallback: "terminal")
-                        Text(target.label).font(CicadaTheme.captionFont)
-                        Text(Self.caption(state)).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
-                        Spacer()
-                        action(state, target)
-                    }
-                }
-            }
-            .id(refresh)
+        SettingsRow(.skill(bundle.rawValue), title: bundle.title, detail: bundle.summary) {
+            NeutralButton(title: Copy.openSkills, size: .compact) { router.routeToSkills() }
         }
     }
+}
 
-    @ViewBuilder
-    private func action(_ state: SkillInstaller.OwnState, _ target: SkillInstaller.Target) -> some View {
-        switch state {
-        case .notInstalled, .installedByHand(sameAsCicada: true):
-            Button(Copy.install) { perform { try SkillInstaller.install(bundle, target, home: home, installRoot: root) } }
-        case .updateAvailable:
-            Button(Copy.update) { perform { try SkillInstaller.install(bundle, target, home: home, installRoot: root) } }
-        case .current:
-            Button(Copy.remove, role: .destructive) { perform { try SkillInstaller.remove(bundle, target, home: home, installRoot: root) } }
-        default:
-            EmptyView()
-        }
-    }
+/// Cicada's two hand-written skills, by name (the Skills page installs them from the checkout, G112 compiles more).
+enum CicadaSkillBundle: String, CaseIterable, Identifiable {
+    case cicada
+    case cicadaLibrarian = "cicada-librarian"
 
-    private func perform(_ work: () throws -> Void) {
-        do { try work(); problem = nil } catch { problem = Copy.differentCopy }
-        refresh &+= 1
-    }
-
-    static func caption(_ state: SkillInstaller.OwnState) -> String {
-        switch state {
-        case .sourceMissing: Copy.sourceMissing
-        case .notInstalled: "Not installed"
-        case .current: "Installed"
-        case .updateAvailable: "Installed · an update is ready"
-        case .changedByYou: Copy.changedByYou
-        case .installedByHand(let same): same ? Copy.installedByHand : Copy.differentCopy
-        }
+    var id: String { rawValue }
+    var title: String { self == .cicada ? "Recall and save" : "Tidy as you work" }
+    var summary: String {
+        self == .cicada
+            ? "Tells your agent when to look things up in Cicada and when to save."
+            : "Lets your agent file what you just did into Cicada, the way Sleep would."
     }
 }
 

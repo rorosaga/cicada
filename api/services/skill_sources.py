@@ -473,44 +473,102 @@ async def preview(source: Source, *, choose: str | None = None) -> dict:
     return {"planId": plan.id, **shown}
 
 
+#: An update lists at most this many changes (commits that touched the skill, or releases), each cut short: the Skills
+#: page shows them when the person opens the update, so they never have to leave Cicada to see what changed.
+MAX_CHANGES = 20
+CHANGE_TITLE_CHARS = 140
+CHANGE_NOTES_CHARS = 600
+
+
+async def path_commits(owner: str, repo: str, ref: str, path: str, count: int) -> list[dict]:
+    """The newest ``count`` commits on ``ref`` that touched ``path``: ``[{sha, date, title, url}]``."""
+    url = f"{API}/repos/{owner}/{repo}/commits?sha={quote(ref, safe='')}&per_page={count}"
+    if path:
+        url += f"&path={quote(path, safe='/')}"
+    data = (await _get(url)).json()
+    out = []
+    for commit in data if isinstance(data, list) else []:
+        if not isinstance(commit, dict) or not commit.get("sha"):
+            continue
+        inner = commit.get("commit") or {}
+        message = str(inner.get("message") or "").strip().splitlines()
+        out.append({"sha": str(commit["sha"]), "date": str((inner.get("committer") or {}).get("date") or ""),
+                    "title": skill_folders.one_line(message[0] if message else "", CHANGE_TITLE_CHARS),
+                    "url": str(commit.get("html_url") or "")})
+    return out
+
+
+async def releases(owner: str, repo: str, count: int = 10) -> list[dict]:
+    """The newest releases, newest first: ``[{tag, date, notes, url}]`` (drafts and pre-releases left out)."""
+    data = (await _get(f"{API}/repos/{owner}/{repo}/releases?per_page={count}")).json()
+    out = []
+    for rel in data if isinstance(data, list) else []:
+        if not isinstance(rel, dict) or not rel.get("tag_name") or rel.get("draft") or rel.get("prerelease"):
+            continue
+        notes = " ".join(str(rel.get("body") or "").split())
+        out.append({"tag": str(rel["tag_name"]), "date": str(rel.get("published_at") or ""),
+                    "notes": notes[:CHANGE_NOTES_CHARS] + ("…" if len(notes) > CHANGE_NOTES_CHARS else ""),
+                    "url": str(rel.get("html_url") or "")})
+    return out
+
+
+def _commit_changes(commits: list[dict]) -> list[dict]:
+    return [{"title": c["title"] or c["sha"][:7], "date": c["date"][:10], "ref": c["sha"][:7], "url": c["url"]}
+            for c in commits[:MAX_CHANGES]]
+
+
 async def check_github(src: dict) -> dict:
-    """Is a newer version of a repo-folder skill upstream? ``{state, latest, link, linkLabel}``."""
+    """Is a newer version of a repo-folder skill upstream? ``{state, latest, changes, link, linkLabel}`` — the
+    changes are the commits that touched the skill's folder since the one installed, newest first."""
     repo, path = str(src.get("repo") or ""), str(src.get("path") or "")
     m = _OWNER_REPO.match(repo)
     if not m:
         return {"state": "unknown"}
     owner, name = m.groups()
     ref = src.get("ref") or (await repo_info(owner, name))["defaultBranch"]
-    newest = await path_commit(owner, name, str(ref), path)
-    if not newest or not newest.get("sha"):
+    commits = await path_commits(owner, name, str(ref), path, MAX_CHANGES)
+    if not commits:
         return {"state": "unknown"}
+    newest = commits[0]
     pinned = str(src.get("pathCommit") or src.get("commit") or "")
     if pinned:
-        if newest["sha"] == pinned or newest["sha"] == str(src.get("commit") or ""):
+        if newest["sha"] in (pinned, str(src.get("commit") or "")):
             return {"state": "current", "latest": newest["sha"][:7]}
+        newer = []
+        for commit in commits:
+            if commit["sha"] == pinned:
+                break
+            newer.append(commit)
         return {"state": "available", "latest": newest["sha"][:7], "latestCommit": newest["sha"],
+                "changes": _commit_changes(newer),
                 "link": f"https://github.com/{repo}/compare/{pinned[:12]}...{newest['sha'][:12]}",
                 "linkLabel": "What changed"}
     since = str(src.get("updatedAt") or "")
     if since and newest.get("date") and newest["date"] > since:
         return {"state": "available", "latest": newest["sha"][:7], "latestCommit": newest["sha"],
+                "changes": _commit_changes([c for c in commits if c["date"] > since]),
                 "link": f"https://github.com/{repo}/commits/{quote(str(ref), safe='')}/{path}".rstrip("/"),
                 "linkLabel": "What changed"}
     return {"state": "current" if since else "unknown", "latest": newest["sha"][:7]}
 
 
 async def check_release(repo: str, installed: str | None) -> dict:
+    """Is there a release newer than ``installed``? The changes are every newer release with its notes."""
     from api.services import skill_tools
 
     m = _OWNER_REPO.match(repo or "")
     if not m:
         return {"state": "unknown"}
-    release = await latest_release(*m.groups())
-    if not release:
+    found = await releases(*m.groups())
+    if not found:
         return {"state": "unknown"}
-    state = "available" if skill_tools.newer(release["tag"], installed) else \
-        ("current" if installed else "unknown")
-    return {"state": state, "latest": release["tag"], "link": release["url"], "linkLabel": "Release notes"}
+    latest = found[0]
+    if not skill_tools.newer(latest["tag"], installed):
+        return {"state": "current" if installed else "unknown", "latest": latest["tag"]}
+    newer = [r for r in found if skill_tools.newer(r["tag"], installed)][:MAX_CHANGES]
+    return {"state": "available", "latest": latest["tag"], "link": latest["url"], "linkLabel": "Release notes",
+            "changes": [{"title": r["tag"], "date": r["date"][:10], "detail": r["notes"], "url": r["url"]}
+                        for r in newer]}
 
 
 async def gather(jobs: list, limit: int = 4) -> list:

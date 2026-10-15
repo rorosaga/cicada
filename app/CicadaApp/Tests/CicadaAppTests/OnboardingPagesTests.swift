@@ -2,14 +2,19 @@ import SwiftUI
 import XCTest
 @testable import CicadaApp
 
-/// R-OB1, R-OB3 — six steps, one frame, and the keyboard never animates.
+/// R-OB1, R-OB3 — seven steps (the skills step joined after Agents, 2026-10-15), one frame, and the keyboard never
+/// animates.
 final class OnboardingPagesTests: XCTestCase {
-    func testSixStepsInTheFlowsOrderWithTheSplitFrameOnTheWorkingPages() {
-        XCTAssertEqual(OnboardingPage.allCases.map(\.step), [1, 2, 3, 4, 5, 6])
+    func testSevenStepsInTheFlowsOrderWithTheSplitFrameOnTheWorkingPages() {
+        XCTAssertEqual(OnboardingPage.allCases.map(\.step), [1, 2, 3, 4, 5, 6, 7])
+        XCTAssertEqual(OnboardingPage.stepCount, OnboardingPage.allCases.count)
         XCTAssertEqual(OnboardingPage.welcome.next, .import)
+        XCTAssertEqual(OnboardingPage.agents.next, .skills)
+        XCTAssertEqual(OnboardingPage.skills.next, .whoReads)
         XCTAssertNil(OnboardingPage.ready.next)
-        XCTAssertEqual(OnboardingPage.allCases.filter(\.isSplit), [.import, .agents, .whoReads, .keepRunning])
+        XCTAssertEqual(OnboardingPage.allCases.filter(\.isSplit), [.import, .agents, .skills, .whoReads, .keepRunning])
         XCTAssertEqual(OnboardingPage.agents.pane, .agents)
+        XCTAssertEqual(OnboardingPage.skills.pane, .agents, "the agents' painting carries on: the skills are theirs")
         XCTAssertNil(OnboardingPage.welcome.pane, "Welcome and You're set are the whole painting")
     }
 

@@ -28,9 +28,10 @@ final class TitlebarHelpTests: XCTestCase {
     /// The pages answer for themselves as each D track lands (R-DG6, R-DL8).
     func testHelpContentCasesAreExhaustive() {
         for content: HelpContent in [.aboutCicada, .howSleepWorks, .inbox, .graph, .clusters, .feed, .sources, .projects,
-                                     .looks] {
+                                     .looks, .skills] {
             switch content {
-            case .aboutCicada, .howSleepWorks, .inbox, .graph, .clusters, .feed, .sources, .projects, .looks: break
+            case .aboutCicada, .howSleepWorks, .inbox, .graph, .clusters, .feed, .sources, .projects, .looks,
+                 .skills: break
             }
         }
     }
@@ -45,6 +46,7 @@ final class TitlebarHelpTests: XCTestCase {
         XCTAssertEqual(HelpContent.page(.graph), .graph)
         XCTAssertEqual(HelpContent.page(.projects), .projects)
         XCTAssertEqual(HelpContent.page(.looks), .looks)
+        XCTAssertEqual(HelpContent.page(.skills), .skills)
         XCTAssertEqual(ListHelp.projects.keys.map(\.key), ["⌘F", "↑ ↓", "⏎", "← →", "L", "M", "D", "Esc"])
         XCTAssertEqual(InboxHelp.keys.map(\.key), ["1–9", "↑ ↓", "⏎", "O", "L", "⌘Z", "Esc", "Tab"])
         // R-DG6 — the Graph's `?` says its keys and gestures in words.

@@ -131,6 +131,14 @@ final class AppRouter {
         activateMainWindow()
     }
 
+    /// The Skills page (owner 2026-10-15) — Settings → Skills and a skill's detail hand off here: installing,
+    /// updating and sharing skills is that page's.
+    func routeToSkills() {
+        closeSettings()
+        pendingTab = .skills
+        activateMainWindow()
+    }
+
     /// Read-then-clear, for `consumeAddSource`'s double-firing reason (`onAppear` and `onChange` can both see it).
     @discardableResult
     func consumeProject() -> String? {

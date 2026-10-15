@@ -2942,6 +2942,22 @@ actor APIClient {
     /// state derived per request. No ETag and no Store domain (R-O23).
     func fetchRecommendedSkills() async throws -> RecommendedSkillsResponse { try await get("/skills/recommended") }
 
+    /// The Skills page's one door (owner 2026-10-15): any `/skills…` route, its body as JSON, the answer's bytes for
+    /// `SkillsAPI` to decode. A refusal carries the server's sentence (`APIError.httpError`).
+    func skillsRequest(_ method: String, _ path: String, body: [String: Any]? = nil,
+                       timeout: TimeInterval = 120) async throws -> Data {
+        var request = makeRequest(path, method: method, json: body != nil)
+        if let body { request.httpBody = try JSONSerialization.data(withJSONObject: body) }
+        request.timeoutInterval = timeout
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw APIError.serverUnreachable }
+        guard (200...299).contains(http.statusCode) else {
+            if http.statusCode == 401 { Self.invalidateToken() }
+            throw APIError.httpError(http.statusCode, String(data: data, encoding: .utf8) ?? "Unknown error")
+        }
+        return data
+    }
+
     /// `POST /maintenance/enrich-links` — the on-demand twin of the Sleep-tail
     /// backfill (G102); 409 while Sleep or another run is going. `limit=10`,
     /// not the backend's per-cycle 20: each link is a ≤ 4 s fetch plus a

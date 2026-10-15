@@ -282,19 +282,26 @@ def _install_from_github(gh, home):
     skill_store.install_plan(shown["planId"], ["claude-code"])
 
 
-def test_an_update_is_found_and_names_what_changed(home, gh):
+def test_an_update_is_found_and_lists_what_changed(home, gh):
     _install_from_github(gh, home)
-    newest = f"{API}/repos/alice-example/handy-skills/commits?sha=main&per_page=1&path=skills/release-notes"
-    gh.json(newest, [{"sha": SHA_PATH, "commit": {"committer": {"date": "2026-10-01T00:00:00Z"}}}])
+    newest = f"{API}/repos/alice-example/handy-skills/commits?sha=main&per_page=20&path=skills/release-notes"
+
+    def commit(sha, day, message):
+        return {"sha": sha, "html_url": f"https://github.com/alice-example/handy-skills/commit/{sha}",
+                "commit": {"message": message, "committer": {"date": f"2026-10-{day}T00:00:00Z"}}}
+
+    gh.json(newest, [commit(SHA_PATH, "01", "First version")])
     saved = run(skill_inventory.check_updates())
     assert saved["results"]["release-notes"]["state"] == "current"
-    gh.json(newest, [{"sha": SHA_NEW, "commit": {"committer": {"date": "2026-10-14T00:00:00Z"}}}])
+    gh.json(newest, [commit(SHA_NEW, "14", "Group notes by area\n\nLonger body."),
+                     commit("d" * 40, "10", "Fix the date line"), commit(SHA_PATH, "01", "First version")])
     run(skill_inventory.check_updates())
     row = rows(run(skill_inventory.snapshot(run_tools=False)))["release-notes"]
     assert row["update"]["state"] == "available"
+    assert [c["title"] for c in row["update"]["changes"]] == ["Group notes by area", "Fix the date line"]
+    assert row["update"]["changes"][0]["date"] == "2026-10-14"
     assert row["update"]["link"] == (f"https://github.com/alice-example/handy-skills/compare/"
                                      f"{SHA_PATH[:12]}...{SHA_NEW[:12]}")
-    assert row["update"]["linkLabel"] == "What changed"
 
 
 def test_update_installs_upstreams_newest_pinned_in_every_agent_that_has_it(home, gh):
@@ -312,11 +319,17 @@ def test_update_installs_upstreams_newest_pinned_in_every_agent_that_has_it(home
 def test_a_tool_release_newer_than_the_installed_tool_is_an_update(home, gh, tools):
     skill(home / ".claude/skills", "macos-harness")
     tools.versions["macos-harness"] = "0.1.2"
-    gh.json(f"{API}/repos/browser-use/macos-harness/releases/latest",
-            {"tag_name": "v0.2.1", "html_url": "https://github.com/browser-use/macos-harness/releases/tag/v0.2.1"})
+    gh.json(f"{API}/repos/browser-use/macos-harness/releases?per_page=10", [
+        {"tag_name": "v0.2.1", "html_url": "https://github.com/browser-use/macos-harness/releases/tag/v0.2.1",
+         "published_at": "2026-10-15T03:51:02Z", "body": "Fixes the stop button."},
+        {"tag_name": "v0.2.0", "html_url": "https://github.com/browser-use/macos-harness/releases/tag/v0.2.0",
+         "published_at": "2026-10-14T18:57:14Z", "body": "Adds install and uninstall."},
+        {"tag_name": "v0.1.2", "published_at": "2026-08-17T16:48:22Z", "body": "Old."}])
     saved = run(skill_inventory.check_updates())
     hit = saved["results"]["macos-harness"]
     assert (hit["state"], hit["latest"], hit["linkLabel"]) == ("available", "v0.2.1", "Release notes")
+    assert [(c["title"], c["detail"]) for c in hit["changes"]] == [("v0.2.1", "Fixes the stop button."),
+                                                                  ("v0.2.0", "Adds install and uninstall.")]
     tools.versions["macos-harness"] = "0.2.1"
     assert run(skill_inventory.check_updates())["results"]["macos-harness"]["state"] == "current"
 

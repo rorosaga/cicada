@@ -22,8 +22,15 @@ enum ShellMetrics {
 /// One rail cell's words and key — the rail's order is `AppTab.allCases`, which is its ⌘ order.
 enum RailItem {
     static func digit(for tab: AppTab) -> Int { (AppTab.allCases.firstIndex(of: tab) ?? 0) + 1 }
-    static func key(for tab: AppTab) -> KeyEquivalent { KeyEquivalent(Character(String(digit(for: tab)))) }
-    static func shortcut(for tab: AppTab) -> String { "⌘\(digit(for: tab))" }
+    /// The key on the digit row, 1…9. The tenth page (Skills, 2026-10-15) has none: ⌘0 is Actual Size, and no
+    /// shortcut moves to make room (DR-22) — it opens from the rail and the palette. Never a two-character key
+    /// (`Character("10")` would trap).
+    static func keyDigit(for tab: AppTab) -> String? {
+        let n = digit(for: tab)
+        return n <= 9 ? String(n) : nil
+    }
+    static func key(for tab: AppTab) -> KeyEquivalent? { keyDigit(for: tab).map { KeyEquivalent(Character($0)) } }
+    static func shortcut(for tab: AppTab) -> String { keyDigit(for: tab).map { "⌘\($0)" } ?? "" }
     static func tooltipTitle(_ tab: AppTab, busy: Bool) -> String {
         busy ? "\(tab.title) · \(Copy.railConsolidating)" : tab.title
     }
