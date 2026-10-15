@@ -33,6 +33,8 @@ final class MessagesWatcher {
     private(set) var cards: [String: MessagesContactCard] = [:]
     private(set) var tickedIds: Set<String> = []
     private(set) var listing = false
+    /// The detectors' suggestions (G188) — on unless the person turned them off for this memory.
+    private(set) var suggestAgents = true
     /// What Sleep has not read yet, per conversation — the bubbles.
     private(set) var waiting: [MessagesWaitingItem] = []
 
@@ -150,6 +152,14 @@ final class MessagesWatcher {
         await describe()
     }
 
+    /// The panel's switch: suggestions off leaves every conversation as the person marked it, else unknown; the
+    /// backend re-renders the saved sittings to match.
+    func setSuggestAgents(_ on: Bool) async throws {
+        suggestAgents = on
+        _ = try await api.setMessagesSuggestAgents(on)
+        await describe()
+    }
+
     /// "Allow Contacts" in the panel: macOS's one prompt (G154's), then the names and photos.
     func allowContacts() async {
         _ = await SystemContactStore().requestAccess()
@@ -162,6 +172,7 @@ final class MessagesWatcher {
         let payloads = conversations.map { MessagesConversationPayload($0, name: postedName(of: $0)) }
         guard let answer = try? await api.describeMessagesConversations(payloads) else { return }
         states = Dictionary(answer.conversations.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        suggestAgents = answer.suggestAgents
         tickedIds = Set(answer.conversations.filter(\.ticked).map(\.id)).union(
             tickedIds.subtracting(conversations.map(\.id)))
     }

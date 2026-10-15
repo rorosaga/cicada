@@ -213,6 +213,7 @@ protocol MessagesAPI: Sendable {
         -> MessagesConversationsAnswer
     func updateMessagesConversation(id: String, name: String?, ticked: Bool?, mark: MessagesMark?) async throws
         -> MessagesSettingsAnswer
+    func setMessagesSuggestAgents(_ on: Bool) async throws -> MessagesSettingsAnswer
     func postMessages(_ json: Data) async throws -> MessagesSyncResult
     func fetchMessagesWaiting() async throws -> MessagesWaitingAnswer
 }

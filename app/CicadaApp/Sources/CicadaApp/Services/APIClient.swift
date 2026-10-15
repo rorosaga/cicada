@@ -2423,6 +2423,11 @@ actor APIClient {
         return try await put("/sources/messages/settings", body: ["conversation": conversation])
     }
 
+    /// `PUT /sources/messages/settings` — turn the AI-agent suggestions on or off for this memory.
+    func setMessagesSuggestAgents(_ on: Bool) async throws -> MessagesSettingsAnswer {
+        try await put("/sources/messages/settings", body: ["suggestAgents": on])
+    }
+
     /// `POST /sources/messages/sync` — rows of one ticked conversation, serialised off the main actor.
     func postMessages(_ json: Data) async throws -> MessagesSyncResult {
         try await postData("/sources/messages/sync", json: json)

@@ -98,6 +98,15 @@ struct MessagesPanel: View {
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
             content
+            Toggle(Copy.Messages.suggestAgents, isOn: Binding(
+                get: { watcher.suggestAgents },
+                set: { on in Task { do { try await watcher.setSuggestAgents(on) } catch { self.error = MessagesWatcher.failureMessage(error) } } }))
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+            Text(Copy.Messages.suggestAgentsHelp)
+                .font(CicadaTheme.captionFont)
+                .foregroundStyle(CicadaTheme.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
             if let error {
                 Text(error).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.danger)
             }

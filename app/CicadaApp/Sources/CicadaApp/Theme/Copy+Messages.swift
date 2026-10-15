@@ -49,6 +49,9 @@ extension Copy {
         static let markAgent = "This is an AI agent"
         static let markPerson = "This is a person"
         static let markClear = "Let Cicada suggest"
+        static let suggestAgents = "Suggest which conversations are AI agents"
+        static let suggestAgentsHelp = "From the conversation's name and how much each side writes — never its words. "
+            + "A suggestion only labels; it never ticks a conversation."
         static let whoIsWho = "Your messages are yours. An AI agent's replies stay the agent's — never your own words."
 
         // The bubbles

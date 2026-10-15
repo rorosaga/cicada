@@ -40,6 +40,12 @@ final class FakeMessagesAPI: MessagesAPI {
         return try await fetchMessagesSettings()
     }
 
+    var suggest = true
+    func setMessagesSuggestAgents(_ on: Bool) async throws -> MessagesSettingsAnswer {
+        suggest = on
+        return try await fetchMessagesSettings()
+    }
+
     func postMessages(_ json: Data) async throws -> MessagesSyncResult {
         if let refuseSync { throw refuseSync }
         posts.append(try XCTUnwrap(JSONSerialization.jsonObject(with: json) as? [String: Any]))
