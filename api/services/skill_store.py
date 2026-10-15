@@ -156,7 +156,7 @@ def _set_aside(path: Path, why: str) -> None:
     if copy is not None and copy.cicadas:
         shutil.rmtree(path)
         return
-    keep = state_dir() / "removed" / f"{path.name}-{why}-{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:4]}"
+    keep = removed_dir() / f"{path.name}-{why}-{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:4]}"
     keep.parent.mkdir(parents=True, exist_ok=True)
     shutil.move(str(path), str(keep))
 
@@ -165,6 +165,11 @@ def _place(dest: Path, files: dict[str, bytes], mark: dict, why: str) -> None:
     if dest.exists() or dest.is_symlink():
         _set_aside(dest, why)
     _write_folder(dest, files, mark)
+
+
+def removed_dir() -> Path:
+    """Where everything Cicada takes away is kept, restorable (a library copy, or a copy it did not write)."""
+    return state_dir() / "removed"
 
 
 def library_dir() -> Path:
@@ -207,10 +212,15 @@ def _save_library(name: str, files: dict[str, bytes], source: dict) -> None:
 
 
 def _own(agent_id: str, base: Path | None = None) -> Path:
+    """An agent's own skills folder — only for an agent installed on this Mac (its home folder exists). Writing a
+    skill for one that isn't would create its folders and make it look installed."""
     agent = skill_folders.BY_ID.get(agent_id)
     if agent is None:
         raise StoreError(f"Cicada doesn't know an agent called {agent_id}.")
-    return (base or skill_folders.home()) / agent.own
+    base = base or skill_folders.home()
+    if not (base / agent.home).is_dir():
+        raise StoreError(f"{agent.label} isn't installed on this Mac, so Cicada won't add skills for it.")
+    return base / agent.own
 
 
 def _copies(name: str, base: Path | None = None) -> list[skill_folders.Copy]:
@@ -239,6 +249,8 @@ def install_files(name: str, files: dict[str, bytes], source: dict, agents: list
     for rel in files:
         _safe_rel(rel)
     mark = marker(name, files, source)
+    for agent in dict.fromkeys(agents):
+        _own(agent, base)              # every agent checked before anything is written
     written = []
     with _locked():
         _save_library(name, files, source)
@@ -297,19 +309,28 @@ def turn_off(name: str, agent: str, *, base: Path | None = None) -> None:
 
 
 def remove(name: str, *, base: Path | None = None) -> list[str]:
-    """Remove a skill from every agent's own folder and the shared folder, and from the library."""
+    """Remove a skill from every agent's own folder and the shared folder. Never a permanent delete: the library
+    copy (made first from an agent's copy when there is none) moves to ``removed/``, so the skill's text can always be
+    put back — a published draft's only text lives there, and an unchanged agent copy is deleted as its duplicate."""
     name = _check_name(name)
     base = base or skill_folders.home()
     gone = []
     with _locked():
+        lib = library_dir() / name
+        if not lib.exists():
+            copy = next((c for c in _copies(name, base) if skill_folders.folder_files(c.path) is not None), None)
+            if copy is not None:
+                _save_library(name, skill_folders.folder_files(copy.path) or {},
+                              source_from_marker(copy.marker) or {"origin": "local"})
         for rel in dict.fromkeys([a.own for a in skill_folders.AGENTS] + [skill_folders.SHARED]):
             path = base / rel / name
             if path.exists() or path.is_symlink():
                 _set_aside(path, "removed")
                 gone.append(rel)
-        lib = library_dir() / name
         if lib.exists():
-            shutil.rmtree(lib)
+            keep = removed_dir() / f"{name}-library-{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:4]}"
+            keep.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(lib), str(keep))
     return gone
 
 
@@ -348,7 +369,7 @@ async def install_tool(entry: dict, agents: list[str], *, sha: str | None = None
         raise StoreError(f"{tool.command} installed, but it printed no skill text.")
     version = ((await skill_tools.tool_versions()) or {}).get(tool.package)
     name = str((entry.get("detect") or {}).get("skillDirs", [entry["id"]])[0])
-    agents = agents or ["claude-code"]
+    # No agent installed yet: the text waits in the library, and turning an agent on later gives it.
     written = write_tool_text(name, text, tool.command, version, pin["repo"], agents, catalog_id=entry.get("id"),
                               base=base)
     return {"name": name, "agents": written, "version": version, "commit": commit}
@@ -448,6 +469,8 @@ def publish_draft(name: str, agents: list[str], *, base: Path | None = None) -> 
         raise StoreError(f"There is no draft called {name}.") from None
     if not agents:
         raise StoreError("Choose at least one agent.")
+    for agent in agents:
+        _own(agent, base)              # refuse an agent that isn't on this Mac before anything is written
     written = install_files(name, {skill_folders.SKILL_FILE: data},
                             {"origin": "draft", "author": meta.get("author")}, agents, base=base)
     with _locked():

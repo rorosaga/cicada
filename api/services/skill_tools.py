@@ -173,14 +173,15 @@ def parse_doctor(text: str) -> dict | None:
 
 
 def permissions_line(report: dict | None) -> str | None:
-    """One sentence for the row: what macOS has granted, and to which app."""
+    """What macOS has granted, in words. The check runs from Cicada, so the page labels it "Checked for Cicada" and
+    says an agent in another app may have different permissions (owner 2026-10-15)."""
     if not report:
         return None
+    granted = [i["label"] for i in report["items"] if i["granted"]]
     missing = [i["label"] for i in report["items"] if not i["granted"]]
-    who = f" to {report['app']}" if report.get("app") else ""
     if not missing:
-        return f"macOS has given every permission it needs{who}."
-    return f"macOS has not given {_join(missing)}{who} yet."
+        return f"{_join(granted)}: allowed." if granted else "Nothing to allow."
+    return f"Not allowed yet: {_join(missing)}."
 
 
 def _join(words: list[str]) -> str:

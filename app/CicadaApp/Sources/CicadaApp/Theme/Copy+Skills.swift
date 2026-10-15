@@ -17,7 +17,9 @@ extension Copy {
         static let addHelp = "Add a skill from a GitHub link, owner/repo or an npx skills add line (⌘N)"
         static let closeHelp = "Close (Esc)"
         static let versionLabel = "Version"
-        static let macAccess = "Mac access"
+        /// The owner (2026-10-15): the check runs from Cicada, so it says so.
+        static let checkedForCicada = "Checked for Cicada"
+        static let otherAppsDiffer = "An agent running in another app may have different permissions."
         static let instructions = "Instructions"
         static let refreshInstructions = "Refresh instructions"
         static let removeEllipsis = "Remove…"

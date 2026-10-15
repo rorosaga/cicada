@@ -448,7 +448,11 @@ struct SkillDetailColumn: View {
                     if let tool = skill.tool, tool.installed {
                         fact(Copy.Skills.toolLabel, Copy.Skills.toolLine(tool.version, from: tool.from))
                     }
-                    if let line = skill.permissions?.line { fact(Copy.Skills.macAccess, line) }
+                    if let line = skill.permissions?.line {
+                        fact(Copy.Skills.checkedForCicada, line)
+                        Text(Copy.Skills.otherAppsDiffer).font(CicadaTheme.captionFont)
+                            .foregroundStyle(CicadaTheme.textTertiary).fixedSize(horizontal: false, vertical: true)
+                    }
                     if let when = skill.details.installedAt { fact(Copy.Skills.installedLabel, String(when.prefix(10))) }
                     if let licence = skill.details.licence { fact(Copy.Skills.licenceLabel, licence) }
                     ForEach(skill.details.folders, id: \.path) { folder in

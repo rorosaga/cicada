@@ -25,6 +25,8 @@ SHA_PATH = "c" * 40
 def home(tmp_path, monkeypatch) -> Path:
     h = tmp_path / "home"
     h.mkdir()
+    for agent_home in (".claude", ".codex"):    # Claude Code and Codex are installed on this synthetic Mac
+        (h / agent_home).mkdir()
     monkeypatch.setattr(skill_catalog, "agent_home", lambda: h)
     monkeypatch.setenv("CICADA_HOME", str(tmp_path / "cicada"))
     return h
@@ -165,7 +167,6 @@ def test_discovery_reads_every_agent_folder_and_says_who_sees_what(home):
 
 
 def test_a_skill_from_npx_skills_shows_its_repo_from_the_lock(home):
-    (home / ".codex").mkdir()           # an agent that reads the shared folder is installed
     skill(home / ".agents/skills", "web-design-guidelines")
     (home / ".agents" / ".skill-lock.json").write_text(json.dumps({"version": 3, "skills": {
         "web-design-guidelines": {"source": "alice-example/agent-skills", "sourceType": "github",
@@ -369,7 +370,7 @@ def test_skill_text_older_than_its_tool_is_detected_and_refreshed(home, tools):
     assert row["tool"]["text"] == "older" and row["tool"]["version"] == "0.2.1" and row["status"] == "refresh"
     assert row["details"]["excerpt"] == "old 0.1 text"
     assert row["version"]["label"] == "v0.2.1"
-    assert row["permissions"]["line"] == "macOS has not given Screen Recording to Terminal yet."
+    assert row["permissions"]["line"] == "Not allowed yet: Screen Recording."
     run(skill_actions.refresh("macos-harness"))
     assert "new 0.2 text" in (old / "SKILL.md").read_text()
     kept = list((skill_store.state_dir() / "removed").iterdir())
@@ -438,7 +439,7 @@ def test_a_file_the_person_added_makes_a_copy_theirs(home):
     (home / ".claude/skills/tidy/notes.txt").write_text("my notes")
     skill_store.remove("tidy")
     kept = list((skill_store.state_dir() / "removed").iterdir())
-    assert (kept[0] / "notes.txt").read_text() == "my notes"
+    assert [(p / "notes.txt").read_text() for p in kept if (p / "notes.txt").exists()] == ["my notes"]
 
 
 def test_toggle_routes_and_refusals(home):
@@ -483,7 +484,7 @@ def test_no_thanks_is_recorded_and_installs_nothing(home):
         assert answer["job"] is None
         assert answer["answer"]["declined"] == ["browser-harness", "macos-harness", "watch"]
         assert client.get("/skills/onboarding").json()["answer"]["install"] == []
-    assert not (home / ".claude").exists()
+    assert not (home / ".claude/skills").exists()
 
 
 def test_continuing_installs_what_stayed_ticked(home, tools):
@@ -547,7 +548,7 @@ def test_an_install_is_always_a_request_even_from_a_trusted_agent(home, tmp_path
     assert out.startswith("Filed for the person") and "see the source and the files" in out
     (req,) = skill_store.requests()
     assert (req["action"], req["author"], req["agents"]) == ("install", "claude-code", ["codex"])
-    assert not (home / ".codex").exists(), "nothing installed"
+    assert not (home / ".codex/skills").exists(), "nothing installed"
     assert "Not filed" in mcp_tools.propose_skill(ctx, "install", source="ftp://x", reason="r")
     assert "say why" in mcp_tools.propose_skill(ctx, "update", name="x", reason="")
 
@@ -640,5 +641,54 @@ def test_an_agent_that_is_not_installed_is_hidden(home):
     skill(home / ".claude/skills", "notes-helper")
     (home / ".hermes").mkdir()
     snap = run(skill_inventory.snapshot(run_tools=False))
-    assert [a["id"] for a in snap["agents"]] == ["claude-code", "hermes"]
-    assert [a["id"] for a in rows(snap)["notes-helper"]["agents"]] == ["claude-code", "hermes"]
+    assert [a["id"] for a in snap["agents"]] == ["claude-code", "codex", "hermes"]
+    assert [a["id"] for a in rows(snap)["notes-helper"]["agents"]] == ["claude-code", "codex", "hermes"]
+
+
+# --------------------------------------------------------------------------- review blockers (2026-10-15)
+
+
+def test_remove_never_deletes_a_skills_only_text(home, tmp_path):
+    """Draft → publish → turn on → remove: the published draft's only text survives in removed/, restorable."""
+    mcp_tools.create_skill(_ctx(tmp_path, "codex"), "release-notes", "Writes release notes.", "Only copy of this.")
+    skill_store.publish_draft("release-notes", ["claude-code"])
+    skill_store.turn_on("release-notes", "codex")
+    skill_store.remove("release-notes")
+    assert not (home / ".claude/skills/release-notes").exists() and not (home / ".codex/skills/release-notes").exists()
+    assert "release-notes" not in skill_store.library() and skill_store.drafts() == []
+    kept = [p for p in skill_store.removed_dir().iterdir() if (p / "SKILL.md").is_file()]
+    assert kept and all("Only copy of this." in (p / "SKILL.md").read_text() for p in kept)
+
+
+def test_remove_keeps_a_copy_cicada_never_had_in_its_library(home):
+    skill(home / ".claude/skills", "hand-made", body="Mine alone.")
+    skill_store.remove("hand-made")
+    kept = list(skill_store.removed_dir().iterdir())
+    assert kept and "Mine alone." in (kept[0] / "SKILL.md").read_text()
+
+
+def test_no_skill_is_written_for_an_agent_that_is_not_on_this_mac(home, tmp_path):
+    skill(home / ".claude/skills", "notes-helper")
+    with pytest.raises(skill_store.StoreError, match="Hermes isn't installed"):
+        skill_store.turn_on("notes-helper", "hermes")
+    with pytest.raises(skill_store.StoreError, match="isn't installed"):
+        skill_store.install_files("other", {"SKILL.md": b"---\nname: other\n---\n"}, {"origin": "local"},
+                                  ["claude-code", "hermes"])
+    out = mcp_tools.propose_skill(_ctx(tmp_path, "claude-code"), "on", name="notes-helper", agents=["hermes"],
+                                  reason="Hermes too.")
+    assert out.startswith("Not done") and "isn't installed" in out
+    assert not (home / ".hermes").exists(), "nothing created, so Hermes never looks installed"
+    assert not (home / ".claude/skills/other").exists(), "a refused install writes nothing at all"
+    assert [a["id"] for a in run(skill_inventory.snapshot(run_tools=False))["agents"]] == ["claude-code", "codex"]
+
+
+def test_a_saved_no_thanks_is_where_a_later_onboarding_starts(home):
+    from fastapi.testclient import TestClient
+
+    from api import main
+
+    with TestClient(main.app) as client:
+        client.post("/skills/onboarding", json={"install": []})
+        again = {s["id"]: s for s in client.get("/skills/onboarding").json()["suggestions"]}
+    assert not any(s["default"] for s in again.values()), "declined starts off on every later run"
+    assert all(s["declined"] for s in again.values())

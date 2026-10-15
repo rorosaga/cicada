@@ -34,8 +34,8 @@ final class SkillsStepModel {
 
     /// The catalog's defaults, minus what is installed already or cannot install without uv. Pure.
     nonisolated static func defaults(_ suggestions: [SkillsOnboardingOffer.Suggestion], uvPresent: Bool) -> Set<String> {
-        Set(suggestions.filter { $0.default == true && $0.installed != true && !($0.needsUv == true && !uvPresent) }
-            .map(\.id))
+        Set(suggestions.filter { $0.default == true && $0.declined != true && $0.installed != true
+                && !($0.needsUv == true && !uvPresent) }.map(\.id))
     }
 
     func noThanks() { ticked = [] }

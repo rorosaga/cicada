@@ -64,6 +64,10 @@ final class SkillsPageTests: XCTestCase {
         var installed = offer
         installed[1].installed = true
         XCTAssertEqual(SkillsStepModel.defaults(installed, uvPresent: true), ["browser-harness"])
+        // A saved "No thanks" is where a later run starts: declined starts off even if the catalog says on.
+        var declined = offer
+        declined[0].declined = true
+        XCTAssertEqual(SkillsStepModel.defaults(declined, uvPresent: true), ["macos-harness"])
     }
 
     func testNoThanksPostsAnEmptyAnswer() async {

@@ -225,9 +225,15 @@ skill_folder`). Nothing is written into a bank: agent folders, and `$CICADA_HOME
 - **Fetches** go through `net_guard` (a hook on every hop), 4 s, ≤ 512 KB per response, no cookies, no token, ≤ 64
   files / 5 MB per skill; only on the person's click or the open page, never in Sleep, never an agent's call. A refusal
   is 400 (a source or GitHub problem) or 409 (a write the store refuses), each with a sentence.
+- **Never lost, never for an absent agent:** Remove moves the library copy (made first from an agent's copy when
+  there is none) to `removed/`, so a skill's only text — a published draft's — is always restorable; a write for an
+  agent whose home folder is missing is refused before anything is written (it would create the folder and make the
+  agent look installed). A saved onboarding answer is where a later run starts: declined ids come back `default:
+  false, declined: true`.
 - **Commands** (uv, `<tool> skill`, `<tool> doctor`) are argvs through `connections.base.run_cli` (scrubbed env,
   `CICADA_CAPTURE=off`), bounded; a uv install is pinned to a commit (`git+https://github.com/<repo>@<sha>`).
-  `doctor` reports permissions for the app that started the tool, so the page names that app.
+  `doctor` reports permissions for the app that started the tool — here Cicada — so the page labels them "Checked for
+  Cicada" and says an agent in another app may have different ones (owner 2026-10-15).
 
 **Endpoint traps worth knowing before you touch them:**
 

@@ -333,6 +333,8 @@ struct SkillsOnboardingOffer: Decodable, Equatable, Sendable {
         var skill: String?
         var asks: String?
         var `default`: Bool?
+        /// The person said no on an earlier run: it starts off, always.
+        var declined: Bool?
         var needsUv: Bool?
         var installed: Bool?
     }

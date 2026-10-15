@@ -22,10 +22,9 @@ def catalog_entry(entry_id: str) -> dict:
 
 
 def default_agents(base: Path | None = None) -> list[str]:
-    """Where a suggested skill goes when the person didn't choose: every agent installed on this Mac, else Claude
-    Code (a Mac with none of them yet)."""
-    found = [a.id for a in skill_folders.present(base)]
-    return found or ["claude-code"]
+    """Where a suggested skill goes when the person didn't choose: every agent installed on this Mac (none yet: the
+    skill waits in the library)."""
+    return [a.id for a in skill_folders.present(base)]
 
 
 async def preview(text: str, choose: str | None = None) -> dict:
@@ -71,7 +70,7 @@ async def update(name: str, *, base: Path | None = None) -> dict:
         raise skill_store.StoreError(f"{name} isn't installed.")
     by_dir = skill_inventory._catalog_by_dir(skill_catalog.load())
     src = skill_inventory._source(name, copies, lib, skill_inventory.npx_lock(base), by_dir)
-    agents = _agents_with(name, base) or ["claude-code"]
+    agents = _agents_with(name, base)
     entry = by_dir.get(name) or {}
     if entry.get("tool"):
         repo = entry["pin"]["repo"]
@@ -134,7 +133,7 @@ async def refresh(name: str, *, base: Path | None = None) -> dict:
     if not text:
         raise skill_store.StoreError(f"{tool.command} isn't installed, or printed no skill text.")
     version = ((await skill_tools.tool_versions()) or {}).get(tool.package)
-    agents = _agents_with(name, base) or ["claude-code"]
+    agents = _agents_with(name, base)
     written = skill_store.write_tool_text(name, text, tool.command, version, entry["pin"]["repo"], agents,
                                           catalog_id=entry.get("id"), base=base)
     return {"name": name, "agents": written, "version": version}
@@ -145,6 +144,8 @@ def onboarding_offer(base: Path | None = None) -> dict:
     ask, ticked as the catalog says, plus whether uv is here and the person's earlier answer."""
     rows = []
     installed = {c.name for c in skill_folders.scan(base)}
+    answer = skill_store.onboarding()
+    declined = set(answer.get("declined") or []) if answer else set()
     for entry_id in ONBOARDING_IDS:
         try:
             entry = catalog_entry(entry_id)
@@ -154,7 +155,10 @@ def onboarding_offer(base: Path | None = None) -> dict:
         dirs = set((entry.get("detect") or {}).get("skillDirs", []))
         rows.append({"id": entry_id, "title": ob.get("title") or entry.get("title"),
                      "line": ob.get("line") or entry.get("summary"), "skill": entry.get("title"),
-                     "asks": ob.get("asks"), "default": bool(ob.get("default")),
+                     # A saved answer wins: what the person declined starts off, everywhere, every later run.
+                     "asks": ob.get("asks"),
+                     "default": bool(ob.get("default")) and entry_id not in declined,
+                     "declined": entry_id in declined,
                      "needsUv": skill_inventory.install_method(entry) == "tool",
                      "installed": bool(dirs & installed), "sourceUrl": entry.get("sourceUrl"),
                      "licence": entry.get("licence")})
