@@ -2393,6 +2393,46 @@ actor APIClient {
         try await postData("/sources/tab-groups/sync", json: try JSONEncoder().encode(payload))
     }
 
+    // MARK: - Messages (G179)
+
+    /// `GET /sources/messages/settings` — which conversations this memory has ticked.
+    func fetchMessagesSettings() async throws -> MessagesSettingsAnswer {
+        try await get("/sources/messages/settings")
+    }
+
+    /// `POST /sources/messages/conversations` — the person's tick and mark and the detectors' suggestion for each
+    /// listed conversation. The backend stores nothing.
+    func describeMessagesConversations(_ conversations: [MessagesConversationPayload]) async throws
+        -> MessagesConversationsAnswer {
+        try await postData("/sources/messages/conversations",
+                           json: try JSONEncoder().encode(["conversations": conversations]))
+    }
+
+    /// `PUT /sources/messages/settings` — tick or untick one conversation, or mark who it is with.
+    func updateMessagesConversation(id: String, name: String?, ticked: Bool?, mark: MessagesMark?) async throws
+        -> MessagesSettingsAnswer {
+        var conversation: [String: Any] = ["id": id]
+        if let name, !name.isEmpty { conversation["name"] = name }
+        if let ticked { conversation["ticked"] = ticked }
+        switch mark {
+        case .agent?: conversation["actor"] = ["kind": "agent"]
+        case .person?: conversation["actor"] = ["kind": "person"]
+        case .clear?: conversation["clearActor"] = true
+        case nil: break
+        }
+        return try await put("/sources/messages/settings", body: ["conversation": conversation])
+    }
+
+    /// `POST /sources/messages/sync` — rows of one ticked conversation, serialised off the main actor.
+    func postMessages(_ json: Data) async throws -> MessagesSyncResult {
+        try await postData("/sources/messages/sync", json: json)
+    }
+
+    /// `GET /sources/messages/waiting` — the conversations Sleep has not read yet, with their message counts.
+    func fetchMessagesWaiting() async throws -> MessagesWaitingAnswer {
+        try await get("/sources/messages/waiting")
+    }
+
     /// `GET /entities/{id}/paper` — the paper card's two tiers (G133 / G121).
     func fetchPaperDetail(id: String) async throws -> PaperDetail {
         try await get("/entities/\(encodedID(id))/paper")

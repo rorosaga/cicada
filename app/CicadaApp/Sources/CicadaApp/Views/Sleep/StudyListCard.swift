@@ -174,6 +174,8 @@ struct StudyListCard: View {
             content
             // G162 — the video queue's one row (its own file; it hides itself when nothing is queued).
             VideosWaitingRow()
+            // G179 — the ticked Messages conversations Sleep has not read, as stacked profile bubbles.
+            MessagesWaitingRow()
 
             if let err = sleepVM.errorMessage ?? sleepVM.lastError, !err.isEmpty {
                 Text(err)

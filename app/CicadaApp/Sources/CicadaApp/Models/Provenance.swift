@@ -142,6 +142,8 @@ struct ProvenanceConversation: Codable, Hashable, Identifiable {
     let origin: String?
     /// The episode's `source` (`page-read` = what an agent reported from a page, G166).
     let source: String?
+    /// G179: a message conversation's other side — "Instinct" — so its agent's words read as theirs.
+    var correspondent: String? = nil
     let timestamp: String?
     let claimCount: Int
     let available: Bool
@@ -167,6 +169,7 @@ struct ProvenanceConversation: Codable, Hashable, Identifiable {
 
     enum CodingKeys: String, CodingKey {
         case conversationId, episodeId, episodeIds, title, harness, origin, source, timestamp, claimCount, available, best
+        case correspondent
     }
 
     init(from decoder: Decoder) throws {
@@ -178,6 +181,7 @@ struct ProvenanceConversation: Codable, Hashable, Identifiable {
         harness = try c.decodeIfPresent(String.self, forKey: .harness)
         origin = try c.decodeIfPresent(String.self, forKey: .origin)
         source = try? c.decodeIfPresent(String.self, forKey: .source)
+        correspondent = try? c.decodeIfPresent(String.self, forKey: .correspondent)
         timestamp = try c.decodeIfPresent(String.self, forKey: .timestamp)
         claimCount = try c.decodeIfPresent(Int.self, forKey: .claimCount) ?? 0
         available = try c.decodeIfPresent(Bool.self, forKey: .available) ?? true

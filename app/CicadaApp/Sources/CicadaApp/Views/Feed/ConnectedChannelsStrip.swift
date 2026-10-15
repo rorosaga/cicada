@@ -15,6 +15,7 @@ struct ConnectedChannelsStrip: View {
     /// Track I T1: a browser row's Sync now is consent, routed through the watcher.
     @Environment(CalendarReader.self) private var calendarReader: CalendarReader?
     @Environment(TabGroupWatcher.self) private var tabGroups: TabGroupWatcher?
+    @Environment(MessagesWatcher.self) private var messages: MessagesWatcher?
     @Environment(ContactsReader.self) private var contacts: ContactsReader?
     @Environment(BrowserWatcher.self) private var watcher
     @Environment(LocalSourceWatcher.self) private var localSources
@@ -142,7 +143,7 @@ struct ConnectedChannelsStrip: View {
             let calendar = calendarReader
             let tabGroups = self.tabGroups
             let contacts = self.contacts
-            Task { await run(channel) { try await ChannelActions.sync(channel.id, store: store, watcher: watcher, local: local, calendar: calendar, tabGroups: tabGroups, contacts: contacts) } }
+            Task { await run(channel) { try await ChannelActions.sync(channel.id, store: store, watcher: watcher, local: local, calendar: calendar, tabGroups: tabGroups, contacts: contacts, messages: messages) } }
         // A folder or Wispr Flow row is itself the Settings → Integrations link
         // (`ConnectedChannelRow.rowLink`); it has no Feed tile, and the generic
         // add-source sheet is the wrong answer (L final review, finding 1).

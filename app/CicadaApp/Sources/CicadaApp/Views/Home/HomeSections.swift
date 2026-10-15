@@ -156,6 +156,7 @@ struct TodaySection: View {
 
     @Environment(Store.self) private var store
     @Environment(SleepViewModel.self) private var sleepVM
+    @Environment(MessagesWatcher.self) private var messages: MessagesWatcher?
 
     var body: some View {
         let figures = HomeFigures.today(store.sourcesOverview.value, today: today)
@@ -236,8 +237,11 @@ struct TodaySection: View {
                     .font(CicadaTheme.bodyFont)
                     .monospacedDigit()
                     .foregroundStyle(CicadaTheme.textPrimary)
+                // G179 — the ticked Messages conversations among them, as stacked profile bubbles (hover names one).
+                MessageBubbleStack(size: 18, interactive: false)
             }
         }
+        .task(id: store.status.value?.episodes.unprocessed) { await messages?.refreshWaiting() }
     }
 }
 

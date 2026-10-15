@@ -115,8 +115,10 @@ final class SQLiteReadOnly {
     }
 
     /// Parameters bound by position (`?1`, `?2`, … or plain `?`), each as its own
-    /// SQLite type; never interpolated into the SQL.
-    func query(_ sql: String, binds: [SQLiteCursor?]) throws -> [[String: Any]] {
+    /// SQLite type; never interpolated into the SQL. A BLOB is projected only from a column the caller names in
+    /// `base64Blobs`, as base64 text (G179: Messages' `attributedBody`, decoded by the backend); every other BLOB is
+    /// never read (R-LS21).
+    func query(_ sql: String, binds: [SQLiteCursor?], base64Blobs: Set<String> = []) throws -> [[String: Any]] {
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { throw SQLiteReadError.query(lastError) }
         defer { sqlite3_finalize(stmt) }
@@ -139,7 +141,14 @@ final class SQLiteReadOnly {
                 case SQLITE_FLOAT: row[name] = NSNumber(value: sqlite3_column_double(stmt, i))
                 case SQLITE_TEXT: row[name] = sqlite3_column_text(stmt, i).map { String(cString: $0) } ?? ""
                 case SQLITE_NULL: row[name] = NSNull()
-                default: continue  // a BLOB is never projected, whatever column holds it (R-LS21)
+                case SQLITE_BLOB where base64Blobs.contains(name):
+                    let count = Int(sqlite3_column_bytes(stmt, i))
+                    if let bytes = sqlite3_column_blob(stmt, i), count > 0 {
+                        row[name] = Data(bytes: bytes, count: count).base64EncodedString()
+                    } else {
+                        row[name] = NSNull()
+                    }
+                default: continue  // a BLOB is never projected unless named above (R-LS21)
                 }
             }
             rows.append(row)
