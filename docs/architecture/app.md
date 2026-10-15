@@ -42,19 +42,31 @@ dragged page and its neighbours. `graph-settle.test.js` holds this on a syntheti
 1 wu/tick, nothing beyond 1.7 giant radii, and no frame requested after the stop. The numbers are in G109.
 
 **The look at rest is Obsidian's (G109, 2026-10-15).** Nodes are small dots sized by distinct neighbours (parallel
-claims between a pair count once; `computeDegree` → `_neighbours`), with confidence a small second term: a median page
-~3.5 wu, the owner's page ~23 (max / median ~6.7, was ~14 on the bank shape). Hubs carry no ring and no size floor —
-they read by size and fan. Every pair draws one one-pixel hairline at every zoom (`drawLinks`; neutral α 0.55,
-context-coloured α 0.22). Every body page has one charge (no degree weighting, which carved holes and lined dots into
+claims between a pair count once; `computeDegree` → `_neighbours`), with confidence a small second term: at scale 1
+a median page ~3.5 wu, the owner's page ~23 (max / median ~6.7, was ~14 on the bank shape). Hubs carry no ring and no
+size floor — they read by size and fan. **Dots scale with the graph (proportion pass, 2026-10-15):** one `sizeScale`
+multiplies every radius (`nodeRadius` = scale × `baseRadius`, so bigger still means more connected), and collide, link
+rest lengths and the halo's footprints use the scaled radii. The scale is chosen so the median dot's on-screen radius
+at the fit zoom is √(6 % of the view ÷ (π × visible nodes)), clamped to 2.2–8 pt (`DOT_COVER`, `DOT_MIN_PT`,
+`DOT_MAX_PT`); since the fit depends on the layout, the scale follows the fit while a full layout is hot
+(`adaptSize`, alpha ≥ 0.15, damped) and is fixed after — a push of newcomers keeps it. On the bank shape in a 1200×800
+view: scale 2.3, median 2.2 pt, smallest 1.5 pt; 500 nodes 6.0 pt; 50 nodes 7.7 pt. A satellite keeps the halo room it
+had at scale 1 (never under 1.8 footprints), so bigger dots do not widen the halo; `MIN_ZOOM` is 0.1. Every pair draws
+one hairline at every zoom (`drawLinks`; neutral α 0.55, context-coloured α 0.22), 0.12 of the smallest dot's
+on-screen diameter and at most 0.75 pt (`linkStroke`); thinner than a device pixel it is drawn one device pixel wide at
+a proportionally lower alpha. A hovered or focused link is 1 pt. Every body page has one charge (no degree weighting, which carved holes and lined dots into
 chains), links to a page with more than 50 neighbours are dissuaded (never a leaf's), and such a page is pulled to the
 middle. The satellites form a loose **halo**, not rows: each unit's angle and depth come from its own id (`unitHash`),
 so the scatter is irregular and keeps its place across pushes, around the body's own edge read per angle, with a
 wobbling outer reach. The pending pulse ring hugs its dot (≤ 5.5 px out). Names fade in with zoom, biggest dots first,
-never overlapping, at most `LABEL_BUDGET` (at the fit zoom only a page as big as the owner's is named). The Legend's
+never overlapping, at most `LABEL_BUDGET` (at the fit zoom only a page as big as the owner's is named); the fade reads
+the dot's scale-1 radius, so names follow the zoom whatever the dot scale. The Legend's
 **Show unlinked** switch (on by default; Obsidian's Orphans filter) is `minDegree` 1 when off.
 `graph-look.test.js` holds the look on the 2026-10-15 shape (`bankShaped1015`: 4,544 nodes, 9,046 pairs, 984
-isolates): discs ≤ 4 % of the fitted view, halo nearest-neighbour CV ≥ 0.35 and Clark–Evans ≤ 1.3, the owner's page
-≤ 0.25 giant radii off the middle, and the #285/#287 settle guarantees.
+isolates) and on `bankShapedAt(50 | 500)`: the median dot within 10 % of the curve at the fit zoom (also in an
+800×560 view), no page dot under 1.4 pt, none over 24 pt, a link ≤ 15 % of the smallest dot's diameter at every zoom
+tier (dpr 1 and 2), discs 5–10 % of the fitted view on the bank shape, no overlap, halo nearest-neighbour CV ≥ 0.28 and
+Clark–Evans ≤ 1.3, the owner's page ≤ 0.25 giant radii off the middle, and the #285/#287 settle guarantees.
 
 **The graph rests when nobody can see it (audit 2026-10-02 A07–A09).** `GraphPage` stays mounted under
 every tab, so it tells the page whether it is on screen: `GraphView(isActive:)` is the Graph tab

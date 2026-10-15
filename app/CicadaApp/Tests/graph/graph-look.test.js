@@ -9,11 +9,12 @@
 //     node app/CicadaApp/Tests/graph/graph-look.test.js
 //
 // Every threshold was set from a measured value with margin; next to each are the values on two seeds and on dev
-// before the pass (49ffcad8). ~6 s.
+// before the pass (49ffcad8). The proportion pass (2026-10-15, later that day) adds the size curve across 50 / 500 /
+// 4.5k nodes and the link width per zoom tier. ~10 s.
 "use strict";
 
 const harness = require("./graph-physics-harness.js");
-const { coldOpen, bankShaped1015, lookMetrics, components, shapeSummary } = require("./graph-bank-shape.js");
+const { coldOpen, bankShaped1015, bankShapedAt, lookMetrics, components, shapeSummary } = require("./graph-bank-shape.js");
 
 let failures = 0;
 const check = (label, cond, actual) => {
@@ -37,19 +38,21 @@ for (const seed of [7, 3]) {
     const L = lookMetrics(run.h.get);
     const tag = `seed ${seed}:`;
 
-    // ---- small dots, the owner's page large but not dominant ----
-    // measured 3.5 wu (before 14.4)
-    check(`${tag} the median node is a small dot (<= 5 wu)`, L.radiusMedian <= 5, L.radiusMedian);
+    // ---- dots at the floor of the size curve, the owner's page large but not dominant (proportion pass) ----
+    // measured median 2.20-2.21 pt, smallest page 1.54 pt (#291: 0.95 / 0.66 pt, a speck under a 1 pt line)
+    check(`${tag} at the fit zoom the median dot sits at the floor (2.2 pt, +-10 %)`, Math.abs(L.fitMedianPt - 2.2) <= 0.22, L.fitMedianPt);
+    check(`${tag} at the fit zoom the smallest page dot is >= 1.4 pt`, L.fitMinPt >= 1.4, L.fitMinPt);
     // measured 6.7 (before 14.3: a 206 wu disc over the centre)
     check(`${tag} the largest node is 4-8x the median`, L.radiusMaxOverMedian >= 4 && L.radiusMaxOverMedian <= 8, L.radiusMaxOverMedian);
     // ---- negative space ----
-    // measured 0.013 (before 0.25-0.26)
-    check(`${tag} discs cover <= 4 % of the fitted view`, L.coverage <= 0.04, L.coverage);
+    // measured 0.071-0.073 (#291: 0.013, before it 0.25-0.26): the 6 % the curve asks of the median, plus the big pages
+    check(`${tag} discs cover 5-10 % of the fitted view`, L.coverage >= 0.05 && L.coverage <= 0.10, L.coverage);
     // measured 0 % (before 51-52 %)
     check(`${tag} <= 5 % of nodes overlap another disc`, m.overlapPct <= 5, m.overlapPct);
     // ---- the halo: a loose, irregular scatter, not ruled rows ----
-    // measured 0.49-0.50 (before 0.09-0.15: rows of evenly spaced beads)
-    check(`${tag} halo spacing is irregular (nearest-neighbour CV >= 0.35)`, L.haloNnCv >= 0.35, L.haloNnCv);
+    // measured 0.32-0.33 (#291 0.49-0.50 with 2.3x smaller dots; before it 0.09-0.15: rows of evenly spaced beads). The
+    // bigger discs exclude the very closest pairs (collide), as in any random scatter of discs, so the spread narrows.
+    check(`${tag} halo spacing is irregular (nearest-neighbour CV >= 0.28)`, L.haloNnCv >= 0.28, L.haloNnCv);
     // measured 1.03-1.04 (before 1.67-1.75)
     check(`${tag} halo is a random-like scatter (Clark-Evans <= 1.3)`, L.haloClarkEvans <= 1.3, L.haloClarkEvans);
     // measured 0.08-0.09 of the body's radius
@@ -117,8 +120,107 @@ for (const seed of [7, 3]) {
     h.call("updateGraph", { nodes, links });
     h.get("simulation").stop();
     const r = (id) => h.get(`nodeRadius(nodes.find(n => n.id === "${id}"))`);
-    check("forty claims between two pages size them as one neighbour", Math.abs(r("b") - (2.2 + 0.4 + 0.45)) < 1e-9, r("b").toFixed(2));
+    const base = (id) => h.get(`baseRadius(nodes.find(n => n.id === "${id}"))`);
+    check("forty claims between two pages size them as one neighbour", Math.abs(base("b") - (2.2 + 0.4 + 0.45)) < 1e-9, base("b").toFixed(2));
     check("a server degree counting parallels does not size a node", Math.abs(r("c") - r("b")) < 1e-9, `${r("c").toFixed(2)} vs ${r("b").toFixed(2)}`);
+}
+
+// ---- proportion pass (owner, 2026-10-15): dots scale with the graph, inside a floor and a ceiling at the fit zoom ----
+// The curve: the median dot's on-screen radius at the fit zoom is sqrt(6 % of the view / (pi x nodes)), clamped to
+// [DOT_MIN_PT, DOT_MAX_PT] = [2.2, 8] pt. Measured in the 1200x800 harness view (values next to each check).
+const sized = new Map([[4544, kept]]);
+const sizeRun = (N, opts = {}) => coldOpen(harness, 7, { graph: N === 4544 ? bankShaped1015(7) : bankShapedAt(N, 7), ...opts });
+for (const N of [50, 500]) sized.set(N, sizeRun(N));
+const fitPt = new Map();
+for (const [N, run] of sized) {
+    const h = run.h;
+    const L = lookMetrics(h.get);
+    fitPt.set(N, L);
+    const want = h.get(`dotTargetPt(${h.get("visibleNodes.length")})`);
+    const tag = `${N} nodes:`;
+    // measured 50: 7.75 (want 8); 500: 5.98 (want 6.05); 4.5k: 2.20 (want 2.2)
+    check(`${tag} at the fit zoom the median dot is within 10 % of the curve's ${want.toFixed(2)} pt`, Math.abs(L.fitMedianPt - want) <= 0.1 * want, L.fitMedianPt);
+    // the floor and the ceiling, whatever the size: measured smallest 5.4 / 4.2 / 1.5 pt, median 7.8 / 6.0 / 2.2 pt
+    check(`${tag} the floor: no page dot under 1.4 pt, the median >= ${h.get("DOT_MIN_PT")} pt - 10 %`,
+          L.fitMinPt >= 1.4 && L.fitMedianPt >= 0.9 * h.get("DOT_MIN_PT"), `${L.fitMinPt}, ${L.fitMedianPt}`);
+    // measured largest 11.4 / 16.3 / 14.8 pt
+    check(`${tag} the ceiling: the median <= ${h.get("DOT_MAX_PT")} pt + 10 %, the largest dot <= 24 pt`,
+          L.fitMedianPt <= 1.1 * h.get("DOT_MAX_PT") && L.fitMaxPt <= 24, `${L.fitMedianPt}, ${L.fitMaxPt}`);
+    // a bigger dot never lands on its neighbour: measured 0 % at every size
+    check(`${tag} <= 5 % of nodes overlap another disc`, run.metrics.overlapPct <= 5, run.metrics.overlapPct);
+    check(`${tag} it settles within 150 steps, then asks for no frames`, run.metrics.stopTick !== null && run.metrics.stopTick <= 150 && run.metrics.framesAfterStop === 0,
+          `${run.metrics.stopTick} steps, ${run.metrics.framesAfterStop} frames`);
+    // relative order: bigger means more connected, at every size
+    const vis = h.get("visibleNodes").filter(n => !h.get("nodeIsFacet")(n));
+    const rad = h.get("nodeRadius"), base = h.get("baseRadius");
+    const s = h.get("sizeScale");
+    check(`${tag} every dot is its scale-1 size times one scale (${s.toFixed(2)}), so the order holds`, vis.every(n => Math.abs(rad(n) - s * base(n)) < 1e-9));
+}
+check("a smaller graph gets bigger dots (median 50 > 500 > 4.5k at the fit zoom)",
+      fitPt.get(50).fitMedianPt > fitPt.get(500).fitMedianPt && fitPt.get(500).fitMedianPt > fitPt.get(4544).fitMedianPt,
+      [50, 500, 4544].map(N => fitPt.get(N).fitMedianPt).join(" > "));
+{
+    // the view they are fitted to: a 4.5k graph in a small 800x560 window keeps the floor; 500 nodes in it get smaller
+    // dots than in 1200x800 (the 6 % share of a smaller view), still above the floor
+    const small = () => {
+        const ctx = new Proxy({}, { get: (t, k) => (k === "measureText" ? () => ({ width: 10 }) : typeof k === "string" ? () => {} : undefined), set: () => true });
+        return { clientWidth: 800, clientHeight: 560, width: 800, height: 560, style: {}, classList: { add() {}, remove() {} },
+                 getContext: () => ctx, addEventListener() {}, getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 560 }) };
+    };
+    for (const N of [500, 4544]) {
+        const run = sizeRun(N, { canvas: small() });
+        const L = lookMetrics(run.h.get);
+        const want = run.h.get(`dotTargetPt(${run.h.get("visibleNodes.length")})`);
+        // measured 500: 4.06 (want 4.0); 4.5k: 2.2
+        check(`${N} nodes in an 800x560 view: the median dot is within 10 % of ${want.toFixed(2)} pt, the smallest >= 1.4 pt`,
+              Math.abs(L.fitMedianPt - want) <= 0.1 * want && L.fitMinPt >= 1.4, `${L.fitMedianPt}, ${L.fitMinPt}`);
+        if (N === 500) check("500 nodes: a smaller view, smaller dots", L.fitMedianPt < fitPt.get(500).fitMedianPt, `${L.fitMedianPt} < ${fitPt.get(500).fitMedianPt}`);
+    }
+}
+
+// ---- links are hairlines: at every zoom tier, well under the smallest dot drawn ----
+for (const [N, run] of sized) {
+    const h = run.h;
+    const fitK = h.get("transformForNodes(visibleNodes, 60).k");
+    // the smallest dot drawn, facets included
+    const minR = Math.min(...h.get("visibleNodes").map(n => h.get("nodeRadius")(n)));
+    const tiers = { MIN_ZOOM: h.get("MIN_ZOOM"), fit: fitK, ZOOM_HUBS_ONLY: h.get("ZOOM_HUBS_ONLY"), ZOOM_NODE_LABELS: h.get("ZOOM_NODE_LABELS"),
+                    ZOOM_EDGE_LABELS: h.get("ZOOM_EDGE_LABELS"), MAX_ZOOM: h.get("MAX_ZOOM") };
+    const worst = { eff: 0, stroke: 0 };
+    let ok = true;
+    for (const dpr of [2, 1]) {
+        h.get(`dpr = ${dpr}`);
+        for (const [, k] of Object.entries(tiers)) {
+            const st = h.get(`linkStroke(${k})`);
+            const diameter = 2 * minR * k;
+            const eff = st.width * st.alpha;          // what the eye sees: a sub-pixel width is a fainter device pixel
+            worst.eff = Math.max(worst.eff, eff / diameter);
+            // the stroke itself: never wider than one device pixel unless the dots are big enough to dwarf it
+            if (st.width > 1 / dpr + 1e-9) worst.stroke = Math.max(worst.stroke, st.width / diameter);
+            if (eff > 0.15 * diameter || st.width > Math.max(1 / dpr, 0.15 * diameter) + 1e-9 || st.width > Math.max(1 / dpr, h.get("LINK_WIDTH_MAX_PT")) + 1e-9) ok = false;
+        }
+    }
+    h.get("dpr = 2");
+    // measured: the effective width is <= 0.12 of the smallest dot's diameter at every tier (LINK_WIDTH_OF_DOT; #291's
+    // 1 pt line was 0.75x the smallest page dot's diameter at the fit zoom)
+    check(`${N} nodes: a link is <= 15 % of the smallest dot's diameter at every zoom tier (dpr 2 and 1)`, ok,
+          `worst effective ${worst.eff.toFixed(3)}, worst stroke over a device pixel ${worst.stroke.toFixed(3)}`);
+}
+{
+    // draw() strokes the resting links at linkStroke's width, and a hovered page's links at LINK_LIT_PT
+    const { h } = kept;
+    h.get(`(() => { const inner = ctx; globalThis.__widths = [];
+        ctx = new Proxy(inner, { get: (t, k) => k === "stroke" ? () => __widths.push(__lw) : t[k],
+                                 set: (t, k, v) => { if (k === "lineWidth") globalThis.__lw = v; return true; } }); })()`);
+    h.get("transform = transformForNodes(visibleNodes, 60)");
+    h.get("hoveredNode = null; __widths = []; draw()");
+    const k = h.get("transform.k");
+    const rest = h.get(`linkStroke(${k}).width`);
+    const first = h.get("__widths[0]") * k;
+    check("at rest, draw() strokes links at linkStroke's width", Math.abs(first - rest) < 1e-9, `${first.toFixed(3)} pt`);
+    h.get("hoveredNode = visibleNodes.find(n => n.id === 'owner'); __widths = []; draw(); hoveredNode = null");
+    const widths = h.get("__widths.slice()").map(w => +(w * k).toFixed(3));
+    check("a hovered page's links thicken to LINK_LIT_PT", widths.includes(h.get("LINK_LIT_PT")) && widths.includes(+rest.toFixed(3)), JSON.stringify([...new Set(widths)].slice(0, 6)));
 }
 
 // ---- the halo keeps each satellite's place across pushes ----

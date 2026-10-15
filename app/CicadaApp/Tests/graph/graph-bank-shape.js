@@ -277,6 +277,81 @@ function bankShaped1015(seed = 7, opts = {}) {
     return { nodes, links };
 }
 
+// The same shape at a smaller size (2026-10-15, G109 proportion pass): `bankShapedAt(50)` is a demo bank or a filter
+// showing 50 pages, `bankShapedAt(500)` a young bank. The proportions are bankShaped1015's: ~22 % unlinked (most of
+// them saved links), a few pairs and triples, the owner's page joined to ~57 % of the giant, ~1 hub per 120 nodes,
+// ~2.6 distinct pairs per giant page, ~8 % decaying. No parallel claims (size and layout count distinct pairs only).
+function bankShapedAt(N, seed = 7) {
+    let s = (seed * 2654435761 + N) >>> 0;
+    const rnd = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
+    const pick = (arr) => arr[Math.floor(rnd() * arr.length)];
+    const TYPES = Object.entries(TYPES_2026_10_15).filter(([t]) => t !== "hub" && t !== "media");
+    const typeTotal = TYPES.reduce((a, [, c]) => a + c, 0);
+    const randType = () => { let r = rnd() * typeTotal; for (const [t, c] of TYPES) { if ((r -= c) < 0) return t; } return "concept"; };
+    const nodes = [], links = [];
+    const pairs = new Set();
+    const node = (id, type, extra = {}) => {
+        const n = { id, name: id, type, status: rnd() < 0.08 ? "decaying" : "active", confidence: 0.3 + rnd() * 0.7, ...extra };
+        nodes.push(n);
+        return n;
+    };
+    const link = (a, b, extra = {}) => {
+        if (a === b) return false;
+        const key = a < b ? a + "\u0000" + b : b + "\u0000" + a;
+        if (pairs.has(key)) return false;
+        pairs.add(key);
+        links.push({ source: a, target: b, ...extra });
+        return true;
+    };
+    const isolates = Math.round(0.217 * N);
+    const SMALL = N >= 400 ? [3, 2, 2] : N >= 100 ? [2] : [];
+    const smallTotal = SMALL.reduce((a, b) => a + b, 0);
+    const giantN = N - isolates - smallTotal;
+    const hubsN = Math.max(1, Math.round(N / 120));
+    const owner = node("owner", "person", { confidence: 1, status: "active", isOwner: true });
+    const hubs = Array.from({ length: hubsN }, (_, i) => node("hub" + i, "hub", { isHub: true, confidence: 1, status: "active" }));
+    const pagesN = giantN - 1 - hubsN;
+    const COMMUNITIES = Math.max(2, Math.round(pagesN / 250));
+    const pages = [];
+    for (let i = 0; i < pagesN; i++) pages.push(node("p" + i, randType(), { community: i % COMMUNITIES, _w: 1 + 30 * Math.pow(rnd(), 4) }));
+    // a spanning web inside each community, the owner's fan, the hubs' members, then a Chung-Lu web
+    const seen = Array.from({ length: COMMUNITIES }, () => []);
+    pages.forEach((p, i) => {
+        if (seen[p.community].length) link(pick(seen[p.community]).id, p.id);
+        else if (i > 0) link(pages[Math.floor(rnd() * i)].id, p.id);
+        seen[p.community].push(p);
+    });
+    for (const p of pages) if (rnd() < 0.57) link(owner.id, p.id);
+    hubs.forEach((h, i) => {
+        const size = Math.max(3, Math.round(pagesN * 0.04 / (1 + i * 0.5)));
+        let k = 0, tries = 0;
+        while (k < size && tries++ < size * 20) { const m = pick(pages); if (link(h.id, m.id, { label: "member of" })) { k += 1; if (!m.hubId) m.hubId = h.id; } }
+        link(owner.id, h.id);
+    });
+    const byComm = Array.from({ length: COMMUNITIES }, () => []);
+    for (const p of pages) byComm[p.community].push(p);
+    const cum = (arr) => { let t = 0; return arr.map(n => (t += n._w)); };
+    const commCum = byComm.map(cum);
+    const allCum = cum(pages);
+    const draw = (arr, c) => { const r = rnd() * c[c.length - 1]; let lo = 0, hi = c.length - 1; while (lo < hi) { const m = (lo + hi) >> 1; if (c[m] < r) lo = m + 1; else hi = m; } return arr[lo]; };
+    const target = Math.round(2.56 * giantN);
+    let guard = 0;
+    while (links.length < target && guard++ < target * 50) {
+        const a = draw(pages, allCum);
+        const b = rnd() < 0.85 ? draw(byComm[a.community], commCum[a.community]) : draw(pages, allCum);
+        link(a.id, b.id);
+    }
+    SMALL.forEach((sz, ci) => {
+        const ids = [];
+        for (let j = 0; j < sz; j++) ids.push(node(`sc${ci}-${j}`, randType()).id);
+        for (let j = 1; j < sz; j++) link(ids[j - 1], ids[j]);
+    });
+    // unlinked: mostly saved links, as on the owner's graph (846 of 984)
+    for (let i = 0; i < isolates; i++) node("iso" + i, rnd() < 0.86 ? "media" : randType());
+    for (const n of nodes) delete n._w;
+    return { nodes, links };
+}
+
 // Connected components over a {nodes, links} payload (string endpoints). Largest first.
 function components(g) {
     const parent = new Map(g.nodes.map(n => [n.id, n.id]));
@@ -399,7 +474,7 @@ function lookMetrics(get) {
     const rad = get("nodeRadius");
     const radii = vis.map(n => rad(n)).sort((a, b) => a - b);
     const t = get("transformForNodes(visibleNodes, 60)");
-    const W = 1200, H = 800;
+    const W = get("width"), H = get("height");
     let area = 0;
     for (const n of vis) area += Math.PI * Math.pow(rad(n) * t.k, 2);
     const sat = get("satelliteOf");
@@ -424,16 +499,23 @@ function lookMetrics(get) {
         radiusMax: +radii[radii.length - 1].toFixed(1),
         radiusMaxOverMedian: +(radii[radii.length - 1] / quantile(radii, 0.5)).toFixed(1),
         fitZoom: +t.k.toFixed(3), coverage: +(area / (W * H)).toFixed(3),
+        // on-screen radii at the fit zoom, in points: pages only (facets are the smallest dots by design)
+        ...fitScreenRadii(vis, rad, get("nodeIsFacet"), t.k),
         haloN: halo.length, haloNnCv: +(sd / mean).toFixed(2), haloClarkEvans: +clarkEvans.toFixed(2),
         haloGap: +((quantile(haloR, 0.05) - p99) / p99).toFixed(2),
     };
+}
+
+function fitScreenRadii(vis, rad, isFacet, k) {
+    const pages = vis.filter(n => !isFacet(n)).map(n => rad(n) * k).sort((a, b) => a - b);
+    return { fitMinPt: +pages[0].toFixed(2), fitMedianPt: +quantile(pages, 0.5).toFixed(2), fitMaxPt: +pages[pages.length - 1].toFixed(1) };
 }
 
 // A cold open of the bank-shaped graph through graph.js's real entry points (updateGraph, then the filter Swift
 // re-asserts), stepped like d3's own timer until it stops. Times every tick; the only machine-dependent numbers are
 // the ms ones.
 function coldOpen(harness, seed = 7, opts = {}) {
-    const h = harness.loadGraph({ frames: true });
+    const h = harness.loadGraph({ frames: true, canvas: opts.canvas });
     const g = opts.graph || bankShaped(seed, opts);
     h.call("updateGraph", g);
     h.call("applyFilters", SWIFT_DEFAULT_FILTER);
@@ -471,7 +553,7 @@ function coldOpen(harness, seed = 7, opts = {}) {
     };
 }
 
-module.exports = { LIVE_ISOLATES_2026_10_14, ISOLATES_2026_10_15, TYPES_2026_10_15, bankShaped, bankShaped1015, lookMetrics, components, shapeSummary, bankGeometry, coldOpen, SWIFT_DEFAULT_FILTER };
+module.exports = { LIVE_ISOLATES_2026_10_14, ISOLATES_2026_10_15, TYPES_2026_10_15, bankShaped, bankShaped1015, bankShapedAt, lookMetrics, components, shapeSummary, bankGeometry, coldOpen, SWIFT_DEFAULT_FILTER };
 
 if (require.main === module) {
     console.log(JSON.stringify(shapeSummary(bankShaped())));
