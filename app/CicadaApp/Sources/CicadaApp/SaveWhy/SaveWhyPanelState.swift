@@ -3,22 +3,27 @@ import Foundation
 /// G191 — the panel's behaviour as a value: every tap, key and timer is an `Event`, every consequence an `Effect`.
 /// The view and the window only forward events and carry out effects, so the whole interaction is tested here.
 ///
-/// **Multi-select, still one tap.** A tap selects an answer and starts a short linger (`SaveWhyPolicy.linger`); a
-/// second tap within it adds (or removes) another, and the linger restarts; when it runs out, the answer is saved and
-/// the panel leaves. So the common case is one tap and no confirm button, and the case the owner described in G191 —
-/// a site saved for its design *and* its product — is one more tap, not a false choice between them.
+/// **v3 (owner 2026-10-15: "We should have the option to select various reasons of interest as well as input
+/// something in the text bar").** The owner never found v2's multi-select: a tap saved itself after a 2.5 s linger, so
+/// the panel was gone before a second tap. Now:
 ///
-/// **A tap is an answer.** Once something is tapped, closing the panel early (Esc, a click elsewhere, a timeout) saves
-/// what was tapped instead of throwing it away; with nothing tapped, closing is silent and nothing is posted. Words
-/// typed under "Something else…" are sent only with Return — an unsent draft is dropped, the taps kept.
+/// - **The chips are toggles**, drawn as such (a check that is there or not, in a slot that never moves), and any
+///   number can be on.
+/// - **The words are always there**: one field under the chips, typed into once the panel is clicked.
+/// - **Return or Save confirms.** Nothing closes the panel while the person is choosing: after a tap it waits
+///   `SaveWhyPolicy.answerIdle` for the next input (`writingIdle` once words are typed), then keeps what was chosen.
+/// - **Leaving keeps what was chosen.** A click elsewhere, Esc, the idle timeout or a newer bookmark closes the panel
+///   with the taps and the words as they stand — one tap and leaving is still an answer. With nothing chosen and
+///   nothing typed, closing is silent.
+/// - **Pending** (`item == nil`): the panel opened when Chrome showed its bookmark bubble, before Chrome wrote the
+///   file. The chips are live; the answer is bound to the bookmark once the sync confirms it (`bind`), and is never
+///   posted against a guess — the center drops it if no bookmark arrives (`withdrawn`).
 struct SaveWhyPanelState: Equatable {
     enum Phase: Equatable {
-        /// The question, nothing chosen yet; leaves silently after `SaveWhyPolicy.askTimeout`.
+        /// Nothing chosen yet; leaves silently after `SaveWhyPolicy.askTimeout`.
         case asking
-        /// Something chosen; saves after `SaveWhyPolicy.linger` unless another tap comes.
+        /// Something chosen or typed; waits for Return, Save or more input.
         case answered
-        /// "Something else…" is open; Return sends.
-        case writing
         case closed(Outcome)
     }
 
@@ -26,34 +31,42 @@ struct SaveWhyPanelState: Equatable {
         case answered(SavedWhyAnswer)
         /// Closed with nothing chosen: nothing posted, the bookmark is captured as it always was.
         case dismissed
-        /// "Don't ask for this site", with whatever was already tapped (nil when nothing).
+        /// "Don't ask for this site", with whatever was already chosen (nil when nothing).
         case muted(SavedWhyAnswer?)
+        /// A pending panel no bookmark came for (Chrome showed some other bubble): nothing kept.
+        case withdrawn
     }
 
     enum Event: Equatable {
         case tapReason(String)
         case tapProject(String)
-        case tapOther
         case draftChanged(String)
-        case submitText
-        case lingerElapsed
+        /// Return in the field, or Save.
+        case submit
+        /// No input for `answerIdle` / `writingIdle` after something was chosen.
+        case idleElapsed
+        /// Nothing chosen for `askTimeout`.
         case timeout
         case escape
         case clickOutside
         case dontAskForSite
-        /// G191 live: a newer bookmark took the panel's place — closes like a timeout, keeping any tap.
+        /// G191 live: a newer bookmark took the panel's place — closes like leaving, keeping what was chosen.
         case superseded
+        /// The pending panel's bookmark never came.
+        case withdraw
     }
 
     enum Effect: Equatable {
         case startTimer(TimeInterval)
-        case focusText
         case post(SavedWhyAnswer)
         case mute(String)
         case close
     }
 
-    let item: FreshBookmark
+    /// The bookmark asked about; nil while pending (the bubble seen, the file not written yet).
+    private(set) var item: FreshBookmark?
+    /// The browser the bookmark is being made in (the pending panel's only fact).
+    let channel: String
     let order: [String]
     private(set) var phase: Phase = .asking
     private(set) var reasons: Set<String> = []
@@ -63,15 +76,30 @@ struct SaveWhyPanelState: Equatable {
 
     init(item: FreshBookmark, order: [String], maxText: Int = 500) {
         self.item = item
+        self.channel = item.channel
+        self.order = order
+        self.maxText = maxText
+    }
+
+    /// A pending panel for a bookmark being made in `channel`'s browser.
+    init(pendingIn channel: String, order: [String], maxText: Int = 500) {
+        self.item = nil
+        self.channel = channel
         self.order = order
         self.maxText = maxText
     }
 
     var isOpen: Bool { if case .closed = phase { return false } else { return true } }
+    var isPending: Bool { item == nil }
+    /// The person has typed words: nothing replaces the panel while they write.
+    var isWriting: Bool { isOpen && !words.isEmpty }
 
-    /// What the person has chosen so far, in the panel's order (the draft only once sent).
+    /// The draft as it would be saved: whitespace folded, capped.
+    var words: String { draft.split(whereSeparator: \.isWhitespace).joined(separator: " ") }
+
+    /// What the person has chosen so far, in the panel's order, with their words.
     var selection: SavedWhyAnswer {
-        SavedWhyAnswer(reasons: order.filter(reasons.contains), project: project, text: nil)
+        SavedWhyAnswer(reasons: order.filter(reasons.contains), project: project, text: words.isEmpty ? nil : words)
     }
 
     func isSelected(reason key: String) -> Bool { reasons.contains(key) }
@@ -80,47 +108,49 @@ struct SaveWhyPanelState: Equatable {
     /// The effects of opening: the question's own timer.
     static func opening() -> [Effect] { [.startTimer(SaveWhyPolicy.askTimeout)] }
 
+    /// The bookmark arrived (a pending panel) or a newer read named it more exactly: keep every tap and word.
+    mutating func bind(_ bookmark: FreshBookmark) {
+        guard bookmark.channel == channel || item == nil else { return }
+        item = bookmark
+    }
+
     mutating func send(_ event: Event) -> [Effect] {
         guard isOpen else { return [] }
         switch event {
         case .tapReason(let key):
             if reasons.contains(key) { reasons.remove(key) } else { reasons.insert(key) }
-            return afterTap()
+            return afterInput()
         case .tapProject(let id):
             project = project == id ? nil : id
-            return afterTap()
-        case .tapOther:
-            phase = .writing
-            return [.startTimer(SaveWhyPolicy.writingTimeout), .focusText]
+            return afterInput()
         case .draftChanged(let text):
-            draft = String(text.prefix(maxText))
-            return []
-        case .submitText:
-            let words = draft.split(whereSeparator: \.isWhitespace).joined(separator: " ")
-            var answer = selection
-            answer.text = words.isEmpty ? nil : words
-            return finish(answer.isEmpty ? .dismissed : .answered(answer))
-        case .lingerElapsed:
-            guard phase == .answered else { return [] }
-            return finish(.answered(selection))
-        case .timeout, .escape, .clickOutside, .superseded:
+            let capped = String(text.prefix(maxText))
+            guard capped != draft else { return [] }
+            draft = capped
+            return afterInput()
+        case .submit, .idleElapsed, .escape, .clickOutside, .superseded:
             return finish(selection.isEmpty ? .dismissed : .answered(selection))
+        case .timeout:
+            // Only the question's own timer: something chosen since runs on the idle timer instead.
+            guard selection.isEmpty else { return [] }
+            return finish(.dismissed)
+        case .withdraw:
+            phase = .closed(.withdrawn)
+            return [.close]
         case .dontAskForSite:
+            guard let host = item?.host else { return [] }   // pending: no site to name yet
             let taps = selection
-            var effects: [Effect] = item.host.map { [.mute($0)] } ?? []
-            effects += finish(.muted(taps.isEmpty ? nil : taps))
-            return effects
+            return [.mute(host)] + finish(.muted(taps.isEmpty ? nil : taps))
         }
     }
 
-    private mutating func afterTap() -> [Effect] {
-        if phase == .writing { return [] }   // still writing: Return sends the taps with the words
+    private mutating func afterInput() -> [Effect] {
         if selection.isEmpty {
             phase = .asking
             return [.startTimer(SaveWhyPolicy.askTimeout)]
         }
         phase = .answered
-        return [.startTimer(SaveWhyPolicy.linger)]
+        return [.startTimer(words.isEmpty ? SaveWhyPolicy.answerIdle : SaveWhyPolicy.writingIdle)]
     }
 
     private mutating func finish(_ outcome: Outcome) -> [Effect] {
@@ -128,7 +158,7 @@ struct SaveWhyPanelState: Equatable {
         switch outcome {
         case .answered(let answer): return [.post(answer), .close]
         case .muted(let answer?): return [.post(answer), .close]
-        case .muted(nil), .dismissed: return [.close]
+        case .muted(nil), .dismissed, .withdrawn: return [.close]
         }
     }
 }

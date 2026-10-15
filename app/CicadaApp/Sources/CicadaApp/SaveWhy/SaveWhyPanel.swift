@@ -74,7 +74,7 @@ final class SaveWhyPanelController: SaveWhyPresenting {
 
         // G191 live: the screen the bookmark was made on — the browser's front window, else the front app's — and
         // `NSScreen.main` only when neither is known (`SaveWhyScreen`). The notch is that screen's own.
-        let screen = SaveWhyScreen.live(channel: center.state?.item.channel)
+        let screen = SaveWhyScreen.live(channel: center.state?.channel)
         let screenFrame = screen?.frame ?? CGRect(x: 0, y: 0, width: 1440, height: 900)
         let visible = screen?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1440, height: 876)
         let notchRect = SaveWhyNotch.notchRect(screen: screenFrame, topLeft: screen?.auxiliaryTopLeftArea,
@@ -86,7 +86,8 @@ final class SaveWhyPanelController: SaveWhyPresenting {
         notch.band = SaveWhyNotch.band(screen: screenFrame, visible: visible, notch: notchRect)
         placedOn = (screenFrame, notchRect)
 
-        let host = NSHostingView(rootView: SaveWhyPanelView(center: center, focus: focus, notch: notch))
+        let host = NSHostingView(rootView: SaveWhyPanelView(center: center, focus: focus, notch: notch,
+                                                            onFieldClick: { [weak self] in self?.focusText() }))
         panel.contentView = host
         panel.setFrame(SaveWhyNotch.frame(screen: screenFrame, notch: notchRect, size: host.fittingSize),
                        display: false)
@@ -116,16 +117,12 @@ final class SaveWhyPanelController: SaveWhyPresenting {
         }
     }
 
+    /// A click in the field (G191 v3: the field is always there, so the window never resizes for it): the panel takes
+    /// the keyboard — it may, the click was inside it — and the field the focus.
     func focusText() {
-        panel?.makeKey()
-        // The field is new: let SwiftUI lay it out, then grow the window downward (its top stays on the screen's edge).
-        DispatchQueue.main.async { [weak self] in
-            guard let self, let panel = self.panel, let content = panel.contentView, let placed = self.placedOn
-            else { return }
-            panel.setFrame(SaveWhyNotch.frame(screen: placed.screen, notch: placed.notch, size: content.fittingSize),
-                           display: true)
-            self.focus.request()
-        }
+        guard let panel, panel.clickedInside else { return }
+        panel.makeKey()
+        focus.request()
     }
 
     private func hideNow() {
@@ -148,13 +145,18 @@ final class SaveWhyFocus {
     func request() { ticket &+= 1 }
 }
 
-/// G191 — the panel itself: the bookworm, the question, the page it is about, the one-tap answers, "Something else…" and
-/// "Don't ask for this site". v2 (owner 2026-10-14): the notch growing — notch-black in both appearances, the top
-/// band empty for the notch, one hairline sheen on the grown edge, a ring-free outline (DESIGN_RULES §9, 2026-10-14).
+/// G191 — the panel itself: the bookworm, the question, the page it is about, the reasons as toggles, the words and
+/// Save. v2 (owner 2026-10-14): the notch growing — notch-black in both appearances, the top band empty for the notch,
+/// one hairline sheen on the grown edge, a ring-free outline (DESIGN_RULES §9, 2026-10-14). v3 (owner 2026-10-15):
+/// any number of reasons, drawn as toggles; the field always there; Save or Return confirms; and nothing in it
+/// changes size as it fills — the field, the footer and every chip's check slot are there from the first frame, so
+/// the shape grows once and never jumps.
 struct SaveWhyPanelView: View {
     let center: SaveWhyCenter
     let focus: SaveWhyFocus
     let notch: SaveWhyNotchModel
+    /// A click in the field: make the panel key so the words go there.
+    var onFieldClick: () -> Void = {}
     @FocusState private var textFocused: Bool
     @State private var draft = ""
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -205,30 +207,58 @@ struct SaveWhyPanelView: View {
                         center.input(.tapProject(project.id))
                     }
                 }
-                chip(Copy.SaveWhy.somethingElse, selected: state.phase == .writing) { center.input(.tapOther) }
             }
-            if state.phase == .writing {
-                TextField(Copy.SaveWhy.placeholder, text: $draft)
-                    .textFieldStyle(.roundedBorder)
-                    .focused($textFocused)
-                    .onChange(of: draft) { _, text in center.send(.draftChanged(text)) }
-                    .onSubmit { center.send(.submitText) }
-            }
+            words(state)
             HStack {
-                Text(state.phase == .answered ? Copy.SaveWhy.savingHint : Copy.SaveWhy.hint)
+                Text(Copy.SaveWhy.hint(pending: state.isPending, chosen: !state.selection.isEmpty))
                     .font(CicadaTheme.captionFont)
                     .foregroundStyle(CicadaTheme.Notch.textTertiary)
+                    .lineLimit(1)
                 Spacer()
+                // Kept in place while pending (no site to name yet), so the footer never moves when the link arrives.
                 Button(Copy.SaveWhy.dontAsk) { center.input(.dontAskForSite) }
                     .buttonStyle(.cicadaPlain)
                     .font(CicadaTheme.captionFont)
                     .foregroundStyle(CicadaTheme.Notch.textSecondary)
+                    .opacity(state.isPending ? 0 : 1)
+                    .disabled(state.isPending)
+                    .accessibilityHidden(state.isPending)
             }
         }
         .padding(.horizontal, CicadaTheme.spacingMD)
         .padding(.top, CicadaTheme.spacingSM)
         .padding(.bottom, CicadaTheme.spacingMD)
         .frame(width: Self.width, alignment: .leading)
+    }
+
+    /// The field and Save, always there: a few words of the person's own, Return or Save to confirm.
+    private func words(_ state: SaveWhyPanelState) -> some View {
+        HStack(spacing: CicadaTheme.spacingSM) {
+            TextField(Copy.SaveWhy.placeholder, text: $draft)
+                .textFieldStyle(.plain)
+                .font(CicadaTheme.font(size: 12))
+                .foregroundStyle(CicadaTheme.Notch.textPrimary)
+                .focused($textFocused)
+                .padding(.horizontal, CicadaTheme.scaled(10))
+                .padding(.vertical, CicadaTheme.scaled(6))
+                .background(Capsule().strokeBorder(textFocused ? CicadaTheme.Notch.chipSelectedRing
+                                                                : CicadaTheme.Notch.chipRing, lineWidth: 1))
+                .contentShape(Capsule())
+                .simultaneousGesture(TapGesture().onEnded { onFieldClick() })
+                .onChange(of: draft) { _, text in center.send(.draftChanged(text)) }
+                .onSubmit { center.input(.submit) }
+                .accessibilityLabel(Copy.SaveWhy.wordsLabel)
+            Button(Copy.SaveWhy.save) { center.input(.submit) }
+                .buttonStyle(.cicadaPlain)
+                .font(CicadaTheme.font(size: 12, weight: .semibold))
+                .foregroundStyle(state.selection.isEmpty ? CicadaTheme.Notch.textTertiary
+                                                         : CicadaTheme.Notch.textPrimary)
+                .padding(.horizontal, CicadaTheme.scaled(12))
+                .padding(.vertical, CicadaTheme.scaled(6))
+                .background(Capsule().fill(state.selection.isEmpty ? Color.clear : CicadaTheme.Notch.chipSelected))
+                .overlay(Capsule().strokeBorder(CicadaTheme.Notch.chipRing, lineWidth: 1))
+                .disabled(state.selection.isEmpty)
+        }
     }
 
     private func header(_ state: SaveWhyPanelState) -> some View {
@@ -240,7 +270,9 @@ struct SaveWhyPanelView: View {
                 Text(Copy.SaveWhy.question)
                     .font(CicadaTheme.font(size: 13, weight: .semibold))
                     .foregroundStyle(CicadaTheme.Notch.textPrimary)
-                Text(Copy.SaveWhy.subject(title: state.item.title, host: state.item.host))
+                Text(state.item.map { Copy.SaveWhy.subject(title: $0.title, host: $0.host, resave: $0.resave == true) }
+                     ?? Copy.SaveWhy.pendingSubject(browser: BrowserInventory.spec(forBookmarksChannel: state.channel)?
+                                                    .name))
                     .font(CicadaTheme.captionFont)
                     .foregroundStyle(CicadaTheme.Notch.textSecondary)
                     .lineLimit(1)
@@ -249,19 +281,27 @@ struct SaveWhyPanelView: View {
         }
     }
 
+    /// A reason as a toggle: a check slot that is filled or empty (always there, so a tap never moves the row), one
+    /// weight for both states (a bolder label would widen the chip and reflow the row).
     private func chip(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Text(title)
-                .font(CicadaTheme.font(size: 12, weight: selected ? .semibold : .regular))
-                .foregroundStyle(CicadaTheme.Notch.textPrimary)
-                .padding(.horizontal, CicadaTheme.scaled(10))
-                .padding(.vertical, CicadaTheme.scaled(5))
-                .background(Capsule().fill(selected ? CicadaTheme.Notch.chipSelected : Color.clear))
-                .overlay(Capsule().strokeBorder(selected ? CicadaTheme.Notch.chipSelectedRing : CicadaTheme.Notch.chipRing,
-                                                lineWidth: 1))
+            HStack(spacing: CicadaTheme.scaled(5)) {
+                Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                    .font(CicadaTheme.font(size: 11))
+                    .foregroundStyle(selected ? CicadaTheme.Notch.textPrimary : CicadaTheme.Notch.textTertiary)
+                Text(title)
+                    .font(CicadaTheme.font(size: 12))
+                    .foregroundStyle(CicadaTheme.Notch.textPrimary)
+            }
+            .padding(.leading, CicadaTheme.scaled(8))
+            .padding(.trailing, CicadaTheme.scaled(10))
+            .padding(.vertical, CicadaTheme.scaled(5))
+            .background(Capsule().fill(selected ? CicadaTheme.Notch.chipSelected : Color.clear))
+            .overlay(Capsule().strokeBorder(selected ? CicadaTheme.Notch.chipSelectedRing : CicadaTheme.Notch.chipRing,
+                                            lineWidth: 1))
         }
         .buttonStyle(.cicadaPlain)
-        .accessibilityAddTraits(selected ? .isSelected : [])
+        .accessibilityAddTraits(selected ? [.isSelected, .isToggle] : [.isToggle])
     }
 }
 

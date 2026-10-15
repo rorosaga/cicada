@@ -147,7 +147,9 @@ enum PictureURL: Hashable, Sendable {
     static func parse(_ raw: String?) -> PictureURL? {
         guard let raw, !raw.isEmpty else { return nil }
         // `/design/<id>/image` (design taste, 2026-10-14): a saved look's screenshot, from the bank through the API.
-        if raw.hasPrefix("/entities/") || raw.hasPrefix("/design/"), !raw.contains(".."), !raw.contains("//") {
+        // `/explore/captures/…/thumb` (G191 v3): a site capture's thumbnail, from the bank (the bookmark history).
+        if raw.hasPrefix("/entities/") || raw.hasPrefix("/design/") || raw.hasPrefix("/explore/captures/"),
+           !raw.contains(".."), !raw.contains("//") {
             return .api(path: raw)
         }
         if EntityPictureResolver.isHTTPS(raw), let url = URL(string: raw), url.scheme == "https", url.host != nil {

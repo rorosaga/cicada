@@ -36,20 +36,35 @@ Seven rails hold across all of them:
   this pass (at most `FRESH_CAP` = 3 listed), each with its episode and `added_at`, the browser's own instant (aware
   UTC, seconds; Chrome's `date_added`, Safari's Reading List `DateAdded`, `saved_at.instant_from_*`). The episode
   keeps `added_at` beside the day in `saved_at`, so the record says *when* a page that may since have changed was
-  saved. A moved bookmark is a URL already held, so a reorganisation is never fresh. The app decides whether to ask
+  saved. A moved bookmark is a URL already held, so a reorganisation is never fresh. **A re-save is fresh (G191 v3,
+  owner 2026-10-15):** a link the bank holds that this channel's file newly saved — absent from the channel's last
+  seen-set and present now, or stamped by the browser later than the newest instant the last sync saw (the seen-set
+  keeps `newest_added`) — is reported with `resave: true` and its own episode, by the sync and the early look alike
+  (`bookmark_sync._resaved`); refused on a first sync or a changed folder scope, like the removal diff. A move or a
+  rename keeps both the URL and the node's `date_added`, so it never is. A re-save of a removed bookmark makes its page
+  active again and clears its episode's `source_deleted_at` (`_revive`, in the sync's own `cicada` commit, trigger
+  `sync/bookmark_resave`). The app decides whether to ask
   (see `app.md`, *Ask why*); the answer is `POST /sources/saved-why` `{url, reasons[], project?, text?, at?}` (`at`: when the person answered,
   as the app recorded it — aware, not in the future, at most 24 h old, else 422 — so an answer the app held through a
   409 keeps its own time) → the link's
-  episode through `episode_staging.amend_section`: one `## Why it was saved` section (rewritten, never twinned, placed
+  episode through `episode_staging.revise_section`: one `## Why it was saved` section (rewritten, never twinned, placed
   above an agent's `## Note` so `speaker_kind` reads it as the person's), the words scrubbed (writer `saved-why`),
-  `saved_why: {reasons, project, text, at}` in the frontmatter, `processed: false` so Sleep reads it again, committed
+  `saved_why: {reasons, project, text, at, added_at?}` in the frontmatter — **every moment of saving keeps its own
+  answer (G191 v3):** the newest is `saved_why`, the older ones `saved_why_earlier` (oldest first, at most 20 in all),
+  the section lists them all, oldest first; an answer replaces another only when it is the same one again (the same
+  `at`, the app's retry; or the same `addedAt`, the same save) or the person edits it (`PUT /sources/saved-why`,
+  `edited_at`), `processed: false` so Sleep reads it again, committed
   alone as `user` (trigger `user/saved_why`) inside the write admission (409 while Sleep holds the pages, 409 in a demo
   bank, 404 for a link not saved, 422 for an empty or unknown answer). Reason ids are a closed, stable set —
   `design`, `product`, `technique`, `read_later` — labels separate; `project` is a live project page's id; `text`
   is the person's own words (≤ 500). `GET /sources/saved-why/options` serves the reasons and up to three live
   projects (open backlog first, then the most recently referenced) — deterministic, no model. The wire for a later
-  reader is the source record: `GET /sources` → `items[].savedWhy` `{reasons, labels, project, text, at, addedAt}`,
-  read from the episode (null when nobody was asked).
+  reader is the source record: `GET /sources` → `items[].savedWhy` `{reasons, labels, project, text, at, addedAt,
+  editedAt}`, read from the episode (null when nobody was asked), with `savedWhyHistory` (every answer, oldest first,
+  when there are several) and `lastSavedAt` (the newest moment of saving the record knows). **Remove (G191 v3):**
+  `POST /sources/bookmarks/remove` archives the media page and tombstones the episode (`bookmark_forget`), never an
+  unlink; the person's answers stay. The browser's copy is the app's to remove (Chrome through Apple Events on the
+  person's click; Safari cannot be edited by another app).
 - **Capture must not depend on a model deciding to call a tool** (G105). Every Claude Code and
   Codex session is captured by the harness's own `Stop` hook
   (`api/hooks/capture.py` → `POST /capture/transcript`). Cursor and Gemini CLI are captured by their own

@@ -140,6 +140,10 @@ protocol SyncAPI: Sendable {
     func addEntitySource(entityId: String, ref: String, predicate: String?) async throws -> [EntitySource]
     /// G150 — the Backlog section's three writes (`routers/backlog.py`), each answering the item as it now stands. All
     /// answer 409 while a Sleep cycle runs, and an add whose idea is already open answers 409 naming the item.
+    /// G191 v3 — a bookmark's reasons, from its page: change one answer (`at` names it) or add one (`at` nil).
+    func writeSavedWhy(url: String, at: String?, answer: SavedWhyAnswer) async throws -> SavedWhyReply
+    /// G191 v3 — forget a bookmark in Cicada (the page archived, the episode tombstoned).
+    func removeBookmark(url: String) async throws
     func addBacklogItem(project: String, title: String, description: String) async throws -> BacklogItem
     func addBacklogNote(project: String, item: String, note: String, status: String?) async throws -> BacklogItem
     func updateBacklogItem(project: String, item: String, change: BacklogChange) async throws -> BacklogItem

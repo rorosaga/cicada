@@ -26,7 +26,8 @@ enum BrowserImportActions {
         case "safari-bookmarks":
             let look = BookmarkSyncSignal.takeLook()   // review B2: numbered before the read
             let data = try await BrowserFileReader.read(.safariBookmarks)
-            let looked = await BookmarkSyncSignal.lookEarly(.safari(data), look: look)   // G191 live: ask before the sync
+            // G191 live: ask before the sync; v3: the app's own diff names the link beside the look.
+            let looked = await BookmarkSyncSignal.diffAndLook(channel: id, data: data, bytes: .safari(data), look: look)
             let m = SyncBrowserBookmarks(chromeData: nil, safariData: data, folders: nil)
             guard await store.perform(m), let r = m.result else {
                 try Task.checkCancellation()
@@ -38,7 +39,8 @@ enum BrowserImportActions {
         case "chrome-bookmarks":
             let look = BookmarkSyncSignal.takeLook()   // review B2: numbered before the read
             let data = try await BrowserFileReader.read(.chromeBookmarks)
-            let looked = await BookmarkSyncSignal.lookEarly(.chrome(data), look: look)   // G191 live: ask before the sync
+            // G191 live: ask before the sync; v3: the app's own diff names the link beside the look.
+            let looked = await BookmarkSyncSignal.diffAndLook(channel: id, data: data, bytes: .chrome(data), look: look)
             let m = SyncBrowserBookmarks(chromeData: data, safariData: nil, folders: nil)
             guard await store.perform(m), let r = m.result else {
                 try Task.checkCancellation()
@@ -57,7 +59,8 @@ enum BrowserImportActions {
             }
             let look = BookmarkSyncSignal.takeLook()   // review B2: numbered before the read
             let data = try await BrowserFileReader.read(file)
-            let looked = await BookmarkSyncSignal.lookEarly(.chromium(browser: spec.id, data), look: look)   // G191 live
+            let looked = await BookmarkSyncSignal.diffAndLook(channel: id, data: data,
+                                                              bytes: .chromium(browser: spec.id, data), look: look)
             let m = SyncChromiumBookmarks(browser: spec.id, data: data)
             guard await store.perform(m), let r = m.result else {
                 try Task.checkCancellation()
@@ -75,19 +78,26 @@ enum BrowserImportActions {
     /// look still decides.
     @MainActor
     static func peek(_ id: String) async {
-        let (bytes, look): (BookmarkBytes, Int?)
+        let (bytes, look, data): (BookmarkBytes, Int?, Data)
         do {
             look = BookmarkSyncSignal.$live.withValue(true) { BookmarkSyncSignal.takeLook() }   // before the read
             switch id {
-            case "safari-bookmarks": bytes = .safari(try await BrowserFileReader.read(.safariBookmarks))
-            case "chrome-bookmarks": bytes = .chrome(try await BrowserFileReader.read(.chromeBookmarks))
+            case "safari-bookmarks":
+                data = try await BrowserFileReader.read(.safariBookmarks)
+                bytes = .safari(data)
+            case "chrome-bookmarks":
+                data = try await BrowserFileReader.read(.chromeBookmarks)
+                bytes = .chrome(data)
             default:
                 guard let spec = BrowserInventory.spec(forBookmarksChannel: id), spec.engine == .chromium,
                       spec.id != "chrome", let file = BrowserFile.bookmarks(forBrowser: spec.id) else { return }
-                bytes = .chromium(browser: spec.id, try await BrowserFileReader.read(file))
+                data = try await BrowserFileReader.read(file)
+                bytes = .chromium(browser: spec.id, data)
             }
         } catch { return }
-        _ = await BookmarkSyncSignal.$live.withValue(true) { await BookmarkSyncSignal.lookEarly(bytes, look: look) }
+        _ = await BookmarkSyncSignal.$live.withValue(true) {
+            await BookmarkSyncSignal.diffAndLook(channel: id, data: data, bytes: bytes, look: look)
+        }
     }
 
     enum ImportActionError: Error, LocalizedError, Equatable {

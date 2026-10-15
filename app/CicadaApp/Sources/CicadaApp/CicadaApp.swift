@@ -88,6 +88,10 @@ struct CicadaApp: App {
     /// center keeps its presenter weakly.
     @State private var saveWhy = SaveWhyCenter()
     @State private var saveWhyPanel = SaveWhyPanelController()
+    /// G191 v3 — Chrome's bookmark bubble, seen from the window list (no permission), opens the question at once.
+    @State private var bookmarkBubbles = BookmarkBubbleWatcher()
+    /// G191 v3 — the menu bar's bookmark history.
+    @State private var bookmarkHistory = BookmarkHistoryController()
     /// G133 / G134: watched folders and Wispr Flow, read by the app (the backend
     /// never opens them). Lights ride `browserWatcher` (R-LS26).
     @State private var localSources: LocalSourceWatcher
@@ -319,6 +323,23 @@ struct CicadaApp: App {
                     // G191 — off until the person turns it on (Settings → Integrations → Browsers).
                     saveWhy.attach(presenter: saveWhyPanel)
                     saveWhy.start()
+                    bookmarkBubbles.isWanted = { [saveWhy, browserWatcher] channel in
+                        saveWhy.prefs.enabled && browserWatcher.isEnabled(channel)
+                    }
+                    bookmarkBubbles.onBubble = { [saveWhy] channel, size in saveWhy.bubbleSeen(channel: channel, size: size) }
+                    saveWhy.onBubbleFeedback = { [bookmarkBubbles] channel, size, bookmarked in
+                        bookmarkBubbles.feedback(channel: channel, size: size, bookmarked: bookmarked)
+                    }
+                    bookmarkBubbles.start()
+                    // G191 v3 — the app's own diff needs a "before" for each watched browser: read once now, so the
+                    // first bookmark after launch is named from the file without waiting for the backend.
+                    if saveWhy.prefs.enabled {
+                        Task {
+                            let browsers = await Task.detached { BrowserInventory.live() }.value
+                            await BookmarkFileDiff.shared.seed(channels: SaveWhySetup.channels(inventory: browsers)
+                                .filter { browserWatcher.isEnabled($0) })
+                        }
+                    }
                     // Review B1 — an answer held through a 409 or a restart goes out again now.
                     Task { await saveWhy.retryHeld() }
                     // Track I T5 — the one intake owns `store.intakeInFlight`
@@ -419,6 +440,12 @@ struct CicadaApp: App {
                     )
                     // G191 v2 — the developer-only preview (hidden unless its defaults key is set; never in a release).
                     menuBarManager.onPreviewSaveWhy = { [saveWhy] channel in Task { await saveWhy.preview(channel: channel) } }
+                    // G191 v3 — Bookmarks…: the history under the status item; a row opens its page in the Feed.
+                    menuBarManager.onShowBookmarks = { [bookmarkHistory, store, appRouter] anchor in
+                        bookmarkHistory.toggle(store: store, anchor: anchor) { row in
+                            appRouter.routeToBookmark(row.mediaEntityId)
+                        }
+                    }
                     // R-HO16 — the switch, applied at launch too.
                     menuBarManager.setVisible(menuBarVisible)
 

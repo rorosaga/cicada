@@ -273,6 +273,19 @@ struct MediaFeedItem: Codable, Identifiable {
     /// block. `nil` from an older backend, and for a link that is not a page to read (a video, a paper) with
     /// nothing recorded. It moves on the `reading` sync component, so a `needs_login` shows here over SSE.
     let read: MediaReadState?
+    /// G191 — the person's newest answer to "What made you save this?"; v3 adds every answer (oldest first, only when
+    /// there is more than one), the newest moment the link was saved and the site-capture thumbnail Cicada holds.
+    /// All optional: an older backend omits them.
+    var savedWhy: SavedWhyRecord? = nil
+    var savedWhyHistory: [SavedWhyRecord]? = nil
+    var lastSavedAt: String? = nil
+    var captureThumb: String? = nil
+
+    /// Every answer, oldest first (the history when there are several, else the one answer).
+    var savedWhyAnswers: [SavedWhyRecord] {
+        if let history = savedWhyHistory, !history.isEmpty { return history }
+        return savedWhy.map { [$0] } ?? []
+    }
 
     // Row identity must be unique per SAVED ITEM, not per entity page: the
     // ingestor slugifies page titles into mediaEntityId, so 148 distinct
@@ -321,6 +334,7 @@ struct MediaFeedItem: Codable, Identifiable {
         case provider, durationS
         case kind, paper
         case read
+        case savedWhy, savedWhyHistory, lastSavedAt, captureThumb
     }
 
     init(from decoder: Decoder) throws {
@@ -349,6 +363,10 @@ struct MediaFeedItem: Codable, Identifiable {
         kind = try c.decodeIfPresent(String.self, forKey: .kind)
         paper = try c.decodeIfPresent(PaperSummary.self, forKey: .paper)
         read = try? c.decodeIfPresent(MediaReadState.self, forKey: .read)
+        savedWhy = try? c.decodeIfPresent(SavedWhyRecord.self, forKey: .savedWhy)
+        savedWhyHistory = try? c.decodeIfPresent([SavedWhyRecord].self, forKey: .savedWhyHistory)
+        lastSavedAt = try? c.decodeIfPresent(String.self, forKey: .lastSavedAt)
+        captureThumb = try? c.decodeIfPresent(String.self, forKey: .captureThumb)
     }
 
     var isPaper: Bool { kind == "paper" }
@@ -400,6 +418,9 @@ struct FreshBookmark: Codable, Equatable, Sendable {
     var channel: String = ""
     var episodeId: String = ""
     var addedAt: String? = nil
+    /// G191 v3 — a link Cicada already held, saved again in this browser (removed and bookmarked again). Optional so
+    /// an older backend still decodes.
+    var resave: Bool? = nil
 
     /// The page's host without `www.`, lower-cased — the key "Don't ask for this site" remembers.
     var host: String? {
@@ -467,6 +488,36 @@ struct SavedWhyOptions: Codable, Equatable, Sendable {
     var maxText: Int = 500
 }
 
+/// G191 — one answer as the source record carries it (`GET /sources` → `savedWhy` / `savedWhyHistory`): the reason
+/// keys with their labels, the project, the person's words, when they said it (`at`), when the browser says that save
+/// was made (`addedAt`) and when they last changed it (`editedAt`, v3).
+struct SavedWhyRecord: Codable, Equatable, Sendable, Hashable {
+    var reasons: [String] = []
+    var labels: [String] = []
+    var project: String? = nil
+    var text: String? = nil
+    var at: String? = nil
+    var addedAt: String? = nil
+    var editedAt: String? = nil
+
+    var answer: SavedWhyAnswer { SavedWhyAnswer(reasons: reasons, project: project, text: text) }
+}
+
+/// G191 v3 — `POST`/`PUT /sources/saved-why`'s answer: the answer written and every answer on the link now.
+struct SavedWhyReply: Codable, Equatable, Sendable {
+    var episodeId: String = ""
+    var mediaEntityId: String = ""
+    var savedWhy: SavedWhyRecord
+    var history: [SavedWhyRecord]? = nil
+}
+
+/// G191 v3 — `POST /sources/bookmarks/remove`'s answer.
+struct BookmarkRemoveReply: Codable, Equatable, Sendable {
+    var episodeId: String = ""
+    var mediaEntityId: String = ""
+    var status: String = "archived"
+}
+
 /// G191 — what the person answered, posted to `POST /sources/saved-why`.
 struct SavedWhyAnswer: Codable, Equatable, Sendable {
     var reasons: [String] = []
@@ -509,7 +560,8 @@ protocol SavedWhyAPI: Sendable {
     func freshBookmarks(_ bytes: BookmarkBytes) async throws -> BookmarkSyncResult
     func savedWhyOptions() async throws -> SavedWhyOptions
     /// `at` is when the person answered — sent so an answer held through a 409 keeps its own time (review B1).
-    func saveWhy(url: String, answer: SavedWhyAnswer, at: Date) async throws
+    /// `addedAt` (G191 v3) is the moment of saving it answers: a re-save's answer is a new dated reason.
+    func saveWhy(url: String, answer: SavedWhyAnswer, at: Date, addedAt: String?) async throws
 }
 
 /// `POST /sources/sync-notes` result — Apple Notes one-way sync tally. Mirrors
@@ -2180,11 +2232,39 @@ actor APIClient {
     }
 
     /// G191 — the person's answer, attached by the backend to that bookmark's episode (`POST /sources/saved-why`).
-    func saveWhy(url: String, answer: SavedWhyAnswer, at: Date) async throws {
+    func saveWhy(url: String, answer: SavedWhyAnswer, at: Date, addedAt: String?) async throws {
         var body = answer.body
         body["url"] = url
         body["at"] = ISO8601DateFormatter().string(from: at)
+        if let addedAt { body["addedAt"] = addedAt }
         try await post("/sources/saved-why", body: body)
+    }
+
+    /// G191 v3 — the person changes one answer (`PUT /sources/saved-why`), named by when it was given.
+    func editSavedWhy(url: String, at: String, answer: SavedWhyAnswer) async throws -> SavedWhyReply {
+        var body = answer.body
+        body["url"] = url
+        body["at"] = at
+        return try await put("/sources/saved-why", body: body)
+    }
+
+    /// G191 v3 — the bookmark page's write: an edit when `at` names an answer, else a new one.
+    func writeSavedWhy(url: String, at: String?, answer: SavedWhyAnswer) async throws -> SavedWhyReply {
+        if let at { return try await editSavedWhy(url: url, at: at, answer: answer) }
+        return try await addSavedWhy(url: url, answer: answer)
+    }
+
+    /// G191 v3 — a reason added from the bookmark's page (`POST /sources/saved-why`), answered now.
+    func addSavedWhy(url: String, answer: SavedWhyAnswer) async throws -> SavedWhyReply {
+        var body = answer.body
+        body["url"] = url
+        body["at"] = ISO8601DateFormatter().string(from: Date())
+        return try await post("/sources/saved-why", body: body)
+    }
+
+    /// G191 v3 — forget a bookmark in Cicada (`POST /sources/bookmarks/remove`): the page archived, never deleted.
+    func removeBookmark(url: String) async throws {
+        let _: BookmarkRemoveReply = try await post("/sources/bookmarks/remove", body: ["url": url])
     }
 
     /// `POST /sources/sync-safari-tabs` — CloudTabs.db bytes the app read,

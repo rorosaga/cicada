@@ -17,6 +17,8 @@ struct SaveWhyOutbox {
         let url: String
         let answer: SavedWhyAnswer
         let at: Date
+        /// G191 v3 — the moment of saving it answers (the browser's instant), when known.
+        var addedAt: String? = nil
     }
 
     enum Verdict: Equatable {
@@ -49,9 +51,12 @@ struct SaveWhyOutbox {
         }
     }
 
-    /// One held answer per link: a later answer for the same link replaces the earlier one (the backend rewrites the
-    /// section the same way).
-    func hold(_ entry: Entry) { entries = entries.filter { $0.url != entry.url } + [entry] }
+    /// One held answer per moment of saving: the same answer held again replaces itself; another save's answer for
+    /// the same link (G191 v3: a re-save is a new dated reason) is kept beside it.
+    func hold(_ entry: Entry) {
+        entries = entries.filter { !($0.url == entry.url && ($0.at == entry.at || ($0.addedAt != nil
+            && $0.addedAt == entry.addedAt))) } + [entry]
+    }
 
     func remove(_ entry: Entry) { entries = entries.filter { $0 != entry } }
 

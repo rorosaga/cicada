@@ -28,6 +28,9 @@ struct VersionVector: Codable, Equatable {
         // outside every bank, so an agent's `needs_login` moves no other component; `GET /sources` folds this one
         // into its ETag and its `read` block, so the Feed refreshes over SSE with no bank write.
         "reading": [.sources],
+        // G191 v3: `GET /sources` folds `captures` into its ETag — a new site capture gives a bookmark's row (the
+        // Feed, the menu bar's history) its thumbnail, with no other component moving.
+        "captures": [.sources],
         // The logo cache sits outside the bank; a Sleep warm-up or an on-demand
         // fetch changes `/graph`'s `hasLogo` and nothing else, so it needs its
         // own key or the node keeps painting a monogram.

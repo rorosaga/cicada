@@ -46,6 +46,21 @@ enum BookmarkSyncSignal {
     @MainActor static func post(_ result: BookmarkSyncResult, lookedEarly: Int? = nil) {
         observer?(result, lookedEarly.map { .afterEarlyLook(look: $0) } ?? .synced(live: live))
     }
+
+    /// G191 v3 — the app's own diff (`BookmarkFileDiff`) found one bookmark saved since its last read: the center's
+    /// `candidate`, which names the link at once while the early look still decides.
+    @MainActor static var offer: (@MainActor (FreshBookmark) -> Void)?
+
+    /// Diff the bytes just read (every read records the baseline; only a live one can name a bookmark) beside the
+    /// early look, and hand a named bookmark to the center as soon as the diff has it — not after the look's reply.
+    @MainActor static func diffAndLook(channel: String, data: Data, bytes: BookmarkBytes, look: Int?) async -> Int? {
+        let live = self.live
+        async let looked = lookEarly(bytes, look: look)
+        if let named = await BookmarkFileDiff.shared.observe(channel: channel, data: data, live: live) {
+            offer?(named)
+        }
+        return await looked
+    }
 }
 
 /// What shows the panel. The live one is `SaveWhyPanelController` (an `NSPanel`); tests record calls.
@@ -58,11 +73,27 @@ protocol SaveWhyPresenting: AnyObject {
 
 /// G191 — decides, asks, and posts. Holds the open panel's state; the panel view reads it and sends events back.
 /// The answer itself is the backend's business (`POST /sources/saved-why`): the app only shows the panel and posts.
+///
+/// **G191 v3 — three ways in, one answer.** The question can open before the backend has decided anything:
+///
+/// 1. `bubbleSeen` — Chrome showed its bookmark bubble (`BookmarkBubbleWatcher`): the panel opens at once, pending,
+///    with no link yet;
+/// 2. `candidate` — the app's own diff of the file Chrome just wrote named one bookmark (`BookmarkFileDiff`): the link
+///    fills in (or the panel opens with it);
+/// 3. `noticed` — the early look or the sync decided, as before.
+///
+/// A panel opened by 1 or 2 is **unconfirmed**: the person can tap and type, but nothing is posted until 3 agrees
+/// about a bookmark on that browser — then the panel binds to it and an answer already given is sent. If 3 refuses
+/// it (a first sync, many at once, an old bookmark, a muted site) or nothing comes within `SaveWhyPolicy.pendingBound`
+/// (`confirmBound` once the diff named a link), the panel withdraws and the taps are dropped — never saved against a
+/// guess. The bubble watcher learns from each outcome (`onBubbleFeedback`).
 @MainActor
 @Observable
 final class SaveWhyCenter {
     private(set) var state: SaveWhyPanelState?
     private(set) var options = SavedWhyOptions()
+    /// Whether the backend agreed to ask about the open panel's bookmark (always, for a panel `noticed` opened).
+    private(set) var confirmed = true
     /// The last way a panel closed — for tests and diagnostics, never shown.
     private(set) var lastOutcome: SaveWhyPanelState.Outcome?
     /// The last decision the policy took, likewise.
@@ -94,6 +125,21 @@ final class SaveWhyCenter {
     /// The debug harness's panel (`preview`): answered like any other, but nothing is posted or muted.
     @ObservationIgnored private(set) var previewing = false
 
+    // G191 v3 — the unconfirmed panel.
+    /// An answer given on an unconfirmed panel that closed before the backend agreed: sent once it does.
+    @ObservationIgnored private(set) var unconfirmedAnswer: (answer: SavedWhyAnswer, at: Date, channel: String)?
+    /// The withdraw timer of the unconfirmed panel (or its held answer).
+    @ObservationIgnored private var bound: Task<Void, Never>?
+    /// The bubble that opened the pending panel, for the watcher's learning.
+    @ObservationIgnored private var bubble: (channel: String, size: BubbleSize)?
+    /// Whether the unconfirmed panel's bookmark was seen on disk (the diff named it) — then the bubble was a
+    /// bookmark's, whatever the backend says.
+    @ObservationIgnored private var bubbleBookmarked = false
+    /// What the watcher learns: (channel, bubble size, a bookmark came).
+    @ObservationIgnored var onBubbleFeedback: ((String, BubbleSize, Bool) -> Void)?
+    /// When each way in last opened or named the panel (uptime seconds) — for the stage timings, never shown.
+    @ObservationIgnored private(set) var marks: [String: TimeInterval] = [:]
+
     init(prefs: SaveWhyPrefs = SaveWhyPrefs(defaults: .standard), api: any SavedWhyAPI = APIClient.shared,
          presenter: (any SaveWhyPresenting)? = nil, now: @escaping () -> Date = Date.init,
          uptime: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
@@ -119,13 +165,13 @@ final class SaveWhyCenter {
         }
         BookmarkSyncSignal.early = { [weak self] bytes, look in await self?.lookEarly(bytes, look: look) }
         BookmarkSyncSignal.numberLook = { [weak self] in self?.takeLook() ?? 0 }
+        BookmarkSyncSignal.offer = { [weak self] item in self?.candidate(item) }
         Task { await refreshOptions() }
     }
 
     /// G191 live — the early look: decide on the bookmarks in `bytes` the bank does not hold yet, before the sync
-    /// that saves them. Nil when it did not look (the switch off, the person typing, or no answer — an older
-    /// backend), so the sync's own result decides as before; else the look's number, which the sync hands back
-    /// when it lands (`ingested`).
+    /// that saves them. Nil when it did not look (the switch off, or no answer — an older backend), so the sync's own
+    /// result decides as before; else the look's number, which the sync hands back when it lands (`ingested`).
     ///
     /// **A save while an earlier sync still runs (measured 2026-10-14: the second of two bookmarks 12 s apart asked
     /// only after +12 s).** The watcher looks at once for such a save (`BrowserWatcher`'s `peek`) instead of waiting
@@ -133,7 +179,7 @@ final class SaveWhyCenter {
     /// fresh is remembered (`seenFresh`) until a sync that read after it lands, and a later look subtracts what an
     /// earlier one already saw: "one fresh bookmark" means one new since the last look, not two.
     func lookEarly(_ bytes: BookmarkBytes, look given: Int? = nil) async -> Int? {
-        guard prefs.enabled, state?.phase != .writing else { return nil }
+        guard prefs.enabled else { return nil }
         let look = given ?? takeLook()   // the caller's, taken before it read `bytes`
         let options = cachedOptions == nil ? Task { await refreshOptions() } : nil
         guard let result = try? await api.freshBookmarks(bytes) else { return nil }
@@ -179,16 +225,150 @@ final class SaveWhyCenter {
 
     var isShowing: Bool { state?.isOpen == true }
 
-    /// A bookmark sync finished. Asks only when `SaveWhyPolicy` says so; otherwise does nothing at all.
-    func noticed(_ result: BookmarkSyncResult, live: Bool, early: Int? = nil) async {
-        let decision = SaveWhyPolicy.decide(.init(
+    /// The open panel, or an answer held from one, is waiting for the backend to agree about `channel`.
+    private func unconfirmedOn(_ channel: String) -> Bool {
+        (isShowing && !confirmed && state?.channel == channel) || unconfirmedAnswer?.channel == channel
+    }
+
+    // MARK: - G191 v3: the early ways in
+
+    /// Chrome showed its bookmark bubble (`BookmarkBubbleWatcher`): open the question now, pending — before Chrome
+    /// has written the file. Needs options in hand (the first question of a launch waits for them, as before).
+    func bubbleSeen(channel: String, size: BubbleSize) {
+        guard prefs.enabled else { return }
+        if isShowing {
+            if state?.isWriting == true { return }   // never interrupt words
+            if !confirmed, state?.channel == channel { return }   // already waiting on this browser
+            send(.superseded)
+        }
+        guard let cachedOptions else {
+            Task { await refreshOptions() }
+            return
+        }
+        marks["bubble"] = uptime()
+        bubble = (channel, size)
+        bubbleBookmarked = false
+        open(SaveWhyPanelState(pendingIn: channel, order: cachedOptions.reasons.map(\.key),
+                               maxText: cachedOptions.maxText), options: cachedOptions, confirmed: false)
+        armBound(SaveWhyPolicy.pendingBound)
+    }
+
+    /// The app's own diff named the one bookmark saved since its last read (live reads only): fill in the link, or
+    /// open the question with it, before the early look answers. The policy's own rules still apply (recent, muted,
+    /// the same save); the backend's decision confirms it.
+    func candidate(_ item: FreshBookmark) {
+        guard prefs.enabled else { return }
+        var result = BookmarkSyncResult(new: 0, skipped: 0, sources: [])
+        result.fresh = [item]
+        result.freshTotal = 1
+        guard case .ask = decide(result, live: true, ours: unconfirmedOn(item.channel)) else { return }
+        marks["named"] = uptime()
+        if bubble?.channel == item.channel { bubbleBookmarked = true }
+        if isShowing, !confirmed, state?.channel == item.channel {
+            state?.bind(item)
+            armBound(SaveWhyPolicy.confirmBound)
+            return
+        }
+        if unconfirmedAnswer?.channel == item.channel {
+            armBound(SaveWhyPolicy.confirmBound)   // the panel closed with an answer: wait for the backend with it
+            return
+        }
+        if isShowing {
+            if state?.isWriting == true || state?.item?.url == item.url { return }
+            send(.superseded)
+        }
+        guard let cachedOptions else { return }   // the backend's look opens it with options
+        bubble = nil
+        open(SaveWhyPanelState(item: item, order: cachedOptions.reasons.map(\.key), maxText: cachedOptions.maxText),
+             options: cachedOptions, confirmed: false)
+        armBound(SaveWhyPolicy.confirmBound)
+    }
+
+    private func decide(_ result: BookmarkSyncResult, live: Bool, ours: Bool) -> SaveWhyPolicy.Decision {
+        SaveWhyPolicy.decide(.init(
             enabled: prefs.enabled, live: live, result: result, now: now(), lastAsked: prefs.lastAsked,
-            mutedHosts: prefs.mutedHosts, writing: state?.phase == .writing, lastURL: prefs.lastURL))
+            mutedHosts: prefs.mutedHosts, writing: !ours && state?.isWriting == true, lastURL: prefs.lastURL,
+            lastAddedAt: prefs.lastAddedAt))
+    }
+
+    private func open(_ panel: SaveWhyPanelState, options: SavedWhyOptions, confirmed: Bool) {
+        previewing = false
+        self.options = options
+        self.confirmed = confirmed
+        unconfirmedAnswer = nil
+        state = panel
+        shownAt = uptime()
+        marks["shown"] = shownAt
+        presenter?.show(self)
+        run(SaveWhyPanelState.opening())
+    }
+
+    /// The unconfirmed panel (or the answer it left) withdraws after `seconds` unless the backend agrees first.
+    private func armBound(_ seconds: TimeInterval) {
+        bound?.cancel()
+        bound = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(seconds))
+            guard !Task.isCancelled else { return }
+            self?.withdraw()
+        }
+    }
+
+    /// No bookmark was confirmed: the panel leaves and keeps nothing; a held answer is dropped.
+    func withdraw() {
+        bound?.cancel()
+        bound = nil
+        if isShowing, !confirmed { send(.withdraw) }
+        unconfirmedAnswer = nil
+        teachBubble(bookmarked: bubbleBookmarked)
+    }
+
+    private func teachBubble(bookmarked: Bool) {
+        guard let bubble else { return }
+        self.bubble = nil
+        onBubbleFeedback?(bubble.channel, bubble.size, bookmarked)
+    }
+
+    /// The backend agreed about `item` on the unconfirmed panel's browser: bind, and send an answer already given.
+    private func confirm(_ item: FreshBookmark, early: Int?) {
+        bound?.cancel()
+        bound = nil
+        if let early { awaitingIngest[item.url] = (item.channel, early) }
+        teachBubble(bookmarked: true)
+        if isShowing, !confirmed, state?.channel == item.channel {
+            state?.bind(item)
+            confirmed = true
+            marks["confirmed"] = uptime()
+            return
+        }
+        confirmed = true
+        if let held = unconfirmedAnswer, held.channel == item.channel {
+            unconfirmedAnswer = nil
+            let entry = SaveWhyOutbox.Entry(url: item.url, answer: held.answer, at: held.at, addedAt: item.addedAt)
+            posting = Task { @MainActor [weak self] in await self?.deliver(entry) }
+        }
+    }
+
+    // MARK: - The backend's decision
+
+    /// A bookmark sync (or an early look) finished. Asks only when `SaveWhyPolicy` says so; otherwise does nothing —
+    /// except that a refusal withdraws an unconfirmed panel on that browser.
+    func noticed(_ result: BookmarkSyncResult, live: Bool, early: Int? = nil) async {
+        let channels = Set(result.sources.compactMap(\.channel) + result.fresh.map(\.channel))
+        let ours = channels.contains { unconfirmedOn($0) }
+        let decision = decide(result, live: live, ours: ours)
         lastDecision = decision
-        guard case .ask(let item) = decision else { return }
+        guard case .ask(let item) = decision else {
+            if live, ours, case .skip(let reason) = decision, Self.withdraws(reason) { withdraw() }
+            return
+        }
         // Counted from the decision, so a second sync during the options read cannot ask twice.
         prefs.lastAsked = now()
         prefs.lastURL = item.url
+        prefs.lastAddedAt = item.addedAt
+        if unconfirmedOn(item.channel) {
+            confirm(item, early: early)
+            return
+        }
         // The options already in hand show it at once (G191 live); the first question waits for them.
         let fetched: SavedWhyOptions
         if let cachedOptions {
@@ -200,19 +380,23 @@ final class SaveWhyCenter {
             fetched = cachedOptions
         }
         // G191 live: a newer bookmark replaces the open question — the person is looking at the new page now, and the
-        // old one's moment has passed; a tap already made there is kept and posted (`superseded` closes like a
-        // timeout). A queue would ask about a page they have left. Never while they are writing (the policy).
+        // old one's moment has passed; a tap already made there is kept and posted (`superseded` closes like leaving).
+        // A queue would ask about a page they have left. Never while they are writing (the policy).
         if isShowing {
-            guard state?.phase != .writing else { return }
+            guard state?.isWriting != true else { return }
             send(.superseded)
         }
         if let early { awaitingIngest[item.url] = (item.channel, early) }
-        previewing = false
-        options = fetched
-        state = SaveWhyPanelState(item: item, order: fetched.reasons.map(\.key), maxText: fetched.maxText)
-        shownAt = uptime()
-        presenter?.show(self)
-        run(SaveWhyPanelState.opening())
+        open(SaveWhyPanelState(item: item, order: fetched.reasons.map(\.key), maxText: fetched.maxText),
+             options: fetched, confirmed: true)
+    }
+
+    /// The refusals that mean the unconfirmed panel's bookmark will not be asked about.
+    static func withdraws(_ reason: SaveWhyPolicy.Reason) -> Bool {
+        switch reason {
+        case .firstSync, .bulk, .notRecent, .muted, .noHost, .off: return true
+        case .notLive, .noneNew, .repeated, .writing: return false
+        }
     }
 
     /// The debug harness (`SaveWhyPreview`): show the panel now for a sample bookmark from `channel`'s browser, with
@@ -222,25 +406,21 @@ final class SaveWhyCenter {
         let fetched = (try? await api.savedWhyOptions()).flatMap { $0.reasons.isEmpty ? nil : $0 }
             ?? SaveWhyPreview.sampleOptions
         if isShowing { send(.escape) }
-        previewing = true
-        options = fetched
         let item = SaveWhyPreview.sample(channel: channel)
-        state = SaveWhyPanelState(item: item, order: fetched.reasons.map(\.key), maxText: fetched.maxText)
-        shownAt = uptime()
-        presenter?.show(self)
-        run(SaveWhyPanelState.opening())
+        open(SaveWhyPanelState(item: item, order: fetched.reasons.map(\.key), maxText: fetched.maxText),
+             options: fetched, confirmed: true)
+        previewing = true
     }
 
     /// G191 live — the person's own input from the panel: every button and click the view forwards comes through
-    /// here. Measured 2026-10-14: "Something else…" was found selected with its field open, nothing typed. The panel
-    /// now shows within two seconds of the save — while the person's hand is still on the page beneath it — so a
-    /// click that lands on the panel before `SaveWhyPolicy.armDelay` has passed was aimed at what was there before,
-    /// and chooses nothing (nor closes it). Keys reach the panel only once a click inside made it key
-    /// (`SaveWhyNSPanel`). Timers, Esc and the backend never choose: only `tapOther` opens the field.
+    /// here. Measured 2026-10-14: a chip was found chosen with nothing done. The panel shows while the person's hand
+    /// is still on the page beneath it — so a click that lands on the panel before `SaveWhyPolicy.armDelay` has
+    /// passed was aimed at what was there before, and chooses nothing (nor closes it). Keys reach the panel only once
+    /// a click inside made it key (`SaveWhyNSPanel`). Timers, Esc and the backend never choose.
     func input(_ event: SaveWhyPanelState.Event) {
         let guarded: Bool
         switch event {
-        case .tapReason, .tapProject, .tapOther, .dontAskForSite, .clickOutside: guarded = true
+        case .tapReason, .tapProject, .dontAskForSite, .clickOutside, .submit: guarded = true
         default: guarded = false
         }
         if guarded, let shownAt, uptime() - shownAt < SaveWhyPolicy.armDelay {
@@ -265,13 +445,16 @@ final class SaveWhyCenter {
                 timer = Task { @MainActor [weak self] in
                     try? await Task.sleep(for: .seconds(seconds))
                     guard !Task.isCancelled, let self, let phase = self.state?.phase else { return }
-                    self.send(phase == .answered ? .lingerElapsed : .timeout)
+                    self.send(phase == .answered ? .idleElapsed : .timeout)
                 }
-            case .focusText:
-                presenter?.focusText()
             case .post(let answer):
-                guard !previewing, let url = state?.item.url else { continue }
-                let entry = SaveWhyOutbox.Entry(url: url, answer: answer, at: now())
+                guard !previewing, let state else { continue }
+                guard confirmed, let item = state.item else {
+                    // G191 v3: not yet confirmed — kept until the backend agrees, dropped if it never does.
+                    unconfirmedAnswer = (answer, now(), state.channel)
+                    continue
+                }
+                let entry = SaveWhyOutbox.Entry(url: item.url, answer: answer, at: now(), addedAt: item.addedAt)
                 posting = Task { @MainActor [weak self] in await self?.deliver(entry) }
             case .mute(let host):
                 if !previewing { prefs.mute(host) }
@@ -287,7 +470,7 @@ final class SaveWhyCenter {
     /// Send one answer; a failure that may pass (Sleep writing, the backend away) holds it for `retryHeld`.
     private func deliver(_ entry: SaveWhyOutbox.Entry) async {
         do {
-            try await api.saveWhy(url: entry.url, answer: entry.answer, at: entry.at)
+            try await api.saveWhy(url: entry.url, answer: entry.answer, at: entry.at, addedAt: entry.addedAt)
         } catch {
             if SaveWhyOutbox.verdict(for: error) == .hold || waitsForIngest(entry.url, error) { outbox.hold(entry) }
         }
@@ -308,7 +491,7 @@ final class SaveWhyCenter {
         for entry in outbox.entries {
             if outbox.expired(entry, now: now()) { outbox.remove(entry); continue }
             do {
-                try await api.saveWhy(url: entry.url, answer: entry.answer, at: entry.at)
+                try await api.saveWhy(url: entry.url, answer: entry.answer, at: entry.at, addedAt: entry.addedAt)
                 outbox.remove(entry)
             } catch {
                 if waitsForIngest(entry.url, error) { continue }   // its sync has not landed yet: keep it

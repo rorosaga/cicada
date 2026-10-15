@@ -79,6 +79,10 @@ final class MenuBarManager: NSObject {
     /// G191 v2 — the developer harness (`SaveWhyPreview`): shows the ask-why panel for a sample bookmark from the
     /// given channel's browser. The items appear only while `SaveWhyPreview.isAvailable()` — never in a release app.
     @ObservationIgnored var onPreviewSaveWhy: ((String) -> Void)?
+    /// G191 v3 — "Bookmarks…": the history list, anchored under the status item (its frame on screen).
+    @ObservationIgnored var onShowBookmarks: ((NSRect?) -> Void)? {
+        didSet { if statusItem != nil { rebuildMenu() } }
+    }
     /// Tags the reminder lines so a menu open can swap them without a rebuild.
     static let exportWaitTag = 9_101
 
@@ -300,6 +304,14 @@ final class MenuBarManager: NSObject {
         importItem.target = self
         menu.addItem(importItem)
 
+        // G191 v3 — the bookmark history (Maccy-like): a searchable list under the status item.
+        if onShowBookmarks != nil {
+            let bookmarksItem = NSMenuItem(title: Copy.Bookmarks.menuItem, action: #selector(showBookmarksAction),
+                                           keyEquivalent: "b")
+            bookmarksItem.target = self
+            menu.addItem(bookmarksItem)
+        }
+
         let openItem = NSMenuItem(title: "Open Cicada", action: #selector(openApp), keyEquivalent: "o")
         openItem.target = self
         menu.addItem(openItem)
@@ -379,6 +391,13 @@ final class MenuBarManager: NSObject {
 
     @objc private func importFileAction() {
         onImportFile?()
+    }
+
+    @objc private func showBookmarksAction() {
+        // After the menu has closed, so the panel takes the keyboard.
+        DispatchQueue.main.async { [weak self] in
+            self?.onShowBookmarks?(self?.statusItem?.button?.window?.frame)
+        }
     }
 
     @objc private func previewSaveWhyAction(_ sender: NSMenuItem) {

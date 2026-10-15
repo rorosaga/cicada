@@ -214,7 +214,7 @@ final class SaveWhyLiveTests: XCTestCase {
         print("G191 live: save → panel \(latency)")
         XCTAssertLessThanOrEqual(latency, .seconds(SaveWhyPolicy.showBudget), "save → panel took \(latency)")
         XCTAssertFalse(ingested, "the panel did not wait for the sync")
-        XCTAssertEqual(center.state?.item.url, "https://alpha.example/notes")
+        XCTAssertEqual(center.state?.item?.url, "https://alpha.example/notes")
 
         // Answered before the link is saved: the backend's 404 holds it, and the sync's landing sends it.
         center.send(.tapReason("design"))
@@ -279,7 +279,7 @@ final class SaveWhyLiveTests: XCTestCase {
         var saved = ContinuousClock.now
         try await eventually("the first panel", timeout: .seconds(4)) { presenter.shows == 1 }
         XCTAssertLessThanOrEqual(presenter.shownAt! - saved, .seconds(SaveWhyPolicy.showBudget))
-        XCTAssertEqual(center.state?.item.url, first)
+        XCTAssertEqual(center.state?.item?.url, first)
 
         try await Task.sleep(for: .seconds(10))
         XCTAssertEqual(landed, [1], "the first save's sync is still running")
@@ -289,7 +289,7 @@ final class SaveWhyLiveTests: XCTestCase {
         let latency = presenter.shownAt! - saved
         print("G191 live: second save during a running sync → panel \(latency)")
         XCTAssertLessThanOrEqual(latency, .seconds(SaveWhyPolicy.showBudget), "second save → panel took \(latency)")
-        XCTAssertEqual(center.state?.item.url, second, "one new since the last look, not two")
+        XCTAssertEqual(center.state?.item?.url, second, "one new since the last look, not two")
         XCTAssertEqual(landed, [1], "it did not wait for the first sync")
 
         // Answered before either sync lands: held on the 404, sent once the second save's own sync has.
@@ -339,7 +339,7 @@ final class SaveWhyLiveTests: XCTestCase {
         let lookC = center.takeLook()
         XCTAssertGreaterThan(lookC, lookS)
         _ = await center.lookEarly(file(a, c), look: lookC)
-        XCTAssertEqual(center.state?.item.url, c)
+        XCTAssertEqual(center.state?.item?.url, c)
         center.send(.tapReason("design"))
         center.send(.escape)
         await center.settle()
@@ -388,22 +388,19 @@ final class SaveWhyLiveTests: XCTestCase {
 
     // MARK: - No self-opening field
 
-    /// Only a tap on "Something else…" opens the field. Every other event, in any order, never does.
-    func testNothingButItsOwnTapOpensSomethingElse() {
+    /// G191 v3 — no event the person did not make chooses anything: timers, Esc, a click elsewhere, a newer bookmark
+    /// and a withdraw never add a reason or words, in any order.
+    func testNothingButThePersonsOwnInputChooses() {
         let item = FreshBookmark(url: "https://alpha.example/a", channel: "chrome-bookmarks")
-        let others: [SaveWhyPanelState.Event] = [.tapReason("design"), .tapProject("alpha-project"),
-                                                 .draftChanged("x"), .submitText, .lingerElapsed, .timeout, .escape,
-                                                 .clickOutside, .dontAskForSite, .superseded]
-        for a in others { for b in others { for c in others {
+        let others: [SaveWhyPanelState.Event] = [.submit, .idleElapsed, .timeout, .escape, .clickOutside,
+                                                 .dontAskForSite, .superseded, .withdraw]
+        for a in others { for b in others {
             var state = SaveWhyPanelState(item: item, order: ["design"])
             var effects: [SaveWhyPanelState.Effect] = []
-            for event in [a, b, c] { effects += state.send(event) }
-            XCTAssertNotEqual(state.phase, .writing, "\([a, b, c])")
-            XCTAssertFalse(effects.contains(.focusText), "\([a, b, c])")
-        } } }
-        var state = SaveWhyPanelState(item: item, order: ["design"])
-        XCTAssertEqual(state.send(.tapOther), [.startTimer(SaveWhyPolicy.writingTimeout), .focusText])
-        XCTAssertEqual(state.phase, .writing)
+            for event in [a, b] { effects += state.send(event) }
+            XCTAssertTrue(state.selection.isEmpty, "\([a, b])")
+            XCTAssertFalse(effects.contains { if case .post = $0 { return true } else { return false } }, "\([a, b])")
+        } }
     }
 
     /// A click that lands on the panel as it appears was aimed at the page beneath: it chooses nothing and closes
@@ -422,7 +419,7 @@ final class SaveWhyLiveTests: XCTestCase {
         XCTAssertTrue(center.isShowing)
 
         uptime += SaveWhyPolicy.armDelay / 2
-        for event: SaveWhyPanelState.Event in [.tapOther, .tapReason("design"), .dontAskForSite, .clickOutside] {
+        for event: SaveWhyPanelState.Event in [.submit, .tapReason("design"), .dontAskForSite, .clickOutside] {
             center.input(event)
             XCTAssertEqual(center.lastIgnored, event)
         }
@@ -430,8 +427,8 @@ final class SaveWhyLiveTests: XCTestCase {
         XCTAssertTrue(center.isShowing)
 
         uptime += SaveWhyPolicy.armDelay
-        center.input(.tapOther)
-        XCTAssertEqual(center.state?.phase, .writing, "a deliberate click opens it")
+        center.input(.tapReason("design"))
+        XCTAssertEqual(center.state?.phase, .answered, "a deliberate click chooses")
     }
 
     /// The panel takes the keyboard only after a click inside it — so no activation or stray key can type into it.
@@ -559,7 +556,7 @@ private actor LiveFakeAPI: SavedWhyAPI {
         SavedWhyOptions(reasons: [.init(key: "design", label: "The design")], projects: [], maxText: 500)
     }
 
-    func saveWhy(url: String, answer: SavedWhyAnswer, at: Date) async throws {
+    func saveWhy(url: String, answer: SavedWhyAnswer, at: Date, addedAt: String?) async throws {
         guard saved.contains(url) else { throw APIError.httpError(404, "That link isn't saved yet") }
         posts.append(url)
     }

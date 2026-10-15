@@ -148,6 +148,8 @@ struct SaveWhySwitchRow: View {
                 } else {
                     let status = status
                     ForEach(SaveWhySetup.lines(enabled: enabled, status: status), id: \.self) { caption($0) }
+                    // G191 v3 — what Cicada watches to ask at once, in plain words.
+                    if status.watching.contains("Chrome") { caption(Copy.SaveWhy.bubbleLine) }
                     if !status.needsFullDiskAccess.isEmpty {
                         HStack(spacing: CicadaTheme.spacingSM) {
                             NeutralButton(title: Copy.SaveWhy.openFullDiskAccess, size: .compact) {

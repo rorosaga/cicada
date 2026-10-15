@@ -58,6 +58,15 @@ final class AppRouter {
         activateMainWindow()
     }
 
+    /// G191 v3 — a row of the menu bar's bookmark history: the app comes forward on that bookmark's page in the
+    /// Feed's detail column, opening the window when it was closed (the Store is warm either way).
+    func routeToBookmark(_ mediaEntityId: String) {
+        closeSettings()
+        pendingTab = .feed
+        pendingFeedItem = mediaEntityId
+        showMainWindow()
+    }
+
     @discardableResult
     func consumeFeedItem() -> String? {
         defer { pendingFeedItem = nil }
