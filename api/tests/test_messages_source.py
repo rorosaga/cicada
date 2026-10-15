@@ -423,3 +423,28 @@ def test_the_routes(client, bank, chat):
     assert cleared["conversations"][cid]["actor"] is None
     text = client.get(f"/episodes/{_episodes(bank)[0].frontmatter['id']}/text").json()
     assert text["correspondent"] == "Instinct"
+
+
+@pytest.mark.parametrize("raw", ["+1 555 000 0001", "+15550000001", "(555) 000-0001", "someone@example.com"])
+def test_a_handle_never_becomes_a_name(bank, raw):
+    cid = "e" * 24
+    messages_source.update_settings(bank, conversation={"id": cid, "name": raw, "ticked": True})
+    assert messages_source.load_settings(bank)["conversations"][cid]["name"] == ""
+    out = messages_source.ingest(bank, {"conversation": {"id": cid, "name": raw},
+                                        "messages": [{"guid": "g", "date": 800_000_000_000_000_000, "text": "Hi."}]})
+    assert out["actor"]["name"] == "Unnamed conversation"
+    (doc,) = _episodes(bank)
+    assert raw not in str(doc.frontmatter) and raw not in doc.body
+
+
+def test_a_sitting_that_cannot_be_rebuilt_is_left_as_it_is(bank, chat):
+    _tick(bank, chat.chat_guid(chat.instinct))
+    _, rows = _sync(bank, chat, chat.instinct, **AGENT_CADENCE)
+    first = _episodes(bank)[0]
+    # Hand-edited: its lines no longer match its message keys.
+    markdown_parser.write(Path(first.path), first.frontmatter, first.body + "\nuser: a line someone typed in")
+    bank_index.invalidate()
+    out, _ = _sync(bank, chat, chat.instinct, **AGENT_CADENCE)   # the same rows again
+    assert out["tombstoned"] == 0
+    kept = markdown_parser.parse(Path(first.path))
+    assert kept.body.endswith("a line someone typed in")          # never overwritten with a partial sitting

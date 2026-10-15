@@ -1,6 +1,8 @@
+// G179 — the generator of imessage_attributed_bodies.json: `attributedBody` blobs built the way Messages builds them,
+// an NSMutableAttributedString archived with NSArchiver (typedstream), carrying Messages' own part/direction
+// attributes. Synthetic text only. Run: `swiftc -O imessage_attributed_bodies.swift -o gen && ./gen out.json` on a Mac
+// (it is not part of any build); the two longest cases were then stored as head + fill + tail to keep the file small.
 import Foundation
-// Builds attributedBody blobs the way Messages does: an NSMutableAttributedString archived with NSArchiver (typedstream),
-// carrying Messages' own part/direction attributes. Text is synthetic.
 func blob(_ s: String, parts: Bool, link: Bool = false) -> Data {
     let m = NSMutableAttributedString(string: s)
     let len = (s as NSString).length

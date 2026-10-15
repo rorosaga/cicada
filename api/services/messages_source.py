@@ -85,8 +85,17 @@ def settings_path(memory_path: Path) -> Path:
     return Path(memory_path) / "sources" / SETTINGS_FILENAME
 
 
+_EMAIL_RE = re.compile(r"[^@\s]+@[^@\s]+\.[A-Za-z]{2,}")
+_PHONE_RE = re.compile(r"^[\d\s()+\-.]{7,}$")
+
+
 def _clean_name(value) -> str:
-    return " ".join(str(value or "").split())[:80]
+    """A name the person sees — never a phone number or an address (the app never sends its handle; a newer or buggier
+    one cannot make the bank keep one either)."""
+    name = " ".join(str(value or "").split())[:80]
+    if _EMAIL_RE.search(name) or (_PHONE_RE.match(name) and sum(c.isdigit() for c in name) >= 7):
+        return ""
+    return name
 
 
 def load_settings(memory_path: Path) -> dict:
@@ -378,6 +387,8 @@ def split_sittings(messages: list[Message], gap: timedelta = SITTING_GAP) -> lis
 
 
 def _title(actor: Actor, first_ts: str) -> str:
+    if actor.label == agent_detectors.UNNAMED:
+        return f"Messages · {first_ts[:10]}"
     return f"Messages with {actor.label} · {first_ts[:10]}"
 
 
@@ -412,7 +423,8 @@ def _touches(entry: episode_staging.IndexEntry, incoming: list[Message], gap: ti
 
 
 def plan_sittings(cid: str, stored: list[Sitting], incoming: list[Message], unsent: set[str],
-                  gap: timedelta = SITTING_GAP) -> tuple[list[tuple[str, list[Message]]], list[str]]:
+                  gap: timedelta = SITTING_GAP, reserved: frozenset[str] = frozenset()
+                  ) -> tuple[list[tuple[str, list[Message]]], list[str]]:
     """``([(source_id, messages)], tombstoned source ids)`` for the stored sittings an update touches.
 
     Incoming messages replace stored ones with the same key (an edit), unsent keys leave, and the union is split
@@ -437,8 +449,10 @@ def plan_sittings(cid: str, stored: list[Sitting], incoming: list[Message], unse
     for run in split_sittings(list(by_key.values()), gap):
         mine = [sid for sid in stored_order if sid not in used and any(owner.get(m.key) == sid for m in run)]
         sid = mine[0] if mine else f"{SOURCE_PREFIX}{cid}:{run[0].key}"
-        if sid in used:  # a fresh key that equals a used one cannot happen; guard anyway
-            sid = f"{SOURCE_PREFIX}{cid}:{run[0].key}-{len(planned)}"
+        # A fresh key never lands on a sitting this pass could not rebuild (``reserved``): that episode is left as it
+        # is rather than overwritten with only the new messages.
+        if sid in used or (not mine and sid in reserved):
+            sid = f"{SOURCE_PREFIX}{cid}:{run[0].key}-{len(planned) + 1}"
         used.add(sid)
         planned.append((sid, run))
     gone = [s for s in stored_order if s not in used]
@@ -497,11 +511,14 @@ def ingest(memory_path: Path, payload: dict, *, bank: str | None = None) -> dict
         touched = [e for e in mine.values()
                    if _touches(e, incoming, SITTING_GAP) or set(e.fm.get("message_keys") or []) & unsent]
         stored: list[Sitting] = []
+        unreadable: set[str] = set()
         for e in sorted(touched, key=lambda e: str(e.fm.get("sitting_first_at") or "")):
             sitting = stored_sitting(e)
             if sitting is not None:
                 stored.append(sitting)
-        planned, gone = plan_sittings(cid, stored, incoming, unsent)
+            else:
+                unreadable.add(str(e.fm.get("source_id")))
+        planned, gone = plan_sittings(cid, stored, incoming, unsent, reserved=frozenset(unreadable))
         drafts = [sitting_draft(cid, sid, msgs, actor, service) for sid, msgs in planned]
         staged = episode_staging.stage(drafts, episodes_dir, deleted_source_ids=gone, bank=bank)
     return {"conversation": cid, "messages_seen": counts.seen, "kept": len(incoming), "reactions": counts.reactions,
@@ -570,7 +587,7 @@ def waiting(memory_path: Path) -> list[dict]:
             row["kind"] = str(actor.get("kind") or agent_detectors.UNKNOWN)
     for cid, row in out.items():
         entry = settings["conversations"].get(cid) or {}
-        row["name"] = entry.get("name") or row["name"] or "Unnamed conversation"
+        row["name"] = entry.get("name") or row["name"] or agent_detectors.UNNAMED
         row["ticked"] = bool(entry.get("ticked"))
     return sorted(out.values(), key=lambda r: (-r["messages"], r["name"]))
 

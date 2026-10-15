@@ -38,6 +38,8 @@ ACTOR_KINDS = (AGENT, PERSON)
 MIN_AGENT_MESSAGES = 20
 #: …and at least this many times as many as the person did.
 AGENT_RATIO = 2.0
+#: What a conversation with no name the person sees is called.
+UNNAMED = "Unnamed conversation"
 
 
 @dataclass(frozen=True)
@@ -145,7 +147,7 @@ class Actor:
 def resolve_actor(name: str, override: dict | None, detection: Detection) -> Actor:
     """The person's choice, else an ``identified`` detection, else unknown. An ``uncertain`` detection is a question
     the app asks, never an answer applied here."""
-    label = " ".join(str(name or "").split())[:80] or "Unnamed conversation"
+    label = " ".join(str(name or "").split())[:80] or UNNAMED
     override = override if isinstance(override, dict) else {}
     if override.get("kind") in ACTOR_KINDS:
         custom = " ".join(str(override.get("label") or "").split())[:80]
