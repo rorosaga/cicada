@@ -27,6 +27,7 @@ from api.services import agentic_write  # noqa: E402,F401
 # G135 R-R11: a claim write commits its own page under the harness that wrote
 # it. Hoisted beside `agentic_write` for the same reason (patchable here).
 from api.services import agent_commits  # noqa: E402,F401
+from api.services import skill_folders  # noqa: E402  (the agent list is one place: agent_wiring.AGENTS)
 # Pure filesystem + datetime, no bank/config state — safe to hoist alongside.
 from api.services import episode_ids  # noqa: E402,F401
 # Track P R8/R9 — the legacy observer value is protocol and must stay in the
@@ -1031,7 +1032,7 @@ TOOLS = [
             "action": {"type": "string", "enum": ["install", "update", "on", "off", "refresh"]},
             "source": {"type": "string", "description": "install: where the skill lives (GitHub link, owner/repo[@skill], or an `npx skills add …` line)."},
             "skill": {"type": "string", "description": "update/on/off/refresh: the installed skill's folder name."},
-            "agents": {"type": "array", "items": {"type": "string", "enum": ["claude-code", "codex", "cursor", "gemini-cli", "opencode"]},
+            "agents": {"type": "array", "items": {"type": "string", "enum": [a.id for a in skill_folders.AGENTS]},
                        "description": "Which agents: for on/off exactly one; for install, optional."},
             "reason": {"type": "string", "description": "Why, in one sentence the person will read."}}},
     },

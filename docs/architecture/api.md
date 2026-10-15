@@ -200,10 +200,15 @@ schedules one revalidation there. The queue's writes (`PUT|DELETE /videos/queue/
 **Skills (the Skills page, owner 2026-10-15; `routers/skills.py`).** The backend owns the logic; the app, the CLI's
 person rows and the MCP tools share one set of bodies — `skill_folders` (the agents' folders, read-only), `skill_inventory`
 (what the page shows), `skill_sources` (parsing and GitHub), `skill_tools` (uv, a tool's `skill` and `doctor`),
-`skill_actions` (what a click does) and **`skill_store`, the one writer** (`test_only_skill_store_writes_into_an_agents_
+`skill_actions` (what a click does) and **`skill_store`, the one writer**. **The person's agents are one list,
+`agent_wiring.AGENTS`** (Claude Code, Codex, Cursor, OpenCode, Hermes, OpenClaw, Gemini CLI — each with the skills
+folder its docs name and the folders it also reads; an agent with none is left out of every skill list): the skills
+table, the MCP schema's agent enum and the app (through `GET /skills`) all derive from it, and an agent whose home
+folder is missing is hidden (`test_the_agent_list_is_one_place`). The rest: (`test_only_skill_store_writes_into_an_agents_
 skill_folder`). Nothing is written into a bank: agent folders, and `$CICADA_HOME/skills/{library,drafts,removed}` plus
 `requests.json`, `updates.json`, `onboarding.json`; write admission classes every route `OUTSIDE`.
-- `GET /skills` — installed rows (source, version, update with its `changes`, agents, tool, permissions, details),
+- `GET /skills` — installed rows (source, version, `status` — `update|refresh|current|local|unchecked` —, update with
+  `from` and its `changes`, agents, tool, permissions, details with an instructions `excerpt`),
   `suggested` (catalog, with `method` `tool|copy|manual|own`), `drafts`, `noticed` (the bank's held and page skills,
   G112), `requests`, `checkedAt`, `uv`, `jobs`. No ETag: not a Store domain.
 - `POST /skills/check {auto}` — fetches upstream: a repo-folder skill's newest commits that touched its folder

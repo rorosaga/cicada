@@ -258,11 +258,10 @@ its own reader (`ContactsReader.connect`, `TabGroupWatcher.enable`), which Home'
 `SetupProgress`, over `SetupRunner`, `SyncActivity` and the channels. Agents reuse `AgentSelector` /
 `AgentSetupSteps` with a live ✓; Claude Code's and Codex's *Connect for me* here also turns on *Remembers
 automatically* (its commands shown first; Settings → Agents keeps it its own click). **Skills** (owner 2026-10-15,
-`SkillsStepPage` over `SkillsStepModel`, Agents' painting) offers browser-harness ("look at any website") and
-macos-harness ("use any app on this Mac", and that macOS will ask for Accessibility and Screen Recording) ticked, and
-the video skill listed but not ticked; *No thanks* unticks all. Nothing installs on the page: **Continue is the
-consent** — `POST /skills/onboarding` records the answer (a decline too, never asked again) and installs in the
-background. Without uv it says so, shows the official install command and link, and the two can't be ticked until
+`SkillsStepPage` over `SkillsStepModel`, Agents' painting) is three switch tiles: Websites (browser-harness) and Mac
+apps (macos-harness; macOS asks once) on, Videos (the video skill) off; *Skip* beside Continue. Nothing installs on the
+page: **Continue is the consent** — `POST /skills/onboarding` records the answer (Skip too, never asked again) and
+installs what is on in the background. Without uv it says so, shows the official install command and link, and the two can't be ticked until
 *Check again* finds it. Who reads is `EngineChooser`,
 writing only on a click; Keep it running holds the same switches as Settings → General and turns none on. You're
 set shows one public-domain quote (`MemoryQuotes`, G153, kept per install) and Open Cicada marks the bank, records
@@ -616,19 +615,20 @@ release smoke test is excluded). `GET /agents/live` lights a pill's ✓ from the
 rows, a used connector (`last_used_at`) or the agent's own config — no subprocess, never `~/Library`, never
 `~/.claude.json`; polled every 3 s while the page is visible.
 
-**The Skills page (owner 2026-10-15).** The tenth rail page, after Looks (DR-22: no shortcut moved; it has no ⌘
-digit — the row ends at 9 and ⌘0 is Actual Size — so it opens from the rail and the palette; `RailItem.key` is nil
-past nine). `SkillsPage` over `SkillsPageModel` (in memory, not a Store domain; `SkillsAPI`, faked in
-`SkillsPageTests`) shows `GET /skills`: agents' requests, installed skills (a checkbox per agent — *through* another
-agent's folder shows checked and locked with the reason —, the source link, the version as a `Tag`, one quiet
-**Update available** chip whose popover lists the changes and holds the one Update, a tool skill's "instructions are
-older than the tool it uses" with Refresh, permissions in words, Details collapsed), the catalog's suggestions
-(Install, or Copy for your agent for a manual one, or the uv line), and "Made by your agents" (drafts with Read it /
-Publish / Discard, and what Sleep noticed). *Add a skill* (`AddSkillSheet`) takes a GitHub link, `owner/repo` or an
-`npx skills add` line, shows the SKILL.md, the files (scripts called out) and the commit, and installs exactly that;
-an agent's install request opens it too. The page opening re-checks for updates only past an hour. The view layer is
-deliberately thin: the owner's revised layout (a skills × agents table, tabs Installed / Discover / Drafts, a side
-column for details, the add field in the header) is pending.
+**The Skills page (owner 2026-10-15, third take).** The tenth rail page, after Looks (DR-22: no shortcut moved; it has
+no ⌘ digit — the row ends at 9 and ⌘0 is Actual Size — so it opens from the rail and the palette; `RailItem.key` is nil
+past nine). `SkillsPage` over `SkillsPageModel` (in memory, not a Store domain; `SkillsAPI`, faked in `SkillsPageTests`)
+shows `GET /skills` as **one plain table** — Skill (the name and one muted line), Agents, Status — with no pictures.
+The Agents cell is one pull-down ("Claude Code, Codex +1 ▾", `SkillAgentWords`) listing every agent installed on this
+Mac: tick to turn the skill on for it, untick to turn it off; an agent that reads another's folder shows a hollow tick
+and "through Claude Code"; agents not installed are hidden. Status is one quiet word from the backend's `status`:
+"Up to date" with a dot, "Local", "⚠ Refresh" (a tool skill's text older than its tool), or an **Update** chip whose
+popover (`SkillChangesPopover`) lists what changed ("0.1.13 → 0.2.0", each commit or release) and holds the one Update.
+Selecting a row opens the side column (`SkillDetailColumn`: the repo link, versions, Mac access in words, an
+instructions excerpt, Remove…). The header has the add field ("Add from GitHub, or paste npx skills add…", ⌘N), which
+opens `AddSkillSheet` (the SKILL.md, the files with scripts called out, the commit; Install installs exactly that); an
+agent's request is one line above the table; tabs Installed · Discover (the catalog) · Drafts (agents' drafts and what
+Sleep noticed). The page opening re-checks for updates only past an hour.
 
 **Settings → Skills (G138).** A reviewed catalog (`api/data/recommended_skills.json`: source,
 licence, the reviewed commit and SKILL.md hash, needs, agents, a terms note, the Cicada tool it
