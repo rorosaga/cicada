@@ -3625,6 +3625,10 @@ class MediaSourceItem(CamelModel):
     # G191 v3 — the newest site-capture thumbnail Cicada holds for this page (ruling 25; `/explore/captures/...`,
     # served from the bank), for the bookmark history's row. `None` when the page was never captured.
     capture_thumb: Optional[str] = None
+    # G191 v4 — the browsers this bookmark has left: one entry per browser whose bookmark file no longer holds it, with
+    # the sync instant that first saw it gone (`bookmark_seen` `left`). Cicada keeps the bookmark; this is its status.
+    # Empty while every browser that had it still does, and for a link no browser synced.
+    left_browser: list["BookmarkLeft"] = []
     # G102 cheap slice (R12): the link's own description — OpenGraph at ingest
     # or the Sleep-tail backfill's summary — cut at ~280 chars on a word
     # boundary, and the ids of the entities the page is `about` (the media
@@ -3732,6 +3736,9 @@ class BookmarkSyncResponse(CamelModel):
     # sync on some channel this pass touched).
     removals_proposed: int = 0
     removals_skipped: Optional[str] = None
+    # G191 v4 — how many links this sync marked as gone from their browser (a status, never a question; the removal
+    # question above is never asked for a bookmark any more, so `removals_proposed` stays 0).
+    left_marked: int = 0
     # G191 — what this sync newly saved (at most `bookmark_sync.FRESH_CAP`) and how many in all.
     fresh: list[FreshBookmark] = []
     fresh_total: int = 0
@@ -3750,6 +3757,14 @@ class SavedWhyRecord(CamelModel):
     added_at: Optional[str] = None
     # G191 v3 — when the person last changed this answer (`PUT /sources/saved-why`); `None` when never.
     edited_at: Optional[str] = None
+
+
+class BookmarkLeft(CamelModel):
+    """G191 v4 — "No longer in Chrome since Oct 15": which browser (its name and its channel) and since when."""
+
+    browser: str
+    channel: str
+    since: str
 
 
 MediaSourceItem.model_rebuild()

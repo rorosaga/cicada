@@ -3,8 +3,15 @@
 When the app's bookmark watch sees ONE new bookmark made a moment ago, it shows a small panel with a few one-tap
 answers. The answer is the person's own words about their own act, so it is stored on that bookmark's episode — the
 same file Sleep reads the page from — through the one staging path (``episode_staging.amend_section``: scrubbed,
-written in place, queued for Sleep again). Nothing here calls a model: the choices are a fixed set plus the person's
-live projects, read deterministically from the pages and backlog the backend already serves.
+written in place, queued for Sleep again). Nothing here calls a model: the choices are a fixed set.
+
+**A few basic reasons (G191 v4, owner 2026-10-15: "some of the options … have nothing to do with it. Can you keep
+options to a minimal? Like the design, read later, might be useful for the future, or something else").** The panel
+offers exactly :data:`REASONS` — the design, the product, to read later, useful someday — and the person's own words
+are the "something else". It no longer offers the person's projects (three "For <project>" chips that named projects
+the page had nothing to do with); a project link is Sleep's to infer from the words or the page. What was said before
+still reads: a retired reason (:data:`RETIRED`, ``technique``) and a stored ``project`` keep their labels wherever
+answers are listed, and an edit of such an answer may keep them.
 
 Two times stay on the record, because a website changes and a later reader must know which page was meant:
 
@@ -30,18 +37,23 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from api.services import backlog, bank_index, episode_ids, episode_scrub, episode_staging, media_ingestor, saved_at
+from api.services import bank_index, episode_ids, episode_scrub, episode_staging, media_ingestor, saved_at
 
-#: The fixed one-tap answers, in the order the panel shows them. Keys are the wire's; labels are the words the
-#: section records (the person picked them, so they are the person's answer).
+#: The fixed one-tap answers, in the order the panel shows them (G191 v4: four, short). Keys are the wire's; labels are
+#: the words the section records (the person picked them, so they are the person's answer).
 REASONS: dict[str, str] = {
-    "design": "The design, the look",
-    "product": "The product itself",
-    "technique": "A technique to reuse",
+    "design": "The design",
+    "product": "The product",
     "read_later": "To read later",
+    "someday": "Useful someday",
 }
-#: How many of the person's projects the panel offers as "For <project>".
-MAX_PROJECTS = 3
+#: Reasons once offered and no longer (G191 v4): an answer that holds one still shows it, by this label, and an edit of
+#: that answer may keep it; the panel never offers it again.
+RETIRED: dict[str, str] = {
+    "technique": "A technique to reuse",
+}
+#: Every reason an answer can hold, offered first, in the order an answer lists them.
+LABELS: dict[str, str] = {**REASONS, **RETIRED}
 #: The free-text answer's cap — a short note, never a document.
 MAX_TEXT = 500
 #: The body section the answer lives in. Its own heading, so a reason the person typed elsewhere (a Telegram
@@ -70,60 +82,42 @@ class Answer:
     text: str | None
 
 
-def project_options(memory_path: Path) -> list[dict]:
-    """Up to :data:`MAX_PROJECTS` live projects, deterministic: those with open backlog items first, then the most
-    recently referenced, then by name. A project archived or dropped is never offered."""
-    memory_path = Path(memory_path)
-    try:
-        open_items = backlog.open_counts(memory_path)
-    except Exception:  # noqa: BLE001 — a broken backlog folder must not cost the panel its projects
-        open_items = {}
-    rows: list[tuple[int, str, str, str]] = []
-    for f in bank_index.files(memory_path, "entities"):
-        fm = f.frontmatter or {}
-        if str(fm.get("type") or "") != "project":
-            continue
-        if str(fm.get("status") or "active") in ("archived", "dropped"):
-            continue
-        name = str(fm.get("name") or f.stem).strip() or f.stem
-        last = str(fm.get("last_referenced") or "")
-        rows.append((0 if open_items.get(f.stem) else 1, last, name, f.stem))
-    # Open backlog first; within each, newest reference first, then name — two stable sorts.
-    rows.sort(key=lambda r: r[2].lower())
-    rows.sort(key=lambda r: r[1], reverse=True)
-    rows.sort(key=lambda r: r[0])
-    return [{"id": stem, "name": name} for _, _, name, stem in rows[:MAX_PROJECTS]]
-
-
 def options(memory_path: Path) -> dict:
+    """The panel's choices: the four reasons and the cap on the words. ``projects`` stays on the wire, always empty,
+    so an app built before G191 v4 shows no project chips either."""
     return {
         "reasons": [{"key": k, "label": v} for k, v in REASONS.items()],
-        "projects": project_options(memory_path),
+        "projects": [],
         "max_text": MAX_TEXT,
     }
 
 
-def _project_name(memory_path: Path, project: str) -> str | None:
+def _project_name(memory_path: Path, project: str, *, live: bool = True) -> str | None:
     entry = bank_index.file(Path(memory_path), "entities", f"{project}.md")
     if entry is None:
         return None
     fm = entry.frontmatter or {}
-    if str(fm.get("type") or "") != "project" or str(fm.get("status") or "active") in ("archived", "dropped"):
+    if str(fm.get("type") or "") != "project":
+        return None
+    if live and str(fm.get("status") or "active") in ("archived", "dropped"):
         return None
     return str(fm.get("name") or project).strip() or project
 
 
-def validate(memory_path: Path, *, reasons: list[str] | None, project: str | None, text: str | None) -> Answer:
+def validate(memory_path: Path, *, reasons: list[str] | None, project: str | None, text: str | None,
+             editing: bool = False) -> Answer:
     """The answer as it will be stored, or :class:`SavedWhyError` (422) for one that names nothing or something
-    unknown. Order is the panel's, duplicates fold."""
-    picked = tuple(k for k in REASONS if k in set(reasons or []))
-    unknown = sorted(set(reasons or []) - set(REASONS))
+    unknown. Order is :data:`LABELS`', duplicates fold. A retired reason is known (an older app still sends it, and an
+    edit keeps what the answer held); a project must be a live one, or — ``editing`` an answer that already names it —
+    any project page."""
+    picked = tuple(k for k in LABELS if k in set(reasons or []))
+    unknown = sorted(set(reasons or []) - set(LABELS))
     if unknown:
         raise SavedWhyError(422, f"Unknown reason {unknown[0]!r}")
     project = (project or "").strip() or None
     project_name = None
     if project is not None:
-        project_name = _project_name(memory_path, project)
+        project_name = _project_name(memory_path, project, live=not editing)
         if project_name is None:
             raise SavedWhyError(422, f"{project!r} is not a live project")
     words = " ".join((text or "").split()) or None
@@ -183,7 +177,7 @@ def render(answer: Answer, *, at: str, added_at: str | None) -> str:
     """The section's text (without its heading): when it was said and saved, then one line per answer."""
     when = f"Said {at}" + (f", about a bookmark saved {added_at}" if added_at else "") + "."
     lines = [when]
-    lines += [f"- {REASONS[k]}" for k in answer.reasons]
+    lines += [f"- {LABELS[k]}" for k in answer.reasons]
     if answer.project_name:
         lines.append(f"- For {answer.project_name}")
     if answer.text:
@@ -243,7 +237,7 @@ def _same_answer(record: dict, *, at: str, added_at: str | None) -> bool:
 def _name_of(memory_path: Path, project: str | None) -> str | None:
     if not project:
         return None
-    return _project_name(memory_path, project) or project
+    return _project_name(memory_path, project, live=False) or project
 
 
 def render_all(memory_path: Path, records: list[dict], *, episode_added_at: str | None) -> str:
@@ -252,7 +246,7 @@ def render_all(memory_path: Path, records: list[dict], *, episode_added_at: str 
     one."""
     paragraphs = []
     for i, record in enumerate(records):
-        answer = Answer(reasons=tuple(k for k in REASONS if k in set(record.get("reasons") or [])),
+        answer = Answer(reasons=tuple(k for k in LABELS if k in set(record.get("reasons") or [])),
                         project=record.get("project") or None,
                         project_name=_name_of(memory_path, record.get("project")),
                         text=record.get("text") or None)
@@ -338,10 +332,11 @@ def wire(record: dict | None, *, added_at: str | None) -> dict | None:
     own moment of saving when it has one — a re-save — else the episode's)."""
     if not isinstance(record, dict):
         return None
-    reasons = [str(k) for k in (record.get("reasons") or []) if str(k) in REASONS]
+    # Retired reasons still read (G191 v4): what the person once picked is still what they picked.
+    reasons = [str(k) for k in (record.get("reasons") or []) if str(k) in LABELS]
     return {
         "reasons": reasons,
-        "labels": [REASONS[k] for k in reasons],
+        "labels": [LABELS[k] for k in reasons],
         "project": record.get("project") or None,
         "text": record.get("text") or None,
         "at": str(record.get("at") or "") or None,

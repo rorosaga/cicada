@@ -7,7 +7,8 @@ has a reason to dive into the website."
 The default stays minimal (D4 a): the landing page's viewport and its metadata. Depth follows the person's reason, and
 the reason is read from three places, all deterministic and all already in the bank:
 
-* **The explicit answer** — G191's ``saved_why.reasons`` ids (``design``, ``product``, ``technique``, ``read_later``)
+* **The explicit answer** — G191's ``saved_why.reasons`` ids (``design``, ``product``, ``read_later``, ``someday``;
+  ``technique`` on answers given before G191 v4)
   and a project (``product``'s plan).
 * **The person's own words about the save** — ``saved_why.text`` and a ``## Saved because`` section on the link's
   episode — read through closed keyword families (English and Spanish), so "love how every page looks" means the
@@ -40,7 +41,10 @@ PACE_SECONDS = 8
 #: The shot kinds a page can ask for (``site_captures.SHOT_KINDS`` minus the thumbnail, which rides the viewport).
 SHOTS = ("viewport", "full", "mobile", "dark")
 DEPTHS = ("capture", "read", "product", "look")
-REASONS = ("design", "product", "technique", "read_later")
+#: G191's reason ids. ``someday`` (G191 v4, "Useful someday") asks for nothing yet — the minimal capture, like
+#: ``read_later``: the page as it looked when saved, so a later reader knows what was meant. ``technique`` is no longer
+#: offered, and an answer that holds it still steers.
+REASONS = ("design", "product", "technique", "read_later", "someday")
 MAX_FOCUS = 8
 MAX_SAID = 12
 
@@ -75,6 +79,7 @@ _PLANS: dict[str, dict] = {
     "technique": {"kinds": (), "home": ("viewport", "full"), "other": ("viewport",), "depth": "read",
                   "section": True},
     "read_later": {"kinds": (), "home": ("viewport",), "other": ("viewport",), "depth": "capture"},
+    "someday": {"kinds": (), "home": ("viewport",), "other": ("viewport",), "depth": "capture"},
 }
 _MINIMAL = {"kinds": (), "home": ("viewport",), "other": ("viewport",), "depth": "capture"}
 #: "Every page", "the whole site": the person meant more than a sample, so a design plan widens to these kinds too.

@@ -280,6 +280,13 @@ final class BrowserWatcher {
     private let performSync: @MainActor (String, Store) async throws -> String
     /// G191 live — the early look for a save that cannot sync yet (`BrowserImportActions.peek`); injected for tests.
     private let peek: @MainActor (String) async -> Void
+    /// G191 v4 — the app's own diff the instant look and the baseline read feed (`BookmarkFileDiff.shared`).
+    private let diff: BookmarkFileDiff
+    /// G191 v4 — the channels whose instant look is reading now, and those an event came for meanwhile.
+    private var looking: Set<String> = []
+    private var lookAgain: Set<String> = []
+    /// G191 v4 — the stage timings of each channel's last instant look (uptime seconds), for tests and the log.
+    private(set) var lookTimings: [String: SaveWhyTimings.Look] = [:]
 
     /// Everything a real browser supplies — the channel list, where its files
     /// live, the timings — is injectable, because the behaviour worth testing
@@ -296,9 +303,11 @@ final class BrowserWatcher {
         performSync: @escaping @MainActor (String, Store) async throws -> String = {
             try await BrowserImportActions.syncChannel($0, store: $1)
         },
-        peek: @escaping @MainActor (String) async -> Void = { await BrowserImportActions.peek($0) }
+        peek: @escaping @MainActor (String) async -> Void = { await BrowserImportActions.peek($0) },
+        diff: BookmarkFileDiff? = nil
     ) {
         self.peek = peek
+        self.diff = diff ?? .shared
         self.defaults = defaults
         self.channels = channels
         self.paths = paths
@@ -437,6 +446,7 @@ final class BrowserWatcher {
         arm(channel: channel, file: file)
         _ = rearmIfReadable(channel: channel, file: file)   // G191 live: one armed while refused, or before consent
         scheduleRecheck()
+        primeBaseline(channel: channel, file: file)   // G191 v4: the next save is named at once
         refreshState(channel: channel, file: file)
         Task { await syncIfChanged(channel: channel, file: file) }
     }
@@ -524,11 +534,13 @@ final class BrowserWatcher {
         sources[channel] = stream
         // Only a turned-on browser is opened (final review, finding 4); one nobody chose is re-checked on Turn on.
         armedReadable[channel] = isEnabled(channel) && BrowserFileAccess.probe(urls) == .present
-        if armedReadable[channel] != true { scheduleRecheck() }
+        if armedReadable[channel] != true { scheduleRecheck() } else { primeBaseline(channel: channel, file: file) }
     }
 
-    /// Coalesce the burst of events one save produces into a single sync.
+    /// Coalesce the burst of events one save produces into a single sync — and, before that settle, look at once
+    /// (G191 v4, `instantLook`).
     private func fileChanged(channel: String, file: BrowserFile) {
+        if isEnabled(channel) { instantLook(channel: channel, file: file) }
         pending[channel]?.cancel()
         pending[channel] = Task { [weak self] in
             try? await Task.sleep(for: self?.debounce ?? BrowserWatchPolicy.debounce)
@@ -536,6 +548,61 @@ final class BrowserWatcher {
             // G191: a sync the watch itself started, seconds after the browser wrote its file — the only kind that
             // may ask "what made you save this?".
             await self.syncIfChanged(channel: channel, file: file, live: true)
+        }
+    }
+
+    /// G191 v4 — the instant look (coordinator's measurement 2026-10-15: the panel showed 4.9 s after Chrome wrote its
+    /// file, with the backend's look answering in 13–37 ms). The question must not wait on anything but this browser's
+    /// own file: not the settle, not a sync of this channel still running or inside its `minimumInterval`, not another
+    /// browser (a Safari refused Full Disk Access, its recheck, its sync), not the network. So the first event of a
+    /// save reads the file and diffs it in the app at once, and one bookmark saved since the last read is offered to
+    /// the question (`BookmarkSyncSignal.offer` → `SaveWhyCenter.candidate`), which shows it unconfirmed; the early
+    /// look and the sync confirm it in the background, as before. Chrome lands its file by a rename, so the first
+    /// event already names the whole file; a file caught mid-write parses to nothing and is ignored
+    /// (`BookmarkFileDiff.record`), and the settled sync's own diff names the link instead. One read per channel at a
+    /// time; an event during it reads again after. Each channel's look is its own task, so nothing on one browser can
+    /// hold another's.
+    private func instantLook(channel: String, file: BrowserFile) {
+        guard BookmarkSyncSignal.offer != nil else { return }   // nobody asks: nothing to look for
+        guard !looking.contains(channel) else { lookAgain.insert(channel); return }
+        looking.insert(channel)
+        let event = SaveWhyTimings.now()
+        BookmarkSyncSignal.eventAt[channel] = event
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            var look = SaveWhyTimings.Look(event: event)
+            if let data = try? await BrowserFileReader.read(file, candidates: self.paths(file)) {
+                look.read = SaveWhyTimings.now()
+                let named = await self.diff.observe(channel: channel, data: data, live: true)
+                look.diffed = SaveWhyTimings.now()
+                look.named = named != nil
+                if let named {
+                    BookmarkSyncSignal.offer?(named)
+                } else if (self.diff.removedOnLastRead[channel] ?? 0) > 0 {
+                    BookmarkSyncSignal.removed?(channel)   // a bookmark removed, none new: the "Edit bookmark" bubble
+                }
+            }
+            self.lookTimings[channel] = look
+            if let read = look.read, let diffed = look.diffed {
+                SaveWhyTimings.logger.info("""
+                    save-why: instant look read \(SaveWhyTimings.ms(read - event)) ms, diff \
+                    \(SaveWhyTimings.ms(diffed - read)) ms, \(look.named ? "one bookmark" : "nothing new", privacy: .public)
+                    """)
+            }
+            self.looking.remove(channel)
+            if self.lookAgain.remove(channel) != nil { self.instantLook(channel: channel, file: file) }
+        }
+    }
+
+    /// G191 v4 — the diff's "before" for a turned-on browser, read once when its watch is armed, so the first save
+    /// after launch (or after the person turns a browser on) is named from the file with no wait. Read only for a
+    /// browser the person turned on (Track I T1), off the main actor, and never when a baseline exists.
+    private func primeBaseline(channel: String, file: BrowserFile) {
+        guard isEnabled(channel), !diff.hasBaseline(channel) else { return }
+        Task { @MainActor [weak self] in
+            guard let self, !self.diff.hasBaseline(channel),
+                  let data = try? await BrowserFileReader.read(file, candidates: self.paths(file)) else { return }
+            _ = await self.diff.observe(channel: channel, data: data, live: false)
         }
     }
 

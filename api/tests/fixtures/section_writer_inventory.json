@@ -35,12 +35,6 @@
   ],
   "services/bookmark_sync.py": [
     {
-      "function": "_propose_removals",
-      "method": "write",
-      "frontmatter": "frontmatter",
-      "disposition": "uninstrumented_guarded"
-    },
-    {
       "function": "_revive",
       "method": "write",
       "frontmatter": "parsed.frontmatter",
@@ -247,12 +241,6 @@
       "method": "write",
       "frontmatter": "fm",
       "disposition": "uninstrumented_guarded"
-    },
-    {
-      "function": "_write_removal",
-      "method": "write",
-      "frontmatter": "{'kind': 'removal', 'required_input': 'choice', 'status': 'pending', 'priority': 0.4, 'entity_id': BOOKMARK_ID, 'entity_name': 'A gripper teardown', 'title': 'Still keep A gripper teardown?', 'created_date': str(today), 'question': 'It was removed from Safari.', 'options': [{'key': 'keep', 'label': 'Keep'}, {'key': 'remove', 'label': 'Remove'}], 'allow_other': False, 'allow_defer': True, 'channel': 'safari-bookmarks', 'browser': 'Safari', 'url': 'https://example.com/blog/gripper-teardown', 'synced_at': f'{today}T07:30:00+00:00', 'hint': None, 'trigger': 'sync/bookmark_removal'}",
-      "disposition": "fresh_frontmatter_untracked"
     },
     {
       "function": "_write_sleep_findings",

@@ -4364,7 +4364,7 @@ def _explore_why_line(ctx: ToolContext, why: dict | None) -> str | None:
     if not why:
         return None
     labels = {"design": "the design, the look", "product": "the product itself", "technique": "a technique to reuse",
-              "read_later": "to read later"}
+              "read_later": "to read later", "someday": "useful someday"}
     bits = [labels.get(r, r) for r in why.get("reasons") or []]
     if why.get("project"):
         bits.append(f"for {why['project']}")

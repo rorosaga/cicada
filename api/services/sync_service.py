@@ -195,7 +195,8 @@ def components(memory_path: Path, *, sleep_state=None) -> dict[str, str]:
         # `sources/folders.json` (G133) rides it too: registering or renaming a
         # folder adds or relabels a channel row without touching any other
         # component. So does `sources/wispr_flow.json` (G134): turning the
-        # source on adds a channel row the same way (R-LS29).
+        # source on adds a channel row the same way (R-LS29). And
+        # `sources/bookmark_seen.json` (G191 v4: a bookmark that left its browser).
         "sources": (
             f"{bank_index.dir_fingerprint(mp / 'sources')}"
             f":{file_mtime(mp / 'sources' / 'url_index.json'):.6f}"
@@ -204,6 +205,9 @@ def components(memory_path: Path, *, sleep_state=None) -> dict[str, str]:
             f":{file_mtime(mp / FEEDS_FILENAME):.6f}"
             f":{file_mtime(mp / CALENDARS_FILENAME):.6f}"
             f":{file_mtime(mp / SYNC_STATE_FILENAME):.6f}"
+            # G191 v4: the bookmark seen-set carries which links left a browser (`leftBrowser` on `/sources`, `left`
+            # on a bookmark channel's items); the directory fingerprint reads only `*.md`, so it rides by its mtime.
+            f":{file_mtime(mp / 'sources' / 'bookmark_seen.json'):.6f}"
         ),
         # The logo cache lives at `$CICADA_HOME/logos/<bank>/`, *outside* the
         # memory bank, so no other component notices when a warm-up or an

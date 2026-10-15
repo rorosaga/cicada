@@ -117,7 +117,8 @@ def test_leos_beliefs_are_signed_with_the_model_and_effort_of_their_turn(client)
 def test_every_inbox_kind_is_served(client):
     items = client.get("/inbox").json()
     kinds = {i["kind"] for i in items}
-    assert kinds == {"decay", "conflict", "clarification", "merge_suggestion", "followup", "removal", "divergence",
+    # G191 v4: a bookmark leaving the browser is a status, never a question, so the showcase asks no removal.
+    assert kinds == {"decay", "conflict", "clarification", "merge_suggestion", "followup", "divergence",
                      "normalization"}
     assert any(i["kind"] == "conflict" and i["informational"] for i in items), "G98 — inbox-004's `uses`"
     divergence = next(i for i in items if i["kind"] == "divergence")
@@ -140,8 +141,8 @@ def test_each_piece_is_committed_by_its_own_writer_and_nothing_is_left_behind(ba
     subjects = [line for line in log.splitlines() if line]
     day = T.isoformat()
     # The three `folder_source.commit_paths_for` writers (paper details, calendar, tab groups) commit undated subjects;
-    # a removal proposal is `bookmark_sync`'s own `cicada` commit, never inside the person's save.
-    for subject, author in ((f"Sources ingest {day}", "user"), (f"Bookmark removal sync {day}", "cicada"),
+    # a bookmark that left the browser is `bookmark_sync`'s own `cicada` commit, never inside the person's save.
+    for subject, author in ((f"Sources ingest {day}", "user"), (f"Bookmark sync {day}", "cicada"),
                             ("Paper details", "cicada"), ("Calendar sync", "user"), ("Tab groups sync", "user"),
                             (f"Memory update {day}", "user"), (f"Agent write {day}", "claude-code"),
                             (f"Set picture {day}", "user")):

@@ -105,10 +105,5 @@ enum SaveWhyPreview {
 
     /// Used only when the backend does not answer, so the look can still be checked. The live labels come from
     /// `GET /sources/saved-why/options`.
-    static let sampleOptions = SavedWhyOptions(reasons: [
-        .init(key: "design", label: "The design"),
-        .init(key: "product", label: "The product"),
-        .init(key: "technique", label: "A technique to use"),
-        .init(key: "read_later", label: "To read later"),
-    ], projects: [.init(id: "alpha-project", name: "alpha-project")], maxText: 500)
+    static let sampleOptions = SavedWhyOptions.basic
 }

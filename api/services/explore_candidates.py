@@ -31,7 +31,7 @@ _CLASS_REASON = {
     reading_hosts.CLASS_NEVER: "redirector", reading_hosts.CLASS_BAD: "not_web",
 }
 #: G191's answer keys → the depth they ask for (design §2.5). The deepest one asked wins.
-WHY_DEPTH = {"design": "look", "product": "product", "technique": "read", "read_later": "capture"}
+WHY_DEPTH = {"design": "look", "product": "product", "technique": "read", "read_later": "capture", "someday": "capture"}
 #: Typical wall time per site with one agent (design §6.1, capture depth), and the default number of agents.
 SECONDS_PER_SITE = 35
 DEFAULT_AGENTS = 4

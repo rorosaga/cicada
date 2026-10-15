@@ -6,7 +6,8 @@ import SwiftUI
 /// (which removes it from Chrome too)").
 ///
 /// Each answer is one line of reasons and words with when it was saved and said. Edit opens the same toggles and
-/// field the notch panel has (the backend's reasons and live projects, `GET /sources/saved-why/options`), Save writes
+/// field the notch panel has (the four reasons, `GET /sources/saved-why/options`; G191 v4: plus whatever the answer
+/// already holds that is no longer offered — a retired reason, a project), Save writes
 /// `PUT /sources/saved-why` for that answer (or `POST` for a first one) through `Store.perform`. Remove asks first in
 /// words, then removes it from Chrome through Apple Events when Chrome holds it (the Automation prompt comes only
 /// then), and makes Cicada forget it (`POST /sources/bookmarks/remove`). Safari's bookmarks cannot be changed by
@@ -22,13 +23,17 @@ struct BookmarkReasonsSection: View {
     @State private var project: String?
     @State private var words = ""
     @State private var options = BookmarkReasonsSection.cachedOptions
+    /// G191 v4 — what the answer being edited holds that is no longer offered (a retired reason, a project): shown as
+    /// chips in its editor only, so editing it never drops them unseen and they can be unticked.
+    @State private var retired: [SavedWhyOptions.Reason] = []
+    @State private var heldProject: String?
     @State private var confirmingRemove = false
     /// What Remove would do in Chrome (nil: Chrome holds no copy), read when the person asks.
     @State private var chromePlan: ChromeRemovalPlan?
     @State private var removing = false
 
     /// The options, fetched once per launch (the panel's own list).
-    @MainActor static var cachedOptions = SavedWhyOptions()
+    @MainActor static var cachedOptions = SavedWhyOptions.basic
 
     private var fromSafari: Bool { item.origin == "safari-bookmark" }
 
@@ -36,6 +41,18 @@ struct BookmarkReasonsSection: View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
             SectionLabel(Copy.Bookmarks.reasonsLabel)
                 .padding(.top, CicadaTheme.scaled(24))
+            if let left = Copy.Bookmarks.noLongerIn(item.leftBrowser) {
+                // G191 v4: the bookmark left its browser; Cicada kept it — said in words where it shows.
+                VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
+                    Label(left, systemImage: "bookmark.slash")
+                        .font(CicadaTheme.metaFont)
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                    Text(Copy.Bookmarks.keptNote)
+                        .font(CicadaTheme.metaFont)
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
             ForEach(Array(answers.enumerated().reversed()), id: \.offset) { index, record in
                 if editing == .some(record.at) {
                     editor
@@ -71,7 +88,7 @@ struct BookmarkReasonsSection: View {
         .task(id: item.id) {
             answers = item.savedWhyAnswers
             editing = nil
-            if options.reasons.isEmpty, let fetched = try? await APIClient.shared.savedWhyOptions() {
+            if options == .basic, let fetched = try? await APIClient.shared.savedWhyOptions(), !fetched.reasons.isEmpty {
                 Self.cachedOptions = fetched
                 options = fetched
             }
@@ -126,15 +143,13 @@ struct BookmarkReasonsSection: View {
     private var editor: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
             FlowLayout(spacing: CicadaTheme.scaled(6)) {
-                ForEach(options.reasons) { reason in
+                ForEach(offered) { reason in
                     toggle(reason.label, on: reasons.contains(reason.key)) {
                         if reasons.contains(reason.key) { reasons.remove(reason.key) } else { reasons.insert(reason.key) }
                     }
                 }
-                ForEach(options.projects) { p in
-                    toggle(Copy.SaveWhy.forProject(p.name), on: project == p.id) {
-                        project = project == p.id ? nil : p.id
-                    }
+                if let held = heldProject {
+                    toggle(projectName(held), on: project == held) { project = project == held ? nil : held }
                 }
             }
             TextField(Copy.Bookmarks.editPrompt, text: $words)
@@ -169,20 +184,28 @@ struct BookmarkReasonsSection: View {
 
     private var answer: SavedWhyAnswer {
         let folded = words.split(whereSeparator: \.isWhitespace).joined(separator: " ")
-        return SavedWhyAnswer(reasons: options.reasons.map(\.key).filter(reasons.contains), project: project,
+        return SavedWhyAnswer(reasons: offered.map(\.key).filter(reasons.contains), project: project,
                               text: folded.isEmpty ? nil : folded)
     }
+
+    /// The four reasons, then what the edited answer holds that is no longer offered (G191 v4).
+    private var offered: [SavedWhyOptions.Reason] { options.reasons + retired }
 
     private func begin(_ record: SavedWhyRecord?) {
         reasons = Set(record?.reasons ?? [])
         project = record?.project
+        heldProject = record?.project
+        let keys = Set(options.reasons.map(\.key))
+        retired = record.map { r in
+            zip(r.reasons, r.labels).filter { !keys.contains($0.0) }.map { SavedWhyOptions.Reason(key: $0.0, label: $0.1) }
+        } ?? []
         words = record?.text ?? ""
         editing = .some(record?.at)
     }
 
     private func save() async {
         guard !answer.isEmpty, let target = editing else { return }
-        let labels = Dictionary(uniqueKeysWithValues: options.reasons.map { ($0.key, $0.label) })
+        let labels = Dictionary(offered.map { ($0.key, $0.label) }, uniquingKeysWith: { first, _ in first })
         let write = SavedWhyWrite(url: item.url, at: target, answer: answer, answers: $answers, labels: labels)
         editing = nil
         if await store.perform(write) { store.flash(Copy.Bookmarks.saved) }
@@ -203,8 +226,10 @@ struct BookmarkReasonsSection: View {
         onRemoved()
     }
 
+    /// A stored project's name from the graph the Store holds (the panel no longer offers projects, G191 v4).
     private func projectName(_ id: String) -> String {
-        options.projects.first { $0.id == id }.map { Copy.SaveWhy.forProject($0.name) } ?? Copy.SaveWhy.forProject(id)
+        let name = store.graph.value?.nodes.first { $0.id == id && $0.type == .project }?.name
+        return Copy.SaveWhy.forProject(name ?? id)
     }
 
     private func openSafari() {

@@ -175,7 +175,7 @@ def test_the_answer_lands_on_the_bookmark_episode_scrubbed_and_queued(tmp_path, 
     assert r.status_code == 200, r.text
     body = r.json()["savedWhy"]
     assert body["reasons"] == ["design", "product"]                 # the panel's order, not the tap order
-    assert body["labels"] == ["The design, the look", "The product itself"]
+    assert body["labels"] == ["The design", "The product"]
     assert secret not in (body["text"] or "") and "their onboarding" in body["text"]
     assert body["addedAt"] == (NOW - timedelta(seconds=40)).isoformat()
     assert body["at"]
@@ -186,7 +186,7 @@ def test_the_answer_lands_on_the_bookmark_episode_scrubbed_and_queued(tmp_path, 
     assert parsed.frontmatter["saved_why"]["reasons"] == ["design", "product"]
     assert secret not in parsed.body
     assert parsed.body.count(saved_why.HEADING) == 1
-    assert "- The design, the look" in parsed.body and "- The product itself" in parsed.body
+    assert "- The design" in parsed.body and "- The product" in parsed.body
     assert f"about a bookmark saved {body['addedAt']}" in parsed.body
 
     log = subprocess.run(["git", "-C", str(memory), "log", "-1", "--format=%B"], capture_output=True, text=True,
@@ -209,7 +209,7 @@ def test_the_same_answer_again_replaces_itself_and_never_twins_the_section(tmp_p
                                                    "addedAt": added}).status_code == 200
     parsed = markdown_parser.parse(memory / "episodes" / f"{episode_id}.md")
     assert parsed.body.count(saved_why.HEADING) == 1
-    assert "To read later" in parsed.body and "The design, the look" not in parsed.body
+    assert "To read later" in parsed.body and "The design" not in parsed.body
     assert saved_why.EARLIER_KEY not in parsed.frontmatter
 
 
@@ -308,21 +308,22 @@ def test_the_source_record_carries_the_intent_for_a_later_reader(tmp_path, monke
     assert items[OLD_A["url"]]["savedWhy"] is None
 
 
-def test_the_options_are_the_fixed_reasons_plus_live_projects_backlog_first(tmp_path, monkeypatch):
+def test_the_options_are_four_basic_reasons_and_never_a_project(tmp_path, monkeypatch):
+    """G191 v4 (owner 2026-10-15: "keep options to a minimal"): the design, the product, to read later, useful
+    someday — and no "For <project>" chip, however many live projects the bank holds."""
     memory = _bank(tmp_path)
-    for stem, name, last in (("alpha-project", "Alpha", "2026-10-01"), ("beta-project", "Beta", "2026-10-10"),
-                             ("gamma-project", "Gamma", "2026-09-01"), ("delta-project", "Delta", "2026-10-12")):
+    for stem, name in (("alpha-project", "Alpha"), ("beta-project", "Beta")):
         markdown_parser.write(memory / "entities" / f"{stem}.md",
-                              {"type": "project", "name": name, "status": "active", "last_referenced": last}, "")
-    markdown_parser.write(memory / "entities" / "gone-project.md",
-                          {"type": "project", "name": "Gone", "status": "dropped", "last_referenced": "2026-10-13"},
-                          "")
+                              {"type": "project", "name": name, "status": "active", "last_referenced": "2026-10-10"},
+                              "")
     from api.services import backlog
 
-    backlog.add_item(memory, project="gamma-project", title="An open item", author="user")
+    backlog.add_item(memory, project="alpha-project", title="An open item", author="user")
     body = _client(memory, monkeypatch).get("/sources/saved-why/options").json()
-    assert [r["key"] for r in body["reasons"]] == list(saved_why.REASONS)
-    assert [p["id"] for p in body["projects"]] == ["gamma-project", "delta-project", "beta-project"]
+    assert [(r["key"], r["label"]) for r in body["reasons"]] == [
+        ("design", "The design"), ("product", "The product"), ("read_later", "To read later"),
+        ("someday", "Useful someday")]
+    assert body["projects"] == []
     assert body["maxText"] == saved_why.MAX_TEXT
 
 

@@ -56,15 +56,31 @@ Seven rails hold across all of them:
   `edited_at`), `processed: false` so Sleep reads it again, committed
   alone as `user` (trigger `user/saved_why`) inside the write admission (409 while Sleep holds the pages, 409 in a demo
   bank, 404 for a link not saved, 422 for an empty or unknown answer). Reason ids are a closed, stable set —
-  `design`, `product`, `technique`, `read_later` — labels separate; `project` is a live project page's id; `text`
-  is the person's own words (≤ 500). `GET /sources/saved-why/options` serves the reasons and up to three live
-  projects (open backlog first, then the most recently referenced) — deterministic, no model. The wire for a later
+  offered (G191 v4, owner 2026-10-15: "keep options to a minimal"): `design` "The design", `product` "The product",
+  `read_later` "To read later", `someday` "Useful someday"; retired but still read and still accepted: `technique`
+  ("A technique to reuse") — labels separate (`saved_why.LABELS`); `project` is a project page's id (a live one, or on
+  an edit any — the panel no longer offers projects; Sleep may infer the link); `text` is the person's own words
+  (≤ 500). `GET /sources/saved-why/options` serves the four reasons and an always-empty `projects` — deterministic, no
+  model. `explore_plan` reads `someday` as the minimal capture, like `read_later` (the page as it looked when saved). The wire for a later
   reader is the source record: `GET /sources` → `items[].savedWhy` `{reasons, labels, project, text, at, addedAt,
   editedAt}`, read from the episode (null when nobody was asked), with `savedWhyHistory` (every answer, oldest first,
   when there are several) and `lastSavedAt` (the newest moment of saving the record knows). **Remove (G191 v3):**
   `POST /sources/bookmarks/remove` archives the media page and tombstones the episode (`bookmark_forget`), never an
   unlink; the person's answers stay. The browser's copy is the app's to remove (Chrome through Apple Events on the
   person's click; Safari cannot be edited by another app).
+  **Left the browser (G191 v4, owner 2026-10-15: "I'd like to know that Cicada has the status, like it's not linked, or
+  is no longer a bookmark saved in Chrome").** A link that drops out of a channel's file is kept — its page, episode and
+  reasons untouched — and marked in the seen-set's `left` map `{url_hash: at}` with the sync instant that first saw it
+  gone (`bookmark_seen.next_left`; only links the bank holds). A link present again leaves the map on the sync that sees
+  it (and is a re-save, asked about). The map moves only by the removal diff, so its rails are the diff's: a channel's
+  first read, a folder-scope change, an empty read (the previous set is kept, so a half-written file never makes every
+  link look gone or new) and a wholesale swap (a read sharing no link with the last one that held ≥ 5) mark nothing and
+  count as no re-save, each reason but the first recorded in `removals_skipped`. A move or rename keeps the URL in the
+  file, so it never marks. **No inbox question:** until v4 the sync asked "Still keep …?" (`removal`, G129 slice 2) — it
+  existed because the bookmark sync had no other way to say a link had left the browser and no way to remove one from
+  Cicada; now the status says the first and the bookmark page's Remove does the second. A pending bookmark removal
+  question is retired on the channel's next sync, its link marked from the day it was asked (`_retire_removal_questions`,
+  trigger `sync/bookmark_left`); papers' `removal` questions are untouched.
 - **Capture must not depend on a model deciding to call a tool** (G105). Every Claude Code and
   Codex session is captured by the harness's own `Stop` hook
   (`api/hooks/capture.py` → `POST /capture/transcript`). Cursor and Gemini CLI are captured by their own

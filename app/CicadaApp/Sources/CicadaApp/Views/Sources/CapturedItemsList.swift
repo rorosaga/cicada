@@ -98,7 +98,8 @@ struct CapturedItemsList: View {
                 VStack(spacing: 0) {
                     ForEach(list.items, id: \.self) { item in
                         CapturedItemRow(item: item, today: today,
-                                        route: CapturedItemRoute.of(item, interactive: interactive), open: go)
+                                        route: CapturedItemRoute.of(item, interactive: interactive), open: go,
+                                        leftLine: CapturedItems.leftLine(item, channel: channel))
                     }
                 }
                 if list.hasMore { showMore(list, loading: cache.isLoadingMore(channel), cache: cache) }
@@ -163,6 +164,8 @@ private struct CapturedItemRow: View {
     let today: ISODay
     let route: CapturedItemRoute?
     let open: (CapturedItemRoute) -> Void
+    /// G191 v4 — the bookmark left its browser: the row is dimmed and says so (help and spoken).
+    var leftLine: String? = nil
 
     @State private var hovering = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -174,12 +177,12 @@ private struct CapturedItemRow: View {
                 .buttonStyle(.cicadaPlain)
                 .onHover { hovering = $0 }
                 .help(Copy.capturedOpenHelp(item.kind))
-                .accessibilityLabel(Copy.capturedRowLabel(item.title, age: age?.help))
+                .accessibilityLabel(Copy.capturedRowLabel(item.title, age: age?.help, left: leftLine))
                 .accessibilityHint(Copy.capturedOpenHelp(item.kind))
         } else {
             label(age)
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel(Copy.capturedRowLabel(item.title, age: age?.help))
+                .accessibilityLabel(Copy.capturedRowLabel(item.title, age: age?.help, left: leftLine))
         }
     }
 
@@ -187,10 +190,16 @@ private struct CapturedItemRow: View {
         HStack(spacing: CicadaTheme.spacingSM) {
             Text(item.title)
                 .font(CicadaTheme.bodyFont)
-                .foregroundStyle(CicadaTheme.textPrimary)
+                .foregroundStyle(leftLine == nil ? CicadaTheme.textPrimary : CicadaTheme.textTertiary)
                 .lineLimit(1)
                 .truncationMode(.tail)
             Spacer(minLength: CicadaTheme.spacingSM)
+            if let leftLine {
+                Image(systemName: "bookmark.slash")
+                    .font(CicadaTheme.metaFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .help(leftLine)
+            }
             if let age {
                 Text(age.text)
                     .font(CicadaTheme.metaFont)

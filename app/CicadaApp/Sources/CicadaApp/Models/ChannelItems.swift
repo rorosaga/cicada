@@ -10,11 +10,14 @@ struct ChannelItem: Codable, Hashable, Identifiable, Sendable {
     let id: String
     let title: String
     let day: String?
+    /// G191 v4 — a bookmark channel's link that left the browser: when a sync first saw it gone (aware ISO). Nil for
+    /// every other row and from an older backend.
+    var left: String? = nil
 
-    enum CodingKeys: String, CodingKey { case kind, id, title, day }
+    enum CodingKeys: String, CodingKey { case kind, id, title, day, left }
 
-    init(kind: Kind, id: String, title: String, day: String? = nil) {
-        self.kind = kind; self.id = id; self.title = title; self.day = day
+    init(kind: Kind, id: String, title: String, day: String? = nil, left: String? = nil) {
+        self.kind = kind; self.id = id; self.title = title; self.day = day; self.left = left
     }
 
     init(from decoder: Decoder) throws {
@@ -23,6 +26,7 @@ struct ChannelItem: Codable, Hashable, Identifiable, Sendable {
         kind = Kind(rawValue: (try c.decodeIfPresent(String.self, forKey: .kind)) ?? "") ?? .unknown
         title = try c.decodeIfPresent(String.self, forKey: .title) ?? ""
         day = try c.decodeIfPresent(String.self, forKey: .day)
+        left = try? c.decodeIfPresent(String.self, forKey: .left)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -31,6 +35,7 @@ struct ChannelItem: Codable, Hashable, Identifiable, Sendable {
         try c.encode(id, forKey: .id)
         try c.encode(title, forKey: .title)
         try c.encodeIfPresent(day, forKey: .day)
+        try c.encodeIfPresent(left, forKey: .left)
     }
 }
 
@@ -104,6 +109,13 @@ enum CapturedItems {
 
     /// How many rows the next refresh asks for, so a revalidation covers every row already shown (the server caps a
     /// page at 200).
+    /// G191 v4 — "No longer in Chrome since Oct 15" for a bookmark row that left its browser, nil otherwise.
+    static func leftLine(_ item: ChannelItem, channel: String) -> String? {
+        guard let since = item.left else { return nil }
+        let browser = BrowserInventory.spec(forBookmarksChannel: channel)?.name ?? "the browser"
+        return Copy.Bookmarks.noLongerIn([BookmarkLeft(browser: browser, channel: channel, since: since)])
+    }
+
     static func refreshLimit(shown: Int) -> Int {
         let pages = max(1, (shown + pageSize - 1) / pageSize)
         return min(pages * pageSize, maxLimit)

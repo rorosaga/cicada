@@ -1,5 +1,26 @@
 import Foundation
 import Observation
+import OSLog
+
+/// G191 v4 — the stage timings of the question, on a monotonic clock: when a browser's file event came, when the
+/// instant look had read the file, diffed it, and when the panel showed. Durations only — never a link, a title or a
+/// site — logged once per question (`com.cicada.app`, category `save-why`) so a live measurement can tell where time
+/// goes: `log stream --predicate 'subsystem == "com.cicada.app" AND category == "save-why"'`.
+enum SaveWhyTimings {
+    static let logger = Logger(subsystem: "com.cicada.app", category: "save-why")
+
+    struct Look: Equatable, Sendable {
+        var event: TimeInterval
+        var read: TimeInterval?
+        var diffed: TimeInterval?
+        var named = false
+    }
+
+    static func now() -> TimeInterval { ProcessInfo.processInfo.systemUptime }
+
+    /// "file event → panel 212 ms" in whole milliseconds.
+    static func ms(_ seconds: TimeInterval) -> Int { Int((seconds * 1000).rounded()) }
+}
 
 /// G191 — how a finished bookmark sync reaches the question. The watcher marks the syncs its own file watch started
 /// (`live`, a task-local, so `BrowserImportActions.syncChannel` needs no new parameter and every other caller — a
@@ -50,6 +71,11 @@ enum BookmarkSyncSignal {
     /// G191 v3 — the app's own diff (`BookmarkFileDiff`) found one bookmark saved since its last read: the center's
     /// `candidate`, which names the link at once while the early look still decides.
     @MainActor static var offer: (@MainActor (FreshBookmark) -> Void)?
+    /// G191 v4 — a live read of `channel` found a bookmark removed and none added (`BookmarkFileDiff`).
+    @MainActor static var removed: (@MainActor (String) -> Void)?
+    /// G191 v4 — when each channel's last file event came (`SaveWhyTimings.now()`), set by the watcher's instant look:
+    /// the panel logs how long after it showed.
+    @MainActor static var eventAt: [String: TimeInterval] = [:]
 
     /// Diff the bytes just read (every read records the baseline; only a live one can name a bookmark) beside the
     /// early look, and hand a named bookmark to the center as soon as the diff has it — not after the look's reply.
@@ -58,6 +84,8 @@ enum BookmarkSyncSignal {
         async let looked = lookEarly(bytes, look: look)
         if let named = await BookmarkFileDiff.shared.observe(channel: channel, data: data, live: live) {
             offer?(named)
+        } else if live, (BookmarkFileDiff.shared.removedOnLastRead[channel] ?? 0) > 0 {
+            removed?(channel)
         }
         return await looked
     }
@@ -86,7 +114,8 @@ protocol SaveWhyPresenting: AnyObject {
 /// about a bookmark on that browser — then the panel binds to it and an answer already given is sent. If 3 refuses
 /// it (a first sync, many at once, an old bookmark, a muted site) or nothing comes within `SaveWhyPolicy.pendingBound`
 /// (`confirmBound` once the diff named a link), the panel withdraws and the taps are dropped — never saved against a
-/// guess. The bubble watcher learns from each outcome (`onBubbleFeedback`).
+/// guess. G191 v4 (owner 2026-10-15): the bubble is a trigger, never a fact — no size is learned; the file alone
+/// confirms.
 @MainActor
 @Observable
 final class SaveWhyCenter {
@@ -130,13 +159,6 @@ final class SaveWhyCenter {
     @ObservationIgnored private(set) var unconfirmedAnswer: (answer: SavedWhyAnswer, at: Date, channel: String)?
     /// The withdraw timer of the unconfirmed panel (or its held answer).
     @ObservationIgnored private var bound: Task<Void, Never>?
-    /// The bubble that opened the pending panel, for the watcher's learning.
-    @ObservationIgnored private var bubble: (channel: String, size: BubbleSize)?
-    /// Whether the unconfirmed panel's bookmark was seen on disk (the diff named it) — then the bubble was a
-    /// bookmark's, whatever the backend says.
-    @ObservationIgnored private var bubbleBookmarked = false
-    /// What the watcher learns: (channel, bubble size, a bookmark came).
-    @ObservationIgnored var onBubbleFeedback: ((String, BubbleSize, Bool) -> Void)?
     /// When each way in last opened or named the panel (uptime seconds) — for the stage timings, never shown.
     @ObservationIgnored private(set) var marks: [String: TimeInterval] = [:]
 
@@ -166,6 +188,7 @@ final class SaveWhyCenter {
         BookmarkSyncSignal.early = { [weak self] bytes, look in await self?.lookEarly(bytes, look: look) }
         BookmarkSyncSignal.numberLook = { [weak self] in self?.takeLook() ?? 0 }
         BookmarkSyncSignal.offer = { [weak self] item in self?.candidate(item) }
+        BookmarkSyncSignal.removed = { [weak self] channel in self?.bookmarkRemoved(on: channel) }
         Task { await refreshOptions() }
     }
 
@@ -181,9 +204,8 @@ final class SaveWhyCenter {
     func lookEarly(_ bytes: BookmarkBytes, look given: Int? = nil) async -> Int? {
         guard prefs.enabled else { return nil }
         let look = given ?? takeLook()   // the caller's, taken before it read `bytes`
-        let options = cachedOptions == nil ? Task { await refreshOptions() } : nil
+        if cachedOptions == nil { Task { await refreshOptions() } }
         guard let result = try? await api.freshBookmarks(bytes) else { return nil }
-        await options?.value
         await noticed(newSinceEarlierLooks(result, look: look), live: true, early: look)
         return look
     }
@@ -233,21 +255,23 @@ final class SaveWhyCenter {
     // MARK: - G191 v3: the early ways in
 
     /// Chrome showed its bookmark bubble (`BookmarkBubbleWatcher`): open the question now, pending — before Chrome
-    /// has written the file. Needs options in hand (the first question of a launch waits for them, as before).
-    func bubbleSeen(channel: String, size: BubbleSize) {
+    /// has written the file. The four fixed reasons stand in when the backend's options are not in hand yet.
+    func bubbleSeen(channel: String) {
         guard prefs.enabled else { return }
         if isShowing {
             if state?.isWriting == true { return }   // never interrupt words
-            if !confirmed, state?.channel == channel { return }   // already waiting on this browser
+            if !confirmed, state?.channel == channel {
+                // Already waiting on this browser (G191 v4, measured: "Edit bookmark", Remove, then "Bookmark added"
+                // 2.2 s later): the newer bubble restarts the wait, so its own write still binds.
+                if state?.isPending == true { armBound(SaveWhyPolicy.pendingBound) }
+                return
+            }
             send(.superseded)
         }
-        guard let cachedOptions else {
-            Task { await refreshOptions() }
-            return
-        }
+        // G191 v4: the four reasons are fixed, so the panel never waits on the backend for them.
+        let cachedOptions = self.cachedOptions ?? .basic
+        if self.cachedOptions == nil { Task { await refreshOptions() } }
         marks["bubble"] = uptime()
-        bubble = (channel, size)
-        bubbleBookmarked = false
         open(SaveWhyPanelState(pendingIn: channel, order: cachedOptions.reasons.map(\.key),
                                maxText: cachedOptions.maxText), options: cachedOptions, confirmed: false)
         armBound(SaveWhyPolicy.pendingBound)
@@ -258,9 +282,6 @@ final class SaveWhyCenter {
     /// the same save); the backend's decision confirms it.
     func candidate(_ item: FreshBookmark) {
         guard prefs.enabled else { return }
-        // Review 2026-10-15: a single new bookmark on the bubble's browser proves the bubble was a bookmark's, whatever
-        // the policy then decides (a muted site, a repeat) — recorded now, so a skip can never teach it a miss.
-        sawBookmark(on: item.channel)
         var result = BookmarkSyncResult(new: 0, skipped: 0, sources: [])
         result.fresh = [item]
         result.freshTotal = 1
@@ -279,8 +300,9 @@ final class SaveWhyCenter {
             if state?.isWriting == true || state?.item?.url == item.url { return }
             send(.superseded)
         }
-        guard let cachedOptions else { return }   // the backend's look opens it with options
-        bubble = nil
+        // G191 v4: never wait on the backend for the options (the instant look must not touch the network).
+        let cachedOptions = self.cachedOptions ?? .basic
+        if self.cachedOptions == nil { Task { await refreshOptions() } }
         open(SaveWhyPanelState(item: item, order: cachedOptions.reasons.map(\.key), maxText: cachedOptions.maxText),
              options: cachedOptions, confirmed: false)
         armBound(SaveWhyPolicy.confirmBound)
@@ -302,7 +324,19 @@ final class SaveWhyCenter {
         shownAt = uptime()
         marks["shown"] = shownAt
         presenter?.show(self)
+        logShown(channel: panel.channel)
         run(SaveWhyPanelState.opening())
+    }
+
+    /// G191 v4 — one log line per question: how long after the browser's file event it showed, and by which way in.
+    private func logShown(channel: String) {
+        let way = confirmed ? "backend" : (state?.isPending == true ? "bubble" : "diff")
+        guard let event = BookmarkSyncSignal.eventAt[channel] else {
+            SaveWhyTimings.logger.info("save-why: panel shown (\(way, privacy: .public)), no file event yet")
+            return
+        }
+        let ms = SaveWhyTimings.ms(SaveWhyTimings.now() - event)
+        SaveWhyTimings.logger.info("save-why: file event → panel \(ms) ms (\(way, privacy: .public))")
     }
 
     /// The unconfirmed panel (or the answer it left) withdraws after `seconds` unless the backend agrees first.
@@ -321,20 +355,14 @@ final class SaveWhyCenter {
         bound = nil
         if isShowing, !confirmed { send(.withdraw) }
         unconfirmedAnswer = nil
-        teachBubble(bookmarked: bubbleBookmarked)
     }
 
-    /// One new bookmark arrived on `channel`: the open bubble (if it is that browser's) was the bookmark bubble.
-    private func sawBookmark(on channel: String) {
-        guard bubble?.channel == channel else { return }
-        bubbleBookmarked = true
-        teachBubble(bookmarked: true)
-    }
-
-    private func teachBubble(bookmarked: Bool) {
-        guard let bubble else { return }
-        self.bubble = nil
-        onBubbleFeedback?(bubble.channel, bubble.size, bookmarked)
+    /// G191 v4 — Chrome wrote its file with a bookmark gone and none new: the pending panel's bubble was the "Edit
+    /// bookmark" bubble and the person pressed Remove. The pending panel withdraws at once, keeping nothing; a re-add
+    /// after it opens its own bubble and its own panel.
+    func bookmarkRemoved(on channel: String) {
+        guard isShowing, !confirmed, state?.isPending == true, state?.channel == channel else { return }
+        withdraw()
     }
 
     /// The backend agreed about `item` on the unconfirmed panel's browser: bind, and send an answer already given.
@@ -342,7 +370,6 @@ final class SaveWhyCenter {
         bound?.cancel()
         bound = nil
         if let early { awaitingIngest[item.url] = (item.channel, early) }
-        teachBubble(bookmarked: true)
         if isShowing, !confirmed, state?.channel == item.channel {
             state?.bind(item)
             confirmed = true
@@ -366,9 +393,6 @@ final class SaveWhyCenter {
         let ours = channels.contains { unconfirmedOn($0) }
         let decision = decide(result, live: live, ours: ours)
         lastDecision = decision
-        if live, max(result.freshTotal, result.fresh.count) == 1, let one = result.fresh.first {
-            sawBookmark(on: one.channel)   // whatever the decision below
-        }
         guard case .ask(let item) = decision else {
             if live, ours, case .skip(let reason) = decision, Self.withdraws(reason) { withdraw() }
             return
@@ -381,16 +405,10 @@ final class SaveWhyCenter {
             confirm(item, early: early)
             return
         }
-        // The options already in hand show it at once (G191 live); the first question waits for them.
-        let fetched: SavedWhyOptions
-        if let cachedOptions {
-            fetched = cachedOptions
-            Task { await refreshOptions() }
-        } else {
-            await refreshOptions()
-            guard let cachedOptions else { return }
-            fetched = cachedOptions
-        }
+        // The options already in hand show it at once (G191 live); G191 v4: the four fixed reasons stand in until the
+        // backend's arrive, so no question waits on a fetch.
+        let fetched = cachedOptions ?? .basic
+        Task { await refreshOptions() }
         // G191 live: a newer bookmark replaces the open question — the person is looking at the new page now, and the
         // old one's moment has passed; a tap already made there is kept and posted (`superseded` closes like leaving).
         // A queue would ask about a page they have left. Never while they are writing (the policy).
@@ -432,7 +450,7 @@ final class SaveWhyCenter {
     func input(_ event: SaveWhyPanelState.Event) {
         let guarded: Bool
         switch event {
-        case .tapReason, .tapProject, .dontAskForSite, .clickOutside, .submit: guarded = true
+        case .tapReason, .dontAskForSite, .clickOutside, .submit: guarded = true
         default: guarded = false
         }
         if guarded, let shownAt, uptime() - shownAt < SaveWhyPolicy.armDelay {

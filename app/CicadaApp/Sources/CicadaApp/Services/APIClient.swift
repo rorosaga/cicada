@@ -280,6 +280,9 @@ struct MediaFeedItem: Codable, Identifiable {
     var savedWhyHistory: [SavedWhyRecord]? = nil
     var lastSavedAt: String? = nil
     var captureThumb: String? = nil
+    /// G191 v4 — the browsers this bookmark has left (one per browser whose file no longer holds it, with since when).
+    /// Cicada keeps the bookmark; this is its status. Empty from an older backend.
+    var leftBrowser: [BookmarkLeft] = []
 
     /// Every answer, oldest first (the history when there are several, else the one answer).
     var savedWhyAnswers: [SavedWhyRecord] {
@@ -335,6 +338,7 @@ struct MediaFeedItem: Codable, Identifiable {
         case kind, paper
         case read
         case savedWhy, savedWhyHistory, lastSavedAt, captureThumb
+        case leftBrowser
     }
 
     init(from decoder: Decoder) throws {
@@ -367,9 +371,18 @@ struct MediaFeedItem: Codable, Identifiable {
         savedWhyHistory = try? c.decodeIfPresent([SavedWhyRecord].self, forKey: .savedWhyHistory)
         lastSavedAt = try? c.decodeIfPresent(String.self, forKey: .lastSavedAt)
         captureThumb = try? c.decodeIfPresent(String.self, forKey: .captureThumb)
+        leftBrowser = (try? c.decodeIfPresent([BookmarkLeft].self, forKey: .leftBrowser)) ?? []
     }
 
     var isPaper: Bool { kind == "paper" }
+}
+
+/// G191 v4 — "No longer in Chrome since Oct 15": `GET /sources` → `leftBrowser[]`.
+struct BookmarkLeft: Codable, Equatable, Hashable, Sendable {
+    var browser: String
+    var channel: String = ""
+    /// When a sync first saw it gone (aware ISO).
+    var since: String
 }
 
 struct SourceListResponse: Codable {
@@ -449,6 +462,8 @@ struct BookmarkSyncResult {
     /// G191 — the bookmarks this sync newly saved (at most a few) and how many in all. Empty from an older backend.
     var fresh: [FreshBookmark] = []
     var freshTotal: Int = 0
+    /// G191 v4 — how many links this sync marked as gone from their browser (never a question).
+    var leftMarked: Int = 0
 }
 
 // `Codable` conformance lives in an extension, not the primary declaration,
@@ -457,7 +472,9 @@ struct BookmarkSyncResult {
 // memberwise init that `BrowserImportModelTests.swift` and call sites across
 // the app construct `BookmarkSyncResult` with directly.
 extension BookmarkSyncResult: Codable {
-    enum CodingKeys: String, CodingKey { case new, skipped, sources, removalsProposed, removalsSkipped, fresh, freshTotal }
+    enum CodingKeys: String, CodingKey {
+        case new, skipped, sources, removalsProposed, removalsSkipped, fresh, freshTotal, leftMarked
+    }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -468,11 +485,12 @@ extension BookmarkSyncResult: Codable {
         removalsSkipped = try c.decodeIfPresent(String.self, forKey: .removalsSkipped)
         fresh = (try? c.decodeIfPresent([FreshBookmark].self, forKey: .fresh)) ?? []
         freshTotal = (try? c.decodeIfPresent(Int.self, forKey: .freshTotal)) ?? fresh.count
+        leftMarked = (try? c.decodeIfPresent(Int.self, forKey: .leftMarked)) ?? 0
     }
 }
 
-/// G191 — `GET /sources/saved-why/options`: the fixed one-tap reasons and up to three of the person's live projects,
-/// chosen by the backend (deterministic; no model call).
+/// G191 — `GET /sources/saved-why/options`: the fixed one-tap reasons (G191 v4: four, and never a project —
+/// `projects` stays on the wire, always empty).
 struct SavedWhyOptions: Codable, Equatable, Sendable {
     struct Reason: Codable, Equatable, Sendable, Identifiable {
         let key: String
@@ -486,6 +504,15 @@ struct SavedWhyOptions: Codable, Equatable, Sendable {
     var reasons: [Reason] = []
     var projects: [Project] = []
     var maxText: Int = 500
+
+    /// G191 v4 — the four fixed reasons (`saved_why.REASONS` on the backend, same keys and words), so the panel can
+    /// show at once before the backend's options arrive. The backend's list replaces it as soon as it answers.
+    static let basic = SavedWhyOptions(reasons: [
+        .init(key: "design", label: "The design"),
+        .init(key: "product", label: "The product"),
+        .init(key: "read_later", label: "To read later"),
+        .init(key: "someday", label: "Useful someday"),
+    ], projects: [], maxText: 500)
 }
 
 /// G191 — one answer as the source record carries it (`GET /sources` → `savedWhy` / `savedWhyHistory`): the reason

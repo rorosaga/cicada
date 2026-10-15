@@ -140,10 +140,8 @@ final class SaveWhyTests: XCTestCase {
         _ = s.send(.tapReason("read_later"))
         _ = s.send(.tapReason("product"))
         _ = s.send(.tapReason("design"))
-        _ = s.send(.tapProject("alpha-project"))
-        XCTAssertEqual(s.selection, SavedWhyAnswer(reasons: ["design", "product", "read_later"], project: "alpha-project"))
-        XCTAssertTrue(s.isSelected(reason: "product") && s.isSelected(project: "alpha-project"))
-        _ = s.send(.tapProject("alpha-project"))
+        XCTAssertEqual(s.selection, SavedWhyAnswer(reasons: ["design", "product", "read_later"]))
+        XCTAssertTrue(s.isSelected(reason: "product"))
         _ = s.send(.tapReason("product"))
         _ = s.send(.tapReason("read_later"))
         XCTAssertEqual(s.send(.tapReason("design")), [.startTimer(SaveWhyPolicy.askTimeout)],
@@ -299,7 +297,8 @@ final class SaveWhyTests: XCTestCase {
 
         await center.noticed(result([fresh()]), live: true)
         XCTAssertEqual(presenter.shown, 1)
-        XCTAssertEqual(center.state?.order, ["design", "product", "technique", "read_later"])
+        // G191 v4: no question waits on the options fetch — the four fixed reasons stand in until it answers.
+        XCTAssertEqual(center.state?.order, SavedWhyOptions.basic.reasons.map(\.key))
         center.send(.tapReason("product"))
         center.send(.escape)
         await center.settle()

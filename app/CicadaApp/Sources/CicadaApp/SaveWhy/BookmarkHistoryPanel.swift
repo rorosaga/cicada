@@ -156,10 +156,20 @@ struct BookmarkHistoryRowView: View {
             }
             Spacer(minLength: CicadaTheme.spacingXS)
             VStack(alignment: .trailing, spacing: CicadaTheme.scaled(2)) {
-                Text(BookmarkHistory.age(row.when))
+                HStack(spacing: CicadaTheme.scaled(4)) {
+                    if let left = row.leftLine {
+                        // G191 v4: the quiet mark — the bookmark left its browser; Cicada kept it.
+                        Image(systemName: "bookmark.slash")
+                            .font(CicadaTheme.captionFont)
+                            .foregroundStyle(CicadaTheme.textTertiary)
+                            .help(left)
+                            .accessibilityLabel(left)
+                    }
+                    Text(BookmarkHistory.age(row.when))
                     .font(CicadaTheme.captionFont)
                     .monospacedDigit()
                     .foregroundStyle(CicadaTheme.textTertiary)
+                }
                 if index < 9 {
                     Text("⌘\(index + 1)")
                         .font(CicadaTheme.captionFont)
@@ -169,6 +179,8 @@ struct BookmarkHistoryRowView: View {
         }
         .padding(.horizontal, CicadaTheme.spacingMD)
         .padding(.vertical, CicadaTheme.scaled(6))
+        // G191 v4: a bookmark no longer in its browser reads dimmed — still there to open, quieter.
+        .opacity(row.leftLine == nil ? 1 : BookmarkHistory.leftOpacity)
         .background(selected ? CicadaTheme.bgSelected : Color.clear)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
