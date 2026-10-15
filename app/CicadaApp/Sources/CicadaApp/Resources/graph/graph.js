@@ -148,7 +148,7 @@ function observerBadgeColor(wire) {
     return OBSERVER_BADGE_COLORS.rodrigo;
 }
 
-const MIN_ZOOM = 0.2;
+const MIN_ZOOM = 0.1;               // 2026-10-15: 0.2 -> 0.1, so a 5k-node graph with bigger dots still fits
 const MAX_ZOOM = 6.0;
 const LABEL_MIN_SCREEN_RADIUS = 6;  // only label nodes whose on-screen radius clears this
 const DRAG_CLICK_THRESHOLD = 4;     // pixels of movement before a mousedown becomes a drag
@@ -166,6 +166,14 @@ const LABEL_BUDGET = 200;           // max node labels rendered per frame
 const STATUS_ALPHA = { active: 0.92, decaying: 0.5, archived: 0.28, dropped: 0.0 };
 const LINK_ALPHA = 0.55;            // a neutral link at rest (the theme's edge colour)
 const LINK_ALPHA_CONTEXT = 0.22;    // a link in its context's hue at rest
+// Link width (G109 proportion pass, owner 2026-10-15: "the lines connecting nodes are too big compared to the size of
+// the nodes, they should be super thin"). At rest a link is LINK_WIDTH_OF_DOT of the smallest dot's on-screen
+// diameter, never wider than LINK_WIDTH_MAX_PT: a hairline that stays well under the dots at every zoom. Thinner than
+// one device pixel it is drawn one device pixel wide at a proportionally lower alpha (`linkStroke`), which is what a
+// sub-pixel line looks like anyway, minus the smear. A link a hover or a focus lights is LINK_LIT_PT wide.
+const LINK_WIDTH_OF_DOT = 0.12;
+const LINK_WIDTH_MAX_PT = 0.75;
+const LINK_LIT_PT = 1;
 
 const PULSE_RING_FROM = 1.5;        // screen px past the dot where the pulse ring starts ...
 const PULSE_RING_TRAVEL = 4;        // ... and how far it travels out before it fades
@@ -608,10 +616,11 @@ function zoomReset() {
     );
 }
 
+const FIT_PAD = 60;                   // screen px round the fitted graph
 function fitGraph() {
     if (!currentZoom) return;   // headless (no zoom behaviour attached), as revealNode/ensureVisible handle it
     if (!visibleNodes.length) { zoomReset(); return; }
-    const t = transformForNodes(visibleNodes, 60);
+    const t = transformForNodes(visibleNodes, FIT_PAD);
     if (!t) { zoomReset(); return; }
     d3.select(canvas).transition().duration(400).call(currentZoom.transform, t);
 }
@@ -661,7 +670,6 @@ function updateGraph(dataStr) {
     for (const n of nodes) {
         if (n.x != null) prevPositions.set(n.id, { x: n.x, y: n.y, vx: n.vx || 0, vy: n.vy || 0 });
     }
-    const hadPrev = prevPositions.size > 0;
 
     nodes = data.nodes || [];
     links = data.links || [];
@@ -674,9 +682,11 @@ function updateGraph(dataStr) {
     // nodes near their hub or type anchor.
     beginSeeding();
     const fresh = new Set();
+    let carried = 0;
     for (const n of nodes) {
         const p = prevPositions.get(n.id);
         if (p) {
+            carried += 1;
             n.x = p.x; n.y = p.y; n.vx = 0; n.vy = 0;
         } else {
             const s = seedPositionFor(n);
@@ -702,8 +712,21 @@ function updateGraph(dataStr) {
     rebuildVisible();
     rebuildNeighborsIndex();
     // Item 6: on a canvas that already has a layout, only the newcomers move (`relax`); a first paint lays out all.
-    startSimulation(hadPrev ? { reheat: 0.3, relax: fresh, seeded: fresh } : { reheat: 1.0, seeded: fresh });
-    if (!hadPrev) armInitialFit();
+    // Proportion pass (review, 2026-10-15): "already has a layout" means some node of THIS push carries a position.
+    // A push where none does (another bank, after the blank push a bank switch sends first) is a first paint: a cold
+    // layout, the dot scale chosen afresh, and a fit. One whose carried layout asks for a dot scale more than
+    // SIZE_RELAYOUT_FROM away from the current one (a switch back to a bank whose positions are cached, a bank sharing
+    // ids with the last one) lays out every node from where it is, so the scale can follow, and fits.
+    const cold = carried === 0;
+    let rescale = false;
+    if (!cold) {
+        const want = wantedScaleNow();
+        rescale = want !== null && Math.abs(Math.log(want / sizeScale)) > Math.log(SIZE_RELAYOUT_FROM);
+    }
+    if (cold) startSimulation({ reheat: 1.0, seeded: fresh });
+    else if (rescale) startSimulation({ reheat: 0.3, seeded: fresh });
+    else startSimulation({ reheat: 0.3, relax: fresh, seeded: fresh });
+    if (cold || rescale) armInitialFit();
 
     if (focusNodeId) { computeFocusSet(); applyFocusPinning(); }
     scheduleRedraw();
@@ -1106,6 +1129,7 @@ const VMAX_WU_PER_TICK = 60;         // speed clamp; a 1000 px/s flick at k=0.6 
 // The halo (2026-10-15): how loose it is. Each satellite claims HALO_SPACING footprints of room, and the halo is never
 // thinner than HALO_MIN_FRAC of the body's radius; its outer reach wobbles by HALO_WOBBLE of its thickness.
 const HALO_SPACING = 3;
+const HALO_MIN_ROOM = 1.8;           // ... and never less than this many of its footprints at the current dot scale
 const HALO_MIN_FRAC = 0.22;
 const HALO_WOBBLE = 0.3;
 const HALO_EDGE_BINS = 36;           // angular bins the body's edge is read in
@@ -1189,19 +1213,35 @@ function assignComponents() {
             if ((simDegree.get(n.id) || 0) > (simDegree.get(lead.id) || 0)) lead = n;
             if (n.id < key) key = n.id;
         }
-        let rmax = 0;
-        for (const n of members) rmax = Math.max(rmax, nodeRadius(n));
-        // A singleton is its disc; a component spreads about one link length per ring of neighbours.
-        const footprint = 2 * rmax + 2 * BAND_SLOT_PAD +
-            (members.length > 1 ? (2 * rmax + LINK_GAP) * Math.sqrt(members.length - 1) : 0);
+        let rmaxBase = 0;
+        for (const n of members) rmaxBase = Math.max(rmaxBase, baseRadius(n));
         // Its place: an angle anywhere around the body, and a depth into the halo from two draws averaged — most
         // satellites sit in the halo's middle and fewer toward either edge, so both edges are soft.
         const angle = unitHash(key, 1) * 2 * Math.PI;
         const depth = (unitHash(key, 2) + unitHash(key, 3)) / 2;
-        const unit = { key, type: lead.type, nodes: members, footprint, angle, depth, x: 0, y: 0 };
+        const unit = { key, type: lead.type, nodes: members, rmaxBase, footprint: 0, room: 0, angle, depth, x: 0, y: 0 };
         satelliteUnits.push(unit);
         for (const n of members) satelliteOf.set(n.id, unit);
     });
+    refreshFootprints();
+}
+
+// A satellite's footprint at a dot scale: a singleton is its disc; a component spreads about one link length per ring
+// of neighbours.
+function unitFootprint(u, scale) {
+    const rmax = u.rmaxBase * scale;
+    return 2 * rmax + 2 * BAND_SLOT_PAD + (u.nodes.length > 1 ? (2 * rmax + LINK_GAP) * Math.sqrt(u.nodes.length - 1) : 0);
+}
+
+// Each satellite's footprint and the room it claims in the halo, at the current dot scale (`sizeScale`). The room is
+// what it was at scale 1 (HALO_SPACING footprints), never less than HALO_MIN_ROOM of its footprint now (2026-10-15
+// proportion pass): bigger dots fill the halo's room instead of widening the halo, so the halo keeps its share of the
+// fitted view and the body is not pushed into a smaller middle.
+function refreshFootprints() {
+    for (const u of satelliteUnits) {
+        u.footprint = unitFootprint(u, sizeScale);
+        u.room = Math.max(HALO_SPACING * unitFootprint(u, 1), HALO_MIN_ROOM * u.footprint);
+    }
 }
 
 // Where the halo is this tick. Exposed for the tests.
@@ -1243,7 +1283,7 @@ function layoutBand() {
     const gap = Math.max(BAND_GAP, BAND_GAP_FRAC * edge);
     const inner = edge + gap;
     let area = 0;
-    for (const u of satelliteUnits) { const f = u.footprint * HALO_SPACING; area += f * f; }
+    for (const u of satelliteUnits) area += u.room * u.room;
     const thickness = Math.max(HALO_MIN_FRAC * Math.max(edge, 1), Math.sqrt(inner * inner + area / Math.PI) - inner);
     const wobble = (a) => 0.5 * Math.sin(2 * a + 0.7) + 0.3 * Math.sin(3 * a + 2.1) + 0.2 * Math.sin(5 * a + 4.4);
     for (const u of satelliteUnits) {
@@ -1403,6 +1443,7 @@ function startSimulation({ reheat = 1.0, relax = null, seeded = null } = {}) {
     buildSimLinks();
     assignComponents();
     seedSatellites(seeded);
+    if (relax === null) beginSizeAdapt(reheat);
 
     simulation = d3.forceSimulation(visibleNodes)
         .alphaDecay(ALPHA_DECAY)
@@ -1424,8 +1465,8 @@ function startSimulation({ reheat = 1.0, relax = null, seeded = null } = {}) {
         .force("hubGravity", hubGravityForce(0.05))
         .force("band", bandForce(BAND_SPRING))
         .force("clampSpeed", clampSpeedForce())
-        .on("tick", () => { tickInitialFit(); settleCheck(); scheduleRedraw(); })
-        .on("end", () => { simulation.stop(); releaseHolds(); layoutRelax = null; finishInitialFit(); });
+        .on("tick", () => { adaptSize(); tickInitialFit(); settleCheck(); scheduleRedraw(); })
+        .on("end", () => { simulation.stop(); sizeAdapting = false; releaseHolds(); layoutRelax = null; finishInitialFit(); });
 
     if (relax && relax.size === 0) {
         simulation.alpha(0).stop();
@@ -1510,9 +1551,96 @@ const R_CONFIDENCE = 0.8;
 const R_PER_SQRT_NEIGHBOUR = 0.45;
 const R_NEIGHBOURS_CAP = 2500;
 function nodeRadius(d) {
+    return sizeScale * baseRadius(d);
+}
+// A node's size relative to the others, in layout units at scale 1: bigger means more connected.
+function baseRadius(d) {
     if (nodeIsFacet(d)) return 1.5 + (d.confidence || 0) * 1.5;
     const nb = Math.min(R_NEIGHBOURS_CAP, d._neighbours ?? nodeDegree(d));
     return R_BASE + (d.confidence || 0) * R_CONFIDENCE + R_PER_SQRT_NEIGHBOUR * Math.sqrt(nb);
+}
+
+// G109 proportion pass (owner, 2026-10-15: "nodes can be a bit bigger, relative to the amount of nodes there are in the
+// graph, so that they also have a limit of how big and how small they can be, in a way that it always looks good and
+// proportional"). One scale, `sizeScale`, multiplies every dot (`nodeRadius`), and the layout uses the scaled radii
+// (collide, link rest lengths, the halo's footprints), so a bigger dot never lands on its neighbour. The scale is
+// chosen so that, at the zoom that fits the graph to the view, the MEDIAN dot's on-screen radius is
+//
+//     clamp( sqrt(DOT_COVER x view area / (pi x visible nodes)),  DOT_MIN_PT,  DOT_MAX_PT )
+//
+// i.e. the dots cover about DOT_COVER of the fitted view, a 50-node graph's dots stop at the ceiling and a 5k-node
+// graph's at the floor. #291's dots covered 1.3 % of the view on the owner's shape; a leaf was a 0.7 pt speck under a
+// 1 pt line. The fit zoom depends on the layout, which depends on the dots, so the scale FOLLOWS THE FIT while a full
+// layout is hot (`adaptSize`, each tick while alpha >= SIZE_ADAPT_UNTIL, damped): the fit zoom of the bank's shape is
+// within ~5 % of its final value by then, and the scale is fixed for the cooler rest of the settle, so the settling
+// guarantees hold. A layout of newcomers (a push) keeps the scale: settled, held dots never grow into each other.
+const DOT_COVER = 0.06;
+const DOT_MIN_PT = 2.2;
+const DOT_MAX_PT = 8;
+const SIZE_SCALE_MIN = 0.25;
+const SIZE_SCALE_MAX = 4;
+const SIZE_ADAPT_UNTIL = 0.15;
+const SIZE_ADAPT_UNTIL_WARM = 0.02;  // ... for a warm full layout (a filter change, reheat < 1): its whole run
+const SIZE_RELAYOUT_FROM = 1.25;      // a full push whose layout wants a scale this far off lays out every node
+const SIZE_ADAPT_RATE = 0.3;          // the share of the (log) distance to the wanted scale taken per tick
+let sizeScale = 1;
+let sizeAdapting = false;
+let sizeAdaptUntil = SIZE_ADAPT_UNTIL;
+let sizeBaseMedian = R_BASE;          // the visible pages' median baseRadius, read once per layout
+
+function dotTargetPt(count) {
+    const free = Math.sqrt(DOT_COVER * width * height / (Math.PI * Math.max(1, count)));
+    return Math.max(DOT_MIN_PT, Math.min(DOT_MAX_PT, free));
+}
+
+let sizeBaseMin = R_BASE;             // ... and the smallest dot's, which sets a link's width
+function measureBaseRadii() {
+    const radii = visibleNodes.filter(n => !nodeIsFacet(n)).map(baseRadius).sort((a, b) => a - b);
+    sizeBaseMedian = radii.length ? radii[Math.floor(radii.length / 2)] : R_BASE;
+    // the smallest dot drawn, a facet's included
+    sizeBaseMin = visibleNodes.reduce((m, n) => Math.min(m, baseRadius(n)), radii.length ? radii[0] : R_BASE);
+    return radii.length;
+}
+
+// A full layout chooses its scale as it runs. A cold one (reheat 1) settles its extent early, so the scale is fixed
+// below SIZE_ADAPT_UNTIL; a warm one (a filter change at reheat 0.3) starts from where every node was and its extent
+// keeps changing to the end — 251 pages filtered out of 4,544 contract the whole run (review: an adapt cut at 0.15 left
+// them at a 10 pt median, over the ceiling) — so it adapts until SIZE_ADAPT_UNTIL_WARM.
+function beginSizeAdapt(reheat) {
+    sizeAdapting = measureBaseRadii() > 0;
+    sizeAdaptUntil = reheat >= 1 ? SIZE_ADAPT_UNTIL : SIZE_ADAPT_UNTIL_WARM;
+}
+
+// The scale the fit of the current positions asks for, clamped; null when there is nothing to fit.
+function wantedScaleNow() {
+    if (!(width > 0 && height > 0) || !measureBaseRadii()) return null;
+    const t = transformForNodes(visibleNodes, FIT_PAD);
+    if (!t) return null;
+    const want = dotTargetPt(visibleNodes.length) / (sizeBaseMedian * t.k);
+    return Math.max(SIZE_SCALE_MIN, Math.min(SIZE_SCALE_MAX, want));
+}
+
+// A resting link's stroke at zoom k: { width, alpha } in screen points, the alpha a factor on the link's own.
+function linkStroke(k) {
+    const smallest = 2 * sizeBaseMin * sizeScale * k;
+    const w = Math.min(LINK_WIDTH_MAX_PT, LINK_WIDTH_OF_DOT * smallest);
+    const device = 1 / (dpr || 1);
+    return w >= device ? { width: w, alpha: 1 } : { width: device, alpha: w / device };
+}
+
+function adaptSize() {
+    if (!sizeAdapting || !simulation) return;
+    if (simulation.alpha() < sizeAdaptUntil) { sizeAdapting = false; return; }
+    if (!(width > 0 && height > 0)) return;
+    const t = transformForNodes(visibleNodes, FIT_PAD);
+    if (!t) return;
+    const want = dotTargetPt(visibleNodes.length) / (sizeBaseMedian * t.k);
+    const next = Math.max(SIZE_SCALE_MIN, Math.min(SIZE_SCALE_MAX, sizeScale * Math.pow(want / sizeScale, SIZE_ADAPT_RATE)));
+    if (Math.abs(next - sizeScale) < 0.002 * sizeScale) return;
+    sizeScale = next;
+    refreshFootprints();
+    simulation.force("link").distance(linkDistance);           // d3 re-reads every rest length
+    simulation.force("collision").inner.radius(d => nodeRadius(d) + COLLIDE_PAD);
 }
 
 // ---------- Focus / ego mode ----------
@@ -1738,9 +1866,10 @@ function draw() {
     // One path per (colour, alpha), not one stroke per link (G109, 2026-10-14): the owner's graph draws ~41,600
     // links, and a beginPath/stroke per link was 41,600 canvas flushes a frame; now it is one per bucket (a handful).
     // Buckets draw faintest first so a hovered or focused edge lands on top, as it did when it was drawn last.
-    // 2026-10-15 (Obsidian's look): every pair draws once (`drawLinks`) as a one-pixel hairline, at every zoom — the
-    // links are the structure (fans round a hub, threads between clusters), so the fit view no longer drops all but
-    // the hubs' links. A coloured (context) link is fainter than a neutral one: its hue is bright.
+    // 2026-10-15 (Obsidian's look): every pair draws once (`drawLinks`) as a hairline, at every zoom — the links are
+    // the structure (fans round a hub, threads between clusters), so the fit view no longer drops all but the hubs'
+    // links. A coloured (context) link is fainter than a neutral one: its hue is bright. Its width follows the dots
+    // (`linkStroke`, proportion pass): always well under the smallest dot; a lit link is LINK_LIT_PT.
     const buckets = new Map();
     for (const l of drawLinks) {
         const src = l.source;
@@ -1748,28 +1877,31 @@ function draw() {
         if (typeof src !== "object" || typeof tgt !== "object") continue;
 
         let alpha = l.context ? LINK_ALPHA_CONTEXT : LINK_ALPHA;
+        let lit = false;
         if (focusActive) {
             const bothIn = focusSet.has(src.id) && focusSet.has(tgt.id);
             alpha = bothIn ? Math.max(alpha, 0.7) : 0.04;
+            lit = bothIn;
         }
         if (hoverActive) {
             const touchesHover =
                 src.id === hoveredNode.id ||
                 tgt.id === hoveredNode.id;
-            if (!touchesHover) alpha = Math.min(alpha, 0.08);
-            else alpha = 0.9;
+            if (!touchesHover) { alpha = Math.min(alpha, 0.08); lit = false; }
+            else { alpha = 0.9; lit = true; }
         }
         // §2a: context-colored edges. An edge with a context paints in its
         // context hue; a contextless (legacy) edge keeps the flat gray.
         const style = l.context ? contextColor(l.context) : PALETTE.edge;
-        const key = alpha + "|" + style;
+        const key = alpha + "|" + style + "|" + lit;
         let bucket = buckets.get(key);
-        if (!bucket) { bucket = { alpha, style, links: [] }; buckets.set(key, bucket); }
+        if (!bucket) { bucket = { alpha, style, lit, links: [] }; buckets.set(key, bucket); }
         bucket.links.push(l);
     }
-    ctx.lineWidth = 1 / transform.k;
+    const rest = linkStroke(transform.k);
     for (const bucket of [...buckets.values()].sort((a, b) => a.alpha - b.alpha)) {
-        ctx.globalAlpha = bucket.alpha;
+        ctx.globalAlpha = bucket.lit ? bucket.alpha : bucket.alpha * rest.alpha;
+        ctx.lineWidth = (bucket.lit ? LINK_LIT_PT : rest.width) / transform.k;
         ctx.strokeStyle = bucket.style;
         ctx.beginPath();
         for (const l of bucket.links) {
@@ -2014,7 +2146,9 @@ function drawNodeLabels(hoverActive, neighbors, focusActive) {
 }
 
 // Labels that fade in with zoom: a node is named once its dot's on-screen radius passes LABEL_FADE_FROM px, fully at
-// LABEL_FADE_TO px. Largest dots first; a label that would overlap a placed one is skipped.
+// LABEL_FADE_TO px. Largest dots first; a label that would overlap a placed one is skipped. The radius read is the dot's
+// size at scale 1 (`baseRadius`), not the drawn one (2026-10-15): names follow the zoom, as they did, whatever scale the
+// graph's size picked for its dots — the bigger dots of a 5k-node graph name no more pages at the fit zoom.
 const LABEL_FADE_FROM = 3.8;
 const LABEL_FADE_TO = 6;
 function labelFade(screenRadius) {
@@ -2023,12 +2157,12 @@ function labelFade(screenRadius) {
 }
 function drawAmbientLabels() {
     const k = transform.k;
-    if (nodeRadius({ confidence: 1, _neighbours: R_NEIGHBOURS_CAP }) * k < LABEL_FADE_FROM) return;
+    if (baseRadius({ confidence: 1, _neighbours: R_NEIGHBOURS_CAP }) * k < LABEL_FADE_FROM) return;
     const candidates = [];
     for (const n of visibleNodes) {
         if (n.x == null || nodeIsFacet(n)) continue;
         const r = nodeRadius(n);
-        if (r * k < LABEL_FADE_FROM) continue;
+        if (baseRadius(n) * k < LABEL_FADE_FROM) continue;
         const sx = n.x * k + transform.x, sy = n.y * k + transform.y;
         if (sx < -100 || sx > width + 100 || sy < -20 || sy > height + 20) continue;
         if (!nodeMatchesObservers(n)) continue;
@@ -2058,7 +2192,7 @@ function drawAmbientLabels() {
         if (collides) continue;
         placed.push(rect);
         drawn++;
-        ctx.globalAlpha = 0.85 * labelFade(r * k) * Math.min(1, (STATUS_ALPHA[n.status] ?? 0.92) + 0.2);
+        ctx.globalAlpha = 0.85 * labelFade(baseRadius(n) * k) * Math.min(1, (STATUS_ALPHA[n.status] ?? 0.92) + 0.2);
         ctx.fillText(n.name, n.x, n.y + r + 3 / k);
     }
     ctx.shadowBlur = 0;
