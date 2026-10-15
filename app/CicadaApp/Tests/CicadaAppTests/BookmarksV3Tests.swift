@@ -82,17 +82,25 @@ final class BookmarksV3Tests: XCTestCase {
     private func chrome(_ leaves: [(id: String, url: String, at: Date)], folder: [(id: String, url: String, at: Date)] = [],
                         mobile: [(id: String, url: String, at: Date)] = []) -> Data {
         func leaf(_ l: (id: String, url: String, at: Date)) -> [String: Any] {
-            ["type": "url", "id": l.id, "name": "Title \(l.id)", "url": l.url, "date_added": micros(l.at)]
+            ["type": "url", "id": l.id, "guid": Self.guid(l.id), "name": "Title \(l.id)", "url": l.url,
+             "date_added": micros(l.at)]
         }
-        let bar: [String: Any] = ["type": "folder", "id": "1", "name": "Bookmarks bar",
+        let bar: [String: Any] = ["type": "folder", "id": "1", "guid": Self.guid("1"), "name": "Bookmarks bar",
                                   "children": leaves.map(leaf) + (folder.isEmpty ? [] : [
-                                      ["type": "folder", "id": "50", "name": "Reading", "children": folder.map(leaf)]
+                                      ["type": "folder", "id": "50", "guid": Self.guid("50"), "name": "Reading",
+                                       "children": folder.map(leaf)]
                                   ])]
         let roots: [String: Any] = ["bookmark_bar": bar,
                                     "other": ["type": "folder", "id": "2", "name": "Other bookmarks", "children": []],
                                     "synced": ["type": "folder", "id": "3", "name": "Mobile bookmarks",
                                                "children": mobile.map(leaf)]]
         return try! JSONSerialization.data(withJSONObject: ["version": 1, "roots": roots])
+    }
+
+    /// A synthetic GUID per numeric id, the shape Chrome writes (`guid`, lower-case 8-4-4-4-12).
+    static func guid(_ id: String) -> String {
+        let n = String(repeating: "0", count: max(0, 12 - id.count)) + id
+        return "a5c57e3f-9e79-4e55-a4b9-\(n)"
     }
 
     private let old = Date(timeIntervalSince1970: 1_790_000_000)
@@ -229,18 +237,63 @@ final class BookmarksV3Tests: XCTestCase {
         XCTAssertEqual(ChromeBookmarkScript.unreachable(for: a.url, in: entries), 1, "Mobile bookmarks are not scriptable")
         let script = try XCTUnwrap(ChromeBookmarkScript.delete(nodes))
         XCTAssertTrue(script.hasPrefix("on run argv\n    set targetURL to item 1 of argv"))
-        XCTAssertTrue(script.contains("set b to bookmark item id 11 of bookmarks bar"))
-        XCTAssertTrue(script.contains("set b to bookmark item id 61 of bookmark folder id 50 of bookmarks bar"))
+        // Fix 2026-10-15: Chrome's AppleScript `id` is the node's `guid` (verified live; a numeric id fails -1728).
+        XCTAssertTrue(script.contains("set b to bookmark item id \"\(Self.guid("11"))\" of bookmarks bar"))
+        XCTAssertTrue(script.contains("set b to bookmark item id \"\(Self.guid("61"))\" of bookmark folder id \"\(Self.guid("50"))\" of bookmarks bar"),
+                      "the folder chain is built from the folders' guids")
+        XCTAssertFalse(script.contains("item id 11 "), "never the numeric id when a guid is there")
         XCTAssertEqual(script.components(separatedBy: "if (URL of b) is targetURL then").count - 1, 2,
                        "each delete only after its URL is checked — ids are per Chrome profile")
         XCTAssertFalse(script.contains("alpha.example"), "the URL is an argument, never part of the source")
         XCTAssertTrue(script.contains("return removed"))
         XCTAssertTrue(script.contains("if code is -1743 or code is -1744 then error message number code"),
                       "a refused Automation is not swallowed")
-        // Nothing from the file reaches the script as code: an id that is not digits is dropped.
+        // Nothing from the file reaches the script as code: an id that is not digits is dropped, a guid that is not a
+        // UUID is dropped (never falling back to the id), and so is a node under a folder with a bad guid.
         let hostile = BookmarkEntry(url: a.url, title: "x", nodeId: "1 \" & do shell script \"x", root: "bookmark_bar")
         XCTAssertNil(ChromeBookmarkScript.delete([hostile]))
+        let badGuid = BookmarkEntry(url: a.url, title: "x", nodeId: "11", root: "bookmark_bar",
+                                    guid: "a5c57e3f\" & do shell script \"x")
+        XCTAssertNil(ChromeBookmarkScript.delete([badGuid]))
+        XCTAssertNil(ChromeBookmarkScript.specifier(ChromeNodeRef(id: "11", guid: "not-a-uuid")))
+        XCTAssertNil(ChromeBookmarkScript.specifier(ChromeNodeRef(id: nil, guid: "A5C57E3F-9E79-4E55-A4B9-58\u{0661}7DFD2F112")),
+                     "ASCII hex only")
+        let badFolder = BookmarkEntry(url: a.url, title: "x", root: "bookmark_bar",
+                                      folders: [ChromeNodeRef(id: "50", guid: "../x")], guid: Self.guid("61"))
+        XCTAssertNil(ChromeBookmarkScript.delete([badFolder]))
+        // An older Chrome with no guid: the numeric id, digits only.
+        let legacy = BookmarkEntry(url: a.url, title: "x", nodeId: "11", root: "bookmark_bar",
+                                   folders: [ChromeNodeRef(id: "50", guid: nil)])
+        XCTAssertTrue(try XCTUnwrap(ChromeBookmarkScript.delete([legacy]))
+            .contains("set b to bookmark item id 11 of bookmark folder id 50 of bookmarks bar"))
         XCTAssertNil(ChromeBookmarkScript.delete([BookmarkEntry(url: a.url, title: "", nodeId: "5", root: "synced")]))
+    }
+
+    /// The generated script compiles (osacompile against Chrome's own dictionary, read from its bundle — never run, and
+    /// Chrome is not asked anything). Skipped where Chrome or osacompile is not installed.
+    func testTheGeneratedChromeScriptCompiles() throws {
+        guard FileManager.default.isExecutableFile(atPath: "/usr/bin/osacompile"),
+              FileManager.default.fileExists(atPath: "/Applications/Google Chrome.app") else {
+            throw XCTSkip("needs osacompile and Chrome's dictionary")
+        }
+        let a = (id: "11", url: "https://alpha.example/a", at: old)
+        let inFolder = (id: "61", url: "https://alpha.example/a", at: old)
+        let entries = BookmarkFileParse.chromium(chrome([a], folder: [inFolder]))
+        let script = try XCTUnwrap(ChromeBookmarkScript.delete(ChromeBookmarkScript.nodes(for: a.url, in: entries)))
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("cicada-osa-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let source = dir.appendingPathComponent("remove.applescript")
+        try script.write(to: source, atomically: true, encoding: .utf8)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/osacompile")
+        process.arguments = ["-o", dir.appendingPathComponent("remove.scpt").path, source.path]
+        let errors = Pipe()
+        process.standardError = errors
+        try process.run()
+        process.waitUntilExit()
+        let message = String(decoding: errors.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        XCTAssertEqual(process.terminationStatus, 0, message)
     }
 
     /// Only this save's copy is targeted: the node whose `date_added` is the record's `lastSavedAt`; with several

@@ -13,13 +13,21 @@ import Foundation
 struct BookmarkEntry: Equatable, Sendable {
     let url: String
     let title: String
-    /// Chromium's node id (`id`) — what Apple Events address a bookmark by.
+    /// Chromium's numeric node id (`id`) — the fallback address for a node with no `guid` (an older Chrome).
     var nodeId: String? = nil
     /// Chromium's `date_added` (WebKit microseconds); Safari records none for a bookmark.
     var addedMicros: Int64? = nil
-    /// The root it hangs under (`bookmark_bar`, `other`, `synced`) and the folder ids from it down.
+    /// The root it hangs under (`bookmark_bar`, `other`, `synced`) and the folders from it down, each by its own
+    /// address (`guid`, else `id`).
     var root: String? = nil
-    var folderIds: [String] = []
+    var folders: [ChromeNodeRef] = []
+    /// Chromium's node `guid` — what Chrome's Apple Events call a bookmark's `id` (fix 2026-10-15, verified live:
+    /// `get id of last bookmark item of bookmarks bar` answers the file's `guid`, and `bookmark item id 450` fails
+    /// with -1728).
+    var guid: String? = nil
+
+    /// The node's own address for the script.
+    var ref: ChromeNodeRef { ChromeNodeRef(id: nodeId, guid: guid) }
 
     /// The browser's own instant as the backend writes it (aware UTC ISO, seconds).
     var addedAt: String? {
@@ -30,13 +38,21 @@ struct BookmarkEntry: Equatable, Sendable {
     }
 }
 
+/// How Chrome's Apple Events address a bookmark node or folder: its `guid` (what Chrome's dictionary calls `id`),
+/// else — for a node with none, an older Chrome — its numeric `id`. Rendered only after strict validation
+/// (`ChromeBookmarkScript.specifier`), so nothing else from the file ever reaches a script.
+struct ChromeNodeRef: Equatable, Sendable {
+    var id: String?
+    var guid: String?
+}
+
 enum BookmarkFileParse {
     /// Chromium's `Bookmarks` JSON: every `url` node, with its id, instant and folder path. Malformed bytes → [].
     static func chromium(_ data: Data) -> [BookmarkEntry] {
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let roots = object["roots"] as? [String: Any] else { return [] }
         var out: [BookmarkEntry] = []
-        func walk(_ node: [String: Any], root: String, folders: [String]) {
+        func walk(_ node: [String: Any], root: String, folders: [ChromeNodeRef]) {
             if (node["type"] as? String) == "url" {
                 guard let url = node["url"] as? String, url.hasPrefix("http://") || url.hasPrefix("https://") else {
                     return
@@ -44,12 +60,12 @@ enum BookmarkFileParse {
                 out.append(BookmarkEntry(url: url, title: node["name"] as? String ?? "",
                                          nodeId: node["id"] as? String,
                                          addedMicros: (node["date_added"] as? String).flatMap { Int64($0) },
-                                         root: root, folderIds: folders))
+                                         root: root, folders: folders, guid: node["guid"] as? String))
                 return
             }
-            let path = node["id"] as? String
+            let here = ChromeNodeRef(id: node["id"] as? String, guid: node["guid"] as? String)
             for child in node["children"] as? [[String: Any]] ?? [] {
-                walk(child, root: root, folders: folders + (path.map { [$0] } ?? []))
+                walk(child, root: root, folders: folders + [here])
             }
         }
         for key in roots.keys.sorted() {
@@ -187,12 +203,12 @@ enum ChromeBookmarkScript {
     /// Every node holding `url`, in the roots Apple Events can reach (the bookmarks bar and other bookmarks; the
     /// mobile folder is not scriptable).
     static func nodes(for url: String, in entries: [BookmarkEntry]) -> [BookmarkEntry] {
-        entries.filter { $0.url == url && $0.nodeId != nil && rootSpecifier($0.root) != nil }
+        entries.filter { $0.url == url && specifier($0.ref) != nil && rootSpecifier($0.root) != nil }
     }
 
     /// Nodes holding `url` that no script can reach (the mobile bookmarks folder).
     static func unreachable(for url: String, in entries: [BookmarkEntry]) -> Int {
-        entries.filter { $0.url == url && ($0.nodeId == nil || rootSpecifier($0.root) == nil) }.count
+        entries.filter { $0.url == url && (specifier($0.ref) == nil || rootSpecifier($0.root) == nil) }.count
     }
 
     static func rootSpecifier(_ root: String?) -> String? {
@@ -203,18 +219,33 @@ enum ChromeBookmarkScript {
         }
     }
 
+    /// The `id` a script names a node or folder by: its GUID, quoted, when it is a well-formed UUID; else, for a node
+    /// with no `guid` at all, its numeric id when it is digits only; else nil (the node is not addressed). A `guid` that
+    /// is present but malformed never falls back — the file is not what it should be.
+    static func specifier(_ ref: ChromeNodeRef) -> String? {
+        if let guid = ref.guid { return isUUID(guid) ? "id \"\(guid)\"" : nil }
+        if let id = ref.id, isDigits(id) { return "id \(id)" }
+        return nil
+    }
+
     /// The AppleScript that deletes `nodes` from Chrome (`bundleId`) — each only if its URL is the one passed as the
-    /// script's first argument — and returns the number deleted. Ids are digits only (anything else is dropped), and
-    /// the URL is never part of the source. A refused Automation (-1743/-1744) stops the script with that error; any
-    /// other per-node error (the node is gone, another profile) skips that node.
+    /// script's first argument — and returns the number deleted. Each node and folder is addressed by its GUID (Chrome's
+    /// AppleScript `id`; fix 2026-10-15 — the numeric ids v3 used never matched, so every Remove deleted nothing),
+    /// strictly validated; nothing else from the file reaches the source, and the URL is never part of it. A refused
+    /// Automation (-1743/-1744) stops the script with that error; any other per-node error (the node is gone, another
+    /// profile) skips that node.
     static func delete(_ nodes: [BookmarkEntry], bundleId: String = "com.google.Chrome") -> String? {
         let blocks: [String] = nodes.compactMap { node in
-            guard let id = node.nodeId, isDigits(id), let root = rootSpecifier(node.root),
-                  node.folderIds.allSatisfy(isDigits) else { return nil }
-            let chain = node.folderIds.reversed().map { "bookmark folder id \($0)" } + [root]
+            guard let item = specifier(node.ref), let root = rootSpecifier(node.root) else { return nil }
+            var chain: [String] = []
+            for folder in node.folders.reversed() {
+                guard let id = specifier(folder) else { return nil }
+                chain.append("bookmark folder \(id)")
+            }
+            chain.append(root)
             return """
                     try
-                        set b to bookmark item id \(id) of \(chain.joined(separator: " of "))
+                        set b to bookmark item \(item) of \(chain.joined(separator: " of "))
                         if (URL of b) is targetURL then
                             delete b
                             set removed to removed + 1
@@ -238,6 +269,13 @@ enum ChromeBookmarkScript {
     }
 
     private static func isDigits(_ s: String) -> Bool { !s.isEmpty && s.allSatisfy { $0.isASCII && $0.isNumber } }
+
+    /// 8-4-4-4-12 ASCII hex digits, nothing else.
+    static func isUUID(_ s: String) -> Bool {
+        let groups = s.split(separator: "-", omittingEmptySubsequences: false)
+        guard groups.map(\.count) == [8, 4, 4, 4, 12] else { return false }
+        return groups.allSatisfy { $0.allSatisfy { $0.isASCII && $0.isHexDigit } }
+    }
     private static func isBundleId(_ s: String) -> Bool {
         !s.isEmpty && s.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "." || $0 == "-") }
     }
