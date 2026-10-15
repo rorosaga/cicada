@@ -75,27 +75,29 @@ for (const [size, r] of Object.entries(rows)) {
     // 1.16 (500 isolates is a third of the medium and dense graphs, so their band runs to three rows).
     check(`${size}: isolates sit outside the core (median > core p90)`, r.ratioMedToP90 > 1, r.ratioMedToP90);
     check(`${size}: ... in a band, not a halo (median <= 1.5x core p90)`, r.ratioMedToP90 <= 1.5, r.ratioMedToP90);
-    check(`${size}: no isolate beyond 1.25x the farthest connected node`, r.isoMax <= 1.25 * r.coreMax, `${r.isoMax} vs coreMax ${r.coreMax}`);
+    // 2026-10-15: the halo is a loose scatter (graph-look.test.js) and the core tighter with small dots: 1.17-1.32x
+    check(`${size}: no isolate beyond 1.6x the farthest connected node`, r.isoMax <= 1.6 * r.coreMax, `${r.isoMax} vs coreMax ${r.coreMax}`);
 }
 // measured 85 / 97 wu on the dense / medium 1500-node synthetics (the memo's >= 80 wu, collide on)
 check("medium: flick from rest gains >= 80 wu", rows.medium.freeCoastDist >= 80, rows.medium.freeCoastDist);
 check("dense: flick from rest gains >= 80 wu", rows.dense.freeCoastDist >= 80, rows.dense.freeCoastDist);
-// The band must not inflate the connected core: core medians were 254 / 470 / 484 before it (now 244 / 424 / 418).
+// The band must not inflate the connected core: core medians were 254 / 470 / 484 before it (244 / 424 / 418 after it;
+// 174 / 353 / 316 since 2026-10-15, when nodes became small dots with shorter links and one charge each).
 const CORE_MEDIAN_BEFORE_BAND = { small: 254, medium: 470, dense: 484 };
 for (const [size, before] of Object.entries(CORE_MEDIAN_BEFORE_BAND)) {
     const r = rows[size];
-    check(`${size}: core median between 0.7x and 1.1x its earlier value (${before})`, r.coreMedian >= 0.7 * before && r.coreMedian <= 1.1 * before, r.coreMedian);
+    check(`${size}: core median between 0.55x and 1.1x its earlier value (${before})`, r.coreMedian >= 0.55 * before && r.coreMedian <= 1.1 * before, r.coreMedian);
 }
 
 {
-    // Band slot stability across deltas (the L2/L3 position-preservation contract): an added isolate whose id sorts
-    // FIRST must not shift anyone else's slot; a removed isolate frees its index; an isolate that gains a link leaves
-    // the band; a newcomer starts in its own slot.
+    // Halo place stability across deltas (the L2/L3 position-preservation contract): an added isolate whose id sorts
+    // FIRST must not shift anyone else's place; a removed isolate leaves; an isolate that gains a link leaves the halo;
+    // a newcomer starts in its own place. Since 2026-10-15 a place is a function of the unit's own id (`unitHash`).
     const { get, call } = loadGraph();
     const g = synthetic(SIZES.small);
     call("updateGraph", g);
     get("simulation").stop();
-    const slotOf = () => new Map([...get("satelliteOf")].map(([id, u]) => [id, `${u.sector}:${u.index}`]));
+    const slotOf = () => new Map([...get("satelliteOf")].map(([id, u]) => [id, `${u.angle}:${u.depth}`]));
     const before = slotOf();
     check("isolates were placed in the band", before.size === SIZES.small.isolates, before.size);
     const firstIsolate = g.nodes.find(n => n.id === "i0");
@@ -107,7 +109,7 @@ for (const [size, before] of Object.entries(CORE_MEDIAN_BEFORE_BAND)) {
     let shifted = 0;
     for (const [id, key] of before) if (id !== "i1" && after.has(id) && after.get(id) !== key) shifted += 1;
     check("no surviving isolate changed slot", shifted === 0, shifted);
-    check("the newcomer's slot is in its own type's sector", get("satelliteOf").get("a-sorts-first").sector === firstIsolate.type, after.get("a-sorts-first"));
+    check("the newcomer's place is a function of its own id", get("unitHash")("a-sorts-first", 1) * 2 * Math.PI === get("satelliteOf").get("a-sorts-first").angle, after.get("a-sorts-first"));
     const unit = get("satelliteOf").get("a-sorts-first");
     const newcomer = get("visibleNodes").find(n => n.id === "a-sorts-first");
     check("the newcomer starts in its slot, not at its type anchor", Math.hypot(newcomer.x - unit.x, newcomer.y - unit.y) < 1,

@@ -5,14 +5,17 @@ session). **`CLAUDE.md` keeps the rails and the map; this file keeps the detail.
 a change makes this file wrong, update it in the same PR (repository paths below are relative to the repository root).
 
 ### 1. Graph Explorer
-Force-directed d3 graph: node color by type, size by confidence, edge labels, cluster detection,
-decay/clarification indicators. Open ideas live in the backlog.
+Force-directed d3 graph: node color by type, size by how connected a page is (distinct neighbours, confidence a small
+second term — G109 2026-10-15, the Obsidian look: small dots, hairline links, a loose halo of unlinked pages, names
+fading in with zoom; `app.md`), edge labels, cluster detection, decay/clarification indicators. Open ideas live in the
+backlog.
 
 **The page (Direction D, DS-3a).** The canvas fills the content area under the command bar. Its chrome is one
 floating group at the bottom-left — the whose-beliefs text tabs (only with more than one observer; they move
 into the Legend under 640 units), Legend, − + fit and the pan toggle — an opaque floating surface, never glass
 over the canvas until the G109 frame-time check has run (R-DG2). The Legend is the context legend, the filters
-and a key in one: a context click shows only that context, confidence is words, Show logos is a switch. ⌘F
+and a key in one: a context click shows only that context, confidence is words, Show unlinked (on by default) and Show logos are
+switches. ⌘F
 opens find on the canvas as an overlay (⌘K searches everything); the page's own field is gone. A node opens
 its entity card as the right-hand column (`GraphColumns`: 560 alone, 480 beside the Reader, never under 440;
 the canvas takes the rest and keeps the open node in view by panning, never zooming), and its evidence opens

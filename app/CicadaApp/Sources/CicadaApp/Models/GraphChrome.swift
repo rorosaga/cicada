@@ -12,6 +12,15 @@ enum GraphChrome {
             || !filter.contexts.isEmpty || !filter.tags.isEmpty
     }
 
+    /// 2026-10-15 — "Show unlinked": the halo of pages linked to nothing is shown while `minDegree` is 0.
+    static func showsUnlinked(_ filter: GraphFilter) -> Bool { filter.minDegree == 0 }
+
+    static func settingShowUnlinked(_ on: Bool, in filter: GraphFilter) -> GraphFilter {
+        var f = filter
+        f.minDegree = on ? 0 : max(1, filter.minDegree)
+        return f
+    }
+
     static func legendLabel(_ filter: GraphFilter) -> String {
         isFiltered(filter) ? Copy.Graph.legendFiltered : Copy.Graph.legend
     }

@@ -42,10 +42,12 @@ for (const seed of [7, 3, 11]) {
     check(`${tag} one step costs < 75 ms (p50)`, m.msTickP50 < 75, m.msTickP50);
     // measured 1,073-1,081 wu = 18.2 sqrt(n) (before: 1,015-1,023)
     check(`${tag} the giant's p95 radius is bounded by its size (<= 22 sqrt(n))`, m.R95 <= 22 * Math.sqrt(m.giantN), `${m.R95} vs ${Math.round(22 * Math.sqrt(m.giantN))}`);
-    // measured 1.28 / 1.28 / 1.32 R95 (before: 1.37 / 1.36 / 1.36)
-    check(`${tag} no node sits beyond 1.4 giant radii`, m.farthestR <= 1.4, m.farthestR);
-    // measured 1.06 / 1.07 / 1.10 — the band sits outside the body (before: 0.97, pushed against and into its edge)
-    check(`${tag} every node outside the giant sits in a band past its p95 radius`, m.outsideMinR >= 1.0 && m.outsideMaxR <= 1.4, `${m.outsideMinR}-${m.outsideMaxR}`);
+    // measured 1.28 / 1.28 / 1.32 R95 (before: 1.37 / 1.36 / 1.36); 1.36-1.41 since the halo is a loose scatter
+    // (2026-10-15, graph-look.test.js), so the bound is 1.7
+    check(`${tag} no node sits beyond 1.7 giant radii`, m.farthestR <= 1.7, m.farthestR);
+    // measured 1.06 / 1.07 / 1.10 — the band sits outside the body (before: 0.97, pushed against and into its edge);
+    // the halo since 2026-10-15: 1.11-1.13 to 1.36-1.41
+    check(`${tag} every node outside the giant sits in a halo past its p95 radius`, m.outsideMinR >= 1.0 && m.outsideMaxR <= 1.7, `${m.outsideMinR}-${m.outsideMaxR}`);
     // measured 154 / 174 / 176 wu median, 279 / 277 / 309 max (before: 933 / 914 / 921, max 1,076-1,207)
     check(`${tag} the 2,092-degree page's 226 leaves sit close (median <= 250 wu)`, m.ownerLeafMed <= 250, m.ownerLeafMed);
     check(`${tag} ... none past 450 wu`, m.ownerLeafMax <= 450, m.ownerLeafMax);
@@ -56,9 +58,10 @@ for (const seed of [7, 3, 11]) {
     check(`${tag} planted communities read as clusters (separation >= 4)`, m.commSep >= 4, m.commSep);
     // measured 43 / 37 / 40 % (before: 48 / 49 / 48 %)
     check(`${tag} no more overlapping discs than before (<= 50 %)`, m.overlapPct <= 50, m.overlapPct);
-    // the ring (2026-10-14): measured coverage 342°, hull fill 0.95, rim spread 1.06
+    // the ring (2026-10-14): measured coverage 342°, hull fill 0.95, rim spread 1.06; the halo (2026-10-15) is an
+    // organic blob, not a ruled circle: hull 0.86-0.89, rim spread 1.12-1.14
     check(`${tag} the satellites wrap the body (coverage >= 330°)`, m.coverageDeg >= 330, m.coverageDeg);
-    check(`${tag} the layout is round (hull >= 0.85 of its circle, rim spread <= 1.15)`, m.hullFill >= 0.85 && m.rimSpread <= 1.15, `${m.hullFill}, ${m.rimSpread}`);
+    check(`${tag} the layout is roughly round (hull >= 0.8 of its circle, rim spread <= 1.3)`, m.hullFill >= 0.8 && m.rimSpread <= 1.3, `${m.hullFill}, ${m.rimSpread}`);
 }
 
 // ---- 1b. the live graph after #285: 1,000 isolates, 86 % of one type (bookmarks just imported) ----
@@ -72,12 +75,12 @@ for (const seed of [7, 3]) {
           `${m.stopTick} steps, KE ${m.keAtStop}, vmax ${m.vmaxAtStop}`);
     // measured 357° (before: 302°)
     check(`${tag} the satellites wrap the body (coverage >= 330°)`, m.coverageDeg >= 330, m.coverageDeg);
-    // measured 0.95-0.97 (before: 0.40)
-    check(`${tag} the hull fills >= 0.85 of the circle through its farthest node`, m.hullFill >= 0.85, m.hullFill);
-    // measured 1.04-1.05 (before: 2.07) — a slab or a line on one side shows here
-    check(`${tag} no slab: the farthest node per 15° bin varies <= 1.15x`, m.rimSpread <= 1.15, m.rimSpread);
-    // measured 1.24-1.25 (before: 2.05)
-    check(`${tag} no node beyond 1.4 giant radii`, m.farthestR <= 1.4, m.farthestR);
+    // measured 0.95-0.97 (before: 0.40); 0.86-0.87 with the halo's soft, wobbling edge (2026-10-15)
+    check(`${tag} the hull fills >= 0.8 of the circle through its farthest node`, m.hullFill >= 0.8, m.hullFill);
+    // measured 1.04-1.05 (before: 2.07) — a slab or a line on one side shows here; 1.15 with the halo
+    check(`${tag} no slab: the farthest node per 15° bin varies <= 1.3x`, m.rimSpread <= 1.3, m.rimSpread);
+    // measured 1.24-1.25 (before: 2.05); 1.53-1.54 with the halo, as loose as 1,000 satellites need
+    check(`${tag} no node beyond 1.7 giant radii`, m.farthestR <= 1.7, m.farthestR);
     // measured 104-105 / 162-170 wu
     check(`${tag} the 44-leaf star stays tight (median <= 200, max <= 300 wu)`, m.star44LeafMed <= 200 && m.star44LeafMax <= 300, `${m.star44LeafMed} / ${m.star44LeafMax}`);
 }
