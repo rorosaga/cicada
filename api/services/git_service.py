@@ -541,6 +541,36 @@ def run_git_write_sync(memory_path, *args: str) -> str:
         return _git_sync(memory_path, *args)
 
 
+#: The commit identity a bank falls back to on a machine with none configured (G181): a fresh Linux server has no
+#: ``user.name``/``user.email``, and git then refuses every commit. Placeholder values, never the person's — who wrote
+#: a change is the ``Cicada-Author`` trailer's job, not git's author field.
+FALLBACK_IDENTITY = ("Cicada", "cicada@localhost")
+
+
+def _identity_resolves(memory_path: Path) -> bool:
+    for var in ("GIT_AUTHOR_IDENT", "GIT_COMMITTER_IDENT"):
+        try:
+            proc = subprocess.run(["git", "var", var], cwd=str(memory_path), capture_output=True)
+        except OSError:
+            return True  # no git at all: nothing to fix here, and every write already degrades
+        if proc.returncode != 0:
+            return False
+    return True
+
+
+def ensure_commit_identity_sync(memory_path) -> bool:
+    """Give a bank a repo-local commit identity only when git resolves none (no global, system or environment
+    identity). Never overrides one that resolves, never touches ``~/.gitconfig``. Returns True when it set one."""
+    memory_path = Path(memory_path)
+    if not (memory_path / ".git").exists() or _identity_resolves(memory_path):
+        return False
+    name, email = FALLBACK_IDENTITY
+    run_git_write_sync(memory_path, "config", "user.name", name)
+    run_git_write_sync(memory_path, "config", "user.email", email)
+    logger.info("git: this machine has no commit identity; the bank commits as Cicada <cicada@localhost>")
+    return True
+
+
 def _ledger_rels(paths) -> list[str]:
     from api.services import claims_ledger
 

@@ -124,8 +124,15 @@ else
   note "run ./install.sh (uv sync) from the repo"
 fi
 
-# 8. launchd plist loaded.
-if launchctl print "gui/$(id -u)/com.cicada.backend" >/dev/null 2>&1; then
+# 8. The background service: the launchd agent on a Mac, the systemd user unit on Linux (G181 headless).
+if [ "$(uname -s)" = "Linux" ]; then
+  if systemctl --user is-active --quiet cicada-backend.service 2>/dev/null; then
+    pass "systemd backend service active (cicada-backend.service)"
+  else
+    fail "systemd backend service not active"
+    note "run ./install.sh (or scripts/install-backend-service.sh); logs: journalctl --user -u cicada-backend.service"
+  fi
+elif launchctl print "gui/$(id -u)/com.cicada.backend" >/dev/null 2>&1; then
   pass "launchd backend agent loaded"
 else
   fail "launchd backend agent not loaded"

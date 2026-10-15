@@ -445,6 +445,15 @@ def scaffold_bank(path: Path, *, git_init: bool = True) -> None:
             # features simply degrade.
             pass
 
+    if git_init:
+        # G181: a headless server has no git identity, and git refuses every commit without one.
+        from api.services import git_service
+
+        try:
+            git_service.ensure_commit_identity_sync(path)
+        except git_service.GitError as exc:
+            logger.warning(f"bank: could not set a fallback commit identity: {exc}")
+
     # G136: every derived name is excluded even in a bank whose .gitignore
     # predates it (see ensure_derived_excluded for why not .gitignore).
     ensure_derived_excluded(path)

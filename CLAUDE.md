@@ -150,6 +150,7 @@ each subsystem — module names, wire shapes, routes, the app's views — lives 
 | API auth, ETags and their client mappings, endpoint traps | [`docs/architecture/api.md`](docs/architecture/api.md) |
 | The graph explorer, the entity card, the unified inbox, the Sleep trigger and schedule, conversation upload | [`docs/architecture/features.md`](docs/architecture/features.md) |
 | The three network gates, the remote connector, the ToS rail, credentials, video | [`docs/architecture/network.md`](docs/architecture/network.md) |
+| Headless: the server without the app, its systemd unit, the primary-writer topology (G181) | [`docs/architecture/headless.md`](docs/architecture/headless.md) |
 
 **Keeping it this size.** A PR updates the area doc its change makes wrong, in the same PR. It touches this file only
 when a *rail* changes (a new invariant, a ruling, a boundary), and then in one or two lines that point at the doc.
@@ -337,6 +338,8 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   different headers.** No scraping behind authentication, ever. **One dated exception (owner, 2026-10-09):** a person's
   photo through unavatar.io from an X or LinkedIn link already on their page, behind its own gate, off by default.
 - **Credentials** live in `~/.cicada/secrets.env` (0600) — never in a bank, never logged.
+- **Headless (G181):** a server is its bank's one writer and binds 127.0.0.1 only; reach from another machine is an
+  overlay the person runs (never a public port, never funnel), and no installer creates or copies a credential (`headless.md`).
 - **Video:** only a provider's own player URL is loaded; an oEmbed response is read for its fields, never its HTML.
 
 ### Rulings
