@@ -178,6 +178,53 @@ check("a smaller graph gets bigger dots (median 50 > 500 > 4.5k at the fit zoom)
     }
 }
 
+// ---- the scale is chosen afresh when the graph changes under it (review, 2026-10-15) ----
+// A bank switch pushes a blank graph, then the new bank as a full push; the previous bank's scale must not survive it.
+// Measured before the fix: 50 -> blank -> 4.5k gave a 1.19 pt median (under the floor), 4.5k -> 50 a 2.5-17 pt one,
+// and filtering the 4.5k shape to its 251 people (a 0.3 reheat) a 10.0 pt one (over the ceiling).
+{
+    const settle = (h) => { h.get("simulation").stop(); h.disarmFit(); let t = 0; while (t < 1000 && h.step()) t += 1; return t; };
+    const push = (h, g) => { h.call("updateGraph", g); h.call("applyFilters", { minConfidence: 0, minDegree: 0, types: [], statuses: ["active", "decaying"], tags: [], contexts: [], observers: [], showLogos: false }); return settle(h); };
+    const median = (h) => lookMetrics(h.get).fitMedianPt;
+    const target = (h) => h.get(`dotTargetPt(${h.get("visibleNodes.length")})`);
+    const near = (h) => Math.abs(median(h) - target(h)) <= 0.1 * target(h);
+    const big = bankShaped1015(7), small = bankShapedAt(50, 7);
+    {
+        const h = harness.loadGraph({ frames: true });
+        push(h, small);
+        push(h, { nodes: [], links: [] });
+        const steps = push(h, big);
+        // measured 2.21 pt, 94 steps
+        check("a bank switch 50 -> blank -> 4.5k: the new bank's median at the fit zoom is on its curve (2.2 pt +-10 %)", near(h) && steps <= 150, `${median(h)} pt, ${steps} steps`);
+        push(h, small);
+        // measured 7.95 pt (the 50-node bank's ids are all cached from its first paint)
+        check("... and back to the 50-node bank: on its curve (8 pt +-10 %)", near(h), median(h));
+        push(h, big);
+        // measured 2.19 pt
+        check("... and back to the 4.5k bank: on its curve again", near(h), median(h));
+    }
+    {
+        const h = harness.loadGraph({ frames: true });
+        push(h, big);
+        push(h, small);
+        // measured 7.86 pt (the two synthetics share ids, so this is the warm whole-graph relayout, not a cold one)
+        check("4.5k -> a 50-node bank: on its curve (8 pt +-10 %)", near(h), median(h));
+    }
+    {
+        const h = harness.loadGraph({ frames: true });
+        push(h, big);
+        h.call("applyFilters", { types: ["person"] });
+        const steps = settle(h);
+        const L = lookMetrics(h.get);
+        // measured 8.13 pt, 82 steps, no overlap
+        check("filtering the 4.5k shape to its 251 people: the median stays within the ceiling (8 pt + 10 %)", L.fitMedianPt <= 1.1 * h.get("DOT_MAX_PT") && near(h) && steps <= 150, `${L.fitMedianPt} pt, ${steps} steps`);
+        h.call("applyFilters", { types: [] });
+        settle(h);
+        // measured 2.2 pt
+        check("... and clearing the filter: back on the 4.5k curve", near(h), median(h));
+    }
+}
+
 // ---- links are hairlines: at every zoom tier, well under the smallest dot drawn ----
 for (const [N, run] of sized) {
     const h = run.h;

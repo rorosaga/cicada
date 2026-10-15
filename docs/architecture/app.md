@@ -49,7 +49,10 @@ multiplies every radius (`nodeRadius` = scale × `baseRadius`, so bigger still m
 rest lengths and the halo's footprints use the scaled radii. The scale is chosen so the median dot's on-screen radius
 at the fit zoom is √(6 % of the view ÷ (π × visible nodes)), clamped to 2.2–8 pt (`DOT_COVER`, `DOT_MIN_PT`,
 `DOT_MAX_PT`); since the fit depends on the layout, the scale follows the fit while a full layout is hot
-(`adaptSize`, alpha ≥ 0.15, damped) and is fixed after — a push of newcomers keeps it. On the bank shape in a 1200×800
+(`adaptSize`, damped; a cold layout until alpha 0.15, a warm one such as a filter change until 0.02, since its
+extent keeps changing) and is fixed after — a push of newcomers keeps it. A full push none of whose nodes carries a
+position (a bank switch: blank, then the new bank) is a cold layout with a fit; one whose carried layout wants a scale
+more than 1.25× off (a switch back to a cached bank) lays out every node from where it is, and fits. On the bank shape in a 1200×800
 view: scale 2.3, median 2.2 pt, smallest 1.5 pt; 500 nodes 6.0 pt; 50 nodes 7.7 pt. A satellite keeps the halo room it
 had at scale 1 (never under 1.8 footprints), so bigger dots do not widen the halo; `MIN_ZOOM` is 0.1. Every pair draws
 one hairline at every zoom (`drawLinks`; neutral α 0.55, context-coloured α 0.22), 0.12 of the smallest dot's

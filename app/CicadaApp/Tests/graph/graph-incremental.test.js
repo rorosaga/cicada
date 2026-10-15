@@ -12,7 +12,10 @@ function settled(size = SIZES.small) {
     t.call("updateGraph", synthetic(size));
     const sim = t.get("simulation");
     sim.stop();
-    for (let i = 0; i < 400; i++) sim.tick();
+    // the "tick" listener runs too, as under d3's timer: the dot scale follows the fit there (proportion pass), and a
+    // layout that never chose its scale would be re-laid out by the next full push that finds it off
+    const onTick = sim.on("tick");
+    for (let i = 0; i < 400; i++) { sim.tick(); onTick.call(sim); }
     sim.alpha(0);
     return t;
 }

@@ -670,7 +670,6 @@ function updateGraph(dataStr) {
     for (const n of nodes) {
         if (n.x != null) prevPositions.set(n.id, { x: n.x, y: n.y, vx: n.vx || 0, vy: n.vy || 0 });
     }
-    const hadPrev = prevPositions.size > 0;
 
     nodes = data.nodes || [];
     links = data.links || [];
@@ -683,9 +682,11 @@ function updateGraph(dataStr) {
     // nodes near their hub or type anchor.
     beginSeeding();
     const fresh = new Set();
+    let carried = 0;
     for (const n of nodes) {
         const p = prevPositions.get(n.id);
         if (p) {
+            carried += 1;
             n.x = p.x; n.y = p.y; n.vx = 0; n.vy = 0;
         } else {
             const s = seedPositionFor(n);
@@ -711,8 +712,21 @@ function updateGraph(dataStr) {
     rebuildVisible();
     rebuildNeighborsIndex();
     // Item 6: on a canvas that already has a layout, only the newcomers move (`relax`); a first paint lays out all.
-    startSimulation(hadPrev ? { reheat: 0.3, relax: fresh, seeded: fresh } : { reheat: 1.0, seeded: fresh });
-    if (!hadPrev) armInitialFit();
+    // Proportion pass (review, 2026-10-15): "already has a layout" means some node of THIS push carries a position.
+    // A push where none does (another bank, after the blank push a bank switch sends first) is a first paint: a cold
+    // layout, the dot scale chosen afresh, and a fit. One whose carried layout asks for a dot scale more than
+    // SIZE_RELAYOUT_FROM away from the current one (a switch back to a bank whose positions are cached, a bank sharing
+    // ids with the last one) lays out every node from where it is, so the scale can follow, and fits.
+    const cold = carried === 0;
+    let rescale = false;
+    if (!cold) {
+        const want = wantedScaleNow();
+        rescale = want !== null && Math.abs(Math.log(want / sizeScale)) > Math.log(SIZE_RELAYOUT_FROM);
+    }
+    if (cold) startSimulation({ reheat: 1.0, seeded: fresh });
+    else if (rescale) startSimulation({ reheat: 0.3, seeded: fresh });
+    else startSimulation({ reheat: 0.3, relax: fresh, seeded: fresh });
+    if (cold || rescale) armInitialFit();
 
     if (focusNodeId) { computeFocusSet(); applyFocusPinning(); }
     scheduleRedraw();
@@ -1429,7 +1443,7 @@ function startSimulation({ reheat = 1.0, relax = null, seeded = null } = {}) {
     buildSimLinks();
     assignComponents();
     seedSatellites(seeded);
-    if (relax === null) beginSizeAdapt();
+    if (relax === null) beginSizeAdapt(reheat);
 
     simulation = d3.forceSimulation(visibleNodes)
         .alphaDecay(ALPHA_DECAY)
@@ -1566,9 +1580,12 @@ const DOT_MAX_PT = 8;
 const SIZE_SCALE_MIN = 0.25;
 const SIZE_SCALE_MAX = 4;
 const SIZE_ADAPT_UNTIL = 0.15;
+const SIZE_ADAPT_UNTIL_WARM = 0.02;  // ... for a warm full layout (a filter change, reheat < 1): its whole run
+const SIZE_RELAYOUT_FROM = 1.25;      // a full push whose layout wants a scale this far off lays out every node
 const SIZE_ADAPT_RATE = 0.3;          // the share of the (log) distance to the wanted scale taken per tick
 let sizeScale = 1;
 let sizeAdapting = false;
+let sizeAdaptUntil = SIZE_ADAPT_UNTIL;
 let sizeBaseMedian = R_BASE;          // the visible pages' median baseRadius, read once per layout
 
 function dotTargetPt(count) {
@@ -1577,12 +1594,30 @@ function dotTargetPt(count) {
 }
 
 let sizeBaseMin = R_BASE;             // ... and the smallest dot's, which sets a link's width
-function beginSizeAdapt() {
+function measureBaseRadii() {
     const radii = visibleNodes.filter(n => !nodeIsFacet(n)).map(baseRadius).sort((a, b) => a - b);
     sizeBaseMedian = radii.length ? radii[Math.floor(radii.length / 2)] : R_BASE;
     // the smallest dot drawn, a facet's included
     sizeBaseMin = visibleNodes.reduce((m, n) => Math.min(m, baseRadius(n)), radii.length ? radii[0] : R_BASE);
-    sizeAdapting = radii.length > 0;
+    return radii.length;
+}
+
+// A full layout chooses its scale as it runs. A cold one (reheat 1) settles its extent early, so the scale is fixed
+// below SIZE_ADAPT_UNTIL; a warm one (a filter change at reheat 0.3) starts from where every node was and its extent
+// keeps changing to the end — 251 pages filtered out of 4,544 contract the whole run (review: an adapt cut at 0.15 left
+// them at a 10 pt median, over the ceiling) — so it adapts until SIZE_ADAPT_UNTIL_WARM.
+function beginSizeAdapt(reheat) {
+    sizeAdapting = measureBaseRadii() > 0;
+    sizeAdaptUntil = reheat >= 1 ? SIZE_ADAPT_UNTIL : SIZE_ADAPT_UNTIL_WARM;
+}
+
+// The scale the fit of the current positions asks for, clamped; null when there is nothing to fit.
+function wantedScaleNow() {
+    if (!(width > 0 && height > 0) || !measureBaseRadii()) return null;
+    const t = transformForNodes(visibleNodes, FIT_PAD);
+    if (!t) return null;
+    const want = dotTargetPt(visibleNodes.length) / (sizeBaseMedian * t.k);
+    return Math.max(SIZE_SCALE_MIN, Math.min(SIZE_SCALE_MAX, want));
 }
 
 // A resting link's stroke at zoom k: { width, alpha } in screen points, the alpha a factor on the link's own.
@@ -1595,7 +1630,7 @@ function linkStroke(k) {
 
 function adaptSize() {
     if (!sizeAdapting || !simulation) return;
-    if (simulation.alpha() < SIZE_ADAPT_UNTIL) { sizeAdapting = false; return; }
+    if (simulation.alpha() < sizeAdaptUntil) { sizeAdapting = false; return; }
     if (!(width > 0 && height > 0)) return;
     const t = transformForNodes(visibleNodes, FIT_PAD);
     if (!t) return;
