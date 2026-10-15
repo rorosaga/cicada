@@ -321,3 +321,15 @@ def test_doctor_checks_the_service_of_its_platform():
     text = (ROOT / "scripts" / "doctor.sh").read_text()
     assert "systemctl --user is-active --quiet cicada-backend.service" in text
     assert 'launchctl print "gui/$(id -u)/com.cicada.backend"' in text
+
+
+def test_a_bank_with_the_fallback_identity_is_never_taken_for_a_demo(tmp_path, no_identity):
+    """demo_guard reads a generator email in .git/config; the fallback must never match it, or every server bank
+    would refuse capture as a demo."""
+    from api.services import demo_guard
+
+    bank = tmp_path / "bank"
+    bank_registry.scaffold_bank(bank)
+    assert _git(bank, "config", "--local", "user.email").stdout.strip() == "cicada@localhost"
+    assert git_service.FALLBACK_IDENTITY[1] != demo_guard.GENERATOR_EMAIL
+    assert demo_guard.is_demo(bank) is False
