@@ -522,11 +522,34 @@ def cmd_handshake(boot: Boot, args) -> Result:
     return Result(text=text, data={"tokens_est": len(text) // 4}, warnings=_root_warnings(boot))
 
 
+def cmd_skills_list(boot: Boot, args) -> Result:
+    from api.services import mcp_tools
+
+    return _typed(mcp_tools.skills(_tool_context(boot)), warnings=_root_warnings(boot))
+
+
+def cmd_skills_propose(boot: Boot, args) -> Result:
+    from api.services import mcp_tools
+
+    reply = mcp_tools.propose_skill(_tool_context(boot), args.action, args.source, args.skill, args.agents,
+                                    args.reason)
+    return _typed(reply, warnings=_root_warnings(boot))
+
+
+def cmd_skills_create(boot: Boot, args) -> Result:
+    from api.services import mcp_tools
+
+    body = sys.stdin.read() if args.body == "-" else args.body
+    reply = mcp_tools.create_skill(_tool_context(boot), args.skill, args.description, body, args.reason)
+    return _typed(reply, warnings=_root_warnings(boot))
+
+
 #: name → handler. A test may swap a handler. The app's commands (`cli_app`) join the agent's.
 COMMANDS: dict[str, Callable] = {"recall": cmd_recall, "get": cmd_get, "project": cmd_project,
                                  "continue": cmd_continue, "save": cmd_save, "handshake": cmd_handshake,
                                  "status": cmd_status, "commands": cmd_commands, **cli_app.COMMANDS,
-                                 "import": cmd_import}
+                                 "import": cmd_import, "skills list": cmd_skills_list,
+                                 "skills propose": cmd_skills_propose, "skills create": cmd_skills_create}
 _NO_BOOT = {"commands"}
 
 

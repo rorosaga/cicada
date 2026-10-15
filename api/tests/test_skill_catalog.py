@@ -247,7 +247,7 @@ def test_the_three_role_skills_are_pinned_to_a_real_sha_and_hash():
     # the values the reviewer verified with scripts/verify-skills.sh
     assert BY_ID["browser-harness"]["pin"]["sha"] == "c24e5072ee66f8499bacd663f4f4bcb089bc4492"
     assert BY_ID["browser-harness"]["pin"]["path"] == ""
-    assert BY_ID["macos-harness"]["pin"]["sha"] == "b88e4d77403bbcac35752eef4f4dd72db3663fd6"
+    assert BY_ID["macos-harness"]["pin"]["sha"] == "43d9edf8286153482348b15f7d8c22d9e38f6c6b"
 
 
 def test_new_entries_do_not_displace_the_top_five():
@@ -270,7 +270,7 @@ def test_prompts_pin_the_reviewed_version_carry_no_global_trigger_and_ask_before
     bh = skill_catalog.install_plan(BY_ID["browser-harness"], "claude-code")["prompt"]
     mh = skill_catalog.install_plan(BY_ID["macos-harness"], "claude-code")["prompt"]
     assert "browser-harness==0.1.13" in bh and "--upgrade" not in bh and "--force" not in bh
-    assert "macos-harness==0.1.2" in mh and "--upgrade" not in mh and "--force" not in mh
+    assert "macos-harness==0.2.1" in mh and "--upgrade" not in mh and "--force" not in mh
     for prompt in (bh, mh):
         assert "Always use" not in prompt and "do not make it your default" in prompt
         assert "ask me" in prompt.lower()

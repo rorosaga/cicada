@@ -308,6 +308,17 @@ PERSON_ARGV = {
     "bank use": ["bank", "use", "beta"],
     "bank rename": ["bank", "rename", "beta", "gamma"],
     "bank delete": ["bank", "delete", "beta"],
+    # The Skills page (2026-10-15): installing, updating and toggling skills are the person's.
+    "skills check": ["skills", "check"],
+    "skills add": ["skills", "add", "alice-example/handy-skills", "--yes"],
+    "skills install": ["skills", "install", "macos-harness"],
+    "skills update": ["skills", "update", "release-notes"],
+    "skills update-all": ["skills", "update-all"],
+    "skills on": ["skills", "on", "release-notes", "codex"],
+    "skills off": ["skills", "off", "release-notes", "codex"],
+    "skills refresh": ["skills", "refresh", "macos-harness"],
+    "skills remove": ["skills", "remove", "release-notes"],
+    "skills publish": ["skills", "publish", "release-notes", "--agent", "codex"],
 }
 
 

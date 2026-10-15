@@ -5026,3 +5026,139 @@ def episode_scrub_value(value, limit: int) -> str:
     from api.services import episode_scrub
 
     return episode_scrub.scrub(" ".join(str(value or "").split())[:limit])[0].strip()
+
+
+# --------------------------------------------------------------------------- skills (the Skills page, 2026-10-15)
+
+_SKILL_ACTIONS = ("install", "update", "on", "off", "refresh")
+#: Actions that bring in no new code: a trusted harness's (G198 list) apply at once.
+_SKILL_DIRECT = ("on", "off", "refresh")
+
+
+def _skill_line(row: dict) -> list[str]:
+    on = [a["label"] for a in row["agents"] if a["state"] == "on"]
+    through = [a["label"] for a in row["agents"] if a["state"] == "through"]
+    bits = [row["source"]["label"]]
+    if row["version"].get("label"):
+        bits.append(row["version"]["label"])
+    bits.append(("in " + ", ".join(on)) if on else "in no agent's own folder")
+    if through:
+        bits.append("also seen by " + ", ".join(through))
+    lines = [f"- {row['name']} — {_one_line(row['description'], 160)}", "  " + " · ".join(bits)]
+    tool = row.get("tool") or {}
+    if tool.get("text") == "older":
+        lines.append(f"  Its skill text is older than {tool.get('command')} {tool.get('version') or ''}".rstrip()
+                     + f" — refresh: cicada_propose_skill(action=\"refresh\", skill=\"{row['name']}\").")
+    update = row.get("update") or {}
+    if update.get("state") == "available":
+        lines.append(f"  Update available: {update.get('latest')}" + (f" ({update['link']})" if update.get("link")
+                                                                     else ""))
+    perms = row.get("permissions") or {}
+    if perms.get("line"):
+        lines.append("  " + perms["line"])
+    return lines
+
+
+def skills(ctx: ToolContext) -> str:
+    """``cicada_skills``: the skills on this Mac's coding agents, per agent, with the last update check (no fetch: the
+    person checks from the Skills page). Names and descriptions come from SKILL.md files others wrote: fenced as
+    reference data."""
+    import asyncio
+
+    from api.services import skill_inventory
+
+    data = asyncio.run(skill_inventory.snapshot(bank=ctx.memory_path()))
+    agents = ", ".join(a["label"] for a in data["agents"])
+    lines = [REFERENCE_HEADER, "", f"Skills on this Mac ({agents}):"]
+    for row in data["installed"]:
+        lines += _skill_line(row)
+    if not data["installed"]:
+        lines.append("- none yet")
+    checked = data.get("checkedAt")
+    lines.append(f"Last checked for updates: {checked}." if checked else
+                 "Not checked for updates yet; the person checks from Cicada's Skills page.")
+    if data["suggested"]:
+        lines += ["", "Suggested by Cicada, not installed: " + "; ".join(
+            f"{s['id']} ({_one_line(s.get('summary') or '', 80)})" for s in data["suggested"][:8])]
+    if data["drafts"]:
+        lines += ["", "Made by agents, held until the person publishes them: " + ", ".join(
+            f"{d['name']} (by {d['authorLabel']})" for d in data["drafts"])]
+    if data["requests"]:
+        lines += ["", f"Waiting for the person on the Skills page: {len(data['requests'])} request(s)."]
+    lines += ["", "To ask for an install or update: cicada_propose_skill. To write a new skill for a workflow: "
+                  "cicada_create_skill. You never install third-party code yourself through Cicada."]
+    return Reply("\n".join(lines), data={"installed": [r["name"] for r in data["installed"]],
+                                         "requests": len(data["requests"])})
+
+
+def propose_skill(ctx: ToolContext, action, source=None, name=None, agents=None, reason=None) -> str:
+    """``cicada_propose_skill``: ask for a skill change. Install and update (third-party code) always wait for the
+    person on the Skills page. Turning a skill on or off for an agent, or refreshing a tool's skill text from the tool
+    the person installed, applies at once for a harness on the person's trust list (G198) — else it waits too."""
+    import asyncio
+
+    from api.services import page_editors, skill_actions, skill_folders, skill_sources, skill_store
+
+    action = str(action or "").strip().lower()
+    if action not in _SKILL_ACTIONS:
+        return f"Not filed: action must be one of {', '.join(_SKILL_ACTIONS)}."
+    reason = " ".join(str(reason or "").split())
+    if not reason:
+        return "Not filed: say why, in one sentence the person will read."
+    agents = [a for a in (agents or []) if isinstance(a, str)]
+    unknown = [a for a in agents if a not in skill_folders.BY_ID]
+    if unknown:
+        return (f"Not filed: unknown agent {', '.join(unknown)}. Use "
+                f"{', '.join(skill_folders.BY_ID)}.")
+    label = None
+    if action == "install":
+        try:
+            parsed = skill_sources.parse(str(source or ""))
+        except skill_sources.SourceError as exc:
+            return f"Not filed: {exc}"
+        label = parsed.slug + (f" ({parsed.skill or parsed.path})" if (parsed.skill or parsed.path) else "")
+        agents = agents or parsed.agents
+    else:
+        name = str(name or "").strip()
+        if not skill_folders.NAME.match(name):
+            return "Not filed: name the installed skill (its folder name)."
+        if action in ("on", "off") and len(agents) != 1:
+            return "Not filed: name exactly one agent to turn it on or off for."
+    trusted = page_editors.is_trusted(ctx.author, remote=ctx.is_remote)
+    if action in _SKILL_DIRECT and trusted:
+        try:
+            if action == "on":
+                skill_store.turn_on(name, agents[0])
+                return f"Done: {name} is on for {skill_folders.BY_ID[agents[0]].label}."
+            if action == "off":
+                skill_store.turn_off(name, agents[0])
+                return (f"Done: {name} is off for {skill_folders.BY_ID[agents[0]].label}. Cicada kept a copy; the "
+                        "person can turn it back on from the Skills page.")
+            result = asyncio.run(skill_actions.refresh(name))
+            return f"Done: {name}'s skill text now matches {result.get('version') or 'the installed tool'}."
+        except skill_store.StoreError as exc:
+            return f"Not done: {exc}"
+    entry = skill_store.add_request(action, author=ctx.author, reason=reason, name=name or None,
+                                    source=str(source) if action == "install" else None, agents=agents,
+                                    session=ctx.session_id or None)
+    what = {"install": f"install {label}", "update": f"update {name}", "on": f"turn {name} on",
+            "off": f"turn {name} off", "refresh": f"refresh {name}'s skill text"}[action]
+    why = "" if action in ("install", "update") else \
+        " (this agent is not on the person's trusted list, so it waits for them)"
+    return (f"Filed for the person: {what}{why}. It waits on Cicada's Skills page, where they see the source and "
+            f"the files before anything installs. Tell them in one line. Request {entry['id']}.")
+
+
+def create_skill(ctx: ToolContext, name, description, body, reason=None) -> str:
+    """``cicada_create_skill``: draft a SKILL.md for a workflow. It is held under "Made by your agents" and reaches an
+    agent's folder only when the person publishes it, choosing which agents."""
+    from api.services import skill_store
+
+    try:
+        record = skill_store.save_draft(str(name or ""), str(description or ""), str(body or ""),
+                                        author=ctx.author, session=ctx.session_id or None, reason=str(reason or ""))
+    except skill_store.StoreError as exc:
+        return f"Not saved: {exc}"
+    again = f" (revision {record['revision']})" if record["revision"] > 1 else ""
+    return (f"Saved the skill {record['name']}{again}, held. It shows under \"Made by your agents\" on Cicada's "
+            f"Skills page; it reaches an agent only when the person publishes it there. Tell them in one line.")

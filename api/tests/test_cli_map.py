@@ -89,13 +89,16 @@ def test_no_generic_dispatcher_row():
 
 
 def test_the_exposed_agent_commands_are_slice_one_and_the_timeline():
-    """The agent's door: slice 1's eight commands plus `timeline` (a read no reply gates on). The app's commands
-    (G180 parity) are CLI-only rows, so they add no MCP tool to what a CLI reply may name."""
+    """The agent's door: slice 1's eight commands plus `timeline` (a read no reply gates on), and the Skills page's
+    three (2026-10-15: list, propose, create — none installs anything). The app's commands (G180 parity) are
+    CLI-only rows, so they add no MCP tool to what a CLI reply may name."""
     agent = {r.name for r in cli_map.exposed() if not r.app}
-    assert agent == {"recall", "get", "project", "continue", "save", "handshake", "status", "commands", "timeline"}
+    assert agent == {"recall", "get", "project", "continue", "save", "handshake", "status", "commands", "timeline",
+                     "skills list", "skills propose", "skills create"}
     assert cli_map.exposed_tools() == frozenset({"cicada_recall", "cicada_recall_detail", "cicada_project",
                                                  "cicada_continue", "cicada_save_episode", "cicada_handshake",
-                                                 "cicada_timeline"})
+                                                 "cicada_timeline", "cicada_skills", "cicada_propose_skill",
+                                                 "cicada_create_skill"})
     assert all(r.tool is None for r in cli_map.exposed() if r.app)
 
 

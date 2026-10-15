@@ -148,7 +148,7 @@
         "CICADA_CAPTURE": "off"
        },
        "steps": [],
-       "prompt": "Set up the macos-harness skill for me, then stop. Follow the install steps in install.md of https://github.com/browser-use/macos-harness at tag v0.1.2, but install the reviewed version: `uv tool install --python 3.12 macos-harness==0.1.2`. Register the skill that `macos-harness skill` prints under the name macos-harness, with no trigger sentence: do not make it your default for other tasks, I will ask for it when I want it. It can control apps on this Mac: ask me before you request any macOS permission, and ask whether to run `macos-harness telemetry disable` (it sends anonymous usage counts otherwise). Tell me when it is ready."
+       "prompt": "Set up the macos-harness skill for me, then stop. Follow the install steps in install.md of https://github.com/browser-use/macos-harness at tag v0.2.1, but install the reviewed version: `uv tool install --python 3.12 macos-harness==0.2.1`. Register the skill that `macos-harness skill` prints under the name macos-harness, with no trigger sentence: do not make it your default for other tasks, I will ask for it when I want it. It can control apps on this Mac: ask me before you request any macOS permission, and ask whether to run `macos-harness telemetry disable` (it sends anonymous usage counts otherwise). Tell me when it is ready."
       },
       "codex": {
        "runnable": false,
@@ -156,7 +156,7 @@
         "CICADA_CAPTURE": "off"
        },
        "steps": [],
-       "prompt": "Set up the macos-harness skill for me, then stop. Follow the install steps in install.md of https://github.com/browser-use/macos-harness at tag v0.1.2, but install the reviewed version: `uv tool install --python 3.12 macos-harness==0.1.2`. Register the skill that `macos-harness skill` prints under the name macos-harness, with no trigger sentence: do not make it your default for other tasks, I will ask for it when I want it. It can control apps on this Mac: ask me before you request any macOS permission, and ask whether to run `macos-harness telemetry disable` (it sends anonymous usage counts otherwise). Tell me when it is ready."
+       "prompt": "Set up the macos-harness skill for me, then stop. Follow the install steps in install.md of https://github.com/browser-use/macos-harness at tag v0.2.1, but install the reviewed version: `uv tool install --python 3.12 macos-harness==0.2.1`. Register the skill that `macos-harness skill` prints under the name macos-harness, with no trigger sentence: do not make it your default for other tasks, I will ask for it when I want it. It can control apps on this Mac: ask me before you request any macOS permission, and ask whether to run `macos-harness telemetry disable` (it sends anonymous usage counts otherwise). Tell me when it is ready."
       }
      },
      "detail": "Your agent controls apps on your Mac with screenshots, keyboard and mouse, not only the browser.",
@@ -437,7 +437,7 @@
         "CICADA_CAPTURE": "off"
        },
        "steps": [],
-       "prompt": "Set up the macos-harness skill for me, then stop. Follow the install steps in install.md of https://github.com/browser-use/macos-harness at tag v0.1.2, but install the reviewed version: `uv tool install --python 3.12 macos-harness==0.1.2`. Register the skill that `macos-harness skill` prints under the name macos-harness, with no trigger sentence: do not make it your default for other tasks, I will ask for it when I want it. It can control apps on this Mac: ask me before you request any macOS permission, and ask whether to run `macos-harness telemetry disable` (it sends anonymous usage counts otherwise). Tell me when it is ready."
+       "prompt": "Set up the macos-harness skill for me, then stop. Follow the install steps in install.md of https://github.com/browser-use/macos-harness at tag v0.2.1, but install the reviewed version: `uv tool install --python 3.12 macos-harness==0.2.1`. Register the skill that `macos-harness skill` prints under the name macos-harness, with no trigger sentence: do not make it your default for other tasks, I will ask for it when I want it. It can control apps on this Mac: ask me before you request any macOS permission, and ask whether to run `macos-harness telemetry disable` (it sends anonymous usage counts otherwise). Tell me when it is ready."
       },
       "codex": {
        "runnable": false,
@@ -445,7 +445,7 @@
         "CICADA_CAPTURE": "off"
        },
        "steps": [],
-       "prompt": "Set up the macos-harness skill for me, then stop. Follow the install steps in install.md of https://github.com/browser-use/macos-harness at tag v0.1.2, but install the reviewed version: `uv tool install --python 3.12 macos-harness==0.1.2`. Register the skill that `macos-harness skill` prints under the name macos-harness, with no trigger sentence: do not make it your default for other tasks, I will ask for it when I want it. It can control apps on this Mac: ask me before you request any macOS permission, and ask whether to run `macos-harness telemetry disable` (it sends anonymous usage counts otherwise). Tell me when it is ready."
+       "prompt": "Set up the macos-harness skill for me, then stop. Follow the install steps in install.md of https://github.com/browser-use/macos-harness at tag v0.2.1, but install the reviewed version: `uv tool install --python 3.12 macos-harness==0.2.1`. Register the skill that `macos-harness skill` prints under the name macos-harness, with no trigger sentence: do not make it your default for other tasks, I will ask for it when I want it. It can control apps on this Mac: ask me before you request any macOS permission, and ask whether to run `macos-harness telemetry disable` (it sends anonymous usage counts otherwise). Tell me when it is ready."
       }
      },
      "detail": "Your agent controls apps on your Mac with screenshots, keyboard and mouse, not only the browser.",

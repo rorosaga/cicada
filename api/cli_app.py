@@ -799,6 +799,118 @@ def cmd_timeline(boot, args) -> Result:
     return Result(text=str(mcp_tools.timeline(ctx, args.since)), data=None, warnings=_warn(boot))
 
 
+# --- skills (the Skills page, 2026-10-15) -------------------------------------------------------------------
+
+def _wait_job(boot, job: dict | None, what: str) -> dict:
+    if not job:
+        return {}
+    deadline = time.monotonic() + JOB_WAIT_MAX_S
+    status = job
+    while time.monotonic() < deadline and status.get("state") == "running":
+        time.sleep(JOB_POLL_S)
+        status = call(boot, "GET", f"/skills/jobs/{quote(str(job.get('id')), safe='')}")
+    if status.get("state") == "failed":
+        raise Refusal("refused", f"{what} stopped: {status.get('message') or 'it failed'}", _warn(boot))
+    if status.get("state") == "running":
+        raise Refusal("backend_timeout", f"{what} is still running in the app's backend.", _warn(boot))
+    return status
+
+
+def cmd_skills_check(boot, args) -> Result:
+    require_person("Checking skills for updates")
+    data = call(boot, "POST", "/skills/check", body={}, timeout=120)
+    results = data.get("results") or {}
+    lines = [f"{name}: update available ({r.get('latest')})" + (f" — {r['link']}" if r.get("link") else "")
+             for name, r in sorted(results.items()) if isinstance(r, dict) and r.get("state") == "available"]
+    return Result(text="\n".join(lines) or "Every skill Cicada can check is up to date.", data=data,
+                  warnings=_warn(boot))
+
+
+def cmd_skills_add(boot, args) -> Result:
+    require_person("Adding a skill")
+    shown = call(boot, "POST", "/skills/preview", body={"source": args.source, "choose": args.choose}, timeout=120)
+    if shown.get("choices"):
+        names = ", ".join(c.get("path") or c.get("name") for c in shown["choices"])
+        return Result(text=f"That repository holds several skills; pick one with --choose: {names}", data=shown,
+                      warnings=_warn(boot))
+    repo = shown.get("repo") or {}
+    lines = [f"{shown.get('name')} — {shown.get('description')}",
+             f"From {repo.get('repo')} at {str(repo.get('commit') or '')[:7]}"
+             + (f" ({repo.get('licence')})" if repo.get("licence") else ""),
+             f"{len(shown.get('files') or [])} file(s)" + (f"; scripts: {', '.join(shown['scripts'])}"
+                                                          if shown.get("scripts") else "")]
+    if not args.yes:
+        lines.append("Nothing installed. Run again with --yes (and --agent …) to install it, pinned to this commit.")
+        return Result(text="\n".join(lines), data=shown, warnings=_warn(boot))
+    agents = args.agent or shown.get("agents") or ["claude-code"]
+    done = call(boot, "POST", "/skills/install", body={"planId": shown.get("planId"), "agents": agents})
+    lines.append(f"Installed for {', '.join(done.get('agents') or agents)}.")
+    return Result(text="\n".join(lines), data=done, warnings=_warn(boot))
+
+
+def cmd_skills_install(boot, args) -> Result:
+    require_person("Installing a suggested skill")
+    result = call(boot, "POST", "/skills/install", body={"suggestion": args.suggestion, "agents": args.agent or []},
+                  timeout=300)
+    if isinstance(result.get("job"), dict):
+        result = {**result, "jobStatus": _wait_job(boot, result["job"], f"Installing {args.suggestion}")}
+    return Result(text=f"Installed {args.suggestion}.", data=result, warnings=_warn(boot))
+
+
+def cmd_skills_update(boot, args) -> Result:
+    require_person("Updating a skill")
+    result = call(boot, "POST", f"/skills/{quote(args.skill, safe='')}/update", body={})
+    status = _wait_job(boot, result.get("job"), f"Updating {args.skill}")
+    return Result(text=f"Updated {args.skill}.", data=status, warnings=_warn(boot))
+
+
+def cmd_skills_update_all(boot, args) -> Result:
+    require_person("Updating skills")
+    result = call(boot, "POST", "/skills/update-all", body={})
+    status = _wait_job(boot, result.get("job"), "Updating skills")
+    done = (status.get("result") or {}).get("updated") or []
+    failed = (status.get("result") or {}).get("failed") or {}
+    lines = [f"Updated: {', '.join(done)}" if done else "Nothing to update."]
+    lines += [f"{name}: {why}" for name, why in failed.items()]
+    return Result(text="\n".join(lines), data=status, warnings=_warn(boot))
+
+
+def _toggle(boot, args, on: bool) -> Result:
+    require_person("Turning a skill on or off")
+    result = call(boot, "PUT", f"/skills/{quote(args.skill, safe='')}/agents/{quote(args.agent, safe='')}",
+                  body={"on": on})
+    return Result(text=f"{args.skill} is {'on' if on else 'off'} for {args.agent}.", data=result, warnings=_warn(boot))
+
+
+def cmd_skills_on(boot, args) -> Result:
+    return _toggle(boot, args, True)
+
+
+def cmd_skills_off(boot, args) -> Result:
+    return _toggle(boot, args, False)
+
+
+def cmd_skills_refresh(boot, args) -> Result:
+    require_person("Refreshing a skill's text")
+    result = call(boot, "POST", f"/skills/{quote(args.skill, safe='')}/refresh", body={}, timeout=60)
+    return Result(text=f"{args.skill}'s skill text now matches the installed tool.", data=result, warnings=_warn(boot))
+
+
+def cmd_skills_remove(boot, args) -> Result:
+    require_person("Removing a skill")
+    result = call(boot, "DELETE", f"/skills/{quote(args.skill, safe='')}")
+    return Result(text=f"Removed {args.skill}.", data=result, warnings=_warn(boot))
+
+
+def cmd_skills_publish(boot, args) -> Result:
+    require_person("Publishing a skill")
+    if not args.agent:
+        raise UsageError("name the agents to publish it to with --agent (e.g. --agent claude-code)")
+    result = call(boot, "POST", f"/skills/drafts/{quote(args.skill, safe='')}/publish", body={"agents": args.agent})
+    return Result(text=f"Published {args.skill} to {', '.join(result.get('agents') or args.agent)}.", data=result,
+                  warnings=_warn(boot))
+
+
 COMMANDS = {
     "page list": cmd_page_list, "page history": cmd_page_history, "page decay": cmd_page_decay,
     "graph": cmd_graph, "find": cmd_find,
@@ -814,6 +926,10 @@ COMMANDS = {
     "bank list": cmd_bank_list, "bank use": cmd_bank_use, "bank create": cmd_bank_create,
     "bank rename": cmd_bank_rename, "bank delete": cmd_bank_delete,
     "timeline": cmd_timeline,
+    "skills check": cmd_skills_check, "skills add": cmd_skills_add, "skills install": cmd_skills_install,
+    "skills update": cmd_skills_update, "skills update-all": cmd_skills_update_all, "skills on": cmd_skills_on,
+    "skills off": cmd_skills_off, "skills refresh": cmd_skills_refresh, "skills remove": cmd_skills_remove,
+    "skills publish": cmd_skills_publish,
 }
 
 

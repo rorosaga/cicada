@@ -1017,6 +1017,34 @@ TOOLS = [
             "image_base64": {"type": "string", "description": "Optional: a picture, base64, to find similar looks."},
             "limit": {"type": "integer", "description": "Optional: how many to return (default 8, at most 24)."}}},
     },
+    {
+        # The Skills page (2026-10-15): a read of the agents' skill folders; no fetch (the person checks updates).
+        "name": "cicada_skills",
+        "description": "The agent skills installed on this Mac, per coding agent: where each came from, its version, whether an update is available (from the person's last check), and whether a tool skill's text is older than its tool. Also Cicada's suggestions, skills agents drafted, and requests waiting for the person.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        # Install and update always wait for the person; on/off/refresh apply at once for a trusted harness (G198).
+        "name": "cicada_propose_skill",
+        "description": "Ask for a skill change on the person's behalf. `install` (a GitHub link, owner/repo, or an `npx skills add` line in `source`) and `update` always wait for the person on Cicada's Skills page, where they see the files first — never install third-party code yourself. `on`/`off` (one agent) and `refresh` (a tool skill's text) apply at once when you are on their trusted list.",
+        "inputSchema": {"type": "object", "required": ["action", "reason"], "properties": {
+            "action": {"type": "string", "enum": ["install", "update", "on", "off", "refresh"]},
+            "source": {"type": "string", "description": "install: where the skill lives (GitHub link, owner/repo[@skill], or an `npx skills add …` line)."},
+            "skill": {"type": "string", "description": "update/on/off/refresh: the installed skill's folder name."},
+            "agents": {"type": "array", "items": {"type": "string", "enum": ["claude-code", "codex", "cursor", "gemini-cli", "opencode"]},
+                       "description": "Which agents: for on/off exactly one; for install, optional."},
+            "reason": {"type": "string", "description": "Why, in one sentence the person will read."}}},
+    },
+    {
+        # G112: an agent's own skill, held until the person publishes it.
+        "name": "cicada_create_skill",
+        "description": "Write a new skill for a workflow you and the person repeat: a name, the one-line description an agent matches on, and the instructions. It is held under \"Made by your agents\" in Cicada until the person publishes it to the agents they choose.",
+        "inputSchema": {"type": "object", "required": ["skill", "description", "body"], "properties": {
+            "skill": {"type": "string", "description": "The skill's name, used as its folder: lowercase letters, digits and dashes (e.g. 'release-notes')."},
+            "description": {"type": "string", "description": "One line: what it does and when to use it (an agent matches on this)."},
+            "body": {"type": "string", "description": "The instructions, in markdown (no frontmatter)."},
+            "reason": {"type": "string", "description": "Optional: why this is worth keeping, for the person."}}},
+    },
 ]
 
 
@@ -1211,6 +1239,14 @@ def handle_tool(name: str, arguments: dict) -> str:
     elif name == "cicada_design_search":
         return mcp_tools.design_search(_ctx(), arguments.get("query"), arguments.get("image_path"),
                                        arguments.get("image_base64"), arguments.get("limit", 8))
+    elif name == "cicada_skills":
+        return mcp_tools.skills(_ctx())
+    elif name == "cicada_propose_skill":
+        return mcp_tools.propose_skill(_ctx(), arguments.get("action"), arguments.get("source"),
+                                       arguments.get("skill"), arguments.get("agents"), arguments.get("reason"))
+    elif name == "cicada_create_skill":
+        return mcp_tools.create_skill(_ctx(), arguments.get("skill"), arguments.get("description"),
+                                      arguments.get("body"), arguments.get("reason"))
     elif name == "cicada_open_hub":
         return handle_open_hub(arguments.get("hub", ""))
     elif name == "cicada_ask":

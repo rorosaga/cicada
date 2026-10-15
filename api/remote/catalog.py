@@ -69,7 +69,10 @@ NEVER_REMOTE = frozenset({"cicada_pending", "cicada_mark_processed", "cicada_rep
                           "cicada_explore_start", "cicada_site_map",
                           # G61, ruling 26: a tracked source's re-check reads in the person's own browser session —
                           # a local agent's job; a remote one is the owner's open question.
-                          "cicada_refresh_claim", "cicada_record_refresh"})
+                          "cicada_refresh_claim", "cicada_record_refresh",
+                          # The Skills page (2026-10-15): skills live in this Mac's agent folders, and a remote app is
+                          # no coding agent here; whether one may ever ask for a skill is the owner's open question.
+                          "cicada_skills", "cicada_propose_skill", "cicada_create_skill"})
 WRITE_TOOLS = frozenset({"cicada_save_episode", "cicada_write_claim", "cicada_retract_claim",
                          "cicada_save_url", "cicada_record_watch", "cicada_record_read", "cicada_record_check", "cicada_add_source",
                          "cicada_change_source",
