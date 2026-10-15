@@ -50,12 +50,20 @@ _ALIASES = {"fontFamily": "family", "font_family": "family", "fontSize": "size",
 _NEXT_FONT = re.compile(r"^__(?P<name>.+?)(?P<fallback>_Fallback)?_[0-9a-f]{5,8}$", re.I)
 _HEX = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$")
 _RGB = re.compile(r"^rgba?\(\s*([0-9.]+)[\s,]+([0-9.]+)[\s,]+([0-9.]+)(?:\s*[,/]\s*([0-9.]+%?))?\s*\)$", re.I)
-_LENGTH = re.compile(r"^(-?[0-9]*\.?[0-9]+)\s*(px|em|rem)?$", re.I)
+#: Linear: one way to match a number (review 2026-10-15 — ``-?[0-9]*\.?[0-9]+`` backtracked quadratically, 5 s on a
+#: 16k-character value). Every value is also cut to :data:`MAX_VALUE` before any pattern sees it.
+_LENGTH = re.compile(r"^(-?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+))\s*(px|em|rem)?$", re.I)
+#: The longest length or colour value read (``rgba(255, 255, 255, 0.5)`` is 24); anything longer is not one.
+MAX_VALUE = 32
+#: The longest font stack read before it is split.
+MAX_STACK_CHARS = 400
 
 
 def colour(value) -> str | None:
     """``#rrggbb`` from a hex or an ``rgb()``/``rgba()`` value, or None (transparent, malformed)."""
     raw = str(value or "").strip()
+    if len(raw) > MAX_VALUE:
+        return None
     if _HEX.match(raw):
         h = raw[1:].lower()
         if len(h) in (3, 4):
@@ -102,7 +110,7 @@ def family_name(raw: str) -> tuple[str | None, bool]:
 
 def stack(raw) -> list[str]:
     """A computed ``font-family`` as clean names, fallback faces and repeats dropped, at most :data:`MAX_STACK`."""
-    parts = raw if isinstance(raw, list) else str(raw or "").split(",")
+    parts = raw[: MAX_STACK * 4] if isinstance(raw, list) else str(raw or "")[:MAX_STACK_CHARS].split(",")
     out: list[str] = []
     for part in parts:
         name, fallback = family_name(str(part))
@@ -117,7 +125,10 @@ def _px(value, size: float | None, bounds: tuple[float, float]) -> float | None:
     if isinstance(value, (int, float)):
         n, unit = float(value), "px"
     else:
-        m = _LENGTH.match(str(value or "").strip())
+        text = str(value or "").strip()
+        if len(text) > MAX_VALUE:
+            return None
+        m = _LENGTH.match(text)
         if not m:
             return None
         n, unit = float(m.group(1)), (m.group(2) or "px").lower()

@@ -293,7 +293,8 @@ async def add_design_ref(image: UploadFile = File(...), url: str | None = Form(N
         raise HTTPException(413 if len(data) > design_refs.MAX_IMAGE_BYTES else 400, str(exc)) from exc
     snippet_list, tag_list = _json_list(snippets, "snippets"), _json_list(tags, "tags")
     writer = _author(author, via)
-    computed, _problems = design_tokens.clean(tokens)
+    # Off the event loop, like the decode below; the value caps in design_tokens keep it linear anyway.
+    computed, _problems = await asyncio.to_thread(design_tokens.clean, tokens)
     if tokens and not computed and _problems and _problems[0] in ("tokens are not JSON", "tokens are an object",
                                                                   "tokens are too large"):
         raise HTTPException(400, f"The tokens couldn't be read: {_problems[0]}.")

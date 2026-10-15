@@ -4675,6 +4675,9 @@ def record_capture(ctx: ToolContext, url: str, lease_token: str, outcome: str, c
     if signed and not reading_settings.explore_signed_in():
         return ("Not recorded: the person turned off exploring in their signed-in browser session. Capture it again "
                 "with context=\"isolated\" (a private, cookie-less context) and pass signed_in=false.")
+    from api.services import design_tokens
+
+    design = design_tokens.clean(design)[0] or None   # validated before the admission, never inside it
     shot_bytes: list[tuple[str, bytes]] = []
     for shot in list(shots or [])[:len(site_captures.SHOT_KINDS)]:
         got = _explore_shot_bytes(ctx, memory_path, shot)
@@ -4707,7 +4710,9 @@ def record_capture(ctx: ToolContext, url: str, lease_token: str, outcome: str, c
         if got is None:
             dropped["picture"] = dropped.get("picture", 0) + 1
             continue
-        ready.append({**page_in, "shots": got, "shots_bytes": got})
+        # Looks v2: each page's computed tokens are validated here, before the admission (as save_design does).
+        ready.append({**page_in, "shots": got, "shots_bytes": got,
+                      "design": design_tokens.clean(page_in.get("design"))[0] or None})
     looks: list[str] = []
     with write_admission.shared(memory_path):   # G183: from the probe through the commit
         if ctx.sleep_running():

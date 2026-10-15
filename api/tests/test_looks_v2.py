@@ -426,3 +426,19 @@ def test_what_the_capture_script_prints_is_what_the_schema_keeps():
     script = (Path(__file__).resolve().parents[2] / "skills" / "site-explore" / "explore_capture.py").read_text()
     for key in ("family", "size", "weight", "line_height", "letter_spacing", "color", "drop_cap", "ground", "wash"):
         assert key in script, f"the script prints {key}"
+
+
+@pytest.mark.parametrize("value", ["1" * 15_940 + "x", "1" * 15_940, "." * 15_000 + "1px", "-" + "9" * 15_000 + "em"])
+def test_a_huge_length_value_is_dropped_in_linear_time(value):
+    import time
+
+    started = time.perf_counter()
+    tokens, problems = design_tokens.clean({"type": {"body": {"family": "Inter", "size": value}}})  # under 16 KB
+    assert time.perf_counter() - started < 0.05, "a value is capped before any pattern sees it"
+    assert tokens["type"]["body"] == {"family": "Inter", "stack": ["Inter"]}
+    assert any("size" in p for p in problems)
+    started = time.perf_counter()
+    assert design_tokens.colour("rgb(" + "1," * 7_000 + "1)") is None
+    assert design_tokens._px(value, 16.0, design_tokens.LINE_PX) is None
+    assert time.perf_counter() - started < 0.05
+    assert design_tokens._LENGTH.match("1" * 15_940 + "x") is None, "and the pattern itself is linear"
