@@ -32,8 +32,9 @@ a KE/node plateau at tick 400 is the signature of a force that broke rule 1.
 
 **The layout settles and stops (G109, 2026-10-14).** Collide is alpha-scaled too (below alpha 0.03), so every force
 cools together and the layout comes to rest instead of freezing mid-motion at the alpha cut-off; a settle check ends a
-cooled layout once it looks still. The simulation keeps one link per connected pair at d3's default strength (every
-pair draws once, batched into one path per colour and alpha), and leaves sit close to their page. Every component of ≤ 30 nodes other than the largest — isolates, pairs, triples — is packed in a
+cooled layout once it looks still. The simulation keeps one link per connected pair at d3's default strength, weakened on a
+link to a page with more than 50 neighbours (never a leaf's; see the look paragraph below). Every pair draws once,
+batched into one path per colour and alpha, and leaves sit close to their page. Every component of ≤ 30 nodes other than the largest — isolates, pairs, triples — is packed in a
 halo round the whole body (2026-10-15: a loose scatter, below; it replaced #287's annulus of per-type arcs), out
 of the body's charge. A hold on a settled graph moves only the
 dragged page and its neighbours. `graph-settle.test.js` holds this on a synthetic with the live bank's shape

@@ -1076,19 +1076,22 @@ function hubGravityForce(strength) {
 // edge: the "two small nodes far away".
 //
 // What the layout does now, and where each idea comes from:
-//   - The simulation gets ONE link per connected pair (`buildSimLinks`); parallel links between a pair still all
-//     draw. Its strength is d3's own default, 1 / min(neighbours of either end) — stable by construction, and what
-//     keeps a 2,000-link page from pulling everything into one blob (ForceAtlas2's "dissuade hubs" in d3's terms).
-//   - Charge grows with a page's neighbours, -CHARGE_K * sqrt(n + 1) (ForceAtlas2's degree-weighted repulsion): a
-//     hub clears room for its leaves, and a leaf, which pushes little, sits close to its page.
+//   - The simulation gets ONE link per connected pair (`buildSimLinks`), and draw() strokes one hairline per pair and
+//     colour (`drawLinks`, 2026-10-15): parallel claims between a pair no longer stack. Its strength is d3's own
+//     default, 1 / min(neighbours of either end), weakened by sqrt(DISSUADE_FROM / n) on a link to a page with more
+//     than DISSUADE_FROM (50) neighbours, never on a leaf's link (ForceAtlas2's "dissuade hubs"; see `linkStrength`).
+//     Never stronger than d3's default, so stable by construction.
+//   - Every body page has the same charge, BODY_CHARGE (2026-10-15, Obsidian's single repel force). A charge that grew
+//     with a page's neighbours carved holes round heavy pages and lined the rest into chains (see `chargeStrength`).
+//     A page with more than DISSUADE_FROM neighbours is seeded in the middle and pulled there (`anchorStrength`).
 //   - A link's rest length is the two discs plus a gap, shorter for a leaf, so a star reads as a star.
 //   - Components: the largest, and any bigger than SATELLITE_MAX, are BODIES and repel each other. Every smaller
 //     component — an isolate, a pair, a triple — is a SATELLITE: the bodies' charge neither reaches it nor counts
-//     it, and it is held by an alpha-scaled spring to a slot in a ring just outside the bodies' edge — an annulus that
-//     wraps the whole body, as thick as their number needs, each type an arc sized by its count so the ring reads by
-//     colour, and the whole layout reads as one circle (Obsidian rings its orphans around the main cluster the same way;
-//     cytoscape's fcose/cola pack disconnected components beside the main one rather than simulating them against
-//     it). The band follows the body's edge as the layout breathes, so nothing is ever parked in a corner.
+//     it, and it is held by an alpha-scaled spring to its place in a loose HALO round the body (2026-10-15; it
+//     replaced #287's annulus of per-type arcs). Each unit's angle and depth are hashed from its own id, so the scatter
+//     is irregular and stable across pushes, and the halo follows the body's own edge as the layout breathes (see
+//     `layoutBand`). Obsidian leaves its orphans round the main cluster the same way; cytoscape's fcose/cola pack
+//     disconnected components beside the main one rather than simulating them against it.
 const SATELLITE_MAX = 30;            // a component this size or smaller (and not the largest) is packed in the band
 const LINK_GAP = 24;                 // wu between two linked discs
 const LEAF_LINK_GAP = 8;             // ... when one end has a single neighbour
@@ -1940,8 +1943,9 @@ function draw() {
 }
 
 // Render the labels for whichever small set is in scope: the focus-mode
-// neighborhood, or (on hover) the hovered node's direct neighbors. There are
-// no ambient labels — scope is always small here, so the work is to rank by
+// neighborhood, or (on hover) the hovered node's direct neighbors. While
+// neither is active, names fade in with zoom instead (`drawAmbientLabels`,
+// 2026-10-15). Scope is always small here, so the work is to rank by
 // importance and greedily cull screen-space collisions so nothing overlaps.
 // The hovered node itself gets its prominent plate from drawHoverLabel; this
 // pass labels everything ELSE in scope.
