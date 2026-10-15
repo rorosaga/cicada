@@ -418,8 +418,12 @@ window of a bubble's size (280–420 × 100–480), under the toolbar (56–170 
 edge within 320 pt of the window's right edge and its left edge in the window's right part, on a browser window at
 least 700 pt wide, within 1 s of the person's input. Chromium's other bubbles there share the bubble width: the
 password and translate bubbles open on their own (no input), permission prompts and suggestions sit elsewhere, and the
-extensions/profile/downloads menus are learned away — a size that came with no bookmark is refused, and once one came
-with a bookmark only that size counts (`BubbleMemory`, `cicada.saveWhy.bubble.<bundle id>`, sizes only). The center
+extensions/profile/downloads menus are learned away — a size that came with no bookmark `refuseAfter` (3) times, and
+never with one, is refused (one miss never is: Chrome's "Edit bookmark" bubble on a page already bookmarked, or Remove
+pressed in the bubble, brings no new bookmark from the real bubble), and once one came with a bookmark only that size
+counts (`BubbleMemory`, `cicada.saveWhy.bubble.<bundle id>`, sizes and miss counts only). A bookmark is recorded for
+the bubble as soon as the app's diff (or the look) sees one new bookmark on that browser, whatever the ask-or-skip
+decision — a muted site never teaches a miss. The center
 (`SaveWhyCenter.bubbleSeen`) opens the panel at once, **pending**: "Saving in Chrome…", the toggles and field live,
 "Don't ask for this site" held in place but hidden. *The link before the backend answers.* Each read of a bookmark
 file is parsed and diffed in the app too (`BookmarkFileDiff`, beside the early look: `BookmarkSyncSignal.diffAndLook`):
@@ -460,12 +464,17 @@ path). A row opens the app on that bookmark's page: the Feed's detail (`AppRoute
 the window opened if closed) — the saved item's established landing (R-DL16), a Store domain in memory, showing the
 link itself; the entity page is one click on. There `BookmarkReasonsSection` lists every answer newest first ("Saved
 again 15 Oct, 12:00 · said …"), each editable with the same toggles and words (`SavedWhyWrite` → `PUT /sources/saved-why`,
-or `POST` for a first answer; painted at once, rolled back on a refusal), and **Remove bookmark…**: asked first in words;
-when Chrome's file holds the link the app deletes each node through Apple Events (`ChromeBookmarkScript`: `delete
-bookmark item id N of bookmark folder id F of bookmarks bar` per node, ids digits only; `osascript` as Cicada's child,
-so the one-time "Cicada wants to control Google Chrome" comes only now; Mobile bookmarks cannot be reached and are
-named), then `BookmarkRemove` → `POST /sources/bookmarks/remove`. A refused Automation or a failure still removes it
-in Cicada and says how to finish in Chrome. Safari offers no way for another app to edit its bookmarks: the section
+or `POST` for a first answer; painted at once, rolled back on a refusal), and **Remove bookmark…**: asked first in words.
+Cicada forgets it first (`BookmarkRemove` → `POST /sources/bookmarks/remove`; a refusal such as a 409 while Sleep writes
+leaves Chrome untouched — `BookmarkRemoveFlow`), and only then is Chrome changed. Only the copy this save made is
+targeted: the node in Chrome's default-profile file whose `date_added` matches the record's `lastSavedAt`
+(`ChromeRemovalPlan`); with several copies of the link the confirmation says so and offers "Remove the copy saved …" or
+"Remove all N copies". The script (`ChromeBookmarkScript`, `osascript` as Cicada's child, so the one-time "Cicada
+wants to control Google Chrome" comes only now) addresses each node by id and folder chain (digits only) but deletes it
+only `if URL of b is targetURL` — Chrome's Apple Events act on the last-used profile, where the same id can be another
+bookmark — with the URL passed as `on run argv`'s argument, never in the source, and returns how many it really
+deleted (0: "the Chrome profile that's open doesn't hold this bookmark"). Mobile bookmarks cannot be reached and are
+named. A refused Automation or a failure leaves it removed in Cicada and says how to finish in Chrome. Safari offers no way for another app to edit its bookmarks: the section
 says so and offers **Open Safari** (Bookmarks › Edit Bookmarks).
 
 **Agent wiring (Track I T3/T7).** `GET /agents/wiring` is read-only: per harness it reports

@@ -115,6 +115,8 @@ enum ChromeBookmarkRemoval {
         case removed(Int)
         /// Chrome holds no copy (or its file could not be read).
         case notInChrome
+        /// The script ran and deleted nothing: the profile Chrome has open does not hold that bookmark.
+        case noneMatched
         /// Only under Mobile bookmarks, which Apple Events cannot reach.
         case unreachable
         /// The person (or macOS) refused Automation.
@@ -122,32 +124,35 @@ enum ChromeBookmarkRemoval {
         case failed(String)
     }
 
-    /// Whether Chrome's file holds `url` (to word the confirmation).
-    static func holds(_ url: String) async -> Bool {
-        guard let data = try? await BrowserFileReader.read(.chromeBookmarks) else { return false }
+    /// What Remove would do in Chrome, read from Chrome's default-profile file (no permission): nil when Chrome holds
+    /// no copy of `url` there.
+    static func plan(url: String, lastSavedAt: String?) async -> ChromeRemovalPlan? {
+        guard let data = try? await BrowserFileReader.read(.chromeBookmarks) else { return nil }
         let entries = await Task.detached { BookmarkFileParse.chromium(data) }.value
-        return entries.contains { $0.url == url }
+        let plan = ChromeRemovalPlan.make(url: url, lastSavedAt: lastSavedAt, entries: entries)
+        return plan.copies.isEmpty && plan.unreachable == 0 ? nil : plan
     }
 
-    static func remove(_ url: String,
-                       run: (String) async -> ChildProcess.Output = { script in
-                           await ChildProcess.run(URL(fileURLWithPath: "/usr/bin/osascript"), arguments: ["-e", script],
-                                                  timeout: 30)
+    /// Delete `nodes` (the plan's target, or every copy when the person asked) — each only if Chrome's node still holds
+    /// `url`. The URL rides as the script's argument, never in its source.
+    static func remove(_ url: String, nodes: [BookmarkEntry], unreachable: Int = 0,
+                       run: (String, String) async -> ChildProcess.Output = { script, url in
+                           await ChildProcess.run(URL(fileURLWithPath: "/usr/bin/osascript"),
+                                                  arguments: ["-e", script, url], timeout: 30)
                        }) async -> Outcome {
-        guard let data = try? await BrowserFileReader.read(.chromeBookmarks) else { return .notInChrome }
-        let entries = await Task.detached { BookmarkFileParse.chromium(data) }.value
-        let nodes = ChromeBookmarkScript.nodes(for: url, in: entries)
-        if nodes.isEmpty {
-            return ChromeBookmarkScript.unreachable(for: url, in: entries) > 0 ? .unreachable : .notInChrome
-        }
+        if nodes.isEmpty { return unreachable > 0 ? .unreachable : .notInChrome }
         guard let script = ChromeBookmarkScript.delete(nodes) else { return .failed("no bookmark to address") }
-        return outcome(await run(script), count: nodes.count)
+        return outcome(await run(script, url))
     }
 
-    /// osascript's answer: -1743 is "not authorised to send Apple events".
-    static func outcome(_ output: ChildProcess.Output, count: Int) -> Outcome {
-        if output.status == 0 && !output.timedOut { return .removed(count) }
-        if output.stderr.contains("-1743") || output.stderr.localizedCaseInsensitiveContains("not authorized") {
+    /// osascript's answer: the number the script really deleted on stdout; -1743 is "not authorised".
+    static func outcome(_ output: ChildProcess.Output) -> Outcome {
+        if output.status == 0 && !output.timedOut {
+            let deleted = Int(output.stdout.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
+            return deleted > 0 ? .removed(deleted) : .noneMatched
+        }
+        if output.stderr.contains("-1743") || output.stderr.contains("-1744")
+            || output.stderr.localizedCaseInsensitiveContains("not authorized") {
             return .denied
         }
         if output.timedOut { return .failed("Chrome did not answer") }
@@ -160,6 +165,7 @@ enum ChromeBookmarkRemoval {
         switch outcome {
         case .removed(let n): return Copy.Bookmarks.removedFromChrome(n)
         case .notInChrome: return Copy.Bookmarks.removed
+        case .noneMatched: return Copy.Bookmarks.chromeNoneMatched
         case .unreachable: return Copy.Bookmarks.chromeMobileOnly
         case .denied: return Copy.Bookmarks.chromeDenied
         case .failed(let why): return Copy.Bookmarks.chromeFailed(why)

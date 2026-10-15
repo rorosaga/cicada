@@ -123,6 +123,12 @@ extension Copy {
         static func removedFromChrome(_ n: Int) -> String { n == 1 ? "Removed, in Cicada and in Chrome." : "Removed, in Cicada and \(n) times in Chrome." }
         static let chromeDenied = "Removed in Cicada. Chrome still has it: allow Cicada under Privacy & Security → Automation → Google Chrome, then remove it there."
         static func chromeFailed(_ why: String) -> String { "Removed in Cicada. Chrome still has it (\(why))." }
+        static let chromeNoneMatched = "Removed in Cicada. The Chrome profile that’s open doesn’t hold this bookmark, so nothing changed in Chrome."
+        static func chromeCopies(_ n: Int) -> String {
+            "Chrome has \(UsageFormat.count(n)) copies of this link. Cicada forgets it; in Chrome, remove only the copy from this save, or all of them?"
+        }
+        static func removeOneCopy(_ day: String?) -> String { day.map { "Remove the copy saved \($0)" } ?? "Remove the newest copy" }
+        static func removeAllCopies(_ n: Int) -> String { "Remove all \(UsageFormat.count(n)) copies" }
         static let chromeMobileOnly = "Removed in Cicada. Chrome keeps it under Mobile bookmarks, which other apps can’t change."
         static let removeFailed = "The bookmark wasn't removed."
     }

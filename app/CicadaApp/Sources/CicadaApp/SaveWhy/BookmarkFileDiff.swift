@@ -151,10 +151,18 @@ final class BookmarkFileDiff {
     }
 }
 
-/// G191 v3 — removing a bookmark from Chrome on the person's click. Chrome is scriptable (`delete bookmark item id …`,
-/// verified by the coordinator), so the app finds the bookmark's nodes in the `Bookmarks` file it already reads and
-/// addresses each by its folder chain; the backend never touches the browser. Safari offers no such dictionary for
-/// its bookmarks — another app cannot safely edit them — so the app says so and opens Safari instead.
+/// G191 v3 — removing a bookmark from Chrome on the person's click. Chrome is scriptable (`delete bookmark item id …`),
+/// so the app finds the bookmark's nodes in the `Bookmarks` file it already reads and addresses each by its folder
+/// chain; the backend never touches the browser. Safari offers no such dictionary for its bookmarks — another app
+/// cannot safely edit them — so the app says so and opens Safari instead.
+///
+/// **Review 2026-10-15 — never the wrong bookmark.** The app reads the default profile's file, but Chrome's Apple Events
+/// act on the profile last used, and node ids are per profile: an id from the file can name an unrelated bookmark
+/// there. So the script checks each node's URL before deleting it (`if URL of b is targetURL then delete b`), the URL
+/// reaches the script as an argument (`on run argv`), never pasted into its source, and the script returns how many it
+/// really deleted. And only the bookmark this save made is targeted — the node whose `date_added` matches the
+/// record's `lastSavedAt` — while other copies of the same link are named in the confirmation and removed only when
+/// the person asks for all of them (`ChromeRemovalPlan`).
 enum ChromeBookmarkScript {
     /// Every node holding `url`, in the roots Apple Events can reach (the bookmarks bar and other bookmarks; the
     /// mobile folder is not scriptable).
@@ -175,21 +183,69 @@ enum ChromeBookmarkScript {
         }
     }
 
-    /// The AppleScript that deletes `nodes` from Chrome (`bundleId`), deepest-first order irrelevant (items only).
-    /// Ids are digits only — anything else is dropped, so nothing from the file can reach the script as code.
+    /// The AppleScript that deletes `nodes` from Chrome (`bundleId`) — each only if its URL is the one passed as the
+    /// script's first argument — and returns the number deleted. Ids are digits only (anything else is dropped), and
+    /// the URL is never part of the source. A refused Automation (-1743/-1744) stops the script with that error; any
+    /// other per-node error (the node is gone, another profile) skips that node.
     static func delete(_ nodes: [BookmarkEntry], bundleId: String = "com.google.Chrome") -> String? {
-        let lines: [String] = nodes.compactMap { node in
+        let blocks: [String] = nodes.compactMap { node in
             guard let id = node.nodeId, isDigits(id), let root = rootSpecifier(node.root),
                   node.folderIds.allSatisfy(isDigits) else { return nil }
             let chain = node.folderIds.reversed().map { "bookmark folder id \($0)" } + [root]
-            return "    delete bookmark item id \(id) of " + chain.joined(separator: " of ")
+            return """
+                    try
+                        set b to bookmark item id \(id) of \(chain.joined(separator: " of "))
+                        if (URL of b) is targetURL then
+                            delete b
+                            set removed to removed + 1
+                        end if
+                    on error message number code
+                        if code is -1743 or code is -1744 then error message number code
+                    end try
+            """
         }
-        guard !lines.isEmpty, isBundleId(bundleId) else { return nil }
-        return "tell application id \"\(bundleId)\"\n" + lines.joined(separator: "\n") + "\nend tell"
+        guard !blocks.isEmpty, isBundleId(bundleId) else { return nil }
+        return """
+        on run argv
+            set targetURL to item 1 of argv
+            set removed to 0
+            tell application id "\(bundleId)"
+        \(blocks.joined(separator: "\n"))
+            end tell
+            return removed
+        end run
+        """
     }
 
     private static func isDigits(_ s: String) -> Bool { !s.isEmpty && s.allSatisfy { $0.isASCII && $0.isNumber } }
     private static func isBundleId(_ s: String) -> Bool {
         !s.isEmpty && s.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "." || $0 == "-") }
+    }
+}
+
+/// What Remove would do in Chrome: the copies of the link Chrome holds (that a script can reach), and the one this
+/// save made — the node whose `date_added` is the record's `lastSavedAt` (within a second), else the only copy, else
+/// the newest.
+struct ChromeRemovalPlan: Equatable {
+    let copies: [BookmarkEntry]
+    let target: BookmarkEntry?
+    /// Copies under Mobile bookmarks, which no script reaches.
+    let unreachable: Int
+
+    var hasSeveral: Bool { copies.count > 1 }
+
+    static func make(url: String, lastSavedAt: String?, entries: [BookmarkEntry]) -> ChromeRemovalPlan {
+        let copies = ChromeBookmarkScript.nodes(for: url, in: entries)
+        let saved = lastSavedAt.flatMap { ISO8601DateFormatter().date(from: $0) }
+        let matched = saved.flatMap { when in
+            copies.first { entry in
+                entry.addedAt.flatMap { ISO8601DateFormatter().date(from: $0) }
+                    .map { abs($0.timeIntervalSince(when)) <= 1 } ?? false
+            }
+        }
+        let target = matched ?? (copies.count == 1 ? copies.first
+                                                   : copies.max { ($0.addedMicros ?? 0) < ($1.addedMicros ?? 0) })
+        return ChromeRemovalPlan(copies: copies, target: target,
+                                 unreachable: ChromeBookmarkScript.unreachable(for: url, in: entries))
     }
 }

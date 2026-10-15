@@ -23,7 +23,8 @@ struct BookmarkReasonsSection: View {
     @State private var words = ""
     @State private var options = BookmarkReasonsSection.cachedOptions
     @State private var confirmingRemove = false
-    @State private var chromeHolds = false
+    /// What Remove would do in Chrome (nil: Chrome holds no copy), read when the person asks.
+    @State private var chromePlan: ChromeRemovalPlan?
     @State private var removing = false
 
     /// The options, fetched once per launch (the panel's own list).
@@ -51,7 +52,7 @@ struct BookmarkReasonsSection: View {
                 Spacer()
                 TextButton(title: Copy.Bookmarks.remove, help: Copy.Bookmarks.removeTitle) {
                     Task {
-                        chromeHolds = await ChromeBookmarkRemoval.holds(item.url)
+                        chromePlan = await ChromeBookmarkRemoval.plan(url: item.url, lastSavedAt: item.lastSavedAt)
                         confirmingRemove = true
                     }
                 }
@@ -77,12 +78,21 @@ struct BookmarkReasonsSection: View {
         }
         .onChange(of: item.savedWhyAnswers) { _, fresh in if editing == nil { answers = fresh } }
         .confirmationDialog(Copy.Bookmarks.removeTitle, isPresented: $confirmingRemove) {
-            Button(Copy.Bookmarks.removeConfirm, role: .destructive) { Task { await remove() } }
+            if let plan = chromePlan, plan.hasSeveral {
+                // Several copies of the link in Chrome: only this save's copy unless the person asks for all.
+                Button(Copy.Bookmarks.removeOneCopy(plan.target?.addedAt.flatMap(Copy.Bookmarks.day)),
+                       role: .destructive) { Task { await remove(chrome: plan.target.map { [$0] } ?? []) } }
+                Button(Copy.Bookmarks.removeAllCopies(plan.copies.count), role: .destructive) {
+                    Task { await remove(chrome: plan.copies) }
+                }
+            } else {
+                Button(Copy.Bookmarks.removeConfirm, role: .destructive) {
+                    Task { await remove(chrome: chromePlan?.target.map { [$0] } ?? []) }
+                }
+            }
             Button(Copy.Bookmarks.cancel, role: .cancel) {}
         } message: {
-            Text(chromeHolds ? Copy.Bookmarks.removeFromChrome
-                             : (fromSafari ? Copy.Bookmarks.removeCicadaOnly + " " + Copy.Bookmarks.safariNote
-                                           : Copy.Bookmarks.removeCicadaOnly))
+            Text(BookmarkRemoveFlow.confirmation(plan: chromePlan, fromSafari: fromSafari))
         }
     }
 
@@ -178,13 +188,18 @@ struct BookmarkReasonsSection: View {
         if await store.perform(write) { store.flash(Copy.Bookmarks.saved) }
     }
 
-    private func remove() async {
+    private func remove(chrome nodes: [BookmarkEntry]) async {
         removing = true
         defer { removing = false }
-        let chrome: ChromeBookmarkRemoval.Outcome = chromeHolds ? await ChromeBookmarkRemoval.remove(item.url)
-                                                                : .notInChrome
-        guard await store.perform(BookmarkRemove(url: item.url)) else { return }
-        store.toast = ChromeBookmarkRemoval.message(chrome)
+        let url = item.url
+        let unreachable = chromePlan?.unreachable ?? 0
+        let message = await BookmarkRemoveFlow.run(
+            forget: { await store.perform(BookmarkRemove(url: url)) },
+            chrome: chromePlan == nil ? nil : {
+                await ChromeBookmarkRemoval.remove(url, nodes: nodes, unreachable: unreachable)
+            })
+        guard let message else { return }   // the backend refused: Chrome untouched, the store toasted why
+        store.toast = message
         onRemoved()
     }
 
@@ -195,5 +210,25 @@ struct BookmarkReasonsSection: View {
     private func openSafari() {
         guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Safari") else { return }
         NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
+    }
+}
+
+/// Review 2026-10-15 — the order of Remove: Cicada forgets the bookmark first (the backend may refuse, e.g. 409 while
+/// Sleep writes), and Chrome is touched only once that succeeded. Returns the line to show, or nil when the backend
+/// refused (and Chrome was never asked).
+enum BookmarkRemoveFlow {
+    @MainActor
+    static func run(forget: () async -> Bool,
+                    chrome: (() async -> ChromeBookmarkRemoval.Outcome)?) async -> String? {
+        guard await forget() else { return nil }
+        guard let chrome else { return Copy.Bookmarks.removed }
+        return ChromeBookmarkRemoval.message(await chrome())
+    }
+
+    static func confirmation(plan: ChromeRemovalPlan?, fromSafari: Bool) -> String {
+        if let plan, plan.hasSeveral { return Copy.Bookmarks.chromeCopies(plan.copies.count) }
+        if let plan, !plan.copies.isEmpty || plan.unreachable > 0 { return Copy.Bookmarks.removeFromChrome }
+        return fromSafari ? Copy.Bookmarks.removeCicadaOnly + " " + Copy.Bookmarks.safariNote
+                          : Copy.Bookmarks.removeCicadaOnly
     }
 }

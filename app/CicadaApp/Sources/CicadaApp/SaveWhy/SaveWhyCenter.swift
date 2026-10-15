@@ -258,12 +258,14 @@ final class SaveWhyCenter {
     /// the same save); the backend's decision confirms it.
     func candidate(_ item: FreshBookmark) {
         guard prefs.enabled else { return }
+        // Review 2026-10-15: a single new bookmark on the bubble's browser proves the bubble was a bookmark's, whatever
+        // the policy then decides (a muted site, a repeat) — recorded now, so a skip can never teach it a miss.
+        sawBookmark(on: item.channel)
         var result = BookmarkSyncResult(new: 0, skipped: 0, sources: [])
         result.fresh = [item]
         result.freshTotal = 1
         guard case .ask = decide(result, live: true, ours: unconfirmedOn(item.channel)) else { return }
         marks["named"] = uptime()
-        if bubble?.channel == item.channel { bubbleBookmarked = true }
         if isShowing, !confirmed, state?.channel == item.channel {
             state?.bind(item)
             armBound(SaveWhyPolicy.confirmBound)
@@ -322,6 +324,13 @@ final class SaveWhyCenter {
         teachBubble(bookmarked: bubbleBookmarked)
     }
 
+    /// One new bookmark arrived on `channel`: the open bubble (if it is that browser's) was the bookmark bubble.
+    private func sawBookmark(on channel: String) {
+        guard bubble?.channel == channel else { return }
+        bubbleBookmarked = true
+        teachBubble(bookmarked: true)
+    }
+
     private func teachBubble(bookmarked: Bool) {
         guard let bubble else { return }
         self.bubble = nil
@@ -357,6 +366,9 @@ final class SaveWhyCenter {
         let ours = channels.contains { unconfirmedOn($0) }
         let decision = decide(result, live: live, ours: ours)
         lastDecision = decision
+        if live, max(result.freshTotal, result.fresh.count) == 1, let one = result.fresh.first {
+            sawBookmark(on: one.channel)   // whatever the decision below
+        }
         guard case .ask(let item) = decision else {
             if live, ours, case .skip(let reason) = decision, Self.withdraws(reason) { withdraw() }
             return

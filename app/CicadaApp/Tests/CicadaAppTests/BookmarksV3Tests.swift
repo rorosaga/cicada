@@ -74,24 +74,46 @@ final class BookmarksV3Tests: XCTestCase {
         XCTAssertNil(d.observe([narrow, bubble], inputAge: 0.05))
     }
 
-    /// The extensions or profile menu opened by a click looks like a bubble once; it comes with no bookmark and is
-    /// never shown again — and once a bookmark taught the bubble's size, only that size counts.
+    /// The extensions or profile menu opened by a click looks like a bubble; once it has come with no bookmark
+    /// `refuseAfter` times it is not shown again — and once a bookmark taught the bubble's size, only that size counts.
     func testTheDetectorLearnsTheBubblesSizeAndForgetsTheOthers() {
         let extensions = ListedWindow(number: 40, pid: 501, layer: 0,
                                       bounds: CGRect(x: 1110, y: 37 + 80, width: 320, height: 268))
         var d = BookmarkBubbleDetector()
         d.baseline([browser])
-        XCTAssertEqual(d.observe([browser, extensions], inputAge: 0.1), extensions, "unknown at first")
-        d.refuse(BubbleSize(extensions.bounds))
-        let again = ListedWindow(number: 41, pid: 501, layer: 0, bounds: extensions.bounds)
-        XCTAssertNil(d.observe([browser, again], inputAge: 0.1), "refused for good")
+        var n = 40
+        for miss in 1...BookmarkBubblePolicy.refuseAfter {
+            n += 1
+            let window = ListedWindow(number: n, pid: 501, layer: 0, bounds: extensions.bounds)
+            XCTAssertEqual(d.observe([browser, window], inputAge: 0.1), window, "still shown after \(miss - 1) misses")
+            d.missed(BubbleSize(extensions.bounds))
+        }
+        let again = ListedWindow(number: 60, pid: 501, layer: 0, bounds: extensions.bounds)
+        XCTAssertNil(d.observe([browser, again], inputAge: 0.1), "refused after \(BookmarkBubblePolicy.refuseAfter) misses")
         XCTAssertEqual(d.observe([browser, bookmarkBubble(42)], inputAge: 0.1), bookmarkBubble(42))
         d.confirm(BubbleSize(bookmarkBubble().bounds))
         let profile = ListedWindow(number: 43, pid: 501, layer: 0, bounds: CGRect(x: 1150, y: 37 + 80, width: 320, height: 420))
         XCTAssertNil(d.observe([browser, profile], inputAge: 0.1), "once learned, only the bookmark bubble's size counts")
         XCTAssertEqual(d.observe([browser, bookmarkBubble(44)], inputAge: 0.1), bookmarkBubble(44))
-        d.refuse(BubbleSize(bookmarkBubble().bounds))
+        for _ in 0..<5 { d.missed(BubbleSize(bookmarkBubble().bounds)) }
         XCTAssertEqual(d.learned, [BubbleSize(width: 336, height: 214)], "a learned size is never refused")
+        XCTAssertEqual(d.observe([browser, bookmarkBubble(45)], inputAge: 0.1), bookmarkBubble(45))
+    }
+
+    /// Review 2026-10-15: one missed bubble — Chrome's "Edit bookmark" bubble on a page already bookmarked, Remove
+    /// pressed in the bubble — must not switch the instant panel off. Misses below `refuseAfter` keep the size, and a
+    /// bookmark at that size clears them.
+    func testAFewMissesNeverRefuseTheRealBubble() {
+        var d = BookmarkBubbleDetector()
+        d.baseline([browser])
+        let size = BubbleSize(bookmarkBubble().bounds)
+        for _ in 1..<BookmarkBubblePolicy.refuseAfter { d.missed(size) }
+        XCTAssertTrue(d.refused.isEmpty)
+        XCTAssertEqual(d.observe([browser, bookmarkBubble(70)], inputAge: 0.1), bookmarkBubble(70))
+        d.confirm(size)
+        XCTAssertTrue(d.misses.isEmpty, "a bookmark at that size clears its misses")
+        for _ in 1...BookmarkBubblePolicy.refuseAfter { d.missed(size) }
+        XCTAssertTrue(d.refused.isEmpty, "never refused once a bookmark was seen at that size")
     }
 
     @MainActor
@@ -99,10 +121,14 @@ final class BookmarksV3Tests: XCTestCase {
         let defaults = UserDefaults(suiteName: "BookmarksV3Tests.\(UUID().uuidString)")!
         let watcher = BookmarkBubbleWatcherHarness.make(defaults: defaults)
         watcher.feedback(channel: "chrome-bookmarks", size: BubbleSize(width: 336, height: 214), bookmarked: true)
-        watcher.feedback(channel: "chrome-bookmarks", size: BubbleSize(width: 320, height: 268), bookmarked: false)
+        for _ in 1...BookmarkBubblePolicy.refuseAfter {
+            watcher.feedback(channel: "chrome-bookmarks", size: BubbleSize(width: 320, height: 268), bookmarked: false)
+        }
+        watcher.feedback(channel: "chrome-bookmarks", size: BubbleSize(width: 360, height: 300), bookmarked: false)
         let memory = BubbleMemory.load("com.google.Chrome", defaults: defaults)
         XCTAssertEqual(memory.learned, [BubbleSize(width: 336, height: 214)])
         XCTAssertEqual(memory.refused, [BubbleSize(width: 320, height: 268)])
+        XCTAssertEqual(memory.misses, [BubbleMiss(size: BubbleSize(width: 360, height: 300), count: 1)])
     }
 
     // MARK: - The app's own diff: re-save versus move
@@ -250,7 +276,7 @@ final class BookmarksV3Tests: XCTestCase {
 
     // MARK: - Removing from Chrome
 
-    func testTheChromeScriptAddressesEachNodeByItsFolderChainAndNothingElse() {
+    func testTheChromeScriptChecksEachNodesURLAndCountsOnlyRealDeletes() throws {
         let a = (id: "11", url: "https://alpha.example/a", at: old)
         let inFolder = (id: "61", url: "https://alpha.example/a", at: old)
         let onPhone = (id: "71", url: "https://alpha.example/a", at: old)
@@ -258,27 +284,87 @@ final class BookmarksV3Tests: XCTestCase {
         let nodes = ChromeBookmarkScript.nodes(for: a.url, in: entries)
         XCTAssertEqual(nodes.map(\.nodeId), ["11", "61"])
         XCTAssertEqual(ChromeBookmarkScript.unreachable(for: a.url, in: entries), 1, "Mobile bookmarks are not scriptable")
-        XCTAssertEqual(ChromeBookmarkScript.delete(nodes), """
-            tell application id "com.google.Chrome"
-                delete bookmark item id 11 of bookmarks bar
-                delete bookmark item id 61 of bookmark folder id 50 of bookmarks bar
-            end tell
-            """)
+        let script = try XCTUnwrap(ChromeBookmarkScript.delete(nodes))
+        XCTAssertTrue(script.hasPrefix("on run argv\n    set targetURL to item 1 of argv"))
+        XCTAssertTrue(script.contains("set b to bookmark item id 11 of bookmarks bar"))
+        XCTAssertTrue(script.contains("set b to bookmark item id 61 of bookmark folder id 50 of bookmarks bar"))
+        XCTAssertEqual(script.components(separatedBy: "if (URL of b) is targetURL then").count - 1, 2,
+                       "each delete only after its URL is checked — ids are per Chrome profile")
+        XCTAssertFalse(script.contains("alpha.example"), "the URL is an argument, never part of the source")
+        XCTAssertTrue(script.contains("return removed"))
+        XCTAssertTrue(script.contains("if code is -1743 or code is -1744 then error message number code"),
+                      "a refused Automation is not swallowed")
         // Nothing from the file reaches the script as code: an id that is not digits is dropped.
         let hostile = BookmarkEntry(url: a.url, title: "x", nodeId: "1 \" & do shell script \"x", root: "bookmark_bar")
         XCTAssertNil(ChromeBookmarkScript.delete([hostile]))
         XCTAssertNil(ChromeBookmarkScript.delete([BookmarkEntry(url: a.url, title: "", nodeId: "5", root: "synced")]))
     }
 
+    /// Only this save's copy is targeted: the node whose `date_added` is the record's `lastSavedAt`; with several
+    /// copies the confirmation says so and asks.
+    func testRemoveTargetsTheCopyThisSaveMadeAndAsksAboutTheOthers() {
+        let url = "https://alpha.example/a"
+        let first = (id: "11", url: url, at: old)
+        let second = (id: "61", url: url, at: now)
+        let other = (id: "12", url: "https://beta.example/b", at: old)
+        let entries = BookmarkFileParse.chromium(chrome([first, other], folder: [second]))
+        let byFirst = ChromeRemovalPlan.make(url: url, lastSavedAt: ISO8601DateFormatter().string(from: old),
+                                             entries: entries)
+        XCTAssertEqual(byFirst.target?.nodeId, "11", "the copy whose date_added is this save's")
+        XCTAssertTrue(byFirst.hasSeveral)
+        XCTAssertEqual(byFirst.copies.map(\.nodeId), ["11", "61"])
+        XCTAssertEqual(BookmarkRemoveFlow.confirmation(plan: byFirst, fromSafari: false), Copy.Bookmarks.chromeCopies(2))
+        let unknown = ChromeRemovalPlan.make(url: url, lastSavedAt: nil, entries: entries)
+        XCTAssertEqual(unknown.target?.nodeId, "61", "no instant on record: the newest copy")
+        let single = ChromeRemovalPlan.make(url: "https://beta.example/b", lastSavedAt: nil, entries: entries)
+        XCTAssertEqual(single.target?.nodeId, "12")
+        XCTAssertFalse(single.hasSeveral)
+        XCTAssertEqual(BookmarkRemoveFlow.confirmation(plan: single, fromSafari: false), Copy.Bookmarks.removeFromChrome)
+        XCTAssertEqual(BookmarkRemoveFlow.confirmation(plan: nil, fromSafari: false), Copy.Bookmarks.removeCicadaOnly)
+    }
+
+    @MainActor
+    func testRemoveRunsTheScriptWithTheURLAsItsArgument() async {
+        let url = "https://alpha.example/a"
+        let entries = BookmarkFileParse.chromium(chrome([(id: "11", url: url, at: old)]))
+        var ran: [(String, String)] = []
+        let outcome = await ChromeBookmarkRemoval.remove(url, nodes: ChromeBookmarkScript.nodes(for: url, in: entries)) {
+            ran.append(($0, $1))
+            return ChildProcess.Output(status: 0, stdout: "0\n", stderr: "")
+        }
+        XCTAssertEqual(ran.map(\.1), [url])
+        XCTAssertEqual(outcome, .noneMatched, "another profile: nothing deleted, and it says so")
+    }
+
     func testOsascriptsAnswerSaysWhatHappened() {
-        let ok = ChildProcess.Output(status: 0, stdout: "", stderr: "")
-        XCTAssertEqual(ChromeBookmarkRemoval.outcome(ok, count: 2), .removed(2))
+        XCTAssertEqual(ChromeBookmarkRemoval.outcome(ChildProcess.Output(status: 0, stdout: "1\n", stderr: "")),
+                       .removed(1), "only the deletes the script really made")
+        XCTAssertEqual(ChromeBookmarkRemoval.outcome(ChildProcess.Output(status: 0, stdout: "0\n", stderr: "")),
+                       .noneMatched)
         let denied = ChildProcess.Output(status: 1, stdout: "",
                                          stderr: "execution error: Not authorized to send Apple events to Google Chrome. (-1743)")
-        XCTAssertEqual(ChromeBookmarkRemoval.outcome(denied, count: 1), .denied)
+        XCTAssertEqual(ChromeBookmarkRemoval.outcome(denied), .denied)
         let slow = ChildProcess.Output(status: 15, stdout: "", stderr: "", timedOut: true)
-        XCTAssertEqual(ChromeBookmarkRemoval.outcome(slow, count: 1), .failed("Chrome did not answer"))
+        XCTAssertEqual(ChromeBookmarkRemoval.outcome(slow), .failed("Chrome did not answer"))
         XCTAssertEqual(ChromeBookmarkRemoval.message(.denied), Copy.Bookmarks.chromeDenied)
+        XCTAssertEqual(ChromeBookmarkRemoval.message(.noneMatched), Copy.Bookmarks.chromeNoneMatched)
+    }
+
+    /// Review 2026-10-15: Cicada forgets the bookmark first; Chrome is touched only when the backend agreed.
+    @MainActor
+    func testChromeIsTouchedOnlyAfterTheBackendAgrees() async {
+        var order: [String] = []
+        let refused = await BookmarkRemoveFlow.run(forget: { order.append("forget"); return false },
+                                                   chrome: { order.append("chrome"); return .removed(1) })
+        XCTAssertNil(refused)
+        XCTAssertEqual(order, ["forget"], "a 409 from the backend: Chrome never asked")
+        order = []
+        let done = await BookmarkRemoveFlow.run(forget: { order.append("forget"); return true },
+                                                chrome: { order.append("chrome"); return .removed(1) })
+        XCTAssertEqual(order, ["forget", "chrome"])
+        XCTAssertEqual(done, Copy.Bookmarks.removedFromChrome(1))
+        let cicadaOnly = await BookmarkRemoveFlow.run(forget: { true }, chrome: nil)
+        XCTAssertEqual(cicadaOnly, Copy.Bookmarks.removed)
     }
 
     // MARK: - The history list
@@ -489,6 +575,33 @@ final class BookmarksV3Tests: XCTestCase {
         XCTAssertTrue(posts.isEmpty, "a tap on a withdrawn panel is never saved against a guess")
         XCTAssertEqual(taught, [false])
         XCTAssertGreaterThan(SaveWhyPolicy.pendingBound, 2.5 + 0.35, "longer than Chrome's own write delay")
+    }
+
+    /// Review 2026-10-15: a bookmark the diff saw counts for the bubble whatever the decision — a muted site, a skip —
+    /// so it can never be taught a miss.
+    @MainActor
+    func testABookmarkSeenTeachesTheBubbleEvenWhenTheQuestionIsSkipped() async {
+        let api = V3FakeAPI(options: options())
+        let (center, _, _) = await center(api, clock: now)
+        center.prefs.mute("alpha.example")
+        var taught: [Bool] = []
+        center.onBubbleFeedback = { _, _, bookmarked in taught.append(bookmarked) }
+        center.bubbleSeen(channel: "chrome-bookmarks", size: BubbleSize(width: 336, height: 214))
+        let muted = FreshBookmark(url: "https://alpha.example/a", channel: "chrome-bookmarks",
+                                  addedAt: ISO8601DateFormatter().string(from: now))
+        center.candidate(muted)
+        XCTAssertEqual(taught, [true], "recorded at once, before the skip")
+        await center.noticed(look([muted]), live: true)
+        XCTAssertEqual(center.lastDecision, .skip(.muted))
+        center.withdraw()
+        XCTAssertEqual(taught, [true], "the withdraw teaches no miss")
+        // The backend's look alone (no diff baseline) records it the same way.
+        var fromLook: [Bool] = []
+        center.onBubbleFeedback = { _, _, bookmarked in fromLook.append(bookmarked) }
+        center.bubbleSeen(channel: "chrome-bookmarks", size: BubbleSize(width: 336, height: 214))
+        await center.noticed(look([FreshBookmark(url: "https://alpha.example/b", channel: "chrome-bookmarks")]),
+                             live: true)
+        XCTAssertEqual(fromLook, [true])
     }
 
     /// The backend refuses the bookmark (a first sync, several at once): the unconfirmed panel withdraws.

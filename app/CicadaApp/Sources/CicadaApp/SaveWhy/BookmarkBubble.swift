@@ -26,7 +26,9 @@ import Foundation
 /// bubbles open on their own after a page loads); (2) the geometry below (permission prompts and the page-info bubble
 /// open at the left of the address bar; the address bar's suggestions are as wide as the bar and start under its top;
 /// a browser window narrower than `minWindowWidth` is never read, because there the two overlap); (3) a size that
-/// once came with no bookmark is never shown again (`refused`); (4) once a size came with a bookmark, only that size
+/// came with no bookmark `refuseAfter` times — and never once with a bookmark — is not shown again (`refused`; one miss is
+/// not enough: Chrome's "Edit bookmark" bubble on a page already bookmarked, or Remove pressed in the bubble, bring no
+/// new bookmark from the real bubble, review 2026-10-15); (4) once a size came with a bookmark, only that size
 /// counts (`learned`) — the bookmark bubble's size is fixed per Chrome version, so the first bookmark teaches it and
 /// from then on the extensions or profile menu, which are other sizes, never trigger. Both lists hold sizes only,
 /// per browser, in this Mac's defaults.
@@ -81,6 +83,8 @@ enum BookmarkBubblePolicy {
     /// How many sizes each list keeps.
     static let learnedCap = 4
     static let refusedCap = 16
+    /// How many times a size must come with no bookmark — and never with one — before it is refused.
+    static let refuseAfter = 3
     /// The watcher's clock: a cheap input check each tick, a window-list scan only after input, at most this often.
     static let tick: Duration = .milliseconds(50)
     static let scanEvery: TimeInterval = 0.1
@@ -109,10 +113,13 @@ struct BookmarkBubbleDetector: Equatable {
     private(set) var known: Set<Int> = []
     var learned: [BubbleSize] = []
     var refused: [BubbleSize] = []
+    /// Sizes that came with no bookmark, with how many times — refused only at `refuseAfter`.
+    var misses: [BubbleMiss] = []
 
-    init(learned: [BubbleSize] = [], refused: [BubbleSize] = []) {
+    init(learned: [BubbleSize] = [], refused: [BubbleSize] = [], misses: [BubbleMiss] = []) {
         self.learned = learned
         self.refused = refused
+        self.misses = misses
     }
 
     /// The windows already on screen when watching starts are never new.
@@ -141,23 +148,38 @@ struct BookmarkBubbleDetector: Equatable {
     /// A bubble of `size` came with a bookmark: from now on only sizes like it count.
     mutating func confirm(_ size: BubbleSize) {
         refused.removeAll { $0.matches(size) }
+        misses.removeAll { $0.size.matches(size) }
         guard !learned.contains(where: { $0.matches(size) }) else { return }
         learned = Array((learned + [size]).suffix(BookmarkBubblePolicy.learnedCap))
     }
 
-    /// A bubble of `size` came with no bookmark: never shown again — unless a bookmark already taught it.
-    mutating func refuse(_ size: BubbleSize) {
+    /// A bubble of `size` came with no bookmark. Counted; refused (never shown again) only once it has missed
+    /// `refuseAfter` times with no bookmark ever seen at that size — a learned size is never refused.
+    mutating func missed(_ size: BubbleSize) {
         guard !learned.contains(where: { $0.matches(size) }), !refused.contains(where: { $0.matches(size) }) else {
             return
         }
-        refused = Array((refused + [size]).suffix(BookmarkBubblePolicy.refusedCap))
+        let count = (misses.first { $0.size.matches(size) }?.count ?? 0) + 1
+        misses.removeAll { $0.size.matches(size) }
+        if count >= BookmarkBubblePolicy.refuseAfter {
+            refused = Array((refused + [size]).suffix(BookmarkBubblePolicy.refusedCap))
+        } else {
+            misses = Array((misses + [BubbleMiss(size: size, count: count)]).suffix(BookmarkBubblePolicy.refusedCap))
+        }
     }
 }
 
-/// What the detector has learned, per browser, kept in this Mac's defaults: sizes only.
+/// A size that came with no bookmark, and how many times.
+struct BubbleMiss: Codable, Equatable, Sendable {
+    let size: BubbleSize
+    let count: Int
+}
+
+/// What the detector has learned, per browser, kept in this Mac's defaults: sizes and counts only.
 struct BubbleMemory: Codable, Equatable {
     var learned: [BubbleSize] = []
     var refused: [BubbleSize] = []
+    var misses: [BubbleMiss]? = nil
 
     static func key(_ bundleId: String) -> String { "cicada.saveWhy.bubble.\(bundleId)" }
 
@@ -217,14 +239,17 @@ final class BookmarkBubbleWatcher {
     func feedback(channel: String, size: BubbleSize, bookmarked: Bool) {
         guard let entry = Self.browsers.first(where: { $0.channel == channel }) else { return }
         var memory = BubbleMemory.load(entry.bundleId, defaults: defaults)
-        var learning = BookmarkBubbleDetector(learned: memory.learned, refused: memory.refused)
-        if bookmarked { learning.confirm(size) } else { learning.refuse(size) }
+        var learning = BookmarkBubbleDetector(learned: memory.learned, refused: memory.refused,
+                                              misses: memory.misses ?? [])
+        if bookmarked { learning.confirm(size) } else { learning.missed(size) }
         memory.learned = learning.learned
         memory.refused = learning.refused
+        memory.misses = learning.misses
         memory.save(entry.bundleId, defaults: defaults)
         if armed?.bundleId == entry.bundleId {
             detector.learned = memory.learned
             detector.refused = memory.refused
+            detector.misses = memory.misses ?? []
         }
     }
 
@@ -236,7 +261,7 @@ final class BookmarkBubbleWatcher {
         }
         if armed?.pid == app.processIdentifier { return }
         let memory = BubbleMemory.load(bundle, defaults: defaults)
-        detector = BookmarkBubbleDetector(learned: memory.learned, refused: memory.refused)
+        detector = BookmarkBubbleDetector(learned: memory.learned, refused: memory.refused, misses: memory.misses ?? [])
         detector.baseline(Self.windows(of: app.processIdentifier))
         armed = (app.processIdentifier, bundle, entry.channel)
         loop?.cancel()
