@@ -9,6 +9,8 @@ from pydantic import BaseModel
 
 from api.config import Settings, get_settings
 from api.models.schemas import (
+    BookmarkRemoveRequest,
+    BookmarkRemoveResponse,
     BookmarkSyncRequest,
     BookmarkSyncResponse,
     BookmarkTreePreview,
@@ -21,6 +23,7 @@ from api.models.schemas import (
     SafariTabsPreview,
     SafariTabsSyncRequest,
     SafariTabsSyncResponse,
+    SavedWhyEditRequest,
     SavedWhyOptions,
     SavedWhyRecord,
     SavedWhyRequest,
@@ -40,6 +43,7 @@ from api.models.schemas import (
 from api.services import (
     agent_commits,
     bank_index,
+    bookmark_forget,
     bookmark_sync,
     calendar_registry,
     channel_items,
@@ -56,6 +60,7 @@ from api.services import (
     safari_tabs,
     saved_at as saved_at_service,
     saved_why,
+    site_captures,
     source_overview,
     sync_service,
     sync_state,
@@ -598,7 +603,8 @@ async def save_why(request: SavedWhyRequest, settings: Settings = Depends(get_se
         raise HTTPException(status_code=e.status, detail=str(e))
 
     async def write() -> dict:
-        result = await run_in_threadpool(saved_why.attach, memory_path, url=request.url, answer=answer, at=said_at)
+        result = await run_in_threadpool(saved_why.attach, memory_path, url=request.url, answer=answer, at=said_at,
+                                         added_at=request.added_at)
         if result["changed"]:
             from api.services import git_service
 
@@ -613,8 +619,86 @@ async def save_why(request: SavedWhyRequest, settings: Settings = Depends(get_se
         result = await write_admission.run_admitted(memory_path, write, refuse=lambda: SleepWriting(SAVED_WHY_BUSY))
     except saved_why.SavedWhyError as e:
         raise HTTPException(status_code=e.status, detail=str(e))
+    return _saved_why_response(result)
+
+
+def _saved_why_response(result: dict) -> SavedWhyResponse:
     return SavedWhyResponse(episode_id=result["episode_id"], media_entity_id=result["media_entity_id"],
-                            saved_why=SavedWhyRecord.model_validate(result["saved_why"]))
+                            saved_why=SavedWhyRecord.model_validate(result["saved_why"]),
+                            history=[SavedWhyRecord.model_validate(h) for h in result.get("history") or []])
+
+
+@router.put("/sources/saved-why", response_model=SavedWhyResponse, dependencies=_DEMO_GATE)
+async def edit_saved_why(request: SavedWhyEditRequest, settings: Settings = Depends(get_settings)) -> SavedWhyResponse:
+    """G191 v3 — the person changes one of a bookmark's answers (the one given at ``at``) from its page in the app, or
+    any client of this route. Its time and moment of saving are kept, ``editedAt`` says when it changed, every other
+    answer is untouched; the section is rewritten, scrubbed and queued for Sleep, committed alone as the person. 404
+    for a link not saved or no answer at ``at``; 422 for an empty or unknown answer; 409 in a demo bank or while Sleep
+    holds the pages."""
+    memory_path = settings.memory_path
+    try:
+        answer = saved_why.validate(memory_path, reasons=request.reasons, project=request.project, text=request.text)
+        saved_why.find_episode(memory_path, request.url)
+    except saved_why.SavedWhyError as e:
+        raise HTTPException(status_code=e.status, detail=str(e))
+
+    async def write() -> dict:
+        result = await run_in_threadpool(saved_why.edit, memory_path, url=request.url, at=request.at, answer=answer)
+        if result["changed"]:
+            from api.services import git_service
+
+            try:
+                await git_service.commit_paths(memory_path, saved_why.commit_message(result["episode_id"]),
+                                               [f"episodes/{result['episode_id']}.md"])
+            except Exception as e:  # noqa: BLE001 — a non-git bank (tests) keeps the answer
+                logger.warning(f"saved-why edit commit failed: {type(e).__name__}: {e}")
+        return result
+
+    try:
+        result = await write_admission.run_admitted(memory_path, write, refuse=lambda: SleepWriting(SAVED_WHY_BUSY))
+    except saved_why.SavedWhyError as e:
+        raise HTTPException(status_code=e.status, detail=str(e))
+    return _saved_why_response(result)
+
+
+#: G191 v3 — a removal that finds Sleep holding the pages.
+BOOKMARK_REMOVE_BUSY = "Sleep is updating your memory — the bookmark wasn't removed. Try again in a moment."
+
+
+@router.post("/sources/bookmarks/remove", response_model=BookmarkRemoveResponse, dependencies=_DEMO_GATE)
+async def remove_bookmark(request: BookmarkRemoveRequest,
+                          settings: Settings = Depends(get_settings)) -> BookmarkRemoveResponse:
+    """G191 v3 — forget a bookmark in Cicada on the person's click (the bookmark page's Remove, or any client of this
+    route): its media page is archived — never deleted — and its episode stamped ``source_deleted_at``, the tombstone
+    path; the person's answers stay. Committed alone as the person (trigger ``user/bookmark_remove``). The browser's
+    own bookmark is the app's to remove (the backend never opens a browser). A link saved again later comes back.
+    404 for a link Cicada does not hold, 422 for a URL that is not one, 409 in a demo bank or while Sleep holds the
+    pages. Idempotent: a second call changes nothing."""
+    memory_path = settings.memory_path
+    try:
+        saved_why.find_episode(memory_path, request.url)
+    except saved_why.SavedWhyError as e:
+        raise HTTPException(status_code=e.status, detail=str(e))
+
+    async def write() -> dict:
+        result = await run_in_threadpool(bookmark_forget.forget, memory_path, url=request.url)
+        if result["paths"]:
+            from api.services import git_service
+
+            try:
+                await git_service.commit_paths(memory_path, bookmark_forget.commit_message(result["paths"]),
+                                               result["paths"])
+            except Exception as e:  # noqa: BLE001 — a non-git bank (tests) keeps the change
+                logger.warning(f"bookmark remove commit failed: {type(e).__name__}: {e}")
+        return result
+
+    try:
+        result = await write_admission.run_admitted(memory_path, write,
+                                                    refuse=lambda: SleepWriting(BOOKMARK_REMOVE_BUSY))
+    except saved_why.SavedWhyError as e:
+        raise HTTPException(status_code=e.status, detail=str(e))
+    return BookmarkRemoveResponse(episode_id=result["episode_id"], media_entity_id=result["media_entity_id"],
+                                  status=result["status"])
 
 
 @router.post("/sources/sync-safari-tabs", response_model=None, dependencies=_DEMO_GATE)
@@ -721,8 +805,42 @@ def _saved_why_of(fm: dict) -> SavedWhyRecord | None:
         return None
 
 
-#: The `/sources` payload's shape version (the `preview` field), folded into its ETag.
-SHAPE = "saved-why-1"
+def _saved_why_history_of(fm: dict) -> list[SavedWhyRecord]:
+    """G191 v3: every answer on the episode, oldest first — never raises."""
+    try:
+        records = saved_why.records_of(fm)
+        if len(records) < 2:   # one answer is `savedWhy` itself; the list repeats it only beside others
+            return []
+        return [SavedWhyRecord.model_validate(h) for h in
+                saved_why.history_wire(records, added_at=str(fm.get("added_at") or "") or None)]
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def _capture_thumbs(memory_path: Path) -> dict[str, str]:
+    """G191 v3: the newest capture thumbnail of every captured page, as its route (`/explore/captures/...`) — one
+    listing of `captures/` (only the pages someone explored have a folder), never a fetch. Never raises."""
+    out: dict[str, str] = {}
+    try:
+        root = Path(memory_path) / site_captures.CAPTURES_DIR
+        if not root.is_dir():
+            return out
+        for folder in root.iterdir():
+            if not folder.is_dir() or folder.name.startswith("_"):
+                continue
+            for cap in site_captures.list_captures(memory_path, folder.name):
+                thumb = cap.get("thumb") if isinstance(cap.get("thumb"), dict) else None
+                if thumb and site_captures.thumb_file(memory_path, thumb.get("file")) is not None:
+                    out[folder.name] = f"/explore/captures/{folder.name}/{cap['id']}/thumb"
+                    break
+    except Exception:  # noqa: BLE001
+        return out
+    return out
+
+
+#: The `/sources` payload's shape version, folded into its ETag: `saved-why-2` added `savedWhyHistory`,
+#: `lastSavedAt` and `captureThumb` (G191 v3).
+SHAPE = "saved-why-2"
 
 
 @router.get("/sources", response_model=SourceListResponse)
@@ -744,7 +862,9 @@ async def list_sources(
     # switch reaches the Feed's read state without a bank write.
     # `SHAPE` moves the tag once when the payload gains a field (`preview`), so a client holding the older body
     # re-reads it instead of keeping a 304'd copy without the field.
-    etag = sync_service.etag_for(memory_path, "sources", "episodes", "entities", "reading", extra=f"{sort}|{SHAPE}")
+    # G191 v3: `captures` too — a new site capture gives a bookmark row its thumbnail.
+    etag = sync_service.etag_for(memory_path, "sources", "episodes", "entities", "reading", "captures",
+                                 extra=f"{sort}|{SHAPE}")
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
     idx = media_ingestor.load_url_index(memory_path)
@@ -757,6 +877,7 @@ async def list_sources(
     reading_paused = reading_queue.paused_sites(list(ask_rows.values()))
     # G191: the person's answer lives on the link's episode; one cached listing of `episodes/` answers every row.
     episode_fm = {f.stem: f.frontmatter for f in bank_index.files(memory_path, "episodes")}
+    capture_thumbs = _capture_thumbs(memory_path)
 
     items = []
     for entry in idx.values():
@@ -883,6 +1004,9 @@ async def list_sources(
                 saved_at=entry.get("saved_at", ""),
                 content_saved_at=entry.get("content_saved_at"),
                 saved_why=_saved_why_of(episode_fm.get(str(entry.get("episode_id") or "")) or {}),
+                saved_why_history=_saved_why_history_of(episode_fm.get(str(entry.get("episode_id") or "")) or {}),
+                last_saved_at=saved_why.last_saved(episode_fm.get(str(entry.get("episode_id") or "")) or {}),
+                capture_thumb=capture_thumbs.get(entity_id),
                 tags=tags,
                 status=status,
                 related_count=related_count,

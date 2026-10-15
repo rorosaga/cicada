@@ -3616,6 +3616,15 @@ class MediaSourceItem(CamelModel):
     # with when they said it and when the browser says the bookmark was made. `None` when nobody was asked or the
     # person dismissed the question. Additive and defaulted: an older client is unaffected.
     saved_why: Optional["SavedWhyRecord"] = None
+    # G191 v3 — every answer, oldest first (a bookmark removed and saved again keeps one dated reason per moment of
+    # saving); `saved_why` is the newest of them. Empty when nobody was asked.
+    saved_why_history: list["SavedWhyRecord"] = []
+    # G191 v3 — the newest moment this link was saved by the browser's own clock (the episode's `added_at`, or a later
+    # re-save an answer names): the menu bar's bookmark history orders by it. `None` when the browser kept no instant.
+    last_saved_at: Optional[str] = None
+    # G191 v3 — the newest site-capture thumbnail Cicada holds for this page (ruling 25; `/explore/captures/...`,
+    # served from the bank), for the bookmark history's row. `None` when the page was never captured.
+    capture_thumb: Optional[str] = None
     # G102 cheap slice (R12): the link's own description — OpenGraph at ingest
     # or the Sleep-tail backfill's summary — cut at ~280 chars on a word
     # boundary, and the ids of the entities the page is `about` (the media
@@ -3708,6 +3717,9 @@ class FreshBookmark(CamelModel):
     episode_id: str = ""
     media_entity_id: str = ""
     added_at: Optional[str] = None
+    # G191 v3 — a link Cicada already held, saved again in this browser (removed and bookmarked again): a new moment
+    # of saving, asked about like a new one (`bookmark_sync._resaved`).
+    resave: bool = False
 
 
 class BookmarkSyncResponse(CamelModel):
@@ -3736,6 +3748,8 @@ class SavedWhyRecord(CamelModel):
     text: Optional[str] = None
     at: Optional[str] = None
     added_at: Optional[str] = None
+    # G191 v3 — when the person last changed this answer (`PUT /sources/saved-why`); `None` when never.
+    edited_at: Optional[str] = None
 
 
 MediaSourceItem.model_rebuild()
@@ -3750,12 +3764,41 @@ class SavedWhyRequest(CamelModel):
     # Review B1 — when the person answered, as the app recorded it: an answer the app held through Sleep's write
     # window (a 409) or a backend restart keeps its own time. Aware, not in the future, at most a day old.
     at: Optional[str] = None
+    # G191 v3 — the moment of saving this answers (the browser's instant from the sync's `fresh` item), so an answer
+    # for a bookmark saved again is a new dated reason and the same moment answered again replaces its own.
+    added_at: Optional[str] = None
+
+
+class SavedWhyEditRequest(CamelModel):
+    """G191 v3 — the person changes one answer, named by when it was given (`at`)."""
+
+    model_config = ConfigDict(extra="forbid")
+    url: str
+    at: str
+    reasons: list[str] = []
+    project: Optional[str] = None
+    text: Optional[str] = None
 
 
 class SavedWhyResponse(CamelModel):
     episode_id: str
     media_entity_id: str = ""
     saved_why: SavedWhyRecord
+    # G191 v3 — every answer on the link now, oldest first.
+    history: list[SavedWhyRecord] = []
+
+
+class BookmarkRemoveRequest(CamelModel):
+    """G191 v3 — forget a bookmark in Cicada (the media page archived, its episode tombstoned)."""
+
+    model_config = ConfigDict(extra="forbid")
+    url: str
+
+
+class BookmarkRemoveResponse(CamelModel):
+    episode_id: str
+    media_entity_id: str = ""
+    status: str = "archived"
 
 
 class SavedWhyOption(CamelModel):

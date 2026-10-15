@@ -61,6 +61,7 @@ def write_channel_seen(
     folders: list[str] | None,
     hashes: list[str],
     at: str | None = None,
+    newest_added: str | None = None,
 ) -> None:
     """Replace ``channel``'s entry with the CURRENT sync's scope + hashes.
 
@@ -74,6 +75,10 @@ def write_channel_seen(
         "hashes": sorted(set(hashes)),
         "at": at or episode_ids.utc_now_iso(),
     }
+    # G191 v3: the newest browser instant this sync saw, so the next one can tell a bookmark saved again (a newer
+    # node for a known link) from one moved (the same node, the same instant). Absent when the file records none.
+    if newest_added:
+        state[channel]["newest_added"] = newest_added
     path = seen_path(memory_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n", encoding="utf-8")

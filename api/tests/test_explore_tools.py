@@ -97,7 +97,8 @@ def test_the_why_the_merged_g191_writer_stores_steers_the_depth(tmp_path):
     look = saved_why.attach(memory, url="https://look.bob-example.org/", at="2026-10-14T09:00:00Z",
                             answer=saved_why.validate(memory, reasons=["design", "read_later"], project=None,
                                                       text="the type scale"))
-    assert set(look["saved_why"]) == {"reasons", "labels", "project", "text", "at", "added_at"}
+    # G191 v3 added `edited_at` (when the person last changed the answer).
+    assert set(look["saved_why"]) == {"reasons", "labels", "project", "text", "at", "added_at", "edited_at"}
     saved_why.attach(memory, url="https://proj.bob-example.org/", at="2026-10-14T09:05:00Z",
                      answer=saved_why.validate(memory, reasons=[], project="alpha-project", text=None))
     from api.services import bank_index

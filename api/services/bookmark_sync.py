@@ -44,8 +44,8 @@ from typing import Any, Awaitable, Callable
 
 from loguru import logger
 
-from api.services import (bookmark_seen, episode_ids, inbox_generator, inbox_service, markdown_parser, media_ingestor,
-                          saved_at)
+from api.services import (bookmark_forget, bookmark_seen, episode_ids, inbox_generator, inbox_service, markdown_parser,
+                          media_ingestor, saved_at)
 from api.services.media_ingestor import RawItem
 
 # (items, memory_path, from_bookmark_file) -> (created, duplicates), matching
@@ -440,6 +440,7 @@ async def sync_bookmarks(
     # is never a moment to ask "what made you save this?".
     prev_seen = bookmark_seen.read_seen(memory_path)
     fresh: list[dict[str, Any]] = []
+    revived_paths: list[str] = []
 
     for origin, items in _batches(chrome_data, safari_data, chromium):
         items = filter_by_folders(items, folders) if folders else items
@@ -447,10 +448,16 @@ async def sync_bookmarks(
         created = duplicates = 0
         if items:
             unseen = _unseen(items, memory_path)
+            # G191 v3: read before the ingest (the index after it holds the new links too) and before the seen-set
+            # advances below.
+            resaved = _resaved(items, memory_path, origin=origin, channel=channel, prev_entry=prev_seen.get(channel),
+                               folders=folders, unseen=unseen)
             created, duplicates = await fn(items, memory_path, from_bookmark_file=True)
             total_new += created
             total_skipped += duplicates
             fresh.extend(_fresh(unseen, memory_path, origin=origin, channel=channel))
+            fresh.extend(resaved)
+            revived_paths.extend(_revive(memory_path, resaved))
         entry = {"origin": origin, "channel": channel, "found": len(items), "new": created, "skipped": duplicates,
                  "first_sync": channel not in prev_seen}
         if origin == SAFARI_ORIGIN:
@@ -474,11 +481,12 @@ async def sync_bookmarks(
                 )
                 total_removals_proposed += len(new_paths)
                 removal_paths.extend(new_paths)
-            bookmark_seen.write_channel_seen(memory_path, channel, folders=folders, hashes=current_hashes, at=at)
+            bookmark_seen.write_channel_seen(memory_path, channel, folders=folders, hashes=current_hashes, at=at,
+                                             newest_added=newest_added(items))
             seen_touched = True
 
-    if removal_paths or seen_touched:
-        await _commit_removals(memory_path, removal_paths, seen_touched)
+    if removal_paths or seen_touched or revived_paths:
+        await _commit_removals(memory_path, removal_paths, seen_touched, revived_paths)
 
     return {
         "new": total_new,
@@ -516,10 +524,14 @@ def fresh_preview(
         channel = CHANNEL_BY_ORIGIN[origin]
         sources.append({"origin": origin, "channel": channel, "found": len(items), "new": 0, "skipped": 0,
                         "first_sync": channel not in prev_seen})
-        for item in _unseen(items, memory_path):
+        unseen = _unseen(items, memory_path)
+        for item in unseen:
             fresh.append({"url": item.url, "title": item.title or "", "origin": origin, "channel": channel,
                           "episode_id": "", "media_entity_id": "",
-                          "added_at": saved_at.validate_instant(item.added_at)})
+                          "added_at": saved_at.validate_instant(item.added_at), "resave": False})
+        # G191 v3: a link held already but saved again — the early look asks about it like a new one.
+        fresh.extend(_resaved(items, memory_path, origin=origin, channel=channel, prev_entry=prev_seen.get(channel),
+                              folders=None, unseen=unseen))
     return {"new": 0, "skipped": 0, "sources": sources, "removals_proposed": 0, "removals_skipped": None,
             "fresh": fresh[:FRESH_CAP], "fresh_total": len(fresh)}
 
@@ -564,11 +576,104 @@ def _fresh(unseen: list[RawItem], memory_path: Path, *, origin: str, channel: st
             "episode_id": str(row.get("episode_id") or ""),
             "media_entity_id": str(row.get("media_entity_id") or ""),
             "added_at": saved_at.validate_instant(item.added_at),
+            "resave": False,
         })
     return out
 
 
-async def _commit_removals(memory_path: Path, removal_paths: list[str], seen_touched: bool) -> None:
+def newest_added(items: list[RawItem]) -> str | None:
+    """The newest browser instant among ``items`` (aware UTC ISO), or ``None`` when the file records none (Safari's
+    bookmarks) — what the seen-set keeps so the next sync can tell a bookmark made since from one moved since."""
+    instants = [v for v in (saved_at.validate_instant(i.added_at) for i in items) if v]
+    return max(instants, key=saved_at.sort_instant) if instants else None
+
+
+def _resaved(items: list[RawItem], memory_path: Path, *, origin: str, channel: str, prev_entry: dict | None,
+             folders: list[str] | None, unseen: list[RawItem]) -> list[dict[str, Any]]:
+    """G191 v3 — the bookmarks saved AGAIN since this channel's last sync: links the bank already holds (so they are
+    not new to Cicada) that this browser's file has newly saved. Owner 2026-10-15: "If I remove the bookmark and
+    bookmark it again, the prompt doesn't appear. Is that on purpose?" — it was not; a re-save is a new moment of
+    saving.
+
+    **A re-save, not a move.** A bookmark counts as saved again when, on this channel:
+
+    * its URL was absent from the previous sync's seen-set and is present now (removed and saved again, or saved
+      here for the first time while another browser already held it), or
+    * the browser stamps it (Chrome's ``date_added``) later than the newest instant the previous sync saw — a new
+      bookmark node for a link already bookmarked (removed and saved again between two syncs, or a duplicate).
+
+    A move, a rename or a reorganisation keeps both the URL in the seen-set and the node's own ``date_added``, so it
+    is never a re-save. Refused, like the removal diff (Rail 1), on a first sync (no seen-set) or when the folder
+    scope changed since the last sync. Each is reported in ``fresh`` with ``resave: true`` and the episode the link
+    already has, so one policy in the app decides about both."""
+    if prev_entry is None:
+        return []
+    if bookmark_seen._normalize_folders(prev_entry.get("folders")) != bookmark_seen._normalize_folders(folders):
+        return []
+    prev_hashes = set(prev_entry.get("hashes") or [])
+    newest_before = saved_at.validate_instant(prev_entry.get("newest_added")) or saved_at.validate_instant(
+        prev_entry.get("at"))
+    idx = media_ingestor.load_url_index(memory_path)
+    skip = {media_ingestor.url_hash(i.url) for i in unseen if i.url}
+    out: list[dict[str, Any]] = []
+    for item in items:
+        if not item.url:
+            continue
+        h = media_ingestor.url_hash(item.url)
+        if h in skip:
+            continue
+        held = media_ingestor.existing_hash(item, idx)
+        row = idx.get(held) if held else None
+        if not row or not row.get("episode_id"):
+            continue
+        added = saved_at.validate_instant(item.added_at)
+        absent = h not in prev_hashes
+        later = bool(added and newest_before) and saved_at.sort_instant(added) > saved_at.sort_instant(newest_before)
+        if not (absent or later):
+            continue
+        skip.add(h)
+        out.append({
+            "url": item.url,
+            "title": str(row.get("title") or item.title or ""),
+            "origin": origin,
+            "channel": channel,
+            "episode_id": str(row.get("episode_id") or ""),
+            "media_entity_id": str(row.get("media_entity_id") or ""),
+            "added_at": added,
+            "resave": True,
+        })
+    return out
+
+
+def _revive(memory_path: Path, resaved: list[dict[str, Any]]) -> list[str]:
+    """A link saved again whose page the person removed (archived by a removal answer or by Remove on its bookmark
+    page) comes back: the media page is active again and its episode loses the removal stamp. Returns the
+    memory-relative paths written, for the sync's own scoped commit."""
+    written: list[str] = []
+    for item in resaved:
+        entity_id = str(item.get("media_entity_id") or "")
+        path = memory_path / "entities" / f"{entity_id}.md"
+        if entity_id and path.is_file():
+            try:
+                parsed = markdown_parser.parse(path)
+            except Exception:
+                parsed = None
+            if parsed is not None and str(parsed.frontmatter.get("status") or "active") == "archived":
+                fm = dict(parsed.frontmatter)
+                fm["status"] = "active"
+                fm["last_referenced"] = str(date.today())
+                fm.pop("removed_at", None)
+                markdown_parser.write(path, fm, parsed.body)
+                written.append(f"entities/{entity_id}.md")
+        episode_id = str(item.get("episode_id") or "")
+        ep = memory_path / "episodes" / f"{episode_id}.md"
+        if episode_id and ep.is_file() and bookmark_forget.clear_removed(ep):
+            written.append(f"episodes/{episode_id}.md")
+    return written
+
+
+async def _commit_removals(memory_path: Path, removal_paths: list[str], seen_touched: bool,
+                           revived_paths: list[str] | None = None) -> None:
     """Commit scoped to exactly the removal items written this call plus a
     touched ``sources/bookmark_seen.json`` — never ``git add -A`` (finding 1,
     G129 slice-2 final review), mirroring ``media_ingestor._commit_media``.
@@ -584,8 +689,12 @@ async def _commit_removals(memory_path: Path, removal_paths: list[str], seen_tou
     """
     from api.services import git_service
 
-    paths = sorted(set(removal_paths) | ({"sources/bookmark_seen.json"} if seen_touched else set()))
+    revived_paths = revived_paths or []
+    paths = sorted(set(removal_paths) | set(revived_paths)
+                   | ({"sources/bookmark_seen.json"} if seen_touched else set()))
     lines = [f"{p}: created (trigger: sync/bookmark_removal)" for p in sorted(removal_paths)]
+    # G191 v3: a removed bookmark saved again is active again — bookkeeping the browser's file proved, no model.
+    lines += [f"{p}: updated (trigger: sync/bookmark_resave)" for p in sorted(revived_paths)]
     if seen_touched:
         lines.append("sources/bookmark_seen.json: updated (trigger: sync/bookmark_removal)")
     message = git_service.build_commit_message(

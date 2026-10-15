@@ -445,13 +445,26 @@ def amend_section(path: Path, heading: str, text: str, *, extra: dict | None = N
     has one (so it is never read as part of an agent's ``## Note``), else at the end. Under ``STAGE_LOCK`` and the
     bank's episode lock, so Sleep's revision-checked retirement sees this edit or retires before it (audit A01).
     Returns whether the file changed."""
-    cleaned = episode_scrub.scrub_body(text.strip(), writer=writer, bank=bank)
-    section = f"{heading}\n{cleaned}\n"
+    return revise_section(path, heading, lambda _fm: (text, dict(extra or {}), ()), writer=writer, bank=bank,
+                          before=before)
+
+
+def revise_section(path: Path, heading: str, build, *, writer: str, bank: str | None = None,
+                   before: tuple[str, ...] = ()) -> bool:
+    """:func:`amend_section` whose text and frontmatter are computed from the episode's CURRENT frontmatter, inside
+    the same locks (G191 v3: a re-save's answer is added to the earlier ones, so the writer must read them and write
+    the section in one step, or two answers landing together would each drop the other).
+
+    ``build(frontmatter) -> (text, extra, drop)``: ``text`` is the section's new text (scrubbed here); ``extra`` is
+    merged into the frontmatter and every key in ``drop`` removed."""
     with STAGE_LOCK, episode_ids.episode_lock(Path(path).parent):
         parsed = markdown_parser.parse(path)
         fm = dict(parsed.frontmatter)
         body = parsed.body
+        text, extra, drop = build(dict(fm))
         bounds = _section_bounds(body, heading)
+        cleaned = episode_scrub.scrub_body(text.strip(), writer=writer, bank=bank)
+        section = f"{heading}\n{cleaned}\n"
         if bounds is not None:
             start, end = bounds
             tail = body[end:]
@@ -464,6 +477,8 @@ def amend_section(path: Path, heading: str, text: str, *, extra: dict | None = N
                 new_body = body.rstrip("\n") + "\n\n" + section
         before_fm = dict(fm)
         fm.update(extra or {})
+        for key in drop:
+            fm.pop(key, None)
         if new_body == body and fm == before_fm:
             return False
         if new_body != body:

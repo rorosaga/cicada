@@ -23,6 +23,8 @@ from api.services import bank_registry, demo_guard, sleep_cycle
 GATED = {
     ("POST", "/sources/save"): "/sources/save",
     ("POST", "/sources/saved-why"): "/sources/saved-why",
+    ("PUT", "/sources/saved-why"): "/sources/saved-why",          # G191 v3: the person's edit of one answer
+    ("POST", "/sources/bookmarks/remove"): "/sources/bookmarks/remove",   # G191 v3: Remove on a bookmark's page
     ("POST", "/sources/upload"): "/sources/upload",
     ("POST", "/sources/rss"): "/sources/rss",
     ("POST", "/sources/sync-bookmarks"): "/sources/sync-bookmarks",
