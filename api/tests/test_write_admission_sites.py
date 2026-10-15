@@ -466,6 +466,7 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /explore/batches": (OUTSIDE, None),
     "POST /explore/stop": (OUTSIDE, None),
     "POST /explore/queue/{key}/retry": (OUTSIDE, None),
+    "POST /explore/look": (OUTSIDE, None),            # looks v2: "Save its look" writes the queue file only
 }
 
 #: Every MCP tool (stdio and remote): the mcp_tools function it runs and its class.

@@ -801,10 +801,22 @@ supports it but images aren't understood here yet, one row (DR-37) saying what i
 shortcut to Settings → Search & files → *Understand images* and keeps its one click: on a Mac without the meaning part
 it fetches both, and `vision.includesText` makes the row state the combined size ("…which also sets up Understand what
 you mean") before the click. Tiles: the screenshot through
-`StoredPreview` (`PictureURL` accepts `/design/…` as Cicada's own API), its colours as one proportional strip, the site
-and the day. A click opens the reference beside the board: the screenshot, the link, *What you liked*, the colours with
-their share and words (pills), the type, the snippets (`MarkdownBody` code blocks), who saved it and how, *Remove from
-Looks*. A picture dropped anywhere on the page or pasted (⌘V, `onPasteCommand` — never `NSPasteboard.general`) is
+`StoredPreview` (`PictureURL` accepts `/design/…` as Cicada's own API), its colours as one strip, the site and the day.
+**Looks v2 (2026-10-15):** the strip gives the ground half and the colours after it equal shares in their salience
+order (`LooksPaletteStrip.widths`) — by area a thin ink that *is* the look drew as a hairline. The screenshot was never
+drawn before v2: `APIClient.fetchPictureBytes` accepted `/entities/…` only, answered nil for `/design/…`, and
+`PictureStore` remembered the miss, so the palette placeholder stayed; the loader's gate is now `APIClient.isPicturePath`,
+exactly `PictureURL.parse`'s `.api` case (`LooksImageTests` holds the two gates together and loads a screenshot end to
+end). A click opens the reference beside the board: the screenshot, the link, the note — *What you liked* only when it
+is the person's own words, *Noted by Claude Code* (`LooksNote`, the agent's label from `OriginIconography`) when an agent
+wrote it, no section for an agent's empty note — the colours with their share, role and words (pills), *Colour roles*
+(ground, ink, accent, wash; "from the page" or "from the picture"), *Type* by role (body, headings, subheadings,
+captions, links, drop cap: family, then size · weight · leading; the bare font list when the server has no computed
+type), the snippets (`MarkdownBody` code blocks), who saved it and how, *Remove from Looks*.
+**Save its look** (`Views/Looks/SaveLookAction.swift`): a neutral compact button in a saved web link's Feed detail
+(`SaveLook.offers`: a link or bookmark over http(s), not a video or a paper) and a context-menu item on a ⌘B bookmark
+row. One click posts `POST /explore/look`; the answer's hand-off prompt is copied through `AppPasteboard` and a toast
+says it is queued for the person's agent (the "Ask an agent" pattern); a refusal shows the server's sentence. A picture dropped anywhere on the page or pasted (⌘V, `onPasteCommand` — never `NSPasteboard.general`) is
 shrunk by `DesignImageShrink` (≤ 2560 px; PNG ≤ 1.5 MB else JPEG) and opens `LooksComposer`: link, name, note,
 *Find similar* (a picture search) or *Save to Looks* (the one primary action). The app reads the file or the image and
 posts bytes; every colour, token and ranking is the server's. Copy is `Theme/Copy+Looks.swift`, provider-neutral.

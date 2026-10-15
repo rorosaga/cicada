@@ -88,6 +88,12 @@ struct BookmarkHistoryView: View {
                                     .contentShape(Rectangle())
                                     .onTapGesture { onOpen(row) }
                                     .onHover { if $0 { model.selection = index } }
+                                    .contextMenu {   // Looks v2 — "Save its look" (SaveLookAction.swift)
+                                        Button(Copy.Looks.saveLook) {
+                                            Task { await SaveLook.perform(mediaEntityId: row.mediaEntityId,
+                                                                          url: row.url, store: store) }
+                                        }
+                                    }
                             }
                         }
                         .padding(.vertical, CicadaTheme.scaled(4))

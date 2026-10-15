@@ -7,6 +7,30 @@ import Foundation
 struct DesignColour: Decodable, Equatable, Hashable, Sendable {
     var hex: String
     var share: Double
+    /// Looks v2: `ground`, `ink`, `accent` or `wash` — the ground first, then by salience, never by area.
+    var role: String? = nil
+    /// The page's CSS or computed styles name this colour.
+    var declared: Bool? = nil
+}
+
+/// Looks v2 — one role of the page's computed type (`body`, `heading`, `subheading`, `caption`, `link`, `drop_cap`),
+/// as the person's agent read it in the page (`design_tokens`). Sizes are CSS pixels.
+struct DesignTypeRole: Decodable, Equatable, Hashable, Sendable {
+    var role: String
+    var family: String
+    var generic: String?
+    var size: Double?
+    var weight: Int?
+    var lineHeight: Double?
+    var letterSpacing: Double?
+    var color: String?
+}
+
+/// Looks v2 — a colour role: from the page's computed styles (`page`) or read from the screenshot (`pixels`).
+struct DesignColourRole: Decodable, Equatable, Hashable, Sendable {
+    var role: String
+    var hex: String
+    var source: String
 }
 
 struct DesignImage: Decodable, Equatable, Sendable {
@@ -41,20 +65,29 @@ struct DesignRefSummary: Decodable, Equatable, Identifiable, Sendable {
     var tags: [String]
     var notePreview: String
     var entity: String?
+    /// Looks v2 — who wrote the note: `user` (the person's own words, "What you liked") or the agent that saved it
+    /// ("Noted by Claude Code"). An agent's note is never shown as the person's.
+    var noteBy: String
+    var noteByKind: String
 
     init(id: String, title: String = "", url: String? = nil, site: String? = nil, captured: String = "",
          day: String = "", addedBy: String = "user", addedByKind: String = "user", via: String = "drop",
          image: DesignImage? = nil, palette: [DesignColour] = [], look: [String] = [], fonts: [String] = [],
-         tags: [String] = [], notePreview: String = "", entity: String? = nil) {
+         tags: [String] = [], notePreview: String = "", entity: String? = nil, noteBy: String? = nil,
+         noteByKind: String? = nil) {
         self.id = id; self.title = title; self.url = url; self.site = site; self.captured = captured; self.day = day
         self.addedBy = addedBy; self.addedByKind = addedByKind; self.via = via; self.image = image
         self.palette = palette; self.look = look; self.fonts = fonts; self.tags = tags
         self.notePreview = notePreview; self.entity = entity
+        // An older server sends no `noteBy`: the note is the adder's, and an agent door's is never the person's.
+        let inferred = noteBy ?? (via == "explore" ? "user" : (addedBy == "user" && via == "agent" ? "agent" : addedBy))
+        self.noteBy = inferred
+        self.noteByKind = noteByKind ?? (inferred == "user" ? "user" : "harness")
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, title, url, site, captured, day, addedBy, addedByKind, via, image, palette, look, fonts, tags,
-             notePreview, entity
+             notePreview, entity, noteBy, noteByKind
     }
 
     init(from decoder: Decoder) throws {
@@ -75,8 +108,13 @@ struct DesignRefSummary: Decodable, Equatable, Identifiable, Sendable {
             fonts: try c.decodeIfPresent([String].self, forKey: .fonts) ?? [],
             tags: try c.decodeIfPresent([String].self, forKey: .tags) ?? [],
             notePreview: try c.decodeIfPresent(String.self, forKey: .notePreview) ?? "",
-            entity: try c.decodeIfPresent(String.self, forKey: .entity))
+            entity: try c.decodeIfPresent(String.self, forKey: .entity),
+            noteBy: try c.decodeIfPresent(String.self, forKey: .noteBy),
+            noteByKind: try c.decodeIfPresent(String.self, forKey: .noteByKind))
     }
+
+    /// The note is the person's own words.
+    var noteIsTheirs: Bool { noteBy == "user" }
 
     /// The tile's name: the person's title, else the site, else "A look".
     var displayName: String {
@@ -91,11 +129,16 @@ struct DesignRef: Decodable, Equatable, Sendable {
     var note: String
     var snippets: [DesignSnippet]
     var path: String
+    /// Looks v2 — the page's computed type by role, and its colour roles (ground, ink, accent, wash).
+    var typeRoles: [DesignTypeRole]
+    var colourRoles: [DesignColourRole]
 
-    private enum CodingKeys: String, CodingKey { case note, snippets, path }
+    private enum CodingKeys: String, CodingKey { case note, snippets, path, typeRoles, colourRoles }
 
-    init(summary: DesignRefSummary, note: String = "", snippets: [DesignSnippet] = [], path: String = "") {
+    init(summary: DesignRefSummary, note: String = "", snippets: [DesignSnippet] = [], path: String = "",
+         typeRoles: [DesignTypeRole] = [], colourRoles: [DesignColourRole] = []) {
         self.summary = summary; self.note = note; self.snippets = snippets; self.path = path
+        self.typeRoles = typeRoles; self.colourRoles = colourRoles
     }
 
     init(from decoder: Decoder) throws {
@@ -104,6 +147,8 @@ struct DesignRef: Decodable, Equatable, Sendable {
         note = try c.decodeIfPresent(String.self, forKey: .note) ?? ""
         snippets = try c.decodeIfPresent([DesignSnippet].self, forKey: .snippets) ?? []
         path = try c.decodeIfPresent(String.self, forKey: .path) ?? ""
+        typeRoles = (try? c.decodeIfPresent([DesignTypeRole].self, forKey: .typeRoles)) ?? []
+        colourRoles = (try? c.decodeIfPresent([DesignColourRole].self, forKey: .colourRoles)) ?? []
     }
 }
 

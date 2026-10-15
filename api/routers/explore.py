@@ -11,6 +11,9 @@ hand-off prompt to copy for their agent. Their agent does the rest through the M
   and why, the run's size (never a price, ruling 12), and whether exploring can start.
 * ``POST /explore/batches`` — the click; ``POST /explore/stop`` — one tap stops it (waiting sites are dropped, a site
   an agent holds finishes); ``POST /explore/queue/{key}/retry`` — *Try again* on a failed or paused site.
+* ``POST /explore/look`` — "Save its look" on one saved link (looks v2): a design visit for it joins the run (or starts
+  one of its own), and the answer carries the hand-off prompt. The person's agent captures the page and its computed
+  type and colours, and the landing picture becomes a Look — even when the look has not changed (``save_look``).
 * ``GET /explore/prompt`` — the hand-off prompt again ("Copy for an agent", to add another worker).
 * ``GET /explore/captures/{entity_id}`` — every dated capture of one saved page, newest first, for the link renderer;
   ``…/{capture_id}/thumb`` serves the thumbnail from the bank, ``…/{capture_id}/image/{kind}`` a full image from the
@@ -33,6 +36,7 @@ from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
+from api.models.schemas import CamelModel
 from api.services import (demo_guard, entity_picture, explore_candidates, explore_queue, explore_skill,
                           reading_hosts, reading_settings, site_captures, site_map, sync_service)
 
@@ -71,8 +75,8 @@ def prompt_text(count: int) -> str:
         "browser-harness call exactly as the claim's reply says, with the plan it gives for the site (how far to "
         "go: the saved page alone unless my reason for saving it asks for more), then record what it printed with "
         "cicada_record_capture(url, lease_token, outcome, captured_at, final_url, http_status, shots, page, "
-        "signed_in, loaded_at, pages, found, robots, section). Repeat until cicada_explore_claim says nothing is "
-        "waiting. You may run up to four sub-agents "
+        "design, signed_in, loaded_at, pages, found, robots, section). Repeat until cicada_explore_claim says "
+        "nothing is waiting. You may run up to four sub-agents "
         "in parallel, each with its own browser-harness daemon name and its own tab; each stops after about five "
         f"sites and a fresh one takes over. {context} Rules: never sign in or type a password; never click or hide a "
         "cookie or consent banner; when a sign-in, a captcha or a block stops you, hand the site back with "
@@ -174,6 +178,42 @@ async def post_explore_batch(body: StartBody, settings: Settings = Depends(get_s
         raise HTTPException(409, "Turn on \"Let an agent read pages for you\" in Settings, Reading the web, first.")
     try:
         return await run_in_threadpool(_start, memory_path, body)
+    except explore_queue.QueueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+class LookBody(CamelModel):
+    entity_id: str | None = None
+    url: str | None = None
+
+
+def _look(memory_path, body: LookBody) -> dict:
+    found, _missing = explore_candidates.by_links(memory_path, [x for x in (body.entity_id, body.url) if x][:1] or [])
+    if not found and body.entity_id and body.url:
+        found, _missing = explore_candidates.by_links(memory_path, [body.url])
+    if not found:
+        raise explore_queue.QueueError("That link can't be explored: it isn't saved, or it is left out of exploring "
+                                       "(a private workspace, a video, a paper, or set to Never explore).")
+    site = found[0]
+    out = explore_queue.ask(memory_path, [{"key": site.key, "site": site.site}], asked="look",
+                            started_by={"kind": "person"}, holding=_holding)
+    waiting = sum(1 for r in explore_queue.view(memory_path)["items"] if r["state"] in ("queued", "claimed"))
+    return {"key": site.key, "mediaEntityId": site.entity_id, "joined": out["joined"], "paused": bool(out["paused"]),
+            "prompt": prompt_text(max(1, waiting)), "batch": {"id": out["id"], "total": out["total"]}}
+
+
+@router.post("/explore/look")
+async def post_explore_look(body: LookBody, settings: Settings = Depends(get_settings)):
+    memory_path = settings.memory_path
+    if demo_guard.is_demo(memory_path):
+        raise HTTPException(409, demo_guard.REFUSAL)
+    if not reading_settings.agent_enabled():
+        raise HTTPException(409, "Turn on \"Let an agent read pages for you\" in Settings, Reading the web, first.")
+    ok, why = explore_skill.verified()
+    if not ok:
+        raise HTTPException(409, f"Exploring can't start: {why}.")
+    try:
+        return await run_in_threadpool(_look, memory_path, body)
     except explore_queue.QueueError as exc:
         raise HTTPException(422, str(exc)) from exc
 

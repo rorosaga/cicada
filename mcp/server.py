@@ -49,7 +49,7 @@ OBSERVER_PATTERN = (
 )
 
 # G135 R-R2: every remote-capable tool body lives in `api/services/mcp_tools.py`.
-from api.services import mcp_tools  # noqa: E402
+from api.services import design_tokens, mcp_tools  # noqa: E402
 # Re-exported for callers that CALL them (tests, back-compat). Tests that PATCH
 # a moved helper patch it on `mcp_tools`, where the bodies look it up.
 from api.services.mcp_tools import (  # noqa: E402,F401
@@ -549,11 +549,13 @@ TOOLS = [
                     "shots": {"type": "array", "items": {"type": "object", "required": ["kind"], "properties": {
                         "kind": {"type": "string", "enum": ["viewport", "thumb", "full", "mobile", "dark"]},
                         "path": {"type": "string"}, "base64": {"type": "string"}}}},
-                    "page": {"type": "object", "description": "title, description, outline, fonts, tokens, components."}}}},
+                    "page": {"type": "object", "description": "title, description, outline, fonts, tokens, components."},
+                    "design": design_tokens.JSON_SCHEMA}}},
             "found": {"type": "array", "description": "Same-site links the script found (url, label): they go into the site's map.", "items": {
                 "type": "object", "properties": {"url": {"type": "string"}, "label": {"type": "string"}}}},
             "robots": {"type": "object", "description": "robots.txt as your browser read it: status (the HTTP status) and text. Without it no further page is kept."},
-            "section": {"type": "object", "description": "For a technique: the part of the page the person's words point at — heading and text (only an excerpt stays in memory)."}}},
+            "section": {"type": "object", "description": "For a technique: the part of the page the person's words point at — heading and text (only an excerpt stays in memory)."},
+            "design": design_tokens.JSON_SCHEMA}},
     },
     {
         # G166 slice 2: the site maps explore visits leave in the bank (captures/_sites/<site>.md). Read-only, stdio.
@@ -565,10 +567,11 @@ TOOLS = [
     },
     {
         "name": "cicada_explore_start",
-        "description": "Start exploring the person's saved sites — only when the person asked you to in this conversation (\"explore my bookmarks\"). The run shows in Cicada at once, stamped as started by you, and the person can stop it with one tap. Then take sites with cicada_explore_claim.",
+        "description": "Start exploring the person's saved sites — only when the person asked you to in this conversation (\"explore my bookmarks\", or \"save the look of this site\" with `look`). The run shows in Cicada at once, stamped as started by you, and the person can stop it with one tap. Then take sites with cicada_explore_claim.",
         "inputSchema": {"type": "object", "properties": {
             "scope": {"type": "string", "enum": ["never_explored", "all"], "description": "Optional: never_explored (default) or all."},
-            "origins": {"type": "array", "items": {"type": "string"}, "description": "Optional: only bookmarks from these browsers, e.g. chrome-bookmark, safari-bookmark."}}},
+            "origins": {"type": "array", "items": {"type": "string"}, "description": "Optional: only bookmarks from these browsers, e.g. chrome-bookmark, safari-bookmark."},
+            "look": {"type": "array", "items": {"type": "string"}, "maxItems": 20, "description": "Optional: saved links whose look the person asked you to keep (\"save the look of this site\"). Queues a design visit for each instead of a run; its landing picture becomes a Look."}}},
     },
     {
         "name": "cicada_sources",
@@ -987,10 +990,10 @@ TOOLS = [
         # Design taste (2026-10-14): a write as the harness; stdio only in this slice (it can read a file the agent
         # saved). The palette is read from the pixels; nothing is fetched.
         "name": "cicada_save_design",
-        "description": "Save a look the person likes to their design board when they say they like how a site or screen looks ('save this style', 'I love this layout'). Send the screenshot you took (`image_path`: a PNG or JPEG you saved, or `image_base64`), the page's link, and what they liked in their own words; add any HTML/CSS they pointed at as `snippets`. Cicada reads the colours itself.",
+        "description": "Save a look the person likes to their design board when they say they like how a site or screen looks ('save this style', 'I love this layout'). Send the screenshot you took (`image_path`: a PNG or JPEG you saved, or `image_base64`), the page's link, and a note on what they liked; add any HTML/CSS they pointed at as `snippets`, and the page's computed type and colours as `tokens` when you can read them in the page. Your note shows as yours (\"Noted by\" you), never as the person's own words. Cicada reads the colours itself.",
         "inputSchema": {"type": "object", "required": ["note"], "properties": {
             "url": {"type": "string", "description": "The page the screenshot shows (http or https)."},
-            "note": {"type": "string", "description": "What the person liked about it, in their words."},
+            "note": {"type": "string", "description": "What the person liked about it, as you understood it (shown as your note)."},
             "image_path": {"type": "string", "description": "Absolute path of a PNG or JPEG screenshot you saved (under 4 MB)."},
             "image_base64": {"type": "string", "description": "The screenshot itself, base64 (when you have no file)."},
             "title": {"type": "string", "description": "Optional: a short name for this look (the page's title)."},
@@ -999,6 +1002,7 @@ TOOLS = [
                     "lang": {"type": "string", "enum": ["html", "css", "js", "jsx", "tsx", "svg", "swift", "text"]},
                     "code": {"type": "string"}}}},
             "tags": {"type": "array", "items": {"type": "string"}, "description": "Optional: a few words to file it under."},
+            "tokens": design_tokens.JSON_SCHEMA,
             "region": {"type": "object", "description": "Optional: the visible region the screenshot covers, in page pixels.",
                        "properties": {"x": {"type": "integer"}, "y": {"type": "integer"},
                                       "width": {"type": "integer"}, "height": {"type": "integer"}}}}},
@@ -1203,7 +1207,7 @@ def handle_tool(name: str, arguments: dict) -> str:
     elif name == "cicada_save_design":
         return mcp_tools.save_design(_ctx(), arguments.get("url"), arguments.get("note"), arguments.get("image_path"),
                                      arguments.get("image_base64"), arguments.get("title"), arguments.get("snippets"),
-                                     arguments.get("tags"), arguments.get("region"))
+                                     arguments.get("tags"), arguments.get("region"), arguments.get("tokens"))
     elif name == "cicada_design_search":
         return mcp_tools.design_search(_ctx(), arguments.get("query"), arguments.get("image_path"),
                                        arguments.get("image_base64"), arguments.get("limit", 8))
@@ -1240,11 +1244,11 @@ def handle_tool(name: str, arguments: dict) -> str:
             bool(arguments.get("account_visible", False)), bool(arguments.get("consent_overlay", False)),
             arguments.get("consent_box"), arguments.get("next_pages"), arguments.get("loads"),
             arguments.get("via"), arguments.get("last_modified"), arguments.get("loaded_at"), arguments.get("pages"),
-            arguments.get("found"), arguments.get("robots"), arguments.get("section"))
+            arguments.get("found"), arguments.get("robots"), arguments.get("section"), arguments.get("design"))
     elif name == "cicada_site_map":
         return mcp_tools.site_map_read(_ctx(), arguments.get("site"))
     elif name == "cicada_explore_start":
-        return mcp_tools.explore_start(_ctx(), arguments.get("scope"), arguments.get("origins"))
+        return mcp_tools.explore_start(_ctx(), arguments.get("scope"), arguments.get("origins"), arguments.get("look"))
     elif name == "cicada_record_check":
         return handle_record_check(
             arguments.get("item_id", ""), arguments.get("source", ""), arguments.get("outcome", ""),

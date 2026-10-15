@@ -10,8 +10,11 @@ wait_for_network_idle — are already in scope there), with the plan Cicada's cl
 
 It prints one JSON object: the outcome, when it was captured (aware UTC), the final URL and HTTP status, the paths of
 the screenshots it saved, and the page's structure (title, description, JSON-LD, the h1–h3 outline, fonts, CSS
-custom properties, notable components, at most 1,500 words of visible text). Hand those fields to
-`cicada_record_capture`. Cicada reads the colours and the look's hash from the pixels itself.
+custom properties, notable components, at most 1,500 words of visible text) and `design`: the page's computed type
+and colour roles, read in the page by one bounded script (`_DESIGN_JS`: the body text, headings, captions, links and a
+drop cap — family, size, weight, line-height, letter-spacing, colour — plus the page's ground and its most-used
+colours). Hand those fields to `cicada_record_capture`. Cicada reads the colours and the look's hash from the pixels
+itself, and checks `design` against its token schema (`api/services/design_tokens.py`).
 
 The plan (Cicada's, from the person's reason; G166 slice 2) says how far to go. With no reason it is the saved page
 alone: a viewport and a thumbnail. A reason adds page kinds (``pages``: the front page, pricing, docs, a product page,
@@ -37,7 +40,7 @@ from datetime import datetime, timezone
 from urllib import robotparser
 from urllib.parse import urlsplit, urlunsplit
 
-EXPLORE_VERSION = "2"
+EXPLORE_VERSION = "3"
 MAX_PAGES = 6
 PACE_SECONDS = 8
 ROBOTS_MAX = 65536
@@ -137,6 +140,59 @@ _PAGE_JS = r"""
 """
 
 
+#: The page's computed type and colour roles (looks v2). Computed styles, not stylesheet text: a framework's hashed font
+#: names (``__Newsreader_a1b2c3``) are what the page renders, and Cicada cleans them. Bounded: at most 400 paragraphs
+#: looked at for the body text and 2,500 visible elements sampled for the colours; nothing is clicked, typed or changed.
+_DESIGN_JS = r"""
+(() => {
+  const vis = e => { if (!e) return false; const r = e.getBoundingClientRect();
+    if (r.width < 2 || r.height < 2) return false; const c = getComputedStyle(e);
+    return c.display !== 'none' && c.visibility !== 'hidden' && c.opacity !== '0'; };
+  const pick = sels => { for (const s of sels) { let all; try { all = document.querySelectorAll(s); } catch (e) { continue; }
+    for (const e of Array.from(all).slice(0, 200)) { if (vis(e) && (e.innerText || '').trim()) return e; } } return null; };
+  const style = (e, pseudo) => { if (!e) return null; const c = getComputedStyle(e, pseudo || null);
+    return {family: c.fontFamily, size: c.fontSize, weight: c.fontWeight, line_height: c.lineHeight,
+            letter_spacing: c.letterSpacing, color: c.color}; };
+  const rgb = v => { const m = /rgba?\(([^)]+)\)/.exec(v || ''); if (!m) return null;
+    const p = m[1].split(/[\s,/]+/).filter(Boolean).map(Number); if (p.length > 3 && p[3] < 0.05) return null; return p.slice(0, 3); };
+  const hex = p => '#' + p.map(x => Math.max(0, Math.min(255, Math.round(x))).toString(16).padStart(2, '0')).join('');
+  const chroma = p => (Math.max(...p) - Math.min(...p)) / 255;
+  const paras = Array.from(document.querySelectorAll('main p, article p, p')).slice(0, 400).filter(vis);
+  const body = paras.slice().sort((a, b) => (b.innerText || '').length - (a.innerText || '').length)[0] || document.body;
+  const heading = pick(['h1', 'h2']);
+  const sub = pick(['h2', 'h3']);
+  const type = {body: style(body), heading: style(heading),
+    subheading: sub && sub !== heading ? style(sub) : null,
+    caption: style(pick(['figcaption', 'caption', '[class*="caption" i]', 'small', 'time'])),
+    link: style(pick(['main p a[href]', 'article p a[href]', 'p a[href]', 'main a[href]', 'a[href]']))};
+  const first = paras[0];
+  if (first) { const fl = getComputedStyle(first, '::first-letter'); const base = parseFloat(getComputedStyle(first).fontSize) || 16;
+    if ((parseFloat(fl.fontSize) || 0) > base * 1.6 || (fl.cssFloat || fl.float) === 'left') type.drop_cap = style(first, '::first-letter'); }
+  Object.keys(type).forEach(k => { if (!type[k]) delete type[k]; });
+  let ground = rgb(getComputedStyle(document.body).backgroundColor) || rgb(getComputedStyle(document.documentElement).backgroundColor) || [255, 255, 255];
+  const text = {}, area = {};
+  const add = (bag, p, w) => { if (!p) return; const h = hex(p); bag[h] = (bag[h] || 0) + w; };
+  const els = Array.from(document.querySelectorAll('body *')).slice(0, 2500);
+  for (const e of els) { const r = e.getBoundingClientRect(); if (r.width < 1 || r.height < 1 || r.top > innerHeight * 3) continue;
+    const c = getComputedStyle(e); if (c.visibility === 'hidden' || c.display === 'none') continue;
+    const own = Array.from(e.childNodes).filter(n => n.nodeType === 3).map(n => n.textContent.trim()).join('').length;
+    if (own) add(text, rgb(c.color), own);
+    add(area, rgb(c.backgroundColor), Math.min(r.width * r.height, innerWidth * innerHeight));
+    if (parseFloat(c.borderTopWidth) > 0 && c.borderTopStyle !== 'none') add(text, rgb(c.borderTopColor), r.width); }
+  const gh = hex(ground);
+  const rank = bag => Object.entries(bag).sort((a, b) => b[1] - a[1]).map(([h]) => h);
+  const used = [...new Set([...rank(text).slice(0, 6), ...rank(area).filter(h => h !== gh).slice(0, 4)])].slice(0, 10);
+  const parse = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+  const ink = type.body ? rgb(type.body.color) : null;
+  const linkc = type.link ? rgb(type.link.color) : null;
+  const accent = [linkc, ...used.map(parse)].find(p => p && chroma(p) >= 0.3);
+  const lum = p => p.reduce((s, x) => s + x, 0) / 3;
+  const wash = rank(area).map(parse).find(p => hex(p) !== gh && chroma(p) > 0.02 && Math.abs(lum(p) - lum(ground)) < 60);
+  const colors = {ground: gh}; if (ink) colors.ink = hex(ink); if (accent) colors.accent = hex(accent); if (wash) colors.wash = hex(wash);
+  return JSON.stringify({type, colors, used});
+})()
+"""
+
 _ROBOTS_JS = r"""
 fetch('/robots.txt', {credentials: 'omit', redirect: 'follow', cache: 'no-store'})
   .then(r => r.text().then(t => JSON.stringify({status: r.status, text: t.slice(0, %d)})))
@@ -189,6 +245,15 @@ def _settle(timeout=8.0):
 
 def _read_page():
     return json.loads(js(_PAGE_JS))
+
+
+def _read_design():
+    """The page's computed type and colour roles, or None when the script could not read them (the capture stands)."""
+    try:
+        got = json.loads(js(_DESIGN_JS) or "null")
+    except Exception:  # noqa: BLE001
+        return None
+    return got if isinstance(got, dict) else None
 
 
 def _scroll_through(height):
@@ -475,6 +540,9 @@ def explore_capture(url, depth="capture", context="signed_in", out_dir=None, pla
         if outcome in ("not_found", "parked"):
             return json.dumps(result)
         wants = (plan.get("pages") or [{}])[0].get("shots") or ["viewport"]
+        design = _read_design()
+        if design:
+            result["design"] = design
         result["shots"] = _shots(out_dir, "", wants, page)
         if plan.get("section"):
             section = _section(page, plan, focus_heading)
@@ -507,6 +575,8 @@ def explore_capture(url, depth="capture", context="signed_in", out_dir=None, pla
                 result["pages"].append(entry)
                 break   # a wall ends the visit: no screenshot of it, nothing after it
             entry["page"] = _page_fields(sub)
+            if entry["outcome"] == "captured" and (sub_design := _read_design()):
+                entry["design"] = sub_design
             if entry["outcome"] == "captured":
                 wants = (by_kind.get(kind) or {}).get("shots") or ["viewport"]
                 entry["shots"] = _shots(out_dir, f"p{i}-", wants, sub)

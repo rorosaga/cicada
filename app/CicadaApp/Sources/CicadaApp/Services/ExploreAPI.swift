@@ -10,6 +10,8 @@ protocol ExploreAPI: Sendable {
     func startExplore(scope: ExploreScope, origins: [String]) async throws -> ExploreStartResponse
     func stopExplore() async throws -> ExploreStopResponse
     func fetchExplorePrompt() async throws -> ExplorePromptResponse
+    /// Looks v2 — "Save its look" on one saved link (`POST /explore/look`).
+    func saveLook(mediaEntityId: String, url: String) async throws -> ExploreLookResponse
 }
 
 extension APIClient: ExploreAPI {
@@ -27,6 +29,10 @@ extension APIClient: ExploreAPI {
 
     func stopExplore() async throws -> ExploreStopResponse {
         try await postVideo("/explore/stop", body: [:])
+    }
+
+    func saveLook(mediaEntityId: String, url: String) async throws -> ExploreLookResponse {
+        try await postVideo("/explore/look", body: ["entityId": mediaEntityId, "url": url])
     }
 
     func fetchExplorePrompt() async throws -> ExplorePromptResponse {

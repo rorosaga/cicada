@@ -15,6 +15,9 @@ the reason is read from three places, all deterministic and all already in the b
   design, across the site, and "their docs are great" names the docs page.
 * **What they said about it in conversations** — the current claims on the saved page whose evidence is the person's
   own turn (``evidence.kind == "user"``) or that are ``user_stated``, read through the same families.
+* **One ask on the link** (looks v2, 2026-10-15) — the queue row's ``asked``: ``look`` is the person's "Save its look"
+  click (or a trusted agent they asked), a design reason whose landing picture becomes a Look even when the look has
+  not changed since the last visit (``save_look``).
 
 **The split (owner's question: "say how you split it").** Cicada's backend never calls a model to plan. It turns the
 reason into a **plan** — which kinds of pages to visit, in order, what to capture on each, the page cap, the words to
@@ -214,7 +217,7 @@ def saved_because(memory_path: Path, episode_id: str | None) -> str | None:
 
 
 def plan_for(why: dict | None = None, *, words: list[str] | None = None, said: list[str] | None = None,
-             known: dict[str, str] | None = None, walled: list[str] | None = None) -> dict:
+             known: dict[str, str] | None = None, walled: list[str] | None = None, asked: str | None = None) -> dict:
     """The plan for one site, deterministic.
 
     ``why`` is G191's answer (``reasons``, ``project``, ``text``); ``words`` any other words the person wrote about the
@@ -224,6 +227,9 @@ def plan_for(why: dict | None = None, *, words: list[str] | None = None, said: l
     why = why if isinstance(why, dict) else {}
     because: list[dict] = []
     reasons: list[str] = []
+    if asked == "look":
+        reasons.append("design")
+        because.append({"from": "ask", "signal": "look"})
     for r in why.get("reasons") or []:
         if r in REASONS and r not in reasons:
             reasons.append(r)
@@ -280,6 +286,8 @@ def plan_for(why: dict | None = None, *, words: list[str] | None = None, said: l
             "avoid": list(AVOID), "because": because or [{"from": "default", "signal": "minimal"}]}
     if any(p.get("auto_look") for p in plans):
         plan["auto_look"] = True
+    if asked == "look":
+        plan["save_look"] = True
     if any(p.get("lift") for p in plans):
         plan["lift"] = True
     if any(p.get("section") for p in plans):
@@ -296,9 +304,10 @@ def plan_for_depth(depth: str | None) -> dict:
     return plan_for({"reasons": [reason]} if reason else None)
 
 
-def for_site(memory_path: Path, site) -> dict:
+def for_site(memory_path: Path, site, asked: str | None = None) -> dict:
     """The plan for a :class:`explore_candidates.SavedSite`: its why, the ``## Saved because`` words on its episode,
-    what the person said about it in conversations, and what the site map already knows about the site."""
+    what the person said about it in conversations, what the site map already knows about the site, and the queue
+    row's one ask (``asked``)."""
     from api.services import media_ingestor, site_map
 
     entry = media_ingestor.load_url_index(memory_path).get(site.key) or {}
@@ -306,7 +315,7 @@ def for_site(memory_path: Path, site) -> dict:
     smap = site_map.read(memory_path, site.site)
     return plan_for(site.why, words=[because] if because else None,
                     said=said_in_conversations(memory_path, site.entity_id),
-                    known=site_map.known_by_kind(smap), walled=site_map.walled_urls(smap))
+                    known=site_map.known_by_kind(smap), walled=site_map.walled_urls(smap), asked=asked)
 
 
 def depth_of(why: dict | None) -> str:

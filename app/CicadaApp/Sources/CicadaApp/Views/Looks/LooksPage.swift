@@ -282,23 +282,31 @@ struct LooksTile: View {
     }
 }
 
-/// The colours in proportion to their share — one strip, no labels (the detail column names them).
+/// The colours as one strip, no labels (the detail column names them). Looks v2: the ground takes half, and the
+/// colours after it share the rest equally in their salience order — by area, a thin cobalt ink that *is* the look
+/// drew as a hairline beside 90 % off-white.
 struct LooksPaletteStrip: View {
     let colours: [DesignColour]
 
     var body: some View {
         GeometryReader { geo in
-            let total = max(colours.reduce(0) { $0 + $1.share }, 0.0001)
+            let widths = LooksPaletteStrip.widths(colours, total: geo.size.width)
             HStack(spacing: 0) {
-                ForEach(Array(colours.enumerated()), id: \.offset) { _, c in
-                    Rectangle().fill(LooksColour.color(c.hex))
-                        .frame(width: geo.size.width * c.share / total)
+                ForEach(Array(colours.enumerated()), id: \.offset) { i, c in
+                    Rectangle().fill(LooksColour.color(c.hex)).frame(width: widths[i])
                 }
             }
         }
         .clipShape(Capsule())
         .overlay(Capsule().strokeBorder(CicadaTheme.border, lineWidth: 1))
         .accessibilityHidden(true)
+    }
+
+    /// Each colour's width: the first (the ground) half, the rest equal; one colour fills the strip.
+    nonisolated static func widths(_ colours: [DesignColour], total: CGFloat) -> [CGFloat] {
+        guard colours.count > 1 else { return colours.map { _ in total } }
+        let rest = total / 2 / CGFloat(colours.count - 1)
+        return [total / 2] + Array(repeating: rest, count: colours.count - 1)
     }
 }
 
@@ -353,13 +361,14 @@ struct LooksDetailColumn: View {
                 if let raw = summary.url, let url = URL(string: raw) {
                     InlineLink(title: summary.site ?? Copy.Looks.openPage, help: raw) { NSWorkspace.shared.open(url) }
                 }
-                section(Copy.Looks.liked) {
-                    Text((detail?.note).flatMap { $0.isEmpty ? nil : $0 } ?? (summary.notePreview.isEmpty
-                                                                                ? Copy.Looks.noNote : summary.notePreview))
-                        .font(CicadaTheme.bodyFont)
-                        .foregroundStyle(CicadaTheme.textPrimary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .textSelection(.enabled)
+                if let heading = LooksNote.heading(summary) {
+                    section(heading) {
+                        Text(LooksNote.text(summary: summary, detail: detail))
+                            .font(CicadaTheme.bodyFont)
+                            .foregroundStyle(summary.noteIsTheirs ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .textSelection(.enabled)
+                    }
                 }
                 if !summary.palette.isEmpty {
                     section(Copy.Looks.palette) {
@@ -371,6 +380,10 @@ struct LooksDetailColumn: View {
                                         .overlay(Circle().strokeBorder(CicadaTheme.border, lineWidth: 1))
                                     Text(c.hex).font(CicadaTheme.metaFont).monospacedDigit()
                                         .foregroundStyle(CicadaTheme.textPrimary).textSelection(.enabled)
+                                    if let role = c.role {
+                                        Text(Copy.Looks.colourRole(role)).font(CicadaTheme.metaFont)
+                                            .foregroundStyle(CicadaTheme.textTertiary)
+                                    }
                                     Spacer()
                                     Text(Copy.Looks.share(c.share)).font(CicadaTheme.metaFont).monospacedDigit()
                                         .foregroundStyle(CicadaTheme.textTertiary)
@@ -385,7 +398,46 @@ struct LooksDetailColumn: View {
                         }
                     }
                 }
-                if !summary.fonts.isEmpty {
+                if let roles = detail?.colourRoles, !roles.isEmpty {
+                    section(Copy.Looks.colourRoles) {
+                        VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+                            ForEach(roles, id: \.self) { r in
+                                HStack(spacing: CicadaTheme.spacingSM) {
+                                    Circle().fill(LooksColour.color(r.hex))
+                                        .frame(width: CicadaTheme.scaled(14), height: CicadaTheme.scaled(14))
+                                        .overlay(Circle().strokeBorder(CicadaTheme.border, lineWidth: 1))
+                                    Text(Copy.Looks.colourRole(r.role)).font(CicadaTheme.metaFont)
+                                        .foregroundStyle(CicadaTheme.textPrimary)
+                                    Text(r.hex).font(CicadaTheme.metaFont).monospacedDigit()
+                                        .foregroundStyle(CicadaTheme.textSecondary).textSelection(.enabled)
+                                    Spacer()
+                                    Text(Copy.Looks.colourSource(r.source)).font(CicadaTheme.metaFont)
+                                        .foregroundStyle(CicadaTheme.textTertiary)
+                                }
+                            }
+                        }
+                    }
+                }
+                if let roles = detail?.typeRoles, !roles.isEmpty {
+                    section(Copy.Looks.type) {
+                        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+                            ForEach(roles, id: \.self) { t in
+                                VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
+                                    Text(Copy.Looks.typeRole(t.role)).font(CicadaTheme.metaFont)
+                                        .foregroundStyle(CicadaTheme.textTertiary)
+                                    Text(t.family).font(CicadaTheme.bodyFont)
+                                        .foregroundStyle(CicadaTheme.textPrimary).textSelection(.enabled)
+                                    let line = Copy.Looks.typeDetail(size: t.size, weight: t.weight,
+                                                                     lineHeight: t.lineHeight)
+                                    if !line.isEmpty {
+                                        Text(line).font(CicadaTheme.metaFont).monospacedDigit()
+                                            .foregroundStyle(CicadaTheme.textSecondary)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else if !summary.fonts.isEmpty {
                     section(Copy.Looks.type) {
                         Text(summary.fonts.joined(separator: ", "))
                             .font(CicadaTheme.bodyFont)
@@ -417,6 +469,24 @@ struct LooksDetailColumn: View {
             SectionLabel(label)
             content()
         }
+    }
+}
+
+/// Looks v2 — whose words a note is. "What you liked" is only ever the person's own; an agent's note sits under
+/// "Noted by <agent>", and an agent's empty note shows no section at all.
+enum LooksNote {
+    static func agentName(_ id: String) -> String {
+        id == "agent" || id == "unknown" || id.isEmpty ? Copy.Looks.anAgent : OriginIconography.label(for: id)
+    }
+
+    static func heading(_ summary: DesignRefSummary) -> String? {
+        if summary.noteIsTheirs { return Copy.Looks.liked }
+        return summary.notePreview.isEmpty ? nil : Copy.Looks.notedBy(agentName(summary.noteBy))
+    }
+
+    static func text(summary: DesignRefSummary, detail: DesignRef?) -> String {
+        if let note = detail?.note, !note.isEmpty { return note }
+        return summary.notePreview.isEmpty ? Copy.Looks.noNote : summary.notePreview
     }
 }
 

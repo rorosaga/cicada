@@ -98,7 +98,9 @@ def test_a_reference_is_one_markdown_file_and_its_screenshot_in_the_bank(bank):
     assert fm["tokens"]["fonts"] == ["Inter"] and fm["tokens"]["colors"] == ["#1f2430"]
     assert fm["look"] == ["dark", "muted"] and fm["tags"] == ["dashboards"]
     assert f"![Screenshot](../assets/design/{ref.id}.png)" in parsed.body
-    assert "## What I liked\n\nCalm dark panels" in parsed.body and "```css" in parsed.body
+    # Looks v2: an agent's note is the agent's, under its own name — never "What I liked".
+    assert "## Noted by Claude Code\n\nCalm dark panels" in parsed.body and "## What I liked" not in parsed.body
+    assert fm["note_by"] == "claude-code" and "```css" in parsed.body
     assert {p.name: p.read_bytes() for p in (bank / "entities").iterdir()} == before, "never an entity page"
     again = design_refs.get_ref(bank, ref.id)
     assert again.note == "Calm dark panels and one soft blue action."
@@ -171,14 +173,16 @@ def test_a_hand_edited_reference_still_reads(bank):
 # --------------------------------------------------------------------------- what a look is made of
 
 
-def test_the_palette_is_deterministic_and_largest_first():
+def test_the_palette_is_deterministic_ground_first_then_by_salience():
     img = np.zeros((120, 200, 3), np.uint8)
     img[:] = (20, 24, 32)
     img[:30] = (250, 250, 250)
     img[60:80, 20:120] = (255, 90, 40)
     first = design_palette.palette(img)
     assert first == design_palette.palette(img.copy())
-    assert [c["hex"] for c in first] == ["#141820", "#fafafa", "#ff5a28"]
+    # Looks v2: the ground, then salience (saturation and contrast), not area — the orange outranks the larger white.
+    assert [c["hex"] for c in first] == ["#141820", "#ff5a28", "#fafafa"]
+    assert [c["role"] for c in first] == ["ground", "accent", "ink"]
     assert abs(sum(c["share"] for c in first) - 1.0) < 0.01
     assert design_palette.describe(first)[:2] == ["dark", "vivid"] and "orange" in design_palette.describe(first)
 

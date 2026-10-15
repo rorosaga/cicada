@@ -68,5 +68,43 @@ extension Copy {
         static let turnOn = "Turn on"
         static let pictureUnsupported = "Understanding images needs macOS 15 or later on a Mac with Apple silicon. Words still work."
         static let pictureMissing = "Cicada doesn't understand images yet, so this compared words."
+
+        // MARK: Looks v2 (2026-10-15) — whose words, the page's type and colour roles, and "Save its look"
+        /// An agent's note, under its own name — never "What you liked", which is only ever the person's words.
+        static func notedBy(_ agent: String) -> String { "Noted by \(agent)" }
+        static let anAgent = "an agent"
+        static let colourRoles = "Colour roles"
+        static func typeRole(_ role: String) -> String {
+            switch role {
+            case "body": "Body"
+            case "heading": "Headings"
+            case "subheading": "Subheadings"
+            case "caption": "Captions"
+            case "link": "Links"
+            case "drop_cap": "Drop cap"
+            default: role.capitalized
+            }
+        }
+        static func colourRole(_ role: String) -> String {
+            switch role {
+            case "ground": "Ground"
+            case "ink": "Ink"
+            case "accent": "Accent"
+            case "wash": "Wash"
+            default: role.capitalized
+            }
+        }
+        static func colourSource(_ source: String) -> String { source == "page" ? "from the page" : "from the picture" }
+        /// "19 px · 400 · 30.4 px leading" — the size, the weight and the line height when the page set them.
+        static func typeDetail(size: Double?, weight: Int?, lineHeight: Double?) -> String {
+            func px(_ v: Double) -> String { v == v.rounded() ? "\(Int(v)) px" : String(format: "%.1f px", v) }
+            return [size.map(px), weight.map { "\($0)" }, lineHeight.map { "\(px($0)) leading" }]
+                .compactMap { $0 }.joined(separator: " · ")
+        }
+        static let saveLook = "Save its look"
+        static let saveLookHelp = "Asks your agent to capture this page's look — a screenshot, its type and colours — "
+            + "and keep it in Looks"
+        static let saveLookQueued = "Queued for your agent. The prompt to hand it is copied."
+        static let saveLookFailed = "Couldn't queue that look."
     }
 }
