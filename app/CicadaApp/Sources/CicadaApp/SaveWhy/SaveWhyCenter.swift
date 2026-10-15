@@ -156,7 +156,9 @@ final class SaveWhyCenter {
 
     // G191 v3 — the unconfirmed panel.
     /// An answer given on an unconfirmed panel that closed before the backend agreed: sent once it does.
-    @ObservationIgnored private(set) var unconfirmedAnswer: (answer: SavedWhyAnswer, at: Date, channel: String)?
+    /// `url` is the link the app's diff had named when it was given (nil when the panel was still pending).
+    @ObservationIgnored private(set) var unconfirmedAnswer: (answer: SavedWhyAnswer, at: Date, channel: String,
+                                                             url: String?)?
     /// The withdraw timer of the unconfirmed panel (or its held answer).
     @ObservationIgnored private var bound: Task<Void, Never>?
     /// When each way in last opened or named the panel (uptime seconds) — for the stage timings, never shown.
@@ -293,6 +295,7 @@ final class SaveWhyCenter {
             return
         }
         if unconfirmedAnswer?.channel == item.channel {
+            if unconfirmedAnswer?.url == nil { unconfirmedAnswer?.url = item.url }   // the pending answer's link
             armBound(SaveWhyPolicy.confirmBound)   // the panel closed with an answer: wait for the backend with it
             return
         }
@@ -366,7 +369,17 @@ final class SaveWhyCenter {
     }
 
     /// The backend agreed about `item` on the unconfirmed panel's browser: bind, and send an answer already given.
+    ///
+    /// Review 2026-10-15: only the link the app's diff named (or any, while the panel is still pending with none) — a
+    /// backend that agrees about another link on the same browser never takes over the answer given about the first:
+    /// the panel withdraws, or the held answer is dropped, and nothing is kept.
     private func confirm(_ item: FreshBookmark, early: Int?) {
+        let named = isShowing && !confirmed && state?.channel == item.channel ? state?.item?.url
+                                                                             : unconfirmedAnswer?.url
+        if let named, named != item.url {
+            withdraw()
+            return
+        }
         bound?.cancel()
         bound = nil
         if let early { awaitingIngest[item.url] = (item.channel, early) }
@@ -481,7 +494,7 @@ final class SaveWhyCenter {
                 guard !previewing, let state else { continue }
                 guard confirmed, let item = state.item else {
                     // G191 v3: not yet confirmed — kept until the backend agrees, dropped if it never does.
-                    unconfirmedAnswer = (answer, now(), state.channel)
+                    unconfirmedAnswer = (answer, now(), state.channel, state.item?.url)
                     continue
                 }
                 let entry = SaveWhyOutbox.Entry(url: item.url, answer: answer, at: now(), addedAt: item.addedAt)

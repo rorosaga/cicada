@@ -466,7 +466,7 @@ watched: "To ask at once, Cicada notices when Chrome shows its bookmark bubble �
 are, never at what they show, and needs no permission." The optional instant link through Apple Events (`URL of active
 tab`) is not built: the diff fills it 2.5 s after the click without a permission.
 
-**Ask why, v4 (2026-10-15, branch `feat/bookmarks-v4`).** *A few basic reasons* (owner: "keep options to a minimal"):
+**Ask why, v4 (2026-10-15).** *A few basic reasons* (owner: "keep options to a minimal"):
 the panel offers exactly four — The design · The product · To read later · Useful someday (`design`, `product`,
 `read_later`, `someday`) — in two fixed rows of two (`SaveWhyPanelLayout`; at 12 pt one row needs ≈ 448 pt and the card
 has 416), and the field's placeholder is "Something else…". No project chips (`tapProject` is gone; the options' `projects`

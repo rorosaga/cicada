@@ -373,6 +373,57 @@ final class BookmarksV4Tests: XCTestCase {
         XCTAssertTrue(posts.isEmpty, "a withdrawn panel keeps nothing")
     }
 
+    private func look(_ item: FreshBookmark) -> BookmarkSyncResult {
+        var result = BookmarkSyncResult(new: 0, skipped: 1, sources: [
+            BookmarkSyncSourceSummary(origin: "chrome-bookmark", channel: "chrome-bookmarks", found: 2, new: 0,
+                                      skipped: 1, firstSync: false)])
+        result.fresh = [item]
+        result.freshTotal = 1
+        return result
+    }
+
+    private func saved(_ url: String) -> FreshBookmark {
+        FreshBookmark(url: url, title: "Placeholder", origin: "chrome-bookmark", channel: "chrome-bookmarks",
+                      addedAt: ISO8601DateFormatter().string(from: Date()))
+    }
+
+    /// Review 2026-10-15: the backend agreeing about another link on the same browser never takes over the answer
+    /// given about the link the diff named — the panel withdraws (or the held answer is dropped) and nothing is kept.
+    func testTheBackendsLinkMustBeTheOneTheDiffNamed() async {
+        let (first, _, api) = center()
+        first.candidate(saved("https://alpha.example/a"))
+        first.send(.tapReason("design"))
+        await first.noticed(look(saved("https://beta.example/b")), live: true, early: 1)
+        XCTAssertEqual(first.lastOutcome, .withdrawn)
+        XCTAssertFalse(first.isShowing)
+        XCTAssertFalse(first.confirmed)
+
+        // The panel left with an answer before the backend spoke: a different link drops it.
+        let (held, _, heldAPI) = center()
+        held.candidate(saved("https://alpha.example/a"))
+        held.send(.tapReason("product"))
+        held.send(.escape)
+        XCTAssertEqual(held.unconfirmedAnswer?.url, "https://alpha.example/a")
+        await held.noticed(look(saved("https://beta.example/b")), live: true, early: 1)
+        XCTAssertNil(held.unconfirmedAnswer)
+        await held.settle()
+        let heldPosts = await heldAPI.posts
+        XCTAssertTrue(heldPosts.isEmpty, "never posted against another link")
+
+        // The same link binds and posts.
+        let (same, _, sameAPI) = center()
+        same.candidate(saved("https://alpha.example/a"))
+        same.send(.tapReason("product"))
+        same.send(.escape)
+        await same.noticed(look(saved("https://alpha.example/a")), live: true, early: 1)
+        await same.settle()
+        let samePosts = await sameAPI.posts
+        XCTAssertEqual(samePosts, ["https://alpha.example/a"])
+        await first.settle()
+        let posts = await api.posts
+        XCTAssertTrue(posts.isEmpty)
+    }
+
     /// The instant look reports a removal-only change, which is what withdraws the Edit-then-Remove panel.
     func testTheDiffCountsARemovalOnALiveRead() async {
         let diff = BookmarkFileDiff()
