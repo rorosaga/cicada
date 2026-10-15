@@ -523,7 +523,10 @@ leaves Chrome untouched — `BookmarkRemoveFlow`), and only then is Chrome chang
 targeted: the node in Chrome's default-profile file whose `date_added` matches the record's `lastSavedAt`
 (`ChromeRemovalPlan`); with several copies of the link the confirmation says so and offers "Remove the copy saved …" or
 "Remove all N copies". The script (`ChromeBookmarkScript`, `osascript` as Cicada's child, so the one-time "Cicada
-wants to control Google Chrome" comes only now) addresses each node by id and folder chain (digits only) but deletes it
+wants to control Google Chrome" comes only now) addresses each node and each folder of its chain by its `guid` —
+what Chrome's AppleScript calls `id` (fix 2026-10-15, verified live: the numeric `id` fails with -1728, so v3's script
+deleted nothing) — quoted and accepted only as an 8-4-4-4-12 hex UUID, the numeric id (digits only) only for a node
+with no `guid` (an older Chrome); the generated script is compiled in a test (`osacompile`, never run) — but deletes it
 only `if URL of b is targetURL` — Chrome's Apple Events act on the last-used profile, where the same id can be another
 bookmark — with the URL passed as `on run argv`'s argument, never in the source, and returns how many it really
 deleted (0: "the Chrome profile that's open doesn't hold this bookmark"). Mobile bookmarks cannot be reached and are
