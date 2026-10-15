@@ -29,9 +29,12 @@ extension Copy {
         static let showAll = "Show all"
         static let showLogos = "Show logos"
         static let showLogosHelp = "Show entity logos on graph nodes"
+        /// 2026-10-15 — Obsidian's orphans filter, in plain words: pages and saved links that link to nothing yet.
+        static let showUnlinked = "Show unlinked"
+        static let showUnlinkedHelp = "Show pages and saved links that are not connected to anything yet"
         static let dashed = "dashed"
         static let hiddenByDefault = "hidden by default"
-        static let keyBigger = "Bigger means more confident"
+        static let keyBigger = "Bigger means more connected"
         static let keyDashed = "Dashed means fading"
         static let keyPulse = "Amber ring: a question waits"
 

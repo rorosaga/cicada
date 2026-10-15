@@ -61,15 +61,18 @@ canvasStub = {
 
 // `opts.frames`: requestAnimationFrame queues its callback instead of dropping it, and `pumpFrame()` runs the queued
 // frames once (what the browser does on its next frame) — so a test can watch whether the redraw loop ends.
+// `opts.canvas`: a real canvas (e.g. a headless canvas package's) to draw on instead of the counting stub, with
+// `opts.dpr` its pixel ratio — the picture route the look's renders take.
 function loadGraph(opts = {}) {
+    const cv = opts.canvas || canvasStub;
     const clock = { now: 0 };
     let frameQueue = [];
     const rAF = opts.frames ? (cb) => { frameQueue.push(cb); return frameQueue.length; } : noop;
     const sandbox = {
         console,
-        document: { getElementById: () => canvasStub, addEventListener: noop, documentElement: {}, body: {} },
+        document: { getElementById: () => cv, addEventListener: noop, documentElement: {}, body: {} },
         window: {
-            devicePixelRatio: 2, innerWidth: 1200, innerHeight: 800, addEventListener: noop,
+            devicePixelRatio: opts.dpr || 2, innerWidth: 1200, innerHeight: 800, addEventListener: noop,
             // Swallow the JS->Swift messages (nodeClicked etc.) the click-release path posts.
             webkit: { messageHandlers: { cicada: { postMessage: noop } } },
         },

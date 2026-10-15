@@ -139,6 +139,144 @@ function bankShaped(seed = 7, opts = {}) {
     return { nodes, links };
 }
 
+// The owner's bank as measured on 2026-10-15 (shape only, placeholder ids; brief graph-obsidian):
+//
+//   4,544 nodes, 41,570 links but only 9,046 distinct pairs (a pair joined by several claims draws several lines)
+//   996 components: one giant of 3,529, then 6, 4, 3, 3, 3, 2 x 6, and 984 isolates
+//   isolates by type: media 846, skill 85, concept 23, tool 13, company 8, location 3, project 3, person 2, directory 1
+//   types: concept 1,142, tool 877, media 846, project 671, company 409, person 251, skill 149, location 100,
+//          directory 61, hub 37, organization 1
+//   raw degree (parallels counted): the owner's page 16,679, then 1,612, 615, 576, 474, 455; median 8
+//
+// The giant is the owner's page with a large fan of distinct neighbours, 37 hubs (type and tag hubs, <= 150 members),
+// a few heavy pages, and a sparse community web; every pair carries 1-n parallel links so the raw counts match.
+// `opts.pending`: how many pages carry a waiting question (default 40: 30 saved links, 10 pages in the giant).
+const ISOLATES_2026_10_15 = [["media", 846], ["skill", 85], ["concept", 23], ["tool", 13], ["company", 8],
+                             ["location", 3], ["project", 3], ["person", 2], ["directory", 1]];
+const TYPES_2026_10_15 = { concept: 1142, tool: 877, media: 846, project: 671, company: 409, person: 251, skill: 149,
+                           location: 100, directory: 61, hub: 37, organization: 1 };
+
+function bankShaped1015(seed = 7, opts = {}) {
+    let s = seed >>> 0;
+    const rnd = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
+    const pick = (arr) => arr[Math.floor(rnd() * arr.length)];
+    const nodes = [], links = [];
+    const status = () => (rnd() < 0.08 ? "decaying" : "active");
+    const node = (id, type, extra = {}) => {
+        const n = { id, name: id, type, status: status(), confidence: 0.3 + rnd() * 0.7, ...extra };
+        nodes.push(n);
+        return n;
+    };
+    // the type pool for every non-isolate, non-hub page
+    const pool = [];
+    const isoLeft = Object.fromEntries(ISOLATES_2026_10_15);
+    for (const [t, c] of Object.entries(TYPES_2026_10_15)) {
+        if (t === "hub") continue;
+        const k = c - (isoLeft[t] || 0) - (t === "person" ? 1 : 0);   // the owner is one person
+        for (let i = 0; i < k; i++) pool.push(t);
+    }
+    for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [pool[i], pool[j]] = [pool[j], pool[i]]; }
+    let poolAt = 0;
+    const nextType = () => pool[poolAt++];
+
+    // ---- the giant: the owner, 37 hubs, the rest pages ----
+    const owner = node("owner", "person", { confidence: 1, status: "active", isOwner: true });
+    const HUB_SIZES = [150, 150, 150, 150, 150, 140, 120, 100, 80, 70, 60, 50, 45, 40, 35, 30, 28, 25, 22, 20, 18, 16,
+                       15, 14, 13, 12, 11, 10, 9, 8, 8, 7, 7, 6, 6, 5, 5];
+    const hubs = HUB_SIZES.map((_, i) => node("hub" + i, "hub", { isHub: true, confidence: 1, status: "active" }));
+    const SMALL = [6, 4, 3, 3, 3, 2, 2, 2, 2, 2, 2];
+    const smallTotal = SMALL.reduce((a, b) => a + b, 0);
+    const pagesN = pool.length - smallTotal;           // 3,529 - 1 - 37 = 3,491
+    const COMMUNITIES = 14;
+    const pages = [];
+    for (let i = 0; i < pagesN; i++) {
+        // Chung-Lu weight, most pages light, a long tail
+        const w = 1 + 30 * Math.pow(rnd(), 4);
+        pages.push(node("p" + i, nextType(), { community: i % COMMUNITIES, _w: w }));
+    }
+    // distinct pairs, then parallel copies to reach the raw counts
+    const pairs = new Map();   // key -> [a, b, multiplicity]
+    const addPair = (a, b, m = 1, extra) => {
+        if (a === b) return false;
+        const key = a < b ? a + "\u0000" + b : b + "\u0000" + a;
+        if (pairs.has(key)) return false;
+        pairs.set(key, [a, b, m, extra]);
+        return true;
+    };
+    // 1. a spanning web: every page joins a page of its community met before it (a sparse tree)
+    const seenByComm = Array.from({ length: COMMUNITIES }, () => []);
+    pages.forEach((p, i) => {
+        const pool2 = seenByComm[p.community];
+        if (pool2.length) addPair(pick(pool2).id, p.id);
+        else if (i > 0) addPair(pages[Math.floor(rnd() * i)].id, p.id);
+        pool2.push(p);
+    });
+    // 2. the owner's fan: 2,000 distinct neighbours
+    const ownerNb = new Set();
+    while (ownerNb.size < 2000) ownerNb.add(pick(pages).id);
+    for (const id of ownerNb) addPair(owner.id, id);
+    // 3. hubs and their members (one "member of" link each), the hub joined to the owner
+    hubs.forEach((h, i) => {
+        let k = 0;
+        while (k < HUB_SIZES[i]) {
+            const m = pick(pages);
+            if (addPair(h.id, m.id, 1, { label: "member of" })) { k += 1; if (!m.hubId) m.hubId = h.id; }
+        }
+        addPair(owner.id, h.id);
+    });
+    // 4. the community web: Chung-Lu, 85 % inside a community, until 9,026 distinct pairs in the giant
+    const byComm = Array.from({ length: COMMUNITIES }, () => []);
+    for (const p of pages) byComm[p.community].push(p);
+    const cum = (arr) => { let t = 0; return arr.map(n => (t += n._w)); };
+    const commCum = byComm.map(cum);
+    const allCum = cum(pages);
+    const draw = (arr, c) => { const r = rnd() * c[c.length - 1]; let lo = 0, hi = c.length - 1; while (lo < hi) { const m = (lo + hi) >> 1; if (c[m] < r) lo = m + 1; else hi = m; } return arr[lo]; };
+    // heavy pages (raw 1,612, 615, 576, 474, 455): many neighbours and many parallel claims
+    const heavy = [pages[0], pages[1], pages[2], pages[3], pages[4]];
+    const HEAVY_NB = [180, 90, 80, 70, 70];
+    heavy.forEach((hp, i) => { let k = 0; while (k < HEAVY_NB[i]) if (addPair(hp.id, pick(pages).id)) k += 1; });
+    const GIANT_PAIRS = 9046 - (smallTotal - SMALL.length);
+    while (pairs.size < GIANT_PAIRS) {
+        const a = draw(pages, allCum);
+        const b = rnd() < 0.85 ? draw(byComm[a.community], commCum[a.community]) : draw(pages, allCum);
+        addPair(a.id, b.id);
+    }
+    // parallel copies: the owner's pairs to 16,679 raw, the heavy pages to their raw counts, the rest to 41,570
+    const pairList = [...pairs.values()];
+    const bump = (pr, by) => { pr[2] += by; };
+    const ownerPairs = pairList.filter(p => p[0] === "owner" || p[1] === "owner");
+    let ownerRaw = ownerPairs.length;
+    while (ownerRaw < 16679) { bump(pick(ownerPairs), 1); ownerRaw += 1; }
+    const HEAVY_RAW = [1612, 615, 576, 474, 455];
+    heavy.forEach((hp, i) => {
+        const mine = pairList.filter(p => (p[0] === hp.id || p[1] === hp.id) && p[0] !== "owner" && p[1] !== "owner");
+        let r = pairList.filter(p => p[0] === hp.id || p[1] === hp.id).reduce((a, p) => a + p[2], 0);
+        while (r < HEAVY_RAW[i]) { bump(pick(mine), 1); r += 1; }
+    });
+    const others = pairList.filter(p => !p[3] && p[0] !== "owner" && p[1] !== "owner" && !heavy.some(h => h.id === p[0] || h.id === p[1]));
+    let total = pairList.reduce((a, p) => a + p[2], 0) + (smallTotal - SMALL.length);
+    while (total < 41570) { bump(pick(others), 1); total += 1; }
+    for (const [a, b, m, extra] of pairList) for (let k = 0; k < m; k++) links.push({ source: a, target: b, ...(extra || {}), ...(extra ? {} : { label: "rel" + k }) });
+
+    // ---- small components ----
+    SMALL.forEach((sz, ci) => {
+        const ids = [];
+        for (let j = 0; j < sz; j++) ids.push(node(`sc${ci}-${j}`, nextType()).id);
+        for (let j = 1; j < sz; j++) links.push({ source: sz === 6 ? ids[0] : ids[j - 1], target: ids[j] });
+    });
+    // ---- isolates ----
+    let k = 0;
+    for (const [type, count] of ISOLATES_2026_10_15) for (let i = 0; i < count; i++) node("iso" + k++, type);
+
+    // waiting questions: on saved links and on a few pages
+    const pending = opts.pending ?? 40;
+    const isoMedia = nodes.filter(n => n.id.startsWith("iso") && n.type === "media");
+    for (let i = 0; i < Math.round(pending * 0.75); i++) pick(isoMedia).hasPending = true;
+    for (let i = 0; i < pending - Math.round(pending * 0.75); i++) pick(pages).hasPending = true;
+    for (const n of nodes) delete n._w;
+    return { nodes, links };
+}
+
 // Connected components over a {nodes, links} payload (string endpoints). Largest first.
 function components(g) {
     const parent = new Map(g.nodes.map(n => [n.id, n.id]));
@@ -247,12 +385,56 @@ function bankGeometry(get, g) {
     };
 }
 
+// What defines the LOOK at rest (2026-10-15, the Obsidian pass), measured on a laid-out graph at the fit-to-view zoom
+// the app opens on (transformForNodes, the canvas the harness stubs: 1200 x 800 pt):
+//   radius*      node radii in wu (p10 / median / p90 / p99 / max) and max / median
+//   coverage     the sum of the drawn discs' areas over the view's area (1 = the view is all disc)
+//   halo*        the satellites (every node outside the body). haloNnCv: the coefficient of variation of each one's
+//                distance to its nearest satellite (a lattice or ruled rows ~0.2, a random scatter ~0.5);
+//                haloClarkEvans: their mean nearest-neighbour distance over a random scatter's at the same density (~1
+//                random, toward 2 even); haloGap: the gap between the body's p99 radius
+//                and the nearest 5 % of the halo, over that radius
+function lookMetrics(get) {
+    const vis = get("visibleNodes");
+    const rad = get("nodeRadius");
+    const radii = vis.map(n => rad(n)).sort((a, b) => a - b);
+    const t = get("transformForNodes(visibleNodes, 60)");
+    const W = 1200, H = 800;
+    let area = 0;
+    for (const n of vis) area += Math.PI * Math.pow(rad(n) * t.k, 2);
+    const sat = get("satelliteOf");
+    const body = vis.filter(n => !sat.has(n.id));
+    const halo = vis.filter(n => sat.has(n.id));
+    const cx = body.reduce((a, n) => a + n.x, 0) / body.length, cy = body.reduce((a, n) => a + n.y, 0) / body.length;
+    const r = n => Math.hypot(n.x - cx, n.y - cy);
+    const bodyR = body.map(r).sort((a, b) => a - b);
+    const p99 = quantile(bodyR, 0.99);
+    const haloR = halo.map(r).sort((a, b) => a - b);
+    const nn = halo.map(a => { let m = Infinity; for (const b of halo) if (b !== a) m = Math.min(m, Math.hypot(a.x - b.x, a.y - b.y)); return m; });
+    const mean = nn.reduce((a, b) => a + b, 0) / nn.length;
+    const sd = Math.sqrt(nn.reduce((a, b) => a + (b - mean) * (b - mean), 0) / nn.length);
+    // Clark-Evans: the mean nearest-neighbour distance over a random scatter's at the same density in the halo's
+    // annulus (p2-p98 of its radii): ~1 for a random scatter, toward 2 for an even lattice or rows
+    const rIn = quantile(haloR, 0.02), rOut = quantile(haloR, 0.98);
+    const density = halo.length / (Math.PI * (rOut * rOut - rIn * rIn));
+    const clarkEvans = mean / (0.5 / Math.sqrt(density));
+    return {
+        radiusP10: +quantile(radii, 0.1).toFixed(1), radiusMedian: +quantile(radii, 0.5).toFixed(1),
+        radiusP90: +quantile(radii, 0.9).toFixed(1), radiusP99: +quantile(radii, 0.99).toFixed(1),
+        radiusMax: +radii[radii.length - 1].toFixed(1),
+        radiusMaxOverMedian: +(radii[radii.length - 1] / quantile(radii, 0.5)).toFixed(1),
+        fitZoom: +t.k.toFixed(3), coverage: +(area / (W * H)).toFixed(3),
+        haloN: halo.length, haloNnCv: +(sd / mean).toFixed(2), haloClarkEvans: +clarkEvans.toFixed(2),
+        haloGap: +((quantile(haloR, 0.05) - p99) / p99).toFixed(2),
+    };
+}
+
 // A cold open of the bank-shaped graph through graph.js's real entry points (updateGraph, then the filter Swift
 // re-asserts), stepped like d3's own timer until it stops. Times every tick; the only machine-dependent numbers are
 // the ms ones.
 function coldOpen(harness, seed = 7, opts = {}) {
     const h = harness.loadGraph({ frames: true });
-    const g = bankShaped(seed, opts);
+    const g = opts.graph || bankShaped(seed, opts);
     h.call("updateGraph", g);
     h.call("applyFilters", SWIFT_DEFAULT_FILTER);
     h.get("simulation").stop();   // the harness steps by hand; d3's own timer must not run beside it
@@ -289,6 +471,9 @@ function coldOpen(harness, seed = 7, opts = {}) {
     };
 }
 
-module.exports = { LIVE_ISOLATES_2026_10_14, bankShaped, components, shapeSummary, bankGeometry, coldOpen, SWIFT_DEFAULT_FILTER };
+module.exports = { LIVE_ISOLATES_2026_10_14, ISOLATES_2026_10_15, TYPES_2026_10_15, bankShaped, bankShaped1015, lookMetrics, components, shapeSummary, bankGeometry, coldOpen, SWIFT_DEFAULT_FILTER };
 
-if (require.main === module) console.log(JSON.stringify(shapeSummary(bankShaped())));
+if (require.main === module) {
+    console.log(JSON.stringify(shapeSummary(bankShaped())));
+    console.log(JSON.stringify(shapeSummary(bankShaped1015())));
+}

@@ -32,14 +32,29 @@ a KE/node plateau at tick 400 is the signature of a force that broke rule 1.
 
 **The layout settles and stops (G109, 2026-10-14).** Collide is alpha-scaled too (below alpha 0.03), so every force
 cools together and the layout comes to rest instead of freezing mid-motion at the alpha cut-off; a settle check ends a
-cooled layout once it looks still. The simulation keeps one link per connected pair at d3's default strength (every
-link still draws, batched into one path per colour and alpha), charge grows with a page's neighbours, and leaves sit
-close to their page. Every component of ≤ 30 nodes other than the largest — isolates, pairs, triples — is packed in a
-ring that wraps the whole body (an annulus as thick as their number needs, each type an arc sized by its count), out
-of the body's charge, so the settled graph reads as one circle. A hold on a settled graph moves only the
+cooled layout once it looks still. The simulation keeps one link per connected pair at d3's default strength, weakened on a
+link to a page with more than 50 neighbours (never a leaf's; see the look paragraph below). Every pair draws once,
+batched into one path per colour and alpha, and leaves sit close to their page. Every component of ≤ 30 nodes other than the largest — isolates, pairs, triples — is packed in a
+halo round the whole body (2026-10-15: a loose scatter, below; it replaced #287's annulus of per-type arcs), out
+of the body's charge. A hold on a settled graph moves only the
 dragged page and its neighbours. `graph-settle.test.js` holds this on a synthetic with the live bank's shape
 (`graph-bank-shape.js`, 3,698 nodes / 41,570 links): the timer stops within ~130 steps with no node faster than
-1 wu/tick, nothing beyond 1.4 giant radii, and no frame requested after the stop. The numbers are in G109.
+1 wu/tick, nothing beyond 1.7 giant radii, and no frame requested after the stop. The numbers are in G109.
+
+**The look at rest is Obsidian's (G109, 2026-10-15).** Nodes are small dots sized by distinct neighbours (parallel
+claims between a pair count once; `computeDegree` → `_neighbours`), with confidence a small second term: a median page
+~3.5 wu, the owner's page ~23 (max / median ~6.7, was ~14 on the bank shape). Hubs carry no ring and no size floor —
+they read by size and fan. Every pair draws one one-pixel hairline at every zoom (`drawLinks`; neutral α 0.55,
+context-coloured α 0.22). Every body page has one charge (no degree weighting, which carved holes and lined dots into
+chains), links to a page with more than 50 neighbours are dissuaded (never a leaf's), and such a page is pulled to the
+middle. The satellites form a loose **halo**, not rows: each unit's angle and depth come from its own id (`unitHash`),
+so the scatter is irregular and keeps its place across pushes, around the body's own edge read per angle, with a
+wobbling outer reach. The pending pulse ring hugs its dot (≤ 5.5 px out). Names fade in with zoom, biggest dots first,
+never overlapping, at most `LABEL_BUDGET` (at the fit zoom only a page as big as the owner's is named). The Legend's
+**Show unlinked** switch (on by default; Obsidian's Orphans filter) is `minDegree` 1 when off.
+`graph-look.test.js` holds the look on the 2026-10-15 shape (`bankShaped1015`: 4,544 nodes, 9,046 pairs, 984
+isolates): discs ≤ 4 % of the fitted view, halo nearest-neighbour CV ≥ 0.35 and Clark–Evans ≤ 1.3, the owner's page
+≤ 0.25 giant radii off the middle, and the #285/#287 settle guarantees.
 
 **The graph rests when nobody can see it (audit 2026-10-02 A07–A09).** `GraphPage` stays mounted under
 every tab, so it tells the page whether it is on screen: `GraphView(isActive:)` is the Graph tab

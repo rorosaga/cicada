@@ -23,6 +23,19 @@ final class GraphChromeTests: XCTestCase {
         }
     }
 
+    /// 2026-10-15 — "Show unlinked" (Obsidian's Orphans filter) is on by default; off hides the pages linked to
+    /// nothing (`minDegree` 1, which graph.js reads) and the Legend says "filtered"; on again restores the default.
+    func testShowUnlinkedIsOnByDefaultAndHidingItFilters() {
+        XCTAssertTrue(GraphChrome.showsUnlinked(GraphFilter()))
+        let hidden = GraphChrome.settingShowUnlinked(false, in: GraphFilter())
+        XCTAssertFalse(GraphChrome.showsUnlinked(hidden))
+        XCTAssertEqual(hidden.jsPayload["minDegree"] as? Int, 1)
+        XCTAssertEqual(GraphChrome.legendLabel(hidden), "Legend · filtered")
+        let shown = GraphChrome.settingShowUnlinked(true, in: hidden)
+        XCTAssertEqual(shown, GraphFilter())
+        XCTAssertEqual(Copy.Graph.showUnlinked, "Show unlinked")
+    }
+
     /// R-DG4 — pages only (a hub or a satellite is a view), busiest first, and a type switched off stays
     /// listed at 0 so it can come back.
     func testTypeRowsCountPagesBusiestFirst() {
