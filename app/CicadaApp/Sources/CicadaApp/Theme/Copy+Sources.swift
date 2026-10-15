@@ -132,7 +132,7 @@ extension Copy {
         case .unknown: ""
         }
     }
-    static func capturedRowLabel(_ title: String, age: String?) -> String {
-        [title, age].compactMap { $0 }.joined(separator: ", ")
+    static func capturedRowLabel(_ title: String, age: String?, left: String? = nil) -> String {
+        [title, age, left].compactMap { $0 }.joined(separator: ", ")
     }
 }

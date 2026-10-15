@@ -117,8 +117,18 @@ final class BookmarkFileDiff {
     static let shared = BookmarkFileDiff()
 
     private(set) var baselines: [String: BookmarkBaseline] = [:]
+    /// G191 v4 — reads are numbered when they start; a read that finishes after a newer one already recorded is
+    /// stale (two parses run at once since the instant look reads beside the sync) and records nothing.
+    private var started: [String: Int] = [:]
+    private var recorded: [String: Int] = [:]
 
-    func reset() { baselines = [:] }
+    func reset() { baselines = [:]; started = [:]; recorded = [:] }
+
+    func hasBaseline(_ channel: String) -> Bool { baselines[channel] != nil }
+    /// G191 v4 — how many links the last recorded live read found gone since the read before (a bookmark removed —
+    /// Chrome's "Edit bookmark" bubble then Remove): the question's way to tell a bookmark bubble that brought no new
+    /// bookmark from a bubble that was not a bookmark's at all.
+    private(set) var removedOnLastRead: [String: Int] = [:]
 
     /// Record a baseline for each channel not yet read, from its file (a browser macOS refuses is skipped quietly —
     /// its first live save is then decided by the backend's look alone).
@@ -133,15 +143,25 @@ final class BookmarkFileDiff {
 
     /// Parse off the main actor, then diff and advance the baseline here (in read order: the caller awaits).
     func observe(channel: String, data: Data, live: Bool) async -> FreshBookmark? {
+        let number = (started[channel] ?? 0) + 1
+        started[channel] = number
         let entries = await Task.detached(priority: .userInitiated) {
             BookmarkFileParse.entries(channel: channel, data: data)
         }.value
+        // A newer read already recorded: this one's bytes are older, and must not move the baseline back.
+        guard number > (recorded[channel] ?? 0) else { return nil }
+        recorded[channel] = number
         return record(channel: channel, entries: entries, live: live)
     }
 
     func record(channel: String, entries: [BookmarkEntry], live: Bool) -> FreshBookmark? {
         let before = baselines[channel]
+        // G191 v4: a read that parsed to nothing beside a baseline that held bookmarks is a file caught mid-write (or
+        // not a bookmarks file at all), never the person deleting every bookmark between two saves: it is ignored, so
+        // the next good read is still compared with the last good one.
+        if let before, !before.urls.isEmpty, entries.isEmpty { return nil }
         baselines[channel] = BookmarkBaseline(entries)
+        removedOnLastRead[channel] = live ? before.map { $0.urls.subtracting(baselines[channel]!.urls).count } ?? 0 : 0
         guard live, let before else { return nil }
         let saved = before.saved(in: entries)
         guard saved.count == 1, let entry = saved.first else { return nil }

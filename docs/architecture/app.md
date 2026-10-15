@@ -423,7 +423,7 @@ release keeps it only once a Developer ID signs it (`docs/RELEASING.md`, "Keepin
 **Ask why, v3 (2026-10-15, branch `feat/bookmarks-v3`; owner: "When I bookmark something in Chrome, it takes quite a
 bit for the prompt to appear … If I remove the bookmark and bookmark it again, the prompt doesn't appear … We should
 have the option to select various reasons … as well as input something in the text bar").**
-*At once in Chrome, no extension.* Chrome holds a bookmark change for `BookmarkStorage::kSaveDelay` = 2,500 ms before
+*At once in Chrome, no extension* (v3's mechanics; **v4 below replaces the size learning and the tick**). Chrome holds a bookmark change for `BookmarkStorage::kSaveDelay` = 2,500 ms before
 it writes `Bookmarks`, so no file watch can ask sooner. But ⌘D or the star opens Chrome's "Bookmark added" bubble as a
 window of its own, and the window list (`CGWindowListCopyWindowInfo`) gives every window's owner, number, layer and
 bounds without Screen Recording — never a title. `BookmarkBubbleWatcher` runs only while Chrome is the frontmost app:
@@ -465,6 +465,44 @@ newer bookmark keep it too; one tap and leaving is an answer. *Settings* adds, u
 watched: "To ask at once, Cicada notices when Chrome shows its bookmark bubble — it looks only at where Chrome's windows
 are, never at what they show, and needs no permission." The optional instant link through Apple Events (`URL of active
 tab`) is not built: the diff fills it 2.5 s after the click without a permission.
+
+**Ask why, v4 (2026-10-15).** *A few basic reasons* (owner: "keep options to a minimal"):
+the panel offers exactly four — The design · The product · To read later · Useful someday (`design`, `product`,
+`read_later`, `someday`) — in two fixed rows of two (`SaveWhyPanelLayout`; at 12 pt one row needs ≈ 448 pt and the card
+has 416), and the field's placeholder is "Something else…". No project chips (`tapProject` is gone; the options' `projects`
+is always empty). The app carries the four as `SavedWhyOptions.basic`, so no panel waits on the options fetch and its size
+never depends on it. An answer given before keeps its retired reason (`technique`) and its project wherever answers are
+listed; the bookmark page's editor shows them as chips only for that answer, so an edit never drops them unseen.
+*The click is the trigger, the file the only confirmation* (owner: "the size check of the popup seems like depending on
+that is not great. What about just checking when the star is clicked … make sure this polling is efficient"). Measured on
+the owner's Mac: Chrome's "Bookmark added" and "Edit bookmark" bubbles are both 448 × 224 pt, layer 0, 80 pt under the
+window's top, right edge 232 pt in — v3's 280–420 width range refused it every time, and size cannot tell the two apart.
+`BookmarkBubbleWatcher` now: nothing while Chrome is not frontmost (armed and disarmed on
+`NSWorkspace.didActivateApplicationNotification`); while it is, one global mouse-down monitor (no permission for mouse
+events) and nothing else — no timer; a click reads the window list once and, only when it landed in a browser window's
+toolbar band (top 110 pt), runs a burst of at most 8 reads 50 ms apart that ends at the first new small Chrome window
+anchored under the toolbar on the right (`BookmarkBubbleDetector`: 160–720 × 60–720, the v3 position rules, layer ≤ 20 —
+a 149 × 18 tooltip at layer 103 never counts) or by itself at 400 ms. Nothing is learned or refused; v3's
+`cicada.saveWhy.bubble.<bundle id>` keys are removed on start. ⌘D gives no permission-free event (another app's keystrokes
+need Accessibility or Input Monitoring, never asked), so a ⌘D save is caught by the file. Idle with Chrome in front,
+measured over 60 s in a synthetic harness: 0 window-list reads, 0.07 s CPU for the whole test process (0.11 %). The
+pending panel binds to the one new bookmark the app's diff finds; a removal-only change ("Edit bookmark", then Remove)
+withdraws it at once, and no bookmark within `pendingBound` withdraws it — keeping nothing either way; a second bubble
+while one waits restarts the wait. *File write → panel, waiting on nothing else.* The coordinator measured ≈ 0.3–1.3 s
+from Chrome's write to the panel. The watcher now looks at once on a save's first file event (`instantLook`, before the
+300 ms settle): it reads the file through its own paths, diffs it in the app and offers one new bookmark to the center —
+never behind this channel's running sync or its 5 s floor, another browser (a Safari refused Full Disk Access, its 5 s
+recheck), the network or the options. One read per channel at a time; a file caught mid-write parses to nothing and never
+moves the baseline (`BookmarkFileDiff.record`), and reads are numbered so an older one never overwrites a newer. The
+baseline is read when a turned-on browser's watch is armed (`primeBaseline`), not only at launch with the switch on.
+Measured (354 bookmarks, a rename as Chrome writes, Chrome's sync and Safari's both hung, the look never answering):
+write → event 11 ms, read < 1 ms, diff 5–6 ms, **panel 17 ms**. Stage timings are logged as durations only
+(`com.cicada.app`, category `save-why`). *No longer in the browser.* A bookmark removed in the browser is kept, its
+reasons and page untouched, and marked from the sync that saw it gone (`leftBrowser` on `GET /sources`, see `api.md`):
+the bookmark's page says "No longer in Chrome since Oct 15" with "Cicada keeps it, with why you saved it. Bookmark it
+again to link it back."; the ⌘B row is dimmed (60 %) with a quiet `bookmark.slash` mark carrying that line as its help;
+Sources' bookmark list keeps the row, its title tertiary, with the same mark. The import summary says "N no longer in the
+browser". Re-adding it clears the mark and asks again (a re-save). Nothing reaches the inbox.
 
 **Bookmarks in the menu bar (G191 v3).** The status menu's **Bookmarks…** (⌘B) opens `BookmarkHistoryController`, a
 Maccy-like panel under the status item (borderless, key without activating the app, closed by Esc, a click elsewhere or

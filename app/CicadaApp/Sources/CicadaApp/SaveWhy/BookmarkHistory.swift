@@ -40,11 +40,16 @@ struct BookmarkHistoryRow: Identifiable, Equatable {
 
     /// What the search reads, folded once.
     let haystack: String
+    /// G191 v4 — "No longer in Chrome since Oct 15" when the bookmark left its browser (nil while it is there): the
+    /// row is dimmed and carries a quiet mark with this as its help.
+    var leftLine: String? = nil
 }
 
 enum BookmarkHistory {
     /// The list's length: the newest first, the rest one search away.
     static let shown = 300
+    /// G191 v4 — how a row that left its browser is dimmed.
+    static let leftOpacity: Double = 0.6
 
     static func isBookmark(_ item: MediaFeedItem) -> Bool {
         (item.origin ?? "").hasSuffix("-bookmark") || item.mediaType == "bookmark"
@@ -76,7 +81,8 @@ enum BookmarkHistory {
         return BookmarkHistoryRow(
             id: item.id, mediaEntityId: item.mediaEntityId, url: item.url, title: shownTitle, host: host,
             browser: browser, when: when(item), reasons: reasons, words: words, answers: item.savedWhyAnswers.count,
-            picture: picture(item, host: host), haystack: haystack)
+            picture: picture(item, host: host), haystack: haystack,
+            leftLine: Copy.Bookmarks.noLongerIn(item.leftBrowser))
     }
 
     /// The newest moment it was saved: the browser's own instant (the record's `lastSavedAt`), else the save date.

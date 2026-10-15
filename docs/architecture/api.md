@@ -80,6 +80,15 @@ preview path); `/sources` carries `sources.SHAPE` in its `extra` the same way (`
 `saved-why-2`, G191 v3: items gained `savedWhyHistory`, `lastSavedAt` and `captureThumb`). Neither moved a component,
 so `VersionVector` was unchanged by those — but G191 v3 also folds the `captures` component into `/sources`' ETag (a
 new site capture gives a bookmark's row its thumbnail), so `VersionVector` maps `captures` → `.sources`.
+**G191 v4.** `/sources` items gained `leftBrowser` `[{browser, channel, since}]` (shape `saved-why-3`): the browsers a
+bookmark has left, read from the bookmark seen-set's `left` map. That file (`sources/bookmark_seen.json`) is not `*.md`, so
+the `sources` component's directory fingerprint never saw it — it now rides the component by its own mtime (client
+mapping unchanged: `sources` → `.sources`). `GET /sources/channels/{id}/items` for a bookmark channel also lists the links
+that left the browser, each with `left` (shape `g161-2`). `POST /sources/sync-bookmarks` gained `leftMarked`;
+`removalsProposed` stays on the wire and is always 0 for bookmarks. `GET /sources/saved-why/options` serves the four
+reasons and an always-empty `projects`; `POST`/`PUT /sources/saved-why` still accept a retired reason (`technique`) and a
+project (an edit may keep an archived one).
+
 **G191 v3 bookmark writes** (both 409 in a demo bank and while Sleep holds the pages, both committed alone as
 `Cicada-Author: user`): `PUT /sources/saved-why` `{url, at, reasons[], project?, text?}` changes the one answer given at
 `at` (404 when there is none; its `at` and `addedAt` kept, `editedAt` stamped); `POST /sources/bookmarks/remove`

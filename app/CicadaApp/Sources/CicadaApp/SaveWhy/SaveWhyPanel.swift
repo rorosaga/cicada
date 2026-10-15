@@ -196,18 +196,7 @@ struct SaveWhyPanelView: View {
     private func card(_ state: SaveWhyPanelState) -> some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
             header(state)
-            FlowLayout(spacing: CicadaTheme.scaled(6)) {
-                ForEach(center.options.reasons) { reason in
-                    chip(reason.label, selected: state.isSelected(reason: reason.key)) {
-                        center.input(.tapReason(reason.key))
-                    }
-                }
-                ForEach(center.options.projects) { project in
-                    chip(Copy.SaveWhy.forProject(project.name), selected: state.isSelected(project: project.id)) {
-                        center.input(.tapProject(project.id))
-                    }
-                }
-            }
+            reasons(state)
             words(state)
             HStack {
                 Text(Copy.SaveWhy.hint(pending: state.isPending, chosen: !state.selection.isEmpty))
@@ -229,6 +218,24 @@ struct SaveWhyPanelView: View {
         .padding(.top, CicadaTheme.spacingSM)
         .padding(.bottom, CicadaTheme.spacingMD)
         .frame(width: Self.width, alignment: .leading)
+    }
+
+    /// G191 v4 (owner 2026-10-15: "keep options to a minimal") — the four reasons in two fixed rows of two
+    /// (`SaveWhyPanelLayout.rows`): at 12 pt the four chips need ≈ 448 pt and the card has 416, so one row would wrap
+    /// three and one; fixed rows keep every chip where it is from the first frame, whichever options are in hand. No
+    /// project chips: the field is the "something else".
+    private func reasons(_ state: SaveWhyPanelState) -> some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.scaled(6)) {
+            ForEach(Array(SaveWhyPanelLayout.rows(center.options.reasons).enumerated()), id: \.offset) { _, row in
+                HStack(spacing: CicadaTheme.scaled(6)) {
+                    ForEach(row) { reason in
+                        chip(reason.label, selected: state.isSelected(reason: reason.key)) {
+                            center.input(.tapReason(reason.key))
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// The field and Save, always there: a few words of the person's own, Return or Save to confirm.
@@ -302,6 +309,15 @@ struct SaveWhyPanelView: View {
         }
         .buttonStyle(.cicadaPlain)
         .accessibilityAddTraits(selected ? [.isSelected, .isToggle] : [.isToggle])
+    }
+}
+
+/// G191 v4 — the panel's chips in rows of `perRow`, in the options' order. Pure, so the rows are tested.
+enum SaveWhyPanelLayout {
+    static let perRow = 2
+
+    static func rows<T>(_ items: [T]) -> [[T]] {
+        stride(from: 0, to: items.count, by: perRow).map { Array(items[$0..<min($0 + perRow, items.count)]) }
     }
 }
 

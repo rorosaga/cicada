@@ -198,7 +198,7 @@ def test_a_resaves_answer_adds_a_dated_reason_and_replaces_none(tmp_path, monkey
     assert [r["at"] for r in parsed.frontmatter[saved_why.EARLIER_KEY]] == [first_at]
     assert parsed.body.count(saved_why.HEADING) == 1
     section = parsed.body[parsed.body.index(saved_why.HEADING):]
-    assert section.index("The design, the look") < section.index("A technique to reuse")   # oldest first
+    assert section.index("The design") < section.index("A technique to reuse")   # oldest first
     assert f"about a bookmark saved {resaved_at}" in section
 
     items = {i["url"]: i for i in client.get("/sources").json()["items"]}
@@ -235,7 +235,7 @@ def test_the_person_edits_one_answer_and_keeps_the_others(tmp_path, monkeypatch)
     assert hist[1]["editedAt"] is None
     parsed = markdown_parser.parse(memory / "episodes" / f"{item['episode_id']}.md")
     assert parsed.frontmatter["processed"] is False
-    assert "their launch video" in parsed.body and "The product itself" in parsed.body
+    assert "their launch video" in parsed.body and "- The product" in parsed.body
     log = subprocess.run(["git", "-C", str(memory), "log", "-1", "--format=%B"], capture_output=True, text=True,
                          check=True).stdout
     assert "Cicada-Author: user" in log and saved_why.TRIGGER in log

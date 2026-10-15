@@ -22,14 +22,14 @@ final class BookmarksV3Tests: XCTestCase {
     func testTheBookmarkBubbleRightAfterTheShortcutIsSeen() {
         var d = BookmarkBubbleDetector()
         d.baseline([browser, other])
-        XCTAssertEqual(d.observe([browser, other, bookmarkBubble()], inputAge: 0.08), bookmarkBubble())
-        XCTAssertNil(d.observe([browser, other, bookmarkBubble()], inputAge: 0.2), "the same window is seen once")
+        XCTAssertEqual(d.observe([browser, other, bookmarkBubble()], sinceClick: 0.08), bookmarkBubble())
+        XCTAssertNil(d.observe([browser, other, bookmarkBubble()], sinceClick: 0.2), "the same window is seen once")
     }
 
     func testAWindowAlreadyOnScreenWhenWatchingStartsIsNeverABubble() {
         var d = BookmarkBubbleDetector()
         d.baseline([browser, bookmarkBubble()])
-        XCTAssertNil(d.observe([browser, bookmarkBubble()], inputAge: 0.05))
+        XCTAssertNil(d.observe([browser, bookmarkBubble()], sinceClick: 0.05))
     }
 
     /// The false positives Chromium's view code puts in the same corner, each recorded as a window list.
@@ -39,31 +39,31 @@ final class BookmarksV3Tests: XCTestCase {
         auto.baseline([browser])
         let password = ListedWindow(number: 30, pid: 501, layer: 0,
                                     bounds: CGRect(x: 1010, y: 37 + 82, width: 360, height: 290))
-        XCTAssertNil(auto.observe([browser, password], inputAge: 3.5), "no input of the person's: not a save")
+        XCTAssertNil(auto.observe([browser, password], sinceClick: 3.5), "no input of the person's: not a save")
 
         var d = BookmarkBubbleDetector()
         d.baseline([browser])
         // The address bar's suggestions: as wide as the bar, starting at its own top.
         let suggestions = ListedWindow(number: 31, pid: 501, layer: 0,
                                        bounds: CGRect(x: 150, y: 37 + 44, width: 1180, height: 320))
-        XCTAssertNil(d.observe([browser, suggestions], inputAge: 0.05))
+        XCTAssertNil(d.observe([browser, suggestions], sinceClick: 0.05))
         // A permission prompt: anchored at the left of the address bar.
         let permission = ListedWindow(number: 32, pid: 501, layer: 0,
                                       bounds: CGRect(x: 150, y: 37 + 82, width: 320, height: 180))
-        XCTAssertNil(d.observe([browser, permission], inputAge: 0.05))
+        XCTAssertNil(d.observe([browser, permission], sinceClick: 0.05))
         // A menu (the app menu is a native menu, far above layer 20) and a tooltip-sized sliver.
         let menu = ListedWindow(number: 33, pid: 501, layer: 101, bounds: CGRect(x: 1200, y: 37 + 82, width: 300, height: 400))
         let tooltip = ListedWindow(number: 34, pid: 501, layer: 0, bounds: CGRect(x: 1200, y: 37 + 82, width: 120, height: 24))
-        XCTAssertNil(d.observe([browser, menu, tooltip], inputAge: 0.05))
+        XCTAssertNil(d.observe([browser, menu, tooltip], sinceClick: 0.05))
         // A second browser window is not a bubble either.
         XCTAssertNil(d.observe([browser, menu, tooltip, ListedWindow(number: 35, pid: 501, layer: 0,
                                                                      bounds: CGRect(x: 300, y: 200, width: 800, height: 600))],
-                               inputAge: 0.05))
+                               sinceClick: 0.05))
         // Another app's window in the same place.
         var mixed = BookmarkBubbleDetector()
         mixed.baseline([browser])
         let elsewhere = ListedWindow(number: 36, pid: 777, layer: 0, bounds: bookmarkBubble().bounds)
-        XCTAssertNil(mixed.observe([browser, elsewhere], inputAge: 0.05), "anchored only on its own app's window")
+        XCTAssertNil(mixed.observe([browser, elsewhere], sinceClick: 0.05), "anchored only on its own app's window")
     }
 
     func testANarrowBrowserWindowIsNeverRead() {
@@ -71,64 +71,7 @@ final class BookmarksV3Tests: XCTestCase {
         var d = BookmarkBubbleDetector()
         d.baseline([narrow])
         let bubble = ListedWindow(number: 20, pid: 501, layer: 0, bounds: CGRect(x: 260, y: 37 + 82, width: 336, height: 214))
-        XCTAssertNil(d.observe([narrow, bubble], inputAge: 0.05))
-    }
-
-    /// The extensions or profile menu opened by a click looks like a bubble; once it has come with no bookmark
-    /// `refuseAfter` times it is not shown again — and once a bookmark taught the bubble's size, only that size counts.
-    func testTheDetectorLearnsTheBubblesSizeAndForgetsTheOthers() {
-        let extensions = ListedWindow(number: 40, pid: 501, layer: 0,
-                                      bounds: CGRect(x: 1110, y: 37 + 80, width: 320, height: 268))
-        var d = BookmarkBubbleDetector()
-        d.baseline([browser])
-        var n = 40
-        for miss in 1...BookmarkBubblePolicy.refuseAfter {
-            n += 1
-            let window = ListedWindow(number: n, pid: 501, layer: 0, bounds: extensions.bounds)
-            XCTAssertEqual(d.observe([browser, window], inputAge: 0.1), window, "still shown after \(miss - 1) misses")
-            d.missed(BubbleSize(extensions.bounds))
-        }
-        let again = ListedWindow(number: 60, pid: 501, layer: 0, bounds: extensions.bounds)
-        XCTAssertNil(d.observe([browser, again], inputAge: 0.1), "refused after \(BookmarkBubblePolicy.refuseAfter) misses")
-        XCTAssertEqual(d.observe([browser, bookmarkBubble(42)], inputAge: 0.1), bookmarkBubble(42))
-        d.confirm(BubbleSize(bookmarkBubble().bounds))
-        let profile = ListedWindow(number: 43, pid: 501, layer: 0, bounds: CGRect(x: 1150, y: 37 + 80, width: 320, height: 420))
-        XCTAssertNil(d.observe([browser, profile], inputAge: 0.1), "once learned, only the bookmark bubble's size counts")
-        XCTAssertEqual(d.observe([browser, bookmarkBubble(44)], inputAge: 0.1), bookmarkBubble(44))
-        for _ in 0..<5 { d.missed(BubbleSize(bookmarkBubble().bounds)) }
-        XCTAssertEqual(d.learned, [BubbleSize(width: 336, height: 214)], "a learned size is never refused")
-        XCTAssertEqual(d.observe([browser, bookmarkBubble(45)], inputAge: 0.1), bookmarkBubble(45))
-    }
-
-    /// Review 2026-10-15: one missed bubble — Chrome's "Edit bookmark" bubble on a page already bookmarked, Remove
-    /// pressed in the bubble — must not switch the instant panel off. Misses below `refuseAfter` keep the size, and a
-    /// bookmark at that size clears them.
-    func testAFewMissesNeverRefuseTheRealBubble() {
-        var d = BookmarkBubbleDetector()
-        d.baseline([browser])
-        let size = BubbleSize(bookmarkBubble().bounds)
-        for _ in 1..<BookmarkBubblePolicy.refuseAfter { d.missed(size) }
-        XCTAssertTrue(d.refused.isEmpty)
-        XCTAssertEqual(d.observe([browser, bookmarkBubble(70)], inputAge: 0.1), bookmarkBubble(70))
-        d.confirm(size)
-        XCTAssertTrue(d.misses.isEmpty, "a bookmark at that size clears its misses")
-        for _ in 1...BookmarkBubblePolicy.refuseAfter { d.missed(size) }
-        XCTAssertTrue(d.refused.isEmpty, "never refused once a bookmark was seen at that size")
-    }
-
-    @MainActor
-    func testWhatTheDetectorLearnedIsKeptPerBrowserAsSizesOnly() {
-        let defaults = UserDefaults(suiteName: "BookmarksV3Tests.\(UUID().uuidString)")!
-        let watcher = BookmarkBubbleWatcherHarness.make(defaults: defaults)
-        watcher.feedback(channel: "chrome-bookmarks", size: BubbleSize(width: 336, height: 214), bookmarked: true)
-        for _ in 1...BookmarkBubblePolicy.refuseAfter {
-            watcher.feedback(channel: "chrome-bookmarks", size: BubbleSize(width: 320, height: 268), bookmarked: false)
-        }
-        watcher.feedback(channel: "chrome-bookmarks", size: BubbleSize(width: 360, height: 300), bookmarked: false)
-        let memory = BubbleMemory.load("com.google.Chrome", defaults: defaults)
-        XCTAssertEqual(memory.learned, [BubbleSize(width: 336, height: 214)])
-        XCTAssertEqual(memory.refused, [BubbleSize(width: 320, height: 268)])
-        XCTAssertEqual(memory.misses, [BubbleMiss(size: BubbleSize(width: 360, height: 300), count: 1)])
+        XCTAssertNil(d.observe([narrow, bubble], sinceClick: 0.05))
     }
 
     // MARK: - The app's own diff: re-save versus move
@@ -511,7 +454,7 @@ final class BookmarksV3Tests: XCTestCase {
     }
 
     @MainActor
-    private func center(_ api: V3FakeAPI, clock: Date) async -> (SaveWhyCenter, V3Presenter, [(BubbleSize, Bool)]) {
+    private func center(_ api: V3FakeAPI, clock: Date) async -> (SaveWhyCenter, V3Presenter, [Bool]) {
         let defaults = UserDefaults(suiteName: "BookmarksV3Tests.\(UUID().uuidString)")!
         let prefs = SaveWhyPrefs(defaults: defaults)
         prefs.enabled = true
@@ -526,14 +469,12 @@ final class BookmarksV3Tests: XCTestCase {
     }
 
     /// The bubble opens the question at once, pending; the person taps; the diff names the link; the early look
-    /// confirms it; the answer goes out with the save's own instant; the bubble's size is learned.
+    /// confirms it; the answer goes out with the save's own instant (G191 v4: nothing about the bubble is learned).
     @MainActor
     func testTheBubbleOpensTheQuestionAndTheLookBindsTheAnswer() async {
         let api = V3FakeAPI(options: options())
         let (center, presenter, _) = await center(api, clock: now)
-        var taught: [(BubbleSize, Bool)] = []
-        center.onBubbleFeedback = { _, size, bookmarked in taught.append((size, bookmarked)) }
-        center.bubbleSeen(channel: "chrome-bookmarks", size: BubbleSize(width: 336, height: 214))
+        center.bubbleSeen(channel: "chrome-bookmarks")
         XCTAssertEqual(presenter.shown, 1)
         XCTAssertTrue(center.state?.isPending == true)
         XCTAssertFalse(center.confirmed)
@@ -554,18 +495,15 @@ final class BookmarksV3Tests: XCTestCase {
         XCTAssertEqual(posts.map(\.answer), [SavedWhyAnswer(reasons: ["design"])])
         XCTAssertEqual(posts.map(\.addedAt), [saved.addedAt])
         XCTAssertEqual(presenter.shown, 1, "one panel, bound — never a second for the same save")
-        XCTAssertEqual(taught.map(\.1), [true])
     }
 
     /// A bubble that was not the bookmark's (no bookmark comes): the panel withdraws after its bound and keeps
-    /// nothing; the size is refused.
+    /// nothing (G191 v4: and nothing is learned or refused).
     @MainActor
     func testABubbleWithNoBookmarkWithdrawsAndKeepsNothing() async throws {
         let api = V3FakeAPI(options: options())
         let (center, presenter, _) = await center(api, clock: now)
-        var taught: [Bool] = []
-        center.onBubbleFeedback = { _, _, bookmarked in taught.append(bookmarked) }
-        center.bubbleSeen(channel: "chrome-bookmarks", size: BubbleSize(width: 320, height: 268))
+        center.bubbleSeen(channel: "chrome-bookmarks")
         center.input(.tapReason("product"))
         center.withdraw()   // what the bound's timer does at `pendingBound`
         XCTAssertEqual(center.lastOutcome, .withdrawn)
@@ -573,35 +511,7 @@ final class BookmarksV3Tests: XCTestCase {
         await center.settle()
         let posts = await api.posts
         XCTAssertTrue(posts.isEmpty, "a tap on a withdrawn panel is never saved against a guess")
-        XCTAssertEqual(taught, [false])
         XCTAssertGreaterThan(SaveWhyPolicy.pendingBound, 2.5 + 0.35, "longer than Chrome's own write delay")
-    }
-
-    /// Review 2026-10-15: a bookmark the diff saw counts for the bubble whatever the decision — a muted site, a skip —
-    /// so it can never be taught a miss.
-    @MainActor
-    func testABookmarkSeenTeachesTheBubbleEvenWhenTheQuestionIsSkipped() async {
-        let api = V3FakeAPI(options: options())
-        let (center, _, _) = await center(api, clock: now)
-        center.prefs.mute("alpha.example")
-        var taught: [Bool] = []
-        center.onBubbleFeedback = { _, _, bookmarked in taught.append(bookmarked) }
-        center.bubbleSeen(channel: "chrome-bookmarks", size: BubbleSize(width: 336, height: 214))
-        let muted = FreshBookmark(url: "https://alpha.example/a", channel: "chrome-bookmarks",
-                                  addedAt: ISO8601DateFormatter().string(from: now))
-        center.candidate(muted)
-        XCTAssertEqual(taught, [true], "recorded at once, before the skip")
-        await center.noticed(look([muted]), live: true)
-        XCTAssertEqual(center.lastDecision, .skip(.muted))
-        center.withdraw()
-        XCTAssertEqual(taught, [true], "the withdraw teaches no miss")
-        // The backend's look alone (no diff baseline) records it the same way.
-        var fromLook: [Bool] = []
-        center.onBubbleFeedback = { _, _, bookmarked in fromLook.append(bookmarked) }
-        center.bubbleSeen(channel: "chrome-bookmarks", size: BubbleSize(width: 336, height: 214))
-        await center.noticed(look([FreshBookmark(url: "https://alpha.example/b", channel: "chrome-bookmarks")]),
-                             live: true)
-        XCTAssertEqual(fromLook, [true])
     }
 
     /// The backend refuses the bookmark (a first sync, several at once): the unconfirmed panel withdraws.
@@ -609,13 +519,13 @@ final class BookmarksV3Tests: XCTestCase {
     func testARefusalWithdrawsTheUnconfirmedPanel() async {
         let api = V3FakeAPI(options: options())
         let (center, _, _) = await center(api, clock: now)
-        center.bubbleSeen(channel: "chrome-bookmarks", size: BubbleSize(width: 336, height: 214))
+        center.bubbleSeen(channel: "chrome-bookmarks")
         let item = FreshBookmark(url: "https://alpha.example/a", channel: "chrome-bookmarks")
         await center.noticed(look([item], firstSync: true), live: true)
         XCTAssertEqual(center.lastDecision, .skip(.firstSync))
         XCTAssertEqual(center.lastOutcome, .withdrawn)
         // A look that found nothing new yet (Chrome has not written) leaves it waiting.
-        center.bubbleSeen(channel: "chrome-bookmarks", size: BubbleSize(width: 336, height: 214))
+        center.bubbleSeen(channel: "chrome-bookmarks")
         await center.noticed(look([]), live: true)
         XCTAssertTrue(center.isShowing, "still waiting for the file")
     }
@@ -670,10 +580,4 @@ private final class V3Presenter: SaveWhyPresenting {
     func show(_ center: SaveWhyCenter) { shown += 1 }
     func hide() { hidden += 1 }
     func focusText() {}
-}
-
-/// The watcher's learning, reachable without a running browser.
-@MainActor
-enum BookmarkBubbleWatcherHarness {
-    static func make(defaults: UserDefaults) -> BookmarkBubbleWatcher { BookmarkBubbleWatcher(defaults: defaults) }
 }

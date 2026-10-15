@@ -305,7 +305,8 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   Liquid Glass only in the chrome layer; a keyboard action never animates; every duration is spelled in `CicadaMotion` (a sprite's frame timings are data in its sheet, inside `CicadaMotion`'s sprite caps — TODO ruling 18).
 - **Bookmarks (G191 v3, 2026-10-15):** the app removes a bookmark from the person's browser only on their click, after
   asking in words — Chrome through Apple Events (the Automation prompt only then), never Safari, never the backend; it
-  sees Chrome's bookmark bubble from window bounds alone (no title, no permission), and posts no answer until a sync confirms the bookmark (`app.md`).
+  sees Chrome's bookmark bubble from window bounds alone (no title, no permission), read only in the moment after the
+  person's own click in a frontmost Chrome — never on a steady timer (G191 v4) — and posts no answer until a sync confirms the bookmark (`app.md`).
 - **Copy is provider-neutral** (owner, 2026-09-30): never name a provider or model as the one doing a job — describe the
   step; a name appears only where it shows the person's own current choice.
 - **Prices and plan usage show only on the Sleep page's Details and engine menu** (ruling 12), each figure with its basis.

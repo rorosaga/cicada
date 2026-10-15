@@ -23,13 +23,14 @@ drops anything already present — that IS the diff. This module only adds:
    from, without staging anything;
 5. (R4) ``CHANNEL_BY_ORIGIN`` — one ``sync_state.json`` key per browser, so
    the catalog's per-browser tiles each have exactly one channel.
-6. (G129 slice 2) removal proposals — a URL that dropped out of a channel's
-   browser file since the previous sync becomes one ``removal`` inbox item
-   (``keep``/``remove``; ``remove`` archives, never deletes). Diffed against
-   ``bookmark_seen.py``'s own per-channel seen-set, NEVER against
-   ``url_index.json`` (a kept URL has already left the browser, and a
-   memory-based diff would re-propose it forever — see that module's
-   docstring for both correctness rails).
+6. (G129 slice 2, G191 v4) left the browser — a URL that dropped out of a
+   channel's browser file since the previous sync is marked as gone from that
+   browser, with the day, in the seen-set's ``left`` map; Cicada keeps it and
+   asks nothing (until G191 v4 this was a ``removal`` inbox question, which
+   existed because the bookmark sync then had no other way to say a link had
+   left the browser; the person's own Remove now lives on the bookmark's page).
+   Diffed against ``bookmark_seen.py``'s own per-channel seen-set, NEVER
+   against ``url_index.json`` — see that module's docstring for the rails.
 
 Nothing here reads a browser's file: the app reads ``~/Library`` and the
 backend parses bytes (the launchd backend has no Full Disk Access).
@@ -44,8 +45,7 @@ from typing import Any, Awaitable, Callable
 
 from loguru import logger
 
-from api.services import (bookmark_forget, bookmark_seen, episode_ids, inbox_generator, inbox_service, markdown_parser,
-                          media_ingestor, saved_at)
+from api.services import bookmark_forget, bookmark_seen, episode_ids, markdown_parser, media_ingestor, saved_at
 from api.services.media_ingestor import RawItem
 
 # (items, memory_path, from_bookmark_file) -> (created, duplicates), matching
@@ -122,9 +122,10 @@ def channel_for(browser: str) -> str:
 # one tile per browser, and a channel must map to exactly one tile.
 CHANNEL_BY_ORIGIN = {**{origin_for(b): channel_for(b) for b in CHROMIUM_BROWSERS}, SAFARI_ORIGIN: "safari-bookmarks"}
 
-# Display label for a removal item's question text and its hint (R2) — the
-# same origins `_tag_origin` ever stamps.
+# Display label per origin — the same origins `_tag_origin` ever stamps — and per channel (G191 v4: "No longer in
+# Chrome since …" names the browser by its channel).
 _BROWSER_LABEL = {**{origin_for(b): name for b, name in CHROMIUM_BROWSERS.items()}, SAFARI_ORIGIN: "Safari"}
+BROWSER_BY_CHANNEL = {CHANNEL_BY_ORIGIN[o]: name for o, name in _BROWSER_LABEL.items()}
 
 #: Round 4 (R-SR13, R-SR14): the counts a Safari sync stamps beside `found`, which
 #: `channel_registry` ships as the row's `parts`.
@@ -278,84 +279,61 @@ def preview_bookmarks(
     ]}
 
 
-def _propose_removals(
-    memory_path: Path, *, origin: str, channel: str, removed_hashes: list[str], at: str,
-) -> list[str]:
-    """One ``removal`` inbox item per hash in ``removed_hashes`` that still
-    names a live, non-archived media entity and has no open removal item
-    already (idempotency — a second sync before the person answers must not
-    spawn a second question for the same URL; ``inbox_generator.find_open``'s
-    existing ``(entity_id, "")`` dedup key, unchanged, already covers this).
+#: G191 v4 — a read that shares no link with the previous one, when the previous held at least this many, is a different
+#: or broken file (another profile's, a half-written one), never the person removing every bookmark one by one: it is
+#: compared like a first sync — nothing is marked gone and nothing counts as saved again.
+WHOLESALE_MIN = 5
 
-    ``remove`` never deletes the page (G129 row rule) — that happens on
-    resolve, not here; this function only ever proposes. Returns the
-    memory-relative paths of the inbox items actually written (e.g.
-    ``["inbox/inbox-005.md"]``) so the caller can commit exactly those files
-    rather than ``git add -A`` (finding 1, G129 slice-2 final review) — a
-    dirty unrelated file elsewhere in the bank must never ride along under
-    this sync's ``cicada``/``sync/bookmark_removal`` provenance.
-    """
-    idx = media_ingestor.load_url_index(memory_path)
+
+def _not_comparable(prev_entry: dict | None, current_hashes: list[str], folders: list[str] | None) -> str | None:
+    """Why this read must not be diffed against the channel's previous one (G129 Rail 1 and G191 v4's guards), or
+    ``None`` when it may. ``"first"`` (no previous read — silent, R6), ``"scope"`` (the folder selection changed), ``"empty"``
+    (this read holds no bookmark while the last held some), ``"wholesale"`` (no link in common, see
+    :data:`WHOLESALE_MIN`)."""
+    if prev_entry is None:
+        return "first"
+    if bookmark_seen._normalize_folders(prev_entry.get("folders")) != bookmark_seen._normalize_folders(folders):
+        return "scope"
+    prev = set(prev_entry.get("hashes") or [])
+    if prev and not current_hashes:
+        return "empty"
+    if len(prev) >= WHOLESALE_MIN and not (prev & set(current_hashes)):
+        return "wholesale"
+    return None
+
+
+_REFUSAL_WORDS = {
+    "scope": "folder scope changed since the last sync",
+    "empty": "the browser's file held no bookmarks, so nothing was marked as gone",
+    "wholesale": "the browser's file shares no bookmark with the last read, so nothing was marked as gone",
+}
+
+
+def _retire_removal_questions(memory_path: Path, channel: str) -> tuple[list[str], dict[str, str]]:
+    """G191 v4 — the pending "Still keep …?" questions an earlier sync asked about this channel's bookmarks (G129 slice
+    2) are retired: a bookmark leaving the browser is a status now, never a question. Each item's link is marked gone
+    from the day that sync saw it (its ``synced_at``); keeping it is what Cicada does anyway, which is the question's
+    own first option. Returns ``(item paths removed, {url_hash: at})``. Papers' removal questions are not bookmarks and
+    are untouched."""
     inbox_dir = memory_path / "inbox"
-    inbox_dir.mkdir(parents=True, exist_ok=True)
-    next_num = inbox_service.next_inbox_num(inbox_dir)
-    browser = _BROWSER_LABEL.get(origin, origin)
-    written: list[str] = []
-    for h in removed_hashes:
-        entry = idx.get(h)
-        entity_id = str((entry or {}).get("media_entity_id") or "")
-        if not entity_id:
-            continue  # never ingested, or the index entry is gone — nothing to ask about
-        entity_path = memory_path / "entities" / f"{entity_id}.md"
-        if not entity_path.exists():
-            continue
+    if not inbox_dir.is_dir():
+        return [], {}
+    removed: list[str] = []
+    marks: dict[str, str] = {}
+    for path in sorted(inbox_dir.glob("inbox-*.md")):
         try:
-            efm = markdown_parser.parse(entity_path).frontmatter
+            fm = markdown_parser.parse(path).frontmatter or {}
         except Exception:
             continue
-        if str(efm.get("status", "active") or "active") in ("archived", "dropped"):
-            continue  # already gone — nothing left to ask
-        if inbox_generator.find_open(memory_path, "removal", entity_id) is not None:
-            continue  # already asked, still pending
-        entity_name = str(efm.get("name") or entry.get("title") or entity_id)
-        # R2: the entity's own first-save origin vs THIS sync's origin — a
-        # mismatch means some other path (a manual save, the other browser)
-        # is where it actually came from, worth surfacing on the card.
-        entity_origin = str(efm.get("origin") or "") or None
-        hint = f"Also saved via {entity_origin}" if entity_origin and entity_origin != origin else None
-        item_id = f"inbox-{next_num:03d}"
-        next_num += 1
-        frontmatter = {
-            "kind": "removal",
-            "required_input": "choice",
-            "status": "pending",
-            "priority": 0.4,
-            "entity_id": entity_id,
-            "entity_name": entity_name,
-            "title": f"Still keep {entity_name}?",
-            "created_date": str(date.today()),
-            "question": f"It was removed from {browser}.",
-            # R4: keep first — QuestionSelection's documented no-recommendation
-            # fallback highlights index 0.
-            "options": [
-                {"key": "keep", "label": "Keep"},
-                {"key": "remove", "label": "Remove"},
-            ],
-            "allow_other": False,
-            "allow_defer": True,
-            "channel": channel,
-            "browser": browser,
-            "url": str(entry.get("url") or ""),
-            "synced_at": at,
-            "hint": hint,
-            "trigger": "sync/bookmark_removal",
-        }
-        markdown_parser.write(
-            inbox_dir / f"{item_id}.md", frontmatter,
-            f"{entity_name} was removed from {browser}.",
-        )
-        written.append(f"inbox/{item_id}.md")
-    return written
+        if (str(fm.get("kind") or "") != "removal" or str(fm.get("trigger") or "") != "sync/bookmark_removal"
+                or str(fm.get("channel") or "") != channel or str(fm.get("status") or "pending") != "pending"):
+            continue
+        url = str(fm.get("url") or "")
+        if url:
+            marks[media_ingestor.url_hash(url)] = str(fm.get("synced_at") or "") or episode_ids.utc_now_iso()
+        path.unlink()
+        removed.append(f"inbox/{path.name}")
+    return removed, marks
 
 
 async def sync_bookmarks(
@@ -386,27 +364,24 @@ async def sync_bookmarks(
     existed. ``found`` then counts the items that survived the filter — the
     number the channel row reports as "N bookmarks".
 
-    ``propose_removals`` (G129 slice 2, default on) additionally diffs each
-    synced channel's CURRENT url-hash set against its PREVIOUS one, read from
-    ``bookmark_seen.py``'s own per-channel seen-set — never against
-    ``url_index.json`` (Rail 2: a kept URL has already left the browser, and
-    a memory-based diff would re-propose it after every subsequent sync
-    forever). A URL missing from the current set becomes one ``removal``
-    inbox item (``_propose_removals``). The diff is refused (Rail 1) — and
-    recorded as a skip reason, never silently guessed — when the current
-    sync's folder scope differs from the previous one's, because everything
-    outside a changed selection was never looked at this pass and would look
-    deleted for the wrong reason; a channel's very first sync (no previous
-    seen-set at all) refuses the same way but silently (R6 — that case is
-    expected, not an error). The seen-set is then advanced to the CURRENT
-    sync's hashes regardless of what was proposed or answered (Rail 2's
-    "always advance" half) — this is what makes "a kept URL is never
-    re-proposed" hold with no bookkeeping of the person's eventual answer.
+    ``propose_removals`` (G129 slice 2, default on; the name is kept for its callers) diffs each synced channel's
+    CURRENT url-hash set against its PREVIOUS one, read from ``bookmark_seen.py``'s own per-channel seen-set — never
+    against ``url_index.json`` (Rail 2). **G191 v4 (owner 2026-10-15):** a link missing from the current set is no
+    longer a ``removal`` inbox question: it is marked as gone from that browser, with the day (the seen-set's
+    ``left`` map, :func:`bookmark_seen.next_left`), and Cicada keeps the bookmark, its page and its reasons. A link
+    present again (the person bookmarked it again) loses the mark on the same sync, and is asked about like any
+    re-save. The diff is refused — nothing marked — when the rails say the two reads are not comparable
+    (:func:`_not_comparable`: a channel's first read, a folder-scope change, an empty read, a wholesale swap), and
+    every refusal but the first read is recorded in ``removals_skipped``. The seen-set then advances to the CURRENT
+    hashes (Rail 2's "always advance"), except after an empty read, which keeps the previous set so a half-written file
+    never makes every link look new or gone. A pending removal question an earlier version asked about this channel
+    is retired into the status (:func:`_retire_removal_questions`).
 
     Returns ``{"new": <total newly-ingested>, "skipped": <total already
     present>, "sources": [{"origin", "channel", "found", "new", "skipped"},
-    ...], "removals_proposed": <total removal items written>,
+    ...], "removals_proposed": 0 (G191 v4: never asked any more; kept on the wire for older clients),
     "removals_skipped": <"; "-joined per-channel reasons, or None>,
+    "left_marked": <links newly marked as gone from their browser>,
     "fresh": [...], "fresh_total": <int>}`` — ``channel`` is the
     ``sync_state`` key the router stamps (R4). G191 adds ``first_sync`` to
     each source (no seen-set before this pass) and ``fresh``: the bookmarks
@@ -416,13 +391,9 @@ async def sync_bookmarks(
     ago — and never after a first sync, a bulk import or a reorganisation
     (moved bookmarks are known URLs, so they are never fresh).
 
-    Every ``removal`` item this call wrote, plus a touched
-    ``sources/bookmark_seen.json``, are committed together at the end
-    (``_commit_removals``) — scoped to exactly those paths, never
-    ``git add -A``, mirroring ``media_ingestor._commit_media``'s pattern one
-    call earlier in this same path (finding 1, G129 slice-2 final review):
-    without it, both files sat dirty until some unrelated later writer's
-    broad commit silently absorbed them under the wrong author/trigger.
+    A touched ``sources/bookmark_seen.json``, the revived pages and the retired questions are committed together at
+    the end (``_commit_removals``) — scoped to exactly those paths, never ``git add -A`` (finding 1, G129 slice-2 final
+    review).
     """
     fn: IngestFn = ingest_fn or media_ingestor.ingest_batch
     memory_path = Path(memory_path)
@@ -430,9 +401,9 @@ async def sync_bookmarks(
     sources: list[dict[str, Any]] = []
     total_new = 0
     total_skipped = 0
-    total_removals_proposed = 0
+    total_left = 0
     removals_skip_reasons: list[str] = []
-    removal_paths: list[str] = []
+    retired_paths: list[str] = []
     seen_touched = False
 
     at = episode_ids.utc_now_iso()
@@ -445,13 +416,16 @@ async def sync_bookmarks(
     for origin, items in _batches(chrome_data, safari_data, chromium):
         items = filter_by_folders(items, folders) if folders else items
         channel = CHANNEL_BY_ORIGIN[origin]
+        prev_entry = prev_seen.get(channel)
+        current_hashes = sorted({media_ingestor.url_hash(i.url) for i in items if i.url})
+        refusal = _not_comparable(prev_entry, current_hashes, folders)
         created = duplicates = 0
         if items:
             unseen = _unseen(items, memory_path)
             # G191 v3: read before the ingest (the index after it holds the new links too) and before the seen-set
-            # advances below.
-            resaved = _resaved(items, memory_path, origin=origin, channel=channel, prev_entry=prev_seen.get(channel),
-                               folders=folders, unseen=unseen)
+            # advances below. G191 v4: only against a comparable read.
+            resaved = _resaved(items, memory_path, origin=origin, channel=channel,
+                               prev_entry=None if refusal else prev_entry, folders=folders, unseen=unseen)
             created, duplicates = await fn(items, memory_path, from_bookmark_file=True)
             total_new += created
             total_skipped += duplicates
@@ -465,35 +439,42 @@ async def sync_bookmarks(
         sources.append(entry)
 
         if propose_removals:
-            current_hashes = sorted({media_ingestor.url_hash(i.url) for i in items})
-            prev_entry = prev_seen.get(channel)
-            removed = bookmark_seen.diff_removed(
+            if refusal in _REFUSAL_WORDS:
+                removals_skip_reasons.append(f"{channel}: {_REFUSAL_WORDS[refusal]}")
+            retired, retired_marks = _retire_removal_questions(memory_path, channel)
+            retired_paths.extend(retired)
+            if refusal == "empty":
+                # A file that held nothing: the previous set stays, so the next real read is compared with it.
+                if retired:
+                    bookmark_seen.write_channel_seen(
+                        memory_path, channel, folders=(prev_entry or {}).get("folders"),
+                        hashes=list((prev_entry or {}).get("hashes") or []), at=(prev_entry or {}).get("at"),
+                        newest_added=(prev_entry or {}).get("newest_added"),
+                        left={**retired_marks, **bookmark_seen.left_of(prev_entry)})
+                    seen_touched = True
+                continue
+            removed = None if refusal else bookmark_seen.diff_removed(
                 prev_entry, current_hashes,
-                previous_folders=(prev_entry or {}).get("folders"),
-                current_folders=folders,
-            )
-            if removed is None:
-                if prev_entry is not None:  # R6: silent on a channel's first-ever sync
-                    removals_skip_reasons.append(f"{channel}: folder scope changed since the last sync")
-            elif removed:
-                new_paths = _propose_removals(
-                    memory_path, origin=origin, channel=channel, removed_hashes=removed, at=at,
-                )
-                total_removals_proposed += len(new_paths)
-                removal_paths.extend(new_paths)
+                previous_folders=(prev_entry or {}).get("folders"), current_folders=folders)
+            idx = media_ingestor.load_url_index(memory_path)
+            base = {"left": {**retired_marks, **bookmark_seen.left_of(prev_entry)}}
+            left = bookmark_seen.next_left(base, current_hashes, removed, at=at, held=set(idx))
+            total_left += len(set(left) - set(base["left"]))
             bookmark_seen.write_channel_seen(memory_path, channel, folders=folders, hashes=current_hashes, at=at,
-                                             newest_added=newest_added(items))
+                                             newest_added=newest_added(items), left=left)
             seen_touched = True
 
-    if removal_paths or seen_touched or revived_paths:
-        await _commit_removals(memory_path, removal_paths, seen_touched, revived_paths)
+    if retired_paths or seen_touched or revived_paths:
+        await _commit_removals(memory_path, retired_paths, seen_touched, revived_paths)
 
     return {
         "new": total_new,
         "skipped": total_skipped,
         "sources": sources,
-        "removals_proposed": total_removals_proposed,
+        # G191 v4: a bookmark leaving the browser is a status, never a question.
+        "removals_proposed": 0,
         "removals_skipped": "; ".join(removals_skip_reasons) or None,
+        "left_marked": total_left,
         # G191: what THIS sync newly saved, so the app can ask why about a single bookmark made a moment ago.
         "fresh": fresh[:FRESH_CAP],
         "fresh_total": len(fresh),
@@ -530,10 +511,13 @@ def fresh_preview(
                           "episode_id": "", "media_entity_id": "",
                           "added_at": saved_at.validate_instant(item.added_at), "resave": False})
         # G191 v3: a link held already but saved again — the early look asks about it like a new one.
-        fresh.extend(_resaved(items, memory_path, origin=origin, channel=channel, prev_entry=prev_seen.get(channel),
-                              folders=None, unseen=unseen))
+        prev_entry = prev_seen.get(channel)
+        current = sorted({media_ingestor.url_hash(i.url) for i in items if i.url})
+        comparable = _not_comparable(prev_entry, current, None) is None
+        fresh.extend(_resaved(items, memory_path, origin=origin, channel=channel,
+                              prev_entry=prev_entry if comparable else None, folders=None, unseen=unseen))
     return {"new": 0, "skipped": 0, "sources": sources, "removals_proposed": 0, "removals_skipped": None,
-            "fresh": fresh[:FRESH_CAP], "fresh_total": len(fresh)}
+            "left_marked": 0, "fresh": fresh[:FRESH_CAP], "fresh_total": len(fresh)}
 
 
 #: G191 — how many newly saved bookmarks a sync lists by name. The app asks only when exactly one is new, so a few is
@@ -671,35 +655,35 @@ def _revive(memory_path: Path, resaved: list[dict[str, Any]]) -> list[str]:
     return written
 
 
-async def _commit_removals(memory_path: Path, removal_paths: list[str], seen_touched: bool,
+async def _commit_removals(memory_path: Path, retired_paths: list[str], seen_touched: bool,
                            revived_paths: list[str] | None = None) -> None:
-    """Commit scoped to exactly the removal items written this call plus a
-    touched ``sources/bookmark_seen.json`` — never ``git add -A`` (finding 1,
-    G129 slice-2 final review), mirroring ``media_ingestor._commit_media``.
+    """Commit scoped to exactly the files this sync changed — a touched ``sources/bookmark_seen.json`` (G191 v4: the
+    links that left a browser ride it), the pages a re-save brought back and the removal questions it retired — never
+    ``git add -A`` (finding 1, G129 slice-2 final review), mirroring ``media_ingestor._commit_media``.
 
-    ``Cicada-Author: cicada`` — no LLM ran and no user made a choice; this is
-    pure bookkeeping (a removal *proposal*, not a resolution) exactly like the
-    G85 decay-only commit and the idle inbox-refresh commit
-    (``sleep_cycle._run_idle_question_refresh``), both of which use the same
-    author for the same reason. Best-effort: a non-git memory dir (most unit
-    tests use a bare ``tmp_path``) must not fail the sync itself, so failures
-    are logged and swallowed, matching every other scoped-commit call site in
-    this codebase (``_commit_media``, the idle refresh above).
+    ``Cicada-Author: cicada`` — no LLM ran and no user made a choice; this is pure bookkeeping the browser's file
+    proved, exactly like the G85 decay-only commit. Best-effort: a non-git memory dir (most unit tests use a bare
+    ``tmp_path``) must not fail the sync itself, so failures are logged and swallowed.
     """
     from api.services import git_service
 
     revived_paths = revived_paths or []
-    paths = sorted(set(removal_paths) | set(revived_paths)
+    # A retired question git never tracked has nothing to stage (`git add` refuses a pathspec that matches nothing).
+    retired = [p for p in sorted(retired_paths) if await git_service.is_tracked(memory_path, p)]
+    paths = sorted(set(retired) | set(revived_paths)
                    | ({"sources/bookmark_seen.json"} if seen_touched else set()))
-    lines = [f"{p}: created (trigger: sync/bookmark_removal)" for p in sorted(removal_paths)]
     # G191 v3: a removed bookmark saved again is active again — bookkeeping the browser's file proved, no model.
-    lines += [f"{p}: updated (trigger: sync/bookmark_resave)" for p in sorted(revived_paths)]
+    lines = [f"{p}: updated (trigger: sync/bookmark_resave)" for p in sorted(revived_paths)]
+    # G191 v4: a bookmark leaving the browser is a status on the seen-set, not a question.
+    lines += [f"{p}: removed (trigger: sync/bookmark_left)" for p in retired]
     if seen_touched:
-        lines.append("sources/bookmark_seen.json: updated (trigger: sync/bookmark_removal)")
+        lines.append("sources/bookmark_seen.json: updated (trigger: sync/bookmark_left)")
+    if not paths:
+        return
     message = git_service.build_commit_message(
-        f"Bookmark removal sync {date.today()}", lines, authors=["cicada"],
+        f"Bookmark sync {date.today()}", lines, authors=["cicada"],
     )
     try:
         await git_service.commit_paths(memory_path, message, paths)
     except Exception as e:  # pragma: no cover - non-git workspace (most unit tests)
-        logger.warning(f"Bookmark removal commit failed: {type(e).__name__}: {e}")
+        logger.warning(f"Bookmark sync commit failed: {type(e).__name__}: {e}")

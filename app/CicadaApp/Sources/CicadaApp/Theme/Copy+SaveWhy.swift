@@ -5,7 +5,8 @@ import Foundation
 extension Copy {
     enum SaveWhy {
         static let question = "What made you save this?"
-        static let placeholder = "A few words of your own (optional)"
+        /// G191 v4: the field is the "something else" beside the four reasons.
+        static let placeholder = "Something else…"
         static let wordsLabel = "Your own words about why you saved it"
         static let save = "Save"
         /// Esc reaches the panel only once it has been clicked (it never takes the keyboard from the browser), so
@@ -36,7 +37,7 @@ extension Copy {
         static let switchTitle = "Ask why when I bookmark something"
         static let switchDetail = "When you bookmark a page, a small question grows out of the top of the screen: what made you save it? Pick any reasons and add a few words; they are kept with the bookmark and the time you saved it. Saving a page again asks again. Never after an import or a reorganised bookmark bar."
         /// G191 v3 — what Cicada watches to ask at once, in plain words: window positions only, no permission.
-        static let bubbleLine = "To ask at once, Cicada notices when Chrome shows its bookmark bubble — it looks only at where Chrome’s windows are, never at what they show, and needs no permission."
+        static let bubbleLine = "To ask at once, Cicada notices when Chrome shows its bookmark bubble right after you click the star — it looks only at where Chrome’s windows are, never at what they show, and needs no permission."
         /// Before the switch is on: what turning it on also does (consent, named).
         static func willWatch(_ names: [String]) -> String {
             "Turning this on also watches your bookmarks in \(list(names))."
@@ -110,6 +111,30 @@ extension Copy {
         }
         static let saved = "Saved"
         static let editFailed = "Your change wasn't saved."
+
+        // G191 v4 — a bookmark that left the browser: Cicada keeps it and says so.
+        /// "No longer in Chrome since Oct 15" — one browser; several are named together, newest day first.
+        static func noLongerIn(_ left: [BookmarkLeft], calendar: Calendar = .current) -> String? {
+            guard !left.isEmpty else { return nil }
+            let sorted = left.sorted { $0.since > $1.since }
+            let names = SaveWhy.list(sorted.map(\.browser))
+            guard let day = shortDay(sorted[0].since, calendar: calendar) else { return "No longer in \(names)" }
+            return "No longer in \(names) since \(day)"
+        }
+        static func shortDay(_ iso: String, calendar: Calendar = .current) -> String? {
+            let parser = ISO8601DateFormatter()
+            parser.formatOptions = [.withInternetDateTime]
+            var text = iso
+            if let dot = text.firstIndex(of: "."), let zone = text[dot...].firstIndex(where: { $0 == "+" || $0 == "Z" || $0 == "-" }) {
+                text.removeSubrange(dot..<zone)   // fractional seconds, as a sync instant may carry
+            }
+            guard let date = parser.date(from: text) else { return nil }
+            var style = Date.FormatStyle.dateTime.month(.abbreviated).day()
+            style.calendar = calendar
+            style.timeZone = calendar.timeZone
+            return date.formatted(style)
+        }
+        static let keptNote = "Cicada keeps it, with why you saved it. Bookmark it again to link it back."
 
         // Remove.
         static let remove = "Remove bookmark…"

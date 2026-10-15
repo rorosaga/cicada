@@ -109,8 +109,11 @@ enum BrowserImportSummary {
     }
     static func bookmarks(_ r: BookmarkSyncResult, locale: Locale = .autoupdatingCurrent) -> String {
         var line = "\(r.new == 0 ? "Nothing new" : "\(r.new) new") · \(r.skipped) already saved"
-        // G129 slice 2 — only mention removals when there's something to
-        // review; a sync with none reads exactly as it did before this row.
+        // G191 v4 — a bookmark removed in the browser is kept and marked, never a question to review; the line says
+        // how many only when there are some. (An older backend's removal questions still count.)
+        if r.leftMarked > 0 {
+            line += " · \(r.leftMarked) no longer in the browser"
+        }
         if r.removalsProposed > 0 {
             line += " · \(r.removalsProposed) removal\(r.removalsProposed == 1 ? "" : "s") to review"
         }

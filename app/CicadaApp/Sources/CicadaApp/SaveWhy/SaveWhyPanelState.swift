@@ -18,6 +18,8 @@ import Foundation
 /// - **Pending** (`item == nil`): the panel opened when Chrome showed its bookmark bubble, before Chrome wrote the
 ///   file. The chips are live; the answer is bound to the bookmark once the sync confirms it (`bind`), and is never
 ///   posted against a guess — the center drops it if no bookmark arrives (`withdrawn`).
+/// - **No projects (G191 v4, owner 2026-10-15: "keep options to a minimal").** The panel offers the four basic
+///   reasons and the field; a project is never one of its choices.
 struct SaveWhyPanelState: Equatable {
     enum Phase: Equatable {
         /// Nothing chosen yet; leaves silently after `SaveWhyPolicy.askTimeout`.
@@ -39,7 +41,6 @@ struct SaveWhyPanelState: Equatable {
 
     enum Event: Equatable {
         case tapReason(String)
-        case tapProject(String)
         case draftChanged(String)
         /// Return in the field, or Save.
         case submit
@@ -70,7 +71,6 @@ struct SaveWhyPanelState: Equatable {
     let order: [String]
     private(set) var phase: Phase = .asking
     private(set) var reasons: Set<String> = []
-    private(set) var project: String?
     private(set) var draft = ""
     let maxText: Int
 
@@ -99,11 +99,10 @@ struct SaveWhyPanelState: Equatable {
 
     /// What the person has chosen so far, in the panel's order, with their words.
     var selection: SavedWhyAnswer {
-        SavedWhyAnswer(reasons: order.filter(reasons.contains), project: project, text: words.isEmpty ? nil : words)
+        SavedWhyAnswer(reasons: order.filter(reasons.contains), project: nil, text: words.isEmpty ? nil : words)
     }
 
     func isSelected(reason key: String) -> Bool { reasons.contains(key) }
-    func isSelected(project id: String) -> Bool { project == id }
 
     /// The effects of opening: the question's own timer.
     static func opening() -> [Effect] { [.startTimer(SaveWhyPolicy.askTimeout)] }
@@ -119,9 +118,6 @@ struct SaveWhyPanelState: Equatable {
         switch event {
         case .tapReason(let key):
             if reasons.contains(key) { reasons.remove(key) } else { reasons.insert(key) }
-            return afterInput()
-        case .tapProject(let id):
-            project = project == id ? nil : id
             return afterInput()
         case .draftChanged(let text):
             let capped = String(text.prefix(maxText))

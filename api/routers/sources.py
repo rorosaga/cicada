@@ -9,6 +9,7 @@ from pydantic import BaseModel
 
 from api.config import Settings, get_settings
 from api.models.schemas import (
+    BookmarkLeft,
     BookmarkRemoveRequest,
     BookmarkRemoveResponse,
     BookmarkSyncRequest,
@@ -44,6 +45,7 @@ from api.services import (
     agent_commits,
     bank_index,
     bookmark_forget,
+    bookmark_seen,
     bookmark_sync,
     calendar_registry,
     channel_items,
@@ -637,7 +639,8 @@ async def edit_saved_why(request: SavedWhyEditRequest, settings: Settings = Depe
     holds the pages."""
     memory_path = settings.memory_path
     try:
-        answer = saved_why.validate(memory_path, reasons=request.reasons, project=request.project, text=request.text)
+        answer = saved_why.validate(memory_path, reasons=request.reasons, project=request.project, text=request.text,
+                                    editing=True)
         saved_why.find_episode(memory_path, request.url)
     except saved_why.SavedWhyError as e:
         raise HTTPException(status_code=e.status, detail=str(e))
@@ -817,6 +820,14 @@ def _saved_why_history_of(fm: dict) -> list[SavedWhyRecord]:
         return []
 
 
+def _left_browser(left_by_hash: dict, raw_key: str, entry: dict) -> list[BookmarkLeft]:
+    """G191 v4 — the source record's ``leftBrowser``: each browser the link left, named, with since when. The seen-set
+    keys a link by the hash of the URL the browser holds, the index by its own key; both are looked up."""
+    marks = left_by_hash.get(str(raw_key)) or left_by_hash.get(media_ingestor.url_hash(str(entry.get("url") or ""))) or []
+    return [BookmarkLeft(browser=bookmark_sync.BROWSER_BY_CHANNEL.get(channel, channel), channel=channel, since=at)
+            for channel, at in marks]
+
+
 def _capture_thumbs(memory_path: Path) -> dict[str, str]:
     """G191 v3: the newest capture thumbnail of every captured page, as its route (`/explore/captures/...`) — one
     listing of `captures/` (only the pages someone explored have a folder), never a fetch. Never raises."""
@@ -839,8 +850,8 @@ def _capture_thumbs(memory_path: Path) -> dict[str, str]:
 
 
 #: The `/sources` payload's shape version, folded into its ETag: `saved-why-2` added `savedWhyHistory`,
-#: `lastSavedAt` and `captureThumb` (G191 v3).
-SHAPE = "saved-why-2"
+#: `lastSavedAt` and `captureThumb` (G191 v3); `saved-why-3` added `leftBrowser` (G191 v4) and the four reason labels.
+SHAPE = "saved-why-3"
 
 
 @router.get("/sources", response_model=SourceListResponse)
@@ -878,9 +889,11 @@ async def list_sources(
     # G191: the person's answer lives on the link's episode; one cached listing of `episodes/` answers every row.
     episode_fm = {f.stem: f.frontmatter for f in bank_index.files(memory_path, "episodes")}
     capture_thumbs = _capture_thumbs(memory_path)
+    # G191 v4: the links that left a browser ride the bookmark seen-set (`sources/`, already an input of the ETag).
+    left_by_hash = bookmark_seen.left_by_hash(memory_path)
 
     items = []
-    for entry in idx.values():
+    for raw_key, entry in idx.items():
         # R-LS14: a paper's second canonical URL is an alias of its first; one
         # paper is one Feed row.
         if isinstance(entry, dict) and entry.get("alias_of"):
@@ -1007,6 +1020,7 @@ async def list_sources(
                 saved_why_history=_saved_why_history_of(episode_fm.get(str(entry.get("episode_id") or "")) or {}),
                 last_saved_at=saved_why.last_saved(episode_fm.get(str(entry.get("episode_id") or "")) or {}),
                 capture_thumb=capture_thumbs.get(entity_id),
+                left_browser=_left_browser(left_by_hash, raw_key, entry),
                 tags=tags,
                 status=status,
                 related_count=related_count,

@@ -194,12 +194,13 @@ def write(bank_dir: Path, today: date, *, commit: Commit) -> None:
         ["sources/url_index.json: updated (trigger: user/media_save)",
          f"{len(_MEDIA) + 1} media item(s) saved (trigger: user/media_save)"],
         authors=["user"]), ["sources/url_index.json", *media_paths])
-    # `bookmark_sync._commit_removals`: a removal is a PROPOSAL (no one chose anything yet), so it lands alone as
-    # `cicada` — never inside the person's save.
-    removal = _write_removal(bank_dir, today)
+    # `bookmark_sync._commit_removals`: a bookmark that left the browser is bookkeeping the browser's file proved (no
+    # one chose anything), so it lands alone as `cicada` — never inside the person's save. G191 v4: a status on the
+    # seen-set, never an inbox question.
+    left = _write_left_bookmark(bank_dir, today)
     commit(bank_dir, git_service.build_commit_message(
-        f"Bookmark removal sync {day}", [f"{removal}: created (trigger: sync/bookmark_removal)"],
-        authors=["cicada"]), [removal])
+        f"Bookmark sync {day}", [f"{left}: updated (trigger: sync/bookmark_left)"],
+        authors=["cicada"]), [left])
     paper = papers.page_path(bank_dir, PAPER_ID).relative_to(bank_dir).as_posix()
     paper_metadata.apply(bank_dir, PAPER_ID, _PAPER_META, source="arxiv", today=day)
     commit(bank_dir, _scoped("Paper details", "papers/metadata", "cicada", [paper]), [paper])
@@ -369,21 +370,15 @@ def _index_saved_pages(bank_dir: Path, idx: dict) -> None:
                            "thumbnail": media.get("thumbnail"), "saved_at": media.get("saved_at") or ""})
 
 
-def _write_removal(bank_dir: Path, today: date) -> str:
-    """A bookmark the person deleted in Safari, asked about in `bookmark_sync`'s own removal shape (G129 slice 2)."""
-    from api.services.inbox_service import next_inbox_num
+def _write_left_bookmark(bank_dir: Path, today: date) -> str:
+    """A bookmark the person deleted in Safari: Cicada keeps it and marks it gone from Safari since this morning, in
+    `bookmark_seen`'s own shape (G191 v4) — the page says "No longer in Safari since …"."""
+    from api.services import bookmark_seen
 
-    inbox = bank_dir / "inbox"
-    item = f"inbox-{next_inbox_num(inbox):03d}"
-    markdown_parser.write(inbox / f"{item}.md", {
-        "kind": "removal", "required_input": "choice", "status": "pending", "priority": 0.4,
-        "entity_id": BOOKMARK_ID, "entity_name": "A gripper teardown", "title": "Still keep A gripper teardown?",
-        "created_date": str(today), "question": "It was removed from Safari.",
-        "options": [{"key": "keep", "label": "Keep"}, {"key": "remove", "label": "Remove"}],
-        "allow_other": False, "allow_defer": True, "channel": "safari-bookmarks", "browser": "Safari",
-        "url": "https://example.com/blog/gripper-teardown", "synced_at": f"{today}T07:30:00+00:00", "hint": None,
-        "trigger": "sync/bookmark_removal"}, "A gripper teardown was removed from Safari.")
-    return f"inbox/{item}.md"
+    h = media_ingestor.url_hash("https://example.com/blog/gripper-teardown")
+    bookmark_seen.write_channel_seen(bank_dir, "safari-bookmarks", folders=None, hashes=[],
+                                     at=f"{today}T07:30:00+00:00", left={h: f"{today}T07:30:00+00:00"})
+    return bookmark_seen.seen_path(bank_dir).relative_to(bank_dir).as_posix()
 
 
 # --- A calendar day and an open tab group (capture) ------------------------------------------------------------------
