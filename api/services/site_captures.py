@@ -283,6 +283,36 @@ def _box(raw) -> dict | None:
     return box if box["width"] > 0 and box["height"] > 0 else None
 
 
+#: What a capture may say it was still waiting on when its settle ran out (looks polish; the script's ``_settle``).
+SETTLE_WAITS = ("fonts", "images", "layout", "animations", "motion")
+SETTLE_MOTION = ("looping", "moving")
+SETTLE_MAX_MS = 60_000
+
+
+def settle_note(raw) -> dict | None:
+    """How long the capture waited for the page to settle before its first screenshot, and — when it ran out of time —
+    what it was still waiting on (``page.settle``, looks polish): ``{ms, timed_out, waiting_on?, motion?, unread?}``,
+    ids and enums only; anything else is dropped."""
+    if not isinstance(raw, dict):
+        return None
+    try:
+        ms = int(raw.get("ms"))
+    except (TypeError, ValueError):
+        return None
+    if not 0 <= ms <= SETTLE_MAX_MS:
+        return None
+    out: dict = {"ms": ms, "timed_out": raw.get("timed_out") is True}
+    waits = [w for w in dict.fromkeys(raw.get("waiting_on") or []) if w in SETTLE_WAITS] \
+        if isinstance(raw.get("waiting_on"), list) else []
+    if out["timed_out"] and waits:
+        out["waiting_on"] = waits
+    if raw.get("motion") in SETTLE_MOTION:
+        out["motion"] = raw["motion"]
+    if raw.get("unread") is True:
+        out["unread"] = True
+    return out
+
+
 def _components(raw) -> list[dict]:
     out = []
     for item in list(raw or [])[:MAX_COMPONENTS]:
@@ -639,6 +669,8 @@ def record(memory_path, *, entity_id: str, url: str, lease_token: str, outcome: 
         fm["fonts"] = fonts
     if (tokens := _tokens(page.get("tokens"), bank)):
         fm["tokens"] = tokens
+    if (settled := settle_note(page.get("settle"))):
+        fm["settle"] = settled
     if (ld := _jsonld(page.get("jsonld"), bank)):
         fm["jsonld"] = ld
     pages = [{"url": str(p.get("url"))[:2000], "label": _line(p.get("label"), 80, bank)}
@@ -706,6 +738,8 @@ def _page(memory_path, raw: dict, *, bank: str, account_visible: bool, previous:
         out["fonts"] = fonts
     if (comps := _components(page.get("components"))):
         out["components"] = [c["name"] for c in comps]
+    if (settled := settle_note(page.get("settle"))):
+        out["settle"] = settled
     images: list[dict] = []
     by_kind: dict[str, bytes] = {}
     for kind, data in raw.get("shots") or []:

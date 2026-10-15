@@ -14,6 +14,10 @@ from, what they liked in their own words, and what the look is made of — its c
 * ``<bank>/assets/design/<id>.<png|jpg>`` — the screenshot, **in the bank, committed with it**, like a picture the
   person uploaded (``entity_picture``): it is their own capture of something that may not look the same tomorrow, so
   it cannot be a cache that is fetched again. The bank handed over intact carries its looks.
+* ``<bank>/assets/design/<id>.type-<n>.png`` — at most six type specimens (looks polish, 2026-10-15): "Aa" drawn by
+  the page itself in each family it renders, a transparent PNG of at most 400×120 px, from the agent's capture. The
+  page's web fonts cannot be fetched by the app (it loads nothing a page names from the web), so the specimen is the
+  page's own pixels, kept with the look like the screenshot.
 
 **Never an entity page** (the closed set of 10 types stays closed): Stage 1 never reads ``design/``, nothing here
 writes ``entities/``, and a reference never decays — a look the person liked does not become less true. A reference
@@ -60,6 +64,10 @@ USER = "user"
 #: ``explore``: kept automatically from an explore visit whose reason was the design (G166 slice 2).
 VIAS = ("app_capture", "drop", "paste", "agent", "import", "demo", "explore")
 SNIPPET_LANGS = ("html", "css", "js", "jsx", "tsx", "svg", "swift", "text")
+#: Type specimens (looks polish): at most ``design_tokens.MAX_SPECIMENS`` per look, each a transparent PNG this small.
+SPECIMEN_MAX_W, SPECIMEN_MAX_H = 400, 120
+SPECIMEN_MIN_SIDE = 8
+MAX_SPECIMEN_BYTES = 96 * 1024
 LIKED_HEAD = "## What I liked"
 NOTED_PREFIX = "## Noted by "
 AGENT = "agent"
@@ -93,6 +101,7 @@ class Reference:
     region: dict | None = None
     note: str = ""
     snippets: list[dict] = field(default_factory=list)   # [{lang, code}]
+    specimens: list[dict] = field(default_factory=list)  # [{family, file, sha256, width, height}]
     extra: dict = field(default_factory=dict)
 
     @property
@@ -190,7 +199,7 @@ def _from_file(path: Path) -> Reference | None:
     snippets = [{"lang": (m.group(1) or "text").lower(), "code": m.group(2).rstrip("\n")}
                 for m in _FENCE.finditer(_section(parsed.body, SNIPPETS_HEAD))]
     known = {"title", "url", "site", "captured", "added_by", "session", "via", "image", "palette", "look", "tokens",
-             "tags", "entity", "region", "computed", "note_by"}
+             "tags", "entity", "region", "computed", "note_by", "specimens"}
     image = fm.get("image") if isinstance(fm.get("image"), dict) else {}
     return Reference(
         id=rid, title=str(fm.get("title") or ""), url=fm.get("url") or None, site=fm.get("site") or None,
@@ -202,7 +211,27 @@ def _from_file(path: Path) -> Reference | None:
         note_by=_note_by(fm),
         tags=[str(t) for t in (fm.get("tags") or [])], entity=fm.get("entity") or None,
         region=fm.get("region") if isinstance(fm.get("region"), dict) else None, note=note, snippets=snippets,
+        specimens=_stored_specimens(rid, fm.get("specimens")),
         extra={k: v for k, v in fm.items() if k not in known})
+
+
+def specimen_rel(ref_id: str, n: int) -> str:
+    """A specimen's bank-relative file: ``assets/design/<id>.type-<n>.png``, ``n`` from 1."""
+    return f"{'/'.join(ASSETS)}/{ref_id}.type-{n}.png"
+
+
+def _stored_specimens(ref_id: str, raw) -> list[dict]:
+    """The frontmatter's specimens, each only at its own name (a hand-edited path never points elsewhere)."""
+    out: list[dict] = []
+    for item in list(raw or [])[: design_tokens.MAX_SPECIMENS] if isinstance(raw, list) else []:
+        if not isinstance(item, dict) or not isinstance(item.get("family"), str):
+            continue
+        if item.get("file") != specimen_rel(ref_id, len(out) + 1):
+            continue
+        out.append({"family": item["family"][: design_tokens.MAX_FAMILY], "file": item["file"],
+                    "sha256": str(item.get("sha256") or ""), "width": int(item.get("width") or 0),
+                    "height": int(item.get("height") or 0)})
+    return out
 
 
 def _note_by(fm: dict) -> str:
@@ -262,6 +291,17 @@ def image_file(memory_path, ref: Reference) -> tuple[Path, str] | None:
     return (path, MEDIA_TYPES[ext]) if path.is_file() else None
 
 
+def specimen_file(memory_path, ref: Reference, n: int) -> Path | None:
+    """Specimen ``n`` (from 1)'s path, only inside the bank's own ``assets/design/`` and only when it is there."""
+    if not isinstance(n, int) or not 1 <= n <= len(ref.specimens):
+        return None
+    rel = specimen_rel(ref.id, n)
+    if ref.specimens[n - 1].get("file") != rel:
+        return None
+    path = Path(memory_path) / rel
+    return path if path.is_file() else None
+
+
 def stamp(memory_path) -> str:
     """``sync_service``'s ``design`` component: every reference file's name, size and mtime (a stat walk, no parse)."""
     from api.services import bank_index
@@ -290,6 +330,51 @@ def validate_image(data: bytes) -> str:
     if max(size) > MAX_SIDE:
         raise ValueError("That screenshot is bigger than Cicada keeps.")
     return ext
+
+
+def validate_specimen(data: bytes) -> tuple[int, int]:
+    """A specimen's ``(width, height)``, or ValueError: a PNG with an alpha channel (the app tints it to the text
+    colour of either appearance), at most 400×120 px and 96 KB."""
+    if not data or len(data) > MAX_SPECIMEN_BYTES:
+        raise ValueError("a type specimen is a small PNG")
+    if entity_picture.sniff(data) != "png" or len(data) < 26 or data[12:16] != b"IHDR":
+        raise ValueError("a type specimen is a PNG")
+    if data[25] not in (4, 6):   # IHDR colour type: grey or truecolour WITH alpha
+        raise ValueError("a type specimen has a transparent ground")
+    size = entity_picture.dimensions(data)
+    if size is None:
+        raise ValueError("a type specimen's size can't be read")
+    w, h = size
+    if w > SPECIMEN_MAX_W or h > SPECIMEN_MAX_H or min(w, h) < SPECIMEN_MIN_SIDE:
+        raise ValueError("a type specimen is at most 400 by 120 pixels")
+    return int(w), int(h)
+
+
+def _specimens(raw, computed: dict) -> tuple[list[dict], list[bytes]]:
+    """``(entries, bytes)`` for the specimens a save handed over (``[{family, data}]``): only a family the page's
+    computed type names, once each, in the specimen model's order, each validated; the rest are dropped (a bad
+    specimen never stops a save — provenance never blocks memory)."""
+    wanted = [s["family"] for s in design_tokens.specimens(computed)]
+    given: dict[str, bytes] = {}
+    for item in list(raw or [])[: design_tokens.MAX_SPECIMENS * 2]:
+        if not isinstance(item, dict) or not isinstance(item.get("data"), (bytes, bytearray)):
+            continue
+        family, _ = design_tokens.family_of(item.get("family"))
+        if family and family.lower() not in given:
+            given[family.lower()] = bytes(item["data"])
+    entries: list[dict] = []
+    blobs: list[bytes] = []
+    for family in wanted:
+        data = given.get(family.lower())
+        if data is None:
+            continue
+        try:
+            w, h = validate_specimen(data)
+        except ValueError:
+            continue
+        entries.append({"family": family, "sha256": hashlib.sha256(data).hexdigest(), "width": w, "height": h})
+        blobs.append(data)
+    return entries, blobs
 
 
 def _snippets(raw, bank: str | None) -> list[dict]:
@@ -355,6 +440,8 @@ def _frontmatter(ref: Reference) -> dict:
         fm["tags"] = ref.tags
     if ref.entity:
         fm["entity"] = ref.entity
+    if ref.specimens:
+        fm["specimens"] = ref.specimens
     fm.update(ref.extra)
     return fm
 
@@ -413,7 +500,7 @@ def add_ref(memory_path, *, image: bytes, url: str | None = None, title: str | N
             snippets=None, tags=None, region=None, entity: str | None = None, via: str = "drop",
             author: str = USER, session: str | None = None, now: datetime | None = None,
             look: tuple[list[dict], list[str]] | None = None, explored: dict | None = None,
-            computed=None, note_by: str | None = None) -> dict:
+            computed=None, note_by: str | None = None, specimens=None) -> dict:
     """File one reference: ``{"action": "added", "ref", "paths"}``, or a refusal that wrote nothing.
 
     ``look`` is the palette and its words when the caller already read them (a route reads them before it takes
@@ -423,7 +510,10 @@ def add_ref(memory_path, *, image: bytes, url: str | None = None, title: str | N
 
     ``computed`` is the page's computed type and colour roles (``design_tokens``, validated here). ``note_by`` is who
     wrote the note: by default the author — an agent's note is the agent's — and the person (``user``) only where the
-    words are theirs and Cicada itself read them (an explore Look's note is their saved reason)."""
+    words are theirs and Cicada itself read them (an explore Look's note is their saved reason).
+
+    ``specimens`` are the capture's type specimens, ``[{family, data}]`` (looks polish): kept beside the screenshot,
+    one per family the computed type names, at most six, each a transparent PNG of at most 400×120 px."""
     bank = Path(memory_path).name
     try:
         ext = validate_image(image)
@@ -446,6 +536,7 @@ def add_ref(memory_path, *, image: bytes, url: str | None = None, title: str | N
     tokens = {k: v for k, v in tokens.items() if v}
     computed_kept, _ = design_tokens.clean(computed)
     colours, words = look if look is not None else read_look(image, declared_colours(kept_snippets, computed_kept))
+    specimen_entries, specimen_blobs = _specimens(specimens, computed_kept)
     author = resolve_author(author, via)
     captured = _stamp(now)
     day = captured[:10]
@@ -471,6 +562,7 @@ def add_ref(memory_path, *, image: bytes, url: str | None = None, title: str | N
         ref.id = base if n == 1 else f"{base}-{n}"
         ref.image = {"file": f"{'/'.join(ASSETS)}/{ref.id}.{ext}", "sha256": sha, "width": int(width),
                      "height": int(height), "bytes": len(image)}
+        ref.specimens = [{**e, "file": specimen_rel(ref.id, i)} for i, e in enumerate(specimen_entries, 1)]
         try:
             markdown_parser.write_new(root / f"{ref.id}.md", _frontmatter(ref), _body(ref))
         except FileExistsError:
@@ -478,15 +570,21 @@ def add_ref(memory_path, *, image: bytes, url: str | None = None, title: str | N
         break
     else:
         return _error("Cicada couldn't find a free name for this reference.")
-    target = assets / f"{ref.id}.{ext}"
+    files = [(assets / f"{ref.id}.{ext}", image)]
+    files += [(Path(memory_path) / s["file"], blob) for s, blob in zip(ref.specimens, specimen_blobs)]
+    written: list[Path] = []
     try:
-        tmp = target.with_name(f".{target.name}.partial")
-        tmp.write_bytes(image)
-        os.replace(tmp, target)
+        for target, data in files:
+            tmp = target.with_name(f".{target.name}.partial")
+            tmp.write_bytes(data)
+            os.replace(tmp, target)
+            written.append(target)
     except OSError as exc:
+        for target in written:
+            target.unlink(missing_ok=True)
         (root / f"{ref.id}.md").unlink(missing_ok=True)
         return _error(f"The screenshot couldn't be saved ({type(exc).__name__}).")
-    return {"action": "added", "ref": ref, "paths": [ref.path, ref.image_path]}
+    return {"action": "added", "ref": ref, "paths": [ref.path, ref.image_path, *(s["file"] for s in ref.specimens)]}
 
 
 def remove_ref(memory_path, ref_id: str, *, author: str = USER) -> dict:
@@ -502,6 +600,10 @@ def remove_ref(memory_path, ref_id: str, *, author: str = USER) -> dict:
     if found is not None:
         found[0].unlink(missing_ok=True)
         paths.append(ref.image_path)
+    for n in range(1, len(ref.specimens) + 1):
+        if (spec := specimen_file(memory_path, ref, n)) is not None:
+            spec.unlink(missing_ok=True)
+            paths.append(specimen_rel(ref.id, n))
     (Path(memory_path) / ref.path).unlink(missing_ok=True)
     return {"action": "removed", "ref": ref, "paths": paths}
 

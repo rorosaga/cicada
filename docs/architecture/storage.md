@@ -773,7 +773,21 @@ advertise); it accepts the browser's own words (`fontFamily`, `rgb(…)`, `"18px
 `next/font` hash and its fallback face, folds `-apple-system` into `system-ui`, and drops transparent colours. A value
 out of bounds is dropped with a problem line, never a failed save. `GET /design/{id}` serves `computed`, `typeRoles`
 and `colourRoles` (the computed role, else the pixel palette's, each with its `source`); the board's `fonts` are the
-computed families first, body first, then the snippets'. Pixels come from
+computed families first, body first, then the snippets'.
+
+**Type specimens (looks polish, owner 2026-10-15: "an Aa with the font and the name, or fonts if several").** The
+specimen model (`design_tokens.specimens`) is one entry per distinct family the computed type names — `{family,
+generic, roles: [{role, size, weight}]}`, role order (body first), families compared without case, at most six. The
+app cannot set "Aa" in the page's real face (it loads nothing a page names from the web), so the capture draws it: the
+script's `_SPECIMEN_JS` draws "Aa" at 80 px in each family's computed stack on a canvas it never adds to the page, with
+the page's own loaded face (a face not loaded within 1.5 s is left out, never drawn in a fallback), and prints
+`design.specimens: [{family, path}]`. `cicada_record_capture` and `cicada_save_design` read each (a file the agent
+saved, by identity, stdio only; or base64) before the admission; `design_refs` keeps those whose family the computed
+type names — each a PNG **with an alpha channel**, ≤ 400×120 px, ≤ 96 KB, at most six — at
+`<bank>/assets/design/<id>.type-<n>.png`, listed in the frontmatter as `specimens: [{family, file, sha256, width,
+height}]` (a file not at its own name is ignored), committed with the look and removed with it. `specimens` never count
+against the tokens' 16 KB. `GET /design/{id}` serves `specimens` (each with `image: {url: /design/{id}/type/{n}?v=…}`
+when drawn) and `GET /design/{id}/type/{n}` the PNG from the bank. Pixels come from
 `image_decode`: macOS's `sips` in a child process over a temporary file the backend wrote itself (never a path a
 request names), returning an uncompressed BMP parsed with numpy — no image library in the server; a decode failure
 means no palette, never a failed save.
@@ -812,6 +826,14 @@ writer, `api/services/site_captures.py`, turns each visit into memory; every doo
   `captured_at_flagged: true`), `recorded_at` (the server's), `saved_at` (the bookmark's own instant from G191's
   `added_at`, else the save day), `why_at` (when the person said why, G191) and `last_modified` (only when the page gave
   one that is not "now").
+- **Settled before the shot (looks polish, 2026-10-15).** The capture script (v4) waits, before the first screenshot of
+  each page, for its web fonts, the first viewport's images (complete or failed), no layout change for 500 ms, and the
+  viewport's finite animations and transitions; an infinite animation, or motion no animation names (two tiny frames of
+  the viewport differ, so a script-driven intro), gets a 2.5 s grace from the load; all of it inside a hard cap of 9 s,
+  after which it captures anyway. The record keeps `settle: {ms, timed_out, waiting_on?, motion?, unread?}` — ids and
+  enums only (`site_captures.settle_note`; `waiting_on` ⊂ fonts, images, layout, animations, motion; `motion` looping
+  or moving) — on the record and on each further page, and `cicada_record_capture`'s reply says when a shot was taken
+  before the page settled.
 - **Computed by Cicada, never the agent's word.** The palette and its look words (`design_palette`, as for Looks), a
   64-bit dHash of the viewport (9×8 grayscale through `image_decode`'s `sips` child process), and sha256 of the
   normalized text and outline (whitespace folded, digits masked, so a footer year is not a change). The change block:
@@ -857,7 +879,8 @@ writer, `api/services/site_captures.py`, turns each visit into memory; every doo
   as provenance, the capture's instant as `captured`): the saved page first, then each page whose look is new, never
   two within a dHash distance of 5, at most three a visit, never a page that showed the person's account. A Look keeps
   its full viewport in the bank (G196's rule), committed with the capture. Looks v2: each keeps the page's computed
-  tokens (`design` from the capture script, per page) as `computed`, merged into its palette.
+  tokens (`design` from the capture script, per page) as `computed`, merged into its palette, and (looks polish) its
+  page's type specimens (`design.specimens`).
 - **"Save its look" (looks v2, 2026-10-15).** One ask on one saved link: `explore_queue.ask(…, asked="look")` queues it
   with `asked: look` on the row — joining the active run when one is going (never replacing it, unlike `start`), else a
   batch of its own; a person's ask lifts a pause, an agent's does not. The plan (`explore_plan.for_site(…, asked)`, at
