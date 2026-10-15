@@ -519,6 +519,26 @@ def _repoint(path: Path, draft: EpisodeDraft, old_sid: str) -> None:
     markdown_parser.write(path, fm, parsed.body)
 
 
+def mark_removed(path: Path, at: str | None) -> bool:
+    """The person removed this bookmark in Cicada (G191 v3, ``bookmark_forget``): stamp ``source_deleted_at`` — the
+    tombstone every source-keyed writer uses, never an unlink — or, with ``at`` None, clear it (the link was saved
+    again). Frontmatter only: the body, its hash and every evidence span stay; the queue is untouched. Returns whether
+    the file changed."""
+    with STAGE_LOCK, episode_ids.episode_lock(Path(path).parent):
+        parsed = markdown_parser.parse(path)
+        fm = dict(parsed.frontmatter)
+        if bool(fm.get("source_deleted_at")) == (at is not None):
+            return False
+        if at is None:
+            fm.pop("source_deleted_at", None)
+        else:
+            fm["source_deleted_at"] = at
+        if "turns" in fm:
+            fm["turns"] = fm.pop("turns")  # R-PB4: the sidecar stays the last key
+        markdown_parser.write(path, fm, parsed.body)
+        return True
+
+
 @_under_episode_lock
 def _tombstone(path: Path, at: str) -> None:
     parsed = markdown_parser.parse(path)

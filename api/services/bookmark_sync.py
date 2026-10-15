@@ -659,11 +659,10 @@ def _revive(memory_path: Path, resaved: list[dict[str, Any]]) -> list[str]:
             except Exception:
                 parsed = None
             if parsed is not None and str(parsed.frontmatter.get("status") or "active") == "archived":
-                fm = dict(parsed.frontmatter)
-                fm["status"] = "active"
-                fm["last_referenced"] = str(date.today())
-                fm.pop("removed_at", None)
-                markdown_parser.write(path, fm, parsed.body)
+                parsed.frontmatter["status"] = "active"
+                parsed.frontmatter["last_referenced"] = str(date.today())
+                parsed.frontmatter.pop("removed_at", None)
+                markdown_parser.write(path, parsed.frontmatter, parsed.body)
                 written.append(f"entities/{entity_id}.md")
         episode_id = str(item.get("episode_id") or "")
         ep = memory_path / "episodes" / f"{episode_id}.md"

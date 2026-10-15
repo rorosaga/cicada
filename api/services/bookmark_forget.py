@@ -34,12 +34,11 @@ def forget(memory_path: Path, *, url: str) -> dict:
     entity_path = memory_path / "entities" / f"{media_entity_id}.md"
     if media_entity_id and entity_path.is_file():
         parsed = markdown_parser.parse(entity_path)
-        fm = dict(parsed.frontmatter)
-        if str(fm.get("status") or "active") not in ("archived", "dropped"):
-            fm["status"] = "archived"
-            fm["last_referenced"] = str(date.today())
-            fm["removed_at"] = now
-            markdown_parser.write(entity_path, fm, parsed.body)
+        if str(parsed.frontmatter.get("status") or "active") not in ("archived", "dropped"):
+            parsed.frontmatter["status"] = "archived"
+            parsed.frontmatter["last_referenced"] = str(date.today())
+            parsed.frontmatter["removed_at"] = now
+            markdown_parser.write(entity_path, parsed.frontmatter, parsed.body)
             paths.append(f"entities/{media_entity_id}.md")
     if _tombstone(path, now):
         paths.append(f"episodes/{episode_id}.md")
@@ -47,30 +46,13 @@ def forget(memory_path: Path, *, url: str) -> dict:
 
 
 def _tombstone(path: Path, at: str) -> bool:
-    """Stamp ``source_deleted_at`` unless the episode already carries one. Frontmatter only: the body, its hash and
-    every evidence span into it stay as they were, and the queue is untouched (nothing new was said)."""
-    with episode_staging.STAGE_LOCK, episode_ids.episode_lock(Path(path).parent):
-        parsed = markdown_parser.parse(path)
-        fm = dict(parsed.frontmatter)
-        if fm.get(TOMBSTONE):
-            return False
-        fm[TOMBSTONE] = at
-        if "turns" in fm:
-            fm["turns"] = fm.pop("turns")  # R-PB4: the sidecar stays the last key
-        markdown_parser.write(path, fm, parsed.body)
-        return True
+    """Stamp ``source_deleted_at`` unless the episode already carries one (``episode_staging.mark_removed``)."""
+    return episode_staging.mark_removed(path, at)
 
 
 def clear_removed(path: Path) -> bool:
     """The link was saved again: the episode loses its removal stamp. Returns whether it changed."""
-    with episode_staging.STAGE_LOCK, episode_ids.episode_lock(Path(path).parent):
-        parsed = markdown_parser.parse(path)
-        fm = dict(parsed.frontmatter)
-        if not fm.get(TOMBSTONE):
-            return False
-        fm.pop(TOMBSTONE, None)
-        markdown_parser.write(path, fm, parsed.body)
-        return True
+    return episode_staging.mark_removed(path, None)
 
 
 def commit_message(paths: list[str]) -> str:
