@@ -1150,6 +1150,10 @@ class EpisodeText(CamelModel):
     source: Optional[str] = None
     conversation_id: Optional[str] = None
     capture_kind: Optional[str] = None
+    #: G179: a message conversation's other side — its name (what its `assistant`/`speaker` turns are labelled) and
+    #: kind (`agent` | `person` | `unknown`). Null for every other episode.
+    correspondent: Optional[str] = None
+    correspondent_kind: Optional[str] = None
     turns: list[EpisodeTurn] = []
     focus: Optional[EpisodeFocus] = None
     agent: Optional[EpisodeAgent] = None
@@ -1216,6 +1220,8 @@ class ProvenanceConversation(CamelModel):
     harness: Optional[str] = None
     origin: Optional[str] = None
     source: Optional[str] = None
+    #: G179: a message conversation's other side (its agent's or person's name), so a chip reads "Instinct replied".
+    correspondent: Optional[str] = None
     timestamp: Optional[str] = None
     claim_count: int = 0
     available: bool = True
@@ -4245,6 +4251,140 @@ class TabGroupsSyncResponse(CamelModel):
     groups: int = 0
     tabs: int = 0
     bank: str = ""
+
+
+class MessagesConversationIn(CamelModel):
+    """One conversation the app lists or posts (G179). ``id`` is the app's hash of ``chat.guid`` — the phone number or
+    address inside it never crosses. ``name`` is what the person sees (the contact's name, else the chat's own);
+    ``from_me``/``from_them`` are counts the detectors may read, never words."""
+
+    id: str
+    name: str = ""
+    display_name: str = ""
+    service: str = "iMessage"
+    group: bool = False
+    from_me: int = 0
+    from_them: int = 0
+
+
+class MessagesAttachmentIn(CamelModel):
+    """An attachment's NAME and type — the file itself is never read or sent."""
+
+    name: str = ""
+    mime_type: Optional[str] = None
+    uti: Optional[str] = None
+    total_bytes: int = 0
+
+
+class MessagesRowIn(CamelModel):
+    """One ``message`` row of a ticked conversation, as the app read it. ``attributed_body`` is the archived blob,
+    base64 — decoded here (``typedstream``), never in the app."""
+
+    rowid: int = 0
+    guid: str = ""
+    date: int = 0
+    is_from_me: bool = False
+    text: Optional[str] = None
+    attributed_body: Optional[str] = None
+    associated_message_type: int = 0
+    item_type: int = 0
+    is_system_message: bool = False
+    date_edited: int = 0
+    date_retracted: int = 0
+    attachments: list[MessagesAttachmentIn] = []
+
+
+class MessagesSyncRequest(CamelModel):
+    """``POST /sources/messages/sync`` — rows of ONE ticked conversation: past the app's ROWID cursor, plus rows
+    edited or unsent since its last pass."""
+
+    conversation: MessagesConversationIn
+    messages: list[MessagesRowIn] = []
+
+
+class MessagesSyncResponse(CamelModel):
+    conversation: str = ""
+    messages_seen: int = 0
+    kept: int = 0
+    reactions: int = 0
+    events: int = 0
+    empty: int = 0
+    unsent: int = 0
+    edited: int = 0
+    attachments: int = 0
+    decoded: int = 0
+    sittings: int = 0
+    created: int = 0
+    updated: int = 0
+    skipped: int = 0
+    tombstoned: int = 0
+    actor: dict[str, Any] = {}
+    bank: str = ""
+
+
+class MessagesActorIn(CamelModel):
+    """The person's mark: ``agent`` | ``person``, or ``null`` to clear it and go back to the detector's answer."""
+
+    kind: Optional[str] = None
+    label: Optional[str] = None
+
+
+class MessagesConversationUpdate(CamelModel):
+    id: str
+    name: Optional[str] = None
+    service: Optional[str] = None
+    ticked: Optional[bool] = None
+    #: Present → the mark changes (``{"kind": null}`` clears it); absent → untouched.
+    actor: Optional[MessagesActorIn] = None
+    clear_actor: bool = False
+
+
+class MessagesSettingsUpdate(CamelModel):
+    suggest_agents: Optional[bool] = None
+    conversation: Optional[MessagesConversationUpdate] = None
+
+
+class MessagesSettings(CamelModel):
+    suggest_agents: bool = True
+    conversations: dict[str, dict[str, Any]] = {}
+    #: Episodes re-rendered because the person changed who a conversation is with.
+    reattributed: int = 0
+
+
+class MessagesConversationsRequest(CamelModel):
+    conversations: list[MessagesConversationIn] = []
+
+
+class MessagesConversationOut(CamelModel):
+    id: str
+    ticked: bool = False
+    group: bool = False
+    actor: dict[str, Any] = {}
+    suggestion: dict[str, Any] = {}
+    marked: Optional[dict[str, Any]] = None
+
+
+class MessagesConversationsResponse(CamelModel):
+    suggest_agents: bool = True
+    conversations: list[MessagesConversationOut] = []
+
+
+class MessagesWaitingConversation(CamelModel):
+    conversation: str
+    service: str = "iMessage"
+    name: str = ""
+    kind: str = "unknown"
+    messages: int = 0
+    sittings: int = 0
+    latest: str = ""
+    ticked: bool = False
+
+
+class MessagesWaitingResponse(CamelModel):
+    """``GET /sources/messages/waiting`` — the Sleep page's and Home's bubbles. Not a Store domain."""
+
+    conversations: list[MessagesWaitingConversation] = []
+    messages: int = 0
 
 
 class ContactRecord(CamelModel):
