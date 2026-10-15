@@ -32,15 +32,17 @@ record. Cicada never opens a browser itself and never schedules you.
 
    It opens its own background tab, captures, and closes it. It prints one JSON
    object: `outcome`, `captured_at`, `loaded_at`, `final_url`, `http_status`,
-   `shots` (paths), `page`, `signed_in`, `account_visible`, `consent_overlay`,
-   `consent_box`, `next_pages`, `loads`, and — when the plan goes past the
-   saved page — `pages`, `found`, `robots` and `section`.
+   `shots` (paths), `page`, `design`, `signed_in`, `account_visible`,
+   `consent_overlay`, `consent_box`, `next_pages`, `loads`, and — when the plan
+   goes past the saved page — `pages` (each with its own `design`), `found`,
+   `robots` and `section`.
 3. Record it: `cicada_record_capture(url, lease_token, outcome, captured_at,
-   final_url, http_status, shots, page, signed_in, account_visible,
+   final_url, http_status, shots, page, design, signed_in, account_visible,
    consent_overlay, consent_box, next_pages, loads, loaded_at, pages, found,
    robots, section)` with the values it printed. Cicada reads the colours and
    the look's hash from the pixels itself, keeps the site's map, and — when the
-   person's reason was the design — keeps the best pictures as Looks.
+   person's reason was the design, or they clicked "Save its look" — keeps the
+   best pictures as Looks with the page's type and colours.
 4. Call `cicada_explore_claim()` again. Stop when it says nothing is waiting.
 
 ## How deep: the plan
@@ -74,6 +76,33 @@ same Chrome, takes one site at a time, and stops after about five sites so its
 context stays small. If you set `BH_RUNTIME_DIR`, give each daemon its own:
 browser-harness drops the name from the socket under it, so a shared one makes
 every "daemon" the same one, driving the same tab. Use your harness's small model for workers.
+
+## The look: computed type and colours
+
+A page's real type is not in its stylesheet text: frameworks rename fonts
+(Next.js writes `__Newsreader_a1b2c3` where the CSS says the family). What the
+page *renders* is in its computed styles, and only the browser has them. The
+capture script reads them for you with one bounded script in the page and
+prints them as `design`:
+
+- `type` by role — `body` (the longest paragraph), `heading`, `subheading`,
+  `caption`, `link` and a `drop_cap` when the first paragraph has one — each
+  with `family`, `size`, `weight`, `line_height`, `letter_spacing` and `color`;
+- `colors` — `ground` (the page background), `ink` (the body text), `accent`
+  (a saturated link or most-used colour) and `wash` (a tinted surface close to
+  the ground);
+- `used` — the most-used colours, text weighted by length, surfaces by area.
+
+Pass `design` exactly as printed (and each further page's own `design` inside
+`pages`). Cicada checks it against its token schema and bounds, drops what is
+out of bounds, cleans hashed font names, and merges the colours into the
+palette it reads from the pixels. If the script printed no `design`, record
+the capture without it: the pixels still give the palette.
+
+When the person asks you to save a look outside an explore run (`cicada_save_design`),
+read the same computed styles in the page if your browser tool lets you, and
+pass them as `tokens` in the same shape. Your note shows as yours ("Noted by"
+you), never as the person's own words.
 
 ## The browser context
 

@@ -31,6 +31,14 @@ final class ExploreTests: XCTestCase {
             return ExploreStopResponse(stopped: true, dropped: 2, finishing: 0)
         }
         func fetchExplorePrompt() async throws -> ExplorePromptResponse { ExplorePromptResponse(prompt: "again") }
+        var looks: [(String, String)] = []
+        var lookError: Error?
+        func saveLook(mediaEntityId: String, url: String) async throws -> ExploreLookResponse {
+            if let lookError { throw lookError }
+            looks.append((mediaEntityId, url))
+            return ExploreLookResponse(key: "abc123def456", mediaEntityId: mediaEntityId, joined: false,
+                                       prompt: "Explore 1 of my saved sites…")
+        }
     }
 
     func testTheClickStartsARunAndKeepsThePromptToCopy() async {
@@ -114,6 +122,9 @@ final class ExploreTests: XCTestCase {
             func startExplore(scope: ExploreScope, origins: [String]) async throws -> ExploreStartResponse { throw APIError.httpError(404, "") }
             func stopExplore() async throws -> ExploreStopResponse { throw APIError.httpError(404, "") }
             func fetchExplorePrompt() async throws -> ExplorePromptResponse { throw APIError.httpError(404, "") }
+            func saveLook(mediaEntityId: String, url: String) async throws -> ExploreLookResponse {
+                throw APIError.httpError(404, "")
+            }
         }
         let cache = ExploreCache(api: Gone())
         await cache.refresh()

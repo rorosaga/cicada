@@ -724,12 +724,22 @@ at `<bank>/assets/design/<id>.<png|jpg>`, both **in the bank and committed toget
 own capture of a page that may not look the same tomorrow, so it is an asset like an uploaded picture, not a cache.
 Ids are `<UTC day>-<site slug>` (`2026-10-14-dashboard-example-com`), `-2`, `-3`… on collision, claimed by an exclusive
 create (`markdown_parser.write_new`). Frontmatter: `id`, `title`, `url` (http/https only, no credentials), `site`,
-`captured` (UTC `Z`), `added_by` (`user` | a harness), `session`, `via` (`app_capture | drop | paste | agent | demo`),
-`image: {file, sha256, width, height, bytes}`, `region` (optional), `palette: [{hex, share}]`, `look` (the palette's
-words: dark/light, muted/vivid, hue names), `tokens: {fonts, generic, colors, font_sizes, spacing, radii}` (from the
-snippets), `tags`, `entity` (optional; a page it is about, never created). Body: the title, the screenshot embedded as
-`![Screenshot](../assets/design/<id>.png)`, the link, `## What I liked` (the person's words; any heading in it demoted),
-`## Snippets` (fenced code). **One writer**, `api/services/design_refs.py`, behind every door: REST (`routers/design.py`),
+`captured` (UTC `Z`), `added_by` (`user` | a harness | `agent`), `session`, `via` (`app_capture | drop | paste | agent |
+explore | demo`), `image: {file, sha256, width, height, bytes}`, `region` (optional), `palette: [{hex, share, role,
+declared?}]`, `look` (the palette's words: dark/light, muted/vivid, hue names), `tokens: {fonts, generic, colors,
+font_sizes, spacing, radii}` (from the snippets), `computed` (the page's computed type and colour roles, below),
+`note_by` (who wrote the note, written when it is not the person), `tags`, `entity` (optional; a page it is about, never
+created). Body: the title, the screenshot embedded as `![Screenshot](../assets/design/<id>.png)`, the link, the note —
+under `## What I liked` only when it is the person's own words, under `## Noted by <agent>` ("Noted by Claude Code")
+when an agent wrote it (looks v2, 2026-10-15; any heading in it demoted) — and `## Snippets` (fenced code).
+
+**Whose words (looks v2).** `note_by` defaults to the author: an agent's note is the agent's, whatever it says the
+person liked. Only a note Cicada itself read from the person's own save (an explore Look's saved reason) is theirs
+(`note_by: user`). An agent door never writes as the person: `via=agent` with no author is the generic `agent`. The
+REST door takes `author` (a harness id from the Sources page's table, or `agent`; free text is a 400) and commits under
+it with trigger `agent/rest_api`. A reference written before looks v2 with no `note_by` is read as: `via: explore` →
+the person; `added_by` an agent → that agent; `added_by: user` with `via: agent` → `agent` (the REST door stamped
+agents as the person until then). **One writer**, `api/services/design_refs.py`, behind every door: REST (`routers/design.py`),
 MCP (`mcp_tools.save_design`) and the demo. Every text is scrubbed (writer `design`); one screenshot (by sha256) is one
 reference; PNG or JPEG only, 32–8192 px, ≤ 4 MB (the app shrinks to ≤ 2560 px first). **Never an entity page** (the 10
 types stay closed): Stage 1 never reads `design/`, nothing here writes `entities/`, and a reference never decays. The
@@ -738,9 +748,32 @@ in a demo bank and while Sleep holds the pages; an agent's as `Agent write` with
 removes only what it added. `sync_service`'s `design` component (a stat walk of `design/`) is the board's ETag; it is
 not a Store domain.
 
-**What is read locally, with no model:** the palette (`design_palette.palette`: pixels at ≤ 256 px, 5-bit bins merged
-greedily under an RGB distance of 28, every colour ≥ 1 %, largest first — deterministic) and its words, and the CSS
-tokens of the snippets (regular expressions over the text as given; nothing is fetched or run). Pixels come from
+**What is read locally, with no model:** the palette and its words, and the CSS tokens of the snippets (regular
+expressions over the text as given; nothing is fetched or run). **The palette (looks v2, `design_palette`)** reads
+pixels at ≤ 1600 px a side (256 averaged a 1 px rule into the ground), bins at 5 bits a channel, drops bins under
+0.02 % (specks), merges greedily under an RGB distance of 28. The largest colour is the **ground**; every other is
+ranked by **salience** = (0.65 · chroma + 0.35 · WCAG contrast against the ground, scaled to 0–1) × presence, where
+presence saturates at 0.4 % of the picture — never by area, which turned one cobalt ink on off-white into "off-white
+90 %, pale blue 4 %, grey 2 %". A colour under 1 % stays only if its salience is ≥ 0.12; a colour on the line between
+a stronger one and the ground (an antialiased edge) is folded away under 1 % and is a `wash` above it. Each colour has
+a role: `ground`, `accent` (chroma ≥ 0.3), `ink` (contrast ≥ 3 against the ground) or `wash`. Colours the page
+declares — the computed colour roles and most-used colours, then the snippets' CSS colours — are merged: a pixel colour
+within 40 of one is marked `declared`, one the pixels never show is added with `share: 0`. At most 8 colours,
+deterministic.
+
+**Computed tokens (`design_tokens`, shape `design-tokens-1`).** What a page renders is in its computed styles, not its
+stylesheet text (Next.js `next/font` writes `__Newsreader_a1b2c3` for the family), and only a browser has them, so the
+person's agent reads them (site-explore's `_DESIGN_JS`, one bounded script in the page; ruling 25) and Cicada keeps
+them in `computed`: `type` by role — `body`, `heading`, `subheading`, `caption`, `link`, `drop_cap` — each `{family,
+generic, stack, size, weight, line_height, letter_spacing, color}` (CSS px; `line_height` None for `normal`); `colors`
+by role — `ground`, `ink`, `accent`, `wash`; `used`, the most-used colours (≤ 12). One module defines the shape, its
+bounds (size 4–400 px, line height ≤ 800 px, letter spacing ±50 px, weight 1–1000, a family ≤ 80 characters, ≤ 16 KB
+in all) and its tool schema (`JSON_SCHEMA`, which `cicada_save_design.tokens` and `cicada_record_capture.design` both
+advertise); it accepts the browser's own words (`fontFamily`, `rgb(…)`, `"18px"`, `bold`, `normal`, `em`), strips a
+`next/font` hash and its fallback face, folds `-apple-system` into `system-ui`, and drops transparent colours. A value
+out of bounds is dropped with a problem line, never a failed save. `GET /design/{id}` serves `computed`, `typeRoles`
+and `colourRoles` (the computed role, else the pixel palette's, each with its `source`); the board's `fonts` are the
+computed families first, body first, then the snippets'. Pixels come from
 `image_decode`: macOS's `sips` in a child process over a temporary file the backend wrote itself (never a path a
 request names), returning an uncompressed BMP parsed with numpy — no image library in the server; a decode failure
 means no palette, never a failed save.
@@ -823,7 +856,14 @@ writer, `api/services/site_captures.py`, turns each visit into memory; every doo
   person's own words about the save as the note, `explored: {site, captured_at, capture, entity, page_kind, page_url}`
   as provenance, the capture's instant as `captured`): the saved page first, then each page whose look is new, never
   two within a dHash distance of 5, at most three a visit, never a page that showed the person's account. A Look keeps
-  its full viewport in the bank (G196's rule), committed with the capture.
+  its full viewport in the bank (G196's rule), committed with the capture. Looks v2: each keeps the page's computed
+  tokens (`design` from the capture script, per page) as `computed`, merged into its palette.
+- **"Save its look" (looks v2, 2026-10-15).** One ask on one saved link: `explore_queue.ask(…, asked="look")` queues it
+  with `asked: look` on the row — joining the active run when one is going (never replacing it, unlike `start`), else a
+  batch of its own; a person's ask lifts a pause, an agent's does not. The plan (`explore_plan.for_site(…, asked)`, at
+  claim and again at record from the same row) adds the design reason (`because: {from: ask, signal: look}`) and
+  `save_look`, so the landing picture becomes a Look even when the capture says the look is the same as last time.
+  Doors: the person's click (`POST /explore/look`) and a trusted agent they asked (`cicada_explore_start(look=[…])`).
 
 ### Live state + handshake (G53 / G75)
 

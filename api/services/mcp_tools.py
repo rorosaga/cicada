@@ -4222,7 +4222,7 @@ def _design_line(ref, *, memory_path: Path | None = None, legs: list[str] | None
         bits.append("palette " + " ".join(c["hex"] for c in ref.palette[:6]))
     if ref.look:
         bits.append(", ".join(ref.look))
-    fonts = (ref.tokens or {}).get("fonts") or []
+    fonts = design_refs.fonts(ref)
     if fonts:
         bits.append("fonts " + ", ".join(fonts[:4]))
     if legs:
@@ -4230,7 +4230,13 @@ def _design_line(ref, *, memory_path: Path | None = None, legs: list[str] | None
     line = " · ".join(bits)
     if ref.note:
         note = " ".join(ref.note.split())
-        line += f"\n  liked: {note[:240]}{'…' if len(note) > 240 else ''}"
+        who = "liked" if ref.note_by == design_refs.USER else f"noted by {design_refs.agent_label(ref.note_by)}"
+        line += f"\n  {who}: {note[:240]}{'…' if len(note) > 240 else ''}"
+    types = (ref.computed or {}).get("type") or {}
+    if types:
+        line += "\n  type: " + "; ".join(
+            f"{role} {t.get('family') or '?'}" + (f" {t['size']:g}px" if isinstance(t.get("size"), (int, float)) else "")
+            for role, t in types.items())
     if memory_path is not None:
         found = design_refs.image_file(memory_path, ref)
         if found is not None:
@@ -4240,7 +4246,7 @@ def _design_line(ref, *, memory_path: Path | None = None, legs: list[str] | None
 
 
 def save_design(ctx: ToolContext, url=None, note=None, image_path=None, image_base64=None, title=None, snippets=None,
-                tags=None, region=None) -> str:
+                tags=None, region=None, tokens=None) -> str:
     """`cicada_save_design` (design taste): a look the person likes, captured by their agent — the screenshot, the
     page, what they liked, and any HTML/CSS they pointed at. Written by the one writer (`design_refs`) as the harness,
     with the conversation as `Cicada-Session:`; refused in a demo bank and while Sleep runs. The palette is read from
@@ -4255,13 +4261,16 @@ def save_design(ctx: ToolContext, url=None, note=None, image_path=None, image_ba
         return data
     if snippets is not None and not isinstance(snippets, list):
         return "Not saved: `snippets` is a list of {lang, code}."
-    look = design_refs.read_look(data)
+    from api.services import design_tokens
+
+    computed, problems = design_tokens.clean(tokens)
+    look = design_refs.read_look(data, design_refs.declared_colours(snippets, computed))
     with write_admission.shared(memory_path):   # G183: from the probe through the commit
         if ctx.sleep_running():
             return DESIGN_SLEEPING
         result = design_refs.add_ref(memory_path, image=data, url=url, title=title, note=note, snippets=snippets,
                                      tags=tags if isinstance(tags, list) else None, region=region, via="agent",
-                                     author=ctx.author, session=ctx.session_id, look=look)
+                                     author=ctx.author, session=ctx.session_id, look=look, computed=computed)
         if result["action"] == "duplicate":
             return f"NOT saved — that screenshot is already on the board as {result['id']}."
         if result["action"] != "added":
@@ -4277,8 +4286,10 @@ def save_design(ctx: ToolContext, url=None, note=None, image_path=None, image_ba
             memory_path, subject=ctx.commit_subject,
             lines=[f"{p}: created (source: n/a, trigger: {ctx.trigger})" for p in result["paths"]],
             paths=result["paths"], author=ctx.author, session=ctx.session_id)
-    head = f"Saved {ref.id} to the person's design board."
+    head = f"Saved {ref.id} to the person's design board. Your note shows as yours, never as their words."
     detail = _design_line(ref)
+    if problems:
+        detail += "\n  tokens left out: " + "; ".join(problems[:6])
     return f"{head}\n{detail}"
 
 
@@ -4379,11 +4390,11 @@ def _explore_why_line(ctx: ToolContext, why: dict | None) -> str | None:
 def _explore_because(plan: dict) -> str:
     """The plan's reasons in one line: which signal from where, never the person's whole sentence."""
     names = {"reason": "their reason", "text": "their words", "conversation": "what they said in a conversation",
-             "default": "no reason given, so the landing page alone"}
+             "ask": "they asked to save its look", "default": "no reason given, so the landing page alone"}
     bits = []
     for b in plan.get("because") or []:
         src = names.get(str(b.get("from")), str(b.get("from")))
-        if b.get("from") == "default":
+        if b.get("from") in ("default", "ask"):
             bits.append(src)
             continue
         words = f" ({', '.join(b['words'][:4])})" if b.get("words") else ""
@@ -4477,7 +4488,7 @@ def explore_claim(ctx: ToolContext, limit=None, release: list | None = None) -> 
         lines = []
         for i, row in enumerate(rows, 1):
             site = saved[row["key"]]
-            plan = explore_plan.capped(explore_plan.for_site(memory_path, site),
+            plan = explore_plan.capped(explore_plan.for_site(memory_path, site, asked=row.get("asked")),
                                        explore_queue.room(memory_path, row["site"]))
             bits = [f"\"{_one_line(site.title, 120) or 'Untitled'}\"", f"depth {plan['depth']}",
                     f"up to {plan['max_pages']} page(s)", f"lease_token {row['lease_token']}"]
@@ -4496,7 +4507,7 @@ def explore_claim(ctx: ToolContext, limit=None, release: list | None = None) -> 
                 f"capture script in one browser-harness call — `exec(open(\"{script}\").read())` then "
                 "`print(explore_capture(url, plan=<that site's plan JSON, as given>, context=...))` — and record what "
                 "it printed with cicada_record_capture(url, lease_token, outcome, captured_at, final_url, http_status, "
-                "shots, page, signed_in, loaded_at, pages, found, robots, section). The plan says how far to go: the "
+                "shots, page, design, signed_in, loaded_at, pages, found, robots, section). The plan says how far to go: the "
                 "landing page alone unless the person's reason asks for more, then the page kinds it names, never "
                 "more pages than it allows, at least 8 seconds apart, only pages robots.txt allows. You may swap in a "
                 "page you judge more representative of a kind (explore_capture's pages=[url, ...]: same host, within "
@@ -4562,17 +4573,21 @@ def _explore_page_shots(ctx: ToolContext, memory_path: Path, page: dict) -> list
 
 
 def _explore_looks(ctx: ToolContext, memory_path: Path, *, site, cap: dict, landing: bytes | None,
-                   pages: list[dict], why_text: str | None) -> tuple[list[str], list[str]]:
+                   pages: list[dict], why_text: str | None, landing_design=None,
+                   save_look: bool = False) -> tuple[list[str], list[str]]:
     """The auto-Look (G196 via G166 slice 2): when the person's reason is the design, the visit's best pictures become
     Looks through the one design writer — the landing page first, then each page whose look is new, never two near
     copies (dHash within ``site_captures.SAME``), at most :data:`MAX_AUTO_LOOKS`. Each names the site, the date and
-    the capture it came from; the person's own words about the save are its note. ``(ids, paths)``."""
+    the capture it came from; the person's own words about the save are its note — theirs, read by Cicada from the
+    save, so it shows as what they liked. Each Look keeps the page's computed type and colour roles when the capture
+    printed them (``design``, looks v2). ``save_look`` (the person's "Save its look") keeps the landing page even when
+    its look has not changed since the last visit. ``(ids, paths)``."""
     from api.services import design_refs, explore_plan, site_captures
 
-    candidates: list[tuple[str, str, str | None, bytes, str | None, str | None]] = []
-    if landing is not None and (cap.get("change") or {}).get("look") != "same":
+    candidates: list[tuple[str, str, str | None, bytes, str | None, str | None, object]] = []
+    if landing is not None and (save_look or (cap.get("change") or {}).get("look") != "same"):
         candidates.append((explore_plan.page_kind(site.url), site.url, cap.get("title"), landing, cap.get("dhash"),
-                           site.entity_id))
+                           site.entity_id, landing_design))
     stored = {p.get("url"): p for p in cap.get("pages") or [] if isinstance(p, dict)}
     for page in pages:
         kept = stored.get(page["url"]) or {}
@@ -4581,19 +4596,21 @@ def _explore_looks(ctx: ToolContext, memory_path: Path, *, site, cap: dict, land
             continue
         if (kept.get("change") or {}).get("look") == "same":
             continue
-        candidates.append((page["kind"], page["url"], kept.get("title"), viewport, kept.get("dhash"), None))
+        candidates.append((page["kind"], page["url"], kept.get("title"), viewport, kept.get("dhash"), None,
+                           page.get("design")))
     ids: list[str] = []
     paths: list[str] = []
     hashes: list[str] = []
     when = site_captures._parse(cap.get("captured_at"))
-    for kind, url, title, data, dhash, entity in candidates:
+    for kind, url, title, data, dhash, entity, design in candidates:
         if len(ids) >= MAX_AUTO_LOOKS:
             break
         if dhash and any((site_captures.hamming(dhash, h) or 99) <= site_captures.SAME for h in hashes):
             continue
         result = design_refs.add_ref(
             memory_path, image=data, url=url, title=title, note=why_text, tags=["explored", kind], entity=entity,
-            via="explore", author=ctx.author, session=ctx.session_id, now=when,
+            via="explore", author=ctx.author, session=ctx.session_id, now=when, computed=design,
+            note_by=design_refs.USER if why_text else None,
             explored={"site": site.site, "captured_at": cap.get("captured_at"), "capture": cap.get("id"),
                       "entity": site.entity_id, "page_kind": kind, "page_url": url})
         if result.get("action") != "added":
@@ -4608,7 +4625,8 @@ def _explore_looks(ctx: ToolContext, memory_path: Path, *, site, cap: dict, land
 def record_capture(ctx: ToolContext, url: str, lease_token: str, outcome: str, captured_at=None, final_url=None,
                    http_status=None, shots=None, page=None, signed_in=None, account_visible=False,
                    consent_overlay=False, consent_box=None, next_pages=None, loads=None, via=None,
-                   last_modified=None, loaded_at=None, pages=None, found=None, robots=None, section=None) -> str:
+                   last_modified=None, loaded_at=None, pages=None, found=None, robots=None, section=None,
+                   design=None) -> str:
     """``cicada_record_capture``: what the agent's capture saw on a site it leased — a dated, append-only record in the
     bank (``site_captures``), the thumbnail when the look changed, the full images outside the bank. Refused in a demo
     bank, while agent reading is off, without a lease, and while Sleep writes. A wall (``needs_login``, ``blocked``) is
@@ -4666,7 +4684,8 @@ def record_capture(ctx: ToolContext, url: str, lease_token: str, outcome: str, c
     claimed_at = explore_queue._parse((row or {}).get("claimed_at"))
     # The backend's half of the plan: recomputed from the same inputs the claim used, then every further page is
     # checked against it — the cap, the pace, robots.txt as the agent's browser read it, the host.
-    plan = explore_plan.capped(explore_plan.for_site(memory_path, site), explore_queue.room(memory_path, site.site))
+    plan = explore_plan.capped(explore_plan.for_site(memory_path, site, asked=(row or {}).get("asked")),
+                               explore_queue.room(memory_path, site.site))
     robots = robots if isinstance(robots, dict) else None
     robots_text = str((robots or {}).get("text") or "")[:65536]
     parser = explore_plan.robots((robots or {}).get("status"), robots_text) if robots else None
@@ -4723,7 +4742,8 @@ def record_capture(ctx: ToolContext, url: str, lease_token: str, outcome: str, c
             if plan.get("auto_look") and outcome in ("captured", "moved") and not account_visible:
                 landing = next((d for k, d in shot_bytes if k == "viewport"), None)
                 looks, look_paths = _explore_looks(ctx, memory_path, site=site, cap=cap, landing=landing,
-                                                   pages=ready, why_text=(site.why or {}).get("text"))
+                                                   pages=ready, why_text=(site.why or {}).get("text"),
+                                                   landing_design=design, save_look=bool(plan.get("save_look")))
                 paths += look_paths
         if paths:
             agent_commits.commit_write(
@@ -4794,7 +4814,7 @@ def reading_hosts_display(url: str) -> str:
     return reading_hosts.display_host(reading_hosts.host_of(url)) or "the site"
 
 
-def explore_start(ctx: ToolContext, scope=None, origins=None) -> str:
+def explore_start(ctx: ToolContext, scope=None, origins=None, look=None) -> str:
     """``cicada_explore_start`` (D5): a trusted local agent starts a run because the person asked in this
     conversation. Stamped with who started it, shown in Cicada at once and stoppable with one tap. Never remote,
     never from the command line, never an untrusted harness; refused in a demo bank and while agent reading is off."""
@@ -4810,6 +4830,8 @@ def explore_start(ctx: ToolContext, scope=None, origins=None) -> str:
                 "Explore saved sites in Cicada's Sources instead.")
     if not reading_settings.agent_enabled():
         return _EXPLORE_OFF
+    if look:
+        return _explore_look(ctx, memory_path, look)
     scope = str(scope or "never_explored")
     if scope not in ("all", "never_explored"):
         return "Error: scope must be all or never_explored."
@@ -4827,6 +4849,28 @@ def explore_start(ctx: ToolContext, scope=None, origins=None) -> str:
     return (f"Started exploring {batch['total']} saved site(s) for the person ({est['size']}, about {est['minutes']} "
             "minutes with four agents). It shows in Cicada now, stamped as started by you, and the person can stop it "
             "with one tap. Take sites with cicada_explore_claim.")
+
+
+def _explore_look(ctx: ToolContext, memory_path: Path, links) -> str:
+    """``cicada_explore_start(look=[...])`` (looks v2): the person asked their agent to keep the look of saved links —
+    the same ask as their "Save its look" click, stamped as started by this agent. Each link must already be saved."""
+    from api.services import explore_candidates, explore_queue
+
+    found, missing = explore_candidates.by_links(memory_path, [str(u) for u in list(links or [])[:20]])
+    if not found:
+        return ("Nothing to explore: " + ("none of those links is saved in Cicada, or each is excluded from exploring."
+                                           if missing else "pass the saved links whose look to keep."))
+    try:
+        out = explore_queue.ask(memory_path, [{"key": s.key, "site": s.site} for s in found], asked="look",
+                                started_by={"kind": "agent", "harness": ctx.author, "session": ctx.session_id},
+                                holding=ctx.pages_held)
+    except explore_queue.QueueError as exc:
+        return f"Error: {exc}"
+    _explore_ledger(ctx, memory_path, "start", count=len(found))
+    tail = f" {len(missing)} link(s) are not saved or are excluded, and were left out." if missing else ""
+    return (f"Queued {len(found)} saved link(s) to keep their look: a design visit each, whose landing picture becomes a "
+            "Look on the person's board with its computed type and colours. It shows in Cicada now, stamped as "
+            f"started by you.{tail} Take them with cicada_explore_claim.")
 
 
 # ---- G61, ruling 26: tracked sources the person's agent re-checks ------------------------------------------------

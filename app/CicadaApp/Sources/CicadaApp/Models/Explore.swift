@@ -258,6 +258,15 @@ struct ExploreStartResponse: Decodable, Equatable, Sendable {
     var prompt: String
 }
 
+/// Looks v2 — what "Save its look" answers: the link it queued, whether it joined a run already going, and the prompt
+/// to hand the person's agent.
+struct ExploreLookResponse: Decodable, Equatable, Sendable {
+    var key: String
+    var mediaEntityId: String
+    var joined: Bool
+    var prompt: String
+}
+
 struct ExploreStopResponse: Decodable, Equatable, Sendable {
     var stopped: Bool
     var dropped: Int

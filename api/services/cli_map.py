@@ -151,7 +151,7 @@ ROWS: tuple[Row, ...] = (
         (_p("item"), _p("note"), _f("status")), mutates=True),
     Row(("design", "save"), "cicada_save_design", "Save a look the person likes: a screenshot, its link, the note.",
         (_p("note"), _f("url"), _f("image_path"), _f("image_base64"), _f("title"), _f("snippets", "json"),
-         _f("tags", "list", flag_name="tag"), _f("region", "json")), mutates=True),
+         _f("tags", "list", flag_name="tag"), _f("region", "json"), _f("tokens", "json")), mutates=True),
     Row(("design", "search"), "cicada_design_search", "The person's saved looks, by words or by a picture.",
         (_f("query"), _f("image_path"), _f("image_base64"), _f("limit", "int"))),
     Row(("episodes", "pending"), "cicada_pending", "Conversations not consolidated yet, each with its revision.",
@@ -176,10 +176,10 @@ ROWS: tuple[Row, ...] = (
          _f("shots", "json"), _f("page", "json"), _f("signed_in", "bool"), _f("account_visible", "bool"),
          _f("consent_overlay", "bool"), _f("consent_box", "json"), _f("next_pages", "json"), _f("loads", "int"),
          _f("via"), _f("last_modified"), _f("loaded_at"), _f("pages", "json"), _f("found", "json"),
-         _f("robots", "json"), _f("section", "json")), mutates=True),
+         _f("robots", "json"), _f("section", "json"), _f("design", "json")), mutates=True),
     Row(("explore", "map"), "cicada_site_map", "The pages found and opened on an explored site.", (_f("site"),)),
     Row(("explore", "start"), "cicada_explore_start", "Start exploring the person's saved sites.",
-        (_f("scope"), _f("origins", "list", flag_name="origin")), mutates=True,
+        (_f("scope"), _f("origins", "list", flag_name="origin"), _f("look", "list")), mutates=True,
         mcp_only="a run starts only from the person's own request in a conversation, or their click (D5); never from "
                  "a shell"),
     # G61, ruling 26: proposed spellings, not exposed yet.

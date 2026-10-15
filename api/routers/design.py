@@ -5,11 +5,14 @@ Reads: ``GET /design`` (the board, newest first, with whether search by picture 
 bank). None is a Store domain: the app's ``LooksCache`` revalidates them with the ETag below (the ``design``
 component, plus the image model's state) — no ``VersionVector`` mapping, so nothing has to ship beside it.
 
-Writes are the person's: ``POST /design`` (a screenshot the app captured, or one dropped or pasted, with the page's
-link, their note and any snippets they selected) and ``DELETE /design/{id}``. Each is committed alone as
-``Cicada-Author: user``, trigger ``user/companion_app``, answers 409 while Sleep holds the pages (the write admission,
-G183) and 409 in a demo bank (a screenshot is capture: ``demo_guard``). The palette is read from the pixels **before**
-the admission is taken, so Sleep never waits on a decode.
+Writes: ``POST /design`` (a screenshot the app captured, or one dropped or pasted, with the page's link, their note
+and any snippets they selected) and ``DELETE /design/{id}``. Each is committed alone, trigger ``user/companion_app``,
+answers 409 while Sleep holds the pages (the write admission, G183) and 409 in a demo bank (a screenshot is capture:
+``demo_guard``). The palette is read from the pixels **before** the admission is taken, so Sleep never waits on a
+decode. **Looks v2:** an agent that saves through this door names itself (``author``, a harness id such as
+``claude-code``; ``via=agent`` with no author is the generic ``agent``) — the commit is its, and its note shows as
+"Noted by <agent>", never as the person's words. ``tokens`` carries the page's computed type and colour roles
+(``design_tokens``), validated with bounds; a token out of bounds is dropped, never a failed save.
 
 ``POST /design/search`` takes words, an example picture, or both, and answers with the board re-ranked
 (``design_index``): it writes only the derived index outside the bank. A POST so the words never reach an access log;
@@ -27,8 +30,8 @@ from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
 from api.models.schemas import CamelModel
-from api.services import (demo_guard, design_index, design_refs, embedding_models, entity_picture, git_service,
-                          sleep_cycle, sync_service, write_admission)
+from api.services import (demo_guard, design_index, design_refs, design_tokens, embedding_models, entity_picture,
+                          git_service, sleep_cycle, sync_service, write_admission)
 from api.services.sleep_refusal import SleepWriting
 
 router = APIRouter()
@@ -41,6 +44,8 @@ _write_lock = write_admission.TransactionLock()
 class DesignColour(CamelModel):
     hex: str
     share: float = 0.0
+    role: str | None = None
+    declared: bool = False
 
 
 class DesignImage(CamelModel):
@@ -53,6 +58,24 @@ class DesignImage(CamelModel):
 class DesignSnippet(CamelModel):
     lang: str = "text"
     code: str
+
+
+class DesignTypeRole(CamelModel):
+    role: str
+    family: str = ""
+    generic: str | None = None
+    size: float | None = None
+    weight: int | None = None
+    line_height: float | None = None
+    letter_spacing: float | None = None
+    color: str | None = None
+
+
+class DesignColourRole(CamelModel):
+    role: str
+    hex: str
+    #: ``page`` — the agent read it from the page's computed styles; ``pixels`` — Cicada read it from the screenshot.
+    source: str = "pixels"
 
 
 class DesignRefSummary(CamelModel):
@@ -72,12 +95,17 @@ class DesignRefSummary(CamelModel):
     tags: list[str] = []
     note_preview: str = ""
     entity: str | None = None
+    note_by: str = "user"
+    note_by_kind: str = "user"
 
 
 class DesignRefModel(DesignRefSummary):
     note: str = ""
     snippets: list[DesignSnippet] = []
     tokens: dict = {}
+    computed: dict = {}
+    type_roles: list[DesignTypeRole] = []
+    colour_roles: list[DesignColourRole] = []
     path: str = ""
 
 
@@ -109,8 +137,31 @@ class DesignSearchResult(CamelModel):
     missing: list[str] = []
 
 
+def _colour_roles(ref: design_refs.Reference) -> list[DesignColourRole]:
+    """Ground, ink, accent, wash: what the page's computed styles said, else what the pixels show."""
+    given = (ref.computed or {}).get("colors") or {}
+    out = []
+    for role in design_tokens.COLOR_ROLES:
+        if given.get(role):
+            out.append(DesignColourRole(role=role, hex=given[role], source="page"))
+            continue
+        hit = next((c for c in ref.palette if c.get("role") == role), None)
+        if hit is not None:
+            out.append(DesignColourRole(role=role, hex=str(hit["hex"]), source="pixels"))
+    return out
+
+
+def _type_roles(ref: design_refs.Reference) -> list[DesignTypeRole]:
+    types = (ref.computed or {}).get("type") or {}
+    return [DesignTypeRole(role=role, family=str(t.get("family") or ""), generic=t.get("generic"),
+                           size=t.get("size"), weight=t.get("weight"), line_height=t.get("line_height"),
+                           letter_spacing=t.get("letter_spacing"), color=t.get("color"))
+            for role in design_tokens.TYPE_ROLES if isinstance(t := types.get(role), dict)]
+
+
 def _summary(ref: design_refs.Reference) -> DesignRefSummary:
     kind, _ = git_service.author_identity(ref.added_by)
+    note_kind, _ = git_service.author_identity(ref.note_by)
     image = None
     if ref.image.get("sha256"):
         image = DesignImage(url=f"/design/{ref.id}/image?v={str(ref.image['sha256'])[:12]}",
@@ -120,14 +171,20 @@ def _summary(ref: design_refs.Reference) -> DesignRefSummary:
     return DesignRefSummary(
         id=ref.id, title=ref.title, url=ref.url, site=ref.site, captured=ref.captured, day=ref.day,
         added_by=ref.added_by, added_by_kind=kind, via=ref.via, image=image,
-        palette=[DesignColour(hex=str(c["hex"]), share=float(c.get("share") or 0)) for c in ref.palette],
-        look=ref.look, fonts=list((ref.tokens or {}).get("fonts") or []), tags=ref.tags,
-        note_preview=note[:160] + ("…" if len(note) > 160 else ""), entity=ref.entity)
+        palette=[DesignColour(hex=str(c["hex"]), share=float(c.get("share") or 0),
+                              role=c.get("role") if c.get("role") in design_tokens.COLOR_ROLES else None,
+                              declared=bool(c.get("declared"))) for c in ref.palette],
+        look=ref.look, fonts=design_refs.fonts(ref), tags=ref.tags,
+        note_preview=note[:160] + ("…" if len(note) > 160 else ""), entity=ref.entity,
+        note_by=ref.note_by, note_by_kind="user" if ref.note_by == design_refs.USER else
+        (note_kind if note_kind != "user" else "harness"))
 
 
 def _full(ref: design_refs.Reference) -> DesignRefModel:
     return DesignRefModel(**_summary(ref).model_dump(by_alias=False), note=ref.note,
-                          snippets=[DesignSnippet(**s) for s in ref.snippets], tokens=ref.tokens or {}, path=ref.path)
+                          snippets=[DesignSnippet(**s) for s in ref.snippets], tokens=ref.tokens or {},
+                          computed=ref.computed or {}, type_roles=_type_roles(ref), colour_roles=_colour_roles(ref),
+                          path=ref.path)
 
 
 def _vision() -> DesignVision:
@@ -198,9 +255,22 @@ def _json_list(raw: str | None, what: str) -> list:
     return value
 
 
-async def _commit(memory_path, paths: list[str], action: str) -> None:
-    message = design_refs.commit_message(paths, action=action, subject="Design reference", trigger=TRIGGER,
-                                         day=datetime.now(timezone.utc).date().isoformat())
+def _author(raw: str | None, via: str | None) -> str:
+    """The author an upload names: the person by default; an agent only as a harness id Cicada knows (or ``agent``),
+    so a commit trailer never carries free text. ``via=agent`` never writes as the person."""
+    from api.services.source_overview import HARNESS_LABELS
+
+    name = str(raw or "").strip().lower()
+    if name and name != design_refs.USER and name != design_refs.AGENT and \
+            (name not in HARNESS_LABELS or name == "unknown"):
+        raise HTTPException(400, "Name the agent by its harness id (for example claude-code), or leave the author out.")
+    return design_refs.resolve_author(name or design_refs.USER, via)
+
+
+async def _commit(memory_path, paths: list[str], action: str, author: str = design_refs.USER) -> None:
+    trigger = TRIGGER if author == design_refs.USER else "agent/rest_api"
+    message = design_refs.commit_message(paths, action=action, subject="Design reference", trigger=trigger,
+                                         day=datetime.now(timezone.utc).date().isoformat(), author=author)
     try:
         await git_service.commit_paths(memory_path, message, sorted(set(paths)))
     except Exception as exc:  # noqa: BLE001 — the write stands; a later writer's commit picks it up
@@ -211,6 +281,7 @@ async def _commit(memory_path, paths: list[str], action: str) -> None:
 async def add_design_ref(image: UploadFile = File(...), url: str | None = Form(None), title: str | None = Form(None),
                          note: str | None = Form(None), snippets: str | None = Form(None),
                          tags: str | None = Form(None), via: str | None = Form(None),
+                         author: str | None = Form(None), tokens: str | None = Form(None),
                          settings: Settings = Depends(get_settings)):
     mp = settings.memory_path
     if demo_guard.is_demo(mp):
@@ -221,18 +292,24 @@ async def add_design_ref(image: UploadFile = File(...), url: str | None = Form(N
     except ValueError as exc:
         raise HTTPException(413 if len(data) > design_refs.MAX_IMAGE_BYTES else 400, str(exc)) from exc
     snippet_list, tag_list = _json_list(snippets, "snippets"), _json_list(tags, "tags")
-    look = await asyncio.to_thread(design_refs.read_look, data)   # the decode, before the admission
+    writer = _author(author, via)
+    computed, _problems = design_tokens.clean(tokens)
+    if tokens and not computed and _problems and _problems[0] in ("tokens are not JSON", "tokens are an object",
+                                                                  "tokens are too large"):
+        raise HTTPException(400, f"The tokens couldn't be read: {_problems[0]}.")
+    declared = design_refs.declared_colours(snippet_list, computed)
+    look = await asyncio.to_thread(design_refs.read_look, data, declared)   # the decode, before the admission
 
     async def store() -> DesignRefModel:
         async with _write_lock:
             result = await asyncio.to_thread(
                 design_refs.add_ref, mp, image=data, url=url, title=title, note=note, snippets=snippet_list,
-                tags=tag_list, via=via or "drop", author=design_refs.USER, look=look)
+                tags=tag_list, via=via or "drop", author=writer, look=look, computed=computed)
             if result["action"] == "duplicate":
                 raise HTTPException(409, result["error"])
             if result["action"] != "added":
                 raise HTTPException(400, result.get("error") or "That couldn't be saved.")
-            await _commit(mp, result["paths"], "created")
+            await _commit(mp, result["paths"], "created", author=result["ref"].added_by)
             return _full(result["ref"])
 
     out = await write_admission.run_admitted(mp, store, refuse=lambda: SleepWriting(BUSY))

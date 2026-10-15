@@ -193,8 +193,10 @@ The primer names it in one clause of item 4 (contract 16).
 project's backlog — see Backlogs.
 **`cicada_save_design`** and **`cicada_design_search`** (design taste, 2026-10-14; `design_refs`, `design_index`).
 Save: when the person says they like how a site or screen looks, the agent sends the screenshot it took — `image_path`
-(an absolute path to a PNG or JPEG it saved, ≤ 4 MB) or `image_base64` — with `url`, the person's `note`, and any
-HTML/CSS they pointed at as `snippets` (`title`, `tags`, `region` optional). The stdio server reads that file as the
+(an absolute path to a PNG or JPEG it saved, ≤ 4 MB) or `image_base64` — with `url`, a `note` on what they liked, and any
+HTML/CSS they pointed at as `snippets` (`title`, `tags`, `region` optional), and since looks v2 the page's computed type
+and colour roles as `tokens` (`design_tokens.JSON_SCHEMA`, `storage.md`; what is out of bounds is listed back as
+"tokens left out"). The note is the agent's: it is shown as "Noted by <harness>", never as the person's words. The stdio server reads that file as the
 agent's own child process, and only a regular PNG/JPEG outside `~/.claude`, `~/.codex`, `~/.cicada` / `CICADA_HOME`,
 `~/Library` and the bank (the transcript rail, and the app-reads-`~/Library` rail). The refusal is **by file identity,
 never by spelling** (review 2026-10-14): the resolved file and every folder above it are compared by `(st_dev,
@@ -350,8 +352,10 @@ as "<agent> noted: …". No line says "in your browser" of what an agent did, or
 
 **Exploring saved sites (G166 slice 1, owner 2026-10-14, rulings D1–D6 in TODO ruling 25).** The person picks saved
 sites in Sources and clicks **Explore** (`POST /explore/batches`), or asks a trusted local agent in chat, which calls
-`cicada_explore_start(scope?, origins?)` (D5: only a harness on the person's G198 trust list, stdio, never remote and
-never from the CLI — the `explore start` row is MCP-only). Either way one batch lands in the explore queue
+`cicada_explore_start(scope?, origins?, look?)` (D5: only a harness on the person's G198 trust list, stdio, never remote
+and never from the CLI — the `explore start` row is MCP-only). `look` (looks v2) is a list of saved links whose look
+the person asked to keep: instead of a run it makes the same ask as their *Save its look* click
+(`explore_queue.ask`, `asked: look`), stamped as started by the agent. Either way one batch lands in the explore queue
 (`explore_queue.py`, `$CICADA_HOME/explore_queue/<bank>.json`, the video queue's twin: keys only, `fcntl.flock` plus
 atomic replace, expiry and lapse applied in memory), stamped `started_by: {kind: person|agent, harness, session}`, shown
 at once on Sources and stoppable in one tap (`POST /explore/stop`: waiting sites dropped, a held one finishes). Cicada
@@ -387,10 +391,12 @@ never opens a browser and never schedules an agent.
   catalog pin; otherwise nothing is leased. `release` codes: `needs_login` and `blocked` pause the **whole site** for 7
   days or until the person asks again (*Try again*); `skipped`, `not_found`, `gone`, `failed`. Only the queue is written,
   so it is not refused while Sleep runs.
-- **`cicada_record_capture(url, lease_token, outcome, captured_at, final_url, http_status, shots, page, signed_in, …,
-  loaded_at, pages, found, robots, section)`** writes the dated record (`storage.md`, *Site captures*) with the further
-  pages that pass the vet, updates the site's map (`site_map`), keeps a design visit's best pictures as Looks
-  (`design_refs`, `via: explore`), all under one write admission and one commit as the harness;
+- **`cicada_record_capture(url, lease_token, outcome, captured_at, final_url, http_status, shots, page, design,
+  signed_in, …, loaded_at, pages, found, robots, section)`** writes the dated record (`storage.md`, *Site captures*) with
+  the further pages that pass the vet, updates the site's map (`site_map`), keeps a design visit's best pictures as Looks
+  (`design_refs`, `via: explore`) with the page's computed tokens (`design`, and each page's own `design`, printed by
+  the capture script v3's `_DESIGN_JS`), all under one write admission and one commit as the harness; a *Save its look*
+  ask (`save_look` in the plan) keeps the landing picture even when its look has not changed;
   idempotent on `(url, lease_token)`; a late record after a lapse is accepted unless another agent was handed the site;
   refused with "keep the files and record again" while Sleep writes. A shot is a file the agent saved (the design board's
   by-identity refusal of `~/.claude`, `~/.codex`, `~/.cicada`, `~/Library` and the bank) or base64, ≤ 12 MB. When the

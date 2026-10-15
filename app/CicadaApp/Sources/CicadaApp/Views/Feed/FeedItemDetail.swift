@@ -59,6 +59,10 @@ struct FeedItemDetail: View {
             if BookmarkHistory.isBookmark(item) {
                 BookmarkReasonsSection(item: item, onRemoved: onClose)
             }
+            // Looks v2 — "Save its look": a design visit by the person's agent, kept in Looks.
+            if SaveLook.offers(item) {
+                SaveLookButton(mediaEntityId: item.mediaEntityId, url: item.url).padding(.top, CicadaTheme.scaled(16))
+            }
             // G166 — what an agent did with this link, and "Ask an agent".
             FeedReadSection(item: item)
             Text(meta)

@@ -7,8 +7,10 @@ from, what they liked in their own words, and what the look is made of — its c
 ``design_palette``), its type and spacing (read from HTML/CSS they selected), and the snippets themselves. Each one is
 
 * ``<bank>/design/<id>.md`` — frontmatter for what a board needs (url, site, the image's hash and size, the palette,
-  the palette's words, the tokens, who added it and how) and a body an agent or Obsidian reads as it is: the
-  screenshot embedded, ``## What I liked``, ``## Snippets`` as fenced code;
+  the palette's words, the tokens, the computed type and colour roles, who added it, who wrote its note, and how) and a
+  body an agent or Obsidian reads as it is: the screenshot embedded, the note under ``## What I liked`` when it is the
+  person's own words or ``## Noted by <agent>`` when an agent wrote it (looks v2: an agent's note is never shown as
+  the person's), ``## Snippets`` as fenced code;
 * ``<bank>/assets/design/<id>.<png|jpg>`` — the screenshot, **in the bank, committed with it**, like a picture the
   person uploaded (``entity_picture``): it is their own capture of something that may not look the same tomorrow, so
   it cannot be a cache that is fetched again. The bank handed over intact carries its looks.
@@ -37,7 +39,7 @@ from urllib.parse import urlsplit
 
 from loguru import logger
 
-from api.services import design_palette, entity_picture, episode_scrub, image_decode, markdown_parser
+from api.services import design_palette, design_tokens, entity_picture, episode_scrub, image_decode, markdown_parser
 
 DESIGN_DIR = "design"
 ASSETS = ("assets", "design")
@@ -59,12 +61,15 @@ USER = "user"
 VIAS = ("app_capture", "drop", "paste", "agent", "import", "demo", "explore")
 SNIPPET_LANGS = ("html", "css", "js", "jsx", "tsx", "svg", "swift", "text")
 LIKED_HEAD = "## What I liked"
+NOTED_PREFIX = "## Noted by "
+AGENT = "agent"
 SNIPPETS_HEAD = "## Snippets"
 NO_NOTE = "_No note yet._"
-SHAPE = "design-1"
+SHAPE = "design-2"
 ID_RE = re.compile(r"^\d{4}-\d{2}-\d{2}-[a-z0-9][a-z0-9-]{0,60}$")
 _FENCE = re.compile(r"^```([A-Za-z0-9_+-]*)[ \t]*\n(.*?)^```[ \t]*$", re.M | re.S)
 _HEADING = re.compile(r"(?m)^#{1,3}(?=[ \t])")
+_NOTED = re.compile(r"(?m)^## Noted by [^\n]{1,80}$")
 
 
 @dataclass
@@ -81,6 +86,8 @@ class Reference:
     palette: list[dict] = field(default_factory=list)
     look: list[str] = field(default_factory=list)
     tokens: dict = field(default_factory=dict)
+    computed: dict = field(default_factory=dict)   # design_tokens: the type and colour roles the page renders
+    note_by: str = USER                             # who wrote the note: the person, or the agent that saved it
     tags: list[str] = field(default_factory=list)
     entity: str | None = None
     region: dict | None = None
@@ -176,12 +183,14 @@ def _from_file(path: Path) -> Reference | None:
     if rid != path.stem:
         rid = path.stem
     note = _section(parsed.body, LIKED_HEAD)
+    if not note and (m := _NOTED.search(parsed.body)) is not None:
+        note = _section(parsed.body, m.group(0))
     if note == NO_NOTE:
         note = ""
     snippets = [{"lang": (m.group(1) or "text").lower(), "code": m.group(2).rstrip("\n")}
                 for m in _FENCE.finditer(_section(parsed.body, SNIPPETS_HEAD))]
     known = {"title", "url", "site", "captured", "added_by", "session", "via", "image", "palette", "look", "tokens",
-             "tags", "entity", "region"}
+             "tags", "entity", "region", "computed", "note_by"}
     image = fm.get("image") if isinstance(fm.get("image"), dict) else {}
     return Reference(
         id=rid, title=str(fm.get("title") or ""), url=fm.get("url") or None, site=fm.get("site") or None,
@@ -189,9 +198,42 @@ def _from_file(path: Path) -> Reference | None:
         session=fm.get("session") or None, via=str(fm.get("via") or "drop"), image=dict(image or {}),
         palette=[c for c in (fm.get("palette") or []) if isinstance(c, dict) and c.get("hex")],
         look=[str(w) for w in (fm.get("look") or [])], tokens=dict(fm.get("tokens") or {}),
+        computed=design_tokens.clean(fm.get("computed"))[0] if isinstance(fm.get("computed"), dict) else {},
+        note_by=_note_by(fm),
         tags=[str(t) for t in (fm.get("tags") or [])], entity=fm.get("entity") or None,
         region=fm.get("region") if isinstance(fm.get("region"), dict) else None, note=note, snippets=snippets,
         extra={k: v for k, v in fm.items() if k not in known})
+
+
+def _note_by(fm: dict) -> str:
+    """Who wrote a reference's note. Written since looks v2; before it, inferred: a look kept from an explore visit
+    carries the person's own words about the save; one saved through an agent door is the agent's, whatever author
+    the door stamped (the REST door stamped ``user`` for an agent until looks v2)."""
+    given = str(fm.get("note_by") or "").strip()
+    if given:
+        return given
+    added_by, via = str(fm.get("added_by") or USER), str(fm.get("via") or "drop")
+    if via == "explore":
+        return USER
+    if added_by != USER:
+        return added_by
+    return AGENT if via == "agent" else USER
+
+
+def note_heading(ref: "Reference") -> str:
+    """The body's heading over the note: the person's words, or the agent that wrote it, by its name."""
+    if ref.note_by == USER:
+        return LIKED_HEAD
+    return NOTED_PREFIX + _clean_line(agent_label(ref.note_by), 60)
+
+
+def agent_label(author: str) -> str:
+    """An agent's name as the person reads it (the Sources page's one harness table)."""
+    from api.services.source_overview import HARNESS_LABELS
+
+    if author in (AGENT, "unknown", ""):
+        return "an agent"
+    return HARNESS_LABELS.get(author) or author
 
 
 def list_refs(memory_path) -> list[Reference]:
@@ -277,7 +319,7 @@ def _body(ref: Reference) -> str:
         parts += [f"Kept while exploring {explored.get('site') or 'the site'} on "
                   f"{str(explored.get('captured_at') or '')[:10]} — the {explored.get('page_kind') or 'home'} page, "
                   f"capture {explored.get('capture')}.", ""]
-    parts += [LIKED_HEAD, "", _HEADING.sub(lambda m: "#" * 4, ref.note) if ref.note else NO_NOTE, ""]
+    parts += [note_heading(ref), "", _HEADING.sub(lambda m: "#" * 4, ref.note) if ref.note else NO_NOTE, ""]
     if ref.snippets:
         parts += [SNIPPETS_HEAD, ""]
         for s in ref.snippets:
@@ -305,6 +347,10 @@ def _frontmatter(ref: Reference) -> dict:
         fm["look"] = ref.look
     if ref.tokens:
         fm["tokens"] = ref.tokens
+    if ref.computed:
+        fm["computed"] = ref.computed
+    if ref.note_by != USER:
+        fm["note_by"] = ref.note_by
     if ref.tags:
         fm["tags"] = ref.tags
     if ref.entity:
@@ -323,26 +369,61 @@ def _region(raw) -> dict | None:
     return out if out["width"] > 0 and out["height"] > 0 else None
 
 
-def read_look(data: bytes) -> tuple[list[dict], list[str]]:
-    """The screenshot's palette and its words — ``([], [])`` when this host can't decode it (the save stands)."""
+def read_look(data: bytes, declared=None) -> tuple[list[dict], list[str]]:
+    """The screenshot's palette and its words — ``([], [])`` when this host can't decode it (the save stands).
+    ``declared`` are the colours the page's CSS or computed tokens name (:func:`declared_colours`), merged in."""
     try:
         rgb = image_decode.decode(data, max_side=design_palette.SAMPLE_SIDE)
     except image_decode.DecodeError:
         return [], []
-    colours = design_palette.palette(rgb)
+    colours = design_palette.palette(rgb, declared=declared)
     return colours, design_palette.describe(colours)
+
+
+def declared_colours(snippets=None, computed: dict | None = None) -> list[str]:
+    """The colours a save declares: the computed colour roles and most-used colours first, then the snippets' CSS."""
+    out = list(design_tokens.declared(computed))
+    codes = [str(s.get("code") or "") if isinstance(s, dict) else str(s) for s in list(snippets or [])[:MAX_SNIPPETS]]
+    if any(codes):
+        for c in design_palette.css_tokens("\n".join(codes)).get("colors") or []:
+            if c not in out:
+                out.append(c)
+    return out[:16]
+
+
+def resolve_author(author: str | None, via: str | None) -> str:
+    """The author a write is stamped with: an agent door (``via=agent``) never writes as the person — with no agent
+    named it is the generic ``agent``."""
+    name = str(author or "").strip() or USER
+    if via == "agent" and name == USER:
+        return AGENT
+    return name
+
+
+def fonts(ref: "Reference") -> list[str]:
+    """The families a look is set in: what the page renders (computed, body first), then what the snippets named."""
+    out = design_tokens.fonts(ref.computed)
+    for name in (ref.tokens or {}).get("fonts") or []:
+        if name not in out:
+            out.append(name)
+    return out
 
 
 def add_ref(memory_path, *, image: bytes, url: str | None = None, title: str | None = None, note: str | None = None,
             snippets=None, tags=None, region=None, entity: str | None = None, via: str = "drop",
             author: str = USER, session: str | None = None, now: datetime | None = None,
-            look: tuple[list[dict], list[str]] | None = None, explored: dict | None = None) -> dict:
+            look: tuple[list[dict], list[str]] | None = None, explored: dict | None = None,
+            computed=None, note_by: str | None = None) -> dict:
     """File one reference: ``{"action": "added", "ref", "paths"}``, or a refusal that wrote nothing.
 
     ``look`` is the palette and its words when the caller already read them (a route reads them before it takes
     the write admission, so Sleep never waits on a decode). ``explored`` is an explore visit's provenance for a Look
     kept automatically (G166 slice 2): ``{site, captured_at, capture, entity, page_kind}`` — the site and the date the
-    picture is of, and the dated capture record it came from."""
+    picture is of, and the dated capture record it came from.
+
+    ``computed`` is the page's computed type and colour roles (``design_tokens``, validated here). ``note_by`` is who
+    wrote the note: by default the author — an agent's note is the agent's — and the person (``user``) only where the
+    words are theirs and Cicada itself read them (an explore Look's note is their saved reason)."""
     bank = Path(memory_path).name
     try:
         ext = validate_image(image)
@@ -363,7 +444,9 @@ def add_ref(memory_path, *, image: bytes, url: str | None = None, title: str | N
     kept_snippets = _snippets(snippets, bank)
     tokens = design_palette.css_tokens("\n".join(s["code"] for s in kept_snippets)) if kept_snippets else {}
     tokens = {k: v for k, v in tokens.items() if v}
-    colours, words = look if look is not None else read_look(image)
+    computed_kept, _ = design_tokens.clean(computed)
+    colours, words = look if look is not None else read_look(image, declared_colours(kept_snippets, computed_kept))
+    author = resolve_author(author, via)
     captured = _stamp(now)
     day = captured[:10]
     base = f"{day}-{slug(site or title_kept or 'look')}"
@@ -373,6 +456,7 @@ def add_ref(memory_path, *, image: bytes, url: str | None = None, title: str | N
     ref = Reference(
         id=base, title=title_kept, url=url_kept, site=site, captured=captured, added_by=(author or USER).strip(),
         session=session or None, via=via if via in VIAS else "drop", palette=colours, look=words, tokens=tokens,
+        computed=computed_kept, note_by=(str(note_by or "").strip() or author),
         tags=[_clean_line(t, 40) for t in list(tags or [])[:MAX_TAGS] if _clean_line(t, 40)],
         entity=entity_id, region=_region(region), note=note_kept, snippets=kept_snippets)
     if isinstance(explored, dict):
@@ -435,16 +519,17 @@ def commit_message(paths: list[str], *, action: str, subject: str, trigger: str,
 def words(ref: Reference) -> str:
     """Everything a word search reads for one reference, lowercased."""
     tokens = ref.tokens or {}
+    generic = [str((t or {}).get("generic") or "") for t in ((ref.computed or {}).get("type") or {}).values()]
     bits = [ref.title, ref.site or "", ref.url or "", ref.note, " ".join(ref.look), " ".join(ref.tags),
-            " ".join(tokens.get("fonts") or []), " ".join(tokens.get("generic") or []),
+            " ".join(fonts(ref)), " ".join(tokens.get("generic") or []), " ".join(g for g in generic if g),
             " ".join(c["hex"] for c in ref.palette)]
     return " ".join(b for b in bits if b).lower()
 
 
 def describe_for_embedding(ref: Reference) -> str:
     """The text a reference's note vector is built from: what the person said, then what the look is made of."""
-    tokens = ref.tokens or {}
+    names = fonts(ref)
     parts = [ref.title, ref.note, ("Looks " + ", ".join(ref.look)) if ref.look else "",
-             ("Fonts: " + ", ".join(tokens.get("fonts") or [])) if tokens.get("fonts") else "",
+             ("Fonts: " + ", ".join(names)) if names else "",
              (f"From {ref.site}") if ref.site else ""]
     return ". ".join(p.strip() for p in parts if p and p.strip())

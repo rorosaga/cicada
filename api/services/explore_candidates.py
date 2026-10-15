@@ -142,6 +142,22 @@ def saved_sites(memory_path: Path, *, include_excluded: bool = False) -> dict[st
     return out
 
 
+def by_links(memory_path: Path, links) -> tuple[list[SavedSite], list[str]]:
+    """The eligible saved sites the given links (or media entity ids) name, in order, and the ones that named none."""
+    sites = saved_sites(memory_path)
+    by_entity = {s.entity_id: s for s in sites.values()}
+    found: list[SavedSite] = []
+    missing: list[str] = []
+    for raw in links or []:
+        text = str(raw or "").strip()
+        site = by_entity.get(text) or sites.get(media_ingestor.url_hash(text)) if text else None
+        if site is None:
+            missing.append(text)
+        elif site not in found:
+            found.append(site)
+    return found, missing
+
+
 def explored_entities(memory_path: Path) -> set[str]:
     """Pages that have at least one capture record (``captures/<entity-id>/`` holds a file). ``captures/_sites``
     holds the site maps (``site_map``), never a page's captures: an entity id never starts with an underscore."""

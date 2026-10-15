@@ -1662,8 +1662,17 @@ actor APIClient {
 
     /// C11 — `GET <path>` for a picture on this API (`/entities/{id}/picture?v=…`), with the bearer (plan R-PE6). nil on a
     /// 404 — "no picture" is an ordinary answer — and for any path that is not an entity picture.
+    /// The one gate for a picture path on Cicada's own API: exactly what `PictureURL.parse` calls `.api` (an entity's
+    /// picture or preview, a saved look's screenshot `/design/<id>/image`, a site capture's thumbnail). It used to
+    /// accept `/entities/` alone, so every Looks screenshot answered "no picture" here, `PictureStore` remembered the
+    /// miss, and the tile and the detail column drew their palette placeholder for good (looks v2).
+    nonisolated static func isPicturePath(_ path: String) -> Bool {
+        if case .api? = PictureURL.parse(path) { return true }
+        return false
+    }
+
     func fetchPictureBytes(path: String) async throws -> Data? {
-        guard path.hasPrefix("/entities/"), !path.contains("..") else { return nil }
+        guard Self.isPicturePath(path) else { return nil }
         var request = makeRequest(path, method: "GET", json: false)
         request.timeoutInterval = Self.refreshTimeout
         let (data, response) = try await session.data(for: request)

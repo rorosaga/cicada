@@ -66,6 +66,9 @@ STATES = ("queued", "claimed", "failed", "paused")
 RELEASE_CODES = ("needs_login", "blocked", "not_found", "gone", "skipped", "failed")
 PAUSING = ("needs_login", "blocked")
 STARTERS = ("person", "agent")
+#: What a single ask on one saved link wants beyond its saved reason (looks v2): ``look`` — "Save its look", a design
+#: visit whose landing picture becomes a Look even when the look has not changed.
+ASKS = ("look",)
 
 _KEY = re.compile(r"^[0-9a-f]{12}$")
 _SITE = re.compile(r"^[a-z0-9][a-z0-9.-]{0,79}$")
@@ -162,6 +165,8 @@ def _clean_row(raw) -> dict | None:
                  "attempts": attempts if isinstance(attempts, int) and not isinstance(attempts, bool)
                  and attempts > 0 else 0}
     _str_fields(raw, row, ("batch", "claimed_by", "claimed_at", "lease_until", "session"))
+    if raw.get("asked") in ASKS:
+        row["asked"] = raw["asked"]
     token = raw.get("lease_token")
     if isinstance(token, str) and _TOKEN.match(token):
         row["lease_token"] = token
@@ -514,6 +519,75 @@ def start(memory_path: Path, sites, *, started_by: dict, now: datetime | None = 
         _write(target, data)
     return {"id": bid, "total": len(wanted), "startedBy": by,
             "queued": sum(1 for r in data["items"] if r["state"] == "queued")}
+
+
+def ask(memory_path: Path, sites, *, asked: str, started_by: dict, now: datetime | None = None,
+        holding: Callable[[], bool] | None = None) -> dict:
+    """One ask on one or a few saved links (looks v2: "Save its look") — unlike :func:`start`, it never replaces the
+    run: the sites join the active batch when one is still going, else they make a batch of their own. Each row is
+    queued with the depth the ask implies and ``asked`` set, so the plan computed at claim and at record (from the
+    same row) includes it. A row an agent holds keeps its lease and gains the ask. A paused site is resumed only when
+    the person asked (their asking again is what lifts a pause, :func:`retry`); an agent's ask leaves it paused.
+    ``sites`` are ``{key, site}``."""
+    if asked not in ASKS:
+        raise QueueError("that is not something a saved link can be asked for")
+    depth = {"look": "look"}[asked]
+    wanted: dict[str, str] = {}
+    for item in sites or []:
+        key, site = str((item or {}).get("key") or ""), str((item or {}).get("site") or "")
+        if not _KEY.match(key) or not _SITE.match(site):
+            raise QueueError("every site needs its key and its site name")
+        wanted[key] = site
+    if not wanted:
+        raise QueueError("pick at least one saved site")
+    kind = str((started_by or {}).get("kind") or "person")
+    by = {"kind": kind if kind in STARTERS else "person"}
+    _str_fields(started_by or {}, by, ("harness", "session"))
+    moment = _now(now)
+    queued = held = paused = 0
+    with _locked(memory_path) as target:
+        data = _open(memory_path, moment, holding)
+        rows = data["items"]
+        existing = {r["key"]: r for r in rows}
+        if len(existing) + sum(1 for k in wanted if k not in existing) > MAX_ROWS:
+            raise QueueFull()
+        found = active_batch(data)
+        live = found is not None and not found[1].get("stopped_at") and \
+            any(k not in found[1]["done"] for k in found[1]["keys"])
+        if live:
+            bid, batch = found
+        else:
+            bid = "x_" + secrets.token_hex(3)
+            batch = {"created_at": _iso(moment), "updated_at": _iso(moment), "started_by": by, "keys": [], "done": [],
+                     "outcomes": {}, "seconds": []}
+            data["batches"] = {bid: batch}
+        for key, site in wanted.items():
+            row = existing.get(key)
+            if row is None:
+                row = {"key": key, "site": site, "state": "queued", "depth": depth, "requested_at": _iso(moment),
+                       "attempts": 0}
+                rows.append(row)
+            elif row["state"] == "failed":
+                row.pop("failed", None)
+                row.update(state="queued", attempts=0, requested_at=_iso(moment))
+            elif row["state"] == "paused" and by["kind"] == "person":
+                _resume(data, row["site"])
+                row.update(state="queued", attempts=0, requested_at=_iso(moment))
+            if row["depth"] == "capture":   # the plan joins every reason; the row's word only labels the deepest
+                row["depth"] = depth
+            row["asked"] = asked
+            row["batch"] = bid
+            if key in batch["done"]:
+                batch["done"].remove(key)
+            if key not in batch["keys"]:
+                batch["keys"].append(key)
+            queued += row["state"] == "queued"
+            held += row["state"] == "claimed"
+            paused += row["state"] == "paused"
+        batch["updated_at"] = _iso(moment)
+        _write(target, data)
+    return {"id": bid, "joined": live, "queued": queued, "held": held, "paused": paused,
+            "total": len(batch["keys"]), "startedBy": batch["started_by"]}
 
 
 def stop(memory_path: Path, *, now: datetime | None = None, holding: Callable[[], bool] | None = None) -> dict:
