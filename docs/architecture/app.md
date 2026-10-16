@@ -150,7 +150,7 @@ on the rail's surface (owner 2026-10-07): `CicadaTheme.titlebarBackground(for:)`
 (`ShellCommands`, which opens the window first if none is) and the gear open it over a scrim — 880 × 620 at 1×,
 inset ≥ 40 pt — with a `bgPane` sidebar that starts with a `CicadaSearchField` and groups its rows as Cicada ·
 Customize · Engines & keys (`SettingsGroup`, G139) — Cicada: General · You · Privacy & data · Memory · Sleep;
-Customize: Integrations · Reading the web · Agents · From anywhere · Skills; Engines & keys: Engines · Plans & keys · Advanced — and each
+Customize: Integrations · Reading the web · Agents · From anywhere · Devices · Skills; Engines & keys: Engines · Plans & keys · Advanced — and each
 page's own header with an `esc` keycap and a close ×. It is modal: the shell under it is inert, ⌘K waits, Esc and a
 scrim click close it. `AppRouter.openSettings(_:row:)` is the one door (`SettingsSectionLink`, the gear, ⌘,), every
 hand-off to a page closes it, and `cicada.settingsSection` is only its remembered selection — the `Settings{}` scene
@@ -172,7 +172,28 @@ window — the bookworm waits in the menu bar, and the Dock icon brings the wind
 `LaunchState`, R-OB18) and Keep memory working when
 Cicada is closed (`BackendAgentService`: a read-only `launchctl print`, and Install runs
 `scripts/install-backend-agent.sh` from the app's own checkout after the click, `CICADA_CAPTURE=off`, then hands
-launchd the port). Setup's card also holds *Command-line tool* (G180, ruling 21; `CommandLineTool`,
+launchd the port). **Where your memory lives** (G181 phase 3, its own card before *When Cicada is closed*;
+`MemoryHomeSetting`, `ConnectionSettingsModel`): *This Mac* or *A server* — an address (https, or http to a loopback
+tunnel) and this device's token from `cicada device add`. *Check and use* writes nothing until `ServerProbe` hears the
+server (`/healthz` open, then `/devices` with the token, which names this device); then `device_token` and
+`$CICADA_HOME/api_base.next` (0600) and *Restart Cicada* (`AppRelaunch`, waits while Sleep runs, DR-41). At launch
+`ServerConnection.applyPending` puts the choice into `api_base` — the file the hooks, MCP and CLI read — before
+`ServerConnection` is resolved once, so the agents and the app switch together: `APIClient`'s one base and token, the Store's disk cache (`Cicada/cache` + a per-server
+suffix), the pictures/logos stores and every reader's cursor or last-synced signature (`ServerConnection.scoped`) are
+per connection, so a server is sent what it has not had and This Mac's keys are unchanged byte for byte. On a server
+the app starts no backend, stops a background service left from This Mac (`BackendAgentService.stopForServer`:
+`launchctl bootout`, plist kept), *Keep memory working* says it is not needed, an update repairs no service, the demo is
+refused before any request (`ServerLinkError.demoStaysLocal`), and Advanced's token row names `device_token`; a reader's
+post the server did not take waits in `ReaderOutbox` (`$CICADA_HOME/spool/app/`; a newer post on its route waits
+behind it, never overtakes it) and is flushed when the event stream connects (`headless.md`, "The Mac app as a client"). **Settings → Devices** (`DevicesSettingsView`,
+`DevicesPageModel`; not a Store domain): *This app* — where the memory lives, reachable or not as of when (DR-58),
+captures waiting with *Send now* — and *Your devices* (name, added, last seen, *this Mac*; Add a device with its
+token shown once and Revoke on This Mac only, the server's two commands named on a client). Where memory came from is
+one quiet word (`DeviceOrigin`, names from `DeviceDirectory`, read on demand): *from laptop* last on a Saved item's
+"Saved from" line (`FeedSourceLine.text(_:device:)`), in the Reader's meta line (`ReaderHeader.meta(_:device:)`) and on
+each conversation under *Where this came from*; on a server's client, the server's own writes read *from this server*;
+on This Mac, this Mac's own say nothing. The bank picker's menu leads with *on <host>* on a server.
+Setup's card also holds *Command-line tool* (G180, ruling 21; `CommandLineTool`,
 `CommandLineToolRow`): one neutral *Install the command-line tool* button (DR-40) that links `~/.local/bin/cicada`
 with no admin.
   - The target follows `CicadaRuntime`: a release links its `~/.cicada/bin/cicada` launcher, and only once that

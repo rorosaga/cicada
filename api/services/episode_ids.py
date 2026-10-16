@@ -112,9 +112,16 @@ def create_episode(episodes_dir: Path, frontmatter: dict, body: str) -> str:
     the same id, and ``markdown_parser.write`` used to replace the first
     episode with the second. Here the create fails instead, the id is minted
     again — the other writer's file now moves the max — and ``frontmatter["id"]``
-    is updated in place. Returns the id actually written."""
+    is updated in place. Returns the id actually written.
+
+    G181 phase 3: when a per-device token signed the request this runs in (``device_context``), the episode records
+    ``device: <id>`` unless its writer already set one."""
     episode_id = str(frontmatter["id"])
     parsed = parse_episode_id(episode_id)
+    # G181 phase 3: a new episode written while serving a device's request says which device it came from.
+    from api.services import device_context
+
+    device_context.stamp(frontmatter)
     if parsed is None:
         raise ValueError(f"not an episode id: {episode_id!r}")
     for _ in range(CREATE_ATTEMPTS):

@@ -700,7 +700,9 @@ final class BrowserWatcher {
         return nil
     }
 
-    private func defaultsKey(_ channel: String) -> String { "cicada.browserWatch.\(channel)" }
+    private func defaultsKey(_ channel: String) -> String {
+        ServerConnection.current.scoped("cicada.browserWatch.\(channel)")  // what was synced, per connection (G181)
+    }
 
     private func lastSynced(_ channel: String) -> BrowserFileSignature? {
         guard let data = defaults.data(forKey: defaultsKey(channel)) else { return nil }

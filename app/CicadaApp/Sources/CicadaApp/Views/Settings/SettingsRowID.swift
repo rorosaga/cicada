@@ -24,6 +24,11 @@ struct SettingsRowID: RawRepresentable, Hashable, Codable, Sendable {
     // General → Startup → Show in menu bar (round-4 decision 6, R-HO16)
     static let showInMenuBar = SettingsRowID("showInMenuBar")
     static let backgroundService = SettingsRowID("backgroundService")
+    // General → Where your memory lives (G181 phase 3): This Mac or a server
+    static let memoryHome = SettingsRowID("memoryHome")
+    // Devices (G181 phase 3): this app's connection, and the person's devices
+    static let devicesConnection = SettingsRowID("devicesConnection")
+    static let devicesList = SettingsRowID("devicesList")
     // General → Setup → Command-line tool (G180, TODO ruling 21)
     static let commandLineTool = SettingsRowID("commandLineTool")
     // General → Getting to know Cicada (G152, G117 round 4)

@@ -100,8 +100,11 @@ def _window(prompt: str) -> str:
 
 
 def _client(environ) -> bool:
-    """G181 phase 2: ``CICADA_API_BASE`` names a backend on another machine (``hook_client.py``)."""
-    return bool(str(environ.get("CICADA_API_BASE") or "").strip())
+    """G181 phase 2: ``CICADA_API_BASE`` (or, phase 3, the app's ``api_base`` file) names a backend on another machine
+    (``hook_client.py``, stdlib at import)."""
+    import hook_client as remote_client
+
+    return remote_client.is_client(environ)
 
 
 def _off(environ, key: str) -> bool:

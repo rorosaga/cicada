@@ -61,7 +61,9 @@ final class TabGroupWatcher {
     }
 
     private var enabledKey: String { BrowserWatchPolicy.enabledKey(Self.channel) }
-    private func digestKey(_ bank: String) -> String { "cicada.tabGroups.\(bank).digest" }
+    private func digestKey(_ bank: String) -> String {
+        ServerConnection.current.scoped("cicada.tabGroups.\(bank).digest")  // per connection (G181 phase 3)
+    }
 
     /// On launch: arm and catch up, only if the person turned it on.
     func start() {

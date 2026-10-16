@@ -185,11 +185,23 @@ struct CicadaApp: App {
         _backendAgent = State(initialValue: backendAgent)
         // G182 — a background service an older build installed keeps running what it named; point it at this
         // copy's launcher. Never blocks launch, and installs nothing when the person never chose the service.
-        if runtime.isRelease { Task { @MainActor in await backendAgent.migrateIfNeeded() } }
+        // G181 phase 3: nothing to migrate or keep running while the memory lives on a server.
+        if runtime.isRelease && !ServerConnection.current.isServer {
+            Task { @MainActor in await backendAgent.migrateIfNeeded() }
+        }
+        // G181 phase 3 (review fix) — on a server, a background service left from This Mac would keep serving this
+        // Mac's bank while everything here points elsewhere: stop it (its plist stays, for This Mac again). An invalid
+        // address stops nothing — the person fixes it or chooses This Mac, and the service is still there.
+        if ServerConnection.current.serverURL != nil {
+            Task { @MainActor in await backendAgent.stopForServer() }
+        }
         // G182 phase 5 — checks and installs only in a release run from a real folder, never while Sleep writes.
         let updates = UpdateService.live(runtime: runtime,
                                          isSleepWriting: { [store] in ProjectWriteGate.sleepRunning(store.status.value) },
-                                         repairService: { [backendAgent] in await backendAgent.reinstallIfStopped() })
+                                         repairService: { [backendAgent] in
+                                             guard !ServerConnection.current.isServer else { return true }  // nothing runs here to repair
+                                             return await backendAgent.reinstallIfStopped()
+                                         })
         _updates = State(initialValue: updates)
         Task { @MainActor in updates.start() }
         let activity = SyncActivity()
@@ -289,6 +301,10 @@ struct CicadaApp: App {
                 .onChange(of: store.status.value == nil) { _, missing in
                     if !missing { Task { await saveWhy.retryHeld() } }
                 }
+                // G181 phase 3 — the server answers again: what the readers left waiting goes first.
+                .onChange(of: store.isConnected) { _, connected in
+                    if connected { Task { await APIClient.shared.flushOutbox() } }
+                }
                 // G191 live — back from System Settings: a browser whose file was refused when its watch was armed
                 // (Safari before Full Disk Access) is armed again now that it can be read. The watcher also looks
                 // every few seconds while one is refused, for a grant made without coming back here.
@@ -331,7 +347,8 @@ struct CicadaApp: App {
                             return nil
                         }
                     }
-                    backend.start()
+                    // G181 phase 3 — on a server this Mac runs no backend of its own (and never falls back to one).
+                    if !ServerConnection.current.isServer { backend.start() }
                     // Arms the per-browser watches and catches up on anything
                     // saved while the app was closed.
                     browserWatcher.start(store: store)

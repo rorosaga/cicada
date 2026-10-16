@@ -1154,6 +1154,9 @@ class EpisodeText(CamelModel):
     #: kind (`agent` | `person` | `unknown`). Null for every other episode.
     correspondent: Optional[str] = None
     correspondent_kind: Optional[str] = None
+    #: G181 phase 3: the id of the person's device whose token posted this episode; null for a page and for what the
+    #: server's own machine wrote.
+    device: Optional[str] = None
     turns: list[EpisodeTurn] = []
     focus: Optional[EpisodeFocus] = None
     agent: Optional[EpisodeAgent] = None
@@ -1222,6 +1225,9 @@ class ProvenanceConversation(CamelModel):
     source: Optional[str] = None
     #: G179: a message conversation's other side (its agent's or person's name), so a chip reads "Instinct replied".
     correspondent: Optional[str] = None
+    #: G181 phase 3: the id of the person's device whose token posted it (its episode's ``device``); null for what the
+    #: server's own machine wrote. Ids only — the app names it from ``GET /devices``.
+    device: Optional[str] = None
     timestamp: Optional[str] = None
     claim_count: int = 0
     available: bool = True
@@ -3713,6 +3719,9 @@ class MediaSourceItem(CamelModel):
     # filter the Feed's items to one source and group them by bookmark folder,
     # Pinterest board or iCloud device without a second endpoint. Optional:
     # a page ingested before origins were stamped simply has neither.
+    #: G181 phase 3: the id of the person's device whose token posted the save (its episode's ``device``); null for
+    #: what the server's own machine saved.
+    device: Optional[str] = None
     origin: Optional[str] = None
     folder: Optional[str] = None
     # Track V (R-V2/R15) — read back from the media page's own `media:` block,

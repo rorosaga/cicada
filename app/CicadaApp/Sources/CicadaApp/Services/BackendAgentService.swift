@@ -30,6 +30,12 @@ enum BackendAgentPolicy {
 
     static func probeArgv(uid: uid_t) -> [String] { ["/bin/launchctl", "print", "gui/\(uid)/\(label)"] }
 
+    /// G181 phase 3 (review fix) — the one change the app makes to the service on its own: while the memory lives on
+    /// a server, the service is stopped, so no backend keeps running against this Mac's bank (Sleep on a schedule,
+    /// feeds, a connector) while every client here points elsewhere. The plist stays: choosing This Mac again, the
+    /// next login or the person's Turn on brings it back as they left it.
+    static func stopArgv(uid: uid_t) -> [String] { ["/bin/launchctl", "bootout", "gui/\(uid)/\(label)"] }
+
     /// 124 = timed out, 127 = could not start (`LiveAgentProcessRunner`'s conventions).
     static func state(probeStatus: Int32, plistExists: Bool) -> BackendAgentState {
         if probeStatus == 124 || probeStatus == 127 { return .unknown }
@@ -201,6 +207,18 @@ final class BackendAgentService {
         onInstalled()
         state = .checking
         await refresh()
+    }
+
+    /// G181 phase 3 — on a launch whose memory lives on a server: stop the service if launchd is running it (never
+    /// installs, never removes the plist). Returns whether it ran the stop.
+    @discardableResult
+    func stopForServer() async -> Bool {
+        await refresh()
+        guard state == .running else { return false }
+        _ = await runner.run(BackendAgentPolicy.stopArgv(uid: uid), environment: ["PATH": "/usr/bin:/bin"],
+                             timeout: BackendAgentPolicy.installTimeout)
+        await refresh()
+        return true
     }
 
     /// G182 phase 5 — after an update: the service's plist is there but launchd isn't running it (the updater's

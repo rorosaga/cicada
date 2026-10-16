@@ -93,13 +93,15 @@ enum FeedSourceLine {
         return o
     }
 
-    static func text(_ item: MediaFeedItem, locale: Locale = .autoupdatingCurrent,
+    /// G181 phase 3 — `device` is where the save came from (`DeviceDirectory.label`): "· from laptop", last and quiet.
+    static func text(_ item: MediaFeedItem, device: String? = nil, locale: Locale = .autoupdatingCurrent,
                      timeZone: TimeZone = .autoupdatingCurrent) -> String {
         var parts: [String] = []
         if let origin = markOrigin(item) { parts.append(OriginIconography.label(for: origin)) }
         if let folder = item.folder?.trimmingCharacters(in: .whitespaces), !folder.isEmpty { parts.append(folder) }
-        guard !parts.isEmpty else { return InboxSourceLine.noSource }
+        guard !parts.isEmpty else { return device.map(Copy.Devices.from) ?? InboxSourceLine.noSource }
         if let day = FeedDates.day(item, locale: locale, timeZone: timeZone) { parts.append(day) }
+        if let device { parts.append(Copy.Devices.from(device)) }
         return parts.joined(separator: " · ")
     }
 

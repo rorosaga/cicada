@@ -431,7 +431,8 @@ enum ReaderHeader {
     }
 
     /// "Claude Code · 3 Sep 2026 · 42 turns". A page has no turns to count.
-    static func meta(_ doc: EpisodeText, locale: Locale = .autoupdatingCurrent,
+    /// G181 phase 3 — `device` is the word for where it came from (`DeviceDirectory.label`), last and quiet.
+    static func meta(_ doc: EpisodeText, device: String? = nil, locale: Locale = .autoupdatingCurrent,
                      timeZone: TimeZone = .autoupdatingCurrent) -> String {
         var parts: [String] = []
         if doc.isPage {
@@ -449,6 +450,7 @@ enum ReaderHeader {
             parts.append(day)
         }
         if !doc.isPage, !doc.turns.isEmpty { parts.append(Copy.Provenance.turnCount(doc.turns.count)) }
+        if !doc.isPage, let device { parts.append(Copy.Devices.from(device)) }
         return parts.joined(separator: " · ")
     }
 

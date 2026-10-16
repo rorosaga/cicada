@@ -62,7 +62,10 @@ final class WatchHistoryWatcher {
     }
 
     nonisolated static var enabledKey: String { BrowserWatchPolicy.enabledKey(channel) }
-    nonisolated static func cursorKey(_ bank: String) -> String { "cicada.watchHistory.\(bank).cursor" }
+    /// Per connection (G181 phase 3): a server has not had what This Mac's backend had.
+    nonisolated static func cursorKey(_ bank: String) -> String {
+        ServerConnection.current.scoped("cicada.watchHistory.\(bank).cursor")
+    }
 
     func cursor(bank: String) -> Int64 { Int64(defaults.integer(forKey: Self.cursorKey(bank))) }
 

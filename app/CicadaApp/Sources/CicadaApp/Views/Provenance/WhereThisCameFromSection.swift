@@ -53,6 +53,7 @@ struct WhereThisCameFromSection: View {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                 content
             }
+            .onAppear { DeviceDirectory.shared.ensureLoaded() }
         }
     }
 
@@ -191,6 +192,10 @@ struct WhereThisCameFromSection: View {
                     Spacer(minLength: CicadaTheme.spacingSM)
                     if let day {
                         Text(day).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
+                    }
+                    // G181 phase 3 — one quiet word for the device it came from (none on This Mac's own).
+                    if let device = DeviceDirectory.shared.label(for: row.device) {
+                        Text(Copy.Devices.from(device)).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
                     }
                     Text(Copy.Provenance.beliefs(row.claimCount))
                         .font(CicadaTheme.captionFont)

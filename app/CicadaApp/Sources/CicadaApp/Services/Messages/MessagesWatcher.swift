@@ -85,7 +85,9 @@ final class MessagesWatcher {
         }
     }
 
-    private func cursorKey(_ bank: String, _ id: String) -> String { "cicada.messages.cursor.\(bank).\(id)" }
+    private func cursorKey(_ bank: String, _ id: String) -> String {
+        ServerConnection.current.scoped("cicada.messages.cursor.\(bank).\(id)")  // per connection (G181 phase 3)
+    }
 
     func cursor(bank: String, id: String) -> MessagesCursor {
         guard let data = defaults.data(forKey: cursorKey(bank, id)),

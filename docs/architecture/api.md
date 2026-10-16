@@ -83,6 +83,24 @@ it. `/devices*` touch no bank (`bank_binding.NO_BANK_WRITE`). On the client the 
 stdio MCP server and the CLI; the base URL is `CICADA_API_BASE` (`runtime_layout.api_base`: https, or http to a
 loopback tunnel only). No installer creates, copies or logs either.
 
+**Phase 3 (G181, 2026-10-16): the app as a client, and where memory came from.**
+- `GET /devices` is open to a device token too (read-only: `auth._DEVICE_READABLE`), so the app's Settings → Devices
+  can show the person their devices from any of them; each row adds `current` (the device whose token asked). Issuing
+  and revoking stay the master token's (403). Ids, names and times only; `lastUsedAt` is "last seen" (stamped at most
+  once a minute by `device_tokens.touch`).
+- `auth.require_token` also binds the device for the request (`device_context`, a ContextVar): a NEW episode written
+  while serving a device's request records `device: <id>` (`episode_ids.create_episode`, unless its writer set one),
+  so every door a device posts through — the app's readers, an upload, a save, a session, a tool call — carries it
+  without each route threading it. The master token binds nothing. `sleep_cycle.run` clears it first: a client's
+  click may start Sleep inside its own request, and nothing Sleep writes is that device's.
+- The device rides three reads, ids only (the app names it from `GET /devices`): `GET /sources` rows (`device`, from
+  the save's episode; `SHAPE` `device-1` moves the ETag once, and the app's `SnapshotCache.schema` is 3 in the same
+  change), `GET /entities/{id}/provenance` conversations (`device`, the newest one in the group) and
+  `GET /episodes/{id}/text` (`device`). The last two are not Store domains.
+- `CICADA_API_BASE`, else the app's `$CICADA_HOME/api_base` (written only on the person's click in Settings → General,
+  0600): `runtime_layout._raw_base` and its stdlib twin `hook_client.raw_base` read the file only from the real
+  environment or one that names its own `CICADA_HOME`, so a test's bare dict never reaches a home.
+
 **Bank identity (G181 phase 2).** Every bank's `banks.yaml` record carries a random `id`, minted by the backend at
 startup (`bank_registry.ensure_bank_ids`, which persists a legacy root's synthesized registry with no change to
 resolution), by `create_bank` and by `duplicate_bank` (a copy is another bank); a rename keeps it. `GET /healthz`

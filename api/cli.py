@@ -158,7 +158,9 @@ def bootstrap(environ=None) -> Boot:
 
 
 def _client_mode(environ) -> bool:
-    return bool((environ.get("CICADA_API_BASE") or "").strip())
+    from api.services import runtime_layout
+
+    return runtime_layout.is_client(environ)
 
 
 def _client_bootstrap(environ, caller_cwd, distribution) -> Boot:

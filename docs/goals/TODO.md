@@ -8,6 +8,16 @@
 
 ## Current state and evidence
 
+- **2026-10-16 — headless server, phase 3: the Mac app as a server's client, and Settings → Devices (G181, branch
+  `feat/headless-app`, not merged).** Settings → General → *Where your memory lives*: This Mac or a server (address +
+  device token, checked before anything is written; `$CICADA_HOME/api_base` + `device_token`, used from the next
+  launch, and the hooks/MCP/CLI on the Mac follow the same file). On a server the app starts no backend, keeps its
+  caches and reader cursors per connection, queues reader posts in `$CICADA_HOME/spool/app` and flushes them when the
+  event stream reconnects, and refuses the demo. Settings → Devices shows where the memory lives (reachable, as of
+  when), the person's devices (added, last seen; add/revoke on This Mac). New episodes a device posts record `device`
+  (`device_context`), shown as "from <device>" on Saved rows, the Reader and the entity card's conversations. Tests:
+  `test_headless_app.py`, `HeadlessAppTests` (incl. two real loopback listeners). Pick up: review; the owner tries
+  A server against a test server over his overlay.
 - **2026-10-16 — headless server, phase 2: every client can talk to a backend on another machine (G181, branch
   `feat/headless-clients`, not merged; ruling 28).** `CICADA_API_BASE` (+ a device token) makes the hooks, the stdio
   MCP server and the CLI clients of a server: the Stop hook reads the session locally and posts turns to
@@ -793,3 +803,11 @@ A whole row moves to DONE only after its remaining implementation and required a
     Revisit 2 if a client's extractor is found to have sent something the server-side extractor would not keep (the
     `turn_over_cap` refusals in the capture ledger are the signal); 3 if a device token is found in the hands of
     anything but the person's own machine.
+    **Phase 3 (worker's decisions, 2026-10-16):** a device token may READ `GET /devices` (ids, names, times, and
+    `current` for the asker) so the app on any of the person's devices can show them; issuing and revoking stay the
+    master token's (1 unchanged). The device a request came from is bound for the request (`device_context`) and
+    stamped on every new episode it causes, except Sleep's run, which clears it. The app's server setting is a file the
+    hooks read too (`$CICADA_HOME/api_base`), so one switch moves the whole Mac; `CICADA_API_BASE` still wins.
+    Review (2026-10-16): the click writes `api_base.next`, moved into place at the next launch, so the agents never
+    switch before the app; a background service is stopped on a server (plist kept); a reader's newer post never
+    overtakes a waiting one on its route; provenance and Reader ETags carry `device1`.

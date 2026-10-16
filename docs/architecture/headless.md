@@ -85,7 +85,9 @@ does the same). It prints the device's token once and keeps only its hash. `cica
 when it was last used; `cicada device revoke <id>` ends it at once. The master token (`~/.cicada/api_token`) never
 leaves the server, and a device token can neither issue nor revoke one.
 
-**On the client** (the person's Mac, say), two settings and nothing else — Cicada writes neither:
+**On the client** (the person's Mac, say), two settings and nothing else — set by the person, or (phase 3) by the
+app on the person's click in Settings → General, which puts `$CICADA_HOME/api_base` in place when Cicada next opens
+and writes `device_token`, both 0600:
 
 - `CICADA_API_BASE` — the address the person's own overlay gives the server (`https://…` for any host; plain `http://`
   only to a loopback address, i.e. an SSH tunnel's local end). Set where the hooks, agents and shells inherit it.
@@ -111,16 +113,60 @@ person's overlay; no installer creates, copies or logs a credential; the demo gu
 server's, per request. The G135 remote listener is still the door for apps off the person's devices, never trusted to
 edit a page.
 
+## The Mac app as a client (phase 3)
+
+Settings → General → *Where your memory lives*: **This Mac** (as always) or **A server** — the address the person's
+overlay gives the server and this device's token from `cicada device add`. Nothing is written until the server
+answers: `GET /healthz` (open) proves it is Cicada, `GET /devices` with the token proves the token and names this
+device. Then the app writes `device_token` and the address to `$CICADA_HOME/api_base.next` (0600) and offers *Restart
+Cicada*; at the next launch, before anything resolves, `ServerConnection.applyPending` moves it into `api_base` (or
+removes `api_base` for This Mac) and the app resolves once (`ServerConnection`, like `CicadaRuntime`), so the Store, its
+disk cache (one per connection), the event stream and every reader switch together. `CICADA_API_BASE` in the app's
+environment wins and locks the choice. `api_base` makes this Mac's hooks, stdio MCP server and `cicada` command clients
+(`runtime_layout._raw_base`, read on every call), which is why the click never writes it directly: the agents and the
+app switch at the same launch, never one before the other. A file that is not UTF-8 still makes the Mac a client with an
+invalid address (capture spools), never This Mac. Choosing This Mac again removes the address and keeps the token.
+
+On a server the app:
+
+- talks only to that address, with the device token (never the master token); an address that breaks the rule
+  (https, or http to loopback only) sends every request to an unresolvable name — never falls back to this Mac's bank;
+- starts no backend of its own, offers no *Keep memory working* install and repairs no service after an update; a
+  background service left from This Mac is stopped at launch (`launchctl bootout`, plist kept, so This Mac again, the
+  next login or *Turn on* brings it back), so nothing keeps serving this Mac's bank while everything here points
+  elsewhere;
+- sends the readers' bytes (bookmarks, Safari tabs, Notes, watched folders, Calendar, Contacts, tab groups, YouTube
+  history, Messages, Wispr Flow) to the server, and keeps a post the server did not take in `$CICADA_HOME/spool/app/`
+  (`ReaderOutbox`: 0700/0600, named by route + memory + body hash, ≤ 200 posts / 64 MB / 7 days; no answer, 401/403,
+  409 and 5xx wait, 400/404/405/413/422 are dropped). A newer post on the same route and memory never overtakes one
+  that waits: those go first, and while one still cannot land the newer waits behind it (a snapshot replayed late would
+  put the server back to an older state). It is flushed oldest first when the event stream connects again
+  (and by *Send now* on the Devices page); the readers keep their cursors and read again, so the outbox is the fast
+  path and the server's dedup makes a resend harmless;
+- refuses the demo (`ServerLinkError.demoStaysLocal`, before any request): a demo is a This Mac thing.
+
+**Settings → Devices** (Customize, after From anywhere): *This app* — "Your memory lives on <host>", reachable or not
+and as of when (`/healthz`, every 30 s while open), and how many captures wait on this Mac — and *Your devices*: each
+device's name, when it was added and last seen, and *this Mac* on its own row. On This Mac (the master token) the page
+adds a device (its token shown once, with where it goes) and revokes one; on a server's client it reads the list and
+names the two commands to run on the server (ruling 28.1). Not a Store domain: `/devices` is outside every bank.
+
+**Where memory came from.** What a device posts is stamped `device: <id>` on the server (`device_context`, `api.md`).
+The app says so in one quiet word (`DeviceOrigin`, names from `DeviceDirectory`): *from laptop* on a Saved item's
+"Saved from" line, in the Reader's header and on each conversation under the entity card's *Where this came from*; on a
+server's client, what the server's own machine wrote reads *from this server*, and this app's own posts *from this Mac*.
+On This Mac, what this Mac wrote says nothing. The bank picker's menu says *on <host>* above the memories.
+
 ## What works headless today, and what waits
 
-| Works on the server, for the server | Works from another of the person's machines (phase 2) | Waits for phase 3 |
-|---|---|---|
-| The REST API, `/healthz`, SSE | The REST API with a device token | The app's server setting (Settings → General) |
-| Claude Code and Codex on the server, captured by their Stop hook | Claude Code and Codex on a client, read there, posted as turns | The app's readers posting to the server, its offline queue |
-| Cursor and Gemini CLI on the server (`/capture/turn`) | The same hooks on a client, spooled when the server is away | |
-| The CLI and stdio MCP on the server | The stdio MCP and the CLI on a client, through the server | |
-| Scheduled Sleep on a metered key | | |
-| The G135 remote listener, behind the person's overlay | | |
+| Works on the server, for the server | Works from another of the person's machines (phases 2–3) |
+|---|---|
+| The REST API, `/healthz`, SSE | The REST API with a device token |
+| Claude Code and Codex on the server, captured by their Stop hook | Claude Code and Codex on a client, read there, posted as turns |
+| Cursor and Gemini CLI on the server (`/capture/turn`) | The same hooks on a client, spooled when the server is away |
+| The CLI and stdio MCP on the server | The stdio MCP and the CLI on a client, through the server |
+| Scheduled Sleep on a metered key | The app (Settings → General → A server), its readers and their outbox |
+| The G135 remote listener, behind the person's overlay | Settings → Devices, and the device on every conversation and save |
 
 Known limits of phase 2: the skills tools (`cicada_skills`, `skills list|propose|create`) act on the server's agent
 skill folders, not the client's; `cicada_continue` reads the continuity registry the server keeps (the client's hook

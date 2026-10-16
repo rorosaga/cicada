@@ -155,11 +155,12 @@ struct FeedItemDetail: View {
             if let origin = FeedSourceLine.markOrigin(item) {
                 OriginMark(origin: origin, size: CicadaTheme.scaled(14)).markHover()
             }
-            Text(FeedSourceLine.text(item))
+            Text(FeedSourceLine.text(item, device: DeviceDirectory.shared.label(for: item.device)))
                 .font(CicadaTheme.metaFont)
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .lineLimit(1)
         }
+        .onAppear { DeviceDirectory.shared.ensureLoaded() }
         .help(FeedSourceLine.help(item) ?? "")
     }
 

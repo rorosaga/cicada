@@ -283,6 +283,9 @@ struct MediaFeedItem: Codable, Identifiable {
     /// G191 v4 — the browsers this bookmark has left (one per browser whose file no longer holds it, with since when).
     /// Cicada keeps the bookmark; this is its status. Empty from an older backend.
     var leftBrowser: [BookmarkLeft] = []
+    /// G181 phase 3 — the id of the person's device whose token posted the save; nil for what the server's own machine
+    /// saved (`DeviceOrigin` names it on the "Saved from" line).
+    var device: String? = nil
 
     /// Every answer, oldest first (the history when there are several, else the one answer).
     var savedWhyAnswers: [SavedWhyRecord] {
@@ -339,6 +342,7 @@ struct MediaFeedItem: Codable, Identifiable {
         case read
         case savedWhy, savedWhyHistory, lastSavedAt, captureThumb
         case leftBrowser
+        case device
     }
 
     init(from decoder: Decoder) throws {
@@ -372,6 +376,7 @@ struct MediaFeedItem: Codable, Identifiable {
         lastSavedAt = try? c.decodeIfPresent(String.self, forKey: .lastSavedAt)
         captureThumb = try? c.decodeIfPresent(String.self, forKey: .captureThumb)
         leftBrowser = (try? c.decodeIfPresent([BookmarkLeft].self, forKey: .leftBrowser)) ?? []
+        device = (try? c.decodeIfPresent(String.self, forKey: .device)) ?? nil
     }
 
     var isPaper: Bool { kind == "paper" }
@@ -1494,8 +1499,16 @@ enum BookmarkSyncError: Error, LocalizedError, Equatable {
 actor APIClient {
     static let shared = APIClient()
 
-    /// G182 — `http://127.0.0.1:<port>`, the port the backend was started on (`CICADA_PORT`, `cicada.port`, 8000).
-    private let baseURL = CicadaRuntime.current.backendURL
+    /// G182 — `http://127.0.0.1:<port>`, the port the backend was started on (`CICADA_PORT`, `cicada.port`, 8000) — or,
+    /// G181 phase 3, the server the person chose (`ServerConnection`): the Store, its ETags and the event stream all
+    /// ride this one base, so a server is this constant and nothing else. An invalid address is an unresolvable base,
+    /// never this Mac's.
+    private let baseURL: String
+    /// Which backend this client talks to, decided at launch (`ServerConnection.current`).
+    nonisolated let connection: ServerConnection
+    private let cicadaHome: URL
+    /// G181 phase 3 — the readers' posts that could not reach the server wait here (server mode only).
+    let outbox: ReaderOutbox
     private let decoder: JSONDecoder = {
         let d = JSONDecoder()
         return d
@@ -1516,7 +1529,12 @@ actor APIClient {
     /// configuration below) purely so tests can hand in a
     /// `URLProtocol`-backed session instead of hitting a real backend on
     /// 127.0.0.1 — `APIClient.shared` always uses the default.
-    init(session: URLSession? = nil) {
+    init(session: URLSession? = nil, connection: ServerConnection = .current,
+         runtime: CicadaRuntime = .current) {
+        self.connection = connection
+        self.cicadaHome = runtime.cicadaHome
+        self.baseURL = connection.baseURL(local: runtime.backendURL)
+        self.outbox = ReaderOutbox(folder: ReaderOutbox.folder(cicadaHome: runtime.cicadaHome))
         if let session {
             self.session = session
         } else {
@@ -1552,21 +1570,22 @@ actor APIClient {
     /// backend boots, so caching nil would strand the app in 401s until
     /// restart. Any 401 clears the cache (`invalidateToken()`) so a rotated
     /// token is picked up on the next attempt.
-    private nonisolated(unsafe) static var cachedToken: String?
+    ///
+    /// G181 phase 3: on a server the token is this device's own (`CICADA_API_TOKEN`, else `device_token`), never the
+    /// master token; the cache is keyed by the file it came from, so a client built for one never hands out the other's.
+    private nonisolated(unsafe) static var cachedToken: (key: String, token: String)?
 
     static func invalidateToken() { cachedToken = nil }
 
-    private static func loadToken() -> String? {
-        if let cachedToken { return cachedToken }
+    private static func loadToken(connection: ServerConnection, cicadaHome: URL) -> String? {
+        let file = cicadaHome.appendingPathComponent(connection.isServer ? ServerConnection.deviceTokenFile : "api_token")
+        if let cachedToken, cachedToken.key == file.path { return cachedToken.token }
         let env = ProcessInfo.processInfo.environment
-        if let t = env["CICADA_API_TOKEN"], !t.isEmpty { cachedToken = t; return t }
-        let home = env["CICADA_HOME"].map { URL(fileURLWithPath: $0) }
-            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".cicada")
-        let file = home.appendingPathComponent("api_token")
+        if let t = env["CICADA_API_TOKEN"], !t.isEmpty { cachedToken = (file.path, t); return t }
         guard let raw = try? String(contentsOf: file, encoding: .utf8) else { return nil }
         let token = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !token.isEmpty else { return nil }
-        cachedToken = token
+        cachedToken = (file.path, token)
         return token
     }
 
@@ -1574,7 +1593,7 @@ actor APIClient {
         var request = URLRequest(url: URL(string: "\(baseURL)\(path)")!)
         request.httpMethod = method
         if json { request.setValue("application/json", forHTTPHeaderField: "Content-Type") }
-        if let token = Self.loadToken() {
+        if let token = Self.loadToken(connection: connection, cicadaHome: cicadaHome) {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
         // G183(d) — a write names the bank it started in; the server refuses it when that bank is no longer active.
@@ -1641,7 +1660,9 @@ actor APIClient {
     /// activate call needed.
     @discardableResult
     func createDemoBank() async throws -> BanksResponse {
-        try await post("/banks/demo")
+        // G181 phase 3 — a demo never reaches a server (`demo_guard`): it is a This Mac thing.
+        if connection.isServer { throw ServerLinkError.demoStaysLocal }
+        return try await post("/banks/demo")
     }
 
     /// `POST /banks/leave-demo` (G117 round 4, F-08) → the demo banner's way home: the server activates the real bank
@@ -3113,6 +3134,25 @@ actor APIClient {
         return try decoder.decode(RemoteConnector.self, from: data)
     }
 
+    // MARK: - Devices (G181 phase 3)
+
+    /// `GET /devices` — outside every bank, so never a Store domain (`DeviceDirectory` keeps it in memory).
+    func getDevicesList() async throws -> DeviceList {
+        try await get("/devices", timeout: Self.refreshTimeout)
+    }
+
+    /// `POST /devices` — the master token's alone (This Mac); the answer is the only place the token ever appears.
+    func createDevice(name: String) async throws -> DeviceCreated {
+        try await post("/devices", body: ["name": name])
+    }
+
+    /// `DELETE /devices/{id}` — the master token's alone; the device's next request is refused.
+    func revokeDevice(id: String) async throws -> DeviceRecord {
+        struct Answer: Decodable { let device: DeviceRecord }
+        let data = try await delete("/devices/\(encodedID(id))")
+        return try decoder.decode(Answer.self, from: data).device
+    }
+
     // MARK: - Generic Helpers
 
     /// `timeout` overrides Foundation's 60 s default for this one request.
@@ -3144,7 +3184,7 @@ actor APIClient {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
         }
 
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await deliver(request, path: path)
         guard let http = response as? HTTPURLResponse else {
             throw APIError.serverUnreachable
         }
@@ -3159,7 +3199,7 @@ actor APIClient {
     private func postData<T: Decodable>(_ path: String, json: Data) async throws -> T {
         var request = makeRequest(path, method: "POST")
         request.httpBody = json
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await deliver(request, path: path)
         guard let http = response as? HTTPURLResponse else {
             throw APIError.serverUnreachable
         }
@@ -3178,7 +3218,7 @@ actor APIClient {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
         }
 
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await deliver(request, path: path)
         guard let http = response as? HTTPURLResponse else {
             throw APIError.serverUnreachable
         }
@@ -3188,6 +3228,70 @@ actor APIClient {
             throw APIError.httpError(http.statusCode, msg)
         }
         return data
+    }
+
+    /// G181 phase 3 — a POST, and for a reader's post on a server the outbox's door: when no answer comes (the server
+    /// is away) or the server fails (5xx), the bytes wait in `ReaderOutbox` and the caller hears
+    /// `ServerLinkError.queuedOffline` — a failure, so the reader keeps its cursor and reads again, while the waiting
+    /// copy goes first when the server answers (`flushOutbox`). Every other request is sent exactly as before.
+    private func deliver(_ request: URLRequest, path: String) async throws -> (Data, URLResponse) {
+        let queues = connection.isServer && ReaderOutbox.queues(path)
+        // Review fix — never ahead of an older post on the same route and memory: a reader's snapshot (bookmarks,
+        // tabs, tab groups…) replayed after a newer one would put the server back to the older state, and the reader,
+        // having landed the newer one, would not send it again. The older ones go first; if any still waits, this
+        // one waits behind it.
+        if queues, await waitingAhead(request, path: path), await keep(request, path: path) {
+            throw ServerLinkError.queuedOffline
+        }
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch let error as URLError where queues {
+            if await keep(request, path: path) { throw ServerLinkError.queuedOffline }
+            throw error
+        }
+        if queues, let http = response as? HTTPURLResponse, (500...599).contains(http.statusCode),
+           await keep(request, path: path) {
+            throw ServerLinkError.queuedOffline
+        }
+        return (data, response)
+    }
+
+    private func waitingAhead(_ request: URLRequest, path: String) async -> Bool {
+        let method = request.httpMethod ?? "POST"
+        let bank = request.value(forHTTPHeaderField: BankScope.header)
+        let same: @Sendable (ReaderOutbox.Entry) -> Bool = { $0.method == method && $0.path == path && $0.bank == bank }
+        guard await outbox.has(where: same) else { return false }
+        await flushOutbox(matching: same)
+        return await outbox.has(where: same)
+    }
+
+    private func keep(_ request: URLRequest, path: String) async -> Bool {
+        guard let body = request.httpBody else { return false }
+        let stored = try? await outbox.put(method: request.httpMethod ?? "POST", path: path, body: body,
+                                           bank: request.value(forHTTPHeaderField: BankScope.header))
+        return stored == true
+    }
+
+    /// Send what the readers left waiting while the server was away, oldest first, each signed now and named for the
+    /// memory it was read for. Called when the Store hears the server again. Server mode only.
+    @discardableResult
+    func flushOutbox() async -> ReaderOutbox.FlushResult { await flushOutbox(matching: { _ in true }) }
+
+    /// One route's waiting posts only (`waitingAhead`).
+    @discardableResult
+    func flushOutbox(matching matches: @escaping @Sendable (ReaderOutbox.Entry) -> Bool) async
+        -> ReaderOutbox.FlushResult {
+        guard connection.isServer else { return ReaderOutbox.FlushResult() }
+        return await outbox.flush(where: matches) { entry in
+            var request = await self.makeRequest(entry.path, method: entry.method)
+            if let bank = entry.bank { request.setValue(bank, forHTTPHeaderField: BankScope.header) }
+            request.httpBody = entry.body
+            guard let (_, response) = try? await self.session.data(for: request),
+                  let http = response as? HTTPURLResponse else { return nil }
+            return http.statusCode
+        }
     }
 
     /// Generic DELETE-with-JSON-body helper (`/sources/feeds` unsubscribe is the
