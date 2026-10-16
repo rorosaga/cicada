@@ -2746,6 +2746,25 @@ class CycleUsagePlan(CamelModel):
     windows: list[CycleUsagePlanWindow] = Field(default_factory=list)
 
 
+class CycleUsagePlanShare(CamelModel):
+    """How much of one plan window a run used (owner 2026-10-16: on a plan, the share leads, not dollars).
+    ``basis`` says what the figure IS:
+
+    * ``measured`` — the window's own reading moved: ``share`` = after − before (the whole plan's change, so
+      it can include other use meanwhile);
+    * ``under`` — the reading did not move at the probe's resolution: the share is below ``under`` (0.01), and
+      ``share`` is ``null`` — never 0;
+    * ``estimated`` — this run's list-price size times the window's observed rate from earlier cycles that
+      moved it (``samples`` of them). When the reading itself did not move, ``under`` is set too.
+
+    A window with neither a reading nor a rate is left out: unknown, never zero."""
+    window: str
+    basis: str
+    share: Optional[float] = None
+    under: Optional[float] = None
+    samples: Optional[int] = None
+
+
 class CycleUsage(CamelModel):
     """``GET /sleep/history/{commit}`` ``usage`` — derived at read from the
     ledger; ``null`` on the wire means "not recorded" (a cycle from before
@@ -2759,6 +2778,8 @@ class CycleUsage(CamelModel):
     # charged | list | plan | free | mixed; null when no model was called.
     basis: Optional[str] = None
     plan: Optional[CycleUsagePlan] = None
+    # A plan run's share of each window (``CycleUsagePlanShare``); empty for a metered run or when unknown.
+    plan_share: list[CycleUsagePlanShare] = Field(default_factory=list)
 
 
 class CycleUsageSummaryPlan(CamelModel):
@@ -2776,6 +2797,7 @@ class CycleUsageSummary(CamelModel):
     engine: Optional[str] = None
     connection: Optional[str] = None
     plan: Optional[CycleUsageSummaryPlan] = None
+    plan_share: list[CycleUsagePlanShare] = Field(default_factory=list)
 
 
 class LastFinishedCycle(CamelModel):
@@ -3024,6 +3046,10 @@ class SleepEngineUsage(CamelModel):
     input_per_million_usd: Optional[float] = None
     output_per_million_usd: Optional[float] = None
     last_cycle_cost_usd: Optional[float] = None
+    # A plan card: the newest run's share of each window and its list-price equivalent (the secondary
+    # "would have cost" figure, never a charge).
+    last_run_share: list[CycleUsagePlanShare] = Field(default_factory=list)
+    last_run_equiv_usd: Optional[float] = None
 
 
 class SleepEngineProvider(CamelModel):

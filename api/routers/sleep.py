@@ -306,7 +306,7 @@ async def sleep_run_detail_route(drain_id: str, request: Request, response: Resp
     except OSError:
         pass
     etag = sync_service.etag_for(settings.memory_path, "telemetry", "git_head", "sleep",
-                                 extra=f"run|{drain_id}|{runs_stamp}")
+                                 extra=f"run|{sleep_run_detail.SHAPE}|{drain_id}|{runs_stamp}")
     not_modified = sync_service.conditional(request, response, etag)
     if not_modified is not None:
         return not_modified

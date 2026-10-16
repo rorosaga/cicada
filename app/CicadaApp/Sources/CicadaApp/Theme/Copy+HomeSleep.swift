@@ -105,6 +105,40 @@ extension Copy {
             "\(UsageFormat.count(n, locale: locale)) tokens out"
         }
         static func lastCycle(_ amount: String) -> String { "Last cycle: \(amount) charged" }
+
+        // Owner 2026-10-16 — on a plan, a run is said as how much of the plan it used; dollars are secondary.
+
+        /// A window as the limit it is, for "about 3% of your weekly limit".
+        static func limit(_ id: String) -> String {
+            switch id {
+            case "five_hour": "the 5-hour window"
+            case "seven_day": "your weekly limit"
+            case "seven_day_opus": "your weekly Opus limit"
+            case "seven_day_sonnet": "your weekly Sonnet limit"
+            case "primary": "the plan's main window"
+            case "secondary": "the plan's second window"
+            default: "the plan's usage window"
+            }
+        }
+        static func about(_ share: String, of limit: String) -> String { "about \(share) of \(limit)" }
+        static func under(_ share: String, of limit: String) -> String { "under \(share) of \(limit)" }
+        static let measured = "measured"
+        static let estimated = "estimated"
+        /// The basis of an "under 1%" figure: the plan's reading did not move — never called "measured".
+        static let unmoved = "reading unchanged"
+        /// A plan run whose share nothing recorded: unknown, never zero.
+        static let shareNotRead = "share of the plan not recorded"
+        static let measuredNote = "Measured: the plan's own reading before and after the run."
+        static let underNote =
+            "The plan's reading did not move by a whole point, so the run used under one percent of it — too small to read, not zero."
+        static func estimatedNote(samples: Int?) -> String {
+            let runs = samples.map { "\($0) earlier run\($0 == 1 ? "" : "s")" } ?? "earlier runs"
+            return "Estimated, not read from the plan: this run's size at list price against how far \(runs) moved "
+                + "the same window for theirs. Those runs' readings include anything else you used meanwhile."
+        }
+        static let estimateCappedNote = "The plan's own reading moved less than one point, which the estimate stays under."
+        static func wouldHaveCost(_ amount: String) -> String { "would have cost about \(amount) on an API key" }
+        static func lastRun(_ share: String) -> String { "Last run: \(share)" }
         static func asOf(_ relative: String) -> String { "as of \(relative)" }
         static func resets(_ when: String) -> String { "resets \(when)" }
     }

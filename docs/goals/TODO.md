@@ -18,6 +18,16 @@
   skipped (frontmatter only via `episode_staging.reattribute`, no re-queue of a read sitting). Tests:
   `test_messages_photos.py`, the reproduction in `test_messages_source.py`, Swift watcher and resolver twins. Pick up:
   merge; the owner ticks the agent's chat and checks its page shows the photo.
+- **2026-10-16 — on a plan, a run says how much of the plan it used, not dollars (ruling 12's two homes; branch
+  `feat/plan-usage-share`, not merged).** Owner: "For Claude plans could you see how much usage was used from the plan
+  instead of money?" The backend derives `planShare` per window at read (`cycle_usage.plan_share`): measured when the
+  window's reading moved, "under 1%" when it did not (never 0 %), estimated from the run's list-price size against the
+  rate earlier cycles moved that window (≥ 2 points each, ≥ 2 cycles, 35 days machine-wide), always with its basis; no
+  new ledger field. The app leads Past reads' rows, Last cycle, an opened run and the engine menu's last line with it;
+  the dollar figure becomes "would have cost about $X on an API key" (a secondary line or the help). Metered runs keep
+  dollars. Tests: `test_plan_share.py`, `PlanShareTextTests`. Pick up: review; the owner's next plan run should read
+  "under 1% of your weekly limit · reading unchanged" (or an estimate once two earlier runs moved the window). Not done: Past
+  nights' folded run row (no whole-run usage on the history wire; its opened detail shows the share).
 - **2026-10-16 — install anywhere: one curl line on Linux, a Homebrew tap in this repo (G181, G76; branch
   `feat/install-anywhere`, not merged).** Owner: "how I can install it with a `curl` command on a Linux machine … can I
   use Brew for that? If not make it so". `scripts/install-server.sh` (curl | bash: prerequisites named together, the
@@ -310,6 +320,10 @@ A whole row moves to DONE only after its remaining implementation and required a
     - **Every figure carries its basis in words.** "Charged" is the provider's own bill (API key,
       OpenRouter). "At list price" is an estimate from the public price table or the Claude CLI's
       metering, never a charge. A plan cycle is its window's before → after.
+    - **On a plan, the share leads, not dollars (owner, 2026-10-16).** A plan run says how much of each window it
+      used — measured (the reading moved), "under 1%" (it did not; never 0 %), or estimated from the run's list-price
+      size against earlier cycles' observed rate, each basis said, an estimate never shown as a reading. Its list-price
+      figure stays only as the secondary "would have cost about $X on an API key". Metered runs keep dollars.
     - **A plan's percentage is the whole plan's.** The change across a cycle can include anything else
       the person used meanwhile; the UI says so. Claude reports a window only after a call, so its
       "before" is the reading after the cycle's first call, not a pre-cycle one.

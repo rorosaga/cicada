@@ -1155,6 +1155,15 @@ The Sleep page's Details (Last cycle, Past nights, an opened cycle's Models) and
 (2026-09-28 ruling); a `plan` block and a `cycle_id` are numbers and ids, never text.
 An `llm_call` with a real cost carries `refs.cost_source` (`telemetry.COST_SOURCES`, 2026-10-16): `provider` when the figure is the charge the provider reported for that call (OpenRouter's `usage.cost`; litellm sends `usage: {include: true}` on every OpenRouter request), which wins over `table`, litellm's estimate from its bundled price table. A model the table does not list still gets OpenRouter's own charge; with neither, `cost_usd` is `null` and no source is filed — unknown, never zero.
 Since Sleep page v5 a drain's calls also carry `refs.drain_id` (the run's id, ids only), so `GET /sleep/runs/{id}` sums a whole run — a paused or discarded batch's calls included — and `sleep_run` rows carry `drain_id`/`batch`/`batches`; `usage_for_drain` lists a plan window at the run level only when every batch saw the same reset time.
+**Plan share (owner 2026-10-16; no new ledger field — derived at read).** A plan run's `usage.planShare` /
+`usageSummary.planShare` (and the engine menu's `lastRunShare` + `lastRunEquivUsd`) say, per window, weekly first, how
+much of it the run used, each with its basis: `measured` (the window's own reading moved by a point or more: after −
+before, the whole plan's change), `under` (it did not move at the reading's 1-point resolution: below `under`, `share`
+null — never 0) or `estimated` (the run's list-price size — the CLI's own metering, which weighs model and cache as a
+plan does and raw token counts do not — times the window's pooled rate from earlier cycles that moved it by ≥ 2 points,
+at least two of them, over the last 35 days machine-wide; with `samples`, and `under` too when the reading itself did not
+move, which caps it). A window with neither a reading nor a rate is left out; a model's own window is never estimated
+for a run that did not report it (`cycle_usage.plan_share`, `rate_samples`, `rates_of`).
 
 **Feedback events (G113):** every inbox resolution emits a `resolution` event (`stage: feedback`,
 `refs` = item id, kind, predicate, entity id, action label, `verdict: agreed|overruled|neutral`,

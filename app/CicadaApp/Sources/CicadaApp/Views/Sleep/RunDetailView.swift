@@ -166,8 +166,18 @@ struct RunDetailBlock: View {
     @ViewBuilder
     private func usage(_ detail: SleepRunDetail) -> some View {
         let lines = CycleUsageText.detailLines(detail.usage)
-        if lines.empty == nil, !lines.models.isEmpty || !lines.plan.isEmpty {
+        if lines.empty == nil, !lines.models.isEmpty || !lines.plan.isEmpty || lines.share != nil {
             VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
+                if let share = lines.share {
+                    // Owner 2026-10-16 — a plan run leads with how much of the plan it used, its basis in the line.
+                    Text(share.text)
+                        .font(CicadaTheme.metaFont)
+                        .monospacedDigit()
+                        .foregroundStyle(CicadaTheme.textPrimary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .help(share.help)
+                        .padding(.bottom, CicadaTheme.scaled(2))
+                }
                 SectionLabel(Copy.SleepUsage.modelsTitle)
                 ForEach(lines.models, id: \.self) { line in
                     Text(line)
@@ -181,6 +191,12 @@ struct RunDetailBlock: View {
                         .font(CicadaTheme.metaFont)
                         .monospacedDigit()
                         .foregroundStyle(CicadaTheme.textPrimary)
+                }
+                if let equiv = lines.equiv {
+                    Text(equiv)
+                        .font(CicadaTheme.metaFont)
+                        .monospacedDigit()
+                        .foregroundStyle(CicadaTheme.textTertiary)
                 }
                 ForEach(Array(lines.plan.enumerated()), id: \.offset) { _, row in
                     Text(row.text)

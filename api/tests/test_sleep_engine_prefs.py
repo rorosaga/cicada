@@ -316,6 +316,7 @@ def test_a_signed_in_chatgpt_card_carries_its_fullest_window_and_its_reading_tim
         "kind": "plan-window", "window": "secondary", "usedFraction": 0.62, "resetsAt": 1790500000,
         "asOf": "2026-09-29T10:20:00Z", "source": "codex-snapshot", "lastCycleCostUsd": None,
         "model": None, "inputPerMillionUsd": None, "outputPerMillionUsd": None,
+        "lastRunShare": [], "lastRunEquivUsd": None,
     }
 
 
@@ -328,6 +329,23 @@ def test_the_claude_card_reads_its_window_from_the_last_recorded_cycle(client, m
     agent = next(c for c in client.get("/sleep/engine").json()["candidates"] if c["id"] == "agent")
     assert agent["usage"]["source"] == "last-cycle" and agent["usage"]["usedFraction"] == 0.18
     assert agent["usage"]["asOf"] == "2026-09-29T09:00:00Z"
+
+
+def test_a_plan_card_carries_its_last_runs_share_and_list_price_equivalent(client, monkeypatch):
+    """Owner 2026-10-16: a plan card leads with how much of the plan its last run used; the dollar figure is
+    the secondary list-price equivalent, never a charge. A card with no recorded window still gets the share."""
+    from api.models.schemas import CycleUsagePlanShare
+    from api.services import cycle_usage
+
+    share = [CycleUsagePlanShare(window="seven_day", basis="under", under=0.01)]
+    monkeypatch.setattr(cycle_usage, "last_cycles", lambda events=None, bank=None: {
+        "last-run": {"claude-plan": {"share": share, "equiv_usd": 0.49, "as_of": "2026-10-16T09:00:00Z"}}})
+    cards = {c["id"]: c for c in client.get("/sleep/engine").json()["candidates"]}
+    usage = cards["agent"]["usage"]
+    assert usage["lastRunShare"] == [{"window": "seven_day", "basis": "under", "share": None, "under": 0.01,
+                                      "samples": None}]
+    assert usage["lastRunEquivUsd"] == 0.49 and usage["usedFraction"] is None
+    assert usage["lastCycleCostUsd"] is None
 
 
 def test_key_cards_carry_a_list_price_and_the_last_cycles_charge(client, monkeypatch):
