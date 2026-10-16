@@ -213,8 +213,9 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 - **Temporal decay is a signal; age counts from when it was said** (owner 2026-10-09/13, amends G170): what the
   conversations prove silent is charged once, when read; a one-off may archive by age, a page or claim on 2+ dated
   conversations floors at 0.39 and only live silence archives it; ruling 1's one-week cap governs live silence; a
-  mention never lowers; a decay question only when live silence crosses 0.4. Evergreen never decays; a memory export
-  entry is no mention. Below 0.2 archived. **Confidence does not rank recall.**
+  mention never lowers; a decay question only when live silence crosses 0.4. **Read on time** (2026-10-16): a
+  conversation read late counts as read the day it was said — when it is read never changes the result. Evergreen
+  never decays; a memory export entry is no mention. Below 0.2 archived. **Confidence does not rank recall.**
 
 ### Storage, claims and provenance
 

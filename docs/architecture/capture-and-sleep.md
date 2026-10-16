@@ -1194,16 +1194,34 @@ the normal pace (at the default `active` pace, about 38 days for two conversatio
 `decayed_through` at the content date and `learned_on` at the cycle's day. **A mention never lowers:** on a page
 not yet settled (proven silence still owed — read earlier in this run, or in one that stopped) a later mention moves
 `learned_on` and the age counts from it; on a settled page, a mention from a conversation dated on or after its
-watermark (one no charge has covered — every live mention) revives it (`max(current, 0.6)`, `active`) and restarts
-its clock when it was said: the gap until Cicada read it is proven silence, charged once by the pass that settles it,
-never below where the page stood before the mention (`confidence_before_mention`, kept only until then; never on an evergreen page); one
-dated before the watermark (an old conversation read late) adds its source and its week and moves nothing else —
-except that when it makes a one-off its age faded (`faded_by_age`) a repeat, the page is lifted to where the two
-conversations read in one run would have left it: the repeat floor less the live silence from the day its age was
-settled to today (`_lift_to_repeat_floor`; an archived page's watermark stops the day it archives, so it is never the measure; only raises, archived → decaying where it lands at or above 0.2), so how imports
-split across runs never changes the result. Claims are lifted the same way in `_reinforce`. A late restatement of a
-settled claim (said after its watermark, read later) still restarts the claim's clock the day it is read, so a page
-and its claim from the same late capture can differ slightly. Nothing is charged mid-drain (the batches before the last
+watermark (one no charge has covered — every live mention) revives it (`max(current, 0.6)` whatever its status —
+since the read-on-time ruling an active page below 0.6 is raised too — and `active`) and restarts its clock when it
+was said: the gap until Cicada read it is proven silence, charged once by the pass that settles it, never below where
+the page stood before the mention (`confidence_before_mention`, kept only until then; never on an evergreen page).
+**Read on time** (owner 2026-10-16): a conversation dated *before* the watermark and read late — a newly connected
+source's history, an export imported after the page was known — counts as if Cicada had read it the day it was said.
+Its source and its week count at once; the newest such conversation the page does not already credit is kept in
+`read_late` until the decay pass, which places it (`conflict_resolver._revive_on_time`, `decay_policy.on_time`):
+revived to 0.6 on the day it was said, less the silence since — proven silence (floored for a repeat) up to the day
+Cicada read the page's previous last mention (`learned_on`), live silence after it in full — through the watermark
+plus at most one pass of live silence (`decay_policy.through_day`, ruling 1; through today for an archived page, whose
+watermark stopped the day it archived). Only raises; the status rises with it (archived → decaying → active), the
+watermark moves to where it was charged, `last_referenced` to the newest mention, `learned_on` stays. So a page last
+heard 2026-09-01 and decaying, that a newly connected chat mentioned on 10-13, read on 10-16, lands where reading the
+chat on 10-13 would have left it: revived on 10-13 and faded for three days. A mention from long ago revives nothing
+its age would not have kept alive (an older-than-latest mention never lifts; a 2024 mention placed today lands far
+below where the page stands). A lift its age leaves below 0.4, heard more than a week late, is `faded_by_age` (never
+asked); one back above 0.4 drops the mark and is asked like any page when live silence carries it across. Because only
+the newest late mention matters and it is placed at the drain's final pace, the order late conversations are read in
+and the batches they fall in never change the result; across separate runs only the spacing factor can differ (it
+counts the weeks known when a silence is charged, G147). When an older conversation makes a one-off its age faded
+(`faded_by_age`) a repeat, the page is also lifted to where the two conversations read in one run would have left it:
+the repeat floor less the live silence from the day its age was settled to today (`_lift_to_repeat_floor`; only
+raises, archived → decaying where it lands at or above 0.2), so how imports split across runs never changes the
+result. Claims follow the same rule (`claim_reconciler._reinforce` → `Claim.read_late` → `_place_on_time` in the
+decay pass): a late restatement is placed on its day from its own confidence; a settled claim restated after its
+watermark but read on a later day is also placed on the day it was said, charged the proven silence since and never
+lowered — so a page and its claim from the same late capture land alike. Nothing is charged mid-drain (the batches before the last
 run with `decay=False`), and the pass that charges decay also settles the pages its own batch creates or references
 (the change's `settle` directive, applied by `apply_changes` on the page as merged, in the commit that writes the
 page) — so a page said in 2024 and again in 2026 ends the drain alive whatever the order the two were read in or
@@ -1214,9 +1232,11 @@ gap at once (floored if it is a repeat); a page Cicada already knew and that was
 its clock instead. Claims follow the same rules (`claim_reconciler.claim_silence`, `_reinforce`): a claim minted
 from a dated conversation stamps its watermark at that day; a restatement of a claim not yet settled follows the
 latest mention; a settled claim restated in a conversation dated on or after its watermark (an agent's live write,
-with no dated conversation, counts as said today) gets the higher confidence and a clock restarted today; an older
-restatement or a memory entry adds the source only. A subject read this pass is charged its proven silence only.
-Only Sleep charges claims: the agent and progress writers reconcile with `decay=False` (G85). A claim with no dated
+with no dated conversation, counts as said today) gets the higher confidence and a clock restarted today (said on an
+earlier day, the restored confidence is placed on that day, as above); an older restatement is placed on its day
+(read on time, above); a memory entry adds the source only. A subject read this pass is charged its proven silence only.
+Only Sleep charges claims: the agent and progress writers reconcile with `decay=False` (G85), so a restatement they
+record from an older conversation is placed by the next Sleep decay pass. A claim with no dated
 conversation keeps the old anchor (`recorded_at`, else `valid_from`). **A question fires only when live silence
 carries a page or claim across 0.4** (`decay_policy.asks`). One that its own age took below the line — proven
 silence charged in a pass, the mention read more than seven days after it was said (`decay_policy.heard_late`) — is
@@ -1227,7 +1247,14 @@ is asked when live silence later carries it across; a new mention clears the mar
 and by the age of the last mention, `would_archive`, `would_decay`, `floored_repeats`, `would_be_asked` — only pages
 read within a week of being said; everything else it lowers below 0.4 is marked `faded_by_age` — and claims), `--apply` refused while Sleep runs, one `cicada` commit (`trigger:
 maintenance/decay-by-age`), the day a page was read estimated from the git commit that added it, only changed claim
-lines rewritten, a second run a no-op.
+lines rewritten, a second run a no-op. What the old late-read rule left faded is placed on its day once by
+`api/scripts/recompute_read_on_time.py` (`read_on_time_recompute`): the old rule's one mark is a `last_referenced`
+later than `learned_on` (every other path moves `learned_on` to the read day), a claim's latest dated conversation
+later than its `recorded_at`; the dry run counts, overall and by type, `read_late`, `lifted` (`to_active`,
+`to_decaying`, `still_archived`, `faded_by_age`) and `claims_read_late` / `claims_lifted` (a claim is placed from
+0.6, its late restatement's confidence not being stored); `--apply` is one `cicada` commit (`trigger:
+maintenance/read-on-time`), refused while Sleep runs, only raises, a second run a no-op. A mention said the very day
+its page was last read is indistinguishable from an ordinary one and is left alone.
 **A memory export entry is facts, not activity** (owner, 2026-10-08). A `source: claude_memory` episode is a summary
 of the person dated by the export entry's `updated_at`, not by when anything in it came up. `episode_time` is the one
 predicate: such an episode is no week in `w` (page, claim and card alike), and Stage 1 hands Stage 2 its entities
@@ -1236,8 +1263,8 @@ with no timestamp or day and `untimed: true`. A change made only of memory entri
 `last_referenced` nor `decayed_through` and recovers no status; its facts, claims (with their `valid_from`) and
 `source_episodes` are written as usual. Any real conversation in the same change dates it as before.
 Below 0.2 → `status: archived` (the page stays in `entities/`); below 0.4 → a decay nudge when live silence carries it across (never for what its age took there).
-Mentioned again in a conversation no charge has covered → promoted back at `confidence = max(current, 0.6)`, clock
-restarted the day it was read; an old conversation read late never revives and never lowers. Evergreen
+Mentioned again → promoted back at `confidence = max(current, 0.6)` on the day it was said, read live or late (read
+on time); a mention never lowers, and one from long ago revives nothing its age would not have kept alive. Evergreen
 entities (the owner's page among them) skip all decay math. **Confidence does not rank recall:** search puts archived pages last and otherwise ranks
 by relevance (`search_service._page`'s sort key and the per-kind cut's archived tier); whether
 confidence should weigh in is a question for G148's benchmark pass to measure before anything

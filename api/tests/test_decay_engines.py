@@ -197,12 +197,21 @@ def test_a_dropped_entity_is_never_resurrected(tmp_path):
     assert fm["confidence"] == 0.1
 
 
-def test_an_active_entity_keeps_its_confidence_on_re_mention(tmp_path):
+def test_an_active_entity_is_restored_to_the_recovery_floor_on_re_mention(tmp_path):
+    # Read on time (owner 2026-10-16): a mention restores any settled page to max(current, 0.6), whatever its
+    # status, so a mention read live and the same mention read late leave the page in the same place.
     path = _page(tmp_path, "steady", status="active", confidence=0.45)
     conflict_resolver.apply_changes([_update("steady")], tmp_path)
     fm = markdown_parser.parse(path).frontmatter
     assert fm["status"] == "active"
-    assert fm["confidence"] == 0.45, "recovery only fires for decaying/archived pages"
+    assert fm["confidence"] == 0.6
+
+
+def test_an_active_entity_above_the_recovery_floor_keeps_its_confidence(tmp_path):
+    path = _page(tmp_path, "settled", status="active", confidence=0.8)
+    conflict_resolver.apply_changes([_update("settled")], tmp_path)
+    fm = markdown_parser.parse(path).frontmatter
+    assert fm["status"] == "active" and fm["confidence"] == 0.8
 
 
 # --------------------------------------------------------------------------- #

@@ -36,10 +36,12 @@ def __getattr__(name: str):
         return _litellm()
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
-# Confidence floor a decaying/archived entity is restored to when it is
-# mentioned again (G66 §1.6) — high enough to clear `decay_nudge_threshold`
-# (0.4) and `archive_threshold` (0.2) with room to spare, low enough that a
-# single passing mention doesn't outrank a well-established belief.
+# Confidence floor a settled entity is restored to when it is mentioned again
+# (G66 §1.6; since the read-on-time ruling, 2026-10-16, whatever its status —
+# a decaying or archived page also becomes active) — high enough to clear
+# `decay_nudge_threshold` (0.4) and `archive_threshold` (0.2) with room to
+# spare, low enough that a single passing mention doesn't outrank a
+# well-established belief.
 RECOVERY_CONFIDENCE = 0.6
 
 # G85 §2 / Wave-1 1.8: a single decay pass never charges more than one
@@ -244,9 +246,26 @@ async def resolve_and_prune(
 
         fm = entity_data["frontmatter"]
         status = fm.get("status", "active")
-        if status in ("archived", "dropped"):
+        if status in ("archived", "dropped") and not fm.get(decay_policy.READ_LATE_KEY):
             continue
 
+        clear_late = []
+        if fm.get(decay_policy.READ_LATE_KEY):
+            placed = _placed_on_time(fm, params, untimed)
+            if placed is not None:
+                # A conversation read late earlier in this drain, placed on the day it was said; this pass's live
+                # silence is in it (at most a week, ruling 1), so nothing more is charged here.
+                changes.append({"id": entity_id, "source_episode": "", "trigger": "sleep/decay", **placed})
+                continue
+            clear_late = [decay_policy.READ_LATE_KEY]   # it lifts nothing: old stays old, decay as usual
+            if status in ("archived", "dropped"):
+                changes.append({
+                    "id": entity_id, "action": "decay", "new_confidence": fm.get("confidence", 0.0),
+                    "new_status": status, "source_episode": "", "trigger": "sleep/decay",
+                    "decayed_through": _extract_date_string(fm.get("decayed_through")) or now.date().isoformat(),
+                    "clear": clear_late,
+                })
+                continue
         confidence = fm.get("confidence", 0.5)
         effective = decay_policy.effective(fm, alpha=alpha, floor=floor, tuning=tuning, untimed=untimed)
         decay_class, decay_rate = effective.decay_class, effective.rate
@@ -328,6 +347,8 @@ async def resolve_and_prune(
                 "decayed_through": decay_today,
                 **({"clear": mark["clear"]} if "clear" in mark else {}),
             })
+        if clear_late:
+            changes[-1]["clear"] = [*changes[-1].get("clear", []), *clear_late]
 
     decay_progress.close()
     if faded_by_age:
@@ -713,6 +734,7 @@ def apply_changes(changes: list[dict], memory_path) -> None:
             lift = False
             if mentioned:
                 fm = parsed.frontmatter
+                known = {str(ep) for ep in decay_policy._as_list(fm.get("source_episodes"))}
                 said_before = _extract_date_string(fm.get("last_referenced"))
                 charged = _extract_date_string(fm.get("decayed_through"))
                 heard = _latest_change_date(change) or str(date.today())
@@ -728,19 +750,35 @@ def apply_changes(changes: list[dict], memory_path) -> None:
                     # to decay. Recovery (G66 §1.6) — `dropped` is deliberately excluded: the person dismissed
                     # that entity and it is never resurfaced. Its clock restarts when it was said; the gap until
                     # Cicada read it is proven silence, charged once by the pass that settles it — never below
-                    # where the page stood before the mention (`MENTION_FLOOR_KEY`).
-                    if decay_policy.resolve(fm)[0] is not DecayClass.evergreen:
+                    # where the page stood before the mention (`MENTION_FLOOR_KEY`). The revival is
+                    # `max(current, 0.6)` whatever the status (read on time, owner 2026-10-16): a mention read late
+                    # lifts an active page as far, so when a conversation is read never changes where a page ends.
+                    evergreen = decay_policy.resolve(fm)[0] is DecayClass.evergreen
+                    if not evergreen:
                         fm.setdefault(MENTION_FLOOR_KEY, float(fm.get("confidence", 0.0) or 0.0))
-                    if str(fm.get("status", "active")) in ("decaying", "archived"):
+                    status = str(fm.get("status", "active"))
+                    if status in ("decaying", "archived"):
                         fm["status"] = "active"
+                    # An evergreen page never decays, so an active one stays where it is; a decaying or archived
+                    # one (hand-archived, or settled before it became evergreen) is revived as before (G66 §1.6).
+                    if status in ("decaying", "archived") or (status == "active" and not evergreen):
                         fm["confidence"] = max(float(fm.get("confidence", 0.0) or 0.0), RECOVERY_CONFIDENCE)
                     fm.pop(decay_policy.FADED_BY_AGE_KEY, None)   # back in the person's words: asked like any page
                     fm["decayed_through"] = _max_date(charged, heard)
                     fm["learned_on"] = learned
                 else:
-                    # A conversation from before the watermark, read late: its source and its week count (G147),
-                    # but no clock or status moves — age counts from when it was said, and a mention never
-                    # lowers. If it makes a one-off faded by its age a repeat, the repeat floor applies below.
+                    # A conversation from before the watermark, read late (a newly connected source's history, an
+                    # export imported later): it counts as if Cicada had read it the day it was said (owner
+                    # 2026-10-16) — revived that day and charged the silence since, never lower than the page
+                    # stands. Placed by the decay pass (`_revive_on_time`, from `READ_LATE_KEY`), so nothing is
+                    # charged mid-drain; the clock and `learned_on` stay, the watermark already covers the days
+                    # since. If it makes a one-off faded by its age a repeat, the repeat floor applies below too.
+                    untimed_ids = _untimed_once(untimed_ids, memory_path)
+                    late = _new_mention_day(change, known, untimed_ids)
+                    if late and decay_policy.resolve(fm)[0] is not DecayClass.evergreen \
+                            and str(fm.get("status", "active")) in _STATUS_RANK:
+                        fm[decay_policy.READ_LATE_KEY] = _max_date(
+                            _extract_date_string(fm.get(decay_policy.READ_LATE_KEY)), late)
                     lift = bool(fm.get(decay_policy.FADED_BY_AGE_KEY))
             parsed.frontmatter["version"] = parsed.frontmatter.get("version", 1) + 1
 
@@ -862,7 +900,7 @@ def apply_changes(changes: list[dict], memory_path) -> None:
                 entity_article.stamp(parsed.frontmatter, entity_body.parse_sections(strip_claims_block(final_body)),
                                      written=change.get("learned_on") or str(date.today()))
             section_provenance.refresh(parsed.frontmatter, original_body, final_body, selected)
-            if lift and change.get("decay_params"):
+            if lift and change.get("decay_params") and parsed.frontmatter.get(decay_policy.FADED_BY_AGE_KEY):
                 untimed_ids = _untimed_once(untimed_ids, memory_path)
                 _lift_to_repeat_floor(parsed.frontmatter, change["decay_params"], untimed_ids)
             if change.get("settle") and mentioned:
@@ -927,6 +965,84 @@ def _lift_to_repeat_floor(fm: dict, params: dict, untimed: frozenset[str]) -> No
     fm["status"] = "archived" if lifted < params["archive"] else "decaying"
 
 
+def _new_mention_day(change: dict, known: set[str], untimed: frozenset[str]) -> str | None:
+    """The day the latest conversation in ``change`` that the page does not already credit was said — a re-read of
+    a conversation the page holds, or a memory export entry, is no new mention. ``None`` when there is none."""
+    fresh = [ep for ep in _change_source_episodes(change) if ep not in known and ep not in untimed]
+    if not fresh:
+        return None
+    episodes = list(change.get("source_episodes") or [])
+    stamps = list(change.get("source_episode_timestamps") or [])
+    days: list[str] = []
+    if episodes and len(stamps) == len(episodes):
+        days = [d for ep, ts in zip(episodes, stamps) if ep in fresh and (d := _extract_date_string(ts))]
+    if days:
+        return max(days)
+    return decay_policy.latest_said(fresh) or _latest_change_date(change)
+
+
+_STATUS_RANK = {"archived": 0, "decaying": 1, "active": 2}
+
+
+def _placed_on_time(fm: dict, params: dict, untimed: frozenset[str]) -> dict | None:
+    """The decay change that places a page's pending late conversation (``READ_LATE_KEY``) on its day, for a page the
+    decay pass does not otherwise touch; ``None`` when it lifts nothing."""
+    view = dict(fm)
+    late = _extract_date_string(view.pop(decay_policy.READ_LATE_KEY, None))
+    if not late:
+        return None
+    _revive_on_time(view, late, params, untimed)
+    if view.get("confidence") == fm.get("confidence"):
+        return None
+    clear = [decay_policy.READ_LATE_KEY]
+    if fm.get(decay_policy.FADED_BY_AGE_KEY) and not view.get(decay_policy.FADED_BY_AGE_KEY):
+        clear.append(decay_policy.FADED_BY_AGE_KEY)
+    out = {
+        "action": "archive" if view.get("status") == "archived" else "decay",
+        "new_confidence": view["confidence"], "new_status": view.get("status", "active"),
+        "decayed_through": view.get("decayed_through"), "clear": clear,
+    }
+    if view.get(decay_policy.FADED_BY_AGE_KEY) and not fm.get(decay_policy.FADED_BY_AGE_KEY):
+        out[decay_policy.FADED_BY_AGE_KEY] = view[decay_policy.FADED_BY_AGE_KEY]
+    return out
+
+
+def _revive_on_time(fm: dict, said: str, params: dict, untimed: frozenset[str]) -> None:
+    """A conversation said before the page's watermark and read late counts as if Cicada had read it the day it was
+    said (owner 2026-10-16): revived that day to ``RECOVERY_CONFIDENCE`` and charged the silence since
+    (``decay_policy.on_time``) — through the watermark plus at most one pass of live silence for a live page (the next
+    pass charges the rest), through today for an archived one (its watermark stopped the day it archived). Only
+    raises: a mention never lowers, and a mention from long ago leaves the page where its age puts it. A page the lift leaves below the question line,
+    heard late, is ``faded_by_age`` — never asked; one it takes back above the line is asked like any page."""
+    status = str(fm.get("status", "active"))
+    if status not in _STATUS_RANK:
+        return   # dropped (the person dismissed it) or unknown: never resurfaced
+    effective = decay_policy.effective(fm, alpha=params["alpha"], floor=params["floor"],
+                                       tuning=params.get("tuning") or {}, untimed=untimed)
+    if effective.decay_class is DecayClass.evergreen or effective.rate <= 0:
+        return
+    archived = status == "archived"
+    # Through today for an archived page (its watermark stopped the day it archived, so it is never the measure);
+    # otherwise the watermark plus at most one pass of live silence (ruling 1), which is what this pass charges.
+    through = params["today"] if archived else decay_policy.through_day(
+        _extract_date_string(fm.get("decayed_through")), params["today"], MAX_DECAY_DAYS_PER_CYCLE).isoformat()
+    lifted = decay_policy.on_time(
+        RECOVERY_CONFIDENCE, effective.rate, said, _extract_date_string(fm.get("learned_on")), through,
+        conversations=decay_policy.conversations(fm.get("source_episodes"), untimed=untimed),
+        nudge_threshold=params["nudge"])
+    if lifted is None or lifted <= float(fm.get("confidence", 0.0) or 0.0):
+        return
+    fm["confidence"] = lifted
+    fm["decayed_through"] = through   # charged through here: the next pass charges only what follows
+    landed = "active" if lifted >= params["nudge"] else "decaying" if lifted >= params["archive"] else "archived"
+    if _STATUS_RANK[landed] > _STATUS_RANK[status]:
+        fm["status"] = landed
+    if lifted >= params["nudge"]:
+        fm.pop(decay_policy.FADED_BY_AGE_KEY, None)   # back above the line on the person's words: asked like any page
+    elif decay_policy.heard_late(said, params["today"]):
+        fm.setdefault(decay_policy.FADED_BY_AGE_KEY, params["today"])   # its age carried it below: fades quietly
+
+
 def _settle(fm: dict, params: dict, untimed: frozenset[str]) -> None:
     """Charge a page this decay pass created or referenced the silence its mentions prove (last said ->
     ``learned_on``) — the same arithmetic as the unreferenced-page loop in :func:`resolve_and_prune`, on the page as
@@ -934,6 +1050,9 @@ def _settle(fm: dict, params: dict, untimed: frozenset[str]) -> None:
     the question line for a page heard in 2+ conversations (``decay_policy.charge``). Asks nothing; a page heard late
     that it leaves below 0.4 is marked ``faded_by_age`` and fades and archives quietly from here."""
     at_least = fm.pop(MENTION_FLOOR_KEY, None)   # used here once, or never: it never outlives this pass
+    late = _extract_date_string(fm.pop(decay_policy.READ_LATE_KEY, None))
+    if late:
+        _revive_on_time(fm, late, params, untimed)   # a conversation read late, placed on the day it was said
     if str(fm.get("status", "active")) in ("archived", "dropped"):
         return
     effective = decay_policy.effective(fm, alpha=params["alpha"], floor=params["floor"],

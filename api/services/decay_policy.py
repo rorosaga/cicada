@@ -513,3 +513,49 @@ def owed(said, charged_through, learned) -> bool:
     read_on = _day(learned)
     baseline = max([d for d in (_day(said), _day(charged_through)) if d is not None], default=None)
     return read_on is not None and baseline is not None and read_on > baseline
+
+
+# --------------------------------------------------------------------------- #
+# Read on time (owner ruling 2026-10-16): when a conversation is read never changes the result
+# --------------------------------------------------------------------------- #
+
+# A conversation read late — a newly connected source's history, an export imported after a page was known — counts
+# as if Cicada had read it the day it was said. A mention revives a page or claim (a page to ``max(current, 0.6)``, a
+# claim to ``max(current, the restatement's confidence)``) and restarts its clock the day it was said; read late, the
+# revival is placed on that day and the silence since is charged, so the result is where reading it on time would have
+# left it — never lower than where it stands (a mention never lowers). Only the newest such mention can matter, so the
+# order the late conversations are read in, and the runs they are split across, never change the result.
+
+
+#: A page's frontmatter key (a claim's field of the same name): the newest conversation said before its watermark and
+#: read late, waiting for the decay pass that places it on its day (nothing is charged mid-drain, so the order and
+#: the batches a drain reads in never change the result). Cleared by that pass.
+READ_LATE_KEY = "read_late"
+
+
+def through_day(charged_through, today: date | str, cap_days: int) -> date:
+    """How far an on-time lift charges: the watermark plus at most one pass of live silence (ruling 1's cap), never
+    past ``today``; ``today`` when there is no watermark."""
+    end = _day(today)
+    start = _day(charged_through)
+    if start is None or end is None:
+        return end
+    return min(end, max(start, start + timedelta(days=max(0, int(cap_days)))))
+
+
+def on_time(revived: float, rate: float, said, read_on, through, *, conversations: int,
+            nudge_threshold: float) -> float | None:
+    """Where a mention said on ``said`` leaves a page or claim had Cicada read it that day: ``revived`` on ``said``,
+    less the silence from then to ``through`` (the watermark plus at most one pass of live silence,
+    :func:`through_day`; a later pass charges the rest). ``read_on`` is the day Cicada read its latest mention before
+    this one: silence before it is proven silence (floored for a repeat, :func:`charge`, as when that mention was
+    read); silence after it, while Cicada was already watching, is live silence on time — charged in full, never
+    floored. ``None`` when a date
+    is missing or ``through`` is before ``said`` (nothing late to place)."""
+    s, end = _day(said), _day(through)
+    if s is None or end is None or end < s:
+        return None
+    read = _day(read_on)
+    watch = min(max(s, read) if read is not None else s, end)
+    owed_silence = Silence((watch - s).days, (end - watch).days, end)
+    return charge(revived, rate, owed_silence, conversations=conversations, nudge_threshold=nudge_threshold)
