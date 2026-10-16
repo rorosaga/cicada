@@ -314,10 +314,13 @@ def _client_status(boot: Boot) -> Result:
             "bank": {"name": pin.name, "id": pin.id} if pin is not None else None, "backend": backend}
     words = {"confirmed": "answered", "backend_down": "is not reachable", "unauthorized":
              "did not accept this device's token", "unverified": "did not answer",
-             "no_token": "was not asked: this device has no token (CICADA_API_TOKEN or ~/.cicada/device_token)"}
+             "no_token": "was not asked: this device has no token (CICADA_API_TOKEN or ~/.cicada/device_token)",
+             "redirected": "answered with a redirect, which is never followed with this device's token"}
     lines = [f"Memory: on the server at {boot.backend_url}"
              + (f" (bank '{pin.name}')" if pin is not None else ""),
              f"  the server {words.get(state, 'did not answer')}"]
+    if state == "redirected" and boot.probe.get("text"):
+        lines.append(f"  {boot.probe['text']}")
     if state == "confirmed":
         detail = f"version {backend.get('version', 'unknown')}"
         if "writing" in backend:
@@ -691,6 +694,8 @@ def _client_gate(command: str, boot: Boot) -> None:
         raise Refusal("unauthorized", cli_app.CLIENT_NO_TOKEN_TEXT)
     if state == "unauthorized":
         raise Refusal("unauthorized", cli_app.CLIENT_UNAUTHORIZED_TEXT)
+    if state == "redirected":
+        raise Refusal("backend_error", boot.probe.get("text") or "Cicada's server answered with a redirect.")
     if state != "confirmed" or boot.pin is None:
         raise Refusal("root_unverified", cli_app.CLIENT_UNVERIFIED_TEXT, ["root_unverified"])
 

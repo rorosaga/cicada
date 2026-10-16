@@ -262,8 +262,7 @@ def _client_capture(payload: dict, *, harness: str, session_id: str, event: str,
         return 0
     if remote_client.keep(status):
         dropped = spool.put(home, route, body, key=key, transcript_path=transcript_path)
-        why = "no answer" if status is None else f"http {status}"
-        _log(log_path, f"{tag} spooled: {why}" + (f" (dropped {dropped} oldest)" if dropped else ""))
+        _log(log_path, f"{tag} spooled: {remote_client.why(status)}" + (f" (dropped {dropped} oldest)" if dropped else ""))
         return 0
     _log(log_path, f"{tag} http {status} {_outcome(text)}".rstrip())
     return 0

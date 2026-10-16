@@ -113,6 +113,16 @@ def landed(status: int | None) -> bool:
     return status is not None and 200 <= status < 300
 
 
+def why(status: int | None) -> str:
+    """The log phrase for a post that was kept: a status or an enum, never content. A 3xx says what to change."""
+    if status is None:
+        return "no answer"
+    if 300 <= status < 400:
+        return (f"http {status} (a redirect, never followed with the token: "
+                "set CICADA_API_BASE to the server's own address)")
+    return f"http {status}"
+
+
 def keep(status: int | None) -> bool:
     """Should a post that did not land be kept for a resend?"""
     return not landed(status) and status not in FINAL_STATUSES
@@ -181,5 +191,5 @@ def deliver_turn(home: Path, route: str, body: dict, *, environ, post=None, time
         return f"http {status}"
     if keep(status):
         spool.put(home, route, body)
-        return "spooled: " + ("no answer" if status is None else f"http {status}")
+        return "spooled: " + why(status)
     return f"http {status}"

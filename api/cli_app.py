@@ -139,10 +139,13 @@ def client_probe(base: str, timeout: float = 2.0):
         with _opener().open(req, timeout=timeout) as resp:
             return json.loads(resp.read().decode("utf-8"))
 
+    from api.services import runtime_layout
+
     try:
         health = get("/healthz", {})
-    except urllib.error.HTTPError:
-        return {"state": "unverified"}, None
+    except urllib.error.HTTPError as exc:
+        redirected = runtime_layout.redirect_text(exc)       # a 3xx is never followed with the token: say so
+        return ({"state": "redirected", "text": redirected} if redirected else {"state": "unverified"}), None
     except urllib.error.URLError as exc:
         down = isinstance(exc.reason, (ConnectionRefusedError, socket.gaierror, OSError)) and not isinstance(
             exc.reason, (TimeoutError, socket.timeout))
@@ -154,13 +157,14 @@ def client_probe(base: str, timeout: float = 2.0):
     out = {"state": "unverified"}
     if isinstance(health, dict) and isinstance(health.get("version"), str):
         out["version"] = health["version"]
-    from api.services import runtime_layout
-
     if not runtime_layout.client_token(os.environ):
         return {**out, "state": "no_token"}, None       # nothing to send: never blame a revocation
     try:
         listing = get("/banks", backend_headers())
     except urllib.error.HTTPError as exc:
+        redirected = runtime_layout.redirect_text(exc)
+        if redirected:
+            return {**out, "state": "redirected", "text": redirected}, None
         return {**out, "state": "unauthorized" if exc.code in (401, 403) else "unverified"}, None
     except Exception:  # noqa: BLE001
         return out, None
@@ -326,6 +330,11 @@ def _raise_for(exc, warnings: list[str] | None = None) -> None:
         detail = None
     status = exc.code
     w = list(warnings or [])
+    from api.services import runtime_layout
+
+    redirected = runtime_layout.redirect_text(exc)
+    if redirected:
+        raise Refusal("backend_error", redirected, w)    # never followed with the token (G181): said plainly
     if status == 409 and code == "bank_mismatch":
         raise Refusal("bank_mismatch", "The active memory changed before this was sent. Nothing was changed.", w)
     if status == 403 and _client():
