@@ -1283,6 +1283,10 @@ async def get_contributors(
             "--name-only",
             "--root",
             "--no-renames",
+            # A `log.showSignature` config prints each signed commit's check
+            # before its record, which would land in the previous commit's
+            # file list.
+            "--no-show-signature",
         )
     except GitError:
         return []

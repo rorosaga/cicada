@@ -181,6 +181,33 @@ def test_contributors_read_the_whole_history_in_one_git_process(repo, monkeypatc
     assert by_author["gpt-5.4-mini"].entity_count == 5
 
 
+def test_contributors_ignore_a_shown_signature(repo, tmp_path):
+    """A `log.showSignature` config prints a signed commit's check ahead of its record; it must not read as a file
+    of the commit listed before it."""
+    import shutil
+
+    if shutil.which("ssh-keygen") is None:
+        pytest.skip("ssh-keygen not available")
+    key = tmp_path / "signing-key"
+    subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(key)], check=True)
+    allowed = tmp_path / "allowed"
+    allowed.write_text(f"test@cicada.local {key.with_suffix('.pub').read_text()}", encoding="utf-8")
+    _git(repo, "config", "gpg.format", "ssh")
+    _git(repo, "config", "user.signingkey", str(key))
+    _git(repo, "config", "gpg.ssh.allowedSignersFile", str(allowed))
+    _write_entity(repo, "alpha", "v1")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-S", "-m", git_service.build_commit_message("Signed", body_lines=[], authors=["user"]))
+    _write_entity(repo, "beta", "v1")
+    _commit(repo, git_service.build_commit_message("After", body_lines=[], authors=["cicada"]))
+    _git(repo, "config", "log.showSignature", "true")
+
+    by_author = {c.author: c for c in run(git_service.get_contributors(repo))}
+
+    assert by_author["cicada"].files == ["entities/beta.md"]
+    assert by_author["user"].files == ["entities/alpha.md"]
+
+
 def test_contributors_on_non_git_dir_returns_empty(tmp_path):
     assert run(git_service.get_contributors(tmp_path / "nope")) == []
 
