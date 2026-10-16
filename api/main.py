@@ -31,6 +31,7 @@ from api.routers import (
     contributors,
     conversations,
     design,
+    devices,
     embeddings,
     explore,
     entities,
@@ -55,6 +56,7 @@ from api.routers import (
     state,
     status,
     sync,
+    tools,
 )
 from api.services import bank_binding, bank_registry, search_index, sleep_refusal, sleep_scheduler
 from api.services.providers import warm_query_embedder
@@ -154,6 +156,10 @@ async def lifespan(app: FastAPI):
     # for the M5 claim-layer milestones; plus the human-authored
     # ``_predicates.yaml`` / ``_preferences.md`` seeds (created if missing,
     # never clobbered).
+    # G181 phase 2: every bank gets its identity in banks.yaml (what a client on another machine compares, never a
+    # path). Resolution is unchanged; never raises into boot.
+    bank_registry.ensure_bank_ids(settings.memory_root)
+
     git_existed = (settings.memory_path / ".git").exists()
     bank_registry.scaffold_bank(settings.memory_path)
     if not git_existed and (settings.memory_path / ".git").exists():
@@ -284,3 +290,5 @@ app.include_router(skills.router, tags=["skills"])
 app.include_router(videos.router, tags=["videos"])
 app.include_router(explore.router, tags=["explore"])
 app.include_router(embeddings.router, tags=["embeddings"])
+app.include_router(devices.router, tags=["devices"])
+app.include_router(tools.router, tags=["tools"])

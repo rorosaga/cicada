@@ -17,7 +17,7 @@ import secrets as _secrets_mod
 import time
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from loguru import logger
 from pydantic import BaseModel, Field, model_validator
 
@@ -29,7 +29,7 @@ from api.services.telegram_capture import (
     ingest_telegram_update,
 )
 from api.services import turn_capture as turn_capture_mod
-from api.services.transcript_capture import capture_transcript
+from api.services.transcript_capture import capture_posted, capture_transcript
 
 router = APIRouter()
 
@@ -234,6 +234,54 @@ async def capture_transcript_endpoint(
         "bank": target.name,
         "redirectedFrom": target.redirected_from,
     }
+
+
+class SessionCaptureRequest(BaseModel):
+    """A harness session read on the machine where it lives, by Cicada's own extractor (G181 phase 2, owner ruling
+    2): what the extractor kept, never a path. Snake_case: the sender is the Stop hook."""
+
+    harness: Literal["claude-code", "codex"]
+    session_id: str = Field(..., min_length=1, max_length=200)
+    conversation: dict
+    transcript_bytes: int = Field(..., ge=0)
+    transcript_size: int = Field(..., ge=0)
+    cwd: str | None = Field(None, max_length=4096)
+    hook_event: str | None = Field(None, max_length=64)
+    effort: str | None = Field(default=None, max_length=32)
+    workspace: Any = None
+
+
+@router.post("/capture/session")
+async def capture_session_endpoint(req: SessionCaptureRequest, request: Request,
+                                   settings: Settings = Depends(get_settings)):
+    """G181 phase 2: a Claude Code or Codex session from another machine. The transcript was read there, by Cicada's
+    own extractor (the transcript rail, amended by owner ruling 2, 2026-10-16); the backend opens nothing, re-checks
+    what arrived and writes it with ``/capture/transcript``'s writer (``transcript_capture.capture_posted``): one
+    episode per session, ids minted here, the same demo redirect and answers. The device that signed the post
+    (its token, ``request.state.device``) is recorded on the episode."""
+    target = bank_registry.capture_bank(settings.memory_root)
+    memory_path = target.path if target is not None else settings.memory_path
+    device = getattr(request.state, "device", None)
+
+    def _capture():
+        return capture_posted(
+            memory_path, harness=req.harness, session_id=req.session_id, conversation=req.conversation,
+            transcript_bytes=req.transcript_bytes, transcript_size=req.transcript_size, cwd=req.cwd,
+            keep_assistant=settings.capture_assistant_replies, bank=memory_path.name, effort=req.effort,
+            hook_event=req.hook_event, workspace=req.workspace,
+            bank_paths=continuity_sessions.bank_paths_for(settings.memory_root),
+            device=device.id if device is not None else None)
+
+    result = await asyncio.to_thread(_capture)
+    if target is None or result.status == "refused":
+        if target is None or result.reason == "demo_bank":
+            raise HTTPException(status_code=409, detail=demo_guard.HOOK_REFUSAL)
+        raise HTTPException(status_code=400, detail=result.reason)
+    if target.redirected_from:
+        logger.info(f"capture: the demo bank is open — saved the {req.harness} session into '{target.name}'")
+    return {"status": result.status, "episodeId": result.episode_id, "turnsUser": result.turns_user,
+            "turnsAssistant": result.turns_assistant, "summary": result.summary, "bank": target.name,
+            "redirectedFrom": target.redirected_from}
 
 
 class PostedTurn(BaseModel):

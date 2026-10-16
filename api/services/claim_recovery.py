@@ -622,7 +622,7 @@ def backend_sleep_holding(timeout: float = 4.0) -> bool:
         except OSError:
             token = ""
     headers = {"Accept": "application/json", **({"Authorization": f"Bearer {token}"} if token else {})}
-    req = urllib.request.Request(f"{runtime_layout.backend_url()}/sleep/status", headers=headers, method="GET")
+    req = urllib.request.Request(f"{runtime_layout.local_backend_url()}/sleep/status", headers=headers, method="GET")
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             if resp.status != 200:

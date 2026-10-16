@@ -26,7 +26,7 @@ def backend_running(environ=None) -> bool:
     from api.services import runtime_layout
 
     environ = os.environ if environ is None else environ
-    url = f"{runtime_layout.backend_url(environ)}/sleep/status"
+    url = f"{runtime_layout.local_backend_url(environ)}/sleep/status"
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     try:
         with opener.open(urllib.request.Request(url, headers=_backend_headers(environ)), timeout=4) as resp:

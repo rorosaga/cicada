@@ -50,6 +50,10 @@ def backend_headers(environ=None) -> dict[str, str]:
     from api.services import runtime_layout
 
     environ = os.environ if environ is None else environ
+    if runtime_layout.is_client(environ):
+        # G181 phase 2: a client of a server elsewhere signs with this device's own token, never a master token.
+        token = runtime_layout.client_token(environ)
+        return {"Authorization": f"Bearer {token}"} if token else {}
     token = (environ.get("CICADA_API_TOKEN") or "").strip()
     if not token:
         try:
@@ -65,9 +69,14 @@ def _opener():
     return urllib.request.build_opener(urllib.request.ProxyHandler({}))   # loopback never goes through a proxy
 
 
-def probe_backend(url: str, root, timeout: float) -> dict:
-    """Ask a running backend which memory root it serves. ``backend_down`` only on a refused
-    connection; a timeout, an error answer or no root in it is ``unverified``, never "no backend"."""
+def probe_backend(url: str, root, timeout: float, *, bank_id: str | None = None) -> dict:
+    """Ask a running backend which memory it serves. ``backend_down`` only on a refused
+    connection; a timeout, an error answer or no root in it is ``unverified``, never "no backend".
+
+    G181 phase 2 (ruling 21a, amended 2026-10-16): the memory is compared by IDENTITY — this command's pinned bank's
+    id (``banks.yaml``) among the ids of the banks the backend serves (``/healthz`` ``bankIds``) — and by the root's
+    path only when either side has no id yet (a backend from before the ids, a registry the backend has not given ids
+    to). A path means nothing across machines or containers; an id does."""
     import socket
     import urllib.error
 
@@ -82,6 +91,13 @@ def probe_backend(url: str, root, timeout: float) -> dict:
         return {"state": "backend_down"}
     except (TimeoutError, socket.timeout, OSError, ValueError):
         return {"state": "unverified"}
+    ids = body.get("bankIds") if isinstance(body, dict) else None
+    ids = [i for i in ids if isinstance(i, str) and i] if isinstance(ids, list) else []
+    if bank_id and ids:
+        out = {"state": "confirmed" if bank_id in ids else "mismatch", "compared": "id"}
+        if isinstance(body.get("version"), str):
+            out["version"] = body["version"]
+        return out
     reported = body.get("memoryRoot") if isinstance(body, dict) else None
     if not isinstance(reported, str) or not reported.strip():
         return {"state": "unverified"}
@@ -90,6 +106,62 @@ def probe_backend(url: str, root, timeout: float) -> dict:
     if isinstance(body.get("version"), str):
         out["version"] = body["version"]
     return out
+
+
+CLIENT_DOWN_TEXT = ("The Cicada server this shell uses (CICADA_API_BASE) is not reachable, and the memory is there. "
+                    "Nothing was read or changed; try again when it is reachable.")
+CLIENT_UNAUTHORIZED_TEXT = ("The Cicada server did not accept this device's token (CICADA_API_TOKEN or "
+                            "~/.cicada/device_token); it may have been revoked. The person issues a new one on the "
+                            "server with `cicada device add`. Nothing was read or changed.")
+CLIENT_UNVERIFIED_TEXT = ("The Cicada server did not say which memory it serves, so this command will not read or "
+                          "change anything through it. Nothing was changed; try again.")
+
+
+def client_probe(base: str, timeout: float = 2.0):
+    """G181 phase 2: ``(probe, pin)`` for a client shell. The server's active bank — its name and its id — from ONE
+    authenticated read (``GET /banks``), cross-checked with ``/healthz``'s ``bankId``; ``pin`` is None unless the
+    server answered both and they agree. States: ``confirmed``, ``backend_down`` (no connection at all),
+    ``unauthorized`` (the token was refused), ``unverified`` (anything else)."""
+    import socket
+    import urllib.error
+    import urllib.request
+
+    from api.cli_types import RemotePin
+
+    def get(path: str, headers: dict):
+        req = urllib.request.Request(base + path, headers={**headers, "Accept": "application/json"}, method="GET")
+        with _opener().open(req, timeout=timeout) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+
+    try:
+        health = get("/healthz", {})
+    except urllib.error.HTTPError:
+        return {"state": "unverified"}, None
+    except urllib.error.URLError as exc:
+        down = isinstance(exc.reason, (ConnectionRefusedError, socket.gaierror, OSError)) and not isinstance(
+            exc.reason, (TimeoutError, socket.timeout))
+        return {"state": "backend_down" if down else "unverified"}, None
+    except (ConnectionRefusedError, socket.gaierror):
+        return {"state": "backend_down"}, None
+    except (TimeoutError, socket.timeout, OSError, ValueError):
+        return {"state": "unverified"}, None
+    out = {"state": "unverified"}
+    if isinstance(health, dict) and isinstance(health.get("version"), str):
+        out["version"] = health["version"]
+    try:
+        listing = get("/banks", backend_headers())
+    except urllib.error.HTTPError as exc:
+        return {**out, "state": "unauthorized" if exc.code in (401, 403) else "unverified"}, None
+    except Exception:  # noqa: BLE001
+        return out, None
+    active = listing.get("active") if isinstance(listing, dict) else None
+    record = next((b for b in listing.get("banks") or [] if isinstance(b, dict) and b.get("name") == active), None) \
+        if isinstance(listing, dict) else None
+    bank_id = record.get("id") if isinstance(record, dict) else None
+    if not isinstance(active, str) or not active or not isinstance(bank_id, str) or not bank_id \
+            or (isinstance(health, dict) and health.get("bankId") not in (None, bank_id)):
+        return out, None
+    return {**out, "state": "confirmed", "compared": "id"}, RemotePin(name=active, id=bank_id)
 
 
 MISMATCH_TEXT = ("The app's backend uses a different memory folder than this command. Nothing was changed; "
@@ -104,7 +176,13 @@ def _confirm_root(boot) -> None:
     guard: the backend checks the bank's NAME, and a fresh root's bank is `default` too). An unverified probe is asked
     once more with a longer timeout; anything but `confirmed` then refuses, its warnings kept."""
     if boot.probe.get("state") == "unverified":
-        boot.probe = probe_backend(boot.backend_url, boot.root, CONFIRM_TIMEOUT_S)
+        if getattr(boot, "client", False):
+            boot.probe, pin = client_probe(boot.backend_url, CONFIRM_TIMEOUT_S)
+            if pin is not None and boot.pin is not None and pin.id != boot.pin.id:
+                boot.probe = {"state": "mismatch"}
+        else:
+            boot.probe = probe_backend(boot.backend_url, boot.root, CONFIRM_TIMEOUT_S,
+                                       bank_id=getattr(boot.pin, "id", None))
     state = boot.probe.get("state")
     if state == "confirmed":
         return
@@ -158,6 +236,9 @@ def call(boot, method: str, path: str, *, body=None, query: dict | None = None,
         headers["Content-Type"] = "application/json"
     if method != "GET" and bank_header:
         headers["X-Cicada-Bank"] = quote(boot.pin.name, safe="")
+        if getattr(boot, "client", False) and getattr(boot.pin, "id", None):
+            # G181 phase 2: a client names the bank's identity too — a name can repeat across memories, an id cannot.
+            headers["X-Cicada-Bank-Id"] = boot.pin.id
     req = urllib.request.Request(url, data=data, headers=headers, method=method)
     try:
         with _opener().open(req, timeout=timeout) as resp:
@@ -184,6 +265,29 @@ def call(boot, method: str, path: str, *, body=None, query: dict | None = None,
         raise Refusal("backend_error", "The app's backend answered something that is not JSON.") from None
 
 
+def _client() -> bool:
+    from api.services import runtime_layout
+
+    return runtime_layout.is_client(os.environ)
+
+
+def door(boot, tool: str, arguments: dict, options: dict | None = None, *, project_dir: str | None = None):
+    """G181 phase 2: a tool mirror run on the server (``POST /tools/call``, the command-line surface), answered as the
+    local body's ``Reply`` — the same text, refusal code and data. The request names the pinned bank and its id, so a
+    server whose active bank moved refuses it before anything runs."""
+    from api.services import mcp_tools, session_identity
+
+    ident = session_identity.cli_identity()
+    body = {"tool": tool, "arguments": arguments, "surface": "cli", "options": options or {},
+            "caller": {"session_id": ident.session_id or "", "harness": ident.harness or "unknown",
+                       "project_dir": project_dir or ident.project_dir or boot.caller_cwd}}
+    answer = call(boot, "POST", "/tools/call", body=body, timeout=180)
+    if answer.get("error"):
+        raise Refusal("backend_error", "The server could not run this: " + str(answer["error"])[:300])
+    data = answer.get("data") if isinstance(answer.get("data"), dict) else None
+    return mcp_tools.Reply(str(answer.get("text") or ""), code=answer.get("code"), data=data)
+
+
 def _demo_refusal() -> str:
     from api.services import demo_guard
 
@@ -203,6 +307,8 @@ def _raise_for(exc, warnings: list[str] | None = None) -> None:
     w = list(warnings or [])
     if status == 409 and code == "bank_mismatch":
         raise Refusal("bank_mismatch", "The active memory changed before this was sent. Nothing was changed.", w)
+    if status in (401, 403) and _client():
+        raise Refusal("unauthorized", CLIENT_UNAUTHORIZED_TEXT, w)
     if status == 409 and code == "sleep_writing":
         raise Refusal("sleep_writing", (detail or "Sleep is updating your memory.") + " Nothing was changed; "
                                                                                        "try again in a moment.", w)
@@ -756,7 +862,10 @@ def _bank_lines(listing: dict) -> list[str]:
 def cmd_bank_list(boot, args) -> Result:
     from api.services import bank_registry
 
-    listing = bank_registry.list_banks(Path(boot.root))
+    if getattr(boot, "client", False):
+        listing = call(boot, "GET", "/banks")       # G181 phase 2: the banks are on the server
+    else:
+        listing = bank_registry.list_banks(Path(boot.root))
     return Result(text="\n".join(_bank_lines(listing)), data=listing, warnings=_warn(boot))
 
 
@@ -793,6 +902,9 @@ def cmd_timeline(boot, args) -> Result:
 
     from api.services import cli_map
 
+    if getattr(boot, "client", False):
+        # G181 phase 2: the bank is on the server.
+        return Result(text=str(door(boot, "cicada_timeline", {"since": args.since})), data=None, warnings=_warn(boot))
     path = boot.pin.path
     ctx = mcp_tools.ToolContext(memory_path=lambda: path, session_id="", harness="unknown", read_surface="cli",
                                 available=cli_map.exposed_tools())
@@ -911,6 +1023,42 @@ def cmd_skills_publish(boot, args) -> Result:
                   warnings=_warn(boot))
 
 
+# --- the person's devices (G181 phase 2, owner ruling 1) ------------------------------------------------------------
+
+def _device_line(d: dict) -> str:
+    state = "active" if d.get("active") else f"revoked {d.get('revokedAt') or ''}".rstrip()
+    used = f", last used {d['lastUsedAt']}" if d.get("lastUsedAt") else ""
+    return f"{d.get('id')}  {d.get('name')}  ({state}{used})"
+
+
+def cmd_device_add(boot, args) -> Result:
+    require_person("Issuing a device token")
+    answer = call(boot, "POST", "/devices", body={"name": args.device_name}, bank_header=False)
+    device, token = answer.get("device") or {}, answer.get("token") or ""
+    text = "\n".join([
+        f"Device '{device.get('name')}' ({device.get('id')}). Its token, shown once — Cicada keeps only its hash:",
+        token,
+        "On that device: put the token in ~/.cicada/device_token (mode 0600) or CICADA_API_TOKEN, and set "
+        "CICADA_API_BASE to the address your own overlay gives this server. Revoke it with "
+        f"`cicada device revoke {device.get('id')}`."])
+    return Result(text=text, data={"device": device, "token": token}, warnings=_warn(boot))
+
+
+def cmd_device_list(boot, args) -> Result:
+    answer = call(boot, "GET", "/devices")
+    devices = answer.get("devices") or []
+    return Result(text="\n".join(_device_line(d) for d in devices) or "No devices yet (`cicada device add <name>`).",
+                  data={"devices": devices}, warnings=_warn(boot))
+
+
+def cmd_device_revoke(boot, args) -> Result:
+    require_person("Revoking a device token")
+    answer = call(boot, "DELETE", f"/devices/{quote(args.device_id, safe='')}", bank_header=False)
+    device = answer.get("device") or {}
+    return Result(text=f"Revoked '{device.get('name')}' ({device.get('id')}): its next request is refused.",
+                  data={"device": device}, warnings=_warn(boot))
+
+
 COMMANDS = {
     "page list": cmd_page_list, "page history": cmd_page_history, "page decay": cmd_page_decay,
     "graph": cmd_graph, "find": cmd_find,
@@ -930,6 +1078,7 @@ COMMANDS = {
     "skills update": cmd_skills_update, "skills update-all": cmd_skills_update_all, "skills on": cmd_skills_on,
     "skills off": cmd_skills_off, "skills refresh": cmd_skills_refresh, "skills remove": cmd_skills_remove,
     "skills publish": cmd_skills_publish,
+    "device add": cmd_device_add, "device list": cmd_device_list, "device revoke": cmd_device_revoke,
 }
 
 

@@ -8,6 +8,14 @@
 
 ## Current state and evidence
 
+- **2026-10-16 — headless server, phase 2: every client can talk to a backend on another machine (G181, branch
+  `feat/headless-clients`, not merged; ruling 28).** `CICADA_API_BASE` (+ a device token) makes the hooks, the stdio
+  MCP server and the CLI clients of a server: the Stop hook reads the session locally and posts turns to
+  `/capture/session` (spooled under `$CICADA_HOME/spool/capture` while the server is away), every MCP tool runs on the
+  server through `POST /tools/call` (the same bodies), the CLI pins the server's bank by name and id. Per-device tokens
+  (`cicada device add|list|revoke`, `/devices`, master only); bank ids in `banks.yaml` (`/healthz` `bankIds`,
+  `X-Cicada-Bank-Id`). Proven with two real backends on two loopback ports (`test_headless_two_machines.py`). Unset,
+  nothing changes. Pick up: phase 3, the app's server setting (Swift).
 - **2026-10-16 — YouTube Watch later and watch history (G71 follow-up, G94, G166; branch `feat/youtube-sync`, not
   merged).** Owner: "my watch later videos from youtube and maybe also sync history" (Takeout once plus Chrome's history
   live), then "the agent being able to go to youtube using the browser … like for youtube watch later/history". Three
@@ -763,3 +771,25 @@ A whole row moves to DONE only after its remaining implementation and required a
     things a lookup answers, and the person was asked to look them up by hand.
     Revisit if an undo count on `web_check` rows (ids only) shows settles being taken back often, or if a settle is
     found to have searched or written something personal.
+28. **Headless clients (owner, 2026-10-16; G181 phase 2, amends the transcript rail and ruling 21a).** **1 — Per-device
+    tokens.** A second device never gets the server's master token: each gets its own named, hashed, revocable token
+    (`device_tokens`, the G135 store's shape kept apart). Issuing one is an act of the person — `cicada device add` on
+    the server or `POST /devices` with the master token — never automatic, never by an installer, never by a device
+    token. **2 — The transcript rail, amended.** A harness session is read on the machine where it lives, by Cicada's
+    own extractor, and posted as scrubbed, capped turns (`POST /capture/session`); ids are minted on the server under
+    its lock, so one episode per session (G104) holds. The backend still never opens a path a remote client names;
+    same scrub, caps, G110 markers and demo rule, re-checked on arrival. **3 — A tailnet device counts as local for
+    the G198 trust list.** A trusted harness (Claude Code by default) on a device holding a token the person issued
+    edits pages at once, exactly as on the same machine; the G135 remote connector and the `agent` author stay off the
+    list. **How the server knows (worker's decision, 2026-10-16):** from the token alone — `auth.require_token` looks
+    the bearer up and records the device on `request.state.device`; the tool door runs the call as a local stdio call
+    (no `connector_id`), and the device id is written as `device:` on what it writes. Nothing a client puts in a header
+    or body can claim a device, because a claim is not evidence and the token already is. **21a, amended:** the CLI
+    compares a bank identity (an `id` per bank in `banks.yaml`, minted by the backend), not a path; a client pins the
+    server's bank by name and id and names both on every write.
+    **Why.** The owner wants a home server holding the bank with Sleep running uninterrupted and the Mac as a client
+    (research `2026-10-15-headless-server.md`, option C); a copied master token could not be revoked per device, a
+    path posted across machines cannot be opened, and a path compared across machines means nothing.
+    Revisit 2 if a client's extractor is found to have sent something the server-side extractor would not keep (the
+    `turn_over_cap` refusals in the capture ledger are the signal); 3 if a device token is found in the hands of
+    anything but the person's own machine.

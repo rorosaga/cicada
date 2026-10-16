@@ -102,7 +102,10 @@ the client side and can be built one door at a time.
 - Tests: synthetic banks and fake `systemctl`/`loginctl`/`uname` in scratch dirs; systemd's own parser on the unit;
   `install.sh --dry-run` on both platforms.
 
-**Phase 2: clients over the tailnet (backend + hooks + MCP; no Swift).**
+**Phase 2: clients over the tailnet (backend + hooks + MCP; no Swift).** *Built 2026-10-16 on the owner's rulings
+(TODO ruling 28): per-device tokens, the transcript read on its own machine, a device counted as local for G198; the
+stdio MCP reaches the server through a tool door on the main API (`POST /tools/call`) rather than the G135 listener,
+so a device's agent keeps the trust a local one has. What ships is in [`headless.md`](../architecture/headless.md).*
 - One client base URL, `CICADA_API_BASE`, read by `runtime_layout.backend_url()`, the hooks and the CLI (env only,
   never a hardcoded host; the portability rail).
 - Per-device tokens from the G135 store (hashed, named per device, revocable), so the server's master token never

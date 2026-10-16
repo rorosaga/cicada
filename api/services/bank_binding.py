@@ -17,6 +17,10 @@ Two things, in one dependency on every route:
    body before app dependencies — but before schema validation and before anything is read or written). The name is
    compared exactly as decoded, never stripped or normalised: two banks may differ only by a Unicode space. A request
    without the header (the hooks, the MCP server, curl, an older app) is never checked.
+3. **The identity (G181 phase 2).** A client on another machine (the `cicada` command with ``CICADA_API_BASE``) also
+   names the bank's id from ``banks.yaml`` (``X-Cicada-Bank-Id``) on every mutating request: a name can be reused
+   (a fresh root's bank is ``default`` too), an id cannot, so a write meant for one memory never lands in another
+   that happens to share a bank name. Refused like a name mismatch, before anything is read or written.
 
 Not checked (still pinned): routes that name their own target bank (bank CRUD in the path, an intake import with an
 explicit ``?bank=``), a read-only POST (the intake sniff), and machine-global writes that touch no bank (an engine
@@ -33,6 +37,7 @@ from api.config import Settings, get_settings
 from api.services import bank_registry
 
 HEADER = "X-Cicada-Bank"
+ID_HEADER = "X-Cicada-Bank-Id"
 CODE = "bank_mismatch"
 DETAIL = "Memory switched before this was saved — nothing was written."
 MUTATING = frozenset({"POST", "PUT", "PATCH", "DELETE"})
@@ -61,6 +66,9 @@ NO_BANK_WRITE = frozenset({
     ("PUT", "/connections/{connection_id}/key"),
     ("DELETE", "/connections/{connection_id}/key"),
     ("PUT", "/connections/{connection_id}/prefs"),
+    # G181 phase 2: the person's device tokens live in $CICADA_HOME, outside every bank.
+    ("POST", "/devices"),
+    ("DELETE", "/devices/{device_id}"),
 })
 #: Routes that write into ``?bank=`` when it is given, and into the active bank when it is not.
 EXPLICIT_QUERY_TARGET = frozenset({("POST", "/intake/import")})
@@ -115,4 +123,7 @@ async def require_same_bank(request: Request, settings: Settings = Depends(get_s
         return
     claimed = claimed_bank(request)
     if claimed is not None and claimed != pin.name:
+        raise BankMismatch()
+    claimed_id = request.headers.get(ID_HEADER)
+    if claimed_id and claimed_id != pin.id:
         raise BankMismatch()

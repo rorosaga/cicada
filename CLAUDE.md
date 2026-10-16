@@ -181,6 +181,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   SessionStart/UserPromptSubmit hooks inject Cicada's note; a note the harness records as a separate non-person record
   is never captured, and one that arrives inside the person's own text is kept, counted and disclosed (G110 gate C).
 - **Transcripts under `~/.claude/` are never read anywhere else** — the MCP seam and resume only `isfile()` them.
+  A client of a server elsewhere reads its session there with Cicada's own extractor and posts the capped turns (ruling 28).
 - **One id rule** (`episode_ids`): max-suffix+1 per date, aware UTC timestamps; `processed_by` says who flipped it.
   A new episode never replaces a file (`create_episode`); dedup, edits and Sleep's revision-checked retirement share
   `episode_lock`, and every page write is atomic (audit K01/A01/A02, `capture-and-sleep.md`).
@@ -278,6 +279,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 - **Prose is no longer Sleep's alone (G198, owner 2026-10-14):** `cicada_edit_page` changes a page's words or aliases, never
   its claims, with a reason that is the commit message; only a harness on the person's trust list writes at once (Claude Code
   and Codex until the person changes it, owner 2026-10-14; never remote, never `agent`), any other proposes in the inbox; pinned fixes and removed aliases outlive Sleep; blame is read from git (`storage.md`, `mcp.md`).
+  A device holding a per-device token the person issued counts as local (ruling 28); a G135 connector never does.
 - **Questions come up naturally (owner, 2026-10-14):** an inbox question reaches a conversation only when it is about
   that question's subject (`inbox_ask_gate`), in the agent's own words; an answer the person already gave is recorded
   with their words as evidence, never guessed; the whole inbox only on request (`mcp.md`).
@@ -346,6 +348,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 - **Credentials** live in `~/.cicada/secrets.env` (0600) — never in a bank, never logged.
 - **Headless (G181):** a server is its bank's one writer and binds 127.0.0.1 only; reach from another machine is an
   overlay the person runs (never a public port, never funnel), and no installer creates or copies a credential (`headless.md`).
+  Another machine is a client (`CICADA_API_BASE`, ruling 28) with its own revocable device token and no bank of its own.
 - **Video:** only a provider's own player URL is loaded; an oEmbed response is read for its fields, never its HTML.
 
 ### Rulings

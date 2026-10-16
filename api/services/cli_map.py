@@ -303,6 +303,13 @@ ROWS: tuple[Row, ...] = (
          (_p("skill"),), via="backend", mutates=True, person=True),
     _app(("skills", "publish"), "Publish a skill an agent drafted to the agents you name.",
          (_p("skill"), _f("agent", "list")), via="backend", mutates=True, person=True),
+    # G181 phase 2 (owner ruling 1, 2026-10-16): the person's other devices, each with its own token. Run on the
+    # server: only its own token may issue or revoke one, never a device's.
+    _app(("device", "add"), "Issue a token for another of your devices (shown once; only its hash is kept).",
+         (_p("device_name"),), via="backend", mutates=True, person=True),
+    _app(("device", "list"), "Your devices, and whether each one's token still works.", via="backend"),
+    _app(("device", "revoke"), "Revoke a device's token at once.", (_p("device_id"),), via="backend", mutates=True,
+         person=True),
 )
 
 

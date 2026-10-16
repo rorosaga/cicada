@@ -2406,6 +2406,11 @@ class HealthResponse(CamelModel):
     # from local heuristics that could disagree with whatever the backend
     # was actually started with).
     memory_root: str
+    # G181 phase 2 — the active bank's id and every bank's id in this root (banks.yaml), so a `cicada` command on
+    # this machine or another compares identities, never filesystem paths (ruling 21a, amended 2026-10-16).
+    # Ids only: no bank name is said to an unauthenticated caller.
+    bank_id: Optional[str] = None
+    bank_ids: list[str] = []
     # True when any LEANN index sidecar (<name>.meta.json) exists on disk.
     leann_present: bool
     # The model the active bank's index records (else the one a build would use), and the
@@ -3278,6 +3283,9 @@ class BankInfo(CamelModel):
     # G117 round 4 (T-Demo) — `demo_guard.is_demo`: the demo banner and the
     # tour's demo stops read it; never inferred from the name (R-CS10).
     demo: bool = False
+    # G181 phase 2 — the bank's identity in banks.yaml (a random hex id), what a client on another machine compares
+    # instead of a path. None for a bank the backend has not given one yet.
+    id: Optional[str] = None
 
 
 class BankListResponse(CamelModel):

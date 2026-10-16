@@ -2,7 +2,9 @@
 
 Deliberately apart from ``mcp_tools`` — the module the remote connector serves — so the remote
 package cannot even import what is here (G135 R-R3; ``catalog.NEVER_REMOTE``; a test refuses any
-``api/remote`` import of this module). One body per tool, two thin doors.
+``api/remote`` import of this module). One body per tool, two thin doors — three with the tool door
+(``tool_door``, G181 phase 2), which runs them for the person's own other devices: a device counts as local
+(owner ruling 3, 2026-10-16), a remote connector never does.
 """
 from __future__ import annotations
 
@@ -33,3 +35,13 @@ def continue_text(memory_path: Path, *, root: Path, cwd: str | None, identity: t
     text = continuity.full_text(ctx, before=before, spelling=spelling)
     chosen = ctx.chosen.episode_id if ctx.chosen is not None else None
     return Reply(text, data={"episode_id": chosen, "selection": ctx.selection.kind, "complete": bool(ctx.complete)})
+
+
+def cli_continue_spelling() -> continuity.Spelling:
+    """How a `cicada continue` reply names its follow-up read: the command line's own spelling, from the CLI↔MCP table
+    (G180), so every call it prints runs as printed — for `cicada` on this machine and through the tool door (G181)."""
+    from api.services import cli_map
+
+    return continuity.Spelling(
+        call=lambda session, before: "`" + cli_map.spell("cicada_continue", session=session, before=before) + "`",
+        session_arg="`--session`")

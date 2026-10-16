@@ -41,7 +41,7 @@ from pathlib import Path
 from typing import Callable
 
 from api import LITELLM_PINNED, cli_app, pin_litellm
-from api.cli_types import EXIT_CODES, REFUSAL_CODES, Refusal, Result, UsageError
+from api.cli_types import EXIT_CODES, REFUSAL_CODES, Refusal, RemotePin, Result, UsageError  # noqa: F401
 from api.services import cli_map
 from api.version import __version__
 
@@ -76,6 +76,10 @@ class Boot:
     ctx: contextvars.Context
     backend_url: str
     probe: dict = field(default_factory=dict)
+    #: G181 phase 2: ``CICADA_API_BASE`` names a backend on another machine. Then there is no local root or bank
+    #: (``root`` is None); ``pin`` is the server's active bank, its name and id, read from the server
+    #: (``client_probe``), and every command goes through the server's own routes.
+    client: bool = False
 
 
 # --- bootstrap ----------------------------------------------------------------------------------
@@ -121,6 +125,8 @@ def bootstrap(environ=None) -> Boot:
 
             file_values = {k: v for k, v in dotenv_values(env_file).items() if v is not None}
 
+    if _client_mode(environ):
+        return _client_bootstrap(environ, caller_cwd, distribution)
     raw, source = resolve_root(environ, file_values)
     for key, value in file_values.items():     # the app-spawned dev backend's overlay: the file wins
         if key not in CONTROL_KEYS:
@@ -151,15 +157,36 @@ def bootstrap(environ=None) -> Boot:
                 pin=pin, ctx=ctx, backend_url=runtime_layout.backend_url(environ))
 
 
+def _client_mode(environ) -> bool:
+    return bool((environ.get("CICADA_API_BASE") or "").strip())
+
+
+def _client_bootstrap(environ, caller_cwd, distribution) -> Boot:
+    """G181 phase 2: this shell is a client of a backend on another machine. No root is resolved and no local bank is
+    opened — the bank is on the server; the pin comes from the server itself (``client_probe``, in ``main``)."""
+    from api import config
+    from api.services import runtime_layout
+
+    config.disable_dotenv()
+    _force_production(environ)
+    try:
+        base = runtime_layout.api_base(environ)
+    except ValueError as exc:
+        raise BootstrapError(str(exc)) from None
+    return Boot(caller_cwd=caller_cwd, root=None, root_source="server", distribution=distribution, pin=None,
+                ctx=contextvars.copy_context(), backend_url=base, client=True)
+
+
 def _opener():
     import urllib.request
 
     return urllib.request.build_opener(urllib.request.ProxyHandler({}))   # loopback never goes through a proxy
 
 
-def probe_backend(url: str, root: Path, timeout: float = HEALTH_TIMEOUT_S) -> dict:
-    """Ask a running backend which memory root it serves (`cli_app.probe_backend`, one copy)."""
-    return cli_app.probe_backend(url, root, timeout)
+def probe_backend(url: str, root: Path, timeout: float = HEALTH_TIMEOUT_S, bank_id: str | None = None) -> dict:
+    """Ask a running backend which memory it serves (`cli_app.probe_backend`, one copy): by bank identity when both
+    sides have one, else by the root's path."""
+    return cli_app.probe_backend(url, root, timeout, bank_id=bank_id)
 
 
 def _backend_headers(environ=None) -> dict[str, str]:
@@ -216,6 +243,11 @@ def _tool_context(boot: Boot):
                                  backend_url=boot.backend_url)
 
 
+def _door(boot: Boot, tool: str, arguments: dict, options: dict | None = None):
+    """G181 phase 2: a tool mirror run on the server (``cli_app.door``)."""
+    return cli_app.door(boot, tool, arguments, options, project_dir=_project_dir(boot))
+
+
 def _vector_state(bank: Path) -> str:
     db = bank / "vector_index.db"
     if not db.exists():
@@ -246,12 +278,15 @@ def _recall_data(payload) -> dict:
 def cmd_recall(boot: Boot, args) -> Result:
     from api.services import mcp_tools
 
-    reply = mcp_tools.recall(_tool_context(boot), args.query)
+    if boot.client:
+        reply = _door(boot, "cicada_recall", {"query": args.query})
+    else:
+        reply = mcp_tools.recall(_tool_context(boot), args.query)
     warnings = _root_warnings(boot)            # a refusal keeps what the root cross-check found
     code = getattr(reply, "code", None)
     if code in REFUSAL_CODES:
         return Result(text=str(reply), data=None, warnings=warnings, code=code)
-    if _vector_state(boot.pin.path) != "present":
+    if not boot.client and _vector_state(boot.pin.path) != "present":
         warnings.append("degraded:vector")
     return Result(text=str(reply), data=_recall_data(getattr(reply, "data", None)), warnings=warnings)
 
@@ -260,8 +295,39 @@ _VERIFIED_WORDS = {"confirmed": "matches the app's backend", "mismatch": "the ap
                    "backend_down": "the app's backend is not running", "unverified": "the app's backend did not answer"}
 
 
+def _client_status(boot: Boot) -> Result:
+    """`cicada status` on a client (G181 phase 2): the server this shell uses, its bank and whether it answered."""
+    state = boot.probe.get("state", "unverified")
+    backend = {"state": state}
+    if boot.probe.get("version"):
+        backend["version"] = boot.probe["version"]
+    if state == "confirmed":
+        writing = _sleep_writing(boot.backend_url)
+        if writing is not None:
+            backend["writing"] = writing
+    pin = boot.pin
+    data = {"version": __version__, "distribution": boot.distribution, "caller_cwd": boot.caller_cwd,
+            "client": True, "server": boot.backend_url,
+            "bank": {"name": pin.name, "id": pin.id} if pin is not None else None, "backend": backend}
+    words = {"confirmed": "answered", "backend_down": "is not reachable", "unauthorized":
+             "did not accept this device's token", "unverified": "did not answer"}
+    lines = [f"Memory: on the server at {boot.backend_url}"
+             + (f" (bank '{pin.name}')" if pin is not None else ""),
+             f"  the server {words.get(state, 'did not answer')}"]
+    if state == "confirmed":
+        detail = f"version {backend.get('version', 'unknown')}"
+        if "writing" in backend:
+            detail += ", Sleep is writing" if backend["writing"] else ", Sleep is not writing"
+        lines.append(f"Backend: running ({detail})")
+    lines.append(f"cicada {__version__} ({boot.distribution}, a client of that server)")
+    return Result(text="\n".join(lines), data=data, warnings=[] if state == "confirmed" else ["server_" + state])
+
+
 def cmd_status(boot: Boot, args) -> Result:
     from api.services import agentic_write, demo_guard
+
+    if boot.client:
+        return _client_status(boot)
 
     bank = Path(boot.pin.path)
     backend = {"state": boot.probe.get("state", "unverified")}
@@ -351,12 +417,19 @@ def cmd_get(boot: Boot, args) -> Result:
     that finds nothing, as the ``ENTITY:START[:END]`` shorthand (lines START to END, 1-based)."""
     from api.services import mcp_tools
 
-    ctx = _tool_context(boot)
     start, count = args.__dict__.get("from"), args.count
     numbered = bool(getattr(args, "line_numbers", False))
+    if boot.client:
+        def detail(entity_id, start=None, whole=False):
+            return _door(boot, "cicada_recall_detail", {"entity_id": entity_id, "start": start}, {"whole": whole})
+    else:
+        ctx = _tool_context(boot)
+
+        def detail(entity_id, start=None, whole=False):
+            return mcp_tools.recall_detail(ctx, entity_id, start=start, whole=whole)
     # A bounded read slices the whole page; an unbounded one is the tool's own reply (F5: an over-budget fence elided).
-    reply = mcp_tools.recall_detail(ctx, args.entity_id, start=getattr(args, "start", None),
-                                    whole=start is not None or count is not None or numbered)
+    reply = detail(args.entity_id, start=getattr(args, "start", None),
+                   whole=start is not None or count is not None or numbered)
     if getattr(reply, "code", None) == "not_found" and (m := _RANGE.match(args.entity_id)):
         if start is not None or count is not None:
             raise UsageError("give the line range once: ENTITY:START[:END] or --from/--count")
@@ -368,7 +441,7 @@ def cmd_get(boot: Boot, args) -> Result:
             count = end - start + 1
         if start < 1:
             raise UsageError("lines are numbered from 1")
-        reply = mcp_tools.recall_detail(ctx, m.group("base"), whole=True)
+        reply = detail(m.group("base"), whole=True)
     if getattr(reply, "code", None) in REFUSAL_CODES:
         return _typed(reply, warnings=_root_warnings(boot))
     if start is None and count is None and not numbered:
@@ -382,22 +455,27 @@ def cmd_get(boot: Boot, args) -> Result:
 def cmd_project(boot: Boot, args) -> Result:
     from api.services import mcp_tools
 
-    reply = mcp_tools.project(_tool_context(boot), args.project, args.since, args.tz)
+    if boot.client:
+        reply = _door(boot, "cicada_project", {"project": args.project, "since": args.since, "tz": args.tz})
+    else:
+        reply = mcp_tools.project(_tool_context(boot), args.project, args.since, args.tz)
     return _typed(reply, warnings=_root_warnings(boot))
 
 
 def _continue_spelling():
-    from api.services import continuity
+    from api.services import local_tools
 
-    return continuity.Spelling(
-        call=lambda session, before: "`" + cli_map.spell("cicada_continue", session=session, before=before) + "`",
-        session_arg="`--session`")
+    return local_tools.cli_continue_spelling()
 
 
 def cmd_continue(boot: Boot, args) -> Result:
     from api.services import local_tools
 
     ident = _identity()
+    if boot.client:
+        reply = _door(boot, "cicada_continue", {"session": args.session, "before": args.before},
+                      {"cwd": _project_dir(boot)})
+        return _typed(reply, warnings=_root_warnings(boot))
     # Whatever the harness gave — possibly nothing: the shared body still applies the current-conversation
     # rules for an unknown identity (#229), exactly as for cicada_continue.
     reply = local_tools.continue_text(boot.pin.path, root=boot.root, cwd=_project_dir(boot),
@@ -420,11 +498,16 @@ def cmd_save(boot: Boot, args) -> Result:
     if boot.probe.get("state") == "mismatch":
         raise Refusal("root_mismatch", "The app's backend uses a different memory folder than this command. "
                                        "Nothing was saved; check `cicada status`.")
-    ctx = _tool_context(boot)
-    reply = mcp_tools.save_episode(ctx, args.content, args.title)
+    if boot.client:
+        reply = _door(boot, "cicada_save_episode", {"content": args.content, "title": args.title})
+        session_id = _identity().session_id
+    else:
+        ctx = _tool_context(boot)
+        reply = mcp_tools.save_episode(ctx, args.content, args.title)
+        session_id = ctx.session_id
     warnings = _root_warnings(boot)
     text = str(reply)
-    if getattr(reply, "code", None) not in REFUSAL_CODES and not ctx.session_id \
+    if getattr(reply, "code", None) not in REFUSAL_CODES and not session_id \
             and (reply.data or {}).get("episode_id"):
         warnings.append("no_session")
         text = f"{text}\n{NO_SESSION_LINE}"
@@ -470,6 +553,8 @@ def cmd_import(boot: Boot, args) -> Result:
     content = cli_app.chat_export(path)
     if content is not None:
         return cli_app.import_chat_export(boot, args, path, content)
+    if boot.client:
+        raise Refusal("on_server", ON_SERVER_TEXT)
     return _import_platform_export(boot, args)
 
 
@@ -532,6 +617,10 @@ def _import_platform_export(boot: Boot, args) -> Result:
 def cmd_handshake(boot: Boot, args) -> Result:
     from api.services import handshake, state_dictionary
 
+    if boot.client:
+        reply = _door(boot, "cicada_handshake", {}, {"tz": handshake.local_timezone()})
+        return Result(text=str(reply), data=reply.data or {"tokens_est": len(reply) // 4},
+                      warnings=_root_warnings(boot))
     names = frozenset(r.name for r in cli_map.exposed())
     text = handshake.build_cli(state_dictionary.read_state(boot.pin.path), commands=names, bank=boot.pin.name,
                                tz=handshake.local_timezone())
@@ -543,14 +632,21 @@ def cmd_handshake(boot: Boot, args) -> Result:
 def cmd_skills_list(boot: Boot, args) -> Result:
     from api.services import mcp_tools
 
+    if boot.client:
+        return _typed(_door(boot, "cicada_skills", {}), warnings=_root_warnings(boot))
     return _typed(mcp_tools.skills(_tool_context(boot)), warnings=_root_warnings(boot))
 
 
 def cmd_skills_propose(boot: Boot, args) -> Result:
     from api.services import mcp_tools
 
-    reply = mcp_tools.propose_skill(_tool_context(boot), args.action, args.source, args.skill, args.agents,
-                                    args.reason)
+    if boot.client:
+        reply = _door(boot, "cicada_propose_skill", {"action": args.action, "source": args.source,
+                                                     "skill": args.skill, "agents": args.agents,
+                                                     "reason": args.reason})
+    else:
+        reply = mcp_tools.propose_skill(_tool_context(boot), args.action, args.source, args.skill, args.agents,
+                                        args.reason)
     return _typed(reply, warnings=_root_warnings(boot))
 
 
@@ -558,8 +654,39 @@ def cmd_skills_create(boot: Boot, args) -> Result:
     from api.services import mcp_tools
 
     body = sys.stdin.read() if args.body == "-" else args.body
-    reply = mcp_tools.create_skill(_tool_context(boot), args.skill, args.description, body, args.reason)
+    if boot.client:
+        reply = _door(boot, "cicada_create_skill", {"skill": args.skill, "description": args.description,
+                                                    "body": body, "reason": args.reason})
+    else:
+        reply = mcp_tools.create_skill(_tool_context(boot), args.skill, args.description, body, args.reason)
     return _typed(reply, warnings=_root_warnings(boot))
+
+
+ON_SERVER_TEXT = ("This command reads the memory folder, and this shell is a client of a Cicada server "
+                  "(CICADA_API_BASE): the folder is on the server. Run it there, or use the MCP tools here. "
+                  "Nothing was read or written.")
+#: G181 phase 2: what a client shell runs, through the server's own routes — the tool mirrors (the tool door) and
+#: the read of the bank list; every `backend` command already goes to the backend's routes.
+CLIENT_DOOR_COMMANDS = frozenset({"recall", "get", "project", "continue", "save", "handshake", "timeline",
+                                  "skills list", "skills propose", "skills create", "status", "commands",
+                                  "bank list", "import"})
+
+
+def _client_gate(command: str, boot: Boot) -> None:
+    """On a client, a command that would read a local memory folder refuses (there is none); every other one needs
+    the server: refused when it is down or did not accept this device's token (``status`` reports instead)."""
+    row = cli_map.by_name().get(command)
+    if command not in CLIENT_DOOR_COMMANDS and not (row is not None and row.via in ("backend", "both")):
+        raise Refusal("on_server", ON_SERVER_TEXT)
+    if command == "status":
+        return
+    state = boot.probe.get("state")
+    if state == "backend_down":
+        raise Refusal("backend_down", cli_app.CLIENT_DOWN_TEXT)
+    if state == "unauthorized":
+        raise Refusal("unauthorized", cli_app.CLIENT_UNAUTHORIZED_TEXT)
+    if state != "confirmed" or boot.pin is None:
+        raise Refusal("root_unverified", cli_app.CLIENT_UNVERIFIED_TEXT, ["root_unverified"])
 
 
 #: name → handler. A test may swap a handler. The app's commands (`cli_app`) join the agent's.
@@ -787,10 +914,18 @@ def main(argv: list[str] | None = None) -> int:
                     raise                      # a sandboxed shell: exit 5 with the MCP fallback, below
                 except Exception as exc:  # noqa: BLE001
                     raise BootstrapError(type(exc).__name__) from None
-                bank_name = boot.pin.name
-                _check_bank(boot, args.bank if args.bank is not None else os.environ.get("CICADA_BANK"))
-                boot.probe = probe_backend(boot.backend_url, boot.root)
-                result = boot.ctx.run(handler, boot, args)
+                if boot.client:
+                    boot.probe, boot.pin = cli_app.client_probe(boot.backend_url)
+                    _client_gate(command, boot)
+                    bank_name = boot.pin.name if boot.pin is not None else None
+                    if boot.pin is not None:
+                        _check_bank(boot, args.bank if args.bank is not None else os.environ.get("CICADA_BANK"))
+                    result = boot.ctx.run(handler, boot, args)
+                else:
+                    bank_name = boot.pin.name
+                    _check_bank(boot, args.bank if args.bank is not None else os.environ.get("CICADA_BANK"))
+                    boot.probe = probe_backend(boot.backend_url, boot.root, bank_id=getattr(boot.pin, "id", None))
+                    result = boot.ctx.run(handler, boot, args)
     except UsageError as exc:                  # a check that needed the page (a `get` range past its end)
         _emit(as_json, command=command, ok=False, code="usage", bank=bank_name, data=None, text=str(exc),
               warnings=[])

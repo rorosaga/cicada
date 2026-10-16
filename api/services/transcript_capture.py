@@ -211,7 +211,7 @@ def _stored_extent(fm: dict) -> int | None:
     return v if isinstance(v, int) and not isinstance(v, bool) and v >= 0 else None
 
 
-def _superseded(fm: dict, read_bytes: int, path: Path) -> bool:
+def _superseded(fm: dict, read_bytes: int, path: Path | None, size: int | None = None) -> bool:
     """True when this capture's read is OLDER than what the episode stores:
     it read fewer transcript bytes, and the file now holds at least the stored
     extent — so a newer capture really saw more. Checked under the writer lock.
@@ -221,6 +221,10 @@ def _superseded(fm: dict, read_bytes: int, path: Path) -> bool:
     stored = _stored_extent(fm)
     if stored is None or read_bytes >= stored:
         return False
+    if size is not None:
+        # A session read on another machine (G181 phase 2): the client stats its own file when it sends, and the
+        # server never opens a path a client names.
+        return size >= stored
     try:
         return path.stat().st_size >= stored
     except OSError:
@@ -568,10 +572,72 @@ def capture_transcript(
                              registry_workspace=registry_workspace, read_bytes=read_bytes, source_path=path)
 
 
+def capture_posted(
+    memory_path: Path,
+    *,
+    harness: str,
+    session_id: str,
+    conversation,
+    transcript_bytes: int,
+    transcript_size: int,
+    cwd: str | None,
+    keep_assistant: bool,
+    bank: str | None = None,
+    effort: str | None = None,
+    bank_paths: tuple | None = None,
+    hook_event: str | None = None,
+    workspace=None,
+    device: str | None = None,
+) -> CaptureResult:
+    """A session read on another machine by Cicada's own extractor and posted as turns (G181 phase 2, owner ruling 2,
+    2026-10-16): the transcript rail amended, never relaxed. Nothing here opens a path. What arrived is re-checked
+    (``session_post.from_wire``: caps, scrub, the session cap) and then written exactly as :func:`capture_transcript`
+    writes a session it read itself — same lock, same find-or-create (one episode per session, G104), ids minted here,
+    the same body, hash, sidecar and G110 metadata, the same demo refusal. ``transcript_bytes`` is the extent the
+    client read and ``transcript_size`` the file's size when it sent, so a stale snapshot (a resend after an outage
+    that a newer read already beat) is ``superseded`` while a replaced, shorter file is not stuck. ``device`` is the
+    id of the device token that signed the post (``request.state.device``), recorded on the episode as ``device``."""
+    from api.services import session_post
+
+    if demo_guard.is_demo(memory_path):
+        _record(harness, session_id, "refused", None, bank, "demo_bank", event=hook_event)
+        return CaptureResult("refused", None, 0, 0, {}, reason="demo_bank")
+    if harness not in HARNESSES:
+        _record(harness, session_id, "refused", None, bank, "bad_harness", event=hook_event)
+        return CaptureResult("refused", None, 0, 0, {}, reason="bad_harness")
+    sid = (session_id or "").strip()
+    if not _SESSION_ID_RE.match(sid):
+        _record(harness, session_id, "refused", None, bank, "bad_session_id", event=hook_event)
+        return CaptureResult("refused", None, 0, 0, {}, reason="bad_session_id")
+    try:
+        conv = session_post.from_wire(conversation, harness=harness, session_id=sid, cwd=cwd,
+                                      keep_assistant=keep_assistant)
+    except session_post.PostRefused as exc:
+        _record(harness, sid, "refused", None, bank, exc.reason, event=hook_event)
+        return CaptureResult("refused", None, 0, 0, {}, reason=exc.reason)
+    from api.services import workspace_identity
+    observed = workspace_identity.parse(cwd, workspace)
+    if observed and bank_paths is not None and conv.turns:
+        continuity_sessions.apply(memory_path, bank_paths=bank_paths, harness=harness, session_id=sid,
+                                  events={"workspace_identity": observed}, deadline=None)
+    registry_workspace = None
+    if bank_paths is not None:
+        row = continuity_sessions.get(memory_path, harness, sid, bank_paths=bank_paths) or {}
+        registry_workspace = row.get("workspace_identity") or {}
+    episodes_dir = memory_path / "episodes"
+    with _lock, episode_ids.episode_lock(episodes_dir):
+        existing = _find_session_episode(episodes_dir, harness, sid) if conv.turns else None
+        return write_session(memory_path, harness=harness, session_id=sid, conv=conv, existing=existing,
+                             cwd=cwd, bank=bank, effort=effort, bank_paths=bank_paths, hook_event=hook_event,
+                             registry_workspace=registry_workspace, read_bytes=transcript_bytes,
+                             source_size=max(transcript_size, transcript_bytes),
+                             extra={"device": device} if device else None)
+
+
 def write_session(memory_path: Path, *, harness: str, session_id: str, conv: Conversation, existing: Path | None,
                   cwd: str | None, bank: str | None, effort: str | None, bank_paths, hook_event: str | None,
                   registry_workspace, read_bytes: int | None = None, source_path: Path | None = None,
-                  extra: dict | None = None, stored=None) -> CaptureResult:
+                  extra: dict | None = None, stored=None, source_size: int | None = None) -> CaptureResult:
     """Write or update the session's ONE episode from ``conv`` (R3, G104).
 
     The caller holds ``_lock`` and the bank's episode lock and has found
@@ -629,7 +695,8 @@ def write_session(memory_path: Path, *, harness: str, session_id: str, conv: Con
     fm = dict(stored.frontmatter)
     previous = fm.get("turns")
     episode_id = str(fm.get("id") or existing.stem)
-    if read_bytes is not None and source_path is not None and _superseded(fm, read_bytes, source_path):
+    if read_bytes is not None and (source_path is not None or source_size is not None) \
+            and _superseded(fm, read_bytes, source_path, source_size):
         _record(harness, session_id, "superseded", conv, bank, event=hook_event)
         logger.info(f"capture: {episode_id} already holds a later read of this {harness} session — kept")
         return CaptureResult("superseded", episode_id, kept["user"], kept["assistant"], conv.summary)
