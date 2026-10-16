@@ -78,7 +78,7 @@ enum SettingsIndex {
         .outboundConnectors, .outboundFeeds, .outboundLogos, .credentials, .remoteAccess, .transcripts,
         .searchFolders, .searchMeaning, .searchImages, .searchAdvanced, .searchModel, .searchIndex,
         .enrichLinks, .fadePace,
-        .sleepRuns, .sleepTime, .sleepInterval, .sleepEngine,
+        .sleepRuns, .sleepTime, .sleepInterval, .sleepEngine, .sleepUsePlan,
         .scenerySource, .sceneryTime, .sceneryWeather, .sceneryPreview,
         .mascot,
         .calendarApp, .contactsApp, .saveWhy,
@@ -173,6 +173,8 @@ enum SettingsIndex {
         SettingsEntry(.sleepTime, .sleep, Copy.runsAt, keywords: ["time", "hour", "clock"]),
         SettingsEntry(.sleepInterval, .sleep, Copy.runsEvery, keywords: ["hours", "how often", "interval"]),
         SettingsEntry(.sleepEngine, .sleep, Copy.sleepEngineRowTitle, keywords: ["model", "who runs"]),
+        SettingsEntry(.sleepUsePlan, .sleep, Copy.ServerPlan.usePlanTitle,
+                      keywords: ["plan", "subscription", "scheduled", "nightly", "server", "limits"]),
         // Integrations — round-4 D2: the one row the app owns there (R-FA13); every other row is a channel.
         SettingsEntry(.calendarApp, .integrations, Copy.calendarAppTitle,
                       keywords: ["calendar", "events", "meetings", "icloud", "google calendar", "exchange", "schedule"]),

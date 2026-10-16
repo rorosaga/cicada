@@ -141,9 +141,16 @@ actor ReaderOutbox {
         }
     }
 
-    /// Send what waits, oldest first; stop at the first post that does not land (the server is still away).
-    /// `send` answers the HTTP status, or nil when no answer came. One flush at a time. `matches` narrows it to one
-    /// route's posts (the APIClient sends those before a newer post on that route).
+    /// Answers about the server or this device, not one post: every later post would get the same, so a flush stops.
+    static let stopsAll: Set<Int> = [401, 403]
+
+    /// Send what waits, oldest first. No answer (the server is still away) or a refused token stops the flush. Any
+    /// other answer that does not land — a 409 for a memory that is not the active one, a 5xx — is about that post:
+    /// it waits, kept, and so does every newer post on its route and memory (a snapshot never overtakes an older one),
+    /// but the other memories' and routes' posts still go (owner decision 6, 2026-10-16: a refused post for another
+    /// memory never blocks the active memory's). `send` answers the HTTP status, or nil when no answer came. One
+    /// flush at a time. `matches` narrows it to one route's posts (the APIClient sends those before a newer post on
+    /// that route).
     func flush(where matches: @Sendable (Entry) -> Bool = { _ in true },
                send: @Sendable (Entry) async -> Int?) async -> FlushResult {
         guard !flushing else { return FlushResult(waiting: count()) }
@@ -151,7 +158,10 @@ actor ReaderOutbox {
         defer { flushing = false }
         trim()
         var result = FlushResult()
+        var held: Set<String> = []
         for item in entries() where matches(item.entry) {
+            let lane = Self.lane(item.entry)
+            if held.contains(lane) { continue }
             let status = await send(item.entry)
             if let status, (200...299).contains(status) {
                 try? FileManager.default.removeItem(at: item.file)
@@ -159,11 +169,19 @@ actor ReaderOutbox {
             } else if let status, Self.finalStatuses.contains(status) {
                 try? FileManager.default.removeItem(at: item.file)
                 result.dropped += 1
+            } else if let status, !Self.stopsAll.contains(status) {
+                held.insert(lane)
             } else {
                 break
             }
         }
         result.waiting = count()
         return result
+    }
+
+    /// A post's lane: its route and its memory. Order holds within a lane; lanes never wait on each other.
+    static func lane(_ entry: Entry) -> String {
+        let bare = entry.path.split(separator: "?", maxSplits: 1).first.map(String.init) ?? entry.path
+        return "\(entry.method) \(bare)\u{0}\(entry.bank ?? "")"
     }
 }

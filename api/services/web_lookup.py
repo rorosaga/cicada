@@ -251,6 +251,15 @@ def _recent(memo: dict[str, dict], item_id: str, today: date) -> bool:
 # --------------------------------------------------------------------------- the engine
 
 
+def _registry(settings):
+    try:
+        from api.services.connections.registry import get_registry
+
+        return get_registry(settings)
+    except Exception:  # noqa: BLE001 — no registry reads as the switch off
+        return None
+
+
 async def engine_for(settings, *, user_triggered: bool) -> tuple[Any, str | None, str]:
     """``(resolved settings, engine label, reason)``; settings ``None`` when no engine may search here."""
     from api.services import engine_select
@@ -259,8 +268,9 @@ async def engine_for(settings, *, user_triggered: bool) -> tuple[Any, str | None
     mode = str(getattr(resolved, "llm_mode", "byok") or "byok").strip().lower()
     label = engine_select.engine_label(resolved)
     if mode in engine_select.SUBSCRIPTION_MODES:
-        if not user_triggered:
-            return None, label, "scheduled_plan"     # ruling 4 — even under an explicit env pin
+        # Ruling 4 — even under an explicit env pin; ruling 4b — unless the person let scheduled runs use the plan.
+        if not user_triggered and not engine_select.scheduled_plan_allowed(_registry(settings)):
+            return None, label, "scheduled_plan"
         if mode != "agent":
             return None, label, "no_search_tool"
         return resolved, label, "plan"

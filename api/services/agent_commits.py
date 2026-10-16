@@ -20,10 +20,50 @@ behaviour. Provenance never blocks memory.
 from __future__ import annotations
 
 import asyncio
+import contextvars
+from contextlib import contextmanager
 from datetime import date
 from pathlib import Path
 
 from loguru import logger
+
+#: What the bank's uncommitted pages held when the agent's call began (owner, 2026-10-16, from the backend hunt):
+#: ``(bank path, git_service.snapshot_dirty)``. Set around one mutating tool call by the door that runs it
+#: (:func:`setting_apart`); read by :func:`commit_write`, which then commits someone else's edit on a path it takes
+#: apart, first, as the inbox routes do — never under the agent's name.
+_BEFORE: contextvars.ContextVar[tuple[str, dict] | None] = contextvars.ContextVar("agent_commits_before", default=None)
+
+
+def _key(memory_path) -> str:
+    try:
+        return str(Path(memory_path).resolve())
+    except OSError:
+        return str(memory_path)
+
+
+@contextmanager
+def setting_apart(memory_path):
+    """Around one agent write: snapshot the bank's dirty pages first, so the write's commit keeps an edit that was
+    already there apart. A tree that cannot be read snapshots nothing (the commit is then as before)."""
+    from api.services import git_service
+
+    try:
+        snapshot = git_service.snapshot_dirty_sync(memory_path)
+    except Exception:  # noqa: BLE001 — a snapshot never blocks a write
+        snapshot = None
+    token = _BEFORE.set((_key(memory_path), snapshot) if snapshot is not None else None)
+    try:
+        yield
+    finally:
+        _BEFORE.reset(token)
+
+
+def before_for(memory_path) -> dict | None:
+    """The snapshot :func:`setting_apart` took for this bank in this call, else ``None``."""
+    held = _BEFORE.get()
+    if held is None or held[0] != _key(memory_path):
+        return None
+    return held[1]
 
 
 def author_for(harness: str | None) -> str:
@@ -53,8 +93,14 @@ def commit_write(
         f"{subject} {date.today().isoformat()}", lines, authors=[author],
         sessions=[session] if session else None,
     )
+    before = before_for(memory_path)
     try:
-        asyncio.run(git_service.commit_paths(memory_path, message, paths))
+        if before is not None:
+            git_service.commit_touched_sync(memory_path, message, paths, before=before,
+                                            kept_subject=f"Uncommitted edit kept apart {date.today().isoformat()}",
+                                            kept_trigger="agent/kept-apart")
+        else:
+            asyncio.run(git_service.commit_paths(memory_path, message, paths))
     except Exception as exc:  # noqa: BLE001 — the write already stands
         logger.warning(f"agent commit skipped ({type(exc).__name__}); the write stands uncommitted")
         return False

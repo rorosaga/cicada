@@ -287,6 +287,11 @@ final class BrowserWatcher {
     private var lookAgain: Set<String> = []
     /// G191 v4 — the stage timings of each channel's last instant look (uptime seconds), for tests and the log.
     private(set) var lookTimings: [String: SaveWhyTimings.Look] = [:]
+    /// Owner decision 5 (2026-10-16): what was synced is per memory, like every other reader's cursor, so a memory the
+    /// person switches to catches up on the browsers' bookmarks too. Injected for tests; the app's own reads the
+    /// Store's bank, and a demo memory is never caught up (capture never writes into a demo).
+    private let bankOverride: (@MainActor () -> String)?
+    private let isDemoOverride: (@MainActor () -> Bool)?
 
     /// Everything a real browser supplies — the channel list, where its files
     /// live, the timings — is injectable, because the behaviour worth testing
@@ -304,8 +309,12 @@ final class BrowserWatcher {
             try await BrowserImportActions.syncChannel($0, store: $1)
         },
         peek: @escaping @MainActor (String) async -> Void = { await BrowserImportActions.peek($0) },
-        diff: BookmarkFileDiff? = nil
+        diff: BookmarkFileDiff? = nil,
+        bank: (@MainActor () -> String)? = nil,
+        isDemo: (@MainActor () -> Bool)? = nil
     ) {
+        self.bankOverride = bank
+        self.isDemoOverride = isDemo
         self.peek = peek
         self.diff = diff ?? .shared
         self.defaults = defaults
@@ -388,10 +397,20 @@ final class BrowserWatcher {
         }
     }
 
+    /// Owner decision 5 (2026-10-16): the memory on screen changed. Its own "what was synced" is read (a memory that
+    /// never had a browser's bookmarks gets them now, as the other readers' memories get theirs), and each light is
+    /// re-derived for it. A demo memory reads nothing.
+    func bankChanged() async {
+        for (channel, file) in channels { refreshState(channel: channel, file: file) }
+        guard !currentIsDemo else { return }
+        await catchUp()
+    }
+
     /// Sync every turned-on channel whose file moved since its last successful
     /// sync. This is what covers the app being closed when the bookmark was
     /// saved. A channel nobody turned on is skipped (Track I T1, F1).
     func catchUp() async {
+        guard !currentIsDemo else { return }
         for (channel, file) in channels {
             let current = signature(of: file)
             if BrowserWatchPolicy.shouldSync(current: current, lastSynced: lastSynced(channel),
@@ -637,6 +656,7 @@ final class BrowserWatcher {
     @discardableResult
     private func sync(channel: String, file: BrowserFile, live: Bool = false) async -> Result<String, Error>? {
         guard let store else { return nil }
+        guard !currentIsDemo else { return nil }   // owner decision 5: capture never writes into a demo memory
         guard !syncing.contains(channel) else {
             // G191 live: a save during a sync is read right after it (the signature taken before this one started
             // differs), not lost until the next save.
@@ -647,6 +667,8 @@ final class BrowserWatcher {
         // Read the signature BEFORE the sync: a bookmark saved while the sync
         // is in flight must not be recorded as already synced.
         let before = signature(of: file)
+        // Owner decision 5: the memory this read is for — its posts name it (G183(d)) and its signature is its own.
+        let bank = currentBank
         syncing.insert(channel)
         lastSyncStarted[channel] = ContinuousClock.now
         refreshState(channel: channel, file: file)
@@ -655,7 +677,9 @@ final class BrowserWatcher {
         // nothing to cancel.
         // G191: `live` rides the read-and-post as a task-local, so `syncChannel` hands it to the save-why question.
         let work = Task { @MainActor [performSync] in
-            try await BookmarkSyncSignal.$live.withValue(live) { try await performSync(channel, store) }
+            try await BankScope.bound(to: bank) {
+                try await BookmarkSyncSignal.$live.withValue(live) { try await performSync(channel, store) }
+            }
         }
         running[channel] = work
         activity?.began(channel, cancel: { [weak self] in self?.cancel(channel) })
@@ -664,7 +688,7 @@ final class BrowserWatcher {
             let line = try await work.value
             errors[channel] = nil
             failedChannels.remove(channel)
-            if let before { record(before, for: channel) }
+            if let before { record(before, for: channel, bank: bank) }
             result = .success(line)
         } catch let error where SyncCancellation.isCancellation(error) {
             // R-SR11: stopped, not failed — no light, no error, and no signature recorded.
@@ -700,18 +724,53 @@ final class BrowserWatcher {
         return nil
     }
 
-    private func defaultsKey(_ channel: String) -> String {
-        ServerConnection.current.scoped("cicada.browserWatch.\(channel)")  // what was synced, per connection (G181)
+    private var currentBank: String { bankOverride?() ?? store?.bank ?? "default" }
+    private var currentIsDemo: Bool { isDemoOverride?() ?? DemoMode.isActive(store?.banks.value) }
+    /// The memory `currentBank` names is the active one: the roster has loaded and `Store.bank` has caught up with it
+    /// (`Store.refresh([.banks])` assigns the roster before `hydrate(bank:)` moves `Store.bank`). An injected bank is
+    /// always resolved.
+    private var bankResolved: Bool {
+        if bankOverride != nil { return true }
+        guard let store, let active = store.banks.value?.active, !active.isEmpty else { return false }
+        return active == store.bank
     }
 
-    private func lastSynced(_ channel: String) -> BrowserFileSignature? {
-        guard let data = defaults.data(forKey: defaultsKey(channel)) else { return nil }
+    /// What was synced, per connection (G181) and per memory (owner decision 5, 2026-10-16).
+    nonisolated static func signatureKey(_ channel: String, bank: String) -> String {
+        ServerConnection.current.scoped("cicada.browserWatch.\(bank).\(channel)")
+    }
+
+    /// The key before memories had their own: one per connection. Read once, by the first memory that asks, and moved.
+    nonisolated static func legacySignatureKey(_ channel: String) -> String {
+        ServerConnection.current.scoped("cicada.browserWatch.\(channel)")
+    }
+
+    private func lastSynced(_ channel: String) -> BrowserFileSignature? { lastSynced(channel, bank: currentBank) }
+
+    private func lastSynced(_ channel: String, bank: String) -> BrowserFileSignature? {
+        if let data = defaults.data(forKey: Self.signatureKey(channel, bank: bank)) {
+            return try? JSONDecoder().decode(BrowserFileSignature.self, from: data)
+        }
+        // A signature from before it was per memory belongs to the memory that was synced then — the one on screen
+        // at the first launch after the upgrade. Moved to it, consent kept explicit (a stored signature counted as
+        // consent, R-IA2), so another memory never reads as "turned off" for lacking one.
+        let legacy = Self.legacySignatureKey(channel)
+        guard let data = defaults.data(forKey: legacy) else { return nil }
+        // Until the Store knows which memory is active (`Store.bank` is its placeholder "default" until `hydrate()`
+        // reads the roster, which runs after `start(store:)`), the old signature is only read, never moved: moving it
+        // then would hand it to "default" and leave the memory that really had it to read every bookmark again.
+        guard bankResolved else { return try? JSONDecoder().decode(BrowserFileSignature.self, from: data) }
+        defaults.set(data, forKey: Self.signatureKey(channel, bank: bank))
+        defaults.removeObject(forKey: legacy)
+        if defaults.object(forKey: BrowserWatchPolicy.enabledKey(channel)) == nil {
+            defaults.set(true, forKey: BrowserWatchPolicy.enabledKey(channel))
+        }
         return try? JSONDecoder().decode(BrowserFileSignature.self, from: data)
     }
 
-    private func record(_ signature: BrowserFileSignature, for channel: String) {
+    private func record(_ signature: BrowserFileSignature, for channel: String, bank: String) {
         guard let data = try? JSONEncoder().encode(signature) else { return }
-        defaults.set(data, forKey: defaultsKey(channel))
+        defaults.set(data, forKey: Self.signatureKey(channel, bank: bank))
     }
 }
 

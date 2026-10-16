@@ -26,8 +26,10 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import time
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import quote, urlencode
 
@@ -80,9 +82,13 @@ def probe_backend(url: str, root, timeout: float, *, bank_id: str | None = None)
     to). A path means nothing across machines or containers; an id does."""
     import socket
     import urllib.error
+    import urllib.request
 
+    # Owner decision 3 (2026-10-16): `/healthz` names the memory root only to a caller holding the token, so the
+    # path fallback below asks with this machine's own token (the ids are open either way).
+    request = urllib.request.Request(f"{url}/healthz", headers={**backend_headers(), "Accept": "application/json"})
     try:
-        with _opener().open(f"{url}/healthz", timeout=timeout) as resp:
+        with _opener().open(request, timeout=timeout) as resp:
             body = json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError:
         return {"state": "unverified"}
@@ -526,13 +532,31 @@ def cmd_inbox_answer(boot, args) -> Result:
 
 # --- Sleep ------------------------------------------------------------------------------------------------
 
+_STAGE_SAID = re.compile(r"^Stage (\d+)/(\d+):\s*(.*)$", re.S)
+
+
+def _stage_line(st: dict) -> str:
+    """The running stage, said once. ``stage`` counts the stages FINISHED (the app's fill), while ``progress`` names
+    the one running ("Stage 5/5: Writing changes…"); printing both read "stage 4 of 5: Stage 5/5: …" (headless QA)."""
+    total = st.get("totalStages", 5)
+    progress = str(st.get("progress") or "").strip()
+    said = _STAGE_SAID.match(progress)
+    if said:
+        rest = said.group(3).strip()
+        return f"stage {said.group(1)} of {said.group(2)}" + (f": {rest}" if rest else "")
+    try:
+        running = min(int(st.get("stage", 0) or 0) + 1, int(total))
+    except (TypeError, ValueError):
+        running = 1
+    return f"stage {running} of {total}" + (f": {progress}" if progress else "")
+
+
 def cmd_sleep_status(boot, args) -> Result:
     st = call(boot, "GET", "/sleep/status")
     status = st.get("status", "unknown")
     lines = [f"Sleep: {status}" + (" (writing to your pages)" if st.get("writing") else "")]
     if status == "running":
-        lines.append(f"  stage {st.get('stage', 0)} of {st.get('totalStages', 5)}"
-                     + (f": {st['progress']}" if st.get("progress") else ""))
+        lines.append("  " + _stage_line(st))
     paused = st.get("paused")
     if isinstance(paused, dict) and paused:
         lines.append(f"  paused: {paused.get('reason') or paused.get('message') or 'yes'}")
@@ -582,11 +606,45 @@ def _schedule_text(cfg: dict) -> str:
     return f"Sleep schedule: {mode}."
 
 
+USE_PLAN_ON_TEXT = ("Scheduled runs may now use your plan on this machine. Nightly runs count against your "
+                    "plan's limits, like the runs you start; a run that reaches a limit pauses, and the next scheduled "
+                    "run picks up once the limit has reset.")
+USE_PLAN_OFF_TEXT = "Scheduled runs no longer use your plan; the runs you start still may."
+
+
+def _schedule_warning(cfg: dict) -> str | None:
+    """The schedule's no-engine warning (owner decision 2, 2026-10-16), with the command-line fix."""
+    from api.services import engine_readiness
+
+    sentence, code = cfg.get("warning"), cfg.get("warningCode")
+    if not isinstance(sentence, str) or not sentence:
+        return None
+    return engine_readiness.Problem(code or "", sentence).with_cli_fix()
+
+
+def _with_schedule_warning(text: str, cfg: dict) -> str:
+    warning = _schedule_warning(cfg)
+    return f"{text}\nWarning: {warning}" if warning else text
+
+
 def cmd_sleep_schedule(boot, args) -> Result:
     cfg = call(boot, "GET", "/sleep/schedule")
-    if args.mode is None and args.at is None and args.every is None:
-        return Result(text=_schedule_text(cfg), data=cfg, warnings=_warn(boot))
+    use_plan = _on_off(getattr(args, "use_plan", None))
+    if args.mode is None and args.at is None and args.every is None and use_plan is None:
+        return Result(text=_with_schedule_warning(_schedule_text(cfg), cfg), data=cfg, warnings=_warn(boot))
     require_person("Changing when Sleep runs")
+    lines: list[str] = []
+    data = dict(cfg)
+    if use_plan is not None:
+        # Ruling 4b (owner, 2026-10-16): the machine's switch; said once, here, that nightly runs then count.
+        opts = call(boot, "PUT", "/sleep/run-options", body={"scheduledUsePlan": use_plan})
+        lines.append(USE_PLAN_ON_TEXT if opts.get("scheduledUsePlan") else USE_PLAN_OFF_TEXT)
+        data["scheduledUsePlan"] = bool(opts.get("scheduledUsePlan"))
+        if args.mode is None and args.at is None and args.every is None:
+            cfg = call(boot, "GET", "/sleep/schedule")   # the warning reads the switch just written
+            data.update(cfg)
+            return Result(text=_with_schedule_warning("\n".join([*lines, _schedule_text(cfg)]), cfg), data=data,
+                          warnings=_warn(boot))
     new = {k: v for k, v in cfg.items() if k in ("mode", "hour", "minute", "intervalHours", "afterImport")}
     if args.at is not None:
         new["hour"], new["minute"] = _hhmm(args.at)
@@ -601,7 +659,9 @@ def cmd_sleep_schedule(boot, args) -> Result:
         new["mode"] = args.mode
     new.pop("enabled", None)
     saved = call(boot, "PUT", "/sleep/schedule", body=new)
-    return Result(text=_schedule_text(saved), data=saved, warnings=_warn(boot))
+    data.update(saved)
+    return Result(text=_with_schedule_warning("\n".join([*lines, _schedule_text(saved)]), saved), data=data,
+                  warnings=_warn(boot))
 
 
 def cmd_sleep_engine(boot, args) -> Result:
@@ -844,13 +904,202 @@ def cmd_settings_owner(boot, args) -> Result:
     return Result(text=f"You are: {saved.get('name')}", data=saved, warnings=_warn(boot))
 
 
+def _engine_state(c: dict) -> str:
+    """One engine's readiness in words (owner decision 2, 2026-10-16): a key card with no key says so, never
+    "available"; a plan says whether it is signed in on the machine Sleep runs on."""
+    billing = c.get("billing")
+    if billing == "subscription":
+        if c.get("connected"):
+            plan = c.get("planLabel") or c.get("plan")
+            return "signed in" + (f" ({plan})" if plan else "")
+        return "not signed in" if c.get("available") else "not installed"
+    if billing == "free":
+        return "running" if c.get("connected") else ("not running" if c.get("available") else "not installed")
+    return "key set" if c.get("connected") else "no key"
+
+
+def _preview_line(label: str, preview: dict | None) -> str | None:
+    if not isinstance(preview, dict):
+        return None
+    return f"{label}: {preview.get('engine', '?')} · {preview.get('model', '?')}"
+
+
 def cmd_engine_list(boot, args) -> Result:
     data = call(boot, "GET", "/connections")
     rows = data.get("connections", []) if isinstance(data, dict) else []
-    lines = [f"{c.get('id')}  {c.get('label')}  "
-             f"{'connected' if c.get('connected') else ('available' if c.get('available') else 'not set up')}"
-             for c in rows if isinstance(c, dict)]
-    return Result(text="\n".join(lines) or "No engines.", data=data, warnings=_warn(boot))
+    lines = [f"{c.get('id')}  {c.get('label')}  {_engine_state(c)}" for c in rows if isinstance(c, dict)]
+    out = dict(data) if isinstance(data, dict) else {"connections": rows}
+    try:
+        engine = call(boot, "GET", "/sleep/engine")
+        opts = call(boot, "GET", "/sleep/run-options")
+        sched = call(boot, "GET", "/sleep/schedule")
+    except Refusal:
+        engine, opts, sched = {}, {}, {}
+    preview = engine.get("preview") if isinstance(engine, dict) else None
+    preview = preview if isinstance(preview, dict) else {}
+    extra = [line for line in (_preview_line("Sleep you start", preview.get("manual")),
+                               _preview_line("Scheduled Sleep", preview.get("scheduled"))) if line]
+    if opts:
+        extra.append("Scheduled runs may use your plan: "
+                      + ("on" if opts.get("scheduledUsePlan") else "off (`cicada sleep schedule --use-plan on`)"))
+    if sched and sched.get("mode") not in (None, "manual"):
+        warning = _schedule_warning(sched)
+        if warning:
+            extra.append(f"Warning: {warning}")
+    out.update({"preview": preview, "scheduledUsePlan": bool(opts.get("scheduledUsePlan")) if opts else None,
+                "scheduleWarning": sched.get("warningCode") if sched else None})
+    text = "\n".join([*lines, *([""] if lines and extra else []), *extra])
+    return Result(text=text or "No engines.", data=out, warnings=_warn(boot))
+
+
+#: Each plan's own sign-in, run in the person's terminal on the machine Sleep runs on (ruling 4b). Only flags the CLIs'
+#: own help lists: `claude auth login --claudeai` (Claude Code 2.1, the subscription — its default) and `codex login
+#: --device-auth` (Codex CLI 0.16x, the headless device code, in Cicada's own CODEX_HOME through `scrubbed_env`).
+@dataclass(frozen=True)
+class PlanSignIn:
+    binary: str
+    product: str
+    status: tuple[str, ...]
+    login: tuple[str, ...]
+    intro: str
+    engine_mode: str
+    alt: str
+
+
+PLAN_SIGN_INS = {
+    "claude-plan": PlanSignIn(
+        binary="claude", product="Claude Code", status=("auth", "status", "--json"), login=("auth", "login", "--claudeai"),
+        intro=("Claude Code will sign in to your Claude plan on this machine. It prints a link: open it on any device, "
+               "sign in, and if it shows a code, paste the code back here. Claude Code keeps the sign-in where it keeps "
+               "its own; Cicada never sees or stores the token."),
+        engine_mode="agent",
+        alt=("If the sign-in cannot finish on this machine, `claude setup-token` on any machine where it works prints a "
+             "long-lived token; set it as CLAUDE_CODE_OAUTH_TOKEN in the backend's own environment (on Linux: "
+             "`systemctl --user edit cicada-backend.service`, then an `Environment=` line under `[Service]`). Cicada "
+             "never asks for it, stores it or prints it.")),
+    "chatgpt-plan": PlanSignIn(
+        binary="codex", product="the Codex CLI", status=("login", "status"), login=("login", "--device-auth"),
+        intro=("The Codex CLI will sign in to your ChatGPT plan for Cicada on this machine. It prints a link and a "
+               "one-time code: open the link on any device, sign in, and enter the code. The sign-in is kept in "
+               "Cicada's own Codex folder, apart from Codex in your terminal; Cicada never sees or stores the token."),
+        engine_mode="codex",
+        alt=("If the sign-in cannot finish, run `cicada engine connect chatgpt-plan` again from a terminal on this "
+             "machine.")),
+}
+PLAN_AUTH_METHODS = ("claude.ai", "oauth_token")
+#: Kept for callers that name the Claude texts directly.
+CONNECT_INTRO = PLAN_SIGN_INS["claude-plan"].intro
+CONNECT_HEADLESS_ALT = PLAN_SIGN_INS["claude-plan"].alt
+
+
+def _connect_next(plan: PlanSignIn) -> str:
+    return (f"Runs you start can read with it once Sleep reads with your plan (`cicada sleep engine --mode "
+            f"{plan.engine_mode}`). Scheduled runs use it only when you say so: `cicada sleep schedule --use-plan on`.")
+
+
+def _plan_binary(name: str) -> str | None:
+    import shutil
+
+    return shutil.which(name)
+
+
+def _claude_binary() -> str | None:
+    return _plan_binary("claude")
+
+
+def _interactive() -> bool:
+    import sys
+
+    return sys.stdin.isatty()
+
+
+def _signed_in(plan: PlanSignIn, binary: str) -> bool | None:
+    """The plan CLI's own answer: True for a plan sign-in, False for none (or an API key, which is not a plan), None
+    when it could not be asked. Claude Code answers JSON; the Codex CLI answers with its exit code and a sentence."""
+    import subprocess
+
+    from api.services.connections.base import scrubbed_env
+
+    try:
+        done = subprocess.run([binary, *plan.status], capture_output=True, text=True, timeout=20,
+                              env=scrubbed_env(plan.binary), stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if plan.binary == "codex":
+        said = f"{done.stdout}\n{done.stderr}".lower()
+        return done.returncode == 0 and "api key" not in said
+    try:
+        info = json.loads(done.stdout.strip() or "{}")
+    except ValueError:
+        return None
+    return bool(info.get("loggedIn")) and info.get("authMethod") in (None, *PLAN_AUTH_METHODS)
+
+
+def _claude_signed_in(binary: str) -> bool | None:
+    return _signed_in(PLAN_SIGN_INS["claude-plan"], binary)
+
+
+def _run_sign_in(plan: PlanSignIn, binary: str) -> int:
+    """The plan CLI's sign-in in this terminal: its own prompts, its own link, its own storage. The child gets
+    Cicada's scrubbed environment, so a provider key in this shell cannot turn the sign-in into a metered one (and a
+    `codex` child signs in to Cicada's own Codex home)."""
+    import subprocess
+
+    from api.services.connections.base import scrubbed_env
+
+    try:
+        return subprocess.run([binary, *plan.login], env=scrubbed_env(plan.binary)).returncode
+    except (OSError, subprocess.SubprocessError):
+        return 1
+
+
+def cmd_engine_connect(boot, args) -> Result:
+    """Ruling 4b (owner, 2026-10-16): "Just have to set them up somehow" — a plan on a server, signed in by its own
+    CLI in the person's own terminal ("Yeah chat too": the ChatGPT plan as well). Only plans are connected here; a key
+    goes in Settings → Plans & keys or `~/.cicada/secrets.env`."""
+    import sys
+
+    plan = PLAN_SIGN_INS.get(args.connection)
+    if plan is None:
+        raise UsageError("`claude-plan` or `chatgpt-plan` is connected from here; an API key goes in Settings → Plans "
+                         "& keys or ~/.cicada/secrets.env")
+    require_person("Signing in to your plan")
+    if getattr(boot, "client", False):
+        raise Refusal("on_server", "Your memory and its Sleep run on the server, so the plan is signed in there: run "
+                                   f"`cicada engine connect {args.connection}` in a terminal on the server. Nothing "
+                                   "was changed.")
+    binary = _plan_binary(plan.binary)
+    if binary is None:
+        raise Refusal("refused", f"{plan.product[0].upper() + plan.product[1:]} is not installed on this machine, and "
+                                 f"it is what signs in to your plan. Install it, then run `cicada engine connect "
+                                 f"{args.connection}` again. Nothing was changed.")
+    lines: list[str] = []
+    if _signed_in(plan, binary):
+        lines.append("Your plan is already signed in on this machine.")
+    else:
+        if getattr(args, "json", False) or getattr(args, "format", None) == "json":
+            raise Refusal("refused", f"Signing in shows {plan.product}'s own prompts, which --json would hide: run "
+                                     f"`cicada engine connect {args.connection}` without it. Nothing was changed.")
+        if not _interactive():
+            raise Refusal("refused", f"Signing in needs your own terminal: run `cicada engine connect "
+                                     f"{args.connection}` in a terminal on this machine. Nothing was changed. "
+                                     + plan.alt)
+        sys.stderr.write(plan.intro + "\n\n")
+        sys.stderr.flush()
+        _run_sign_in(plan, binary)
+        if not _signed_in(plan, binary):
+            raise Refusal("refused", f"{plan.product[0].upper() + plan.product[1:]} did not finish signing in, so "
+                                     f"nothing changed. Run `cicada engine connect {args.connection}` again. "
+                                     + plan.alt)
+        lines.append("Your plan is signed in on this machine.")
+    status = call(boot, "GET", f"/connections/{args.connection}", query={"fresh": "true"})
+    if not status.get("connected"):
+        lines.append("Cicada's backend does not see the sign-in yet: it runs as another user or with another home. "
+                     + plan.alt)
+    lines.append(_connect_next(plan))
+    return Result(text="\n".join(lines), data={"connection": args.connection,
+                                               "connected": bool(status.get("connected")),
+                                               "plan": status.get("plan")}, warnings=_warn(boot))
 
 
 # --- pictures ------------------------------------------------------------------------------------------------
@@ -1073,7 +1322,12 @@ def cmd_device_add(boot, args) -> Result:
         "On that device: put the token in ~/.cicada/device_token (mode 0600) or CICADA_API_TOKEN, and set "
         "CICADA_API_BASE to the address your own overlay gives this server. Revoke it with "
         f"`cicada device revoke {device.get('id')}`."])
-    return Result(text=text, data={"device": device, "token": token}, warnings=_warn(boot))
+    same = [i for i in answer.get("sameName") or [] if isinstance(i, str)]
+    if same:
+        text += (f"\nNote: another active device is already called '{device.get('name')}' ({', '.join(same)}). "
+                 "Two devices may share a name, but `cicada device list` cannot then tell them apart; revoke the "
+                 "one you no longer use.")
+    return Result(text=text, data={"device": device, "token": token, "sameName": same}, warnings=_warn(boot))
 
 
 def cmd_device_list(boot, args) -> Result:
@@ -1101,7 +1355,7 @@ COMMANDS = {
     "index status": cmd_index_status, "index rebuild": cmd_index_rebuild, "index use": cmd_index_use,
     "index install": cmd_index_install,
     "feed list": cmd_feed_list, "feed add": cmd_feed_add, "feed remove": cmd_feed_remove, "feed poll": cmd_feed_poll,
-    "settings owner": cmd_settings_owner, "engine list": cmd_engine_list,
+    "settings owner": cmd_settings_owner, "engine list": cmd_engine_list, "engine connect": cmd_engine_connect,
     "picture set": cmd_picture_set, "picture initials": cmd_picture_initials, "picture clear": cmd_picture_clear,
     "bank list": cmd_bank_list, "bank use": cmd_bank_use, "bank create": cmd_bank_create,
     "bank rename": cmd_bank_rename, "bank delete": cmd_bank_delete,
@@ -1129,3 +1383,5 @@ def validate(command: str, args) -> None:
             raise UsageError("--every takes 1 to 168 hours")
     if command == "sleep options" and args.continue_after_reset is not None:
         _on_off(args.continue_after_reset)
+    if command == "sleep schedule" and getattr(args, "use_plan", None) is not None:
+        _on_off(args.use_plan)

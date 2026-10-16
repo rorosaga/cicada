@@ -38,6 +38,11 @@ REASONS = ("user", "plan_window", "plan_weekly", "reserve", "overage", "engine",
 #: the scheduled engine was away, would stop scheduled reading until someone pressed Continue.
 #: A person's Pause, a plan or reserve stop, and every run a person started stay theirs.
 SCHEDULE_REPLACEABLE = ("restart", "engine", "busy")
+#: Ruling 4b (owner, 2026-10-16): a scheduled run on the person's plan (their "Scheduled runs may use my plan" switch,
+#: or the old dotfile pin) that stopped at the plan's limit is the schedule's own to replace too — on a server nobody
+#: presses Continue — but only once the limit has reset: at the vendor's reset time when it gave one, else after
+#: ``ENGINE_RETRY_S``. Before then a fresh run would only stop again on its first call. Extra usage stays the person's.
+SCHEDULE_REPLACEABLE_AFTER_RESET = ("plan_window", "plan_weekly")
 #: An engine pause is replaced only once it is this old, so a scheduled engine that stays
 #: away costs one failed call every few hours, never one every five minutes.
 ENGINE_RETRY_S = 6 * 3600
@@ -102,16 +107,24 @@ def schedule_may_replace(record: dict | None, now: float | None = None) -> bool:
     if not record or record.get("phase") != "paused" or record.get("started_by") != "schedule":
         return False
     reason = record.get("reason")
+    now = time.time() if now is None else now
+    if reason in SCHEDULE_REPLACEABLE_AFTER_RESET:
+        resets = record.get("resets_at")
+        if isinstance(resets, (int, float)) and not isinstance(resets, bool) and resets > 0:
+            return now >= float(resets)
+        return now - _paused_at(record) >= ENGINE_RETRY_S
     if reason not in SCHEDULE_REPLACEABLE:
         return False
     if reason == "engine":
-        now = time.time() if now is None else now
-        try:
-            at = float(record.get("paused_at_ts") or 0)
-        except (TypeError, ValueError):
-            at = 0.0
-        return now - at >= ENGINE_RETRY_S
+        return now - _paused_at(record) >= ENGINE_RETRY_S
     return True
+
+
+def _paused_at(record: dict) -> float:
+    try:
+        return float(record.get("paused_at_ts") or 0)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def save(memory_path: Path, record: dict) -> None:

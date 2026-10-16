@@ -243,8 +243,9 @@ ROWS: tuple[Row, ...] = (
     _app(("sleep", "stop"), "Stop the running Sleep at its next safe point; nothing filed is lost.",
          via="backend", mutates=True),
     _app(("sleep", "end"), "End a paused run; everything waiting stays queued.", via="backend", mutates=True),
-    _app(("sleep", "schedule"), "When Sleep runs on its own; --mode manual|daily|interval, --at HH:MM, --every HOURS.",
-         (_f("mode"), _f("at"), _f("every", "int")), via="backend", mutates=True, person=True),
+    _app(("sleep", "schedule"), "When Sleep runs on its own; --mode manual|daily|interval, --at HH:MM, --every HOURS; "
+                                "--use-plan on|off lets scheduled runs use your plan.",
+         (_f("mode"), _f("at"), _f("every", "int"), _f("use_plan")), via="backend", mutates=True, person=True),
     _app(("sleep", "engine"), "Which engine and model Sleep reads with; --mode and --model change it.",
          (_f("mode"), _f("model")), via="backend", mutates=True, person=True),
     _app(("sleep", "options"), "How Sleep reads: batch size, continue after a plan reset, the reserve.",
@@ -266,8 +267,12 @@ ROWS: tuple[Row, ...] = (
     # Settings and engines.
     _app(("settings", "owner"), "Who the person is (--name, --handle, --email change it).",
          (_f("name"), _f("handle"), _f("email")), via="backend", mutates=True, person=True),
-    _app(("engine", "list"), "The engines and plans Cicada can read with, and whether each is connected.",
-         via="backend"),
+    _app(("engine", "list"), "The engines and plans Cicada can read with, whether each is ready, and what runs "
+                             "Sleep you start and scheduled Sleep.", via="backend"),
+    # Ruling 4b (owner, 2026-10-16): sign in to a plan on THIS machine through its own CLI's sign-in.
+    _app(("engine", "connect"), "Sign in to your plan on this machine: claude-plan or chatgpt-plan (the plan's own "
+                                "sign-in; Cicada never sees the token).", (_p("connection"),), via="backend",
+         mutates=True, person=True),
     # Pictures.
     _app(("picture", "set"), "Use an image file as a page's picture.", (_p("entity_id"), _p("file")), via="backend",
          mutates=True, person=True),

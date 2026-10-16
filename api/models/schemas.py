@@ -2395,14 +2395,17 @@ class StatusResponse(CamelModel):
 
 
 class HealthResponse(CamelModel):
+    """``GET /healthz``. Without a token (owner decision 3, 2026-10-16) only ``status``, ``version``, ``bankId`` and
+    ``bankIds`` are filled — liveness and identity, never the memory's path or name; every other field is ``null``
+    and needs the master or a device token (``auth.bearer_admits``)."""
     status: str = "ok"
     version: str
-    entity_count: int
-    episode_count: int
+    entity_count: Optional[int] = None
+    episode_count: Optional[int] = None
     # The *resolved* embedding mode after openai->local auto-degrade, so the
     # installer/doctor can confirm the offline path is actually active.
-    embedding_mode: str
-    memory_path: str
+    embedding_mode: Optional[str] = None
+    memory_path: Optional[str] = None
     # The raw *configured* root (Settings.memory_root / CICADA_MEMORY_PATH) —
     # the container of banks.yaml + banks/<name>/, distinct from memory_path
     # above (the *resolved active bank*). This is the single source of truth
@@ -2413,14 +2416,14 @@ class HealthResponse(CamelModel):
     # ConnectView.swift, which fetches this instead of re-deriving a root
     # from local heuristics that could disagree with whatever the backend
     # was actually started with).
-    memory_root: str
+    memory_root: Optional[str] = None
     # G181 phase 2 — the active bank's id and every bank's id in this root (banks.yaml), so a `cicada` command on
     # this machine or another compares identities, never filesystem paths (ruling 21a, amended 2026-10-16).
     # Ids only: no bank name is said to an unauthenticated caller.
     bank_id: Optional[str] = None
     bank_ids: list[str] = []
     # True when any LEANN index sidecar (<name>.meta.json) exists on disk.
-    leann_present: bool
+    leann_present: Optional[bool] = None
     # The model the active bank's index records (else the one a build would use), and the
     # kind of its last unresolved embedding failure (``embedding_health.KINDS``) — enums
     # only, never a message, so doctor can say why search fell back to words.
@@ -2998,6 +3001,14 @@ class ScheduleConfig(CamelModel):
         return self
 
 
+class ScheduleResponse(ScheduleConfig):
+    """``GET``/``PUT /sleep/schedule``'s answer: the schedule, and — while it runs on its own — why a scheduled run
+    would have no engine it may use (owner decision 2, 2026-10-16; ``engine_readiness``). ``warning`` is the sentence,
+    ``warningCode`` what each client words its own fix from (``no_engine``, ``plan_signed_out``, ``local_down``)."""
+    warning: Optional[str] = None
+    warning_code: Optional[str] = None
+
+
 # --------------------------------------------------------------------------- #
 # G122 — GET/PUT /sleep/engine: the Settings → Engines engine & model picker.
 # --------------------------------------------------------------------------- #
@@ -3137,6 +3148,9 @@ class SleepRunOptions(CamelModel):
     continue_after_reset: bool = False
     reserve_pct: Optional[int] = None
     reserve_choices: list[int] = Field(default_factory=list)
+    # TODO ruling 4b (owner, 2026-10-16): this machine lets SCHEDULED runs use the person's plan (Claude or ChatGPT).
+    # Off by default; nightly runs then count against the plan's limits.
+    scheduled_use_plan: bool = False
 
 
 class SleepRunOptionsUpdate(CamelModel):
@@ -3144,6 +3158,7 @@ class SleepRunOptionsUpdate(CamelModel):
     batch_size: Optional[int] = None
     continue_after_reset: Optional[bool] = None
     reserve_pct: Optional[int] = None
+    scheduled_use_plan: Optional[bool] = None
 
 
 class SleepTriggerBody(BaseModel):

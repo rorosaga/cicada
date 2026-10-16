@@ -253,6 +253,12 @@ LOCAL_ORIGIN_REGEX = r"^https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$"
 app.add_exception_handler(sleep_refusal.SleepWriting, sleep_refusal.handler)
 app.add_exception_handler(bank_binding.BankMismatch, bank_binding.handler)
 
+# Backend hunt (2026-10-16): a path segment longer than any file name is a 404, and the two routes that took a whole
+# body before bounding it refuse one past their ceiling as it arrives (`request_limits`).
+from api.services.request_limits import RequestLimits  # noqa: E402
+
+app.add_middleware(RequestLimits)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origin_regex=LOCAL_ORIGIN_REGEX,

@@ -792,8 +792,12 @@ def answer_query(
     *,
     retrieve_fn: RetrieveFn | None = None,
     llm_fn: LlmFn | None = None,
+    no_engine: bool | None = None,
 ) -> dict:
     """Synthesize an auditable, gap-aware answer grounded only in retrieved memory.
+
+    ``no_engine``: the engine the caller resolved would call an API model with no key
+    (``engine_readiness.key_missing``); ``None`` asks the environment's settings when no ``llm_fn`` is given.
 
     Returns a dict with: ``answer``, ``confidence`` (0..1 float), ``citations``
     (entity-level, each ``{entity_id, entity_name, file_path, snippet,
@@ -845,6 +849,23 @@ def answer_query(
     retrieved_ids = [e["entity_id"] for e in entities]
     prompt = _build_prompt(query, entities)
 
+    from api.services import engine_readiness
+
+    if no_engine is None and llm_fn is None:
+        from api.config import get_settings
+
+        no_engine = engine_readiness.key_missing(get_settings())
+    if no_engine:
+        # Owner decision 2 (2026-10-16): with no engine here, say so — never a keyless call that fails into "could
+        # not synthesize". The pages it found are still named.
+        names = ", ".join(e["entity_name"] for e in entities)
+        return {
+            "answer": f"{engine_readiness.ASK_NO_ENGINE} Relevant pages: {names}.",
+            "confidence": 0.0,
+            "citations": _citations_for(entities, retrieved_ids),
+            "gaps": ["No engine to answer with on this machine."],
+            "used_entities": retrieved_ids,
+        }
     llm = llm_fn or _default_llm_fn()
     parsed: dict | None = None
     try:

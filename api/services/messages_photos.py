@@ -98,7 +98,14 @@ def _drop(bank: str, conversation: str, meta: dict) -> bool:
     return gone
 
 
+#: The longest base64 a ``MAX_BYTES`` photo can be: anything longer is refused before a byte is decoded (backend hunt,
+#: 2026-10-16 — the decode used to run first).
+B64_MAX = 4 * ((MAX_BYTES + 2) // 3)
+
+
 def _decode(raw) -> tuple[bytes, str]:
+    if len(str(raw)) > B64_MAX:
+        raise PayloadError("a shared photo is at most 256 KB — the app shrinks it first")
     try:
         data = base64.b64decode(str(raw), validate=True)
     except (binascii.Error, ValueError):

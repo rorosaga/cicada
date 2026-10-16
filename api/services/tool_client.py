@@ -134,11 +134,35 @@ def call(tool: str, arguments: dict, *, caller: dict, state: dict, surface: str 
         except Exception:  # noqa: BLE001
             pass
         raise ToolClientError(detail or f"Cicada's server could not run this (HTTP {exc.code}).") from None
-    except (urllib.error.URLError, socket.timeout, TimeoutError, ConnectionError, OSError):
-        raise ToolClientError("Cicada's server did not answer. Nothing was read or written; try again when it is "
-                              "reachable.") from None
+    except (urllib.error.URLError, socket.timeout, TimeoutError, ConnectionError, OSError) as exc:
+        raise ToolClientError(_no_answer_text(tool, exc)) from None
     except ValueError:
         raise ToolClientError("Cicada's server answered something that is not JSON.") from None
     if not isinstance(answer, dict):
         raise ToolClientError("Cicada's server answered something unexpected.")
     return answer
+
+
+NOT_REACHED_TEXT = ("Cicada's server could not be reached. Nothing was read or written; try again when it is "
+                    "reachable.")
+TIMED_OUT_READ_TEXT = "Cicada's server did not answer in time. Nothing was written; try again."
+TIMED_OUT_WRITE_TEXT = ("Cicada's server did not answer in time, and it may still have written this: check before "
+                        "trying again (a repeated save is a second copy).")
+
+
+def _no_answer_text(tool: str, exc: BaseException) -> str:
+    """Backend hunt (2026-10-16): only a connection that was never made proves nothing was written. A request sent and
+    not answered in time may have run to completion on the server, so a tool that writes says so — an agent that
+    retries a `cicada_save_episode` on "nothing was written" saves it twice."""
+    reason = getattr(exc, "reason", exc)
+    timed_out = isinstance(reason, (socket.timeout, TimeoutError)) or isinstance(exc, (socket.timeout, TimeoutError))
+    if not timed_out:
+        return NOT_REACHED_TEXT
+    try:
+        from api.services import cli_map
+
+        row = cli_map.by_tool().get(tool)
+        writes = row is None or row.mutates
+    except Exception:  # noqa: BLE001 — unknown reads as "may have written": the safe sentence
+        writes = True
+    return TIMED_OUT_WRITE_TEXT if writes else TIMED_OUT_READ_TEXT

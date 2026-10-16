@@ -16,7 +16,9 @@ and the device it names is recorded on ``request.state.device`` and bound for th
 new episode records ``device``) — the only way the server learns a call came from one of the person's other machines.
 
 Open paths (no bearer token required): ``GET /healthz`` (installer/doctor
-liveness probe), ``POST /capture/telegram`` (Telegram's servers hit this
+liveness probe; without a token it says only ``status``, ``version`` and the bank ids — the memory's path, its counts
+and the search index's state need the token, owner decision 3, 2026-10-16: through an overlay any device on the
+person's tailnet could otherwise read the server's account name from the path), ``POST /capture/telegram`` (Telegram's servers hit this
 webhook through a public tunnel and cannot send our bearer header), and
 ``GET /sources/connectors/<id>/callback`` for every OAuth connector in the
 registry (G71, generalized Task 15 §3 — Pinterest and X today) — each OAuth
@@ -110,6 +112,29 @@ def cicada_home() -> Path:
 
 def auth_enabled() -> bool:
     return os.environ.get("CICADA_API_AUTH", "on").strip().lower() not in {"off", "0", "false"}
+
+
+def bearer_admits(authorization: str | None) -> bool:
+    """Whether an ``Authorization`` header carries the master token or an active device token — for an OPEN route that
+    says more to a caller who holds one (``/healthz``'s paths, owner decision 3, 2026-10-16). True when auth is off.
+    Never raises; an unreadable device store admits nothing."""
+    if not auth_enabled():
+        return True
+    supplied = ""
+    if authorization and authorization.lower().startswith("bearer "):
+        supplied = authorization[7:].strip()
+    if not supplied:
+        return False
+    if secrets.compare_digest(supplied.encode("utf-8"), get_token().encode("utf-8")):
+        return True
+    from api.services import device_tokens
+
+    if not device_tokens.looks_like(supplied):
+        return False
+    try:
+        return device_tokens.store().verify(supplied) is not None
+    except Exception:  # noqa: BLE001 — fail closed
+        return False
 
 
 def get_token() -> str:

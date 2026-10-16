@@ -44,7 +44,7 @@ def test_ask_runs_on_the_settings_engine_and_builds_it_only_when_asked(client, m
     monkeypatch.setattr(ask_service, "_default_llm_fn", fake_default)
     calls = []
 
-    def fake_answer(memory_path, query, top_k=6, *, retrieve_fn=None, llm_fn=None):
+    def fake_answer(memory_path, query, top_k=6, *, retrieve_fn=None, llm_fn=None, no_engine=None):
         calls.append(query)
         if query == "grounded":
             llm_fn("prompt")
@@ -76,7 +76,7 @@ def test_a_throttle_in_one_ask_never_blocks_the_next(client, monkeypatch):
 
     monkeypatch.setattr(ask_service, "_default_llm_fn", fake_default)
 
-    def fake_answer(memory_path, query, top_k=6, *, retrieve_fn=None, llm_fn=None):
+    def fake_answer(memory_path, query, top_k=6, *, retrieve_fn=None, llm_fn=None, no_engine=None):
         llm_fn("prompt")
         return {"answer": "x", "confidence": 0.5, "citations": [], "gaps": [], "used_entities": []}
 

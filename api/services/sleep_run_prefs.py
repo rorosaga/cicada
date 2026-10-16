@@ -1,4 +1,4 @@
-"""Reading options — the three choices a Sleep run reads (Sleep page v5).
+"""Reading options — the choices a Sleep run reads (Sleep page v5; ruling 4b).
 
 Stored beside the engine choice in ``~/.cicada/connections.json`` (machine-global,
 bank-independent, the store ``sleep-engine`` lives in), under the pseudo-connection
@@ -13,6 +13,9 @@ id ``sleep-run``:
 * ``reserve_pct`` — "Leave room in my plan" (5, 10, 20 or 30 percent of a plan
   window). Off (unset) by default; set in the engine menu; only meaningful for a
   plan engine. See ``sleep_reserve`` for what enforcing it means and does not.
+* ``scheduled_use_plan`` — TODO ruling 4b (owner, 2026-10-16). Off by default. Lets a
+  SCHEDULED run use the person's plan, Claude or ChatGPT (``engine_select.SCHEDULE_PLAN_MODES``):
+  nightly runs then count against the plan's limits, said once where it is turned on.
 
 A run snapshots all three when it starts, so a change applies to the next start or
 Continue and never to a run in flight.
@@ -31,6 +34,7 @@ class RunOptions:
     batch_size: int | None = None
     continue_after_reset: bool = False
     reserve_pct: int | None = None
+    scheduled_use_plan: bool = False
 
 
 def _entry(registry) -> dict:
@@ -51,6 +55,7 @@ def load(registry) -> RunOptions:
         batch_size=size if isinstance(size, int) and not isinstance(size, bool) and size in BATCH_CHOICES else None,
         continue_after_reset=e.get("continue_after_reset") is True,
         reserve_pct=pct if isinstance(pct, int) and not isinstance(pct, bool) and pct in RESERVE_CHOICES else None,
+        scheduled_use_plan=e.get("scheduled_use_plan") is True,
     )
 
 
@@ -61,7 +66,7 @@ def effective_batch_size(opts: RunOptions, settings) -> int:
     return opts.batch_size or configured_batch_size(settings)
 
 
-def write(registry, *, batch_size=..., continue_after_reset=..., reserve_pct=...) -> None:
+def write(registry, *, batch_size=..., continue_after_reset=..., reserve_pct=..., scheduled_use_plan=...) -> None:
     """Persist the fields that were passed (``...`` leaves one alone; ``None``
     clears ``batch_size`` / ``reserve_pct``). Callers validate first."""
     if batch_size is not ...:
@@ -70,3 +75,5 @@ def write(registry, *, batch_size=..., continue_after_reset=..., reserve_pct=...
         registry.set_pref(PREF_KEY, "continue_after_reset", True if continue_after_reset else None)
     if reserve_pct is not ...:
         registry.set_pref(PREF_KEY, "reserve_pct", reserve_pct)
+    if scheduled_use_plan is not ...:
+        registry.set_pref(PREF_KEY, "scheduled_use_plan", True if scheduled_use_plan else None)

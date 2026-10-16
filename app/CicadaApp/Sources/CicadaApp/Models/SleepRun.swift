@@ -179,11 +179,14 @@ struct SleepRunOptions: Codable, Equatable {
     var continueAfterReset: Bool
     var reservePct: Int?
     var reserveChoices: [Int]
+    /// TODO ruling 4b (owner, 2026-10-16): this machine lets scheduled runs use the person's plan. Off by default.
+    var scheduledUsePlan: Bool
 
     init(batchSize: Int = 25, batchSizeChoices: [Int] = [10, 25, 50], continueAfterReset: Bool = false,
-         reservePct: Int? = nil, reserveChoices: [Int] = [5, 10, 20, 30]) {
+         reservePct: Int? = nil, reserveChoices: [Int] = [5, 10, 20, 30], scheduledUsePlan: Bool = false) {
         self.batchSize = batchSize; self.batchSizeChoices = batchSizeChoices
         self.continueAfterReset = continueAfterReset; self.reservePct = reservePct; self.reserveChoices = reserveChoices
+        self.scheduledUsePlan = scheduledUsePlan
     }
 
     init(from decoder: Decoder) throws {
@@ -193,8 +196,11 @@ struct SleepRunOptions: Codable, Equatable {
         continueAfterReset = ((try? c.decodeIfPresent(Bool.self, forKey: .continueAfterReset)) ?? nil) ?? false
         reservePct = (try? c.decodeIfPresent(Int.self, forKey: .reservePct)) ?? nil
         reserveChoices = ((try? c.decodeIfPresent([Int].self, forKey: .reserveChoices)) ?? nil) ?? []
+        scheduledUsePlan = ((try? c.decodeIfPresent(Bool.self, forKey: .scheduledUsePlan)) ?? nil) ?? false
     }
-    enum CodingKeys: String, CodingKey { case batchSize, batchSizeChoices, continueAfterReset, reservePct, reserveChoices }
+    enum CodingKeys: String, CodingKey {
+        case batchSize, batchSizeChoices, continueAfterReset, reservePct, reserveChoices, scheduledUsePlan
+    }
 }
 
 /// A `PUT /sleep/run-options` change: only the fields set are sent (`reservePct` as JSON `null`
@@ -203,12 +209,15 @@ enum SleepRunOptionsChange: Equatable {
     case batchSize(Int)
     case continueAfterReset(Bool)
     case reservePct(Int?)
+    /// Ruling 4b: the machine's "Scheduled runs may use my plan" switch.
+    case scheduledUsePlan(Bool)
 
     var body: [String: Any] {
         switch self {
         case .batchSize(let n): ["batchSize": n]
         case .continueAfterReset(let on): ["continueAfterReset": on]
         case .reservePct(let pct): ["reservePct": pct.map { $0 as Any } ?? NSNull()]
+        case .scheduledUsePlan(let on): ["scheduledUsePlan": on]
         }
     }
 }

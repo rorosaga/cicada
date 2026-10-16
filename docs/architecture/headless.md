@@ -14,7 +14,10 @@ id rule (max-suffix+1 per local directory), the read-modify-write state files an
 **Nothing listens beyond loopback.** The service binds `127.0.0.1` only. Reaching it from another machine is an
 overlay the person runs and Cicada never configures: on a tailnet, `tailscale serve --bg --https=443
 http://127.0.0.1:8000` (tailnet only; never `funnel`), or an SSH tunnel. The API token is still required on every
-route but `/healthz`. Tailscale's identity headers are not a substitute for it: tagged devices get none, and anyone
+route but `/healthz`, and `/healthz` without the token says only `status`, `version` and the bank ids — the memory's
+path, its counts and the index's state need the token (owner decision 3, 2026-10-16: through the overlay, any device
+on the tailnet could otherwise read the server's account name from the path; `auth.bearer_admits`; the CLI's 21a probe,
+`doctor.sh` and the app send it). Tailscale's identity headers are not a substitute for it: tagged devices get none, and anyone
 the device is shared with gets them.
 
 ## Install
@@ -125,7 +128,8 @@ The script creates no credential. The backend writes `~/.cicada/api_token` (0600
 scheduled Sleep goes in `~/.cicada/secrets.env`, written by the person.
 
 `make doctor` (`scripts/doctor.sh`) checks `systemctl --user is-active cicada-backend.service` on Linux in place of
-the launchd agent.
+the launchd agent. Where there is no `make` (a minimal server) or no Makefile (a Homebrew keg), `install.sh` names
+`bash <repo>/scripts/doctor.sh` as the next step instead (`doctor_hint`).
 
 ## `~/.cicada` on a server
 
@@ -144,9 +148,37 @@ The same layout as on a Mac, created by the backend and the CLI. The ones that m
 ## Sleep on a server
 
 The schedule runs inside the backend (APScheduler, `sleep_scheduler`), from the bank's `sleep_schedule.yaml`, so it
-needs no app and no timer unit. **Ruling 4 binds here as everywhere:** a scheduled run never uses a Claude or ChatGPT
-plan, so a server Sleeps on its schedule only with a metered key in its `secrets.env` (or a deliberate local-model
-pin). A run the person starts (CLI `cicada sleep`, or a client's click) may use a plan.
+needs no app and no timer unit. A run the person starts (`cicada sleep start`, or a client's click) may use a plan.
+**A scheduled run uses a plan only when the person said so** (TODO ruling 4b, owner 2026-10-16: "The server should be
+allowed to use plans too. Just have to set them up somehow"; "Yeah chat too"): the machine's switch, off by default,
+is `cicada sleep schedule --use-plan on|off` here and Settings → Sleep → *Scheduled runs may use my plan* in the app,
+and saying it once is where it is said that nightly runs then count against the plan's limits. Otherwise a server
+Sleeps on its schedule with a metered key in its `secrets.env` or a local model (`capture-and-sleep.md`).
+
+### Setting a plan up on a server
+
+```sh
+cicada engine connect claude-plan     # Claude Code's own sign-in: `claude auth login --claudeai`
+cicada engine connect chatgpt-plan    # the Codex CLI's own device sign-in: `codex login --device-auth`
+cicada sleep engine --mode agent      # or --mode codex: what Sleep reads with
+cicada sleep schedule --use-plan on   # and let scheduled runs use it
+```
+
+`engine connect` runs in the person's own terminal on the server (it refuses from a client, from an agent's shell,
+without a terminal and under `--json`, which would hide the prompts). It runs the plan CLI's own sign-in — its link,
+its code, its storage — with Cicada's scrubbed environment (a provider key in the shell never turns it metered; the
+Codex CLI signs in to Cicada's own `CODEX_HOME`), then asks the backend to probe the plan again. Cicada never sees,
+prints or stores the token. Where `claude auth login` cannot finish, `claude setup-token` on any machine prints a
+long-lived token the person sets as `CLAUDE_CODE_OAUTH_TOKEN` in the unit's own environment (`systemctl --user edit
+cicada-backend.service`); Claude Code reports it as `authMethod: oauth_token`, which reads as a signed-in plan.
+
+**Readiness is said, not guessed** (owner decision 2, 2026-10-16). `cicada engine list` says each engine's state in
+words — `key set` / `no key`, `signed in (<plan>)` / `not signed in` / `not installed`, `running` / `not running` — then
+what a run you start and a scheduled run would use, and whether scheduled runs may use the plan. While a schedule is
+on and a scheduled run would have no engine it may use, `GET`/`PUT /sleep/schedule` carry `warning` and `warningCode`
+(`engine_readiness`: `no_engine`, `plan_signed_out`, `plan_not_chosen`, `local_down`), and `cicada sleep schedule`,
+`engine list` and Settings → Sleep say it with the fix — connecting a plan first. `ask` on a machine with no engine
+says so and names the pages it found, never a keyless call.
 
 ## Commits with no git identity
 
@@ -162,7 +194,8 @@ Owner rulings 2026-10-16 (TODO ruling 28): per-device tokens; the transcript rai
 person's counts as local for the G198 trust list.
 
 **On the server**, once: `cicada device add <name>` (the person's own terminal; `POST /devices` with the master token
-does the same). It prints the device's token once and keeps only its hash. `cicada device list` shows each device and
+does the same; its answer's `sameName` lists the active devices already called that, and the command warns — two
+devices may share a name, but the list then cannot tell them apart). It prints the device's token once and keeps only its hash. `cicada device list` shows each device and
 when it was last used; `cicada device revoke <id>` ends it at once. The master token (`~/.cicada/api_token`) never
 leaves the server, and a device token can neither issue nor revoke one.
 
@@ -178,7 +211,9 @@ A Linux client gets the code, the hooks and the command with the server's own on
 exported (`install.sh` then installs no backend; the summary names the device token, not a master token). On a Mac,
 the app's Settings → General → *A server*, or Homebrew's `cicada-setup` with `CICADA_API_BASE` set.
 
-Unset, every client behaves exactly as on one machine. Set, the machine holds no bank. Every client sends its token
+Unset, every client behaves exactly as on one machine. Set, the machine holds no bank — and gets none: `install.sh`
+on a client makes no memory folder, writes no `CICADA_MEMORY_PATH` and registers the MCP server without one (owner
+decision 4, 2026-10-16); the app in client mode spawns no backend, the only thing that ever made the folder. Every client sends its token
 straight to that address: no proxy from the environment, and no redirect followed (`runtime_layout.opener`,
 `hook_client.opener`) — urllib would re-send a redirected post as a GET, token included, to wherever it points, and its
 200 would read as delivered. A 3xx is the answer: a hook keeps the post in its spool (its log line names the redirect), and a tool call, the
@@ -233,7 +268,10 @@ On a server the app:
   replacing a reader's run (G183(d)) — never waits). A newer post on the same route and memory never overtakes one
   that waits: those go first, and while one still cannot land the newer waits behind it (a snapshot replayed late would
   put the server back to an older state). It is flushed oldest first when the event stream connects again
-  (and by *Send now* on the Devices page); the readers keep their cursors and read again, so the outbox is the fast
+  (and by *Send now* on the Devices page), **lane by lane** (route + memory, owner decision 6, 2026-10-16): no answer
+  or a refused token (401/403) stops the flush, but a post the server answered and did not take — another memory's
+  409 after a bank switch, a 5xx — waits with the newer posts of its own lane while the other lanes, the active
+  memory's among them, still go; the readers keep their cursors and read again, so the outbox is the fast
   path and the server's dedup makes a resend harmless;
 - refuses the demo (`ServerLinkError.demoStaysLocal`, before any request): a demo is a This Mac thing.
 
@@ -257,7 +295,7 @@ On This Mac, what this Mac wrote says nothing. The bank picker's menu says *on <
 | Claude Code and Codex on the server, captured by their Stop hook | Claude Code and Codex on a client, read there, posted as turns |
 | Cursor and Gemini CLI on the server (`/capture/turn`) | The same hooks on a client, spooled when the server is away |
 | The CLI and stdio MCP on the server | The stdio MCP and the CLI on a client, through the server |
-| Scheduled Sleep on a metered key | The app (Settings → General → A server), its readers and their outbox |
+| Scheduled Sleep on a metered key, a local model, or the person's plan when they allow it (ruling 4b) | The app (Settings → General → A server), its readers and their outbox |
 | The G135 remote listener, behind the person's overlay | Settings → Devices, and the device on every conversation and save |
 
 Known limits of phase 2: the skills tools (`cicada_skills`, `skills list|propose|create`) act on the server's agent

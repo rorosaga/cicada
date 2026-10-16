@@ -8,8 +8,9 @@ holds one entry per session, not one per reply, and a resend never carries a sna
 A per-turn post (Cursor, Gemini CLI) is not cumulative: each is its own entry, flushed in order, and a new turn waits
 behind any already waiting so the episode's turn order holds.
 
-A flush sends oldest first while the hook's budget lasts and stops at the first post that does not land (the server
-is still away). A session's resend first re-reads its transcript's SIZE (never its bytes) so the server can tell a
+A flush sends oldest first while the hook's budget lasts and stops at the first post that does not land because the
+server is away or refuses this device; a post the server answered but did not take (a 5xx, a 409) waits on its own —
+a session is skipped, a turn holds the turns behind it. A session's resend first re-reads its transcript's SIZE (never its bytes) so the server can tell a
 stale snapshot from a replaced file. Bounded: past :data:`MAX_ENTRIES` or :data:`MAX_BYTES` the oldest entries are
 dropped and counted in the log — never their content. Nothing here holds a token; the body is the same scrubbed,
 capped payload the hook would have sent.
@@ -141,11 +142,22 @@ def flush(home: Path, send: Callable[[str, dict], int | None], *, deadline: floa
         os.close(lock_fd)
 
 
+#: Answers that say the SERVER is away or refuses this device — every later post would get the same, so a flush stops.
+#: Any other answer that is not final (a 5xx, a 409) is about one post: a session's entry is skipped and kept, so one
+#: stuck session never holds back every turn queued behind it (backend hunt, 2026-10-16); a turn waits, and so do
+#: the turns behind it, so an episode's turn order holds.
+_STOP_ALL = (None, 401, 403)
+
+
 def _flush_locked(home, send, *, deadline, keep, size_of) -> tuple[int, int, int]:
     sent = final = 0
+    turns_waiting = False
     for path in entries(home):
         if time.monotonic() + MARGIN_S >= deadline:
             break
+        is_turn = not path.name.startswith("s-")
+        if is_turn and turns_waiting:
+            continue
         try:
             stamp = path.stat().st_mtime_ns
             entry = json.loads(path.read_text(encoding="utf-8"))
@@ -162,7 +174,10 @@ def _flush_locked(home, send, *, deadline, keep, size_of) -> tuple[int, int, int
         if status is not None and 200 <= status < 300:
             sent += 1
         elif keep(status):
-            break
+            if status in _STOP_ALL:
+                break
+            turns_waiting = turns_waiting or is_turn
+            continue
         else:
             final += 1
         try:

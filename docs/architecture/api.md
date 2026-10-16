@@ -67,12 +67,33 @@ webhook is exempt because Telegram's servers cannot send the header — today it
 Telegram being configured, not by a per-request secret (**see G57**). Each OAuth callback lands in
 the user's browser, which likewise cannot send the header, so it is gated by its own single-use,
 10-minute `state` nonce; `auth.py::_is_oauth_callback_path` resolves the exemption live against the
-connectors registry rather than hardcoding a literal per adapter.
+connectors registry rather than hardcoding a literal per adapter. **`/healthz` is open but says more to a token**
+(owner decision 3, 2026-10-16): without one (or with a wrong one) it answers only `status`, `version`, `bankId` and
+`bankIds`; the memory's path and root, the counts, the embedding mode and model and the index state are filled only for
+the master or an active device token (`auth.bearer_admits`; `response_model_exclude_none`, so an absent field is
+absent, not null). Every client that reads those fields sends its token: the CLI's ruling-21a probe
+(`cli_app.probe_backend`), `scripts/doctor.sh` (the header from `~/.cicada/api_token` through curl's stdin, never a
+command line) and the app (`APIClient.fetchHealth`); the installers and the server check need only `status`, and the
+app's server check only `version`.
+
+**Bounds before any route (backend hunt, 2026-10-16; `request_limits`, a pure ASGI middleware).** A path segment
+longer than a file name (255 bytes, decoded) is **404** before routing — a 3,000-character id used to reach
+`Path.exists()` and answer 500 (`ENAMETOOLONG`). `POST /capture/session` (8 MB) and `PUT /sources/messages/photos`
+(24 MB) refuse a body past their ceiling with **413**, at once from a declared `Content-Length` and, without one, the
+moment the streamed bytes pass it; a Messages photo whose base64 is longer than a 256 KB photo can be is refused
+before it is decoded (`messages_photos.B64_MAX`, 422 as before).
+
+**Schedule and reading options (ruling 4b, owner decision 2).** `GET/PUT /sleep/schedule` answer the schedule plus,
+while it runs on its own, `warning` and `warningCode` when a scheduled run would have no engine it may use
+(`ScheduleResponse`, `engine_readiness`); the PUT body is unchanged and the app never sends them back.
+`GET/PUT /sleep/run-options` carry `scheduledUsePlan` (machine-wide, off by default; `null` is 422).
+`POST /ask` on an engine with no key answers that it has no engine, naming the pages it found, and calls nothing.
 
 **Device tokens (G181 phase 2, owner ruling 1, 2026-10-16).** A second machine of the person's never gets the master
 token: each device gets its own **named, hashed, revocable** token (`device_tokens`, the G135 store's shape kept apart:
 `$CICADA_HOME/devices/devices.db`, 0700/0600, sha256 only, `cic_dev_<id>_<secret>`, no expiry, revocation immediate).
-Issuing is the person's act on the server: `cicada device add <name>` (person-only) or `POST /devices` with the master
+Issuing is the person's act on the server (`POST /devices` answers `sameName`, the active devices already called that,
+for the client to warn about): `cicada device add <name>` (person-only) or `POST /devices` with the master
 token, which answers the token once (201); `GET /devices` lists (no token), `DELETE /devices/{id}` revokes. A device
 token opens every route but `/devices*` and the `POST`/`PUT`/`PATCH` writes under `/remote` (403: minting, rotating
 or turning on a G135 connector would leave a credential that outlives the device's revocation; a device may still read

@@ -394,7 +394,8 @@ final class BrowserWatcherTests: XCTestCase {
         XCTAssertNil(activity.run(for: "chrome-bookmarks"))
         XCTAssertNotEqual(watcher.state(for: "chrome-bookmarks"), .failed)
         XCTAssertNil(watcher.error(for: "chrome-bookmarks"))
-        XCTAssertNil(defaults.data(forKey: "cicada.browserWatch.chrome-bookmarks"), "no signature: the next change re-reads")
+        XCTAssertNil(defaults.data(forKey: BrowserWatcher.signatureKey("chrome-bookmarks", bank: "default")),
+                     "no signature: the next change re-reads")
         watcher.stop()
     }
 }

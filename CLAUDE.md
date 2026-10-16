@@ -198,8 +198,9 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   **engine-independent tail** on every exit path, in a clean-tree-guarded slot, each step committing only its own paths.
 - **Consolidate reads everything** (rulings 13, 16): every run — the person's and a scheduled one — is a drain over the
   ids frozen at its start, in committed batches (default 25), so a stop loses at most the batch in progress. Decay and the
-  page reads run once per drain. A plan limit is a pause, not a failure. **Ruling 4: a scheduled run never uses a Claude or
-  ChatGPT plan**; on a metered engine it spends with no limit Cicada sets, said in words. Continue-after-reset is opt-in,
+  page reads run once per drain. A plan limit is a pause, not a failure. **Ruling 4: a scheduled run uses a Claude or ChatGPT plan only
+  through the person's off-by-default "Scheduled runs may use my plan" switch** (4b, 2026-10-16; `SUBSCRIPTION_MODES`
+  the one guard); on a metered engine it spends with no limit Cicada sets, said in words. Continue-after-reset is opt-in,
   off (ruling 15).
 - **The write window (G177):** `sleep_cycle.is_writing()` is the one predicate behind every "Sleep is running" refusal,
   read only through `write_admission` (G183): a writer holds it shared through its own commit (async: `run_admitted`),

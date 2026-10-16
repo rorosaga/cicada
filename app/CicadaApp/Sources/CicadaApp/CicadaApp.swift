@@ -323,6 +323,8 @@ struct CicadaApp: App {
                     Task { await contactsReader.bankChanged() }
                     // G179 — the new memory's ticked conversations, past their own cursors.
                     Task { await messages.bankChanged() }
+                    // Owner decision 5 (2026-10-16) — the new memory's bookmarks, past its own "what was synced".
+                    Task { await browserWatcher.bankChanged() }
                 }
                 .onAppear {
                     // G130 R5: the View menu's CommandGroup below already

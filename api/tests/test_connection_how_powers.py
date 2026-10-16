@@ -39,7 +39,7 @@ def test_claude_how_names_the_cli_the_mac_and_the_account(monkeypatch):
     status = run(adapter.status())
     assert status.connected
     assert status.how == (
-        "Signed in to Claude Code on this Mac as `r@example.com`. When Sleep or Ask runs on "
+        "Signed in to Claude Code on this machine as `r@example.com`. When Sleep or Ask runs on "
         "your Claude plan it goes through the `claude` CLI — Cicada never sees your token."
     )
 
