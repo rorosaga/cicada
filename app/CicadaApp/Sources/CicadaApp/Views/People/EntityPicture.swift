@@ -171,6 +171,14 @@ enum EntityPictureLayout {
         }
     }
 
+    /// The initials' size and weight at `units`. At 0.36 of the picture a 20 pt circle sets a 7 pt medium letter — a
+    /// hairline nobody reads as a picture (the Messages bubbles, 2026-10-16) — so a small picture's letters take half
+    /// its height, semibold. From 24 units up the proportion is unchanged.
+    static let smallInitialsBelow: CGFloat = 24
+    static func initialsType(units: CGFloat) -> (size: CGFloat, weight: Font.Weight) {
+        units < smallInitialsBelow ? (units * 0.5, .semibold) : (units * 0.36, .medium)
+    }
+
     /// DR-53 — outline symbols; Clusters' card header wears the same one (F-11).
     static func glyph(_ type: EntityType) -> String {
         switch type {
@@ -206,10 +214,11 @@ struct EntityPictureFallback: View {
 
     var body: some View {
         let hue = CicadaTheme.entityColor(for: type)
+        let initials = EntityPictureLayout.initialsType(units: units)
         switch EntityPictureLayout.fallback(type, name: name, chosenInitials: chosenInitials) {
         case .initials(let text):
             Text(text)
-                .font(CicadaTheme.font(size: units * 0.36, weight: .medium))
+                .font(CicadaTheme.font(size: initials.size, weight: initials.weight))
                 .foregroundStyle(hue)
                 .minimumScaleFactor(0.6)
                 .lineLimit(1)
@@ -218,7 +227,7 @@ struct EntityPictureFallback: View {
                 .overlay(Circle().strokeBorder(hue, lineWidth: CicadaTheme.scaled(1.5)))
         case .monogram(let text):
             Text(text)
-                .font(CicadaTheme.font(size: units * 0.36, weight: .medium))
+                .font(CicadaTheme.font(size: initials.size, weight: initials.weight))
                 .foregroundStyle(hue)
                 .minimumScaleFactor(0.6)
                 .lineLimit(1)

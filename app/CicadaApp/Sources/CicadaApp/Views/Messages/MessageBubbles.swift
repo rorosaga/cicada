@@ -18,6 +18,12 @@ enum MessageBubbles {
     static let maxShown = 3
     /// Each bubble overlaps the one before by this fraction of its size.
     static let overlap: CGFloat = 0.3
+    /// The ground-coloured ring that cuts each bubble from the one under it, in units. It sits OUTSIDE the face: drawn
+    /// over it (as it was), it covered a monogram's own 1.5 pt hue ring and left a near-black disc in dark appearance.
+    static let groundRing: CGFloat = 1.5
+
+    /// The face inside a bubble of `size` units: the bubble less its ground ring on both sides.
+    static func faceUnits(_ size: CGFloat) -> CGFloat { size - 2 * groundRing }
 
     struct Model: Equatable {
         var shown: [MessageBubble]
@@ -47,8 +53,10 @@ enum MessageBubbles {
     }
 }
 
-/// The stack itself: each conversation's Contacts photo, else a monogram (`EntityPictureFallback`, a person's ring);
-/// nothing from the web. Hovering a bubble names it; clicking the stack (when `interactive`) lists the names.
+/// The stack itself: each conversation's Contacts photo, else a monogram (`EntityPictureFallback`: a person's initials in
+/// their 1.5 pt hue ring); nothing from the web. Each face sits inside a ring of the ground's own colour, never over it,
+/// so the monogram's hue ring stays whole. Hovering a bubble names it; clicking the stack (when `interactive`) lists the
+/// names.
 struct MessageBubbleStack: View {
     var size: CGFloat = 20
     var interactive = true
@@ -86,7 +94,7 @@ struct MessageBubbleStack: View {
         let side = CicadaTheme.scaled(size)
         return HStack(spacing: -side * MessageBubbles.overlap) {
             ForEach(model.shown) { bubble in
-                face(bubble, photo: watcher.cards[bubble.id]?.thumbnail, side: side)
+                MessageBubbleFace(name: bubble.name, photo: watcher.cards[bubble.id]?.thumbnail, size: size)
                     .help(bubble.help)
             }
             if model.hidden > 0 {
@@ -99,20 +107,31 @@ struct MessageBubbleStack: View {
             }
         }
     }
+}
 
-    @ViewBuilder
-    private func face(_ bubble: MessageBubble, photo: Data?, side: CGFloat) -> some View {
+/// One bubble: the face (a Contacts photo, else the person's monogram) inset by `MessageBubbles.groundRing` inside a
+/// disc of the ground's colour. Depth is a ring, not a shadow (DR-9): the disc is what cuts this bubble from the one
+/// under it.
+struct MessageBubbleFace: View {
+    let name: String
+    let photo: Data?
+    var size: CGFloat = 20
+
+    var body: some View {
+        let side = CicadaTheme.scaled(size)
+        let inner = CicadaTheme.scaled(MessageBubbles.faceUnits(size))
         Group {
             if let photo, let image = NSImage(data: photo) {
                 Image(nsImage: image).resizable().scaledToFill()
             } else {
-                EntityPictureFallback(type: .person, name: bubble.name, units: size, frame: CGSize(width: side, height: side))
+                EntityPictureFallback(type: .person, name: name, units: MessageBubbles.faceUnits(size),
+                                      frame: CGSize(width: inner, height: inner))
             }
         }
-        .frame(width: side, height: side)
+        .frame(width: inner, height: inner)
         .clipShape(Circle())
-        // Depth is a ring, not a shadow: each bubble is cut from the one under it by the ground's own colour.
-        .overlay(Circle().strokeBorder(CicadaTheme.bgBase, lineWidth: CicadaTheme.scaled(1.5)))
+        .frame(width: side, height: side)
+        .background(Circle().fill(CicadaTheme.bgBase))
     }
 }
 

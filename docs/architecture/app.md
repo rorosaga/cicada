@@ -350,7 +350,8 @@ reader (`SQLiteReadOnly`, read-only, one transaction; a BLOB projected only from
 The Sources card's *Sync now* routes to it (`ChannelActions.SyncRoute.messages`). **The bubbles:** Details › What's
 waiting on the Sleep page has a `MessagesWaitingRow` beside the videos' row, and Home's Today waiting line carries the
 same `MessageBubbleStack` (non-interactive there): up to three overlapping profile bubbles (Contacts photo, else a
-monogram; a ring in the ground's colour, never a shadow), "+N" past three, and the number of messages Sleep will
+monogram — `MessageBubbleFace`: the face inset 1.5 pt inside a disc of the ground's colour, so the monogram keeps its
+own hue ring, and below 24 units its letters are half its height, semibold; never a shadow), "+N" past three, and the number of messages Sleep will
 read; hovering a bubble names it ("Instinct · 34 messages waiting to be read"), clicking the Sleep page's stack lists
 the names. `MessageBubbles.model` is pure and tested. Not a Store domain: `GET /sources/messages/waiting` is fetched
 in memory whenever the status's unprocessed count moves. **Who is who in the Reader:** `EpisodeText.correspondent`
