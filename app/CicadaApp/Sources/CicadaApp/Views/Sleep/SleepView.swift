@@ -182,6 +182,8 @@ struct SleepView: View {
     @Environment(FeedViewModel.self) private var feedVM
     /// G162 — the video states the rows, the strip and the watch run read.
     @Environment(VideoStateCache.self) private var videoCache
+    /// R-IB22 — an export the person is waiting on keeps Saved up while nothing is saved: its strip heads that tab.
+    @Environment(ExportWaitStore.self) private var exportWaits
     @Environment(ProvenanceRouter.self) private var provenance
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// Track Z Z10 — Increase Contrast hides the optional sky band (§11).
@@ -622,19 +624,24 @@ struct SleepView: View {
         Self.queueCount(status: store.status.value, fallback: sleepVM.queuedEpisodes.count)
     }
 
-    /// Whether Waiting has anything to show: a queue, a parked conversation, the run's own block, the person's page,
-    /// or a queue that could not be read (an error is not "nothing waiting").
+    /// Whether Waiting has anything to show: a queue, a parked conversation, the run's own block, or a queue that
+    /// could not be read (an error is not "nothing waiting"). The person's-page note alone no longer keeps a
+    /// "Waiting 0" tab up (owner 2026-10-16: a zero count hides its tab); it rides along whenever Waiting shows.
     private func waitingHasRows(_ page: SleepPageModel) -> Bool {
         if case .failed = page.queueLoad { return true }
-        return waitingCount > 0 || page.parkedCount > 0 || showsRunBlock(page) || ownerReady(page)
+        return waitingCount > 0 || page.parkedCount > 0 || showsRunBlock(page)
     }
 
+    private var exportWaiting: Bool { !exportWaits.active(bank: store.bank).isEmpty }
+
     private func currentTab(_ page: SleepPageModel) -> SleepTab {
-        SleepTab.resolve(chosen: chosenTab, waitingHasRows: waitingHasRows(page), videos: videoItems.count)
+        SleepTab.resolve(chosen: chosenTab, waitingHasRows: waitingHasRows(page), saved: feedVM.items.count,
+                         exportWaiting: exportWaiting, videos: videoItems.count)
     }
 
     private func tabRowTabs(_ page: SleepPageModel) -> [TextTab<SleepTab>] {
-        SleepTabRow.tabs(SleepTab.visible(waitingHasRows: waitingHasRows(page), videos: videoItems.count),
+        SleepTabRow.tabs(SleepTab.visible(waitingHasRows: waitingHasRows(page), saved: feedVM.items.count,
+                                          exportWaiting: exportWaiting, videos: videoItems.count),
                          waiting: waitingCount, saved: feedVM.items.count, videos: videoItems.count)
     }
 

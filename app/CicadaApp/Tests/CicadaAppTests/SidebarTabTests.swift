@@ -92,10 +92,10 @@ final class SidebarTabTests: XCTestCase {
         }
     }
 
-    /// The gear's attention dot: a subscription that is installed but signed
-    /// out. A key-based connection with no key is "not set up", not "expired",
-    /// and must not raise it.
-    func testGearAttentionDotOnlyForAnExpiredSubscription() {
+    /// The gear's attention dot (owner 2026-10-16): only when the engine the person CHOSE is a plan that is installed
+    /// but signed out. A plan nobody chose, a key-based connection with no key ("not set up", not "expired") and a CLI
+    /// that isn't installed never raise it.
+    func testGearAttentionDotOnlyForTheChosenEngine() {
         func make(id: String, billing: String, available: Bool, connected: Bool) -> ConnectionStatus {
             ConnectionStatus(id: id, label: id, kind: billing, available: available,
                              connected: connected, plan: nil, planLabel: nil, tier: nil,
@@ -103,20 +103,33 @@ final class SidebarTabTests: XCTestCase {
                              billing: billing, engineRole: nil, detail: nil,
                              how: nil, powers: [], login: nil)
         }
+        func engine(_ selected: String) -> SleepEngineResponse {
+            SleepEngineResponse(mode: selected, model: "", disambiguationModel: "", source: "prefs",
+                                candidates: [], preview: nil, selected: selected)
+        }
         let store = Store(cache: SnapshotCache(root: FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)), api: FakeSyncAPI())
         let vm = ConnectionsViewModel(store: store)
+        let signedOutClaude = make(id: "claude-plan", billing: "subscription", available: true, connected: false)
+        let signedOutChatGPT = make(id: "chatgpt-plan", billing: "subscription", available: true, connected: false)
 
         store.connections.value = [make(id: "claude-plan", billing: "subscription", available: true, connected: true)]
-        XCTAssertFalse(vm.needsAttention)
+        XCTAssertFalse(vm.needsAttention(engine: engine("agent")), "the chosen plan is signed in")
 
-        store.connections.value = [make(id: "claude-plan", billing: "subscription", available: true, connected: false)]
-        XCTAssertTrue(vm.needsAttention, "an installed but signed-out subscription needs attention")
+        store.connections.value = [signedOutClaude]
+        XCTAssertTrue(vm.needsAttention(engine: engine("agent")), "the chosen plan is installed but signed out")
+
+        // The QA case: the ChatGPT plan is available (its CLI is on the PATH) and signed out, but the person chose a key.
+        store.connections.value = [signedOutChatGPT]
+        XCTAssertFalse(vm.needsAttention(engine: engine("byok")), "a plan nobody chose is not the person's problem")
+        XCTAssertTrue(vm.needsAttention(engine: engine("codex")), "the same plan, chosen, is")
+        XCTAssertFalse(vm.needsAttention(engine: nil), "no engine read yet is no dot, never a guess")
+        XCTAssertFalse(vm.needsAttention(engine: engine("auto")), "an automatic choice names no card")
 
         store.connections.value = [make(id: "openai-key", billing: "usage", available: true, connected: false)]
-        XCTAssertFalse(vm.needsAttention, "a key that was never set is not an expired login")
+        XCTAssertFalse(vm.needsAttention(engine: engine("byok")), "a key that was never set is not an expired login")
 
         store.connections.value = [make(id: "claude-plan", billing: "subscription", available: false, connected: false)]
-        XCTAssertFalse(vm.needsAttention, "a CLI that isn't installed can't have expired")
+        XCTAssertFalse(vm.needsAttention(engine: engine("agent")), "a CLI that isn't installed can't have expired")
     }
 }

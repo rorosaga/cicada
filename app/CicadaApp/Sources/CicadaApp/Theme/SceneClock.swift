@@ -210,36 +210,6 @@ enum SceneClock {
     }
 }
 
-/// Round-4 D4 (R-FA6, C7) and T-Home (R-HO1) — Settings → General → Scene, per viewer, independent of Appearance:
-/// Automatic follows the clock; Day, Afternoon and Night pin one painting (owner, round-4 decision 8).
-enum HeroScenePreference: String, CaseIterable, Identifiable {
-    case automatic, day, afternoon, night
-
-    static let defaultsKey = "cicada.heroScene"
-    var id: String { rawValue }
-
-    var label: String {
-        switch self {
-        case .automatic: Copy.sceneAutomatic
-        case .day: Copy.sceneDay
-        case .afternoon: Copy.sceneAfternoon
-        case .night: Copy.sceneNight
-        }
-    }
-
-    /// Absent or unknown → Automatic.
-    static func stored(_ raw: String?) -> HeroScenePreference { raw.flatMap(Self.init(rawValue:)) ?? .automatic }
-
-    func time(clock: SceneTime) -> SceneTime {
-        switch self {
-        case .automatic: clock
-        case .day: .day
-        case .afternoon: .afternoon
-        case .night: .night
-        }
-    }
-}
-
 /// Round-4 T-Home (C10) — the three paintings: day, the golden hour before sunset, and night. One composition in
 /// three lights (ART_DIRECTION §3), so moving between them is a crossfade, never a jump.
 enum SceneTime: String, CaseIterable, Sendable {

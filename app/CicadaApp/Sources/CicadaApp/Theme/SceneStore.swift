@@ -1,11 +1,11 @@
 import AppKit
+import SwiftUI
 import Observation
 
 /// Round-4 D4 (R-FA6, C7) — the clock's current scene, observable, so Home's band and the Welcome's hero repaint when
 /// the sun crosses a line. It holds the CLOCK only — the sky's `phase` (C7) and, since round-4 T-Home (R-HO1), the
 /// painting's `time` (day · afternoon · night) — plus the power state a living painting needs (Low Power turns it
-/// gentle, R-HO7). The person's Scene choice stays in `@AppStorage` and `HeroScenePreference.time(clock:)` resolves
-/// the two. It looks again at the next boundary or within the hour,
+/// gentle, R-HO7). The paintings retired (owner 2026-10-16); the study room reads `phase` and `lowPower`. It looks again at the next boundary or within the hour,
 /// whichever is first, and at once on a time-zone change or a wake — `ThemeStore.observeSystemAppearance`'s shape:
 /// started once at app scope, never from `init`, so a test's store never listens to the real system.
 @MainActor
@@ -92,4 +92,26 @@ final class SceneStore {
             self?.refresh()
         }
     }
+}
+
+private struct ScenePausedKey: EnvironmentKey { static let defaultValue = false }
+
+extension EnvironmentValues {
+    /// A host's reason to rest every sprite under it (R-HO7). The shell sets it while the Welcome covers Home, and
+    /// onboarding while See how covers its room, so art nobody can see spends no frames.
+    var scenePaused: Bool {
+        get { self[ScenePausedKey.self] }
+        set { self[ScenePausedKey.self] = newValue }
+    }
+}
+
+/// R-HO7 — the frame budget and the pause rule, pure. Moved here from the retired painted scene (owner 2026-10-16):
+/// the sprites and the export walkthrough keep using it.
+enum SceneRunPolicy {
+    static func frameInterval(lowPower: Bool) -> TimeInterval {
+        lowPower ? CicadaMotion.sceneLowPowerFrameInterval : CicadaMotion.sceneFrameInterval
+    }
+
+    /// Art nobody can see spends no frames.
+    static func isPaused(windowVisible: Bool, hostPaused: Bool) -> Bool { !windowVisible || hostPaused }
 }

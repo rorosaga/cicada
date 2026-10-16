@@ -85,6 +85,12 @@ struct ContentView: View {
             evaluateFirstRun()
             intake.welcomeActive = showFirstRun
         }
+        // The gear's dot reads the engine the person chose (owner 2026-10-16), so the choice is read once the backend
+        // answers, not only when a page that shows it is visited. Keyed on the first status landing: a read before
+        // the backend is up fails quietly and runs again when it answers.
+        .task(id: store.status.value == nil) {
+            if store.status.value != nil, sleepEngineVM.response == nil { await sleepEngineVM.load() }
+        }
         // DR-42 (R-DI3) — the window closing sends a held answer now; the app lives on in the menu bar.
         .onDisappear { Task { await store.flushHeld() } }
         // R-IB15 — while the Welcome shows, every arrival is staged on it.
@@ -238,7 +244,7 @@ struct ContentView: View {
                 labelled: labelledSidebar,
                 inboxCount: inboxVM.pendingCount,
                 isSleeping: store.status.value?.sleep.status == "running" || sleepVM.isRunning,
-                needsAttention: connectionsVM.needsAttention
+                needsAttention: connectionsVM.needsAttention(engine: sleepEngineVM.response)
             )
             .zIndex(1)
             .disabled(tour.isActive)

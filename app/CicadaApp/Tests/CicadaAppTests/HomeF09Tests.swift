@@ -11,10 +11,6 @@ final class HomeF09Tests: XCTestCase {
         return try String(contentsOf: file, encoding: .utf8)
     }
 
-    func testTheBandIsF09sLivingBand() {
-        XCTAssertEqual(HomeBandLayout.bandHeight, 208, "F-09 (R-HO6)")
-    }
-
     func testTheTipShowsOnlyAfterStartAndNeverAfterItIsHidden() throws {
         XCTAssertFalse(AppearanceTipPolicy.visible(armed: false, dismissed: false))
         XCTAssertTrue(AppearanceTipPolicy.visible(armed: true, dismissed: false))
@@ -65,9 +61,6 @@ final class HomeF09Tests: XCTestCase {
             CicadaTheme.uiScale = scale
             let room = CicadaTheme.scaled(264 - 2 * AppearanceTipLayout.padding)
             let pickers: [AnyView] = [
-                AnyView(PillPicker(title: Copy.scene, selection: .constant(HeroScenePreference.automatic),
-                                   options: HeroScenePreference.allCases.map { PillOption(value: $0, label: $0.label) },
-                                   compact: true)),
                 AnyView(PillPicker(title: Copy.appearance, selection: .constant(AppearancePreference.system),
                                    options: AppearancePreference.allCases.map { PillOption(value: $0, label: $0.label) },
                                    compact: true)),

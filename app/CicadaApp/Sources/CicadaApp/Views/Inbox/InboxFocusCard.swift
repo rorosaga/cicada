@@ -167,14 +167,8 @@ struct InboxFocusCard: View {
     @ViewBuilder
     private var quote: some View {
         if let segments = QuoteSegments.of(item) {
-            CitedSpan.text(segments)
-                .font(CicadaTheme.quoteFont)
-                .lineSpacing(CicadaTheme.quoteLineSpacing)
-                .foregroundStyle(CicadaTheme.textPrimary)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .textSelection(.enabled)
-                .citedSpans()
+            // Selectable and washed: a selectable `Text` never reaches the span renderer, so the washes ride `CitedPassage`.
+            CitedPassage(segments: segments)
                 .quoteBlock()
                 .padding(.top, CicadaTheme.scaled(20))
             if QuoteSegments.isDerived(item) {

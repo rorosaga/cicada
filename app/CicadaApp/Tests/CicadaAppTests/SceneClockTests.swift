@@ -1,7 +1,8 @@
 import XCTest
 @testable import CicadaApp
 
-/// Round-4 D4 (G144) — the Home painting's clock: NOAA's sun over each time zone's tzdb point, no location.
+/// Round-4 D4 (G144) — the scene clock (the study room's sky since the paintings retired, owner 2026-10-16): NOAA's
+/// sun over each time zone's tzdb point, no location.
 final class SceneClockTests: XCTestCase {
     private func date(_ y: Int, _ m: Int, _ d: Int, _ h: Int, _ min: Int, _ zone: String) -> Date {
         var c = Calendar(identifier: .gregorian)
@@ -117,30 +118,9 @@ final class SceneClockTests: XCTestCase {
         XCTAssertTrue(store.lowPower)
     }
 
-    func testThePreferenceOverridesTheClock() {
-        XCTAssertEqual(HeroScenePreference.stored(nil), .automatic)
-        XCTAssertEqual(HeroScenePreference.stored("sunset"), .automatic, "an unknown value is Automatic")
-        XCTAssertEqual(HeroScenePreference.stored("night"), .night)
-        XCTAssertEqual(HeroScenePreference.stored("afternoon"), .afternoon)
-        XCTAssertEqual(HeroScenePreference.automatic.time(clock: .afternoon), .afternoon)
-        XCTAssertEqual(HeroScenePreference.day.time(clock: .night), .day)
-        XCTAssertEqual(HeroScenePreference.afternoon.time(clock: .day), .afternoon)
-        XCTAssertEqual(HeroScenePreference.night.time(clock: .day), .night)
-        XCTAssertEqual(HeroScenePreference.defaultsKey, "cicada.heroScene")
-        XCTAssertEqual(HeroScenePreference.allCases.map(\.label), ["Automatic", "Day", "Afternoon", "Night"],
-                       "F-10's words (round-4 decision 8)")
-    }
-
     func testASurfaceWithNoSceneFollowsTheTheme() {
         XCTAssertEqual(SceneTime.forTheme(.light), .day)
         XCTAssertEqual(SceneTime.forTheme(.dark), .night)
-    }
-
-    /// R-HO8 — one painting per scene; the afternoon has its own file now.
-    func testTheHeroPicksItsPaintingByTheScene() {
-        XCTAssertEqual(MeadowArt.fileName(for: .hero, time: .day), "hero-day")
-        XCTAssertEqual(MeadowArt.fileName(for: .hero, time: .afternoon), "hero-afternoon")
-        XCTAssertEqual(MeadowArt.fileName(for: .hero, time: .night), "hero-night")
     }
 
     func testPolarDayAndNightFallBackSanely() {
@@ -215,19 +195,5 @@ final class SceneClockTests: XCTestCase {
         XCTAssertLessThan(store.delayUntilNextCheck(), 20 * 60)
         let noon = date(2026, 6, 21, 12, 0, "America/New_York")
         XCTAssertEqual(SceneStore(now: { noon }, timeZone: { ny }).delayUntilNextCheck(), SceneClock.maxRecheck)
-    }
-
-    /// The hero follows the clock and the Scene setting, never the theme (G144) — one door, `PaintedScene`.
-    func testTheHeroViewsDoNotReadTheThemeForThePainting() throws {
-        let files = try ThemeTokenTests.swiftSources()
-        func text(_ suffix: String) throws -> String {
-            try String(contentsOf: XCTUnwrap(files.first { $0.path.hasSuffix(suffix) }, suffix), encoding: .utf8)
-        }
-        XCTAssertTrue(try text("Views/Meadow/HomeHeroBand.swift").contains("PaintedScene(.hero(band:"))
-        XCTAssertTrue(try text("Views/Meadow/WelcomeHero.swift").contains("PaintedScene(.fullBleed"))
-        for suffix in ["Views/Meadow/PaintedScene.swift", "Views/Meadow/SceneFraming.swift",
-                       "Views/Meadow/SceneMotion.swift"] {
-            XCTAssertFalse(try text(suffix).contains("CicadaTheme.mode"), suffix)
-        }
     }
 }

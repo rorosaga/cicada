@@ -318,7 +318,8 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   the backend API; the app is one client of it** (the CLI and a future browser front end are others, owner 2026-10-13):
   the app keeps only Mac readers that post bytes, per-viewer chrome and presentation.
 - **Design direction D is binding** (`docs/design/DESIGN_RULES.md`; a UI PR cites the DR ids it applies; a departure needs
-  a dated ruling). SF only; the accent in six uses; depth is a ring, not a shadow; painted art never behind data or text;
+  a dated ruling). SF only; the accent in six uses; depth is a ring, not a shadow; painted art is retired, the pixel study room the one
+  illustration and never behind data or text (owner 2026-10-16);
   Liquid Glass only in the chrome layer; a keyboard action never animates; every duration is spelled in `CicadaMotion` (a sprite's frame timings are data in its sheet, inside `CicadaMotion`'s sprite caps — TODO ruling 18).
 - **Bookmarks (G191 v3, 2026-10-15):** the app removes a bookmark from the person's browser only on their click, after
   asking in words — Chrome through Apple Events (the Automation prompt only then), never Safari, never the backend; it

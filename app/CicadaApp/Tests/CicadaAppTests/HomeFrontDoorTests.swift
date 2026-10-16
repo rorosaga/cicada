@@ -201,15 +201,12 @@ final class HomeFrontDoorTests: XCTestCase {
 
     // MARK: Make it yours (review #4)
 
-    func testMakeItYoursLastsOneSessionAndDropsSceneWhileTheBandIsOff() throws {
+    func testMakeItYoursLastsOneSession() throws {
         XCTAssertTrue(AppearanceTipPolicy.visible(armed: true, dismissed: false, seenBefore: false, shownThisSession: false))
         XCTAssertTrue(AppearanceTipPolicy.visible(armed: true, dismissed: false, seenBefore: true, shownThisSession: true),
                       "the session that showed it keeps it")
         XCTAssertFalse(AppearanceTipPolicy.visible(armed: true, dismissed: false, seenBefore: true, shownThisSession: false),
                        "a later launch never shows it again")
-        XCTAssertFalse(AppearanceTipPolicy.showsScene(bandShown: HomeBandLayout.showsBand),
-                       "Scene picks paint the band, which is off (G189(a))")
-        XCTAssertTrue(AppearanceTipPolicy.showsScene(bandShown: true))
         let defaults = try XCTUnwrap(UserDefaults(suiteName: "cicada.test.tip.\(UUID().uuidString)"))
         let saved = AppearanceTipPolicy.shownThisSession
         defer { AppearanceTipPolicy.shownThisSession = saved }

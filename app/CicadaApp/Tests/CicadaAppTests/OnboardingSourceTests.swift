@@ -60,10 +60,10 @@ final class OnboardingSourceTests: XCTestCase {
         XCTAssertFalse(text.contains("CitedSpan"))
     }
 
-    /// R-OB20 — the painting is named only inside Views/Meadow/ (MeadowPlacementLintTests needs no new entry).
-    func testTheOnboardingPaintingLivesInMeadow() throws {
-        XCTAssertTrue(try source("Views/Meadow/OnboardingPane.swift").contains("PaintedScene("))
-        XCTAssertFalse(MeadowPlacementLintTests.allowed.contains { $0.contains("Onboarding") })
+    /// Owner 2026-10-16 — onboarding's illustration is the study room, not a painting (R-OB20's pane retired).
+    func testTheOnboardingIllustrationIsTheRoom() throws {
+        XCTAssertTrue(try source("Views/Onboarding/OnboardingRoom.swift").contains("SceneryRoomArt("))
+        XCTAssertFalse(try source("Views/Onboarding/OnboardingView.swift").contains("PaintedScene"))
     }
 
     /// DR-38 (QA 2026-10-16) — "Connect or disconnect agents any time in Settings → Agents" is the frame's foot line

@@ -69,7 +69,7 @@ enum SettingsIndex {
     /// holds the entries to the pages — a task that adds a row adds it here
     /// in the same commit (R-O1).
     static let staticIDs: [SettingsRowID] = [
-        .appearance, .heroScene, .textSize, .runSetup, .appVersion, .autoUpdate, .openAtLogin, .showInMenuBar,
+        .appearance, .textSize, .runSetup, .appVersion, .autoUpdate, .openAtLogin, .showInMenuBar,
         .backgroundService, .memoryHome, .commandLineTool,
         .devicesConnection, .devicesList,
         .guidedTour, .demoMemory,
@@ -102,7 +102,6 @@ enum SettingsIndex {
         SettingsEntry(.sceneryPreview, .sleep, Copy.Scenery.preview, keywords: ["scenery", "study room"]),
         // General
         SettingsEntry(.appearance, .general, Copy.appearance, keywords: ["dark", "light", "theme", "mode", "system", "night"]),
-        SettingsEntry(.heroScene, .general, Copy.scene, keywords: ["painting", "picture", "home", "sky", "day", "night", "sunrise", "sunset", "afternoon", "golden hour", "evening", "meadow"], detail: Copy.sceneDetail),
         SettingsEntry(.textSize, .general, Copy.textSize, keywords: ["zoom", "font", "bigger", "smaller", "larger", "scale"], detail: Copy.textSizeDetail),
         SettingsEntry(.runSetup, .general, Copy.setup, keywords: ["onboarding", "first run", "welcome", "start over"], detail: Copy.runSetupDetail),
         SettingsEntry(.appVersion, .general, Copy.versionTitle, keywords: ["version", "build", "about", "update", "release"]),
@@ -348,8 +347,6 @@ enum SettingsLiveValue {
     struct Inputs {
         var scheduleMode: String?
         var appearance: AppearancePreference = .dark
-        /// Round-4 D4 — Settings → General → Scene.
-        var heroScene: HeroScenePreference = .automatic
         var uiScale: Double = 1.0
         var connections: [ConnectionStatus] = []
     }
@@ -364,8 +361,6 @@ enum SettingsLiveValue {
             return SleepScheduleText.modes.first { $0.value == inputs.scheduleMode }?.label
         case .appearance:
             return inputs.appearance.label
-        case .heroScene:
-            return inputs.heroScene.label
         case .textSize:
             return "\(Int((inputs.uiScale * 100).rounded()))%"
         default:

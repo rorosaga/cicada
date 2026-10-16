@@ -9,6 +9,8 @@ extension Copy {
         static func pending(_ n: Int) -> String { "\(UsageFormat.count(n)) pending" }
         static func position(_ i: Int, of n: Int) -> String { "\(UsageFormat.count(i)) of \(UsageFormat.count(n))" }
         static let all = "All"
+        /// The kinds that did not fit, under one menu (owner 2026-10-16).
+        static let moreKinds = "More kinds"
 
         // "Settled by a check" (owner ruling 2026-10-16): questions a web lookup or the person's agent answered.
         static let settledTitle = "Settled by a check"

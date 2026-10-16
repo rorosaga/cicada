@@ -140,7 +140,10 @@ for one release the first ⌘4 that lands on Skills toasts "The Feed is now part
 restores to Sleep. Each cell's tooltip
 naming its page and shortcut (450 ms, then instant while warm), selection by brightness and one neutral fill
 (`bgSelected` — never the accent, `SelectionTintLintTests`), the Inbox count a neutral `bgBadge` numeral, a spinner on
-Sleep while a cycle runs, the gear and the sun/moon toggle at its foot, no wordmark. ⌃⌘S or the titlebar toggle swaps it
+Sleep while a cycle runs, the gear and the sun/moon toggle at its foot, no wordmark. The gear's `warning` dot lights only
+when the engine the person chose is a plan that is installed but signed out (owner 2026-10-16,
+`ConnectionsViewModel.needsAttention(engine:)` over `EngineOption.connectionId` — a plan merely available, never chosen,
+is not the person's problem; the engine choice is read once the backend answers). ⌃⌘S or the titlebar toggle swaps it
 for a 208 pt labelled sidebar, remembered per viewer (`cicada.shell.labelledSidebar`). Relaunch restores the last tab:
 nothing stored, or a value no build knows, opens Home, and a stored Graph stays on Graph; `AppTab` raw values are the
 persisted identity and `AppTab.restored(from:)` maps retired ones. **The titlebar is a SwiftUI toolbar** with the
@@ -173,7 +176,8 @@ effect — from `/status`'s `settings` block (`api.md`), names only. Search is `
 palette's one ranker — and landing always selects, scrolls, washes (the selected fill and the focus ring) and
 announces the row (G139). `SettingsSection` raw values did not move. General's appearance offers System, which
 follows the Mac's own light/dark through one app-scope observer (`ThemeStore.observeSystemAppearance`). General (F-10:
-Look · Startup · When Cicada is closed) also holds Scene (four choices, the clock's scene beside it), Open Cicada at
+Look · Startup · When Cicada is closed) holds Appearance and Text size (Scene retired with the painted art, owner
+2026-10-16: it picked a painting, and none is left), Open Cicada at
 login (`LoginItemService` over `SMAppService.mainApp`; an unsigned build that macOS does not keep says so), Show in
 menu bar (per viewer, on by default; hides the 18 × 18 menu-bar bookworm (ruling 18), the Dock icon stays); a login launch opens no
 window — the bookworm waits in the menu bar, and the Dock icon brings the window (`LaunchKind` from the 'oapp' event,
@@ -233,18 +237,9 @@ Settings' local-folder picker — and check only the chosen file or folder
 (`IntakeRouter.refusedRoot(of:)`); a watched folder that *contains* a refused root is still walked
 (open, G125).
 
-**Home (G108; Direction D, DS-3b; F-09, round 4).** The front door at ⌘1: a 208 pt living band, **currently off** behind
-`HomeBandLayout.showsBand = false` (G189(a), 2026-10-06; the code stays, the headline row is Home's first content at the room
-pages' 24 pt top inset) —
-`PaintedScene(.hero(band:))`, the one component Home, the Welcome and onboarding's panes share (C10) — painting the
-person's Scene (Settings → General: Automatic · Day · Afternoon · Night; Automatic follows `SceneClock`, NOAA's sun
-over the Mac's time zone's tzdb point, no location; the afternoon is the last two hours before sunset through civil
-dusk), never the theme (G144); its meadow line at two thirds of the band, faded into the window from 72 %. Slow
-one-way clouds, grass swaying from its roots, seeds by day, fireflies and stars by night and a slow camera breath run
-in one `TimelineView` at ≤ 30 fps (15 under Low Power) that rests while the window cannot be seen, while the Welcome
-covers the shell and off-tab; Reduce Motion or Low Power make it gentler, never frozen (DR-66); a scene change
-crossfades the same composition in 1.2 s. Under it, "What would you like to remember?" as a `PageTitle` — text never
-sits on paint — then the palette's own `FindPanelBody` in `.page` placement in a 640 pt block: a second
+**Home (G108; Direction D, DS-3b; F-09, round 4).** The front door at ⌘1. The painted band is gone (off since G189(a),
+2026-10-06; retired with every painting on 2026-10-16, owner: "Remove it from everywhere"), so the first content is
+"What would you like to remember?" as a `PageTitle` at the room pages' 24 pt top inset (`HomeLayout.headlineTop`) — then the palette's own `FindPanelBody` in `.page` placement in a 640 pt block: a second
 `FindPaletteModel` sharing the one Ask and keeping no recents; ⌘K on Home focuses it, a pasted `http(s)` link offers
 *Save this link*. The headline, the field and the blocks scroll as one page (owner 2026-10-06), under macOS 26's soft top scroll edge
 (`softTopScrollEdge()`), so no card is cut under the field; the first block sits one 24 pt block gap below it, and with
@@ -274,15 +269,20 @@ in words (`HomeFigures.lastRead`): "Looking up the last read…" while it loads;
 no read ran; a failed fetch falls back to the status's last read, or says "Couldn't look up the last read". An empty block is only its label and a note ("Needs you · nothing right now");
 all three empty is one `HomeEmptyBlock` (*Choose a file…*), or nothing while Getting started already says so. Every
 `InlineLink` hits 28 pt (layout-neutral, `LinkHitShape`). Right after onboarding ends (Open Cicada or *Set up later*),
-*Make it yours* (Appearance, and Scene only while the band shows; `AppearanceTipPolicy`, per viewer) is a row after
+*Make it yours* (Appearance; `AppearanceTipPolicy`, per viewer) is a row after
 Needs you for that one session; once hidden or seen it lives only in Settings.
 
 **Onboarding (G145, round 4 phase B).** Seven pages in one full-window layer, raised by `FirstRunGate`
 (unknown is never empty; never over the demo, which its plan marks onboarded one step after the switch — QA
 2026-10-16) or by the one door, `OnboardingState.reset` + `AppRouter.requestFirstRun` (Settings →
-General's *Run setup again*, the demo's *Finish setting up*): Welcome and You're set on the full living painting
-with a card (`WelcomeHero`); Import, Agents, Skills, Who reads and Keep it running in a split frame — the page's pane
-painting (`OnboardingPane`, 540 pt, which gives way before the column does), the column with "Step n of 7 · k still
+General's *Run setup again*, the demo's *Finish setting up*). **The illustration is the study room** (owner
+2026-10-16, replacing the paintings): `OnboardingRoom` draws the Sleep page's room art (`SceneryRoomArt` with the worm,
+its floor faded into the ground, no hotspot, no pile, no word on it — DR-13) at a whole number of points per lattice
+cell (`OnboardingRoomLayout`: up to 4 over the card, up to 3 in the pane), in the person's own scenery from what is
+already known (no fetch), the worm's mood set per step (`OnboardingPage.roomMood`: awake, reading, happy, asleep for
+Keep it running). Welcome and You're set are the room over the card (a short window drops the room first, then scrolls
+the card); Import, Agents, Skills, Who reads and Keep it running are a split frame — the room centred in a `bgPane`
+pane (540 pt, which gives way before the column does), the column with "Step n of 7 · k still
 coming in", Back and one primary (⏎ never animates). Get started is the owner PUT, alone and first; after it **a
 tick starts that source at once** through the one turn-on (`FoundTurnOn`; app-side sources register an
 `AppSourceDriver`), an untick stops it keeping up and keeps what came in, and × shows only where a run can stop
@@ -290,14 +290,14 @@ tick starts that source at once** through the one turn-on (`FoundTurnOn`; app-si
 tick. The Import rows are one table (`ImportCatalog`: supported installed browsers, Calendar, Apple Notes — a
 one-time read — Wispr Flow when present, the chat drop zone and *See how* per provider, a drawn walkthrough over
 `ExportWalkthrough`'s data opening `WalkthroughVendor.exportURL`; its clock is `ExportWalkthrough.cadence` — paused
-while the window is hidden, one frame per step under Reduce Motion, the painted scenes' cadence halved under Low Power,
+while the window is hidden, one frame per step under Reduce Motion, `SceneRunPolicy`'s cadence halved under Low Power,
 audit A11); Contacts sits under *Calendar & contacts* and
 Chrome's open tab groups as a sub-row under Chrome (only where Chrome is), each one `ImportEntry` and one driver over
 its own reader (`ContactsReader.connect`, `TabGroupWatcher.enable`), which Home's Getting started registers too. Every row, the topbar's count, You're set and Home's Getting started read one projection,
 `SetupProgress`, over `SetupRunner`, `SyncActivity` and the channels. Agents reuse `AgentSelector` /
 `AgentSetupSteps` with a live ✓; Claude Code's and Codex's *Connect for me* here also turns on *Remembers
 automatically* (its commands shown first; Settings → Agents keeps it its own click). **Skills** (owner 2026-10-15,
-`SkillsStepPage` over `SkillsStepModel`, Agents' painting) is three switch tiles: Websites (browser-harness) and Mac
+`SkillsStepPage` over `SkillsStepModel`, the Agents step's happy worm) is three switch tiles: Websites (browser-harness) and Mac
 apps (macos-harness; macOS asks once) on, Videos (the video skill) off; *Skip* beside Continue. Nothing installs on the
 page: **Continue is the consent** — `POST /skills/onboarding` records the answer (Skip too, never asked again) and
 installs what is on in the background. A saved answer is where a later run starts (rerun or a new bank): what the
@@ -775,7 +775,8 @@ agent reads (`agent_methods`), not an install.
 - **D's material.** A tile is 96 pt including its padding, on `bgFocus` with a ring, the strong ring and a 1 pt
   lift on hover, and no shadow. It is clipped to its shape. Its mark stands bare. A failure speaks in `warning`
   with its dot hidden, and a live source keeps a green dot.
-- **Packing.** One column count (`SourceGridColumns`, 2–4) is shared by every section. Sections share a row by
+- **Packing.** One column count (`SourceGridColumns`, 2–4; a card wants 290 scaled points before a column is added, so a 1200 pt
+  window draws three untruncated columns, QA 2026-10-16) is shared by every section. Sections share a row by
   span (`SourceGridPacking`), and the contributors block takes what the last row leaves when that is two columns
   or more.
 - **Detail columns.** Opening a source, or an author in *Who wrote your memory* (a chip strip over a neutral,
@@ -835,7 +836,8 @@ episode in the Reader, a saved item in Sleep › Saved, a person in Clusters.
 **Clusters and Sleep's saved lists (Direction D, DS-3c; the Feed folded into Sleep 2026-10-16).** Clusters is a list
 page in progressive columns, and the Feed's list lives on as the Sleep page's Saved and Videos tabs (below, and the
 Sleep page): an eyebrow row with
-text tabs (`AdaptiveTextTabs`: with counts, then without, then a menu, so a tab is never clipped), the list, a
+text tabs (`AdaptiveTextTabs`: with counts, then without, then a menu, so a tab is never clipped; the Inbox's kinds use
+`OverflowTextTabs` instead, below), the list, a
 detail column, and the Reader as the third column (each list page hosts its own: `AppTab.hostsOwnReader`).
 `ListColumns<ID>` holds the open row: a row that leaves the data, or that the chosen tab does not show, closes the
 detail; one that find (or Clusters' View menu) hides stays open. Keys follow DR-68: ↑/↓ swap in place, ⏎ steps in, Esc closes the rightmost column, and ⌘F opens
@@ -1084,13 +1086,13 @@ dashed chrome outline, and the window's veil steps aside (`nearerDrop`); it gulp
 takes the drop and shakes when it does not, and the sentence tells the router's own phase in words
 with no number — the panel has the counts. A sleeping worm takes the drop and stays asleep; a stale
 page sends nothing. **Meadow (Z10).** The sentence is the display face (SF Pro Display semibold 30,
-`displayTracking`) over one SF regular italic tail at 17 pt (F1 R-FX13; off the display face since 2026-10-16), Consolidate is the page's one `PrimaryActionButton`, `SleepMotion` forwards its shared names
+`displayTracking`) over one SF regular tail at 17 pt, never italic (F1 R-FX13; off the display face and out of italic since 2026-10-16), Consolidate is the page's one `PrimaryActionButton`, `SleepMotion` forwards its shared names
 to `CicadaMotion`, and the sky band above the page is OFF (`SkyBand.ships`, TODO ruling 10). The
 pile fits its column at every scale and queue size — two stacks before a fold, the order and every count kept,
 never cut (`PileBooks.stack`).
 **The room's column, one centred group (2026-10-16).** Owner, live during a run: *"those stages of reading and stuff
 are kind of ugly … center it"*. Everything under the room is `SleepRoomColumn` (out of `SleepView.roomBlock`) in the
-760 pt column (DR-36), every row centred on one axis: the sentence (lead + one 17 pt italic line), the control group
+760 pt column (DR-36), every row centred on one axis: the sentence (lead + one 17 pt line), the control group
 (`SleepControlRow` — its whisper on its own line under the buttons, never beside them), the notes, the schedule line,
 then `RunInstrument`: the stage stepper and the progress bar at the column's full width, the counts centred under the
 bar ("Batch 4 of 12 · 74 filed · … · 222 calls made"). The stepper (`SleepStageStrip`, `StepLook`) replaced the five
@@ -1227,7 +1229,16 @@ fallback — `Store.onSleepPausedChanged` refetches the record app-wide, not onl
 fills only from finished work over a fixed total; Notice and File never), under the stepper only a batch failure in words
 (`batchFailureNote`; the stage caption that repeated the lead retired 2026-10-16), `RunProgressBar` (batch position · filed ·
 read, waiting to file · waiting · could not be read, and calls made; one accessibility value; elapsed "Running 27 m", never a remaining time),
-and the first save's "Your page has 31 beliefs so far" with *See your page ›*. *Reading options…* (`ReadingOptionsSheet`, 720 pt) sets batch size
+and the first save's "Your page has 31 beliefs so far" with *See your page ›*.
+**At rest (owner 2026-10-16): one headline, one row of controls, one schedule sentence.** The lead says "23 to read —
+overdue." in its own colour (the `warning` tone left the lead; DR-7); the tail is news only — T11 ("The lamp is off — I
+read when you ask.") and T12 ("The <source> pile is the big one.") retired, the first because the schedule line under
+the controls now says it (`whisperLine` → `Copy.lampOffSentence` with the lamp off), the second because the room draws
+the pile. The control row is Consolidate · the engine menu · *Options…*, all at Consolidate's 28 pt (`NeutralButton`
+`.compact`; `SleepAtRestTests`); *Options…* replaced the "Reading options…" link that floated on its own line. Waiting
+and Saved hide at a count of zero (`SleepTab.visible(waitingHasRows:saved:exportWaiting:videos:)`; Waiting stays for a
+parked conversation, a run's block or an unreadable queue, never for the "your own page" note alone; Saved stays while
+an export is being waited on, because `ExportWaitStrip` heads it, R-IB22), so a fresh page opens on Past reads. *Options…* (`ReadingOptionsSheet`, 720 pt) sets batch size
 10/25/50 and *Continue by itself when my plan resets* (off) on change; it has no Read faster row, no engine advice and no site list. The engine
 menu's *Keep plan free* (Off or 5–30 % of the window, plan engines only, a line not a guarantee, an unreported window said so) is one of ruling
 12's two homes; the page's lists are the other (Past reads and Waiting, Details until 2026-10-16): Last cycle's run rows (`LastCycleRow.runRows`, merged over the pre-v5 drain rows), per-source counts and
@@ -1430,12 +1441,13 @@ an inset ring, never a shadow in dark and one soft shadow on a light floating su
 `meadow`, `dandelion`, `cloud`, `bark`, `soil`, their washes, the procedural skies) are for art and reward moments
 only, never a data encoding and never behind a row — `progressFill` (§3.8) is the one exception, for Projects.
 **Liquid Glass lives in the chrome layer only**, through `Theme/LiquidGlass.swift` (gated on macOS 26 with a material
-fallback, opaque under Reduce Transparency); a lint fails the build on any glass API elsewhere. **Painted art**
-(`Resources/art/`, `art.manifest.json` with generator, prompt, date, licence and sha256; every painting ships as day,
-afternoon and night of one composition — `docs/design/ART_DIRECTION.md`) appears only on non-data surfaces — never the
-graph, a list, a grid, a form or a number, and text never sits directly on paint — enforced by an allowlist lint;
-Home's band and the Welcome are `PaintedScene` (C10), composed inside `Views/Meadow/`, and its particle colours are
-the art's (`ScenePaint`), never theme tokens. Pixel sprites carry the same provenance in
+fallback, opaque under Reduce Transparency); a lint fails the build on any glass API elsewhere. **Painted art is
+retired** (owner 2026-10-16: "Remove it from everywhere"): the paintings (`Resources/art/`), `PaintedScene`, the Home
+band, the Welcome hero, onboarding's panes and the empty states' grass and cloud are gone, and
+`MeadowPlacementLintTests` fails on any painted component or a bundled painting. **The study room is the app's one
+illustration** — pixel art on the Sleep page and in onboarding (`OnboardingRoom`), never behind data or text. Empty
+states (`EmptyStateView`) are plain, well-set text: a 22 pt display title, the line, at most one action, centred in the
+space the page gives them, with no card. Pixel sprites carry their provenance in
 `Resources/sprites/sprites.manifest.json` (script, source, sha256), checked by `SpriteAssetTests`. **Type:** SF only. `displayFont(size:italic:)` is SF Pro Display
 semibold (tracking −0.3 at 20 pt, −0.4 above, floor 20, paired and counted by `FontLiteralLintTests`), `quoteFont` SF
 15 regular, one `SectionLabel` (11 medium, sentence case, never mono or tracked — `SectionLabelLintTests`), monospace
@@ -1504,7 +1516,12 @@ sized before the page so it is never pushed off-window. It is driven by
 `ProvenanceRouter` (a stack of `ReaderTarget`s), beside whatever is open so a belief and its sentence
 are on screen together (Direction D, DS-2). It shows C's header — mark, title, meta, and a neutral
 Resume when an `isfile()` check says the session is resumable — the pinned "1 of N cited here"
-navigator, the turns in the quote face with `CitedSpan`, and the "Noted from this conversation" rows;
+navigator, the turns in the quote face with `CitedSpan`, and the "Noted from this conversation" rows. A turn is
+selectable **and** washed through `CitedPassage` (2026-10-16): a selectable `Text` never reaches a `TextRenderer`, and
+a renderer-drawn copy behind the words breaks lines differently from them (the wash on the wrong words at some widths),
+so the passage is one selectable `Text` whose wash and underline are attributes of its own string (`CitedSpan.fallback`:
+square fill, the text system's underline, no fade) — until then the navigator counted spans nothing showed
+(`CitedPassageTests`; the Inbox's quote too);
 a swap onto the same conversation re-lands in place (`ProvenanceRouter.refocus`) rather than stacking
 a Back step. The dandelion wash and margin bar are gone (DR-13). It reads `/episodes/{id}/text`
 and `/citations` through `ProvenanceCache` — in memory, ETag-revalidated, **never a Store domain**,

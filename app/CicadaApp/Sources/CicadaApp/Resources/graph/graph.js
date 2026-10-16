@@ -500,14 +500,36 @@ function tickInitialFit() {
     if (initialFitTicksLeft < 0) return;
     if (--initialFitTicksLeft > 0) return;
     initialFitTicksLeft = -1;
-    fitGraph();
+    fitGraph(true);
 }
 // G109 (2026-10-14): a layout can now end before INITIAL_FIT_TICKS (settleCheck; a 12-node graph stops near step 80),
 // so the layout's end runs a fit still pending. Left armed, it fired on the next restart — mid-drag.
 function finishInitialFit() {
     if (initialFitTicksLeft < 0) return;
     initialFitTicksLeft = -1;
-    fitGraph();
+    fitGraph(true);
+}
+
+// QA 2026-10-16 ("not centred on first show": the cluster top-left, the right third empty, the control bar over a
+// label). The first fit can run while the canvas still has a size it is about to lose — the page not on screen yet
+// (the WKWebView outlives tab switches, and entering the demo switches banks from Settings), or a column still
+// opening — so the graph sits in the corner of the view it finally gets. Until something else moves the view (the
+// person's zoom or pan, a reveal, a focus), the automatic fit is still the view: a resize fits again, at once (the
+// resize is the motion). `autoFit` is the transform that fit set; the view is still the fit's while `transform`
+// equals it.
+let autoFit = null;
+function viewIsStillTheFit() {
+    if (!autoFit || !transform) return false;
+    const close = (a, b) => Math.abs(a - b) <= 0.5 + 1e-6 * Math.abs(b);
+    return close(transform.x, autoFit.x) && close(transform.y, autoFit.y) && Math.abs(transform.k - autoFit.k) < 1e-6;
+}
+// The fit a resize applies, or null when the view is the person's (or nothing can be fitted).
+function refitForResize() {
+    if (selectedNodeId || !viewIsStillTheFit() || !visibleNodes.length) return null;
+    const t = transformForNodes(visibleNodes, FIT_PAD);
+    if (!t) return null;
+    autoFit = t;
+    return t;
 }
 function centerOnce() {
     if (hasCentered || width <= 0 || height <= 0 || !currentZoom) return;
@@ -527,6 +549,8 @@ function onResize() {
     resizeCanvas();
     centerOnce();
     if (selectedNodeId) ensureVisible(selectedNodeId, false);
+    const refit = refitForResize();
+    if (refit && currentZoom) d3.select(canvas).call(currentZoom.transform, refit);
     scheduleRedraw();
 }
 
@@ -617,11 +641,14 @@ function zoomReset() {
 }
 
 const FIT_PAD = 60;                   // screen px round the fitted graph
-function fitGraph() {
+function fitGraph(automatic = false) {
     if (!currentZoom) return;   // headless (no zoom behaviour attached), as revealNode/ensureVisible handle it
     if (!visibleNodes.length) { zoomReset(); return; }
     const t = transformForNodes(visibleNodes, FIT_PAD);
     if (!t) { zoomReset(); return; }
+    // The first-load fit is remembered so a resize can follow it (`refitForResize`); a fit the person asked for is
+    // theirs, and so is the view after it.
+    autoFit = automatic ? t : null;
     d3.select(canvas).transition().duration(400).call(currentZoom.transform, t);
 }
 

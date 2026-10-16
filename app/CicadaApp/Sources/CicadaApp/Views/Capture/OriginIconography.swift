@@ -60,11 +60,10 @@ enum OriginIconography {
 
     static func label(for origin: String) -> String {
         switch origin {
-        // "mcp" is the legacy label, kept byte-for-byte so any existing
-        // caller (the Sleep debt breakdown; the Sources grid since G124)
-        // never silently renames — "claude-code" is the newer G9-normalized
-        // id for the same source and gets its own, equally legible label.
-        case "mcp": "MCP"
+        // "mcp" is the legacy origin of what an agent saved through Cicada's own tools (before G9 normalised the
+        // harness ids; "claude-code" is the newer id for the same source). DR-54 (QA 2026-10-16): named the way a
+        // person would, never the protocol — the Sleep page's Waiting group read "MCP".
+        case "mcp": "Saved by an agent"
         case "claude-code": "Claude Code"
         // G124 R17 — harness ids an MCP client stamps (`mcp/server.py`
         // SESSION) read as the Sources grid's harness cards. Generic on

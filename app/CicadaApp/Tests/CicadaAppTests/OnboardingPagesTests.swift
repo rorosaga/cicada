@@ -13,9 +13,38 @@ final class OnboardingPagesTests: XCTestCase {
         XCTAssertEqual(OnboardingPage.skills.next, .whoReads)
         XCTAssertNil(OnboardingPage.ready.next)
         XCTAssertEqual(OnboardingPage.allCases.filter(\.isSplit), [.import, .agents, .skills, .whoReads, .keepRunning])
-        XCTAssertEqual(OnboardingPage.agents.pane, .agents)
-        XCTAssertEqual(OnboardingPage.skills.pane, .agents, "the agents' painting carries on: the skills are theirs")
-        XCTAssertNil(OnboardingPage.welcome.pane, "Welcome and You're set are the whole painting")
+    }
+
+    /// Owner 2026-10-16 — the study room is onboarding's one illustration: the worm's mood says what each step is about,
+    /// and the room is drawn at a whole number of points per cell (never resampled), up to 3 in the pane and 4 over the
+    /// Welcome's card.
+    func testTheRoomIsOnboardingsIllustrationAtWholePoints() {
+        XCTAssertEqual(OnboardingPage.welcome.roomMood, .awake)
+        XCTAssertEqual(OnboardingPage.import.roomMood, .reading)
+        XCTAssertEqual(OnboardingPage.agents.roomMood, OnboardingPage.skills.roomMood, "the skills are the agents'")
+        XCTAssertEqual(OnboardingPage.keepRunning.roomMood, .sleeping(stage: 1))
+        XCTAssertEqual(OnboardingPage.ready.roomMood, .happy)
+        XCTAssertEqual(OnboardingRoomLayout.paneCell(paneWidth: 540), 3, "480 × 192 in the full pane")
+        XCTAssertEqual(OnboardingRoomLayout.paneCell(paneWidth: 380), 2)
+        XCTAssertEqual(OnboardingRoomLayout.paneCell(paneWidth: 240), 1)
+        XCTAssertEqual(OnboardingRoomLayout.cardCell(cardWidth: 640), 4, "640 × 256 over the 640 pt card")
+        XCTAssertEqual(OnboardingRoomLayout.cardCell(cardWidth: 2000), 4)
+        XCTAssertEqual(OnboardingRoomLayout.cardCell(cardWidth: 0), 1, "a zero width never traps")
+        for width in stride(from: CGFloat(0), through: 900, by: 37) {
+            let cell = OnboardingRoomLayout.cardCell(cardWidth: width)
+            XCTAssertEqual(cell, cell.rounded(), "\(width): a whole number of points per cell")
+            XCTAssertTrue(width < 160 || CGFloat(RoomLattice.cols) * cell <= width, "\(width): the room fits")
+        }
+    }
+
+    /// Paint is retired from onboarding: the frame draws the room, never a painting (owner 2026-10-16).
+    func testOnboardingDrawsTheRoomNotAPainting() throws {
+        let file = try XCTUnwrap(ThemeTokenTests.swiftSources().first {
+            $0.path.hasSuffix("Views/Onboarding/OnboardingView.swift")
+        })
+        let text = try String(contentsOf: file, encoding: .utf8)
+        XCTAssertTrue(text.contains("OnboardingRoom(mood: page.roomMood"))
+        XCTAssertFalse(text.contains("PaintedScene") || text.contains("OnboardingPane("))
     }
 
     func testTheKeyboardNeverAnimatesAndThePointerRidesTheDrawer() {

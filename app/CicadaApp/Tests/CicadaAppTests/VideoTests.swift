@@ -608,7 +608,7 @@ final class SleepVideoRowTests: XCTestCase {
         XCTAssertFalse(list.contains("VideosWaitingRow("), "Waiting no longer repeats the video queue")
         let page = try String(contentsOf: root.appendingPathComponent("SleepView.swift"), encoding: .utf8)
         XCTAssertTrue(page.contains("VideosStrip(summary:"), "the Videos tab carries the watch run's door")
-        XCTAssertEqual(SleepTab.visible(waitingHasRows: true, videos: 0), [.waiting, .saved, .pastReads],
+        XCTAssertEqual(SleepTab.visible(waitingHasRows: true, saved: 3, videos: 0), [.waiting, .saved, .pastReads],
                        "no Videos tab while no video is saved")
     }
 }

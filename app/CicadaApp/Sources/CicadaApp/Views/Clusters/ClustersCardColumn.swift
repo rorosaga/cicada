@@ -6,7 +6,7 @@ import SwiftUI
 /// It keeps the "go deeper, then come back" trail this page always kept for itself (G108 bug 3,
 /// `TopicDetailNavigation`), moved from the retired `TopicDetailView`. The card's Back ⌘[ is the card's; its Esc is the
 /// page's, through DS-3a's `onEscape` seam (DR-28), so focus inside the card still closes the rightmost column. The
-/// column adds Close × and, when DR-27 hides the list, "‹ N entities".
+/// card's header carries Close × (the column's `onClose`), and the column adds "‹ N entities" when DR-27 hides the list.
 struct ClustersCardColumn: View {
     let entity: Entity
     let gutter: CGFloat
@@ -26,17 +26,15 @@ struct ClustersCardColumn: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            HStack(spacing: CicadaTheme.spacingSM) {
-                if let n = hiddenListCount {
-                    TextButton(title: Copy.Lists.entitiesBack(n), help: Copy.Lists.showList, action: onShowList)
-                        .padding(.leading, -CicadaTheme.scaled(10))
-                }
-                Spacer(minLength: 0)
-                IconButton(systemName: "xmark", help: Copy.Lists.closeCard, action: onClose)
+            if let n = hiddenListCount {
+                TextButton(title: Copy.Lists.entitiesBack(n), help: Copy.Lists.showList, action: onShowList)
+                    .padding(.leading, -CicadaTheme.scaled(10))
             }
             // One card identity per entity (the graph overlay's rule): a wikilink push swaps the shown entity.
-            EntityDetailCard(entity: displayEntity, showsCloseButton: false, navigation: cardNavigation, style: .card,
-                             onEscape: onEscape)
+            // Close × sits in the card's own header line (§5.3's header anatomy; QA 2026-10-16: it floated above the
+            // card's top-right corner, outside it).
+            EntityDetailCard(entity: displayEntity, showsCloseButton: true, navigation: cardNavigation, style: .card,
+                             onClose: onClose, onEscape: onEscape)
                 .id(displayEntity.id)
         }
         // Every card keeps the focus width: a person's opens on its page too, one column (owner 2026-10-09).

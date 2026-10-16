@@ -74,20 +74,28 @@ final class SleepLayoutTests: XCTestCase {
 /// The page's tabs (DESIGN §3.4, §3.5): which show, which opens, and where a choice falls back.
 final class SleepTabTests: XCTestCase {
     func test_waitingHidesAtZeroAndVideosOnlyWithAVideo() {
-        XCTAssertEqual(SleepTab.visible(waitingHasRows: true, videos: 6), [.waiting, .saved, .videos, .pastReads])
-        XCTAssertEqual(SleepTab.visible(waitingHasRows: false, videos: 0), [.saved, .pastReads])
+        XCTAssertEqual(SleepTab.visible(waitingHasRows: true, saved: 7, videos: 6), [.waiting, .saved, .videos, .pastReads])
+        XCTAssertEqual(SleepTab.visible(waitingHasRows: false, saved: 3, videos: 0), [.saved, .pastReads])
+        // Owner 2026-10-16 — a fresh page shows no "Waiting 0 · Saved 0": a zero count hides its tab.
+        XCTAssertEqual(SleepTab.visible(waitingHasRows: false, saved: 0, videos: 0), [.pastReads])
+        XCTAssertEqual(SleepTab.resolve(chosen: .saved, waitingHasRows: false, saved: 0, videos: 0), .pastReads)
+        // R-IB22 — an export being waited on heads Saved; with nothing saved it still keeps the tab up.
+        XCTAssertEqual(SleepTab.visible(waitingHasRows: false, saved: 0, exportWaiting: true, videos: 0),
+                       [.saved, .pastReads])
+        XCTAssertEqual(SleepTab.resolve(chosen: .saved, waitingHasRows: false, saved: 0, exportWaiting: true, videos: 0),
+                       .saved)
     }
 
     func test_thePageOpensOnWaitingWhileAnythingWaitsElsePastReads() {
-        XCTAssertEqual(SleepTab.resolve(chosen: nil, waitingHasRows: true, videos: 0), .waiting)
-        XCTAssertEqual(SleepTab.resolve(chosen: nil, waitingHasRows: false, videos: 0), .pastReads)
+        XCTAssertEqual(SleepTab.resolve(chosen: nil, waitingHasRows: true, saved: 3, videos: 0), .waiting)
+        XCTAssertEqual(SleepTab.resolve(chosen: nil, waitingHasRows: false, saved: 3, videos: 0), .pastReads)
     }
 
     func test_aChoiceWinsWhileItsTabShowsAndFallsBackWhenItHides() {
-        XCTAssertEqual(SleepTab.resolve(chosen: .saved, waitingHasRows: true, videos: 0), .saved)
-        XCTAssertEqual(SleepTab.resolve(chosen: .videos, waitingHasRows: true, videos: 0), .waiting,
+        XCTAssertEqual(SleepTab.resolve(chosen: .saved, waitingHasRows: true, saved: 3, videos: 0), .saved)
+        XCTAssertEqual(SleepTab.resolve(chosen: .videos, waitingHasRows: true, saved: 3, videos: 0), .waiting,
                        "the last video went: the page's own tab, never an undrawn list")
-        XCTAssertEqual(SleepTab.resolve(chosen: .waiting, waitingHasRows: false, videos: 2), .pastReads)
+        XCTAssertEqual(SleepTab.resolve(chosen: .waiting, waitingHasRows: false, saved: 3, videos: 2), .pastReads)
     }
 
     func test_onlyTheSavedListsHaveFind() {

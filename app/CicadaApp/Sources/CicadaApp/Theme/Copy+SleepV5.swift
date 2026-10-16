@@ -101,6 +101,9 @@ extension Copy {
         static let continueRun = "Continue"
         static let endRun = "End this run"
         static let readingOptions = "Reading options…"
+        /// The control row's third button (owner 2026-10-16); it opens the reading options sheet.
+        static let options = "Options…"
+        static let optionsHelp = "How a run reads: how often it saves, and what it runs on"
         static let seeYourPage = "See your page ›"
         static let retry = "Retry"
         /// Why a parked conversation offers no Retry while a run reads or waits paused (the server refuses it then).
@@ -419,7 +422,7 @@ extension Copy {
 
     /// DR-59 over the v5 labels (short, plain, sentence case, priceless) — read by `HomeSleepCopyTests`' rules.
     static let sleepV5Labels: [String] = [
-        SleepV5.pause, SleepV5.pausing, SleepV5.continueRun, SleepV5.endRun, SleepV5.readingOptions,
+        SleepV5.pause, SleepV5.pausing, SleepV5.continueRun, SleepV5.endRun, SleepV5.readingOptions, SleepV5.options,
         SleepV5.seeYourPage, SleepV5.retry, SleepV5.optionsTitle, SleepV5.whatItReads, SleepV5.saveProgressEvery,
         SleepV5.runsOn, SleepV5.leaveRoom, SleepV5.setInEngineMenu, SleepV5.continueAfterReset, SleepV5.cancel,
         SleepV5.keepPlanFree, SleepV5.off, SleepV5.runLiveTitle, SleepV5.runDoneTitle, SleepV5.runStoppedTitle,

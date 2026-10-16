@@ -11,9 +11,11 @@ import CoreGraphics
 /// whose last row was short (C3). A fixed count fixes both, and it changes in
 /// one place when the window resizes OR `uiScale` moves.
 enum SourceGridColumns {
-    /// The width one card wants before the grid adds a column. 260 pt at
-    /// `uiScale == 1.0`, scaled with the chrome.
-    static let unit: CGFloat = 260
+    /// The width one card wants before the grid adds a column, scaled with the chrome. 290 pt at `uiScale == 1.0`
+    /// (QA 2026-10-16): at 260 a 1200 pt window (a ~1,070 pt grid) drew four ~255 pt cards and truncated nearly every
+    /// title and meta line ("Claude C…"), while three columns at 1100 truncated nothing — so a window under ~1,280 pt
+    /// now gets three.
+    static let unit: CGFloat = 290
     /// Never one column: a single-column Sources page reads as a list of
     /// eleven rows, which is the shape G124 replaced. Never five: past four the
     /// card's five bands stop fitting the tile width the metrics pin.
