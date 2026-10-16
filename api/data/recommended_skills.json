@@ -321,7 +321,7 @@
       "pin": {
         "repo": "rorosaga/cicada",
         "ref": "dev",
-        "sha": "57a52f77aa64095622377fffcb30902cae37d6ce",
+        "sha": "3a90f992648fbc339d76d7ac0da8c6f4a4e784ac",
         "path": "skills/site-explore",
         "skillMdSha256": "9d83c1cc8b97eda9f36c820619f6376ed90bacb1a932642c2096e1467b91ddfb",
         "files": {"explore_capture.py": "a8b898bc081e6535ad9152dace0089a56c1f5bd64d50b03c6e9eccaf9bd8dba7"}

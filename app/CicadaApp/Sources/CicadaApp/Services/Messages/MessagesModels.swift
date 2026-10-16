@@ -16,11 +16,29 @@ struct MessagesConversation: Identifiable, Equatable, Sendable {
     var messageCount: Int { fromMe + fromThem }
 }
 
-/// Where a ticked conversation's reading stopped, per memory: the highest `message.ROWID` posted, and the newest
-/// edit or unsend time (`date_edited` / `date_retracted`, Apple nanoseconds) seen — an edit keeps its old ROWID.
+/// Where a ticked conversation's reading stopped, per memory: the highest `message.ROWID` posted, and, per posted row
+/// edited or unsent within `MessagesReader.editWindow`, the edit or unsend time (`date_edited` / `date_retracted`,
+/// Apple nanoseconds) last posted for it — an edit keeps its old ROWID. Per row, not one maximum: an edit that reaches
+/// this Mac late carries an earlier time than one already seen and would hide under a single watermark.
+///
+/// A cursor saved before `edits` existed (it carried a single `changed` time) decodes with no record: the next pass
+/// re-posts the window's edited rows once, and the backend's per-message merge keeps them as they are.
 struct MessagesCursor: Codable, Equatable, Sendable {
     var rowid: Int64 = 0
-    var changed: Int64 = 0
+    var edits: [Int64: Int64] = [:]
+
+    init(rowid: Int64 = 0, edits: [Int64: Int64] = [:]) {
+        self.rowid = rowid
+        self.edits = edits
+    }
+
+    enum CodingKeys: String, CodingKey { case rowid, edits }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        rowid = (try? c.decodeIfPresent(Int64.self, forKey: .rowid)) ?? 0
+        edits = (try? c.decodeIfPresent([Int64: Int64].self, forKey: .edits)) ?? [:]
+    }
 }
 
 /// One read of a ticked conversation, ready to post: the rows past the cursor (plus edited or unsent ones), already

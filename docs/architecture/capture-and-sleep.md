@@ -291,23 +291,29 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   `$CICADA_HOME/pictures/<bank>/contacts/<id>.<jpg|png>` — `contacts_local.photo_path(bank, id, ext)`, the one path
   T-People's picture ladder reads — and marked `contacts_photo: {sha, ext}`; 409 while Sleep runs; one `user` commit
   per sync (`capture/contacts`).
-- **Messages conversations the person ticks (G179, 2026-10-15).** The app lists `chat.db`'s one-to-one chats (names,
-  last activity, per-side counts — `MessagesReader.conversations`; group chats are out of this slice) and reads only a
-  ticked conversation's rows (`message` id, guid, time, direction, `text`, `attributedBody` as base64, the
-  reaction/event/edit/unsend columns and its attachments' names and types — never `attachment.filename`, a path, never
-  the handle), past a `message.ROWID` cursor per memory plus rows edited or unsent since its last pass, 500 at a time,
-  re-synced on FSEvents in `~/Library/Messages` (10 s debounce, 60 s floor). A conversation's id is a hash of
-  `chat.guid`. `POST /sources/messages/sync` refuses (409) a conversation not ticked in `sources/messages.json`
-  (`messages_source.load_settings`: tick, the person's mark and its history); `POST /sources/messages/conversations`
-  only computes the Settings list (tick, mark, detector suggestion) and stores nothing. The backend decodes
-  `attributedBody` (`typedstream`: the header, the string object's class, then its `+` bytes — `NSUnarchiver` stays out
-  of the app), skips tapbacks (a tapback row quotes the OTHER side's words under the reactor) and events, names
-  attachments (`[image: plan.png]`), folds a message's line breaks so it is one turn line, and stages one episode per
-  **sitting** (messages more than 3 h apart start a new one; the measurement and the reasons are G179's) keyed
-  `imessage:<conversation>:<first message key>`. A pass merges into the stored sittings it touches, rebuilt from each
-  episode's own body, `turns` sidecar and `message_keys`: an edit rewrites in place and re-queues, an unsent message
-  leaves (an emptied sitting is tombstoned), a bridging late message merges two sittings into the earlier one, which
-  keeps its key and id. **Who is who:** the person's lines are `user:`; the other side's are `assistant:` when the
+- **Messages conversations the person ticks (G179, 2026-10-15).** The app lists `chat.db`'s 200 most recent one-to-one
+  chats for the Settings picker (names, last activity, per-side counts — `MessagesReader.conversations`; group chats are
+  out of this slice; a ticked chat below that cap is appended so it can be unticked). Every pass reads the ticked
+  conversations by their own id (`conversations(ids:)`, the chats' guids hashed in the app), never through that list, so
+  a ticked chat syncs whatever its rank. It reads only a ticked conversation's rows (`message` id, guid, time,
+  direction, `text`, `attributedBody` as base64, the reaction/event/edit/unsend columns and its attachments' names and
+  types — never `attachment.filename`, a path, never the handle), past a `message.ROWID` cursor per memory, 500 at a
+  time, plus every already-posted row whose edit or unsend time differs from the one the cursor recorded for it. The
+  cursor keeps that time per row for rows edited or unsent within the last 30 days (by edit time) and each pass
+  re-checks exactly that window (ids and times only), so an edit that reaches the Mac late, carrying an earlier edit
+  time than one already seen, is still read; a single newest-edit watermark would hide it. An edit arriving more than 30
+  days after it was made is not seen. Re-synced on FSEvents in `~/Library/Messages` (10 s debounce, 60 s floor). A
+  conversation's id is a hash of `chat.guid`. `POST /sources/messages/sync` refuses (409) a conversation not ticked in
+  `sources/messages.json` (`messages_source.load_settings`: tick, the person's mark and its history); `POST
+  /sources/messages/conversations` only computes the Settings list (tick, mark, detector suggestion) and stores nothing.
+  The backend decodes `attributedBody` (`typedstream`: the header, the string object's class, then its `+` bytes —
+  `NSUnarchiver` stays out of the app), skips tapbacks (a tapback row quotes the OTHER side's words under the reactor)
+  and events, names attachments (`[image: plan.png]`), folds a message's line breaks so it is one turn line, and stages
+  one episode per **sitting** (messages more than 3 h apart start a new one; the measurement and the reasons are G179's)
+  keyed `imessage:<conversation>:<first message key>`. A pass merges into the stored sittings it touches, rebuilt from
+  each episode's own body, `turns` sidecar and `message_keys`: an edit rewrites in place and re-queues, an unsent
+  message leaves (an emptied sitting is tombstoned), a bridging late message merges two sittings into the earlier one,
+  which keeps its key and id. **Who is who:** the person's lines are `user:`; the other side's are `assistant:` when the
   conversation is with an AI agent — the person's mark, or an `identified` detection (`agent_detectors`, G188) — else
   `speaker:<label>:`; the frontmatter `correspondent: {name, kind, decided_by, detector?, detection?, signal?}` names
   it, with `conversation`, `service`, `message_count`, `from_person`, `sitting_first_at`/`sitting_last_at` and
