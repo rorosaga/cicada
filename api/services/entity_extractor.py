@@ -13,7 +13,7 @@ from loguru import logger
 from tqdm import tqdm
 
 from api.config import Settings
-from api.services import (decay_policy, engine_errors, episode_time, evidence, fact_policy, promotion,
+from api.services import (correspondents, decay_policy, engine_errors, episode_time, evidence, fact_policy, promotion,
                           section_provenance, source_dates)
 from api.services.json_parse import parse_json_object
 
@@ -659,6 +659,9 @@ async def extract(
                     "entities": all_entities,
                     "relationships": all_relationships,
                 }
+                # G179: the other side of a message conversation is its own page, of its own type — the entity
+                # that names them is marked (and typed) here, from the episode's own record (`correspondents`).
+                correspondents.mark_extraction(results[i], episode.get("correspondent"))
 
                 success += 1
                 if on_episode_read is not None:
@@ -807,8 +810,10 @@ def entities_to_claims(
             raw_label = str(rel.get("label", "") or "").strip() or "relates to"
             if not source or not target:
                 continue
-            subject = to_id(source)
-            obj = to_id(target)
+            # G179: an endpoint Stage 2 pinned to a message conversation's correspondent page lands there, whatever
+            # page the same letters key to elsewhere (`correspondents`).
+            subject = str(rel.get("source_page") or "") or to_id(source)
+            obj = str(rel.get("target_page") or "") or to_id(target)
             if subject == obj:
                 continue
             if normalize is not None:

@@ -320,7 +320,9 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   `message_keys`. The person's mark changes re-render every saved sitting in place from the stored episodes (`PUT
   /sources/messages/settings`, one `user` commit with the settings file). One `user` commit per sync
   (`capture/messages`); scrub writer `imessage`; demo bank 409. `GET /sources/messages/waiting` sums `message_count`
-  over unread, live sittings per conversation — the Sleep page's and Home's bubbles.
+  over unread, live sittings per conversation — the Sleep page's and Home's bubbles. Through Sleep, the decided
+  `correspondent` is its own page — a `tool` for an agent, a `person` for a person — never a same-name page of
+  another type (*Entity promotion*, "A message conversation's correspondent").
 - **Capture never writes into a demo bank** (G117's synthetic bank; G141 capture-side track). A bank
   is the demo when `<bank>/_bank.yaml` says `kind: demo` — written first by `demo_bank.populate` and
   committed as `cicada` — or, for a demo made before that file, when its `.git/config` carries the
@@ -764,6 +766,48 @@ history, an unclaimed `website`/`decay_class` proposal and its G118 item records
 pending parks one line carrying the merged history and tags; the line keeps the strongest mention's episode. Before
 this fix those extractions were dropped whole: a 25-conversation batch credited 1 episode. Claims and edges were never
 affected, because they are projected from every extraction's relationships through `name_to_id`.
+
+**A message conversation's correspondent is its own page, of its own type (G179, owner 2026-10-15/16).** Before this,
+a texted agent was resolved by name like any mention, so an existing page with the same letters took it: on the
+owner's bank an archived `concept` page about the ordinary word absorbed a 55-sitting agent conversation — its claims,
+its source, an article rewritten about the agent — and kept the concept's type and fading state. Now
+(`api/services/correspondents.py`, one rule for Stage 1, Stage 2 and the repair):
+- **The signal** is the episode's own `correspondent` record with a decided kind (`agent` | `person` — the person's
+  mark, or an `identified` detection; `unknown` decides nothing), applied only to an entity Stage 1 extracted from
+  *that* episode whose name or one of its aliases folds (`agent_detectors.fold`) to exactly the record's name. Stage 1
+  marks it (`correspondents.mark_extraction`, after stripping any mark or pin the model wrote) and gives it its type:
+  an AI agent is a `tool` (software the person uses — not a person, not an idea), a texted person a `person`.
+  A mention of the same letters in any other conversation never carries the mark and takes the general resolver,
+  unchanged — so this cannot widen into homonym handling.
+- **Stage 2** (`entity_resolver._resolve_correspondents`, before any other name is judged) takes a marked entity out of
+  the by-name path: an existing page of the right type named so (else listing the alias; never the owner's page; a
+  dropped one is updated and stays dropped) is updated; otherwise a page is created under the name's id when free, or
+  `<id>-agent` / `<id>-person` (then `-2`…) when another page holds it (`correspondents.free_id`, trigger
+  `sleep/correspondent`). It does not wait in the pending store: every line on the other side of the conversation is
+  theirs, and the person ticked the conversation and said (or an identified detection said) who it is — a correspondent
+  is not a passing mention. The page is born like any create (`created`/`last_referenced` from its conversations' days,
+  `decayed_through`, `learned_on`, the decay class of its type); decay math is untouched. Every relationship of that
+  episode whose endpoint names the correspondent is pinned to the page (`source_page` / `target_page`), so its edge and
+  claim land there (`entities_to_claims` reads the pin before `name_to_id`); `name_to_id` maps the name to the page
+  only when no other conversation in the batch extracted that name. Observers are unchanged (`external:<name>` is the
+  correspondent's name, not a page id).
+- **Not covered:** a mention of the agent by name in another conversation (a coding session that talks about it) still
+  resolves by name — with two pages sharing a name, the general resolver's exact match takes whichever it indexed last.
+  A type-aware tiebreak would be general homonym handling, a separate decision.
+- **Repair for existing banks** (`api/scripts/repair_correspondent_pages.py` → `correspondent_repair`; dry run prints
+  counts only, `--apply` one `cicada` commit, trigger `maintenance/correspondent-split`, refused while Sleep runs or
+  holds the pages, a page dirty in git skipped, a second run a no-op). It finds a page named as a conversation's
+  correspondent that credits one of its episodes while its type does not match, and splits it from the page's own
+  git history: the *base* is the page in the parent of the first commit that credited the conversation. The old page
+  goes back to the base (prose, status, confidence, `last_referenced`, `decayed_through`, its claims as the base had
+  them) plus anything later from another conversation; the correspondent's page (an existing right-type page, merged
+  human-safe, else a new one born active at `RECOVERY_CONFIDENCE` with its conversations' days) gets the conversation's
+  episodes, every claim added since the base that cites one of them (re-subjected, all provenance kept), the `sources:`
+  rows, tags, aliases and `related` added since the base, the lead and Article when the absorption rewrote them (moved
+  verbatim, so a machine article keeps its stamp and Sleep's writer keeps rewriting it — no model), and the list items
+  the base did not have. Other pages' claims from the conversation that point at the old id are repointed; claim edges
+  are regenerated (Stage 5.7's `regenerate_edges_from_claims`). A page with no version before the conversation, or a
+  bank without git, is counted (`no_history`) and left alone; a wikilink by name in other prose is left as written.
 
 **Stage 2's judge calls overlap, its decisions do not (2026-10-08).** After the name and fuzzy matches, Stage 2 asks
 the disambiguation judge once per (name, same-type page sharing a name token), first `same` wins. Those calls used to
