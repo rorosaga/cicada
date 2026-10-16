@@ -3,13 +3,14 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 /// The LinkedIn tile's second way in (2026-10-16, G154's pattern): the person's `Connections.csv` — or the export
-/// `.zip` carrying it — enriches the people Cicada already has. The app reads the file the person picked or dropped and
-/// posts its bytes; the backend matches, previews and writes. Counts only on screen, never a name.
+/// `.zip` carrying it — enriches the people Cicada already has. The app reads the file the person picked or dropped —
+/// from a `.zip`, only its `Connections.csv` (`LinkedInConnectionsFile`) — and posts those bytes; the backend matches,
+/// previews and writes. Counts only on screen, never a name.
 struct LinkedInConnectionsPanel: View {
     enum Stage: Equatable {
         case idle
         case reading(String)
-        case preview(LinkedInConnectionsPreview, URL, String?)
+        case preview(LinkedInConnectionsPreview, LinkedInConnectionsPayload)
         case importing
         case done(String)
         case failed(String)
@@ -55,14 +56,14 @@ struct LinkedInConnectionsPanel: View {
                 ProgressView().controlSize(.small)
                 Text("Reading \(name)…").font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
             }
-        case .preview(let preview, let url, let day):
+        case .preview(let preview, let payload):
             VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                 Text(LinkedInConnectionsWords.preview(preview))
                     .font(CicadaTheme.bodyFont)
                     .foregroundStyle(CicadaTheme.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: CicadaTheme.spacingSM) {
-                    Button(LinkedInConnectionsWords.confirm(preview)) { confirm(url, day) }
+                    Button(LinkedInConnectionsWords.confirm(preview)) { confirm(payload) }
                         .buttonStyle(.borderedProminent)
                     Button("Cancel") { stage = .idle }
                 }
@@ -102,14 +103,20 @@ struct LinkedInConnectionsPanel: View {
             return
         }
         let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
-        let day = LinkedInConnectionsWords.exportedOn(fileURL: url, modified: modified)
         stage = .reading(url.lastPathComponent)
         task?.cancel()
         task = Task {
             do {
-                let preview = try await APIClient.shared.previewLinkedInConnections(fileURL: url, exportedOn: day)
+                // Off the main thread: a dropped export .zip is opened here and only its Connections.csv is read.
+                let payload = try await Task.detached(priority: .userInitiated) {
+                    try LinkedInConnectionsFile.payload(for: url, modified: modified)
+                }.value
+                let preview = try await APIClient.shared.previewLinkedInConnections(payload)
                 guard !Task.isCancelled else { return }
-                stage = .preview(preview, url, day)
+                stage = .preview(preview, payload)
+            } catch let error as LinkedInConnectionsFileError {
+                guard !Task.isCancelled else { return }
+                stage = .failed(error.errorDescription ?? "")
             } catch {
                 guard !Task.isCancelled else { return }
                 stage = .failed(AddSourceSheet.friendlyError(error))
@@ -117,12 +124,12 @@ struct LinkedInConnectionsPanel: View {
         }
     }
 
-    private func confirm(_ url: URL, _ day: String?) {
+    private func confirm(_ payload: LinkedInConnectionsPayload) {
         stage = .importing
         task?.cancel()
         task = Task {
             do {
-                let result = try await APIClient.shared.importLinkedInConnections(fileURL: url, exportedOn: day)
+                let result = try await APIClient.shared.importLinkedInConnections(payload)
                 await store.refresh([.graph])
                 guard !Task.isCancelled else { return }
                 stage = .done(LinkedInConnectionsWords.done(result))

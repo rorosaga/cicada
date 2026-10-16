@@ -52,7 +52,7 @@ enum LinkedInConnectionsWords {
     }
 
     /// The export's own day, sent with a lone `Connections.csv` (its modification date): what the facts are true as
-    /// of. A `.zip` carries the date inside, so nothing is sent for it.
+    /// of. A `.zip`'s day is its `Connections.csv` member's own date (`LinkedInConnectionsFile`).
     static func exportedOn(fileURL: URL, modified: Date?) -> String? {
         guard fileURL.pathExtension.lowercased() == "csv", let modified else { return nil }
         let f = DateFormatter()

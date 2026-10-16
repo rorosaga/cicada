@@ -2619,14 +2619,18 @@ actor APIClient {
     /// `filename`: the name the backend sees; nil is the file's own name. A walked folder's file is named by its
     /// path inside the folder, which the backend reads as "a member of an export folder" (`saved_exports`).
     private func uploadMultipart<T: Decodable>(path: String, fileURL: URL, filename: String? = nil) async throws -> T {
+        try await uploadMultipart(path: path, fileData: try Data(contentsOf: fileURL),
+                                  filename: filename ?? fileURL.lastPathComponent)
+    }
+
+    private func uploadMultipart<T: Decodable>(path: String, fileData: Data, filename: String) async throws -> T {
         var request = makeRequest(path, method: "POST", json: false)
 
         let boundary = UUID().uuidString
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
 
-        let fileData = try Data(contentsOf: fileURL)
         // A quote or line break would end the header early; a path inside a folder never needs one.
-        let filename = (filename ?? fileURL.lastPathComponent)
+        let filename = filename
             .replacingOccurrences(of: "\"", with: "'").replacingOccurrences(of: "\r", with: " ")
             .replacingOccurrences(of: "\n", with: " ")
 
@@ -2651,16 +2655,17 @@ actor APIClient {
     }
 
     /// `POST /sources/linkedin-connections/preview` — how many of the export's connections are people Cicada already
-    /// knows. Writes nothing; Confirm re-posts the same file to `/import`.
-    func previewLinkedInConnections(fileURL: URL, exportedOn: String?) async throws -> LinkedInConnectionsPreview {
-        try await uploadMultipart(path: "/sources/linkedin-connections/preview" + Self.exportedOnQuery(exportedOn),
-                                  fileURL: fileURL)
+    /// knows. Writes nothing; Confirm re-posts the same bytes to `/import`. Only `Connections.csv`'s bytes are sent —
+    /// an export `.zip` is opened here (`LinkedInConnectionsFile`), never posted whole.
+    func previewLinkedInConnections(_ payload: LinkedInConnectionsPayload) async throws -> LinkedInConnectionsPreview {
+        try await uploadMultipart(path: "/sources/linkedin-connections/preview" + Self.exportedOnQuery(payload.exportedOn),
+                                  fileData: payload.data, filename: payload.filename)
     }
 
     /// `POST /sources/linkedin-connections/import` — enrich the people Cicada already has; never adds anyone.
-    func importLinkedInConnections(fileURL: URL, exportedOn: String?) async throws -> LinkedInConnectionsImport {
-        try await uploadMultipart(path: "/sources/linkedin-connections/import" + Self.exportedOnQuery(exportedOn),
-                                  fileURL: fileURL)
+    func importLinkedInConnections(_ payload: LinkedInConnectionsPayload) async throws -> LinkedInConnectionsImport {
+        try await uploadMultipart(path: "/sources/linkedin-connections/import" + Self.exportedOnQuery(payload.exportedOn),
+                                  fileData: payload.data, filename: payload.filename)
     }
 
     static func exportedOnQuery(_ day: String?) -> String {

@@ -873,8 +873,11 @@ the page's find row.
   its saved-items walkthrough, `LinkedInConnectionsPanel` (`AddSourceTile.offersConnections`): one sentence —
   "Adds each connection's profile link, company and role to the people already in your memory — it never adds anyone
   new." —, where the export lives, and *Choose Connections.csv…* (or a drop of the CSV or the export `.zip`; the
-  intake's refused roots apply). The app posts the bytes to `POST /sources/linkedin-connections/preview` (with a lone
-  CSV's modification day as `?exported_on=`) and shows counts only — "12 of your 420 connections are people Cicada
+  intake's refused roots apply). From a `.zip` the app reads only `Connections.csv` — the archive's tail, its central
+  directory and that one member (`LinkedInConnectionsFile`; the export also holds messages and is often past the
+  32 MB cap), never another member's bytes; a zip without it says so in words. The app posts just those bytes to
+  `POST /sources/linkedin-connections/preview` (with a lone CSV's modification day, or the member's own date, as
+  `?exported_on=`) and shows counts only — "12 of your 420 connections are people Cicada
   already knows. 2 share a name with more than one person and are left out. As of <day>." — then *Add to 12 people*
   (or *Keep for later* when none match: the backend keeps the directory for later matches) posts `/import` and
   refreshes the graph. Words in `LinkedInConnectionsWords`, tested in `LinkedInConnectionsTests`. Settings → Skills
