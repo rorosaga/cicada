@@ -38,6 +38,18 @@ enum UsageFormat {
         percent(fraction.map { $0 * 100 })
     }
 
+    /// A plan share held as a 0.0–1.0 fraction, in the reader's locale: whole points from one percent up
+    /// ("3%"), one decimal below it ("0.4%"). The caller adds "about" or "under" and the noun — a share this
+    /// small is never rounded to "0%".
+    static func share(fraction: Double, locale: Locale = .autoupdatingCurrent) -> String {
+        let f = NumberFormatter()
+        f.numberStyle = .percent
+        f.locale = locale
+        f.minimumFractionDigits = 0
+        f.maximumFractionDigits = fraction < 0.0095 ? 1 : 0
+        return f.string(from: NSNumber(value: fraction)) ?? percent(fraction: fraction)
+    }
+
     /// US dollars in the reader's locale, two decimals (R-S17: the locale is a parameter). The
     /// currency code is pinned, never the symbol: litellm and OpenRouter both bill in USD. Below a
     /// cent it reads "< $0.01" rather than a rounded zero, and only an exact zero reads "$0.00".

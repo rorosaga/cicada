@@ -122,7 +122,15 @@ plan window's share) and a plan's before → after carries the honest limit that
 record the backend finds, `/sleep/status`'s `lastFinishedCycle` (`LastCycleFigures.resolve`, 2026-10-16): a drain is
 one cycle — its run's reading time, the engine its commits name, and the whole run's cost — and a run still reading or
 paused is skipped; a plan run's line is its window and no price
-(`CycleUsageText.lastCycleLine`); past nights' rows keep each batch's own figures.
+(`CycleUsageText.lastCycleLine`); past nights' rows keep each batch's own figures. **A plan run leads with how much of
+the plan it used, not dollars (owner 2026-10-16):** a row, Last cycle and the engine menu's last line ("Last run: under
+1% of your weekly limit · measured") say the backend's `planShare` with its basis in a word — measured, or estimated,
+never an estimate presented as a reading and never "0%" (`CycleUsageText.shareLine`/`shareFigure`); the help states
+each basis in full and the list-price equivalent, "Would have cost about $0.49 on an API key". An opened plan run (Past
+nights' run detail and a cycle's Models) puts the share above the models, drops the models' list price, and moves the
+dollars to that secondary line under the total; a metered run keeps its dollars as before. A plan run with no share reads
+its window shift, else "share of the plan not recorded". Past nights' folded run row does not carry the figure (its
+detail does): the row has no whole-run usage on the wire.
 
 **Navigation (Direction D, DS-1).** A 56 pt icon rail (`Views/Shell/NavRail.swift`): Home, Graph, Clusters, Skills,
 Sleep, Inbox, Sources, Projects, Looks at ⌘1–9 in `AppTab.allCases` order (`RailItem`; a page switch is instant). The Feed

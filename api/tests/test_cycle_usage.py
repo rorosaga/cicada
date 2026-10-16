@@ -297,12 +297,14 @@ def test_wire_shape_is_camel_case_with_the_documented_fields():
                 _call("w", engine="claude-cli", model="m", cost=None, equiv=0.5)])
     body = json.loads(u.model_dump_json(by_alias=True))
     assert set(body) == {"recorded", "engine", "connection", "models", "totalCostUsd", "totalEquivUsd",
-                         "basis", "plan"}
+                         "basis", "plan", "planShare"}
+    assert body["planShare"] == [{"window": "five_hour", "basis": "measured", "share": 0.1, "under": None,
+                                  "samples": None}]
     assert set(body["models"][0]) == {"model", "engine", "calls", "failedCalls", "inputTokens", "outputTokens",
                                       "costUsd", "equivCostUsd", "basis", "stages"}
     assert set(body["plan"]["windows"][0]) == {"window", "before", "after", "resetsAt", "beforeIsFirstSeen"}
     summary = json.loads(cycle_usage.summarize(u).model_dump_json(by_alias=True))
-    assert set(summary) == {"basis", "costUsd", "equivCostUsd", "engine", "connection", "plan"}
+    assert set(summary) == {"basis", "costUsd", "equivCostUsd", "engine", "connection", "plan", "planShare"}
 
 
 def test_last_cycles_reads_the_newest_window_and_charge_per_card():

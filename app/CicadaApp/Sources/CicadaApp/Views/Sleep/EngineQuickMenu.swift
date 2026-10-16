@@ -52,8 +52,10 @@ struct EngineQuickMenuModel: Equatable {
     /// picker; and the sentence that says what the two figures are.
     var modelPrices: [String: String] = [:]
     var pricesNote: String? = nil
-    /// "Last cycle: $0.42 charged", under the two ruling-4 lines, when a card knows it.
+    /// "Last cycle: $0.42 charged", under the two ruling-4 lines, when a card knows it — on a plan, "Last run: under 1%
+    /// of your weekly limit · measured" (owner 2026-10-16), its help the bases in full and the "would have cost" figure.
     var lastCycleLine: String? = nil
+    var lastCycleHelp: String? = nil
     /// Sleep page v5 — *Keep plan free* (the reserve), only when a run you start would use a plan.
     var reserve: Reserve? = nil
     /// How a scheduled run spends (ruling 16), in words from `preview.scheduled.billing`; never a provider's name.
@@ -130,6 +132,7 @@ struct EngineQuickMenuModel: Equatable {
         } ?? []
         let prices = pickable ? (chosen?.modelPrices ?? [:]).compactMapValues { CycleUsageText.modelPrice($0, locale: locale) } : [:]
         let manualCard = response.preview.flatMap { EngineOption.candidateId(forEngine: $0.manual.engine, model: $0.manual.model) }
+        let last = CycleUsageText.lastCycle(response.candidates, preferring: manualCard, locale: locale)
         return EngineQuickMenuModel(
             rows: rows,
             modelLabel: current == "auto" ? Copy.EngineMenu.howAutoPicks : Copy.EngineMenu.model,
@@ -144,7 +147,8 @@ struct EngineQuickMenuModel: Equatable {
             runNote: response.runKeepsEngine ? Copy.EngineMenu.runKeepsEngine : nil,
             modelPrices: prices,
             pricesNote: prices.isEmpty ? nil : Copy.SleepUsage.perMillionNote,
-            lastCycleLine: CycleUsageText.lastCycleLine(response.candidates, preferring: manualCard, locale: locale),
+            lastCycleLine: last?.line,
+            lastCycleHelp: last?.help,
             reserve: Reserve.from(response.reserve, billing: response.preview?.manual.billing),
             scheduledSpend: Copy.SleepV5.scheduledSpend(response.preview?.scheduled.billing))
     }
@@ -392,6 +396,7 @@ struct EngineQuickMenu: View {
                         .monospacedDigit()
                         .foregroundStyle(CicadaTheme.textSecondary)
                         .lineLimit(1)
+                        .help(model.lastCycleHelp ?? last)
                 }
                 if let spend = model.scheduledSpend {
                     Text(spend)

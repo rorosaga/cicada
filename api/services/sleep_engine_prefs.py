@@ -247,6 +247,16 @@ async def _attach_usage(cards, snap, *, or_models: list[str], key_model: str, ba
         w = last["claude-plan"]
         c.usage = SleepEngineUsage(kind="plan-window", window=w["window"], used_fraction=w["used_fraction"],
                                    resets_at=w["resets_at"], as_of=w["as_of"], source="last-cycle")
+    # Owner 2026-10-16: a plan card says how much of the plan its newest run used, not dollars; the list-price
+    # equivalent rides beside it as the secondary "would have cost" figure.
+    for card_id, connection in (("agent", "claude-plan"), ("codex", "chatgpt-plan")):
+        run = (last.get("last-run") or {}).get(connection)
+        if (c := by_id.get(card_id)) is None or not run:
+            continue
+        if c.usage is None:
+            c.usage = SleepEngineUsage(kind="plan-window", source="last-cycle", as_of=run.get("as_of"))
+        c.usage.last_run_share = list(run.get("share") or [])
+        c.usage.last_run_equiv_usd = run.get("equiv_usd")
     for card_id, model_id, models in (("openrouter", or_models[0] if or_models else None, or_models),
                                       ("byok", key_model, [key_model])):
         card = by_id.get(card_id)
