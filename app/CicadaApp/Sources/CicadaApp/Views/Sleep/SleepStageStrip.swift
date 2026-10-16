@@ -39,7 +39,7 @@ struct SleepStageStrip: View {
         HStack(spacing: CicadaTheme.spacingSM) {
             ForEach(Array(SleepStages.all.enumerated()), id: \.element.id) { index, stage in
                 if index > 0 { connector(after: pip(at: index - 1)) }
-                step(stage, look: StepLook(pip(at: index)))
+                step(stage, pip: pip(at: index))
             }
         }
         .frame(maxWidth: .infinity)
@@ -54,8 +54,9 @@ struct SleepStageStrip: View {
 
     // MARK: One stage
 
-    private func step(_ stage: SleepStage, look: StepLook) -> some View {
-        HStack(spacing: CicadaTheme.spacingXS + 2) {
+    private func step(_ stage: SleepStage, pip: StagePip) -> some View {
+        let look = StepLook(pip)
+        return HStack(spacing: CicadaTheme.spacingXS + 2) {
             marker(look)
             Text(stage.shortLabel)
                 .font(CicadaTheme.font(size: 12, weight: look == .current ? .medium : .regular))
@@ -65,7 +66,13 @@ struct SleepStageStrip: View {
         }
         .help("\(stage.title): \(stage.detail)")
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(stage.title) — \(look.pip.accessibilityWord)")
+        .accessibilityLabel(Self.accessibilityLabel(stage, pip: pip))
+    }
+
+    /// What VoiceOver reads for one stage: its title and the pip's own word — from the pip, not the look, so a stage a
+    /// stop never reached says "not reached" rather than "not started" (the two share the to-come look).
+    static func accessibilityLabel(_ stage: SleepStage, pip: StagePip) -> String {
+        "\(stage.title) — \(pip.accessibilityWord)"
     }
 
     private func labelColor(_ look: StepLook) -> Color {
@@ -218,10 +225,16 @@ private struct BreathingDotLayer: NSViewRepresentable {
 
         required init?(coder: NSCoder) { nil }
 
+        override func viewDidChangeEffectiveAppearance() {
+            super.viewDidChangeEffectiveAppearance()
+            needsLayout = true
+        }
+
         override func layout() {
             super.layout()
             guard let layer else { return }
-            layer.backgroundColor = color.cgColor
+            // A dynamic colour resolves against the view's own appearance, not whatever is current during layout.
+            effectiveAppearance.performAsCurrentDrawingAppearance { layer.backgroundColor = color.cgColor }
             layer.cornerRadius = min(bounds.width, bounds.height) / 2
             if layer.animation(forKey: "breath") == nil, let breath = LiveDot.breath(reduceMotion: false) {
                 layer.add(breath, forKey: "breath")

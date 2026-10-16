@@ -49,6 +49,17 @@ final class SleepRunStripTests: XCTestCase {
         XCTAssertEqual(StepLook.failed.pip.accessibilityWord, "failed", "a failure is said in words (DR-7)")
     }
 
+    /// VoiceOver reads each stage's own pip word, not its look's: after a cancel the stages the stop never reached say
+    /// "not reached", which shares the to-come ring with "not started" but is a different fact.
+    func test_voiceOverReadsThePipNotTheLook() {
+        let cancelled = stageStripState(stage: 2, isRunning: false, cancelled: true, error: false, read: 0, total: 0)
+        let labels = zip(SleepStages.all, cancelled).map { SleepStageStrip.accessibilityLabel($0, pip: $1) }
+        XCTAssertEqual(labels[0], "\(SleepStages.all[0].title) — done")
+        XCTAssertEqual(labels[2], "\(SleepStages.all[2].title) — \(cancelled[2].accessibilityWord)")
+        XCTAssertEqual(SleepStageStrip.accessibilityLabel(SleepStages.all[3], pip: .skipped),
+                       "\(SleepStages.all[3].title) — not reached")
+    }
+
     /// The way to the next stage fills only from a counted fraction (P15): whole after a done stage, the fraction after
     /// a counted stage in flight, nothing after an uncounted one or one that never ran.
     func test_theConnectorFillsOnlyFromACountedFraction() {
