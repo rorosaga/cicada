@@ -1,7 +1,8 @@
 import XCTest
 @testable import CicadaApp
 
-/// G68 §1 — nine rows (G108 added Home at ⌘1; G141 PJ-5 added Projects at ⌘8; design taste added Looks at ⌘9), stable
+/// G68 §1 — nine rows (G108 added Home at ⌘1; G141 PJ-5 added Projects at ⌘8; design taste added Looks at ⌘9; the Sleep
+/// redesign retired the Feed and gave its ⌘4 to Skills, 2026-10-16, ⌘ map A), stable
 /// identities, and a decoder that survives a
 /// selection written by an older build.
 @MainActor
@@ -9,7 +10,27 @@ final class SidebarTabTests: XCTestCase {
 
     /// G108 ruled (spec decision 12): Home is the front door at ⌘1, Graph follows at ⌘2.
     func testTheSidebarIsNineRowsInVisualOrder() {
-        XCTAssertEqual(AppTab.allCases, [.home, .graph, .clusters, .feed, .sleep, .inbox, .sources, .projects, .looks, .skills])
+        XCTAssertEqual(AppTab.allCases, [.home, .graph, .clusters, .skills, .sleep, .inbox, .sources, .projects, .looks])
+    }
+
+    /// ⌘ map A (owner, 2026-10-16) — Skills takes the Feed's ⌘4 and nothing else moves: every shortcut a person
+    /// learned still opens the page it opened.
+    func testMapANothingButTheFeedsCellMoves() {
+        XCTAssertEqual(AppTab.allCases.map { RailItem.shortcut(for: $0) },
+                       ["⌘1", "⌘2", "⌘3", "⌘4", "⌘5", "⌘6", "⌘7", "⌘8", "⌘9"])
+        XCTAssertEqual(RailItem.shortcut(for: .skills), "⌘4")
+        XCTAssertEqual(RailItem.shortcut(for: .sleep), "⌘5")
+        XCTAssertEqual(RailItem.shortcut(for: .inbox), "⌘6")
+        XCTAssertEqual(RailItem.shortcut(for: .looks), "⌘9")
+    }
+
+    /// The one-time hint: only the key (⌘ held), only on Skills, only once per viewer.
+    func testTheFeedMovedHintShowsOnceAndOnlyForTheKey() {
+        XCTAssertTrue(FeedMovedHint.shouldShow(tab: .skills, commandHeld: true, alreadyShown: false))
+        XCTAssertFalse(FeedMovedHint.shouldShow(tab: .skills, commandHeld: false, alreadyShown: false), "a click meant Skills")
+        XCTAssertFalse(FeedMovedHint.shouldShow(tab: .skills, commandHeld: true, alreadyShown: true), "never again")
+        XCTAssertFalse(FeedMovedHint.shouldShow(tab: .sleep, commandHeld: true, alreadyShown: false))
+        XCTAssertEqual(Copy.feedMovedHint, "The Feed is now part of Sleep (⌘5) → Saved.")
     }
 
     /// Raw values ARE the persisted identity. A surviving tab must never
@@ -18,7 +39,7 @@ final class SidebarTabTests: XCTestCase {
         XCTAssertEqual(AppTab.home.rawValue, "Home")
         XCTAssertEqual(AppTab.graph.rawValue, "Graph")
         XCTAssertEqual(AppTab.clusters.rawValue, "Clusters")
-        XCTAssertEqual(AppTab.feed.rawValue, "Feed")
+        XCTAssertEqual(AppTab.skills.rawValue, "Skills")
         XCTAssertEqual(AppTab.sleep.rawValue, "Sleep")
         XCTAssertEqual(AppTab.inbox.rawValue, "Inbox")
         XCTAssertEqual(AppTab.sources.rawValue, "Sources")
@@ -31,7 +52,8 @@ final class SidebarTabTests: XCTestCase {
     /// silently show the wrong thing. G124: Activity itself retired into
     /// Sources, taking the two G68 aliases with it.
     func testRetiredTabsFallBackToWhereTheirContentWent() {
-        XCTAssertEqual(AppTab.restored(from: "Capture"), .feed)
+        XCTAssertEqual(AppTab.restored(from: "Capture"), .sleep)
+        XCTAssertEqual(AppTab.restored(from: "Feed"), .sleep, "the Feed is Sleep's Saved tab (2026-10-16)")
         XCTAssertEqual(AppTab.restored(from: "Activity"), .sources)
         XCTAssertEqual(AppTab.restored(from: "Contributors"), .sources)
         XCTAssertEqual(AppTab.restored(from: "Usage"), .sources)
@@ -56,14 +78,14 @@ final class SidebarTabTests: XCTestCase {
         }
     }
 
-    /// ⌘1–9 follow the visual order, and every row has an icon. The tenth page (Skills, 2026-10-15) is the one past
-    /// the digit row: it has no ⌘ slot (⌘0 is Actual Size) and opens from the rail and the palette.
+    /// ⌘1–9 follow the visual order, and every row has an icon. Nine pages since the Feed folded into Sleep
+    /// (2026-10-16), so every page has a ⌘ slot — Skills at ⌘4.
     func testEveryTabHasAShortcutSlotAndAnIcon() {
-        XCTAssertEqual(AppTab.allCases.count, 10)
+        XCTAssertEqual(AppTab.allCases.count, 9)
         XCTAssertEqual(AppTab.allCases.firstIndex(of: .home), 0, "⌘1 is Home")
         XCTAssertEqual(AppTab.allCases.firstIndex(of: .graph), 1, "⌘2 is Graph")
         for (index, tab) in AppTab.allCases.enumerated() {
-            XCTAssertTrue(index < 9 || tab == .skills, "\(tab.rawValue) has no ⌘ slot")
+            XCTAssertTrue(index < 9, "\(tab.rawValue) has no ⌘ slot")
             XCTAssertFalse(tab.icon.isEmpty, tab.rawValue)
             XCTAssertFalse(tab.icon.hasSuffix(".fill"), "DR-53: outline glyphs")
             XCTAssertEqual(tab.title, tab.rawValue, "the label and the identity must agree")

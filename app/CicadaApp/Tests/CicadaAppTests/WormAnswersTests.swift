@@ -77,7 +77,7 @@ final class WormAnswersTests: XCTestCase {
         XCTAssertEqual(error.map(\.lead), ["Reading stopped.", "It ran on Ollama (on this Mac).",
                                            "Last time I read 12 episodes."])
         XCTAssertEqual(error[0].action, .openDetails(.lastCycle))
-        XCTAssertEqual(error[0].tail, "See what needs a fix in Details, then try again.")
+        XCTAssertEqual(error[0].tail, "See what needs a fix in Past reads, then try again.")
         XCTAssertEqual(wormAnswers(ctx(.awake)).map(\.lead), ["I haven't heard from Cicada yet."])
     }
 

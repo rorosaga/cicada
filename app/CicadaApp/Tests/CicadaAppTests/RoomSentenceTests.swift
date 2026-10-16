@@ -58,7 +58,7 @@ final class RoomSentenceTests: XCTestCase {
         let line = roomSentence(ctx(.error) { $0.cycleError = "claude exited 1: rate limited\nTraceback (most recent call last)" })
         XCTAssertEqual(line.lead, "Reading stopped.")
         XCTAssertEqual(line.tone, .warning)
-        XCTAssertEqual(line.tail, "See what needs a fix in Details, then try again.")
+        XCTAssertEqual(line.tail, "See what needs a fix in Past reads, then try again.")
         XCTAssertEqual(line.tailTone, .warning)
         XCTAssertEqual(line.action, .openDetails(.lastCycle))
     }
@@ -104,13 +104,13 @@ final class RoomSentenceTests: XCTestCase {
         let capped = roomSentence(ctx(.reading, debt: debt(40)) { $0.capped = true })
         XCTAssertEqual(capped.tail, "The rest wait for the next cycle.")
         let warned = roomSentence(ctx(.happy, debt: debt(0)) { $0.indexWarning = "index rebuild failed" })
-        XCTAssertEqual(warned.tail, "Finished with a warning — it's in Details.")
+        XCTAssertEqual(warned.tail, "Finished with a warning — it's in Past reads.")
         XCTAssertEqual(warned.tailTone, .warning)
     }
 
     func test_newsOutranksTheStateTails() {
         let failedAndCancelled = roomSentence(ctx(.error) { $0.cycleError = "boom"; $0.cancelled = true })
-        XCTAssertEqual(failedAndCancelled.tail, "See what needs a fix in Details, then try again.", "T3 before T4")
+        XCTAssertEqual(failedAndCancelled.tail, "See what needs a fix in Past reads, then try again.", "T3 before T4")
         let runningAndCancelled = roomSentence(ctx(.sleeping(stage: 2)) { $0.activeStage = 2; $0.cancelled = true })
         XCTAssertEqual(runningAndCancelled.tail, SleepStages.all[1].detail, "T2 before T4")
         let cancelledFirstNight = roomSentence(ctx(.reading, debt: debt(3, hasRunBefore: false)) { $0.cancelled = true })
@@ -123,7 +123,7 @@ final class RoomSentenceTests: XCTestCase {
         XCTAssertEqual(line.tail, "See what changed ›")
         XCTAssertEqual(line.action, .whatChanged)
         let warned = roomSentence(ctx(.happy, debt: debt(0)) { $0.recentCycleCommit = "c0ffee"; $0.indexWarning = "w" })
-        XCTAssertEqual(warned.tail, "Finished with a warning — it's in Details.", "T6 before T7")
+        XCTAssertEqual(warned.tail, "Finished with a warning — it's in Past reads.", "T6 before T7")
         let firstNight = roomSentence(ctx(.happy, debt: debt(0, hasRunBefore: false)) { $0.recentCycleCommit = "c0ffee" })
         XCTAssertEqual(firstNight.tail, "See what changed ›", "T7 before T9")
     }

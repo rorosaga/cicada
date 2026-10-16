@@ -127,7 +127,7 @@ extension Copy {
     static func capturedOpenHelp(_ kind: ChannelItem.Kind) -> String {
         switch kind {
         case .episode: "Open in the Reader"
-        case .media: "Open in the Feed"
+        case .media: "Open in Saved"
         case .page: "Open their card"
         case .unknown: ""
         }

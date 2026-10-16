@@ -22,9 +22,9 @@ enum ShellMetrics {
 /// One rail cell's words and key — the rail's order is `AppTab.allCases`, which is its ⌘ order.
 enum RailItem {
     static func digit(for tab: AppTab) -> Int { (AppTab.allCases.firstIndex(of: tab) ?? 0) + 1 }
-    /// The key on the digit row, 1…9. The tenth page (Skills, 2026-10-15) has none: ⌘0 is Actual Size, and no
-    /// shortcut moves to make room (DR-22) — it opens from the rail and the palette. Never a two-character key
-    /// (`Character("10")` would trap).
+    /// The key on the digit row, 1…9 — nine pages since the Feed folded into Sleep (2026-10-16), so every page has one.
+    /// A tenth page would get none (⌘0 is Actual Size), and no shortcut moves to make room (DR-22). Never a
+    /// two-character key (`Character("10")` would trap).
     static func keyDigit(for tab: AppTab) -> String? {
         let n = digit(for: tab)
         return n <= 9 ? String(n) : nil
@@ -39,6 +39,18 @@ enum RailItem {
         if count > 0 { label += ", \(UsageFormat.count(count)) pending" }
         if busy { label += ", \(Copy.railConsolidating)" }
         return label
+    }
+}
+
+/// ⌘ map A (owner, 2026-10-16) — Skills took the retired Feed's ⌘4, so for one release the first time ⌘4 lands on
+/// Skills the window says where the Feed went, once per viewer and never again (`UserDefaults`, a per-viewer
+/// convenience: losing it only shows the line once more). Only the key says so: a click on the rail's Skills cell is
+/// someone who meant Skills.
+enum FeedMovedHint {
+    static let shownKey = "cicada.hint.feedMovedToSleep"
+
+    static func shouldShow(tab: AppTab, commandHeld: Bool, alreadyShown: Bool) -> Bool {
+        tab == .skills && commandHeld && !alreadyShown
     }
 }
 

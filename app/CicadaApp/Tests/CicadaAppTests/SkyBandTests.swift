@@ -79,7 +79,7 @@ final class SkyBandTests: XCTestCase {
                     CicadaTheme.background
                     if let weather { SleepSkyBand(scenery: weather) }
                     VStack(alignment: .leading, spacing: 16) {
-                        PageTitle(Copy.sleepPageTitle)
+                        EyebrowRow(eyebrow: "Sleep · 42 waiting")
                         RoundedRectangle(cornerRadius: CicadaTheme.cornerRadius).fill(CicadaTheme.surface)
                             .frame(height: 180)
                     }

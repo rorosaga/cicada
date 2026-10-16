@@ -219,7 +219,7 @@ struct IntegrationsView: View {
                 if category == .socialAndSaved {
                     ForEach(Self.exportOnlyTiles) { tile in
                         IntegrationExportOnlyRow(tile: tile) {
-                            router.routeToFeedAddSource(tile)
+                            router.routeToAddSource(tile)
                         }
                     }
                 }
@@ -437,7 +437,7 @@ private struct IntegrationExportOnlyRow: View {
                     .foregroundStyle(CicadaTheme.textSecondary)
             }
             Spacer()
-            Button("Import in Feed →", action: onImport)
+            Button("Import in Sleep →", action: onImport)
                 .buttonStyle(.bordered)
         }
         .padding(.horizontal, CicadaTheme.spacingMD)

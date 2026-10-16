@@ -34,7 +34,6 @@ final class CopyConstantsTests: XCTestCase {
     func testSubtitlesAreShortAndDoNotRepeatTheirTitle() {
         let pairs: [(title: String, subtitle: String)] = [
             ("Clusters", Copy.clustersSubtitle),
-            ("Feed", Copy.feedSubtitle),
             ("Sleep", Copy.sleepSubtitle),
             ("Inbox", Copy.inboxSubtitle),
             (Copy.agents, Copy.agentsSubtitle),

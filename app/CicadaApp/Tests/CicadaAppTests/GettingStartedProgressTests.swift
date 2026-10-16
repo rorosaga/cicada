@@ -144,7 +144,7 @@ final class GettingStartedProgressTests: XCTestCase {
                           "EngineUnavailable: authentication failed", "ValueError: bad config"] {
             let step = read { $0.error = diagnosis }
             XCTAssertEqual(step.line(locale: en),
-                           "Reading stopped. See what needs a fix in Details, then try again.")
+                           "Reading stopped. See what needs a fix in Past reads, then try again.")
             XCTAssertFalse(step.line(locale: en).contains(diagnosis))
             XCTAssertEqual(step.action, .seeDetails)
         }

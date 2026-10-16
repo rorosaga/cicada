@@ -314,7 +314,8 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   person's own click in a frontmost Chrome — never on a steady timer (G191 v4) — and posts no answer until a sync confirms the bookmark (`app.md`).
 - **Copy is provider-neutral** (owner, 2026-09-30): never name a provider or model as the one doing a job — describe the
   step; a name appears only where it shows the person's own current choice.
-- **Prices and plan usage show only on the Sleep page's Details and engine menu** (ruling 12), each figure with its basis.
+- **Prices and plan usage show only on the Sleep page's Past reads run detail and engine menu** (ruling 12, surface
+  renamed 2026-10-16 when the Feed folded into Sleep), each figure with its basis.
 - **Sync:** one Store, hydrated from disk, SSE deltas, **never blank**; writes are optimistic with rollback. **Ship an
   ETag and its client mapping together.** A read that is not a Store domain says so and caches in memory.
 - **d3-force stays (G109)**; every custom force multiplies by alpha; the release path never bumps alpha.

@@ -70,7 +70,7 @@ extension Copy {
         static let pausedEngineLead = "Paused. The engine stopped answering."
         static let pausedEngineFixLead = "Paused. The engine needs a look."
         static let readingStoppedLead = "Reading stopped."
-        static let readingStoppedTail = "See what needs a fix in Details, then try again."
+        static let readingStoppedTail = "See what needs a fix in Past reads, then try again."
         static func continueToTryAgain(filed: Int, frozen: Int, _ locale: Locale = .autoupdatingCurrent) -> String {
             "Continue to try again. \(filedOf(filed, frozen, locale))."
         }
@@ -88,7 +88,7 @@ extension Copy {
             "Filed \(conversations(n, locale))."
         }
         static func parkedLine(_ n: Int, _ locale: Locale = .autoupdatingCurrent) -> String {
-            "\(conversations(n, locale).capitalizedFirst) could not be read. See What's waiting in Details."
+            "\(conversations(n, locale).capitalizedFirst) could not be read. They wait at the foot of Waiting."
         }
         static func newSinceYouStarted(_ n: Int, _ locale: Locale = .autoupdatingCurrent) -> String {
             "\(count(n, locale)) new since you started"

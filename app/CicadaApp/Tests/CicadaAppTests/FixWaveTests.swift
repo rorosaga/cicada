@@ -161,14 +161,15 @@ final class FixWaveTests: XCTestCase {
     /// Usage range, Usage mode) got an `.accessibilityLabel`; the Feed sort
     /// control was the one VoiceOver couldn't name. The sort is text tabs in
     /// the eyebrow since DS-3c (R-DL13), and it keeps its label.
+    /// The Feed's sort lives in Sleep › Saved's View menu since 2026-10-16; the menu still names itself.
     func testFeedSortTabsHaveAnAccessibilityLabel() throws {
-        let text = try sourceFile("Views/Feed/FeedPage.swift")
+        let text = try sourceFile("Views/Sleep/SleepTabRow.swift")
         guard let pickerRange = text.range(of: "viewModel.sort = $0") else {
-            XCTFail("Feed sort tabs not found in FeedPage.swift")
+            XCTFail("the Saved sort not found in SleepTabRow.swift")
             return
         }
-        let tail = String(text[pickerRange.lowerBound...].prefix(400))
+        let tail = String(text[pickerRange.lowerBound...].prefix(1200))
         XCTAssertTrue(tail.contains(".accessibilityLabel("),
-                      "the Feed sort tabs need an accessibility label")
+                      "the Saved View menu needs an accessibility label")
     }
 }

@@ -1,31 +1,29 @@
 import SwiftUI
 
-/// §5.3 / §10 Feed — the saved items in the list column. With nothing open the Connected strip and the export waits
-/// scroll WITH the list (R-DL17: the old page stacked them above it and could push its own header under the titlebar);
-/// beside a detail the column is rows only.
+/// Sleep › Saved and Videos (the Feed's list until it folded into Sleep, 2026-10-16) — the list column beside an open
+/// item (STATE 1, §5.3): the find row above its own scroll, then the rows. With nothing open the same rows
+/// (`FeedRowsContent`) scroll with the room on the Sleep page itself, under its sticky tab row. The Connected strip
+/// and the export waits retired with the Feed: Sources holds every connected source (its cards' Sync now), and Home's
+/// Getting started holds the waits (DESIGN §3.4).
 struct FeedListColumn: View {
     let style: ColumnPlan.ListStyle
     @Binding var findOpen: Bool
     let searching: Bool
     let landingToken: Int
+    /// The rows this tab shows (Saved's view, or the saved videos), already filtered by find.
+    let items: [MediaFeedItem]
     let open: (MediaFeedItem) -> Void
     let move: (Int) -> Void
     let focusDetail: () -> Void
     let escape: () -> Void
-    let openSheet: (AddSourceTile?) -> Void
-    /// G162 — the Videos tab's strip opens the watch run.
-    var chooseVideos: () -> Void = {}
 
     @Environment(FeedViewModel.self) private var viewModel
-    @Environment(VideoStateCache.self) private var videoCache: VideoStateCache?
-    @Environment(IntakeRouter.self) private var intake
 
     private var searchText: Binding<String> {
         Binding(get: { viewModel.searchText }, set: { viewModel.searchText = $0 })
     }
 
     var body: some View {
-        let now = Date.now
         ScrollViewReader { proxy in
             VStack(alignment: .leading, spacing: 0) {
                 // DR-46 — the find row sits above the scroll, never in the lazy stack: a lazy row scrolled far away is
@@ -38,18 +36,8 @@ struct FeedListColumn: View {
                 ScrollView {
                     LazyVStack(alignment: .leading,
                                spacing: style == .titles || style == .hidden ? 0 : CicadaTheme.scaled(RowMetrics.twoLineGap)) {
-                        if style == .wide && !searching && showsVideosStrip {
-                            // G162 — the Videos tab's own strip stands where the Connected strip stands elsewhere.
-                            VideosStrip(summary: videoCache?.summary, choose: chooseVideos)
-                                .padding(.bottom, CicadaTheme.spacingSM)
-                        } else if style == .wide && !searching {
-                            // Labelled, not a trailing closure: `FeedLayoutPinTests` finds the call by its opening paren.
-                            ConnectedChannelsStrip(onManage: { openSheet($0) })
-                                .padding(.horizontal, CicadaTheme.scaled(10))
-                                .padding(.bottom, CicadaTheme.spacingMD)
-                            ExportWaitStrip()
-                        }
-                        content(now)
+                        FeedRowsContent(items: items, style: style, searching: searching, now: Date.now,
+                                        openId: viewModel.columns.openId, open: open)
                     }
                     .padding(ListInsets.of(style))
                 }
@@ -69,26 +57,36 @@ struct FeedListColumn: View {
             return true
         }, escape: escape)
     }
+}
 
-    /// The Videos tab, with a backend that answers the video reads.
-    private var showsVideosStrip: Bool {
-        viewModel.kind == .video && videoCache.map { !$0.isGone } == true
-    }
+/// The saved rows themselves, in the state the list is in (§5.5): an error first (a failed fetch leaves nothing and
+/// would read as "nothing saved"), loading second, the one honest empty state, a find with no match, then the rows.
+/// No scroll view of its own: the Sleep page's scroll holds it with nothing open, `FeedListColumn`'s beside an item.
+struct FeedRowsContent: View {
+    let items: [MediaFeedItem]
+    let style: ColumnPlan.ListStyle
+    let searching: Bool
+    let now: Date
+    let openId: String?
+    let open: (MediaFeedItem) -> Void
 
-    @ViewBuilder
-    private func content(_ now: Date) -> some View {
+    @Environment(FeedViewModel.self) private var viewModel
+    @Environment(IntakeRouter.self) private var intake
+
+    var body: some View {
         switch FeedPageState.of(isLoading: viewModel.isLoading, error: viewModel.errorMessage,
-                                hasItems: !viewModel.items.isEmpty, visibleEmpty: viewModel.visible.isEmpty,
+                                hasItems: !viewModel.items.isEmpty, visibleEmpty: items.isEmpty,
                                 searching: searching) {
         case .loading:
             ListSkeleton(message: Copy.Lists.readingFeed)
         case .failed(let message):
             ListErrorCard(title: Copy.Lists.feedLoadFailed, message: message) { Task { await viewModel.load() } }
         case .empty:
-            // G117 — one honest empty state, one action; an export can land right here (R-IA27).
-            EmptyStateView(title: Copy.Lists.nothingSaved, message: Copy.emptyFeedMessage,
+            // G117 — one honest empty state, one action; an export can land right here (R-IA27). The room above is
+            // the other door (DESIGN §3.5).
+            EmptyStateView(title: Copy.Lists.nothingSaved, message: Copy.SleepTabs.savedEmpty,
                            actionLabel: "Open Integrations", settingsSection: .integrations,
-                           onDropFiles: { intake.accept(urls: $0, from: .emptyState(.feed)) })
+                           onDropFiles: { intake.accept(urls: $0, from: .emptyState(.sleep)) })
         case .noMatch:
             VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                 Text(Copy.Lists.noFeedMatch(SearchAllMemoryRow.trimmed(viewModel.searchText)))
@@ -100,9 +98,9 @@ struct FeedListColumn: View {
         case .list:
             // Once per render, not once per row: it reads every saved item.
             let showsRelevance = viewModel.scoresAreInformative
-            ForEach(viewModel.visible) { item in
+            ForEach(items) { item in
                 FeedListRow(item: item, style: style, showsRelevance: showsRelevance,
-                            selected: item.id == viewModel.columns.openId, now: now) { open(item) }
+                            selected: item.id == openId, now: now) { open(item) }
                     .id(item.id)
             }
         }

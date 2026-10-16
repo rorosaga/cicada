@@ -5,10 +5,12 @@ import XCTest
 /// strip's news-only rule.
 final class SleepDetailsTests: XCTestCase {
 
-    /// Decision 16: closed by default, remembered per viewer.
-    func test_detailsIsClosedByDefaultAndRememberedUnderOneKey() {
-        XCTAssertEqual(SleepDetails.openKey, "cicada.sleep.detailsOpen")
-        XCTAssertFalse(SleepDetails.defaultOpen)
+    /// The Sleep redesign (2026-10-16) — Details retired: every old section lands on the tab that holds it now.
+    func test_everyOldDetailsSectionHasATab() {
+        XCTAssertEqual(SleepTab.holding(.waiting), .waiting)
+        XCTAssertEqual(SleepTab.holding(.lastCycle), .pastReads)
+        XCTAssertEqual(SleepTab.holding(.readout), .pastReads)
+        XCTAssertEqual(SleepTab.holding(.pastNights), .pastReads)
     }
 
     /// Last cycle appears only when there is something to say about it.
@@ -80,9 +82,11 @@ final class SleepDetailsTests: XCTestCase {
         }
     }
 
-    /// DR-37, DR-7 — Details carries no card and no tinted fill: labels over rows.
+    /// DR-37, DR-7 — the lists carry no card and no tinted fill: labels over rows. The room left its card too (the
+    /// Sleep redesign, 2026-10-16: "not inside that rectangle thing").
     func test_detailsIsRowsNotCards() throws {
-        for name in ["SleepDetails.swift", "StudyListCard.swift", "ConsolidationHistoryCard.swift", "EpisodeRow.swift"] {
+        for name in ["SleepDetails.swift", "StudyListCard.swift", "ConsolidationHistoryCard.swift", "EpisodeRow.swift",
+                     "SleepView.swift", "SleepTabRow.swift"] {
             let file = try XCTUnwrap(SleepNumbersLintTests.sleepSources().first { $0.lastPathComponent == name })
             let text = try String(contentsOf: file, encoding: .utf8)
             XCTAssertFalse(text.contains(".glassCard("), "\(name) — no card (DR-37)")

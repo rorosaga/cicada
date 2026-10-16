@@ -112,20 +112,24 @@ queued edit paints when its turn comes, not at the click. An add is
 the `EntitySourceAdd` mutation: the draft stays in the field until the answer, a failure keeps it and toasts the
 server's sentence (`SourceDraft.afterAdd` decides what the field holds), and a second ⏎ on pending text is ignored.
 
-**Ruling (2026-09-28, TODO ruling 12): plan usage and model prices show on the Sleep page's Details and its engine
-menu — and nowhere else yet.** This supersedes the 2026-09-03 ruling ("prices and token usage are not shown anywhere
+**Ruling (2026-09-28, TODO ruling 12; surface renamed 2026-10-16): plan usage and model prices show on the Sleep
+page's Past reads run detail and its engine menu — and nowhere else yet.** This supersedes the 2026-09-03 ruling ("prices and token usage are not shown anywhere
 in the app") for those two surfaces only: no cost tiles, no `$`/token columns and no cost-per-day chart elsewhere, and
 the `/consumption/*` endpoints are unchanged, except that a cost bucket no call priced is `null` (unknown), never
 `0.0` (2026-10-16). Every figure states its basis in words ("charged", "at list price", a
 plan window's share) and a plan's before → after carries the honest limit that it covers all use of the plan
-(`CycleUsageText`, `UsageFormat.currency`). Details' Last cycle describes the latest *finished* cycle from one history
+(`CycleUsageText`, `UsageFormat.currency`). Past reads' Last cycle describes the latest *finished* cycle from one history
 record the backend finds, `/sleep/status`'s `lastFinishedCycle` (`LastCycleFigures.resolve`, 2026-10-16): a drain is
 one cycle — its run's reading time, the engine its commits name, and the whole run's cost — and a run still reading or
 paused is skipped; a plan run's line is its window and no price
 (`CycleUsageText.lastCycleLine`); past nights' rows keep each batch's own figures.
 
-**Navigation (Direction D, DS-1).** A 56 pt icon rail (`Views/Shell/NavRail.swift`): Home, Graph, Clusters, Feed,
-Sleep, Inbox, Sources, Projects, Looks at ⌘1–9 in `AppTab.allCases` order (`RailItem`; a page switch is instant), each cell's tooltip
+**Navigation (Direction D, DS-1).** A 56 pt icon rail (`Views/Shell/NavRail.swift`): Home, Graph, Clusters, Skills,
+Sleep, Inbox, Sources, Projects, Looks at ⌘1–9 in `AppTab.allCases` order (`RailItem`; a page switch is instant). The Feed
+retired into Sleep on 2026-10-16 and Skills took its cell, so ⌘4 opens Skills and no other shortcut moved (⌘ map A);
+for one release the first ⌘4 that lands on Skills toasts "The Feed is now part of Sleep (⌘5) → Saved." once per viewer
+(`FeedMovedHint`, the key only — a click on the cell never shows it), and a stored "Feed" or "Capture" selection
+restores to Sleep. Each cell's tooltip
 naming its page and shortcut (450 ms, then instant while warm), selection by brightness and one neutral fill
 (`bgSelected` — never the accent, `SelectionTintLintTests`), the Inbox count a neutral `bgBadge` numeral, a spinner on
 Sleep while a cycle runs, the gear and the sun/moon toggle at its foot, no wordmark. ⌃⌘S or the titlebar toggle swaps it
@@ -185,7 +189,7 @@ window, the Dock icon, File → Import… (⌘⇧I), the menu-bar worm's *Import
 each `+` chat tile, the Sleep room's worm — goes through one `IntakeRouter`: sniff (`POST /intake/sniff`, stages nothing) →
 preview (counts, date range, new · grew · already here, skipped files by name, *Into* a memory) →
 import (`POST /intake/import`; a 202 and a job counter above 10 episodes) → a *what happens next*
-card that never closes on its own. `UploadOverlay` and the Feed's Upload button are gone; the router
+card that never closes on its own. `UploadOverlay` and the retired Feed's Upload button are gone; the router
 owns `Store.intakeInFlight` through a counter of requests in flight. The card's *Read now* is G125
 R10's first narrow amendment: a user trigger, subtitled with the manual engine like Consolidate,
 shown only when an engine can run and the import landed in the active bank. **Every
@@ -232,7 +236,7 @@ on this Mac* as an offer. Your past chats has one 36 pt row per vendor still to 
 Home (`HomeWalkthroughLayer`), with waits above them leading with "Check your email for the … link". Today is one row to
 Sources (captured today, UTC, with the three busiest origins' marks, names and counts) plus the waiting count as a row
 to Sleep; Needs you is the Inbox's kind glyph, question and age, *Open Inbox* at the label's right, landing in STATE 1;
-Last read is the newest Sleep commit as a row to that read in Sleep's Details ("Today 07:27 · 33 updated", the commit's
+Last read is the newest Sleep commit as a row to that read in Sleep's Past reads ("Today 07:27 · 33 updated", the commit's
 instant on the viewer's clock), its pages as `Tag`s in 24 pt hit frames — each number once, never a Consolidate. The
 history is not a Store domain: `SleepViewModel` holds it in memory, Home fetches it on arrival and whenever the status's
 `lastSleepAt` moves (`refreshForHome`), and a bank switch empties and rereads it (`bankChanged`) — the launch's own
@@ -275,9 +279,9 @@ the connected agents, asks `TourOffer` and lands on Home. *Set up later* and *Tr
 remain; export reminders (`ExportWaits`) ask for notification permission only when a delay is chosen. Getting started
 continues on Home — the first read (*Read now*, G125 R10's second narrow amendment, only inside the card) and "Read
 new conversations automatically?" asked once of a person still on `manual`, its options gated by ruling 4.
-The first-read failure row uses the same calm “Reading stopped” / “See what needs a fix in Details, then try again”
-copy as Sleep (DR-7/59), never a raw server sentence. Its one Details action (DR-40) stages Sleep's Last cycle
-section through `AppRouter`; Sleep consumes it once on appear/change, expands Details and scrolls to the diagnosis.
+The first-read failure row uses the same calm “Reading stopped” / “See what needs a fix in Past reads, then try again”
+copy as Sleep (DR-7/59), never a raw server sentence. Its one *Past reads* action (DR-40) stages Sleep's Last cycle
+section through `AppRouter`; Sleep consumes it once on appear/change, selects Past reads and brings its tab row to the top.
 
 **Settings → Engines: the engine picker (G122, Track E; moved by G139 A3).** A row of cards with real marks — Auto,
 Claude plan, ChatGPT plan, OpenRouter, Ollama (tagged *Local*), API key — over the connections registry's candidates writes
@@ -321,7 +325,7 @@ A preview line or the Sleep page's button that runs on an `openrouter/` model na
 `GET /sources/channels` registry — no new adapters, just a frame. The rule this page draws: a
 *standing* connection (sign in once, polled on the Sleep tail, disconnect here) lives in
 Integrations; a *one-shot* import (drop an export, sync a folder once) stays where it already was,
-behind the Feed's `+`. Both read the same `channel_registry`, so a channel never drifts between the
+behind the `+` on the Sleep page's tab row (the Feed's, until 2026-10-16). Both read the same `channel_registry`, so a channel never drifts between the
 two surfaces. Round 3 added **Notes & files** (Apple Notes and, when Obsidian is installed, *Obsidian vault*; the
 watched folders and *Add a folder* moved to Settings → Search & files on 2026-10-14, and Notes & files keeps one
 pointer, "Folders are in Search & files ›") and **Voice & meetings** (Wispr Flow once it is on this
@@ -356,8 +360,8 @@ spelling), *Is <name> an AI agent?* with Yes/No when the detectors are unsure, a
 on launch, `bankChanged` on a switch) owns the list, the per-memory ROWID cursors (`cicada.messages.cursor.<bank>.<id>`
 in UserDefaults), the FSEvents watch on `~/Library/Messages` and the waiting bubbles; `MessagesReader` is the one SQL
 reader (`SQLiteReadOnly`, read-only, one transaction; a BLOB projected only from a column named in `base64Blobs`).
-The Sources card's *Sync now* routes to it (`ChannelActions.SyncRoute.messages`). **The bubbles:** Details › What's
-waiting on the Sleep page has a `MessagesWaitingRow` beside the videos' row, and Home's Today waiting line carries the
+The Sources card's *Sync now* routes to it (`ChannelActions.SyncRoute.messages`). **The bubbles:** the Sleep page's
+Waiting tab has a `MessagesWaitingRow`, and Home's Today waiting line carries the
 same `MessageBubbleStack` (non-interactive there): up to three overlapping profile bubbles (Contacts photo, else a
 monogram — `MessageBubbleFace`: the face inset 1.5 pt inside a disc of the ground's colour, so the monogram keeps its
 own hue ring, and below 24 units its letters are half its height, semibold — the bubbles only; never a shadow), "+N" past three, and the number of messages Sleep will
@@ -553,7 +557,7 @@ is a picture, the title, the newest answer's reasons and words (else the site) a
 capture's thumbnail when Cicada holds one (`captureThumb`, `/explore/captures/…/thumb` from the bank), else the stored
 preview (`/entities/{id}/preview`, fetched once by the backend under its gates), else a monogram — both through
 `StoredPreview` with the bearer; never a URL the page names (`PictureURL.parse` admits `/explore/captures/` as an API
-path). A row opens the app on that bookmark's page: the Feed's detail (`AppRouter.routeToBookmark` → `pendingFeedItem`,
+path). A row opens the app on that bookmark's page: Sleep › Saved's detail (`AppRouter.routeToBookmark` → `pendingSavedItem`,
 the window opened if closed) — the saved item's established landing (R-DL16), a Store domain in memory, showing the
 link itself; the entity page is one click on. There `BookmarkReasonsSection` lists every answer newest first ("Saved
 again 15 Oct, 12:00 · said …"), each editable with the same toggles and words (`SavedWhyWrite` → `PUT /sources/saved-why`,
@@ -742,9 +746,11 @@ and read-only; titles only (scrubbed, one line), never a body, and for Contacts 
 `total` is its own count, not a promise to equal the row's (a notes index keeps a deleted note). It ETags over
 `sources`+`episodes`+`entities` with the channel and page in `extra`, and is **not** a Store domain: `ChannelItemsCache`
 keeps it in memory, revalidates when the list opens or the channels move, and empties on a bank switch. A row opens its
-episode in the Reader, a saved item in the Feed, a person in Clusters.
+episode in the Reader, a saved item in Sleep › Saved, a person in Clusters.
 
-**Clusters and the Feed (Direction D, DS-3c).** Both are list pages in progressive columns: an eyebrow row with
+**Clusters and Sleep's saved lists (Direction D, DS-3c; the Feed folded into Sleep 2026-10-16).** Clusters is a list
+page in progressive columns, and the Feed's list lives on as the Sleep page's Saved and Videos tabs (below, and the
+Sleep page): an eyebrow row with
 text tabs (`AdaptiveTextTabs`: with counts, then without, then a menu, so a tab is never clipped), the list, a
 detail column, and the Reader as the third column (each list page hosts its own: `AppTab.hostsOwnReader`).
 `ListColumns<ID>` holds the open row: a row that leaves the data, or that the chosen tab does not show, closes the
@@ -761,26 +767,31 @@ the page's find row.
   (`lastReferenced` on `/graph` nodes). The detail column hosts DS-3a's `EntityDetailCard`, in its `.card` style, with
   its `TopicDetailNavigation` trail and the page's Esc order passed through the card's `onEscape`. A ⌘K ⌥⏎ landing
   opens the entity's type tab.
-- **The Feed** has sort tabs (Relevance · Recent) and kind tabs (`FeedKind`: paper, video, bookmark, link). Its
-  rows are 56 pt, each with the origin's real mark. The Connected strip and the export waits scroll with the list,
-  and only with nothing open, so the eyebrow is the only fixed band. That fixed the header drawn under the
-  titlebar.
+- **Saved (the Feed until 2026-10-16)** keeps the Feed's sort (Relevance · Recent, one always on) and kinds
+  (`FeedKind`: paper, video, bookmark, link), now in one View menu on the tab row (`SavedViewMenu`), never a second tab
+  row (DR-38). Its rows are 56 pt, each with the origin's real mark (`FeedRowsContent`). With nothing open they scroll
+  with the room under the sticky tab row; beside an open item they are `FeedListColumn`'s triage column and the tab
+  row rides the eyebrow ("Sleep · Saved · 3 of 160"). The Feed's Connected strip retired (Sources' cards sync each
+  connected source) and its export waits live on Home's Getting started and the menu bar.
 - **A saved item's detail column** shows `MediaPreview` (a video plays at the column's width), "Why it's saved"
   (the page's own words, then the pages it is about, known ids only), and "Saved from" (the origin's mark, name,
-  folder and day, or `[ no source recorded ]`). The palette's saved-item row and a source page's items land there
-  through `AppRouter.routeToFeedItem`, and the preview sheet is gone. The one-shot import's `+` (with ⌘N) is an
-  icon in the eyebrow row and opens the unchanged `AddSourceSheet`, whose root hosts the one `IntakePanel`.
+  folder and day, or `[ no source recorded ]`). The palette's saved-item row, ⌘B's bookmark rows and a source page's
+  items land there through `AppRouter.routeToSavedItem` / `routeToBookmark` (Sleep, the Saved tab, the item open), and
+  the preview sheet is gone. The one-shot import's `+` (with ⌘N) is an icon on the tab row (`SleepTabRow`) and opens the
+  unchanged `AddSourceSheet`, whose root hosts the one `IntakePanel`; Settings → Integrations' "Import in Sleep →"
+  stages a tile there (`AppRouter.routeToAddSource`).
 - **Videos (G162, the approved boards, 2026-09-30).** The app reads `GET /videos/state` and `/videos/summary` through
   `VideoStateCache` (app-level, in memory, ETag-revalidated, never a Store domain; `VideoRefresh` follows the
   `videoQueue`, `episodes`, `entities` and `bank` components, one revalidation is scheduled at the wire's
   `nextChangeAt` so a lapsed lease never sticks as "Picked up", a bank switch empties it, and a 404 from an older
   backend hides every video addition). **The server is the only deriver** of a video's state; the app decodes and labels.
-  A Feed video row carries a 64 × 36 frame (Cicada's stored preview, `MediaFeedItem.preview` through `StoredPreview` —
+  A saved video row carries a 64 × 36 frame (Cicada's stored preview, `MediaFeedItem.preview` through `StoredPreview` —
   oEmbed's thumbnail or YouTube's standard still, fetched once by the backend — or a neutral play tile; the app never
   asks the provider),
-  "channel · site · length · saved day" and one state word (a queue word wins). The Videos tab's 44 pt strip says how
-  many are not read yet and the one queue wording, and *Choose videos…* turns the page into the watch run: the picker's
-  tabs (Not yet read · Queued · Read, disjoint, nothing pre-selected) replace the sort and kind tabs, the list becomes
+  "channel · site · length · saved day" and one state word (a queue word wins). The Sleep page's Videos tab (drawn only
+  while a video is saved; the queue's one place since Details' Videos row retired, 2026-10-16) opens on a 44 pt strip
+  that says how many are not read yet and the one queue wording, and *Choose videos…* turns the lists into the watch
+  run: the picker's tabs (Not yet read · Queued · Read, disjoint, nothing pre-selected) replace the page's tabs, the list becomes
   64 pt pick rows with `NeutralCheckToggleStyle`, and the detail becomes `VideoRunCard` — per-video Transcript/Watch,
   known-length size words (no price, no estimate), how the agent should read, the prompt shown before it is copied
   (`GET /videos/run/prompt`), and one primary, *Copy for an agent* (`POST /videos/run/handoff`, no cap); after it, the
@@ -881,7 +892,7 @@ picture that is there now (`LooksFrameBook`: the detail's picture when the look 
 the open look, Space on a focused picture, Esc — opens and closes in one frame (`LooksZoom.style`, read from the
 current event; DR-60); Reduce Motion only fades (`CicadaMotion.fade`, DR-66). While it shows, Esc is the overlay's,
 not the detail column's. Tested in `LooksPolishTests`; the review renders add `looks-enlarged-*.png`.
-**Save its look** (`Views/Looks/SaveLookAction.swift`): a neutral compact button in a saved web link's Feed detail
+**Save its look** (`Views/Looks/SaveLookAction.swift`): a neutral compact button in a saved web link's detail (Sleep › Saved)
 (`SaveLook.offers`: a link or bookmark over http(s), not a video or a paper) and a context-menu item on a ⌘B bookmark
 row. One click posts `POST /explore/look`; the answer's hand-off prompt is copied through `AppPasteboard` and a toast
 says it is queued for the person's agent (the "Ask an agent" pattern); a refusal shows the server's sentence. A picture dropped anywhere on the page or pasted (⌘V, `onPasteCommand` — never `NSPasteboard.general`) is
@@ -891,24 +902,35 @@ posts bytes; every colour, token and ranking is the server's. Copy is `Theme/Cop
 Renders: `LooksTests.testRenderTheBoardForReview` with `LOOKS_RENDER_DIR`; a hosting-view capture cannot draw Liquid
 Glass, so the composer's action row (`LooksComposerActions`, Save the one primary) is also rendered with `ImageRenderer`.
 
-**Sleep page — the study room (G125 v4, Track Z).** The room and the worm are Aseprite sprite sheets; to watch every
-animation, open `app/CicadaApp/Art/sprites/bookworm-2026-10-01/preview.html` in a browser (*The sprite art and its
-preview*, below). One 760 pt column at every width: the room,
-one sentence in the display face under it, one Consolidate/Cancel control with the engine menu
+**Sleep page — the study room (G125 v4, Track Z; the Sleep redesign, 2026-10-16).** The room and the worm are Aseprite
+sprite sheets; to watch every animation, open `app/CicadaApp/Art/sprites/bookworm-2026-10-01/preview.html` in a browser
+(*The sprite art and its preview*, below). **A room-over-list page (DESIGN_RULES §5.2, owner approval 2026-10-16):** one
+scroll — no title (the "Sleep Cycle" `PageTitle` retired; the page opens on an eyebrow, "Sleep · 42 waiting · last read
+2 h ago", `SleepEyebrow`, with the staleness chip at its right, R-A12); then the room **out of its card**, on the page
+ground, drawn at a whole 5, 4 or 3 pt per lattice cell by the width the art may take (`SleepLayout.artScale`: 5 from
+880, 4 from 720, else 3 — 2 only under ⌘+ zoom with the Reader open; `StudyRoom(cell:)`), its floor fading into the
+page over its bottom five cells (`RoomFloorFade`, a mask on the art layer only, never the pile); under it, in the 760 pt
+text column, one sentence in the display face, one Consolidate/Cancel control with the engine menu
 beside it — a neutral button naming what a cycle you start would run (`preview.manual`, "Auto ·"
 under Auto) that opens the five engines with their real marks, the chosen engine's model and both
 ruling-4 previews; the "Runs on …" caption retired into it, and Cancel's caption shows while running
-— one whisper line for the schedule, and everything else under a single **Details** disclosure (Last
-cycle · What's waiting · Readout · Past nights) in D's list grammar — section labels over rows, no
-cards; Last cycle's rows in words, "Rested" as a sentence, the readout as key–value rows, and, while videos are
-queued, one Videos row in What's waiting (`VideosWaitingRow`, G162: the queue wording and *Choose videos ›*, starting
-nothing). Each queued episode row (`EpisodeRow`, also in the spine popover) is one button: a click copies what Sleep would read — `GET /sleep/episodes`'s `copyValue` from `episode_copy` (a page's link, a conversation's session id, a tab group's links, a folder file's full path, else the episode id) — with a brief toast (`Store.flash`); its meta line names that target and it ends with its day (`changedAt`: a conversation's last capture, else when it arrived; owner 2026-10-05) — closed by
-default, remembered per viewer
-(`cicada.sleep.detailsOpen`) and not built while closed. The worm speaks in that one fixed slot —
+— and one whisper line for the schedule. Under the room, **the tab row** (`SleepTabRow`, DR-45 text tabs with counts):
+**Waiting · Saved · Videos · Past reads**, a `LazyVStack` pinned header so it sticks under the titlebar once the room
+scrolls away; a count of zero hides its tab (`SleepTab.visible`), the page opens on Waiting while anything waits and on
+Past reads otherwise (`SleepTab.resolve`), and a tab switch is instant and closes whatever was open. **Waiting**
+(`SleepWaitingList`, Details' What's waiting until 2026-10-16) is the run's own block and the queued rows; **Saved** and
+**Videos** are the Feed's lists (above, *Clusters and Sleep's saved lists*); **Past reads** (`SleepPastReads`) is Last
+cycle · Readout · Past nights in D's list grammar — section labels over rows, no cards; Last cycle's rows in words,
+"Rested" as a sentence, the readout as key–value rows, a past read opening in place under its row with its Models, tokens
+and cost (ruling 12). A tail link, a spine or a Home hand-off names an old Details section (`DetailsSection`), and the
+page selects the tab holding it (`SleepTab.holding`) and brings the tab row to the top in one frame. Opening a saved item
+(or the watch run) turns the page into progressive columns: the tab row rides the eyebrow, the list is the triage
+column, the item the detail, the Reader the third column (`AppTab.hostsOwnReader`); Esc closes the rightmost.
+Each queued episode row (`EpisodeRow`, also in the spine popover) is one button: a click copies what Sleep would read — `GET /sleep/episodes`'s `copyValue` from `episode_copy` (a page's link, a conversation's session id, a tab group's links, a folder file's full path, else the episode id) — with a brief toast (`Store.flash`); its meta line names that target and it ends with its day (`changedAt`: a conversation's last capture, else when it arrived; owner 2026-10-05). The worm speaks in that one fixed slot —
 `roomSentence` / `wormAnswers`, pure
 `SentenceLine` values over `SleepPageModel` (lead ≤ 40, tail ≤ 80, clock-free; a missing fact
 omits its rung, never shows a guess); the floating bubble is retired. **Two kinds of art (R-Z1, amended by ruling 18):**
-*state art* — the owner's worm on a 160 × 64 lattice (3 pt per cell at 1.0), the real pile, the lamp (= the schedule)
+*state art* — the owner's worm on a 160 × 64 lattice (5/4/3 pt per cell by the column's width since 2026-10-16), the real pile, the lamp (= the schedule)
 and its pixel-size fly, the bean bag, mood-edge yawn/stretch and the Sleep moment overlays — and *response art* (gaze,
 perk, talk, cheer), transient and never contradicting state. **Environment art (2026-10-02)** is the time, base weather
 and room lighting, independent of the worm. The sheet player loads once, caches failures, uses per-frame boundary
@@ -944,7 +966,7 @@ page sends nothing. **Meadow (Z10).** The sentence is the display face (SF Pro D
 to `CicadaMotion`, and the sky band above the page is OFF (`SkyBand.ships`, TODO ruling 10). The
 pile is compressed to its column at every zoom and queue size — at most eight spines, the order and
 every count kept, never cut (`fitPile`) — and the title is `PageTitle`, the view `PageHeader` draws.
-Refused: motion with no state behind it (mug steam, plant sway), a flash or strobe in any weather, a count driving the window (time of day follows the clock or the person's choice, R-Z11 as amended 2026-10-02), duration estimates, and any price or plan figure outside Details and the engine menu (TODO ruling 12). State art loops (ruling 18).
+Refused: motion with no state behind it (mug steam, plant sway), a flash or strobe in any weather, a count driving the window (time of day follows the clock or the person's choice, R-Z11 as amended 2026-10-02), duration estimates, and any price or plan figure outside Past reads and the engine menu (TODO ruling 12). State art loops (ruling 18).
 
 **Consolidate reads everything — the app half (G163, ruling 13).** No new door: every trigger already POSTs with no body, and
 the server drains. `SleepStatusResponse.drain` (`SleepDrainInfo`, lenient like every field) and the SSE event's compact
@@ -956,7 +978,7 @@ stop is a *pause*, not a failure: the tail is the vendor's own sentence (reset t
 stopped and the worm neither chews nor cheers (`SleepPageModel.stoppedEarly` feeds `stageStripState`, `stageStripIsVisible`,
 `deriveSleepPageMood` and `isRealCompletion(drainStop:)`). **Cancel keeps its name** and its semantics (stop at the next safe
 point, drop a batch that has not begun filing), so its caption and tooltip say what is kept and what is not
-(`Copy.cancelDrainCaption`), never "after this batch" and never "nothing is lost". Details › Last cycle gains a "Read everything"
+(`Copy.cancelDrainCaption`), never "after this batch" and never "nothing is lost". Past reads › Last cycle gains a "Read everything"
 row (only when it took more than one batch or something waits), a "Paused at your plan's limit" row carrying the vendor's whole
 sentence, a drain-aware cancel text, and no "Episode cap reached" row for a drain. Home's Getting started says "Keep reading"
 after an early stop (`FirstReadAction.keepReading`) and "Your memory has N pages now." after a full drain. Since ruling 16 the lamp's popover and the engine menu's Scheduled row say a scheduled run reads everything waiting too
@@ -1047,13 +1069,13 @@ leave room in your plan / Your plan window is full / The engine stopped answerin
 An engine pause's `engineKind` (`transient | needs_fix`) travels in status and the compact SSE block. Transient
 timeouts/errors say "The engine stopped answering" and "Continue to try again" with the filed count. Sign-out and
 model-not-found pauses retain "The engine needs a look" and "Continue when it is fixed"; older backends without the
-kind retain that fix guidance. Details shows the backend's diagnosis (DR-59), including the sign-in/model fix or a
+kind retain that fix guidance. Past reads shows the backend's diagnosis (DR-59), including the sign-in/model fix or a
 trimmed transient failure detail. For a timeout, the diagnosis says the interrupted part is read again. The existing
 `sleep` version component includes kind and diagnosis and maps to `.status` in `VersionVector`; a changed SSE kind
 refetches the paused record. An engine pause never implies automatic continuation.
 An engine connection loss uses the transient pause/Continue machinery. Neither an engine pause nor a genuine
 failure renders an exception class, CLI command or raw diagnosis in the page's sentence or worm answers. A failure
-instead says "Reading stopped" / "See what needs a fix in Details, then try again", in warning tone (DR-7, DR-59);
+instead says "Reading stopped" / "See what needs a fix in Past reads, then try again", in warning tone (DR-7, DR-59);
 the existing Last cycle rows retain the full diagnosis (DR-37/48). **One
 primary at a time (DR-40):** Consolidate / Pause (a drain's cancel, "Pausing…") / Continue (named for the manual engine; held while a weekly limit's
 reset is ahead) with *End this run* beside it. `SleepViewModel.continueRun()` is the only sender of `{"continue": true}`; **every other door goes
@@ -1066,7 +1088,7 @@ read, waiting to file · waiting · could not be read, and calls made; one acces
 and the first save's "Your page has 31 beliefs so far" with *See your page ›*. *Reading options…* (`ReadingOptionsSheet`, 720 pt) sets batch size
 10/25/50 and *Continue by itself when my plan resets* (off) on change; it has no Read faster row, no engine advice and no site list. The engine
 menu's *Keep plan free* (Off or 5–30 % of the window, plan engines only, a line not a guarantee, an unreported window said so) is one of ruling
-12's two homes; Details is the other: Last cycle's run rows (`LastCycleRow.runRows`, merged over the pre-v5 drain rows), per-source counts and
+12's two homes; the page's lists are the other (Past reads and Waiting, Details until 2026-10-16): Last cycle's run rows (`LastCycleRow.runRows`, merged over the pre-v5 drain rows), per-source counts and
 per-conversation rows from `GET /sleep/queue` (refetched when the run's counts move, never per tick) with Retry for a parked one — offered only while no run reads or waits paused, since the
 server refuses it then (`LastCycleRow.canRetryParked`) — a scheduled run's spend note billed from the run's own usage, never today's preview, and Past nights
 folded by run (`PastNightItem.group`, the run's numbers from the server's `run`, never summed from visible rows; opened: models, cost, pages,
@@ -1321,7 +1343,7 @@ for a legacy claim's name match found at read) — an agent's chip names its mod
 Code · Opus 5.5 · high effort", `ModelNames`; round-4 C3/C4), as do the hover, the Reader's meta line and turn labels,
 "Where this came from" and a belief's help; an app with no capture says "model not shared by this app" — hovering shows the words in the quote face — washed
 when quoted, bold when derived, plain when stale — and a click opens the **Reader**, a column
-(`ReaderColumn`): the third progressive column on the list pages that host it (the Inbox, Clusters, the Feed,
+(`ReaderColumn`): the third progressive column on the pages that host it (the Inbox, Clusters, Sleep,
 Sources and Projects — `AppTab.hostsOwnReader`), and on every other page the shell's trailing column (`ShellReaderHost`),
 sized before the page so it is never pushed off-window. It is driven by
 `ProvenanceRouter` (a stack of `ReaderTarget`s), beside whatever is open so a belief and its sentence
@@ -1486,7 +1508,7 @@ defaultVisible` and every state the two rows can render) free of model, embeddin
 checksum; Advanced is exempt; the hidden Settings-search keywords keep every technical word so "embeddings" still lands
 on *Understand what you mean* and "rebuild" opens Advanced (`SettingsIndex`, anchors on `.searchAdvanced`). The backend
 writes its catalog labels, steps and errors in the same words (`api/tests/test_search_words_are_plain.py`). Folder
-channels index on this page, and a Feed folder row opens it (`ChannelActions.settingsSection`). **Memory** keeps *Fetch
+channels index on this page, and a saved folder row opens it (`ChannelActions.settingsSection`). **Memory** keeps *Fetch
 link previews* and *How things fade*. Not yet (G195): the search-only depth, kinds per folder, reading N of M files and
 the idle/on-power pause — none is rendered until something computes it.
 

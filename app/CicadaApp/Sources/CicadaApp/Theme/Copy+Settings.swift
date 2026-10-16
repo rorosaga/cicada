@@ -149,7 +149,7 @@ extension Copy {
     }
     static let agentsOnThisMacGroup = "Agents on this Mac"
     static let agentsCloudTitle = "claude.ai, ChatGPT and your phone"
-    static let agentsCloudDetail = "Cloud apps can't start a program on your Mac, so they reach Cicada through a link. You can also bring web chats in from the Feed."
+    static let agentsCloudDetail = "Cloud apps can't start a program on your Mac, so they reach Cicada through a link. You can also bring web chats in with the + on the Sleep page."
 
     // MARK: Remembers automatically (G149) — plain words; no prices, no token counts (DR-59)
     static let autoRecallGroup = "Remembers automatically"

@@ -18,7 +18,8 @@ final class NavRailTests: XCTestCase {
         return try String(contentsOf: file, encoding: .utf8)
     }
 
-    /// The rail's order IS its ⌘ order, so a new page joins at the end and no shortcut moves.
+    /// The rail's order IS its ⌘ order, so a new page joins at the end and no shortcut moves — save ⌘ map A (owner,
+    /// 2026-10-16): the retired Feed's cell went to Skills, so ⌘4 opens Skills and nothing else moved.
     func testTheRailIsAppTabInItsCommandOrder() {
         XCTAssertEqual(AppTab.allCases.map(RailItem.digit(for:)), Array(1...AppTab.allCases.count))
         XCTAssertEqual(RailItem.shortcut(for: .home), "⌘1")
@@ -27,10 +28,10 @@ final class NavRailTests: XCTestCase {
         XCTAssertEqual(RailItem.shortcut(for: .projects), "⌘8", "the eighth page, after Sources — no shortcut moved")
         XCTAssertEqual(RailItem.shortcut(for: .looks), "⌘9", "the ninth page, after Projects — no shortcut moved")
         XCTAssertEqual(RailItem.key(for: .graph), KeyEquivalent("2"))
-        // The Skills page (2026-10-15): the tenth page has no digit — ⌘0 is Actual Size — and never traps on "10".
-        XCTAssertEqual(AppTab.allCases.last, .skills)
-        XCTAssertNil(RailItem.key(for: .skills))
-        XCTAssertEqual(RailItem.shortcut(for: .skills), "")
+        XCTAssertEqual(RailItem.shortcut(for: .sleep), "⌘5", "Sleep kept its digit when the Feed folded into it")
+        XCTAssertEqual(AppTab.allCases.last, .looks)
+        XCTAssertEqual(RailItem.key(for: .skills), KeyEquivalent("4"))
+        XCTAssertEqual(RailItem.shortcut(for: .skills), "⌘4")
     }
 
     func testTooltipsAndLabelsSayWhatTheCellIsDoing() {
