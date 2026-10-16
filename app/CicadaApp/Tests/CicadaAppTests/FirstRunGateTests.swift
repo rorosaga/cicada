@@ -120,4 +120,21 @@ final class FirstRunGateTests: XCTestCase {
         XCTAssertTrue([owner].hasNoContentBeyondOwner)
         XCTAssertFalse([owner, other].hasNoContentBeyondOwner)
     }
+
+    /// QA 2026-10-16 — Settings → General's *Explore the demo* switches the bank, and the plan marks the demo
+    /// onboarded only one step later; in between, the previous bank's empty graph is still in the Store. The demo is
+    /// never a first run, so the Welcome must not open over it whatever the other inputs say.
+    func testTheDemoIsNeverAFirstRun() {
+        XCTAssertFalse(FirstRunGate.shouldShow(
+            bankResolved: true, isOnboarded: false, graphLoaded: true, graphIsEmpty: true, isDemo: true))
+        XCTAssertTrue(FirstRunGate.shouldShow(
+            bankResolved: true, isOnboarded: false, graphLoaded: true, graphIsEmpty: true, isDemo: false))
+    }
+
+    /// The live call site passes the demo flag; without it the gate cannot see the demo.
+    func testContentViewPassesTheDemoFlag() throws {
+        let file = try XCTUnwrap(ThemeTokenTests.swiftSources().first { $0.path.hasSuffix("/ContentView.swift") })
+        let text = try String(contentsOf: file, encoding: .utf8)
+        XCTAssertTrue(text.contains("isDemo: DemoMode.isActive(store.banks.value)"))
+    }
 }

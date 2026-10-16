@@ -33,15 +33,20 @@ enum FirstRunGate {
     ///     cache counts — serving the first frame from disk is the point of
     ///     the cache, and a cache hit is a real answer about this bank.
     ///   - graphIsEmpty: that loaded graph has no nodes.
-    /// - Returns: `true` only when the bank is known, unonboarded, and its
+    ///   - isDemo: the active bank is the demo (`DemoMode.isActive`). The demo is never a first run: it is entered
+    ///     through the Welcome's or Settings' demo plan, which marks it onboarded one step AFTER the switch. Between
+    ///     the two, `Store.bank` already names the demo while `Store.graph` still holds the previous (empty) bank's
+    ///     graph, so Settings → General's *Explore the demo* opened the Welcome inside the demo (QA 2026-10-16).
+    /// - Returns: `true` only when the bank is known, unonboarded, not the demo, and its
     ///   graph has loaded and is empty.
     static func shouldShow(
         bankResolved: Bool,
         isOnboarded: Bool,
         graphLoaded: Bool,
-        graphIsEmpty: Bool
+        graphIsEmpty: Bool,
+        isDemo: Bool = false
     ) -> Bool {
-        bankResolved && !isOnboarded && graphLoaded && graphIsEmpty
+        bankResolved && !isOnboarded && !isDemo && graphLoaded && graphIsEmpty
     }
 }
 

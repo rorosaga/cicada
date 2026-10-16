@@ -351,7 +351,8 @@ struct ContentView: View {
             bankResolved: store.banks.value != nil,
             isOnboarded: OnboardingState.isOnboarded(bank: store.bank),
             graphLoaded: store.graph.value != nil,
-            graphIsEmpty: store.graph.value?.nodes.hasNoContentBeyondOwner ?? false
+            graphIsEmpty: store.graph.value?.nodes.hasNoContentBeyondOwner ?? false,
+            isDemo: DemoMode.isActive(store.banks.value)
         ) {
             welcomeMode = .firstRun
             showFirstRun = true
