@@ -171,6 +171,23 @@ def test_evergreen_and_owner_pages_and_memory_entries_are_untouched(tmp_path):
     assert decay_policy.READ_LATE_KEY not in fm
 
 
+def test_an_archived_evergreen_page_mentioned_again_is_revived_as_before(tmp_path):
+    # G66 §1.6, unchanged by read on time: a hand-archived evergreen page a new conversation mentions comes back at
+    # 0.6; an active evergreen page keeps its confidence.
+    bank = _bank(tmp_path)
+    for page_id, status in (("saved-archived", "archived"), ("saved-active", "active")):
+        markdown_parser.write(bank / "entities" / f"{page_id}.md", {
+            "name": page_id, "type": "concept", "status": status, "confidence": 0.1 if status == "archived" else 0.5,
+            "created": FIRST, "last_referenced": FIRST, "decayed_through": FIRST, "learned_on": FIRST,
+            **decay_policy.frontmatter_fields(DecayClass.evergreen), "source_episodes": [f"ep_{FIRST}_001"],
+        }, "## Summary\n\nA synthetic thing.\n")
+    _batch(bank, [_change("saved-archived", "update", "2026-10-16"), _change("saved-active", "update", "2026-10-16")],
+           decay=True, now=_at("2026-10-16"))
+    revived = _fm(bank, "saved-archived")
+    assert revived["status"] == "active" and revived["confidence"] == 0.6
+    assert _fm(bank, "saved-active")["confidence"] == 0.5
+
+
 # --- order independence --------------------------------------------------------
 
 

@@ -759,7 +759,9 @@ def apply_changes(changes: list[dict], memory_path) -> None:
                     status = str(fm.get("status", "active"))
                     if status in ("decaying", "archived"):
                         fm["status"] = "active"
-                    if status in ("active", "decaying", "archived") and not evergreen:
+                    # An evergreen page never decays, so an active one stays where it is; a decaying or archived
+                    # one (hand-archived, or settled before it became evergreen) is revived as before (G66 §1.6).
+                    if status in ("decaying", "archived") or (status == "active" and not evergreen):
                         fm["confidence"] = max(float(fm.get("confidence", 0.0) or 0.0), RECOVERY_CONFIDENCE)
                     fm.pop(decay_policy.FADED_BY_AGE_KEY, None)   # back in the person's words: asked like any page
                     fm["decayed_through"] = _max_date(charged, heard)
