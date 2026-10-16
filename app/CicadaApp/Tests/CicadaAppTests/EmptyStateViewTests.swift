@@ -7,7 +7,7 @@ final class EmptyStateViewTests: XCTestCase {
     func testEveryEmptyStateMessageIsOneShortSentence() {
         let messages = [
             Copy.emptyGraphMessage, Copy.emptyInboxMessage,
-            Copy.emptyFeedMessage, Copy.emptySourcesMessage,
+            Copy.SleepTabs.savedEmpty, Copy.emptySourcesMessage,
         ]
         for m in messages {
             XCTAssertLessThanOrEqual(m.count, 60, m)

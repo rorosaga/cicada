@@ -166,14 +166,13 @@ struct StudyListCard: View {
         return .loading
     }
 
-    /// "What's waiting" — the Details section's own name (Track Z §4.2), in the plain words the
-    /// sentence above already uses. R-HS15: its label over rows, no card (DR-37); the error line is
-    /// a quiet meta line, not `danger` (DR-7 keeps `danger` for destructive actions).
+    /// The Waiting tab's rows (the Details section "What's waiting" until the Sleep redesign, 2026-10-16): the tab
+    /// names the list, so the section draws no label of its own. R-HS15: rows, no card (DR-37); the error line is a
+    /// quiet meta line, not `danger` (DR-7 keeps `danger` for destructive actions). The video queue's row retired with
+    /// Details: the Videos tab is that queue's one place (DR-38).
     var body: some View {
-        SleepDetailsSection(title: "What's waiting") {
+        SleepDetailsSection(title: "") {
             content
-            // G162 — the video queue's one row (its own file; it hides itself when nothing is queued).
-            VideosWaitingRow()
             // G179 — the ticked Messages conversations Sleep has not read, as stacked profile bubbles.
             MessagesWaitingRow()
 

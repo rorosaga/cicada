@@ -312,7 +312,7 @@ the Feed's junk filter only when it is such a wall or an agent already read it (
 contacted, not even for its favicon; a 404 is retried once with `www.`, only a site the surfaced list holds is served, and the
 service is told the site's name (the registrable domain, never a saved subdomain), under `CICADA_ALLOW_LOGO_FETCH`.
 **The app half (G166).** `VersionVector.mapping["reading"] = [.sources]`, so an agent's outcome (an ask-store write, no
-bank write) refreshes the Feed over SSE; `MediaFeedItem.read` (`MediaReadState`, decoded leniently — an older backend, or
+bank write) refreshes Sleep › Saved over SSE; `MediaFeedItem.read` (`MediaReadState`, decoded leniently — an older backend, or
 a value this build cannot read, drops the block and never the row). **Settings → Reading the web** (`SettingsSection.reading`,
 in Customize after Integrations; `ReadingWebView`, `ReadingAgentModel`; not a Store domain — fetched when the page opens and
 answered by every write) has three groups. *With an agent*: "Let an agent read pages for you", off by default; turning it on
@@ -331,7 +331,7 @@ ring monogram), its wall in words (`wallWords`), measured counts and one switch 
 reading is off still shows on, says "Allowed · agent reading is off" and can be turned off; a paused site's pages "wait
 until you sign in", never "queued"); a site switched on while the sheet is
 unacknowledged raises the sheet, whose one line says the site rides the same call, and a paused site ("your agent wasn't
-signed in") offers Try again. The **Feed's detail column**
+signed in") offers Try again. The **saved item's detail column** (Sleep › Saved, the Feed's until 2026-10-16)
 gains a Read section (`FeedReadSection`, words and controls from the pure `ReadWords`): "Waiting for your agent",
 "Read by <agent> · <day>", "Needs you to sign in to <site>" with **Open in browser** (the person signs in themselves; the
 app opens an http(s) link and nothing else) and **Ask again**, and "Ask an agent" (`POST /reading/asks`, which copies the
@@ -345,7 +345,7 @@ Settings → Agents keeps one row, "Reading pages", linking here. **Home** gains
 appears or the sources move, emptied on a bank switch, never a Store domain): "N saved pages need your browser to be read"
 (the server's `waitingNotAllowed`), up to three of those sites' icons, linking to Settings → Reading the web; hidden at
 zero and once every listed site is allowed, and never counted in Needs you. The wall
-is not shown only there: the Feed row's second line says "Needs sign-in" (`ReadWords.rowFlag`) and `ContentView`
+is not shown only there: the saved row's second line says "Needs sign-in" (`ReadWords.rowFlag`) and `ContentView`
 toasts a link that just hit one (`ReadWords.newlyWalled`; the first look after launch or a bank switch announces
 nothing). The wall reads in the text ladder with a neutral glyph, never `warning` (DR-7), and the agent's own note shows
 as "<agent> noted: …". No line says "in your browser" of what an agent did, or promises what it will not do.

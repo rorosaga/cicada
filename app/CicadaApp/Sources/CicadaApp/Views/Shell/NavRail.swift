@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// Navigation is an icon rail, 56 pt wide (DR-22). It replaced the labelled
@@ -15,7 +16,7 @@ import SwiftUI
 /// Inbox numeral is neutral: `bgBadge`, with a 2 pt `bgRail` knockout. Sleep shows a spinner
 /// while a cycle runs.
 ///
-/// **Keys.** ⌘1–8 are the cells' own shortcuts, in `AppTab.allCases` order (`RailItem`). A
+/// **Keys.** ⌘1–9 are the cells' own shortcuts, in `AppTab.allCases` order (`RailItem`). A
 /// switch is instant, pointer and key alike (DR-60/61).
 ///
 /// **Tooltips.** Each cell names its page and shortcut ("Inbox ⌘6"). The first waits 450 ms and
@@ -29,6 +30,8 @@ struct NavRail: View {
     var needsAttention: Bool
 
     @AppStorage(ThemeStore.defaultsKey) private var colorSchemeRaw: String = AppColorScheme.dark.rawValue
+    @AppStorage(FeedMovedHint.shownKey) private var feedMovedHintShown = false
+    @Environment(Store.self) private var store: Store?
     @State private var tooltip = RailTooltipState()
 
     var body: some View {
@@ -57,7 +60,15 @@ struct NavRail: View {
         let count = tab == .inbox ? inboxCount : 0
         let busy = tab == .sleep && isSleeping
         let selected = selectedTab == tab
-        Button { selectedTab = tab } label: {
+        Button {
+            selectedTab = tab
+            // ⌘ map A — the key and the click share this action; only the key holds ⌘ while it runs.
+            if FeedMovedHint.shouldShow(tab: tab, commandHeld: NSEvent.modifierFlags.contains(.command),
+                                        alreadyShown: feedMovedHintShown) {
+                feedMovedHintShown = true
+                store?.toast = Copy.feedMovedHint
+            }
+        } label: {
             NavRailCell(tab: tab, labelled: labelled, selected: selected, badge: count, busy: busy)
         }
         .buttonStyle(.cicadaPlain)

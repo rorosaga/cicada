@@ -33,15 +33,15 @@ final class FeedListTests: XCTestCase {
 
     func testTheEyebrowSaysWhereYouAre() {
         let items = [item("a"), item("b"), item("c", type: "bookmark")]
-        XCTAssertEqual(FeedEyebrow.text(total: 3, kind: nil, visible: items, openId: nil, searching: false), "Feed · 3 saved")
+        XCTAssertEqual(FeedEyebrow.text(total: 3, kind: nil, visible: items, openId: nil, searching: false), "Sleep · Saved · 3 saved")
         XCTAssertEqual(FeedEyebrow.text(total: 3, kind: .bookmark, visible: [items[2]], openId: nil, searching: false),
-                       "Feed · Bookmarks · 1 saved")
+                       "Sleep · Saved · Bookmarks · 1 saved")
         XCTAssertEqual(FeedEyebrow.text(total: 3, kind: nil, visible: items, openId: items[1].id, searching: false),
-                       "Feed · 2 of 3")
+                       "Sleep · Saved · 2 of 3")
         XCTAssertEqual(FeedEyebrow.text(total: 3, kind: nil, visible: [items[0]], openId: nil, searching: true),
-                       "Feed · 1 match")
-        XCTAssertEqual(FeedEyebrow.text(total: 0, kind: nil, visible: [], openId: nil, searching: false), "Feed",
-                       "R-DL18 — nothing indexed: the page says Feed, never '0 items'")
+                       "Sleep · Saved · 1 match")
+        XCTAssertEqual(FeedEyebrow.text(total: 0, kind: nil, visible: [], openId: nil, searching: false), "Sleep · Saved",
+                       "R-DL18 — nothing indexed: the eyebrow names the list, never '0 items'")
     }
 
     /// DR-54 / DR-55 — the app's name, the folder, the day; the id only in `.help`.

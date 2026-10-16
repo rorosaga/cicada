@@ -45,6 +45,16 @@ struct HowSleepWorksContent: View {
                 .font(CicadaTheme.font(size: 11))
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
+
+            // The Sleep redesign (2026-10-16) — the lists under the room answer ⌘N, ⌘F and the list keys the Feed did.
+            Divider().background(CicadaTheme.border)
+            SectionLabel(ListHelp.sleepLists.title)
+            ForEach(ListHelp.sleepLists.keys, id: \.key) { k in
+                HStack(spacing: CicadaTheme.spacingSM) {
+                    KeyHint(k.key).frame(minWidth: CicadaTheme.scaled(44), alignment: .leading)
+                    Text(k.does).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textSecondary)
+                }
+            }
         }
         .padding(CicadaTheme.spacingLG)
         .frame(width: 360)

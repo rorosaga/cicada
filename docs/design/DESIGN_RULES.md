@@ -235,7 +235,7 @@ Semibold is reserved for the H1, the Reader title, empty and error titles, and t
 4. Welcome and onboarding headlines;
 5. the Settings panel's `PageTitle`.
 
-List pages have no page title (DR-25). Apart from the Settings panel, `PageTitle` survives only on the room pages (Sleep and Home). `[lint]` `DisplayFontCallSiteLintTests`.
+List pages have no page title (DR-25). Apart from the Settings panel, `PageTitle` survives only on Home (the Sleep page lost its "Sleep Cycle" title on 2026-10-16, §9; it opens on its eyebrow). `[lint]` `DisplayFontCallSiteLintTests`.
 
 **DR-18. The quote is the hero.** Every word a person or an agent said passes through one door: `quoteFont`, which is SF 15 regular, not italic and not serif. `[test]` A snapshot of a quote block.
 - **The cited span** is washed and underlined: a `wash` fill, a 2 pt `accent` underline offset by 4 pt, a 4 pt radius and 1 pt of padding.
@@ -272,7 +272,7 @@ List pages have no page title (DR-25). Apart from the Settings panel, `PageTitle
 - **Cells.** Each cell is 36 × 36 pt, uses `cornerRadiusSmall`, sits at a 40 pt pitch, and holds an 18 pt glyph.
 - **State.** Inactive glyphs are `textTertiary`. The selected cell is `bgSelected` with a `textPrimary` glyph: never the accent, never a filled symbol.
 - **Tooltips.** Every cell has a tooltip naming its page and shortcut ("Inbox ⌘6"). The first tooltip waits 450 ms; after that, the next one opens instantly (R-F2).
-- **Pages, in ⌘ order:** Home ⌘1, Graph ⌘2, Clusters ⌘3, Feed ⌘4, Sleep ⌘5, Inbox ⌘6, Sources ⌘7, Projects ⌘8 (ruling of 2026-09-23, §9), Looks ⌘9, then Skills with no digit (ruling of 2026-10-15, §9). The rail's order is its ⌘ order, so a new page joins at the end and no shortcut moves. The first tooltip waits 450 ms; after that, the next one opens instantly (R-F2).
+- **Pages, in ⌘ order:** Home ⌘1, Graph ⌘2, Clusters ⌘3, Skills ⌘4, Sleep ⌘5, Inbox ⌘6, Sources ⌘7, Projects ⌘8 (ruling of 2026-09-23, §9), Looks ⌘9. The Feed retired into Sleep and Skills took its cell (⌘ map A, ruling of 2026-10-16, §9). The rail's order is its ⌘ order, so a new page joins at the end and no shortcut moves. The first tooltip waits 450 ms; after that, the next one opens instantly (R-F2).
 - **The Inbox badge** is a neutral tabular numeral in a `bgBadge` capsule, with a 2 pt knockout in `bgRail`.
 - **While a cycle runs**, the Sleep glyph becomes a spinner.
 - **The rail's foot** holds the gear (⌘,), which shows a `warning` attention dot when needed, and the theme toggle, which uses `.symbolEffect(.replace)`.
@@ -288,7 +288,7 @@ List pages have no page title (DR-25). Apart from the Settings panel, `PageTitle
 
 **DR-24. There is one bank selector, and it lives in the command bar.** `BankSwitcher` moves there from the Graph overlay, and the command bar is the only place a bank switch can happen. A second switcher would reintroduce the split-brain bug class. Settings never switches banks. `[test]` `SingleBankSwitcherTests`.
 
-**DR-25. List pages have no page-title band.** Inbox, Clusters, Feed, Sources and Projects open straight into an **eyebrow row**: at least 28 pt tall, 20 pt below the titlebar. `[test]`
+**DR-25. List pages have no page-title band.** Inbox, Clusters, Sources and Projects open straight into an **eyebrow row** (and so does Sleep, a room-over-list page, §5.2): at least 28 pt tall, 20 pt below the titlebar. `[test]`
 - **Left:** the eyebrow, in `metaFont` medium, `textTertiary`, tabular. It reads "Inbox · 6 pending", or "Inbox · 1 of 6 · Conflict" when a question is open.
 - **Right:** text tabs with counts (DR-45).
 - **The old subtitle** moves into the `?` popover and the empty state.
@@ -299,9 +299,10 @@ List pages have no page title (DR-25). Apart from the Settings panel, `PageTitle
 
 | Type | Anatomy |
 |---|---|
-| List page (Inbox, Clusters, Feed, Sources, Projects) | eyebrow row, then progressive columns (§5.3) |
+| List page (Inbox, Clusters, Sources, Projects) | eyebrow row, then progressive columns (§5.3) |
 | Canvas (Graph) | full-bleed; chrome only as floating overlays (§10) |
-| Room (Sleep, Home) | one 760 pt column; a `PageTitle` or the room sentence; details as a list |
+| Room (Home) | one 760 pt column; a `PageTitle`; details as a list |
+| Room-over-list (Sleep, 2026-10-16) | the eyebrow, a fixed-height art band (whole points per cell, no card), the room's three lines in the 760 pt column, then a list page's tab row (sticky once the room scrolls away) and progressive columns |
 | Panel (Settings) | in-app panel (DR-33) |
 
 ### 5.3 Progressive columns
@@ -414,7 +415,7 @@ It never animates (DR-60). `[test]`
 - "6 pending" shown twice;
 - a type rail that repeats its own rows.
 
-**DR-39. Secondary detail starts collapsed,** and each viewer's choice is remembered. This generalises Sleep's Details. `[review]`
+**DR-39. Secondary detail starts collapsed,** and each viewer's choice is remembered. This generalised Sleep's Details, which retired on 2026-10-16 (its sections are the Sleep page's tabs now, §9). `[review]`
 
 ---
 
@@ -552,14 +553,15 @@ Mocks reach every variant and state through the "Preview states" menu. The app r
 - Sentence case and plain verbs; no "!" and no bare "%".
 - A meta line is one line.
 - A question is stated once per surface.
-- No prices, token counts or "$" anywhere except the Sleep page's Details and engine menu (ruling of 2026-09-03,
-  narrowed 2026-09-28, §9); there a figure carries its basis in words and a percentage its noun.
+- No prices, token counts or "$" anywhere except the Sleep page's Past reads run detail and engine menu (ruling of
+  2026-09-03, narrowed 2026-09-28, surface renamed 2026-10-16, §9); there a figure carries its basis in words and a
+  percentage its noun.
 
 ---
 
 ## 8. Motion and interaction
 
-**DR-60. Keyboard actions never animate.** This applies to ⌘1–8, ⌘K, ⌘F, Esc, 1–9, O, L, ⏎, ↑/↓, ⌥↑/⌥↓ and ⏎ in the palette. Their pointer equivalents animate only where the table under DR-61 says so. `CicadaMotion.paletteIn` and `paletteOut` are deleted: the palette appears and leaves in one frame. `[lint]` `KeyboardAnimationLintTests`: no `withAnimation` in any handler reachable from `.keyboardShortcut`, `onKeyPress` or `FindCommands`, with an allowlist.
+**DR-60. Keyboard actions never animate.** This applies to ⌘1–9, ⌘K, ⌘F, Esc, 1–9, O, L, ⏎, ↑/↓, ⌥↑/⌥↓ and ⏎ in the palette. Their pointer equivalents animate only where the table under DR-61 says so. `CicadaMotion.paletteIn` and `paletteOut` are deleted: the palette appears and leaves in one frame. `[lint]` `KeyboardAnimationLintTests`: no `withAnimation` in any handler reachable from `.keyboardShortcut`, `onKeyPress` or `FindCommands`, with an allowlist.
 
 **DR-61. Durations live only in `CicadaMotion` and `SleepMotion`.** The ceiling for UI motion is 300 ms. Weather, the pile and the camera sit under a separately named `ambientMaxDuration = 0.4`. `[lint]` `MotionLiteralLintTests`.
 
@@ -611,7 +613,7 @@ Mocks reach every variant and state through the "Preview states" menu. The app r
 
 | Key | Where | Does |
 |---|---|---|
-| ⌘1–8 | anywhere | switch page (instant) |
+| ⌘1–9 | anywhere | switch page (instant) |
 | ⌘K | anywhere | open the palette under the command bar; ⌘⏎ inside it toggles Find ↔ Ask |
 | ⌘F | pages with something to find | focus the page's `CicadaSearchField` |
 | ↑ / ↓ | list focused | move the selection; the question swaps in place |
@@ -796,6 +798,7 @@ Each ruling is dated. A new ruling is added as a new line, and old lines are nev
 - **2026-10-15: The Graph looks like an Obsidian vault at rest (owner: "Right now it looks like a weird circle. Can you look at pictures of an Obsidian vault and make it look different?"; G109; DR-8, §10 Graph).** Size is how connected a page is (distinct neighbours), confidence a small second term — this departs from `graph-viz-redesign.md`'s "confidence = size", and the Legend's key now reads "Bigger means more connected". Nodes are small dots (median ~3.5 wu, the owner's page ~6.7× that); hubs lose their ring and size floor; every pair draws one hairline at every zoom; unlinked pages form a loose halo, hidden by the Legend's *Show unlinked* switch; the pending pulse hugs its dot; names fade in with zoom, biggest first, budgeted and never overlapping (departs from "no ambient labels"). No hue moved (DR-8): only size, spacing, link alpha and width, and ring treatment. **Amended the same day (owner: "the lines connecting nodes are too big compared to the size of the nodes, they should be super thin. And nodes can be a bit bigger, relative to the amount of nodes"):** "median ~3.5 wu" is now the size at scale 1; one scale per layout puts the median dot at √(6 % of the fitted view ÷ (π × nodes)) on screen, clamped to 2.2–8 pt, and a resting link is 0.12 of the smallest dot's on-screen diameter, at most 0.75 pt (one device pixel at lower alpha when thinner); a hovered or focused link is 1 pt.
 - **2026-10-15: A Looks type specimen is data, not interface type; a screenshot enlarges over the board (owner: "Having an Aa with the font and the name would be cool, or fonts if several"; "clicking the pic should expand the view smoothly, like an overlay"; DR-9, DR-15, DR-19, DR-60, DR-61, DR-66, DR-68).** The "Aa" in a look's *Type* section is the page's own drawing of its face (a transparent PNG from the capture, tinted to `textPrimary`), the same kind of thing as the screenshot. When a look has none, a stand-in "Aa" is set in the system design for the family's generic kind (serif, sans, monospace, rounded) through `CicadaTheme.font(size:design:)` and labelled as a stand-in in words; this is the only place a non-default design shows outside the ladder's own uses, it is never interface type, and no face a page names is ever loaded (DR-15 stands for every UI word). The enlarged screenshot grows from its thumbnail over the board's `scrim` on `CicadaMotion.morph` (inside the 400 ms budget), its depth a ring (DR-9); Reduce Motion fades on `CicadaMotion.fade` (DR-66); ⌘Y on the open look, Space on a focused picture and Esc act in one frame (DR-60). DR-68 gains ⌘Y (Looks: enlarge the open look's screenshot, as Quick Look).
 - **2026-10-16: A Messages bubble's monogram reads as a picture; its's ground ring sits outside its face (live report on the Sleep page in dark appearance: "a near-black disc with a hairline letter"; G179; C11, DR-8, DR-9, DR-12).** In a bubble below 24 units a person's initials are half the picture's height, semibold (`EntityPictureLayout.initialsType(compact:)`); every other picture — the 20 pt rows sit beside their own name — keeps the 0.36 medium proportion. The Messages bubbles (`MessageBubbleFace`, the Sleep page's 20 pt and Home's 18 pt) inset the face 1.5 pt inside a disc of the ground's colour instead of stroking that ring over the face, which had hidden the monogram's own 1.5 pt hue ring. No fill was added, no hue moved, and depth is still a ring, never a shadow. Pinned offscreen in light and dark by `MessageBubbleFaceTests`.
+- **2026-10-16: Sleep is a room-over-list page, and the Feed retires into it (owner approval of the Sleep redesign proposal, 2026-10-16; DESIGN §3, §5; DR-9, DR-10, DR-13, DR-22, DR-25, DR-26, DR-28, DR-36, DR-38, DR-39, DR-40, DR-45, DR-60, DR-68; rulings 12 and 18, R3).** Owner (2026-10-15): *"rethink the design of the Sleep page, and have the bookworm animation bigger, not inside that rectangle thing it has right now"*; *"remove the title Sleep Cycle"*; *"the Feed page would make sense to merge into Sleep"*. (1) **Room-over-list** joins §5.2: the eyebrow, the art band, the room's three lines, then a list page's tab row and progressive columns; Home stays the only pure Room. (2) **The Feed retires** (`AppTab.feed`, `FeedPage`): its list, sort and kind filter, detail column, *Save its look*, the Videos watch run and ⌘N are Sleep's Saved and Videos tabs; its Connected strip goes to Sources (whose cards already sync each source) and its export waits stay at the head of Saved (Home's Getting started shows them only until it graduates); a stored "Feed" or "Capture" selection restores to Sleep; every route to a saved item (⌘B's bookmark rows, the palette, a source's page) lands on Sleep › Saved. §10's Feed block moved under Sleep. (3) **No title:** `Copy.sleepPageTitle` retires and the page opens on its eyebrow; `PageTitle` survives on Home alone of the pages (DR-17). (4) **The art's scale** is a whole number of points per lattice cell chosen by the width the art may take — 5 pt from 880, 4 pt from 720, else 3 pt (2 pt only under ⌘+ zoom with the Reader open) — never fractional, so a resize never blurs a pixel; the art sits on the page ground with no card, its floor fading into it over its bottom five cells (a mask on the art layer, never the pile, never a shadow), and no text sits on it (DR-13). (5) **Details retires** into the tabs (DR-39 no longer has a Sleep instance): What's waiting → Waiting; Last cycle, Readout and Past nights → Past reads, where a read opens in place under its row; Details' Videos row retires (the Videos tab is the queue's one place, DR-38). (6) **⌘ map A:** Skills takes the Feed's ⌘4 and nothing else moves; for one release the first time ⌘4 lands on Skills a toast says "The Feed is now part of Sleep (⌘5) → Saved.", once per viewer (a click on the cell never shows it). DR-22's list and DR-60/DR-68's ⌘1–9 follow. (7) **Ruling 12's surface** is renamed from "Details" to "the Sleep page's Past reads run detail"; prices and plan usage still show nowhere else but the engine menu (`PriceLintTests`).
 
 This file landed on its own, as docs, on 2026-09-23; CLAUDE.md points here. As of DS-3b, DS-3a and DS-3c (2026-09-24), CLAUDE.md's Inbox paragraph (Features §2/3, "The page"), its "Provenance viewer" paragraph, its Home paragraph, the Sleep page's control row and Details, the Settings panel's Integrations and search, its Graph Explorer and entity-card paragraphs (Features §1), its Clusters, Feed and Sources paragraphs, and (PJ-5) its Projects paragraph describe D as it ships; every other page paragraph keeps describing what ships until that page's DS track lands. That track updates each paragraph in the same PR that changes the code.
 
@@ -809,7 +812,7 @@ Each screen below names the problems it fixes: **P1** chrome louder than the wor
 - "Getting started", while it lasts; one line once the person has chats in memory.
 - "Today": what was captured today, and how much is waiting (a row to Sleep).
 - "Needs you": the top three inbox rows, the Inbox's own STATE 0 rows, each opening the Inbox in STATE 1.
-- "Last time Cicada read": the newest Sleep cycle and the pages it touched (a row to that read in Sleep's Details).
+- "Last time Cicada read": the newest Sleep cycle and the pages it touched (a row to that read in Sleep's Past reads).
 
 Each number appears once, and each is a link to the page that owns it. There is **no Consolidate** on Home: the one Consolidate lives on the Sleep page (G125 R10). "Recently learned" (claims with their source lines) waits for a backend field.
 
@@ -817,13 +820,14 @@ Each number appears once, and each is a link to the page that owns it. There is 
 
 **Clusters. Fixes P2, P4.** A list page. The eyebrow reads "Clusters · 957 entities in 9 groups", the type tabs are text tabs with counts and plural names, and one View menu holds the Graph's types, labels and *Expand all*. With nothing open (F-11, 2026-09-24 ruling): a card per type, icon-led, of 56 pt tiles — the page's picture, its name, one line in words; never tags or a percentage — the picture opens the image picker on a click. A tile opens the entity card as the detail column, and the list narrows to rows with pictures and ages, recently mentioned first.
 
-**Feed. Fixes P1 (the header-under-titlebar bug), P4, P5.** A list page. The eyebrow is followed by text tabs: Recent · Relevance, then the kinds. Rows are 56 pt: mark, title and source line, with a thumbnail only for media. A video plays in the detail column (`MediaPreview`). Intake comes in through ⇧⌘I, a drop or the Dock, never through a page button.
-
 **Sources. Fixes P2, P4.** A list-and-grid page. The eyebrow reads "Sources · n connected", with "Add a source" as a `NeutralButton` in the eyebrow row. The G124 cards stay but are restyled: `bgFocus` with a resting ring, no shadow, and a hover lift (each card is a sparse tile that opens something). Dropping the duplicate "Nothing yet" lines takes a card from 128 pt to 104 pt or less. The contributor strip becomes a labelled bar, and a card opens its source detail as a column.
 
-**Sleep. Fixes P3, P4.** The study room stays: the art, the worm, one sentence, and Consolidate as the page's only `PrimaryActionButton`.
+**Sleep. Fixes P3, P4.** A room-over-list page (§5.2, 2026-10-16). The study room stays — the art, the worm, one sentence, and Consolidate as the page's only `PrimaryActionButton` — out of its card, drawn at a whole 5/4/3 pt per cell by the column's width, with no title above it: the eyebrow reads "Sleep · 42 waiting · last read 2 h ago".
+- **The lists (2026-10-16):** Waiting · Saved · Videos · Past reads, one tab row of text tabs with counts (DR-45), sticky under the titlebar once the room scrolls away. A count of zero hides its tab; the page opens on Waiting while anything waits, else Past reads.
+- **Saved (the Feed until 2026-10-16).** Rows are 56 pt: mark, title and source line, with a thumbnail only for media. Its sort (Relevance · Recent, one always on) and kind filter sit in one View menu, never a second tab row (DR-38). A row opens the saved item as the detail column, where a video plays (`MediaPreview`); the Reader is the third column. The one-shot import is the tab row's `+` (⌘N).
+- **Videos** is the Feed's Videos list and its watch run, drawn only while a video is saved; it is the video queue's one place.
 - **New (owner, 2026-09-23): a quick engine/model menu** beside Consolidate. It is a `NeutralButton` that reads the current engine ("Claude plan · Sonnet ▾") and writes the same `PUT /sleep/engine` that `EngineChooser` writes. It opens a popover of the five engines with real marks, the chosen engine's model (a menu picker), both previews, and "More in Settings → Engines ›". It shows both the `preview.manual` and `preview.scheduled` lines, so ruling 4 (a scheduled cycle never spends plan quota) stays visible rather than applying silently.
-- **Details** (Last cycle · What's waiting · Readout · Past nights) use the list grammar: section labels over rows, no cards, 28 pt between sections. Last cycle's rows are words with a glyph and no fill, the readout is key–value rows, and an episode row carries one glyph.
+- **Waiting and Past reads** (Details' What's waiting, and its Last cycle · Readout · Past nights, until 2026-10-16) use the list grammar: section labels over rows, no cards, 28 pt between sections. Last cycle's rows are words with a glyph and no fill, the readout is key–value rows, and an episode row carries one glyph. A past read opens in place under its row, with its Models, tokens and cost (ruling 12's one home on the page).
 - **"Rested 0%"** is a sentence ("Fully rested — nothing is waiting.", "Rested n% — …") instead of a row of empty boxes, with the breakdown on hover.
 
 **Settings panel. Fixes P1, P5.** Built per DR-33. Each pane is one group of rows on `bgFocus` (DR-37), and native controls follow the system accent. Integrations shows real marks: its chat-bubble fallback for Claude Code and Cursor is a bug (DR-52). Manage and Connect open as sheets, never popovers.

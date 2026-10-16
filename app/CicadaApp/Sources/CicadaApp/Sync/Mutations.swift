@@ -544,7 +544,7 @@ struct SyncSafariTabs: Mutation {
     func optimistic(_ store: Store) async {}
     func request(_ api: any SyncAPI) async throws { memo.value = try await api.syncSafariTabs(db: db, wal: wal, devices: devices) }
     func rollback(_ store: Store) async {}
-    var failureMessage: String { "Couldn't finish importing those tabs — the Feed shows what landed" }
+    var failureMessage: String { "Couldn't finish importing those tabs — Sleep › Saved shows what landed" }
     var refreshDomains: Set<SyncDomain> { [.channels, .sources, .status] }
 }
 
@@ -576,7 +576,7 @@ struct SyncBrowserBookmarks: Mutation {
     /// Whether the server answered 409 — another sync of this bank still running (`BookmarkSyncBusy`).
     var wasBusy: Bool { busy.value == true }
     private let busy = MutationMemo<Bool>()
-    var failureMessage: String { wasBusy ? Copy.bookmarkSyncBusy : "Couldn't finish syncing those bookmarks — the Feed shows what landed" }
+    var failureMessage: String { wasBusy ? Copy.bookmarkSyncBusy : "Couldn't finish syncing those bookmarks — Sleep › Saved shows what landed" }
     // `.inbox` added for G129 slice 2: a sync that proposes a `removal` item
     // writes to the inbox domain, and without it here the Deletions
     // subsection would wait for the next SSE/poll tick instead of updating
@@ -602,6 +602,6 @@ struct SyncChromiumBookmarks: Mutation {
     func rollback(_ store: Store) async {}
     var wasBusy: Bool { busy.value == true }
     private let busy = MutationMemo<Bool>()
-    var failureMessage: String { wasBusy ? Copy.bookmarkSyncBusy : "Couldn't finish syncing those bookmarks — the Feed shows what landed" }
+    var failureMessage: String { wasBusy ? Copy.bookmarkSyncBusy : "Couldn't finish syncing those bookmarks — Sleep › Saved shows what landed" }
     var refreshDomains: Set<SyncDomain> { [.channels, .sources, .status, .inbox] }
 }

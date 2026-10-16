@@ -96,19 +96,19 @@ struct ChannelSourceView: View {
                             VStack(spacing: CicadaTheme.scaled(RowMetrics.twoLineGap)) {
                                 ForEach(group.items) { item in
                                     FeedListRow(item: item, style: .triage, selected: false, now: now) {
-                                        router.routeToFeedItem(item.mediaEntityId)
+                                        router.routeToSavedItem(item.mediaEntityId)
                                     }
                                 }
                             }
                         }
                     }
                 } else {
-                    // R-DL16 — a source's saved item opens in the Feed's detail column ("Open in the Feed").
+                    // R-DL16 — a source's saved item opens in Sleep › Saved's detail column ("Open in Saved").
                     let now = Date.now
                     VStack(spacing: CicadaTheme.scaled(RowMetrics.twoLineGap)) {
                         ForEach(items) { item in
                             FeedListRow(item: item, style: .triage, selected: false, now: now) {
-                                router.routeToFeedItem(item.mediaEntityId)
+                                router.routeToSavedItem(item.mediaEntityId)
                             }
                         }
                     }

@@ -309,14 +309,14 @@ private func sentenceTail(_ ctx: RoomContext) -> SentenceTail? {
             .map { String($0).trimmingCharacters(in: .whitespaces) }
         let text = vendor.flatMap { !$0.isEmpty && $0.count <= SentenceLine.maxTail ? $0 : nil }
             ?? (vendor == nil ? "Stopped at your plan's limit — the rest wait."
-                              : "Stopped at your plan's limit — the reset time is in Details.")
+                              : "Stopped at your plan's limit — the reset time is in Past reads.")
         return SentenceTail(text: text, tone: .warning, action: .openDetails(.lastCycle))
     }
     if ctx.capped {                                                                              // T5
         return SentenceTail(text: "The rest wait for the next cycle.", action: .openDetails(.lastCycle))
     }
     if let warning = ctx.indexWarning, !warning.isEmpty {                                        // T6
-        return SentenceTail(text: "Finished with a warning — it's in Details.", tone: .warning,
+        return SentenceTail(text: "Finished with a warning — it's in Past reads.", tone: .warning,
                             action: .openDetails(.lastCycle))
     }
     if ctx.recentCycleCommit != nil {                                                             // T7

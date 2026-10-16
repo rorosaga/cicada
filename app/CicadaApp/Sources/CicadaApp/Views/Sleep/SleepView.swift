@@ -2,10 +2,9 @@ import SwiftUI
 
 // MARK: - The page's arrangement (Track Z Z3)
 
-/// The Sleep page's one column (Track Z R-Z6 / §4.1 — R-A1's two columns are
-/// retired). 760 pt is the width the stacked page always had; it is not
-/// scaled because the room is the widest thing in it and fits at every zoom
-/// step (`SleepLayoutTests`, Z-P23).
+/// The Sleep page's text column (Track Z R-Z6 / §4.1; DR-36): 760 pt holds the room's sentence, its control and its
+/// whisper, and Past reads' rows. The room's art is no longer bound by it — out of its card since the Sleep redesign
+/// (2026-10-16), it takes up to `artMaxWidth` at a whole point per cell (`artScale`, `SleepLayoutTests`).
 enum SleepLayout {
     static let contentWidth: CGFloat = 760
 }
@@ -131,13 +130,22 @@ func sleepLiveness(isConnected: Bool,
     return .stale(asOf: refreshedAt)
 }
 
-// MARK: - Sleep Dashboard — the study desk (G125)
+// MARK: - Sleep — the room, and everything it reads (G125; the Sleep redesign, 2026-10-16)
 
+/// **The page (owner approval 2026-10-16, DESIGN_RULES §9 — room-over-list).** One scroll: the eyebrow ("Sleep · 42
+/// waiting · last read 2 h ago" — the page title retired), the study room out of its card and drawn at a
+/// whole 5/4/3 pt per cell by the column's width, the room's three lines (the sentence, the one control, the whisper),
+/// then the tab row — sticky once the room scrolls away — and the selected list: Waiting, Saved (the Feed's list),
+/// Videos (the Feed's Videos and its watch run) or Past reads (Details' Last cycle, Readout and Past nights). Opening
+/// a saved item (or the watch run) collapses the list to the triage column beside its detail, the tab row riding the
+/// eyebrow; the Reader is the third column (`hostsOwnReader`). Esc closes the rightmost (DR-28).
+///
 /// **The motion budget (G125, TODO ruling 18).** State art may loop; chrome
 /// settles within 400 ms and the active stage pulse stays capped at 1.2 s.
 /// Sprite frames stay inside `CicadaMotion`'s caps: beats within 800 ms, the
 /// perk within 400 ms, and yawn/stretch within 1.6 s. Sheet tests check every
-/// frame and tag; each layer redraws only at its frame boundaries.
+/// frame and tag; each layer redraws only at its frame boundaries. A tab switch and
+/// every keyboard path never animate (DR-60).
 ///
 /// Reduce Motion holds sprites at their key frame, suppresses beats and
 /// transitions, and jumps the weather and value-driven settles. Low Power
@@ -147,12 +155,12 @@ func sleepLiveness(isConnected: Bool,
 /// **No spinner where a real count exists.** A `ProgressView` on this page
 ///    appears only where there is genuinely nothing to count yet: the queue
 ///    before its first fetch, a history row's detail mid-load, and the
-///    Consolidate/Cancel buttons' own in-flight state. The queue's rows lost
-///    theirs in Task 6 — they have `read of total`.
+///    Consolidate/Cancel buttons' own in-flight state.
 struct SleepView: View {
     @AppStorage(SceneryMode.defaultsKey) private var scenerySourceRaw = SceneryMode.localWeather.rawValue
     @AppStorage(ManualScenery.timeKey) private var sceneryTimeRaw = "day"
     @AppStorage(ManualScenery.baseKey) private var sceneryWeatherRaw = "sunny"
+    @AppStorage(ShellMetrics.labelledKey) private var labelledSidebar = false
 
     @Binding var selectedTab: AppTab
     /// Entity chips inside the consolidation history's expanded detail land
@@ -165,13 +173,16 @@ struct SleepView: View {
     /// page's first source for every engine line.
     @Environment(SleepEngineViewModel.self) private var engineVM
     @Environment(AppRouter.self) private var appRouter
-    // H1: the study list's header and the desk card's bubble/pile must agree
-    // on one live reading of the queue. `Store.status`/`Store.sleepEvent` are
-    // the SSE-live sources; reading them here (instead of only
-    // `sleepVM.queuedEpisodes.count`, fetched once per visit) keeps every
-    // readout on the page from disagreeing when a capture lands while it's
-    // open.
+    // H1: the lists and the room must agree on one live reading of the queue. `Store.status`/`Store.sleepEvent` are
+    // the SSE-live sources; reading them here (instead of only `sleepVM.queuedEpisodes.count`, fetched once per
+    // visit) keeps every readout on the page from disagreeing when a capture lands while it's open.
     @Environment(Store.self) private var store
+    /// The Feed's model since it folded into Sleep's Saved and Videos tabs (2026-10-16): the rows, the sort, the kind,
+    /// find's text and the open item.
+    @Environment(FeedViewModel.self) private var feedVM
+    /// G162 — the video states the rows, the strip and the watch run read.
+    @Environment(VideoStateCache.self) private var videoCache
+    @Environment(ProvenanceRouter.self) private var provenance
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// Track Z Z10 — Increase Contrast hides the optional sky band (§11).
     @Environment(\.colorSchemeContrast) private var contrast
@@ -195,21 +206,38 @@ struct SleepView: View {
     // menu-bar bookworm respectively), so this view tracks its own edge via
     // `.onChange` instead of contending for either slot.
     @State private var justFinishedAt: Date?
-    /// Spec decision 16 — Details is closed by default and remembered per
-    /// viewer. `@AppStorage` is a per-viewer convenience, which is exactly
-    /// the use browser-style storage is for: losing it only closes Details.
-    @AppStorage(SleepDetails.openKey) private var detailsOpen = SleepDetails.defaultOpen
-    /// The Details section a tail link asked for, held until Details has been
-    /// built and its anchor exists (`openDetails`).
-    @State private var pendingScroll: DetailsSection?
+    /// The tab the person chose this visit; `nil` follows the page's state (Waiting while anything waits, else Past
+    /// reads — `SleepTab.resolve`). Page-local: a fresh visit opens on what the room is about.
+    @State private var chosenTab: SleepTab?
+    /// A tail link, a spine or a hand-off asked for the lists: scroll the tab row to the top once it is drawn.
+    @State private var scrollToTabs = false
+    /// DR-46 — find over the selected list of saved items.
+    @State private var findOpen = false
+    /// R-DL16 — bumps when a hand-off lands on a saved item, so the list scrolls it into view.
+    @State private var landingToken = 0
+    @FocusState private var focus: ListFocus?
+    /// G162 — the watch run: the picker and its card take the list and the detail while it is on.
+    @State private var run = VideoRunModel()
+    /// R-DL14 — the one-shot import's sheet (⌘N, the `+`, an Integrations hand-off).
+    @State private var showAddSheet = false
+    @State private var sheetTile: AddSourceTile?
     /// Track Z Z5 — the room's interaction state (gaze, perk, the answer
     /// ladder). Page-local `@State`: a tab switch tears it down, so an answer
     /// never outlives the visit it was asked in.
     @State private var room = RoomModel()
 
+    private static let tabsAnchor = "sleep.tabs"
+
+    /// Three stages, so the type checker never faces one chain of every modifier (ContentView's `lifecycleStage`
+    /// reason): the page and its sheet, then the hand-offs, then the load and the cycle's edges.
     var body: some View {
         let page = resolvePage()
-        ZStack {
+        return lifecycle(handoffs(pageStack(page)), page: page)
+    }
+
+    private func pageStack(_ page: SleepPageModel) -> some View {
+        let tab = currentTab(page)
+        return ZStack {
             // No .ignoresSafeArea(): the title bar is darkened at the window level
             // (CicadaApp). Ignoring the safe area here pushed content under the menu
             // bar and stretched the window to full screen height.
@@ -228,75 +256,50 @@ struct SleepView: View {
                 }
             }
 
-            // One column at every width (R-Z6): the room card, the one
-            // Details row, and Details itself only while it is open.
-            ScrollViewReader { proxy in
-                ScrollView {
-                    VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
-                        headerRow
-                        // R-A12: `.saturation` is UNCONDITIONAL, at the
-                        // identity 1.0 while live — an `if` around it would
-                        // change the card's structural identity and rebuild
-                        // it every time the connection flaps.
-                        roomCard(page)
-                            .saturation(liveness.saturation)
-                        DetailsDisclosureRow(open: detailsOpen) {
-                            withAnimation(SleepMotion.disclosure(reduceMotion: reduceMotion)) { detailsOpen.toggle() }
-                        }
-                        if detailsOpen {
-                            SleepDetails(page: page, liveness: liveness, pageError: pageError,
-                                         status: sleepVM.status, episodes: sleepVM.queuedEpisodes,
-                                         history: sleepVM.history, details: sleepVM.details,
-                                         expanded: sleepVM.expanded, onToggleHistory: toggleHistory,
-                                         onSelectEntity: onSelectEntity, room: room,
-                                         runRows: runRows(page), queue: sleepVM.queue,
-                                         showsRun: showsRunBlock(page), runPaused: sleepVM.isPaused,
-                                         ownerReady: ownerReady(page),
-                                         onRetryParked: { ids in
-                                             Task { @MainActor in
-                                                 await sleepVM.retryParked(ids: ids)
-                                                 await store.refresh([.status])
-                                             }
-                                         },
-                                         onSeeOwnerPage: ownerEntityId.map { id in { onSelectEntity?(id) } },
-                                         runDetails: sleepVM.runDetails, expandedRun: sleepVM.expandedRun,
-                                         onToggleRun: { id in
-                                             sleepVM.expandedRun = sleepVM.expandedRun == id ? nil : id
-                                             Task { @MainActor in await sleepVM.loadRunDetail(id) }
-                                         })
-                        }
-                    }
-                    .padding(CicadaTheme.spacingXL)
-                    .frame(maxWidth: SleepLayout.contentWidth)
-                    .frame(maxWidth: .infinity, alignment: .top)
-                    // I4 — a mood change resets the ladder: an answer about
-                    // the state that just ended is no longer true, and any
-                    // feed line about a moment that has passed (Z-B11).
-                    .onChange(of: page.mood.caseName) { _, _ in room.dismissSlot() }
-                }
-                // Details is built only while open, so an anchor inside it
-                // exists one update after `detailsOpen` flips: scroll then.
-                .onChange(of: pendingScroll) { _, section in
-                    guard let section else { return }
-                    DispatchQueue.main.async {
-                        withAnimation(SleepMotion.disclosure(reduceMotion: reduceMotion)) {
-                            proxy.scrollTo(section.anchorID, anchor: .top)
-                        }
-                        pendingScroll = nil
-                    }
-                }
-            }
+            columns(page, tab: tab)
         }
-        .onAppear { consumeDetailsRoute() }
+        // From a leaf, not the page (DS-3c final review): a publisher on the page's if/else rebuilt every column on each
+        // flip of `findOpen`. Only a list of saved items has a find.
+        .background { Color.clear.publishesPageFind(enabled: !findOpen && tab.hasFind) { findOpen = true } }
+        .onChange(of: findOpen) { _, isOpen in if !isOpen { feedVM.searchText = "" } }
+        // I4 — a mood change resets the ladder: an answer about the state that just ended is no longer true, and any
+        // feed line about a moment that has passed (Z-B11). On the page, not the room: the room may have scrolled away.
+        .onChange(of: page.mood.caseName) { _, _ in room.dismissSlot() }
+        .sheet(isPresented: $showAddSheet) {
+            AddSourceSheet(initialTile: sheetTile) { showAddSheet = false }
+        }
+    }
+
+    private func handoffs(_ content: some View) -> some View {
+        content
+        .onAppear {
+            // A search left from the last visit would keep filtering with no field on screen (§5.5).
+            feedVM.searchText = ""
+            consumeDetailsRoute(); consumePendingAddSource(); consumeLanding(); consumeVideoChooser()
+            feedVM.reconcile()
+        }
         .onChange(of: appRouter.pendingSleepDetails) { _, _ in consumeDetailsRoute() }
+        .onChange(of: appRouter.pendingAddSource) { _, _ in consumePendingAddSource() }
+        .onChange(of: appRouter.pendingSavedItem) { _, _ in consumeLanding() }
+        .onChange(of: appRouter.pendingVideoChooser) { _, _ in consumeVideoChooser() }
+        .onChange(of: feedVM.items.map(\.id)) { _, _ in feedVM.reconcile() }
+        .onChange(of: videoRows.map(\.id)) { _, ids in run.reconcile(present: Set(ids)) }
+        // G162 — the video states the rows, the strip and the run read (a 304 costs nothing).
+        .task { await videoCache.refresh() }
+    }
+
+    private func lifecycle(_ content: some View, page: SleepPageModel) -> some View {
+        content
         // Keyed on the Store's newest Sleep time and Sleep's state too: a cycle this page did not start (a scheduled
-        // drain, the CLI) that moves or finishes while it is open reruns this, so Details' Last cycle rereads what it
+        // drain, the CLI) that moves or finishes while it is open reruns this, so Past reads' Last cycle rereads what it
         // describes — at most every 30 s while a run commits batch after batch, and always when it ends.
         .task(id: refreshKey) {
             if !loadedOnce {
                 loadedOnce = true
                 lastRefetch = Date()
                 await sleepVM.load()
+                await sleepVM.loadQueue()
+                if let id = detailRunId { await sleepVM.loadRunDetail(id, freshness: detailRunFreshness) }
             } else if SleepPageRefresh.shouldRefetch(running: store.status.value?.sleep.status == "running",
                                                      last: lastRefetch, now: Date()) {
                 lastRefetch = Date()
@@ -339,40 +342,31 @@ struct SleepView: View {
                 }
             }
         }
-        // Sleep page v5 — a pause appears, is armed or is cleared with no status change (H3): refetch the whole
-        // record, announce a pause (A11), and keep What's waiting's rows in step with the run's counts (M3).
-        // The status refetch itself is app-wide (`Store.onSleepPausedChanged`, wired in `CicadaApp`), so the doors
-        // outside this page read the whole record too; the page only announces a pause (A11).
+        // Sleep page v5 — a pause appears, is armed or is cleared with no status change (H3): the status refetch is
+        // app-wide (`Store.onSleepPausedChanged`, wired in `CicadaApp`); the page only announces a pause (A11).
         .onChange(of: store.sleepEvent?.paused) { old, new in
             if old == nil, new != nil { AccessibilityNotification.Announcement(Copy.SleepV5.pausedAnnouncement).post() }
         }
+        // Waiting's per-conversation rows follow the run's counts (M3).
         .onChange(of: queueKey) { _, _ in
-            guard detailsOpen else { return }
             Task { @MainActor in await sleepVM.loadQueue() }
-        }
-        .onChange(of: detailsOpen) { _, open in
-            guard open else { return }
-            Task { @MainActor in
-                await sleepVM.loadQueue()
-                if let id = detailRunId { await sleepVM.loadRunDetail(id, freshness: detailRunFreshness) }
-            }
         }
         // A run's detail follows the run: a new run, more filed, a pause, a Continue or the end refetches it, so a
         // detail read while paused never outlives the pause (and the finished-only rows appear once it ends).
         .onChange(of: detailRunId.map { $0 + "#" + detailRunFreshness }) { _, _ in
-            guard detailsOpen, let id = detailRunId else { return }
+            guard let id = detailRunId else { return }
             Task { @MainActor in await sleepVM.loadRunDetail(id, freshness: detailRunFreshness) }
         }
         .onChange(of: sleepVM.history) { _, history in
             if room.resolveCompletion(history: history) != nil { celebrateCompletion() }
         }
-        // PR #19 review: the study list's header reads SSE-live `store.status`
-        // while its rows stay pinned to whatever `sleepVM.load()` last
-        // fetched, once per visit. A capture (or another Sleep cycle
-        // finishing elsewhere) bumps the live count without touching the
-        // rows, so the two contradict each other for as long as the page
-        // stays open. One freshness model: whenever the live unprocessed
-        // count disagrees with the loaded rows, refetch.
+        // PR #19 review: the room's pile reads SSE-live `store.status`
+        // while Waiting's rows stay pinned to whatever `sleepVM.load()` last
+        // fetched. A capture (or another Sleep cycle finishing elsewhere)
+        // bumps the live count without touching the rows, so the two
+        // contradict each other for as long as the page stays open. One
+        // freshness model: whenever the live unprocessed count disagrees
+        // with the loaded rows, refetch.
         .onChange(of: store.status.value?.episodes.unprocessed) { _, newValue in
             if Self.queueNeedsReconcile(liveUnprocessed: newValue,
                                         loadedQueuedCount: sleepVM.queuedEpisodes.count) {
@@ -387,12 +381,407 @@ struct SleepView: View {
         }
     }
 
+    // MARK: The columns (§5.3)
+
+    /// With nothing open, the list column IS the page — the room above its lists, one scroll. With a saved item (or
+    /// the watch run) open, the room has scrolled away: the tab row rides the eyebrow, the list is the triage column
+    /// and the item the detail. The Reader is the trailing column in both.
+    private func columns(_ page: SleepPageModel, tab: SleepTab) -> some View {
+        let open = hasDetail(tab)
+        return ProgressiveColumns(hasDetail: open, hasTrailing: provenance.isPresented,
+                                  navWidth: ShellMetrics.navWidth(labelled: labelledSidebar),
+                                  wideTriage: inRun ? VideoRunLayout.pickerWidth : nil) { plan in
+            if open { openEyebrow(page, tab: tab, plan: plan) }
+        } list: { plan in
+            if open {
+                openList(tab, plan: plan)
+            } else {
+                browse(page, tab: tab, plan: plan)
+            }
+        } detail: { plan in
+            if inRun {
+                // Not in a ScrollView: the card scrolls its own body and keeps its footer pinned (VideoRunLarge).
+                VideoRunCard(model: run, rows: videoRows, padding: plan.cardPadding, onLeave: { leaveRun() })
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, plan.gutter)
+                    .padding(.bottom, CicadaTheme.scaled(72))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    .focusable()
+                    .focusEffectDisabled()
+                    .onExitCommand { escape() }
+                    .focused($focus, equals: .detail)
+            } else if let item = feedVM.openItem {
+                itemDetail(item, tab: tab, plan: plan)
+            }
+        } trailing: { _ in
+            ReaderColumn().focused($focus, equals: .reader)
+        }
+    }
+
+    /// The page with nothing open: the eyebrow, the room and its three lines, then the sticky tab row over the
+    /// selected list (DESIGN §3.1). `LazyVStack`'s pinned header is what keeps the tab row under the titlebar once the
+    /// room scrolls away.
+    private func browse(_ page: SleepPageModel, tab: SleepTab, plan: ColumnPlan) -> some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
+                    eyebrowRow(page, gutter: plan.gutter)
+                    roomBlock(page, columnWidth: plan.list - 2 * plan.gutter)
+                        .padding(.horizontal, plan.gutter)
+                        .padding(.bottom, CicadaTheme.spacingXL)
+                        // R-A12: `.saturation` is UNCONDITIONAL, at the identity 1.0 while live — an `if` around it
+                        // would change the room's structural identity and rebuild it every time the connection flaps.
+                        .saturation(liveness.saturation)
+                    Color.clear.frame(height: 0).id(Self.tabsAnchor)
+                    Section {
+                        listContent(page, tab: tab, plan: plan)
+                    } header: {
+                        stickyTabRow(page, tab: tab, gutter: plan.gutter)
+                    }
+                }
+                .padding(.bottom, CicadaTheme.scaled(72))
+            }
+            // A tail link, a spine or a hand-off asked for the lists: once they are drawn, bring the tab row to the
+            // top in one frame (DESIGN §3.5 — "opening a row scrolls the tab row to the top in one frame").
+            .task(id: scrollToTabs) {
+                guard scrollToTabs else { return }
+                DispatchQueue.main.async {
+                    Instant.run { proxy.scrollTo(Self.tabsAnchor, anchor: .top) }
+                    scrollToTabs = false
+                }
+            }
+        }
+        .listKeys(move: { move($0, in: tab) }, enter: { false }, escape: { escape() })
+        .focused($focus, equals: .list)
+    }
+
+    /// The page's eyebrow (DR-25, DR-26 — the first item, where the title used to be), with the staleness chip at its
+    /// right while the backend is not answering (R-A12). The subtitle the title carried lives on as its hint.
+    private func eyebrowRow(_ page: SleepPageModel, gutter: CGFloat) -> some View {
+        EyebrowRow(eyebrow: SleepEyebrow.text(waiting: waitingCount, lastSleepAt: store.status.value?.lastSleepAt,
+                                              now: .now),
+                   horizontalPadding: gutter) {
+            // R-A12: the chip explains the dimming below it, so it stays at full contrast and sits outside every
+            // desaturated group.
+            if let asOf = liveness.asOf { stalenessChip(asOf) }
+        }
+        .accessibilityHint(Copy.sleepSubtitle)
+    }
+
+    /// The tab row as the list's pinned header: on the page ground, so rows scrolling under it never show through.
+    private func stickyTabRow(_ page: SleepPageModel, tab: SleepTab, gutter: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+            SleepTabRow(tabs: tabRowTabs(page), selected: tab, select: { selectTab($0) }, findOpen: $findOpen,
+                        onAdd: { openSheet(nil) })
+            if findOpen && tab.hasFind {
+                PageFindRow(text: Binding(get: { feedVM.searchText }, set: { feedVM.searchText = $0 }),
+                            isOpen: $findOpen, prompt: Copy.Lists.findFeed)
+            }
+            Divider().background(CicadaTheme.border)
+        }
+        .padding(.top, CicadaTheme.spacingSM)
+        .padding(.horizontal, gutter)
+        .padding(.bottom, CicadaTheme.spacingSM)
+        .background(CicadaTheme.bgBase)
+    }
+
+    /// The selected list at the page's width (STATE 0).
+    @ViewBuilder
+    private func listContent(_ page: SleepPageModel, tab: SleepTab, plan: ColumnPlan) -> some View {
+        let rowInset = ListInsets.of(.wide).leading
+        switch tab {
+        case .waiting:
+            SleepWaitingList(page: page, liveness: liveness, episodes: sleepVM.queuedEpisodes,
+                             onSelectEntity: onSelectEntity, room: room, queue: sleepVM.queue,
+                             showsRun: showsRunBlock(page), runPaused: sleepVM.isPaused,
+                             ownerReady: ownerReady(page), onRetryParked: retryParked,
+                             onSeeOwnerPage: ownerEntityId.map { id in { onSelectEntity?(id) } })
+                .padding(.horizontal, plan.gutter)
+                .padding(.top, CicadaTheme.spacingSM)
+        case .saved:
+            if !searching {
+                // R-IB22 — the exports the person is waiting on, where the Feed showed them: Home's Getting started
+                // drops them once it graduates, and the menu bar's line cannot be stopped or dropped on.
+                ExportWaitStrip()
+                    .padding(.horizontal, rowInset + CicadaTheme.scaled(10))
+                    .padding(.top, CicadaTheme.spacingSM)
+            }
+            FeedRowsContent(items: feedVM.visible, style: .wide, searching: searching, now: .now,
+                            openId: feedVM.columns.openId, open: { open($0) })
+                .padding(.horizontal, rowInset)
+                .padding(.bottom, CicadaTheme.scaled(RowMetrics.twoLineGap))
+        case .videos:
+            if !searching && !videoCache.isGone {
+                // G162 — the watch run's door (the Feed's Videos strip).
+                VideosStrip(summary: videoCache.summary, choose: { beginRun() })
+                    .padding(.horizontal, rowInset + CicadaTheme.scaled(10))
+                    .padding(.vertical, CicadaTheme.spacingSM)
+            }
+            FeedRowsContent(items: visibleVideos, style: .wide, searching: searching, now: .now,
+                            openId: feedVM.columns.openId, open: { open($0) })
+                .padding(.horizontal, rowInset)
+                .padding(.bottom, CicadaTheme.scaled(RowMetrics.twoLineGap))
+        case .pastReads:
+            SleepPastReads(page: page, liveness: liveness, pageError: pageError, status: sleepVM.status,
+                           history: sleepVM.history, details: sleepVM.details, expanded: sleepVM.expanded,
+                           onToggleHistory: toggleHistory, onSelectEntity: onSelectEntity, runRows: runRows(page),
+                           runPaused: sleepVM.isPaused, onRetryParked: retryParked,
+                           runDetails: sleepVM.runDetails, expandedRun: sleepVM.expandedRun,
+                           onToggleRun: { id in
+                               sleepVM.expandedRun = sleepVM.expandedRun == id ? nil : id
+                               Task { @MainActor in await sleepVM.loadRunDetail(id) }
+                           })
+                // DR-36 — key–value rows and prose keep the 760 pt text column.
+                .frame(maxWidth: SleepLayout.contentWidth, alignment: .leading)
+                .padding(.horizontal, plan.gutter)
+                .padding(.top, CicadaTheme.spacingSM)
+        }
+    }
+
+    /// Beside an open item: the eyebrow says where the list is, the tabs and the tools ride it (DR-25).
+    @ViewBuilder
+    private func openEyebrow(_ page: SleepPageModel, tab: SleepTab, plan: ColumnPlan) -> some View {
+        if inRun {
+            // G162 — the run's eyebrow: "Sleep · Videos · Choosing · 5 selected" or "… · Watch run · 2 of 5 recorded",
+            // the picker's tabs (the page's tabs give way — never two tab groups), and one ×.
+            EyebrowRow(eyebrow: run.eyebrow(summary: videoCache.summary), horizontalPadding: CicadaTheme.spacingXL) {
+                HStack(spacing: CicadaTheme.spacingXS) {
+                    TextTabs(tabs: run.tabs(videoRows),
+                             selection: Binding(get: { run.mode == .choosing ? run.tab : nil },
+                                                set: { t in Instant.run { run.chooseTab(t ?? run.tab) } }))
+                        .accessibilityLabel(Copy.Videos.tabsLabel)
+                    IconButton(systemName: "xmark", help: Copy.Videos.leaveChoosing) { leaveRun() }
+                        .padding(.leading, CicadaTheme.spacingSM)
+                }
+            }
+        } else {
+            EyebrowRow(eyebrow: openEyebrowText(tab), horizontalPadding: CicadaTheme.spacingXL) {
+                SleepTabRow(tabs: tabRowTabs(page), selected: tab, select: { selectTab($0) }, findOpen: $findOpen,
+                            onAdd: { openSheet(nil) })
+            }
+        }
+    }
+
+    private func openEyebrowText(_ tab: SleepTab) -> String {
+        tab == .videos
+            ? FeedEyebrow.text(total: videoItems.count, kind: nil, visible: visibleVideos, openId: feedVM.columns.openId,
+                               searching: searching, tab: Copy.SleepTabs.videos)
+            : feedVM.eyebrow(searching: searching)
+    }
+
+    @ViewBuilder
+    private func openList(_ tab: SleepTab, plan: ColumnPlan) -> some View {
+        if inRun {
+            VideoRunList(model: run, rows: videoRows, style: plan.listStyle, escape: { escape() })
+                .focused($focus, equals: .list)
+        } else {
+            FeedListColumn(style: plan.listStyle, findOpen: $findOpen, searching: searching, landingToken: landingToken,
+                           items: listItems(tab), open: { open($0) }, move: { move($0, in: tab) },
+                           focusDetail: { focus = .detail }, escape: { escape() })
+                .focused($focus, equals: .list)
+        }
+    }
+
+    private func itemDetail(_ item: MediaFeedItem, tab: SleepTab, plan: ColumnPlan) -> some View {
+        ScrollView {
+            FeedItemDetail(item: item, padding: plan.cardPadding,
+                           hiddenListCount: plan.listHidden ? listItems(tab).count : nil,
+                           onShowList: { showList() }, onClose: { closeItem() })
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, plan.gutter)
+                .padding(.bottom, CicadaTheme.scaled(72))
+        }
+        .id(item.id)
+        .focusable()
+        .focusEffectDisabled()
+        .onExitCommand { escape() }
+        .focused($focus, equals: .detail)
+    }
+
+    // MARK: The lists' state
+
+    private var inRun: Bool { run.mode != .browse }
+    private var videoRows: [VideoRow] { VideoRunModel.rows(items: feedVM.items, states: videoCache.items) }
+    private var searching: Bool { findOpen && !QuickMatch.tokens(feedVM.searchText).isEmpty }
+    /// Every saved video, whatever Saved's View menu narrows to.
+    private var videoItems: [MediaFeedItem] { feedVM.items.filter { FeedKind.of($0) == .video } }
+    /// The saved videos find leaves, in the order drawn.
+    private var visibleVideos: [MediaFeedItem] { feedVM.filteredItems.filter { FeedKind.of($0) == .video } }
+
+    /// The rows ↑/↓ walk on a tab of saved items.
+    private func listItems(_ tab: SleepTab) -> [MediaFeedItem] {
+        switch tab {
+        case .saved: feedVM.visible
+        case .videos: visibleVideos
+        case .waiting, .pastReads: []
+        }
+    }
+
+    /// The live waiting count (H1): SSE-live when a snapshot has arrived, the loaded rows before.
+    private var waitingCount: Int {
+        Self.queueCount(status: store.status.value, fallback: sleepVM.queuedEpisodes.count)
+    }
+
+    /// Whether Waiting has anything to show: a queue, a parked conversation, the run's own block, the person's page,
+    /// or a queue that could not be read (an error is not "nothing waiting").
+    private func waitingHasRows(_ page: SleepPageModel) -> Bool {
+        if case .failed = page.queueLoad { return true }
+        return waitingCount > 0 || page.parkedCount > 0 || showsRunBlock(page) || ownerReady(page)
+    }
+
+    private func currentTab(_ page: SleepPageModel) -> SleepTab {
+        SleepTab.resolve(chosen: chosenTab, waitingHasRows: waitingHasRows(page), videos: videoItems.count)
+    }
+
+    private func tabRowTabs(_ page: SleepPageModel) -> [TextTab<SleepTab>] {
+        SleepTabRow.tabs(SleepTab.visible(waitingHasRows: waitingHasRows(page), videos: videoItems.count),
+                         waiting: waitingCount, saved: feedVM.items.count, videos: videoItems.count)
+    }
+
+    /// The detail column is open while the watch run is on, or while a saved item is open on a tab of saved items —
+    /// never under Waiting or Past reads (a tab switch closes the item, `selectTab`).
+    private func hasDetail(_ tab: SleepTab) -> Bool {
+        inRun || (tab.hasFind && feedVM.openItem != nil)
+    }
+
+    // MARK: Paths (R-DL8, DR-28, DR-60)
+
+    /// A tab is navigation: it closes the open item, the run and find, and never animates (DR-60, DR-61).
+    private func selectTab(_ tab: SleepTab) {
+        Instant.run {
+            if inRun { run.leave() }
+            if provenance.isPresented { provenance.close() }
+            feedVM.columns.close()
+            findOpen = false
+            chosenTab = tab
+        }
+    }
+
+    private func open(_ item: MediaFeedItem) {
+        let change = {
+            feedVM.columns.open(item.id)
+            if provenance.isPresented { provenance.close() }
+        }
+        if feedVM.columns.openId == nil {
+            withAnimation(CicadaMotion.columns(reduceMotion: reduceMotion)) { change() }
+        } else {
+            Instant.run { change() }
+        }
+        focus = .list
+    }
+
+    /// DR-68 — ↑/↓ open the neighbour in place on a tab of saved items; Waiting and Past reads have no row to open.
+    private func move(_ delta: Int, in tab: SleepTab) {
+        guard tab.hasFind else { return }
+        Instant.run {
+            guard let next = feedVM.columns.neighbour(delta, in: listItems(tab).map(\.id)) else { return }
+            feedVM.columns.open(next)
+            if provenance.isPresented { provenance.close() }
+        }
+        focus = .list
+    }
+
+    private func escape() {
+        // DR-28 — in the run: the Reader first, then leave the run.
+        if inRun {
+            Instant.run { if provenance.isPresented { provenance.close() } else { run.leave() } }
+            focus = .list
+            return
+        }
+        Instant.run {
+            switch feedVM.columns.escape(readerOpen: provenance.isPresented) {
+            case .closeReader: provenance.close()
+            case .closeDetail:
+                feedVM.columns.close()
+                focus = .list
+            case .none: break
+            }
+        }
+    }
+
+    private func closeItem() {
+        withAnimation(CicadaMotion.columns(reduceMotion: reduceMotion)) {
+            provenance.close()
+            feedVM.columns.close()
+        }
+        focus = .list
+    }
+
+    private func showList() {
+        withAnimation(CicadaMotion.columns(reduceMotion: reduceMotion)) {
+            if provenance.isPresented { provenance.close() } else { feedVM.columns.close() }
+        }
+    }
+
+    private func openSheet(_ tile: AddSourceTile?) {
+        sheetTile = tile
+        showAddSheet = true
+    }
+
+    private func retryParked(_ ids: [String]?) {
+        Task { @MainActor in
+            await sleepVM.retryParked(ids: ids)
+            await store.refresh([.status])
+        }
+    }
+
+    // MARK: The watch run (G162)
+
+    /// The Videos strip's *Choose videos…*: the picker, or the run's progress while a hand-off still has videos to
+    /// record.
+    private func beginRun() {
+        Instant.run {
+            if provenance.isPresented { provenance.close() }
+            feedVM.columns.close()
+            findOpen = false
+            run.begin(summary: videoCache.summary)
+        }
+        focus = .list
+    }
+
+    private func leaveRun() {
+        Instant.run { run.leave() }
+        focus = .list
+    }
+
+    // MARK: Hand-offs (each consumer reads then clears, so a second firing is a no-op)
+
+    private func consumePendingAddSource() {
+        guard let tile = appRouter.consumeAddSource() else { return }
+        openSheet(tile)
+    }
+
+    /// R-DL16 / DR-30 — a landed item opens in Saved, every kind shown, scrolled into view; a keyboard-free path, so
+    /// it never animates.
+    private func consumeLanding() {
+        guard let id = appRouter.consumeSavedItem() else { return }
+        Instant.run {
+            if inRun { run.leave() }
+            findOpen = false
+            chosenTab = .saved
+            if feedVM.land(mediaEntityId: id) { landingToken &+= 1 }
+        }
+    }
+
+    /// Anything that asks for the video picker: the Videos tab with the picker open.
+    private func consumeVideoChooser() {
+        guard appRouter.consumeVideoChooser() else { return }
+        Instant.run {
+            chosenTab = .videos
+            if provenance.isPresented { provenance.close() }
+            feedVM.columns.close()
+            findOpen = false
+            run.beginChoosing()
+        }
+        Task { await videoCache.refresh() }
+    }
+
     /// Track Z Z1 — the page, resolved once per body (§9). Every reader below
     /// takes its numbers from this value, so the room, the queue and the
     /// controls cannot disagree about which reading they show (H1, now
     /// structural). `now` is the body's own clock read — `studyRows` ages and
     /// the 6 s digest window already depended on it.
-    /// What moves What's waiting's per-conversation rows: the batch, what is filed and parked, and the paused run —
+    /// What moves Waiting's per-conversation rows: the batch, what is filed and parked, and the paused run —
     /// never a tick (M3).
     private var queueKey: String {
         let drain = sleepVM.status?.drain
@@ -418,7 +807,7 @@ struct SleepView: View {
     /// preferred over the transient `errorMessage`, which is how the page has
     /// always resolved it.
     ///
-    /// This drives Details › Last cycle and nothing else. It is deliberately NOT what
+    /// This drives Past reads › Last cycle and nothing else. It is deliberately NOT what
     /// `liveness` reads: `errorMessage` is a *fetch* failure, which a stopped
     /// backend raises constantly, so it says "we could not reach it" — the
     /// same fact the chip is there to state — rather than "a cycle failed".
@@ -441,8 +830,8 @@ struct SleepView: View {
     /// report itself `.live`, i.e. killed the feature in the one state it was
     /// built for. `lastError` is `status?.error`: a cycle that actually
     /// failed, which is real news and stays at full contrast. `pageError`
-    /// keeps its one job — driving Details › Last cycle's error banner, which
-    /// `SleepDetails` places outside every desaturated group.
+    /// keeps its one job — driving Past reads › Last cycle's error rows, which
+    /// `SleepPastReads` places outside every desaturated group.
     ///
     /// `now` is left at its default, which is read fresh on every body
     /// evaluation — that is what lets `SleepLiveness.staleAfter` do its work
@@ -459,14 +848,13 @@ struct SleepView: View {
         )
     }
 
-    // MARK: Details (Track Z Z3, R-Z6)
+    // MARK: The lists' doors (Track Z Z3's tail links, now tabs)
 
-    /// Open Details and land on one section — a tail link's destination
-    /// (Z-P5). The scroll waits for `pendingScroll`'s `onChange`, because a
-    /// closed Details has no anchors to scroll to yet.
+    /// A tail link, a spine or a hand-off names an old Details section: select the tab that holds it now (DESIGN
+    /// §3.6) and bring the tab row to the top — with anything open closed first, so the list is on screen.
     private func openDetails(_ section: DetailsSection) {
-        withAnimation(SleepMotion.disclosure(reduceMotion: reduceMotion)) { detailsOpen = true }
-        pendingScroll = section
+        selectTab(SleepTab.holding(section))
+        scrollToTabs = true
     }
 
     private func consumeDetailsRoute() {
@@ -521,7 +909,7 @@ struct SleepView: View {
         .seconds(min(8, 1 << attempt))
     }
 
-    /// The count `StudyListCard`'s content must agree with (H1): SSE-live
+    /// The count the page's lists must agree with (H1): SSE-live
     /// `store.status.episodes.unprocessed` when a snapshot has arrived,
     /// falling back to the once-per-visit `sleepVM.queuedEpisodes` count
     /// before the first one does. Pulled out as a pure function so the
@@ -570,39 +958,17 @@ struct SleepView: View {
         AccessibilityNotification.Announcement(Copy.sleepFinished).post()
     }
 
-    /// T7 / I17 — open Details, expand the cycle's history row (its detail
-    /// loads through the one cached path, `toggleHistory` → `loadDetail`),
-    /// and land on Past nights. The link clears as it is followed: what
-    /// changed is now on screen, so the sentence goes back to the state.
+    /// T7 / I17 — Past reads, the cycle's history row expanded (its detail
+    /// loads through the one cached path, `toggleHistory` → `loadDetail`).
+    /// The link clears as it is followed: what changed is now on screen, so
+    /// the sentence goes back to the state.
     private func showWhatChanged() {
         guard let commit = room.followWhatChanged() else { return }
         if sleepVM.expanded != commit { toggleHistory(commit) }
         openDetails(.pastNights)
     }
 
-    // MARK: Header
-
-    private var headerRow: some View {
-        // The title is `PageTitle`, the same view `PageHeader` draws (Z-B4):
-        // the page keeps its own row because the title sits inside the centred
-        // column (R-Z6) with the staleness chip beside it (R-A12).
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-            HStack(alignment: .firstTextBaseline, spacing: CicadaTheme.spacingSM) {
-                // The subtitle stopped rendering (Track Z §4.1); it survives as
-                // the title's VoiceOver hint — on this one element, not the
-                // page's `ZStack`, where it would spread to every button.
-                PageTitle(Copy.sleepPageTitle)
-                    .accessibilityHint(Copy.sleepSubtitle)
-                // R-A12: the chip explains the dimming below it, so it stays at
-                // full contrast and sits outside every desaturated group.
-                if let asOf = liveness.asOf {
-                    stalenessChip(asOf)
-                }
-                Spacer(minLength: 0)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
+    // MARK: The staleness chip
 
     /// "as of 16:12" — the moment the numbers below were last confirmed by a
     /// backend that is no longer answering. A dated page is honest; a blank
@@ -629,39 +995,33 @@ struct SleepView: View {
         .accessibilityLabel("\(Copy.notConnectedExplainer) \(Copy.asOf(asOf))")
     }
 
-    // MARK: The desk (G106 amendment; G107 art; G125 the study desk)
+    // MARK: The room (G106 amendment; G107 art; G125 the study desk; the Sleep redesign)
 
-    /// The mascot card, now "the study room" (G125 v3 Task 3): a night
-    /// window, a floor lamp, a plant, a cushion and a mug,
-    /// with the 24×24 colour bookworm (G107) sitting on the cushion at 120 pt
-    /// — five whole cells per point-row, so the pixels stay crisp (ruling R3)
-    /// — and the REAL `BookPileView` standing in the column
-    /// `deskSceneLayout` reserves for it beside him. Nothing in the room is
-    /// painted books (P10): the page's one volume encoding is that pile.
+    /// The study room, out of its card (DESIGN §3.2): the art sits on the page ground at a whole number of points
+    /// per cell — 5, 4 or 3, a step function of the column's width (`SleepLayout.artScale`), so a pixel is never
+    /// resampled (ruling R3) — with its floor fading into the page (a mask on the art, no shadow, DR-9/10). Under it,
+    /// never over it (DR-13), the room's three lines in the 760 pt text column (DR-36): the sentence, the one control,
+    /// the whisper.
     ///
     /// Every value it draws comes from `page` (Track Z Z1), which resolved the
     /// SSE-over-REST precedence (`store.sleepEvent` first, the last
-    /// `/sleep/status` fetch second) once for the whole body — the card no
-    /// longer re-derives the mood, the pile or the strip on its own.
+    /// `/sleep/status` fetch second) once for the whole body.
     ///
-    /// The scene box is a FIXED height at a given zoom (R-A2), so idle →
+    /// The scene box is a FIXED height at a given width step (R-A2), so idle →
     /// running → idle never reflows the art: the mood changes the worm's
     /// frames, never the room's geometry.
     ///
-    /// Track Z Z2 (R-Z5): the bubble that floated above the room is gone. The
-    /// worm speaks in one fixed slot directly under it — the display-face sentence —
-    /// then the one control and the whisper line, all centred on the room.
-    ///
-    /// Track Z Z3 (R-Z6): this card IS the default view. The readout, the
-    /// banners and the engine line moved into Details; the strip stays, but
-    /// only with news, and at the card's last row (Z-P9) so neither the
-    /// sentence nor the control the person just pressed moves when it appears.
-    private func roomCard(_ page: SleepPageModel) -> some View {
+    /// Track Z Z2 (R-Z5): the worm speaks in one fixed slot directly under it — the display-face sentence — then
+    /// the one control and the whisper line, all centred on the room. The strip stays, but only with news, and at
+    /// the block's last row (Z-P9) so neither the sentence nor the control the person just pressed moves when it
+    /// appears.
+    private func roomBlock(_ page: SleepPageModel, columnWidth: CGFloat) -> some View {
         // One reading feeds the status line AND the answers (Task 6), so the
         // worm can never answer from a different snapshot than it states.
         let context = page.roomContext(recentCycleCommit: room.recentCycleCommit)
         let status = roomSentence(context)
         let answers = wormAnswers(context)
+        let cell = SleepLayout.artScale(columnWidth: min(columnWidth, SleepLayout.artMaxWidth))
 
         return VStack(alignment: .center, spacing: CicadaTheme.spacingMD) {
             // Track Z Z5 (R-Z8): the room is its own view — the inert art,
@@ -671,66 +1031,60 @@ struct SleepView: View {
             StudyRoom(page: page, statusLine: status, answers: answers, room: room,
                       episodes: sleepVM.queuedEpisodes, onOpenDetails: openDetails,
                       onWhatChanged: room.recentCycleCommit == nil ? nil : { showWhatChanged() },
-                      reachable: liveness == .live)
+                      reachable: liveness == .live, cell: cell)
                 .accessibilitySortPriority(RoomA11yOrder.room)
 
-            // R-Z5 — the one slot the worm speaks in; an answer replaces the
-            // status here (R-Z7). Every action has its destination since
-            // Task 8 (Z-P5's seam is gone), so the switch is exhaustive: a
-            // new action cannot ship without somewhere to go.
-            RoomSentenceView(line: status, answers: answers, room: room,
-                             feedAsleep: feedIsAsleep(page.mood),
-                             perform: { action in
-                                 switch action {
-                                 case .retry: Task { await store.refresh([.status]) }
-                                 case .openDetails(let section): openDetails(section)
-                                 case .openInbox: selectedTab = .inbox
-                                 // Z-P25 — the sentence names the lamp, so the
-                                 // popover points at the lamp, not the whisper line.
-                                 case .openLamp: room.lampPopover = .lamp
-                                 case .whatChanged: showWhatChanged()
-                                 }
-                             })
-            SleepControlRow(consolidateEnabled: page.consolidateEnabled,
-                            queuedCount: page.queuedCount, page: page)
-                .accessibilitySortPriority(RoomA11yOrder.control)
-                .tourAnchor(.consolidate)
-            runNotes(page)
-            whisperRow(page)
-                .accessibilitySortPriority(RoomA11yOrder.whisper)
+            VStack(alignment: .center, spacing: CicadaTheme.spacingMD) {
+                // R-Z5 — the one slot the worm speaks in; an answer replaces the
+                // status here (R-Z7). Every action has its destination since
+                // Task 8 (Z-P5's seam is gone), so the switch is exhaustive: a
+                // new action cannot ship without somewhere to go.
+                RoomSentenceView(line: status, answers: answers, room: room,
+                                 feedAsleep: feedIsAsleep(page.mood),
+                                 perform: { action in
+                                     switch action {
+                                     case .retry: Task { await store.refresh([.status]) }
+                                     case .openDetails(let section): openDetails(section)
+                                     case .openInbox: selectedTab = .inbox
+                                     // Z-P25 — the sentence names the lamp, so the
+                                     // popover points at the lamp, not the whisper line.
+                                     case .openLamp: room.lampPopover = .lamp
+                                     case .whatChanged: showWhatChanged()
+                                     }
+                                 })
+                SleepControlRow(consolidateEnabled: page.consolidateEnabled,
+                                queuedCount: page.queuedCount, page: page)
+                    .accessibilitySortPriority(RoomA11yOrder.control)
+                    .tourAnchor(.consolidate)
+                runNotes(page)
+                whisperRow(page)
+                    .accessibilitySortPriority(RoomA11yOrder.whisper)
 
-            // R-A8 / R-Z6 — the five-stage strip, only while a cycle runs or
-            // after one was cancelled or failed (its frozen record, P15).
-            if stageStripIsVisible(isRunning: page.isRunning, cancelled: page.stoppedEarly,
-                                   failed: page.cycleError != nil) {
-                SleepStageStrip(pips: page.pips)
-                // Sleep page v5 (A3) — what the running stage is doing, in words, and a failure beside a glyph.
-                if let caption = stageCaption(drain: page.drain, activeStage: page.runningStage) {
-                    StageCaptionLine(text: caption.text, failed: caption.failed)
+                // R-A8 / R-Z6 — the five-stage strip, only while a cycle runs or
+                // after one was cancelled or failed (its frozen record, P15).
+                if stageStripIsVisible(isRunning: page.isRunning, cancelled: page.stoppedEarly,
+                                       failed: page.cycleError != nil) {
+                    SleepStageStrip(pips: page.pips)
+                    // Sleep page v5 (A3) — what the running stage is doing, in words, and a failure beside a glyph.
+                    if let caption = stageCaption(drain: page.drain, activeStage: page.runningStage) {
+                        StageCaptionLine(text: caption.text, failed: caption.failed)
+                    }
+                }
+                // Sleep page v5 (A3) — the run's counts: while it reads, while it waits paused, and in the moment it
+                // finished (the "See what changed" window). Never a remaining time.
+                if let progress = RunProgress.from(page.drain),
+                   page.isRunning || page.paused != nil || room.recentCycleCommit != nil {
+                    RunProgressBar(progress: progress)
                 }
             }
-            // Sleep page v5 (A3) — the run's counts: while it reads, while it waits paused, and in the moment it
-            // finished (the "See what changed" window). Never a remaining time.
-            if let progress = RunProgress.from(page.drain),
-               page.isRunning || page.paused != nil || room.recentCycleCommit != nil {
-                RunProgressBar(progress: progress)
-            }
+            .frame(maxWidth: SleepLayout.contentWidth)
         }
         .accessibilityElement(children: .contain)
-        .padding(CicadaTheme.spacingLG)
         .frame(maxWidth: .infinity)
-        .glassCard()
     }
 
-    /// The schedule in one quiet line (§7.2) — the lamp's text twin (R-A3),
-    /// replacing the queue card's schedule row and footer (Z-P4). Since Z6 it
-    /// is a control: it opens the same `LampPopover` the lamp does, anchored
-    /// here (Z-P25). Its "Change…" link and the "Scheduled runs use …" note
-    /// left with that step — the popover carries both, and its engine line
-    /// shows the scheduled engine ALWAYS, not only when it differs, so ruling
-    /// 4 is on screen at the moment someone chooses to schedule.
     /// Sleep page v5 — the lines under the controls: the first save's link to the person's own page, the automatic
-    /// continue's promise (ruling 15, in words), and a finished run's parked conversations.
+    /// continue's promise (ruling 15, in words), and a finished run's parked conversations (a link to Waiting).
     @ViewBuilder
     private func runNotes(_ page: SleepPageModel) -> some View {
         if page.isRunning, let drain = page.drain, drain.firstRun == true, drain.committedBatches == 1,
@@ -757,7 +1111,7 @@ struct SleepView: View {
         }
     }
 
-    /// Sleep page v5 (A7) — the run whose detail Details reads: the running or finished drain, else the paused run.
+    /// Sleep page v5 (A7) — the run whose detail the lists read: the running or finished drain, else the paused run.
     private var detailRunId: String? {
         if let drain = sleepVM.status?.drain, !drain.active, drain.byOrigin != nil { return drain.id }
         return sleepVM.pausedRun?.runId
@@ -769,8 +1123,8 @@ struct SleepView: View {
     }
 
     /// Last cycle's run rows (`LastCycleRow.runRows`): the drain, the paused run, the run's own numbers from history
-    /// and its detail, parked conversations, a scheduled run's spend words, and the reserve's figure (Details is one
-    /// of ruling 12's two homes for it).
+    /// and its detail, parked conversations, a scheduled run's spend words, and the reserve's figure (Past reads is
+    /// one of ruling 12's two homes for it).
     private func runRows(_ page: SleepPageModel) -> [LastCycleRow] {
         let drain = page.drain
         let runId = drain?.id ?? page.paused?.runId
@@ -788,7 +1142,7 @@ struct SleepView: View {
                                     reserveValue: reserve?.pct != nil ? reserve?.value : nil)
     }
 
-    /// The run's part of What's waiting shows while a run reads in batches or waits paused.
+    /// The run's part of Waiting shows while a run reads in batches or waits paused.
     private func showsRunBlock(_ page: SleepPageModel) -> Bool {
         guard page.drain?.byOrigin != nil else { return false }
         return (page.isRunning && page.drain?.active == true) || page.paused != nil
@@ -804,6 +1158,9 @@ struct SleepView: View {
         store.graph.value?.nodes.first { $0.isOwner }?.id
     }
 
+    /// The schedule in one quiet line (§7.2) — the lamp's text twin (R-A3). Since Z6 it is a control: it opens the
+    /// same `LampPopover` the lamp does, anchored here (Z-P25); the popover's engine line shows the scheduled engine
+    /// ALWAYS, so ruling 4 is on screen at the moment someone chooses to schedule.
     private func whisperRow(_ page: SleepPageModel) -> some View {
         Button { room.lampPopover = .whisper } label: {
             HStack(spacing: CicadaTheme.spacingSM) {
@@ -827,41 +1184,6 @@ struct SleepView: View {
                                       set: { if !$0 { room.lampPopover = nil } }),
                  arrowEdge: .bottom) { LampPopover(page: page) }
         .frame(maxWidth: .infinity)
-    }
-}
-
-/// The one row that opens Details (R-Z6), with Meadow's hover (Z-B15): the
-/// chevron acknowledges the pointer once (`iconHover`) and the words brighten
-/// — a fill change, never a lift, because a row is not a card (R-M14). Its
-/// own `@State`, so a hover never re-evaluates the page. `if detailsOpen {}`
-/// in the page's `body`, not an opacity, is what keeps a closed Details free.
-private struct DetailsDisclosureRow: View {
-    let open: Bool
-    let toggle: () -> Void
-
-    @State private var hovering = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        Button(action: toggle) {
-            HStack(spacing: CicadaTheme.spacingSM) {
-                Image(systemName: open ? "chevron.down" : "chevron.right")
-                    .font(CicadaTheme.icon(.inline))
-                    .frame(width: 12)
-                    .iconHover(hovering: hovering)
-                // DR-16 — 13 medium: a row's title, not one of semibold's short list (R-HS15).
-                Text(Copy.sleepDetails)
-                    .font(CicadaTheme.rowFont)
-                Spacer(minLength: 0)
-            }
-            .foregroundStyle(hovering ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
-            .animation(SleepMotion.hover(reduceMotion: reduceMotion), value: hovering)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.cicadaPlain)
-        .onHover { hovering = $0 }
-        .accessibilityLabel(Copy.sleepDetails)
-        .accessibilityValue(open ? "expanded" : "collapsed")
     }
 }
 

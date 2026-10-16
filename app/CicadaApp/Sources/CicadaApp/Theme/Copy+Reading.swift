@@ -146,8 +146,8 @@ extension Copy {
         /// or item still learns of it (the Read section on the link has the detail and the way out).
         static let rowFlag = "Needs sign-in"
         static func walledToast(_ hosts: [String]) -> String {
-            hosts.count == 1 ? "\(hosts[0]) needs you to sign in. It's marked in the Feed."
-                             : "\(hosts.count) pages need you to sign in. They're marked in the Feed."
+            hosts.count == 1 ? "\(hosts[0]) needs you to sign in. It's marked in Sleep › Saved."
+                             : "\(hosts.count) pages need you to sign in. They're marked in Sleep › Saved."
         }
         /// The agent's own one-sentence note, marked as its words (never Cicada's).
         static func agentNote(_ who: String, _ note: String) -> String { "\(who) noted: \(note)" }

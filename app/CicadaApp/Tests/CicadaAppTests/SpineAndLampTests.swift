@@ -22,13 +22,13 @@ final class SpineAndLampTests: XCTestCase {
     func test_aSpineSaysWhatItsRowSays() {
         XCTAssertEqual(StudyListCard.rowAccessibilityLabel(idleRow), "Claude Code, 12 waiting, oldest 3d")
         XCTAssertEqual(spineAccessibilityLabel(spec: spine, row: idleRow), StudyListCard.rowAccessibilityLabel(idleRow))
-        XCTAssertEqual(spineAccessibilityLabel(spec: remainder, row: nil), "4 more on the pile, in Details")
+        XCTAssertEqual(spineAccessibilityLabel(spec: remainder, row: nil), "4 more on the pile, in Waiting")
     }
 
     func test_aSpinesHelpIsItsNumbersWithTheirNouns() {
         XCTAssertEqual(spineHelp(spec: spine, row: idleRow, locale: en), "Claude Code · 12 waiting · oldest 3d")
         XCTAssertEqual(spineHelp(spec: spine, row: runningRow, locale: en), "Claude Code · 4 of 12 read")
-        XCTAssertEqual(spineHelp(spec: remainder, row: nil, locale: en), "4 more on the pile, in Details")
+        XCTAssertEqual(spineHelp(spec: remainder, row: nil, locale: en), "4 more on the pile, in Waiting")
     }
 
     func test_queueRowWords() {

@@ -1,12 +1,12 @@
 import AppKit
 import Foundation
 
-/// G126 R9 — the Feed hand-off. CLAUDE.md's Companion App section confirms
+/// G126 R9 — the import hand-off (the Feed's, until it folded into Sleep). CLAUDE.md's Companion App section confirms
 /// "The app has no NotificationCenter-based cross-window messaging today";
 /// this is a small `@Observable` class injected via `.environment`, matching
 /// how every other cross-view-model coordination in this app already works
 /// (thin observed classes, not notifications), so an Integrations row's
-/// "Import in Feed →" can switch the page to Feed AND stage that tile for the
+/// "Import →" can switch the page to Sleep AND stage that tile for the
 /// `+` sheet without either view knowing about the other directly.
 ///
 /// Settings is a panel in the main window now (DR-33); the hand-offs remain
@@ -19,26 +19,28 @@ final class AppRouter {
     var pendingAddSource: AddSourceTile?
     /// G117 — Settings → General's "Run setup again" hand-off. The panel's
     /// pages cannot flip `showFirstRun` on `ContentView` themselves (same
-    /// reason `pendingTab` exists for G126 R9's Feed hand-off), so they stage a
+    /// reason `pendingTab` exists for G126 R9's import hand-off), so they stage a
     /// flag here and `ContentView` is the one that actually presents the
     /// Welcome.
     var pendingFirstRun = false
     /// Track Z §7.1 — a Sleep spine's "Open in Sources ›". The source id rides
-    /// with the tab switch, like the Feed hand-off, and `SourcesPageView`
+    /// with the tab switch, like the import hand-off, and `SourcesPageView`
     /// consumes it once it is on screen.
     var pendingSourceDetail: String?
 
     /// Sets both fields together — a `pendingAddSource` with no matching
-    /// tab-switch would stage a sheet nobody ever sees, since `FeedPage`
-    /// only consumes it once it's actually on screen.
-    func routeToFeedAddSource(_ tile: AddSourceTile) {
+    /// tab-switch would stage a sheet nobody ever sees, since the Sleep page
+    /// only consumes it once it's actually on screen. The one-shot import's
+    /// door (⌘N, the `+` on Sleep's list row) lives on the Sleep page since
+    /// the Feed folded into it (2026-10-16).
+    func routeToAddSource(_ tile: AddSourceTile) {
         closeSettings()
-        pendingTab = .feed
+        pendingTab = .sleep
         pendingAddSource = tile
         activateMainWindow()
     }
 
-    /// Sets both fields together, for the same reason `routeToFeedAddSource`
+    /// Sets both fields together, for the same reason `routeToAddSource`
     /// does: a staged source with no tab switch would never be consumed.
     func routeToSourceDetail(_ sourceID: String) {
         closeSettings()
@@ -47,39 +49,39 @@ final class AppRouter {
         activateMainWindow()
     }
 
-    /// R-DL16 — a saved item opened from the palette or a source's page lands in the Feed's detail column (DR-30's
+    /// R-DL16 — a saved item opened from the palette or a source's page lands in Sleep › Saved's detail column (DR-30's
     /// landing rule), by media entity id — the key both of them hold.
-    var pendingFeedItem: String?
+    var pendingSavedItem: String?
 
-    func routeToFeedItem(_ mediaEntityId: String) {
+    func routeToSavedItem(_ mediaEntityId: String) {
         closeSettings()
-        pendingTab = .feed
-        pendingFeedItem = mediaEntityId
+        pendingTab = .sleep
+        pendingSavedItem = mediaEntityId
         activateMainWindow()
     }
 
-    /// G191 v3 — a row of the menu bar's bookmark history: the app comes forward on that bookmark's page in the
-    /// Feed's detail column, opening the window when it was closed (the Store is warm either way).
+    /// G191 v3 — a row of the menu bar's bookmark history: the app comes forward on that bookmark's page in Sleep ›
+    /// Saved's detail column, opening the window when it was closed (the Store is warm either way).
     func routeToBookmark(_ mediaEntityId: String) {
         closeSettings()
-        pendingTab = .feed
-        pendingFeedItem = mediaEntityId
+        pendingTab = .sleep
+        pendingSavedItem = mediaEntityId
         showMainWindow()
     }
 
     @discardableResult
-    func consumeFeedItem() -> String? {
-        defer { pendingFeedItem = nil }
-        return pendingFeedItem
+    func consumeSavedItem() -> String? {
+        defer { pendingSavedItem = nil }
+        return pendingSavedItem
     }
 
-    /// G162 — the Sleep row's "Choose videos ›" (and anything else that asks): the Feed, on its Videos tab, with the
-    /// picker open. `true` stages the picker; the Feed consumes it once it is on screen, like `pendingFeedItem`.
+    /// G162 — anything that asks for the video picker: Sleep's Videos tab, with the picker open. `true` stages the
+    /// picker; the Sleep page consumes it once it is on screen, like `pendingSavedItem`.
     var pendingVideoChooser = false
 
     func routeToVideos(choose: Bool) {
         closeSettings()
-        pendingTab = .feed
+        pendingTab = .sleep
         pendingVideoChooser = choose
         activateMainWindow()
     }
@@ -91,7 +93,7 @@ final class AppRouter {
     }
 
     /// R-DL15 — a saved item's "About" name opens that page's card in Clusters; the tab and the entity move together,
-    /// for `routeToFeedAddSource`'s reason.
+    /// for `routeToAddSource`'s reason.
     func routeToClustersEntity(_ id: String) {
         closeSettings()
         pendingTab = .clusters
@@ -121,7 +123,7 @@ final class AppRouter {
     }
 
     /// G141 PJ-5 (R-PP24) — a project opened from elsewhere (a ⌘K entity row) lands in the Projects page's detail
-    /// column; the tab and the id move together, `routeToFeedItem`'s reason.
+    /// column; the tab and the id move together, `routeToSavedItem`'s reason.
     var pendingProject: String?
 
     func routeToProject(_ id: String) {
@@ -180,9 +182,9 @@ final class AppRouter {
     /// the app is living in the menu bar with none open.
     @discardableResult
     func activateMainWindow() -> Bool {
-        // `AppRouterTests.testRouteToFeedStagesTileAndTab` and
+        // `AppRouterTests.testRouteToAddSourceStagesTileAndTab` and
         // `testConsumeClearsAfterOneRead` already call
-        // `routeToFeedAddSource`, which now reaches this method — and
+        // `routeToAddSource`, which now reaches this method — and
         // `NSApplication.shared` INSTANTIATES NSApp on first touch, which a
         // headless `swift test` process must never be made to do. Reading the
         // `NSApp` global does not create it, so this guard makes the method a
@@ -232,7 +234,7 @@ final class AppRouter {
     }
 
     /// G117's "Run setup again" hand-off, paired with its activation for the
-    /// same reason `routeToFeedAddSource` is: `ContentView` presents the sheet
+    /// same reason `routeToAddSource` is: `ContentView` presents the sheet
     /// on the MAIN window, so staging the flag from Settings without ordering
     /// that window front shows the sheet behind the window you are looking at.
     func requestFirstRun() {
@@ -314,7 +316,7 @@ final class AppRouter {
         return pendingConversationQuery
     }
 
-    /// Reads then clears in one call so a caller (`FeedPage.onAppear` AND
+    /// Reads then clears in one call so a caller (`SleepView.onAppear` AND
     /// its `onChange(of: router.pendingAddSource)`, which can both fire for
     /// the same hand-off) can never re-consume a stale tile.
     @discardableResult
@@ -324,7 +326,7 @@ final class AppRouter {
     }
 
     /// G139 — Settings → You → "Show on graph". Stages the entity with the
-    /// tab switch, like the Feed hand-off; `ContentView` reveals it (G123).
+    /// tab switch, like the import hand-off; `ContentView` reveals it (G123).
     var pendingRevealEntity: String?
 
     func routeToEntity(_ id: String) {

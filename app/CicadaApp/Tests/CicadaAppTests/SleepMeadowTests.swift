@@ -62,7 +62,7 @@ final class SleepMeadowTests: XCTestCase {
     /// Z-B15 — hover acknowledges controls, never art.
     func test_hoverLivesOnControls() throws {
         let page = try sleepFile("SleepView.swift")
-        XCTAssertGreaterThanOrEqual(page.filter { $0.contains(".iconHover(") }.count, 2, "the Details chevron and the whisper glyph")
+        XCTAssertGreaterThanOrEqual(page.filter { $0.contains(".iconHover(") }.count, 1, "the whisper glyph (the Details chevron retired with Details, 2026-10-16)")
         let room = try sleepFile("StudyRoom.swift")
         XCTAssertFalse(room.contains { $0.contains(".iconHover(") || $0.contains(".hoverLift(") },
                        "I8: the art never changes on hover")

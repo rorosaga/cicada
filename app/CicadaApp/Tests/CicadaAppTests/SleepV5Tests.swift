@@ -136,7 +136,7 @@ final class SleepV5RoomSentenceTests: XCTestCase {
             context.lastEngine = "codex-cli"
             let line = roomSentence(context)
             XCTAssertEqual(line.lead, "Reading stopped.")
-            XCTAssertEqual(line.tail, "See what needs a fix in Details, then try again.")
+            XCTAssertEqual(line.tail, "See what needs a fix in Past reads, then try again.")
             XCTAssertEqual(line.action, .openDetails(.lastCycle))
             XCTAssertEqual(LastCycleRow.rows(pageError: diagnosis, cancelled: false, capped: false,
                                              indexWarning: nil, status: nil).first?.text, diagnosis)
@@ -798,13 +798,15 @@ final class SleepProviderNeutralLintTests: XCTestCase {
     }
 }
 
-/// Ruling 12 (spec 5.3: this suite did not exist yet) — a price, a token count or a plan window's percentage is said
-/// only in Details and the engine menu, through `CycleUsageText`. Under Views/Sleep a `$` or "tokens" literal may appear
-/// only in the allowed files; the v5 copy's one percentage (the reserve) is rendered only by them.
+/// Ruling 12 (spec 5.3: this suite did not exist yet; its surface renamed 2026-10-16) — a price, a token count or a plan
+/// window's percentage is said only in the Sleep page's Past reads run detail and the engine menu, through
+/// `CycleUsageText`. Past reads lives in `SleepDetails.swift` (the file kept its name when Details became the page's
+/// tabs). Under Views/Sleep a `$` or "tokens" literal may appear only in the allowed files; the v5 copy's one
+/// percentage (the reserve) is rendered only by them.
 final class PriceLintTests: XCTestCase {
     static let allowed = ["EngineQuickMenu.swift", "SleepDetails.swift", "CycleUsageText.swift"]
 
-    func test_pricesAndTokensLiveInDetailsAndTheEngineMenuOnly() throws {
+    func test_pricesAndTokensLiveInPastReadsAndTheEngineMenuOnly() throws {
         let files = try ThemeTokenTests.swiftSources().filter {
             $0.path.contains("/Views/Sleep/") && !Self.allowed.contains($0.lastPathComponent)
         }
@@ -823,7 +825,7 @@ final class PriceLintTests: XCTestCase {
         XCTAssertEqual(offenders, [])
     }
 
-    func test_theReservesPercentageIsRenderedOnlyByTheEngineMenuAndDetails() throws {
+    func test_theReservesPercentageIsRenderedOnlyByTheEngineMenuAndPastReads() throws {
         var renderers: [String] = []
         for file in try ThemeTokenTests.swiftSources() where file.lastPathComponent != "Copy+SleepV5.swift" {
             let text = try String(contentsOf: file, encoding: .utf8)

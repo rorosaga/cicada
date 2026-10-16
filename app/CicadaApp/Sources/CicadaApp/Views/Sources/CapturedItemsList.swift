@@ -142,7 +142,7 @@ struct CapturedItemsList: View {
         .padding(.horizontal, CicadaTheme.scaled(10))
     }
 
-    /// Every hand-off closes Settings first (the Feed and Clusters routes do so themselves), so the Reader or the
+    /// Every hand-off closes Settings first (the Saved and Clusters routes do so themselves), so the Reader or the
     /// card is never left under the panel.
     private func go(_ route: CapturedItemRoute) {
         switch route {
@@ -150,7 +150,7 @@ struct CapturedItemsList: View {
             router?.closeSettings()
             provenance?.open(ReaderTarget(episode: episode, knownTitle: title))
         case .feed(let id):
-            router?.routeToFeedItem(id)
+            router?.routeToSavedItem(id)
         case .entity(let id):
             router?.routeToClustersEntity(id)
         }

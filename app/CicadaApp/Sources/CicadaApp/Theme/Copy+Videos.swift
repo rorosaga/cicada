@@ -232,10 +232,7 @@ extension Copy {
         // MARK: The hand-off's note
         static let leavesMacNote = "Cicada gives your agent each video's link, title, channel and length, nothing more. Your agent decides where a video goes."
 
-        // MARK: Sleep's Details row
-        static let sleepRowTitle = "Videos"
-        static let sleepRowLink = "Choose videos ›"
-        static let sleepRowLinkHelp = "Open the Feed's videos to choose what your agent reads"
+        // MARK: The queue's sentence (Sleep › Videos since the Details row retired, 2026-10-16)
         static func pickedUpSentence(_ n: Int) -> String {
             n == 1 ? "An agent has picked up 1 video." : "An agent has picked up \(UsageFormat.count(n)) videos."
         }

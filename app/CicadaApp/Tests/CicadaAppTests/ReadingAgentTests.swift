@@ -140,13 +140,13 @@ final class ReadingAgentTests: XCTestCase {
         let newWall = feedItem("b", read: #"{"status":"needs_login","by":"agent","host":"x.com"}"#)
         let second = ReadWords.newlyWalled(previous: first.current, items: [wall, newWall])
         XCTAssertEqual(second.fresh.map(\.id), [newWall.id])
-        XCTAssertEqual(ReadWords.walledToast(second.fresh), "x.com needs you to sign in. It's marked in the Feed.")
+        XCTAssertEqual(ReadWords.walledToast(second.fresh), "x.com needs you to sign in. It's marked in Sleep › Saved.")
         let again = ReadWords.newlyWalled(previous: second.current, items: [wall, newWall])
         XCTAssertTrue(again.fresh.isEmpty, "the same wall does not toast twice")
         let cleared = ReadWords.newlyWalled(previous: second.current, items: [wall, quiet])
         XCTAssertEqual(cleared.current, [wall.id])
         let two = ReadWords.newlyWalled(previous: [], items: [wall, newWall])
-        XCTAssertEqual(ReadWords.walledToast(two.fresh), "2 pages need you to sign in. They're marked in the Feed.")
+        XCTAssertEqual(ReadWords.walledToast(two.fresh), "2 pages need you to sign in. They're marked in Sleep › Saved.")
     }
 
     func testTheAgentsNoteIsShownAsItsOwnWords() {

@@ -40,7 +40,7 @@ struct ContentView: View {
     @Environment(SleepViewModel.self) private var sleepVM
     @Environment(SleepEngineViewModel.self) private var sleepEngineVM
     @Environment(ConnectionsViewModel.self) private var connectionsVM
-    /// G126 R9 — consumes a Settings → Integrations "Import in Feed →"
+    /// G126 R9 — consumes a Settings → Integrations "Import in Sleep →"
     /// hand-off by switching the rail's own selection.
     @Environment(AppRouter.self) private var router
     /// G152 — the guided tour: modal over the page area, the rail and the titlebar inert under it.
@@ -400,9 +400,9 @@ struct ContentView: View {
             router.pendingClustersEntity = id
             withAnimation(CicadaMotion.standard(reduceMotion: reduceMotion)) { selectedTab = .clusters }
         case .feedItem(let id):
-            // R-DL16 — a saved item opens in the Feed's detail column, not a sheet.
+            // R-DL16 — a saved item opens in Sleep › Saved's detail column, not a sheet.
             if store.sources.value?.contains(where: { $0.mediaEntityId == id }) == true {
-                router.routeToFeedItem(id)
+                router.routeToSavedItem(id)
             } else {
                 openFind(.entity(id: id))
             }
@@ -525,8 +525,6 @@ struct ContentView: View {
             EmptyView()
         case .clusters:
             ClustersPage()
-        case .feed:
-            FeedPage()
         case .sleep:
             // An entity chip in the consolidation history's expanded detail
             // navigates the same way an Ask citation (or a Sources

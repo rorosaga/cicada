@@ -544,7 +544,7 @@ final class MutationTests: XCTestCase {
         XCTAssertFalse(ok)
         XCTAssertEqual(api.writes, ["syncBookmarks:1"])
         XCTAssertNil(mutation.result, "a failed sync leaves no result to show")
-        XCTAssertEqual(store.toast, "Couldn't finish syncing those bookmarks — the Feed shows what landed")
+        XCTAssertEqual(store.toast, "Couldn't finish syncing those bookmarks — Sleep › Saved shows what landed")
     }
 
     /// Round 4 phase A final review, finding 2 — a 409 means an earlier bookmark sync of this bank is still saving

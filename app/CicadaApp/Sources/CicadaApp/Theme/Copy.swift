@@ -22,7 +22,6 @@ enum Copy {
     static let general = "General"
     static let plansAndKeys = "Plans & keys"
     static let agents = "Agents"
-    static let feed = "Feed"
     static let sources = "Sources"
     /// The Settings sidebar's Sleep section (Track C: the four-tab `TabView`
     /// became a five-section `NavigationSplitView`). Named "Sleep", matching
@@ -104,7 +103,7 @@ enum Copy {
     static let rhythmAndTime = "Rhythm and time:"
     static let scheduleWriteFailed = "Couldn't change the schedule — nothing changed."
     static let openInSources = "Open in Sources ›"
-    static func moreInDetails(_ n: Int) -> String { "+\(UsageFormat.count(n)) more in Details" }
+    static func moreInDetails(_ n: Int) -> String { "+\(UsageFormat.count(n)) more in Waiting" }
     /// The lamp popover's line while the lamp is off (§7.2): what a scheduled
     /// run WOULD use, shown before the person lights it (ruling 4 at the
     /// moment of choice).
@@ -130,7 +129,7 @@ enum Copy {
     /// so the sentence names the harnesses rather than the client.
     static let aboutCicadaCapture =
         "Every Claude Code and Codex session is saved as it ends, by the harness's own hook — no button, no tool call. "
-        + "Bookmarks, feeds, calendars and chat exports arrive through \(settingsIntegrations) and the Feed's + button."
+        + "Bookmarks, feeds, calendars and chat exports arrive through \(settingsIntegrations) and the + on the Sleep page."
 
     /// Sleep. Nothing consolidates until a schedule is chosen
     /// (`sleep_scheduler._DEFAULT` is `manual`), so the popover says so and
@@ -312,18 +311,15 @@ enum Copy {
     // MARK: Page subtitles
 
     static let clustersSubtitle = "Every entity, grouped by type."
-    static let feedSubtitle = "Everything Cicada has read, newest first."
     /// G125 v3 Task 8: "today's episodes" was the one false string on the
     /// page. The queue's oldest item is months old on a real bank — the
     /// queue card's own `oldest <n>d` line says so two cards down — so a subtitle
     /// promising *today* contradicted a number the same screen was drawing.
     /// What a cycle actually does is fold whatever is waiting, however old.
     static let sleepSubtitle = "Fold what's waiting into the graph."
-    /// The Sleep page's title, drawn by `PageTitle` like every page's (Z-B4).
-    static let sleepPageTitle = "Sleep Cycle"
-    /// The Sleep page's one disclosure (Track Z R-Z6): everything past the
-    /// room, the sentence, the button and the whisper line lives behind it.
-    static let sleepDetails = "Details"
+    /// The Sleep page's list of what it read (the Details disclosure until the Sleep redesign, 2026-10-16, which also
+    /// retired the "Sleep Cycle" title: the page opens on its eyebrow). Home's links to a read name it.
+    static let sleepDetails = "Past reads"
     static let inboxSubtitle = "Questions waiting on you."
     static let agentsSubtitle = "Wire any MCP agent into this Mac's memory."
     static let plansAndKeysSubtitle = "What Cicada bills against, and how it signs in."
@@ -346,7 +342,7 @@ enum Copy {
     static let remoteNeverOpensTunnel = "Cicada never opens a tunnel on its own."
     static let remoteShownOnce = "You won't see this again. Revoke any time."
     static let remoteMachineNameWarning = "Turning on HTTPS in Tailscale writes this Mac's name into a public certificate log. Rename your Mac first if its name is personal."
-    static let remoteGeminiApp = "Using the Gemini app? It can't connect to outside memory yet. Use Gemini CLI, or bring your Gemini history in from the Feed."
+    static let remoteGeminiApp = "Using the Gemini app? It can't connect to outside memory yet. Use Gemini CLI, or bring your Gemini history in with the + on the Sleep page."
 
     // MARK: Pointers
 
@@ -425,7 +421,6 @@ enum Copy {
     /// says why it's empty and names the one thing to do about it.
     static let emptyGraphMessage = "Nothing here yet. Connect a source or import."
     static let emptyInboxMessage = "Questions appear here after a Sleep cycle."
-    static let emptyFeedMessage = "Save a link or add a source to get started."
     static let emptySourcesMessage = "Nothing has fed this memory yet."
 
     /// Settings → Integrations with BOTH domains loaded and both empty —

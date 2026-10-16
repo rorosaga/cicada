@@ -8,6 +8,16 @@
 
 ## Current state and evidence
 
+- **2026-10-16 — the Sleep page redesigned, the Feed folded into it (branch `feat/sleep-redesign`, not merged; owner
+  approval 2026-10-16, ⌘ map A).** The "Sleep Cycle" title is gone (an eyebrow: "Sleep · 42 waiting · last read 2 h
+  ago"); the room left its card and draws at a whole 5/4/3 pt per cell by the column's width; Details became the tabs
+  Waiting · Saved · Videos · Past reads, sticky once the room scrolls away. The Feed page retired: Saved and Videos are
+  its list, View menu (sort, kind), detail column, watch run and ⌘N; Connected lives on Sources, export waits head Saved.
+  Skills took the Feed's ⌘4 (nothing else moved), with a one-time hint the first time ⌘4 lands there. Ruling 12's
+  surface is renamed "the Sleep page's Past reads run detail". DESIGN_RULES §9 carries the dated ruling. Pick up:
+  review on the owner's Mac (the worker never launches the app); phase 2 (Clusters into Graph, then ⌘ map B) is not
+  part of this branch.
+
 - **2026-10-16 — the key defaults and the price table (G122, branch `fix/byok-default`, not merged).**
   `test_byok_providers` failed on dev because `import litellm` fetched its price table from GitHub at every start
   (ungated), and upstream had dropped the OpenRouter default's alias (today it lists no `openrouter/` row at all). Now
@@ -228,8 +238,10 @@ A whole row moves to DONE only after its remaining implementation and required a
     - The transcript keys move. The extractor then reads null, never a wrong value.
     - A claim is ever shown with a model its turn did not use. The second-precision join rule is
       then wrong; read `turn_authorship.turn_at` first.
-12. **Plan usage and model prices show on the Sleep page's Details and its engine menu — and nowhere
-    else yet (owner, 2026-09-28).** This supersedes the 2026-09-03 "prices and token usage are not
+12. **Plan usage and model prices show on the Sleep page's Past reads run detail and its engine menu — and
+    nowhere else yet (owner, 2026-09-28; surface renamed 2026-10-16, when the Sleep redesign turned Details into the
+    page's tabs: Details' Last cycle and Past nights are the Past reads tab, so the figures live where they lived —
+    `PriceLintTests` still holds them to `SleepDetails.swift`, `CycleUsageText` and the engine menu).** This supersedes the 2026-09-03 "prices and token usage are not
     shown anywhere in the app" ruling for those two surfaces only; ruling 4 (a scheduled cycle never
     spends plan quota) is untouched, and so is the no-cost-tiles, no-cost-per-day-chart half of the
     old ruling.
@@ -398,7 +410,7 @@ A whole row moves to DONE only after its remaining implementation and required a
     cron and the after-import probe); `user_triggered=False` still keeps every plan engine out, so an unattended run
     reads on the scheduled engine — a key, OpenRouter or Ollama — and **on a metered engine it spends until the queue is
     empty, with no limit Cicada sets.** That is said in words where the person chooses it (the engine menu's Scheduled
-    row and Details' Last cycle, never a price outside them — ruling 12) rather than prevented. Consequences built with
+    row and Past reads' Last cycle, never a price outside them — ruling 12) rather than prevented. Consequences built with
     it: a scheduled drain pins its bank for hours and holds the same 409 on switch/export/delete as any run (disclosed,
     not fixed); a scheduled run that stops leaves a paused record and **the scheduler then starts nothing until the
     person continues or ends it** (`sleep_paused.exists`, both entry points), or a Pause would be undone within five

@@ -232,7 +232,7 @@ final class SourcesV2Tests: XCTestCase {
                        "exactly one presenter of the sheet on this page")
         XCTAssertTrue(page.contains("initialTile: nil"),
                       "R-S9 — the header opens the catalog ROOT, not a staged tile")
-        XCTAssertFalse(page.contains("routeToFeedAddSource"),
+        XCTAssertFalse(page.contains("routeToAddSource"),
                        "R-S9 — no bounce to the Feed tab just to show a sheet")
     }
 
