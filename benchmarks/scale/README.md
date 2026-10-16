@@ -61,3 +61,18 @@ cp -R $S/bank $S/i && api/.venv/bin/python -m benchmarks.scale.index_rebuild --b
 `cp -R` does not keep mtimes, so a copy's derived indexes read every file as changed: rebuild them in the copy
 (`search_index.rebuild`) before timing a fresh process's first recall. `profile_sleep --parse-cache` is a prototype
 measurement for a proposal (a stat-keyed `markdown_parser.parse` cache), not production code.
+
+## Follow-ups (2026-10-16, second round)
+
+```sh
+cp -R $S/bank $S/it && api/.venv/bin/python -m benchmarks.scale.idle_tick --bank $S/it     # SSE idle CPU/s, edit latency
+CICADA_SYNC_WATCH=off api/.venv/bin/python -m benchmarks.scale.idle_tick --bank $S/it      # the same, walking every tick
+api/.venv/bin/python -m benchmarks.scale.hot_routes --bank $S/run --remote                # bytes on the wire for a client
+                                                                                         # on another machine (gzip)
+api/.venv/bin/python -m benchmarks.scale.recall_queries --bank $S/bank --out $S/q.jsonl   # a synthetic labeled query set
+api/.venv/bin/python -m benchmarks.recall_ab --bank $S/bank --queries $S/q.jsonl --embedder hash [--hash-window 512]
+```
+
+`benchmarks.recall_ab` is not a scale probe (it does not import `isolate`): it is the side-by-side recall test for the
+`entity_embed_text` setting, meant for the person's own bank with their own labeled queries and the bank's own search
+model (`docs/architecture/storage.md`). With `--embedder hash` it runs on a synthetic bank as a proof of the harness.
