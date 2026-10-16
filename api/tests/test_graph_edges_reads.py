@@ -113,3 +113,68 @@ def test_no_edges_reader_uses_the_pure_python_loader(tmp_path, monkeypatch):
     assert hub_builder._count_edges(bank) == 7
     graph_builder.regenerate_edges_from_claims(bank)
     graph_builder.upsert_claim_edges(bank, ["alpha-project"])
+
+
+def _count_parses(monkeypatch) -> list:
+    calls: list = []
+    real = markdown_parser.load_yaml
+    monkeypatch.setattr(markdown_parser, "load_yaml", lambda text: calls.append(1) or real(text))
+    return calls
+
+
+ODD = {"edges": [
+    {"source": "é-ü", "target": "x", "label": "2026-10-08", "n": 1.5, "flag": True, "when": datetime.date(2026, 10, 8),
+     "quote": "a: 'b' \"c\"", "none": None, "emoji": "\U0001F389", "yes": "yes", "num": "0012", "empty": ""},
+    {"source": "alpha-project", "target": "beta-tool", "label": "uses", "claim_id": "clm_1", "valid_from": "2026-01-02"},
+]}
+
+
+def test_a_read_after_a_write_is_a_copy_of_what_was_written_not_a_parse(tmp_path, monkeypatch):
+    """2026-10-16 perf: a Sleep batch read `graph_edges.yaml` ~5 times (~1.1 s a parse at 36k edges), each read but
+    the first straight after another step's write. The writer now leaves what it wrote for the next reader."""
+    path = tmp_path / "graph_edges.yaml"
+    markdown_parser.write_yaml(path, ODD)
+    parses = _count_parses(monkeypatch)
+
+    served = markdown_parser.load_yaml_file(path)
+
+    assert parses == []
+    assert served == ODD == yaml.safe_load(path.read_text(encoding="utf-8"))   # exactly what a parse returns
+    served["edges"].append({"source": "x", "target": "y", "label": "z"})       # a caller's edit stays its own
+    assert markdown_parser.load_yaml_file(path) == ODD
+    assert parses == []
+
+
+def test_a_file_changed_by_anyone_else_is_parsed_again(tmp_path, monkeypatch):
+    path = tmp_path / "graph_edges.yaml"
+    markdown_parser.write_yaml(path, EDGES)
+    parses = _count_parses(monkeypatch)
+    path.write_text(yaml.safe_dump({"edges": EDGES["edges"][:2]}), encoding="utf-8")   # an in-place rewrite
+
+    assert markdown_parser.load_yaml_file(path) == {"edges": EDGES["edges"][:2]}
+    assert parses == [1]
+    assert markdown_parser.load_yaml_file(path) == {"edges": EDGES["edges"][:2]}   # and then served from memory
+    assert parses == [1]
+
+    path.write_text("edges: [unterminated", encoding="utf-8")
+    with pytest.raises(yaml.YAMLError):
+        markdown_parser.load_yaml_file(path)
+    path.unlink()
+    with pytest.raises(OSError):
+        markdown_parser.load_yaml_file(path)
+
+
+def test_one_sleep_write_pass_parses_the_edges_file_at_most_once(tmp_path, monkeypatch):
+    bank = _bank(tmp_path)
+    markdown_parser.write_yaml(bank / "graph_edges.yaml", EDGES)
+    parses = _count_parses(monkeypatch)
+
+    conflict_resolver.apply_changes([_update("alpha-project")], bank)
+    inbox_generator._write_graph_edges(bank, [{"source": "beta-tool", "target": "gamma-person", "label": "helps"}])
+    graph_builder.regenerate_edges_from_claims(bank)
+    conflict_resolver.apply_changes([_update("beta-tool")], bank)
+
+    assert parses == []
+    on_disk = yaml.safe_load((bank / "graph_edges.yaml").read_text(encoding="utf-8"))
+    assert markdown_parser.load_yaml_file(bank / "graph_edges.yaml") == on_disk
+    assert {"source": "beta-tool", "target": "gamma-person", "label": "helps"} in on_disk["edges"]

@@ -1,8 +1,10 @@
 import datetime
 import errno
 import os
+import pickle
 import re
 import secrets
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -40,6 +42,41 @@ def load_yaml(text: str):
     return yaml.load(text, Loader=_SAFE_LOADER)  # noqa: S506 — a SAFE loader
 
 
+#: path -> ((st_ino, st_mtime_ns, st_size), pickled data): what :func:`load_yaml_file` parsed or :func:`write_yaml`
+#: wrote, held as one pickle (a few MB for a 36k-edge ``graph_edges.yaml``, against ~30 MB of live objects).
+_yaml_files: dict[str, tuple[tuple[int, int, int], bytes]] = {}
+_yaml_files_lock = threading.Lock()
+
+
+def _file_stamp(path: Path) -> tuple[int, int, int]:
+    st = os.stat(path)
+    return (st.st_ino, st.st_mtime_ns, st.st_size)
+
+
+def load_yaml_file(filepath: Path):
+    """:func:`load_yaml` of a whole YAML file, parsed once per change of the file (2026-10-16 perf). One Sleep batch
+    reads ``graph_edges.yaml`` (~5 MB, 36k edges at owner scale: ~1.1 s a parse) about five times, each read but the
+    first straight after another step's :func:`write_yaml` — which leaves what it wrote here, so the next read is a
+    copy, not a parse. Every caller gets its own copy (a pickle round trip, ~30 ms for that file), so a caller that
+    edits what it read never edits what the next one sees. Keyed on the file's inode, mtime and size: any write — a
+    replace, an in-place rewrite, a ``git checkout`` — is parsed afresh. Raises what reading and parsing raise."""
+    path = Path(filepath)
+    stamp = _file_stamp(path)
+    with _yaml_files_lock:
+        hit = _yaml_files.get(str(path))
+    if hit is not None and hit[0] == stamp:
+        return pickle.loads(hit[1])
+    text = path.read_text(encoding="utf-8")
+    data = load_yaml(text)
+    try:
+        if _file_stamp(path) == stamp:   # unchanged while it was read: the parse is this stamp's
+            with _yaml_files_lock:
+                _yaml_files[str(path)] = (stamp, pickle.dumps(data, protocol=pickle.HIGHEST_PROTOCOL))
+    except (OSError, pickle.PicklingError):
+        pass
+    return data
+
+
 _SAFE_DUMPER = getattr(yaml, "CSafeDumper", yaml.SafeDumper)
 
 
@@ -53,7 +90,19 @@ def write_yaml(filepath: Path, data) -> None:
     The safe dumper refuses a value that is not a plain YAML type rather than writing a ``!!python/`` tag the safe
     loader could not read back."""
     text = yaml.dump(data, Dumper=_SAFE_DUMPER, default_flow_style=False, sort_keys=False, allow_unicode=True)
-    _replace(Path(filepath), text.encode("utf-8"))
+    path = Path(filepath)
+    with _yaml_files_lock:
+        _yaml_files.pop(str(path), None)
+    _replace(path, text.encode("utf-8"))
+    # What was written is what a parse of it returns (the safe dumper writes only plain YAML types, and quotes a
+    # string that would read back as another type), so the next :func:`load_yaml_file` is a copy, not a parse.
+    try:
+        snapshot = pickle.dumps(data, protocol=pickle.HIGHEST_PROTOCOL)
+        stamp = _file_stamp(path)
+    except (OSError, pickle.PicklingError):
+        return
+    with _yaml_files_lock:
+        _yaml_files[str(path)] = (stamp, snapshot)
 
 
 @dataclass
