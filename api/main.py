@@ -225,6 +225,9 @@ async def lifespan(app: FastAPI):
     finally:
         await remote_listener.LISTENER.stop()
         scheduler.shutdown(wait=False)
+        from api.services import bank_watch
+
+        bank_watch.stop_all()   # the SSE tick's file-change watchers
         # G183: an admitted write still in flight finishes (its workers and its commit) before the process goes.
         from api.services import write_admission
 

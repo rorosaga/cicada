@@ -67,11 +67,17 @@ _SCAN_MEMO: contextvars.ContextVar[dict | None] = contextvars.ContextVar("bank_i
 
 
 @contextmanager
-def shared_scans():
-    """Within this block, each directory is listed and stat'ed once (audit A10)."""
-    token = _SCAN_MEMO.set({}) if _SCAN_MEMO.get() is None else None
+def shared_scans(seed: dict | None = None):
+    """Within this block, each directory is listed and stat'ed once (audit A10). Yields the memo (directory ->
+    listing), so a caller can keep what one block listed.
+
+    ``seed``: listings to answer from without a ``scandir`` — only for a caller that KNOWS those directories have not
+    changed since they were listed (the SSE tick, between file-change events: ``sync_ticker``). Ignored inside an
+    outer block, which keeps its own memo."""
+    outer = _SCAN_MEMO.get()
+    token = _SCAN_MEMO.set(dict(seed or {})) if outer is None else None
     try:
-        yield
+        yield _SCAN_MEMO.get()
     finally:
         if token is not None:
             _SCAN_MEMO.reset(token)
@@ -237,7 +243,18 @@ def dir_fingerprint(directory: Path) -> str:
     nanosecond mtime instead, from the same scan everything else uses (one per
     directory per SSE tick under :func:`shared_scans`, audit A10). No parse."""
     current = _scan(Path(directory))
-    return fingerprint((name, m, size) for name, (m, size) in current.items())
+    key = str(directory)
+    hit = _FINGERPRINTS.get(key)
+    if hit is not None and hit[0] is current:   # the same listing object (a memo's): the same fingerprint
+        return hit[1]
+    stamp = fingerprint((name, m, size) for name, (m, size) in current.items())
+    _FINGERPRINTS[key] = (current, stamp)
+    return stamp
+
+
+#: directory -> (the listing last fingerprinted, its fingerprint). A listing is never mutated once made, so the same
+#: object — what a `shared_scans` memo seeded across SSE ticks hands back — needs no second hash (2026-10-16 perf).
+_FINGERPRINTS: dict[str, tuple[dict, str]] = {}
 
 
 def is_warm(memory_path: Path, subdir: str) -> bool:

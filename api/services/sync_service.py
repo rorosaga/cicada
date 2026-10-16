@@ -162,8 +162,16 @@ def _reading_component(mp: Path) -> str:
     return f"{mtime:.6f}:{expired}:{reading_settings.mtime():.6f}"
 
 
-def components(memory_path: Path, *, sleep_state=None) -> dict[str, str]:
+#: Components a stat walk of the bank computes outside ``bank_index`` (whose listings the SSE tick reuses instead):
+#: an idle tick between file-change events may carry them over from the last full walk (``sync_ticker``).
+WALKED_OUTSIDE_INDEX = ("backlog", "captures")
+
+
+def components(memory_path: Path, *, sleep_state=None, reuse: dict | None = None) -> dict[str, str]:
+    """``reuse``: :data:`WALKED_OUTSIDE_INDEX` values from the last full walk, for a caller that knows nothing in the
+    bank changed since (the SSE tick between file-change events). Never passed by a request's ETag."""
     mp = Path(memory_path)
+    reuse = reuse or {}
     # Audit 2026-10-05 P2-9: every directory component is a fingerprint of its
     # files' names, sizes and nanosecond mtimes (`bank_index.dir_fingerprint`,
     # one shared scan) — "the newest mtime" stood still for an edit beside a
@@ -183,7 +191,7 @@ def components(memory_path: Path, *, sleep_state=None) -> dict[str, str]:
         # G150 R-B16: every backlog item's stamp (a stat walk, no parse) — the
         # Projects page's backlog reads and `_state.md`'s `backlog_open` move
         # on it; nothing in `entities`/`episodes` notices a backlog write.
-        "backlog": backlog.stamp(mp),
+        "backlog": reuse["backlog"] if "backlog" in reuse else backlog.stamp(mp),
         # Design taste (2026-10-14): every reference file's stamp — the Looks page's board revalidates on it.
         "design": design_refs.stamp(mp),
         # `feeds.yaml` / `calendars.yaml` (the RSS + ICS subscription registries)
@@ -237,7 +245,7 @@ def components(memory_path: Path, *, sleep_state=None) -> dict[str, str]:
         # capture record's stamp in `<bank>/captures/` (a stat walk, two levels). The app revalidates its
         # ExploreCache on both; neither is a Store domain.
         "exploreQueue": explore_queue.stamp(mp),
-        "captures": site_captures.stamp(mp),
+        "captures": reuse["captures"] if "captures" in reuse else site_captures.stamp(mp),
         # G166: the reading asks live at `$CICADA_HOME/reading_asks/<bank>.json`
         # and the person's reading settings at `$CICADA_HOME/reading.json` —
         # both OUTSIDE the bank, so nothing above notices a "needs you to sign
@@ -317,8 +325,8 @@ def _digest(parts: dict) -> str:
     return hashlib.sha1(json.dumps(parts, sort_keys=True).encode()).hexdigest()[:16]
 
 
-def version(memory_path: Path, sleep_state=None) -> VersionInfo:
-    comps = components(memory_path, sleep_state=sleep_state)
+def version(memory_path: Path, sleep_state=None, *, reuse: dict | None = None) -> VersionInfo:
+    comps = components(memory_path, sleep_state=sleep_state, reuse=reuse)
     return VersionInfo(version=_digest(comps), components=comps)
 
 

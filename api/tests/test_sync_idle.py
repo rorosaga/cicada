@@ -43,9 +43,9 @@ def _count_versions(monkeypatch) -> dict:
     calls = {"n": 0}
     real = sync_service.version
 
-    def counting(memory_path, sleep_state=None):
+    def counting(memory_path, sleep_state=None, **kwargs):
         calls["n"] += 1
-        return real(memory_path, sleep_state)
+        return real(memory_path, sleep_state, **kwargs)
 
     monkeypatch.setattr(sync_service, "version", counting)
     return calls
@@ -88,7 +88,9 @@ def test_two_banks_never_share_a_tick(tmp_path):
     assert ta.info.components["episodes"] != tb.info.components["episodes"]
 
 
-def test_an_external_in_place_edit_is_seen_on_the_next_tick(tmp_path):
+def test_an_external_in_place_edit_is_seen_on_the_next_tick_without_file_events(tmp_path, monkeypatch):
+    # With file-change events (`bank_watch`) the edit is seen once the OS reports it: `test_sync_watch.py`.
+    monkeypatch.setenv("CICADA_SYNC_WATCH", "off")
     bank = _bank(tmp_path)
     page = bank / "entities" / "alpha-project.md"
 

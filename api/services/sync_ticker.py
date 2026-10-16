@@ -7,19 +7,27 @@ connected stream, the debt half on the event loop: N clients, N walks. Here one
 concurrent subscribers await that one computation.
 
 The filesystem half runs in worker threads under `bank_index.shared_scans()`,
-so `episodes/` is listed once per tick. Nothing is skipped: every tick is the
-same full scan, so an external edit (an editor writing a page in place) is seen
-on the next tick exactly as before. `/sync/version` and `/sleep/status` stay
+so `episodes/` is listed once per tick. `/sync/version` and `/sleep/status` stay
 exact per request and never read this cache.
+
+File-change events (2026-10-16 perf, owner decision 2): with the bank's watcher
+running (`bank_watch`), a tick walks the bank only when the OS reported a change
+since the last walk, or when that walk is `bank_watch.FALLBACK_S` (10 s) old.
+Between, a tick answers from the last walk's directory listings (and its two
+stamps walked outside `bank_index`), and recomputes everything else — git HEAD,
+the files outside the bank, the TTL expiries, the Sleep state, the clock — as
+before. An editor's in-place write is an event like any other; one the OS never
+reported is seen by the next fallback walk. No watcher: every tick walks.
 """
 from __future__ import annotations
 
 import asyncio
+import os
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
-from api.services import bank_index, sleep_debt, sync_service
+from api.services import bank_index, bank_watch, sleep_debt, sync_service
 from api.services.sleep_cycle import get_sleep_state
 
 
@@ -28,6 +36,11 @@ class Tick:
     info: sync_service.VersionInfo
     debt: sleep_debt.SleepDebt
     at: float
+    #: When the bank was last walked (equal to ``at`` for a full tick), the watcher's count read BEFORE that walk began
+    #: (``None`` without a watcher), and that walk's listings of the bank's directories.
+    walked_at: float = 0.0
+    seq: int | None = None
+    listings: dict | None = field(default=None, repr=False, compare=False)
 
 
 _ticks: dict[str, Tick] = {}
@@ -37,9 +50,10 @@ _locks: dict[tuple[int, str], asyncio.Lock] = {}
 
 
 def reset() -> None:
-    """Forget every shared tick (tests; a bank that was deleted)."""
+    """Forget every shared tick and stop the watchers (tests; a bank that was deleted)."""
     _ticks.clear()
     _locks.clear()
+    bank_watch.stop_all()
 
 
 def next_poll_delay(tick: Tick, poll_seconds: float) -> float:
@@ -60,9 +74,26 @@ async def current(memory_path: Path, settings, *, max_age: float) -> Tick:
         tick = _ticks.get(key)
         if tick is not None and time.monotonic() - tick.at < max_age:
             return tick
-        with bank_index.shared_scans():
-            info = await asyncio.to_thread(sync_service.version, memory_path, get_sleep_state())
-            debt = await sleep_debt.compute(memory_path, settings)
-        tick = Tick(info=info, debt=debt, at=time.monotonic())
+        watch = await asyncio.to_thread(bank_watch.for_bank, memory_path)
+        now = time.monotonic()
+        if (watch is not None and tick is not None and tick.seq is not None and tick.listings is not None
+                and watch.seq == tick.seq and now - tick.walked_at < bank_watch.FALLBACK_S):
+            # Nothing in the bank moved since the last walk: its listings answer, everything else is read now.
+            reuse = {k: tick.info.components[k] for k in sync_service.WALKED_OUTSIDE_INDEX
+                     if k in tick.info.components}
+            with bank_index.shared_scans(seed=tick.listings):
+                info = await asyncio.to_thread(sync_service.version, memory_path, get_sleep_state(), reuse=reuse)
+                debt = await sleep_debt.compute(memory_path, settings)
+            tick = Tick(info=info, debt=debt, at=time.monotonic(), walked_at=tick.walked_at, seq=tick.seq,
+                        listings=tick.listings)
+        else:
+            seq = watch.seq if watch is not None else None   # read BEFORE the walk: a change during it walks again
+            with bank_index.shared_scans() as memo:
+                info = await asyncio.to_thread(sync_service.version, memory_path, get_sleep_state())
+                debt = await sleep_debt.compute(memory_path, settings)
+            prefix = os.path.join(str(memory_path), "")
+            listings = {d: listing for d, listing in (memo or {}).items() if d.startswith(prefix)}
+            at = time.monotonic()
+            tick = Tick(info=info, debt=debt, at=at, walked_at=at, seq=seq, listings=listings)
         _ticks[key] = tick
         return tick
