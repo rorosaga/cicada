@@ -167,10 +167,15 @@ struct BankSwitcher: View {
     }
 
     private func bankLabel(_ bank: MemoryBank) -> String {
-        if bank.entityCount > 0 || bank.episodeCount > 0 {
-            return "\(bank.name)  (\(UsageFormat.count(bank.entityCount)) entities · \(UsageFormat.count(bank.episodeCount)) episodes)"
-        }
-        return bank.name
+        Self.label(name: bank.name, entities: bank.entityCount, episodes: bank.episodeCount)
+    }
+
+    /// A menu row: the bank's name and, once it holds anything, its counts — each with its noun in the right number
+    /// (DR-21; a fresh bank read "1 entities", QA 2026-10-16).
+    static func label(name: String, entities: Int, episodes: Int) -> String {
+        guard entities > 0 || episodes > 0 else { return name }
+        func counted(_ n: Int, _ one: String, _ many: String) -> String { "\(UsageFormat.count(n)) \(n == 1 ? one : many)" }
+        return "\(name) (\(counted(entities, "entity", "entities")) · \(counted(episodes, "episode", "episodes")))"
     }
 
     private func switchTo(_ name: String) {
