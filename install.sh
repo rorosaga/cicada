@@ -13,6 +13,8 @@
 #   ./install.sh --skill         also copy SKILL.md to ~/.claude/skills/cicada/
 #   ./install.sh --cli           also link ~/.local/bin/cicada to scripts/cicada (G180)
 #   ./install.sh --uninstall     unload+remove launchd + MCP entry (keeps memory)
+#   On Linux (a headless server, G181) the background service is a systemd user unit
+#   (scripts/install-backend-service.sh) instead of the launchd agent; everything else is the same.
 #   Every full install also registers the G105 session-capture hook under
 #   hooks.Stop in ~/.claude/settings.json (and ~/.codex/hooks.json when the
 #   codex CLI is present) — merged in, never clobbering other hooks; re-run
@@ -66,6 +68,9 @@ recall_command() { printf '"%s" "%s" --harness %s' "$VENV_PY" "$RECALL_SCRIPT" "
 PLIST_LABEL="com.cicada.backend"
 PLIST_PATH="$LAUNCH_AGENTS_DIR/$PLIST_LABEL.plist"
 PORT=8000
+# G181: Linux gets the systemd user unit; a Mac keeps launchd. SYSTEMD_USER_DIR is the test override.
+OS_NAME="$(uname -s)"
+SERVICE_UNIT="${SYSTEMD_USER_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user}/cicada-backend.service"
 
 DRY_RUN=0
 DO_SKILL=0
@@ -113,7 +118,15 @@ backend_healthy() {
 if [ "$DO_UNINSTALL" -eq 1 ]; then
   hdr "Uninstalling Cicada (memory dir is never touched)"
 
-  if [ -f "$PLIST_PATH" ]; then
+  if [ "$OS_NAME" = "Linux" ]; then
+    step "Removing the systemd backend service"
+    if [ "$DRY_RUN" -eq 1 ]; then
+      CICADA_REPO="$REPO" bash "$REPO/scripts/install-backend-service.sh" --uninstall --dry-run
+    else
+      CICADA_REPO="$REPO" bash "$REPO/scripts/install-backend-service.sh" --uninstall || true
+    fi
+    ok "Backend service removed (if it existed)"
+  elif [ -f "$PLIST_PATH" ]; then
     step "Unloading launchd agent $PLIST_LABEL"
     run launchctl bootout "gui/$(id -u)/$PLIST_LABEL" 2>/dev/null || true
     run rm -f "$PLIST_PATH"
@@ -204,7 +217,7 @@ fi
 # EmbeddingGemma 2 on the Neural Engine (owner 2026-10-09) where this Mac runs it: macOS 15+ on Apple silicon.
 # Pinned and sha256-checked (api/data/embeddinggemma-2.lock.json); ~585 MB and a ~90 s first load, once. Without
 # it the small model above answers; 'make embedding-model-gemma2' retries.
-MACOS_MAJOR="$(sw_vers -productVersion 2>/dev/null | cut -d. -f1)"
+MACOS_MAJOR="$(sw_vers -productVersion 2>/dev/null | cut -d. -f1 || true)"  # no sw_vers on Linux (G181)
 if [ "$(uname -m)" = "arm64" ] && [ "${MACOS_MAJOR:-0}" -ge 15 ] 2>/dev/null; then
   if [ -f "${CICADA_HOME:-$HOME/.cicada}/models/embeddinggemma-2/cicada-model.json" ]; then
     ok "Neural Engine search model present"
@@ -235,7 +248,9 @@ if [ -d "$MEMORY_PATH/.git" ]; then
   ok "memory is already a git repo"
 else
   step "git init memory + initial commit"
-  run sh -c "cd '$MEMORY_PATH' && git init -q && git add -A && git commit -q -m 'Initial Cicada memory' --allow-empty"
+  # G181: a fresh server has no git identity and git refuses to commit; the bank (only) gets a placeholder one,
+  # the same as the backend's git_service.ensure_commit_identity_sync. A resolving identity is never overridden.
+  run sh -c "cd '$MEMORY_PATH' && git init -q && { git var GIT_COMMITTER_IDENT >/dev/null 2>&1 || { git config user.name Cicada && git config user.email cicada@localhost; }; } && git add -A && git commit -q -m 'Initial Cicada memory' --allow-empty"
   ok "memory git repo initialized"
 fi
 
@@ -413,10 +428,30 @@ if [ -d "$HOME/.cursor" ] && [ "$(printf '%s' "${CICADA_RECALL:-}" | tr '[:upper
   fi
 fi
 
-# --- 6. launchd backend ---
-hdr "6. Backend service (launchd)"
+# --- 6. Background service: launchd on a Mac, a systemd user unit on Linux (G181) ---
+if [ "$OS_NAME" = "Linux" ]; then
+  hdr "6. Backend service (systemd user unit)"
+else
+  hdr "6. Backend service (launchd)"
+fi
 if backend_healthy; then
-  ok "A Cicada backend is already serving /healthz on :$PORT — skipping launchd bootstrap"
+  ok "A Cicada backend is already serving /healthz on :$PORT — skipping the service install"
+elif [ "$OS_NAME" = "Linux" ]; then
+  step "Installing the background service (scripts/install-backend-service.sh)"
+  if [ "$DRY_RUN" -eq 1 ]; then
+    CICADA_REPO="$REPO" CICADA_MEMORY_PATH="$MEMORY_PATH" CICADA_PORT="$PORT" \
+      bash "$REPO/scripts/install-backend-service.sh" --dry-run
+    ok "systemd service (dry-run)"
+  else
+    CICADA_REPO="$REPO" CICADA_MEMORY_PATH="$MEMORY_PATH" CICADA_PORT="$PORT" \
+      bash "$REPO/scripts/install-backend-service.sh" || warn "the service did not start — see above"
+    step "Waiting for backend /healthz ..."
+    for _ in $(seq 1 10); do
+      backend_healthy && break
+      sleep 1
+    done
+    if backend_healthy; then ok "Backend is up on 127.0.0.1:$PORT"; else warn "Backend not yet healthy — check $REPO/logs/backend.err.log"; fi
+  fi
 else
   step "Installing the background service (scripts/install-backend-agent.sh)"
   if [ "$DRY_RUN" -eq 1 ]; then
@@ -464,7 +499,11 @@ else
 fi
 echo "  capture hook:  $CLAUDE_SETTINGS (hooks.Stop, + PreCompact/SessionEnd flush → api/hooks/capture.py)"
 echo "  recall hooks:  $CLAUDE_SETTINGS (hooks.SessionStart + hooks.UserPromptSubmit → api/hooks/recall.py)"
-echo "  launchd:       $PLIST_PATH"
+if [ "$OS_NAME" = "Linux" ]; then
+  echo "  service:       $SERVICE_UNIT (systemd --user; 127.0.0.1:$PORT only)"
+else
+  echo "  launchd:       $PLIST_PATH"
+fi
 [ "$DO_SKILL" -eq 1 ] && echo "  skill:         $CLAUDE_SKILLS_DIR/cicada/SKILL.md"
 [ "$DO_CLI" -eq 1 ] && echo "  command line:  ~/.local/bin/cicada -> $REPO/scripts/cicada"
 echo "  API token:     ${CICADA_HOME:-$HOME/.cicada}/api_token (the app and MCP server read it automatically)"
