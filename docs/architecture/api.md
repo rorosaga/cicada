@@ -343,11 +343,30 @@ skill_folder`). Nothing is written into a bank: agent folders, and `$CICADA_HOME
   Its idle cost is shared (audit 2026-10-02 A10): `sync_ticker.current` computes the version vector and the Sleep debt
   at most once per 0.9 s per bank, and concurrent streams await that one computation. Its filesystem half runs in
   worker threads under `bank_index.shared_scans()`, which lists each directory once per tick, and `sleep_debt.compute`
-  scans in a thread for `/sleep/status` too. Every tick is still a full scan, so an external in-place edit is seen on
-  the next tick. `/sync/version` and `/sleep/status` never read the shared tick. Measured on generated banks
-  (1,900 entities):
+  scans in a thread for `/sleep/status` too. `/sync/version` and `/sleep/status` never read the shared tick. Measured
+  on generated banks (1,900 entities):
   - 10,000 episodes: 42 → 24 ms per tick for one stream, and 169 → 25 ms for four.
   - 2,000 episodes: 12 → 6 ms for one stream, and 50 → 6 ms for four.
+- **The tick walks the bank on a file-change event or every 10 s (2026-10-16, owner decision 2).** `bank_watch` keeps
+  one watcher per bank — `watchfiles` (already installed by `uvicorn[standard]`): FSEvents on macOS, inotify on Linux —
+  over the bank and its machine-local Sleep folder, counting reported changes except git's own (`.git/`) and the index
+  databases at the bank's root. `sync_ticker` walks the bank only when that count moved since its last walk (read
+  before the walk, so a change during it walks again) or the walk is `bank_watch.FALLBACK_S` (10 s) old — the net for
+  an event the OS dropped. Between, a tick answers from the last walk's listings (`bank_index.shared_scans(seed=…)`,
+  and the `backlog`/`captures` stamps walked outside `bank_index`) and reads everything else as before: git HEAD, the
+  files outside the bank, every TTL expiry, the Sleep state and the clock. An editor's in-place write is an event like
+  any other. No notifier, a failed one (retried once a minute), a bank directory replaced, or
+  `CICADA_SYNC_WATCH=off`: every tick walks. A watcher nobody asked about for 60 s stops; shutdown stops them all.
+  Owner-scale synthetic bank, 8,791 files (`benchmarks.scale.idle_tick`): 33.2 → 6.3 ms of CPU a second, an idle
+  tick 31 → 3.3 ms; an outside in-place edit reaches the stream in ~640 ms either way.
+- **Compressed only for another machine (2026-10-16, owner decision 3).** `response_compression.RemoteGZipMiddleware`
+  gzips (level 1) a response for a client that asked for it and is on another machine: a non-loopback peer, a request
+  a proxy forwarded (`X-Forwarded-For`, `Forwarded`, `X-Real-IP`, `Tailscale-User-Login` — `tailscale serve` in front
+  of `127.0.0.1`), or one signed with a per-device token (ruling 28; covers an SSH tunnel, which arrives from loopback).
+  Loopback is answered byte for byte as before. ETags are computed by the routes before compression and a 304 has no
+  body, so conditional requests are unchanged; the SSE stream, bodies under 1 KB and already-compressed types (images,
+  video, audio, PDF, archives) pass through. Owner-scale synthetic bank: `/graph` 10.5 MB → 0.92 MB on the wire
+  (~25 ms more server time), `/inbox` 498 → 59 KB, `/sources` 742 → 103 KB.
 - **A version stamp is a fingerprint, never "the newest mtime"** (audit 2026-10-05 P2-9). With one file dated in the
   future, an edit to any other file left the max where it was: `/sync/version` stood still, every ETag built on it
   answered 304 and the graph cache served the old page. The `entities`, `hubs`, `inbox`, `episodes` and `sources`

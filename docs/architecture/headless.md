@@ -16,6 +16,10 @@ overlay the person runs and Cicada never configures: on a tailnet, `tailscale se
 http://127.0.0.1:8000` (tailnet only; never `funnel`), or an SSH tunnel. The API token is still required on every
 route but `/healthz`. Tailscale's identity headers are not a substitute for it: tagged devices get none, and anyone
 the device is shared with gets them.
+Responses to another machine are gzipped at level 1 (`/graph` ~11× smaller); the app on the server's own Mac is
+answered uncompressed. Who counts as another machine — a non-loopback peer, a forwarded request, a device token — and
+why ETags are unaffected is in [`api.md`](api.md) ("Compressed only for another machine"); the headers only choose
+compression, never access.
 
 ## Install
 

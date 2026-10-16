@@ -469,7 +469,13 @@ exact) or `stale`. A stale span travels without wash offsets; a `derived` span (
 written. The chat importer and every Local-sources draft keep each turn's time as
 `turns: [{offset, ts, speaker}]` in frontmatter, written by `episode_staging` outside
 `content_hash`; the Stop hook writes the same list (G141 PJ-4), and a reader treats any non-list — an
-older Stop-hook episode's count — as no times.
+older Stop-hook episode's count — as no times. **`bank_index` never caches the sidecar (2026-10-16 perf):** it is the
+key its writers keep last, and on 3,850 synthetic episodes it was 99,844 rows — 53 MB of the header cache and 3.1 of
+3.6 s of a cold scan (the slow first `/status`). `markdown_parser.header` parses every other key exactly as `parse`
+does (the cut block runs to the next top-level key, so a hand-edited key after it is kept); an `IndexedFile` says
+`has_turns`, and a reader that places a span in its turn reads the file's sidecar through `bank_index.with_turns` (a
+small memo keyed on the file's stamp) or from a parse it already makes. First `/status` on that bank: 1.4–1.8 s →
+0.5 s.
 
 G110 A2's `reply_gaps: [{offset, omitted_chars}]` records clipped final-reply gaps outside `content_hash`.
 Evidence readers accept only the exact marker at that recorded offset. Reader head/gap/tail blocks keep their
@@ -1073,6 +1079,18 @@ the model, the table's width and a hash of the query — the text is never kept;
 recall's entity and episode legs embed once (P2-8). **Entity hits are read against the page as it is now (P2-5):**
 `search_entities` drops a hit whose page is gone or `dropped` — even with `include_archived` — and decides the archived
 tier on the current status, not the last sync's copy.
+**What an entity's vector is made from is a setting (2026-10-16, owner decision 4):** `entity_embed_text`
+(`CICADA_ENTITY_EMBED_TEXT`). `full`, the default and today's behaviour, embeds name, type, aliases and the whole body,
+its claims fence included; `prose` leaves the fence out (every claim has its own vector) and caps the text at
+`ENTITY_EMBED_MAX_CHARS` (8,000 — past a local model's 512-token window, inside a hosted model's 8,191-token limit). On
+the owner-scale synthetic bank the fence is 82 % of what is embedded (43.7M → 7.5M characters). A change re-embeds
+every page whose text moves, once. The default flips only after `benchmarks.recall_ab` — the bank's entity vectors
+built both ways into throwaway indexes outside the bank, its words index too, a labeled query set run through
+`/search`'s page ranking and the vectors alone — shows search no worse on the person's own queries:
+`api/.venv/bin/python -m benchmarks.recall_ab --bank <bank> --queries <questions.local.yaml | queries.jsonl> --out <file>`
+(exit 0 = no worse; a metered model needs `--allow-metered`; query text is printed only with `--show-queries`). On the
+synthetic bank, where half the queries are claim sentences and the prose is a 30-word vocabulary, `prose` loses every
+claim-sentence query (search MRR 0.927 → 0.743) and ties every name query.
 
 ### SQLite FTS5 (lexical index, G136)
 `api/services/search_index.py`. One `search_index.db` per bank, **beside `vector_index.db` and never
