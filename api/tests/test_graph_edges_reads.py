@@ -178,3 +178,24 @@ def test_one_sleep_write_pass_parses_the_edges_file_at_most_once(tmp_path, monke
     on_disk = yaml.safe_load((bank / "graph_edges.yaml").read_text(encoding="utf-8"))
     assert markdown_parser.load_yaml_file(bank / "graph_edges.yaml") == on_disk
     assert {"source": "beta-tool", "target": "gamma-person", "label": "helps"} in on_disk["edges"]
+
+
+def test_a_write_never_leaves_its_data_under_another_writers_file(tmp_path, monkeypatch):
+    """Another process can replace the file between this write's rename and any later stat of the path. What this
+    write left for the next reader is keyed on its own file, so the other writer's file is parsed, not masked."""
+    path = tmp_path / "graph_edges.yaml"
+    foreign = {"edges": EDGES["edges"][:1]}
+    real_replace = markdown_parser._replace
+
+    def replace_then_another_writer(filepath, data):
+        stamp = real_replace(filepath, data)
+        other = tmp_path / ".other.tmp"
+        other.write_text(yaml.safe_dump(foreign), encoding="utf-8")
+        import os
+        os.replace(other, filepath)
+        return stamp
+
+    monkeypatch.setattr(markdown_parser, "_replace", replace_then_another_writer)
+    markdown_parser.write_yaml(path, EDGES)
+
+    assert markdown_parser.load_yaml_file(path) == foreign

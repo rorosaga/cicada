@@ -93,13 +93,13 @@ def write_yaml(filepath: Path, data) -> None:
     path = Path(filepath)
     with _yaml_files_lock:
         _yaml_files.pop(str(path), None)
-    _replace(path, text.encode("utf-8"))
+    stamp = _replace(path, text.encode("utf-8"))
     # What was written is what a parse of it returns (the safe dumper writes only plain YAML types, and quotes a
-    # string that would read back as another type), so the next :func:`load_yaml_file` is a copy, not a parse.
+    # string that would read back as another type), so the next :func:`load_yaml_file` is a copy, not a parse. The
+    # stamp is the written file's own (taken before its rename), never a later writer's.
     try:
         snapshot = pickle.dumps(data, protocol=pickle.HIGHEST_PROTOCOL)
-        stamp = _file_stamp(path)
-    except (OSError, pickle.PicklingError):
+    except pickle.PicklingError:
         return
     with _yaml_files_lock:
         _yaml_files[str(path)] = (stamp, snapshot)
@@ -248,7 +248,10 @@ def write_document(filepath: Path, text: str) -> None:
     _replace(filepath, text.encode("utf-8"))
 
 
-def _replace(filepath: Path, data: bytes) -> None:
+def _replace(filepath: Path, data: bytes) -> tuple[int, int, int]:
+    """Atomically replace ``filepath`` with ``data``. Returns the written file's own (inode, mtime_ns, size), taken
+    from the staged file before the rename (which keeps both), so a caller that caches on it never stamps another
+    writer's file that replaced this one a moment later."""
     target = Path(os.path.realpath(filepath)) if os.path.islink(filepath) else Path(filepath)
     tmp = _stage(target, data)
     try:
@@ -256,10 +259,12 @@ def _replace(filepath: Path, data: bytes) -> None:
             os.chmod(tmp, os.stat(target).st_mode & 0o7777)
         except FileNotFoundError:
             pass
+        st = os.stat(tmp)
         os.replace(tmp, target)
     except BaseException:
         _unlink_quietly(tmp)
         raise
+    return (st.st_ino, st.st_mtime_ns, st.st_size)
 
 
 def write_new(filepath: Path, frontmatter: dict, body: str) -> None:
