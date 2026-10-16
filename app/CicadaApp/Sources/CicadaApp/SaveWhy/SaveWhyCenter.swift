@@ -114,8 +114,8 @@ protocol SaveWhyPresenting: AnyObject {
 /// about a bookmark on that browser — then the panel binds to it and an answer already given is sent. If 3 refuses
 /// it (a first sync, many at once, an old bookmark, a muted site) or nothing comes within `SaveWhyPolicy.pendingBound`
 /// (`confirmBound` once the diff named a link), the panel withdraws and the taps are dropped — never saved against a
-/// guess. G191 v4 (owner 2026-10-15): the bubble is a trigger, never a fact — no size is learned; the file alone
-/// confirms.
+/// guess. G191 v4 (owner 2026-10-15): the bubble is a trigger, never a fact — the file alone confirms. G191 v5
+/// (2026-10-16): only a window of a shape a bookmark confirmed is the bubble, so a toolbar menu never opens it.
 @MainActor
 @Observable
 final class SaveWhyCenter {
@@ -161,6 +161,9 @@ final class SaveWhyCenter {
                                                              url: String?)?
     /// The withdraw timer of the unconfirmed panel (or its held answer).
     @ObservationIgnored private var bound: Task<Void, Never>?
+    /// G191 v5 — every bookmark the app's diff names, before any decision: the bubble watcher's only teacher
+    /// (`BookmarkBubbleWatcher.bookmarkNamed`), so a shape is remembered only from a bookmark the file confirmed.
+    @ObservationIgnored var onNamed: ((FreshBookmark) -> Void)?
     /// When each way in last opened or named the panel (uptime seconds) — for the stage timings, never shown.
     @ObservationIgnored private(set) var marks: [String: TimeInterval] = [:]
 
@@ -283,6 +286,7 @@ final class SaveWhyCenter {
     /// open the question with it, before the early look answers. The policy's own rules still apply (recent, muted,
     /// the same save); the backend's decision confirms it.
     func candidate(_ item: FreshBookmark) {
+        onNamed?(item)
         guard prefs.enabled else { return }
         var result = BookmarkSyncResult(new: 0, skipped: 0, sources: [])
         result.fresh = [item]

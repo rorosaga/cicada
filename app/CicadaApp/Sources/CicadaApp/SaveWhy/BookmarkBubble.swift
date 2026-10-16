@@ -18,12 +18,26 @@ import Foundation
 /// its "Edit bookmark" bubble is the very same size, so size alone can never tell them apart. Now:
 ///
 /// - a **click in the toolbar band** of the frontmost Chrome window (the star sits at the address bar's right end),
-/// - followed within `inputWindow` (400 ms) by **any new small window** of Chrome's, anchored under the toolbar at the
-///   right of that browser window (`isAnchored`: no exact size, nothing learned, nothing refused),
+/// - followed within `inputWindow` (400 ms) by a **new window of Chrome's anchored under the toolbar** at the right of
+///   that browser window (`isAnchored`) and hanging from the click (`hangsFrom`),
+/// - **of a shape a bookmark confirmed** (`BubbleShapeMemory`),
 ///
 /// opens the question at once, pending. One new bookmark in the app's own diff of the file binds the link; none within
 /// `SaveWhyPolicy.pendingBound` (or a bookmark removed instead — "Edit bookmark", then Remove) withdraws it, keeping
 /// nothing. A tooltip (layer 103 measured) or a menu is never one: they sit above `maxLayer`.
+///
+/// **v5: only a shape a bookmark confirmed (owner 2026-10-16: "when i open chrome extensions there is a popup that
+/// triggers cicada popup. thats bad").** v4 took any small anchored window, and Chrome's Extensions menu — ≈ 287 × 481,
+/// 102 pt under the window's top, right edge 132 pt in, taller with every extension — fits that as well as the profile
+/// menu, the downloads bubble and every other toolbar bubble do; their position is the toolbar's, as the star's is, so
+/// position cannot tell them apart. Their *shape* can: the bookmark bubble is a fixed 448 × 224 (Chrome's modal-dialog
+/// width) whatever the page, and no other toolbar surface measured has it. So the bubble is recognised only by a shape
+/// a bookmark confirmed: the measured 448 × 224 (± `shapeSlack`), plus any shape learned **positively** — an anchored
+/// window of an unknown shape opens nothing, but when the file then names one new bookmark whose own instant (Chrome's
+/// `date_added`, the click) fits the moment that window appeared (`confirms`), its shape is remembered. A window that
+/// came with no bookmark is never remembered, so the person's own failed match (v3's flaw) can refuse nothing. A
+/// Chrome update or a font change that resizes the bubble costs one slower question — that save is caught by the file
+/// (≈ 2.5 s, as ⌘D is) and teaches the new shape — and the next star click is instant again.
 ///
 /// **What runs, and when (efficiency is a hard requirement).**
 /// - Chrome not frontmost: **nothing**. The watcher arms on `NSWorkspace.didActivateApplicationNotification` and
@@ -47,7 +61,8 @@ struct ListedWindow: Equatable, Sendable {
 }
 
 enum BookmarkBubblePolicy {
-    /// A "small window": anything between a tooltip and a browser window. Generous on purpose — the position decides.
+    /// A "small window": anything between a tooltip and a browser window. Generous on purpose — the shape decides
+    /// (`BubbleShapeMemory`); this only keeps tooltips and second browser windows out of the shape check.
     static let smallWidth: ClosedRange<CGFloat> = 160...720
     static let smallHeight: ClosedRange<CGFloat> = 60...720
     /// The bubble's top below the browser window's top: under the tab strip and the toolbar (measured 80 pt), never on
@@ -69,6 +84,41 @@ enum BookmarkBubblePolicy {
     /// The burst after a toolbar click: a read this often, at most `maxScans` of them.
     static let scanEvery: Duration = .milliseconds(50)
     static let maxScans = 8
+
+    /// G191 v5 — the shapes of Chrome's bookmark bubble a bookmark confirmed on the owner's Mac: "Bookmark added" and
+    /// "Edit bookmark", both 448 × 224 pt (2026-10-15). Never a shape that came with no bookmark.
+    static let measuredShapes: [BubbleShape] = [BubbleShape(width: 448, height: 224)]
+    /// How far a window may differ from a confirmed shape, per side, and still be it (half-point rounding on Retina, a
+    /// point of border either way). The nearest other toolbar surface measured (the Extensions menu) is 161 pt narrower.
+    static let shapeSlack: CGFloat = 4
+    /// The bubble hangs from the button clicked: the click's x lies within its span, or just past its right edge (the
+    /// star's own width, the bubble aligned to its right). A window the click did not open sits elsewhere.
+    static let hangLeft: CGFloat = 8
+    static let hangRight: CGFloat = 48
+    /// Learned shapes kept per browser beside the measured ones, newest first.
+    static let maxLearned = 4
+    /// A window of an unknown shape is remembered as the bubble only if the file names one new bookmark within this of
+    /// its appearance …
+    static let learnWithin: TimeInterval = 20
+    /// … whose own instant (Chrome's `date_added`, the click, floored to the second) lies at most `learnLead` after and
+    /// `learnLag` before the window appeared — the window came with the click that made that bookmark: the bubble shows
+    /// ≤ 400 ms after the click, and flooring moves the instant back by up to 1 s. When two such windows fit one
+    /// bookmark (the star, then the puzzle piece a second later) neither is learned.
+    static let learnLead: TimeInterval = 0.5
+    static let learnLag: TimeInterval = 1.6
+
+    /// Whether a bookmark made at `addedAt` (the browser's own instant, floored to the second) is the one the window seen
+    /// at `seenAt` came with.
+    static func confirms(seenAt: Date, addedAt: Date?, now: Date) -> Bool {
+        guard let addedAt, now.timeIntervalSince(seenAt) <= learnWithin else { return false }
+        let lag = seenAt.timeIntervalSince(addedAt)
+        return lag >= -learnLead && lag <= learnLag
+    }
+
+    /// Whether `window` hangs from a click at `point` (window-list coordinates).
+    static func hangsFrom(_ window: CGRect, click point: CGPoint) -> Bool {
+        point.x >= window.minX - hangLeft && point.x <= window.maxX + hangRight && point.y <= window.minY + hangLeft
+    }
 
     /// Whether `window` is small and sits where Chrome anchors its bookmark bubble on `browser`.
     static func isAnchored(_ window: CGRect, on browser: CGRect) -> Bool {
@@ -96,14 +146,72 @@ enum BookmarkBubblePolicy {
     }
 }
 
+/// G191 v5 — one shape of Chrome's bookmark bubble, in whole points.
+struct BubbleShape: Codable, Equatable, Hashable, Sendable {
+    let width: Int
+    let height: Int
+
+    init(width: Int, height: Int) {
+        self.width = width
+        self.height = height
+    }
+
+    init(_ size: CGSize) {
+        self.init(width: Int(size.width.rounded()), height: Int(size.height.rounded()))
+    }
+
+    func matches(_ size: CGSize) -> Bool {
+        abs(size.width - CGFloat(width)) <= BookmarkBubblePolicy.shapeSlack
+            && abs(size.height - CGFloat(height)) <= BookmarkBubblePolicy.shapeSlack
+    }
+}
+
+/// G191 v5 — the bubble shapes a bookmark confirmed, per browser: the measured ones (in code) and the learned ones
+/// (`cicada.saveWhy.bubbleShapes.<bundle id>`, shapes only, newest first, at most `maxLearned`). Only ever added to
+/// by a bookmark the file confirmed (`BookmarkBubbleWatcher.bookmarkNamed`); nothing here is ever a refusal.
+enum BubbleShapeMemory {
+    static func key(_ bundleId: String) -> String { "cicada.saveWhy.bubbleShapes.\(bundleId)" }
+
+    static func learned(_ defaults: UserDefaults, bundleId: String) -> [BubbleShape] {
+        guard let data = defaults.data(forKey: key(bundleId)),
+              let shapes = try? JSONDecoder().decode([BubbleShape].self, from: data) else { return [] }
+        return Array(shapes.prefix(BookmarkBubblePolicy.maxLearned))
+    }
+
+    static func shapes(_ defaults: UserDefaults, bundleId: String) -> [BubbleShape] {
+        BookmarkBubblePolicy.measuredShapes + learned(defaults, bundleId: bundleId)
+    }
+
+    /// Remember `shape` (a no-op when a known shape already covers it). True when it was new.
+    @discardableResult
+    static func learn(_ shape: BubbleShape, _ defaults: UserDefaults, bundleId: String) -> Bool {
+        let size = CGSize(width: shape.width, height: shape.height)
+        guard !shapes(defaults, bundleId: bundleId).contains(where: { $0.matches(size) }) else { return false }
+        let kept = Array(([shape] + learned(defaults, bundleId: bundleId)).prefix(BookmarkBubblePolicy.maxLearned))
+        guard let data = try? JSONEncoder().encode(kept) else { return false }
+        defaults.set(data, forKey: key(bundleId))
+        return true
+    }
+}
+
 /// The pure half: after a toolbar click, which new window (if any) is the bookmark bubble. Fed the window lists read
 /// during the burst and the seconds since the click.
 struct BookmarkBubbleDetector: Equatable {
     private(set) var known: Set<Int> = []
+    /// The shapes a bookmark confirmed (`BubbleShapeMemory`); the measured ones by default.
+    var shapes: [BubbleShape] = BookmarkBubblePolicy.measuredShapes
+    /// The click the burst follows (window-list coordinates); nil checks no hang (the v3 tests' shortcut).
+    private(set) var click: CGPoint?
+    /// G191 v5 — the new anchored window this click opened whose shape no bookmark has confirmed (the Extensions menu,
+    /// the profile menu, … or a resized bubble): it opens nothing, and is remembered only if the file then confirms a
+    /// bookmark made with it.
+    private(set) var unknown: ListedWindow?
 
     /// The windows on screen at the click are never new.
-    mutating func baseline(_ windows: [ListedWindow]) {
+    mutating func baseline(_ windows: [ListedWindow], click: CGPoint? = nil) {
         known = Set(windows.map(\.number))
+        self.click = click
+        unknown = nil
     }
 
     /// The browser window whose toolbar band `point` landed in, if any.
@@ -111,18 +219,27 @@ struct BookmarkBubbleDetector: Equatable {
         windows.first { BookmarkBubblePolicy.isBrowserWindow($0) && BookmarkBubblePolicy.isToolbarClick(point, on: $0.bounds) }
     }
 
+    /// Whether a window of this size is the bookmark bubble.
+    func isBubbleShape(_ size: CGSize) -> Bool { shapes.contains { $0.matches(size) } }
+
     /// The bubble among `windows`, at most one: a window not on screen at the click, at a bubble's layer, small and
-    /// anchored under the toolbar at the right of a browser window of the same app, within `inputWindow` of the click.
+    /// anchored under the toolbar at the right of a browser window of the same app, hanging from the click, within
+    /// `inputWindow` of the click — and of a confirmed shape. An anchored new window of another shape is kept in
+    /// `unknown` and is not the bubble.
     mutating func observe(_ windows: [ListedWindow], sinceClick: TimeInterval) -> ListedWindow? {
         let fresh = windows.filter { !known.contains($0.number) }
         known.formUnion(windows.map(\.number))
         guard sinceClick <= BookmarkBubblePolicy.inputWindow else { return nil }
         let browsers = windows.filter(BookmarkBubblePolicy.isBrowserWindow)
-        return fresh.first { candidate in
+        let anchored = fresh.filter { candidate in
             candidate.layer >= 0 && candidate.layer <= BookmarkBubblePolicy.maxLayer
+                && (click.map { BookmarkBubblePolicy.hangsFrom(candidate.bounds, click: $0) } ?? true)
                 && browsers.contains { $0.pid == candidate.pid && $0.number != candidate.number
                     && BookmarkBubblePolicy.isAnchored(candidate.bounds, on: $0.bounds) }
         }
+        if let bubble = anchored.first(where: { isBubbleShape($0.bounds.size) }) { return bubble }
+        if unknown == nil { unknown = anchored.first }
+        return nil
     }
 }
 
@@ -140,6 +257,10 @@ final class BookmarkBubbleWatcher {
     private let defaults: UserDefaults
     private let windows: (pid_t) -> [ListedWindow]
     private let clock: () -> TimeInterval
+    private let date: () -> Date
+    /// G191 v5 — the anchored windows of an unknown shape toolbar clicks opened in the last `learnWithin`, in memory
+    /// only, until a bookmark the file names confirms one: its shape, when it appeared, and where.
+    private(set) var unconfirmed: [(shape: BubbleShape, seenAt: Date, bundleId: String, channel: String)] = []
     private var armed: (pid: pid_t, bundleId: String, channel: String)?
     private var monitor: Any?
     private var burst: Task<Void, Never>?
@@ -149,10 +270,12 @@ final class BookmarkBubbleWatcher {
 
     init(defaults: UserDefaults = .standard,
          windows: @escaping (pid_t) -> [ListedWindow] = BookmarkBubbleWatcher.liveWindows(of:),
-         clock: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
+         clock: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
+         date: @escaping () -> Date = Date.init) {
         self.defaults = defaults
         self.windows = windows
         self.clock = clock
+        self.date = date
     }
 
     var isArmed: Bool { armed != nil }
@@ -176,8 +299,9 @@ final class BookmarkBubbleWatcher {
         disarm()
     }
 
-    /// G191 v4 — v3 kept learned, refused and missed bubble sizes per browser in this Mac's defaults; v4 learns
-    /// nothing, so they are removed (once, harmlessly, on every start).
+    /// G191 v4 — v3 kept learned, refused and missed bubble sizes per browser in this Mac's defaults (refusals among
+    /// them, learned from the person's own bookmarks failing to match), so they are removed (harmlessly, on every
+    /// start). v5's confirmed shapes live under their own key (`BubbleShapeMemory`).
     static func forgetLearnedSizes(_ defaults: UserDefaults) {
         for entry in browsers { defaults.removeObject(forKey: "cicada.saveWhy.bubble.\(entry.bundleId)") }
     }
@@ -224,7 +348,8 @@ final class BookmarkBubbleWatcher {
         let now = windows(armed.pid)
         guard BookmarkBubbleDetector.toolbarWindow(at: point, in: now) != nil else { return }
         var detector = BookmarkBubbleDetector()
-        detector.baseline(now)
+        detector.shapes = BubbleShapeMemory.shapes(defaults, bundleId: armed.bundleId)
+        detector.baseline(now, click: point)
         burst?.cancel()
         burst = Task { @MainActor [weak self] in
             for _ in 0..<BookmarkBubblePolicy.maxScans {
@@ -237,8 +362,39 @@ final class BookmarkBubbleWatcher {
                     if self.isWanted(armed.channel) { self.onBubble(armed.channel) }
                     break
                 }
+                if let other = detector.unknown {
+                    // The click opened a menu or a bubble of a shape no bookmark confirmed: nothing opens. Kept only
+                    // so a bookmark made with it (a resized bookmark bubble) can teach its shape.
+                    let seenAt = self.date()
+                    self.unconfirmed = self.unconfirmed.filter {
+                        seenAt.timeIntervalSince($0.seenAt) <= BookmarkBubblePolicy.learnWithin
+                    } + [(BubbleShape(other.bounds.size), seenAt, armed.bundleId, armed.channel)]
+                    break
+                }
             }
             self?.burst = nil
+        }
+    }
+
+    /// G191 v5 — the app's own diff of `item.channel`'s file named one new bookmark (live reads only). If an anchored
+    /// window of an unknown shape appeared with the click that made it (`BookmarkBubblePolicy.confirms`), that window
+    /// was the bookmark bubble: its shape is remembered, so the next star click opens the question at once. Two
+    /// windows that both fit (the star, then the puzzle piece a second later) teach nothing, and anything else teaches
+    /// nothing either — no shape is ever refused.
+    func bookmarkNamed(_ item: FreshBookmark) {
+        let now = date()
+        unconfirmed = unconfirmed.filter { now.timeIntervalSince($0.seenAt) <= BookmarkBubblePolicy.learnWithin }
+        let fits = unconfirmed.indices.filter { i in
+            unconfirmed[i].channel == item.channel
+                && BookmarkBubblePolicy.confirms(seenAt: unconfirmed[i].seenAt, addedAt: item.addedDate, now: now)
+        }
+        guard !fits.isEmpty else { return }
+        let seen = unconfirmed[fits[0]]
+        unconfirmed = unconfirmed.enumerated().filter { !fits.contains($0.offset) }.map(\.element)
+        guard fits.count == 1 else { return }
+        if BubbleShapeMemory.learn(seen.shape, defaults, bundleId: seen.bundleId) {
+            SaveWhyTimings.logger.info(
+                "save-why: bubble shape \(seen.shape.width)×\(seen.shape.height) confirmed by a bookmark")
         }
     }
 

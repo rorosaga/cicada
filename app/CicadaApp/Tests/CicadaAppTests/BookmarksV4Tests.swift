@@ -234,7 +234,7 @@ final class BookmarksV4Tests: XCTestCase {
         var added = BookmarkBubbleDetector()
         added.baseline([window])
         XCTAssertEqual(added.observe([window, bubble(3), tooltip], sinceClick: 0.12), bubble(3),
-                       "the Bookmark added bubble, whatever its size — none is learned")
+                       "the Bookmark added bubble: the measured shape")
         XCTAssertNil(added.observe([window, bubble(3), tooltip], sinceClick: 0.2), "the same window is seen once")
         var tip = BookmarkBubbleDetector()
         tip.baseline([window])

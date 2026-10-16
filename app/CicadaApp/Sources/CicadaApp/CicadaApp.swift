@@ -334,6 +334,7 @@ struct CicadaApp: App {
                         saveWhy.prefs.enabled && browserWatcher.isEnabled(channel)
                     }
                     bookmarkBubbles.onBubble = { [saveWhy] channel in saveWhy.bubbleSeen(channel: channel) }
+                    saveWhy.onNamed = { [bookmarkBubbles] item in bookmarkBubbles.bookmarkNamed(item) }
                     bookmarkBubbles.start()
                     // G191 v3 — the app's own diff needs a "before" for each watched browser: read once now, so the
                     // first bookmark after launch is named from the file without waiting for the backend.
