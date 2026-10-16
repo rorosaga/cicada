@@ -118,3 +118,36 @@ final class SleepRoomGroupTests: XCTestCase {
                              "a narrow column wraps the tail rather than cutting it")
     }
 }
+
+/// The pile stands on the painted room now, and its spines are translucent at rest (85 %) and the folded remainder is a
+/// 40 % fill — with nothing under them the wall and floor would show through behind each count (DR-13: no text on the
+/// art). A spine rests on the page ground in its own silhouette, so whatever is behind it never shows.
+@MainActor
+final class SleepPileGroundTests: XCTestCase {
+    override func setUp() { CicadaTheme.uiScale = 1 }
+
+    private func plane(_ spec: BookSpec, over ground: Color) throws -> SpriteTestAssets.Plane {
+        let spine = SpineButton(spec: spec, row: nil, episodes: [], room: nil, onOpenDetails: { _ in },
+                                height: 40, gap: 0, width: 200,
+                                // The remainder carries its count; a source's spine is drawn bare here (its mark's
+                                // logo reads the Store, which this offscreen render has none of).
+                                showsLabel: spec.isRemainder, cell: 5)
+        let renderer = ImageRenderer(content: spine.frame(width: 200, height: 40).background(ground))
+        renderer.scale = 1
+        return SpriteTestAssets.Plane(try XCTUnwrap(renderer.cgImage))
+    }
+
+    func test_nothingBehindASpineShowsThroughIt() throws {
+        let specs = [BookSpec(origin: "claude-code", count: 3, height: 40, widthFraction: 1, isRemainder: false),
+                     BookSpec(origin: "+more", count: 7, height: 40, widthFraction: 1, isRemainder: true)]
+        for spec in specs {
+            let red = try plane(spec, over: .red), blue = try plane(spec, over: .blue)
+            XCTAssertEqual([red.w, red.h], [200, 40])
+            // The spine's interior, two cells in from every edge (its silhouette's corners are the art's own).
+            for y in 10..<30 { for x in 10..<190 {
+                XCTAssertEqual(red.at(x, y), blue.at(x, y), "\(spec.origin): the ground shows through at (\(x), \(y))")
+                if red.at(x, y) != blue.at(x, y) { return }
+            } }
+        }
+    }
+}

@@ -336,6 +336,11 @@ struct SpineButton: View {
         // Resting at 0.85 is today's look (the colour used to carry the
         // opacity); a lift is full strength, and 2 pt up unless Reduce Motion.
         .opacity(spec.isRemainder || lifted ? 1 : 0.85)
+        // The pile stands in the painted room (2026-10-16), and a translucent spine — the remainder's 40 % fill, a
+        // resting 85 % — would let the wall and floor show through behind its count (DR-13: no text on the art). It
+        // rests on the page ground in its own silhouette instead, so it reads exactly as it did on the page.
+        .background(SpineTexture(kind: spec.isRemainder ? .other : spineKind(for: spec.origin), color: CicadaTheme.bgBase,
+                                 cell: cell, size: CGSize(width: width, height: height), silhouetteOnly: true))
         .offset(y: lifted && !reduceMotion ? -2 : 0)
         .animation(SleepMotion.hover(reduceMotion: reduceMotion), value: lifted)
     }

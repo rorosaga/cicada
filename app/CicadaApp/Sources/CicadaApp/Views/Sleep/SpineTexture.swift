@@ -41,6 +41,8 @@ struct SpineTexture: View {
     let color: Color
     let cell: CGFloat
     let size: CGSize
+    /// Only the spine's silhouette (mask 0) in `color` — the opaque ground a translucent spine rests on.
+    var silhouetteOnly = false
 
     static func usesTexture(cell: CGFloat, size: CGSize) -> Bool { size.width >= 9 * cell && size.height >= 5 * cell }
 
@@ -48,7 +50,7 @@ struct SpineTexture: View {
         Group {
             if Self.usesTexture(cell: cell, size: size), SpineMasks.crop(kind, mask: 0, rows: nil) != nil {
                 ZStack(alignment: .topTrailing) {
-                    ForEach(0..<3) { mask in
+                    ForEach(0..<(silhouetteOnly ? 1 : 3), id: \.self) { mask in
                         if let crop = SpineMasks.crop(kind, mask: mask, rows: nil) {
                             Image(decorative: crop, scale: 1 / cell)
                                 .resizable(capInsets: EdgeInsets(top: cell, leading: 4 * cell, bottom: cell, trailing: 0), resizingMode: .stretch)
@@ -58,7 +60,7 @@ struct SpineTexture: View {
                         }
                     }
                     let rows = min(10, Int(floor(size.height / cell)) - 2)
-                    ForEach(1..<3) { mask in
+                    ForEach(1..<(silhouetteOnly ? 1 : 3), id: \.self) { mask in
                         if let crop = SpineMasks.crop(kind, mask: mask, rows: rows) {
                             Image(decorative: crop, scale: 1 / cell)
                                 .renderingMode(.template).interpolation(.none)

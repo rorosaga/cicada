@@ -913,7 +913,9 @@ ground, drawn at a whole 5, 4 or 3 pt per lattice cell by the width the art may 
 page over its bottom five cells (`RoomFloorFade`, a mask on the art layer only, never the pile). **The painted room is
 the lattice (2026-10-16):** the backdrop's wall, floor and trim span all 160 columns, so the pile stands on the room's
 floor in its own columns and the worm, props, pile and every hotspot sit inside `DeskSceneLayout.paintedFrame` at every
-step (`SleepRoomFrameTests`; the backdrop was 110 columns, which the old card hid). Under it, in the 760 pt
+step (`SleepRoomFrameTests`; the backdrop was 110 columns, which the old card hid). Each spine rests on the page
+ground in its own silhouette, so the wall never shows through a translucent spine behind its count (DR-13,
+`SleepPileGroundTests`). Under it, in the 760 pt
 text column, one sentence in the display face, one Consolidate/Cancel control with the engine menu
 snug beside it (`HugWidth`: the button is its own width up to its 300 pt cap, never the cap) — a neutral button naming what a cycle you start would run (`preview.manual`, "Auto ·"
 under Auto) that opens the five engines with their real marks, the chosen engine's model and both
