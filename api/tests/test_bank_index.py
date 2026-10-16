@@ -91,3 +91,40 @@ def test_dir_stamp_changes_on_write(tmp_path):
     _write(d / "b.md", "id: b")
     s2 = bank_index.dir_stamp(tmp_path, "entities")
     assert s1 != s2 and s2[0] == 2
+
+
+def test_body_reuses_the_cached_frontmatter_and_folds_a_ledger(tmp_path, monkeypatch):
+    """2026-10-16 perf: `body()` re-parsed the frontmatter YAML the cache already held. It now splits the file and
+    folds a page's claims ledger exactly as `markdown_parser.parse` does, and parses whole only a file that moved."""
+    from api.services import claims, claims_ledger, markdown_parser
+
+    bank_index.invalidate()
+    d = tmp_path / "entities"; d.mkdir()
+    page = d / "alpha-example.md"
+    many = [claims.Claim(id=f"clm_{i:04d}", text=f"Alpha Example uses tool-{i} " + "x" * 300,
+                         subject="alpha-example", predicate="uses", object=f"tool-{i}", observer="agent")
+            for i in range(300)]
+    markdown_parser.write(page, {"id": "alpha-example", "name": "Alpha Example", "type": "tool"},
+                          claims.write_claims("## Summary\n\nA synthetic tool.", many))
+    assert claims_ledger.path_for(page).exists()   # the fence overflowed into the ledger
+    plain = d / "beta-example.md"
+    _write(plain, "id: beta-example\nname: Beta Example", body="Beta's body.")
+
+    entries = {f.stem: f for f in bank_index.files(tmp_path, "entities")}
+    loads = []
+    real_load = markdown_parser.yaml.load
+    monkeypatch.setattr(markdown_parser.yaml, "load", lambda *a, **k: loads.append(1) or real_load(*a, **k))
+
+    assert entries["alpha-example"].body() == markdown_parser.parse(page).body
+    assert len(claims.parse_claims(entries["alpha-example"].body())) == 300
+    assert entries["beta-example"].body() == "Beta's body."
+    assert claims_ledger.READ not in entries["alpha-example"].frontmatter.get(claims_ledger.STAMP, {})
+    loads.clear()
+    entries["alpha-example"].body()
+    entries["beta-example"].body()
+    assert loads == []
+
+    time.sleep(0.01)
+    _write(plain, "id: beta-example\nname: Beta Example", body="Beta's new body, longer.")
+    assert entries["beta-example"].body() == "Beta's new body, longer."   # moved since listed: parsed whole
+    assert loads == [1]

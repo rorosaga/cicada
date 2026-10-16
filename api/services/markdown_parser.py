@@ -105,6 +105,22 @@ def parse(filepath: Path, *, ledger: bool = True) -> ParsedMarkdown:
 _LEDGER_STAMP = "claims_ledger"   # `claims_ledger.STAMP`, spelled here so a plain parse imports nothing
 
 
+def body_of(filepath: Path, content: str, frontmatter: dict) -> str:
+    """``parse(filepath).body`` for ``content`` already read, given the frontmatter already parsed from that same
+    content (``bank_index``'s cached entry) — the split and the ledger fold, without a second YAML parse. The fold's
+    read mark goes on a copy, never on the caller's dict."""
+    split = split_frontmatter(content)
+    if split is None:
+        return content
+    body = split[1].strip()
+    if isinstance(frontmatter, dict) and _LEDGER_STAMP in frontmatter:
+        from api.services import claims_ledger
+
+        if claims_ledger.is_page(filepath):
+            body = claims_ledger.fold(filepath, dict(frontmatter), body).strip()
+    return body
+
+
 def _split_ledger(filepath: Path, frontmatter: dict, body: str) -> tuple[dict, str, bytes | None]:
     """An entity page's write: the claims its ledger holds, and the oldest of an over-budget fence, go to the ledger
     (``claims_ledger.split``); every other file is written as given."""
