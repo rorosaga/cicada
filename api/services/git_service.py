@@ -1265,15 +1265,24 @@ async def get_contributors(
         return []
 
     # NUL-record-delimited log so multi-line bodies never collide with the
-    # field separator: hash <US> date <US> body <RS-record>.
+    # field separator: <RS> hash <US> date <US> body <US>, then the commit's
+    # changed paths (``--name-only``). One git process for the whole history
+    # (2026-10-16 perf): a ``git diff-tree`` per commit cost ~18 s on a
+    # 1,043-commit synthetic bank, paid again on every commit since the ETag is
+    # HEAD. ``--root`` lists the first commit's files and ``--no-renames``
+    # lists a rename's two paths, as ``diff-tree -r --root`` did; a merge
+    # lists no files under either.
     sep = "\x1f"
     rec = "\x1e"
     try:
         out = await _run_git(
             memory_path,
             "log",
-            f"--format=%H{sep}%ad{sep}%b{rec}",
+            f"--format={rec}%H{sep}%ad{sep}%b{sep}",
             "--date=short",
+            "--name-only",
+            "--root",
+            "--no-renames",
         )
     except GitError:
         return []
@@ -1282,30 +1291,17 @@ async def get_contributors(
     agg: dict[str, dict] = {}
 
     for record in out.split(rec):
-        record = record.strip("\n")
         if not record.strip():
             continue
-        fields = record.split(sep, 2)
-        if len(fields) < 3:
+        fields = record.split(sep, 3)
+        if len(fields) < 4:
             continue
-        commit_hash, date, body = fields[0].strip(), fields[1].strip(), fields[2]
+        commit_hash, date, body, tail = fields[0].strip(), fields[1].strip(), fields[2], fields[3]
+        if not commit_hash:
+            continue
 
         authors = _parse_authors(body) or [UNKNOWN_AUTHOR]
-
-        # Files changed in this commit (best-effort).
-        try:
-            names_out = await _run_git(
-                memory_path,
-                "diff-tree",
-                "--no-commit-id",
-                "--name-only",
-                "-r",
-                "--root",  # so the initial (parentless) commit lists its added files
-                commit_hash,
-            )
-            files = [f for f in names_out.strip().splitlines() if f]
-        except GitError:
-            files = []
+        files = [f for f in tail.strip().splitlines() if f]
 
         for author in authors:
             state = agg.setdefault(
