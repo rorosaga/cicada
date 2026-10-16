@@ -100,7 +100,7 @@ final class SleepRoomGroupTests: XCTestCase {
         let none = try slotHeight(bare)
         XCTAssertEqual(try slotHeight(tailed), none, accuracy: 0.5, "a tail never reflows what sits below (R-Z5)")
         let lead = try size(Text("1 to read").font(CicadaTheme.displayFont(size: RoomSentenceView.leadSize)), width: 760).height
-        let tailLine = try size(Text(verbatim: " ").font(CicadaTheme.displayFont(size: RoomSentenceView.tailSize, italic: true)),
+        let tailLine = try size(Text(verbatim: " ").font(RoomSentenceView.tailFont(size: RoomSentenceView.tailSize)),
                                 width: 760).height
         XCTAssertEqual(SentenceSlot.reservedTailLines, 1)
         XCTAssertLessThanOrEqual(none, lead + CicadaTheme.spacingXS + tailLine + 1, "the slot holds a second, empty tail line")

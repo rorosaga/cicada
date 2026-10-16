@@ -384,9 +384,11 @@ struct SleepReadoutView: View {
 
 /// While a cycle runs, what Cancel does; otherwise nothing — the engine menu beside the control
 /// names what a click would run (R-HS9), the fact the retired "Runs on …" caption stated, so
-/// printing both would say it twice (DR-38).
-func controlCaption(isRunning: Bool, draining: Bool = false) -> String? {
+/// printing both would say it twice (DR-38). While the last stage files, what any stop does now
+/// (`Copy.SleepV5.filingWhisper`) — said here once, not again under the stepper (2026-10-16).
+func controlCaption(isRunning: Bool, draining: Bool = false, filing: Bool = false) -> String? {
     guard isRunning else { return nil }
+    if filing { return Copy.SleepV5.filingWhisper }
     return draining ? Copy.cancelDrainCaption : Copy.cancelCaption
 }
 
@@ -400,8 +402,8 @@ func controlCaption(isRunning: Bool, draining: Bool = false) -> String? {
 /// live while the sentence says there is nothing to read.
 ///
 /// Beside it sits the engine menu (`EngineQuickMenuButton`), which names what a cycle you start
-/// would run (R-HS8); the caption beside the pair is Cancel's while a cycle runs and nothing
-/// otherwise (R-HS9).
+/// would run (R-HS8); the caption under the pair, on its own centred line (2026-10-16), is the stop's
+/// while a cycle runs and nothing otherwise (R-HS9).
 struct SleepControlRow: View {
     @Environment(SleepViewModel.self) private var sleepVM
     @Environment(SleepEngineViewModel.self) private var engineVM
@@ -415,8 +417,14 @@ struct SleepControlRow: View {
 
     @State private var optionsOpen = false
 
-    private var draining: Bool { sleepVM.status?.drain?.active == true }
+    /// The page's own reading when there is one (H1: the control never disagrees with the sentence and the stepper
+    /// above and below it — the live capture showed Cancel under a stage that only a drain reaches).
+    private var draining: Bool { (page?.drain ?? sleepVM.status?.drain)?.active == true }
     private var paused: SleepPausedRun? { page?.paused }
+    /// The last stage is filing: a stop now waits for the commit.
+    private var filing: Bool {
+        sleepVM.isRunning && page?.runningStage == SleepStages.all.count
+    }
 
     var body: some View {
         VStack(spacing: CicadaTheme.spacingSM) {
@@ -436,12 +444,16 @@ struct SleepControlRow: View {
                         Task { await sleepVM.endRun() }
                     }
                 }
-                if let caption = caption {
-                    Text(caption)
-                        .font(CicadaTheme.captionFont)
-                        .monospacedDigit()
-                        .foregroundStyle(CicadaTheme.textTertiary)
-                }
+            }
+            // The whisper sits on its own line under the group (2026-10-16): beside the buttons it pushed the pair
+            // off the column's centre by its own width.
+            if let caption = caption {
+                Text(caption)
+                    .font(CicadaTheme.captionFont)
+                    .monospacedDigit()
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             // A choice made while a run reads (here, in Settings, or by an agent) waits for the next start or
             // Continue; the button already names the new choice, so the row says the run is not using it yet.
@@ -473,7 +485,8 @@ struct SleepControlRow: View {
     /// Running: the elapsed time of a run that reads in batches (measured, never a remaining time — G107), else
     /// Cancel's caption. Idle after a run that left arrivals: the reason Consolidate is live again.
     private var caption: String? {
-        if sleepVM.isRunning, draining, let ms = sleepVM.status?.drain?.elapsedMs, ms > 0 {
+        if filing { return Copy.SleepV5.filingWhisper }
+        if sleepVM.isRunning, draining, let ms = (page?.drain ?? sleepVM.status?.drain)?.elapsedMs, ms > 0 {
             return Copy.SleepV5.runningFor(SleepHistoryPresentation.durationText(ms: ms))
         }
         if let running = controlCaption(isRunning: sleepVM.isRunning, draining: draining), !draining { return running }
@@ -554,7 +567,7 @@ struct SleepControlRow: View {
         }
         .buttonStyle(.cicadaPlain)
         .disabled(sleepVM.isCancelling)
-        .help(Copy.SleepV5.pauseHelp)
+        .help(filing ? Copy.SleepV5.filingWhisper : Copy.SleepV5.pauseHelp)
         .accessibilityLabel(sleepVM.isCancelling ? Copy.SleepV5.pausing : Copy.SleepV5.pause)
     }
 
@@ -584,7 +597,8 @@ struct SleepControlRow: View {
         }
         .buttonStyle(.cicadaPlain)
         .disabled(sleepVM.isCancelling)
-        .help(sleepVM.status?.drain?.active == true ? Copy.cancelDrainExplainer : Copy.cancelSleepExplainer)
+        .help(filing ? Copy.SleepV5.filingWhisper
+                     : draining ? Copy.cancelDrainExplainer : Copy.cancelSleepExplainer)
         .accessibilityLabel(Copy.cancelSleep)
     }
 }

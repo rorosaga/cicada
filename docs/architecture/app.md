@@ -1057,18 +1057,35 @@ dashed chrome outline, and the window's veil steps aside (`nearerDrop`); it gulp
 takes the drop and shakes when it does not, and the sentence tells the router's own phase in words
 with no number — the panel has the counts. A sleeping worm takes the drop and stays asleep; a stale
 page sends nothing. **Meadow (Z10).** The sentence is the display face (SF Pro Display semibold 30,
-`displayTracking`) over an SF italic tail (F1 R-FX13), Consolidate is the page's one `PrimaryActionButton`, `SleepMotion` forwards its shared names
+`displayTracking`) over one SF regular italic tail at 17 pt (F1 R-FX13; off the display face since 2026-10-16), Consolidate is the page's one `PrimaryActionButton`, `SleepMotion` forwards its shared names
 to `CicadaMotion`, and the sky band above the page is OFF (`SkyBand.ships`, TODO ruling 10). The
 pile fits its column at every scale and queue size — two stacks before a fold, the order and every count kept,
 never cut (`PileBooks.stack`).
+**The room's column, one centred group (2026-10-16).** Owner, live during a run: *"those stages of reading and stuff
+are kind of ugly … center it"*. Everything under the room is `SleepRoomColumn` (out of `SleepView.roomBlock`) in the
+760 pt column (DR-36), every row centred on one axis: the sentence (lead + one 17 pt italic line), the control group
+(`SleepControlRow` — its whisper on its own line under the buttons, never beside them), the notes, the schedule line,
+then `RunInstrument`: the stage stepper and the progress bar at the column's full width, the counts centred under the
+bar ("Batch 4 of 12 · 74 filed · … · 222 calls made"). The stepper (`SleepStageStrip`, `StepLook`) replaced the five
+56 pt pixel-icon tiles: per stage a 14 pt marker and its word, joined by connectors that stretch — done is a check in a
+`bgBadge` disc with the word in `textSecondary`, current an accent ring (the focus-ring use, DR-5) holding a live dot
+with the word in `textPrimary` medium, to come an empty ring in `textTertiary`, failed a `danger` cross (VoiceOver says
+"failed"). Only a counted stage's fraction fills the connector leaving it (P15). The live dot breathes on its own Core
+Animation layer (`LiveDot`, `SleepMotion.liveBreathHalfPeriod`), held lit under Reduce Motion and in snapshots — the old
+strip's 0.1 s `TimelineView` is gone. Each thing is said once: while the last stage files, "Filing…" is the lead, the
+stage's purpose the tail, and what a stop does now (`Copy.SleepV5.filingWhisper` — honoured after the batch commits, so
+the control stays enabled) the whisper and the Pause/Cancel tooltip. The control row reads the page's own drain (H1).
+`SleepRunStripTests` lays the real column out offscreen and checks every row's ink is centred and only the stepper and
+the bar span the column; `CICADA_RUN_STRIP_SNAPSHOTS=<dir>` writes every run state, dark and light, at 1440 and 1079 pt.
 Refused: motion with no state behind it (mug steam, plant sway), a flash or strobe in any weather, a count driving the window (time of day follows the clock or the person's choice, R-Z11 as amended 2026-10-02), duration estimates, and any price or plan figure outside Past reads and the engine menu (TODO ruling 12). State art loops (ruling 18).
 
 **Consolidate reads everything — the app half (G163, ruling 13).** No new door: every trigger already POSTs with no body, and
 the server drains. `SleepStatusResponse.drain` (`SleepDrainInfo`, lenient like every field) and the SSE event's compact
 `SleepDrainSSE` are merged by one pure `resolveDrain(sse:status:)`: the status holds the whole block, the event overlays the
 moving counts only when it describes the same run (same frozen total), and neither is ever a hybrid of two runs. While it
-reads, the sentence's tail is "Batch 3 of 12 · 62 of 287 filed." (measured counts through `UsageFormat.count`, G107, and only
-with more than one batch); the lead, the strip's Read fill and the study list already read the cumulative origin dicts. A plan
+reads, the legend under the progress bar leads with "Batch 3 of 12" (measured counts through `UsageFormat.count`, G107, and only
+with more than one batch; until 2026-10-16 the tail said "Batch 3 of 12 · 62 of 287 filed.", a second saying of the legend's
+filed count, and the tail now says what the stage does); the lead, the strip's Read fill and the study list already read the cumulative origin dicts. A plan
 stop is a *pause*, not a failure: the tail is the vendor's own sentence (reset time inside it), the strip freezes where it
 stopped and the worm neither chews nor cheers (`SleepPageModel.stoppedEarly` feeds `stageStripState`, `stageStripIsVisible`,
 `deriveSleepPageMood` and `isRealCompletion(drainStop:)`). **Cancel keeps its name** and its semantics (stop at the next safe
@@ -1180,7 +1197,8 @@ through `triggerManually()`, which routes to the Sleep page while a run is pause
 and Home's *Read now* say what the click reads — "Consolidate now — all 287", "Reads all 318 waiting, oldest first, saving every 25." (`SleepDoor`,
 readable = waiting minus parked, M7; a pause whose record has not loaded says only "Paused", and an unknown batch size is left out, never a
 fallback — `Store.onSleepPausedChanged` refetches the record app-wide, not only on the Sleep page). While a drain reads: "Reading 14 of 25." / "Sorting 31 of 86." / "Deciding 4 of 12." / "Filing…" (a stage
-fills only from finished work over a fixed total; Notice and File never), a caption under the strip in words, `RunProgressBar` (filed ·
+fills only from finished work over a fixed total; Notice and File never), under the stepper only a batch failure in words
+(`batchFailureNote`; the stage caption that repeated the lead retired 2026-10-16), `RunProgressBar` (batch position · filed ·
 read, waiting to file · waiting · could not be read, and calls made; one accessibility value; elapsed "Running 27 m", never a remaining time),
 and the first save's "Your page has 31 beliefs so far" with *See your page ›*. *Reading options…* (`ReadingOptionsSheet`, 720 pt) sets batch size
 10/25/50 and *Continue by itself when my plan resets* (off) on change; it has no Read faster row, no engine advice and no site list. The engine
