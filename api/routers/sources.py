@@ -66,6 +66,7 @@ from api.services import (
     source_overview,
     sync_service,
     sync_state,
+    watch_history,
     write_admission,
 )
 from api.services.connectors import ADAPTERS
@@ -230,8 +231,10 @@ async def upload_sources(
     before they commit to it. Nothing is cached server-side — Confirm re-posts
     the same file without the flag.
 
-    ``?include_history=true`` opts a TikTok export's Browsing History in (default
-    off: ambient exhaust, not saves — G69).
+    ``?include_history=true`` opts watch and browsing history in (default off:
+    history is not a save — G69). Brought in, it never becomes saved links: its
+    rows go to ``watch_history`` (one episode per day of what was watched,
+    committed alone) and only the saves go on to ``media_ingestor``.
     """
     content = await file.read()
     filename = file.filename or ""
@@ -256,6 +259,9 @@ async def upload_sources(
             total=result.total,
             collections=[SourceUploadCollection(**c) for c in result.collections],
             warnings=result.warnings,
+            history_excluded=result.history_excluded,
+            history_videos=result.history_videos,
+            history_days=result.history_days,
         )
 
     logger.info(f"Sources upload: {filename} ({len(content)} bytes)")
@@ -279,6 +285,13 @@ async def upload_sources(
         )
 
     memory_path = settings.memory_path
+    # History is experience, never a save (G71, 2026-10-16): its days are written first, alone.
+    items, history_rows = watch_history.split(items)
+    history_note = ""
+    if history_rows:
+        history = await watch_history.import_history(memory_path, history_rows, door="takeout",
+                                                     trigger="user/watch_history")
+        history_note = " " + watch_history.summary(history)
     idx = media_ingestor.load_url_index(memory_path)
     fresh, duplicates, backfilled = media_ingestor._dedup_items(items, idx)
     # G99d (Devin round 1, PR #26 finding 1): this router loads its OWN `idx`
@@ -294,7 +307,8 @@ async def upload_sources(
             status="ok",
             episodes_created=0,
             duplicates_skipped=duplicates,
-            message="Nothing new — every URL was already saved",
+            message=("Nothing new — every URL was already saved" if items or not history_rows
+                     else "No saved links in this file.") + history_note,
             source=source_label,
         )
 
@@ -320,7 +334,7 @@ async def upload_sources(
         status="ok",
         episodes_created=created,
         duplicates_skipped=duplicates,
-        message=message,
+        message=message + history_note,
         source=source_label,
     )
 

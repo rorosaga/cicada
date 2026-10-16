@@ -76,20 +76,27 @@ struct IntakeSniff: Decodable, Equatable {
     var titlesTruncated = false
     var reason: String?
     var warnings: [String] = []
+    /// G71 (2026-10-16): a saved-content file's watch history — left out (the sniff did not ask), or asked for: the
+    /// videos and the days they become. Either non-zero shows the preview's "Include watch history" switch.
+    var historyExcluded = 0
+    var historyVideos = 0
+    var historyDays = 0
 
     init(recognized: Bool = false, kind: String = "unknown", vendor: String? = nil, origin: String? = nil,
          platform: String? = nil, members: [String] = [], ignored: [IntakeIgnored] = [],
          counts: IntakeCounts = IntakeCounts(), dateRange: IntakeDateRange? = nil, delta: IntakeDelta = IntakeDelta(),
-         titles: [IntakeTitle] = [], titlesTruncated: Bool = false, reason: String? = nil, warnings: [String] = []) {
+         titles: [IntakeTitle] = [], titlesTruncated: Bool = false, reason: String? = nil, warnings: [String] = [],
+         historyExcluded: Int = 0, historyVideos: Int = 0, historyDays: Int = 0) {
         self.recognized = recognized; self.kind = kind; self.vendor = vendor; self.origin = origin
         self.platform = platform; self.members = members; self.ignored = ignored; self.counts = counts
         self.dateRange = dateRange; self.delta = delta; self.titles = titles
         self.titlesTruncated = titlesTruncated; self.reason = reason; self.warnings = warnings
+        self.historyExcluded = historyExcluded; self.historyVideos = historyVideos; self.historyDays = historyDays
     }
 
     enum CodingKeys: String, CodingKey {
         case recognized, kind, vendor, origin, platform, members, ignored, counts, dateRange, delta
-        case titles, titlesTruncated, reason, warnings
+        case titles, titlesTruncated, reason, warnings, historyExcluded, historyVideos, historyDays
     }
 
     init(from decoder: Decoder) throws {
@@ -108,6 +115,9 @@ struct IntakeSniff: Decodable, Equatable {
         titlesTruncated = (try? c.decodeIfPresent(Bool.self, forKey: .titlesTruncated)) ?? false
         reason = (try? c.decodeIfPresent(String.self, forKey: .reason)) ?? nil
         warnings = (try? c.decodeIfPresent([String].self, forKey: .warnings)) ?? []
+        historyExcluded = (try? c.decodeIfPresent(Int.self, forKey: .historyExcluded)) ?? 0
+        historyVideos = (try? c.decodeIfPresent(Int.self, forKey: .historyVideos)) ?? 0
+        historyDays = (try? c.decodeIfPresent(Int.self, forKey: .historyDays)) ?? 0
     }
 }
 

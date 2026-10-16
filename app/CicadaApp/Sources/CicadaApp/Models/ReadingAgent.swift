@@ -89,14 +89,20 @@ struct ReadingSettingsResponse: Decodable, Equatable {
     var exploreSignedIn: Bool
     /// `{site: day}` the person said never to explore (D3).
     var neverExplore: [String: String]
+    /// G71 (2026-10-16): the YouTube lists the person asked their own agent to keep current, off by default.
+    var youtubeLists: YouTubeListSwitches
+    /// When each list was last read for this memory, and whether the lists are paused (a sign-in the agent lacked).
+    var youtube: YouTubeListsStatus?
 
     enum CodingKeys: String, CodingKey {
         case agentEnabled, allowedSites, ackedAt, ackCurrent, lastAgentRead, exploreSignedIn, neverExplore
+        case youtubeLists, youtube
     }
 
     init(agentEnabled: Bool = false, allowedSites: [String: String] = [:], ackedAt: String? = nil,
          ackCurrent: Bool = false, lastAgentRead: String? = nil, exploreSignedIn: Bool = true,
-         neverExplore: [String: String] = [:]) {
+         neverExplore: [String: String] = [:], youtubeLists: YouTubeListSwitches = YouTubeListSwitches(),
+         youtube: YouTubeListsStatus? = nil) {
         self.agentEnabled = agentEnabled
         self.allowedSites = allowedSites
         self.ackedAt = ackedAt
@@ -104,6 +110,8 @@ struct ReadingSettingsResponse: Decodable, Equatable {
         self.lastAgentRead = lastAgentRead
         self.exploreSignedIn = exploreSignedIn
         self.neverExplore = neverExplore
+        self.youtubeLists = youtubeLists
+        self.youtube = youtube
     }
 
     init(from decoder: Decoder) throws {
@@ -115,6 +123,88 @@ struct ReadingSettingsResponse: Decodable, Equatable {
         lastAgentRead = try? c.decodeIfPresent(String.self, forKey: .lastAgentRead)
         exploreSignedIn = (try? c.decode(Bool.self, forKey: .exploreSignedIn)) ?? true
         neverExplore = (try? c.decode([String: String].self, forKey: .neverExplore)) ?? [:]
+        youtubeLists = (try? c.decode(YouTubeListSwitches.self, forKey: .youtubeLists)) ?? YouTubeListSwitches()
+        youtube = try? c.decodeIfPresent(YouTubeListsStatus.self, forKey: .youtube)
+    }
+}
+
+/// G71 (2026-10-16): the two YouTube lists' switches (`reading.json`'s `youtube_lists`).
+struct YouTubeListSwitches: Codable, Equatable {
+    var watchLater = false
+    var history = false
+
+    init(watchLater: Bool = false, history: Bool = false) { self.watchLater = watchLater; self.history = history }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        watchLater = (try? c.decode(Bool.self, forKey: .watchLater)) ?? false
+        history = (try? c.decode(Bool.self, forKey: .history)) ?? false
+    }
+
+    func isOn(_ list: YouTubeList) -> Bool { list == .watchLater ? watchLater : history }
+}
+
+/// The lists an agent may keep current, by the backend's own keys.
+enum YouTubeList: String, CaseIterable, Identifiable {
+    case watchLater = "watch_later"
+    case history
+    var id: String { rawValue }
+    var statusKey: String { rawValue }
+}
+
+/// `GET /reading/settings`' `youtube` block: per list, the last read; the pause.
+struct YouTubeListsStatus: Decodable, Equatable {
+    struct List: Decodable, Equatable {
+        var lastReadAt: String?
+        var lastOutcome: String?
+        var videos: Int = 0
+
+        init(lastReadAt: String? = nil, lastOutcome: String? = nil, videos: Int = 0) {
+            self.lastReadAt = lastReadAt; self.lastOutcome = lastOutcome; self.videos = videos
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            lastReadAt = try? c.decodeIfPresent(String.self, forKey: .lastReadAt)
+            lastOutcome = try? c.decodeIfPresent(String.self, forKey: .lastOutcome)
+            videos = (try? c.decode(Int.self, forKey: .videos)) ?? 0
+        }
+
+        enum CodingKeys: String, CodingKey { case lastReadAt, lastOutcome, videos }
+    }
+
+    var pausedUntil: String?
+    var lists: [String: List] = [:]
+
+    init(pausedUntil: String? = nil, lists: [String: List] = [:]) { self.pausedUntil = pausedUntil; self.lists = lists }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        pausedUntil = try? c.decodeIfPresent(String.self, forKey: .pausedUntil)
+        lists = (try? c.decode([String: List].self, forKey: .lists)) ?? [:]
+    }
+
+    enum CodingKeys: String, CodingKey { case pausedUntil, lists }
+}
+
+/// The words under each YouTube list's switch — pure, so a test reads them.
+enum YouTubeListWords {
+    static func title(_ list: YouTubeList) -> String {
+        list == .watchLater ? Copy.Reading.youtubeWatchLaterTitle : Copy.Reading.youtubeHistoryTitle
+    }
+
+    static func detail(_ list: YouTubeList, on: Bool, status: YouTubeListsStatus?,
+                       locale: Locale = .autoupdatingCurrent) -> String {
+        guard on else {
+            return list == .watchLater ? Copy.Reading.youtubeWatchLaterOff : Copy.Reading.youtubeHistoryOff
+        }
+        if let until = status?.pausedUntil {
+            return Copy.Reading.youtubePaused(ReadWords.day(until, locale: locale) ?? until)
+        }
+        if let last = status?.lists[list.statusKey]?.lastReadAt {
+            return Copy.Reading.youtubeLastRead(ReadWords.day(last, locale: locale) ?? last)
+        }
+        return Copy.Reading.youtubeWaiting
     }
 }
 

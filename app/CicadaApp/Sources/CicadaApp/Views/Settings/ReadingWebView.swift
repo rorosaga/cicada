@@ -25,6 +25,10 @@ final class ReadingAgentModel {
         var writeNever: @MainActor ([String: Bool]) async throws -> ReadingSettingsResponse = {
             try await APIClient.shared.setReadingSettings(neverExplore: $0)
         }
+        /// G71 (2026-10-16) — a YouTube list patch `{watch_later|history: true|false}`.
+        var writeYouTube: @MainActor ([String: Bool]) async throws -> ReadingSettingsResponse = {
+            try await APIClient.shared.setReadingSettings(youtubeLists: $0)
+        }
 
         @MainActor static var live: Deps {
             Deps(fetch: { try await APIClient.shared.fetchReadingSettings() },
@@ -75,6 +79,24 @@ final class ReadingAgentModel {
         defer { busy = false }
         do {
             settings = try await deps.writeNever([key: on])
+            note = nil
+            return true
+        } catch APIError.httpError(let code, let body) where code == 422 {
+            note = ProjectWriteFailure.detail(body) ?? Copy.Reading.saveFailed
+            return false
+        } catch {
+            note = Copy.Reading.saveFailed
+            return false
+        }
+    }
+
+    /// G71 — turn one YouTube list on or off. On again lifts a sign-in pause (Try again).
+    @discardableResult
+    func setYouTubeList(_ list: YouTubeList, _ on: Bool) async -> Bool {
+        busy = true
+        defer { busy = false }
+        do {
+            settings = try await deps.writeYouTube([list.rawValue: on])
             note = nil
             return true
         } catch APIError.httpError(let code, let body) where code == 422 {
@@ -282,6 +304,7 @@ struct ReadingWebView: View {
                     }
                 }
             }
+            youtubeGroup
             methodsGroup
             watchMethodsGroup
             sitesGroup
@@ -408,6 +431,42 @@ struct ReadingWebView: View {
             .padding(.vertical, CicadaTheme.spacingSM + CicadaTheme.scaled(2))
             .padding(.horizontal, CicadaTheme.spacingMD)
             .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    // MARK: Your YouTube lists (G71, 2026-10-16)
+
+    /// Shown only while agent reading is on: the lists ride the same first-use sheet and the same never-sign-in rule.
+    @ViewBuilder private var youtubeGroup: some View {
+        if model.enabled, let settings = model.settings {
+            SettingsGroupCard(header: Copy.Reading.youtubeGroup) {
+                introRow(Copy.Reading.youtubeIntro, color: CicadaTheme.textSecondary)
+                    .settingsRow(.readingYouTube)
+                ForEach(YouTubeList.allCases) { list in
+                    SettingsDivider()
+                    SettingsRowShell(.readingYouTubeList(list.rawValue)) {
+                        HStack(alignment: .firstTextBaseline) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(YouTubeListWords.title(list))
+                                    .font(CicadaTheme.bodyFont)
+                                    .foregroundStyle(CicadaTheme.textPrimary)
+                                Text(YouTubeListWords.detail(list, on: settings.youtubeLists.isOn(list),
+                                                             status: settings.youtube))
+                                    .font(CicadaTheme.captionFont)
+                                    .foregroundStyle(CicadaTheme.textTertiary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            Spacer()
+                            Toggle(YouTubeListWords.title(list), isOn: Binding(
+                                get: { settings.youtubeLists.isOn(list) },
+                                set: { on in Task { await model.setYouTubeList(list, on) } }))
+                                .toggleStyle(.switch)
+                                .labelsHidden()
+                                .disabled(model.busy)
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // MARK: Sites that need your browser

@@ -10,6 +10,18 @@ extension Copy {
         static let pageTitle = "Reading the web"
         static let pageSubtitle = "Which sites your own agent may read for you, and how it reads them."
         static let withAgentGroup = "With an agent"
+        // G71 (2026-10-16): the YouTube lists the person's own agent keeps current from their signed-in browser.
+        static let youtubeGroup = "Your YouTube lists"
+        static let youtubeIntro = "YouTube shares Watch later and your watch history with no one, so your own agent can read them in your browser and keep them current here. Watch later videos are saved like your other videos; watch history becomes one entry per day, never saved links. Cicada never signs in for you."
+        static let youtubeWatchLaterTitle = "Keep Watch later current"
+        static let youtubeHistoryTitle = "Keep watch history current"
+        static let youtubeWatchLaterOff = "Off — your agent never opens your Watch later."
+        static let youtubeHistoryOff = "Off — your agent never opens your watch history."
+        static let youtubeWaiting = "Waiting for your agent — it is offered with the pages to read."
+        static func youtubeLastRead(_ day: String) -> String { "Last read by your agent · \(day)" }
+        static func youtubePaused(_ day: String) -> String {
+            "Your agent wasn't signed in to YouTube. Paused until \(day) — turn it on again to try sooner."
+        }
         static let switchTitle = "Let an agent read pages for you"
         static let switchDetail = "When Cicada’s reader can’t open a page (a sign-in, a consent page, a refusal), your own agent can read it in your browser. You choose each page with “Ask an agent”, and which sites below. Cicada never signs in for you."
         static let switchLabel = "Let an agent read pages for you"

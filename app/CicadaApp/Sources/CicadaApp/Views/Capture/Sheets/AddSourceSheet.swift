@@ -624,14 +624,22 @@ struct AddSourceSheet: View {
                 // is imported.
                 VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
                     WalkthroughPanel(vendors: tile.vendors, vendor: $vendor) { pickForPreview() }
-                    if tile == .tiktok {
-                        Toggle("Also import browsing history (noisy)", isOn: $includeHistory)
+                    if tile == .tiktok || tile == .youtube {
+                        // G71 (2026-10-16): history comes in as one entry per day of what was watched, never as
+                        // saved links — for YouTube's Takeout as for TikTok's export.
+                        Toggle(Copy.importIncludeHistory, isOn: $includeHistory)
                             .font(CicadaTheme.captionFont)
-                            .accessibilityLabel("Also import TikTok browsing history")
+                            .help(Copy.importIncludeHistoryDetail)
+                            .accessibilityLabel(tile == .youtube ? "Include YouTube watch history"
+                                                                 : "Include TikTok browsing history")
                     }
                     ImportPreviewSection(stage: stage,
                                          onConfirm: { confirmImport($0) },
                                          onCancel: { stage = .idle })
+                }
+                // A flip after the preview previews again, so Confirm imports what the counts say.
+                .onChange(of: includeHistory) { _, _ in
+                    if case .preview(_, let file, _) = stage { preview(file) }
                 }
                 .onDrop(of: [.fileURL], isTargeted: nil) { providers in
                     guard let provider = providers.first else { return false }

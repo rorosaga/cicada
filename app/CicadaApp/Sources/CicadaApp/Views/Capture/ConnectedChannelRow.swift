@@ -287,6 +287,8 @@ struct ConnectedChannelRow: View {
         case "safari-tabs": "safari-tab"
         // Round 4 (G160): Chrome's open tab groups wear Chrome's own mark.
         case "chrome-tab-groups": "chrome-tab-group"
+        // G71 (2026-10-16): the YouTube videos watched in Chrome wear YouTube's mark.
+        case "chrome-youtube-history": "youtube-history"
         case "notes": "apple-notes"
         case "reddit": "reddit-saved"
         case "x": "x-bookmarks"

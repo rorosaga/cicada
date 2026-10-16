@@ -26,6 +26,8 @@ final class ChannelSyncRoutingTests: XCTestCase {
         "chrome-tab-groups",
         // Round 4 (G154): the Mac's address book, always listed so Integrations can offer Connect (R-SR15).
         "contacts-local",
+        // G71 (2026-10-16): the YouTube videos watched in Chrome, emitted once synced.
+        "chrome-youtube-history",
     ]
 
     func testEverySyncIdTheRegistryEmitsHasAHandler() {

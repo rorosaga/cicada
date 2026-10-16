@@ -14,10 +14,17 @@ final class FakeIntakeAPI: IntakeAPI, @unchecked Sendable {
     var sniffed: [String] = []
     /// The name each file was sent under (`name`, else its own), sniff and upload alike.
     var sentNames: [String] = []
+    /// G71: the include-history flag each sniff and upload carried, in order.
+    var sniffHistory: [Bool] = []
+    var uploadHistory: [Bool] = []
+    /// A sniff answer per file when history is included (else `sniffs`).
+    var historySniffs: [String: IntakeSniff] = [:]
 
-    func sniffIntake(fileURL: URL, bank: String?, name sent: String?) async throws -> IntakeSniff {
+    func sniffIntake(fileURL: URL, bank: String?, name sent: String?, includeHistory: Bool) async throws -> IntakeSniff {
         let name = fileURL.lastPathComponent
         sniffed.append(name)
+        sniffHistory.append(includeHistory)
+        if includeHistory, let answer = historySniffs[name] { sentNames.append(sent ?? name); return answer }
         sentNames.append(sent ?? name)
         if let delay = sniffDelay[name] { try await Task.sleep(for: delay) }
         return sniffs[name] ?? IntakeSniff(reason: "unknown")
@@ -31,8 +38,9 @@ final class FakeIntakeAPI: IntakeAPI, @unchecked Sendable {
 
     func intakeJob(id: String) async throws -> IntakeJobStatus { jobPolls.removeFirst() }
 
-    func uploadSaved(fileURL: URL, name sent: String?) async throws -> UploadResponse {
+    func uploadSaved(fileURL: URL, name sent: String?, includeHistory: Bool) async throws -> UploadResponse {
         sentNames.append(sent ?? fileURL.lastPathComponent)
+        uploadHistory.append(includeHistory)
         return UploadResponse(status: "ok", episodesCreated: 2, duplicatesSkipped: 0, message: "", source: "Bookmarks")
     }
 }
@@ -71,6 +79,42 @@ final class IntakeRouterTests: XCTestCase {
 
     private func isPreview(_ r: IntakeRouter) -> Bool { if case .preview = r.phase { return true }; return false }
     private func isDone(_ r: IntakeRouter) -> Bool { if case .done = r.phase { return true }; return false }
+
+    /// G71 (2026-10-16): a Takeout's watch history is offered, off by default; the switch sniffs again with history
+    /// and the import carries it, and a new drop starts with it off.
+    func testIncludeWatchHistoryResniffsAndRidesTheUpload() async throws {
+        let api = FakeIntakeAPI()
+        api.sniffs["takeout.zip"] = IntakeSniff(recognized: true, kind: "saved", platform: "youtube",
+                                                counts: IntakeCounts(items: 2), historyExcluded: 4)
+        api.historySniffs["takeout.zip"] = IntakeSniff(recognized: true, kind: "saved", platform: "youtube",
+                                                       counts: IntakeCounts(items: 2), historyVideos: 3, historyDays: 2)
+        let router = IntakeRouter(api: api)
+        router.accept(urls: [try file("takeout.zip")], from: .windowDrop)
+        try await eventually("preview") { self.isPreview(router) }
+        guard case .preview(let off) = router.phase else { return XCTFail() }
+        XCTAssertTrue(off.offersHistory)
+        XCTAssertEqual(off.importCount, 2)
+        XCTAssertTrue(IntakeSummary.historyLine(off, included: false).hasPrefix("4 watched videos left out"))
+        router.setIncludeHistory(true)
+        try await eventually("history preview") {
+            if case .preview(let p) = router.phase { return p.historyVideos == 3 }
+            return false
+        }
+        guard case .preview(let on) = router.phase else { return XCTFail() }
+        XCTAssertEqual(on.importCount, 5, "the watched videos count toward the import")
+        XCTAssertTrue(IntakeSummary.historyLine(on, included: true).hasPrefix("3 watched videos over 2 days"))
+        router.confirm(createBank: { _ in nil })
+        try await eventually("done") { self.isDone(router) }
+        XCTAssertEqual(api.sniffHistory, [false, true])
+        XCTAssertEqual(api.uploadHistory, [true])
+        router.accept(urls: [try file("again.zip")], from: .windowDrop)
+        XCTAssertFalse(router.includeHistory, "every new drop starts with history off")
+    }
+
+    func testAWalkedTakeoutFolderSendsItsWatchHistoryPage() {
+        XCTAssertTrue(IntakeRouter.isWalkedExportFile(URL(fileURLWithPath: "/t/Takeout/YouTube/history/watch-history.html")))
+        XCTAssertFalse(IntakeRouter.isWalkedExportFile(URL(fileURLWithPath: "/t/Takeout/YouTube/history/search-history.html")))
+    }
 
     func testAStaleSniffNeverLandsOnANewerPreview() async throws {
         let api = FakeIntakeAPI()

@@ -324,7 +324,7 @@ final class ReadingSurfacesTests: XCTestCase {
 
     func testReadingSearchKeywordsNameNoProductOrSkill() {
         let reading = SettingsIndex.staticEntries.filter { $0.section == .reading || $0.id == .agentsReading }
-        XCTAssertEqual(reading.count, 7, "G166 exploring added the signed-in switch and Never explore")
+        XCTAssertEqual(reading.count, 8, "G166 exploring added the signed-in switch and Never explore; G71 the YouTube lists")
         let banned = ["harness", "claude", "codex", "chatgpt", "cursor", "gemini", "ollama", "openrouter", "chrome"]
         for entry in reading {
             for keyword in entry.keywords {

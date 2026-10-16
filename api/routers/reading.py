@@ -38,7 +38,7 @@ from api.config import Settings, get_settings
 from api.routers.capture import refuse_capture_into_demo
 from api.services import (
     logo_service, media_ingestor, reading_asks, reading_hosts, reading_prompt, reading_queue, reading_service,
-    reading_settings, sync_service,
+    reading_settings, sync_service, youtube_lists,
 )
 
 router = APIRouter()
@@ -56,24 +56,31 @@ class SettingsUpdate(BaseModel):
     exploreSignedIn: bool | None = None
     #: A patch ``{site: bool}``: true never explores that site (D3), false lifts it.
     neverExplore: dict[str, bool] | None = None
+    #: G71 (2026-10-16): a patch ``{watch_later|history: bool}`` — the YouTube lists the person's own agent keeps
+    #: current from their signed-in browser. Turning one on lifts a ``needs_login`` pause (Try again).
+    youtubeLists: dict[str, bool] | None = None
 
 
 class AskRequest(BaseModel):
     url: str
 
 
-def _settings_body() -> dict:
-    return {
+def _settings_body(memory_path=None) -> dict:
+    body = {
         **reading_settings.snapshot(),
         "ackVersion": reading_settings.ACK_VERSION,
         "lastAgentRead": reading_settings.last_agent_read(),
         "shape": SHAPE,
     }
+    if memory_path is not None:
+        # G71: when each YouTube list was last read for this memory, and whether the lists are paused.
+        body["youtube"] = youtube_lists.status(memory_path)
+    return body
 
 
 @router.get("/reading/settings")
-async def get_reading_settings(request: Request, response: Response):
-    body = _settings_body()
+async def get_reading_settings(request: Request, response: Response, settings: Settings = Depends(get_settings)):
+    body = _settings_body(settings.memory_path)
     etag = '"' + sync_service._digest(body) + '"'
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
@@ -93,13 +100,16 @@ async def put_reading_settings(update: SettingsUpdate, settings: Settings = Depe
     try:
         reading_settings.update(
             agent_enabled_=update.agentEnabled, acknowledge=update.acknowledge, sites=update.sites,
-            surfaced=surfaced, explore_signed_in_=update.exploreSignedIn, never_explore_=update.neverExplore)
+            surfaced=surfaced, explore_signed_in_=update.exploreSignedIn, never_explore_=update.neverExplore,
+            youtube_lists_=update.youtubeLists)
     except reading_settings.SettingsError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     for site, on in (update.sites or {}).items():
         if on:
             reading_queue.resume_site(memory_path, site)
-    return _settings_body()
+    if update.youtubeLists and any(update.youtubeLists.values()):
+        youtube_lists.resume()
+    return _settings_body(memory_path)
 
 
 @router.get("/reading/sites")

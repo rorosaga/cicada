@@ -2450,6 +2450,11 @@ actor APIClient {
         try await postData("/sources/tab-groups/sync", json: try JSONEncoder().encode(payload))
     }
 
+    /// G71 (2026-10-16): the YouTube visits read from Chrome's History — one day episode per day on the backend.
+    func syncWatchHistory(_ payload: WatchHistoryPayload) async throws -> WatchHistorySyncResult {
+        try await postData("/sources/watch-history/sync", json: try JSONEncoder().encode(payload))
+    }
+
     // MARK: - Messages (G179)
 
     /// `GET /sources/messages/settings` — which conversations this memory has ticked.
@@ -2933,8 +2938,11 @@ actor APIClient {
     /// a 422 carries the sentence why.
     func setReadingSettings(agentEnabled: Bool? = nil, sites: [String: Bool]? = nil,
                             acknowledge: Bool = false, exploreSignedIn: Bool? = nil,
-                            neverExplore: [String: Bool]? = nil) async throws -> ReadingSettingsResponse {
+                            neverExplore: [String: Bool]? = nil,
+                            youtubeLists: [String: Bool]? = nil) async throws -> ReadingSettingsResponse {
         var body: [String: Any] = [:]
+        // G71 (2026-10-16): a `{watch_later|history: Bool}` patch.
+        if let youtubeLists { body["youtubeLists"] = youtubeLists }
         if let agentEnabled { body["agentEnabled"] = agentEnabled }
         // G166 exploring: the signed-in switch (D2 amended) and a Never explore patch (D3).
         if let exploreSignedIn { body["exploreSignedIn"] = exploreSignedIn }
@@ -3502,8 +3510,10 @@ extension APIClient: IntakeAPI {
     }
 
     /// `POST /intake/sniff` — stages nothing (G71 §4.3); safe on every drop.
-    func sniffIntake(fileURL: URL, bank: String?, name: String?) async throws -> IntakeSniff {
-        try await uploadMultipart(path: "/intake/sniff" + Self.bankQuery(bank), fileURL: fileURL, filename: name)
+    func sniffIntake(fileURL: URL, bank: String?, name: String?, includeHistory: Bool) async throws -> IntakeSniff {
+        let query = Self.bankQuery(bank)
+        let history = includeHistory ? (query.isEmpty ? "?" : "&") + "include_history=true" : ""
+        return try await uploadMultipart(path: "/intake/sniff" + query + history, fileURL: fileURL, filename: name)
     }
 
     /// `POST /intake/import` — 200 with counts, or 202 with `job` (Track I T2b).
@@ -3514,8 +3524,9 @@ extension APIClient: IntakeAPI {
     func intakeJob(id: String) async throws -> IntakeJobStatus { try await get("/intake/jobs/\(id)") }
 
     /// A `kind: saved` file commits through the path that previewed it (R-IA32).
-    func uploadSaved(fileURL: URL, name: String?) async throws -> UploadResponse {
-        try await uploadMultipart(path: "/sources/upload", fileURL: fileURL, filename: name)
+    func uploadSaved(fileURL: URL, name: String?, includeHistory: Bool) async throws -> UploadResponse {
+        try await uploadMultipart(path: "/sources/upload" + (includeHistory ? "?include_history=true" : ""),
+                                  fileURL: fileURL, filename: name)
     }
 
     /// `GET /agents/wiring` (Track I T3) — read-only: which agents are wired

@@ -69,6 +69,9 @@ struct SettingsRowID: RawRepresentable, Hashable, Codable, Sendable {
     // G166 exploring (D2 amended): explore in the signed-in session, or a private context
     static let readingExploreSignedIn = SettingsRowID("readingExploreSignedIn")
     static let readingNeverExplore = SettingsRowID("readingNeverExplore")
+    // G71 (2026-10-16): the YouTube lists the person's own agent keeps current
+    static let readingYouTube = SettingsRowID("readingYouTube")
+    static func readingYouTubeList(_ list: String) -> SettingsRowID { SettingsRowID("reading:youtube:\(list)") }
     static func readingNever(_ site: String) -> SettingsRowID { SettingsRowID("reading:never:\(site)") }
     static let readingMethods = SettingsRowID("readingMethods")
     static let watchingMethods = SettingsRowID("watchingMethods")

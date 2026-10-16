@@ -700,8 +700,15 @@ def reading_queue(ctx: ToolContext, limit=None) -> str:
         title_part = f" \u2014 {title[:80]}" if title and title != media_ingestor._fallback_title(e.url) else ""
         how = f"asked {e.since}" if e.origin == "ask" else "a site the person allowed"
         rows.append(f"{len(rows) + 1}. {e.url} ({reading_hosts.display_host(e.host)}, {how}){title_part}")
+    # G71 (2026-10-16): the YouTube lists the person asked their agent to keep current, when due. Stdio only — the
+    # record tool is never remote (`catalog.NEVER_REMOTE`).
+    from api.services import youtube_lists
+
+    yt_lines = ([] if ctx.is_remote else
+                youtube_lists.queue_lines(memory_path, can_record=ctx.can("cicada_record_youtube_list")))
+    yt_text = "\n".join(yt_lines)
     if not rows:
-        return "Nothing is waiting: no link is waiting for an agent to read right now."
+        return yt_text or "Nothing is waiting: no link is waiting for an agent to read right now."
     from api.services import handshake
 
     variant = handshake.variant_for(ctx.client_name)
@@ -731,7 +738,7 @@ def reading_queue(ctx: ToolContext, limit=None) -> str:
         head += " " + clause
     tail = (f"\n{held_back} more link(s) are waiting; call again after you finish these."
             if held_back else "")
-    return head + "\n" + "\n".join(rows) + tail
+    return head + "\n" + "\n".join(rows) + tail + (f"\n\n{yt_text}" if yt_text else "")
 
 
 _CHECKS_BY_SESSION: dict[str, int] = {}
@@ -1299,6 +1306,118 @@ def record_read(ctx: ToolContext, url: str, outcome: str, summary: str | None = 
         parts.append("The page's title was updated.")
     parts.append("Cicada keeps short quotes, never the whole page.")
     return " ".join(parts)
+
+
+#: At most this many videos in one ``cicada_record_youtube_list`` call (a few screens of a list, never a whole archive).
+MAX_YOUTUBE_LIST_VIDEOS = 500
+YOUTUBE_LIST_SLEEPING = ("Not recorded: Cicada is consolidating memory right now, and this list is written into it. "
+                         "Nothing was saved. Keep what you read and record it with `cicada_record_youtube_list` when "
+                         "Cicada has finished.")
+
+
+@_holding_pages
+def record_youtube_list(ctx: ToolContext, list_name: str, outcome: str, videos=None, via: str | None = None) -> str:
+    """``cicada_record_youtube_list`` (G71 / G166, owner 2026-10-16): what the person's own agent read on their YouTube
+    Watch later or watch-history page, in their signed-in browser, after the person turned that list on.
+
+    Refusals, in order, write nothing: a demo bank, agent reading off, an unknown list or outcome, a list the person
+    has not turned on. ``needs_login`` / ``blocked`` pause both lists for a week (no bank write); ``failed`` is noted.
+    A ``read``: **Watch later** rows become saves where saved videos go (``media_ingestor`` — one ``url_index`` row
+    per video, so one already saved by Takeout, a bookmark or a link is a duplicate, never a second page); **history**
+    rows go to ``watch_history`` (one episode per day; the page's day, merged with what Chrome or Takeout wrote for
+    that video that day). Only YouTube video pages are kept. Committed as the harness."""
+    from api.services import media_ingestor, reading_settings, video_urls, watch_history, youtube_lists
+    from api.services.media_ingestor import MediaMeta, PreparedItem, RawItem
+
+    memory_path = ctx.memory_path()
+    if (refusal := _demo_refusal(memory_path)) is not None:
+        return refusal
+    if not reading_settings.agent_enabled():
+        return _READING_OFF
+    name = str(list_name or "").strip().lower().replace(" ", "_")
+    if name not in youtube_lists.LISTS:
+        return "Error: list must be watch_later or history."
+    outcome = str(outcome or "").strip().lower()
+    if outcome not in youtube_lists.OUTCOMES:
+        return f"Error: outcome must be one of {', '.join(youtube_lists.OUTCOMES)}."
+    label = youtube_lists.LISTS[name]["label"]
+    if not youtube_lists.allowed(name):
+        return (f"Not recorded: the person has not asked their agent to keep their YouTube {label} current "
+                "(Settings, Reading the web). Nothing was read into memory.")
+    if outcome in youtube_lists.PAUSING:
+        youtube_lists.note(memory_path, name, outcome)
+        return ("Recorded: YouTube needs the person to sign in (or blocked the page). Stop: do not sign in, type "
+                "credentials or try another route. Both YouTube lists are paused for a week, or until the person "
+                "turns one on again.")
+    if outcome == "failed":
+        youtube_lists.note(memory_path, name, outcome)
+        return "Recorded: the read failed. Nothing was written; the list is offered again later."
+    rows = videos if isinstance(videos, list) else []
+    if not rows:
+        return ("Error: a read needs `videos` — the videos the page showed, each {url, title, channel"
+                + (", watched_on" if name == "history" else "") + "}. Record `failed` if the page showed none.")
+    if len(rows) > MAX_YOUTUBE_LIST_VIDEOS:
+        return f"Error: at most {MAX_YOUTUBE_LIST_VIDEOS} videos in one call; record the rest in a second call."
+    if ctx.sleep_answer:
+        return YOUTUBE_LIST_SLEEPING
+    dropped = 0
+    paths: list[str] = []
+    lines: list[str] = []
+    if name == "history":
+        watches = []
+        for row in rows:
+            row = row if isinstance(row, dict) else {}
+            w = watch_history.make(row.get("url"), at=row.get("watched_at"), day=row.get("watched_on"),
+                                   title=row.get("title"), channel=row.get("channel"), door="agent")
+            if w is None or w.platform != "youtube":
+                dropped += 1
+                continue
+            watches.append(w)
+        result = watch_history.record(memory_path, watches, bank=memory_path.name)
+        paths = result.paths
+        lines = [f"{p}: written (trigger: {ctx.trigger})" for p in paths]
+        youtube_lists.note(memory_path, name, "read", videos=len(watches))
+        said = watch_history.summary(result)
+    else:
+        idx = media_ingestor.load_url_index(memory_path)
+        created = duplicates = 0
+        seen: set[str] = set()
+        for row in rows:
+            row = row if isinstance(row, dict) else {}
+            found = watch_history.watch_url(row.get("url"))
+            if found is None or found[0] != "youtube":
+                dropped += 1
+                continue
+            if found[1] in seen:
+                continue
+            url = found[1]
+            seen.add(url)
+            title = watch_history.clean_title(row.get("title"))
+            channel = " ".join(str(row.get("channel") or "").split())[:120] or None
+            item = RawItem(url=url, title=title or None, channel=channel, folder="Watch later",
+                           origin="youtube-playlist")
+            ref = video_urls.resolve(url)
+            meta = MediaMeta(title=title or media_ingestor._fallback_title(url), site="youtube.com",
+                             channel=channel, media_type="youtube", provider=ref.provider if ref else None)
+            res = media_ingestor.write_prepared(PreparedItem(item, meta), memory_path, idx)
+            if res.status == "created":
+                created += 1
+                paths += [f"entities/{res.media_entity_id}.md", f"episodes/{res.episode_id}.md"]
+            else:
+                duplicates += 1
+        if created:
+            media_ingestor.save_url_index(memory_path, idx)
+            paths.append("sources/url_index.json")
+        lines = [f"sources/url_index.json: updated (trigger: {ctx.trigger})",
+                 f"{created} Watch later video(s) saved (trigger: {ctx.trigger})"] if created else []
+        youtube_lists.note(memory_path, name, "read", videos=len(seen))
+        said = (f"{created} new Watch later video(s) saved; {duplicates} already in memory "
+                "(saved before by a Takeout, a bookmark or a link).")
+    if paths:
+        agent_commits.commit_write(memory_path, subject=ctx.commit_subject, lines=lines, paths=paths,
+                                   author=ctx.author, session=ctx.session_id)
+    extra = f" {dropped} row(s) were not YouTube video pages and were left out." if dropped else ""
+    return f"Recorded the person's YouTube {label}. {said}{extra}"
 
 
 def parse_frontmatter(content: str) -> tuple[dict, str]:

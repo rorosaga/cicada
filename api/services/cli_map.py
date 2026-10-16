@@ -198,6 +198,9 @@ ROWS: tuple[Row, ...] = (
         (_p("entity_id"), _p("source"), _p("lease_token"), _p("outcome"), _f("predicate"), _f("value"),
          _f("ended", "json"), _f("quotes", "json"), _f("captured_at"), _f("summary"), _f("via")), mutates=True),
     Row(("read", "queue"), "cicada_reading_queue", "Pages the person asked to have read.", (_f("limit", "int"),)),
+    # G71 (2026-10-16): a proposed spelling, not exposed — the agent reads the lists in the person's browser.
+    Row(("read", "youtube"), "cicada_record_youtube_list", "Record what the person's YouTube list showed.",
+        (_p("list"), _p("outcome"), _f("videos", "json"), _f("via")), mutates=True),
     Row(("read", "record"), "cicada_record_read", "Record what a page read found.",
         (_p("url"), _p("outcome"), _f("summary"), _f("excerpts", "json"), _f("via"), _f("note"), _f("title")),
         mutates=True),

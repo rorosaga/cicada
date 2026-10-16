@@ -3392,6 +3392,11 @@ class IntakeSniffResponse(CamelModel):
     titles_truncated: bool = False
     reason: Optional[str] = None
     warnings: list[str] = []
+    #: A saved-content file's watch history (G71, 2026-10-16): left out when the sniff did not ask for it, else the
+    #: videos and days it becomes. The app shows its "Include watch history" switch when either is non-zero.
+    history_excluded: int = 0
+    history_videos: int = 0
+    history_days: int = 0
 
 
 class IntakeJobRef(CamelModel):
@@ -3593,6 +3598,11 @@ class SourceUploadPreview(CamelModel):
     total: int = 0
     collections: list[SourceUploadCollection] = []
     warnings: list[str] = []
+    #: G71 (2026-10-16): watch history left out (the caller did not ask for it), or — asked for — the watched
+    #: videos and the days they become (one episode per day, never saves). Lets a drop offer the switch.
+    history_excluded: int = 0
+    history_videos: int = 0
+    history_days: int = 0
 
 
 class SourceRssRequest(CamelModel):
@@ -4297,6 +4307,34 @@ class TabGroupsSyncResponse(CamelModel):
     tombstoned: int = 0
     groups: int = 0
     tabs: int = 0
+    bank: str = ""
+
+
+class WatchHistoryVisit(CamelModel):
+    """One visit to a YouTube video page, as the app read it from the browser's own History (G71, 2026-10-16)."""
+
+    url: str
+    title: str = ""
+    visited_at: str
+
+
+class WatchHistorySyncRequest(CamelModel):
+    """``POST /sources/watch-history/sync`` — YouTube videos watched in a browser, read on this Mac by the app."""
+
+    browser: str
+    profile: str = "Default"
+    visits: list[WatchHistoryVisit] = []
+
+
+class WatchHistorySyncResponse(CamelModel):
+    received: int = 0
+    kept: int = 0
+    ignored: int = 0
+    added: int = 0
+    videos: int = 0
+    days_created: int = 0
+    days_updated: int = 0
+    days_unchanged: int = 0
     bank: str = ""
 
 

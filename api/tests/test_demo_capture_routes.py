@@ -42,6 +42,8 @@ GATED = {
     ("POST", "/sources/folders/{folder_id}/sync"): "/sources/folders/f1/sync",
     ("POST", "/sources/calendar-local/sync"): "/sources/calendar-local/sync",
     ("POST", "/sources/tab-groups/sync"): "/sources/tab-groups/sync",
+    # G71 (2026-10-16): the YouTube videos watched in Chrome — day episodes.
+    ("POST", "/sources/watch-history/sync"): "/sources/watch-history/sync",
     ("POST", "/sources/contacts-local/sync"): "/sources/contacts-local/sync",
     # G179: the Messages conversations the person ticked — the rows, the settings, and the list (computes only, but
     # a demo bank takes no conversation in, so offering to pick one is pointless).

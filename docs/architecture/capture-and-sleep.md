@@ -355,15 +355,16 @@ import needs no Mac app).
   (messages, contacts, posts, search history) is counted and skipped unread, media is never opened, a member over
   64 MB is skipped with a warning, and the generic URL-list parsers a single dropped file may fall back to are never
   used inside an archive. Watch and browsing history are not saves (G69): read only with `include_history` — through
-  every door, a single dropped `watch-history.json` included — and otherwise left out with one warning
-  (`history_warning`) that names no switch, because the app's drop has none (the CLI's `--include-history` and the
-  API's `?include_history=true` ask for it).
+  every door, a single dropped `watch-history.json` or `.html` included — and otherwise left out with one warning
+  (`history_warning`) and a count (`history_excluded` on the preview and the intake sniff), so the app's drop offers
+  its **Include watch history** switch (2026-10-16; the CLI's `--include-history` and the API's
+  `?include_history=true` are the other doors). Read, history is never a save: see *Watch history* below.
 
   | Platform | Files read | Kept |
   |---|---|---|
   | Instagram | `saved_posts.json`, `saved_collections.json`, `liked_posts.json` | link, account as title, save date, collection name (likes: folder `Liked posts`) |
   | TikTok | `user_data*.json` (any section wrapper) or the TXT lists (`Like List.txt`, `Favorite Videos.txt`) | link, date, `Likes`/`Favorites` |
-  | YouTube (Takeout) | `playlists/*-videos.csv` (current and older layouts); `watch-history.json` only on request | video, playlist name, added date |
+  | YouTube (Takeout) | `playlists/*-videos.csv` (current and older layouts, `Watch later` included); `watch-history.json` or `.html` (Takeout's default) only on request | video, playlist name, added date; history as days (below) |
   | X archive | `data/like.js` (`bookmark.js` if an archive carries one) | the connector's own post URL, the post's text as title and stand-in description (scrubbed, never the person's note), no date (the archive has none), never fetched at import |
   | Reddit | `saved_posts.csv`, `saved_comments.csv` | permalink (no title or date in the export) |
   | LinkedIn | a `Saved Items` CSV | link, saved date |
@@ -381,6 +382,41 @@ import needs no Mac app).
   words before they become a title; every `/sources/` POST answers 409 into a demo bank and `cicada import` exits 4.
   Pinterest's export is a browse-your-content HTML archive with no stable structure, so Pinterest stays with its
   connector.
+
+**Watch history (G71, owner 2026-10-16: "my watch later videos from youtube and maybe also sync history").** YouTube's
+API gives no one Watch later or watch history, so there are three doors, and they converge on one record.
+- **Watch later is a save; history is experience.** Watch later rows are saves where saved videos go (`media_ingestor`,
+  folder `Watch later`, origin `youtube-playlist`). History is aggregated, never dumped (G94): `watch_history` writes
+  **one episode per platform per day** — `source_id` `watch-history:<platform>:<YYYY-MM-DD>`, `source: watch-history`,
+  origin `youtube-history` (TikTok's browsing history, `tiktok-history`, rides the same writer), an id dated the day
+  watched — listing that day's videos in order with their local times, titles and channels, through the one stager,
+  queued for Sleep. Saved never sees a history row, and an import of years of history is that many days, which the
+  preview says before Confirm ("N watched videos over D days").
+- **One identity.** A video is `media_ingestor.url_hash` of its canonical URL — the key Watch later, bookmarks and
+  Takeout playlists share — so `youtu.be/<id>`, `/shorts/<id>` and `watch?v=<id>&t=…` are one video. Within a day a
+  video is one row (`watched` in frontmatter: `url, title, channel, times, via`); a watch less than 30 minutes after the
+  last one kept is the same watch, a later one a re-watch whose time is added. A door that knows only the day (the
+  agent reading the history page, TikTok's export) merges into the row a timed door wrote. A re-read writes nothing
+  (the stager's hash); a day changes only when its words do, so `via` names the doors that wrote its words.
+- **Door 1, Takeout (once).** `watch-history.json` and the default `watch-history.html` (read per activity entry; an ad,
+  a removed video or a post is left out; the HTML's date is read in this machine's zone, the English layout only), only
+  with `include_history`. Before this a dropped `watch-history.html` went to the bookmark parser and every watched video
+  and channel link became a bookmark. Localized Takeout names (a non-English account's folder and file names) are not
+  recognised yet.
+- **Door 2, Chrome's history (live, the app).** Off by default, its own switch under Chrome in Integrations → Browsers
+  (`cicada.browserWatch.enabled.chrome-youtube-history`). The app copies Chrome's `History` (locked while Chrome runs;
+  never opened in place or written) into a private temporary folder, opens the copy read-only, and runs one query that
+  names YouTube video pages only (`ChromeWatchHistoryReader.visitsSQL`, the SQL `test_watch_history.py` runs on a
+  synthetic History), past a per-bank visit-id cursor; only link, title and visit time leave the app.
+  `POST /sources/watch-history/sync` re-checks every row, keeps YouTube videos only, writes the days (capture: episodes
+  only, ungated) and commits once as `user` (trigger `capture/watch-history`); 413 past 20,000 visits, 422 for another
+  browser or profile, 409 in a demo bank. Channel `chrome-youtube-history` (its count is the videos memory holds). It
+  reads on turning on, launch, a bank switch, Sync now and every 10 minutes when the file's size or time moved (a stat).
+- **Door 3, the person's own agent (`mcp.md`, "YouTube lists").** It reads Watch later and the history page in the
+  person's signed-in browser and records through `cicada_record_youtube_list`: Watch later rows as saves (a video
+  already saved is a duplicate), history rows as days (the page's day).
+- No model runs, nothing is fetched (titles and times come from the doors), every title is scrubbed (writer
+  `watch-history`).
 
 **Conversation identity (G48).** An MCP episode carries `session_id` plus `harness` and
 `project_dir` when exposed — minted once per MCP process from `CLAUDE_CODE_SESSION_ID` →

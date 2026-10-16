@@ -14,6 +14,7 @@ struct BrowsersSection: View {
     /// second time; its sub-row sits under Chrome's own.
     static func owns(_ channelId: String) -> Bool {
         BrowserInventory.spec(forBookmarksChannel: channelId) != nil || channelId == TabGroupWatcher.channel
+            || channelId == WatchHistoryWatcher.channel
     }
 
     var body: some View {
@@ -24,6 +25,11 @@ struct BrowsersSection: View {
                                      now: context.date)
                     if spec.tabGroupsChannel != nil {
                         TabGroupRow(channel: channels.first { $0.id == TabGroupWatcher.channel }, now: context.date)
+                    }
+                    // G71 (2026-10-16): the YouTube videos watched in Chrome — its own switch, under Chrome.
+                    if spec.id == WatchHistoryWatcher.browser {
+                        WatchHistoryRow(channel: channels.first { $0.id == WatchHistoryWatcher.channel },
+                                        now: context.date)
                     }
                 }
                 // G191 — next to where the bookmark watch is turned on: the question it may ask.

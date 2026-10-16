@@ -40,7 +40,8 @@ from pathlib import Path
 
 from loguru import logger
 
-from api.services import bank_index, media_ingestor, reading_asks, reading_hosts, reading_settings, reading_walls
+from api.services import (bank_index, media_ingestor, reading_asks, reading_hosts, reading_settings, reading_walls,
+                          youtube_lists)
 
 #: Origins that are saved content, not the person's words: a bookmark, a saved
 #: post, a history entry, a feed, the app's own save route. Everything else
@@ -400,6 +401,9 @@ def counts(memory_path: Path, *, warm_only: bool = False, include_words_origin: 
     asks = 0
     if any(r.get("state") == "waiting" for r in rows):
         asks = len(ask_entries(memory_path, rows, media_ingestor.load_url_index(memory_path)))
+    # G71 (2026-10-16): a YouTube list the person asked their agent to keep current is an ask of theirs too — one
+    # small file, no bank read, so the hook's budget never meets it.
+    asks += len(youtube_lists.due(memory_path))
     if not reading_settings.allowed_sites():
         return asks, 0
     if warm_only and not bank_index.is_warm(memory_path, "entities"):

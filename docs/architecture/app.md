@@ -337,7 +337,14 @@ add-folder sheet labels its fields and asks which subfolders an agent wrote as a
 from `BrowserInventory` — the browsers on this Mac by bundle id, each with its installed icon: Chrome,
 Safari, Brave, Vivaldi, Comet and Dia as `SourceRow`s (Turn on / Sync now, or Try again with the
 Full Disk Access fix under Safari when a read was refused, 'Last synced …'); under Chrome, *Open tab groups* is a
-sub-row with its own switch and the open groups as tags in Chrome's colours (G160); and the ones Cicada cannot sync
+sub-row with its own switch and the open groups as tags in Chrome's colours (G160), and **YouTube history** (G71,
+2026-10-16; `WatchHistoryRow`, `WatchHistoryWatcher`, channel `chrome-youtube-history`) a second sub-row with its own
+switch, off by default ("Off — … Only YouTube video pages are read, never the rest of your history"), then "Live",
+"N videos watched, one entry per day" and 'Last synced …': the app copies Chrome's `History` into a private temporary
+folder, reads the copy with one query that names YouTube video pages only (`ChromeWatchHistoryReader`), deletes the
+copy, and posts link, title and visit time past a per-bank visit-id cursor (advanced only after the backend accepted a
+batch) — on turning on, launch, a bank switch, Sync now, and every 10 minutes when the file's size or time moved (a
+stat; Chrome rewrites History on most page loads, so no FSEvents watch); and the ones Cicada cannot sync
 yet (Arc, Firefox, Edge, Opera) named once in the header, never as a row. Safari's source page groups its items as
 Recently saved · Favorites · Other bookmarks. Under the browsers, **Ask why when I bookmark something** (G191, `saveWhy`,
 off by default; `cicada.saveWhy.enabled`, per Mac like the watch's consent flags) — one switch that works: turning it
@@ -748,6 +755,14 @@ link-render branch's (it reads `GET /explore/captures/{entity_id}`, `storage.md`
 `readingExploreSignedIn`) and the first-use sheet's exploring paragraph (ack v3, D3). Copy: `Theme/Copy+Explore.swift`.
 Tests: `ExploreTests`.
 
+**Your YouTube lists (G71, owner 2026-10-16).** Settings → Reading the web shows, while agent reading is on, a group of
+two switches — *Keep Watch later current* and *Keep watch history current* (off by default; `ReadingAgentModel.
+setYouTubeList`, one `PUT /reading/settings` `youtubeLists` patch, rows `readingYouTube` and `reading:youtube:<list>`) —
+each with one line from `YouTubeListWords`: off, "Waiting for your agent", "Last read by your agent · <day>", or "Your
+agent wasn't signed in to YouTube. Paused until <day> — turn it on again to try sooner" (turning it on again is Try
+again). Nothing in the app reads YouTube; the person's own agent does (`mcp.md`, "YouTube lists"). Tests:
+`YouTubeListSettingsTests`.
+
 **Source rows and last sync (round 4).** Every source that keeps up renders one `SourceRow`
 (`Views/Common/SourceRow.swift`) from a pure `SourceRowModel`: the bare mark, name and what it reads, what came in
 (`SourceRowText.countLine`: the count in the reader's locale and the channel's `parts`), and on the right 'Syncing now'
@@ -801,7 +816,12 @@ the page's find row.
   items land there through `AppRouter.routeToSavedItem` / `routeToBookmark` (Sleep, the Saved tab, the item open), and
   the preview sheet is gone. The one-shot import's `+` (with ⌘N) is an icon on the tab row (`SleepTabRow`) and opens the
   unchanged `AddSourceSheet`, whose root hosts the one `IntakePanel`; Settings → Integrations' "Import in Sleep →"
-  stages a tile there (`AppRouter.routeToAddSource`).
+  stages a tile there (`AppRouter.routeToAddSource`). **Include watch history (G71, 2026-10-16):** a drop whose sniff
+  reports history (`historyExcluded`, or `historyVideos`/`historyDays` once asked) shows the switch in the preview
+  (`IntakeRouter.includeHistory`, off for every new drop); flipping it sniffs again with `?include_history=true`, the
+  line under it says "N watched videos left out" or "N watched videos over D days", the import counts them and
+  `/sources/upload` carries the flag. The YouTube and TikTok tiles carry the same switch, and a walked Takeout folder
+  now sends `watch-history.html`.
 - **Videos (G162, the approved boards, 2026-09-30).** The app reads `GET /videos/state` and `/videos/summary` through
   `VideoStateCache` (app-level, in memory, ETag-revalidated, never a Store domain; `VideoRefresh` follows the
   `videoQueue`, `episodes`, `entities` and `bank` components, one revalidation is scheduled at the wire's
