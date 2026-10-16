@@ -27,6 +27,12 @@ struct ServerConnection: Equatable, Sendable {
     enum Source: Equatable, Sendable { case none, file, environment }
 
     static let apiBaseFile = "api_base"
+    /// The person's saved choice, waiting for Cicada to open again (review fix): the hooks, the stdio MCP server and
+    /// the `cicada` command read `api_base` on every call, so writing it on the click would move them at once while
+    /// this app — and the backend it runs — stayed where they were. `api_base.next` holds the address (empty: This
+    /// Mac) until launch, where `applyPending` moves it into place before anything resolves, so the whole Mac switches
+    /// together.
+    static let pendingFile = "api_base.next"
     static let deviceTokenFile = "device_token"
     static let baseEnv = "CICADA_API_BASE"
     static let tokenEnv = "CICADA_API_TOKEN"
@@ -113,17 +119,37 @@ struct ServerConnection: Equatable, Sendable {
 
     // MARK: Resolution
 
-    static let current: ServerConnection = resolve()
+    /// Decided once, at launch: the person's pending choice is put in place first (never under tests, which must not
+    /// touch a real home), so this app and every agent on the Mac read the same file from here on.
+    static let current: ServerConnection = {
+        if !AppPasteboard.isRunningTests { applyPending() }
+        return resolve()
+    }()
 
+    /// Bytes that are not UTF-8 are replaced, never dropped: a garbled file is still "a server" (and invalid), exactly
+    /// as `runtime_layout._raw_base` reads it, so this app and the hooks never disagree about which bank is in use.
+    static let readText: (URL) -> String? = { url in
+        (try? Data(contentsOf: url)).map { String(decoding: $0, as: UTF8.self) }
+    }
+
+    /// `includingPending`: what the person saved and Cicada will use when it opens again (Settings), rather than what
+    /// is in place now.
     static func resolve(environment: [String: String] = ProcessInfo.processInfo.environment,
                         cicadaHome: URL = CicadaRuntime.current.cicadaHome,
-                        readFile: (URL) -> String? = { try? String(contentsOf: $0, encoding: .utf8) }) -> ServerConnection {
+                        includingPending: Bool = false,
+                        readFile: (URL) -> String? = ServerConnection.readText) -> ServerConnection {
         let fromEnv = (environment[baseEnv] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let pending = includingPending ? readFile(cicadaHome.appendingPathComponent(pendingFile)) : nil
         let raw: String
         let source: Source
         if !fromEnv.isEmpty {
             raw = fromEnv
             source = .environment
+        } else if let pending {
+            let next = pending.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !next.isEmpty else { return ServerConnection(mode: .thisMac, source: .none) }
+            raw = next
+            source = .file
         } else if let saved = readFile(cicadaHome.appendingPathComponent(apiBaseFile))?
             .trimmingCharacters(in: .whitespacesAndNewlines), !saved.isEmpty {
             raw = saved
@@ -167,21 +193,45 @@ struct ServerConnection: Equatable, Sendable {
 
     // MARK: Saving the person's choice
 
-    /// Writes the address (and the token, when the person pasted one) — each 0600, the folder 0700. Only on the
-    /// person's click in Settings → General; nothing else in the app writes either file.
+    /// Saves the address for the next launch (`pendingFile`) and the token, when the person pasted one — each 0600,
+    /// the folder 0700. Only on the person's click in Settings → General, after the server answered; nothing else in
+    /// the app writes either file. The token alone changes nothing: it is read only once an address is in place.
     static func save(base: URL, token: String?, cicadaHome: URL = CicadaRuntime.current.cicadaHome) throws {
         let fm = FileManager.default
         try fm.createDirectory(at: cicadaHome, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         if let token = token?.trimmingCharacters(in: .whitespacesAndNewlines), !token.isEmpty {
             try writePrivate(token + "\n", to: cicadaHome.appendingPathComponent(deviceTokenFile))
         }
-        try writePrivate(base.absoluteString + "\n", to: cicadaHome.appendingPathComponent(apiBaseFile))
+        try writePrivate(base.absoluteString + "\n", to: cicadaHome.appendingPathComponent(pendingFile))
     }
 
-    /// *This Mac* again: the address goes; the device token stays, so choosing the server again needs no new one.
+    /// *This Mac* again, from the next launch: the address goes then; the device token stays, so choosing the server
+    /// again needs no new one.
     static func forget(cicadaHome: URL = CicadaRuntime.current.cicadaHome) throws {
-        let file = cicadaHome.appendingPathComponent(apiBaseFile)
-        if FileManager.default.fileExists(atPath: file.path) { try FileManager.default.removeItem(at: file) }
+        try FileManager.default.createDirectory(at: cicadaHome, withIntermediateDirectories: true,
+                                                attributes: [.posixPermissions: 0o700])
+        try writePrivate("", to: cicadaHome.appendingPathComponent(pendingFile))
+    }
+
+    /// At launch, before anything resolves: the saved choice becomes the one in place (`api_base` written 0600, or
+    /// removed for This Mac) and the pending file goes. A failure leaves both as they were, so this launch, the hooks
+    /// and the next launch all still agree.
+    static func applyPending(cicadaHome: URL = CicadaRuntime.current.cicadaHome) {
+        let fm = FileManager.default
+        let pending = cicadaHome.appendingPathComponent(pendingFile)
+        guard let data = fm.contents(atPath: pending.path) else { return }
+        let next = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        let live = cicadaHome.appendingPathComponent(apiBaseFile)
+        do {
+            if next.isEmpty {
+                if fm.fileExists(atPath: live.path) { try fm.removeItem(at: live) }
+            } else {
+                try writePrivate(next + "\n", to: live)
+            }
+            try fm.removeItem(at: pending)
+        } catch {
+            return
+        }
     }
 
     private static func writePrivate(_ text: String, to url: URL) throws {

@@ -149,6 +149,27 @@ final class BackgroundServicesTests: XCTestCase {
         XCTAssertEqual(BackendAgentPolicy.state(probeStatus: 127, plistExists: false), .unknown)
     }
 
+    /// G181 phase 3 review fix — on a server the service is stopped (bootout, plist kept), and only when it runs.
+    func testOnAServerTheServiceIsStoppedNeverRemoved() async throws {
+        XCTAssertEqual(BackendAgentPolicy.stopArgv(uid: 501), ["/bin/launchctl", "bootout", "gui/501/com.cicada.backend"])
+        let runner = FakeRunner()
+        let plist = FileManager.default.temporaryDirectory.appendingPathComponent("agent-\(UUID()).plist")
+        try Data().write(to: plist)
+        let service = BackendAgentService(runner: runner, runtime: .developer(codeRoot: root), plistURL: plist, uid: 501,
+                                          memoryRoot: { nil })
+        runner.answers["/bin/launchctl print gui/501/com.cicada.backend"] = 113
+        let stoppedNothing = await service.stopForServer()
+        XCTAssertFalse(stoppedNothing)
+        XCTAssertNil(runner.runs.first { $0.argv.contains("bootout") })
+        runner.answers["/bin/launchctl print gui/501/com.cicada.backend"] = 0
+        let stopped = await service.stopForServer()
+        XCTAssertTrue(stopped)
+        XCTAssertEqual(runner.runs.filter { $0.argv.contains("bootout") }.map(\.argv), [BackendAgentPolicy.stopArgv(uid: 501)])
+        XCTAssertNil(runner.runs.first { $0.argv.first == "/bin/bash" }, "nothing is installed")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: plist.path), "the plist stays for This Mac again")
+        try? FileManager.default.removeItem(at: plist)
+    }
+
     func testInstallRunsTheScriptThenHandsLaunchdThePort() async throws {
         let runner = FakeRunner()
         let plist = FileManager.default.temporaryDirectory.appendingPathComponent("agent-\(UUID()).plist")

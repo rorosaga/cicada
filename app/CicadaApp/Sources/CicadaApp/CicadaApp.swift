@@ -189,6 +189,12 @@ struct CicadaApp: App {
         if runtime.isRelease && !ServerConnection.current.isServer {
             Task { @MainActor in await backendAgent.migrateIfNeeded() }
         }
+        // G181 phase 3 (review fix) — on a server, a background service left from This Mac would keep serving this
+        // Mac's bank while everything here points elsewhere: stop it (its plist stays, for This Mac again). An invalid
+        // address stops nothing — the person fixes it or chooses This Mac, and the service is still there.
+        if ServerConnection.current.serverURL != nil {
+            Task { @MainActor in await backendAgent.stopForServer() }
+        }
         // G182 phase 5 — checks and installs only in a release run from a real folder, never while Sleep writes.
         let updates = UpdateService.live(runtime: runtime,
                                          isSleepWriting: { [store] in ProjectWriteGate.sleepRunning(store.status.value) },

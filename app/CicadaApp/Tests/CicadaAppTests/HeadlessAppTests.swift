@@ -82,15 +82,47 @@ final class HeadlessAppTests: XCTestCase {
     func testSavingWritesPrivateFilesAndThisMacRemovesOnlyTheAddress() throws {
         let url = try XCTUnwrap(try? ServerConnection.validate("https://cicada.example.ts.net").get())
         try ServerConnection.save(base: url, token: deviceToken, cicadaHome: home)
-        for name in ["api_base", "device_token"] {
+        for name in ["api_base.next", "device_token"] {
             let attrs = try FileManager.default.attributesOfItem(atPath: home.appendingPathComponent(name).path)
             XCTAssertEqual((attrs[.posixPermissions] as? NSNumber)?.intValue, 0o600, name)
         }
         XCTAssertEqual(ServerConnection.deviceToken(environment: [:], cicadaHome: home), deviceToken)
+        ServerConnection.applyPending(cicadaHome: home)
+        let attrs = try FileManager.default.attributesOfItem(atPath: home.appendingPathComponent("api_base").path)
+        XCTAssertEqual((attrs[.posixPermissions] as? NSNumber)?.intValue, 0o600)
         XCTAssertTrue(ServerConnection.resolve(environment: [:], cicadaHome: home).isServer)
         try ServerConnection.forget(cicadaHome: home)
+        ServerConnection.applyPending(cicadaHome: home)
         XCTAssertEqual(ServerConnection.resolve(environment: [:], cicadaHome: home).mode, .thisMac)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: home.appendingPathComponent("api_base").path))
         XCTAssertEqual(ServerConnection.deviceToken(environment: [:], cicadaHome: home), deviceToken)
+    }
+
+    /// Review fix: the hooks, the stdio MCP server and the CLI read `api_base` on every call, so a choice must not
+    /// reach it before this app opens again — the whole Mac switches together, at launch.
+    func testAChoiceWaitsForTheNextLaunchSoTheAgentsAndTheAppSwitchTogether() throws {
+        try "https://old.example.ts.net\n".write(to: home.appendingPathComponent("api_base"), atomically: true, encoding: .utf8)
+        let url = try XCTUnwrap(try? ServerConnection.validate("https://cicada.example.ts.net").get())
+        try ServerConnection.save(base: url, token: nil, cicadaHome: home)
+        // in place now (what the agents read): unchanged; what Settings shows as next: the new one
+        XCTAssertEqual(ServerConnection.resolve(environment: [:], cicadaHome: home).host, "old.example.ts.net")
+        XCTAssertEqual(ServerConnection.resolve(environment: [:], cicadaHome: home, includingPending: true).host,
+                       "cicada.example.ts.net")
+        try ServerConnection.forget(cicadaHome: home)
+        XCTAssertEqual(ServerConnection.resolve(environment: [:], cicadaHome: home).host, "old.example.ts.net")
+        XCTAssertEqual(ServerConnection.resolve(environment: [:], cicadaHome: home, includingPending: true).mode, .thisMac)
+        ServerConnection.applyPending(cicadaHome: home)
+        XCTAssertEqual(ServerConnection.resolve(environment: [:], cicadaHome: home).mode, .thisMac)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: home.appendingPathComponent("api_base.next").path))
+        ServerConnection.applyPending(cicadaHome: home)          // nothing pending: nothing changes
+        XCTAssertEqual(ServerConnection.resolve(environment: [:], cicadaHome: home).mode, .thisMac)
+    }
+
+    func testAGarbledFileIsAnInvalidServerNeverThisMac() throws {
+        try Data([0xff, 0xfe, 0x00, 0x41]).write(to: home.appendingPathComponent("api_base"))
+        let connection = ServerConnection.resolve(environment: [:], cicadaHome: home)
+        XCTAssertTrue(connection.isServer)
+        XCTAssertNotNil(connection.invalidReason)
     }
 
     func testTheDeviceIdIsReadFromItsOwnToken() {
@@ -391,12 +423,15 @@ final class HeadlessAppTests: XCTestCase {
         await model.checkAndUse()
         XCTAssertEqual(model.result, .unreachable)
         XCTAssertFalse(FileManager.default.fileExists(atPath: home.appendingPathComponent("api_base").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: home.appendingPathComponent("api_base.next").path))
         XCTAssertFalse(model.needsRestart)
         answer = .ok(deviceName: "laptop")
         await model.checkAndUse()
         XCTAssertTrue(model.needsRestart)
         XCTAssertEqual(model.saved.serverURL?.absoluteString, "https://cicada.example.ts.net")
         XCTAssertEqual(model.pendingLine, Copy.Devices.pendingServer("cicada.example.ts.net"))
+        // nothing the agents read moves until Cicada opens again
+        XCTAssertFalse(FileManager.default.fileExists(atPath: home.appendingPathComponent("api_base").path))
         XCTAssertEqual(ServerConnection.deviceToken(environment: [:], cicadaHome: home), deviceToken)
         XCTAssertTrue(model.tokenSaved)
         model.useThisMac()

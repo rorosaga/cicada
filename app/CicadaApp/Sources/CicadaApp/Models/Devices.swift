@@ -367,11 +367,11 @@ final class ConnectionSettingsModel {
         self.cicadaHome = cicadaHome
         self.environment = environment
         self.probe = probe
-        let onDisk = ServerConnection.resolve(environment: environment, cicadaHome: cicadaHome)
+        let onDisk = ServerConnection.resolve(environment: environment, cicadaHome: cicadaHome, includingPending: true)
         saved = onDisk
         choice = onDisk.isServer ? .server : .thisMac
         address = onDisk.serverURL?.absoluteString
-            ?? (try? String(contentsOf: cicadaHome.appendingPathComponent(ServerConnection.apiBaseFile), encoding: .utf8))?
+            ?? ServerConnection.readText(cicadaHome.appendingPathComponent(ServerConnection.apiBaseFile))?
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         tokenSaved = ServerConnection.deviceToken(environment: environment, cicadaHome: cicadaHome) != nil
     }
@@ -407,7 +407,7 @@ final class ConnectionSettingsModel {
             try ServerConnection.save(base: url, token: pasted.isEmpty ? nil : pasted, cicadaHome: cicadaHome)
             token = ""
             tokenSaved = true
-            saved = ServerConnection.resolve(environment: environment, cicadaHome: cicadaHome)
+            saved = ServerConnection.resolve(environment: environment, cicadaHome: cicadaHome, includingPending: true)
             address = saved.serverURL?.absoluteString ?? address
         } catch {
             result = .failed(-1)
@@ -418,7 +418,7 @@ final class ConnectionSettingsModel {
         result = nil
         do {
             try ServerConnection.forget(cicadaHome: cicadaHome)
-            saved = ServerConnection.resolve(environment: environment, cicadaHome: cicadaHome)
+            saved = ServerConnection.resolve(environment: environment, cicadaHome: cicadaHome, includingPending: true)
             choice = .thisMac
         } catch {
             result = .failed(-1)
