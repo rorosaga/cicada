@@ -15,9 +15,12 @@ import json
 from types import SimpleNamespace
 
 from api.config import Settings
-from api.services import correspondents, entity_extractor, entity_resolver, markdown_parser, sleep_cycle
+from _imessage_fixtures import ChatDB, conversation_id, payload, read_rows, utc
+from api.models.schemas import MessagesSyncRequest
+from api.services import (bank_index, correspondents, entity_extractor, entity_resolver, markdown_parser,
+                          messages_source, pending_store, sleep_cycle)
 from api.services.claims import parse_claims
-from api.tests.test_messages_sleep_attribution import MODEL_ANSWER, _conversation, _page
+from api.tests.test_messages_sleep_attribution import AGENT_SAYS, MODEL_ANSWER, PERSON_SAYS, _page
 from api.tests.test_sleep_cycle_hold import _bank, _patch, _settings
 
 AGENT = {"name": "Instinct", "kind": "agent", "decided_by": "person"}
@@ -55,39 +58,66 @@ def _claims(memory):
     return out
 
 
-def test_a_texted_agent_gets_its_own_tool_page_beside_a_same_name_concept(tmp_path, monkeypatch):
+def _sitting(db, chat, memory, day, *, first=False):
+    """One short sitting with the agent (one line from the person, one from it), synced as the app syncs it."""
+    db.message(chat, utc(2026, 9, day, 10, 0), from_me=True, body_only=True, text=PERSON_SAYS)
+    db.message(chat, utc(2026, 9, day, 10, 1), from_me=False, body_only=True, text=AGENT_SAYS)
+    guid = db.chat_guid(chat)
+    if first:
+        messages_source.update_settings(memory, conversation={"id": conversation_id(guid), "name": "Instinct",
+                                                              "ticked": True})
+    body = payload(guid, read_rows(db.path, chat), from_me=40, from_them=160)
+    messages_source.ingest(memory, MessagesSyncRequest.model_validate(body).model_dump(by_alias=False))
+    bank_index.invalidate()
+
+
+def test_a_texted_agent_is_held_under_its_own_key_then_gets_its_own_tool_page(tmp_path, monkeypatch):
     memory = _bank(tmp_path)
     _archived_concept(memory)
     for slug, name, kind in (("alpha-project", "alpha-project", "project"), ("beta-tool", "beta-tool", "tool"),
                              ("gamma-lib", "gamma-lib", "tool")):
         _page(memory, slug, name, kind)
     concept_before = (memory / "entities" / "instinct.md").read_bytes()
-    _conversation(tmp_path, memory)
-
     # The model even calls the agent a concept: the episode's own record decides its type.
     answer = json.loads(json.dumps(MODEL_ANSWER))
     answer["entities"][0]["type"] = "concept"
+
+    # One short sitting: below the promotion bar. Held under the agent's own key, never on the concept page.
+    db = ChatDB(tmp_path / "chat.db")
+    chat = db.chat("+15550000001")
+    _sitting(db, chat, memory, 3, first=True)
     _run_sleep(memory, monkeypatch, answer)
-
-    # The concept page is exactly as it was: nothing of the agent's landed on it.
     assert (memory / "entities" / "instinct.md").read_bytes() == concept_before
+    assert not (memory / "entities" / "instinct-agent.md").exists()
+    lines = {line.name: line for line in pending_store.load(memory)}
+    assert "Instinct" not in lines and "instinct" not in lines
+    held = lines["instinct-agent"]
+    assert held.correspondent == {"name": "Instinct", "kind": "agent"} and held.type == "tool"
+    assert [(c["subject"], c["predicate"], c["object"]) for c in held.held_claims] == [
+        ("instinct-agent", "runs-on", "beta-tool")]
+    assert held.held_claims[0]["observer"] == "external:instinct"
+    assert not any(k[0] == "instinct" or k[2] == "instinct" for k in _claims(memory))
+    first_ep = held.source_episode
 
+    # A second sitting: two conversations — the page is created with both, and everything the line held.
+    _sitting(db, chat, memory, 5)
+    db.close()
+    _run_sleep(memory, monkeypatch, answer)
+    assert (memory / "entities" / "instinct.md").read_bytes() == concept_before
     agent = markdown_parser.parse(memory / "entities" / "instinct-agent.md")
     fm = agent.frontmatter
     assert fm["name"] == "Instinct" and fm["type"] == "tool"
     assert fm["status"] == "active" and float(fm["confidence"]) >= 0.4
-    (episode,) = sorted((memory / "episodes").glob("*.md"))
-    ep_id = markdown_parser.parse(episode).frontmatter["id"]
-    assert fm["source_episodes"] == [ep_id]
-    assert str(fm["last_referenced"])[:10] == "2026-09-03"   # when it was said, not when it was read
-
+    episodes = sorted(markdown_parser.parse(p).frontmatter["id"] for p in (memory / "episodes").glob("*.md"))
+    assert first_ep in episodes and sorted(fm["source_episodes"]) == episodes
+    assert str(fm["created"])[:10] == "2026-09-03" and str(fm["last_referenced"])[:10] == "2026-09-05"
+    runs_on = [c for c in parse_claims(agent.body) if (c.predicate, c.object) == ("runs-on", "beta-tool")]
+    # The held claim, released onto the page, and the second sitting's restatement of it, reinforcing it.
+    assert sorted(e for c in runs_on for e in c.source_episodes) == episodes
+    assert all(c.observer == "external:instinct" and c.subject == "instinct-agent" for c in runs_on)
+    assert "instinct-agent" not in {line.name for line in pending_store.load(memory)}
     claims = _claims(memory)
-    runs_on = claims[("instinct-agent", "runs-on", "beta-tool")]
-    assert runs_on.observer == "external:instinct"            # attribution unchanged by the new page
-    assert [e.kind for e in runs_on.evidence] == ["assistant"]
     assert not any(k[0] == "instinct" or k[2] == "instinct" for k in claims)
-    built = next(c for k, c in claims.items() if k[0] == "alpha-project" and k[2] == "gamma-lib")
-    assert built.observer == "agent"
     assert {c.observer for c in claims.values()} <= {"agent", "external:instinct"}
 
 
@@ -141,10 +171,12 @@ def test_the_same_letters_in_another_conversation_take_the_general_path(tmp_path
     monkeypatch.setattr(entity_resolver.SqliteVecIndexer, "_rebuild_pending_index", lambda self, entries: None)
     existing = [_existing("instinct", "Instinct", "concept", status="archived", confidence=0.0),
                 _existing("beta-tool", "beta-tool", "tool")]
-    texted, chat = "ep_2026-10-15_001", "ep_2026-10-15_002"
+    texted, again, chat = "ep_2026-10-14_001", "ep_2026-10-15_001", "ep_2026-10-15_002"
     extracted = [
+        # Two sittings with the agent in this batch: two conversations, so its page is created.
         _extraction(texted, [_entity("Instinct", "tool", texted)],
                     [{"source": "Instinct", "target": "beta-tool", "label": "runs on"}], correspondent=AGENT),
+        _extraction(again, [_entity("Instinct", "tool", again)], correspondent=AGENT),
         # Another conversation (no correspondent record) about the word itself: the general resolver, as before.
         _extraction(chat, [_entity("Instinct", "concept", chat)],
                     [{"source": "Instinct", "target": "beta-tool", "label": "inspired"}]),
@@ -153,7 +185,7 @@ def test_the_same_letters_in_another_conversation_take_the_general_path(tmp_path
     by_id = {c["id"]: c for c in out["changes"]}
     assert by_id["instinct-agent"]["action"] == "create"
     assert by_id["instinct-agent"]["entity"]["type"] == "tool"
-    assert by_id["instinct-agent"]["source_episodes"] == [texted]
+    assert sorted(by_id["instinct-agent"]["source_episodes"]) == [texted, again]
     assert by_id["instinct"]["action"] == "update" and by_id["instinct"]["source_episodes"] == [chat]
     # The name keeps the general verdict for this batch; only the texted conversation's own edge is pinned.
     assert out["name_to_id"]["instinct"] == "instinct"
@@ -168,8 +200,11 @@ def test_a_texted_person_is_a_person_and_an_unknown_side_decides_nothing(tmp_pat
     person = {"name": "Alice Example", "kind": "person", "decided_by": "person"}
     out = _resolve(tmp_path, [_extraction(ep, [_entity("Alice Example", "company", ep)], correspondent=person)],
                    existing)
-    (change,) = out["changes"]
-    assert change["id"] == "alice-example-person" and change["entity"]["type"] == "person"
+    # One conversation and no counted rung: held under the person's own key, not on the same-name company page.
+    assert out["changes"] == []
+    (held,) = pending_store.load(tmp_path / "memory")
+    assert (held.name, held.type, held.correspondent["kind"]) == ("alice-example-person", "person", "person")
+    assert result_pin(out) is None
 
     # Nobody said who it is (no mark, no `identified` detection): nothing is decided, the general path runs.
     unknown = {"name": "Alice Example", "kind": "unknown", "decided_by": "none"}
@@ -178,6 +213,28 @@ def test_a_texted_person_is_a_person_and_an_unknown_side_decides_nothing(tmp_pat
     out = _resolve(tmp_path, [result], existing)
     (change,) = out["changes"]
     assert change["id"] == "alice-example" and change["action"] == "update"
+
+
+def result_pin(out):
+    """No edge is drawn to a correspondent that is only held (it has no page yet)."""
+    return next((e for e in out["relationships"] if "alice-example-person" in (e["source"], e["target"])), None)
+
+
+def test_a_held_correspondents_claims_and_edges_never_reach_the_same_name_page(tmp_path, monkeypatch):
+    monkeypatch.setattr(entity_resolver.SqliteVecIndexer, "_rebuild_pending_index", lambda self, entries: None)
+    existing = [_existing("instinct", "Instinct", "concept", status="archived", confidence=0.0),
+                _existing("beta-tool", "beta-tool", "tool")]
+    ep = "ep_2026-10-15_001"
+    texted = _extraction(ep, [_entity("Instinct", "tool", ep)],
+                         [{"source": "Instinct", "target": "beta-tool", "label": "runs on"}], correspondent=AGENT)
+    out = _resolve(tmp_path, [texted], existing)
+    assert out["changes"] == [] and out["relationships"] == []
+    assert out["name_to_id"]["instinct"] == "instinct"            # the plain name keeps its page, untouched
+    assert texted["relationships"][0]["source_page"] == "instinct-agent"
+    (claim,) = entity_extractor.entities_to_claims([texted], None)
+    assert claim.subject == "instinct-agent"                       # held there by Stage 5.56, never on `instinct`
+    (held,) = pending_store.load(tmp_path / "memory")
+    assert held.name == "instinct-agent" and held.correspondent == {"name": "Instinct", "kind": "agent"}
 
 
 def test_the_model_can_never_mark_or_pin(tmp_path):
@@ -193,4 +250,5 @@ def test_only_a_name_or_alias_that_folds_exactly_is_the_correspondent():
     assert correspondents.names_it(["INSTINCT"], ident) and correspondents.names_it(["instinct!"], ident)
     assert not correspondents.names_it(["Instinct Labs"], ident) and not correspondents.names_it(["instincts"], ident)
     assert correspondents.identity({"name": "Unnamed conversation", "kind": "agent"}) is None
+    assert correspondents.free_id(ident, set()) == "instinct-agent"     # never the plain same-name id
     assert correspondents.free_id(ident, {"instinct", "instinct-agent"}) == "instinct-agent-2"

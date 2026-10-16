@@ -780,17 +780,23 @@ its source, an article rewritten about the agent — and kept the concept's type
   A mention of the same letters in any other conversation never carries the mark and takes the general resolver,
   unchanged — so this cannot widen into homonym handling.
 - **Stage 2** (`entity_resolver._resolve_correspondents`, before any other name is judged) takes a marked entity out of
-  the by-name path: an existing page of the right type named so (else listing the alias; never the owner's page; a
-  dropped one is updated and stays dropped) is updated; otherwise a page is created under the name's id when free, or
-  `<id>-agent` / `<id>-person` (then `-2`…) when another page holds it (`correspondents.free_id`, trigger
-  `sleep/correspondent`). It does not wait in the pending store: every line on the other side of the conversation is
-  theirs, and the person ticked the conversation and said (or an identified detection said) who it is — a correspondent
-  is not a passing mention. The page is born like any create (`created`/`last_referenced` from its conversations' days,
-  `decayed_through`, `learned_on`, the decay class of its type); decay math is untouched. Every relationship of that
-  episode whose endpoint names the correspondent is pinned to the page (`source_page` / `target_page`), so its edge and
-  claim land there (`entities_to_claims` reads the pin before `name_to_id`); `name_to_id` maps the name to the page
-  only when no other conversation in the batch extracted that name. Observers are unchanged (`external:<name>` is the
-  correspondent's name, not a page id).
+  the by-name path. An existing page of the right type named so (else listing the alias; never the owner's page; a
+  dropped one is updated and stays dropped) is updated. Otherwise the correspondent meets the promotion rule like any
+  name, unchanged (2+ conversations — this batch's sittings plus the ones its held line heard —, more than 3 exchanges
+  with the person's own words, or a link the person made to an existing page). Below it, it waits in the pending store
+  under **its own key**: a line named by the id its page will get (`correspondents.free_id`: always `<id>-agent` /
+  `<id>-person`, then `-2`…, never the plain same-name id nor another line's slug) and marked
+  `correspondent: {name, kind}` (`PendingEntity.correspondent`; found again by that mark, `correspondents.held_line`,
+  never by name). Its claims are held on that line by Stage 5.56 (`pending_store.hold` keys by the line's slug), so
+  no same-name page and no same-name pending line ever receives them. Once the rule passes, the page is created under
+  that id (trigger `sleep/correspondent`) with everything the line held folded in (`_fold_pending`) and its held
+  claims released onto it — born like any create (`created`/`last_referenced` from its conversations' days,
+  `decayed_through`, `learned_on`, the decay class of its type); decay math is untouched. Every relationship of a
+  correspondent episode whose endpoint names them is pinned to that id (`source_page` / `target_page`): its claim
+  lands there, held or written (`entities_to_claims` reads the pin before `name_to_id`); its edge is drawn only once
+  the page exists (a pin to a held correspondent draws none, and never falls back to the name). `name_to_id` maps the
+  name to the page only when the page exists or is created now and no other conversation in the batch extracted that
+  name. Observers are unchanged (`external:<name>` is the correspondent's name, not a page id).
 - **Not covered:** a mention of the agent by name in another conversation (a coding session that talks about it) still
   resolves by name — with two pages sharing a name, the general resolver's exact match takes whichever it indexed last.
   A type-aware tiebreak would be general homonym handling, a separate decision.
@@ -801,7 +807,7 @@ its source, an article rewritten about the agent — and kept the concept's type
   git history: the *base* is the page in the parent of the first commit that credited the conversation. The old page
   goes back to the base (prose, status, confidence, `last_referenced`, `decayed_through`, its claims as the base had
   them) plus anything later from another conversation; the correspondent's page (an existing right-type page, merged
-  human-safe, else a new one born active at `RECOVERY_CONFIDENCE` with its conversations' days) gets the conversation's
+  human-safe, else a new one under `free_id`, born active at `RECOVERY_CONFIDENCE` with its conversations' days) gets the conversation's
   episodes, every claim added since the base that cites one of them (re-subjected, all provenance kept), the `sources:`
   rows, tags, aliases and `related` added since the base, the lead and Article when the absorption rewrote them (moved
   verbatim, so a machine article keeps its stamp and Sleep's writer keeps rewriting it — no model), and the list items

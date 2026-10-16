@@ -207,8 +207,6 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   never guessed (`promotion`). What is said about a name with no page yet is held (`pending_store`), never lost.
   A Stage-4 skill needs 2+ conversations too; one is held in its own store, `skill_hold` (G112, owner 2026-10-09).
   A speaker's self-reference ("the user", "me", "yo"…) is the owner's page, never a page of its own (G169).
-  A message conversation's decided correspondent is no mention: its own page from its first sitting, a `tool` (agent) or
-  `person`, never a same-name page of another type (G179, `correspondents`).
   A person known only by a relation to the owner is titled by the relation, never the owner's name, and asked their
   name; it is merged only on the person's answer or evidence on the record (`role_people`, `capture-and-sleep.md`).
 - **Temporal decay is a signal; age counts from when it was said** (owner 2026-10-09/13, amends G170): what the

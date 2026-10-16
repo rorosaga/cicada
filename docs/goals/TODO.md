@@ -17,7 +17,8 @@
 - **2026-10-16 — a texted agent gets its own page (G179, branch `fix/agent-identity`, not merged).** The real run put
   the agent on an archived same-name `concept` page (Stage 2 resolved it by name). Now the episode's decided
   `correspondent` is marked in Stage 1, typed (`tool` agent / `person`) and resolved to its own page in Stage 2
-  (`correspondents`; `<id>-agent` when the id is taken), its own edges and claims pinned there. Repair:
+  (`correspondents`; a new page is `<id>-agent` / `<id>-person`), its own claims pinned there; below the unchanged
+  promotion bar it is held under that key in the pending store, never on the same-name page. Repair:
   `api.scripts.repair_correspondent_pages --bank <path>` (dry run counts; `--apply` one `cicada` commit) splits a page
   that absorbed one back to its pre-conversation git state. Pick up: review, then the coordinator runs the repair on
   the real bank.

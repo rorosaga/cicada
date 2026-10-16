@@ -17,8 +17,10 @@ the conversation's own edges and claims to it) and the repair of a bank already 
   ordinary homonym handling.
 * **The type:** an AI agent is a ``tool`` (the closed set's place for software the person uses; it is not a person
   and not an idea), a texted person a ``person``.
-* **The page:** an existing page of that type whose name or alias folds to the name — the person's own page first —
-  else a new one, under the name's id when it is free and ``<id>-agent`` / ``<id>-person`` when another page holds it.
+* **The page:** an existing page of that type whose name or alias folds to the name — the one named so first — else
+  the promotion rule decides, as for any name. Below it, the correspondent waits in the pending store under its own
+  key (:func:`free_id`, ``<id>-agent`` / ``<id>-person``, never the plain same-name id; :func:`held_line` finds it
+  again); once the rule passes, its page is created under that id with everything held.
 """
 from __future__ import annotations
 
@@ -140,19 +142,27 @@ def find_page(pages: list[dict], ident: Identity) -> dict | None:
 
 
 def free_id(ident: Identity, taken, entities_dir: Path | None = None) -> str:
-    """The id a new correspondent page is written under: the name's own id when no page holds it, else
-    ``<id>-agent`` / ``<id>-person``, then ``-2``, ``-3``… ``taken`` is every id already used (on disk and created in
-    this batch); ``entities_dir`` is checked too, so a page the caller did not load is never overwritten."""
+    """The id a new correspondent page is written under — and, while it waits below the promotion bar, its pending
+    line's key: always ``<id>-agent`` / ``<id>-person`` (then ``-2``, ``-3``…), never the name's plain id, so a
+    same-name page or a same-name pending line can never take what is held for it. ``taken`` is every id already used
+    (on disk, created in this batch, and every pending line's slug); ``entities_dir`` is checked too, so a page the
+    caller did not load is never overwritten."""
     taken = set(taken)
 
     def used(candidate: str) -> bool:
         return candidate in taken or (entities_dir is not None and (Path(entities_dir) / f"{candidate}.md").exists())
 
-    base = sanitize_id(ident.name)
-    if not used(base):
-        return base
-    qualified = f"{base}-{ID_SUFFIX[ident.kind]}"
+    qualified = f"{sanitize_id(ident.name)}-{ID_SUFFIX[ident.kind]}"
     candidate, n = qualified, 2
     while used(candidate):
         candidate, n = f"{qualified}-{n}", n + 1
     return candidate
+
+
+def held_line(lines, ident: Identity):
+    """The pending line holding this correspondent below the promotion bar (``PendingEntity.correspondent``), or
+    ``None``. Matched by the correspondent record, never by name: a same-name line is someone else's."""
+    for line in lines or ():
+        if identity(getattr(line, "correspondent", None)) == ident:
+            return line
+    return None
