@@ -1117,6 +1117,8 @@ def _warm_reading_queue() -> None:
     try:
         from api.services import reading_queue, reading_settings
 
+        if runtime_layout.is_client():
+            return          # G181 phase 2: no local bank to warm; the server answers the queue
         if reading_settings.agent_enabled() and reading_settings.allowed_sites():
             reading_queue.warm(get_memory_path())
     except Exception:  # noqa: BLE001
@@ -1129,6 +1131,9 @@ def _handshake_text(*, delivery: str) -> str:
     `delivery` names which surface asked: `initialize` or `tool`."""
     from api.services import handshake
 
+    if runtime_layout.is_client():
+        # G181 phase 2: the primer is built where the bank is.
+        return str(_remote_call("cicada_handshake", {}, {"delivery": delivery}).get("text") or "")
     memory_path = get_memory_path()
     text, meta = handshake.load_or_build(memory_path, CLIENT_INFO.get("name"))
     handshake.record(delivery, meta, bank=memory_path.name, harness=SESSION.harness,
@@ -1235,7 +1240,55 @@ def get_memory_path() -> Path:
         return root
 
 
+def _caller() -> dict:
+    """Who is calling, for the tool door (G181 phase 2): the G48 session and the client's own name."""
+    return {"session_id": SESSION.session_id, "harness": SESSION.harness, "project_dir": SESSION.project_dir,
+            "client_name": CLIENT_INFO.get("name") or None, "client_version": CLIENT_INFO.get("version") or None}
+
+
+def _remote_call(name: str, arguments: dict, options: dict | None = None) -> dict:
+    """One tool call run on the server this machine is a client of (``CICADA_API_BASE``, G181 phase 2). The stdio
+    process's per-session state rides along and comes back updated, so a skip, the once-per-conversation now-view and
+    the revisions ``cicada_pending`` listed behave as they do on one machine."""
+    global _STATE_HINT_SENT
+    from api.services import tool_client
+
+    answer = tool_client.call(name, arguments, caller=_caller(), surface="mcp", options=options,
+                              state={"skipped_inbox_ids": sorted(_SKIPPED_INBOX_IDS),
+                                     "state_hint_sent": _STATE_HINT_SENT, "listed_revisions": dict(_LISTED_REVISIONS)})
+    state = answer.get("state") if isinstance(answer.get("state"), dict) else {}
+    if isinstance(state.get("skipped_inbox_ids"), list):
+        _SKIPPED_INBOX_IDS.update(str(i) for i in state["skipped_inbox_ids"])
+    if isinstance(state.get("state_hint_sent"), bool):
+        _STATE_HINT_SENT = state["state_hint_sent"]
+    if isinstance(state.get("listed_revisions"), dict):
+        _LISTED_REVISIONS.update({str(k): str(v) for k, v in state["listed_revisions"].items()})
+    if answer.get("error"):
+        raise RuntimeError(str(answer["error"]))
+    return answer
+
+
+def _client_tool(name: str, arguments: dict) -> str:
+    """G181 phase 2: this machine is a client — the bank is on the server, so the call is run there. Files the agent
+    named are read here first; the repo context's git probe stays here."""
+    from api.services import tool_client
+
+    if name == "cicada_repo_context":
+        return handle_repo_context(arguments.get("entity_id"), arguments.get("path"))
+    args = tool_client.inline_files(name, arguments)
+    if isinstance(args, str):
+        return args
+    options = {"cwd": SESSION.project_dir or os.getcwd()} if name == "cicada_continue" else None
+    try:
+        return str(_remote_call(name, args, options).get("text") or "")
+    except tool_client.ToolClientError as exc:
+        raise RuntimeError(str(exc)) from None
+
+
 def handle_tool(name: str, arguments: dict) -> str:
+    if runtime_layout.is_client():
+        # G181 phase 2: a server elsewhere holds the bank; nothing below may touch a local one.
+        return _client_tool(name, arguments)
     if name == "cicada_recall":
         return handle_recall(arguments.get("query", ""))
     elif name == "cicada_recall_detail":
@@ -1604,22 +1657,7 @@ def handle_pending(limit) -> str:
     """List unprocessed episodes for the agent's own consolidation loop, each with the rev its mark must match."""
     from api.services import agentic_write
 
-    try:
-        limit = int(limit) if limit is not None else 50
-    except (TypeError, ValueError):
-        limit = 50
-
-    episodes = agentic_write.list_unprocessed_episodes(get_memory_path(), limit=limit)
-    if not episodes:
-        return "No unprocessed episodes pending."
-
-    lines = [f"{len(episodes)} unprocessed episode(s):"]
-    for ep in episodes:
-        ep_id = str(ep.get("id"))
-        _LISTED_REVISIONS[ep_id] = ep["revision"]
-        snippet = (ep.get("content") or "")[:300].strip().replace("\n", " ")
-        lines.append(f"- `{ep_id}` (rev `{agentic_write.revision_tag(ep['revision'])}`) — {ep.get('title', '')}: {snippet}")
-    return "\n".join(lines)
+    return agentic_write.pending_text(get_memory_path(), limit, _LISTED_REVISIONS)
 
 
 def handle_mark_processed(episode_ids, revisions=None) -> str:
@@ -1633,39 +1671,12 @@ def handle_mark_processed(episode_ids, revisions=None) -> str:
     so the episode records WHICH agent surface consolidated it, not just that
     one did (G114 R6). ``"unknown"`` is G48's placeholder, not an identity, so
     it falls back to the generic ``"agent"`` rather than being recorded.
+    The body is ``agentic_write.mark_processed_text``, shared with the tool door (G181 phase 2).
     """
     from api.services import agentic_write
 
-    if not isinstance(episode_ids, list) or not episode_ids:
-        return "episode_ids is required (a non-empty array of episode ids)."
-    given = revisions if isinstance(revisions, dict) else {}
-
-    checks: dict[str, str] = {}
-    unlisted: list[str] = []
-    for raw in episode_ids:
-        ep_id = str(raw or "").strip()
-        if not ep_id:
-            continue
-        revision = str(given.get(ep_id) or _LISTED_REVISIONS.get(ep_id) or "")
-        if revision:
-            checks[ep_id] = revision
-        else:
-            unlisted.append(ep_id)
-
-    harness = (SESSION.harness or "").strip()
-    by = harness if harness and harness != "unknown" else "agent"
-    result = agentic_write.mark_episodes_processed(get_memory_path(), checks, by=by)
-    lines = [f"Marked {len(result.marked)} episode(s) as processed (processed_by: {by})."]
-    if result.changed:
-        lines.append("Not marked, changed since you listed them (new turns arrived): "
-                     + ", ".join(f"`{i}`" for i in result.changed)
-                     + ". Run cicada_pending again, consolidate what is new, then mark them.")
-    if unlisted:
-        lines.append("Not marked, not listed by cicada_pending in this session and no rev given: "
-                     + ", ".join(f"`{i}`" for i in unlisted) + ". List them with cicada_pending first.")
-    if result.missing:
-        lines.append("Not found: " + ", ".join(f"`{i}`" for i in result.missing) + ".")
-    return "\n".join(lines)
+    return agentic_write.mark_processed_text(get_memory_path(), episode_ids, revisions, _LISTED_REVISIONS,
+                                             SESSION.harness)
 
 
 def handle_repo_context(entity_id: str | None, path: str | None) -> str:
@@ -1677,6 +1688,9 @@ def handle_repo_context(entity_id: str | None, path: str | None) -> str:
     probes that filesystem path directly with no declared metadata to compare
     against. Always returns rendered text — never raw JSON — and degrades to a
     human-readable "repo context unavailable (...)" line on any non-ok status.
+
+    G181 phase 2: on a client machine the declared repos come from the server (the bank is there) and the git
+    context is still probed HERE, where the repository is — the backend never runs git in a declared repo.
     """
     entity_id = (entity_id or "").strip()
     path = (path or "").strip()
@@ -1690,70 +1704,27 @@ def handle_repo_context(entity_id: str | None, path: str | None) -> str:
         ctx = repo_context.resolve_repo_context({"path": path})
         return _render_repo_context(path, [ctx])
 
-    memory_path = get_memory_path()
-    entities_dir = memory_path / "entities"
-    resolved_id = _entity_id_for_name(entities_dir, entity_id) or entity_id
-    entity_path = entities_dir / f"{resolved_id}.md"
-    if not entity_path.exists():
-        return f"Entity '{entity_id}' not found."
-
-    try:
-        from api.services import markdown_parser
-
-        parsed = markdown_parser.parse(entity_path)
-    except Exception as e:
-        return f"Could not read '{entity_id}': {e}"
-
-    declared = parsed.frontmatter.get("repos") or []
-    declared = [d for d in declared if isinstance(d, dict) and d.get("path")]
-    if not declared:
-        return f"Entity '{resolved_id}' has no declared repos."
+    if runtime_layout.is_client():
+        answer = _remote_call("cicada_repo_context", {"entity_id": entity_id})
+        data = answer.get("data") if isinstance(answer.get("data"), dict) else {}
+        declared = [d for d in data.get("repos") or [] if isinstance(d, dict) and d.get("path")]
+        if not declared:
+            return str(answer.get("text") or f"Entity '{entity_id}' has no declared repos.")
+        resolved_id = str(data.get("entity") or entity_id)
+    else:
+        resolved_id, declared, refusal = repo_context.declared_repos(get_memory_path(), entity_id)
+        if refusal is not None:
+            return refusal
 
     contexts = [repo_context.resolve_repo_context(d) for d in declared]
     return _render_repo_context(resolved_id, contexts)
 
 
 def _render_repo_context(label: str, contexts: list[dict]) -> str:
-    """Render one or more ``RepoContext`` dicts as human-readable text."""
-    blocks = []
-    for ctx in contexts:
-        if ctx.get("status") != "ok":
-            blocks.append(
-                f"repo context unavailable for `{ctx.get('path')}` "
-                f"(status: {ctx.get('status')})"
-            )
-            continue
+    """Render one or more ``RepoContext`` dicts as human-readable text (``repo_context.render_contexts``)."""
+    from api.services import repo_context
 
-        lines = [f"**{ctx.get('path')}**"]
-        branch = ctx.get("current_branch") or "(detached)"
-        lines.append(f"- branch: {branch}")
-        ahead, behind = ctx.get("ahead"), ctx.get("behind")
-        if ahead is not None or behind is not None:
-            lines.append(f"- ahead/behind origin: {ahead or 0}/{behind or 0}")
-        dirty = ctx.get("dirty_files")
-        if dirty is not None:
-            lines.append(f"- dirty files: {dirty}")
-        commit = ctx.get("last_commit")
-        if commit:
-            lines.append(
-                f"- last commit: {commit.get('hash', '')[:8]} "
-                f"by {commit.get('author')} ({commit.get('date')}): {commit.get('subject')}"
-            )
-        worktrees = ctx.get("worktrees") or []
-        if len(worktrees) > 1:
-            wt_lines = ", ".join(
-                f"{w.get('path')} ({w.get('branch') or 'detached'}"
-                f"{', main' if w.get('is_main') else ''})"
-                for w in worktrees
-            )
-            lines.append(f"- worktrees: {wt_lines}")
-        if ctx.get("stale_hint"):
-            lines.append(f"- note: {ctx['stale_hint']}")
-        blocks.append("\n".join(lines))
-
-    header = f"Repo context for `{label}`:" if len(contexts) > 1 or contexts[0].get("path") != label else ""
-    body = "\n\n".join(blocks)
-    return f"{header}\n\n{body}".strip() if header else body
+    return repo_context.render_contexts(label, contexts)
 
 
 def _backend_post(path: str, payload: dict) -> dict:

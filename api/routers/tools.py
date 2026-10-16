@@ -1,0 +1,86 @@
+"""``POST /tools/call`` — the tool door (G181 phase 2): an MCP tool call, or a `cicada` command's tool mirror, from
+another of the person's machines, run here where the bank is (``tool_door``).
+
+Bearer-authed like every route: the server's master token or a device token the person issued (``device_tokens``).
+The device that signed the call comes from the token (``request.state.device``), never from the body. The bank is the
+request's pinned bank (G183(d)); a `cicada` command that names its bank and the bank's id (``X-Cicada-Bank``,
+``X-Cicada-Bank-Id``) is refused before anything runs when the active bank moved (``bank_binding``). The body runs off
+the event loop.
+"""
+from __future__ import annotations
+
+import asyncio
+from pathlib import Path
+from typing import Any, Literal
+
+from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel, Field
+
+from api.config import Settings, get_settings
+from api.services import bank_registry, tool_door
+
+router = APIRouter()
+
+
+class ToolCaller(BaseModel):
+    session_id: str | None = Field(None, max_length=200)
+    harness: str | None = Field(None, max_length=64)
+    project_dir: str | None = Field(None, max_length=4096)
+    client_name: str | None = Field(None, max_length=64)
+    client_version: str | None = Field(None, max_length=32)
+
+
+class ToolState(BaseModel):
+    skipped_inbox_ids: list[str] = Field(default_factory=list, max_length=tool_door.MAX_SKIPPED)
+    state_hint_sent: bool = False
+    listed_revisions: dict[str, str] = Field(default_factory=dict)
+
+
+class ToolCallRequest(BaseModel):
+    tool: str = Field(..., min_length=1, max_length=64)
+    arguments: dict[str, Any] = Field(default_factory=dict)
+    caller: ToolCaller = Field(default_factory=ToolCaller)
+    state: ToolState = Field(default_factory=ToolState)
+    surface: Literal["mcp", "cli"] = "mcp"
+    #: Door options a surface needs beside the tool's own arguments: `cwd` (continue), `delivery` (the primer),
+    #: `tz` (the command line's primer), `whole` (the command line's `get`).
+    options: dict[str, Any] = Field(default_factory=dict)
+
+
+def _local_headers():
+    from api.services.auth import auth_enabled, get_token
+
+    headers = {"Content-Type": "application/json"}
+    if auth_enabled():
+        headers["Authorization"] = f"Bearer {get_token()}"
+    return headers
+
+
+@router.post("/tools/call")
+async def call_tool(req: ToolCallRequest, request: Request, settings: Settings = Depends(get_settings)):
+    from api.services import runtime_layout
+
+    device = getattr(request.state, "device", None)
+    pin = bank_registry.pinned_bank()
+    memory_path = settings.memory_path
+    bank_name = pin.name if pin is not None else None
+    caller = tool_door.Caller(session_id=req.caller.session_id or "", harness=req.caller.harness or "unknown",
+                              project_dir=req.caller.project_dir, client_name=req.caller.client_name,
+                              client_version=req.caller.client_version)
+    if len(req.state.listed_revisions) > tool_door.MAX_LISTED:
+        raise HTTPException(status_code=400, detail="too many listed revisions")
+    state = tool_door.SessionState(skipped_inbox_ids=set(req.state.skipped_inbox_ids),
+                                   state_hint_sent=req.state.state_hint_sent,
+                                   listed_revisions=dict(req.state.listed_revisions))
+    ctx = tool_door.context(memory_path=memory_path, bank_name=bank_name, caller=caller, state=state,
+                            surface=req.surface, device_id=device.id if device is not None else None,
+                            backend_url=runtime_layout.local_backend_url({"CICADA_PORT": str(settings.port)}),
+                            headers=_local_headers)
+    try:
+        answer = await asyncio.to_thread(tool_door.run, req.tool, req.arguments, ctx=ctx, state=state,
+                                         surface=req.surface, options=req.options, root=Path(settings.memory_root),
+                                         bank_name=bank_name)
+    except tool_door.DoorError as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc)) from None
+    return {"text": answer.text, "code": answer.code, "data": answer.data, "error": answer.error,
+            "state": state.wire(), "bank": bank_name}

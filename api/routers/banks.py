@@ -53,7 +53,7 @@ def _refuse_switch_during_drain() -> None:
 #: miss once. Without it the app keeps the body it cached under that ETag on
 #: every 304, and a pre-`legacy` body offers the memory folder itself for
 #: deletion until some capture happens to move a stamp.
-_BANKS_BODY_SHAPE = "3"   # G117 round 4 (T-Demo): rows gained `demo`
+_BANKS_BODY_SHAPE = "4"   # G181 phase 2: rows gained `id` (the app ignores it: MemoryBank.CodingKeys)
 
 
 @router.get("/banks", response_model=BankListResponse)

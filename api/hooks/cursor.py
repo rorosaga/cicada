@@ -37,6 +37,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 from recall import _default_post, _log, _off, TIMEOUT_S
 from workspace_identity import observe_if_needed, remember
+import hook_client as remote_client  # G181 phase 2: a client of a server elsewhere (CICADA_API_BASE)
 
 INPUT_BYTES = 64 * 1024
 #: A capture payload carries the person's prompt, which can be a long paste.
@@ -83,8 +84,9 @@ def _capture(payload, event, *, environ, home, post):
     text = payload.get(field)
     if not isinstance(text, str) or not text.strip():
         return sid, f"skipped: no {field}"
-    token = _token(environ, home)
-    if not token:
+    client = remote_client.is_client(environ)
+    token = "" if client else _token(environ, home)
+    if not token and not client:
         return sid, "skipped: no api_token"
     gen = payload.get("generation_id")
     body = {"harness": "cursor", "session_id": sid, "hook_event": event,
@@ -94,6 +96,12 @@ def _capture(payload, event, *, environ, home, post):
     model = payload.get("model")
     if speaker == "assistant" and isinstance(model, str) and model.strip():
         body["model"] = model.strip()[:200]
+    if client:
+        # G181 phase 2: the server is elsewhere; a turn it does not take now waits in the spool, in order. Only the
+        # reply hook flushes: the prompt hook holds the person's message.
+        return sid, remote_client.deliver_turn(
+            home, "/capture/turn", body, environ=environ, post=None if post is _default_post else post,
+            timeout=CAPTURE_TIMEOUT_S[event], flush_budget=3.5 if event == "afterAgentResponse" else 0.0)
     port = str(environ.get("CICADA_PORT") or "8000")
     status, answer = post(f"http://127.0.0.1:{port}/capture/turn", json.dumps(body).encode("utf-8"), token,
                           CAPTURE_TIMEOUT_S[event])
@@ -115,8 +123,14 @@ def _startup(payload, *, environ, home, post):
     sid = payload.get("conversation_id")
     if not isinstance(sid, str) or not SESSION.fullmatch(sid) or payload.get("session_id") != sid:
         return {}, "skipped"
-    token = _token(environ, home)
-    if not token:
+    if remote_client.is_client(environ):
+        base, token, problem = remote_client.target(environ)
+        url = None if problem else f"{base}/capture/hook-context"
+    else:
+        token = _token(environ, home)
+        port = str(environ.get("CICADA_PORT") or "8000")
+        url = f"http://127.0.0.1:{port}/capture/hook-context"
+    if not token or not url:
         return {}, "skipped"
     cwd = _cwd(payload.get("workspace_roots"))
     body = {"event": "session_start", "harness": "cursor", "session_id": sid, "cwd": cwd, "source": "startup"}
@@ -124,8 +138,7 @@ def _startup(payload, *, environ, home, post):
                                   startup=True) if cwd else None
     if workspace is not None:
         body["workspace"] = workspace
-    port = str(environ.get("CICADA_PORT") or "8000")
-    status, text = post(f"http://127.0.0.1:{port}/capture/hook-context", json.dumps(body).encode(), token, TIMEOUT_S)
+    status, text = post(url, json.dumps(body).encode(), token, TIMEOUT_S)
     if status != 200:
         return {}, "http_error"
     remember(home, "cursor", sid, workspace, environ=environ)

@@ -15,11 +15,13 @@ REFUSAL_CODES = frozenset({
     "backend_down", "backend_timeout", "backend_error", "unauthorized", "sleep_writing", "refused",
     # A command that changes the memory as the person, run from a shell that names an agent's session.
     "person_only",
+    # G181 phase 2: a command that reads the memory folder, run on a client of a server (the folder is there).
+    "on_server",
 })
 
 EXIT_CODES = {"usage": 2, "not_found": 1, "empty_graph": 1, "bank_mismatch": 3, "root_mismatch": 3,
               "root_unverified": 3, "demo_bank": 4, "sandbox_denied": 5, "backend_down": 6, "backend_timeout": 6,
-              "sleep_writing": 1, "refused": 1, "unauthorized": 1, "person_only": 1,
+              "sleep_writing": 1, "refused": 1, "unauthorized": 1, "person_only": 1, "on_server": 1,
               "backend_error": 70, "internal": 70, "bootstrap": 70}
 
 
@@ -47,3 +49,15 @@ class Result:
     @property
     def ok(self) -> bool:
         return self.code not in REFUSAL_CODES
+
+
+@dataclass(frozen=True)
+class RemotePin:
+    """G181 phase 2: the bank a client command runs in — the server's active bank when the command started, its name
+    and id. Every mutating request names both (``X-Cicada-Bank``, ``X-Cicada-Bank-Id``), so a server whose active bank
+    moved, or a base that now reaches another memory, refuses before anything is written. No path: the bank is on
+    the server."""
+
+    name: str
+    id: str | None
+    path: None = None

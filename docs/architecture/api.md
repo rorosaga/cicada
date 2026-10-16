@@ -69,6 +69,33 @@ the user's browser, which likewise cannot send the header, so it is gated by its
 10-minute `state` nonce; `auth.py::_is_oauth_callback_path` resolves the exemption live against the
 connectors registry rather than hardcoding a literal per adapter.
 
+**Device tokens (G181 phase 2, owner ruling 1, 2026-10-16).** A second machine of the person's never gets the master
+token: each device gets its own **named, hashed, revocable** token (`device_tokens`, the G135 store's shape kept apart:
+`$CICADA_HOME/devices/devices.db`, 0700/0600, sha256 only, `cic_dev_<id>_<secret>`, no expiry, revocation immediate).
+Issuing is the person's act on the server: `cicada device add <name>` (person-only) or `POST /devices` with the master
+token, which answers the token once (201); `GET /devices` lists (no token), `DELETE /devices/{id}` revokes. A device
+token opens every route but `/devices*` and the `POST`/`PUT`/`PATCH` writes under `/remote` (403: minting, rotating
+or turning on a G135 connector would leave a credential that outlives the device's revocation; a device may still read
+and revoke) and `auth.require_token` puts the device on `request.state.device` — the
+only way the server learns a call came from another of the person's machines; nothing in a header or body can claim
+it. `/devices*` touch no bank (`bank_binding.NO_BANK_WRITE`). On the client the token is `CICADA_API_TOKEN`, else
+`$CICADA_HOME/device_token` (0600, put there by the person), read by `runtime_layout.client_token` for the hooks, the
+stdio MCP server and the CLI; the base URL is `CICADA_API_BASE` (`runtime_layout.api_base`: https, or http to a
+loopback tunnel only). No installer creates, copies or logs either.
+
+**Bank identity (G181 phase 2).** Every bank's `banks.yaml` record carries a random `id`, minted by the backend at
+startup (`bank_registry.ensure_bank_ids`, which persists a legacy root's synthesized registry with no change to
+resolution), by `create_bank` and by `duplicate_bank` (a copy is another bank); a rename keeps it. `GET /healthz`
+reports `bankId` (the request's bank) and `bankIds` (every bank in the root) — ids only, never a name, since it is
+unauthenticated; `GET /banks` carries each bank's `id`. A mutating request may name the id in `X-Cicada-Bank-Id`
+beside `X-Cicada-Bank`; either mismatch is 409 `bank_mismatch` before anything runs.
+
+**`POST /capture/session` and `POST /tools/call` (G181 phase 2).** The first takes a Claude Code or Codex session read
+on the client by Cicada's own extractor (`capture-and-sleep.md`, "A session from another machine"); the second is the
+tool door (`mcp.md`, "A client of a server on another machine"). Both run their work off the event loop; the door
+answers `{text, code, data, error, state, bank}` with 200 for anything a body said (a body's exception is `error`, the
+stdio server's `Error: …`), 404 for an unknown tool and 403 for a tool the command-line surface does not hold.
+
 **ETags.** `/graph`, `/inbox`, `/contributors`, `/sources`, `/sources/channels`, `/origins` and
 `/banks` all return an `ETag` and honor `If-None-Match` with a `304`. This matters: `/graph` on the
 live bank is ~1.8 MB. **Ship the ETag and its client mapping together** — `GET /inbox` ETags over

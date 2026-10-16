@@ -319,6 +319,8 @@ PERSON_ARGV = {
     "skills refresh": ["skills", "refresh", "macos-harness"],
     "skills remove": ["skills", "remove", "release-notes"],
     "skills publish": ["skills", "publish", "release-notes", "--agent", "codex"],
+    "device add": ["device", "add", "laptop"],
+    "device revoke": ["device", "revoke", "ab12cd34"],
 }
 
 

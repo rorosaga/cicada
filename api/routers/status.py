@@ -19,6 +19,7 @@ from api.models.schemas import (
 )
 from api.services import (
     bank_index,
+    bank_registry,
     embedding_health,
     env_overrides,
     git_service,
@@ -63,10 +64,20 @@ def _health(version: str, settings: Settings) -> HealthResponse:
         embedding_mode=settings.resolved_embedding_mode,
         memory_path=str(memory_path),
         memory_root=str(settings.memory_root),
+        bank_id=_active_bank_id(settings),
+        bank_ids=bank_registry.bank_ids(settings.memory_root),
         leann_present=_leann_present(memory_path),
         embedding_model=_embedding_model(memory_path, settings),
         embedding_problem=(embedding_health.problem(memory_path) or {}).get("kind"),
     )
+
+
+def _active_bank_id(settings: Settings) -> str | None:
+    """The request's pinned bank's id (G183(d) pins it before the handler), else the active one's."""
+    pin = bank_registry.pinned_bank()
+    if pin is not None and pin.root == Path(settings.memory_root):
+        return pin.id
+    return bank_registry.bank_id(settings.memory_root, bank_registry.active_bank_name(settings.memory_root))
 
 
 def _embedding_model(memory_path: Path, settings: Settings) -> str | None:

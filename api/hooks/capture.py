@@ -38,7 +38,14 @@ Every log line names its event, so ruling 7's revisit
 signal (a Stop ``error:`` line) never mixes with a flush's.
 
 Stdlib only, run by path: a hook has no cwd guarantee and no venv on its
-``sys.path``, so nothing here imports ``api.*`` (R14).
+``sys.path``, so nothing here imports ``api.*`` (R14) — with one exception,
+G181 phase 2: when ``CICADA_API_BASE`` names a server on another machine, the
+transcript is read HERE, on the machine it lives on, by Cicada's own extractor
+(``hook_client.py`` imports ``session_post`` from this checkout; owner ruling 2,
+2026-10-16), and only what the extractor keeps — scrubbed, capped turns — is
+posted to ``POST /capture/session`` with this device's token. A post that does
+not land is spooled under ``$CICADA_HOME/spool/capture`` and sent by a later
+firing (``hook_spool.py``). Unset, nothing below changes.
 
 ``CICADA_CAPTURE=off`` in the environment exits before any request: every
 CLI Cicada itself spawns (Sleep's ``claude -p`` engine, doctor probes) runs
@@ -81,6 +88,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 from workspace_identity import observe_if_needed, remember  # stdlib sibling, run by path
+import hook_client as remote_client  # stdlib sibling: a client of a server elsewhere (G181 phase 2)
+import hook_spool as spool  # stdlib sibling: what a client could not deliver yet
 
 TIMEOUT_S = 3.0
 #: G110 gate A: a SessionEnd flush delays the session's exit, so its request
@@ -113,6 +122,153 @@ def _post_exchange(payload: dict, *, harness: str, session_id: str, home: Path, 
     return post(f"http://127.0.0.1:{port}/capture/turn", json.dumps(body).encode("utf-8"), token, TIMEOUT_S), None
 
 
+#: G181 phase 2: a client's whole firing — read, post, flush — stays inside this, under the 5 s the hook is registered
+#: with (``registry.DEFAULT_TIMEOUT_S``).
+CLIENT_BUDGET_S = 4.0
+
+
+#: A transcript past this size is read by a detached child (``_detach``): Cicada's extractor reads ~11 MB/s, so a
+#: larger one would not finish inside :data:`CLIENT_BUDGET_S`. The child's own budget is :data:`DETACHED_BUDGET_S`.
+DETACH_BYTES = 16 * 1024 * 1024
+DETACHED_ENV = "CICADA_HOOK_DETACHED"
+DETACHED_BUDGET_S = 120.0
+
+
+def _large(path: str) -> bool:
+    try:
+        return Path(path).stat().st_size > DETACH_BYTES
+    except (OSError, ValueError):
+        return False
+
+
+def _detach(payload: dict, *, harness: str, environ) -> bool:
+    """Run this same hook on ``payload`` in a child that outlives the harness's wait. True when it started."""
+    import subprocess
+
+    try:
+        child = subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "--harness", harness],
+                                 stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                 env={**environ, DETACHED_ENV: "1"}, start_new_session=True, close_fds=True)
+        child.stdin.write(json.dumps(payload).encode("utf-8"))
+        child.stdin.close()
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+def _client_post(post, url: str, body: bytes, token: str, timeout: float) -> tuple[int | None, str]:
+    """``post``, with "no answer" (refused, unreachable, timed out) as ``(None, "")`` — the spool's signal."""
+    try:
+        return post(url, body, token, timeout)
+    except Exception:  # noqa: BLE001 - urllib's URLError / socket timeouts: the server is away
+        return None, ""
+
+
+def _client_capture(payload: dict, *, harness: str, session_id: str, event: str, tag: str, home: Path, environ,
+                    post, log_path: Path, started: float) -> int:
+    """G181 phase 2 — this machine is a client (``CICADA_API_BASE``): read the session HERE with Cicada's own
+    extractor and post what it keeps to ``/capture/session`` (a turn harness posts ``/capture/turn``, as on one
+    machine). A post that does not land is spooled under ``$CICADA_HOME`` and sent by a later firing; nothing is lost
+    and the firing stays inside :data:`CLIENT_BUDGET_S`."""
+    detached = str(environ.get(DETACHED_ENV) or "") == "1"
+    budget = SESSION_END_TIMEOUT_S + 0.5 if event == "SessionEnd" else CLIENT_BUDGET_S
+    deadline = started + (DETACHED_BUDGET_S if detached else budget)
+    transcript = payload.get("transcript_path")
+    if not detached and harness not in TURN_HARNESSES and transcript and _large(str(transcript)):
+        # Reading a very long session takes longer than the harness waits for this hook: hand the same payload to a
+        # child that outlives this process (its own session, nothing on our stdout) and return at once.
+        if _detach(payload, harness=harness, environ=environ):
+            _log(log_path, f"{tag} reading a long session in the background")
+            return 0
+    base, token, problem = remote_client.target(environ)
+    if harness in TURN_HARNESSES:
+        if event != "AfterAgent":
+            _log(log_path, f"{tag} skipped: not an AfterAgent payload")
+            return 0
+        prompt, reply = payload.get("prompt"), payload.get("prompt_response")
+        messages = [{"speaker": speaker, "text": text[:TEXT_MAX_CHARS]}
+                    for speaker, text in (("user", prompt), ("assistant", reply))
+                    if isinstance(text, str) and text.strip()]
+        if not messages:
+            _log(log_path, f"{tag} skipped: no prompt")
+            return 0
+        route, key, transcript_path = "/capture/turn", None, None
+        body = {"harness": harness, "session_id": session_id, "messages": messages,
+                "retry": payload.get("stop_hook_active") is True,
+                "cwd": payload.get("cwd") if isinstance(payload.get("cwd"), str) else None,
+                "hook_event": payload.get("hook_event_name")}
+    else:
+        transcript_path = payload.get("transcript_path")
+        if not transcript_path:
+            _log(log_path, f"{tag} skipped: no transcript_path")
+            return 0
+        conversation, read_bytes, refused = remote_client.read_session(harness, session_id, str(transcript_path))
+        if refused:
+            _log(log_path, f"{tag} refused: {refused}")
+            return 0
+        route, key = "/capture/session", f"{harness}:{session_id}"
+        body = {"harness": harness, "session_id": session_id, "conversation": conversation,
+                "transcript_bytes": read_bytes, "cwd": payload.get("cwd"),
+                "hook_event": payload.get("hook_event_name")}
+        effort = payload.get("effort")
+        level = effort.get("level") if isinstance(effort, dict) else None
+        if isinstance(level, str) and level.strip():
+            body["effort"] = level.strip()[:32]
+        workspace = observe_if_needed(body["cwd"], home=home, environ=environ, harness=harness,
+                                      session_id=session_id)
+        if workspace is not None:
+            body["workspace"] = workspace
+
+    def size_of(path, fallback: int) -> int:
+        try:
+            return Path(path or "").stat().st_size
+        except (OSError, ValueError):
+            return fallback
+
+    if "transcript_bytes" in body:
+        body["transcript_size"] = size_of(transcript_path, body["transcript_bytes"])
+    if problem:
+        dropped = spool.put(home, route, body, key=key, transcript_path=transcript_path)
+        _log(log_path, f"{tag} spooled: {problem}" + (f" (dropped {dropped} oldest)" if dropped else ""))
+        return 0
+
+    def send(r: str, b: dict) -> int | None:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0.2:
+            return None
+        timeout = min(TIMEOUT_S, remaining - 0.1)
+        return _client_post(post, base + r, json.dumps(b).encode("utf-8"), token, timeout)[0]
+
+    # A turn waits behind turns already waiting, so the episode keeps their order.
+    if key is None and spool.has_turns(home):
+        spool.put(home, route, body)
+        sent, final, left = spool.flush(home, send, deadline=deadline, keep=remote_client.keep, size_of=size_of)
+        _log(log_path, f"{tag} queued behind waiting turns: sent {sent}, {left} waiting")
+        return 0
+    remaining = deadline - time.monotonic()
+    status, text = _client_post(post, base + route, json.dumps(body).encode("utf-8"), token,
+                                max(0.1, min(SESSION_END_TIMEOUT_S if event == "SessionEnd" else TIMEOUT_S,
+                                             remaining - 0.2)))
+    if remote_client.landed(status):
+        if key:
+            spool.drop(home, key)
+            remember(home, harness, session_id, body.get("workspace"), environ=environ)
+        line = f"{tag} http {status} {_outcome(text)}".rstrip()
+        if event != "SessionEnd" and spool.pending(home):
+            sent, _final, left = spool.flush(home, send, deadline=deadline, keep=remote_client.keep,
+                                             size_of=size_of)
+            line += f"; spool: sent {sent}, {left} waiting"
+        _log(log_path, line)
+        return 0
+    if remote_client.keep(status):
+        dropped = spool.put(home, route, body, key=key, transcript_path=transcript_path)
+        why = "no answer" if status is None else f"http {status}"
+        _log(log_path, f"{tag} spooled: {why}" + (f" (dropped {dropped} oldest)" if dropped else ""))
+        return 0
+    _log(log_path, f"{tag} http {status} {_outcome(text)}".rstrip())
+    return 0
+
+
 def _default_post(url: str, body: bytes, token: str, timeout: float) -> tuple[int, str]:
     req = urllib.request.Request(
         url, data=body, method="POST",
@@ -125,6 +281,10 @@ def _default_post(url: str, body: bytes, token: str, timeout: float) -> tuple[in
         # A 4xx/5xx is an outcome to log (the endpoint's enum refusal reason
         # rides in ``detail``), not a hook failure.
         return exc.code, exc.read().decode("utf-8", "replace")
+
+
+def _client_send(url: str, body: bytes, token: str, timeout: float) -> tuple[int | None, str]:
+    return remote_client.send(url, body, token, timeout)
 
 
 def _log(path: Path, message: str) -> None:
@@ -173,6 +333,7 @@ def main(argv=None, *, stdin=None, stdout=None, environ=None, post=None, log_pat
     home = Path(environ.get("CICADA_HOME") or (Path.home() / ".cicada"))
     log_path = log_path or home / "logs" / "capture.log"
     token_path = token_path or home / "api_token"
+    started = time.monotonic()
 
     harness = "claude-code"
     if "--harness" in argv:
@@ -211,6 +372,14 @@ def main(argv=None, *, stdin=None, stdout=None, environ=None, post=None, log_pat
         event = event if event in EVENTS else "other"
         tag = f"{harness} {session_id[:8] or '?'} {event}"
         transcript_path = payload.get("transcript_path")
+        if remote_client.is_client(environ):
+            if not session_id:
+                _log(log_path, f"{tag} skipped: no session_id")
+                return 0
+            return _client_capture(payload, harness=harness, session_id=session_id, event=event, tag=tag,
+                                   home=home, environ=environ,
+                                   post=post if post is not _default_post else _client_send,
+                                   log_path=log_path, started=started)
         if turn_harness:
             if not session_id or event != "AfterAgent":
                 _log(log_path, f"{tag} skipped: not an AfterAgent payload")

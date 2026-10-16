@@ -83,7 +83,8 @@ Seven rails hold across all of them:
   trigger `sync/bookmark_left`); papers' `removal` questions are untouched.
 - **Capture must not depend on a model deciding to call a tool** (G105). Every Claude Code and
   Codex session is captured by the harness's own `Stop` hook
-  (`api/hooks/capture.py` → `POST /capture/transcript`). Cursor and Gemini CLI are captured by their own
+  (`api/hooks/capture.py` → `POST /capture/transcript`; on a client of a server elsewhere, read there and posted as
+  turns to `POST /capture/session`, below). Cursor and Gemini CLI are captured by their own
   per-turn hooks, whose payloads carry the words (see *Capture from every agent* below); no Cursor or Gemini
   transcript is read: both hooks send a `transcript_path`, but neither documents its format, a confined root or where
 the final reply sits, and Cursor's may be null, while the posted strings already are what is kept.
@@ -486,6 +487,38 @@ with its install in `connect` and its removal in `autosave_off`. **Gemini CLI** 
 `registry.py` writes its timeout in milliseconds), prints `{}` and posts the exchange. Both log one line per
 firing to `capture.log` in the Stop hook's shape (`<harness> <sid8> <event> <outcome>`), never content: a
 validation error's echoed `detail` is logged as `invalid request`.
+
+**A session from another machine (G181 phase 2, owner ruling 2, 2026-10-16 — the transcript rail amended).** When
+`CICADA_API_BASE` names a server elsewhere, the backend there cannot read the session (it never opens a path a client
+names), so the session is read **on the machine where it lives, by Cicada's own extractor**, and only what the
+extractor keeps crosses the wire:
+
+- **The client's half** (`api/hooks/capture.py` → `hook_client.py` → `session_post.read_local`): the same path rules
+  as the backend's own read (`transcript_capture.validate_transcript_path`: under the harness root, `.jsonl`, a regular
+  file, `<session_id>.jsonl` for Claude Code, within the size cap — a stray path is refused unread, `refused:
+  outside_root` in the log), the same `transcript_extract.extract` (scrub, fences, 16k/2k caps, the session cap's head,
+  tail and marker; the agent's replies always kept here), then `POST /capture/session` with `{conversation,
+  transcript_bytes, transcript_size, cwd, hook_event, effort, workspace}` and the device's token — never the path.
+  This is the hooks' one exception to "stdlib only": it imports Cicada's extractor from its own checkout, lazily,
+  only in client mode. The extractor reads about 11 MB/s (a synthetic 27 MB transcript: 2.4 s for the whole firing),
+  so a transcript over 16 MB is handed to a detached child of the same hook (`start_new_session`, its own 120 s
+  budget) and the firing returns at once.
+- **The server's half** (`transcript_capture.capture_posted`, `session_post.from_wire`): every field re-validated,
+  every turn cleaned again (idempotent on what the extractor sent), a turn over its cap refused (`turn_over_cap`, 400 —
+  never trimmed into something the extractor did not keep), the session cap re-applied, counts recomputed, replies
+  dropped when this server's owner turned them off. Then `write_session` under the same `_lock` and `episode_lock`:
+  one episode per session (G104), ids minted here, the same body, hash, sidecar, G110 metadata and demo redirect. The
+  device id from the token is recorded as `device:`. **Superseded** uses the client's numbers: a post that read fewer
+  bytes than stored while the client's file (stat'ed when it sends) holds at least that much is `superseded`; a file
+  that really shrank is still captured.
+- **The spool** (`hook_spool.py`, `$CICADA_HOME/spool/capture/`, 0700/0600): a post that does not land (no answer,
+  401/403, 409, 5xx) is kept; 400/404/413/422 are dropped (a resend cannot fix them). A session keeps one entry, its
+  newest (posts are cumulative); a live post that lands deletes it. Each firing that lands then flushes the rest,
+  oldest first, inside the hook's 4 s client budget (under its registered 5 s; a SessionEnd flush never flushes), one
+  flusher at a time (`flock`), refreshing a session's `transcript_size` from its file. Per-turn posts (Cursor, Gemini
+  CLI) are FIFO and a new turn waits behind any waiting turn, so the episode keeps their order; Cursor's prompt hook
+  never flushes (it holds the person's message). Bounded at 2,000 entries / 128 MiB, oldest dropped and counted in
+  the log. The recall hooks read the same base and token; they do not spool (a read).
 
 ### Sleep — 5-stage nightly batch
 1. **Entity & relationship extraction** — LLM over episode chunks, structured output.

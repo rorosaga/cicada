@@ -64,6 +64,8 @@ GATED = {
 HANDLED_ELSEWHERE = {
     ("POST", "/capture/transcript"): "redirects to the real bank left last (test_demo_capture.py)",
     ("POST", "/capture/turn"): "redirects to the real bank left last, like the Stop hook (test_turn_capture.py)",
+    ("POST", "/capture/session"):
+        "redirects to the real bank left last, like the Stop hook (test_headless_clients.py)",
     ("POST", "/capture/telegram"): "answers 200 with a reply so Telegram never retries (test_demo_capture.py)",
     ("POST", "/capture/hook-context"):
         "reads only, from bank_registry.capture_bank — the real bank left last while the demo is open "

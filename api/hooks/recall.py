@@ -99,6 +99,11 @@ def _window(prompt: str) -> str:
     return prompt[:HEAD_CHARS] + "\n" + prompt[-TAIL_CHARS:]
 
 
+def _client(environ) -> bool:
+    """G181 phase 2: ``CICADA_API_BASE`` names a backend on another machine (``hook_client.py``)."""
+    return bool(str(environ.get("CICADA_API_BASE") or "").strip())
+
+
 def _off(environ, key: str) -> bool:
     return str(environ.get(key, "")).strip().lower() == "off"
 
@@ -146,12 +151,24 @@ def main(argv=None, *, stdin=None, stdout=None, environ=None, post=None, log_pat
         if event == "user_prompt_submit" and payload.get("agent_id"):
             _log(log_path, f"{tag} {event} skipped: a sub-agent's prompt")
             return 0
-        token = str(environ.get("CICADA_API_TOKEN") or "").strip()
-        if not token:
-            try:
-                token = token_path.read_text(encoding="utf-8").strip()
-            except OSError:
-                token = ""
+        if _client(environ):
+            # G181 phase 2: the backend is on another machine (CICADA_API_BASE), reached with this device's token.
+            import hook_client as remote_client
+
+            base, token, problem = remote_client.target(environ)
+            if problem:
+                _log(log_path, f"{tag} {event} skipped: {problem}")
+                return 0
+            url = f"{base}/capture/hook-context"
+        else:
+            token = str(environ.get("CICADA_API_TOKEN") or "").strip()
+            if not token:
+                try:
+                    token = token_path.read_text(encoding="utf-8").strip()
+                except OSError:
+                    token = ""
+            port = str(environ.get("CICADA_PORT") or "8000")
+            url = f"http://127.0.0.1:{port}/capture/hook-context"
         if not token:
             _log(log_path, f"{tag} {event} skipped: no api_token at {token_path.name}")
             return 0
@@ -170,14 +187,12 @@ def main(argv=None, *, stdin=None, stdout=None, environ=None, post=None, log_pat
             # both harnesses). The backend sends a continuity block only for
             # startup and clear, and treats a missing value as unknown.
             body["source"] = source[:32]
-        port = str(environ.get("CICADA_PORT") or "8000")
         workspace = observe_if_needed(body["cwd"], home=home, environ=environ, harness=harness,
                                       session_id=session_id, startup=event == "session_start")
         if workspace is not None:
             body["workspace"] = workspace
         started = time.monotonic()
-        status, text = post(f"http://127.0.0.1:{port}/capture/hook-context", json.dumps(body).encode("utf-8"),
-                            token, TIMEOUT_S)
+        status, text = post(url, json.dumps(body).encode("utf-8"), token, TIMEOUT_S)
         ms = int((time.monotonic() - started) * 1000)
         reason, pages, context = "-", 0, None
         if status == 200:

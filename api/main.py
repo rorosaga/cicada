@@ -31,6 +31,7 @@ from api.routers import (
     contributors,
     conversations,
     design,
+    devices,
     embeddings,
     explore,
     entities,
@@ -55,6 +56,7 @@ from api.routers import (
     state,
     status,
     sync,
+    tools,
 )
 from api.services import bank_binding, bank_registry, search_index, sleep_refusal, sleep_scheduler
 from api.services.providers import warm_query_embedder
@@ -158,6 +160,11 @@ async def lifespan(app: FastAPI):
     bank_registry.scaffold_bank(settings.memory_path)
     if not git_existed and (settings.memory_path / ".git").exists():
         logger.info("Initialized git repo in memory directory")
+
+    # G181 phase 2: every bank gets its identity in banks.yaml (what a client on another machine compares, never a
+    # path). Resolution is unchanged; never raises into boot. After the scaffold, so a legacy root's fresh git repo
+    # already exists to keep banks.yaml out of the bank's history.
+    bank_registry.ensure_bank_ids(settings.memory_root)
 
     # The one-shot per-bank migrations (legacy nudges -> inbox/, duplicate open
     # question collapse, decay-class backfill). Each is marker-guarded and never
@@ -284,3 +291,5 @@ app.include_router(skills.router, tags=["skills"])
 app.include_router(videos.router, tags=["videos"])
 app.include_router(explore.router, tags=["explore"])
 app.include_router(embeddings.router, tags=["embeddings"])
+app.include_router(devices.router, tags=["devices"])
+app.include_router(tools.router, tags=["tools"])

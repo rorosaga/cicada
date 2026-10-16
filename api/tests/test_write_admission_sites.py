@@ -350,6 +350,8 @@ OUTSIDE = "outside: writes nothing in the bank (settings, credentials, ledger, c
 SLEEP = "sleep: Sleep's own controls"
 BANKS = "banks: bank lifecycle — refused while a run is pinned to its bank"
 NONE = "none: reads or computes; writes nothing"
+DOOR = ("door: runs one MCP tool's own body for another of the person's machines (G181 phase 2) — each tool is "
+        "classified in TOOLS below and takes its own admission there, as a stdio call would")
 
 ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /ask": (NONE, None),
@@ -433,6 +435,10 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /capture/telegram": (INTAKE, None),
     "POST /capture/transcript": (CAPTURE, None),
     "POST /capture/turn": (CAPTURE, None),   # capture-everywhere: the same writer as the Stop hook
+    "POST /capture/session": (CAPTURE, None),   # G181 phase 2: a session read on its own machine, the same writer
+    "POST /tools/call": (DOOR, None),
+    "POST /devices": (OUTSIDE, None),
+    "DELETE /devices/{device_id}": (OUTSIDE, None),
     "POST /capture/hook-context": (OUTSIDE, None),   # G110: may refresh the continuity index in $CICADA_HOME
     "PUT /sources/connectors/{connector_id}/credentials": (OUTSIDE, None),
     "DELETE /sources/connectors/{connector_id}/credentials": (OUTSIDE, None),
@@ -532,6 +538,8 @@ HOLDING_SITES = {
     "api/routers/local_sources.py": "folder update/sync and Wispr Flow: inside their route()'s hold",
     "api/services/skill_pages.py": "inside ensure()'s run_admitted",
     "api/remote/runtime.py": "the remote gate: inside call()'s hold or a self-admitted tool's own",
+    "api/services/tool_door.py": "a door call's Sleep probe: asked by the tool bodies inside their own shared() hold "
+                                 "(_holding_pages), where a stdio call asks the backend",
     "api/routers/state.py": "GET /state's cursor refresh: inside its run_admitted",
     "api/services/claim_recovery.py": "apply(): asked inside its own shared() hold, before the page lock and its commit",
     "api/services/coexist_reopen.py": "apply(): asked inside its own shared() hold, before the page lock and its commit",

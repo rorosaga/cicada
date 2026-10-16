@@ -8,7 +8,7 @@ ships.
 ## The topology
 
 **One primary.** The server's backend is its bank's only git writer and runs its Sleep. Every other device is a
-client of its API (phases 2–3). Nothing syncs a bank by git merge or by a file syncer: two writers break the episode
+client of its API (phase 2: hooks, MCP and CLI; phase 3: the app). Nothing syncs a bank by git merge or by a file syncer: two writers break the episode
 id rule (max-suffix+1 per local directory), the read-modify-write state files and Sleep's single mind.
 
 **Nothing listens beyond loopback.** The service binds `127.0.0.1` only. Reaching it from another machine is an
@@ -50,7 +50,8 @@ the launchd agent.
 
 The same layout as on a Mac, created by the backend and the CLI. The ones that matter headless:
 
-- `api_token` (0600): the master token. It never leaves the server; per-device tokens are phase 2.
+- `api_token` (0600): the master token. It never leaves the server; another device gets its own (`devices/`).
+- `devices/devices.db` (0600): the person's device tokens, hashes only (phase 2).
 - `secrets.env` (0600): provider keys, the person's.
 - `remote/`: the G135 listener's token store and settings (off by default).
 - `sleep/<bank>-<hash>/`: runs, pause sidecars and the write-admission lock.
@@ -74,16 +75,57 @@ called by `bank_registry.scaffold_bank` (every startup and every new bank), sets
 global or system) and never writes `~/.gitconfig`. `install.sh`'s first commit does the same. Who wrote a change is
 the `Cicada-Author` trailer's job, not git's author field, so nothing about provenance changes.
 
+## Clients on other machines (phase 2)
+
+Owner rulings 2026-10-16 (TODO ruling 28): per-device tokens; the transcript rail amended; a tailnet device of the
+person's counts as local for the G198 trust list.
+
+**On the server**, once: `cicada device add <name>` (the person's own terminal; `POST /devices` with the master token
+does the same). It prints the device's token once and keeps only its hash. `cicada device list` shows each device and
+when it was last used; `cicada device revoke <id>` ends it at once. The master token (`~/.cicada/api_token`) never
+leaves the server, and a device token can neither issue nor revoke one.
+
+**On the client** (the person's Mac, say), two settings and nothing else — Cicada writes neither:
+
+- `CICADA_API_BASE` — the address the person's own overlay gives the server (`https://…` for any host; plain `http://`
+  only to a loopback address, i.e. an SSH tunnel's local end). Set where the hooks, agents and shells inherit it.
+- the device token in `~/.cicada/device_token` (mode 0600), or `CICADA_API_TOKEN`.
+
+Unset, every client behaves exactly as on one machine. Set, the machine holds no bank:
+
+| Client | What it does with a base set |
+|---|---|
+| Claude Code / Codex Stop hook | Reads the session here with Cicada's own extractor and posts the scrubbed, capped turns to `/capture/session`; ids are minted on the server (one episode per session). A server that is away: the post waits in `~/.cicada/spool/capture/` and a later firing sends it (`capture-and-sleep.md`) |
+| Cursor / Gemini CLI hooks | Post turns to `/capture/turn` as before, spooled in order when the server is away |
+| Recall hooks (SessionStart, UserPromptSubmit) | Ask the server's `/capture/hook-context` |
+| stdio MCP server | Every tool runs on the server through `POST /tools/call` (the same bodies); pictures named by path are read here and sent as base64; `cicada_repo_context` probes git here (`mcp.md`) |
+| `cicada` command | Tool mirrors through the server, `backend` commands to its routes, the bank pinned by name and id; commands that read the memory folder refuse `on_server`; refuses `backend_down` when the server is away |
+
+**Identity, not paths.** Every bank has an `id` in `banks.yaml` (minted by the backend at startup, new for a copy,
+kept by a rename). `/healthz` reports the ids, a client pins the server's active bank by name and id, and every
+mutating request names both (`X-Cicada-Bank`, `X-Cicada-Bank-Id`), so a write meant for one memory never lands in
+another that happens to share a bank name. Ruling 21a's check compares these ids (path only when a side has none).
+
+**What did not change.** Only the server commits (one git writer per bank); the server binds 127.0.0.1; reach is the
+person's overlay; no installer creates, copies or logs a credential; the demo guard and the split-brain rule are the
+server's, per request. The G135 remote listener is still the door for apps off the person's devices, never trusted to
+edit a page.
+
 ## What works headless today, and what waits
 
-| Works on the server, for the server | Waits for phase 2/3 |
-|---|---|
-| The REST API, `/healthz`, SSE | Clients on other machines naming the server (`CICADA_API_BASE`) |
-| Claude Code and Codex on the server, captured by their Stop hook | A harness on the Mac capturing into the server: it posts a path today, which the server must refuse (the transcript rail) |
-| Cursor and Gemini CLI on the server (`/capture/turn`) | Per-device tokens |
-| The CLI and stdio MCP on the server | The stdio MCP on the Mac against the server's bank |
-| Scheduled Sleep on a metered key | The app's readers posting to the server; the app's server setting |
-| The G135 remote listener, behind the person's overlay | |
+| Works on the server, for the server | Works from another of the person's machines (phase 2) | Waits for phase 3 |
+|---|---|---|
+| The REST API, `/healthz`, SSE | The REST API with a device token | The app's server setting (Settings → General) |
+| Claude Code and Codex on the server, captured by their Stop hook | Claude Code and Codex on a client, read there, posted as turns | The app's readers posting to the server, its offline queue |
+| Cursor and Gemini CLI on the server (`/capture/turn`) | The same hooks on a client, spooled when the server is away | |
+| The CLI and stdio MCP on the server | The stdio MCP and the CLI on a client, through the server | |
+| Scheduled Sleep on a metered key | | |
+| The G135 remote listener, behind the person's overlay | | |
+
+Known limits of phase 2: the skills tools (`cicada_skills`, `skills list|propose|create`) act on the server's agent
+skill folders, not the client's; `cicada_continue` reads the continuity registry the server keeps (the client's hook
+posts its workspace observations with each capture); a client command that reads the memory folder in-process
+(`page list`, `graph`, `find`, `inbox all`, …) refuses rather than reading over HTTP.
 
 Linux gaps: `sips` is macOS-only, so image decode and site-capture thumbnails fail with `DecodeError` and those
 features degrade. The Neural Engine model is Apple-only. Every app-side reader (browsers, Notes, Calendar, Contacts,

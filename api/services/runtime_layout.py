@@ -52,8 +52,74 @@ def port(environ=os.environ) -> int:
     return value if 0 < value < 65536 else DEFAULT_PORT
 
 
-def backend_url(environ=os.environ) -> str:
+def local_backend_url(environ=os.environ) -> str:
+    """This machine's own backend on loopback. What the backend uses to reach itself, whatever a client setting says."""
     return f"http://127.0.0.1:{port(environ)}"
+
+
+# --- A client of a backend on another machine (G181 phase 2) -----------------------------------------------------
+#
+# ``CICADA_API_BASE`` names the backend this machine's hooks, stdio MCP server and `cicada` command talk to when it
+# is not this machine's own: the address the person's own overlay gives the server (e.g. ``tailscale serve``'s
+# https name, or an SSH tunnel's loopback port). Unset, every client keeps today's loopback behaviour byte for byte.
+# Set, the machine is a CLIENT: nothing reads or writes a local bank, every call goes to that base with this device's
+# own token (``CICADA_API_TOKEN``, else ``$CICADA_HOME/device_token``), which the person issued on the server
+# (``cicada device add``) and copied here themselves. No host or address is ever written in code or docs.
+#
+# Stdlib only: the hooks import this module by path, with no venv guarantee.
+
+API_BASE_ENV = "CICADA_API_BASE"
+TOKEN_ENV = "CICADA_API_TOKEN"
+DEVICE_TOKEN_FILE = "device_token"
+_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+
+
+def is_client(environ=os.environ) -> bool:
+    """True when ``CICADA_API_BASE`` is set to anything: an invalid value still means "not this machine's bank", so a
+    typo fails loudly at the request (and capture spools) rather than writing into a local bank by accident."""
+    return bool((environ.get(API_BASE_ENV) or "").strip())
+
+
+def api_base(environ=os.environ) -> str:
+    """``CICADA_API_BASE`` checked and normalised (no trailing slash). https for any host; plain http only to a
+    loopback address (an SSH tunnel's local end), so a bearer token never crosses a network in clear text.
+    ``ValueError`` names the rule, never echoes the value."""
+    from urllib.parse import urlsplit
+
+    raw = (environ.get(API_BASE_ENV) or "").strip()
+    try:
+        parts = urlsplit(raw)
+        host = parts.hostname
+        parts.port  # noqa: B018 - raises ValueError on a malformed port
+    except ValueError:
+        raise ValueError(f"{API_BASE_ENV} is not a URL") from None
+    if parts.scheme not in ("http", "https") or not host:
+        raise ValueError(f"{API_BASE_ENV} must be an http(s) address")
+    if parts.username or parts.password or parts.query or parts.fragment:
+        raise ValueError(f"{API_BASE_ENV} must carry no credentials, query or fragment")
+    if parts.scheme == "http" and host not in _LOOPBACK_HOSTS:
+        raise ValueError(f"{API_BASE_ENV} must use https unless it is a loopback address")
+    return f"{parts.scheme}://{parts.netloc}{parts.path.rstrip('/')}"
+
+
+def client_token(environ=os.environ) -> str:
+    """This device's token: ``CICADA_API_TOKEN``, else ``$CICADA_HOME/device_token``; "" when neither holds one.
+    Never the server's master token, which never leaves the server (owner ruling 1, 2026-10-16)."""
+    token = (environ.get(TOKEN_ENV) or "").strip()
+    if token:
+        return token
+    try:
+        return (cicada_home(environ) / DEVICE_TOKEN_FILE).read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
+def backend_url(environ=os.environ) -> str:
+    """The backend this machine's clients talk to: ``CICADA_API_BASE`` when it is set (a server elsewhere), else this
+    machine's own on loopback (``CICADA_PORT``, else 8000). An invalid base raises ``ValueError``."""
+    if is_client(environ):
+        return api_base(environ)
+    return local_backend_url(environ)
 
 
 # --- The commands an agent runs (the app's allowlist holds the same shapes) ---

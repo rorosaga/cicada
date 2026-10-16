@@ -123,10 +123,23 @@ class ToolContext:
     # Audit 2026-10-05 P1-2: Sleep's answer, asked once by `_holding_pages`
     # before the page lock is taken and reused for the rest of that call.
     sleep_answer: bool | None = None
+    # G181 phase 2 — a call that arrived over HTTP from a client machine (`tool_door`): it runs in the backend as
+    # a stdio call on this machine would, except that it never reads a file path the caller names (the path is on
+    # the caller's machine: the backend never opens a path a request names), it asks Sleep in-process instead of
+    # over loopback, and it records which of the person's devices made it (the token's id, never the token).
+    local_files: bool = True
+    sleep_probe: Callable[[], bool] | None = None
+    device_id: str | None = None
 
     @property
     def is_remote(self) -> bool:
         return self.connector_id is not None
+
+    @property
+    def reads_caller_paths(self) -> bool:
+        """May this call open a file path the caller named? Only a stdio server or command line running as the agent's
+        own child on this machine; never a remote app, never a call from another machine (G181 phase 2)."""
+        return self.local_files and not self.is_remote
 
     @property
     def is_cli(self) -> bool:
@@ -169,6 +182,9 @@ class ToolContext:
         if self.connector_id:
             # R-R25: which connector wrote it — the app's own id, never a token.
             fm["connector"] = self.connector_id
+        if self.device_id:
+            # G181 phase 2: which of the person's devices wrote it — the device token's id, never the token.
+            fm["device"] = self.device_id
         return fm
 
     def backend_headers(self) -> dict[str, str]:
@@ -186,6 +202,8 @@ class ToolContext:
             return False
         if self.sleep_answer is not None:
             return self.sleep_answer
+        if self.sleep_probe is not None:
+            return bool(self.sleep_probe())
         return _backend_sleep_running(self.backend_url, self.backend_headers())
 
     def pages_held(self) -> bool:
@@ -4415,6 +4433,8 @@ def _design_image(ctx: ToolContext, memory_path: Path, image_path, image_base64)
     elif image_path:
         if ctx.is_remote:
             return "Not saved: a remote connection sends the picture itself as `image_base64`."
+        if not ctx.reads_caller_paths:
+            return "Not saved: this server cannot read a file on your machine; send the picture as `image_base64`."
         given = Path(os.path.expanduser(str(image_path)))
         if not given.is_absolute():
             return "Not saved: give the screenshot's absolute path."
@@ -4455,7 +4475,7 @@ def _design_specimens(ctx: ToolContext, memory_path: Path, raw) -> list[dict]:
                     data = base64.b64decode(text, validate=True)
                 except (binascii.Error, ValueError):
                     data = None
-        elif item.get("path") and not ctx.is_remote:
+        elif item.get("path") and ctx.reads_caller_paths:
             given = Path(os.path.expanduser(item["path"]))
             if given.is_absolute():
                 got = _design_read_file(given, memory_path, cap)
@@ -4807,6 +4827,8 @@ def _explore_shot_bytes(ctx: ToolContext, memory_path: Path, shot) -> bytes | st
         except (binascii.Error, ValueError):
             return "a shot's base64 isn't base64"
     if shot.get("path"):
+        if not ctx.reads_caller_paths:
+            return "this server cannot read a file on your machine; send each shot as base64"
         given = Path(os.path.expanduser(str(shot["path"])))
         if not given.is_absolute():
             return "give each screenshot's absolute path"

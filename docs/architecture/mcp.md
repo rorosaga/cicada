@@ -761,6 +761,37 @@ The person's side is the CLI's app rows (`cicada skills check|add|install|update
 publish`), all person-only (`require_person`) and all through the backend's routes (`api.md`); `skills add` shows the
 preview and installs only with `--yes`.
 
+**A client of a server on another machine (G181 phase 2, owner rulings 1–3, 2026-10-16).** With `CICADA_API_BASE`
+set (the address the person's own overlay gives the server: `https` for any host, plain `http` only to a loopback
+tunnel; `runtime_layout.api_base`), this machine holds no bank. Unset, every door behaves exactly as before.
+
+- **The stdio MCP server** never touches a local bank: every tool goes to `POST /tools/call` (`tool_client` →
+  `api/routers/tools.py` → `tool_door`) with the device's token, the caller's G48 identity and client name, and the
+  stdio process's per-session state (skipped inbox ids, the once-per-conversation now-view, the revisions
+  `cicada_pending` listed), which comes back updated. The primer on `initialize` is built on the server. The server runs
+  the **same body** a stdio process on the server would (`tool_door.DISPATCH` mirrors `handle_tool` argument for
+  argument; tool names come from `cli_map`, and a test pins the two sets equal). Two things stay on the client: a
+  picture, screenshot or specimen the agent names by path is read there (`mcp_tools._design_read_file`'s identity rule)
+  and sent as base64 — a door call never opens a path a client names (`ToolContext.local_files=False`); and
+  `cicada_repo_context`'s git probe runs where the repository is (the door answers only the page's declared repos).
+- **A device counts as local (owner ruling 3).** A door call is not a remote connector (`connector_id` stays None), so a
+  harness on the G198 trust list (Claude Code by default) edits a page at once, exactly as on one machine; an agent's
+  claims keep G71's derivation. The server knows a call came through a per-device token because `auth.require_token`
+  looked the bearer up in `device_tokens` and set `request.state.device` — nothing a client says can claim one — and the
+  device's id is recorded as `device:` on what it writes (episodes, captured sessions). The G135 connector (its own
+  listener and tokens) and the `agent` author stay off the list.
+- **The `cicada` command** on a client resolves no root and opens no bank. Its pin is the server's active bank — name
+  and `id` from one authenticated `GET /banks`, cross-checked with `/healthz`'s `bankId` (`cli_app.client_probe`) — and
+  every mutating request names both (`X-Cicada-Bank`, `X-Cicada-Bank-Id`; `bank_binding` refuses either mismatch, 409
+  `bank_mismatch`). The tool mirrors (`recall`, `get`, `project`, `continue`, `save`, `handshake`, `timeline`,
+  `skills list|propose|create`) run through the door's command-line surface (`read_surface="cli"`, the exposed tools
+  only, `mcp_only` rows refused); every `backend` row goes to its route as before; `bank list` reads `GET /banks`; a
+  command that reads the memory folder in-process (`page list|history`, `graph`, `find`, `inbox all`, `sleep history`,
+  `feed list`, a platform export's import) refuses `on_server` (exit 1). With the server unreachable every command but
+  `status` refuses `backend_down` (exit 6); a refused token is `unauthorized`.
+- **Devices** (`cicada device add <name>|list|revoke <id>`, person-only, `via="backend"`, run on the server): the
+  token is printed once; only its hash is kept (`api.md`, "Device tokens").
+
 **The CLI (G180, TODO ruling 21; plan revision 3, build unit 1, 2026-10-07).** `cicada` is a second, thin door onto the
 same bodies as the MCP server, for agents with a shell: they run a command and read `--help` only when they need it,
 instead of loading every tool schema up front. The MCP stays for clients without a shell, and stays registered beside
@@ -790,7 +821,12 @@ the CLI.
   - The active bank is pinned once (`bank_registry.pin_request_bank`) in a context every command runs in. The settings
     root is asserted equal to the pinned root, so `get_settings().memory_path` answers the pin through a mid-command bank
     switch.
-- **Cross-check, not authority.** `GET /healthz` (1 s, no proxy, `memoryRoot` compared after `realpath`) gives one of:
+- **Cross-check, not authority.** `GET /healthz` (1 s, no proxy) gives one of the states below. The memory is compared
+  by **identity** (G181 phase 2, ruling 21a amended 2026-10-16): the pinned bank's `id` from `banks.yaml` among the
+  backend's `bankIds`; only when either side has no id yet (an older backend, a registry not yet given ids) is
+  `memoryRoot` compared after `realpath`. A path means nothing across machines or containers; an id does. (A memory
+  folder copied by hand keeps its ids, so a copy and its original look like one memory — `duplicate_bank` mints new
+  ones.) The states:
   - `confirmed`;
   - `mismatch`: reads proceed with `warnings: ["root_mismatch"]`, and writes will refuse;
   - `backend_down`: connection refused, and the bootstrap above is the authority;

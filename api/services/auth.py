@@ -8,6 +8,12 @@ the MCP server and ``doctor.sh`` read the same file. ``CICADA_API_TOKEN``
 overrides the file; ``CICADA_API_AUTH=off`` disables the check (tests/dev only
 — logged loudly at startup).
 
+**Device tokens (G181 phase 2, owner ruling 1, 2026-10-16).** Besides the master token, a request may carry a
+per-device token the person issued on this server (``device_tokens``: named, hashed, revocable). It opens every route
+but ``/devices`` (issuing and revoking devices is the master token's alone) and the writes under ``/remote`` that mint
+or open a G135 connector (a credential that would outlive the device's revocation), and the device it names is recorded on
+``request.state.device`` — the only way the server learns a call came from one of the person's other machines.
+
 Open paths (no bearer token required): ``GET /healthz`` (installer/doctor
 liveness probe), ``POST /capture/telegram`` (Telegram's servers hit this
 webhook through a public tunnel and cannot send our bearer header), and
@@ -121,15 +127,58 @@ def get_token() -> str:
     return token
 
 
+#: Paths only the master token may use (G181 phase 2, owner ruling 1): issuing and revoking device tokens is an act of
+#: the person on the server, never of a device.
+MASTER_ONLY_PREFIXES = ("/devices",)
+#: Writes only the master token may make under these prefixes: minting, rotating or turning on a G135 remote
+#: connector. A connector token a device minted would outlive the device's own revocation (and the listener it turns
+#: on faces the person's tunnel), so a device may read the connector state and revoke, never create or open.
+MASTER_ONLY_WRITE_PREFIXES = ("/remote",)
+_MASTER_ONLY_WRITE_METHODS = frozenset({"POST", "PUT", "PATCH"})
+
+
+def _master_only(path: str, method: str = "GET") -> bool:
+    if any(path == p or path.startswith(p + "/") for p in MASTER_ONLY_PREFIXES):
+        return True
+    return method.upper() in _MASTER_ONLY_WRITE_METHODS and any(
+        path == p or path.startswith(p + "/") for p in MASTER_ONLY_WRITE_PREFIXES)
+
+
+def request_device(request: Request):
+    """The device whose token signed this request (``device_tokens.Device``), or None for the master token, an open
+    path, or auth turned off. Set only by :func:`require_token` from the token itself — never from anything the client
+    says about itself."""
+    return getattr(request.state, "device", None)
+
+
 async def require_token(
     request: Request,
     authorization: str | None = Header(default=None),
 ) -> None:
-    """App-wide dependency: 401 unless the bearer token matches."""
+    """App-wide dependency: 401 unless the bearer token is the master token or an active device token
+    (``device_tokens``, G181 phase 2). A device token is refused (403) on the master-only paths."""
+    request.state.device = None
     if not auth_enabled() or request.url.path in _OPEN_PATHS:
         return
     supplied = ""
     if authorization and authorization.lower().startswith("bearer "):
         supplied = authorization[7:].strip()
-    if not supplied or not secrets.compare_digest(supplied.encode("utf-8"), get_token().encode("utf-8")):
+    if supplied and secrets.compare_digest(supplied.encode("utf-8"), get_token().encode("utf-8")):
+        return
+    from api.services import device_tokens
+
+    device = None
+    if device_tokens.looks_like(supplied):
+        try:
+            device = device_tokens.store().verify(supplied)
+        except Exception:  # noqa: BLE001 - an unreadable store admits no device (fail closed)
+            device = None
+    if device is None:
         raise HTTPException(status_code=401, detail="missing or invalid bearer token")
+    if _master_only(request.url.path, request.method):
+        raise HTTPException(status_code=403, detail="only the server's own token may do this")
+    request.state.device = device
+    try:
+        device_tokens.store().touch(device.id)
+    except Exception:  # noqa: BLE001 - a usage stamp never fails a request
+        pass
