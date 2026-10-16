@@ -15,7 +15,7 @@ person's own agent, in their own signed-in browser, can read both pages. This is
 signs in and never fetches either page: it only *offers* the task — one line in ``cicada_reading_queue`` and one in
 the recall hook's count — and only while agent reading is on (its first-use sheet acknowledged) **and** the person
 turned on this list in Settings → Reading the web (``reading_settings.youtube_lists``, off by default; the switch is
-the site permission for youtube.com's lists). The agent records through ``cicada_record_youtube_list`` (``record``
+a standing ask for exactly that page, never a youtube.com site grant — owner 2026-10-16, CLAUDE.md's rail). The agent records through ``cicada_record_youtube_list`` (``record``
 scope, stdio only). ``needs_login`` or ``blocked`` pauses BOTH lists for a week — the agent was not signed in, and it
 is never asked again in a loop — until the week ends or the person turns a list on again (Try again).
 

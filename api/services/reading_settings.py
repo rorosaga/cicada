@@ -22,8 +22,8 @@
   standing deny, machine-wide, D3).
 * ``youtube_lists`` — ``{list: day}`` (G71, owner 2026-10-16): the YouTube lists
   (``watch_later``, ``history``) the person asked their own agent to keep current
-  from their signed-in browser (``youtube_lists``). Off by default; each is the
-  site permission for that page of youtube.com, needs a current acknowledgement
+  from their signed-in browser (``youtube_lists``). Off by default; each is a
+  standing ask for exactly that page (never a youtube.com site grant), needs a current acknowledgement
   to turn on, and counts only while the master switch is on.
 * ``agent_ack`` — ``{date, v}``: the person's "I understand" on the first-use
   sheet. Turning the switch on needs a current one; a change of the sheet's
