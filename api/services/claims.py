@@ -212,6 +212,10 @@ class Claim:
     # Owner 2026-10-09: the day its own age (proven silence, heard late) took it below the decay-question line — it
     # then fades quietly, never asked about, until restated (`decay_policy.FADED_BY_AGE_KEY`). Omitted when unset.
     faded_by_age: str | None = None
+    # Owner 2026-10-16 (read on time): restatements said before its watermark and read late, ``[[day, confidence],
+    # ...]``, waiting for the decay pass that places each on its day (`claim_reconciler._place_on_time`) — nothing is
+    # charged mid-drain. Cleared by that pass; omitted when unset.
+    read_late: list | None = None
 
     def all_session_ids(self) -> list[str]:
         """Every session that has written or reinforced this claim, deduped,
@@ -248,6 +252,8 @@ class Claim:
         for key in ("recorded_ts", "recovered_from", "recovered_by", "faded_by_age"):
             if data.get(key) is None:
                 data.pop(key, None)
+        if not data.get("read_late"):
+            data.pop("read_late", None)
         return data
 
     @classmethod
@@ -289,7 +295,24 @@ class Claim:
             recovered_from=_opt_str(data.get("recovered_from")),
             recovered_by=_opt_str(data.get("recovered_by")),
             faded_by_age=_opt_str(data.get("faded_by_age")),
+            read_late=_read_late(data.get("read_late")),
         )
+
+
+def _read_late(value: Any) -> list | None:
+    """A claim's pending late restatements, ``[[day, confidence], ...]``; junk entries dropped, ``None`` when none."""
+    out: list = []
+    for item in value if isinstance(value, list) else []:
+        if not isinstance(item, (list, tuple)) or len(item) != 2:
+            continue
+        day = str(item[0] or "").strip()[:10]
+        try:
+            conf = float(item[1])
+        except (TypeError, ValueError):
+            continue
+        if len(day) == 10 and [day, conf] not in out:
+            out.append([day, conf])
+    return out or None
 
 
 # G140 Q-R5 — the predicate of a withdrawal record. `cicada_retract_claim`

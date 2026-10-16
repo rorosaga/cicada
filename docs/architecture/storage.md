@@ -34,6 +34,7 @@ last_referenced: 2026-03-22  # when it was last said (a conversation's date, not
 decayed_through: 2026-03-29  # silence charged through this day (TODO ruling 1)
 learned_on: 2026-03-29     # the day Cicada read the last mention; age counts from when it was said (capture-and-sleep.md)
 faded_by_age: 2026-03-29   # only when its own age took it below 0.4: fades and archives without a question
+read_late: 2026-03-20      # only between a late read and the decay pass that places it on its day (read on time)
 decay_rate: 0.05           # per-entity, not global
 decay_class: active        # evergreen | durable | active | volatile (G66)
 source_episodes: [ep_2026-01-10_001]

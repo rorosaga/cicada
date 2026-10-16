@@ -68,7 +68,7 @@ _LIST_SECTIONS = ("Key Facts", "History", "Links", "Open Questions")
 _LIST_KEYS = ("tags", "aliases", "related", "sources")
 #: The page's life: recomputed from its remaining history.
 _STATE_KEYS = ("status", "confidence", "last_referenced", "decayed_through", "learned_on",
-               decay_policy.FADED_BY_AGE_KEY, "confidence_before_mention")
+               decay_policy.FADED_BY_AGE_KEY, "confidence_before_mention", decay_policy.READ_LATE_KEY)
 _DECAY_PRODUCTS = ("status", "confidence", "decayed_through", decay_policy.FADED_BY_AGE_KEY)
 #: How many claim sentences a page whose prose was left gets as its Key Facts.
 MAX_FACTS_FROM_CLAIMS = 30

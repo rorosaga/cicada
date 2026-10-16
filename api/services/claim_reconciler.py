@@ -182,8 +182,13 @@ def _reinforce(existing: Claim, incoming: Claim, *, today: str | None = None, un
       settles it charges from there;
     * a settled claim restated in a conversation no charge has covered yet (said on or after its watermark — an
       agent's live write, with no dated conversation, is said today) is restored: the higher confidence, the
-      watermark and ``recorded_at`` at today;
-    * a settled claim restated by an older conversation, or by a memory export entry alone, gains the source only.
+      watermark and ``recorded_at`` at today. Said before today (a capture read late), the restored confidence is
+      placed on the day it was said and charged the proven silence since, never below where the claim stood — as a
+      page is (``_place_on_time``, once the pass knows the subject's pace);
+    * a settled claim restated in a conversation it does not already credit, said before its watermark and read
+      late, counts as if read the day it was said (owner 2026-10-16): restored that day and charged the silence since
+      (``_place_on_time``), never lowered — a restatement from long ago leaves it where its age puts it;
+    * a memory export entry alone, or a conversation the claim already credits, gains the source only.
     """
     if today is None:
         existing.confidence = max(existing.confidence, incoming.confidence)
@@ -198,6 +203,8 @@ def _reinforce(existing: Claim, incoming: Claim, *, today: str | None = None, un
         refs = list(incoming.source_episodes or [])
         if heard is None and not (refs and all(r in untimed for r in refs)):
             heard = today   # no dated conversation and not a memory entry: an agent's live write, said now
+        known = set(_said_refs(existing))
+        fresh_day = decay_policy.latest_said([r for r in _said_refs(incoming) if r not in known], untimed=untimed)
         _merge_episodes(existing, incoming)
         if unsettled:
             existing.confidence = max(existing.confidence, incoming.confidence)
@@ -205,14 +212,23 @@ def _reinforce(existing: Claim, incoming: Claim, *, today: str | None = None, un
             if heard is not None and (said_before is None or heard > said_before):
                 existing.recorded_at = today
         elif heard is not None and (not existing.decayed_through or heard >= str(existing.decayed_through)[:10]):
-            existing.confidence = max(existing.confidence, incoming.confidence)
+            if heard >= str(today)[:10]:
+                existing.confidence = max(existing.confidence, incoming.confidence)
+                existing.faded_by_age = None   # said again: asked like any claim
+            else:
+                # Said before today, read now: placed on its day by the decay pass (`_place_on_time`), which also
+                # decides the faded mark, as a page's settle does.
+                _defer_on_time(existing, heard, incoming.confidence)
             existing.decayed_through = _max_date(existing.decayed_through, today)
             existing.recorded_at = today
-            existing.faded_by_age = None   # said again: asked like any claim
-        elif existing.faded_by_age:
-            # An older conversation that may make a one-off its age faded a repeat: the repeat floor is checked
-            # once the pass knows the subject's pace (`_lift_to_repeat_floor`).
-            setattr(existing, "_lift_check", True)
+        else:
+            if fresh_day is not None:
+                # Said before the watermark, read late: as if read the day it was said (`_place_on_time`).
+                _defer_on_time(existing, fresh_day, incoming.confidence)
+            if existing.faded_by_age:
+                # An older conversation that may make a one-off its age faded a repeat: the repeat floor is checked
+                # once the pass knows the subject's pace (`_lift_to_repeat_floor`).
+                setattr(existing, "_lift_check", True)
     # PR #20 round-2 review fix — "repeated facts lose later conversations":
     # a scalar `session_id` can only ever remember the FIRST writer, so a
     # later conversation restating the same fact would silently vanish from
@@ -849,9 +865,14 @@ def reconcile_stage3(
 
     for sub, slot in reconciled.items():
         for c in slot:
+            if decay and c.read_late:
+                # Restatements read late, in this batch or an earlier one of the drain: placed now, at the final pace.
+                pending, c.read_late = c.read_late, None
+                _place_on_time(c, sub, pending, settings, decay_class_fn, subject_fn, untimed, today)
             if getattr(c, "_lift_check", False):
                 delattr(c, "_lift_check")
-                _lift_to_repeat_floor(c, sub, settings, decay_class_fn, subject_fn, untimed, today)
+                if c.faded_by_age:
+                    _lift_to_repeat_floor(c, sub, settings, decay_class_fn, subject_fn, untimed, today)
 
     for (_raw_slug, canonical), entry in folds.items():
         if entry["kept"]:   # nothing stored under the fold (rejected, or a conflict asked) — nothing to ask
@@ -872,6 +893,48 @@ def _max_date(left: str | None, right: str | None) -> str | None:
     """The later of two ISO date/date-time strings; either may be missing."""
     candidates = [str(c)[:10] for c in (left, right) if c]
     return max(candidates) if candidates else None
+
+
+def _defer_on_time(c: Claim, said: str, confidence: float) -> None:
+    """Note a restatement said on ``said`` and read late (``Claim.read_late``): the decay pass places it
+    (:func:`_place_on_time`) at the drain's final pace — nothing is charged mid-drain."""
+    entry = [str(said)[:10], float(confidence)]
+    pending = list(c.read_late or [])
+    if entry not in pending:
+        pending.append(entry)
+    c.read_late = pending
+
+
+def _place_on_time(c: Claim, subject: str, pending, settings, decay_class_fn, subject_fn, untimed,
+                   today: str) -> None:
+    """A restatement read late counts as if Cicada had read it the day it was said (owner 2026-10-16, mirrors a
+    page's ``conflict_resolver._revive_on_time`` and its settle): the restatement's confidence on that day, less the
+    silence since (``decay_policy.on_time``: proven silence floored for a repeat, live silence in full), through the
+    claim's watermark plus at most one pass of live silence. Only raises. A claim the restatement leaves below the
+    question line, heard late, is ``faded_by_age`` — never asked; one it takes back above the line is asked like any
+    claim."""
+    multiplier = max(0.0, decay_policy.claim_multiplier(decay_class_fn(subject)))
+    alpha, floor = decay_policy.spacing_params(settings)
+    rate = claim_rate(c, subject_fn(subject), multiplier, untimed=untimed, alpha=alpha, floor=floor)
+    nudge = float(getattr(settings, "decay_nudge_threshold", 0.4) or 0.4)
+    heard_in = decay_policy.conversations(_said_refs(c), untimed=untimed)
+    day = str(today)[:10]
+    # The watermark plus at most one pass of live silence (ruling 1) — what a pass would charge from here.
+    through = decay_policy.through_day(c.decayed_through, day, MAX_DECAY_DAYS_PER_CYCLE).isoformat()
+    best, best_said = None, None
+    for said, confidence in pending:
+        lifted = decay_policy.on_time(confidence, rate, said, c.recorded_at, through,
+                                      conversations=heard_in, nudge_threshold=nudge)
+        if lifted is not None and (best is None or lifted > best):
+            best, best_said = lifted, said
+    if best is not None and best > c.confidence:
+        c.confidence = best
+        c.decayed_through = through
+        setattr(c, "_placed", True)   # this pass's live silence is in it (ruling 1): not charged again
+        if best >= nudge:
+            c.faded_by_age = None   # back above the line on the person's words: asked like any claim
+        elif decay_policy.heard_late(best_said, day) and not c.faded_by_age:
+            c.faded_by_age = day   # its age carried it below the line: fades quietly
 
 
 def _lift_to_repeat_floor(c: Claim, subject: str, settings, decay_class_fn, subject_fn, untimed, today: str) -> None:
@@ -955,6 +1018,9 @@ def _decay_claims(
                 # Closed claims are history; events are asked about (the G141
                 # follow-up), never faded (R-PJ12).
                 continue
+            if getattr(c, "_placed", False):
+                delattr(c, "_placed")
+                continue   # placed on its day this pass, its live silence included
             # G85 §2 / Wave-1 1.1 + 1.8: charged from the watermark, so an interval
             # is charged exactly once; live silence capped at MAX_DECAY_DAYS_PER_CYCLE
             # with the watermark advancing only by what was charged (TODO ruling 1).
