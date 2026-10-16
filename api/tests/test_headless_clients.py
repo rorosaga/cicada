@@ -150,6 +150,18 @@ def test_only_the_master_token_issues_and_revokes_devices(server):
     assert client.get("/banks", headers=_auth("cic_dev_" + "a" * 8 + "_" + "b" * 43)).status_code == 401
 
 
+def test_a_device_never_mints_or_opens_a_remote_connector(server):
+    """A G135 connector token a device minted would outlive the device's revocation: create, rotate and the listener
+    switch are the master token's; a device may read the connector state."""
+    client, master, _root = server
+    token = client.post("/devices", json={"name": "laptop"}, headers=_auth(master)).json()["token"]
+    assert client.post("/remote/connectors", json={"label": "x", "app": "claude"},
+                       headers=_auth(token)).status_code == 403
+    assert client.post("/remote/connectors/abcdefgh/rotate", headers=_auth(token)).status_code == 403
+    assert client.put("/remote/settings", json={"enabled": True}, headers=_auth(token)).status_code == 403
+    assert client.get("/remote/connectors", headers=_auth(token)).status_code == 200
+
+
 # --- bank identity ---------------------------------------------------------------------------------------------------
 
 def test_every_bank_gets_an_id_a_copy_gets_its_own_and_a_rename_keeps_it(tmp_path):
@@ -172,6 +184,40 @@ def test_every_bank_gets_an_id_a_copy_gets_its_own_and_a_rename_keeps_it(tmp_pat
     # Pinned in a copy of the context: a pin set in the test's own context would follow every later test.
     assert contextvars.copy_context().run(bank_registry.pin_request_bank, root).id == beta
     assert bank_registry.pinned_bank() is None
+
+
+def _git(cwd, *args):
+    import subprocess
+
+    return subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True,
+                          env={**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.invalid",
+                               "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.invalid"}).stdout
+
+
+def test_a_legacy_root_s_registry_never_rides_another_writer_s_commit(tmp_path):
+    """A legacy root IS its default bank's git repo: the boot-time id write must not leave banks.yaml for the next
+    `git add -A` writer to sweep in under its own author."""
+    root = tmp_path / "root"
+    root.mkdir()
+    bank_registry.scaffold_bank(root)
+    _git(root, "add", "-A")
+    _git(root, "commit", "-qm", "init")
+    assert bank_registry.ensure_bank_ids(root) is True
+    assert _git(root, "status", "--porcelain") == ""                    # untracked: excluded, never swept
+    # An older install whose banks.yaml was already swept into history: the id write is committed alone.
+    other = tmp_path / "other"
+    other.mkdir()
+    bank_registry.scaffold_bank(other)
+    bank_registry.save_registry(other, bank_registry.load_registry(other))
+    _git(other, "add", "-A")
+    _git(other, "commit", "-qm", "init")
+    (other / "entities").mkdir(exist_ok=True)
+    (other / "entities" / "alpha.md").write_text("dirty, someone else's\n")
+    assert bank_registry.ensure_bank_ids(other) is True
+    status = _git(other, "status", "--porcelain", "--untracked-files=all")
+    assert "banks.yaml" not in status and "alpha.md" in status
+    assert "Cicada-Author: cicada" in _git(other, "log", "-1", "--format=%B")
+    assert _git(other, "show", "--name-only", "--format=", "HEAD").split() == ["banks.yaml"]
 
 
 def test_healthz_says_ids_never_names_and_a_wrong_id_is_refused(server):
@@ -458,6 +504,16 @@ def test_the_door_runs_every_stdio_tool_and_no_other():
     stdio = {a or b for a, b in stdio}
     assert stdio == set(tool_door.DISPATCH) | tool_door.SPECIAL
     assert tool_door.tools() == stdio                 # the CLI↔MCP table is the source of the names
+
+
+def test_the_door_runs_the_youtube_list_body_with_its_own_refusals(tmp_path):
+    from _synthetic_bank import _bank
+
+    memory = _bank(tmp_path)
+    ctx, state = _door_ctx(memory)
+    answer = tool_door.run("cicada_record_youtube_list", {"list": "nonsense", "outcome": "read"}, ctx=ctx,
+                           state=state, surface="mcp", options={}, root=memory, bank_name="default")
+    assert answer.error is None and answer.text.startswith(("Error:", "Not recorded", "Agent reading"))
 
 
 def _door_ctx(memory, **kw):
