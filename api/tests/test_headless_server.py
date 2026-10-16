@@ -333,6 +333,38 @@ def test_install_on_a_server_client_installs_no_local_backend(tmp_path, os_name)
     assert "service:       none" in done.stdout
     assert "api_token" not in done.stdout and "device_token" in done.stdout
     assert "cicada-backend.service" not in done.stdout and "com.cicada.backend.plist" not in done.stdout
+    # Owner decision 4 (2026-10-16): a client holds no bank, so it gets no empty memory folder either — no mkdir,
+    # no git init, no CICADA_MEMORY_PATH in api/.env or the MCP entry.
+    memory = str(tmp_path / "memory")
+    assert "no local memory folder" in done.stdout
+    assert f"mkdir -p {memory}" not in done.stdout and "git init" not in done.stdout
+    assert f"CICADA_MEMORY_PATH={memory}" not in done.stdout
+    assert "memory:        on the server" in done.stdout
+
+
+def test_the_next_step_names_doctor_without_make_where_make_is_missing(tmp_path):
+    """Headless QA: a minimal Linux server has no make (and a Homebrew keg no Makefile). install.sh's own
+    `doctor_hint`, run with and without a `make` on PATH and a Makefile in the repo."""
+    import re
+
+    text = (ROOT / "install.sh").read_text()
+    body = re.search(r"^doctor_hint\(\) \{.*?^\}$", text, re.S | re.M).group(0)
+    empty, with_make, repo = tmp_path / "empty", tmp_path / "make-bin", tmp_path / "repo"
+    for d in (empty, with_make, repo):
+        d.mkdir()
+    _fake(with_make, "make", "exit 0\n")
+
+    def hint(path_dir: Path, makefile: bool) -> str:
+        (repo / "Makefile").unlink(missing_ok=True)
+        if makefile:
+            (repo / "Makefile").write_text("doctor:\n")
+        return subprocess.run(["/bin/bash", "-c", f"REPO='{repo}'\n{body}\ndoctor_hint"], env={"PATH": str(path_dir)},
+                              capture_output=True, text=True, timeout=30).stdout
+
+    assert hint(empty, True) == f"bash '{repo}/scripts/doctor.sh'"
+    assert hint(with_make, False) == f"bash '{repo}/scripts/doctor.sh'"
+    assert hint(with_make, True) == f"make -C '{repo}' doctor"
+    assert "Next: run $(doctor_hint)" in text and "Next: run 'make doctor'" not in text
 
 
 def test_doctor_checks_the_service_of_its_platform():

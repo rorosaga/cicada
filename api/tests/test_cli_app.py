@@ -132,8 +132,6 @@ BACKEND_CASES = [
     (["feed", "remove", "https://example.com/feed.xml"], "DELETE", "/sources/feeds",
      {"url": "https://example.com/feed.xml"}, {"status": "ok"}),
     (["feed", "poll"], "POST", "/sources/poll-feeds", None, {"polled": 0}),
-    (["engine", "list"], "GET", "/connections", None, {"connections": [{"id": "byok-x", "label": "X",
-                                                                          "connected": True}]}),
     (["page", "decay", "alpha-project", "durable"], "PUT", "/entities/alpha-project/decay",
      {"decayClass": "durable"}, {"decayClass": "durable"}),
     (["inbox", "answer", "inbox-001", "--option", "keep"], "POST", "/inbox/inbox-001/resolve",
@@ -321,6 +319,7 @@ PERSON_ARGV = {
     "skills publish": ["skills", "publish", "release-notes", "--agent", "codex"],
     "device add": ["device", "add", "laptop"],
     "device revoke": ["device", "revoke", "ab12cd34"],
+    "engine connect": ["engine", "connect", "claude-plan"],
 }
 
 

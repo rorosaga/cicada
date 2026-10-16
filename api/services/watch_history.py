@@ -38,7 +38,7 @@ from pathlib import Path
 from typing import Iterable
 from urllib.parse import urlparse
 
-from api.services import episode_ids, episode_scrub, episode_staging, media_ingestor
+from api.services import episode_ids, episode_scrub, episode_staging, markdown_parser, media_ingestor
 from api.services.media_ingestor import RawItem
 
 PLATFORMS: dict[str, str] = {"youtube": "YouTube", "tiktok": "TikTok"}
@@ -56,6 +56,10 @@ REWATCH_GAP = timedelta(minutes=30)
 #: At most this many videos are kept for one day, and this many watch times per video.
 MAX_PER_DAY = 400
 MAX_TIMES = 12
+#: Every instant a door reported for one video on one day, the earliest kept (owner, 2026-10-16, from the backend
+#: hunt): ``times`` is derived from these each time, so the order doors arrive in never changes the day. Frontmatter
+#: only — the body shows ``times``.
+MAX_SEEN = 48
 TITLE_CAP = 200
 CHANNEL_CAP = 120
 #: How many days one locked step stages (each step holds the bank's episode lock briefly, never a whole import).
@@ -257,16 +261,26 @@ def _merge_times(times: list[str]) -> list[str]:
     return [_iso(t) for t in kept[:MAX_TIMES]]
 
 
+def _seen(instants: list[str]) -> list[str]:
+    """The raw instants, distinct, oldest first, the earliest ``MAX_SEEN`` kept. Keeping the earliest of a union is
+    the same whichever order the parts arrive in, which is what makes every merge order give one day."""
+    parsed = sorted({t for t in (parse_instant(x) for x in instants) if t is not None})
+    return [_iso(t) for t in parsed[:MAX_SEEN]]
+
+
 def _rows_of(fm: dict) -> list[dict]:
     raw = fm.get("watched")
     rows: list[dict] = []
     if isinstance(raw, list):
         for r in raw:
             if isinstance(r, dict) and watch_url(str(r.get("url") or "")):
+                times = [str(t) for t in (r.get("times") or []) if t]
+                # A day written before `seen` existed: its kept watches are the best raw record there is.
+                seen = [str(t) for t in (r.get("seen") or []) if t] or times
                 rows.append({"url": str(r["url"]), "title": str(r.get("title") or ""),
-                             "channel": str(r.get("channel") or ""),
-                             "times": [str(t) for t in (r.get("times") or []) if t],
-                             "via": [str(v) for v in (r.get("via") or []) if str(v) in DOORS]})
+                             "channel": str(r.get("channel") or ""), "times": times,
+                             "via": [str(v) for v in (r.get("via") or []) if str(v) in DOORS],
+                             "seen": _seen(seen)})
     return rows
 
 
@@ -279,13 +293,14 @@ def merge(rows: list[dict], watches: list[Watch]) -> tuple[list[dict], int]:
         if row is None:
             if len(by_key) >= MAX_PER_DAY:
                 continue
-            row = {"url": w.url, "title": "", "channel": "", "times": [], "via": []}
+            row = {"url": w.url, "title": "", "channel": "", "times": [], "via": [], "seen": []}
             by_key[w.key] = row
             rows.append(row)
             added += 1
         if w.at is not None:
-            before = len(_merge_times(row["times"]))
-            row["times"] = _merge_times(row["times"] + [_iso(w.at)])
+            before = len(row["times"])
+            row["seen"] = _seen(list(row.get("seen") or []) + [_iso(w.at)])
+            row["times"] = _merge_times(row["seen"])
             if before and len(row["times"]) > before:
                 added += 1   # a re-watch of a video already on this day
         if w.title and not row["title"]:
@@ -362,6 +377,12 @@ def record(memory_path: Path, watches: Iterable[Watch], *, bank: str | None = No
                            "watched": rows},
                     writer=SCRUB_WRITER))
             staged = episode_staging.stage(drafts, episodes_dir, bank=bank)
+            # A day whose words did not move may still have learnt a raw instant (`seen`): kept in its frontmatter
+            # alone, under the same locks, never re-queued — the next merge needs it to be order-free.
+            for verdict, draft in zip(staged.verdicts, drafts):
+                entry = index.get(draft.source_id)
+                if verdict == "skipped" and entry is not None and _refresh_seen(entry.path, draft.extra["watched"]):
+                    result.paths.append(str(entry.path.relative_to(Path(memory_path))))
         for verdict, draft in zip(staged.verdicts, drafts):
             if verdict == "created":
                 result.days_created += 1
@@ -375,6 +396,33 @@ def record(memory_path: Path, watches: Iterable[Watch], *, bank: str | None = No
         result.episodes.update(staged.episode_ids)
     result.paths = sorted(set(result.paths))
     return result
+
+
+def _refresh_seen(path: Path, rows: list[dict]) -> bool:
+    """A day whose words did not change keeps its frontmatter as it was (``via`` names only the doors that wrote its
+    words) except each video's raw instants, ``seen``, which the next merge needs. Body, hashes and queue untouched."""
+    parsed = markdown_parser.parse(path)
+    fm = dict(parsed.frontmatter)
+    stored = fm.get("watched")
+    if not isinstance(stored, list):
+        return False
+    seen_by_url = {media_ingestor.url_hash(r["url"]): r.get("seen") or [] for r in rows}
+    changed = False
+    updated = []
+    for r in stored:
+        if isinstance(r, dict) and r.get("url"):
+            want = seen_by_url.get(media_ingestor.url_hash(str(r["url"])))
+            if want is not None and list(r.get("seen") or []) != want:
+                r = {**r, "seen": want}
+                changed = True
+        updated.append(r)
+    if not changed:
+        return False
+    fm["watched"] = updated
+    if "turns" in fm:
+        fm["turns"] = fm.pop("turns")   # the sidecar stays the last key (R-PB4)
+    markdown_parser.write(path, fm, parsed.body)
+    return True
 
 
 # --- the doors' one tail ---------------------------------------------------------------------------

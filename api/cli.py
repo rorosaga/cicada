@@ -876,6 +876,18 @@ def _validate(command: str, args) -> None:
     cli_app.validate(command, args)
 
 
+def _in_process(command: str, handler, boot: Boot, args):
+    """One command over this machine's bank. A tool mirror that writes runs with the bank's dirty pages snapshotted
+    first, so its commit keeps an edit already there apart (`agent_commits.setting_apart`, owner 2026-10-16)."""
+    row = cli_map.by_name().get(command)
+    if row is not None and row.tool and row.mutates and row.via == "bank":
+        from api.services import agent_commits
+
+        with agent_commits.setting_apart(boot.pin.path):
+            return handler(boot, args)
+    return handler(boot, args)
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     as_json = _wants_json(argv)
@@ -938,7 +950,7 @@ def main(argv: list[str] | None = None) -> int:
                     bank_name = boot.pin.name
                     _check_bank(boot, args.bank if args.bank is not None else os.environ.get("CICADA_BANK"))
                     boot.probe = probe_backend(boot.backend_url, boot.root, bank_id=getattr(boot.pin, "id", None))
-                    result = boot.ctx.run(handler, boot, args)
+                    result = boot.ctx.run(_in_process, command, handler, boot, args)
     except UsageError as exc:                  # a check that needed the page (a `get` range past its end)
         _emit(as_json, command=command, ok=False, code="usage", bank=bank_name, data=None, text=str(exc),
               warnings=[])

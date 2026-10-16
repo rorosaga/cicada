@@ -836,6 +836,28 @@ async def snapshot_dirty(memory_path: Path) -> dict[str, bytes | None] | None:
     return out
 
 
+def snapshot_dirty_sync(memory_path) -> dict[str, bytes | None] | None:
+    """:func:`snapshot_dirty` for a sync caller (an agent's tool call, before its write): the same paths, the same
+    ``None`` when the tree cannot be read."""
+    memory_path = Path(memory_path)
+    if not (memory_path / ".git").exists():
+        return None
+    try:
+        dirty = dirty_paths_sync(memory_path)
+    except GitError:
+        return None
+    out: dict[str, bytes | None] = {}
+    for rel in dirty:
+        if "/" in rel and not rel.startswith(_TOUCHABLE_DIRS):
+            continue
+        path = memory_path / rel
+        try:
+            out[rel] = path.read_bytes() if path.is_file() else None
+        except OSError:
+            out[rel] = None
+    return out
+
+
 async def _run_git(memory_path: Path, *args: str) -> str:
     if args and args[0] in WRITE_SUBCOMMANDS:
         # R-B1: a write through the async helper (`inbox_service`'s `git mv` /

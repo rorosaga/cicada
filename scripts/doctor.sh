@@ -29,8 +29,17 @@ echo "  repo:   $REPO"
 echo "  memory: $MEMORY_PATH"
 echo
 
-# 1. Backend /healthz reachable (+ embeddingMode shown).
-HEALTH_JSON=$(curl -fsS "http://127.0.0.1:$PORT/healthz" 2>/dev/null || true)
+# 1. Backend /healthz reachable (+ embeddingMode shown). Its details (mode, model, index) answer only a caller
+#    holding the token (owner decision 3, 2026-10-16), so doctor sends this machine's own — as a header read from the
+#    file by curl itself, never on a command line another user could list.
+TOKEN_FILE="${CICADA_HOME:-$HOME/.cicada}/api_token"
+if [ -n "${CICADA_API_TOKEN:-}" ]; then
+  HEALTH_JSON=$(printf 'Authorization: Bearer %s\n' "$CICADA_API_TOKEN" | curl -fsS -H @- "http://127.0.0.1:$PORT/healthz" 2>/dev/null || true)
+elif [ -r "$TOKEN_FILE" ]; then
+  HEALTH_JSON=$(printf 'Authorization: Bearer %s\n' "$(tr -d '[:space:]' < "$TOKEN_FILE")" | curl -fsS -H @- "http://127.0.0.1:$PORT/healthz" 2>/dev/null || true)
+else
+  HEALTH_JSON=$(curl -fsS "http://127.0.0.1:$PORT/healthz" 2>/dev/null || true)
+fi
 if [ -n "$HEALTH_JSON" ] && printf '%s' "$HEALTH_JSON" | grep -q '"status"'; then
   MODE=$(printf '%s' "$HEALTH_JSON" | sed -n 's/.*"embeddingMode":"\([^"]*\)".*/\1/p')
   pass "Backend /healthz reachable on :$PORT (embeddingMode=${MODE:-unknown})"

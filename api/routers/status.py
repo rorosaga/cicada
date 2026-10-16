@@ -39,7 +39,7 @@ router = APIRouter()
 _last_sleep_cache: dict[str, str | None] = {}
 
 
-@router.get("/healthz", response_model=HealthResponse)
+@router.get("/healthz", response_model=HealthResponse, response_model_exclude_none=True)
 async def healthz(request: Request, settings: Settings = Depends(get_settings)):
     """Auth-free liveness probe for the installer / doctor.
 
@@ -51,10 +51,18 @@ async def healthz(request: Request, settings: Settings = Depends(get_settings)):
     index connections are thousands of system calls on a large bank, and a
     probe that stalled on them stalled every other request with it.
     """
-    return await run_in_threadpool(_health, request.app.version, settings)
+    from api.services import auth
+
+    full = auth.bearer_admits(request.headers.get("authorization"))
+    return await run_in_threadpool(_health, request.app.version, settings, full)
 
 
-def _health(version: str, settings: Settings) -> HealthResponse:
+def _health(version: str, settings: Settings, full: bool = True) -> HealthResponse:
+    """``full`` False (no token, owner decision 3, 2026-10-16): liveness, version and bank ids only — no path, no
+    count, nothing that names the person's account or memory. ``exclude_none`` on the route drops the rest."""
+    if not full:
+        return HealthResponse(status="ok", version=version, bank_id=_active_bank_id(settings),
+                              bank_ids=bank_registry.bank_ids(settings.memory_root))
     memory_path = settings.memory_path
     return HealthResponse(
         status="ok",

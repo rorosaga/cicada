@@ -34,11 +34,22 @@ async def list_devices(request: Request):
 
 @router.post("/devices", status_code=201)
 async def create_device(req: DeviceCreateRequest):
+    """Issue a token. ``sameName`` lists the ACTIVE devices already called that (case and spaces aside): two devices
+    may share a name — it is the person's label, never an identity — but the client says so (headless QA, 2026-10-16),
+    since a list of two "laptop" rows cannot say which one to revoke."""
+    store = device_tokens.store()
+
+    def work():
+        wanted = " ".join(req.name.split()).casefold()
+        same = [d.id for d in store.list() if d.active and " ".join(d.name.split()).casefold() == wanted]
+        device, token = store.create(req.name)
+        return device, token, same
+
     try:
-        device, token = await run_in_threadpool(device_tokens.store().create, req.name)
+        device, token, same = await run_in_threadpool(work)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from None
-    return {"device": device.wire(), "token": token}
+    return {"device": device.wire(), "token": token, "sameName": same}
 
 
 @router.delete("/devices/{device_id}")

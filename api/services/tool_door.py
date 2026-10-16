@@ -36,7 +36,7 @@ from pathlib import Path
 from typing import Callable
 from urllib.parse import quote
 
-from api.services import bank_binding, cli_map, mcp_tools, write_admission
+from api.services import agent_commits, bank_binding, cli_map, mcp_tools, write_admission
 
 SURFACES = ("mcp", "cli")
 MAX_SKIPPED = 500
@@ -223,7 +223,8 @@ def run(tool: str, arguments: dict, *, ctx: mcp_tools.ToolContext, state: Sessio
             raise DoorError(f"{tool} is not in the command line yet; use the MCP tool.", 403)
     memory_path = ctx.memory_path()
     try:
-        with _WRITE_LOCK if row.mutates else _nolock():
+        with _WRITE_LOCK if row.mutates else _nolock(), \
+                agent_commits.setting_apart(memory_path) if row.mutates else _nolock():
             reply = _run(tool, dict(arguments or {}), ctx=ctx, state=state, surface=surface, options=options,
                          root=root, memory_path=memory_path, bank_name=bank_name)
     except DoorError:

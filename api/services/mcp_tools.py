@@ -838,7 +838,7 @@ def _record_settle(ctx: ToolContext, memory_path: Path, item_id, source, option_
     message = web_settle.commit_message("Web check", done.lines, authors=[ctx.author],
                                         sessions=[ctx.session_id] if ctx.session_id else None)
     try:
-        web_settle.commit_sync(memory_path, message, done.paths)
+        web_settle.commit_sync(memory_path, message, done.paths, before=agent_commits.before_for(memory_path))
     except Exception as exc:  # noqa: BLE001 — the settle stands; the next writer's commit is scoped, never ours
         from loguru import logger
 
@@ -1423,11 +1423,19 @@ def record_youtube_list(ctx: ToolContext, list_name: str, outcome: str, videos=N
                 paths += [f"entities/{res.media_entity_id}.md", f"episodes/{res.episode_id}.md"]
             else:
                 duplicates += 1
-        if created:
+        # `write_prepared`'s contract: every caller saves the index. A duplicate adds its alias rows too
+        # (`index_aliases`), so it is saved whenever a row was written, and committed when its bytes moved
+        # (backend hunt, 2026-10-16: it was saved only when a video was new, dropping a duplicate's aliases).
+        index_file = memory_path / "sources" / "url_index.json"
+        index_changed = False
+        if created or duplicates:
+            before_index = index_file.read_bytes() if index_file.is_file() else None
             media_ingestor.save_url_index(memory_path, idx)
+            index_changed = (index_file.read_bytes() if index_file.is_file() else None) != before_index
+        if index_changed:
             paths.append("sources/url_index.json")
-        lines = [f"sources/url_index.json: updated (trigger: {ctx.trigger})",
-                 f"{created} Watch later video(s) saved (trigger: {ctx.trigger})"] if created else []
+        lines = ([f"sources/url_index.json: updated (trigger: {ctx.trigger})"] if index_changed else []) + (
+            [f"{created} Watch later video(s) saved (trigger: {ctx.trigger})"] if created else [])
         youtube_lists.note(memory_path, name, "read", videos=len(seen))
         said = (f"{created} new Watch later video(s) saved; {duplicates} already in memory "
                 "(saved before by a Takeout, a bookmark or a link).")

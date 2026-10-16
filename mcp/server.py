@@ -1317,6 +1317,18 @@ def handle_tool(name: str, arguments: dict) -> str:
     if runtime_layout.is_client():
         # G181 phase 2: a server elsewhere holds the bank; nothing below may touch a local one.
         return _client_tool(name, arguments)
+    from api.services import cli_map
+
+    row = cli_map.by_tool().get(name)
+    if row is not None and row.mutates:
+        # Owner, 2026-10-16 (backend hunt): an edit already uncommitted on a page this write takes is committed
+        # apart, first, never under this agent's name (`agent_commits.setting_apart`, as the inbox routes do).
+        with agent_commits.setting_apart(get_memory_path()):
+            return _handle_local_tool(name, arguments)
+    return _handle_local_tool(name, arguments)
+
+
+def _handle_local_tool(name: str, arguments: dict) -> str:
     if name == "cicada_recall":
         return handle_recall(arguments.get("query", ""))
     elif name == "cicada_recall_detail":

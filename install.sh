@@ -112,6 +112,27 @@ backend_healthy() {
   curl -fsS "http://127.0.0.1:$PORT/healthz" 2>/dev/null | grep -q '"status"'
 }
 
+# G181 phase 3: a machine whose memory lives on a server (CICADA_API_BASE, or the app's $CICADA_HOME/api_base) runs no
+# backend of its own and holds no memory folder — its hooks, MCP and `cicada` already talk to the server (the same rule
+# as hook_client.raw_base). Decided once, here, so step 3 (the folder), step 4/5 (its path) and step 6 agree.
+CLIENT_OF=""
+if [ -n "$(printf '%s' "${CICADA_API_BASE:-}" | tr -d '[:space:]')" ]; then
+  CLIENT_OF="CICADA_API_BASE"
+elif [ -s "${CICADA_HOME:-$HOME/.cicada}/api_base" ] \
+    && [ -n "$(tr -d '[:space:]' < "${CICADA_HOME:-$HOME/.cicada}/api_base" 2>/dev/null)" ]; then
+  CLIENT_OF="${CICADA_HOME:-$HOME/.cicada}/api_base"
+fi
+
+# The check to run next: `make doctor` from a checkout that has make and its Makefile; the script itself elsewhere
+# (a minimal Linux server has no make, and a Homebrew keg has no Makefile).
+doctor_hint() {
+  if command -v make >/dev/null 2>&1 && [ -f "$REPO/Makefile" ]; then
+    printf "make -C '%s' doctor" "$REPO"
+  else
+    printf "bash '%s/scripts/doctor.sh'" "$REPO"
+  fi
+}
+
 # ============================================================
 # Uninstall path
 # ============================================================
@@ -153,7 +174,11 @@ if [ "$DO_UNINSTALL" -eq 1 ]; then
     warn "venv missing — remove the api/hooks/capture.py and api/hooks/recall.py entries from $CLAUDE_SETTINGS by hand"
   fi
 
-  ok "Memory dir left intact: $MEMORY_PATH"
+  if [ -n "$CLIENT_OF" ] && [ ! -d "$MEMORY_PATH" ]; then
+    ok "No memory folder on this machine — the memory lives on the server ($CLIENT_OF)"
+  else
+    ok "Memory dir left intact: $MEMORY_PATH"
+  fi
   hdr "Uninstall complete."
   exit 0
 fi
@@ -164,7 +189,11 @@ fi
 hdr "Installing Cicada"
 [ "$DRY_RUN" -eq 1 ] && warn "DRY RUN — no changes will be made"
 echo "  repo:   $REPO"
-echo "  memory: $MEMORY_PATH"
+if [ -n "$CLIENT_OF" ]; then
+  echo "  memory: on the server ($CLIENT_OF)"
+else
+  echo "  memory: $MEMORY_PATH"
+fi
 
 # --- 1. Preflight: required tools ---
 hdr "1. Preflight"
@@ -233,6 +262,10 @@ fi
 
 # --- 3. Memory tree + git ---
 hdr "3. Memory directory"
+if [ -n "$CLIENT_OF" ]; then
+  # Owner decision 4 (2026-10-16): a client holds no bank, so it gets no empty one either.
+  ok "This machine's memory lives on a server ($CLIENT_OF) — no local memory folder"
+else
 for sub in entities nudges clarifications inbox episodes hubs sources leann; do
   d="$MEMORY_PATH/$sub"
   if [ -d "$d" ]; then
@@ -252,6 +285,7 @@ else
   # the same as the backend's git_service.ensure_commit_identity_sync. A resolving identity is never overridden.
   run sh -c "cd '$MEMORY_PATH' && git init -q && { git var GIT_COMMITTER_IDENT >/dev/null 2>&1 || { git config user.name Cicada && git config user.email cicada@localhost; }; } && git add -A && git commit -q -m 'Initial Cicada memory' --allow-empty"
   ok "memory git repo initialized"
+fi
 fi
 
 # --- 4. Scaffold api/.env (fill missing keys only, never clobber) ---
@@ -293,8 +327,8 @@ else
   step "Creating api/.env (umask 077)"
 fi
 
-# Memory path + embedding default always present.
-ensure_env CICADA_MEMORY_PATH "$MEMORY_PATH"
+# Memory path + embedding default always present (no memory path on a client: it has none).
+[ -n "$CLIENT_OF" ] || ensure_env CICADA_MEMORY_PATH "$MEMORY_PATH"
 # Search embeds on this Mac with the model step 2b fetched: no key, no account, no spend.
 ensure_env CICADA_EMBEDDING_MODE "local"
 # LiteLLM defaults sourced from the example.
@@ -333,21 +367,27 @@ if command -v "$CLAUDE_CLI" >/dev/null 2>&1; then
     ok "MCP server 'cicada' already registered"
   else
     step "Registering 'cicada' via claude mcp add"
-    run "$CLAUDE_CLI" mcp add cicada \
-      -s user \
-      --env "CICADA_MEMORY_PATH=$MEMORY_PATH" \
-      -- "$VENV_PY" "$MCP_SERVER"
+    if [ -n "$CLIENT_OF" ]; then
+      # A client's MCP server sends every tool to the server: it names no memory folder of this machine.
+      run "$CLAUDE_CLI" mcp add cicada -s user -- "$VENV_PY" "$MCP_SERVER"
+    else
+      run "$CLAUDE_CLI" mcp add cicada \
+        -s user \
+        --env "CICADA_MEMORY_PATH=$MEMORY_PATH" \
+        -- "$VENV_PY" "$MCP_SERVER"
+    fi
     ok "MCP server registered"
   fi
 else
   warn "claude CLI not found — add this entry to your MCP config manually:"
+  if [ -n "$CLIENT_OF" ]; then MCP_ENV_JSON='{}'; else MCP_ENV_JSON="{ \"CICADA_MEMORY_PATH\": \"$MEMORY_PATH\" }"; fi
   cat <<EOF
   {
     "mcpServers": {
       "cicada": {
         "command": "$VENV_PY",
         "args": ["$MCP_SERVER"],
-        "env": { "CICADA_MEMORY_PATH": "$MEMORY_PATH" }
+        "env": $MCP_ENV_JSON
       }
     }
   }
@@ -434,15 +474,7 @@ if [ "$OS_NAME" = "Linux" ]; then
 else
   hdr "6. Backend service (launchd)"
 fi
-# G181 phase 3: a machine whose memory lives on a server (CICADA_API_BASE, or the app's $CICADA_HOME/api_base) runs no
-# backend of its own — its hooks, MCP and `cicada` already talk to the server (the same rule as hook_client.raw_base).
-CLIENT_OF=""
-if [ -n "$(printf '%s' "${CICADA_API_BASE:-}" | tr -d '[:space:]')" ]; then
-  CLIENT_OF="CICADA_API_BASE"
-elif [ -s "${CICADA_HOME:-$HOME/.cicada}/api_base" ] \
-    && [ -n "$(tr -d '[:space:]' < "${CICADA_HOME:-$HOME/.cicada}/api_base" 2>/dev/null)" ]; then
-  CLIENT_OF="${CICADA_HOME:-$HOME/.cicada}/api_base"
-fi
+# CLIENT_OF (decided at the top): a client runs no backend of its own.
 if [ -n "$CLIENT_OF" ]; then
   ok "This machine's memory lives on a server ($CLIENT_OF) — no local backend service"
 elif backend_healthy; then
@@ -500,7 +532,11 @@ fi
 
 # --- Summary ---
 hdr "Done — what happened"
-echo "  memory:        $MEMORY_PATH"
+if [ -n "$CLIENT_OF" ]; then
+  echo "  memory:        on the server ($CLIENT_OF); none on this machine"
+else
+  echo "  memory:        $MEMORY_PATH"
+fi
 echo "  venv:          $VENV"
 echo "  api/.env:      $ENV_FILE (missing keys filled, existing preserved)"
 if command -v "$CLAUDE_CLI" >/dev/null 2>&1; then
@@ -526,5 +562,5 @@ if [ -n "$CLIENT_OF" ]; then
 else
   echo "  API token:     ${CICADA_HOME:-$HOME/.cicada}/api_token (the app and MCP server read it automatically)"
   echo
-  echo "  Next: run 'make doctor' to verify, or 'curl localhost:$PORT/healthz'."
+  echo "  Next: run $(doctor_hint) to verify, or 'curl localhost:$PORT/healthz'."
 fi

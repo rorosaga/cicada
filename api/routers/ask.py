@@ -20,7 +20,7 @@ from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
 from api.models.schemas import AskCitation, AskRequest, AskResponse
-from api.services import agent_engine, ask_service, engine_select
+from api.services import agent_engine, ask_service, engine_readiness, engine_select
 
 router = APIRouter()
 
@@ -55,6 +55,7 @@ async def ask(
         request.query,
         request.top_k,
         llm_fn=llm_fn,
+        no_engine=engine_readiness.key_missing(resolved),
     )
     return AskResponse(
         answer=result["answer"],
