@@ -158,6 +158,14 @@ spacing factor and the per-type pace (see Temporal decay).
 
 **Claims** are the machine-legible half: typed predicates, bi-temporal validity, observer and trust.
 
+**Whose belief (observer).** `agent` is Cicada's own reading of a conversation (every Stage-1 claim by default), the
+owner's id is the person's own word (`user_stated`), and `external:<name>` is someone else's. Since G179 Stage 1 writes
+`external:<name>` itself for a claim whose located evidence lies only in a message conversation's other side — a texted
+AI agent's `assistant` turns or a person's `speaker` turns, named by the episode's `correspondent` — so "Instinct said
+alpha-project launches next week" is Instinct's belief in its own slot (the reconciler's key includes the observer), never
+the person's and never superseding theirs. A relationship the model labels with an observer has it dropped; a claim the
+person's words also back stays `agent` (`capture-and-sleep.md`, Stage 1).
+
 **The fence is JSON Lines (DECIDE-1, owner 2026-10-08).** A page's claims live in one ` ```claims ` fence, one claim
 per line, each line `claims._jsonl_line(Claim.to_dict())` — the one encoder every writer uses (a raw writer passes its
 mapping); `[]` when the page has none. JSON escapes every character a line splitter splits on (NEL, LINE and PARAGRAPH

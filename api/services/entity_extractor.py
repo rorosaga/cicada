@@ -314,6 +314,44 @@ MEMORY_SOURCE_NOTE = (
 )
 
 
+#: G179: a message conversation's other side, told to the model before the conversation (the model sees the chunk,
+#: never the frontmatter). An agent's turns are `assistant:` lines and a person's `speaker:<label>:` lines; either way
+#: their "I" is theirs and what they say about the person is their statement, never the person's own words.
+SOURCE_NOTE_PREFIX = "[Source: a text-message conversation."
+
+
+def correspondent_note(correspondent: dict | None) -> str | None:
+    """The note for an episode whose ``correspondent`` record names the other side, else ``None``."""
+    if not isinstance(correspondent, dict):
+        return None
+    name = " ".join(str(correspondent.get("name") or "").split())[:80] or "the other side"
+    own = 'Lines starting "user:" are the person\'s own messages.'
+    if correspondent.get("kind") == "agent":
+        return (f'{SOURCE_NOTE_PREFIX} {own} Lines starting "assistant:" are messages from {name}, an AI agent the '
+                f'person texts: {name}\'s words, never the person\'s. "I", "me" or "my" in an assistant line is {name}; '
+                f"what {name} says about the person is {name}'s statement, not something the person said. Attribute a "
+                "fact to the person only from their own lines.]\n\n")
+    return (f'{SOURCE_NOTE_PREFIX} {own} Lines starting "speaker:" are messages from {name}, someone else: their words, '
+            f'never the person\'s. "I", "me" or "my" in such a line is {name}.]\n\n')
+
+
+def correspondent_observer(correspondent: dict | None) -> str | None:
+    """``external:<slug>`` — the observer of a claim drawn only from the other side's words (G95's speaker → observer
+    rule, G179's "a claim drawn only from the agent's message says the agent said it")."""
+    if not isinstance(correspondent, dict):
+        return None
+    from api.services.id_utils import sanitize_id
+
+    slug = sanitize_id(str(correspondent.get("name") or ""))
+    return f"external:{slug}" if slug and slug != "unnamed" else None
+
+
+def _only_their_words(rel: dict) -> bool:
+    """Every located span of ``rel`` sits in the other side's turns (``assistant`` or ``speaker``), and there is one."""
+    spans = [e for e in rel.get("evidence") or [] if isinstance(e, dict) and e.get("kind") != "reasoning"]
+    return bool(spans) and all(e.get("kind") in ("assistant", "speaker") for e in spans)
+
+
 #: G110 gate B2: a captured session's dropped-middle marker never reaches the
 #: model as conversation text. The episode's own gap range (``episode["gaps"]``)
 #: is blanked on the WHOLE body before the chunker slices it — offsets kept, so
@@ -341,6 +379,7 @@ async def _extract_chunk(
     gap_note: str | None = None,
     date_note: str | None = None,
     owner: str | None = None,
+    source_note: str | None = None,
     _attempt: int = 0,
 ) -> dict:
     """Extract entities from a single chunk via LLM.
@@ -362,7 +401,7 @@ async def _extract_chunk(
                 {"role": "system", "content": EXTRACTION_SYSTEM_PROMPT + owner_block(owner)},
                 # Cicada's notes first (the gap, then the date — G194 A1), the conversation last. The model sees
                 # this message only; evidence is verified against the stored body, so offsets never move.
-                {"role": "user", "content": (gap_note or "") + (date_note or "")
+                {"role": "user", "content": (gap_note or "") + (date_note or "") + (source_note or "")
                  + ((MEMORY_SOURCE_NOTE + chunk) if source == "claude_memory" else chunk)},
             ],
             response_format={"type": "json_object"},
@@ -384,7 +423,7 @@ async def _extract_chunk(
         await asyncio.sleep(backoff)
         return await _extract_chunk(
             ep_id, chunk, chunk_idx, total_chunks, settings, source=source, gap_note=gap_note, date_note=date_note,
-            owner=owner,
+            owner=owner, source_note=source_note,
             _attempt=_attempt + 1,
         )
 
@@ -533,6 +572,9 @@ async def extract(
         # mention's — its pages keep the facts and the source, never its date as when the thing came up.
         untimed = not episode_time.counts_as_activity(episode)
         date_note = source_dates.summary_note(ep_day, today) if untimed else source_dates.date_note(ep_day, today)
+        # G179: a message conversation says who its other side is, before every chunk.
+        source_note = correspondent_note(episode.get("correspondent"))
+        their_observer = correspondent_observer(episode.get("correspondent"))
 
         async with semaphore:
             # Sleep-control checkpoint 2: this task may have waited a while
@@ -559,6 +601,7 @@ async def extract(
                         **({"gap_note": note} if note else {}),
                         **({"date_note": date_note} if date_note else {}),
                         **({"owner": owner} if owner else {}),
+                        **({"source_note": source_note} if source_note else {}),
                     )
                     all_entities.extend(parsed.get("entities", []))
                     chunk_rels = [r for r in (parsed.get("relationships", []) or []) if isinstance(r, dict)]
@@ -603,6 +646,11 @@ async def extract(
                     rel["source_episode"] = ep_id
                     rel["source_episode_timestamp"] = episode.get("timestamp")
                     rel["origin"] = ep_origin
+                    # The observer is never the model's to set; G179: a claim resting only on the other side's
+                    # words is theirs (`external:<name>`), never the person's and never Cicada's own reading.
+                    rel.pop("observer", None)
+                    if their_observer and _only_their_words(rel):
+                        rel["observer"] = their_observer
 
                 results[i] = {
                     "episode_id": ep_id,
@@ -773,6 +821,8 @@ def entities_to_claims(
             rel_evidence = [
                 Evidence.from_dict(e) for e in (rel.get("evidence") or []) if isinstance(e, dict)
             ]
+            raw_observer = str(rel.get("observer") or "")
+            observer = raw_observer if raw_observer.startswith("external:") else "agent"
             if cid in by_id:
                 # Overlapping chunks re-emit the same triple; the first claim
                 # wins and only gains the later chunk's evidence (G118).
@@ -780,6 +830,9 @@ def entities_to_claims(
                 for ev in rel_evidence:
                     if ev not in first.evidence:
                         first.evidence.append(ev)
+                if first.observer != observer:
+                    # G179: the person's own words (or Cicada's reading) back it too — no longer only theirs.
+                    first.observer = "agent"
                 continue
             claim = Claim(
                 id=cid,
@@ -788,7 +841,7 @@ def entities_to_claims(
                 predicate=predicate,
                 object=obj,
                 object_kind="node",
-                observer="agent",
+                observer=observer,
                 context="general",
                 epistemic="explicit",
                 source_trust="agent_extracted",

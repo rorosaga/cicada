@@ -2894,6 +2894,8 @@ def _get_unprocessed_episodes(
             "evidence_kind": str(fm.get("evidence_kind") or "") or None,
             # G110 gate B2: the dropped-middle marker's range, from the episode's own record.
             "gaps": evidence.gap_ranges(fm, content) if with_body else (),
+            # G179: who the other side of a message conversation is (an agent's turns are never the person's).
+            "correspondent": fm.get("correspondent") if isinstance(fm.get("correspondent"), dict) else None,
         })
     # Order by INSTANT, not by string (G114 R2): a bank holds legacy
     # naive-local stamps beside `Z` and `+00:00` UTC ones, and a lexical sort

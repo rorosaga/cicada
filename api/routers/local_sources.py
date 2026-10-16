@@ -13,6 +13,9 @@ file; one snapshot per group is posted here.
 
 macOS Contacts (round 4, G154): the app reads the address book after one prompt and posts names plus which facts each
 card holds; the backend enriches person pages it already has, never creates one.
+
+Messages (G179): the app reads the conversations the person ticked from ``chat.db`` (Full Disk Access) and posts their
+rows; the backend decodes, splits into sittings and stages them — refusing any conversation not ticked.
 """
 
 from __future__ import annotations
@@ -33,6 +36,13 @@ from api.models.schemas import (
     FolderSyncRequest,
     FolderSyncResponse,
     FolderUpdateRequest,
+    MessagesConversationsRequest,
+    MessagesConversationsResponse,
+    MessagesSettings,
+    MessagesSettingsUpdate,
+    MessagesSyncRequest,
+    MessagesSyncResponse,
+    MessagesWaitingResponse,
     TabGroupsSyncRequest,
     TabGroupsSyncResponse,
     WisprFlowCaptureResponse,
@@ -44,6 +54,7 @@ from api.services import (
     contacts_local,
     folder_source,
     local_refs,
+    messages_source,
     paper_metadata,
     papers,
     sync_state,
@@ -333,3 +344,84 @@ async def sync_contacts_local(req: ContactsLocalSyncRequest, settings: Settings 
     await folder_source.commit_paths_for(memory_path, out.pop("paths"), subject="Contacts sync",
                                          trigger="capture/contacts", channel=contacts_local.CHANNEL_ID)
     return ContactsLocalSyncResponse(**out, bank=memory_path.name)
+
+
+# --- Messages (G179; G188's minimal slice) ---------------------------------------------------------------------------
+
+
+@router.get("/sources/messages/settings", response_model=MessagesSettings)
+async def get_messages_settings(settings: Settings = Depends(get_settings)):
+    return MessagesSettings(**messages_source.load_settings(settings.memory_path))
+
+
+@router.put("/sources/messages/settings", response_model=MessagesSettings, dependencies=_DEMO_GATE)
+async def put_messages_settings(req: MessagesSettingsUpdate, settings: Settings = Depends(get_settings)):
+    """Tick or untick a conversation, mark who it is with, or turn agent suggestions on or off. A changed mark
+    re-renders that conversation's saved sittings in place (from the episodes themselves; nothing is re-read from the
+    Mac), so the next Sleep reads the agent's turns as the agent's. Unticking stops the next sync and keeps every
+    saved episode. One ``user`` commit: the settings file plus any episode re-rendered."""
+    memory_path = settings.memory_path
+    conversation = None
+    if req.conversation is not None:
+        c = req.conversation
+        conversation = {"id": c.id, "name": c.name, "service": c.service, "ticked": c.ticked}
+        if c.clear_actor:
+            conversation["actor"] = None
+        elif c.actor is not None:
+            conversation["actor"] = c.actor.model_dump(by_alias=False)
+    try:
+        data, actor_changed = await run_in_threadpool(messages_source.update_settings, memory_path,
+                                                      suggest_agents=req.suggest_agents, conversation=conversation)
+    except messages_source.PayloadError as exc:
+        raise HTTPException(422, str(exc))
+    paths = [f"sources/{messages_source.SETTINGS_FILENAME}"]
+    reattributed = 0
+    if actor_changed or req.suggest_agents is not None:
+        ids = [conversation["id"]] if conversation is not None else list(data["conversations"])
+        for cid in ids:
+            out = await run_in_threadpool(messages_source.reattribute, memory_path, cid, bank=memory_path.name)
+            reattributed += out["updated"]
+            paths += out["paths"]
+    await folder_source.commit_paths_for(memory_path, paths, subject="Messages settings",
+                                         trigger="user/companion_app", channel=messages_source.CHANNEL_ID)
+    return MessagesSettings(**data, reattributed=reattributed)
+
+
+@router.post("/sources/messages/conversations", response_model=MessagesConversationsResponse,
+             dependencies=_DEMO_GATE)
+async def describe_messages_conversations(req: MessagesConversationsRequest, settings: Settings = Depends(get_settings)):
+    """The Settings list's backend half: each conversation the app listed (names and counts only), with the person's
+    tick and mark and the agent detectors' suggestion. Computes only — stores and logs nothing."""
+    out = messages_source.describe(settings.memory_path, [c.model_dump(by_alias=False) for c in req.conversations])
+    current = messages_source.load_settings(settings.memory_path)
+    return MessagesConversationsResponse(suggest_agents=current["suggest_agents"], conversations=out)
+
+
+@router.post("/sources/messages/sync", response_model=MessagesSyncResponse, dependencies=_DEMO_GATE)
+async def sync_messages(req: MessagesSyncRequest, settings: Settings = Depends(get_settings)):
+    """G179: stage rows of one ticked conversation. 409 for a conversation the person has not ticked (the app only
+    posts ticked ones, so a 409 means the two disagree); 422 for a payload the backend cannot trust; 413 above
+    ``MAX_MESSAGES_PER_REQUEST``. Episodes only — Awake capture, never an entity page. One ``user`` commit per sync
+    (trigger ``capture/messages``), scoped to the sittings it wrote — an unchanged pass commits nothing."""
+    memory_path = settings.memory_path
+    if len(req.messages) > messages_source.MAX_MESSAGES_PER_REQUEST:
+        raise HTTPException(413, f"at most {messages_source.MAX_MESSAGES_PER_REQUEST} messages per request")
+    try:
+        out = await run_in_threadpool(messages_source.ingest, memory_path, req.model_dump(by_alias=False),
+                                      bank=memory_path.name)
+    except messages_source.NotSelected as exc:
+        raise HTTPException(409, str(exc))
+    except messages_source.PayloadError as exc:
+        raise HTTPException(422, str(exc))
+    sync_state.record_sync(memory_path, messages_source.CHANNEL_ID, count=messages_source.live_count(memory_path))
+    await folder_source.commit_paths_for(memory_path, out.pop("paths"), subject="Messages sync",
+                                         trigger="capture/messages", channel=messages_source.CHANNEL_ID)
+    return MessagesSyncResponse(**out, bank=memory_path.name)
+
+
+@router.get("/sources/messages/waiting", response_model=MessagesWaitingResponse)
+async def messages_waiting(settings: Settings = Depends(get_settings)):
+    """The message conversations Sleep has not read yet, each with how many messages are waiting — the Sleep page's
+    and Home's bubbles. Frontmatter only. Not a Store domain: the app fetches it with the Sleep queue."""
+    rows = await run_in_threadpool(messages_source.waiting, settings.memory_path)
+    return MessagesWaitingResponse(conversations=rows, messages=sum(r["messages"] for r in rows))

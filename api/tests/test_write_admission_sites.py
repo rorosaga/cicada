@@ -425,6 +425,9 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /sources/calendar-local/sync": (CAPTURE, None),
     "POST /sources/tab-groups/sync": (CAPTURE, None),
     "POST /sources/contacts-local/sync": (ADMITTED, None),
+    "POST /sources/messages/sync": (CAPTURE, None),            # G179: one ticked conversation's sittings
+    "PUT /sources/messages/settings": (CAPTURE, None),         # G179: the registry file + a re-attributed sitting
+    "POST /sources/messages/conversations": (NONE, None),      # G179: detection over names and counts, stores nothing
     "POST /capture/telegram": (INTAKE, None),
     "POST /capture/transcript": (CAPTURE, None),
     "POST /capture/turn": (CAPTURE, None),   # capture-everywhere: the same writer as the Stop hook

@@ -201,11 +201,19 @@ def episode_document(
         source=_opt(fm.get("source")),
         conversation_id=_opt(fm.get("session_id")) or _opt(fm.get("source_id")),
         capture_kind=_opt(fm.get("capture_kind")),
+        correspondent=_opt(_correspondent(fm).get("name")) if is_episode else None,
+        correspondent_kind=_opt(_correspondent(fm).get("kind")) if is_episode else None,
         turns=turn_models,
         focus=focus_model,
         agent=agent,
         watch=watch,
     )
+
+
+def _correspondent(fm: dict) -> dict:
+    """G179: a message conversation's ``correspondent`` record, or ``{}``."""
+    value = fm.get("correspondent")
+    return value if isinstance(value, dict) else {}
 
 
 def _watch(memory_path: Path, doc_id: str, fm: dict) -> EpisodeWatch | None:
@@ -457,6 +465,7 @@ def entity_provenance(
             harness=next((_opt(e[2].get("harness")) for e in group["episodes"] if _opt(e[2].get("harness"))), None),
             origin=_opt(last[2].get("origin")) or _opt(last[2].get("source")),
             source=_opt(last[2].get("source")),
+            correspondent=_opt(_correspondent(last[2]).get("name")),
             timestamp=last[0] or None,
             claim_count=sum(1 for eps in cited.values() if eps & members),
             available=any(e[3] for e in group["episodes"]),

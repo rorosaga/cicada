@@ -43,6 +43,11 @@ GATED = {
     ("POST", "/sources/calendar-local/sync"): "/sources/calendar-local/sync",
     ("POST", "/sources/tab-groups/sync"): "/sources/tab-groups/sync",
     ("POST", "/sources/contacts-local/sync"): "/sources/contacts-local/sync",
+    # G179: the Messages conversations the person ticked — the rows, the settings, and the list (computes only, but
+    # a demo bank takes no conversation in, so offering to pick one is pointless).
+    ("POST", "/sources/messages/sync"): "/sources/messages/sync",
+    ("PUT", "/sources/messages/settings"): "/sources/messages/settings",
+    ("POST", "/sources/messages/conversations"): "/sources/messages/conversations",
     # A connector id no adapter has: were the gate missing, the handler 404s
     # before any adapter could reach the network (sync_now passes allow_fetch=True).
     ("POST", "/sources/connectors/{connector_id}/sync"): "/sources/connectors/no-such-connector/sync",

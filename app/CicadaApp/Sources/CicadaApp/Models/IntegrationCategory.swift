@@ -56,7 +56,8 @@ enum IntegrationCategory: String, CaseIterable, Identifiable {
         // Round 4 (G154): `contacts-local` is the Mac's address book, drawn by `ContactsRow` beside the calendar.
         case "rss", "calendar", "calendar-local", "contacts-local":
             return .feedsAndCalendars
-        case "telegram":
+        // G179: the Messages conversations the person ticked, drawn by `MessagesRow`.
+        case "telegram", MessagesWatcher.channel:
             return .messaging
         // R-LS25: Apple Notes moves beside the watched folders — both are notes.
         case "notes":

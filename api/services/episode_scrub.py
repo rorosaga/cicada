@@ -40,6 +40,7 @@ WRITERS = frozenset({
     "tab-groups",  # G160 (round 4): a Chrome tab group's name and its tabs' titles and links
     "video_queue",  # G162: a release reason an agent wrote for a video it could not do
     "saved-why",  # G191: the person's answer to "what made you save this?"
+    "imessage",  # G179: a ticked Messages conversation's words, both sides
 })
 
 # Secret shapes (G105 R6), moved verbatim from transcript_extract. Ordered

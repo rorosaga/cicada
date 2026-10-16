@@ -333,6 +333,28 @@ before the flip — see *Ask why* below.
 **Calendars, contacts & feeds** offers Calendar on this Mac and
 Contacts (G154), both app-owned rows.
 
+**Messages (G179, 2026-10-15).** Integrations → Messaging carries an app-owned **Messages** row (`MessagesRow`: the
+Messages app's own icon, "Pick the conversations Cicada should remember" / "Remembering N conversations", *Sync now*
+once one is ticked, *Choose…*, the browsers' `FullDiskAccessHint` when the read was refused, and *What came in*). *Choose…*
+is a `SettingsSheet` (`MessagesPanel`): one sentence on what Cicada reads and why it needs Full Disk Access, one on
+who is who, then each one-to-one conversation (`MessagesConversationRow`) — the contact's Contacts photo (else a
+person's monogram, `EntityPictureFallback`), name (the contact's when Contacts is allowed, else the chat's own, else
+the handle — shown in the app only, never sent), last activity and message count, a pill for who it is with ("AI
+agent", "AI agent · suggested", "A person"), *Is <name> an AI agent?* with Yes/No when the detectors are unsure, a menu
+(This is an AI agent · This is a person · Let Cicada suggest) and the tick. `MessagesWatcher` (environment, started
+on launch, `bankChanged` on a switch) owns the list, the per-memory ROWID cursors (`cicada.messages.cursor.<bank>.<id>`
+in UserDefaults), the FSEvents watch on `~/Library/Messages` and the waiting bubbles; `MessagesReader` is the one SQL
+reader (`SQLiteReadOnly`, read-only, one transaction; a BLOB projected only from a column named in `base64Blobs`).
+The Sources card's *Sync now* routes to it (`ChannelActions.SyncRoute.messages`). **The bubbles:** Details › What's
+waiting on the Sleep page has a `MessagesWaitingRow` beside the videos' row, and Home's Today waiting line carries the
+same `MessageBubbleStack` (non-interactive there): up to three overlapping profile bubbles (Contacts photo, else a
+monogram; a ring in the ground's colour, never a shadow), "+N" past three, and the number of messages Sleep will
+read; hovering a bubble names it ("Instinct · 34 messages waiting to be read"), clicking the Sleep page's stack lists
+the names. `MessageBubbles.model` is pure and tested. Not a Store domain: `GET /sources/messages/waiting` is fetched
+in memory whenever the status's unprocessed count moves. **Who is who in the Reader:** `EpisodeText.correspondent`
+names a message conversation's `assistant` turns ("Instinct", through `ModelNames.agentLine`) and its `speaker`
+turns; `ProvenanceConversation.correspondent` makes an evidence chip read "Instinct replied".
+
 **Ask why (G191).** When the bookmark watch's own file event starts a sync (`BookmarkSyncSignal.live`, a task-local
 the watcher sets; a catch-up, Sync now, Turn on or folder import is never live) and the result has exactly one fresh
 bookmark, `SaveWhyPolicy` asks "What made you save this?" — unless the switch is off, the channel's sync was a first

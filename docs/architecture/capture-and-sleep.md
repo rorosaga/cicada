@@ -291,6 +291,30 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   `$CICADA_HOME/pictures/<bank>/contacts/<id>.<jpg|png>` — `contacts_local.photo_path(bank, id, ext)`, the one path
   T-People's picture ladder reads — and marked `contacts_photo: {sha, ext}`; 409 while Sleep runs; one `user` commit
   per sync (`capture/contacts`).
+- **Messages conversations the person ticks (G179, 2026-10-15).** The app lists `chat.db`'s one-to-one chats (names,
+  last activity, per-side counts — `MessagesReader.conversations`; group chats are out of this slice) and reads only a
+  ticked conversation's rows (`message` id, guid, time, direction, `text`, `attributedBody` as base64, the
+  reaction/event/edit/unsend columns and its attachments' names and types — never `attachment.filename`, a path, never
+  the handle), past a `message.ROWID` cursor per memory plus rows edited or unsent since its last pass, 500 at a time,
+  re-synced on FSEvents in `~/Library/Messages` (10 s debounce, 60 s floor). A conversation's id is a hash of
+  `chat.guid`. `POST /sources/messages/sync` refuses (409) a conversation not ticked in `sources/messages.json`
+  (`messages_source.load_settings`: tick, the person's mark and its history); `POST /sources/messages/conversations`
+  only computes the Settings list (tick, mark, detector suggestion) and stores nothing. The backend decodes
+  `attributedBody` (`typedstream`: the header, the string object's class, then its `+` bytes — `NSUnarchiver` stays out
+  of the app), skips tapbacks (a tapback row quotes the OTHER side's words under the reactor) and events, names
+  attachments (`[image: plan.png]`), folds a message's line breaks so it is one turn line, and stages one episode per
+  **sitting** (messages more than 3 h apart start a new one; the measurement and the reasons are G179's) keyed
+  `imessage:<conversation>:<first message key>`. A pass merges into the stored sittings it touches, rebuilt from each
+  episode's own body, `turns` sidecar and `message_keys`: an edit rewrites in place and re-queues, an unsent message
+  leaves (an emptied sitting is tombstoned), a bridging late message merges two sittings into the earlier one, which
+  keeps its key and id. **Who is who:** the person's lines are `user:`; the other side's are `assistant:` when the
+  conversation is with an AI agent — the person's mark, or an `identified` detection (`agent_detectors`, G188) — else
+  `speaker:<label>:`; the frontmatter `correspondent: {name, kind, decided_by, detector?, detection?, signal?}` names
+  it, with `conversation`, `service`, `message_count`, `from_person`, `sitting_first_at`/`sitting_last_at` and
+  `message_keys`. The person's mark changes re-render every saved sitting in place from the stored episodes (`PUT
+  /sources/messages/settings`, one `user` commit with the settings file). One `user` commit per sync
+  (`capture/messages`); scrub writer `imessage`; demo bank 409. `GET /sources/messages/waiting` sums `message_count`
+  over unread, live sittings per conversation — the Sleep page's and Home's bubbles.
 - **Capture never writes into a demo bank** (G117's synthetic bank; G141 capture-side track). A bank
   is the demo when `<bank>/_bank.yaml` says `kind: demo` — written first by `demo_bank.populate` and
   committed as `cicada` — or, for a demo made before that file, when its `.git/config` carries the
@@ -554,6 +578,12 @@ said and what day it is now (`api/services/source_dates.py`).
   the note names the month and year to write it as of. An undated conversation gets no note, and nothing is guessed.
   A memory export entry gets `source_dates.summary_note` instead: its date is when the summary was edited, never a
   day to date a fact to, and nothing in it is written as current or recent (the 90-day rule does not apply).
+  A message conversation (G179) also gets `entity_extractor.correspondent_note`, after the date note: whose lines are
+  the person's (`user:`) and whose are the other side's — an AI agent's `assistant:` lines named by the contact
+  ("Instinct"), or a person's `speaker:` lines — and that "I" in their lines is them. After the evidence locate, the
+  model's own `observer` on a relationship is dropped, and a relationship whose located spans are all the other side's
+  gets observer `external:<name>` (`correspondent_observer`); one the person's words also back stays `agent`
+  (`entities_to_claims` resets it when chunks disagree). Never `user_stated` either way.
   The system prompt's TIME rules say:
   - write as of the conversation's date;
   - name the month and year for anything changeable from old material, and for every plan or intention;

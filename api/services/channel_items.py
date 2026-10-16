@@ -73,6 +73,7 @@ _ORIGIN_CHANNELS = {
     "chat-export:gemini": ("gemini-export",),
     "wispr-flow": (wispr_flow.ORIGIN,),
     "telegram": ("telegram",),
+    "imessage": ("imessage",),
 }
 #: A channel whose items are media pages, by the origins its catalog row owns.
 _MEDIA_CHANNELS = ("safari-tabs", "pinterest", "reddit", "x", "rss", "files")

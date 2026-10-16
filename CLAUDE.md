@@ -186,6 +186,8 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   hash over the scrubbed body, edits in place with `processed: false`, deletions tombstoned, never unlinked).
 - **Capture never writes into a demo bank** (`demo_guard`, by `_bank.yaml`, never by name): every capture/sources
   POST/PUT answers 409; the Stop hook redirects to the real bank left most recently.
+- **Messages are read only for conversations the person ticked (G179)**: the app reads them, the backend refuses any
+  other; a texted agent's words are its `assistant:` turns and its claims `external:<name>`, never the person's own.
 
 ### Sleep
 
