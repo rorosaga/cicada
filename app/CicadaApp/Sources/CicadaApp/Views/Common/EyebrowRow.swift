@@ -11,6 +11,10 @@ struct EyebrowRow<Trailing: View>: View {
     let eyebrow: String
     /// 40 pt with nothing open (the list alone), 24 pt once columns open (§5.3).
     var horizontalPadding: CGFloat = CicadaTheme.spacingGutter
+    /// True when the trailing content adapts to the width it is given (`OverflowTextTabs`): the eyebrow keeps its
+    /// words and the trailing side is offered all the rest, so `ViewThatFits` measures against the real space. In
+    /// the default HStack the eyebrow and the tabs share the shortfall, and a tab label truncated ("Conf…").
+    var adaptiveTrailing = false
     @ViewBuilder var trailing: () -> Trailing
 
     var body: some View {
@@ -20,8 +24,13 @@ struct EyebrowRow<Trailing: View>: View {
                 .monospacedDigit()
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .lineLimit(1)
-            Spacer(minLength: CicadaTheme.spacingSM)
-            trailing()
+                .layoutPriority(adaptiveTrailing ? 1 : 0)
+            if adaptiveTrailing {
+                trailing().frame(maxWidth: .infinity, alignment: .trailing)
+            } else {
+                Spacer(minLength: CicadaTheme.spacingSM)
+                trailing()
+            }
         }
         .frame(minHeight: CicadaTheme.scaled(Self.minHeight))
         .padding(.top, CicadaTheme.scaled(Self.topPadding))

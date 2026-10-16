@@ -61,10 +61,13 @@ struct InboxPage: View {
                            navWidth: ShellMetrics.navWidth(labelled: labelledSidebar)) { plan in
             EyebrowRow(eyebrow: viewModel.eyebrow,
                        horizontalPadding: viewModel.openItem == nil && !provenance.isPresented
-                           ? plan.gutter : CicadaTheme.spacingXL) {
-                TextTabs(tabs: viewModel.tabs, selection: Binding(
+                           ? plan.gutter : CicadaTheme.spacingXL,
+                       adaptiveTrailing: true) {
+                // Owner 2026-10-16: when the kinds do not fit (1200 pt with the Reader open, 1100), All and the
+                // selected kind stay and the rest go under More — never a truncated label.
+                OverflowTextTabs(tabs: viewModel.tabs, selection: Binding(
                     get: { viewModel.columns.kindFilter },
-                    set: { viewModel.setFilter($0) }))
+                    set: { viewModel.setFilter($0) }), moreAccessibilityLabel: Copy.Inbox.moreKinds)
             }
             .onChange(of: plan.listHidden, initial: true) { _, hidden in listHidden = hidden }
         } list: { plan in

@@ -9,6 +9,9 @@ extension Copy {
         static let findHelp = "Find on this page (⌘F)"
         static let closeCard = "Close (Esc)"
         static let showList = "Show the list"
+        /// The tabs that did not fit (owner 2026-10-16): one menu after All and the selected tab.
+        static let more = "More"
+        static let moreTabs = "More tabs"
         static func matches(_ n: Int) -> String { n == 1 ? "1 match" : "\(UsageFormat.count(n)) matches" }
 
         // Clusters

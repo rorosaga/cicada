@@ -124,3 +124,79 @@ struct AdaptiveTextTabs<ID: Hashable>: View {
         }
     }
 }
+
+/// The owner's ruling for tabs that do not fit (2026-10-16, the Inbox's kinds at 1200 pt with the Reader open, and at
+/// 1100): every tab with its count while they all fit; otherwise **All and the selected tab always stay visible**, and
+/// the rest move into one "More" menu that lists each with its count. A label is never truncated (DR-45).
+///
+/// Unlike `AdaptiveTextTabs` (counts first, then one menu for everything), the active filter never hides behind a
+/// menu, and the way back to All is always one click.
+struct OverflowTextTabs<ID: Hashable>: View {
+    let tabs: [TextTab<ID>]
+    @Binding var selection: ID?
+    /// What the menu reads to VoiceOver ("More kinds").
+    var moreAccessibilityLabel: String = Copy.Lists.moreTabs
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            TextTabs(tabs: tabs, selection: $selection)
+            HStack(spacing: CicadaTheme.scaled(2)) {
+                TextTabs(tabs: OverflowTabs.pinned(tabs, selection: selection), selection: $selection)
+                OverflowMoreMenu(tabs: OverflowTabs.folded(tabs, selection: selection), selection: $selection,
+                                 accessibilityLabel: moreAccessibilityLabel)
+            }
+        }
+    }
+}
+
+/// The split, pure (`TextTabsTests`): which tabs stay on the row and which fold into More.
+enum OverflowTabs {
+    /// All (the `nil` tab), then the selected tab when it is not All — in the row's own order.
+    static func pinned<ID: Hashable>(_ tabs: [TextTab<ID>], selection: ID?) -> [TextTab<ID>] {
+        tabs.filter { $0.id == nil || ($0.id != nil && $0.id == selection) }
+    }
+
+    /// Every other tab, in order.
+    static func folded<ID: Hashable>(_ tabs: [TextTab<ID>], selection: ID?) -> [TextTab<ID>] {
+        tabs.filter { $0.id != nil && $0.id != selection }
+    }
+}
+
+/// "More ⌄" — drawn as an inactive text tab (12 medium, `textTertiary`, 26 pt), so the row reads as one row of tabs.
+/// Its items carry their counts ("Possible duplicate · 2"); picking one selects it, and it joins the row.
+private struct OverflowMoreMenu<ID: Hashable>: View {
+    let tabs: [TextTab<ID>]
+    @Binding var selection: ID?
+    let accessibilityLabel: String
+    @State private var hovering = false
+
+    var body: some View {
+        if !tabs.isEmpty {
+            Menu {
+                ForEach(Array(tabs.enumerated()), id: \.offset) { _, tab in
+                    Button(TextTabSelection.menuLabel(label: tab.label, count: tab.count)) { selection = tab.id }
+                }
+            } label: {
+                HStack(spacing: CicadaTheme.scaled(4)) {
+                    Text(Copy.Lists.more)
+                    Image(systemName: "chevron.down")
+                        .font(CicadaTheme.font(size: 9, weight: .semibold))
+                        .accessibilityHidden(true)
+                }
+                .font(CicadaTheme.metaMediumFont)
+                .foregroundStyle(hovering ? CicadaTheme.textSecondary : CicadaTheme.textTertiary)
+                .padding(.horizontal, CicadaTheme.scaled(TextTabs<ID>.horizontalPadding))
+                .frame(height: CicadaTheme.scaled(TextTabs<ID>.height))
+                .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
+                    .fill(hovering ? CicadaTheme.bgHover : Color.clear))
+                .contentShape(Rectangle())
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .onHover { hovering = $0 }
+            .help(tabs.map { TextTabSelection.menuLabel(label: $0.label, count: $0.count) }.joined(separator: ", "))
+            .accessibilityLabel(accessibilityLabel)
+        }
+    }
+}
