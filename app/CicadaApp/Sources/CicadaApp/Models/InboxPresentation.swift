@@ -148,6 +148,10 @@ extension InboxAge {
 /// DR-58 — a row's age: compact, measured from the conversation that raised it, with the absolute
 /// day in `.help`. A question with no source keeps G125's "—", and its reason (DR-55).
 enum InboxRowAge {
+    /// The STATE 0 row's age slot, in points at 1×. Wide enough for the widest compact age at 12 pt — "today" — so
+    /// it never truncates to "tod…" (QA 2026-10-16; it was 30, and "today" measures about 31).
+    static let slotWidth: CGFloat = 40
+
     static func of(_ item: InboxItem, now: Date, locale: Locale = .autoupdatingCurrent,
                    timeZone: TimeZone = .autoupdatingCurrent) -> (text: String, help: String) {
         guard item.hasCause, let cause = item.cause,

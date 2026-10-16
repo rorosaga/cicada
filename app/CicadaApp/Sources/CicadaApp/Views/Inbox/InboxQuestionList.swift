@@ -201,7 +201,7 @@ struct InboxRow: View {
             if slots.source {
                 source.frame(width: CicadaTheme.scaled(220), alignment: .leading)
             }
-            age.frame(width: CicadaTheme.scaled(30), alignment: .trailing)
+            age.frame(width: CicadaTheme.scaled(InboxRowAge.slotWidth), alignment: .trailing)
         }
     }
 

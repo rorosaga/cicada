@@ -83,10 +83,15 @@ struct RadioMark: View {
 /// DR-8 / DR-3 / R-DI18 — a kind's hue appears once, as this outline glyph, which carries the kind's
 /// name for the pointer and VoiceOver (light merge measures 2.98:1 and never stands alone).
 struct KindGlyph: View {
+    /// One slot for every kind's glyph, at 1×: the symbols differ in width, so without it each row's question started
+    /// at a different x (QA 2026-10-16, a 1–3 pt wobble down the list).
+    static let slotWidth: CGFloat = 16
+
     let kind: InboxKind
     var body: some View {
         Image(systemName: kind.icon)
             .font(CicadaTheme.icon(.list))
+            .frame(width: CicadaTheme.scaled(Self.slotWidth))
             .foregroundStyle(kind.color)
             .help(kind.label)
             .accessibilityLabel(kind.label)
