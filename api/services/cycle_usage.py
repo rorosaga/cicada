@@ -346,42 +346,6 @@ def attach_usage(entries, events, *, detail: bool = False, memory_path=None) -> 
                 entry.run = SleepRunRef(**sleep_runs.to_run_ref(summary))
 
 
-def run_ledger_start(entries):
-    """The day the oldest run on these history rows started, less one (a run's calls can precede its first commit by
-    a whole batch and cross midnight). ``None`` when no row carries a run with a start time. The history's own window
-    starts at its oldest listed COMMIT, and one page of history can be the tail of a long run: read from there and the
-    run's earlier batches' calls are missing — its cost undercounted."""
-    from datetime import datetime, timedelta
-
-    starts = []
-    for entry in entries:
-        run = getattr(entry, "run", None)
-        started = getattr(run, "started_at", None) if run is not None else None
-        if not started:
-            continue
-        try:
-            starts.append(datetime.fromisoformat(str(started)).date())
-        except ValueError:
-            continue
-    return (min(starts) - timedelta(days=1)) if starts else None
-
-
-def attach_run_usage(entries, events) -> None:
-    """Each batch row's ``run.usage_summary``: the whole run's cost, summed by ``drain_id`` over every ``llm_call``
-    (a discarded batch's included) — the same figure ``GET /sleep/runs/{id}`` shows. One ledger pass, one sum per run.
-    The batch's own ``usage_summary`` is untouched (Past nights lists batches)."""
-    ledger = Ledger.build(events)
-    sums: dict[str, CycleUsageSummary | None] = {}
-    for entry in entries:
-        run = getattr(entry, "run", None)
-        drain_id = getattr(entry, "drain_id", None)
-        if run is None or not drain_id:
-            continue
-        if drain_id not in sums:
-            sums[drain_id] = summarize(usage_for_drain(ledger, drain_id))
-        run.usage_summary = sums[drain_id]
-
-
 # --------------------------------------------------------------------------- #
 # The engine menu's caption sources
 # --------------------------------------------------------------------------- #

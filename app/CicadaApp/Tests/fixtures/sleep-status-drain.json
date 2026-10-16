@@ -115,6 +115,7 @@
     "error": null,
     "indexWarning": null,
     "lastEngine": "claude-cli",
+    "lastFinishedCycle": null,
     "organicResolutions": 0,
     "paused": {
       "autoContinue": null,
@@ -261,6 +262,16 @@
     "error": null,
     "indexWarning": null,
     "lastEngine": "claude-cli",
+    "lastFinishedCycle": {
+      "batches": 3,
+      "commitHash": "0000000000000000000000000000000000000000",
+      "date": "2026-09-29T10:20:00+00:00",
+      "drainId": "sleep_2026-09-29_101500",
+      "durationMs": 0,
+      "engine": "claude-cli",
+      "state": "finished",
+      "usageSummary": null
+    },
     "organicResolutions": 0,
     "paused": null,
     "progress": "Completed \u2014 7 episode(s) filed in 3 batch(es)",
@@ -396,6 +407,7 @@
     "error": null,
     "indexWarning": null,
     "lastEngine": "claude-cli",
+    "lastFinishedCycle": null,
     "organicResolutions": 0,
     "paused": {
       "autoContinue": null,
@@ -542,6 +554,7 @@
     "error": null,
     "indexWarning": null,
     "lastEngine": "claude-cli",
+    "lastFinishedCycle": null,
     "organicResolutions": 0,
     "paused": null,
     "progress": "Batch 2 of 3 \u00b7 Stage 1/5: Extracting entities from 3 episodes...",

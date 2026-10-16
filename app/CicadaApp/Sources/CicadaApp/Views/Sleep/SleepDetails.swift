@@ -58,7 +58,7 @@ struct SleepDetails: View {
     }
 
     /// The latest finished cycle's three figures — time, engine, cost — from one history record.
-    private var lastFigures: LastCycleFigures? { LastCycleFigures.latest(history) }
+    private var lastFigures: LastCycleFigures? { LastCycleFigures.resolve(status: status, history: history) }
 
     /// The latest finished cycle's one-line cost, only when one was recorded — "not recorded" belongs to Past
     /// nights, where every row can say it, and never opens this section by itself.
@@ -126,31 +126,28 @@ struct SleepDetailsSection<Content: View>: View {
     }
 }
 
-/// Details' three "last cycle" figures — how long it took, its engine, what it cost — read from ONE record: the newest
-/// finished consolidation in history (live report, 2026-10-16: after a scheduled drain and then a plan drain, Details
-/// still showed one batch's charge and time from the history row, and a dash for the engine from a status read before
-/// either run). A drain is one cycle: its run's own reading time (`run.readMs`), the engine its commits name
-/// (`Cicada-Engine`), and the run's cost summed over every batch (`run.usageSummary`). A run still reading or paused is
-/// not finished, so the figures stay on the cycle before it. Only a batch whose run summary is missing (an older
-/// backend, a lost machine-local summary) falls back to its own figures, titled as one batch.
+/// Details' three "last cycle" figures — how long it took, its engine, what it cost — read from ONE record (live
+/// report, 2026-10-16: after a scheduled drain and then a plan drain, Details still showed one batch's charge and
+/// time and a dash for the engine). The backend finds the newest FINISHED cycle (`status.lastFinishedCycle`): a drain
+/// is one cycle — its run's reading time, the engine its commits name, the whole run's cost — and a run still reading
+/// or paused is skipped however many history rows it fills. An older backend that does not send the field falls back
+/// to the newest history row's own figures, titled as one batch when that row is a run's batch.
 struct LastCycleFigures: Equatable {
     var durationMs: Int?
     var engine: String?
     var usage: CycleUsageSummary?
     var isOneBatch = false
 
-    static let unfinishedStates: Set<String> = ["running", "paused"]
-
-    static func latest(_ history: [SleepHistoryEntry]) -> LastCycleFigures? {
-        guard let entry = history.first(where: { $0.kind == "sleep" && !unfinishedStates.contains($0.run?.state ?? "") })
-        else { return nil }
-        if let run = entry.run {
-            return LastCycleFigures(durationMs: run.readMs > 0 ? run.readMs : nil,
-                                    engine: entry.engine ?? run.usageSummary?.engine ?? entry.usageSummary?.engine,
-                                    usage: run.usageSummary)
+    /// `nil` = no finished cycle to show (the backend said so, or, from an older backend, history has no cycle).
+    static func resolve(status: SleepStatusResponse?, history: [SleepHistoryEntry]) -> LastCycleFigures? {
+        if let status, status.reportsLastFinishedCycle {
+            guard let c = status.lastFinishedCycle else { return nil }
+            return LastCycleFigures(durationMs: c.durationMs, engine: c.engine ?? c.usageSummary?.engine,
+                                    usage: c.usageSummary)
         }
+        guard let entry = history.first(where: { $0.kind == "sleep" }) else { return nil }
         return LastCycleFigures(durationMs: entry.durationMs, engine: entry.engine ?? entry.usageSummary?.engine,
-                                usage: entry.usageSummary, isOneBatch: (entry.batches ?? 0) > 1)
+                                usage: entry.usageSummary, isOneBatch: entry.drainId != nil || (entry.batches ?? 0) > 1)
     }
 }
 

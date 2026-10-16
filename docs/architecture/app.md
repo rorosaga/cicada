@@ -118,8 +118,9 @@ in the app") for those two surfaces only: no cost tiles, no `$`/token columns an
 the `/consumption/*` endpoints are unchanged. Every figure states its basis in words ("charged", "at list price", a
 plan window's share) and a plan's before → after carries the honest limit that it covers all use of the plan
 (`CycleUsageText`, `UsageFormat.currency`). Details' Last cycle describes the latest *finished* cycle from one history
-record (`LastCycleFigures`, 2026-10-16): a drain is one cycle — its run's reading time, the engine its commits name,
-and the whole run's cost (`run.usageSummary`); a plan run's line is its window and no price
+record the backend finds, `/sleep/status`'s `lastFinishedCycle` (`LastCycleFigures.resolve`, 2026-10-16): a drain is
+one cycle — its run's reading time, the engine its commits name, and the whole run's cost — and a run still reading or
+paused is skipped; a plan run's line is its window and no price
 (`CycleUsageText.lastCycleLine`); past nights' rows keep each batch's own figures.
 
 **Navigation (Direction D, DS-1).** A 56 pt icon rail (`Views/Shell/NavRail.swift`): Home, Graph, Clusters, Feed,
@@ -354,7 +355,7 @@ The Sources card's *Sync now* routes to it (`ChannelActions.SyncRoute.messages`)
 waiting on the Sleep page has a `MessagesWaitingRow` beside the videos' row, and Home's Today waiting line carries the
 same `MessageBubbleStack` (non-interactive there): up to three overlapping profile bubbles (Contacts photo, else a
 monogram — `MessageBubbleFace`: the face inset 1.5 pt inside a disc of the ground's colour, so the monogram keeps its
-own hue ring, and below 24 units its letters are half its height, semibold; never a shadow), "+N" past three, and the number of messages Sleep will
+own hue ring, and below 24 units its letters are half its height, semibold — the bubbles only; never a shadow), "+N" past three, and the number of messages Sleep will
 read; hovering a bubble names it ("Instinct · 34 messages waiting to be read"), clicking the Sleep page's stack lists
 the names. `MessageBubbles.model` is pure and tested. Not a Store domain: `GET /sources/messages/waiting` is fetched
 in memory whenever the status's unprocessed count moves. **Who is who in the Reader:** `EpisodeText.correspondent`

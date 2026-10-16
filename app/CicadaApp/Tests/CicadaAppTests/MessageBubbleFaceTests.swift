@@ -16,11 +16,14 @@ final class MessageBubbleFaceTests: XCTestCase {
         CicadaTheme.mode = .dark
     }
 
-    func testSmallInitialsAreHalfTheHeightAndSemibold() {
-        XCTAssertEqual(EntityPictureLayout.initialsType(units: 17).size, 8.5)
-        XCTAssertEqual(EntityPictureLayout.initialsType(units: 17).weight, .semibold)
-        XCTAssertEqual(EntityPictureLayout.initialsType(units: 40).size, 40 * 0.36, accuracy: 0.001)
-        XCTAssertEqual(EntityPictureLayout.initialsType(units: 40).weight, .medium, "a large picture is unchanged")
+    func testABubblesSmallInitialsAreHalfTheHeightAndSemibold() {
+        XCTAssertEqual(EntityPictureLayout.initialsType(units: 17, compact: true).size, 8.5)
+        XCTAssertEqual(EntityPictureLayout.initialsType(units: 17, compact: true).weight, .semibold)
+        XCTAssertEqual(EntityPictureLayout.initialsType(units: 40, compact: true).size, 40 * 0.36, accuracy: 0.001)
+        XCTAssertEqual(EntityPictureLayout.initialsType(units: 40, compact: true).weight, .medium)
+        XCTAssertEqual(EntityPictureLayout.initialsType(units: 20).size, 20 * 0.36, accuracy: 0.001,
+                       "a row's 20 pt picture, beside its own name, keeps the proportion")
+        XCTAssertEqual(EntityPictureLayout.initialsType(units: 20).weight, .medium)
         XCTAssertEqual(MessageBubbles.faceUnits(20), 17)
     }
 

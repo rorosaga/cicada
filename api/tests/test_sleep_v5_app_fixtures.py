@@ -67,6 +67,11 @@ def _pin_status(body: dict, reset: int | None = None) -> dict:
         body["drain"]["elapsedMs"] = 0
     if body.get("paused"):
         body["paused"]["pausedAt"] = PIN_TS
+    if body.get("lastFinishedCycle"):   # a real commit's hash and time, and a measured clock: pinned
+        body["lastFinishedCycle"]["commitHash"] = "0" * 40
+        body["lastFinishedCycle"]["date"] = "2026-09-29T10:20:00+00:00"
+        if body["lastFinishedCycle"].get("durationMs") is not None:
+            body["lastFinishedCycle"]["durationMs"] = 0
     return _pin_times(body, reset) if reset else body
 
 

@@ -301,16 +301,13 @@ struct SleepRunRef: Codable, Equatable {
     /// `running | paused | finished | failed | ended`.
     var state: String?
     var startedBy: String
-    /// The whole run's cost, summed over every batch's calls (2026-10-16) — what Details' Last cycle says. `nil` =
-    /// not recorded, or an older backend; a batch row's own `usageSummary` stays one batch's.
-    var usageSummary: CycleUsageSummary?
 
     init(id: String, batches: Int = 0, filed: Int = 0, parked: Int = 0, frozen: Int = 0, pauses: Int = 0,
          readMs: Int = 0, pausedMs: Int = 0, startedAt: String? = nil, finishedAt: String? = nil,
-         state: String? = nil, startedBy: String = "user", usageSummary: CycleUsageSummary? = nil) {
+         state: String? = nil, startedBy: String = "user") {
         self.id = id; self.batches = batches; self.filed = filed; self.parked = parked; self.frozen = frozen
         self.pauses = pauses; self.readMs = readMs; self.pausedMs = pausedMs; self.startedAt = startedAt
-        self.finishedAt = finishedAt; self.state = state; self.startedBy = startedBy; self.usageSummary = usageSummary
+        self.finishedAt = finishedAt; self.state = state; self.startedBy = startedBy
     }
 
     init(from decoder: Decoder) throws {
@@ -323,11 +320,9 @@ struct SleepRunRef: Codable, Equatable {
         finishedAt = (try? c.decodeIfPresent(String.self, forKey: .finishedAt)) ?? nil
         state = (try? c.decodeIfPresent(String.self, forKey: .state)) ?? nil
         startedBy = ((try? c.decodeIfPresent(String.self, forKey: .startedBy)) ?? nil) ?? "user"
-        usageSummary = (try? c.decodeIfPresent(CycleUsageSummary.self, forKey: .usageSummary)) ?? nil
     }
     enum CodingKeys: String, CodingKey {
         case id, batches, filed, parked, frozen, pauses, readMs, pausedMs, startedAt, finishedAt, state, startedBy
-        case usageSummary
     }
 }
 

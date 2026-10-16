@@ -125,7 +125,7 @@ struct MessageBubbleFace: View {
                 Image(nsImage: image).resizable().scaledToFill()
             } else {
                 EntityPictureFallback(type: .person, name: name, units: MessageBubbles.faceUnits(size),
-                                      frame: CGSize(width: inner, height: inner))
+                                      frame: CGSize(width: inner, height: inner), compactInitials: true)
             }
         }
         .frame(width: inner, height: inner)
