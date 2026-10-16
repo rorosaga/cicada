@@ -13,10 +13,11 @@ final class BookmarksV3Tests: XCTestCase {
     private let browser = ListedWindow(number: 10, pid: 501, layer: 0, bounds: CGRect(x: 0, y: 37, width: 1512, height: 945))
     private let other = ListedWindow(number: 11, pid: 501, layer: 0, bounds: CGRect(x: 40, y: 80, width: 900, height: 700))
 
-    /// Chrome's "Bookmark added": 336 × 214, under the toolbar (≈ 88 pt below the window's top), its right edge at the
-    /// star, left of the toolbar's buttons.
+    /// Chrome's "Bookmark added": under the toolbar (≈ 82 pt below the window's top), its right edge at the star, left
+    /// of the toolbar's buttons. G191 v5: of the shape measured on the owner's Mac (448 × 224, 232 pt in) — v3's
+    /// 336 × 214 was a guess, and v5 recognises only a shape a bookmark confirmed.
     private func bookmarkBubble(_ n: Int = 20) -> ListedWindow {
-        ListedWindow(number: n, pid: 501, layer: 0, bounds: CGRect(x: 1048, y: 37 + 82, width: 336, height: 214))
+        ListedWindow(number: n, pid: 501, layer: 0, bounds: CGRect(x: 832, y: 37 + 82, width: 448, height: 224))
     }
 
     func testTheBookmarkBubbleRightAfterTheShortcutIsSeen() {

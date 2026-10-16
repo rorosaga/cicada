@@ -526,8 +526,29 @@ window's top, right edge 232 pt in — v3's 280–420 width range refused it eve
 events) and nothing else — no timer; a click reads the window list once and, only when it landed in a browser window's
 toolbar band (top 110 pt), runs a burst of at most 8 reads 50 ms apart that ends at the first new small Chrome window
 anchored under the toolbar on the right (`BookmarkBubbleDetector`: 160–720 × 60–720, the v3 position rules, layer ≤ 20 —
-a 149 × 18 tooltip at layer 103 never counts) or by itself at 400 ms. Nothing is learned or refused; v3's
-`cicada.saveWhy.bubble.<bundle id>` keys are removed on start. ⌘D gives no permission-free event (another app's keystrokes
+a 149 × 18 tooltip at layer 103 never counts) or by itself at 400 ms. v3's `cicada.saveWhy.bubble.<bundle id>` keys
+(refusals among them) are removed on start.
+*Only a shape a bookmark confirmed (v5, 2026-10-16; owner: "when i open chrome extensions there is a popup that triggers
+cicada popup. thats bad").* Every toolbar surface is anchored where the star's bubble is, so position cannot tell them
+apart: the Extensions menu (≈ 287 × 481, 102 pt under the window's top, right edge 132 pt in, taller with each
+extension) opened the panel pending, and the profile menu and downloads bubble fit too. Their shape does: the bookmark
+bubble is a fixed 448 × 224 (Chrome's modal-dialog width) on every page, 161 pt wider than the Extensions menu. So the
+anchored window opens the panel only when its size is within 4 pt of a **confirmed shape** and it hangs from the click
+(the click's x within its span, up to 48 pt past its right edge — the star sits at its right end). Confirmed shapes
+are the measured 448 × 224, in code, plus any learned **positively** (`BubbleShapeMemory`,
+`cicada.saveWhy.bubbleShapes.<bundle id>`, shapes only, newest first, at most 4): an anchored window of an unknown shape
+opens nothing and is held in memory; when the app's diff then names one new bookmark on that browser
+(`SaveWhyCenter.onNamed` → `BookmarkBubbleWatcher.bookmarkNamed`, any decision, a muted site included) whose own
+instant (Chrome's `date_added`, microseconds since 1601 read to the microsecond from the file, never the backend's
+seconds-floored `addedAt`) lies between the click (less 0.5 s of monitor lag) and the moment the window was seen, within
+20 s, that shape is remembered — Chrome makes the bookmark before it shows the bubble, so a ⌘D with a menu open, an
+extension saving from its popup or a bookmark synced in falls after the window and teaches nothing (review 2026-10-16:
+the floored instant with 1.6 s / 0.5 s slack let a ⌘D ≈ 1.5 s after the Extensions menu teach the menu for good). Two
+held windows that both fit teach nothing, and a measured bubble drops every held window on its browser. Nothing is ever refused or counted against a shape, so a bookmark that fails to match teaches
+nothing (v3's flaw); a menu followed seconds later by a ⌘D is not that window's bookmark. A Chrome
+update or a font change that resizes the bubble costs one slower question — that save is caught by the file (≈ 2.5 s,
+as ⌘D is) and teaches the new shape — and the next star click is instant again. Still no permission, no title, no
+timer; the click → panel path is unchanged for the measured bubble. ⌘D gives no permission-free event (another app's keystrokes
 need Accessibility or Input Monitoring, never asked), so a ⌘D save is caught by the file. Idle with Chrome in front,
 measured over 60 s in a synthetic harness: 0 window-list reads, 0.07 s CPU for the whole test process (0.11 %). The
 pending panel binds to the one new bookmark the app's diff finds; a removal-only change ("Edit bookmark", then Remove)
