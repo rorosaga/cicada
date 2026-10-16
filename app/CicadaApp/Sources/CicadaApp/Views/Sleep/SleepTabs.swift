@@ -22,12 +22,14 @@ enum SleepTab: String, CaseIterable, Hashable {
     /// The tabs on screen, in order. A count of zero hides its tab (DR-45; owner 2026-10-16, "Waiting 0 · Saved 0" on a
     /// fresh page): Waiting while nothing waits (unless a run's own block, a parked conversation or a queue that could
     /// not be read still has something to say there), Saved while nothing is saved, Videos while none is. Past reads
-    /// always shows — it carries no count, and the page needs one list.
-    static func visible(waitingHasRows: Bool, saved: Int, videos: Int) -> [SleepTab] {
+    /// always shows — it carries no count, and the page needs one list. An export the person is waiting on keeps Saved
+    /// up with no item saved (`exportWaiting`): its strip heads Saved, and for a person past Getting started it is the
+    /// one place in the window to see it, stop it or drop the export on it (R-IB22).
+    static func visible(waitingHasRows: Bool, saved: Int, exportWaiting: Bool = false, videos: Int) -> [SleepTab] {
         allCases.filter { tab in
             switch tab {
             case .waiting: waitingHasRows
-            case .saved: saved > 0
+            case .saved: saved > 0 || exportWaiting
             case .videos: videos > 0
             case .pastReads: true
             }
@@ -39,8 +41,9 @@ enum SleepTab: String, CaseIterable, Hashable {
 
     /// The person's choice wins while its tab is on screen; a choice whose tab hid (the queue emptied, the last video
     /// went) falls back to the preferred tab rather than to a list that is not drawn.
-    static func resolve(chosen: SleepTab?, waitingHasRows: Bool, saved: Int, videos: Int) -> SleepTab {
-        let shown = visible(waitingHasRows: waitingHasRows, saved: saved, videos: videos)
+    static func resolve(chosen: SleepTab?, waitingHasRows: Bool, saved: Int, exportWaiting: Bool = false,
+                        videos: Int) -> SleepTab {
+        let shown = visible(waitingHasRows: waitingHasRows, saved: saved, exportWaiting: exportWaiting, videos: videos)
         if let chosen, shown.contains(chosen) { return chosen }
         return preferred(waitingHasRows: waitingHasRows)
     }

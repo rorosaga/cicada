@@ -182,6 +182,8 @@ struct SleepView: View {
     @Environment(FeedViewModel.self) private var feedVM
     /// G162 — the video states the rows, the strip and the watch run read.
     @Environment(VideoStateCache.self) private var videoCache
+    /// R-IB22 — an export the person is waiting on keeps Saved up while nothing is saved: its strip heads that tab.
+    @Environment(ExportWaitStore.self) private var exportWaits
     @Environment(ProvenanceRouter.self) private var provenance
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// Track Z Z10 — Increase Contrast hides the optional sky band (§11).
@@ -630,14 +632,16 @@ struct SleepView: View {
         return waitingCount > 0 || page.parkedCount > 0 || showsRunBlock(page)
     }
 
+    private var exportWaiting: Bool { !exportWaits.active(bank: store.bank).isEmpty }
+
     private func currentTab(_ page: SleepPageModel) -> SleepTab {
         SleepTab.resolve(chosen: chosenTab, waitingHasRows: waitingHasRows(page), saved: feedVM.items.count,
-                         videos: videoItems.count)
+                         exportWaiting: exportWaiting, videos: videoItems.count)
     }
 
     private func tabRowTabs(_ page: SleepPageModel) -> [TextTab<SleepTab>] {
         SleepTabRow.tabs(SleepTab.visible(waitingHasRows: waitingHasRows(page), saved: feedVM.items.count,
-                                          videos: videoItems.count),
+                                          exportWaiting: exportWaiting, videos: videoItems.count),
                          waiting: waitingCount, saved: feedVM.items.count, videos: videoItems.count)
     }
 

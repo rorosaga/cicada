@@ -1236,9 +1236,9 @@ read when you ask.") and T12 ("The <source> pile is the big one.") retired, the 
 the controls now says it (`whisperLine` → `Copy.lampOffSentence` with the lamp off), the second because the room draws
 the pile. The control row is Consolidate · the engine menu · *Options…*, all at Consolidate's 28 pt (`NeutralButton`
 `.compact`; `SleepAtRestTests`); *Options…* replaced the "Reading options…" link that floated on its own line. Waiting
-and Saved hide at a count of zero (`SleepTab.visible(waitingHasRows:saved:videos:)`; Waiting stays for a parked
-conversation, a run's block or an unreadable queue, never for the "your own page" note alone), so a fresh page opens on
-Past reads. *Options…* (`ReadingOptionsSheet`, 720 pt) sets batch size
+and Saved hide at a count of zero (`SleepTab.visible(waitingHasRows:saved:exportWaiting:videos:)`; Waiting stays for a
+parked conversation, a run's block or an unreadable queue, never for the "your own page" note alone; Saved stays while
+an export is being waited on, because `ExportWaitStrip` heads it, R-IB22), so a fresh page opens on Past reads. *Options…* (`ReadingOptionsSheet`, 720 pt) sets batch size
 10/25/50 and *Continue by itself when my plan resets* (off) on change; it has no Read faster row, no engine advice and no site list. The engine
 menu's *Keep plan free* (Off or 5–30 % of the window, plan engines only, a line not a guarantee, an unreported window said so) is one of ruling
 12's two homes; the page's lists are the other (Past reads and Waiting, Details until 2026-10-16): Last cycle's run rows (`LastCycleRow.runRows`, merged over the pre-v5 drain rows), per-source counts and

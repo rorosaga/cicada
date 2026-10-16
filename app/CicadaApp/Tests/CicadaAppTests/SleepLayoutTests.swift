@@ -79,6 +79,11 @@ final class SleepTabTests: XCTestCase {
         // Owner 2026-10-16 — a fresh page shows no "Waiting 0 · Saved 0": a zero count hides its tab.
         XCTAssertEqual(SleepTab.visible(waitingHasRows: false, saved: 0, videos: 0), [.pastReads])
         XCTAssertEqual(SleepTab.resolve(chosen: .saved, waitingHasRows: false, saved: 0, videos: 0), .pastReads)
+        // R-IB22 — an export being waited on heads Saved; with nothing saved it still keeps the tab up.
+        XCTAssertEqual(SleepTab.visible(waitingHasRows: false, saved: 0, exportWaiting: true, videos: 0),
+                       [.saved, .pastReads])
+        XCTAssertEqual(SleepTab.resolve(chosen: .saved, waitingHasRows: false, saved: 0, exportWaiting: true, videos: 0),
+                       .saved)
     }
 
     func test_thePageOpensOnWaitingWhileAnythingWaitsElsePastReads() {
