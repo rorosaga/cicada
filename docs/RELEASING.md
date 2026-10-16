@@ -78,7 +78,7 @@ it always resolves to the newest release, so no release needs a website edit.
 **The other install lines follow the release with no edit either (G181).** `scripts/install-server.sh` (Linux,
 `curl … | bash`) installs the newest `vX.Y.Z` tag, and the tap (`brew tap rorosaga/cicada
 https://github.com/rorosaga/cicada`) reads `Formula/cicada.rb` from `main`, whose tag the bump stamped. Between the
-merge and CI publishing the tag (~10 minutes) `brew install cicada` cannot fetch it yet. The website's own
+merge and CI publishing the tag (~10 minutes) `brew install rorosaga/cicada/cicada` cannot fetch it yet. The website's own
 `install.sh` (a separate repo) should hand off by platform: on macOS to
 `https://raw.githubusercontent.com/rorosaga/cicada/main/scripts/install-release.sh`, on Linux to
 `https://raw.githubusercontent.com/rorosaga/cicada/main/scripts/install-server.sh` — never to a copy of either.

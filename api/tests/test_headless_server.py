@@ -329,6 +329,10 @@ def test_install_on_a_server_client_installs_no_local_backend(tmp_path, os_name)
     assert done.returncode == 0, done.stderr + done.stdout[-2000:]
     assert "memory lives on a server" in done.stdout
     assert "launchctl bootstrap" not in done.stdout and "systemctl --user restart" not in done.stdout
+    # QA 2026-10-16: the summary named a unit and a master token that a client never gets.
+    assert "service:       none" in done.stdout
+    assert "api_token" not in done.stdout and "device_token" in done.stdout
+    assert "cicada-backend.service" not in done.stdout and "com.cicada.backend.plist" not in done.stdout
 
 
 def test_doctor_checks_the_service_of_its_platform():

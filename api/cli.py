@@ -312,7 +312,8 @@ def _client_status(boot: Boot) -> Result:
             "client": True, "server": boot.backend_url,
             "bank": {"name": pin.name, "id": pin.id} if pin is not None else None, "backend": backend}
     words = {"confirmed": "answered", "backend_down": "is not reachable", "unauthorized":
-             "did not accept this device's token", "unverified": "did not answer"}
+             "did not accept this device's token", "unverified": "did not answer",
+             "no_token": "was not asked: this device has no token (CICADA_API_TOKEN or ~/.cicada/device_token)"}
     lines = [f"Memory: on the server at {boot.backend_url}"
              + (f" (bank '{pin.name}')" if pin is not None else ""),
              f"  the server {words.get(state, 'did not answer')}"]
@@ -685,6 +686,8 @@ def _client_gate(command: str, boot: Boot) -> None:
     state = boot.probe.get("state")
     if state == "backend_down":
         raise Refusal("backend_down", cli_app.CLIENT_DOWN_TEXT)
+    if state == "no_token":
+        raise Refusal("unauthorized", cli_app.CLIENT_NO_TOKEN_TEXT)
     if state == "unauthorized":
         raise Refusal("unauthorized", cli_app.CLIENT_UNAUTHORIZED_TEXT)
     if state != "confirmed" or boot.pin is None:
@@ -914,6 +917,8 @@ def main(argv: list[str] | None = None) -> int:
                     boot = bootstrap()
                 except PermissionError:
                     raise                      # a sandboxed shell: exit 5 with the MCP fallback, below
+                except BootstrapError:
+                    raise                      # already says what is wrong (a client's address names its rule)
                 except Exception as exc:  # noqa: BLE001
                     raise BootstrapError(type(exc).__name__) from None
                 if boot.client:

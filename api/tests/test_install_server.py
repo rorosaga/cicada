@@ -415,3 +415,32 @@ def test_cicada_setup_uninstall_leaves_another_installs_service_alone(tmp_path):
     done = subprocess.run(["/bin/bash", str(SETUP), "--uninstall"], env=env, capture_output=True, text=True, timeout=30)
     assert done.returncode == 0, done.stderr
     assert log.read_text().splitlines() == ["install.sh --uninstall"]
+
+
+def test_a_client_install_asks_the_server_and_never_starts_a_local_backend(world):
+    """QA 2026-10-16: with CICADA_API_BASE set (a client of a server elsewhere), install.sh installs no unit, so the
+    installer waited 60 s on 127.0.0.1:8000 and failed, and an update would have installed and started a unit anyway.
+    Now the client's check is `cicada status` (the server, with this device's token), and no update starts a service."""
+    (world["fake"] / "curl").write_text("#!/bin/bash\nexit 7\n")          # nothing answers on this machine
+    env = {**world["env"], "CICADA_API_BASE": "https://cicada.example.invalid"}
+    first = _run(env, CICADA_REF="v0.9.0")
+    assert first.returncode == 0, first.stdout + first.stderr
+    assert "runs no backend of its own" in first.stdout
+    assert "device_token" in first.stdout and "api_token" not in first.stdout
+    world["log"].write_text("")
+    update = _run(env)                                                     # a newer release: the code moves
+    assert update.returncode == 0, update.stdout + update.stderr
+    calls = _calls(world)
+    assert "cicada status --json" in calls
+    assert not any(c.startswith("service") for c in calls)                # no unit on a client, update or not
+
+
+def test_every_brew_install_line_names_the_formula_in_full():
+    """QA 2026-10-16, Homebrew 7.0.9: `brew install cicada` from a freshly added tap answers "Refusing to load formula
+    rorosaga/cicada/cicada from untrusted tap" and installs nothing; `brew install rorosaga/cicada/cicada` installs."""
+    bare = re.compile(r"brew\s+install\s+(?:--HEAD\s+)?cicada\b")
+    for rel in ("README.md", "install.md", "docs/architecture/headless.md", "Formula/cicada.rb",
+                "scripts/install-server.sh"):
+        text = (ROOT / rel).read_text()
+        assert not bare.search(text), f"{rel} tells the person to install by the short name"
+        assert "brew install" not in text or "rorosaga/cicada/cicada" in text

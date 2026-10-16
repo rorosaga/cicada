@@ -104,6 +104,13 @@ main() {
   # --- everything else: install.sh, the same installer a clone runs ---
   CICADA_REPO="$DIR" bash "$DIR/install.sh" --cli </dev/null || { err "install.sh stopped (above)."; return 1; }
 
+  # A client of a server elsewhere (CICADA_API_BASE, or $CICADA_HOME/api_base: install.sh's own rule) runs no backend:
+  # install.sh installed no unit, an update starts none, and the check below asks the server instead.
+  if [ -n "$(client_of)" ]; then
+    client_done "$DIR" "$REF" "$(client_of)"
+    return
+  fi
+
   # An update: the unit may have changed and the running backend still has the old code loaded. The unit's own
   # script rewrites it and restarts it (install.sh skips a backend that already answers).
   if [ -n "$before" ] && [ "$before" != "$sha" ]; then
@@ -144,6 +151,34 @@ main() {
   echo "  update:   run the same line again;  remove:  … | bash -s -- --uninstall"
 }
 
+# Where this machine's memory lives when it is a client (install.sh step 6's rule), or nothing.
+client_of() {
+  if [ -n "$(printf '%s' "${CICADA_API_BASE:-}" | tr -d '[:space:]')" ]; then
+    echo "CICADA_API_BASE"
+  elif [ -s "${CICADA_HOME:-$HOME/.cicada}/api_base" ] \
+      && [ -n "$(tr -d '[:space:]' < "${CICADA_HOME:-$HOME/.cicada}/api_base" 2>/dev/null)" ]; then
+    echo "${CICADA_HOME:-$HOME/.cicada}/api_base"
+  fi
+}
+
+# The end of a client install: the server is asked through the command (its address, this device's token), never
+# 127.0.0.1:8000; a server that is not reachable yet, or a token not copied yet, is a warning with the fix.
+client_done() {
+  local dir="$1" ref="$2" where="$3"
+  hdr "Checking"
+  if "$dir/scripts/cicada" status --json </dev/null 2>/dev/null | grep -q '"state": "confirmed"'; then
+    ok "The server answers and accepts this device's token (cicada status)"
+  else
+    warn "The server did not confirm yet — run 'cicada status' to see why (its address: $where; this device's token: ${CICADA_HOME:-$HOME/.cicada}/device_token or CICADA_API_TOKEN, from 'cicada device add <name>' on the server)"
+  fi
+  hdr "Done"
+  echo "  code:     $dir (at $ref)"
+  echo "  memory:   on the server ($where) — this machine runs no backend of its own"
+  echo "  token:    this device's own, in ${CICADA_HOME:-$HOME/.cicada}/device_token (0600) or CICADA_API_TOKEN"
+  case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) echo "  PATH:     add ~/.local/bin to your PATH to run 'cicada' (export PATH=\"\$HOME/.local/bin:\$PATH\")" ;; esac
+  echo "  update:   run the same line again;  remove:  … | bash -s -- --uninstall"
+}
+
 usage() {
   cat <<'EOF'
 Install Cicada on this Linux server, headless (G181):
@@ -166,7 +201,7 @@ preflight() {
   os="$(uname -s)"
   if [ "$os" != "Linux" ]; then
     if [ "$os" = "Darwin" ]; then
-      err "This installs the Linux server. On a Mac: the app (scripts/install-release.sh), or Homebrew — brew tap rorosaga/cicada https://github.com/rorosaga/cicada && brew install cicada"
+      err "This installs the Linux server. On a Mac: the app (scripts/install-release.sh), or Homebrew — brew tap rorosaga/cicada https://github.com/rorosaga/cicada && brew install rorosaga/cicada/cicada"
     else
       err "Cicada's server install runs on Linux (this is $os)."
     fi

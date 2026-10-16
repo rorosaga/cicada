@@ -1,8 +1,8 @@
 # Cicada's Homebrew formula (G181). This repository is its own tap:
 #
 #   brew tap rorosaga/cicada https://github.com/rorosaga/cicada
-#   brew install cicada        # the latest release; --HEAD follows dev
-#   cicada-setup               # memory folder, search model, agent hooks, background service
+#   brew install rorosaga/cicada/cicada        # the latest release; --HEAD follows dev
+#   cicada-setup                               # memory folder, search model, agent hooks, background service
 #
 # It installs the backend, the MCP server and the `cicada` command with their Python environment. The background
 # service is install.sh's (scripts/install-backend-agent.sh on a Mac, scripts/install-backend-service.sh on Linux),
