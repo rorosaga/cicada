@@ -6,7 +6,7 @@ import XCTest
 /// QA 2026-10-16 (P1): the Reader said "1 of 3 cited here" and moved between the spans, but no turn showed the wash or
 /// the underline — from an entity chip and from the Inbox alike. Cause: the passage was a selectable `Text`, and on
 /// macOS a selectable `Text` is drawn by the selectable-text path, which never calls a `TextRenderer`. `CitedPassage`
-/// keeps the words selectable and draws the washes from an identical copy behind them.
+/// keeps the words selectable and carries the wash and underline as attributes of the one `Text` that draws them.
 ///
 /// These read real pixels from an `NSHostingView` in a (never shown) window, the path the app draws through.
 @MainActor
@@ -44,19 +44,51 @@ final class CitedPassageTests: XCTestCase {
         XCTAssertEqual(unmarked, 0, "nothing cited, nothing washed")
     }
 
-    /// The wash sits exactly under the words: the passage draws the same pixels as the one-copy renderer did on a
-    /// plain `Text` (the wash, the underline and the glyphs together), so neither copy is offset from the other.
-    func test_theWashLandsUnderTheWords() throws {
-        guard #available(macOS 15, *) else { throw XCTSkip("the renderer path is macOS 15+") }
-        let reference = try Self.pixels(CitedSpan.text(segments).font(CicadaTheme.quoteFont)
-            .lineSpacing(CicadaTheme.quoteLineSpacing).foregroundStyle(Color.white)
-            .fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity, alignment: .leading)
-            .citedSpans())
-        let passage = try Self.pixels(CitedPassage(segments: segments, color: .white))
-        XCTAssertEqual(reference.count, passage.count)
-        let differing = zip(reference, passage).filter { abs(Int($0) - Int($1)) > 24 }.count
-        XCTAssertLessThan(Double(differing) / Double(reference.count), 0.002,
-                          "\(differing) channels differ: the wash copy is not under the words")
+    /// The wash cannot drift from the words, at any width or scale: the passage is one `Text` whose marks are attributes
+    /// of its own string, so it draws exactly what that attributed `Text` draws unselectable — one layout for the words
+    /// and the wash. A renderer-drawn copy behind selectable words failed this across the same sweep (27 of 136 layouts
+    /// broke lines differently, the wash on the wrong words; review 2026-10-16), with and without a hard line break,
+    /// left to right and right to left.
+    func test_theWashAndTheWordsShareOneLayoutAtEveryWidthAndScale() throws {
+        defer { CicadaTheme.uiScale = 1 }
+        let long: [CitedSpan.Segment] = [
+            .init(text: "Before the move the index was rebuilt on every launch, which took a while on a large bank.\n"
+                + "We moved Lantern's storage from ", mark: .plain),
+            .init(text: "CSV to sqlite-vec last week, and kept the old table until the new one committed", mark: .current),
+            .init(text: " so recall never went dark while it ", mark: .plain),
+            .init(text: "re-embedded in the background", mark: .other),
+            .init(text: ". Then a second sentence gives the wrap more chances to differ.", mark: .plain),
+        ]
+        for scale in [1.0, 1.4] {
+            CicadaTheme.uiScale = scale
+            for direction in [LayoutDirection.leftToRight, .rightToLeft] {
+                for width in stride(from: 240.0, through: 560.0, by: 40.0) {
+                    let oneText = try Self.rawPixels(Text(CitedSpan.fallback(long)).font(CicadaTheme.quoteFont)
+                        .lineSpacing(CicadaTheme.quoteLineSpacing).foregroundStyle(Color.white)
+                        .fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity, alignment: .leading)
+                        .environment(\.layoutDirection, direction), width: width)
+                    let passage = try Self.rawPixels(CitedPassage(segments: long, color: .white)
+                        .environment(\.layoutDirection, direction), width: width)
+                    let label = "\(direction) at \(width) pt, \(scale)×"
+                    XCTAssertEqual(oneText.count, passage.count, "\(label): the same height")
+                    let differing = zip(oneText, passage).filter { abs(Int($0) - Int($1)) > 24 }.count
+                    XCTAssertLessThan(Double(differing) / Double(max(oneText.count, 1)), 0.002, label)
+                }
+            }
+        }
+        XCTAssertGreaterThan(try Self.accentPixels(CitedPassage(segments: long, color: .white)), 200)
+    }
+
+    /// The passage is one `Text`: no second copy laid out behind it (the copy is what drifted).
+    func test_thePassageDrawsNoSecondCopy() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("Sources/CicadaApp/Views/Common/CitedSpan.swift")
+        let source = try String(contentsOf: root, encoding: .utf8)
+        let body = try XCTUnwrap(source.range(of: "struct CitedPassage: View {")).upperBound
+        let rest = source[body...]
+        let passage = String(rest[..<(rest.range(of: "\n}\n")?.lowerBound ?? rest.endIndex)])
+        XCTAssertFalse(passage.contains(".background"), "a second copy behind the words drifts from them")
+        XCTAssertFalse(passage.contains("textRenderer"), "selectable text never reaches a renderer")
     }
 
     /// Both doors use it: the Reader's turns and the Inbox's quote never put the renderer on selectable text again.
@@ -72,12 +104,12 @@ final class CitedPassageTests: XCTestCase {
 
     // MARK: - Pixels
 
-    private static func render(_ view: some View) throws -> NSBitmapImageRep {
-        let hosting = NSHostingView(rootView: view.frame(width: 300).padding(10).background(Color.black))
+    private static func render(_ view: some View, width: CGFloat = 300) throws -> NSBitmapImageRep {
+        let hosting = NSHostingView(rootView: view.frame(width: width).padding(10).background(Color.black))
         hosting.appearance = NSAppearance(named: .darkAqua)
-        hosting.frame = NSRect(x: 0, y: 0, width: 320, height: 10)
+        hosting.frame = NSRect(x: 0, y: 0, width: width + 20, height: 10)
         let height = hosting.fittingSize.height
-        hosting.frame = NSRect(x: 0, y: 0, width: 320, height: height)
+        hosting.frame = NSRect(x: 0, y: 0, width: width + 20, height: height)
         let window = NSWindow(contentRect: hosting.frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = hosting
         hosting.layoutSubtreeIfNeeded()
@@ -100,8 +132,15 @@ final class CitedPassageTests: XCTestCase {
         return n
     }
 
-    static func pixels(_ view: some View) throws -> [UInt8] {
-        let rep = try render(view)
+    /// The bitmap's bytes as drawn — fast enough for a sweep; both sides come from the same `render`, so the same format.
+    static func rawPixels(_ view: some View, width: CGFloat) throws -> [UInt8] {
+        let rep = try render(view, width: width)
+        let data = try XCTUnwrap(rep.bitmapData)
+        return Array(UnsafeBufferPointer(start: data, count: rep.bytesPerRow * rep.pixelsHigh))
+    }
+
+    static func pixels(_ view: some View, width: CGFloat = 300) throws -> [UInt8] {
+        let rep = try render(view, width: width)
         var out: [UInt8] = []
         for y in 0..<rep.pixelsHigh {
             for x in 0..<rep.pixelsWide {

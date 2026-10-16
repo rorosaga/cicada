@@ -1517,10 +1517,11 @@ sized before the page so it is never pushed off-window. It is driven by
 are on screen together (Direction D, DS-2). It shows C's header — mark, title, meta, and a neutral
 Resume when an `isfile()` check says the session is resumable — the pinned "1 of N cited here"
 navigator, the turns in the quote face with `CitedSpan`, and the "Noted from this conversation" rows. A turn is
-selectable **and** washed through `CitedPassage` (2026-10-16): a selectable `Text` never reaches a `TextRenderer`, so
-the words are a selectable copy and the washes and underline are drawn by `CitedSpanRenderer` (`drawsText: false`) from
-an identical copy laid out behind them — until then the navigator counted spans nothing showed (`CitedPassageTests`;
-the Inbox's quote too);
+selectable **and** washed through `CitedPassage` (2026-10-16): a selectable `Text` never reaches a `TextRenderer`, and
+a renderer-drawn copy behind the words breaks lines differently from them (the wash on the wrong words at some widths),
+so the passage is one selectable `Text` whose wash and underline are attributes of its own string (`CitedSpan.fallback`:
+square fill, the text system's underline, no fade) — until then the navigator counted spans nothing showed
+(`CitedPassageTests`; the Inbox's quote too);
 a swap onto the same conversation re-lands in place (`ProvenanceRouter.refocus`) rather than stacking
 a Back step. The dandelion wash and margin bar are gone (DR-13). It reads `/episodes/{id}/text`
 and `/citations` through `ProvenanceCache` — in memory, ETag-revalidated, **never a Store domain**,

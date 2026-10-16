@@ -7,7 +7,8 @@ import SwiftUI
 /// Two renderers, one rule (R-DS12). On macOS 15+, a `TextRenderer` draws the exact shape
 /// behind each tagged run. The package floor is 14, where `AttributedString` can carry a fill
 /// and an underline colour but neither an offset nor a radius, so `fallback(_:)` is the honest
-/// approximation there. The owner runs 26.
+/// approximation there. The owner runs 26. A SELECTABLE passage uses the attributed form on every version
+/// (`CitedPassage`): selectable text never reaches a renderer, and a renderer-drawn copy breaks lines differently.
 ///
 /// `.mention` — a match found by name (G118 §4.9, DR-57): semibold, never washed; the wash and the
 /// underline are for words someone quoted (R-DI11). `reveal` (0…1) scales the wash and the
@@ -83,9 +84,6 @@ struct CitedSpanRenderer: TextRenderer {
     let underline: Color
     /// DR-61 — 0 → 1 over `spanReveal`; animatable so the wash fades rather than pops.
     var reveal: Double = 1
-    /// False in `CitedPassage`'s wash layer: the washes and the underline only, under a selectable copy that draws
-    /// the words. A selectable `Text` never reaches a `TextRenderer` (2026-10-16, `CitedPassageTests`).
-    var drawsText = true
 
     var animatableData: Double {
         get { reveal }
@@ -110,56 +108,39 @@ struct CitedSpanRenderer: TextRenderer {
                         ctx.fill(Path(CitedSpan.underlineRect(for: bounds)), with: .color(underline.opacity(reveal)))
                     }
                 }
-                if drawsText { ctx.draw(run) }
+                ctx.draw(run)
             }
         }
     }
 }
 
-/// A cited passage that can be selected (DR-18, DR-31): the words in a selectable `Text`, the washes and the
-/// underline drawn by `CitedSpanRenderer` in a second, identical copy laid out behind it.
+/// A cited passage that can be selected (DR-18, DR-31): ONE selectable `Text` whose wash and underline are attributes
+/// of its own string (`CitedSpan.fallback`), so they are laid out by the same pass that places the words and can never
+/// sit under different words.
 ///
-/// Why two copies (QA 2026-10-16, "1 of 3 cited here" with nothing washed): on macOS a `Text` with
-/// `.textSelection(.enabled)` is drawn by the selectable-text path and never reaches a `TextRenderer`, so
-/// `.citedSpans()` on a selectable passage drew nothing at all — in the Reader and in the Inbox's quote alike. The
-/// copy behind gets the same segments, font, line spacing and width, so its runs fall exactly under the words; it
-/// draws no glyph (`drawsText: false`), is not hit-tested and is hidden from VoiceOver, so selection, copying and
-/// what VoiceOver reads are the front copy's alone.
+/// Why not the `TextRenderer` (QA 2026-10-16, "1 of 3 cited here" with nothing washed): on macOS a `Text` with
+/// `.textSelection(.enabled)` is drawn by the selectable-text path and never reaches a `TextRenderer`. A second,
+/// renderer-drawn copy behind the words does not fix it either: a `Text` drawn through a custom renderer breaks its
+/// lines differently from the same `Text` drawn plainly — measured offscreen over widths 240–560 pt at 1×–1.6×, 27 of
+/// 136 layouts broke or placed lines differently (a word moved to the next line, or a different height), so the wash
+/// landed on the wrong words (`CitedPassageTests`). The attributed form gives up DR-18's 4 pt radius and the underline's
+/// 4 pt offset, and `reveal` sets the marks' opacity without a fade; it is the macOS 14 form R-DS12 already allows.
 struct CitedPassage: View {
     let segments: [CitedSpan.Segment]
     var font: Font = CicadaTheme.quoteFont
     var lineSpacing: CGFloat = CicadaTheme.quoteLineSpacing
     var color: Color = CicadaTheme.textPrimary
-    /// DR-61 — 0 → 1 over `spanReveal`.
+    /// DR-61 — 0 hides the marks, 1 shows them.
     var reveal: Double = 1
 
     var body: some View {
-        if #available(macOS 15, *) {
-            laidOut(CitedSpan.text(segments))
-                .foregroundStyle(color)
-                .textSelection(.enabled)
-                .background(alignment: .topLeading) {
-                    laidOut(CitedSpan.text(segments))
-                        .textRenderer(CitedSpanRenderer(wash: CicadaTheme.wash, washSoft: CicadaTheme.washSoft,
-                                                        underline: CicadaTheme.accent, reveal: reveal,
-                                                        drawsText: false))
-                        .allowsHitTesting(false)
-                        .accessibilityHidden(true)
-                }
-        } else {
-            // macOS 14: the fallback string carries its own fill and underline colour, selectable as it is.
-            laidOut(Text(CitedSpan.fallback(segments, reveal: reveal)))
-                .foregroundStyle(color)
-                .textSelection(.enabled)
-        }
-    }
-
-    /// The one layout both copies share.
-    private func laidOut(_ text: Text) -> some View {
-        text.font(font)
+        Text(CitedSpan.fallback(segments, reveal: reveal))
+            .font(font)
             .lineSpacing(lineSpacing)
+            .foregroundStyle(color)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .textSelection(.enabled)
     }
 }
 
