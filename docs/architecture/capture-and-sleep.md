@@ -320,7 +320,9 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   `message_keys`. The person's mark changes re-render every saved sitting in place from the stored episodes (`PUT
   /sources/messages/settings`, one `user` commit with the settings file). One `user` commit per sync
   (`capture/messages`); scrub writer `imessage`; demo bank 409. `GET /sources/messages/waiting` sums `message_count`
-  over unread, live sittings per conversation — the Sleep page's and Home's bubbles.
+  over unread, live sittings per conversation — the Sleep page's and Home's bubbles. Through Sleep, the decided
+  `correspondent` is its own page — a `tool` for an agent, a `person` for a person — never a same-name page of
+  another type (*Entity promotion*, "A message conversation's correspondent").
 - **Capture never writes into a demo bank** (G117's synthetic bank; G141 capture-side track). A bank
   is the demo when `<bank>/_bank.yaml` says `kind: demo` — written first by `demo_bank.populate` and
   committed as `cicada` — or, for a demo made before that file, when its `.git/config` carries the
@@ -764,6 +766,61 @@ history, an unclaimed `website`/`decay_class` proposal and its G118 item records
 pending parks one line carrying the merged history and tags; the line keeps the strongest mention's episode. Before
 this fix those extractions were dropped whole: a 25-conversation batch credited 1 episode. Claims and edges were never
 affected, because they are projected from every extraction's relationships through `name_to_id`.
+
+**A message conversation's correspondent is its own page, of its own type (G179, owner 2026-10-15/16).** Before this,
+a texted agent was resolved by name like any mention, so an existing page with the same letters took it: on the
+owner's bank an archived `concept` page about the ordinary word absorbed a 55-sitting agent conversation — its claims,
+its source, an article rewritten about the agent — and kept the concept's type and fading state. Now
+(`api/services/correspondents.py`, one rule for Stage 1, Stage 2 and the repair):
+- **The signal** is the episode's own `correspondent` record with a decided kind (`agent` | `person` — the person's
+  mark, or an `identified` detection; `unknown` decides nothing), applied only to an entity Stage 1 extracted from
+  *that* episode whose name or one of its aliases folds (`agent_detectors.fold`) to exactly the record's name. Stage 1
+  marks it (`correspondents.mark_extraction`, after stripping any mark or pin the model wrote) and gives it its type:
+  an AI agent is a `tool` (software the person uses — not a person, not an idea), a texted person a `person`.
+  A mention of the same letters in any other conversation never carries the mark and takes the general resolver,
+  unchanged — so this cannot widen into homonym handling.
+- **Stage 2** (`entity_resolver._resolve_correspondents`, before any other name is judged) takes a marked entity out of
+  the by-name path. An existing page of the right type named so (else listing the alias; never the owner's page; a
+  dropped one is updated and stays dropped) is updated. Otherwise the correspondent meets the promotion rule like any
+  name, unchanged (2+ conversations — this batch's sittings plus the ones its held line heard —, more than 3 exchanges
+  with the person's own words, or a link the person made to an existing page). Below it, it waits in the pending store
+  under **its own key**: a line named by the id its page will get (`correspondents.free_id`: always `<id>-agent` /
+  `<id>-person`, then `-2`…, never the plain same-name id nor another line's slug) and marked
+  `correspondent: {name, kind}` (`PendingEntity.correspondent`; found again by that mark, `correspondents.held_line`,
+  never by name). Its claims are held on that line by Stage 5.56 (`pending_store.hold` keys by the line's slug), so
+  no same-name page and no same-name pending line ever receives them. Once the rule passes, the page is created under
+  that id (trigger `sleep/correspondent`) with everything the line held folded in (`_fold_pending`) and its held
+  claims released onto it — born like any create (`created`/`last_referenced` from its conversations' days,
+  `decayed_through`, `learned_on`, the decay class of its type); decay math is untouched. Every relationship of a
+  correspondent episode whose endpoint names them is pinned to that id (`source_page` / `target_page`): its claim
+  lands there, held or written (`entities_to_claims` reads the pin before `name_to_id`); its edge is drawn only once
+  the page exists (a pin to a held correspondent draws none, and never falls back to the name). `name_to_id` maps the
+  name to the page only when the page exists or is created now and no other conversation in the batch extracted that
+  name. Observers are unchanged (`external:<name>` is the correspondent's name, not a page id).
+- **Not covered:** a mention of the agent by name in another conversation (a coding session that talks about it) still
+  resolves by name — with two pages sharing a name, the general resolver's exact match takes whichever it indexed last.
+  A type-aware tiebreak would be general homonym handling, a separate decision.
+- **Repair for existing banks** (`api/scripts/repair_correspondent_pages.py` → `correspondent_repair`; dry run prints
+  counts only, `--apply` one `cicada` commit, trigger `maintenance/correspondent-split`, refused while Sleep runs or
+  holds the pages, a page dirty in git skipped, a second run a no-op). **Nothing not attributable to the
+  correspondent's conversation is lost or moved:** it starts from the page as it is now and subtracts only the
+  conversation's part. It splits a page whose own `name` (an alias alone is `skipped_alias`) folds to a conversation's
+  correspondent, that credits its episodes or holds a claim resting on them alone, and whose type does not match.
+  From git, the *base* is the page before the first commit that credited the conversation, and every commit since is
+  read. Claims keep their current state: one resting only on the conversation (sources and evidence) moves,
+  re-subjected; one also backed elsewhere stays and a copy with only the conversation's episodes and evidence goes to
+  the correspondent's page. The conversation's `source_episodes` move. Prose and the list frontmatter (`tags`,
+  `aliases`, `related`, `sources`) move only when every commit since the base that changed them was a Sleep commit
+  crediting the page with the conversation's episodes alone (then the old prose is the base's, the rewritten lead and
+  Article move verbatim with their stamp, added items and values move); otherwise they stay and the correspondent's
+  page gets its facts from its claims (`prose_left`). Person-set keys (`sources_removed`, `aliases_removed`,
+  `corrections`, `picture`, …) never move. Status and confidence come from the page's own remaining history (the
+  base, then every later change except the conversation's commits and the Sleep decay charges against its lift);
+  `last_referenced` is the remaining conversations' latest day; `dropped` stays. The correspondent's page is an
+  existing right-type page (merged human-safe) or a new one under `free_id`, born active at `RECOVERY_CONFIDENCE` with
+  its conversations' days. Other pages' claims resting on the conversation alone that point at the old id are
+  repointed; claim edges are regenerated (Stage 5.7's `regenerate_edges_from_claims`). A page with no version before
+  the conversation, or a bank without git, is counted (`no_history`) and left alone.
 
 **Stage 2's judge calls overlap, its decisions do not (2026-10-08).** After the name and fuzzy matches, Stage 2 asks
 the disambiguation judge once per (name, same-type page sharing a name token), first `same` wins. Those calls used to

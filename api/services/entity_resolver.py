@@ -4,6 +4,7 @@ import asyncio
 import functools
 import re
 from collections import Counter
+from pathlib import Path
 from typing import Callable
 
 import litellm
@@ -11,8 +12,8 @@ from loguru import logger
 from thefuzz import fuzz
 
 from api.config import Settings
-from api.services import (agent_engine, engine_errors, entity_body, fact_policy, json_parse, owner_identity,
-                          promotion, role_people, section_provenance)
+from api.services import (agent_engine, correspondents, engine_errors, entity_body, fact_policy, json_parse,
+                          owner_identity, promotion, role_people, section_provenance)
 from api.services.clarification_manager import (
     CONFIDENCE_THRESHOLD,
     ClarificationManager,
@@ -145,6 +146,9 @@ async def resolve(
 
     all_entities: list[dict] = []
     all_relationships: list[dict] = []
+    # G179: a message conversation's other side, as Stage 1 marked it (`correspondents`) — resolved to a page of its
+    # own type below, never through the by-name path every other name takes.
+    correspondent_entities: list[dict] = []
     # episode_id -> list of entity names mentioned in that episode
     episode_cooccurrences: dict[str, list[str]] = {}
 
@@ -157,6 +161,13 @@ async def resolve(
                 continue
             if agent_engine.is_runtime_path(name):
                 logger.debug("Stage 2: dropped an entity named for the engine runtime path")
+                continue
+            # A texted person saved under a relation ("Mom") is `role_people`'s: one relation page, a person already.
+            if (correspondents.from_mark(entity.get(correspondents.MARK)) is not None
+                    and not entity.get(role_people.UNNAMED_KEY)):
+                correspondent_entities.append(entity)
+                if name not in per_episode_names:
+                    per_episode_names.append(name)
                 continue
             mention_counts[name.lower()] += 1
             episode_mentions.setdefault(name.lower(), set()).add(episode_id)
@@ -230,6 +241,21 @@ async def resolve(
                     "aliases": [a for a in entity.get("aliases") or [] if not refs.is_speaker(a)],
                 },
             )
+
+    # G179: the other side of a message conversation gets (or keeps) a page of its own type, and the conversation's
+    # own edges and claims about them are pinned to it — before any other name is judged, so nothing below can
+    # take its id.
+    correspondent_pages: frozenset[str] = frozenset()
+    if correspondent_entities:
+        pinned, correspondent_pages = _resolve_correspondents(
+            correspondent_entities, extracted, existing, resolved_updates, resolved_creates, name_to_id,
+            general_names=frozenset(best_by_name), memory_path=getattr(settings, "memory_path", None),
+            threshold=settings.sleep_promotion_threshold,
+            linked=lambda n: _is_linked_to_existing(n, all_relationships, existing_by_name, owner_id=owner_id,
+                                                    refs=refs),
+            park=indexer.index_pending_entity if indexer is not None else None,
+            pending_actions=pending_actions, promoted_pending=promoted_pending)
+        logger.info(f"Stage 2: {len(correspondent_entities)} correspondent mention(s), {pinned} endpoint(s) pinned")
 
     # Process more specific names first so "Bob Example" becomes the
     # canonical in-cycle entity and "Bob" can merge into it rather than
@@ -431,10 +457,15 @@ async def resolve(
     seen_edges: set[tuple[str, str, str]] = set()
     for rel in all_relationships:
         label = rel.get("label", "related to")
-        # Self-references first (G169), then exact, then fuzzy — one rule,
-        # shared with Sleep's claims (G141 PJ-0, `claim_pipeline.subject_resolver`).
-        source_id = _edge_endpoint(rel.get("source", ""), name_to_id, refs)
-        target_id = _edge_endpoint(rel.get("target", ""), name_to_id, refs)
+        # A conversation's own correspondent first (G179, pinned above), then self-references (G169), then exact,
+        # then fuzzy — one rule, shared with Sleep's claims (G141 PJ-0, `claim_pipeline.subject_resolver`).
+        # (A pin to a correspondent still held below the promotion bar has no page yet: no edge, as for any name.)
+        source_id = _pinned(rel, correspondents.SOURCE_PAGE, correspondent_pages, resolved_creates)
+        if source_id is None:
+            source_id = _edge_endpoint(rel.get("source", ""), name_to_id, refs)
+        target_id = _pinned(rel, correspondents.TARGET_PAGE, correspondent_pages, resolved_creates)
+        if target_id is None:
+            target_id = _edge_endpoint(rel.get("target", ""), name_to_id, refs)
 
         if source_id and target_id and source_id != target_id:
             key = (source_id, target_id, label.lower())
@@ -490,6 +521,161 @@ async def resolve(
         # The pending lines this batch's creates folded in, for Stage 5 to take once the pages exist.
         "promoted_pending": [] if cancelled else promoted_pending,
     }
+
+
+def _resolve_correspondents(
+    entities: list[dict],
+    extracted: list[dict],
+    existing: list[dict],
+    updates_by_id: dict[str, dict],
+    creates_by_id: dict[str, dict],
+    name_to_id: dict[str, str],
+    *,
+    general_names: frozenset[str],
+    memory_path=None,
+    threshold: int = 2,
+    linked: Callable[[str], bool] = lambda _name: False,
+    park: Callable[[PendingEntity], None] | None = None,
+    pending_actions: list | None = None,
+    promoted_pending: list | None = None,
+) -> tuple[int, frozenset[str]]:
+    """G179: each correspondent Stage 1 marked lands on a page of its own type (`correspondents`) — never on a
+    same-name page of another type, and never through the by-name path.
+
+    An existing page of that type named so (else listing the name as an alias) is updated. Otherwise the
+    correspondent faces the promotion rule like any name (`promotion`: 2+ conversations — this batch's and the ones
+    its held line heard —, more than 3 exchanges with the person's own words, or a link the person made to an
+    existing page). Below it, it waits in the pending store under its OWN key: a line named by the id its page will
+    get (`correspondents.free_id`, always ``<id>-agent`` / ``<id>-person``, never the plain same-name id) and marked
+    with the correspondent, so Stage 5.56 holds its claims there (``pending_store.hold`` keys by that slug) and no
+    same-name page or same-name pending line ever receives them. Once the rule passes, the page is created under that
+    id with everything the line held (`_fold_pending`, the held claims released by Stage 5.56).
+
+    Every relationship of a correspondent episode whose endpoint names them is pinned to that id (``source_page`` /
+    ``target_page``): its claim lands there, held or written; its edge is drawn only once the page exists (the caller
+    drops a pin to a page that does not). ``name_to_id`` maps the name to the page only when the page exists or is
+    created now and no other conversation in the batch extracted that name. Returns ``(endpoints pinned, the ids of
+    pages that exist or are created this batch)``."""
+    from api.services import pending_store
+
+    groups: dict[tuple[str, str], list[dict]] = {}
+    idents: dict[tuple[str, str], correspondents.Identity] = {}
+    for entity in entities:
+        ident = correspondents.from_mark(entity.get(correspondents.MARK))
+        key = (ident.key, ident.kind)
+        groups.setdefault(key, []).append(entity)
+        idents.setdefault(key, ident)
+
+    entities_dir = Path(memory_path) / "entities" if memory_path else None
+    try:
+        lines = pending_store.load(memory_path) if memory_path else []
+    except Exception:  # noqa: BLE001 - an unreadable store holds nothing to find; the line is written fresh
+        lines = []
+    taken = {str(page.get("id")) for page in existing} | set(creates_by_id) | {sanitize_id(ln.name) for ln in lines}
+    pages: dict[tuple[str, str], str] = {}
+    live: set[str] = set()
+    for key, group in groups.items():
+        ident = idents[key]
+        best = group[0]
+        for entity in group[1:]:
+            if float(entity.get("confidence", 0) or 0) > float(best.get("confidence", 0) or 0):
+                best = entity
+        siblings = [entity for entity in group if entity is not best]
+        page = correspondents.find_page(existing, ident)
+        if page is not None:
+            page_id = page["id"]
+            for incoming in (best, *siblings):
+                _merge_into_update(updates_by_id=updates_by_id, existing_entity=page, incoming=incoming)
+            live.add(page_id)
+        else:
+            line = correspondents.held_line(lines, ident)
+            page_id = line.name if line is not None else correspondents.free_id(ident, taken, entities_dir)
+            taken.add(page_id)
+            heard_now = {str(e.get("source_episode") or "") for e in group} - {""}
+            heard_before = set(line.episodes()) - heard_now if line is not None else set()
+            promote = (len(heard_now | heard_before) >= threshold
+                       or any(promotion.substantive(e) for e in group)
+                       or any(linked(str(e.get("name") or "")) for e in group))
+            if promote:
+                entity = {**best, "name": ident.name, "type": ident.page_type}
+                if str(best.get("name") or "") != ident.name:
+                    entity["aliases"] = [*(best.get("aliases") or []), best.get("name")]
+                creates_by_id[page_id] = {
+                    "id": page_id,
+                    "action": "create",
+                    "entity": entity,
+                    "existing": None,
+                    "source_episode": best.get("source_episode", ""),
+                    "source_episodes": [best.get("source_episode", "")] if best.get("source_episode") else [],
+                    "source_episode_timestamp": best.get("source_episode_timestamp"),
+                    "source_episode_timestamps": ([best.get("source_episode_timestamp")]
+                                                  if best.get("source_episode_timestamp") else []),
+                    "source_episode_days": _source_days(best),
+                    "untimed": bool(best.get("untimed")),
+                    "trigger": "sleep/correspondent",
+                }
+                for sibling in siblings:
+                    _merge_into_create(creates_by_id[page_id], sibling)
+                if line is not None:
+                    # What the earlier sittings said and their credit; the line leaves after Stage 5 (its held claims
+                    # through Stage 5.56's release), as a promoted name's does.
+                    _fold_pending(creates_by_id[page_id], line)
+                    creates_by_id[page_id]["entity"].update(name=ident.name, type=ident.page_type)
+                    if promoted_pending is not None:
+                        promoted_pending.append(line.name)
+                live.add(page_id)
+            elif park is not None and pending_actions is not None:
+                parked = best
+                for sibling in siblings:
+                    parked = _merge_entity_payload(parked, sibling)
+                held = _pending_line(page_id, best, parked, siblings,
+                                     float(best.get("confidence", 0.5) or 0.5))
+                held.type = ident.page_type
+                held.correspondent = ident.to_dict()
+                pending_actions.append((park, (held,), {}))
+        pages[key] = page_id
+        if page_id in live:
+            for entity in group:
+                name_lower = str(entity.get("name") or "").lower()
+                if name_lower and name_lower not in general_names:
+                    name_to_id[name_lower] = page_id
+
+    pinned = 0
+    for extraction in extracted:
+        ident = correspondents.from_mark(extraction.get(correspondents.MARK))
+        if ident is None:
+            continue
+        page_id = pages.get((ident.key, ident.kind))
+        if page_id is None:
+            page = correspondents.find_page(existing, ident)
+            line = correspondents.held_line(lines, ident) if page is None else None
+            page_id = page["id"] if page is not None else (line.name if line is not None else None)
+            if page is not None:
+                live.add(page_id)
+        if page_id is None:
+            continue
+        # The names this conversation's own entity for them went by (an alias the model listed), and theirs.
+        names = {ident.key}
+        for entity in extraction.get("entities") or []:
+            if isinstance(entity, dict) and entity.get(correspondents.MARK):
+                names |= {correspondents.agent_detectors.fold(str(n)) for n in correspondents.entity_names(entity) if n}
+        for rel in extraction.get("relationships") or []:
+            if not isinstance(rel, dict):
+                continue
+            for end, pin in (("source", correspondents.SOURCE_PAGE), ("target", correspondents.TARGET_PAGE)):
+                if correspondents.agent_detectors.fold(str(rel.get(end) or "")) in names:
+                    rel[pin] = page_id
+                    pinned += 1
+    return pinned, frozenset(live)
+
+
+def _pinned(rel: dict, key: str, live: frozenset[str], creates: dict) -> str | None:
+    """A correspondent pin (`_resolve_correspondents`) whose page exists or is created now; ``""`` (no edge, and no
+    by-name fallback) for one still held; ``None`` for an endpoint with no pin."""
+    pin = rel.get(key)
+    if not pin:
+        return None
+    return pin if (pin in live or pin in creates) else ""
 
 
 def existing_by_name(existing: list[dict]) -> dict[str, dict]:

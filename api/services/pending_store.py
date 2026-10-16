@@ -84,8 +84,12 @@ class PendingEntity:
     # Every conversation that named it, as {episode, timestamp, day}: promotion
     # credits each one on the page, and "2+ conversations" counts them.
     heard_in: list[dict] = field(default_factory=list)
+    # G179: a message conversation's correspondent waiting below the promotion bar — ``{name, kind}``. Its line is
+    # keyed by the id its page will get (`correspondents.free_id`), never by its plain name, and found by this mark.
+    correspondent: dict = field(default_factory=dict)
 
-    _OPTIONAL = ("summary", "key_facts", "links", "open_questions", "aliases", "item_inputs", "heard_in")
+    _OPTIONAL = ("summary", "key_facts", "links", "open_questions", "aliases", "item_inputs", "heard_in",
+                 "correspondent")
 
     def to_dict(self) -> dict:
         data = {
@@ -141,6 +145,7 @@ class PendingEntity:
             aliases=strings("aliases"),
             item_inputs=[d for d in dicts("item_inputs") if d.get("text") and isinstance(d.get("evidence"), list)],
             heard_in=[d for d in dicts("heard_in") if d.get("episode")],
+            correspondent=data.get("correspondent") if isinstance(data.get("correspondent"), dict) else {},
         )
 
 
@@ -204,6 +209,7 @@ def _carry(prior: PendingEntity, entity: PendingEntity) -> None:
     entity.heard_in = list(heard.values())
     entity.source_episode = prior.source_episode or entity.source_episode
     entity.confidence = max(float(prior.confidence or 0), float(entity.confidence or 0))
+    entity.correspondent = entity.correspondent or prior.correspondent
 
 
 class HoldOutcome(NamedTuple):

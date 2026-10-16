@@ -139,6 +139,26 @@
       "disposition": "uninstrumented_guarded"
     }
   ],
+  "services/correspondent_repair.py": [
+    {
+      "function": "apply",
+      "method": "write",
+      "frontmatter": "split.old_fm",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "apply",
+      "method": "write",
+      "frontmatter": "split.new_fm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "apply",
+      "method": "write",
+      "frontmatter": "parsed.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    }
+  ],
   "services/decay_migration.py": [
     {
       "function": "_rewrite_pages",
