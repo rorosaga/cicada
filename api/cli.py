@@ -40,7 +40,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
-from api import cli_app
+from api import LITELLM_PINNED, cli_app, pin_litellm
 from api.cli_types import EXIT_CODES, REFUSAL_CODES, Refusal, Result, UsageError
 from api.services import cli_map
 from api.version import __version__
@@ -48,7 +48,7 @@ from api.version import __version__
 SCHEMA = "cicada.cli/1"
 ROOT_KEYS = ("CICADA_MEMORY_PATH", "CICADA_MEMORY_ROOT")
 #: Keys the bootstrap decides itself: no config file may set them.
-CONTROL_KEYS = ROOT_KEYS + ("LITELLM_MODE",)
+CONTROL_KEYS = ROOT_KEYS + ("LITELLM_MODE", *LITELLM_PINNED)
 DEFAULT_ROOT = "~/cicada/memory"
 HEALTH_TIMEOUT_S = 1.0
 
@@ -93,8 +93,10 @@ def resolve_root(environ, file_values) -> tuple[str, str]:
 
 def _force_production(environ) -> None:
     """litellm runs ``load_dotenv()`` at import unless ``LITELLM_MODE`` is not ``DEV``: forced here, and
-    re-forced after every overlay, so no inherited value and no config file can turn that load back on."""
+    re-forced after every overlay, so no inherited value and no config file can turn that load back on. The price
+    table stays the installed litellm's own (``api.pin_litellm``) for the same reason."""
     environ["LITELLM_MODE"] = "PRODUCTION"
+    pin_litellm(environ)
 
 
 def bootstrap(environ=None) -> Boot:

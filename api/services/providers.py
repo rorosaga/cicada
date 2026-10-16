@@ -427,6 +427,10 @@ def resolve_llm_fn(
                         usage["cache_read_tokens"], usage["cache_write_tokens"])
             else:
                 cost = None if billing == "free" else usage["cost_usd"]
+                if cost is not None:
+                    _source = telemetry.cost_from_response(resp)[1]
+                    if _source:
+                        refs = {**(refs or {}), "cost_source": _source}
                 equiv = pricing.estimate_cost(
                     resolved_model, usage["input_tokens"], usage["output_tokens"],
                     usage["cache_read_tokens"], usage["cache_write_tokens"])

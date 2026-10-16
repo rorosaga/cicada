@@ -4557,8 +4557,9 @@ class StatusConnections(CamelModel):
 
 
 class ConsumptionSummary(CamelModel):
-    cost_usd: float = 0.0
-    equiv_cost_usd: float = 0.0
+    # ``None`` is unknown: no call in range carried a figure (a model litellm's bundled table does not price).
+    cost_usd: Optional[float] = None
+    equiv_cost_usd: Optional[float] = None
     invocations: int = 0
     tokens: int = 0
     memory_writes: int = 0
@@ -4575,8 +4576,8 @@ class CalendarDay(CamelModel):
     memory_writes: int = 0
     events: int = 0
     tokens: int = 0
-    cost_usd: float = 0.0
-    equiv_cost_usd: float = 0.0
+    cost_usd: Optional[float] = None       # unknown, never 0.0, when no call that day carried a figure
+    equiv_cost_usd: Optional[float] = None
     level: int = 0
 
 

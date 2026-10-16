@@ -320,10 +320,7 @@ def usage_from_response(resp) -> dict:
     """
     usage = getattr(resp, "usage", None)
     details = _get(usage, "prompt_tokens_details", None)
-    hidden = getattr(resp, "_hidden_params", None) or {}
-    cost = _get(hidden, "response_cost", None)
-    if cost is None:
-        cost = _get(usage, "cost", None)
+    cost, _source = cost_from_response(resp)
     cache_read = int(_get(details, "cached_tokens", 0) or _get(usage, "cache_read_input_tokens", 0) or 0)
     cache_write = int(_get(usage, "cache_creation_input_tokens", 0) or 0)
     prompt = int(_get(usage, "prompt_tokens", 0) or 0)
@@ -333,8 +330,39 @@ def usage_from_response(resp) -> dict:
         "output_tokens": int(_get(usage, "completion_tokens", 0) or _get(usage, "output_tokens", 0) or 0),
         "cache_read_tokens": cache_read,
         "cache_write_tokens": cache_write,
-        "cost_usd": float(cost) if cost is not None else None,
+        "cost_usd": cost,
     }
+
+
+#: Where an ``llm_call``'s ``cost_usd`` came from, filed as ``refs["cost_source"]`` (an enum, never a figure's text):
+#: ``provider`` — the charge the provider reported for this call (OpenRouter's ``usage.cost``, which litellm asks for
+#: with ``usage: {"include": true}`` on every OpenRouter request); ``table`` — litellm's estimate from its bundled
+#: price table. No source means no figure: unknown, never zero.
+COST_SOURCES = ("provider", "table")
+_PROVIDER_COST_HEADER = "llm_provider-x-litellm-response-cost"
+
+
+def _number(value) -> float | None:
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
+def cost_from_response(resp) -> tuple[float | None, str | None]:
+    """A call's real cost and its source (``COST_SOURCES``), or ``(None, None)``.
+
+    The provider's own reported charge wins over the table's estimate: it is the money actually billed, and it exists
+    for a model litellm's bundled table does not list (an OpenRouter model newer than the installed litellm), where the
+    estimate is ``None``. Read from ``usage.cost`` first, then the header litellm files it under."""
+    usage = getattr(resp, "usage", None)
+    hidden = getattr(resp, "_hidden_params", None) or {}
+    reported = _number(_get(usage, "cost", None))
+    if reported is None:
+        reported = _number(_get(_get(hidden, "additional_headers", None) or {}, _PROVIDER_COST_HEADER, None))
+    if reported is not None:
+        return reported, "provider"
+    estimated = _number(_get(hidden, "response_cost", None))
+    if estimated is not None:
+        return estimated, "table"
+    return None, None
 
 
 def connection_for_model(model: str) -> tuple[str, str]:

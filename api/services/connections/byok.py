@@ -20,7 +20,10 @@ class Provider:
     """One usage-billed key provider (R-AG11). ``default_model`` is what the
     API-key card writes when this provider is picked: the small tier, a
     ``-latest`` alias where the provider has one, and a model the installed
-    LiteLLM knows with structured output (``test_byok_providers`` pins it)."""
+    LiteLLM's bundled price table lists with a price and structured output
+    (``api.pin_litellm`` keeps that table the bundled one; ``test_byok_providers``
+    pins it). A model the table does not list still runs, but its cost reads
+    as unknown, so a default must be listed."""
     id: str
     brand: str
     env: str
@@ -41,10 +44,10 @@ PROVIDERS: tuple[Provider, ...] = (
     Provider("openai", "OpenAI", "OPENAI_API_KEY", "gpt-5.4-mini", "https://platform.openai.com/api-keys"),
     Provider("anthropic", "Anthropic", "ANTHROPIC_API_KEY", "anthropic/claude-haiku-4-5",
              "https://console.anthropic.com/settings/keys"),
-    Provider("openrouter", "OpenRouter", "OPENROUTER_API_KEY", "openrouter/~openai/gpt-mini-latest",
+    Provider("openrouter", "OpenRouter", "OPENROUTER_API_KEY", "openrouter/openai/gpt-oss-120b",
              "https://openrouter.ai/settings/keys"),
     Provider("gemini", "Gemini", "GEMINI_API_KEY", "gemini/gemini-flash-latest", "https://aistudio.google.com/apikey"),
-    Provider("xai", "xAI", "XAI_API_KEY", "xai/grok-4.5-latest", "https://console.x.ai"),
+    Provider("xai", "xAI", "XAI_API_KEY", "xai/grok-4-1-fast-reasoning-latest", "https://console.x.ai"),
     Provider("groq", "Groq", "GROQ_API_KEY", "groq/openai/gpt-oss-120b", "https://console.groq.com/keys"),
     Provider("mistral", "Mistral", "MISTRAL_API_KEY", "mistral/mistral-small-latest",
              "https://console.mistral.ai/api-keys"),

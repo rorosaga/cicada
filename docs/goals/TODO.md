@@ -8,6 +8,13 @@
 
 ## Current state and evidence
 
+- **2026-10-16 — the key defaults and the price table (G122, branch `fix/byok-default`, not merged).**
+  `test_byok_providers` failed on dev because `import litellm` fetched its price table from GitHub at every start
+  (ungated), and upstream had dropped the OpenRouter default's alias (today it lists no `openrouter/` row at all). Now
+  `api/__init__.py` pins the table to the one litellm ships (`LITELLM_LOCAL_MODEL_COST_MAP`, a control key for the CLI and
+  the settings file); defaults moved to listed, priced models with structured output — OpenRouter
+  `openrouter/openai/gpt-oss-120b`, xAI `xai/grok-4-1-fast-reasoning-latest`; a saved pref keeping an old id still runs,
+  with its cost unknown. The Usage aggregates now say `null`, never `0.0`, for a bucket no call priced.
 - **2026-10-15 — Messages conversations, Instinct first, on branch `feat/imessage-instinct` (not merged; G179, G188's
   minimal slice).** Settings → Integrations → Messages: tick a one-to-one conversation, mark who it is with (detector
   registry, Instinct first; the person's mark wins). The app reads only ticked rows past a ROWID cursor; the backend

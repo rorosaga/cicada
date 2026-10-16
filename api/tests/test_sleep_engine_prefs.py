@@ -205,7 +205,7 @@ def test_openrouter_is_a_byok_card_that_needs_a_key(client):
     body = client.get("/sleep/engine").json()
     card = next(c for c in body["candidates"] if c["id"] == "openrouter")
     assert card["mode"] == "byok" and card["connected"] is False
-    assert card["models"] == ["openrouter/~openai/gpt-mini-latest"]
+    assert card["models"] == ["openrouter/openai/gpt-oss-120b"]
     assert [c["id"] for c in body["candidates"]] == ["auto", "agent", "codex", "openrouter", "local", "byok"]
     assert body["selected"] == body["mode"] == "byok"
 
@@ -220,7 +220,7 @@ def test_the_picker_lists_six_providers_and_which_have_a_key(client, monkeypatch
 
 
 def test_choosing_openrouter_selects_its_card_pins_the_judge_and_runs_on_a_schedule(client):
-    model = "openrouter/~openai/gpt-mini-latest"
+    model = "openrouter/openai/gpt-oss-120b"
     body = client.put("/sleep/engine", json={"mode": "byok", "model": model}).json()
     assert (body["mode"], body["selected"], body["provider"]) == ("byok", "openrouter", "openrouter")
     assert body["disambiguationModel"] == model                               # R-AG13
@@ -251,7 +251,7 @@ def test_from_openrouter_the_api_key_card_writes_a_key_model(client):
     """R-HS7: a tap writes the card's first model, and the app OMITS a nil model — so a bare
     `{mode: byok}` from the OpenRouter card would keep the `openrouter/` model and never leave it."""
     assert next(c for c in client.get("/sleep/engine").json()["candidates"] if c["id"] == "byok")["models"] == []
-    client.put("/sleep/engine", json={"mode": "byok", "model": "openrouter/~openai/gpt-mini-latest"})
+    client.put("/sleep/engine", json={"mode": "byok", "model": "openrouter/openai/gpt-oss-120b"})
     key = next(c for c in client.get("/sleep/engine").json()["candidates"] if c["id"] == "byok")
     assert key["models"] == ["anthropic/claude-haiku-4-5"]      # no key stored: the picker's first provider
     assert client.put("/sleep/engine", json={"mode": "byok", "model": key["models"][0]}).json()["selected"] == "byok"
@@ -341,7 +341,7 @@ def test_key_cards_carry_a_list_price_and_the_last_cycles_charge(client, monkeyp
     assert usage["kind"] == "list-price" and usage["inputPerMillionUsd"] == 0.4
     assert usage["outputPerMillionUsd"] == 1.6 and usage["lastCycleCostUsd"] == 0.42
     assert cards["openrouter"]["modelPrices"] == {
-        "openrouter/~openai/gpt-mini-latest": {"inputPerMillionUsd": 0.4, "outputPerMillionUsd": 1.6}}
+        "openrouter/openai/gpt-oss-120b": {"inputPerMillionUsd": 0.4, "outputPerMillionUsd": 1.6}}
     assert cards["byok"]["usage"]["lastCycleCostUsd"] is None
     assert cards["local"]["usage"] is None and cards["auto"]["usage"] is None
 
