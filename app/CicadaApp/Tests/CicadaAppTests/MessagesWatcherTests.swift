@@ -121,6 +121,33 @@ final class MessagesWatcherTests: XCTestCase {
         XCTAssertEqual((api.posts.last?["messages"] as? [Any])?.count, 1)
     }
 
+    /// 250 chats, the ticked one the oldest: the Settings list stops at 200, the pass reads it by its own id anyway.
+    func testATickedChatBelowTheListCapStillSyncs() async throws {
+        for i in 0..<248 {
+            let chat = synthetic.chat(String(format: "+1555100%04d", i))
+            synthetic.message(chat, minute: 100 + i, fromMe: false, text: "Filler \(i)")
+        }
+        let reader = MessagesReader(database: synthetic.url)
+        XCTAssertFalse(try reader.conversations().contains { $0.id == instinctId }, "the picker's list is capped")
+        let api = FakeMessagesAPI()
+        api.ticked = [instinctId]
+        let w = watcher(api)
+        await w.bankChanged()
+        XCTAssertEqual(api.posts.count, 1)
+        XCTAssertEqual((api.posts.first?["conversation"] as? [String: Any])?["id"] as? String, instinctId)
+        XCTAssertEqual((api.posts.first?["messages"] as? [Any])?.count, 3)
+        // Still the oldest after a new message: it keeps syncing.
+        synthetic.message(instinct, minute: 50, fromMe: true, text: "Thanks!")
+        _ = try await w.syncNow()
+        XCTAssertEqual(api.posts.count, 2)
+        XCTAssertEqual((api.posts.last?["messages"] as? [Any])?.count, 1)
+        XCTAssertFalse(api.posts.contains { String(describing: $0).contains("Filler") || String(describing: $0).contains("CANARY") })
+        // The picker still shows it, so it can be unticked.
+        await w.loadList()
+        XCTAssertEqual(w.conversations.count, 201)
+        XCTAssertTrue(w.conversations.contains { $0.id == instinctId })
+    }
+
     func testTheHandleIsNeverSentAsAName() async throws {
         let api = FakeMessagesAPI()
         let w = watcher(api)   // no Contacts card, no chat name

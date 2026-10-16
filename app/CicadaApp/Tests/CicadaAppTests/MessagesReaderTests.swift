@@ -99,6 +99,21 @@ final class MessagesReaderTests: XCTestCase {
         XCTAssertEqual(try reader.read(conversation, name: "Instinct", since: edited.cursor).count, 0)
     }
 
+    func testATickedChatIsFoundByItsOwnIdWhateverItsRank() throws {
+        let (instinct, _) = seed()
+        for i in 0..<249 { message(chat(String(format: "+1555200%04d", i)), minute: 100 + i, fromMe: true, text: "x") }
+        let reader = MessagesReader(database: dbURL)
+        let id = MessagesReader.conversationId(chatGuid: "iMessage;-;+15550000001")
+        XCTAssertEqual(try reader.conversations().count, 200)
+        XCTAssertFalse(try reader.conversations().contains { $0.id == id })
+        let found = try reader.conversations(ids: [id, "not-a-chat"])
+        XCTAssertEqual(found.map(\.chatRowId), [instinct])
+        XCTAssertEqual(found.first?.fromThem, 2)
+        XCTAssertTrue(try reader.conversations(ids: [MessagesReader.conversationId(chatGuid: "iMessage;+;+15550000009")])
+            .isEmpty, "a group chat is never read, ticked or not")
+        XCTAssertTrue(try reader.conversations(ids: []).isEmpty)
+    }
+
     func testABatchLimitSaysThereIsMore() throws {
         let (instinct, _) = seed()
         var reader = MessagesReader(database: dbURL)

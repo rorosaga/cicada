@@ -20,6 +20,9 @@ enum MessagesReadError: Error, LocalizedError, Equatable {
 /// reaction/event columns, its edit and unsend times, and its attachments' *names* and types — never
 /// `attachment.filename` (a path) and never an attachment's bytes. No other column, no other chat.
 ///
+/// **Which chats.** The Settings list is the `listLimit` most recent chats; a ticked chat is read by its own id
+/// (`conversations(ids:)`), whatever its rank, so a quiet chat that falls below the list's cap never stops syncing.
+///
 /// **Cursor.** Past `message.ROWID`, plus rows edited or unsent after the newest edit time already seen (an edit keeps
 /// its old ROWID), `batchLimit` rows at a time.
 struct MessagesReader: Sendable {
@@ -59,7 +62,7 @@ struct MessagesReader: Sendable {
         }
     }
 
-    static let conversationsSQL = """
+    static let conversationsSelect = """
         SELECT c.ROWID AS chat, c.guid AS guid, c.chat_identifier AS handle, COALESCE(c.display_name, '') AS name,
                COALESCE(c.service_name, '') AS service,
                (SELECT MAX(j.message_date) FROM chat_message_join j WHERE j.chat_id = c.ROWID) AS last,
@@ -71,10 +74,10 @@ struct MessagesReader: Sendable {
                    AND COALESCE(m.item_type, 0) = 0) AS from_them
         FROM chat c
         WHERE COALESCE(c.style, 45) = 45
-        ORDER BY last DESC
         """
+    static let conversationsSQL = conversationsSelect + " ORDER BY last DESC"
 
-    /// Every one-to-one conversation, most recent first, at most `listLimit`.
+    /// Every one-to-one conversation, most recent first, at most `listLimit` — the Settings picker's list only.
     func conversations() throws -> [MessagesConversation] {
         let db = try open()
         defer { db.close() }
@@ -86,15 +89,44 @@ struct MessagesReader: Sendable {
         } catch {
             throw MessagesReadError.unreadable(String(describing: error))
         }
-        return rows.compactMap { row in
-            guard let chat = Self.int(row["chat"]), let guid = row["guid"] as? String, !guid.isEmpty else { return nil }
-            let fromMe = Int(Self.int(row["from_me"]) ?? 0), fromThem = Int(Self.int(row["from_them"]) ?? 0)
-            guard fromMe + fromThem > 0 else { return nil }
-            return MessagesConversation(
-                id: Self.conversationId(chatGuid: guid), chatRowId: chat, handle: (row["handle"] as? String) ?? "",
-                displayName: (row["name"] as? String) ?? "", service: Self.service(row["service"] as? String),
-                lastActivity: Self.int(row["last"]).flatMap(Self.date), fromMe: fromMe, fromThem: fromThem)
+        return rows.compactMap(Self.conversation)
+    }
+
+    /// The one-to-one conversations with these ids, whatever their rank: what every pass reads, so a ticked chat
+    /// never falls off the end of the list. The id is a hash of `chat.guid`, so the chats' guids are hashed here (no
+    /// words, no counts) and only the matches are described.
+    func conversations(ids: Set<String>) throws -> [MessagesConversation] {
+        guard !ids.isEmpty else { return [] }
+        let db = try open()
+        defer { db.close() }
+        let rows: [[String: Any]]
+        do {
+            try db.exec("BEGIN")
+            defer { try? db.exec("COMMIT") }
+            let chats = try db.query("SELECT ROWID AS chat, guid FROM chat WHERE COALESCE(style, 45) = 45", binds: [])
+            let wanted = chats.compactMap { row -> Int64? in
+                guard let chat = Self.int(row["chat"]), let guid = row["guid"] as? String, !guid.isEmpty,
+                      ids.contains(Self.conversationId(chatGuid: guid)) else { return nil }
+                return chat
+            }
+            guard !wanted.isEmpty else { return [] }
+            let marks = Array(repeating: "?", count: wanted.count).joined(separator: ", ")
+            rows = try db.query(Self.conversationsSelect + " AND c.ROWID IN (\(marks)) ORDER BY last DESC",
+                                binds: wanted.map { .int($0) })
+        } catch {
+            throw MessagesReadError.unreadable(String(describing: error))
         }
+        return rows.compactMap(Self.conversation)
+    }
+
+    private static func conversation(_ row: [String: Any]) -> MessagesConversation? {
+        guard let chat = int(row["chat"]), let guid = row["guid"] as? String, !guid.isEmpty else { return nil }
+        let fromMe = Int(int(row["from_me"]) ?? 0), fromThem = Int(int(row["from_them"]) ?? 0)
+        guard fromMe + fromThem > 0 else { return nil }
+        return MessagesConversation(
+            id: conversationId(chatGuid: guid), chatRowId: chat, handle: (row["handle"] as? String) ?? "",
+            displayName: (row["name"] as? String) ?? "", service: service(row["service"] as? String),
+            lastActivity: int(row["last"]).flatMap(date), fromMe: fromMe, fromThem: fromThem)
     }
 
     static let rowsSQL = """

@@ -131,8 +131,15 @@ final class MessagesWatcher {
         listing = true
         defer { listing = false }
         let reader = self.reader
+        let ticked = tickedIds
         do {
-            let found = try await Task.detached(priority: .userInitiated) { try reader.conversations() }.value
+            // The picker lists the most recent chats; a ticked chat below that cap is still listed, so it can be
+            // unticked.
+            let found = try await Task.detached(priority: .userInitiated) { () throws -> [MessagesConversation] in
+                let recent = try reader.conversations()
+                let missing = ticked.subtracting(recent.map(\.id))
+                return missing.isEmpty ? recent : recent + (try reader.conversations(ids: missing))
+            }.value
             conversations = found
             if status == .missing || isNeedsAccess { status = tickedIds.isEmpty ? .idle : .watching }
         } catch let error as BrowserFileError {
@@ -241,12 +248,17 @@ final class MessagesWatcher {
         return result
     }
 
+    /// One pass reads the ticked conversations by their own ids — never through the Settings list, which is capped at
+    /// the most recent chats — so a ticked chat syncs whatever its rank.
     private func perform(bank: String) async throws -> String {
         let reader = self.reader
-        let listed = try await Task.detached(priority: .utility) { try reader.conversations() }.value
-        conversations = listed
+        let ticked = tickedIds
+        let read = try await Task.detached(priority: .utility) { try reader.conversations(ids: ticked) }.value
+        for fresh in read {
+            if let at = conversations.firstIndex(where: { $0.id == fresh.id }) { conversations[at] = fresh }
+        }
         var posted = 0
-        for conversation in listed where tickedIds.contains(conversation.id) {
+        for conversation in read {
             var cursor = self.cursor(bank: bank, id: conversation.id)
             let name = self.postedName(of: conversation)
             for _ in 0..<20 {   // bounded catch-up: at most 20 batches per pass
@@ -273,13 +285,14 @@ final class MessagesWatcher {
     func refreshWaiting() async {
         guard let answer = try? await api.fetchMessagesWaiting() else { return }
         waiting = answer.conversations
-        let unknown = waiting.map(\.conversation).filter { cards[$0] == nil }
+        let unknown = Set(waiting.map(\.conversation).filter { cards[$0] == nil })
         guard !unknown.isEmpty else { return }
-        if conversations.isEmpty {
+        var handles = conversations.filter { unknown.contains($0.id) }
+        let missing = unknown.subtracting(handles.map(\.id))
+        if !missing.isEmpty {
             let reader = self.reader
-            conversations = (try? await Task.detached(priority: .utility) { try reader.conversations() }.value) ?? []
+            handles += (try? await Task.detached(priority: .utility) { try reader.conversations(ids: missing) }.value) ?? []
         }
-        let handles = conversations.filter { unknown.contains($0.id) }
         let found = await lookUpCards(handles.map(\.handle))
         for conversation in handles {
             if let card = found[conversation.handle] { cards[conversation.id] = card }
