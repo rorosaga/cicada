@@ -73,6 +73,29 @@ struct SettingsSleepView: View {
                             .font(CicadaTheme.bodyFont)
                     }
                 }
+                // Owner decision 2 (2026-10-16): a schedule with no engine it may use says so here, plan first.
+                if mode != "manual",
+                   let warning = Copy.ServerPlan.warningLine(sleepVM.schedule.warning, code: sleepVM.schedule.warningCode) {
+                    Text(warning)
+                        .font(CicadaTheme.metaFont)
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("sleep.scheduleWarning")
+                }
+            }
+            // TODO ruling 4b (owner, 2026-10-16): the machine's switch, off by default; what it costs is said here.
+            SettingsGroupCard(header: Copy.ServerPlan.groupTitle) {
+                SettingsRow(.sleepUsePlan, title: Copy.ServerPlan.usePlanTitle,
+                            detail: usePlan ? Copy.ServerPlan.usePlanOnDetail : Copy.ServerPlan.usePlanOffDetail) {
+                    Toggle(Copy.ServerPlan.usePlanTitle, isOn: Binding(get: { usePlan }, set: { setUsePlan($0) }))
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                }
+                if sleepVM.runOptionsWriteFailed {
+                    Text(Copy.ServerPlan.writeFailed)
+                        .font(CicadaTheme.metaFont)
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                }
             }
             ScenerySettings(mood: deriveSleepPageMood(status: sleepVM.status,
                                                     debt: resolveSleepDebt(sse: nil, status: sleepVM.status),
@@ -96,6 +119,7 @@ struct SettingsSleepView: View {
             loadedOnce = true
             await sleepVM.load()
             syncScheduleState()
+            if sleepVM.runOptions == nil { await sleepVM.loadRunOptions() }
             if engineVM.response == nil { await engineVM.load() }
         }
         .onChange(of: sleepVM.schedule) { _, _ in syncScheduleState() }
@@ -109,6 +133,18 @@ struct SettingsSleepView: View {
         comps.minute = sleepVM.schedule.minute
         if let d = Calendar.current.date(from: comps) {
             scheduleDate = d
+        }
+    }
+
+    private var usePlan: Bool { sleepVM.runOptions?.scheduledUsePlan ?? false }
+
+    /// Ruling 4b: the switch is the machine's (`sleep_run_prefs`); the schedule's warning and the scheduled preview
+    /// both read it, so both are asked again once it is written.
+    private func setUsePlan(_ on: Bool) {
+        store.bankTask {
+            guard await sleepVM.updateRunOptions(.scheduledUsePlan(on)) else { return }
+            await sleepVM.load()
+            await engineVM.load()
         }
     }
 

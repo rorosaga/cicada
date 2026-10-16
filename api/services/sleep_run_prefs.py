@@ -14,7 +14,7 @@ id ``sleep-run``:
   window). Off (unset) by default; set in the engine menu; only meaningful for a
   plan engine. See ``sleep_reserve`` for what enforcing it means and does not.
 * ``scheduled_use_plan`` — TODO ruling 4b (owner, 2026-10-16). Off by default. Lets a
-  SCHEDULED run use the person's Claude plan (``engine_select.SCHEDULE_PLAN_MODES``):
+  SCHEDULED run use the person's plan, Claude or ChatGPT (``engine_select.SCHEDULE_PLAN_MODES``):
   nightly runs then count against the plan's limits, said once where it is turned on.
 
 A run snapshots all three when it starts, so a change applies to the next start or

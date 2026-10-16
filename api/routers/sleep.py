@@ -427,7 +427,7 @@ async def put_run_options(body: SleepRunOptionsUpdate, settings: Settings = Depe
             raise HTTPException(status_code=422, detail=f"reservePct must be null or one of {list(sleep_run_prefs.RESERVE_CHOICES)}")
         changes["reserve_pct"] = body.reserve_pct
     if "scheduled_use_plan" in sent:
-        # Ruling 4b: the machine's "Scheduled runs may use my plan" switch — the one door it opens is the Claude plan.
+        # Ruling 4b: the machine's "Scheduled runs may use my plan" switch — the one door a plan has on a schedule.
         if body.scheduled_use_plan is None:
             raise HTTPException(status_code=422, detail="scheduledUsePlan must be true or false")
         changes["scheduled_use_plan"] = body.scheduled_use_plan

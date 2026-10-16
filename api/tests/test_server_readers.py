@@ -74,14 +74,24 @@ def test_without_the_switch_a_scheduled_run_never_uses_a_plan_chosen_in_settings
 def test_with_the_switch_a_scheduled_run_uses_the_claude_plan_chosen_in_settings():
     reg = _Registry(prefs={"sleep-engine": {"mode": "agent"}, **_switch(True)}, connected={"claude-plan"})
     mode, why = _scheduled(Settings(), reg)
-    assert mode == "agent" and "Scheduled runs may use your Claude plan".lower() in why.lower()
+    assert mode == "agent" and "scheduled runs may use your plan" in why.lower()
 
 
-def test_the_switch_never_opens_the_chatgpt_plan_on_a_schedule():
-    reg = _Registry(prefs={"sleep-engine": {"mode": "codex"}, **_switch(True)}, connected={"chatgpt-plan"})
-    assert _scheduled(Settings(), reg)[0] == "byok"
+def test_the_switch_opens_the_chatgpt_plan_too_and_only_through_itself(monkeypatch):
+    """Owner, 2026-10-16: "Yeah chat too"."""
+    async def codex_probe(registry, *, timeout=5.0):
+        status = await registry.status(engine_select.CODEX_CONNECTION_ID)
+        return bool(status.connected), ""
+
+    monkeypatch.setattr(engine_select, "probe_codex_cheaply", codex_probe)
+    off = _Registry(prefs={"sleep-engine": {"mode": "codex"}}, connected={"chatgpt-plan"})
+    assert _scheduled(Settings(), off)[0] == "byok"
+    on = _Registry(prefs={"sleep-engine": {"mode": "codex"}, **_switch(True)}, connected={"chatgpt-plan"})
+    assert _scheduled(Settings(), on)[0] == "codex"
     auto = _Registry(prefs={"sleep-engine": {"mode": "auto"}, **_switch(True)}, connected={"chatgpt-plan"})
-    assert _scheduled(Settings(), auto)[0] == "byok", "auto on a schedule skips the ChatGPT rung"
+    assert _scheduled(Settings(), auto)[0] == "codex", "auto on a schedule reaches the ChatGPT rung through the switch"
+    auto_off = _Registry(prefs={"sleep-engine": {"mode": "auto"}}, connected={"chatgpt-plan"})
+    assert _scheduled(Settings(), auto_off)[0] == "byok"
 
 
 def test_with_the_switch_the_use_for_sleep_toggle_and_auto_reach_the_plan_on_a_schedule():
@@ -375,6 +385,7 @@ def test_engine_connect_runs_claude_codes_own_sign_in_and_never_handles_the_toke
         captured = capsys.readouterr()
     assert code == 0, captured
     assert "signed in on this machine" in captured.out and "--use-plan on" in captured.out
+    assert "--mode agent" in captured.out
     assert "Cicada never sees or stores the token" in captured.err
     calls = (tmp_path / "claude-calls").read_text().splitlines()
     assert "auth login --claudeai" in calls and calls[0] == "auth status --json"
@@ -639,3 +650,57 @@ def test_watch_later_duplicates_save_their_alias_rows(tmp_path, monkeypatch):
     saved = json.loads((memory / "sources" / "url_index.json").read_text())
     assert any(row.get("alias_of") == "primary" for row in saved.values()), "the duplicate's alias row was saved"
     assert "sources/url_index.json" in _git(memory, "show", "--name-only", "--format=", "HEAD")
+
+
+def _fake_codex(tmp_path: Path) -> Path:
+    """A `codex` that answers only `login status` and `login --device-auth` (the Codex CLI's own flags), from a state
+    file, and records the CODEX_HOME it ran with — never a real login, never a network call."""
+    bindir = tmp_path / "fakecodex"
+    bindir.mkdir()
+    state, log = tmp_path / "codex-state", tmp_path / "codex-calls"
+    state.write_text("out")
+    script = bindir / "codex"
+    script.write_text(f"""#!/bin/sh
+echo "$* | $CODEX_HOME" >> '{log}'
+if [ "$1 $2" = "login status" ]; then
+  if [ "$(cat '{state}')" = in ]; then echo "Logged in using ChatGPT"; exit 0; fi
+  echo "Not logged in"; exit 1
+fi
+if [ "$1 $2" = "login --device-auth" ]; then echo in > '{state}'; exit 0; fi
+exit 2
+""")
+    script.chmod(script.stat().st_mode | stat.S_IXUSR)
+    return bindir
+
+
+def test_engine_connect_signs_the_chatgpt_plan_in_with_the_device_code_in_cicadas_own_codex_home(
+        env, monkeypatch, capsys, tmp_path):  # noqa: F811
+    from api import cli, cli_app
+
+    home = tmp_path / "cicada-home"
+    monkeypatch.setenv("CICADA_HOME", str(home))
+    bindir = _fake_codex(tmp_path)
+    monkeypatch.setenv("PATH", f"{bindir}{os.pathsep}{os.environ.get('PATH', '')}")
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "persons-own-codex"))
+    monkeypatch.setattr(cli_app, "_interactive", lambda: True)
+    routes = {("GET", "/connections/chatgpt-plan"): (200, {"id": "chatgpt-plan", "connected": True, "plan": "plus"})}
+    with _backend(env, monkeypatch, routes):
+        code = cli.main(["engine", "connect", "chatgpt-plan"])
+        captured = capsys.readouterr()
+    assert code == 0, captured
+    assert "signed in on this machine" in captured.out and "--mode codex" in captured.out
+    assert "one-time code" in captured.err and "never sees or stores the token" in captured.err
+    calls = (tmp_path / "codex-calls").read_text().splitlines()
+    assert any(c.startswith("login --device-auth |") for c in calls)
+    assert all("persons-own-codex" not in c and c.endswith(str(home / "codex")) for c in calls), calls
+
+
+def test_an_api_key_codex_login_is_not_a_plan(monkeypatch, tmp_path):
+    from api import cli_app
+
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    script = bindir / "codex"
+    script.write_text("#!/bin/sh\necho 'Logged in using an API key - sk-***'\nexit 0\n")
+    script.chmod(script.stat().st_mode | stat.S_IXUSR)
+    assert cli_app._signed_in(cli_app.PLAN_SIGN_INS["chatgpt-plan"], str(script)) is False

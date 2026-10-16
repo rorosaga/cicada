@@ -1317,12 +1317,17 @@ struct ScheduleConfig: Codable, Equatable {
     var minute: Int
     var intervalHours: Int
     var enabled: Bool { mode != "manual" }
+    /// Owner decision 2 (2026-10-16): while it runs on its own, why a scheduled run would have no engine it may use
+    /// — the server's sentence, and the code the app words its fix from (`no_engine`, `plan_signed_out`,
+    /// `plan_not_chosen`, `local_down`). Read only; never sent back.
+    var warning: String? = nil
+    var warningCode: String? = nil
 
     init(mode: String, hour: Int, minute: Int, intervalHours: Int = 6) {
         self.mode = mode; self.hour = hour; self.minute = minute; self.intervalHours = intervalHours
     }
 
-    enum CodingKeys: String, CodingKey { case mode, enabled, hour, minute, intervalHours }
+    enum CodingKeys: String, CodingKey { case mode, enabled, hour, minute, intervalHours, warning, warningCode }
 
     /// The backend always sends `enabled` (R6), on every version — so it is
     /// read here ONLY to derive `mode` when `mode` itself is absent (a
@@ -1335,6 +1340,8 @@ struct ScheduleConfig: Codable, Equatable {
         hour = (try? c.decodeIfPresent(Int.self, forKey: .hour)) ?? 3
         minute = (try? c.decodeIfPresent(Int.self, forKey: .minute)) ?? 0
         intervalHours = (try? c.decodeIfPresent(Int.self, forKey: .intervalHours)) ?? 6
+        warning = (try? c.decodeIfPresent(String.self, forKey: .warning)) ?? nil
+        warningCode = (try? c.decodeIfPresent(String.self, forKey: .warningCode)) ?? nil
     }
 
     func encode(to encoder: Encoder) throws {
@@ -2239,8 +2246,8 @@ actor APIClient {
 
     // MARK: - Health (liveness probe; also the memory-root source of truth)
 
-    /// Fetch `GET /healthz` (auth-exempt, so this works even before a token
-    /// file exists). Used by `ConnectView` to read the backend's OWN
+    /// Fetch `GET /healthz`. Open, but its paths and counts answer only a caller holding the token (owner decision 3,
+    /// 2026-10-16) — this request carries it, so `memoryRoot` is there once the token file exists. Used by `ConnectView` to read the backend's OWN
     /// configured `memoryRoot` instead of re-deriving one locally — the two
     /// can otherwise disagree depending on install layout (G88 follow-up).
     /// Capped like the refresh path: it's retried with backoff while the

@@ -204,7 +204,7 @@ enum Copy {
     /// quota is a real budget, just not a dollar one.
     static let sleepEngineExplainer =
         "Sleep runs through the `claude` CLI on your plan: it spends plan quota, not money. "
-        + "Only when you start a cycle yourself — never on the nightly schedule — and if the "
+        + "Only when you start a cycle yourself — or on the schedule, if you allow it in Settings → Sleep — and if the "
         + "plan throttles it stops cleanly with the queue intact."
 
     // MARK: Engines (Track E — R-E4, R-E13, R-E24, R-E28)

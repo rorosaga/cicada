@@ -3,9 +3,9 @@
 A fresh server's Sleep engine is the shipped default — an API model — with no key, and its schedule could be turned
 on silently, `engine list` called seven key cards "available", and Ask made a keyless call and said only that it
 "could not synthesize" (headless QA, finding 8). This module answers the one question each of those doors needs —
-is there an engine here this run may use? — so each says so in words, and each offers the Claude plan first.
+is there an engine here this run may use? — so each says so in words, and each offers connecting a plan first.
 
-Nothing here spends, and nothing names a value: a key's PRESENCE (``secrets.has_secret``), the Claude plan's cached
+Nothing here spends, and nothing names a value: a key's PRESENCE (``secrets.has_secret``), the plans' cached
 probe (``engine_select.probe_claude_cheaply``) and the local model's adapter status. The copy names no provider
 (the provider-neutral copy rail): the API model is "the API model Sleep reads with".
 """
@@ -15,18 +15,20 @@ from dataclasses import dataclass
 
 #: Why a scheduled run has no engine it may use (the wire's ``warningCode``); each client words its own fix.
 NO_ENGINE = "no_engine"            # an API model with no key, and no plan open to scheduled runs
-PLAN_SIGNED_OUT = "plan_signed_out"  # scheduled runs may use the Claude plan, but it is not signed in here
+PLAN_SIGNED_OUT = "plan_signed_out"  # scheduled runs may use the chosen plan, but it is not signed in here
 LOCAL_DOWN = "local_down"          # the local model Sleep is pinned to is not running
 PLAN_NOT_CHOSEN = "plan_not_chosen"  # scheduled runs may use the signed-in plan, but Sleep reads with a keyless model
 
-#: The command-line fix for each, offering the Claude plan first (owner decision 2).
+#: The command-line fix for each, offering a plan first (owner decision 2).
 CLI_FIX = {
-    NO_ENGINE: ("Connect your Claude plan on this machine (`cicada engine connect claude-plan`) and let scheduled "
-                "runs use it (`cicada sleep schedule --use-plan on`), or add a key for an API model "
-                "(Settings → Plans & keys, or ~/.cicada/secrets.env)."),
-    PLAN_SIGNED_OUT: "Sign in to your Claude plan on this machine: `cicada engine connect claude-plan`.",
+    NO_ENGINE: ("Connect your plan on this machine (`cicada engine connect claude-plan`, or `chatgpt-plan`), choose "
+                "it as Sleep's engine and let scheduled runs use it (`cicada sleep schedule --use-plan on`), or add a "
+                "key for an API model (Settings → Plans & keys, or ~/.cicada/secrets.env)."),
+    PLAN_SIGNED_OUT: ("Sign in to your plan on this machine: `cicada engine connect claude-plan` (or "
+                      "`chatgpt-plan`)."),
     LOCAL_DOWN: "Start the local model, or choose another engine (`cicada sleep engine --mode …`).",
-    PLAN_NOT_CHOSEN: "Choose your Claude plan as Sleep's engine: `cicada sleep engine --mode agent`.",
+    PLAN_NOT_CHOSEN: ("Choose your plan as Sleep's engine: `cicada sleep engine --mode agent` (Claude) or "
+                      "`--mode codex` (ChatGPT)."),
 }
 
 
@@ -66,10 +68,11 @@ async def scheduled_problem(settings, registry=None) -> Problem | None:
         from api.services.connections.registry import get_registry
 
         registry = get_registry(settings)
-    if mode == "agent":
-        ok, _detail = await engine_select.probe_claude_cheaply(registry)
-        return None if ok else Problem(PLAN_SIGNED_OUT, "Scheduled runs may use your Claude plan, but it is not "
-                                                        "signed in on this machine.")
+    if mode in ("agent", "codex"):
+        probe = engine_select.probe_claude_cheaply if mode == "agent" else engine_select.probe_codex_cheaply
+        ok, _detail = await probe(registry)
+        return None if ok else Problem(PLAN_SIGNED_OUT, "Scheduled runs may use your plan, but it is not signed in "
+                                                        "on this machine.")
     if mode == "local":
         try:
             status = await registry.status(engine_select.OLLAMA_CONNECTION_ID)
@@ -80,15 +83,16 @@ async def scheduled_problem(settings, registry=None) -> Problem | None:
                                                         "running.")
     if mode == "byok" and key_missing(resolved):
         if engine_select.scheduled_plan_allowed(registry):
-            ok, _detail = await engine_select.probe_claude_cheaply(registry)
-            if ok:
-                return Problem(PLAN_NOT_CHOSEN, "Scheduled runs may use your Claude plan, but Sleep reads with an API "
-                                                "model that has no key here.")
+            claude, _ = await engine_select.probe_claude_cheaply(registry)
+            chatgpt = False if claude else (await engine_select.probe_codex_cheaply(registry))[0]
+            if claude or chatgpt:
+                return Problem(PLAN_NOT_CHOSEN, "Scheduled runs may use your plan, but Sleep reads with an API model "
+                                                "that has no key here.")
         return Problem(NO_ENGINE, "Scheduled runs have no engine they may use here: no key is set for the API model "
                                   "Sleep reads with, and no plan is open to scheduled runs.")
     return None
 
 
 ASK_NO_ENGINE = ("Cicada has no engine to answer with on this machine: no key is set for the API model it reads "
-                 "with, and no plan is chosen. Connect your Claude plan (`cicada engine connect claude-plan`) or "
-                 "add a key for an API model (Settings → Plans & keys).")
+                 "with, and no plan is chosen. Connect your plan (`cicada engine connect claude-plan`, or "
+                 "`chatgpt-plan`) or add a key for an API model (Settings → Plans & keys).")

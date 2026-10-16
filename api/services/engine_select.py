@@ -46,8 +46,8 @@ configuration exactly as ``=agent`` is, and runs on a schedule.
 
 Ruling 4b (owner, 2026-10-16: "The server should be allowed to use plans too. Just have to set them up somehow"):
 the machine's explicit, off-by-default "Scheduled runs may use my plan" switch (``sleep_run_prefs``) opens the
-Claude plan (``SCHEDULE_PLAN_MODES``) on a schedule: a scheduled run then resolves exactly as one the person starts
-would, except the ChatGPT plan, which stays shut. It is the guard's only other door.
+plans (``SCHEDULE_PLAN_MODES``: Claude and, owner same day, "Yeah chat too", ChatGPT) on a schedule: a scheduled run
+then resolves exactly as one the person starts would. It is the guard's only other door.
 """
 from __future__ import annotations
 
@@ -148,11 +148,12 @@ def use_for_sleep(registry) -> bool:
 #: tuple, so a third plan engine cannot forget the guard.
 SUBSCRIPTION_MODES = ("agent", "codex")
 
-#: Ruling 4b (owner, 2026-10-16: "The server should be allowed to use plans too"): the plan modes the person's
-#: explicit switch — Settings → Sleep's "Scheduled runs may use my plan", ``cicada sleep schedule --use-plan on``,
-#: stored as ``sleep_run_prefs.scheduled_use_plan`` — may open on a schedule. The Claude plan only: the ChatGPT plan
-#: stays shut (the owner cancelled it). The switch is the guard's only door besides an explicit ``CICADA_LLM_MODE``.
-SCHEDULE_PLAN_MODES = ("agent",)
+#: Ruling 4b (owner, 2026-10-16: "The server should be allowed to use plans too"; on the ChatGPT plan: "Yeah chat
+#: too"): the plan modes the person's explicit switch — Settings → Sleep's "Scheduled runs may use my plan",
+#: ``cicada sleep schedule --use-plan on``, stored as ``sleep_run_prefs.scheduled_use_plan`` — may open on a schedule:
+#: both plans, each only when it is the engine the person's own choice resolves to and it is signed in. The switch is
+#: the guard's only door besides an explicit ``CICADA_LLM_MODE``.
+SCHEDULE_PLAN_MODES = ("agent", "codex")
 
 
 def scheduled_plan_allowed(registry) -> bool:
@@ -455,7 +456,7 @@ async def resolve_llm_mode(
         if configured in SUBSCRIPTION_MODES and not env_explicit and not user_triggered:
             if not _schedule_may_use(configured, registry):
                 return "byok", "scheduled cycle — Sleep engine selection is user-triggered only"
-            return configured, "scheduled runs may use your Claude plan (Settings → Sleep)"
+            return configured, "scheduled runs may use your plan (Settings → Sleep)"
         return configured, (
             f"CICADA_LLM_MODE={configured}" if env_explicit
             else f"Sleep engine set to {configured!r} in Settings"
@@ -512,7 +513,7 @@ async def resolve_llm_mode(
         return "byok", "could not probe the Claude plan — using the configured API model"
     if claude:
         if not user_triggered:
-            return "agent", "scheduled runs may use your Claude plan (Settings → Sleep)"
+            return "agent", "scheduled runs may use your plan (Settings → Sleep)"
         return "agent", (
             "Claude plan is set as the Sleep engine" if prefer_claude
             else "Claude plan connected — running Sleep on your plan"
@@ -525,7 +526,7 @@ async def resolve_llm_mode(
     # configured == "auto" from here. R-E20: the ChatGPT plan is the second
     # rung; a probe that fails (None) falls through to Ollama — the second
     # rung must not abort the ladder the way an unprobeable FIRST rung does.
-    codex_open = user_triggered or _schedule_may_use("codex", registry)   # ruling 4b: never on a schedule today
+    codex_open = user_triggered or _schedule_may_use("codex", registry)   # ruling 4b: only through the switch
     codex = await _connected(registry, CODEX_CONNECTION_ID) if codex_open else False
     if codex:
         return "codex", "ChatGPT plan signed in — running Sleep on your ChatGPT plan"

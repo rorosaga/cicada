@@ -38,6 +38,8 @@ struct SettingsRowID: RawRepresentable, Hashable, Codable, Sendable {
     static let sleepTime = SettingsRowID("sleepTime")
     static let sleepInterval = SettingsRowID("sleepInterval")
     static let sleepEngine = SettingsRowID("sleepEngine")
+    /// Ruling 4b — "Scheduled runs may use my plan".
+    static let sleepUsePlan = SettingsRowID("sleepUsePlan")
     static let scenerySource = SettingsRowID("scenerySource")
     static let sceneryTime = SettingsRowID("sceneryTime")
     static let sceneryWeather = SettingsRowID("sceneryWeather")

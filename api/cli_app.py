@@ -29,6 +29,7 @@ import os
 import re
 import time
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import quote, urlencode
 
@@ -605,10 +606,10 @@ def _schedule_text(cfg: dict) -> str:
     return f"Sleep schedule: {mode}."
 
 
-USE_PLAN_ON_TEXT = ("Scheduled runs may now use your Claude plan on this machine. Nightly runs count against your "
+USE_PLAN_ON_TEXT = ("Scheduled runs may now use your plan on this machine. Nightly runs count against your "
                     "plan's limits, like the runs you start; a run that reaches a limit pauses, and the next scheduled "
                     "run picks up once the limit has reset.")
-USE_PLAN_OFF_TEXT = "Scheduled runs no longer use your Claude plan; the runs you start still may."
+USE_PLAN_OFF_TEXT = "Scheduled runs no longer use your plan; the runs you start still may."
 
 
 def _schedule_warning(cfg: dict) -> str | None:
@@ -939,7 +940,7 @@ def cmd_engine_list(boot, args) -> Result:
     extra = [line for line in (_preview_line("Sleep you start", preview.get("manual")),
                                _preview_line("Scheduled Sleep", preview.get("scheduled"))) if line]
     if opts:
-        extra.append("Scheduled runs may use your Claude plan: "
+        extra.append("Scheduled runs may use your plan: "
                       + ("on" if opts.get("scheduledUsePlan") else "off (`cicada sleep schedule --use-plan on`)"))
     if sched and sched.get("mode") not in (None, "manual"):
         warning = _schedule_warning(sched)
@@ -951,26 +952,59 @@ def cmd_engine_list(boot, args) -> Result:
     return Result(text=text or "No engines.", data=out, warnings=_warn(boot))
 
 
-#: Claude Code's own sign-in, run in the person's terminal on the machine Sleep runs on (ruling 4b). Only flags its
-#: own help lists (`claude auth login --help`, Claude Code 2.1): `--claudeai` is the subscription, its default.
-CLAUDE_LOGIN = ("auth", "login", "--claudeai")
-CLAUDE_STATUS = ("auth", "status", "--json")
+#: Each plan's own sign-in, run in the person's terminal on the machine Sleep runs on (ruling 4b). Only flags the CLIs'
+#: own help lists: `claude auth login --claudeai` (Claude Code 2.1, the subscription — its default) and `codex login
+#: --device-auth` (Codex CLI 0.16x, the headless device code, in Cicada's own CODEX_HOME through `scrubbed_env`).
+@dataclass(frozen=True)
+class PlanSignIn:
+    binary: str
+    product: str
+    status: tuple[str, ...]
+    login: tuple[str, ...]
+    intro: str
+    engine_mode: str
+    alt: str
+
+
+PLAN_SIGN_INS = {
+    "claude-plan": PlanSignIn(
+        binary="claude", product="Claude Code", status=("auth", "status", "--json"), login=("auth", "login", "--claudeai"),
+        intro=("Claude Code will sign in to your Claude plan on this machine. It prints a link: open it on any device, "
+               "sign in, and if it shows a code, paste the code back here. Claude Code keeps the sign-in where it keeps "
+               "its own; Cicada never sees or stores the token."),
+        engine_mode="agent",
+        alt=("If the sign-in cannot finish on this machine, `claude setup-token` on any machine where it works prints a "
+             "long-lived token; set it as CLAUDE_CODE_OAUTH_TOKEN in the backend's own environment (on Linux: "
+             "`systemctl --user edit cicada-backend.service`, then an `Environment=` line under `[Service]`). Cicada "
+             "never asks for it, stores it or prints it.")),
+    "chatgpt-plan": PlanSignIn(
+        binary="codex", product="the Codex CLI", status=("login", "status"), login=("login", "--device-auth"),
+        intro=("The Codex CLI will sign in to your ChatGPT plan for Cicada on this machine. It prints a link and a "
+               "one-time code: open the link on any device, sign in, and enter the code. The sign-in is kept in "
+               "Cicada's own Codex folder, apart from Codex in your terminal; Cicada never sees or stores the token."),
+        engine_mode="codex",
+        alt=("If the sign-in cannot finish, run `cicada engine connect chatgpt-plan` again from a terminal on this "
+             "machine.")),
+}
 PLAN_AUTH_METHODS = ("claude.ai", "oauth_token")
-CONNECT_INTRO = ("Claude Code will sign in to your Claude plan on this machine. It prints a link: open it on any "
-                 "device, sign in, and if it shows a code, paste the code back here. Claude Code keeps the sign-in "
-                 "where it keeps its own; Cicada never sees or stores the token.")
-CONNECT_HEADLESS_ALT = ("If the sign-in cannot finish on this machine, `claude setup-token` on any machine where it "
-                        "works prints a long-lived token; set it as CLAUDE_CODE_OAUTH_TOKEN in the backend's own "
-                        "environment (on Linux: `systemctl --user edit cicada-backend.service`, then an "
-                        "`Environment=` line under `[Service]`). Cicada never asks for it, stores it or prints it.")
-CONNECT_NEXT = ("Runs you start can read with it once Sleep reads with your plan (`cicada sleep engine --mode agent`). "
-                "Scheduled runs use it only when you say so: `cicada sleep schedule --use-plan on`.")
+#: Kept for callers that name the Claude texts directly.
+CONNECT_INTRO = PLAN_SIGN_INS["claude-plan"].intro
+CONNECT_HEADLESS_ALT = PLAN_SIGN_INS["claude-plan"].alt
+
+
+def _connect_next(plan: PlanSignIn) -> str:
+    return (f"Runs you start can read with it once Sleep reads with your plan (`cicada sleep engine --mode "
+            f"{plan.engine_mode}`). Scheduled runs use it only when you say so: `cicada sleep schedule --use-plan on`.")
+
+
+def _plan_binary(name: str) -> str | None:
+    import shutil
+
+    return shutil.which(name)
 
 
 def _claude_binary() -> str | None:
-    import shutil
-
-    return shutil.which("claude")
+    return _plan_binary("claude")
 
 
 def _interactive() -> bool:
@@ -979,18 +1013,21 @@ def _interactive() -> bool:
     return sys.stdin.isatty()
 
 
-def _claude_signed_in(binary: str) -> bool | None:
-    """Claude Code's own answer (`claude auth status --json`): True for a plan sign-in, False for none (or an API
-    key, which is not a plan), None when it could not be asked."""
+def _signed_in(plan: PlanSignIn, binary: str) -> bool | None:
+    """The plan CLI's own answer: True for a plan sign-in, False for none (or an API key, which is not a plan), None
+    when it could not be asked. Claude Code answers JSON; the Codex CLI answers with its exit code and a sentence."""
     import subprocess
 
     from api.services.connections.base import scrubbed_env
 
     try:
-        done = subprocess.run([binary, *CLAUDE_STATUS], capture_output=True, text=True, timeout=20,
-                              env=scrubbed_env("claude"), stdin=subprocess.DEVNULL)
+        done = subprocess.run([binary, *plan.status], capture_output=True, text=True, timeout=20,
+                              env=scrubbed_env(plan.binary), stdin=subprocess.DEVNULL)
     except (OSError, subprocess.SubprocessError):
         return None
+    if plan.binary == "codex":
+        said = f"{done.stdout}\n{done.stderr}".lower()
+        return done.returncode == 0 and "api key" not in said
     try:
         info = json.loads(done.stdout.strip() or "{}")
     except ValueError:
@@ -998,61 +1035,70 @@ def _claude_signed_in(binary: str) -> bool | None:
     return bool(info.get("loggedIn")) and info.get("authMethod") in (None, *PLAN_AUTH_METHODS)
 
 
-def _run_claude_login(binary: str) -> int:
-    """Claude Code's sign-in in this terminal: its own prompts, its own link, its own storage. The child gets
-    Cicada's scrubbed environment, so a provider key in this shell cannot turn the sign-in into a metered one."""
+def _claude_signed_in(binary: str) -> bool | None:
+    return _signed_in(PLAN_SIGN_INS["claude-plan"], binary)
+
+
+def _run_sign_in(plan: PlanSignIn, binary: str) -> int:
+    """The plan CLI's sign-in in this terminal: its own prompts, its own link, its own storage. The child gets
+    Cicada's scrubbed environment, so a provider key in this shell cannot turn the sign-in into a metered one (and a
+    `codex` child signs in to Cicada's own Codex home)."""
     import subprocess
 
     from api.services.connections.base import scrubbed_env
 
     try:
-        return subprocess.run([binary, *CLAUDE_LOGIN], env=scrubbed_env("claude")).returncode
+        return subprocess.run([binary, *plan.login], env=scrubbed_env(plan.binary)).returncode
     except (OSError, subprocess.SubprocessError):
         return 1
 
 
 def cmd_engine_connect(boot, args) -> Result:
-    """Ruling 4b (owner, 2026-10-16): "Just have to set them up somehow" — the Claude plan on a server, signed in by
-    Claude Code itself in the person's own terminal. Only the plan is connected here; a key goes in Settings → Plans &
-    keys or `~/.cicada/secrets.env`."""
+    """Ruling 4b (owner, 2026-10-16): "Just have to set them up somehow" — a plan on a server, signed in by its own
+    CLI in the person's own terminal ("Yeah chat too": the ChatGPT plan as well). Only plans are connected here; a key
+    goes in Settings → Plans & keys or `~/.cicada/secrets.env`."""
     import sys
 
-    if args.connection != "claude-plan":
-        raise UsageError("only `claude-plan` is connected from here; an API key goes in Settings → Plans & keys or "
-                         "~/.cicada/secrets.env")
-    require_person("Signing in to your Claude plan")
+    plan = PLAN_SIGN_INS.get(args.connection)
+    if plan is None:
+        raise UsageError("`claude-plan` or `chatgpt-plan` is connected from here; an API key goes in Settings → Plans "
+                         "& keys or ~/.cicada/secrets.env")
+    require_person("Signing in to your plan")
     if getattr(boot, "client", False):
         raise Refusal("on_server", "Your memory and its Sleep run on the server, so the plan is signed in there: run "
-                                   "`cicada engine connect claude-plan` in a terminal on the server. Nothing was "
-                                   "changed.")
-    binary = _claude_binary()
+                                   f"`cicada engine connect {args.connection}` in a terminal on the server. Nothing "
+                                   "was changed.")
+    binary = _plan_binary(plan.binary)
     if binary is None:
-        raise Refusal("refused", "Claude Code is not installed on this machine, and it is what signs in to your plan. "
-                                 "Install it (code.claude.com), then run `cicada engine connect claude-plan` again. "
-                                 "Nothing was changed.")
+        raise Refusal("refused", f"{plan.product[0].upper() + plan.product[1:]} is not installed on this machine, and "
+                                 f"it is what signs in to your plan. Install it, then run `cicada engine connect "
+                                 f"{args.connection}` again. Nothing was changed.")
     lines: list[str] = []
-    if _claude_signed_in(binary):
-        lines.append("Your Claude plan is already signed in on this machine.")
+    if _signed_in(plan, binary):
+        lines.append("Your plan is already signed in on this machine.")
     else:
         if getattr(args, "json", False) or getattr(args, "format", None) == "json":
-            raise Refusal("refused", "Signing in shows Claude Code's own prompts, which --json would hide: run "
-                                     "`cicada engine connect claude-plan` without it. Nothing was changed.")
+            raise Refusal("refused", f"Signing in shows {plan.product}'s own prompts, which --json would hide: run "
+                                     f"`cicada engine connect {args.connection}` without it. Nothing was changed.")
         if not _interactive():
-            raise Refusal("refused", "Signing in needs your own terminal: run `cicada engine connect claude-plan` in a "
-                                     "terminal on this machine. Nothing was changed. " + CONNECT_HEADLESS_ALT)
-        sys.stderr.write(CONNECT_INTRO + "\n\n")
+            raise Refusal("refused", f"Signing in needs your own terminal: run `cicada engine connect "
+                                     f"{args.connection}` in a terminal on this machine. Nothing was changed. "
+                                     + plan.alt)
+        sys.stderr.write(plan.intro + "\n\n")
         sys.stderr.flush()
-        _run_claude_login(binary)
-        if not _claude_signed_in(binary):
-            raise Refusal("refused", "Claude Code did not finish signing in, so nothing changed. Run "
-                                     "`cicada engine connect claude-plan` again. " + CONNECT_HEADLESS_ALT)
-        lines.append("Your Claude plan is signed in on this machine.")
-    status = call(boot, "GET", "/connections/claude-plan", query={"fresh": "true"})
+        _run_sign_in(plan, binary)
+        if not _signed_in(plan, binary):
+            raise Refusal("refused", f"{plan.product[0].upper() + plan.product[1:]} did not finish signing in, so "
+                                     f"nothing changed. Run `cicada engine connect {args.connection}` again. "
+                                     + plan.alt)
+        lines.append("Your plan is signed in on this machine.")
+    status = call(boot, "GET", f"/connections/{args.connection}", query={"fresh": "true"})
     if not status.get("connected"):
         lines.append("Cicada's backend does not see the sign-in yet: it runs as another user or with another home. "
-                     + CONNECT_HEADLESS_ALT)
-    lines.append(CONNECT_NEXT)
-    return Result(text="\n".join(lines), data={"connection": "claude-plan", "connected": bool(status.get("connected")),
+                     + plan.alt)
+    lines.append(_connect_next(plan))
+    return Result(text="\n".join(lines), data={"connection": args.connection,
+                                               "connected": bool(status.get("connected")),
                                                "plan": status.get("plan")}, warnings=_warn(boot))
 
 

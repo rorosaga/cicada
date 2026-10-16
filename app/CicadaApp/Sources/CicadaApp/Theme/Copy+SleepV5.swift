@@ -241,7 +241,8 @@ extension Copy {
             }
         }
         static let scheduledNeverSpendsPlans =
-            "Scheduled cycles never use a plan you signed in to — only a cycle you start yourself does."
+            "Scheduled cycles use a plan you signed in to only if you allow it in Settings → Sleep; a cycle you start "
+            + "yourself always may."
 
         // MARK: Details
 
