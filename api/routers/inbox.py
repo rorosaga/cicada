@@ -1,10 +1,10 @@
 import asyncio
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
 from api.config import Settings, get_settings
-from api.models.schemas import CheckCensus, InboxItem, InboxResolveRequest
+from api.models.schemas import CheckCensus, InboxItem, InboxResolveRequest, SettledCheck
 from api.services import inbox_service, source_check, sync_service
 
 router = APIRouter()
@@ -44,6 +44,47 @@ async def check_census(settings: Settings = Depends(get_settings)):
     polls it. The same numbers: ``scripts/check-census.sh <bank>``.
     """
     return CheckCensus(**await asyncio.to_thread(source_check.census, settings.memory_path))
+
+
+@router.get("/inbox/settled", response_model=list[SettledCheck])
+async def list_settled(settings: Settings = Depends(get_settings)):
+    """"Settled by a check" (owner ruling 2026-10-16): the questions a web lookup or the person's own agent settled,
+    newest first, each with its answer and the citation it rests on. On demand, not a Store domain: the Inbox fetches it
+    when it opens and after an undo, and caches it in memory. Engine-free; it reads ``inbox/settled/``."""
+    from api.services import web_settle
+
+    return [SettledCheck(**row) for row in await asyncio.to_thread(web_settle.list_settled, settings.memory_path)]
+
+
+@router.post("/inbox/settled/{item_id}/undo")
+async def undo_settled(item_id: str, settings: Settings = Depends(get_settings)):
+    """The one-tap undo: the check's claim is withdrawn, what it closed reopens (only a claim still as the check left
+    it), and the question returns to the inbox. Committed as the person's (``Web check undone <date>``). 409 while
+    Sleep holds the pages, 404 for no such settled question."""
+    from api.services import page_lock, state_dictionary, web_settle, write_admission
+    from api.services.sleep_refusal import SleepWriting
+
+    memory_path = settings.memory_path
+
+    def work() -> str:
+        with page_lock.page_lock(memory_path):
+            target, paths, lines = web_settle.undo(memory_path, item_id)
+            web_settle.commit_sync(memory_path, web_settle.commit_message("Web check undone", lines, authors=["user"]),
+                                   paths)
+            return target
+
+    try:
+        target = await write_admission.run_admitted(
+            memory_path, lambda: asyncio.to_thread(work),
+            refuse=lambda: SleepWriting(inbox_service.SLEEP_BUSY))
+    except web_settle.NotSettleable as exc:
+        raise HTTPException(404, str(exc)) from exc
+    web_settle.record_event(memory_path, action="undo", item_id=item_id, entity_id=None, by_kind="person")
+    try:
+        await state_dictionary.refresh_and_commit(memory_path, settings)
+    except Exception:  # noqa: BLE001 — the projection never fails the person's undo
+        pass
+    return {"status": "reopened", "id": target}
 
 
 @router.post("/inbox/{item_id}/resolve")

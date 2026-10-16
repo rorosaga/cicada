@@ -8,6 +8,15 @@
 
 ## Current state and evidence
 
+- **2026-10-16 — a web lookup settles questions about public things (ruling 27, G61; branch `feat/web-settles`, not
+  merged).** `web_settle` (the filter, the pinned query, the one settle/undo writer, `inbox/settled/`), `web_lookup` (the
+  Sleep-tail step: plan search on a run the person started, a metered provider's search at its price, the pinned-query
+  check, 8 a run, a 30-day memo outside the bank), `cicada_record_check(outcome="settles")` for the person's own agent
+  (repo-state questions from a commit, trusted local agents only), `GET /inbox/settled` + `POST
+  /inbox/settled/{id}/undo`, the `web_check` ledger kind, and the Inbox's "Settled by a check" list with Undo and Track
+  this source. The answer is a citation on its claim only, never a tracked source. Tests: `test_web_settle.py`,
+  `SettledChecksTests`. Pick up: review; then a person-started run on a copy of the real bank, reading the settled list
+  and the `web_check` counts (ids only) before merging.
 - **2026-10-16 — the Sleep page redesigned, the Feed folded into it (branch `feat/sleep-redesign`, not merged; owner
   approval 2026-10-16, ⌘ map A).** The "Sleep Cycle" title is gone (an eyebrow: "Sleep · 42 waiting · last read 2 h
   ago"); the room left its card and draws at a whole 5/4/3 pt per cell by the column's width; Details became the tabs
@@ -719,3 +728,25 @@ A whole row moves to DONE only after its remaining implementation and required a
     Revisit if a re-check is found to have overwritten a statement the person had to restore (count the divergence
     answers and `git revert`s of `Source refresh` / re-check commits first), or if a site's terms change for the walled
     family.
+27. **A web lookup settles questions about public things (owner, 2026-10-16; G61, amends the S3 rail).** Owner: "A web
+    lookup answers 'what is X' for public things and closes the question. The answer is saved with its link and quote,
+    and you can undo it from a 'Settled by a check' list. Never searched: people's names, your own files, your projects,
+    your life. Runs from your Claude plan in runs you start; a scheduled metered run costs a few cents more." Refinement,
+    same day: the answer carries a citation (the URL and the short quote, shown where the claim's evidence shows) but is
+    **not** a tracked source — it never joins the page's re-check set, never makes a site trusted, never drives a logo;
+    the person may promote it with one tap. **What:** a pending conflict or clarification about a work, product, tool,
+    company, public concept or paper; never a person (typed, an untyped name whose description says so, a person's name
+    or alias), the owner's page, a file or path, a project, anything only the conversations know; when in doubt, the
+    question stays. **What leaves the machine:** the subject's name plus generic category words — never conversation
+    text, never another name from the bank, never the person's name. **Who:** Sleep's tail on a run the person started,
+    with the Claude plan's own search as the call's one tool (ruling 4: a scheduled run never uses a plan); a metered
+    engine's own search at its price, priced in Past reads (ruling 12); `CICADA_ALLOW_CONNECTOR_FETCH` gates it; the
+    person's own agent through `cicada_record_check(outcome="settles")`; questions about whether a PR or a G row merged
+    are answered from the commit by a trusted local agent, never searched. **Settling:** a claim (observer the agent,
+    the citation as its evidence), the question resolved and listed under "Settled by a check" with one-tap undo that
+    takes back only what the check wrote. The S3 rule stays true for everything else: an inbox check on any other
+    question still settles nothing.
+    **Why.** About 60 of 126 open conflicts and clarifications on the owner's bank (2026-10-16) asked about public
+    things a lookup answers, and the person was asked to look them up by hand.
+    Revisit if an undo count on `web_check` rows (ids only) shows settles being taken back often, or if a settle is
+    found to have searched or written something personal.

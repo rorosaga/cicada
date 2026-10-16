@@ -756,6 +756,75 @@ def _check_agent_row(ctx: ToolContext, memory_path: Path, *, item_id: str, entit
     ))
 
 
+SETTLES = "settles"
+MAX_SETTLES_PER_SESSION = 10
+_SETTLES_BY_SESSION: dict[str, int] = {}
+
+
+def _record_settle(ctx: ToolContext, memory_path: Path, item_id, source, option_key, proposed_value, quotes) -> str:
+    """``cicada_record_check(outcome="settles")`` (owner ruling 2026-10-16): the person's own agent answers a question
+    about a PUBLIC thing (a film, a paper, a tool, a company) from a page it found, or — a trusted local agent only —
+    a question about whether a PR or a G row merged, from the commit. The answer becomes a cited claim and the
+    question leaves the inbox, undoable from "Settled by a check" (``web_settle``). Everything else still only reports.
+    Refused, writing nothing: a connected app, a malformed id, a question that is not public (a person, the person's
+    files, projects or life), a repo question from a harness not on the person's trust list, a missing quote or
+    answer, a link that is not a public page (or, for a repo question, not a commit), Sleep running, the session cap."""
+    from api.services import check_record, page_editors, web_settle
+
+    if ctx.is_remote:
+        return ("Not recorded: a connected app reports what it found; it never settles a question. Use "
+                "outcome='supports' or 'proposes' on a listed source instead.")
+    item_id = str(item_id or "").strip()
+    if not _ITEM_ID_RE.match(item_id):
+        return "Error: item_id must look like 'inbox-001' (the id the question was listed with)."
+    facts = web_settle.bank_facts(memory_path)
+    item_path = memory_path / "inbox" / f"{item_id}.md"
+    c = web_settle.candidate(memory_path, item_path, facts) if item_path.exists() else None
+    if c is None:
+        return ("Not recorded: that question is not one a lookup may settle — it is about a person, the person's own "
+                "files, projects or life, or something only their conversations know, or it is no longer open. It "
+                "stays for the person.")
+    if c.scope == "repo" and not page_editors.is_trusted(ctx.author, remote=ctx.is_remote):
+        return ("Not recorded: only an agent on the person's trust list may settle a question about the repository, "
+                "from its commit. Tell the person what you found instead.")
+    quotes_clean, _dropped = check_record.clean_quotes(quotes)
+    if not quotes_clean:
+        return ("Not recorded: settling needs one short quote from the page (or the commit's own subject line), in "
+                "its own words. Nothing was written.")
+    if c.kind == "conflict" and not str(option_key or "").strip():
+        return "Not recorded: `option_key` must be the key of the option the page shows is true. Nothing was written."
+    if c.kind != "conflict" and not str(proposed_value or "").strip():
+        return ("Not recorded: `proposed_value` is the answer, one short phrase (at most 200 characters). Nothing "
+                "was written.")
+    if ctx.sleep_running():
+        return ("Not recorded: Cicada is consolidating memory right now. Nothing was saved. Keep what you found and "
+                "record it when Cicada has finished.")
+    session_key = f"{ctx.connector_id or ''}:{ctx.session_id}"
+    if _SETTLES_BY_SESSION.get(session_key, 0) >= MAX_SETTLES_PER_SESSION:
+        return "Not recorded: this session has settled the most questions it may. Stop and tell the person."
+    try:
+        done = web_settle.settle(
+            memory_path, item_id, ref=source, quote=quotes_clean[0], option_key=option_key, answer=proposed_value,
+            checker=ctx.author, checker_kind="agent", origin="mcp", scopes=(c.scope,),
+            session_frontmatter=ctx.session_frontmatter(), facts=facts)
+    except web_settle.NotSettleable as exc:
+        return f"Not recorded: {exc} Nothing was written."
+    _SETTLES_BY_SESSION[session_key] = _SETTLES_BY_SESSION.get(session_key, 0) + 1
+    message = web_settle.commit_message("Web check", done.lines, authors=[ctx.author],
+                                        sessions=[ctx.session_id] if ctx.session_id else None)
+    try:
+        web_settle.commit_sync(memory_path, message, done.paths)
+    except Exception as exc:  # noqa: BLE001 — the settle stands; the next writer's commit is scoped, never ours
+        from loguru import logger
+
+        logger.warning(f"web check commit skipped ({type(exc).__name__}); the settle stands uncommitted")
+    web_settle.record_event(memory_path, action="settle", item_id=item_id, entity_id=c.entity_id, by_kind="agent",
+                            harness=ctx.harness)
+    where = "the commit" if c.scope == "repo" else "that page"
+    return (f"Settled {item_id}: your answer is saved as a belief citing {where} and your quote, and the question left "
+            "the inbox. The person sees it under \"Settled by a check\" and can undo it with one tap.")
+
+
 @_holding_pages
 def record_check(ctx: ToolContext, item_id: str, source: str, outcome: str, option_key: str | None = None,
                  proposed_value: str | None = None, quotes: list | None = None, summary: str | None = None,
@@ -779,6 +848,8 @@ def record_check(ctx: ToolContext, item_id: str, source: str, outcome: str, opti
     memory_path = ctx.memory_path()
     if (refusal := _demo_refusal(memory_path)) is not None:
         return refusal
+    if str(outcome or "").strip().lower() == SETTLES:
+        return _record_settle(ctx, memory_path, item_id, source, option_key, proposed_value, quotes)
     if not reading_settings.agent_enabled():
         return _READING_OFF
     outcome = str(outcome or "").strip().lower()
@@ -870,12 +941,36 @@ def record_check(ctx: ToolContext, item_id: str, source: str, outcome: str, opti
     return " ".join(parts)
 
 
+def _settle_lines(ctx: ToolContext, memory_path: Path, item_id: str) -> list[str]:
+    from api.services import page_editors, web_settle
+
+    path = memory_path / "inbox" / f"{item_id}.md"
+    try:
+        c = web_settle.candidate(memory_path, path, web_settle.bank_facts(memory_path)) if path.exists() else None
+    except Exception:  # noqa: BLE001 — a line never costs the question
+        c = None
+    if c is None:
+        return []
+    answer = "option_key" if c.kind == "conflict" else "proposed_value"
+    if c.scope == "repo":
+        if not page_editors.is_trusted(ctx.author, remote=ctx.is_remote):
+            return []
+        return [f"  From the repository: answer it from its commit \u2014 cicada_record_check(item_id=\"{item_id}\", "
+                f"source=\"commit:<sha>\", outcome=\"settles\", {answer}=\u2026, quotes=[{{quote: <the commit's subject>}}])"]
+    return [f"  Public: look it up on the web (search only \"{web_settle.query_for(c)}\"), then settle it \u2014 "
+            f"cicada_record_check(item_id=\"{item_id}\", source=<the page>, outcome=\"settles\", {answer}=\u2026, "
+            "quotes=[{quote}])"]
+
+
 def check_lines(ctx: ToolContext, memory_path: Path, item_id: str, fm: dict, *, index: dict | None,
                 path: Path | None = None) -> list[str]:
     """The question's check lines for ``cicada_check_nudges`` (G61 S3): ``Check first:`` for a source the queue would
     list (and only when the caller can record it), and ``Checked by …`` for what agents already reported. A quote shows
     only where the item's Cause does (``ctx.raw_excerpts``); never to a remote connection without ``sources``."""
     lines: list[str] = []
+    if ctx.can("cicada_record_check") and not ctx.is_remote:
+        # Owner ruling 2026-10-16: a question about a public thing may be settled from a page the agent finds.
+        lines += _settle_lines(ctx, memory_path, item_id)
     for e in (index or {}).get(item_id, [])[:2]:
         if ctx.can("cicada_record_check"):
             lines.append(f"  Check first: {e.url} ({e.access or 'unknown'}) \u2014 look at it yourself, then "

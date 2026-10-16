@@ -354,6 +354,7 @@ NONE = "none: reads or computes; writes nothing"
 ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /ask": (NONE, None),
     "POST /inbox/{item_id}/resolve": (ADMITTED, "api.services.inbox_service.resolve"),
+    "POST /inbox/settled/{item_id}/undo": (ADMITTED, None),   # the web check's undo (owner ruling 2026-10-16)
     "POST /nudges/{nudge_id}/resolve": (ADMITTED, "api.services.inbox_service.resolve"),
     "POST /clarifications/{clarification_id}": (ADMITTED, "api.services.inbox_service.resolve"),
     "POST /entities/{entity_id}/read": (OUTSIDE, None),

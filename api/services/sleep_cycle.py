@@ -1119,6 +1119,51 @@ async def _source_refresh_safely(memory_path: Path) -> None:
         await asyncio.to_thread(source_refresh.restore, memory_path, report)
 
 
+async def _web_check_safely(memory_path: Path, settings: Settings, *, user_triggered: bool) -> None:
+    """Owner ruling 2026-10-16 (G61): after the run's nudges, look up the public-thing questions (a film, a paper, a
+    tool, a company — never a person, the person's files, projects or life) and settle the ones a search answers,
+    each with its link and quote on its claim (`web_lookup`, `web_settle`). Behind `CICADA_ALLOW_CONNECTOR_FETCH`;
+    ruling 4: a scheduled run never uses a plan, a metered engine's search is priced in the run's usage. Its calls run
+    in the run's own scope (a drain's calls are tagged with the drain), so Past reads counts them. One commit
+    (`Web check <date>`, trigger `sleep/web-check`) under the model that looked; pages dirty before it ran are left
+    alone (a settle there is skipped). Never raises."""
+    from api.services import agent_engine, web_lookup, web_settle
+
+    skip: frozenset[str] = frozenset()
+    if (memory_path / ".git").exists():
+        try:
+            skip = await _dirty_paths(memory_path)
+        except Exception as exc:
+            logger.warning(f"Web check skipped: tree status unreadable ({type(exc).__name__})")
+            return
+    cycle_id = _state.cycle_id
+    drain = _state.drain
+    batch_id = f"{cycle_id}-web" if (cycle_id and drain is not None) else cycle_id
+    try:
+        if drain is not None and batch_id:
+            sleep_drain.register_batch(batch_id, drain)   # its calls count toward the run, like a batch's
+        with agent_engine.use_scope(web_lookup.scope_name(batch_id)):
+            report = await web_lookup.run_tail(memory_path, settings, user_triggered=user_triggered, skip=skip)
+    except Exception as exc:
+        logger.warning(f"Web check failed: {type(exc).__name__}: {exc}")
+        return
+    finally:
+        if drain is not None and batch_id:
+            sleep_drain.unregister_batch(batch_id)
+    # Counts and enums only — never a name, a query, a link or an answer.
+    logger.info(f"Web check: {report.looked_up} looked up, {report.settled} settled, skipped {report.skipped}"
+                + (f" ({report.reason})" if report.reason else ""))
+    if not report.paths or not (memory_path / ".git").exists():
+        return
+    message = web_settle.commit_message("Web check", report.lines, authors=report.models or [report.engine or "agent"],
+                                        engine=report.engine)
+    try:
+        async with _lock:
+            await asyncio.to_thread(web_settle.commit_sync, memory_path, message, report.paths)
+    except Exception as exc:
+        logger.warning(f"Web check commit failed (the settles stand uncommitted): {type(exc).__name__}")
+
+
 async def _run_engine_independent_tail(
     memory_path: Path, settings: Settings, outcome: _StageOutcome, *, user_triggered: bool = True,
     skip_links: bool = False,
@@ -1214,6 +1259,11 @@ async def _run_engine_independent_tail(
             await _site_sources_safely(memory_path)
             # G61, ruling 26: tracked sources re-checked (public pages only), before any poll's `git add -A`.
             await _source_refresh_safely(memory_path)
+            # Owner ruling 2026-10-16: public-thing questions looked up and settled, before any poll's `git add -A`.
+            if skip_links:
+                logger.info("web check skipped: the run stopped at the plan's limit")
+            else:
+                await _web_check_safely(memory_path, settings, user_triggered=user_triggered)
             await _poll_connectors_safely(memory_path)
             await _poll_feeds_and_calendars_safely(memory_path)
             if skip_links:

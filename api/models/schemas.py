@@ -2273,6 +2273,32 @@ class InboxResolveRequest(CamelModel):
     via: Optional[str] = None
 
 
+class SettledCheck(CamelModel):
+    """``GET /inbox/settled`` — one question a web lookup or the person's own agent settled (owner ruling
+    2026-10-16): the answer, the citation it rests on (``ref`` + ``quote``, on that claim only — never a tracked
+    source) and who settled it. ``hasPage``: the subject has a page, so the citation can be promoted to a tracked
+    source with the person's own add-source route."""
+
+    id: str
+    kind: str
+    question: str = ""
+    entity_id: str = ""
+    entity_name: str = ""
+    answer: str = ""
+    predicate: str = ""
+    ref: str = ""
+    host: str = ""
+    quote: str = ""
+    settled_at: str = ""
+    settled_by: str = ""
+    settled_by_kind: str = ""
+    scope: str = "public"
+    claim_id: str = ""
+    episode: str = ""
+    held: bool = False
+    has_page: bool = False
+
+
 class CheckCensus(CamelModel):
     """``GET /inbox/check-census`` — counts only (G61 phase 2 S2, plan R-AC41).
     Dict keys are enum values (``checkable``, ``checkable/settle_eligible``), not

@@ -22,6 +22,8 @@ struct InboxQuestionList: View {
     let move: (Int) -> Void
     let focusQuestion: () -> Void
     let escape: () -> Void
+    /// Drawn after the questions at full width only — "Settled by a check" (owner ruling 2026-10-16).
+    var footer: AnyView? = nil
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -59,6 +61,7 @@ struct InboxQuestionList: View {
                         }
                         .id(entry.id)
                     }
+                    if style == .wide, let footer { footer }
                 }
                 .padding(padding)
                 // A row that leaves on the server's word fades out. The Undo row keeps its question's

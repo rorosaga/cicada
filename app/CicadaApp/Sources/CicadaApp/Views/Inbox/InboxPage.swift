@@ -24,6 +24,8 @@ struct InboxPage: View {
     @State private var landingToken = 0
     /// R-DL4 — the column plan's DR-27 answer, mirrored out of the header builder so the focus policy can read it.
     @State private var listHidden = false
+    /// Owner ruling 2026-10-16 — "Settled by a check", in memory (not a Store domain).
+    @State private var settled = SettledChecks()
 
     var body: some View {
         Group {
@@ -41,7 +43,15 @@ struct InboxPage: View {
         .background(CicadaTheme.bgBase)
         .onAppear { consumeLanding(); viewModel.reconcile() }
         .onChange(of: router.pendingInboxItem) { _, _ in consumeLanding() }
-        .onChange(of: viewModel.items.map(\.id)) { _, _ in viewModel.reconcile() }
+        .onChange(of: viewModel.items.map(\.id)) { _, _ in
+            viewModel.reconcile()
+            Task { await settled.load() }   // a run may have settled some; an undo brought one back
+        }
+        .task { await settled.load() }
+    }
+
+    private var settledSection: some View {
+        SettledChecksSection(model: settled) { await viewModel.loadInbox() }
     }
 
     private var columns: some View {
@@ -60,7 +70,8 @@ struct InboxPage: View {
                               openId: viewModel.columns.openId,
                               undoShortcut: !editingText, landingToken: landingToken,
                               open: { open($0) }, undo: { undo() }, move: { move($0) },
-                              focusQuestion: { focus = .question }, escape: { escape() })
+                              focusQuestion: { focus = .question }, escape: { escape() },
+                              footer: AnyView(settledSection))
                 .focused($focus, equals: .list)
                 .tourAnchor(.inbox)
         } detail: { plan in
@@ -207,6 +218,8 @@ struct InboxPage: View {
             // G117 — "Nothing pending" is a GOOD state, not a deficiency to fix, so it carries no
             // action; `emptyStateDetail` is the R12-honest "what Sleep actually did".
             EmptyStateView(title: Copy.Inbox.nothingPending, message: emptyStateDetail)
+            settledSection
+                .padding(.horizontal, CicadaTheme.spacingGutter)
         }
     }
 

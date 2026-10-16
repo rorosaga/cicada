@@ -24,7 +24,8 @@ from api.services import bank_index
 #: too would count one conversation twice — and lift a one-off to the 2-conversation floor.
 #: ``source-refresh`` (G61, ruling 26): a tracked source's dated re-check — what a page said, never the person mentioning
 #: the thing (liveness is not mention); the re-check's own beliefs are dated by their capture instead.
-UNTIMED_SOURCES = frozenset({"claude_memory", "agent_relay", "source-refresh"})
+#: ``web-check`` (TODO ruling 27): what a web lookup read about a public thing — never the person mentioning it either.
+UNTIMED_SOURCES = frozenset({"claude_memory", "agent_relay", "source-refresh", "web-check"})
 
 
 def counts_as_activity(frontmatter: dict | None) -> bool:

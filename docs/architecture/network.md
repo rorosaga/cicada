@@ -15,8 +15,10 @@ Three backend gates, and a separate app-side scenery gate below. They do **not**
   26: `source_refresh.run_tail` re-reads the due tracked PUBLIC sources through `_stream_html`, at most 20 a night, one
   per site, a walled or refused host never requested; it states only what the page says in schema.org JSON-LD, and a
   404/410, a name or connection failure, a parking host or "for sale" title, or a landing on another site is a strike —
-  two a week apart mark the source dead) — and paper details
-  (below). It is **opt-OUT** (on by default; `=off` disables it, which is what the test suite sets).
+  two a week apart mark the source dead) — **the web check** (TODO ruling 27: `web_lookup.run_tail` sends no request of
+  its own; the engine's search does, so the gate is asked before any engine call, and what reaches the search is only a
+  public subject's name plus generic category words, every reported search held to it — `capture-and-sleep.md`) — and
+  paper details (below). It is **opt-OUT** (on by default; `=off` disables it, which is what the test suite sets).
   A user-initiated `sync_now`, `POST /maintenance/enrich-links`, `POST /maintenance/verify-sites`, the person's
   "check now" on one source (`POST /entities/{id}/sources/refresh`; a login-walled source is only marked asked for
   their agent, never fetched), every OAuth

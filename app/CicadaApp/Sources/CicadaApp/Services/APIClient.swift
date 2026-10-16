@@ -2194,6 +2194,17 @@ actor APIClient {
         try await post("/inbox/\(id)/resolve", body: body)
     }
 
+    /// Owner ruling 2026-10-16 — "Settled by a check": the questions a web lookup or the person's agent settled
+    /// (`GET /inbox/settled`). Not a Store domain: fetched when the Inbox opens and after an undo (`SettledChecks`).
+    func fetchSettledChecks() async throws -> [SettledCheck] {
+        try await get("/inbox/settled")
+    }
+
+    /// The one-tap undo (`POST /inbox/settled/{id}/undo`): the check's claim is withdrawn and the question returns.
+    func undoSettledCheck(id: String) async throws {
+        try await post("/inbox/settled/\(encodedID(id))/undo")
+    }
+
     // MARK: - Status (menu-bar tamagotchi)
 
     /// Fetch the aggregate status snapshot (`GET /status`). The endpoint is live

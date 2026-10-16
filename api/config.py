@@ -249,6 +249,9 @@ class Settings(BaseSettings):
     # bank draining in about a month with at most 20 fetches + 20 summaries
     # + ~5 extraction calls per night.
     link_enrich_backfill_per_cycle: int = 20   # CICADA_LINK_ENRICH_BACKFILL_PER_CYCLE
+    # Owner ruling 2026-10-16 (G61): the web lookup on Sleep's tail settles at most this many public-thing
+    # questions a run (one search call each); 0 turns the step off. `web_lookup`.
+    web_check_per_run: int = 8                 # CICADA_WEB_CHECK_PER_RUN
     # Track C: reuse (zero-LLM) and fetch+summarize shared that one budget with
     # reuse spent first, so a night with 20 reuse candidates read no new page.
     # This many of the cap are reserved for fetches while any wait (the in-cycle
