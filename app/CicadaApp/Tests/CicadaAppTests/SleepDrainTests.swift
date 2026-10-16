@@ -78,10 +78,14 @@ final class SleepDrainTests: XCTestCase {
 
     // MARK: The sentence
 
-    func test_theTailNamesTheBatchAndHowMuchIsFiledWhileItReads() throws {
+    /// 2026-10-16 — the batch and the filed count are said once, by the legend under the bar ("Batch 2 of 3 · 3 filed
+    /// · …"); the tail says what the stage does instead of repeating them.
+    func test_theBatchAndTheFiledCountAreSaidOnceUnderTheBar() throws {
         let status = try scenario("running")
         let line = roomSentence(context(status, mood: .sleeping(stage: 1)))
-        XCTAssertEqual(line.tail, "Batch 2 of 3 · 3 of 7 filed.")
+        XCTAssertEqual(line.tail, SleepStages.all[0].detail)
+        let legend = try XCTUnwrap(RunProgress.from(status.drain)).legend(locale: en)
+        XCTAssertEqual(Array(legend.prefix(2)), ["Batch 2 of 3", "3 filed"])
     }
 
     func test_aSingleBatchRunKeepsTheStageDetail() {

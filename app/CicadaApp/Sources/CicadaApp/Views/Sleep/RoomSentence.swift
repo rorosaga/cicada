@@ -54,7 +54,7 @@ struct SentenceLine: Hashable {
     /// The service the tail names, if any, drawn beside it as its mark.
     var mark: SentenceMark? = nil
 
-    /// R-Z13's two budgets: one line of the 30 pt display face, two of 22 pt italic.
+    /// R-Z13's two budgets: one line of the 30 pt display face, two of the 17 pt italic tail.
     static let maxLead = 40
     static let maxTail = 80
 
@@ -284,9 +284,8 @@ private func sentenceTail(_ ctx: RoomContext) -> SentenceTail? {
         if number == 3, countedStageLead(ctx, stage: 3) != nil {
             return SentenceTail(text: Copy.SleepV5.decidingTail)
         }
-        if let drain = ctx.drain, drain.active, drain.batches > 1 {                              // T2b (G163)
-            return SentenceTail(text: drainProgressClause(drain, locale: ctx.locale))
-        }
+        // T2b retired (2026-10-16): "Batch 3 of 12 · 62 of 287 filed." repeated the legend under the bar, which now
+        // leads with the batch; the one secondary line says what the stage does.
         return SentenceTail(text: stage(ctx).detail)
     }
     if case .error = ctx.mood {                                                                 // T3
@@ -422,13 +421,6 @@ private func pausedTail(_ paused: SleepPausedRun, _ ctx: RoomContext) -> Sentenc
     }
 }
 
-/// The tail while a person-started run reads: which batch, and how much of what it set out to
-/// read is already filed. Measured counts only (G107), in the reader's locale.
-func drainProgressClause(_ drain: SleepDrainInfo, locale: Locale) -> String {
-    let count = { (n: Int) in UsageFormat.count(n, locale: locale) }
-    return "Batch \(count(drain.batch)) of \(count(drain.batches)) · \(count(drain.filed)) of \(count(drain.frozen)) filed."
-}
-
 /// After a cancel of a person-started run: what earlier batches filed stays filed. The batch that
 /// was still reading is dropped (its reads are paid again next time), so this never says
 /// "nothing was lost".
@@ -451,18 +443,25 @@ func whisperLine(scheduleText: String, nextRunText: String, lampLit: Bool) -> St
 /// lines were sized for the old 480 pt card; in the 760 pt column the second
 /// one stood empty above the control on almost every line (the live capture:
 /// ≈ 70 pt between "1 to read — overdue." and Consolidate). A tail takes one
-/// line at 22 pt, else one line at the display floor (20 pt), and only a tail
+/// line at 17 pt, else one line at 15 pt, and only a tail
 /// too long for even that wraps to a second line (`SentenceSlot.tailForm`) —
 /// never cut: R-Z13's 80-character budget still holds.
 ///
 /// Meadow's faces (Z10, Z-B12; F1 R-FX13): the lead in the display face — SF
 /// Pro Display semibold at 30 pt with `displayTracking`, shrinking only to the
-/// display floor; the tail in the display face's italic (SF italic) at 22 pt —
+/// display floor; the tail in SF regular italic at 17 pt (2026-10-16, it was 22) —
 /// the owner asked for a minimal sans, so the sentence no longer uses the
 /// quote face.
 struct RoomSentenceView: View {
     static let leadSize: CGFloat = 30
-    static let tailSize: CGFloat = 22
+    /// The one secondary line (2026-10-16): 17 pt regular italic — the heading step of the ladder (DR-16), not the
+    /// display face. At 22 pt the italic read as a second headline under "Filing…" (the owner's live capture).
+    static let tailSize: CGFloat = 17
+    /// The size a tail steps down to before it wraps: the detail-body step of the ladder.
+    static let tailFloorSize: CGFloat = 15
+
+    /// The tail's face at a size — SF regular italic through the ladder, so it scales with `uiScale` (DR-70).
+    static func tailFont(size: CGFloat) -> Font { CicadaTheme.font(size: size).italic() }
     /// The lead fits one line by shrinking no further than the display
     /// face's own floor (R-M3) — the old 0.7 would have reached 21 pt.
     static var leadMinimumScale: CGFloat { CicadaTheme.displayMinimumSize / leadSize }
@@ -591,22 +590,21 @@ struct RoomSentenceView: View {
     /// slot is one ignored-children element, so the mark adds nothing to what
     /// VoiceOver reads. The words already name the service.
     private func tailView(_ line: SentenceLine) -> some View {
-        HStack(alignment: .top, spacing: CicadaTheme.spacingXS) {
+        HStack(alignment: .center, spacing: CicadaTheme.spacingXS) {
             if let mark = line.mark {
                 SentenceMarkView(mark: mark)
-                    .padding(.top, CicadaTheme.spacingXS)
             }
             tailText(line)
         }
     }
 
-    /// The slot's reserve (one tail line), then the first form that fits the column: one line at 22 pt, one line at
-    /// the display floor, else two lines at 22 pt. `ViewThatFits` measures each form's ideal width, which for a
+    /// The slot's reserve (one tail line), then the first form that fits the column: one line at 17 pt, one line at
+    /// 15 pt, else two lines at 17 pt. `ViewThatFits` measures each form's ideal width, which for a
     /// one-line text is its unwrapped width, so a form is picked only when the whole tail fits it.
     private func tailText(_ line: SentenceLine) -> some View {
         ZStack(alignment: .top) {
             Text(verbatim: " ")
-                .font(CicadaTheme.displayFont(size: Self.tailSize, italic: true))
+                .font(Self.tailFont(size: Self.tailSize))
                 .lineLimit(SentenceSlot.reservedTailLines, reservesSpace: true)
                 .hidden()
                 .accessibilityHidden(true)
@@ -622,7 +620,7 @@ struct RoomSentenceView: View {
     @ViewBuilder
     private func tailForm(_ line: SentenceLine, _ form: SentenceSlot.TailForm) -> some View {
         let tail = line.tail ?? " "
-        let tailFont = CicadaTheme.displayFont(size: form.size, italic: true)
+        let tailFont = Self.tailFont(size: form.size)
         let tailColor = color(line.tailTone, plain: CicadaTheme.textSecondary)
         if let action = line.action, line.tail != nil {
             let link = tailLink(tail)
@@ -650,14 +648,14 @@ enum SentenceSlot {
     static let reservedTailLines = 1
 
     enum TailForm: CaseIterable, Hashable {
-        /// One line at the tail's own 22 pt.
+        /// One line at the tail's own 17 pt.
         case oneLine
-        /// One line at the display floor (DR-15's 20 pt), before anything wraps.
+        /// One line at the tail's floor (15 pt), before anything wraps.
         case oneLineAtFloor
-        /// Two lines at 22 pt — the last resort, for a tail near R-Z13's 80-character budget.
+        /// Two lines at 17 pt — the last resort, for a tail near R-Z13's 80-character budget.
         case twoLines
 
-        var size: CGFloat { self == .oneLineAtFloor ? CicadaTheme.displayMinimumSize : RoomSentenceView.tailSize }
+        var size: CGFloat { self == .oneLineAtFloor ? RoomSentenceView.tailFloorSize : RoomSentenceView.tailSize }
         var lines: Int { self == .twoLines ? 2 : 1 }
     }
 }
@@ -669,15 +667,15 @@ private struct DwellKey: Equatable {
     let inside: Bool
 }
 
-/// A `SentenceMark`, drawn. At 18 pt it sits beside the 22 pt italic tail
+/// A `SentenceMark`, drawn. At 15 pt it sits beside the 17 pt italic tail
 /// without out-weighing it.
 private struct SentenceMarkView: View {
     let mark: SentenceMark
 
     var body: some View {
         switch mark {
-        case .origin(let origin): OriginMark(origin: origin, size: 18)
-        case .engine(let engine): EngineMark(engine: engine, size: 18)
+        case .origin(let origin): OriginMark(origin: origin, size: 15)
+        case .engine(let engine): EngineMark(engine: engine, size: 15)
         }
     }
 }

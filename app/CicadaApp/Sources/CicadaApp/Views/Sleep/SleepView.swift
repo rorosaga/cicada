@@ -1034,81 +1034,25 @@ struct SleepView: View {
                       reachable: liveness == .live, cell: cell)
                 .accessibilitySortPriority(RoomA11yOrder.room)
 
-            VStack(alignment: .center, spacing: CicadaTheme.spacingMD) {
-                // R-Z5 — the one slot the worm speaks in; an answer replaces the
-                // status here (R-Z7). Every action has its destination since
-                // Task 8 (Z-P5's seam is gone), so the switch is exhaustive: a
-                // new action cannot ship without somewhere to go.
-                RoomSentenceView(line: status, answers: answers, room: room,
-                                 feedAsleep: feedIsAsleep(page.mood),
-                                 perform: { action in
-                                     switch action {
-                                     case .retry: Task { await store.refresh([.status]) }
-                                     case .openDetails(let section): openDetails(section)
-                                     case .openInbox: selectedTab = .inbox
-                                     // Z-P25 — the sentence names the lamp, so the
-                                     // popover points at the lamp, not the whisper line.
-                                     case .openLamp: room.lampPopover = .lamp
-                                     case .whatChanged: showWhatChanged()
-                                     }
-                                 })
-                SleepControlRow(consolidateEnabled: page.consolidateEnabled,
-                                queuedCount: page.queuedCount, page: page)
-                    .accessibilitySortPriority(RoomA11yOrder.control)
-                    .tourAnchor(.consolidate)
-                runNotes(page)
-                whisperRow(page)
-                    .accessibilitySortPriority(RoomA11yOrder.whisper)
-
-                // R-A8 / R-Z6 — the five-stage strip, only while a cycle runs or
-                // after one was cancelled or failed (its frozen record, P15).
-                if stageStripIsVisible(isRunning: page.isRunning, cancelled: page.stoppedEarly,
-                                       failed: page.cycleError != nil) {
-                    SleepStageStrip(pips: page.pips)
-                    // Sleep page v5 (A3) — what the running stage is doing, in words, and a failure beside a glyph.
-                    if let caption = stageCaption(drain: page.drain, activeStage: page.runningStage) {
-                        StageCaptionLine(text: caption.text, failed: caption.failed)
-                    }
-                }
-                // Sleep page v5 (A3) — the run's counts: while it reads, while it waits paused, and in the moment it
-                // finished (the "See what changed" window). Never a remaining time.
-                if let progress = RunProgress.from(page.drain),
-                   page.isRunning || page.paused != nil || room.recentCycleCommit != nil {
-                    RunProgressBar(progress: progress)
-                }
-            }
-            .frame(maxWidth: SleepLayout.contentWidth)
+            // Everything under the room, one centred group in the 760 pt column (2026-10-16).
+            SleepRoomColumn(page: page, status: status, answers: answers, room: room,
+                            feedAsleep: feedIsAsleep(page.mood),
+                            perform: { action in
+                                switch action {
+                                case .retry: Task { await store.refresh([.status]) }
+                                case .openDetails(let section): openDetails(section)
+                                case .openInbox: selectedTab = .inbox
+                                // Z-P25 — the sentence names the lamp, so the
+                                // popover points at the lamp, not the whisper line.
+                                case .openLamp: room.lampPopover = .lamp
+                                case .whatChanged: showWhatChanged()
+                                }
+                            },
+                            ownerEntityId: ownerEntityId, onSelectEntity: onSelectEntity,
+                            openDetails: openDetails)
         }
         .accessibilityElement(children: .contain)
         .frame(maxWidth: .infinity)
-    }
-
-    /// Sleep page v5 — the lines under the controls: the first save's link to the person's own page, the automatic
-    /// continue's promise (ruling 15, in words), and a finished run's parked conversations (a link to Waiting).
-    @ViewBuilder
-    private func runNotes(_ page: SleepPageModel) -> some View {
-        if page.isRunning, let drain = page.drain, drain.firstRun == true, drain.committedBatches == 1,
-           drain.ownerPage != nil, let owner = ownerEntityId {
-            InlineLink(title: Copy.SleepV5.seeYourPage) { onSelectEntity?(owner) }
-        }
-        if let when = page.autoContinueWhen, page.paused != nil {
-            Text(Copy.SleepV5.willContinueBySelf(when))
-                .font(CicadaTheme.captionFont)
-                .foregroundStyle(CicadaTheme.textTertiary)
-        }
-        if !page.isRunning, page.paused == nil, page.parkedCount > 0 {
-            Button { openDetails(.waiting) } label: {
-                HStack(spacing: CicadaTheme.spacingXS) {
-                    Image(systemName: "exclamationmark.triangle")
-                        .foregroundStyle(CicadaTheme.warning)
-                        .accessibilityHidden(true)
-                    Text(Copy.SleepV5.parkedLine(page.parkedCount))
-                        .foregroundStyle(CicadaTheme.textSecondary)
-                }
-                .font(CicadaTheme.captionFont)
-            }
-            .buttonStyle(.cicadaPlain)
-        }
     }
 
     /// Sleep page v5 (A7) — the run whose detail the lists read: the running or finished drain, else the paused run.
@@ -1156,34 +1100,6 @@ struct SleepView: View {
     /// The owner's page (G117), from the graph snapshot — `nil` until it has loaded (never a guess).
     private var ownerEntityId: String? {
         store.graph.value?.nodes.first { $0.isOwner }?.id
-    }
-
-    /// The schedule in one quiet line (§7.2) — the lamp's text twin (R-A3). Since Z6 it is a control: it opens the
-    /// same `LampPopover` the lamp does, anchored here (Z-P25); the popover's engine line shows the scheduled engine
-    /// ALWAYS, so ruling 4 is on screen at the moment someone chooses to schedule.
-    private func whisperRow(_ page: SleepPageModel) -> some View {
-        Button { room.lampPopover = .whisper } label: {
-            HStack(spacing: CicadaTheme.spacingSM) {
-                Image(systemName: "moon.zzz")
-                    .font(CicadaTheme.font(size: 11))
-                    .iconHover()
-                Text(whisperLine(scheduleText: page.scheduleText, nextRunText: page.nextRunText,
-                                 lampLit: page.lampLit))
-                    .font(CicadaTheme.captionFont)
-            }
-            .foregroundStyle(CicadaTheme.textTertiary)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.cicadaPlain)
-        .roomLinkCursor()
-        // R-A14 — "Next run —" is a value with a reason; an empty help
-        // string renders no tooltip, so a real time carries none.
-        .help(page.nextRunText.hasSuffix("—") ? Copy.nextRunUnknownReason : "")
-        .accessibilityHint(Copy.lampHint)
-        .popover(isPresented: Binding(get: { room.lampPopover == .whisper },
-                                      set: { if !$0 { room.lampPopover = nil } }),
-                 arrowEdge: .bottom) { LampPopover(page: page) }
-        .frame(maxWidth: .infinity)
     }
 }
 

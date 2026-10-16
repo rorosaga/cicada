@@ -395,17 +395,21 @@ final class SleepV5StagesTests: XCTestCase {
         }
     }
 
-    func test_captionsPerStage() throws {
+    /// The stage caption retired (2026-10-16): its words repeated the lead ("Filing…" / "Filing. It cannot be stopped
+    /// now."). What only it said — conversations in the batch that could not be read — stays, under the stepper.
+    func test_onlyTheBatchFailureOutlivesTheStageCaption() throws {
         var d = try JSONDecoder().decode(SleepDrainInfo.self, from: Data(#"{"frozen":287,"active":true}"#.utf8))
         d.batchState = .init(index: 3, of: 12, total: 25, read: 24, reading: 0, failed: 1)
-        d.stages = stages(sort: (0, nil), decide: (0, 12))
-        XCTAssertEqual(stageCaption(drain: d, activeStage: 1, locale: V5Fixture.en)?.text, "Reading conversations")
-        XCTAssertEqual(stageCaption(drain: d, activeStage: 1, locale: V5Fixture.en)?.failed,
+        XCTAssertEqual(batchFailureNote(drain: d, activeStage: 1, locale: V5Fixture.en),
                        "1 could not be read, it gets one more try")
-        XCTAssertEqual(stageCaption(drain: d, activeStage: 2, locale: V5Fixture.en)?.text,
-                       "Sorting names · 24 read, 1 could not be read")
-        XCTAssertEqual(stageCaption(drain: d, activeStage: 3, locale: V5Fixture.en)?.text, "Deciding · 12 pages to update")
-        XCTAssertEqual(stageCaption(drain: d, activeStage: 5, locale: V5Fixture.en)?.text, "Filing. It cannot be stopped now.")
+        XCTAssertEqual(batchFailureNote(drain: d, activeStage: 2, locale: V5Fixture.en),
+                       "1 could not be read, it gets one more try")
+        for stage in [3, 4, 5] { XCTAssertNil(batchFailureNote(drain: d, activeStage: stage, locale: V5Fixture.en)) }
+        d.batchState = .init(index: 3, of: 12, total: 25, read: 24, reading: 0, failed: 0)
+        XCTAssertNil(batchFailureNote(drain: d, activeStage: 1, locale: V5Fixture.en), "nothing failed, nothing said")
+        d.active = false
+        d.batchState = .init(index: 3, of: 12, total: 25, read: 24, reading: 0, failed: 2)
+        XCTAssertNil(batchFailureNote(drain: d, activeStage: 1, locale: V5Fixture.en), "a run not reading says nothing")
     }
 }
 

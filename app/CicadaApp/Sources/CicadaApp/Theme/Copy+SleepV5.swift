@@ -119,23 +119,18 @@ extension Copy {
 
         // MARK: The strip and the bar
 
-        static let readingCaption = "Reading conversations"
+        /// The stepper's VoiceOver name; each stage reads "Stage 2 · Sort — done" inside it.
+        static let stagesLabel = "Sleep's five stages"
+        /// While the last stage files: what a Pause or Cancel does now, under the controls and as their tooltip — the
+        /// one place it is said (2026-10-16; it was the stage caption, a third saying of "Filing"). A stop asked for
+        /// now is honoured once this batch is committed (`sleep_cycle`: a cancel after writes began finishes its
+        /// commit), so nothing is refused and nothing is lost.
+        static let filingWhisper = "Filing can't be interrupted — a stop waits until it's saved."
         static let couldNotBeReadPhrase = "could not be read"
         static func couldNotBeRead(_ n: Int, _ locale: Locale = .autoupdatingCurrent) -> String {
             "\(count(n, locale)) \(couldNotBeReadPhrase)"
         }
         static let oneMoreTry = "it gets one more try"
-        static func sortingCaption(read: Int, failed: Int, _ locale: Locale = .autoupdatingCurrent) -> String {
-            var text = "Sorting names · \(count(read, locale)) read"
-            if failed > 0 { text += ", \(couldNotBeRead(failed, locale))" }
-            return text
-        }
-        static func decidingCaption(pages: Int?, _ locale: Locale = .autoupdatingCurrent) -> String {
-            guard let pages else { return "Deciding" }
-            return "Deciding · \(count(pages, locale)) \(pages == 1 ? "page" : "pages") to update"
-        }
-        static let noticingCaption = "Noticing what repeats"
-        static let filingCaption = "Filing. It cannot be stopped now."
         static func filed(_ n: Int, _ locale: Locale = .autoupdatingCurrent) -> String { "\(count(n, locale)) filed" }
         static func readWaitingToFile(_ n: Int, _ locale: Locale = .autoupdatingCurrent) -> String {
             "\(count(n, locale)) read, waiting to file"
@@ -143,6 +138,11 @@ extension Copy {
         static func waiting(_ n: Int, _ locale: Locale = .autoupdatingCurrent) -> String { "\(count(n, locale)) waiting" }
         static func callsMade(_ n: Int, _ locale: Locale = .autoupdatingCurrent) -> String {
             "\(count(n, locale)) \(n == 1 ? "call" : "calls") made"
+        }
+        /// The legend's lead while a run of several batches reads (2026-10-16; it was the sentence's tail, beside a
+        /// second "62 of 287 filed" that the legend already said).
+        static func batchOf(_ index: Int, _ total: Int, _ locale: Locale = .autoupdatingCurrent) -> String {
+            "Batch \(count(index, locale)) of \(count(total, locale))"
         }
         static func batches(_ n: Int, _ locale: Locale = .autoupdatingCurrent) -> String {
             "\(count(n, locale)) \(n == 1 ? "batch" : "batches")"
@@ -425,7 +425,7 @@ extension Copy {
         SleepV5.keepPlanFree, SleepV5.off, SleepV5.runLiveTitle, SleepV5.runDoneTitle, SleepV5.runStoppedTitle,
         SleepV5.ownerReadyTitle, SleepV5.parkedTitle, SleepV5.readingAll, SleepV5.batchesTitle,
         SleepV5.pagesItTouched, SleepV5.whatHappened, SleepV5.took, SleepV5.calls, SleepV5.window,
-        SleepV5.continueOnSleepPage, SleepV5.readingCaption, SleepV5.filingLead, SleepV5.pausingLead,
+        SleepV5.continueOnSleepPage, SleepV5.stagesLabel, SleepV5.filingLead, SleepV5.pausingLead,
         SleepV5.pausedLead, SleepV5.pausedTitle("reserve"), SleepV5.pausedTitle("user"),
         SleepV5.pausedTitle("plan_window"), SleepV5.pausedTitle("engine"), SleepV5.pausedTitle("restart"),
         SleepV5.consolidateAll(287), SleepV5.pausedMenuTitle(filed: 98, frozen: 287), SleepV5.pausedMenuPlain,
@@ -457,8 +457,7 @@ extension Copy {
         SleepV5.pausedDoorCaption, SleepV5.continueOnSleepPage, SleepV5.reserveNotReported("weekly window"),
         SleepV5.groupTimes(readFor: "2 h 14 m", pausedFor: "4 h 37 m", parked: 1) ?? "",
         SleepV5.ownerBeliefsText(atStart: 0, afterFirstBatch: 31, firstBatch: 25) ?? "",
-        SleepV5.filingCaption, SleepV5.noticingCaption, SleepV5.sortingCaption(read: 24, failed: 1),
-        SleepV5.decidingCaption(pages: 12),
+        SleepV5.filingWhisper, SleepV5.batchOf(4, 12),
     ]
 }
 

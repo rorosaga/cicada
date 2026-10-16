@@ -12,14 +12,17 @@ final class SleepMeadowTests: XCTestCase {
             .map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.hasPrefix("//") }
     }
 
-    /// Z-B12, amended by F1 R-FX13 — the display face (SF Pro Display
-    /// semibold, tracked) for the lead, its italic for the tail. The owner asked
+    /// Z-B12, amended by F1 R-FX13 and 2026-10-16 — the display face (SF Pro
+    /// Display semibold, tracked) for the lead, SF italic at 17 pt for the tail. The owner asked
     /// for a minimal sans, so the New York quote face left the sentence too.
     func test_theSentenceSpeaksInMeadowsFaces() throws {
         let code = try sleepFile("RoomSentence.swift")
         XCTAssertTrue(code.contains { $0.contains("CicadaTheme.displayFont(size: Self.leadSize)") })
         XCTAssertTrue(code.contains { $0.contains("CicadaTheme.displayTracking(size: Self.leadSize)") })
-        XCTAssertTrue(code.contains { $0.contains("CicadaTheme.displayFont(size: Self.tailSize, italic: true)") })
+        // The tail left the display face for the ladder's 17 pt italic (2026-10-16): secondary words, not a second title.
+        XCTAssertTrue(code.contains { $0.contains("CicadaTheme.font(size: size).italic()") })
+        XCTAssertFalse(code.contains { $0.contains("displayFont(size: Self.tailSize") })
+        XCTAssertLessThan(RoomSentenceView.tailSize, CicadaTheme.displayMinimumSize)
         XCTAssertFalse(code.contains { $0.contains("quoteFont") }, "the sentence left the serif (R-FX13)")
         XCTAssertFalse(code.contains { $0.contains("design: .serif") }, "the New York stand-in part a used until M1")
         XCTAssertGreaterThanOrEqual(RoomSentenceView.leadSize, CicadaTheme.displayMinimumSize)
@@ -61,8 +64,8 @@ final class SleepMeadowTests: XCTestCase {
 
     /// Z-B15 — hover acknowledges controls, never art.
     func test_hoverLivesOnControls() throws {
-        let page = try sleepFile("SleepView.swift")
-        XCTAssertGreaterThanOrEqual(page.filter { $0.contains(".iconHover(") }.count, 1, "the whisper glyph (the Details chevron retired with Details, 2026-10-16)")
+        let column = try sleepFile("SleepRoomColumn.swift")
+        XCTAssertGreaterThanOrEqual(column.filter { $0.contains(".iconHover(") }.count, 1, "the whisper glyph (the Details chevron retired with Details, 2026-10-16; the whisper moved to the room's column)")
         let room = try sleepFile("StudyRoom.swift")
         XCTAssertFalse(room.contains { $0.contains(".iconHover(") || $0.contains(".hoverLift(") },
                        "I8: the art never changes on hover")

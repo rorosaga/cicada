@@ -141,39 +141,6 @@ final class SleepStageStripTests: XCTestCase {
         XCTAssertEqual(StagePip.failed.accessibilityWord, "failed")
     }
 
-    // MARK: - The icons' size (round-2 live check, G130 R6)
-
-    /// The icons were requested at 32 pt and read as grey smudges on the light
-    /// theme; the request is 40 now. What a test can hold is not the number a
-    /// designer picked but the rule it has to pass through: **every zoom step
-    /// lands on a whole number of 16×16 cells**, so no icon is ever resampled
-    /// (G130 R6, the same snap `BookwormView` does). A literal frame size
-    /// would satisfy neither.
-    func test_theStageIconLandsOnAWholeNumberOfCellsAtEveryZoomStep() {
-        for scale in [0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4] {
-            let pt = PixelRenderer.snappedPointSize(SleepStageStrip.iconPointSize * scale,
-                                                    gridSize: StageIconSprites.size)
-            XCTAssertEqual(pt.truncatingRemainder(dividingBy: CGFloat(StageIconSprites.size)), 0,
-                           "at \(scale)× the icon is \(pt) pt — not a whole number of cells")
-            XCTAssertGreaterThanOrEqual(pt, CGFloat(StageIconSprites.size),
-                                        "at \(scale)× the icon fell below one device point per cell")
-        }
-    }
-
-    /// The two zooms the live check named, pinned as numbers: 1.0 snaps 40 up
-    /// to 48 (three points per cell) and 1.4 snaps 56 up to 64 (four). Both
-    /// are larger than the 32 that was too small — a later edit that quietly
-    /// shrinks the request fails here rather than on someone's screen.
-    func test_theStageIconIsBiggerThanItWasAtBothEndsOfTheZoomRange() {
-        let snap = { (scale: Double) in
-            PixelRenderer.snappedPointSize(SleepStageStrip.iconPointSize * scale,
-                                           gridSize: StageIconSprites.size)
-        }
-        XCTAssertEqual(snap(1.0), 48)
-        XCTAssertEqual(snap(1.4), 64)
-        XCTAssertGreaterThan(snap(1.0), 32)
-    }
-
     // MARK: - The motion budget (R-A13)
 
     func test_pulsePeriod_isInsideTheMotionBudget() {
@@ -181,87 +148,25 @@ final class SleepStageStripTests: XCTestCase {
         XCTAssertGreaterThan(SleepStages.pulsePeriod, 0)
     }
 
-    /// Reduce Motion holds the terminal frame — one constant value, not a
-    /// slower breath (R-A13).
-    func test_reduceMotion_holdsOneFrame() {
-        let held = stagePulse(at: Date(timeIntervalSinceReferenceDate: 0), reduceMotion: true)
-        for t in [0.37, 5.0, 123.456, 999.5] {
-            XCTAssertEqual(stagePulse(at: Date(timeIntervalSinceReferenceDate: t), reduceMotion: true),
-                           held, accuracy: 1e-12)
-        }
+    /// The live dot breathes on its own layer: one whole breath is the named period (down over half, back up over
+    /// half), it never fades out of sight, and Reduce Motion holds it lit — no breath at all (R-A13, DR-66).
+    func test_theLiveDotBreathesOnTheNamedPeriodAndHoldsUnderReduceMotion() throws {
+        XCTAssertNil(LiveDot.breath(reduceMotion: true), "Reduce Motion holds the lit frame")
+        let breath = try XCTUnwrap(LiveDot.breath(reduceMotion: false))
+        XCTAssertTrue(breath.autoreverses)
+        XCTAssertEqual(breath.duration * 2, SleepStages.pulsePeriod, accuracy: 1e-9)
+        XCTAssertEqual(breath.fromValue as? Double, 1.0)
+        let floor = try XCTUnwrap(breath.toValue as? Double)
+        XCTAssertGreaterThanOrEqual(floor, 0.5, "a dot that fades toward 0 reads as gone")
+        XCTAssertLessThan(floor, 0.9, "the breath must visibly move")
     }
 
-    /// The pulse is periodic in `pulsePeriod` by construction, so the named
-    /// constant IS the breath — a view cannot quietly slow it down by driving
-    /// it from a different interval.
-    ///
-    /// The sampled dates are small `timeIntervalSinceReferenceDate` values on
-    /// purpose: at a real wall-clock magnitude (~8×10⁸ s) one ULP of a
-    /// `Double` is already ~10⁻⁷ s, so `t + period` cannot round-trip through
-    /// `truncatingRemainder` to 1e-9. That is a property of binary floating
-    /// point, not of the pulse.
-    func test_thePulseRepeatsOnItsNamedPeriod() {
-        for t in [0.0, 0.37, 5.0, 123.456] {
-            let a = stagePulse(at: Date(timeIntervalSinceReferenceDate: t), reduceMotion: false)
-            let b = stagePulse(at: Date(timeIntervalSinceReferenceDate: t + SleepStages.pulsePeriod),
-                               reduceMotion: false)
-            XCTAssertEqual(a, b, accuracy: 1e-9, "the pulse must repeat on SleepStages.pulsePeriod")
-        }
-    }
-
-    /// It has to actually move, and it has to stay inside a range that never
-    /// makes a live pip invisible (a pip that fades to 0 reads as "gone").
-    func test_thePulseBreathes_withinASafeRange() {
-        let samples = stride(from: 0.0, to: SleepStages.pulsePeriod, by: SleepStages.pulsePeriod / 16)
-            .map { stagePulse(at: Date(timeIntervalSinceReferenceDate: $0), reduceMotion: false) }
-        XCTAssertGreaterThan(samples.max()! - samples.min()!, 0.1, "the pulse must visibly move")
-        for v in samples {
-            XCTAssertGreaterThanOrEqual(v, 0.5)
-            XCTAssertLessThanOrEqual(v, 1.0)
-        }
-    }
-}
-
-/// The strip's five 16×16 icons. Same contract as `DeskSceneSpritesTests`,
-/// one grid size down: a grid that is no longer square renders padded rather
-/// than trapping, and a character outside `DeskPalette` renders as a
-/// transparent hole with no error anywhere.
-///
-/// The hue budget is the one rule specific to this size: at 16 cells an icon
-/// with four hues turns to mud on a page that draws it 32 pt wide.
-final class StageIconTests: XCTestCase {
-
-    private var allowed: Set<Character> {
-        Set(DeskPalette.colors.keys).union([DeskPalette.transparent])
-    }
-
-    func testEveryStageIconIs16x16AndInTheDeskPalette() {
-        XCTAssertEqual(SleepStages.all.count, 5)
-        for stage in SleepStages.all {
-            let grid = StageIconSprites.grid(for: stage)
-            XCTAssertEqual(grid.count, StageIconSprites.size, "\(stage.id) row count")
-            for (r, row) in grid.enumerated() {
-                XCTAssertEqual(row.count, StageIconSprites.size, "\(stage.id) row \(r) width")
-                for ch in row where !allowed.contains(ch) {
-                    XCTFail("\(stage.id) row \(r): '\(ch)' is not a DeskPalette index")
-                }
-            }
-        }
-    }
-
-    func testEveryStageIconUsesAtMostThreeHues() {
-        for stage in SleepStages.all {
-            let hues = Set(StageIconSprites.grid(for: stage).joined()
-                .filter { $0 != DeskPalette.transparent })
-            XCTAssertFalse(hues.isEmpty, "\(stage.id) draws nothing at all")
-            XCTAssertLessThanOrEqual(hues.count, 3, "\(stage.id) uses \(hues.count) hues")
-        }
-    }
-
-    /// Five distinct drawings — a copy-pasted icon would make two stages
-    /// indistinguishable at a glance, which is the whole point of the strip.
-    func testTheFiveIconsAreDistinct() {
-        let grids = SleepStages.all.map { StageIconSprites.grid(for: $0).joined() }
-        XCTAssertEqual(Set(grids).count, 5)
+    /// The old strip breathed through a 0.1 s `TimelineView` — the pattern that lays the whole window out at the
+    /// display rate (app.md, 2026-10-05). The stepper has none.
+    func test_theStepperDrivesNoTimelineView() throws {
+        let file = try XCTUnwrap(SleepNumbersLintTests.sleepSources().first { $0.lastPathComponent == "SleepStageStrip.swift" })
+        let code = try String(contentsOf: file, encoding: .utf8).components(separatedBy: .newlines)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") && !$0.contains("///") }
+        XCTAssertFalse(code.contains { $0.contains("TimelineView(") })
     }
 }

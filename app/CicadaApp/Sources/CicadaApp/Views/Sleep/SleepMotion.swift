@@ -46,6 +46,12 @@ enum SleepMotion {
     /// besides the cheer) — at the ceiling, never above it.
     static let weatherDuration: TimeInterval = 0.4
 
+    // 2026-10-16 — the stepper's live dot.
+
+    /// Half of the current stage's breath (`SleepStages.pulsePeriod`): the layer fades down over this long and back up
+    /// over this long (`LiveDot.breath`), so one whole breath is the named period.
+    static let liveBreathHalfPeriod: TimeInterval = SleepStages.pulsePeriod / 2
+
     static func settle(reduceMotion: Bool) -> Animation? {
         CicadaMotion.settle(reduceMotion: reduceMotion)
     }
