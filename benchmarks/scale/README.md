@@ -42,3 +42,22 @@ api/.venv/bin/python -m benchmarks.scale.synth --bank $S/bank --pages 2100 --cla
   owner-sized YAML loads/dumps, and timers for the functions listed in `WATCH`. It mutates the bank, so run it on a
   copy. The first batch on a fresh synthetic bank also charges decay on every page and builds the indexes cold, so read
   batch 2 onward.
+
+## Whole-bank scale (2026-10-16)
+
+The owner's whole bank as the coordinator counted it (real values redacted): ~4,700 entity pages (~850 of them saved
+items), a few thousand episodes, an inbox of ~240. `owner_scale` builds that on top of `synth`'s owner page; then:
+
+```sh
+api/.venv/bin/python -m benchmarks.scale.owner_scale --bank $S/bank                      # ~35 s: 4,701 pages, 3,850 episodes
+cp -R $S/bank $S/run && api/.venv/bin/python -m benchmarks.scale.hot_routes --bank $S/run   # hot routes p50/p95, 304 cost,
+                                                                                         # every Store domain's payload
+api/.venv/bin/python -m benchmarks.scale.profile_route --bank $S/run --warm /inbox        # cProfile a warm call
+cp -R $S/bank $S/s && api/.venv/bin/python -m benchmarks.scale.sleep_tokens --bank $S/s   # prompt chars by stage, cacheable share
+cp -R $S/bank $S/d && api/.venv/bin/python -m benchmarks.scale.profile_sleep --bank $S/d --drain 3   # per-batch stage times
+cp -R $S/bank $S/i && api/.venv/bin/python -m benchmarks.scale.index_rebuild --bank $S/i  # full + idle index builds
+```
+
+`cp -R` does not keep mtimes, so a copy's derived indexes read every file as changed: rebuild them in the copy
+(`search_index.rebuild`) before timing a fresh process's first recall. `profile_sleep --parse-cache` is a prototype
+measurement for a proposal (a stat-keyed `markdown_parser.parse` cache), not production code.

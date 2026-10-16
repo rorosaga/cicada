@@ -116,6 +116,46 @@ def watch(meter: Meter, specs: list[str]) -> None:
                 setattr(other, fn_name, wrapper)
 
 
+def install_parse_cache(markdown_parser) -> None:
+    """PROTOTYPE, probe-only: what a stat-keyed parse cache would save a Sleep batch. A file is served from memory
+    while its (inode, mtime, size) is unchanged — every Cicada page write is a replace, so a write always moves it —
+    and each caller gets its own frontmatter (a pickle round trip, which is C, unlike ``copy.deepcopy``). A page
+    with a claims ledger is never cached (its fold reads a second file)."""
+    import os
+    import pickle
+
+    real = markdown_parser.parse
+    cache: dict = {}
+
+    def parse(filepath, *, ledger=True):
+        try:
+            st = os.stat(filepath)
+        except OSError:
+            return real(filepath, ledger=ledger)
+        key = (str(filepath), ledger)
+        stamp = (st.st_ino, st.st_mtime_ns, st.st_size)
+        hit = cache.get(key)
+        if hit is not None and hit[0] == stamp:
+            return markdown_parser.ParsedMarkdown(frontmatter=pickle.loads(hit[1]), body=hit[2])
+        parsed = real(filepath, ledger=ledger)
+        if isinstance(parsed.frontmatter, dict) and "claims_ledger" not in parsed.frontmatter:
+            cache[key] = (stamp, pickle.dumps(parsed.frontmatter, protocol=pickle.HIGHEST_PROTOCOL), parsed.body)
+        return parsed
+    markdown_parser.parse = parse
+    import sys
+    for module in list(sys.modules.values()):
+        if getattr(module, "__name__", "").startswith("api.") and getattr(module, "parse", None) is real:
+            module.parse = parse
+
+
+def per_batch(timings: list[dict]) -> dict:
+    """Stage wall time per batch (cycle id), so the drain's last batch (decay, the page reads) reads apart."""
+    out: dict = collections.defaultdict(lambda: collections.defaultdict(float))
+    for t in timings:
+        out[str(t["cycle"])][t["stage"]] += t["wall_seconds"] * 1000
+    return {cid: {k: round(v) for k, v in stages.items()} for cid, stages in out.items()}
+
+
 def _size(value) -> int:
     if isinstance(value, (str, bytes)):
         return len(value)
@@ -130,6 +170,8 @@ def main() -> None:
     ap.add_argument("--drain", type=int, default=0,
                     help="run a drain over this many batches (decay charged in the last only, as in production)")
     ap.add_argument("--watch", nargs="*", default=[], help="extra module:function timers beside WATCH")
+    ap.add_argument("--parse-cache", action="store_true",
+                    help="PROTOTYPE: serve markdown_parser.parse from a stat-keyed cache (a proposal's measurement)")
     a = ap.parse_args()
     bank = a.bank.resolve()
     isolate.pin_bank(bank)
@@ -143,6 +185,8 @@ def main() -> None:
     from benchmarks.system.runtime import Runtime
 
     fake_engine.extraction = owner_extraction
+    if a.parse_cache:
+        install_parse_cache(markdown_parser)
     settings = Settings(_env_file=None, CICADA_MEMORY_PATH=str(bank), llm_mode="local",
                         litellm_model="deterministic-v1", consolidation_model="deterministic-v1",
                         ollama_model="deterministic-v1", litellm_disambiguation_model="deterministic-v1",
@@ -212,6 +256,7 @@ def main() -> None:
         "model_calls": collections.Counter(c["stage"] for c in fake.calls),
         "stages_ms": {k: round(v) for k, v in stages.items()},
         "batches_ms": [round(t["wall_seconds"] * 1000) for t in runtime.timings if t["stage"] == "batch"],
+        "per_batch_ms": per_batch(runtime.timings),
         "counters": {k: {"calls": meter.calls[k], "ms": round(meter.ms[k])} for k in sorted(meter.calls)},
     }
     print(json.dumps(out, indent=1, default=str))
