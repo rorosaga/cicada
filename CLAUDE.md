@@ -402,3 +402,7 @@ behind its healthy-skip guard, and the app runs it from Settings → General (G1
 is the supported one. **A release app (G182) carries its own backend** and every agent, hook and plist runs the
 `~/.cicada/bin` launchers it rewrites on launch — never a path inside the app; a developer build is unchanged
 (`docs/architecture/app.md`, "The release app").
+**Without the app (G181):** a Linux server installs with one `curl | bash` line (`scripts/install-server.sh`) and any
+Homebrew with this repo's tap (`Formula/cicada.rb` + `cicada-setup`); both end in the checkout's own `install.sh`, the
+formula has no `service do` (the two service scripts stay the one source), and its tag is a `VERSION` stamp
+(`docs/architecture/headless.md`).

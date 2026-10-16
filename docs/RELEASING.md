@@ -10,8 +10,9 @@ release.** CI then tags `vX.Y.Z` at the merge commit, builds, verifies and publi
 hand. Installed release apps update themselves from it.
 
 **`VERSION` is the one version.** It is plain semver (`0.4.0`), and everything that stamps a version must equal it:
-`api/pyproject.toml`, uv.lock's `cicada-api` entry, the app's `CFBundleShortVersionString` (stamped by `bundle.sh`),
-the tag, the release title (`Cicada X.Y.Z`) and `latest.json`. `scripts/release/check_version.py` is the one judge —
+`api/pyproject.toml`, uv.lock's `cicada-api` entry, the Homebrew formula's tag (`Formula/cicada.rb`'s
+`url …, tag: "vX.Y.Z"`, G181), the app's `CFBundleShortVersionString` (stamped by `bundle.sh`), the tag, the release
+title (`Cicada X.Y.Z`) and `latest.json`. `scripts/release/check_version.py` is the one judge —
 CI, the release PR check and `make release` all ask it — and any disagreement fails the run.
 
 ## Cut a release (owner)
@@ -20,7 +21,7 @@ CI, the release PR check and `make release` all ask it — and any disagreement 
    `cd app/CicadaApp && swift test`), and the last dry run green (below). Optional: `make release-app` builds the
    installable app on this Mac and smoke-tests it in a temp folder; it installs nothing.
 2. **Bump the version: `make release VERSION=x.y.z`.** It works in a temporary worktree — your checkout is never
-   switched — and bumps `VERSION`, `api/pyproject.toml` and uv.lock's project line on a `release/vx.y.z` branch off
+   switched — and bumps `VERSION`, `api/pyproject.toml`, uv.lock's project line and the formula's tag on a `release/vx.y.z` branch off
    `origin/dev`, shows what it will push and asks, then pushes that branch and opens a PR to `dev` titled
    `chore(release): x.y.z`. It refuses a version that already has a tag or is not greater than the latest one. Use
    the next minor (`0.4.0`) for features, the next patch (`0.3.1`) for fixes. Merge that PR into `dev` as usual. If
@@ -73,6 +74,14 @@ carry different versions, the older version is never published — its changes s
 
 **The website's download link** is `https://github.com/rorosaga/cicada/releases/latest/download/Cicada-macos-arm64.zip`:
 it always resolves to the newest release, so no release needs a website edit.
+
+**The other install lines follow the release with no edit either (G181).** `scripts/install-server.sh` (Linux,
+`curl … | bash`) installs the newest `vX.Y.Z` tag, and the tap (`brew tap rorosaga/cicada
+https://github.com/rorosaga/cicada`) reads `Formula/cicada.rb` from `main`, whose tag the bump stamped. Between the
+merge and CI publishing the tag (~10 minutes) `brew install cicada` cannot fetch it yet. The website's own
+`install.sh` (a separate repo) should hand off by platform: on macOS to
+`https://raw.githubusercontent.com/rorosaga/cicada/main/scripts/install-release.sh`, on Linux to
+`https://raw.githubusercontent.com/rorosaga/cicada/main/scripts/install-server.sh` — never to a copy of either.
 
 **A failed run advertises nothing.** A build or verification failure stops before the publish job: no tag, no release.
 A publish failure before publication deletes the draft this run created, by its id, and nothing else (a draft has no

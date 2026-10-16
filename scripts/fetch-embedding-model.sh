@@ -9,20 +9,29 @@
 # Usage: scripts/fetch-embedding-model.sh [MODELS_DIR]
 #   MODELS_DIR   default: ${CICADA_HOME:-~/.cicada}/models (where a checkout looks)
 # Env:
-#   CICADA_RELEASE_CACHE    download cache (default ~/Library/Caches/cicada-release)
+#   CICADA_RELEASE_CACHE    download cache (default ~/Library/Caches/cicada-release; on Linux ${XDG_CACHE_HOME:-~/.cache}/cicada-release)
 #   CICADA_RELEASE_INPUTS   the pins file (default scripts/release/inputs.env)
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 INPUTS="${CICADA_RELEASE_INPUTS:-$HERE/release/inputs.env}"
-CACHE="${CICADA_RELEASE_CACHE:-$HOME/Library/Caches/cicada-release}"
+if [ "$(uname -s)" = "Darwin" ]; then
+  CACHE="${CICADA_RELEASE_CACHE:-$HOME/Library/Caches/cicada-release}"
+else
+  CACHE="${CICADA_RELEASE_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/cicada-release}"   # G181: a server has no ~/Library
+fi
 MODELS="${1:-${CICADA_HOME:-$HOME/.cicada}/models}"
 
 # shellcheck source=release/inputs.env
 . "$INPUTS"
 
 die() { printf '  \033[31m✗\033[0m %s\n' "$1" >&2; exit 1; }
-sha_of() { shasum -a 256 "$1" | cut -d' ' -f1; }
+# shasum is a Mac's (and perl's); a minimal Linux has coreutils' sha256sum instead (G181).
+if command -v shasum >/dev/null 2>&1; then
+  sha_of() { shasum -a 256 "$1" | cut -d' ' -f1; }
+else
+  sha_of() { sha256sum "$1" | cut -d' ' -f1; }
+fi
 
 # fetch URL SHA256 NAME -> prints the cached path; a hash mismatch is fatal and the file is dropped.
 fetch() {

@@ -17,7 +17,78 @@ http://127.0.0.1:8000` (tailnet only; never `funnel`), or an SSH tunnel. The API
 route but `/healthz`. Tailscale's identity headers are not a substitute for it: tagged devices get none, and anyone
 the device is shared with gets them.
 
-## Install (phase 1)
+## Install
+
+### One line, on Linux
+
+As the user who will own the memory (not root), on a machine with systemd:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/rorosaga/cicada/main/scripts/install-server.sh | bash
+```
+
+`scripts/install-server.sh` is a bootstrapper; everything it installs is the checkout's own `./install.sh`:
+
+| Step | What happens |
+|---|---|
+| Prerequisites | `git`, `curl`, `uv` (also found in `~/.local/bin`, where uv's installer puts it) and a reachable systemd user manager, checked together; each missing one is named with the line that fixes it, and nothing is installed (exit 2). Root and non-Linux are refused (a Mac is pointed at Homebrew and the app) |
+| The code | `CICADA_REF` (a branch, tag or commit; validated as a name), else the newest `vX.Y.Z` tag from `git ls-remote` — CI creates a tag only when it publishes a release, so that is the latest release. Cloned into `CICADA_DIR` (default `~/.local/share/cicada`) and checked out detached. A folder there that is not its own checkout (another origin) is left alone; a checkout with local changes is never overwritten |
+| Python | `scripts/sync-server-env.sh`: `uv sync --frozen --no-dev` from `api/uv.lock` minus `sentence-transformers` and what only it needs (torch, the CUDA wheels, transformers, scipy, …) — the release app's set. Measured on Linux arm64: a 338 MB venv |
+| The rest | `CICADA_REPO=<dir> ./install.sh --cli`: search model, memory folder (`~/cicada/memory`, `CICADA_MEMORY_PATH`), `api/.env`, MCP and hook registration, the systemd unit below, `~/.local/bin/cicada` |
+| Update | The same line. Same ref: nothing changes (the backend keeps its PID). A new ref: the code moves, the Python environment re-syncs, and `install-backend-service.sh` rewrites the unit and restarts it |
+| Check | `/healthz` on `127.0.0.1:8000` within 60 s, then `cicada status`; the summary says where the backend's own token lives (never its value) and prints the `enable-linger` line when lingering is off |
+| `--uninstall` | `install.sh --uninstall` (unit, MCP entry, hooks), the `cicada` link, and the code folder (its venv and logs). The memory folder and `~/.cicada` stay |
+
+The script is one function called on its last line, and every child reads `/dev/null`, so `curl | bash` runs nothing
+until the whole script has arrived and nothing it starts can read the rest of it from the pipe. Testers before a
+release: `curl -fsSL https://raw.githubusercontent.com/rorosaga/cicada/dev/scripts/install-server.sh | CICADA_REF=dev bash`.
+
+End to end, on real systemd: `scripts/dev/test-install-linux.sh [ubuntu|fedora]` (Docker; this checkout's HEAD served
+from a local bare repo). `api/tests/test_install_server.py` holds the orchestration rules with fakes.
+
+### Homebrew (macOS and Linux)
+
+This repository is its own tap; the formula is `Formula/cicada.rb`:
+
+```sh
+brew tap rorosaga/cicada https://github.com/rorosaga/cicada
+brew install cicada        # --HEAD follows dev
+cicada-setup               # memory folder, search model, hooks, background service
+```
+
+- **What it installs:** the backend, the MCP server and the `cicada` command (`api`, `mcp`, `scripts`, `skills`,
+  `install.sh`; no app sources, docs or tests) into `libexec`, with a venv built by the same
+  `scripts/sync-server-env.sh` on Homebrew's `python@3.12` (`UV_PYTHON_DOWNLOADS=never`, so nothing points into
+  the build's temporary HOME). `bin/cicada` is the checkout launcher; `bin/cicada-setup` runs
+  `scripts/cicada-setup.sh`.
+- **`cicada-setup`** is `install.sh` against `$(brew --prefix)/opt/cicada/libexec`, the path that survives
+  `brew upgrade`, so every hook, MCP entry, plist and unit it writes names that path, never a versioned Cellar folder.
+  Run again after an upgrade, it restarts a service that already runs this install (and only that one). `--uninstall`
+  passes through.
+- **No `service do` block.** The background service keeps one source per platform —
+  `scripts/install-backend-agent.sh` (launchd `com.cicada.backend`) and `scripts/install-backend-service.sh`
+  (systemd) — so `brew services` never writes a second plist or unit for the same port. `brew services` has nothing
+  to start for `cicada`.
+- **Settings and logs outside the keg:** `api/.env` is a link to `$(brew --prefix)/etc/cicada/api.env` (0600, kept
+  across upgrades); `CICADA_LOG_DIR` is `$(brew --prefix)/var/log/cicada`.
+- **The version:** the stable `url` is the git tag `v$VERSION`. `make release` stamps it and `check_version.py agree`
+  holds it equal to `VERSION`, so the formula on `main` names the release that merge creates. The tap is the repo's
+  default branch (`main`), so the formula is live from the next release on; until then, tap a clone of `dev`
+  (`brew tap rorosaga/cicada <path-to-a-dev-clone>`) and `brew install --HEAD`.
+- **No cask.** The release app carries its own backend and is installed by `scripts/install-release.sh`. A cask for
+  the not-yet-notarized zip would be quarantined by Homebrew's download, and Gatekeeper would block it on every
+  machine until the person clicks Open Anyway — exactly what the curl installer avoids. A cask follows notarization
+  (G182's Developer ID step).
+- **Known limit:** the backend computes its own repo path with `resolve()`, so the app's Settings → Agents, run
+  against a Homebrew backend, would register hooks under the Cellar path; use `cicada-setup` to connect agents on a
+  Homebrew install.
+
+End to end on Linuxbrew: `scripts/dev/test-install-brew.sh` (Docker, `homebrew/brew` plus systemd): `brew style`,
+`brew audit --new --strict`, install, `brew test`, `cicada-setup`, upgrade, uninstall. A macOS install is not run in
+CI or by that harness (it would need this Mac's own Homebrew prefix); the formula's macOS path differs only in
+`install.sh` step 6 choosing the launchd agent, which `test_install_backend_agent.py` covers.
+
+### From a clone
 
 From a clone, on Linux: `./install.sh`. It is the same installer as on a Mac. On Linux:
 
