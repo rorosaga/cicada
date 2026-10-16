@@ -95,7 +95,7 @@ final class MessagesReaderTests: XCTestCase {
         let edited = try reader.read(conversation, name: "Instinct", since: second.cursor)
         XCTAssertEqual(edited.count, 1)
         XCTAssertEqual(try object(edited)["messages"].flatMap { ($0 as? [[String: Any]])?.first?["rowid"] as? NSNumber }?.int64Value, 1)
-        XCTAssertEqual(edited.cursor.changed, 900_000_000_000_000_000)
+        XCTAssertEqual(edited.cursor.edits[1], 900_000_000_000_000_000)
         XCTAssertEqual(try reader.read(conversation, name: "Instinct", since: edited.cursor).count, 0)
     }
 
@@ -112,6 +112,66 @@ final class MessagesReaderTests: XCTestCase {
         XCTAssertTrue(try reader.conversations(ids: [MessagesReader.conversationId(chatGuid: "iMessage;+;+15550000009")])
             .isEmpty, "a group chat is never read, ticked or not")
         XCTAssertTrue(try reader.conversations(ids: []).isEmpty)
+    }
+
+    /// An edit made on the phone that reaches this Mac late carries an EARLIER edit time than one already seen. A single
+    /// newest-edit watermark would skip it; the per-row record over the window finds it.
+    func testALateSyncedEditWithAnEarlierEditTimeIsStillRead() throws {
+        let (instinct, _) = seed()
+        let minute: Int64 = 60 * 1_000_000_000
+        let base: Int64 = 800_000_000_000_000_000   // SyntheticChatDB's minute 0
+        var reader = MessagesReader(database: dbURL)
+        reader.now = { Date(timeIntervalSinceReferenceDate: 800_000_000 + 3600) }
+        let conversation = try XCTUnwrap(try reader.conversations().first { $0.chatRowId == instinct })
+        let first = try reader.read(conversation, name: "Instinct", since: MessagesCursor())
+        XCTAssertTrue(first.cursor.edits.isEmpty)
+        // An edit at minute 30 arrives first.
+        exec("UPDATE message SET text = 'Sure, I will draft it.', date_edited = ? WHERE ROWID = 2", [base + 30 * minute])
+        let second = try reader.read(conversation, name: "Instinct", since: first.cursor)
+        XCTAssertEqual(try rowids(second), [2])
+        // An edit made at minute 10 reaches the Mac only now: earlier than the one already seen.
+        exec("UPDATE message SET text = 'Plan the launch, please.', date_edited = ? WHERE ROWID = 1", [base + 10 * minute])
+        let late = try reader.read(conversation, name: "Instinct", since: second.cursor)
+        XCTAssertEqual(try rowids(late), [1], "the late edit is read, the already-posted one is not re-sent")
+        // A late unsend the same way, then nothing more.
+        exec("UPDATE message SET text = NULL, date_retracted = ? WHERE ROWID = 4", [base + 5 * minute])
+        let unsent = try reader.read(conversation, name: "Instinct", since: late.cursor)
+        XCTAssertEqual(try rowids(unsent), [4])
+        XCTAssertEqual(try reader.read(conversation, name: "Instinct", since: unsent.cursor).count, 0)
+        XCTAssertEqual(unsent.cursor.edits, [1: base + 10 * minute, 2: base + 30 * minute, 4: base + 5 * minute])
+        // Bounded: a month on, those edits have left the window and the record forgets them; nothing is re-sent.
+        reader.now = { Date(timeIntervalSinceReferenceDate: 800_000_000 + 31 * 86_400) }
+        let later = try reader.read(conversation, name: "Instinct", since: unsent.cursor)
+        XCTAssertEqual(later.count, 0)
+        XCTAssertTrue(later.cursor.edits.isEmpty)
+    }
+
+    func testAChangedRowPastTheBatchLimitWaitsForTheNextBatch() throws {
+        let (instinct, _) = seed()
+        let base: Int64 = 800_000_000_000_000_000
+        var reader = MessagesReader(database: dbURL)
+        reader.now = { Date(timeIntervalSinceReferenceDate: 800_000_000 + 3600) }
+        let conversation = try XCTUnwrap(try reader.conversations().first { $0.chatRowId == instinct })
+        let first = try reader.read(conversation, name: "Instinct", since: MessagesCursor())
+        exec("UPDATE message SET date_edited = ? WHERE ROWID IN (1, 2, 4)", [base + 1_000])
+        reader.batchLimit = 2
+        let a = try reader.read(conversation, name: "Instinct", since: first.cursor)
+        XCTAssertEqual(try rowids(a), [1, 2])
+        XCTAssertTrue(a.hasMore)
+        let b = try reader.read(conversation, name: "Instinct", since: a.cursor)
+        XCTAssertEqual(try rowids(b), [4])
+        XCTAssertEqual(try reader.read(conversation, name: "Instinct", since: b.cursor).count, 0)
+    }
+
+    func testACursorSavedBeforePerRowEditsStillDecodes() throws {
+        let old = Data(#"{"rowid": 7, "changed": 900000000000000000}"#.utf8)
+        XCTAssertEqual(try JSONDecoder().decode(MessagesCursor.self, from: old), MessagesCursor(rowid: 7))
+        let now = MessagesCursor(rowid: 9, edits: [3: 42])
+        XCTAssertEqual(try JSONDecoder().decode(MessagesCursor.self, from: JSONEncoder().encode(now)), now)
+    }
+
+    private func rowids(_ pass: MessagesPass) throws -> [Int64] {
+        try XCTUnwrap(try object(pass)["messages"] as? [[String: Any]]).compactMap { ($0["rowid"] as? NSNumber)?.int64Value }
     }
 
     func testABatchLimitSaysThereIsMore() throws {

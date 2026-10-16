@@ -23,12 +23,20 @@ enum MessagesReadError: Error, LocalizedError, Equatable {
 /// **Which chats.** The Settings list is the `listLimit` most recent chats; a ticked chat is read by its own id
 /// (`conversations(ids:)`), whatever its rank, so a quiet chat that falls below the list's cap never stops syncing.
 ///
-/// **Cursor.** Past `message.ROWID`, plus rows edited or unsent after the newest edit time already seen (an edit keeps
-/// its old ROWID), `batchLimit` rows at a time.
+/// **Cursor.** Past `message.ROWID`, `batchLimit` rows at a time, plus every row already posted whose edit or unsend
+/// time (an edit keeps its old ROWID) differs from the one the cursor recorded for it. The cursor records each row
+/// edited or unsent within the last `editWindow` (by its edit time) and every pass re-checks exactly that window, so an
+/// edit that reaches this Mac late, carrying an earlier edit time than one already seen, is still found. Outside the
+/// window nothing is re-checked: an edit that arrives more than `editWindow` after it was made is not seen.
 struct MessagesReader: Sendable {
     let database: URL
     var batchLimit = 500
     var listLimit = 200
+    /// How far back, by edit time, every pass re-checks the rows it already posted for an edit or an unsend.
+    var editWindow: TimeInterval = 30 * 24 * 3600
+    /// At most this many edited rows are re-checked per pass (the newest edits first).
+    var editCheckLimit = 5000
+    var now: @Sendable () -> Date = { Date() }
 
     static var standardDatabase: URL {
         FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Messages/chat.db")
@@ -129,17 +137,36 @@ struct MessagesReader: Sendable {
             lastActivity: int(row["last"]).flatMap(date), fromMe: fromMe, fromThem: fromThem)
     }
 
-    static let rowsSQL = """
-        SELECT m.ROWID AS rowid, m.guid AS guid, m.date AS date, m.is_from_me AS is_from_me, m.text AS text,
-               m.attributedBody AS attributed_body,
-               COALESCE(m.associated_message_type, 0) AS associated_message_type, COALESCE(m.item_type, 0) AS item_type,
-               COALESCE(m.is_system_message, 0) AS is_system_message, COALESCE(m.date_edited, 0) AS date_edited,
-               COALESCE(m.date_retracted, 0) AS date_retracted
+    /// The rows past the cursor's ROWID, plus `recheck` already-posted rows whose edit or unsend changed.
+    static func rowsSQL(recheck: Int) -> String {
+        let changed = recheck > 0 ? " OR m.ROWID IN (\(Array(repeating: "?", count: recheck).joined(separator: ", ")))" : ""
+        return """
+            SELECT m.ROWID AS rowid, m.guid AS guid, m.date AS date, m.is_from_me AS is_from_me, m.text AS text,
+                   m.attributedBody AS attributed_body,
+                   COALESCE(m.associated_message_type, 0) AS associated_message_type, COALESCE(m.item_type, 0) AS item_type,
+                   COALESCE(m.is_system_message, 0) AS is_system_message, COALESCE(m.date_edited, 0) AS date_edited,
+                   COALESCE(m.date_retracted, 0) AS date_retracted
+            FROM message m JOIN chat_message_join j ON j.message_id = m.ROWID
+            WHERE j.chat_id = ?1 AND (m.ROWID > ?2\(changed))
+            ORDER BY m.ROWID
+            """
+    }
+
+    /// The edit or unsend time of every already-posted row edited or unsent within the window — what each pass compares
+    /// against the cursor's record. Only ids and times, never a word.
+    static let editStampsSQL = """
+        SELECT m.ROWID AS rowid, MAX(COALESCE(m.date_edited, 0), COALESCE(m.date_retracted, 0)) AS stamp
         FROM message m JOIN chat_message_join j ON j.message_id = m.ROWID
-        WHERE j.chat_id = ?1
-          AND (m.ROWID > ?2 OR COALESCE(m.date_edited, 0) > ?3 OR COALESCE(m.date_retracted, 0) > ?3)
-        ORDER BY m.ROWID
+        WHERE j.chat_id = ?1 AND m.ROWID <= ?2
+          AND (COALESCE(m.date_edited, 0) >= ?3 OR COALESCE(m.date_retracted, 0) >= ?3)
+        ORDER BY stamp DESC
         """
+
+    /// The window's start as an edit time (Apple nanoseconds — every macOS that edits or unsends stores them so).
+    var editThreshold: Int64 {
+        let seconds = now().timeIntervalSinceReferenceDate - editWindow
+        return max(1, Int64(seconds * 1_000_000_000))
+    }
 
     /// One batch of a ticked conversation's rows past `cursor`, serialised as the sync request.
     func read(_ conversation: MessagesConversation, name: String, since cursor: MessagesCursor) throws -> MessagesPass {
@@ -147,11 +174,21 @@ struct MessagesReader: Sendable {
         defer { db.close() }
         var rows: [[String: Any]] = []
         var attachments: [Int64: [[String: Any]]] = [:]
+        let threshold = editThreshold
+        var stamps: [Int64: Int64] = [:]
+        var changed: [Int64] = []
+        var recheck: [Int64] = []
         do {
             try db.exec("BEGIN")
             defer { try? db.exec("COMMIT") }
-            rows = try db.query(Self.rowsSQL + " LIMIT \(batchLimit)",
-                                binds: [.int(conversation.chatRowId), .int(cursor.rowid), .int(cursor.changed)],
+            for row in try db.query(Self.editStampsSQL + " LIMIT \(editCheckLimit)",
+                                    binds: [.int(conversation.chatRowId), .int(cursor.rowid), .int(threshold)]) {
+                if let rowid = Self.int(row["rowid"]), let stamp = Self.int(row["stamp"]) { stamps[rowid] = stamp }
+            }
+            changed = stamps.filter { cursor.edits[$0.key] != $0.value }.keys.sorted()
+            recheck = Array(changed.prefix(batchLimit))
+            rows = try db.query(Self.rowsSQL(recheck: recheck.count) + " LIMIT \(batchLimit)",
+                                binds: [.int(conversation.chatRowId), .int(cursor.rowid)] + recheck.map { .int($0) },
                                 base64Blobs: ["attributed_body"])
             let ids = rows.compactMap { Self.int($0["rowid"]) }
             if !ids.isEmpty {
@@ -174,13 +211,18 @@ struct MessagesReader: Sendable {
         } catch {
             throw MessagesReadError.unreadable(String(describing: error))
         }
-        var next = cursor
+        // The window as it stands now: rows outside it drop out of the record (it stays bounded); a changed row this
+        // batch did not reach keeps its old record so the next batch picks it up.
+        var next = MessagesCursor(rowid: cursor.rowid, edits: stamps)
+        let reached = Set(rows.compactMap { Self.int($0["rowid"]) })
+        for rowid in changed where !reached.contains(rowid) { next.edits[rowid] = cursor.edits[rowid] }
         var messages: [[String: Any]] = []
         for row in rows {
             guard let rowid = Self.int(row["rowid"]) else { continue }
             if rowid > next.rowid { next.rowid = rowid }
             let edited = Self.int(row["date_edited"]) ?? 0, retracted = Self.int(row["date_retracted"]) ?? 0
-            next.changed = max(next.changed, edited, retracted)
+            let stamp = max(edited, retracted)
+            if stamp >= threshold { next.edits[rowid] = stamp }
             var message: [String: Any] = [
                 "rowid": rowid, "guid": (row["guid"] as? String) ?? "", "date": Self.int(row["date"]) ?? 0,
                 "isFromMe": (Self.int(row["is_from_me"]) ?? 0) != 0,
