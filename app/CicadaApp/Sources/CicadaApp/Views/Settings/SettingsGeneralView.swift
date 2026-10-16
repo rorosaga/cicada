@@ -10,13 +10,10 @@ import SwiftUI
 /// toggle already writes, so the two never disagree; `"system"` is the one new
 /// value, and `ThemeStore` resolves it against the Mac's own appearance.
 ///
-/// Scene (round-4 D4, G144) is independent of Appearance: it picks Home's and
-/// the Welcome's painting by the clock (Automatic) or pins it, so a dark window
-/// can show a day painting. Per viewer, in `cicada.heroScene`.
+/// Scene (round-4 D4, G144) retired with the painted art (owner 2026-10-16): it picked a painting, and none is left.
 ///
-/// F-10 (round-4 T-Home, R-HO16) groups the page as *Look* (Appearance · Scene · Text size), *Startup* (Open Cicada at
-/// login · Show in menu bar) and *When Cicada is closed* (Keep memory working), then Setup. The Scene row shows what the
-/// clock paints now beside its title and F-10's two lines under it. Text size stays in Look — F-10 omits it, and removing
+/// F-10 (round-4 T-Home, R-HO16) groups the page as *Look* (Appearance · Text size), *Startup* (Open Cicada at
+/// login · Show in menu bar) and *When Cicada is closed* (Keep memory working), then Setup. Text size stays in Look — F-10 omits it, and removing
 /// a working control needs the owner's word. Show in menu bar (`MenuBarPreference`) hides the bookworm without tearing
 /// it down; the app keeps its Dock icon, so hiding it never strands Cicada. The rows never promise what the app does not
 /// do (R-FA7): the login row says the quiet start R-OB18 built, and 'calendar polls keep going' is not used — the
@@ -31,7 +28,6 @@ import SwiftUI
 /// a `CommandBox` (DR-19).
 struct SettingsGeneralView: View {
     @AppStorage(ThemeStore.defaultsKey) private var appearanceRaw: String = AppearancePreference.dark.rawValue
-    @AppStorage(HeroScenePreference.defaultsKey) private var heroSceneRaw = HeroScenePreference.automatic.rawValue
     @AppStorage(MenuBarPreference.defaultsKey) private var showsMenuBar = true
     // G117 — "Run setup again" needs the active bank (to clear the right
     // per-bank `OnboardingState` flag) and the cross-scene hand-off
@@ -52,10 +48,6 @@ struct SettingsGeneralView: View {
         Binding(get: { AppearancePreference.stored(appearanceRaw) }, set: { appearanceRaw = $0.rawValue })
     }
 
-    private var heroScene: Binding<HeroScenePreference> {
-        Binding(get: { HeroScenePreference.stored(heroSceneRaw) }, set: { heroSceneRaw = $0.rawValue })
-    }
-
     /// A direct `Binding` onto `CicadaTheme.uiScale` — not a locally-drafted
     /// `@State` mirror — so dragging this slider AND choosing ⌘+/⌘−/⌘0 from
     /// the View menu while Settings is open stay in lockstep: reading
@@ -68,29 +60,11 @@ struct SettingsGeneralView: View {
 
     var body: some View {
         SettingsPage(section: .general) {
-            // F-10 — Look: the window's light, the painting's, and the chrome's size.
+            // F-10 — Look: the window's light and the chrome's size.
             SettingsGroupCard(header: Copy.lookGroup) {
                 SettingsRow(.appearance, title: Copy.appearance, detail: Copy.appearanceDetail) {
                     PillPicker(title: Copy.appearance, selection: appearance,
                                options: AppearancePreference.allCases.map { PillOption(value: $0, label: $0.label) })
-                }
-                SettingsDivider()
-                // R-HO16 — "Day now" is what the clock paints (Automatic's answer), whatever is picked; a pick
-                // crossfades Home's band behind the panel at once (R-HO4).
-                SettingsRow(.heroScene, title: Copy.scene, accessory: Copy.sceneNow(SceneStore.shared.time),
-                            detail: Copy.sceneDetail) {
-                    PillPicker(title: Copy.scene, selection: heroScene,
-                               options: HeroScenePreference.allCases.map { PillOption(value: $0, label: $0.label) })
-                } below: {
-                    VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
-                        Text(Copy.sceneAutomaticExplainer)
-                            .font(CicadaTheme.captionFont)
-                            .foregroundStyle(CicadaTheme.textSecondary)
-                        Text(Copy.sceneCrossfadeExplainer)
-                            .font(CicadaTheme.captionFont)
-                            .foregroundStyle(CicadaTheme.textTertiary)
-                    }
-                    .fixedSize(horizontal: false, vertical: true)
                 }
                 SettingsDivider()
                 SettingsRow(.textSize, title: Copy.textSize, detail: Copy.textSizeDetail) {

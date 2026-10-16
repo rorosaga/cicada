@@ -15,15 +15,7 @@ extension Copy {
     static let appearanceSystem = "System"
     static let appearanceLight = "Light"
     static let appearanceDark = "Dark"
-    // Round-4 D4 (G144) — Settings → General → Scene: Home's painting by the clock, never by location.
-    static let scene = "Scene"
-    /// F-10 (R-HO16) — what the row controls; how Automatic works is the explainer under the row (`Copy+Scene`).
-    static let sceneDetail = "The meadow on Home and in setup"
-    static let sceneAutomatic = "Automatic"
-    // Round-4 T-Home (R-HO1) — F-10's words: Automatic · Day · Afternoon · Night.
-    static let sceneDay = "Day"
-    static let sceneAfternoon = "Afternoon"
-    static let sceneNight = "Night"
+    // Settings → General → Scene retired with the painted art (owner 2026-10-16): there is no painting left to pick.
     static let textSize = "Text size"
     static let textSizeDetail = "⌘+ and ⌘− do the same from any page."
     static let actualSize = "Actual size"

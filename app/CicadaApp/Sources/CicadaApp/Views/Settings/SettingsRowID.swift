@@ -12,7 +12,6 @@ struct SettingsRowID: RawRepresentable, Hashable, Codable, Sendable {
 
     // General (Task 1)
     static let appearance = SettingsRowID("appearance")
-    static let heroScene = SettingsRowID("heroScene")
     static let textSize = SettingsRowID("textSize")
     static let runSetup = SettingsRowID("runSetup")
     // General → the app's version (G182)

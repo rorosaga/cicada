@@ -58,9 +58,6 @@ struct HomeView: View {
             && !showsResults
         GeometryReader { geo in
             VStack(spacing: 0) {
-                // DR-13 — paint only: no word, no number and nothing over it (`HomeBandLayoutTests`). The framing owns
-                // the band's height, crop and fade (C10).
-                if HomeBandLayout.showsBand { HomeHeroBand() }
                 // Owner 2026-10-06 — one scroll view carries the headline, the field and the blocks, so a scrolled card
                 // leaves under the window's edge whole, never cut flush under the field (the field used to sit above the
                 // blocks' own scroll view). The field keeps one place in the tree in both states, so the first keystroke
@@ -74,7 +71,7 @@ struct HomeView: View {
                             PageTitle(Copy.homeHeadline)
                                 .multilineTextAlignment(.center)
                                 .accessibilityAddTraits(.isHeader)
-                                .padding(.top, CicadaTheme.scaled(HomeLayout.headlineTopInset(showsBand: HomeBandLayout.showsBand)))
+                                .padding(.top, CicadaTheme.scaled(HomeLayout.headlineTop))
                                 .padding(.bottom, CicadaTheme.scaled(HomeLayout.headlineBottom))
                             fieldColumn(showsResults: showsResults)
                                 .frame(maxWidth: CicadaTheme.scaled(HomeLayout.fieldWidth))
