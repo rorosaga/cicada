@@ -20,7 +20,8 @@ def _home(tmp_path, monkeypatch):
 def test_the_default_is_off_and_empty():
     snap = reading_settings.snapshot()
     assert snap == {"agentEnabled": False, "allowedSites": {}, "ackedAt": None, "ackCurrent": False,
-                    "exploreSignedIn": True, "neverExplore": {}}
+                    "exploreSignedIn": True, "neverExplore": {},
+                    "youtubeLists": {"watchLater": False, "history": False}}   # G71: both lists off by default
     assert not reading_settings.path().exists(), "reading never creates the file"
 
 
