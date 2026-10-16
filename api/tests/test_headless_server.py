@@ -291,6 +291,8 @@ def _install_dry_run(tmp_path: Path, os_name: str) -> tuple[subprocess.Completed
     bin_dir.mkdir()
     _fake(bin_dir, "uname", f'if [ "$1" = "-m" ]; then echo x86_64; else echo {os_name}; fi\n')
     _fake(bin_dir, "uv", "exit 0\n")
+    # install.sh probes a fixed :8000 and skips step 6 when a backend answers; on a developer's Mac one does.
+    _fake(bin_dir, "curl", "exit 7\n")
     env = {"HOME": str(home), "PATH": f"{bin_dir}:/usr/bin:/bin", "CICADA_MEMORY_PATH": str(tmp_path / "memory"),
            "CLAUDE_CLI": "cicada-no-such-cli", "CICADA_PORT": "1", "CICADA_RECALL": "off"}
     done = subprocess.run(["/bin/bash", str(ROOT / "install.sh"), "--dry-run"], env=env, capture_output=True,
