@@ -1346,6 +1346,11 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True,
     """
     global _state
 
+    # G181 phase 3: a client's click may start this run inside its request; nothing Sleep writes is that device's.
+    from api.services import device_context
+
+    device_context.clear()
+
     # Sleep control (Devin PR #27 round 1, finding 2): if `reserve_cycle`
     # already claimed this EXACT cycle_id (the synchronous trigger-time
     # reservation that closes the "background task hasn't started yet"

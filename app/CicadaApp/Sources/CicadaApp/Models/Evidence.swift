@@ -345,6 +345,9 @@ struct EpisodeText: Codable, Hashable {
     let source: String?
     /// G179: a message conversation's other side — the name its `assistant`/`speaker` turns carry ("Instinct").
     let correspondent: String?
+    /// G181 phase 3 — the id of the person's device whose token posted this conversation; nil for a page and for what
+    /// the server's own machine wrote.
+    var device: String? = nil
 
     var isPage: Bool { kind == "page" }
     var isPageRead: Bool { source == EvidenceSpeaker.pageReadSource }
@@ -377,13 +380,14 @@ struct EpisodeText: Codable, Hashable {
 
     enum CodingKeys: String, CodingKey {
         case episode, kind, text, length, hash, truncated, title, timestamp, harness, origin
-        case conversationId, captureKind, turns, focus, agent, watch, source, correspondent
+        case conversationId, captureKind, turns, focus, agent, watch, source, correspondent, device
     }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         source = try? c.decodeIfPresent(String.self, forKey: .source)
         correspondent = try? c.decodeIfPresent(String.self, forKey: .correspondent)
+        device = (try? c.decodeIfPresent(String.self, forKey: .device)) ?? nil
         episode = try c.decodeIfPresent(String.self, forKey: .episode) ?? ""
         kind = try c.decodeIfPresent(String.self, forKey: .kind) ?? "episode"
         text = try c.decodeIfPresent(String.self, forKey: .text) ?? ""

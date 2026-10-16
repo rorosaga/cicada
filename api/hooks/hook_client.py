@@ -1,6 +1,7 @@
 """A hook on a client machine: where it sends, with which token, and what it does when the server is away (G181 phase 2).
 
-Only when ``CICADA_API_BASE`` is set (``runtime_layout.is_client``). Unset, every hook keeps its loopback request,
+Only when ``CICADA_API_BASE`` is set, or the app's ``$CICADA_HOME/api_base`` names a server (``runtime_layout.is_client``,
+G181 phase 3). Unset, every hook keeps its loopback request,
 its ``api_token`` read and its log lines byte for byte, and nothing here runs.
 
 * **Where:** ``runtime_layout.api_base`` (https, or http only to a loopback address) — the one rule the stdio MCP
@@ -44,8 +45,28 @@ def layout():
     return runtime_layout
 
 
+def raw_base(environ) -> str:
+    """``CICADA_API_BASE``, else the app's ``$CICADA_HOME/api_base`` (G181 phase 3: the person chose *A server* in the
+    app), else "" — ``runtime_layout._raw_base``'s rule restated in stdlib so a hook on one machine decides without
+    importing the backend (``test_headless_app`` pins the two equal). A bare dict that names no ``CICADA_HOME`` never
+    reaches the person's home."""
+    import os
+
+    raw = str(environ.get("CICADA_API_BASE") or "").strip()
+    if raw:
+        return raw
+    home = str(environ.get("CICADA_HOME") or "").strip()
+    if environ is not os.environ and not home:
+        return ""
+    folder = Path(home).expanduser() if home else Path.home() / ".cicada"
+    try:
+        return (folder / "api_base").read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
 def is_client(environ) -> bool:
-    return bool(str(environ.get("CICADA_API_BASE") or "").strip())
+    return bool(raw_base(environ))
 
 
 def target(environ) -> tuple[str | None, str, str | None]:

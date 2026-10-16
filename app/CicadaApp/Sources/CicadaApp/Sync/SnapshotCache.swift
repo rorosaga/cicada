@@ -21,7 +21,9 @@ actor SnapshotCache {
     ///
     /// Nothing pins the value: `load`'s own `env.schema == Self.schema` guard
     /// is its only reader, and a mismatch is a cache miss, not an error.
-    static let schema = 2
+    ///
+    /// Version 3 is `MediaFeedItem.device` (G181 phase 3: the "Saved from" line names the device a save came from).
+    static let schema = 3
     private struct Envelope<T: Codable>: Codable { let schema: Int; let etag: String?; let savedAt: Date; let payload: T }
 
     private let root: URL
@@ -30,8 +32,11 @@ actor SnapshotCache {
     private let decoder = JSONDecoder()
 
     init(root: URL? = nil) {
+        // G181 phase 3 — one cache per connection (`Cicada/cache` for This Mac, as before): a server's snapshots never
+        // hydrate under This Mac's, or the reverse, after the person switches.
         self.root = root ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Cicada/cache", isDirectory: true)
+            .appendingPathComponent("Cicada", isDirectory: true)
+            .appendingPathComponent(ServerConnection.current.cacheFolderName, isDirectory: true)
     }
 
     private func url(_ domain: SyncDomain, bank: String) -> URL {

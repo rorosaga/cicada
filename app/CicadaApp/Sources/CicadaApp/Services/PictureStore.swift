@@ -23,7 +23,7 @@ actor PictureStore {
 
     init(root: URL? = nil, fetch: @escaping Fetcher = { try await PictureStore.defaultFetch($0) }) {
         self.root = root ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Cicada/pictures", isDirectory: true)
+            .appendingPathComponent(ServerConnection.current.scoped("Cicada/pictures"), isDirectory: true)  // per connection
         self.fetch = fetch
     }
 

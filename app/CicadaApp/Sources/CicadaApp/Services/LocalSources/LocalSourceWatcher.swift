@@ -455,7 +455,7 @@ final class LocalSourceWatcher {
 
     // MARK: Wispr Flow (G134)
 
-    private var cursorKey: String { "cicada.wisprFlow.cursor.\(bank)" }
+    private var cursorKey: String { ServerConnection.current.scoped("cicada.wisprFlow.cursor.\(bank)") }  // G181 phase 3
 
     private func loadCursor() -> WisprFlowCursor {
         guard let data = defaults.data(forKey: cursorKey) else { return WisprFlowCursor() }

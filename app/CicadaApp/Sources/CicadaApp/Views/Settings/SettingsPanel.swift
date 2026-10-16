@@ -207,6 +207,7 @@ struct SettingsPanel: View {
         case .reading: ReadingWebView()
         case .agents: ConnectView()
         case .remote: FromAnywhereView()
+        case .devices: DevicesSettingsView()
         case .skills: SkillsView()
         case .engines: EnginesView()
         case .plansAndKeys: ConnectionsView()

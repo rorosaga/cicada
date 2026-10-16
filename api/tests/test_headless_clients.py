@@ -141,10 +141,13 @@ def test_only_the_master_token_issues_and_revokes_devices(server):
     device, token = made.json()["device"], made.json()["token"]
     assert client.get("/banks", headers=_auth(token)).status_code == 200      # a device opens the API
     assert client.post("/devices", json={"name": "x"}, headers=_auth(token)).status_code == 403
-    assert client.get("/devices", headers=_auth(token)).status_code == 403
+    # G181 phase 3: a device may READ the list (its app shows the person their devices), marked as the one asking.
+    seen = client.get("/devices", headers=_auth(token))
+    assert seen.status_code == 200 and [d["current"] for d in seen.json()["devices"]] == [True]
     assert client.delete(f"/devices/{device['id']}", headers=_auth(token)).status_code == 403
     listed = client.get("/devices", headers=_auth(master)).json()["devices"]
     assert [d["id"] for d in listed] == [device["id"]] and "token" not in json.dumps(listed)
+    assert [d["current"] for d in listed] == [False]
     assert client.delete(f"/devices/{device['id']}", headers=_auth(master)).status_code == 200
     assert client.get("/banks", headers=_auth(token)).status_code == 401      # revoked: at once
     assert client.get("/banks", headers=_auth("cic_dev_" + "a" * 8 + "_" + "b" * 43)).status_code == 401

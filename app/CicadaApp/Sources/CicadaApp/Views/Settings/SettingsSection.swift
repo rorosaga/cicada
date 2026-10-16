@@ -42,7 +42,7 @@ import Foundation
 enum SettingsSection: String, CaseIterable, Identifiable {
     // Declared in sidebar order — `SettingsGroup.sections` filters this list,
     // and `SettingsKitTests` pins that the groups read it back unchanged.
-    case general, you, privacy, searchFiles, memory, sleep, integrations, reading, agents, remote, skills, engines, plansAndKeys, advanced
+    case general, you, privacy, searchFiles, memory, sleep, integrations, reading, agents, remote, devices, skills, engines, plansAndKeys, advanced
 
     var id: String { rawValue }
 
@@ -58,6 +58,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .reading: Copy.Reading.pageTitle
         case .agents: Copy.agents
         case .remote: Copy.fromAnywhere
+        case .devices: Copy.Devices.sidebar
         case .skills: Copy.skills
         case .engines: Copy.engines
         case .plansAndKeys: Copy.plansAndKeys
@@ -86,6 +87,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .reading: Copy.Reading.pageSubtitle
         case .agents: Copy.agentsSubtitle
         case .remote: Copy.remoteSubtitle
+        case .devices: Copy.Devices.subtitle
         case .skills: Copy.skillsSubtitle
         case .engines: Copy.enginesSubtitle
         case .plansAndKeys: Copy.plansAndKeysSubtitle
@@ -105,6 +107,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .reading: "globe"
         case .agents: "cable.connector"
         case .remote: "dot.radiowaves.left.and.right"
+        case .devices: "laptopcomputer.and.iphone"
         case .skills: "sparkles"
         case .engines: "cpu"
         // K4: `creditcard` read as a price on a page that must never show one.
@@ -116,7 +119,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     var group: SettingsGroup {
         switch self {
         case .general, .you, .privacy, .searchFiles, .memory, .sleep: .cicada
-        case .integrations, .reading, .agents, .remote, .skills: .customize
+        case .integrations, .reading, .agents, .remote, .devices, .skills: .customize
         case .engines, .plansAndKeys, .advanced: .enginesAndKeys
         }
     }

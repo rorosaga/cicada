@@ -864,8 +864,15 @@ def _capture_thumbs(memory_path: Path) -> dict[str, str]:
 
 
 #: The `/sources` payload's shape version, folded into its ETag: `saved-why-2` added `savedWhyHistory`,
-#: `lastSavedAt` and `captureThumb` (G191 v3); `saved-why-3` added `leftBrowser` (G191 v4) and the four reason labels.
-SHAPE = "saved-why-3"
+#: `lastSavedAt` and `captureThumb` (G191 v3); `saved-why-3` added `leftBrowser` (G191 v4) and the four reason labels;
+#: `device-1` added `device` (G181 phase 3: which of the person's devices posted the save).
+SHAPE = "device-1"
+
+
+def _device_of(fm: dict) -> str | None:
+    """G181 phase 3: the device id the save's episode records (``device_context``), or None for the server's own."""
+    value = fm.get("device")
+    return value.strip() if isinstance(value, str) and value.strip() else None
 
 
 @router.get("/sources", response_model=SourceListResponse)
@@ -1035,6 +1042,7 @@ async def list_sources(
                 last_saved_at=saved_why.last_saved(episode_fm.get(str(entry.get("episode_id") or "")) or {}),
                 capture_thumb=capture_thumbs.get(entity_id),
                 left_browser=_left_browser(left_by_hash, raw_key, entry),
+                device=_device_of(episode_fm.get(str(entry.get("episode_id") or "")) or {}),
                 tags=tags,
                 status=status,
                 related_count=related_count,

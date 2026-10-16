@@ -27,7 +27,7 @@ actor LogoStore {
 
     init(root: URL? = nil, fetch: @escaping Fetcher = { try await APIClient.shared.fetchEntityLogo(id: $0) }) {
         self.root = root ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Cicada/logos", isDirectory: true)
+            .appendingPathComponent(ServerConnection.current.scoped("Cicada/logos"), isDirectory: true)  // per connection
         self.fetch = fetch
     }
 

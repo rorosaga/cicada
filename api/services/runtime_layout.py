@@ -71,13 +71,32 @@ def local_backend_url(environ=os.environ) -> str:
 API_BASE_ENV = "CICADA_API_BASE"
 TOKEN_ENV = "CICADA_API_TOKEN"
 DEVICE_TOKEN_FILE = "device_token"
+#: G181 phase 3: the address the person chose in the app (Settings → General → *A server*), one line, 0600. The app
+#: writes it on their click and removes it when they choose *This Mac*; ``CICADA_API_BASE`` in the environment wins.
+#: Read only from the real environment or one that names its own ``CICADA_HOME`` — a bare dict a test builds never
+#: reaches the person's home.
+API_BASE_FILE = "api_base"
 _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 
 
+def _raw_base(environ=os.environ) -> str:
+    """``CICADA_API_BASE``, else the app's ``$CICADA_HOME/api_base``, else ""."""
+    raw = (environ.get(API_BASE_ENV) or "").strip()
+    if raw:
+        return raw
+    if environ is not os.environ and not (environ.get("CICADA_HOME") or "").strip():
+        return ""
+    try:
+        return (cicada_home(environ) / API_BASE_FILE).read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
 def is_client(environ=os.environ) -> bool:
-    """True when ``CICADA_API_BASE`` is set to anything: an invalid value still means "not this machine's bank", so a
-    typo fails loudly at the request (and capture spools) rather than writing into a local bank by accident."""
-    return bool((environ.get(API_BASE_ENV) or "").strip())
+    """True when ``CICADA_API_BASE`` (or the app's ``api_base`` file) is set to anything: an invalid value still means
+    "not this machine's bank", so a typo fails loudly at the request (and capture spools) rather than writing into a
+    local bank by accident."""
+    return bool(_raw_base(environ))
 
 
 def api_base(environ=os.environ) -> str:
@@ -86,7 +105,7 @@ def api_base(environ=os.environ) -> str:
     ``ValueError`` names the rule, never echoes the value."""
     from urllib.parse import urlsplit
 
-    raw = (environ.get(API_BASE_ENV) or "").strip()
+    raw = _raw_base(environ)
     try:
         parts = urlsplit(raw)
         host = parts.hostname

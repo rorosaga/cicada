@@ -32,14 +32,16 @@ struct AdvancedView: View {
                 }
                 SettingsDivider()
                 SettingsRow(.apiToken, title: Copy.apiTokenTitle,
-                            detail: overrides.contains("CICADA_API_TOKEN") ? Copy.apiTokenOverridden : Copy.apiTokenDetail) {
+                            detail: overrides.contains("CICADA_API_TOKEN") ? Copy.apiTokenOverridden
+                                : (ServerConnection.current.isServer ? Copy.Devices.deviceTokenDetail : Copy.apiTokenDetail)) {
                     Button(Copy.showInFinder) {
                         // The same home `APIClient.loadToken` reads: `CICADA_HOME`
                         // when the app was given one, else `~/.cicada`. Finder
                         // only selects the file; nothing here opens it.
                         let dir = ProcessInfo.processInfo.environment["CICADA_HOME"].map { URL(fileURLWithPath: $0) }
                             ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".cicada")
-                        NSWorkspace.shared.activateFileViewerSelecting([dir.appendingPathComponent("api_token")])
+                        NSWorkspace.shared.activateFileViewerSelecting([dir.appendingPathComponent(
+                            ServerConnection.current.isServer ? ServerConnection.deviceTokenFile : "api_token")])
                     }
                 }
             }

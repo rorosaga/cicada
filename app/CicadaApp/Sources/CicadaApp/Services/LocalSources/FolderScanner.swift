@@ -200,7 +200,9 @@ struct FolderManifestStore: Sendable {
     static var standard: FolderManifestStore {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory
-        return FolderManifestStore(directory: base.appendingPathComponent("Cicada/FolderWatch", isDirectory: true))
+        // G181 phase 3 — what a folder already sent belongs to the backend it went to.
+        return FolderManifestStore(directory: base.appendingPathComponent(
+            ServerConnection.current.scoped("Cicada/FolderWatch"), isDirectory: true))
     }
 
     private func file(_ key: String) -> URL { directory.appendingPathComponent("\(key).json") }

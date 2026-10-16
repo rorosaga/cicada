@@ -27,6 +27,10 @@ struct BankSwitcher: View {
             // between them (the mock's "Manage memory banks" group), and the shell's files
             // carry no divider (DR-11, ShellElevationLintTests).
             Section {
+                // G181 phase 3 — the memories listed live on the server this app uses: "on <host>", one quiet line.
+                if let host = DeviceOrigin.bankHost(ServerConnection.current) {
+                    Text(host)
+                }
                 if banksVM.banks.isEmpty {
                     Text(Copy.noMemoryBanks)
                 } else {
@@ -97,7 +101,8 @@ struct BankSwitcher: View {
         .opacity(isSwitching ? NeutralButton.disabledOpacity : 1)
         .onHover { isHovered = $0 }
         .help(banksVM.switchingTo.map(Copy.switchingMemoryBank) ?? (isSwitching ? Copy.switchingMemory : Copy.switchMemoryBank))
-        .accessibilityLabel("\(Copy.memoryBanks): \(displayName)")
+        .accessibilityLabel("\(Copy.memoryBanks): \(displayName)"
+                            + (DeviceOrigin.bankHost(ServerConnection.current).map { ", \($0)" } ?? ""))
         .task { await banksVM.load() }
         .sheet(isPresented: $showCreateSheet) {
             BankNameSheet(

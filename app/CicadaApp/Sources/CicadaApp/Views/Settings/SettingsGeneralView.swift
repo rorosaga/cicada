@@ -129,12 +129,18 @@ struct SettingsGeneralView: View {
                         .labelsHidden()
                 }
             }
+            // G181 phase 3 — This Mac or a server; the choice is used when Cicada opens again.
+            SettingsGroupCard(header: Copy.Devices.whereGroup) {
+                MemoryHomeSetting()
+            }
             SettingsGroupCard(header: Copy.whenClosedGroup) {
+                // G181 phase 3 — on a server nothing runs on this Mac for the memory, so nothing is offered.
+                let onServer = ServerConnection.current.isServer
                 SettingsRow(.backgroundService, title: Copy.keepMemoryWorking,
-                            detail: Copy.backgroundDetail(backendAgent.state)) {
-                    BackgroundServiceButton()
+                            detail: onServer ? Copy.Devices.backgroundNotNeeded : Copy.backgroundDetail(backendAgent.state)) {
+                    if !onServer { BackgroundServiceButton() }
                 } below: {
-                    if BackgroundServiceButton.showsCommand(backendAgent.state) {
+                    if !onServer && BackgroundServiceButton.showsCommand(backendAgent.state) {
                         CommandBox(command: backendAgent.display)
                     }
                 }

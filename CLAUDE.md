@@ -349,7 +349,8 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 - **Credentials** live in `~/.cicada/secrets.env` (0600) — never in a bank, never logged.
 - **Headless (G181):** a server is its bank's one writer and binds 127.0.0.1 only; reach from another machine is an
   overlay the person runs (never a public port, never funnel), and no installer creates or copies a credential (`headless.md`).
-  Another machine is a client (`CICADA_API_BASE`, ruling 28) with its own revocable device token and no bank of its own.
+  Another machine is a client (`CICADA_API_BASE`, or the app's `api_base` file, ruling 28) with its own revocable device
+  token and no bank of its own; what it posts records `device` (`headless.md`).
 - **Video:** only a provider's own player URL is loaded; an oEmbed response is read for its fields, never its HTML.
 
 ### Rulings

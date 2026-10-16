@@ -45,8 +45,10 @@ final class ContactsReader {
         self.enabled = defaults.bool(forKey: Self.enabledKey)
     }
 
-    private func tokenKey(_ bank: String) -> String { "cicada.contacts.\(bank).token" }
-    private func lastPostKey(_ bank: String) -> String { "cicada.contacts.\(bank).lastPost" }
+    private func tokenKey(_ bank: String) -> String { ServerConnection.current.scoped("cicada.contacts.\(bank).token") }
+    private func lastPostKey(_ bank: String) -> String {
+        ServerConnection.current.scoped("cicada.contacts.\(bank).lastPost")  // per connection (G181 phase 3)
+    }
 
     /// R-SR10, pure: post on launch when this bank never got one, the book moved, or a day passed.
     nonisolated static func shouldPostOnLaunch(token: Data?, stored: Data?, lastPost: Date?, now: Date,
