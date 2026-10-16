@@ -1114,5 +1114,13 @@
       "frontmatter": "{**fm, UNDONE_KEY: 'undone'}",
       "disposition": "uninstrumented_guarded"
     }
+  ],
+  "services/linkedin_people.py": [
+    {
+      "function": "_apply_page",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    }
   ]
 }

@@ -43,8 +43,10 @@ from api.services import skill_folders, skill_tools
 from api.services.auth import cicada_home
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-#: Cicada's own two skills, read from the checkout (a release app ships them in its backend too, G182).
-OWN_BUNDLES = {"cicada": "SKILL.md", "cicada-librarian": "skills/cicada-librarian/SKILL.md"}
+#: Cicada's own skills, read from the checkout (a release app ships them in its backend too, G182). `linkedin-people`
+#: (2026-10-16): the person's agent reads one person's LinkedIn profile, on request, through `cicada_record_profile`.
+OWN_BUNDLES = {"cicada": "SKILL.md", "cicada-librarian": "skills/cicada-librarian/SKILL.md",
+               "linkedin-people": "skills/linkedin-people/SKILL.md"}
 MAX_REQUESTS = 50
 MAX_DRAFT_BODY = 40_000
 MAX_DESCRIPTION = 1024

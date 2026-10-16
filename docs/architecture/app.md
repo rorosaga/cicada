@@ -750,8 +750,8 @@ bridges, and for the two harnesses a `tool` block and for them and the video ski
 `scripts/verify-skills.sh` re-checks it) served by `GET /skills/recommended` — at most
 five not-installed entries by rank, install state derived per request from `SKILL.md` files and
 Claude Code plugin ids, never an agent's config. Since the Skills page (2026-10-15) **the app installs nothing and
-writes no skill folder**: `SkillInstaller` and its consent sheet are gone, Cicada's own `cicada` and
-`cicada-librarian` rows and a skill's detail hand off to the page (`AppRouter.routeToSkills`), and every install is the
+writes no skill folder**: `SkillInstaller` and its consent sheet are gone, Cicada's own `cicada`,
+`cicada-librarian` and `linkedin-people` rows and a skill's detail hand off to the page (`AppRouter.routeToSkills`), and every install is the
 backend's `skill_store` (`api.md`, "Skills"). Hosted MCP servers and agent-prompt texts stay copy-only. The handshake gains a capability line only for an installed, active bridge
 whose tool exists: papers (`cicada_save_url`), video (`cicada_record_watch`) and meetings
 (`cicada_save_episode`, one `speaker:<name>:` line per utterance, never `user:`) are active;
@@ -868,7 +868,20 @@ the page's find row.
   (`IntakeRouter.includeHistory`, off for every new drop); flipping it sniffs again with `?include_history=true`, the
   line under it says "N watched videos left out" or "N watched videos over D days", the import counts them and
   `/sources/upload` carries the flag. The YouTube and TikTok tiles carry the same switch, and a walked Takeout folder
-  now sends `watch-history.html`.
+  now sends `watch-history.html`. **LinkedIn → Connections (2026-10-16):** the LinkedIn tile (blurb "Saved items, and
+  your connections for the people you already know."; route lines *Saved items export · Connections*) carries, under
+  its saved-items walkthrough, `LinkedInConnectionsPanel` (`AddSourceTile.offersConnections`): one sentence —
+  "Adds each connection's profile link, company and role to the people already in your memory — it never adds anyone
+  new." —, where the export lives, and *Choose Connections.csv…* (or a drop of the CSV or the export `.zip`; the
+  intake's refused roots apply). From a `.zip` the app reads only `Connections.csv` — the archive's tail, its central
+  directory and that one member (`LinkedInConnectionsFile`; the export also holds messages and is often past the
+  32 MB cap), never another member's bytes; a zip without it says so in words. The app posts just those bytes to
+  `POST /sources/linkedin-connections/preview` (with a lone CSV's modification day, or the member's own date, as
+  `?exported_on=`) and shows counts only — "12 of your 420 connections are people Cicada
+  already knows. 2 share a name with more than one person and are left out. As of <day>." — then *Add to 12 people*
+  (or *Keep for later* when none match: the backend keeps the directory for later matches) posts `/import` and
+  refreshes the graph. Words in `LinkedInConnectionsWords`, tested in `LinkedInConnectionsTests`. Settings → Skills
+  lists Cicada's third own skill, *What people do now* (`CicadaSkillBundle.linkedinPeople`, `mcp.md`).
 - **Videos (G162, the approved boards, 2026-09-30).** The app reads `GET /videos/state` and `/videos/summary` through
   `VideoStateCache` (app-level, in memory, ETag-revalidated, never a Store domain; `VideoRefresh` follows the
   `videoQueue`, `episodes`, `entities` and `bank` components, one revalidation is scheduled at the wire's

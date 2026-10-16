@@ -1438,6 +1438,87 @@ def record_youtube_list(ctx: ToolContext, list_name: str, outcome: str, videos=N
     return f"Recorded the person's YouTube {label}. {said}{extra}"
 
 
+PROFILE_SLEEPING = ("Not recorded: Cicada is consolidating memory right now, and this profile is written into it. "
+                    "Nothing was saved. Keep what you read and record it with `cicada_record_profile` when Cicada has "
+                    "finished.")
+
+
+@_holding_pages
+def record_profile(ctx: ToolContext, entity_id: str, url: str, outcome: str, company: str | None = None,
+                   position: str | None = None, quotes=None, summary: str | None = None, via: str | None = None) -> str:
+    """``cicada_record_profile`` (2026-10-16, the ``linkedin-people`` skill): what the person's own agent read on ONE
+    person's LinkedIn profile, in the person's signed-in browser, because the person asked about that person.
+
+    Refusals, in order, write nothing: a demo bank; agent reading off; not a person page; a link that is not the one
+    LinkedIn profile that page lists (the connections import or the person put it there; one the person removed is
+    not listed, so it cannot be recorded); an unknown outcome; past the day's cap (nothing in bulk). ``needs_login``,
+    ``blocked``, ``not_found`` and ``failed`` write nothing and tell the agent to stop. A ``read`` writes one episode
+    (the summary and up to three quotes, ``page`` spans — what the agent reported, never the person's words) and the
+    company and position as the newest dated ``external:linkedin`` claims (``linkedin_people``: newest wins against
+    the export), committed alone as the harness. Cicada never opens the page."""
+    from api.services import check_record, linkedin_people, reading_settings
+
+    memory_path = ctx.memory_path()
+    if (refusal := _demo_refusal(memory_path)) is not None:
+        return refusal
+    if not reading_settings.agent_enabled():
+        return _READING_OFF
+    entity_id = str(entity_id or "").strip()
+    path = memory_path / "entities" / f"{entity_id}.md"
+    fm = markdown_parser.parse(path).frontmatter if entity_id and path.exists() else {}
+    if fm.get("type") != "person" or fm.get("status") == "dropped":
+        return "Not recorded: that is not a person in memory. Recall the person first and pass their page's id."
+    listed = linkedin_people.page_profile(memory_path, entity_id)
+    if listed is None or linkedin_people.profile_url(url) != listed:
+        return ("Not recorded: Cicada records only the one LinkedIn profile that person's page lists (from the "
+                "person's LinkedIn connections, or a link the person gave). Nothing was written; tell the person.")
+    outcome = str(outcome or "").strip().lower()
+    if outcome not in linkedin_people.PROFILE_OUTCOMES:
+        return f"Error: outcome must be one of {', '.join(linkedin_people.PROFILE_OUTCOMES)}."
+    if outcome in ("needs_login", "blocked"):
+        return ("Recorded nothing: LinkedIn needs the person to sign in (or blocked the page). Stop: never sign in, "
+                "type credentials or try another route. Tell the person in one line.")
+    if outcome in ("not_found", "failed"):
+        return "Recorded nothing: the profile could not be read. Tell the person in one line; do not retry now."
+    company_text = " ".join(str(company or "").split())
+    position_text = " ".join(str(position or "").split())
+    if not (company_text or position_text):
+        return ("Error: a read needs what the profile shows now — `company` and/or `position` (its current role). "
+                "Record `failed` if it shows neither.")
+    bank = memory_path.name
+    if linkedin_people.reads_today(bank) >= linkedin_people.MAX_PROFILE_READS_PER_DAY:
+        return (f"Not recorded: {linkedin_people.MAX_PROFILE_READS_PER_DAY} LinkedIn profiles were already recorded "
+                "today. Profiles are read one person at a time, when the person asks — never in bulk.")
+    if ctx.sleep_answer:
+        return PROFILE_SLEEPING
+    quotes_clean, dropped = check_record.clean_quotes(quotes)
+    name = str(fm.get("name") or entity_id)
+    episode_id = linkedin_people.write_profile_episode(
+        memory_path, entity_id=entity_id, name=name, url=listed, summary=summary or "", quotes=quotes_clean,
+        reader=ctx.author, via=via, session_frontmatter=ctx.session_frontmatter())
+    evidence_by = {linkedin_people.WORKS_AT: linkedin_people.profile_evidence(memory_path, episode_id, company_text,
+                                                                              quotes_clean),
+                   linkedin_people.ROLE: linkedin_people.profile_evidence(memory_path, episode_id, position_text,
+                                                                          quotes_clean)}
+    report = linkedin_people.apply_profile(memory_path, entity_id, company=company_text, position=position_text,
+                                           day=date.today().isoformat(), evidence_by=evidence_by,
+                                           authored_by=ctx.author)
+    linkedin_people.count_read(bank)
+    paths = [f"episodes/{episode_id}.md", *report.paths]
+    lines = [f"episodes/{episode_id}.md: created (trigger: {ctx.trigger})"]
+    lines += [f"{p}: updated (source: {episode_id}, trigger: {ctx.trigger})" for p in report.paths]
+    agent_commits.commit_write(memory_path, subject=ctx.commit_subject, lines=lines, paths=paths, author=ctx.author,
+                               session=ctx.session_id)
+    if report.claims_written:
+        said = (f"{report.claims_written} fact(s) recorded as what LinkedIn shows today"
+                + (f", closing {report.claims_closed} older LinkedIn value(s)" if report.claims_closed else "") + ".")
+    else:
+        said = "Nothing new: memory already holds those LinkedIn values."
+    extra = f" {dropped} quote(s) left out (empty, or past the 3-quote cap)." if dropped else ""
+    return (f"Recorded {name}'s LinkedIn profile (episode `{episode_id}`). {said} It is marked as what you read on "
+            f"LinkedIn, never as the person's own words.{extra}")
+
+
 def parse_frontmatter(content: str) -> tuple[dict, str]:
     """Parse YAML frontmatter without requiring pyyaml. Simple key: value parsing."""
     # Line-anchored fences (L final review, finding 2): a `---` inside a title

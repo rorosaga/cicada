@@ -87,6 +87,7 @@ enum SettingsIndex {
         .readingYouTube,
         // Cicada's own skills — per-item ids (a `:`), so outside the bare-name lint
         .skill(CicadaSkillBundle.cicada.rawValue), .skill(CicadaSkillBundle.cicadaLibrarian.rawValue),
+        .skill(CicadaSkillBundle.linkedinPeople.rawValue),
         .remoteSwitch, .remoteReach, .remoteNew,
         .engineChoice, .engineModel, .engineOverage, .enginePreview, .engineAsk, .engineAutoClaude,
         .backendStatus, .mcpCommand, .apiToken, .envOverrides, .settingsFile,
@@ -226,6 +227,9 @@ enum SettingsIndex {
                       keywords: ["cicada skill", "recall", "save"], detail: CicadaSkillBundle.cicada.summary),
         SettingsEntry(.skill(CicadaSkillBundle.cicadaLibrarian.rawValue), .skills, CicadaSkillBundle.cicadaLibrarian.title,
                       keywords: ["librarian", "consolidate"], detail: CicadaSkillBundle.cicadaLibrarian.summary),
+        SettingsEntry(.skill(CicadaSkillBundle.linkedinPeople.rawValue), .skills, CicadaSkillBundle.linkedinPeople.title,
+                      keywords: ["linkedin", "people", "profile", "connections"],
+                      detail: CicadaSkillBundle.linkedinPeople.summary),
         // From anywhere — landing on its header (R-O12)
         SettingsEntry(.remoteSwitch, .remote, Copy.remoteSwitchTitle,
                       keywords: ["phone", "claude.ai", "chatgpt", "perplexity", "connector", "remote", "mobile"], anchor: .page(.remote)),

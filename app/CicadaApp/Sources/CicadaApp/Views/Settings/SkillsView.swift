@@ -83,17 +83,29 @@ private struct CicadaSkillRow: View {
     }
 }
 
-/// Cicada's two hand-written skills, by name (the Skills page installs them from the checkout, G112 compiles more).
+/// Cicada's hand-written skills, by name (the Skills page installs them from the checkout, G112 compiles more). The
+/// words match the backend's `skill_inventory._own_suggestion`.
 enum CicadaSkillBundle: String, CaseIterable, Identifiable {
     case cicada
     case cicadaLibrarian = "cicada-librarian"
+    /// 2026-10-16: when the person asks about someone, their agent reads that one LinkedIn profile in their browser.
+    case linkedinPeople = "linkedin-people"
 
     var id: String { rawValue }
-    var title: String { self == .cicada ? "Recall and save" : "Tidy as you work" }
+    var title: String {
+        switch self {
+        case .cicada: "Recall and save"
+        case .cicadaLibrarian: "Tidy as you work"
+        case .linkedinPeople: "What people do now"
+        }
+    }
     var summary: String {
-        self == .cicada
-            ? "Tells your agent when to look things up in Cicada and when to save."
-            : "Lets your agent file what you just did into Cicada, the way Sleep would."
+        switch self {
+        case .cicada: "Tells your agent when to look things up in Cicada and when to save."
+        case .cicadaLibrarian: "Lets your agent file what you just did into Cicada, the way Sleep would."
+        case .linkedinPeople:
+            "When you ask about someone, your agent reads their LinkedIn profile in your browser and updates what Cicada knows."
+        }
     }
 }
 

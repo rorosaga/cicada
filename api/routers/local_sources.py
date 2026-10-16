@@ -19,11 +19,14 @@ only — and posts the visits; the backend keeps one episode per day of what was
 
 Messages (G179): the app reads the conversations the person ticked from ``chat.db`` (Full Disk Access) and posts their
 rows; the backend decodes, splits into sittings and stages them — refusing any conversation not ticked.
+
+LinkedIn connections (2026-10-16, G154's pattern): the person picks their export's ``Connections.csv`` (or the export
+``.zip``) in the LinkedIn tile; the app posts its bytes and the backend enriches the person pages it already has.
 """
 
 from __future__ import annotations
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
 from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
@@ -39,6 +42,9 @@ from api.models.schemas import (
     FolderSyncRequest,
     FolderSyncResponse,
     FolderUpdateRequest,
+    LinkedInConnectionsImportResponse,
+    LinkedInConnectionsPreview,
+    LinkedInConnectionsStatus,
     MessagesConversationsRequest,
     MessagesConversationsResponse,
     MessagesPhotosRequest,
@@ -60,6 +66,7 @@ from api.services import (
     calendar_local,
     contacts_local,
     folder_source,
+    linkedin_people,
     local_refs,
     messages_photos,
     messages_source,
@@ -377,6 +384,61 @@ async def sync_contacts_local(req: ContactsLocalSyncRequest, settings: Settings 
     await folder_source.commit_paths_for(memory_path, out.pop("paths"), subject="Contacts sync",
                                          trigger="capture/contacts", channel=contacts_local.CHANNEL_ID)
     return ContactsLocalSyncResponse(**out, bank=memory_path.name)
+
+
+# --- LinkedIn connections (2026-10-16; G154's pattern) ---------------------------------------------------------------
+
+
+async def _connections_bytes(file: UploadFile) -> bytes:
+    data = await file.read(linkedin_people.MAX_BYTES + 1)
+    if len(data) > linkedin_people.MAX_BYTES:
+        raise HTTPException(413, "That file is too large to be a LinkedIn connections export.")
+    return data
+
+
+@router.get("/sources/linkedin-connections", response_model=LinkedInConnectionsStatus)
+async def linkedin_connections_status(settings: Settings = Depends(get_settings)):
+    """The kept export's day and how many connections it lists — what the LinkedIn tile shows. Not a Store domain."""
+    bank = settings.memory_path.name
+    return LinkedInConnectionsStatus(**linkedin_people.status(bank), bank=bank)
+
+
+@router.post("/sources/linkedin-connections/preview", response_model=LinkedInConnectionsPreview,
+             dependencies=_DEMO_GATE)
+async def preview_linkedin_connections(file: UploadFile = File(...), exported_on: str | None = Query(None),
+                                       settings: Settings = Depends(get_settings)):
+    """What an import of this ``Connections.csv`` (or export ``.zip``) would do: how many connections match a person
+    page Cicada already has, how many are ambiguous or unknown. Reads pages, writes nothing, keeps nothing."""
+    data = await _connections_bytes(file)
+    try:
+        out = await run_in_threadpool(linkedin_people.preview, settings.memory_path, data, file.filename or "",
+                                      exported_on=exported_on)
+    except linkedin_people.PayloadError as exc:
+        raise HTTPException(422, str(exc))
+    return LinkedInConnectionsPreview(**out, bank=settings.memory_path.name)
+
+
+@router.post("/sources/linkedin-connections/import", response_model=LinkedInConnectionsImportResponse,
+             dependencies=_DEMO_GATE)
+@write_admission.route(refuse=lambda: SleepWriting(linkedin_people.SLEEP_REFUSAL))
+async def import_linkedin_connections(file: UploadFile = File(...), exported_on: str | None = Query(None),
+                                      settings: Settings = Depends(get_settings)):
+    """Enrich the person pages Cicada already has from the person's LinkedIn connections — never a new page (the
+    promotion rail): a matched page gains its profile link as a source and its company, position and day connected as
+    dated ``external:linkedin`` claims, newest export winning. The rest is kept outside the bank for later matches.
+    409 while Sleep runs; 422 for a file that is not the export. One ``user`` commit (trigger
+    ``capture/linkedin-connections``), scoped to the pages it changed — a re-import commits nothing."""
+    memory_path = settings.memory_path
+    data = await _connections_bytes(file)
+    try:
+        report = await run_in_threadpool(linkedin_people.import_connections, memory_path, data, file.filename or "",
+                                         exported_on=exported_on, bank=memory_path.name)
+    except linkedin_people.PayloadError as exc:
+        raise HTTPException(422, str(exc))
+    await folder_source.commit_paths_for(memory_path, report.paths, subject="LinkedIn connections",
+                                         trigger=linkedin_people.TRIGGER_IMPORT, channel=linkedin_people.CHANNEL_ID)
+    counts = report.counts()
+    return LinkedInConnectionsImportResponse(**counts, bank=memory_path.name)
 
 
 # --- Messages (G179; G188's minimal slice) ---------------------------------------------------------------------------

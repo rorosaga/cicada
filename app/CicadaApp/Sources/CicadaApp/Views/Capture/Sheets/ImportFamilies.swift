@@ -79,6 +79,10 @@ enum ImportFamily: String, CaseIterable, Identifiable {
 }
 
 extension AddSourceTile {
+    /// 2026-10-16: the LinkedIn tile also takes the export's `Connections.csv` — its own flow
+    /// (`LinkedInConnectionsPanel`), since the save-list importer refuses that file by name.
+    var offersConnections: Bool { self == .linkedin }
+
     /// Every way this member can import — the line under its name at the
     /// members level, so the user can tell "folders" from "tabs" before
     /// opening it. Distinct from `route`, which is the ONE badge verb: a
@@ -91,7 +95,7 @@ extension AddSourceTile {
         case .tiktok: ["Favourites & likes export", "Browsing history (opt-in)"]
         case .instagram: ["Saved export"]
         case .youtube: ["Playlist / Takeout export"]
-        case .linkedin: ["Saved items export"]
+        case .linkedin: ["Saved items export", "Connections"]
         case .reddit: ["Connect account", "GDPR export"]
         case .pinterest, .x: ["Connect account"]
         // Track I T5 — the one intake reads the .zip as it arrived.

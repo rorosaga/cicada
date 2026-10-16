@@ -42,6 +42,7 @@ WRITERS = frozenset({
     "saved-why",  # G191: the person's answer to "what made you save this?"
     "imessage",  # G179: a ticked Messages conversation's words, both sides
     "watch-history",  # G71 (2026-10-16): a watched video's title and channel, one day's episode
+    "linkedin-connections",  # 2026-10-16: a connection's name, company and position; a profile read's quotes
 })
 
 # Secret shapes (G105 R6), moved verbatim from transcript_extract. Ordered

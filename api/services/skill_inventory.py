@@ -344,7 +344,10 @@ def _suggestion(entry: dict) -> dict:
 def _own_suggestion(name: str) -> dict:
     words = {"cicada": ("Recall and save", "Tells your agent when to look things up in Cicada and when to save."),
              "cicada-librarian": ("Tidy as you work",
-                                  "Lets your agent file what you just did into Cicada, the way Sleep would.")}[name]
+                                  "Lets your agent file what you just did into Cicada, the way Sleep would."),
+             "linkedin-people": ("What people do now",
+                                 "When you ask about someone, your agent reads their LinkedIn profile in your browser "
+                                 "and updates what Cicada knows.")}[name]
     return {"id": name, "kind": "skill", "title": words[0], "summary": words[1], "publisher": "Cicada",
             "licence": "MIT", "symbol": "sparkles", "method": "own"}
 

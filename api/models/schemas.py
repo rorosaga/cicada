@@ -4574,6 +4574,44 @@ class ContactsLocalSyncResponse(CamelModel):
     bank: str = ""
 
 
+class LinkedInConnectionsPreview(CamelModel):
+    """``POST /sources/linkedin-connections/preview`` — what an import would do; counts only, nothing written."""
+
+    connections: int = 0
+    matched: int = 0
+    ambiguous: int = 0
+    unmatched: int = 0
+    skipped: int = 0
+    with_company: int = 0
+    exported_on: str = ""
+    bank: str = ""
+
+
+class LinkedInConnectionsImportResponse(CamelModel):
+    """``POST /sources/linkedin-connections/import`` — what the import wrote onto pages Cicada already had."""
+
+    connections: int = 0
+    matched: int = 0
+    ambiguous: int = 0
+    unmatched: int = 0
+    sources_added: int = 0
+    claims_written: int = 0
+    claims_closed: int = 0
+    older: int = 0
+    removed_kept_out: int = 0
+    exported_on: str = ""
+    bank: str = ""
+
+
+class LinkedInConnectionsStatus(CamelModel):
+    """``GET /sources/linkedin-connections`` — the kept export's day and size; never a name."""
+
+    exported_on: str | None = None
+    imported_at: str | None = None
+    connections: int = 0
+    bank: str = ""
+
+
 # --- Saved-content connectors (G71 §2) ---
 
 

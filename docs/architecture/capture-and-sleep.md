@@ -292,6 +292,38 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   `$CICADA_HOME/pictures/<bank>/contacts/<id>.<jpg|png>` — `contacts_local.photo_path(bank, id, ext)`, the one path
   T-People's picture ladder reads — and marked `contacts_photo: {sha, ext}`; 409 while Sleep runs; one `user` commit
   per sync (`capture/contacts`).
+  LinkedIn connections (owner 2026-10-16: "extracting people profiles from my LinkedIn connections … would be nice";
+  G154's pattern): the export's `Connections.csv` — or the export `.zip` carrying it — comes in only through its own
+  door, the LinkedIn tile's **Connections** (`POST /sources/linkedin-connections/preview`, then `/import`; the app reads
+  the file the person picked or dropped and posts its bytes, with the CSV's modification day as `?exported_on=`; a
+  zip's member date otherwise; never a future day). The save-list importer still refuses it by name and now points
+  here. `linkedin_people.py` reads LinkedIn's shape — notes above the header, First/Last Name, URL, Company, Position,
+  Connected On (`04 Mar 2021`); a credential after a comma in Last Name is dropped; **the Email Address column is never
+  read into anything** — and matches exactly one `person` page: first a page that already lists that profile link
+  among its sources, else the folded full name (either order) or an alias; never the owner's page, never a page that
+  names a *different* LinkedIn profile (the owner's page is known by its `owner: true` flag and by `resolve_observer`'s
+  id), and two connections on one page (duplicate names) or one on two pages match
+  neither. **It never creates a page.** A match gains its profile link as a source `{ref:
+  https://www.linkedin.com/in/<slug>, kind: url, predicate: linkedin, added_by: cicada}` and three claims observed
+  `external:linkedin` (`source_trust: external`, `authored_by: cicada`, `origin: linkedin/connections`, `reasoning`
+  evidence — no episode holds an export): `works-at` (a `company` page's id when exactly one has that name, else the
+  words), `role`, both `valid_from` the export's day, and `connected-on` (the day they connected). **Newest wins:**
+  Cicada's own LinkedIn claims for a predicate are one dated line — a newer export (or a profile the person's agent
+  read, `mcp.md`) with a different value closes the current one (`valid_to`, `superseded_by`); an older export, the
+  same value, or a re-import writes nothing. No other claim on the page is touched. A link the person removed
+  (`sources_removed`, matched by the profile's slug in any spelling of the link, under any predicate) is never re-added and that connection writes nothing more on that page — the person said it is
+  not them. Everything text-shaped is scrubbed (writer `linkedin-connections`). One `user` commit per import
+  (`capture/linkedin-connections`), 409 while Sleep runs and into a demo bank (the preview too), 413 past 32 MB.
+  **The directory:** every connection (names, link, company, position, day connected — no email) is kept outside every
+  bank at `$CICADA_HOME/people/<bank>/linkedin-connections.json` (0600; an older export never replaces a newer one;
+  the folder goes when its bank is moved to the trash and follows a rename, so a new bank of the same name inherits
+  nothing;
+  `GET /sources/linkedin-connections` gives its day and size, never a name), and Sleep's engine-free tail matches it
+  against the night's pages (`_rematch_linkedin_safely`, after source links, before any poll; its own `cicada` commit,
+  `sleep/linkedin-connections`, dirty pages skipped, undone on a failed commit; never in a demo bank) — so a person who gets a page later
+  gains their link and facts then, and nothing is ever said about anyone without one. Nothing is fetched: the link is
+  where to look the person up; the profile-photo rung may use it only once the person takes the source (its own
+  off-by-default gate, `person_photo`, unchanged).
 - **Messages conversations the person ticks (G179, 2026-10-15).** The app lists `chat.db`'s 200 most recent one-to-one
   chats for the Settings picker (names, last activity, per-side counts — `MessagesReader.conversations`; group chats are
   out of this slice; a ticked chat below that cap is appended so it can be unticked). Every pass reads the ticked
@@ -360,7 +392,7 @@ import needs no Mac app).
   walk is narrower than a single drop too (`IntakeRouter.isWalkedExportFile`): `.json`/`.zip` (the chat side reads
   them by content), Gemini's `MyActivity.html` and ChatGPT's `chat.html`, and otherwise only save lists — so LinkedIn's
   `Connections.csv`, X's `Your archive.html` or a message page never leaves the Mac. A `Connections.csv` dropped by
-  itself is refused by name.
+  itself is refused by name, pointing at its own door (LinkedIn → Connections, above).
 - **What is read.** A member is opened only when its NAME is a known save list; everything else in the archive
   (messages, contacts, posts, search history) is counted and skipped unread, media is never opened, a member over
   64 MB is skipped with a warning, and the generic URL-list parsers a single dropped file may fall back to are never

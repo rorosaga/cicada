@@ -429,6 +429,8 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /sources/calendar-local/sync": (CAPTURE, None),
     "POST /sources/tab-groups/sync": (CAPTURE, None),
     "POST /sources/contacts-local/sync": (ADMITTED, None),
+    "POST /sources/linkedin-connections/preview": (NONE, None),   # reads pages, writes nothing, keeps nothing
+    "POST /sources/linkedin-connections/import": (ADMITTED, None),
     "POST /sources/messages/sync": (CAPTURE, None),            # G179: one ticked conversation's sittings
     "PUT /sources/messages/settings": (CAPTURE, None),         # G179: the registry file + a re-attributed sitting
     "POST /sources/messages/conversations": (NONE, None),      # G179: detection over names and counts, stores nothing
@@ -516,6 +518,8 @@ TOOLS: dict[str, tuple[str, str | None]] = {
     "cicada_record_refresh": (ADMITTED, "record_refresh"),
     # G71 (2026-10-16): Watch later saves media pages, history writes day episodes — committed alone, in one hold.
     "cicada_record_youtube_list": (ADMITTED, "record_youtube_list"),
+    # 2026-10-16: one person's LinkedIn profile — an episode and their page, committed alone, in one hold.
+    "cicada_record_profile": (ADMITTED, "record_profile"),
     # G110: reads the bank's transcript episodes only (projection + paging); its metadata index and session registry
     # live in $CICADA_HOME/continuity, outside every bank — a reader, never a bank write.
     "cicada_continue": (NONE, None),
