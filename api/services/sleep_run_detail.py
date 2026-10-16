@@ -21,6 +21,9 @@ from api.models.schemas import (
 )
 from api.services import cycle_usage, sleep_runs, telemetry
 
+#: Folded into ``GET /sleep/runs/{id}``'s ETag: bump it when the body's shape changes, so a client holding the
+#: old shape is not answered 304 (``plan-share-1``: ``usage.planShare``, owner 2026-10-16).
+SHAPE = "plan-share-1"
 MAX_FIRST_PAGES = 8
 
 

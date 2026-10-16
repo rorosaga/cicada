@@ -188,6 +188,11 @@ def test_the_run_detail_etag_moves_with_the_run_and_answers_304(tmp_path, monkey
     assert moved != tag, "a new ledger row moves it"
     sleep_runs.close_open_pause(memory, "sleep_leg1")
     assert client.get("/sleep/runs/sleep_leg1").headers["ETag"] != moved, "and so does the run's own summary"
+    held = client.get("/sleep/runs/sleep_leg1").headers["ETag"]
+    from api.services import sleep_run_detail
+
+    monkeypatch.setattr(sleep_run_detail, "SHAPE", "next-shape")
+    assert client.get("/sleep/runs/sleep_leg1").headers["ETag"] != held, "and so does a change of the body's shape"
 
 
 def test_a_run_summary_holds_no_text_and_is_machine_local(tmp_path, monkeypatch):
