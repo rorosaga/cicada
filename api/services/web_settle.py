@@ -683,18 +683,21 @@ def undo(memory_path: Path, item_id: str) -> tuple[str, list[str], list[str]]:
     claim_ids = {str(x) for x in (rec.get("claim_ids") or [rec.get("claim_id")]) if x}
     paths: list[str] = []
     lines: list[str] = []
-    # A held claim may have reached its page since (the name was promoted): both places are looked at.
-    unheld = [cid for cid in sorted(claim_ids) if pending_store.unhold(memory_path, entity_id, cid)]
-    if unheld:
-        paths.append(pending_store.PENDING_STORE_FILE)
-        lines.append(f"{pending_store.PENDING_STORE_FILE}: updated (source: {item_id}, trigger: inbox/web-check/undone)")
     entity_path = memory_path / "entities" / f"{entity_id}.md"
+    page = claims = None
     if entity_path.exists():
+        # Read (and refuse on) the page before anything is written, so a refusal really changed nothing.
         page = markdown_parser.parse(entity_path)
         try:
             claims = parse_claims(page.body, strict=True)
         except MalformedClaimsBlockError as exc:
             raise NotSettleable("The page's claims could not be read; nothing was changed.") from exc
+    # A held claim may have reached its page since (the name was promoted): both places are looked at.
+    unheld = [cid for cid in sorted(claim_ids) if pending_store.unhold(memory_path, entity_id, cid)]
+    if unheld:
+        paths.append(pending_store.PENDING_STORE_FILE)
+        lines.append(f"{pending_store.PENDING_STORE_FILE}: updated (source: {item_id}, trigger: inbox/web-check/undone)")
+    if page is not None and claims is not None:
         kept = [x for x in claims if x.id not in claim_ids]
         changed = len(kept) != len(claims)
         closed = {str(r.get("id")): r for r in (rec.get("closed") or []) if isinstance(r, dict)}
