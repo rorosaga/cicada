@@ -721,7 +721,7 @@ thing the person meant — `web_settle.local_context`: the description (left out
 the options) and up to two lines where the subject was mentioned (the item's conversation, then each option claim's
 evidence span or first mention, then the page's latest conversations), ≤ 600 characters, scrubbed
 (`episode_scrub`), links, addresses, handles and paths replaced, every person's name or alias in the bank (the owner's
-too) replaced by "someone" — whole words, any case, the full name and each word of it (a word of the subject's own name
+too, and a person held without a page) replaced by "someone" — whole words, any case, the full name and each word of it (a word of the subject's own name
 aside); each line is cleaned whole before it is cut, so a cut never leaves half a name or a code without its cue. It is never searched for; the same engine read those conversations during Sleep. **Order:**
 clarifications first, then conflicts with a mention line, then the rest — each by priority, then age
 (`web_lookup.select`). **The dry run:** `api/scripts/web_check_dry_run.py --bank <path> --limit N [--include-recent]`

@@ -785,6 +785,17 @@ def test_a_cut_never_leaves_half_a_name_or_a_code_without_its_cue():
     assert web_settle._mention_line(body, (7, 19), film, facts) == "We saw Example Film with someone and someone"
 
 
+def test_a_person_held_without_a_page_is_redacted_too(bank):
+    pending_store.upsert(bank, pending_store.PendingEntity(
+        name="Carol Placeholder", type="person", description="a friend", source_episode="ep_2026-09-01_001",
+        confidence=0.4, tags=[], history_entries=[]))
+    facts = web_settle.bank_facts(bank)
+    assert "carol placeholder" in facts.pending_person_names
+    assert "carol placeholder" not in facts.person_names, "the #309 filter is unchanged"
+    assert web_settle.clean_context_line("Carol said Tool B, and carol placeholder agreed", facts) == \
+        "someone said Tool B, and someone agreed"
+
+
 def test_the_pinned_query_is_word_for_word_on_every_search():
     pinned = "Tool B software"
     assert web_lookup.queries_ok(["Tool B software"], pinned)

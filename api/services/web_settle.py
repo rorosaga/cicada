@@ -124,6 +124,8 @@ class BankFacts:
     pending: frozenset[str] = frozenset()
     #: Sanitized id → the pending line's ``(description, source_episode)``: a page-less name's local context.
     pending_lines: dict[str, tuple[str, str]] = field(default_factory=dict)
+    #: The names of people held in the pending store (no page yet): redacted from the local context like any other.
+    pending_person_names: frozenset[str] = frozenset()
 
 
 @dataclass
@@ -202,6 +204,8 @@ def bank_facts(memory_path: Path) -> BankFacts:
         facts.pending = frozenset(sanitize_id(line.name) for line in lines)
         facts.pending_lines = {sanitize_id(line.name): (str(line.description or ""), str(line.source_episode or ""))
                                for line in lines}
+        facts.pending_person_names = frozenset(
+            n for n in (_norm(line.name) for line in lines if str(line.type or "").lower() == "person") if n)
     except Exception:  # noqa: BLE001
         pass
     return facts
@@ -767,7 +771,7 @@ _SPEAKER_RE = re.compile(r"^\s*(?:\*\*)?(?:user|assistant|human|agent|me|you)(?:
 
 
 def _redact_people(text: str, names: frozenset[str], keep: frozenset[str] = frozenset()) -> str:
-    """Every person's name or alias in the bank (the owner's too) becomes "someone" — the line keeps its sense, the
+    """Every person's name or alias in the bank (the owner's too, and a person held without a page) becomes "someone" — the line keeps its sense, the
     prompt carries no one's name (ruling 27: never another name from the bank). Whole words, any case; a multi-word
     name whole first, then each of its words of 3+ letters on its own (a person is often named by one of them) —
     except a word of the subject's own name (``keep``), which the prompt already carries."""
@@ -794,7 +798,7 @@ def _clean(text: str, facts: BankFacts, keep: frozenset[str] = frozenset()) -> s
     text = _EMAIL_RE.sub("[address]", text)
     text = _HANDLE_RE.sub("[handle]", text)
     text = _PATH_RE.sub("[path]", text)
-    text = _redact_people(text, facts.person_names, keep)
+    text = _redact_people(text, facts.person_names | facts.pending_person_names, keep)
     return _SPEAKER_RE.sub("", " ".join(text.split()))
 
 
