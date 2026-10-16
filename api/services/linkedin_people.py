@@ -297,8 +297,30 @@ def _fold(text) -> str:
     return " ".join(text_fold.words(str(text or "")))
 
 
+def _owner_ids(memory_path: Path) -> set[str]:
+    """The owner's page by id as well as by its ``owner: true`` flag — a bank whose owner page predates the flag is
+    still never matched as one of the person's connections."""
+    from api.services import owner_identity
+
+    try:
+        return {owner_identity.resolve_observer(memory_path)}
+    except Exception:  # noqa: BLE001 - an unreadable owner.json names no page; the flag still applies
+        return set()
+
+
+def _removed_slug(fm: dict, url: str | None) -> bool:
+    """Did the person (or anyone) take this LinkedIn profile off the page — in any spelling of its link, under any
+    predicate? A removal is respected by every automatic writer (G61), so the import never re-touches that page."""
+    slug = _slug(url)
+    removed = fm.get(fact_sources.REMOVED_KEY)
+    if not slug or not isinstance(removed, list):
+        return False
+    return any(isinstance(r, dict) and _slug(r.get("ref")) == slug for r in removed)
+
+
 def _index(memory_path: Path) -> _Index:
     idx = _Index({}, {}, {}, {})
+    owners = _owner_ids(memory_path)
     for f in bank_index.files(memory_path, "entities"):
         fm = f.frontmatter or {}
         if fm.get("status") == "dropped":
@@ -310,7 +332,7 @@ def _index(memory_path: Path) -> _Index:
                 if key := _fold(label):
                     idx.companies.setdefault(key, set()).add(f.stem)
             continue
-        if kind != "person" or fm.get("owner") is True:
+        if kind != "person" or fm.get("owner") is True or f.stem in owners:
             continue
         for label in labels:
             if key := _fold(label):
@@ -430,7 +452,7 @@ def _apply_page(memory_path: Path, entity_id: str, facts: dict[str, str], *, url
     if url and add_source:
         current = [s for s in (fm.get("sources") or []) if isinstance(s, dict)]
         listed = any(_slug(s.get("ref")) == _slug(url) for s in current)
-        if fact_sources.is_tombstoned(fm, url, SOURCE_PREDICATE):
+        if fact_sources.is_tombstoned(fm, url, SOURCE_PREDICATE) or _removed_slug(fm, url):
             # The person took this profile off this page: it is not theirs to Cicada either — no link, no facts.
             report.removed_kept_out += 1
             return False
@@ -559,6 +581,30 @@ def save_directory(bank: str, connections: list[Connection], day: str) -> bool:
     return True
 
 
+def forget(bank: str) -> None:
+    """A bank moved to the trash takes its kept connections with it: the names outlive no bank, and a new bank of the
+    same name never inherits them. Never raises."""
+    import shutil
+
+    folder = directory_path(bank).parent
+    try:
+        if folder.is_dir() and not folder.is_symlink():
+            shutil.rmtree(folder)
+    except OSError as exc:
+        logger.warning(f"LinkedIn connections: the trashed bank's directory was not removed ({type(exc).__name__})")
+
+
+def rename(old: str, new: str) -> None:
+    """A renamed bank keeps its connections (the directory is keyed by the bank's folder name). Never raises; a
+    folder already under the new name is left as it is."""
+    src, dst = directory_path(old).parent, directory_path(new).parent
+    try:
+        if src.is_dir() and not src.is_symlink() and not dst.exists():
+            src.rename(dst)
+    except OSError as exc:
+        logger.warning(f"LinkedIn connections: the renamed bank's directory was not moved ({type(exc).__name__})")
+
+
 def status(bank: str) -> dict:
     """What the app shows under Connections: the kept export's day and size — never a name."""
     held = load_directory(bank)
@@ -569,7 +615,11 @@ def status(bank: str) -> dict:
 def rematch(memory_path: Path, *, bank: str | None = None, skip: frozenset[str] = frozenset()) -> Report:
     """Sleep's tail: the kept directory against tonight's pages, so a person who got a page since the import gains
     their LinkedIn link and facts. Writes nothing when no directory is kept or nothing new matches."""
+    from api.services import demo_guard
+
     memory_path = Path(memory_path)
+    if demo_guard.is_demo(memory_path):
+        return Report()   # a demo bank never takes in the person's real connections (R-CS16)
     held = load_directory(bank or memory_path.name)
     rows = held.get("connections") if isinstance(held.get("connections"), list) else []
     day = _day(held.get("exported_on"))

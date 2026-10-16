@@ -386,3 +386,45 @@ def test_the_skill_ships_as_one_of_cicadas_own(tmp_path, monkeypatch):
     text = skill_store.own_bundle("linkedin-people").decode()
     assert text.startswith("---\nname: linkedin-people\n") and "cicada_record_profile(" in text
     assert "never sign in" in " ".join(text.lower().split())
+
+
+# --- review fixes (2026-10-16) ------------------------------------------------------------------------------------
+
+
+def test_a_removal_in_any_spelling_of_the_link_keeps_the_page_out(client):
+    """The person removed Bob's profile as they had pasted it (a trailing slash, no predicate): the import's canonical
+    link is the same profile, so neither the link nor its facts come back."""
+    c, memory = client
+    fact_sources.add_source(memory, "bob-example", "https://linkedin.com/in/bob-example/", added_by="user")
+    fact_sources.change_source(memory, "bob-example", "https://linkedin.com/in/bob-example/", action="remove")
+    subprocess.run(["git", "-C", str(memory), "commit", "-qam", "removed"], check=True, capture_output=True)
+    bank_index.invalidate()
+    r = _post(c)
+    assert r.status_code == 200 and r.json()["removedKeptOut"] == 1
+    assert not [s for s in _page(memory, "bob-example").frontmatter.get("sources") or []
+                if "linkedin" in str(s.get("ref"))]
+    assert not _li(memory, "bob-example")
+
+
+def test_the_owners_page_is_never_matched_even_without_its_flag(client, monkeypatch):
+    from api.services import owner_identity
+
+    c, memory = client
+    monkeypatch.setattr(owner_identity, "resolve_observer", lambda *_a, **_k: "bob-example")
+    assert _post(c).status_code == 200
+    assert not _li(memory, "bob-example")
+    assert not [s for s in _page(memory, "bob-example").frontmatter.get("sources") or []
+                if "linkedin" in str(s.get("ref"))]
+
+
+def test_the_tail_never_matches_into_a_demo_bank(client, monkeypatch):
+    c, memory = client
+    assert _post(c, exported_on="2026-01-15").status_code == 200
+    _entity(memory, "dana-two", type="person", name="Dana Other")
+    subprocess.run(["git", "-C", str(memory), "add", "-A"], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(memory), "commit", "-qm", "sleep"], check=True, capture_output=True)
+    bank_index.invalidate()
+    monkeypatch.setattr(demo_guard, "is_demo", lambda *_a, **_k: True)
+    head = _git(memory, "rev-parse", "HEAD")
+    asyncio.run(sleep_cycle._rematch_linkedin_safely(memory))
+    assert _git(memory, "rev-parse", "HEAD") == head and not _li(memory, "dana-one")
