@@ -152,7 +152,7 @@ def test_the_filter_searches_a_film_a_paper_and_a_tool_and_never_a_person_a_file
     assert scope["inbox-301"][0] == "repo"                 # repo state: never a web search
 
 
-def test_the_query_is_the_name_and_category_words_and_no_conversation_text_reaches_the_engine(bank):
+def test_the_query_is_the_name_and_a_category_word_and_the_items_own_text_never_reaches_the_engine(bank):
     film = web_settle.candidate(bank, bank / "inbox" / "inbox-101.md", web_settle.bank_facts(bank))
     assert web_settle.query_for(film) == "Example Film film"
     calls: list = []
@@ -494,7 +494,8 @@ def test_an_is_a_conflict_is_eligible_and_its_prompt_offers_the_items_own_both_o
     assert c.options == [("a", "agent harness for running models"), ("b", "AI agent itself")]
     user = web_lookup.build_messages(c)[-1]["content"]
     assert "option_key 'both'" in user and "rule out every other option" in user
-    assert web_settle.query_for(c) == "Tool B software"  # name + generic words only, never an option label
+    # What the thing IS is the question: no category word would answer it, so the query is the bare name (2026-10-16).
+    assert web_settle.query_for(c) == "Tool B"
 
 
 def test_a_page_that_supports_both_settles_on_both_with_one_cited_claim_each_and_nothing_closed(bank):
@@ -685,3 +686,197 @@ def test_a_failed_web_check_commit_puts_every_settle_back(bank, monkeypatch):
     assert sorted(p.name for p in (bank / "episodes").glob("*.md")) == episodes
     memo = web_lookup.load_memo(bank)
     assert "inbox-101" not in memo and "inbox-102" not in memo, "the next run may look them up again"
+
+
+# ---------- local context (owner ruling 2026-10-16, amends ruling 27: "Yes, use local context") ----------
+
+LEAKY = ("We watched Example Film with Alice Example last night, notes in ~/Documents/notes/plan.md and "
+         "https://notes.example-host.net/private/123 — mail alice@example.org, api_key=abcdef1234567890abcdef, and "
+         "@ali_handle liked it. " + "Long tail of the same line about nothing much at all. " * 12)
+
+
+def _episode(memory, ep_id, body, **fm):
+    base = {"id": ep_id, "timestamp": "2026-09-03T10:00:00+00:00", "processed": True, "title": "An evening"}
+    base.update(fm)
+    markdown_parser.write(memory / "episodes" / f"{ep_id}.md", base, body)
+
+
+def _snapshot_tree(*roots):
+    out = {}
+    for root in roots:
+        if not root.exists():
+            continue
+        for p in sorted(root.rglob("*")):
+            if p.is_file() and ".git" not in p.relative_to(root).parts:
+                out[str(p)] = p.read_bytes()
+    return out
+
+
+def test_the_local_context_is_bounded_scrubbed_names_no_one_and_never_enters_the_query(bank):
+    _episode(bank, "ep_2026-09-03_001", "user: what a week\n\nuser: " + LEAKY + "\nassistant: noted.")
+    markdown_parser.write(bank / "inbox" / "inbox-101.md",
+                          {**markdown_parser.parse(bank / "inbox" / "inbox-101.md").frontmatter,
+                           "source_episode": "ep_2026-09-03_001"}, SECRET)
+    _commit(bank, "ep")
+    facts = web_settle.bank_facts(bank)
+    c = web_settle.candidate(bank, bank / "inbox" / "inbox-101.md", facts)
+    context = web_settle.local_context(bank, c, facts)
+    text = "\n".join(context)
+    assert len(text) <= web_settle.MAX_CONTEXT_CHARS
+    assert all(len(line) <= web_settle.MAX_LINE_CHARS + len("Mentioned: ") for line in context)
+    assert context[0].startswith("Cicada's description: ") and "film" in context[0].lower()
+    assert web_settle.has_mentions(context) and "Example Film" in text
+    for leak in ("Alice", "alice", "~/Documents", "plan.md", "https://", "example-host", "@example.org",
+                 "abcdef1234567890abcdef", "@ali_handle", "user:", "secret-phrase-xyz", "dinner"):
+        assert leak not in text, leak
+    assert "someone" in text and "[path]" in text
+    # Each line is cleaned whole before it is cut: links, addresses, handles, secrets and paths never survive.
+    line = web_settle.clean_context_line(LEAKY, facts, limit=2000)
+    assert all(t in line for t in ("[link]", "[address]", "[handle]", "[path]", "someone"))
+    assert not any(t in line for t in ("Alice", "https://", "alice@", "abcdef1234567890abcdef", "@ali_handle", "~/"))
+    # The query is unchanged in kind: the name and at most one category word, never a word of the context.
+    assert web_settle.query_for(c) == "Example Film film"
+    calls: list = []
+    _run(bank, _fake(_answers, calls=calls))
+    film_prompt = next(m[-1]["content"] for m in calls if "Subject: Example Film" in m[-1]["content"])
+    assert "Mentioned: " in film_prompt and "never search for these words" in film_prompt
+    assert film_prompt.split("Search query (use exactly this): ", 1)[1].split("\n", 1)[0] == "Example Film film"
+
+
+def test_the_pinned_query_check_still_rejects_a_search_carrying_the_context(bank):
+    _episode(bank, "ep_2026-09-03_002", "user: Example Film was on at the old cinema downtown")
+    markdown_parser.write(bank / "inbox" / "inbox-101.md",
+                          {**markdown_parser.parse(bank / "inbox" / "inbox-101.md").frontmatter,
+                           "source_episode": "ep_2026-09-03_002"}, "Context.")
+    _commit(bank, "ep")
+
+    def fn(*, messages, web_search=False, timeout=None, **kw):
+        user = messages[-1]["content"]
+        query = user.split("Search query (use exactly this): ", 1)[1].split("\n", 1)[0]
+        return {"choices": [{"message": {"content": json.dumps(_answers(user))}}], "model": "fake-model",
+                "tool_uses": [["WebSearch", {"query": query + " old cinema downtown"}]]}
+
+    report = _run(bank, fn)
+    assert report.settled == 0 and report.skipped.get("query_strayed") == report.looked_up > 0
+    assert not list((bank / "inbox" / "settled").glob("*.md")) if (bank / "inbox" / "settled").exists() else True
+
+
+def test_a_type_question_carries_its_mentions_but_not_cicadas_own_guess(bank):
+    _episode(bank, "ep_2026-09-04_001", "user: I set up Tool B yesterday to run my local models in a loop.")
+    body = write_claims("## Summary\nTool B is an AI agent.\n", [
+        Claim(id="clm_th", text="Tool B is an agent harness", subject="tool-b", predicate="is-a",
+              object="agent harness for running models", valid_from="2026-05-01", recorded_at="2026-05-01",
+              source_episodes=["ep_2026-09-04_001"]),
+        Claim(id="clm_ta", text="Tool B is an AI agent", subject="tool-b", predicate="is-a",
+              object="AI agent itself", valid_from="2026-08-01", recorded_at="2026-08-01"),
+    ])
+    _entity(bank, "tool-b", type="tool", name="Tool B", description="An AI agent", body=body)
+    _type_item(bank)
+    facts = web_settle.bank_facts(bank)
+    c = web_settle.candidate(bank, bank / "inbox" / "inbox-108.md", facts)
+    context = web_settle.local_context(bank, c, facts)
+    assert context == ["Mentioned: I set up Tool B yesterday to run my local models in a loop."]
+    user = web_lookup.build_messages(c, context)[-1]["content"]
+    assert "the notes decide which one the person meant" in user and "An AI agent" not in user
+
+
+# ---------- category words: from Cicada's own description, one at most, none when unsure ----------
+
+
+def test_the_category_word_comes_from_the_description_never_the_type_alone(bank):
+    _entity(bank, "corner-example", type="company", name="Corner Example",
+            body="## Summary\nA small restaurant two streets from the station.\n")
+    _entity(bank, "lib-example", type="tool", name="Lib Example",
+            description="An open-source library and framework for parsing feeds")
+    _entity(bank, "year-example", type="company", name="Year Example", description="A software company")
+    _item(bank, "inbox-111", kind="clarification", entity_id="corner-example", entity_name="Corner Example",
+          title="Who or what is Corner Example?")
+    _item(bank, "inbox-112", kind="clarification", entity_id="lib-example", entity_name="Lib Example",
+          title="Who or what is Lib Example?")
+    _item(bank, "inbox-113", kind="conflict", entity_id="year-example", entity_name="Year Example",
+          predicate="founded-in", options=[{"key": "a", "label": "2019"}, {"key": "b", "label": "2020"}])
+    _item(bank, "inbox-114", kind="conflict", entity_id="year-example", entity_name="Year Example",
+          predicate="made-by", options=[{"key": "a", "label": "a software studio"}, {"key": "b", "label": "x"}])
+    _commit(bank, "seed categories")
+    facts = web_settle.bank_facts(bank)
+    q = {i: web_settle.query_for(web_settle.candidate(bank, bank / "inbox" / f"{i}.md", facts))
+         for i in ("inbox-111", "inbox-112", "inbox-113", "inbox-114")}
+    assert q["inbox-111"] == "Corner Example"           # typed company, described as a restaurant: no "company"
+    assert q["inbox-112"] == "Lib Example library"      # one word, the first the description names
+    assert q["inbox-113"] == "Year Example software"
+    assert q["inbox-114"] == "Year Example"             # the word an option carries is not sent
+
+
+# ---------- order: clarifications first, then conflicts the context can answer ----------
+
+
+def test_clarifications_come_first_then_conflicts_with_a_mention_line(bank):
+    _episode(bank, "ep_2026-09-04_002", "user: Tool B keeps crashing when the harness restarts.")
+    body = write_claims("## Summary\nA tool.\n", [
+        Claim(id="clm_th", text="x", subject="tool-b", predicate="is-a", object="agent harness for running models",
+              valid_from="2026-05-01", recorded_at="2026-05-01", source_episodes=["ep_2026-09-04_002"]),
+        Claim(id="clm_ta", text="y", subject="tool-b", predicate="is-a", object="AI agent itself",
+              valid_from="2026-08-01", recorded_at="2026-08-01"),
+    ])
+    _entity(bank, "tool-b", type="tool", name="Tool B", body=body)
+    _type_item(bank, priority=0.1)   # lower priority than 102, but it has a mention line
+    _item(bank, "inbox-102", **{**markdown_parser.parse(bank / "inbox" / "inbox-102.md").frontmatter,
+                                "priority": 0.9})
+    _commit(bank, "order")
+    facts = web_settle.bank_facts(bank)
+    todo, eligible = web_lookup.select(bank, facts, {}, date(2026, 10, 16), cap=10)
+    assert eligible == 4
+    order = [c.item_id for c, _ in todo]
+    assert [c.kind for c, _ in todo] == ["clarification", "clarification", "conflict", "conflict"]
+    assert order.index("inbox-108") < order.index("inbox-102"), "a conflict the context can answer goes first"
+
+
+# ---------- the dry run writes nothing ----------
+
+
+def test_the_dry_run_counts_and_writes_nothing(bank, monkeypatch, tmp_path):
+    import asyncio
+    import os
+
+    _type_item(bank)
+    home = tmp_path / "home"
+    before = _snapshot_tree(bank, home)
+    head = _git(bank, "rev-parse", "HEAD")
+    calls: list = []
+    out = asyncio.run(web_lookup.dry_run(bank, _settings(), limit=8, llm_fn=_fake(_answers, calls=calls),
+                                         engine=("resolved", "claude-cli", "plan")))
+    assert out["looked_up"] == len(calls) == 4 and out["eligible"] == 4
+    assert out["would_settle"] == 2   # the film (clarification) and Tool A (conflict); 103 and Tool B unsure
+    assert out["by_kind"]["clarification"] == {"looked_up": 2, "would_settle": 1, "reasons": {"unsure": 1}}
+    # Tool A's `description` conflict is a type question too: it settles (ruled out); Tool B's stays unsure.
+    assert out["by_kind"]["type_conflict"] == {"looked_up": 2, "would_settle": 1, "reasons": {"unsure": 1}}
+    assert _snapshot_tree(bank, home) == before, "no settle, no memo, no ledger row"
+    assert _git(bank, "rev-parse", "HEAD") == head and not _git(bank, "status", "--porcelain").strip()
+    assert not (home / "web_check").exists() and not (home / "telemetry").exists()
+    # A second dry run looks the same questions up again: nothing was remembered.
+    calls.clear()
+    asyncio.run(web_lookup.dry_run(bank, _settings(), limit=8, llm_fn=_fake(_answers, calls=calls),
+                                   engine=("resolved", "claude-cli", "plan")))
+    assert len(calls) == 4
+    # The script: counts only — never an id, a name, a query, a link or a quote.
+    from api.scripts import web_check_dry_run
+
+    async def fake_engine_for(settings, *, user_triggered):
+        assert user_triggered is True
+        return "resolved", "claude-cli", "plan"
+
+    monkeypatch.setattr(web_lookup, "engine_for", fake_engine_for)
+    monkeypatch.setattr(web_lookup, "default_llm_fn", lambda resolved, sink=None: _fake(_answers))
+    import contextlib
+    import io
+
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        assert web_check_dry_run.main(["--bank", str(bank), "--limit", "3"]) == 0
+    printed = buf.getvalue()
+    assert json.loads(printed)["looked_up"] == 3
+    for word in ("inbox-", "Example Film", "Tool A", "Tool B", "film", "https", "quote", "2401"):
+        assert word not in printed, word
+    assert _snapshot_tree(bank, home) == before
+    assert web_check_dry_run.main(["--bank", str(tmp_path / "nope")]) == 2
+    assert os.environ.get("CICADA_HOME") == str(home)

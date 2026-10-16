@@ -5,7 +5,9 @@ with its link and quote, and you can undo it from a 'Settled by a check' list. N
 files, your projects, your life."
 
 This module is the bank side: which questions may be looked up (:func:`classify`), what may leave the machine
-(:func:`query_for` — the subject's name plus generic category words, nothing else), and the one writer that settles a
+(:func:`query_for` — the subject's name plus at most one generic category word, nothing else), what
+the model may read to judge which result is the right one (:func:`local_context`, owner 2026-10-16, never sent to the
+search), and the one writer that settles a
 question and undoes it (:func:`settle`, :func:`undo`). The engine side — who searches, on which engine, under which
 gate — is ``web_lookup``; the person's own agent settles through ``cicada_record_check(outcome="settles")``.
 
@@ -52,8 +54,9 @@ PUBLIC_PREDICATES = frozenset({
     "release-date", "released-in", "founded", "founded-in", "headquartered-in", "based-in", "located-in", "part-of",
     "runs-on", "written-in", "language", "license", "year", "website",
 })
-#: Generic words that may ride with a name to the search engine — and only these. Matched against Cicada's own short
-#: description of the subject (local text, never sent itself).
+#: Generic words that may ride with a name to the search engine — and only these, at most one. Matched against Cicada's
+#: own one-line description of the subject (local text; owner, 2026-10-16: never the page's type alone — a mistyped
+#: place used to be searched as a "company" — and never on a question about what the thing is).
 CATEGORY_WORDS = frozenset({
     "film", "movie", "documentary", "series", "show", "book", "novel", "paper", "article", "essay", "album", "song",
     "podcast", "game", "video", "anime", "manga", "comic", "play", "opera", "painting", "artwork", "magazine",
@@ -63,7 +66,6 @@ CATEGORY_WORDS = frozenset({
     "robotics", "device", "hardware", "chip", "camera", "car", "theory", "concept", "method", "technique", "law",
     "university", "museum", "band", "studio", "publisher", "website", "newsletter", "blog",
 })
-TYPE_WORDS = {"tool": "software", "company": "company"}
 #: What a thing IS — its type or description (owner, 2026-10-16: "Is <tool-a> an agent harness for running models or an
 #: AI agent itself?" is the question a lookup exists for). Eligible even where the vocabulary marks the predicate
 #: multi-valued (``is-a``): a page may say the subject is one of the options and rules the others out (that option
@@ -72,7 +74,14 @@ TYPE_PREDICATES = frozenset({"is-a", "type", "kind", "category", "genre", "descr
 BOTH = "both"
 #: The restored question remembers the person undid a check: it is never looked up or settled again (user authority).
 UNDONE_KEY = "web_check"
-MAX_CATEGORY_WORDS = 3
+MAX_CATEGORY_WORDS = 1
+#: The local context a lookup's prompt carries (owner ruling 2026-10-16, amends ruling 27: "Yes, use local context"):
+#: what Cicada already knows about the subject, to judge WHICH search result is the thing the person meant. Bounded,
+#: scrubbed, people's names and paths taken out; never part of the query.
+MAX_CONTEXT_CHARS = 600
+MAX_MENTION_LINES = 2
+MAX_LINE_CHARS = 220
+MAX_DESCRIPTION_CHARS = 200
 MAX_ANSWER_CHARS = 200
 MAX_QUOTE_CHARS = 240
 MAX_NAME_CHARS = 80
@@ -113,6 +122,8 @@ class BankFacts:
     person_names: frozenset[str] = frozenset()
     pages: dict[str, dict] = field(default_factory=dict)
     pending: frozenset[str] = frozenset()
+    #: Sanitized id → the pending line's ``(description, source_episode)``: a page-less name's local context.
+    pending_lines: dict[str, tuple[str, str]] = field(default_factory=dict)
 
 
 @dataclass
@@ -131,6 +142,12 @@ class Candidate:
     type_question: bool = False
     #: The item's own "both are true" option key, offered to a type question only — never one Cicada invents.
     both_key: str | None = None
+    #: Cicada's own one-line description of the subject (local: the category word is read from it; a clarification's
+    #: prompt carries it as context).
+    description: str = ""
+    #: Where the subject was mentioned, for the local context: the item's own episode, then each option claim's.
+    source_episode: str = ""
+    claim_ids: list[str] = field(default_factory=list)
 
 
 def _norm(text) -> str:
@@ -181,7 +198,10 @@ def bank_facts(memory_path: Path) -> BankFacts:
     names.discard("")
     facts.person_names = frozenset(names)
     try:
-        facts.pending = frozenset(sanitize_id(line.name) for line in pending_store.load(Path(memory_path)))
+        lines = pending_store.load(Path(memory_path))
+        facts.pending = frozenset(sanitize_id(line.name) for line in lines)
+        facts.pending_lines = {sanitize_id(line.name): (str(line.description or ""), str(line.source_episode or ""))
+                               for line in lines}
     except Exception:  # noqa: BLE001
         pass
     return facts
@@ -266,16 +286,59 @@ def classify(memory_path: Path, fm: dict, body: str, facts: BankFacts) -> tuple[
     return "public", "public"
 
 
-def _category(fm: dict, page: dict | None, body: str, entity_type: str) -> list[str]:
-    words: list[str] = []
-    if TYPE_WORDS.get(entity_type):
-        words.append(TYPE_WORDS[entity_type])
-    for token in re.findall(r"[a-z]+", _local_description(fm, page, body).lower()):
-        if token in CATEGORY_WORDS and token not in words:
-            words.append(token)
-        if len(words) >= MAX_CATEGORY_WORDS:
-            break
-    return words[:MAX_CATEGORY_WORDS]
+def _one_liner(text, limit: int = MAX_DESCRIPTION_CHARS) -> str:
+    text = " ".join(str(text or "").split())
+    if len(text) <= limit:
+        return text
+    cut = text.rfind(" ", 0, limit - 1)
+    return text[: cut if cut > 0 else limit - 1].rstrip(" ,;:") + "…"
+
+
+def _summary_line(body: str) -> str:
+    """The first prose line of a page's ``## Summary`` (or of its body, when it has none) — never a heading, a list
+    marker's bullet aside, or the claims fence."""
+    text = body or ""
+    m = re.search(r"^##\s+Summary\s*$", text, re.MULTILINE | re.IGNORECASE)
+    if m:
+        text = text[m.end():]
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if line.startswith(("#", "```", "<!--", "|")):
+            if m:
+                break   # the Summary section ended without a prose line
+            continue
+        return line.lstrip("-*• ").strip()
+    return ""
+
+
+def description_for(fm: dict, page: dict | None, page_body: str = "", pending: tuple[str, str] | None = None) -> str:
+    """Cicada's own one-line description of the subject: the page's ``description``/``summary``, else its Summary's
+    first line; for a page-less name, the item's suggested classification (its words after the type) or the pending
+    line's description. Local text — the category word is read from it; it is never the query."""
+    if page is not None:
+        own = str(page.get("description") or page.get("summary") or "").strip() or _summary_line(page_body)
+        return _one_liner(own)
+    suggested = str(fm.get("suggested_classification") or "")
+    words = re.split(r"\s+[—–-]\s+", suggested, maxsplit=1)
+    own = words[1] if len(words) == 2 else ""
+    if not own and pending:
+        own = pending[0]
+    return _one_liner(own)
+
+
+def _category(description: str, *, type_question: bool, labels: list[str]) -> list[str]:
+    """At most ONE generic word from :data:`CATEGORY_WORDS` found in Cicada's own description; none when unsure — a bare
+    name is a valid query. Never from the page's type alone (Sleep's type is what a type conflict doubts), never on a
+    question about what the thing IS (the word would answer it), never a word an option label carries."""
+    if type_question:
+        return []
+    asked = " ".join(labels).lower()
+    for token in re.findall(r"[a-z]+", (description or "").lower()):
+        if token in CATEGORY_WORDS:
+            return [] if re.search(rf"\b{token}\b", asked) else [token]
+    return []
 
 
 def candidate(memory_path: Path, item_path: Path, facts: BankFacts) -> Candidate | None:
@@ -295,17 +358,39 @@ def candidate(memory_path: Path, item_path: Path, facts: BankFacts) -> Candidate
                if str(o.get("key")) not in (BOTH, "neither")]
     type_question = fm.get("kind") == "conflict" and is_type_predicate(fm.get("predicate"))
     both_key = BOTH if type_question and any(str(o.get("key")) == BOTH for o in raw_options) else None
+    page_body = ""
+    if page is not None:
+        try:
+            hit = bank_index.file(Path(memory_path), "entities", f"{entity_id}.md")
+            page_body = hit.body() if hit is not None else ""
+        except Exception:  # noqa: BLE001
+            page_body = ""
+    description = description_for(fm, page, page_body, facts.pending_lines.get(entity_id))
+    claim_ids: list[str] = []
+    for cid in [o.get("claim_id") for o in raw_options] + [fm.get("claim_id")]:
+        cid = str(cid or "").strip()
+        if cid and cid not in claim_ids:
+            claim_ids.append(cid)
+    labels = [label for _, label in options] if fm.get("kind") == "conflict" else []
     return Candidate(
         item_id=item_path.stem, kind=str(fm.get("kind")), scope=scope, entity_id=entity_id,
         name=" ".join(str(fm.get("entity_name") or "").split()), entity_type=etype, has_page=page is not None,
         predicate=str(fm.get("predicate") or ("" if fm.get("kind") == "conflict" else "description")),
         options=options if fm.get("kind") == "conflict" else [],
-        category=_category(fm, page, parsed.body, etype), type_question=type_question, both_key=both_key,
+        category=_category(description, type_question=type_question, labels=labels), type_question=type_question,
+        both_key=both_key, description=description, source_episode=str(fm.get("source_episode") or "").strip(),
+        claim_ids=claim_ids,
     )
 
 
+#: Clarifications ("what is X") first: the most answerable kind. Conflicts after (owner brief, 2026-10-16: the first
+#: run's eight picks were all conflicts and none settled).
+KIND_ORDER = {"clarification": 0, "conflict": 1}
+
+
 def candidates(memory_path: Path, *, scope: str = "public", facts: BankFacts | None = None) -> list[Candidate]:
-    """Pending questions of ``scope``, highest priority first (then oldest), deferred ones left out."""
+    """Pending questions of ``scope``: clarifications before conflicts, then highest priority first (then oldest),
+    deferred ones left out. ``web_lookup`` refines the conflicts' order by their local context."""
     from api.services import inbox_service
 
     memory_path = Path(memory_path)
@@ -319,7 +404,7 @@ def candidates(memory_path: Path, *, scope: str = "public", facts: BankFacts | N
         if c is not None and c.scope == scope:
             fm = markdown_parser.parse(path).frontmatter
             out.append((-float(fm.get("priority") or 0.0), str(fm.get("created_date") or ""), c))
-    out.sort(key=lambda t: (t[0], t[1]))
+    out.sort(key=lambda t: (KIND_ORDER.get(t[2].kind, 2), t[0], t[1]))
     return [c for _, _, c in out]
 
 
@@ -668,3 +753,117 @@ def record_event(memory_path: Path, *, action: str, item_id: str, entity_id: str
         ))
     except Exception as exc:  # noqa: BLE001 — a ledger row never fails a settle
         logger.debug(f"web_check ledger row skipped: {type(exc).__name__}")
+
+
+# --------------------------------------------------------------------------- the local context (owner, 2026-10-16)
+
+_URL_RE = re.compile(r"\b(?:https?|ftp|file)://\S+|\bwww\.\S+", re.IGNORECASE)
+_EMAIL_RE = re.compile(r"\b[\w.+-]+@[\w-]+(?:\.[\w-]+)+\b")
+_HANDLE_RE = re.compile(r"(?<![\w@])@[A-Za-z0-9_][A-Za-z0-9_.-]{1,38}")
+#: A path: ``~/…``, ``/a/b``, ``./x``, ``C:\…``, or a bare ``dir/dir/file`` with at least two separators.
+_PATH_RE = re.compile(
+    r"(?<![\w/])(?:~|\.{1,2})?/[\w.@%+-]+(?:/[\w.@%+-]+)*/?|\b[A-Za-z]:\\\S+|\b[\w.-]+(?:/[\w.-]+){2,}")
+_SPEAKER_RE = re.compile(r"^\s*(?:\*\*)?(?:user|assistant|human|agent|me|you)(?:\*\*)?\s*:\s*", re.IGNORECASE)
+
+
+def _redact_people(text: str, names: frozenset[str]) -> str:
+    """Every person's name or alias in the bank (the owner's too) becomes "someone" — the line keeps its sense, the
+    prompt carries no one's name (ruling 27: never another name from the bank)."""
+    for name in sorted(names, key=len, reverse=True):
+        words = re.findall(r"\w+", name)
+        if not words or len(" ".join(words)) < 3:
+            continue
+        pattern = r"(?<!\w)" + r"[\s\-_.']+".join(re.escape(w) for w in words) + r"(?!\w)"
+        text = re.sub(pattern, "someone", text, flags=re.IGNORECASE)
+    return text
+
+
+def clean_context_line(text: str, facts: BankFacts, *, limit: int = MAX_LINE_CHARS) -> str:
+    """One line of local context, as every writer scrubs it (``episode_scrub``: secrets and one-time codes), then links,
+    addresses, handles and paths out, people's names out, one line, bounded."""
+    text, _ = episode_scrub.scrub(str(text or ""))
+    text = _URL_RE.sub("[link]", text)
+    text = _EMAIL_RE.sub("[address]", text)
+    text = _HANDLE_RE.sub("[handle]", text)
+    text = _PATH_RE.sub("[path]", text)
+    text = _redact_people(text, facts.person_names)
+    return _one_liner(_SPEAKER_RE.sub("", " ".join(text.split())), limit)
+
+
+def _mention_line(body: str, span: tuple[int, int], limit: int = MAX_LINE_CHARS) -> str:
+    """The line holding ``span``, cut to ±``limit``/2 around the mention on word boundaries."""
+    from api.services import inbox_context
+
+    start = body.rfind("\n", 0, span[0]) + 1
+    end = body.find("\n", span[1])
+    end = len(body) if end < 0 else end
+    line = body[start:end]
+    rel = (span[0] - start, span[1] - start)
+    if len(line) <= limit:
+        return line
+    return inbox_context.excerpt_around(line, rel, radius=max(40, (limit - (rel[1] - rel[0])) // 2)).excerpt
+
+
+def local_context(memory_path: Path, c: Candidate, facts: BankFacts, *, ctx=None) -> list[str]:
+    """What Cicada already knows about the subject, for the model to judge WHICH search result is the thing the person
+    meant (owner ruling 2026-10-16, amends ruling 27: "Yes, use local context"). At most ``MAX_CONTEXT_CHARS``
+    characters: Cicada's own one-line description (left out of a question about what the thing IS — it is one of the
+    options there) and up to two lines where the subject was mentioned, from the item's own conversation and its option
+    claims' evidence (the claim's quoted span when it still holds, else the first mention in that conversation). Every
+    line is scrubbed (:func:`clean_context_line`). Never part of the query (:func:`query_for`); engine-free; never raises.
+    """
+    from api.services import inbox_context
+
+    try:
+        ctx = ctx or inbox_context.InboxContext(Path(memory_path), today=date.today().isoformat())
+        lines: list[str] = []
+        if c.description and not c.type_question:
+            desc = clean_context_line(c.description, facts, limit=MAX_DESCRIPTION_CHARS)
+            if desc:
+                lines.append(f"Cicada's description: {desc}")
+        refs: list[tuple[str, object]] = []
+        if c.source_episode:
+            refs.append((c.source_episode, None))
+        by_id = {cl.id: cl for cl in ctx.claims(c.entity_id)} if c.claim_ids else {}
+        for cid in c.claim_ids:
+            claim = by_id.get(cid)
+            for ep_id in list(getattr(claim, "source_episodes", None) or [])[-1:]:
+                refs.append((str(ep_id), claim))
+        if not c.has_page and c.entity_id in facts.pending_lines and facts.pending_lines[c.entity_id][1]:
+            refs.append((facts.pending_lines[c.entity_id][1], None))
+        page = ctx.entity(c.entity_id) if c.has_page else None
+        for ep_id in list((page.frontmatter.get("source_episodes") if page is not None else None) or [])[-2:][::-1]:
+            refs.append((str(ep_id), None))
+        seen: set[str] = set()
+        mentions: list[str] = []
+        for ep_id, claim in refs:
+            if len(mentions) >= MAX_MENTION_LINES:
+                break
+            ep = ctx.episode(ep_id)
+            if ep is None:
+                continue
+            body = ctx._body(ep)
+            span = inbox_context._asserted_span(claim, ep_id, body) if claim is not None else None
+            span = span or inbox_context.locate_mention(body, c.name, c.entity_id)
+            if span is None:
+                continue   # no line names it: nothing to show, never the head of a conversation
+            line = clean_context_line(_mention_line(body, span), facts)
+            key = _norm(line)
+            if line and key not in seen:
+                seen.add(key)
+                mentions.append(f"Mentioned: {line}")
+        lines += mentions
+        out: list[str] = []
+        for line in lines:
+            room = MAX_CONTEXT_CHARS - len("\n".join(out)) - (1 if out else 0)
+            if room < 40:
+                break
+            out.append(line if len(line) <= room else _one_liner(line, room))
+        return out
+    except Exception as exc:  # noqa: BLE001 — a lookup without context is still a lookup
+        logger.debug(f"web check: no local context ({type(exc).__name__})")
+        return []
+
+
+def has_mentions(context: list[str]) -> bool:
+    return any(line.startswith("Mentioned: ") for line in context)
