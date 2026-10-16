@@ -10,29 +10,30 @@ This module is the foundation only (M5a): the schema + the in-page block
 parser/writer. It is deliberately NOT wired into ``/ask``, MCP, or the Sleep
 cycle yet — those are later milestones.
 
-Block format (chosen here, load-bearing for round-trip):
+Block format (load-bearing for round-trip) — JSON Lines, one serialized :class:`Claim` per line (DECIDE-1, owner
+2026-10-08):
 
     ```claims
-    - id: clm_2026-05-05_009
-      text: "Cicada's semantic index is built on sqlite-vec."
-      subject: cicada
-      predicate: uses
-      object: sqlite-vec
-      observer: agent
-      context: engineering
-      ...
+    {"id": "clm_2026-05-05_009", "text": "Cicada's semantic index is built on sqlite-vec.", "subject": "cicada", ...}
+    {"id": "clm_2026-05-05_010", ...}
     ```
 
-The YAML payload is a **list** of mappings, each a serialized :class:`Claim`.
-An empty claims list still emits the fence with an empty list (``[]``) so the
-machine layer is visibly present and round-trips. All prose surrounding the
-fence is preserved verbatim by :func:`write_claims`.
+Every writer renders a line with :func:`_jsonl_line` (``Claim.to_dict`` for a claim, the raw mapping for a raw
+writer). The reader is dual (:func:`load_fence_payload`): a fence whose first non-blank line starts with ``{`` is JSON
+Lines; anything else is the legacy YAML list the fence held before, read exactly as before. An empty claims list still
+emits ``[]`` so the machine layer is visibly present and round-trips. All prose surrounding the fence is preserved
+verbatim by :func:`write_claims`. Why: PyYAML builds every node in Python even on the C loader — ~150 µs a claim, 0.5 s
+for a 3,500-claim page — against ~3 µs for a JSON line (benchmarks/scale). ``api.scripts.migrate_claims_jsonl``
+converts a bank's legacy fences in one commit, only when the person runs it.
 """
 
 from __future__ import annotations
 
+import json
 import re
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
+from datetime import date, datetime
 from typing import Any
 
 import yaml
@@ -204,6 +205,17 @@ class Claim:
     # captured turn the write happened in; a reinforce moves neither (R4B-5).
     # Omitted from the YAML when unset (R7's reason).
     recorded_ts: str | None = None
+    # G148 follow-up — a claim a Sleep prose rewrite dropped and `claim_recovery` put back AS HISTORY: the commit that
+    # removed it and the writer that restored it. Such a claim is always closed. Omitted when unset (R7's reason).
+    recovered_from: str | None = None
+    recovered_by: str | None = None
+    # Owner 2026-10-09: the day its own age (proven silence, heard late) took it below the decay-question line — it
+    # then fades quietly, never asked about, until restated (`decay_policy.FADED_BY_AGE_KEY`). Omitted when unset.
+    faded_by_age: str | None = None
+    # Owner 2026-10-16 (read on time): restatements said before its watermark and read late, ``[[day, confidence],
+    # ...]``, waiting for the decay pass that places each on its day (`claim_reconciler._place_on_time`) — nothing is
+    # charged mid-drain. Cleared by that pass; omitted when unset.
+    read_late: list | None = None
 
     def all_session_ids(self) -> list[str]:
         """Every session that has written or reinforced this claim, deduped,
@@ -237,8 +249,11 @@ class Claim:
         data["participants"] = clean_participants(data.get("participants"))
         if not data["participants"]:
             data.pop("participants", None)
-        if data.get("recorded_ts") is None:
-            data.pop("recorded_ts", None)
+        for key in ("recorded_ts", "recovered_from", "recovered_by", "faded_by_age"):
+            if data.get(key) is None:
+                data.pop(key, None)
+        if not data.get("read_late"):
+            data.pop("read_late", None)
         return data
 
     @classmethod
@@ -277,7 +292,27 @@ class Claim:
             participants=clean_participants(data.get("participants")),
             date_basis=_opt_str(data.get("date_basis")),
             recorded_ts=_opt_str(data.get("recorded_ts")),
+            recovered_from=_opt_str(data.get("recovered_from")),
+            recovered_by=_opt_str(data.get("recovered_by")),
+            faded_by_age=_opt_str(data.get("faded_by_age")),
+            read_late=_read_late(data.get("read_late")),
         )
+
+
+def _read_late(value: Any) -> list | None:
+    """A claim's pending late restatements, ``[[day, confidence], ...]``; junk entries dropped, ``None`` when none."""
+    out: list = []
+    for item in value if isinstance(value, list) else []:
+        if not isinstance(item, (list, tuple)) or len(item) != 2:
+            continue
+        day = str(item[0] or "").strip()[:10]
+        try:
+            conf = float(item[1])
+        except (TypeError, ValueError):
+            continue
+        if len(day) == 10 and [day, conf] not in out:
+            out.append([day, conf])
+    return out or None
 
 
 # G140 Q-R5 — the predicate of a withdrawal record. `cicada_retract_claim`
@@ -286,6 +321,60 @@ class Claim:
 # `agentic_write`, because every READER of a claims fence must drop it — and a
 # reader should not import the write path to learn what to skip.
 RETRACT_PREDICATE = "retracts"
+
+
+def _field(claim, name: str):
+    return claim.get(name) if isinstance(claim, Mapping) else getattr(claim, name, None)
+
+
+def _day(raw) -> date | None:
+    try:
+        return date.fromisoformat(str(raw).strip()[:10])
+    except ValueError:
+        return None
+
+
+def stated_end(claim) -> str | None:
+    """A stated end (inclusive), shared with expiry; a milestone target is not one."""
+    candidates = (_field(claim, "expected_end"),
+                  _field(claim, "object") if _field(claim, "predicate") == "due" else None)
+    for raw in candidates:
+        end = _day(raw)
+        if end is not None:
+            return end.isoformat()
+    return None
+
+
+def current_day() -> date:
+    """The machine-local day, matching claim writers and response caches."""
+    return date.today()
+
+
+def read_valid_to(claim) -> str | None:
+    """Stored closure or an elapsed stated end, without changing markdown."""
+    closed = _field(claim, "valid_to")
+    if closed is not None:
+        return closed
+    end = stated_end(claim)
+    return end if end and end < current_day().isoformat() else None
+
+
+def is_current(claim, *, now: date | None = None) -> bool:
+    """Current belief at the local day, for a Claim or derived metadata.
+
+    Any valid_to is CLOSED, even a future date or a born-closed event. A
+    successor also closes a marker-only legacy claim. Stated ends are inclusive;
+    reads need not wait for the next Sleep expiry commit. Unknown dates keep
+    the legacy open-claim behavior; this predicate never edits the page.
+    An entry ``claim_recovery`` put back is history by its marker alone (G148),
+    even if a hand edit cleared its ``valid_to``.
+    """
+    if _field(claim, "valid_to") is not None or _field(claim, "superseded_by") or _field(claim, "recovered_by"):
+        return False
+    today = now or current_day()
+    began = _day(_field(claim, "valid_from"))
+    end = _day(stated_end(claim))
+    return (began is None or began <= today) and (end is None or today <= end)
 
 
 def is_record(claim: Claim) -> bool:
@@ -372,6 +461,37 @@ class MalformedClaimsBlockError(ValueError):
     """
 
 
+#: What JSON leaves raw but a line splitter splits on (``str.splitlines``: NEL, LINE and PARAGRAPH SEPARATOR); JSON
+#: already escapes every other one (all below U+0020). Escaped, a claim is always exactly one line of the page.
+_LINE_BREAKERS = {"\u0085": "\\u0085", "\u2028": "\\u2028", "\u2029": "\\u2029"}
+
+
+def _jsonl_line(entry: Any) -> str:
+    """One fence entry as one JSON line — the one encoder every claims writer uses. ``default=str`` turns a value a
+    YAML fence decoded to a date into the string ``Claim.from_dict`` would have made of it (``_opt_str``)."""
+    line = json.dumps(entry, ensure_ascii=False, default=str)
+    for raw, escaped in _LINE_BREAKERS.items():
+        line = line.replace(raw, escaped)
+    return line
+
+
+def is_jsonl_payload(payload: str) -> bool:
+    """Is this fence payload JSON Lines (first non-blank line opens an object)? Else it is the legacy YAML list."""
+    for line in (payload or "").split("\n"):
+        stripped = line.strip()
+        if stripped:
+            return stripped.startswith("{")
+    return False
+
+
+def load_fence_payload(payload: str) -> Any:
+    """The dual reader: a JSON Lines payload as the list of its decoded lines, a legacy one as YAML decodes it.
+    Raises ``yaml.YAMLError`` or ``ValueError`` (a line that is not JSON) — the callers' "malformed" signal."""
+    if is_jsonl_payload(payload):
+        return [json.loads(line) for line in payload.split("\n") if line.strip()]
+    return yaml.load(payload, Loader=_SAFE_LOADER)  # noqa: S506 — a SAFE loader
+
+
 def parse_claims(body: str, *, strict: bool = False) -> list[Claim]:
     """Extract the claims from the ` ```claims ` block in ``body``.
 
@@ -389,11 +509,11 @@ def parse_claims(body: str, *, strict: bool = False) -> list[Claim]:
         return []
     payload = match.group("payload")
     try:
-        loaded = yaml.load(payload, Loader=_SAFE_LOADER)  # noqa: S506 — a SAFE loader
-    except yaml.YAMLError as exc:
+        loaded = load_fence_payload(payload)
+    except (yaml.YAMLError, ValueError) as exc:
         if strict:
-            raise MalformedClaimsBlockError(f"YAML error in ```claims block: {exc}") from exc
-        logger.warning(f"malformed ```claims block (YAML error), ignoring: {exc}")
+            raise MalformedClaimsBlockError(f"unreadable ```claims block: {exc}") from exc
+        logger.warning(f"malformed ```claims block, ignoring: {exc}")
         return []
     if loaded is None:
         return []
@@ -433,17 +553,10 @@ def parse_claims(body: str, *, strict: bool = False) -> list[Claim]:
 
 
 def _render_claims_block(claims: list[Claim]) -> str:
-    """Render the fenced ```claims block for ``claims`` (no trailing newline)."""
-    payload = [c.to_dict() for c in claims]
-    yaml_str = yaml.dump(
-        payload,
-        default_flow_style=False,
-        sort_keys=False,
-        allow_unicode=True,
-    ).strip()
-    if not yaml_str or yaml_str == "[]":
-        yaml_str = "[]"
-    return f"```{CLAIMS_FENCE_LANG}\n{yaml_str}\n```"
+    """Render the fenced ```claims block for ``claims`` (no trailing newline): one JSON line per claim, ``[]`` when
+    there is none."""
+    lines = "\n".join(_jsonl_line(c.to_dict()) for c in claims) or "[]"
+    return f"```{CLAIMS_FENCE_LANG}\n{lines}\n```"
 
 
 def write_claims(body: str, claims: list[Claim]) -> str:
@@ -487,3 +600,194 @@ def write_claims(body: str, claims: list[Claim]) -> str:
 def strip_claims_block(body: str) -> str:
     """Return body with the ```claims fenced block removed (trailing ws trimmed)."""
     return _CLAIMS_BLOCK_RE.sub("", body or "").strip()
+
+
+def claims_block_start(text: str) -> int | None:
+    """Where the first real closed ```claims block starts in ``text`` (not a literal example inside another code
+    fence, `served_prose`'s rule), or ``None``."""
+    text = text or ""
+    unfenced = _unfenced_line_starts(text)
+    return next((m.start() for m in _CLAIMS_BLOCK_RE.finditer(text) if m.start() in unfenced), None)
+
+
+# A Markdown code-fence line, as `section_provenance` reads one (up to three spaces, then ``` or ~~~ and an info string).
+_ANY_FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
+
+
+def _unfenced_line_starts(body: str) -> set[int]:
+    """Offsets of the lines that start outside every code fence — the only places a claims block can open.
+
+    The same walk as `section_provenance._fragments`: a fence closes on a line of its own character, at least as long
+    and with no info string. A ```claims line inside a ~~~~ block is that block's literal content, not a claims block.
+    """
+    starts: set[int] = set()
+    fence = None
+    offset = 0
+    for raw in body.splitlines(keepends=True):
+        line = raw.rstrip("\r\n")
+        marker = _ANY_FENCE_RE.match(line)
+        if fence is None:
+            starts.add(offset)
+            if marker:
+                fence = marker[1]
+        elif marker and marker[1][0] == fence[0] and len(marker[1]) >= len(fence) and not marker[2].strip():
+            fence = None
+        offset += len(raw)
+    return starts
+
+
+def served_prose(body: str):
+    """The page's prose as `GET /entities/{id}` serves it, and the map from an offset in ``body`` to that text (F4).
+
+    Every claims block is removed — but only a real one: a ```claims example inside another code fence is literal
+    code and stays, as the section scanner keeps it (review r2 B1). Whatever describes positions in "the page body"
+    for a client (`/provenance`'s ``pageBodyHash`` and section ``bodyRanges``) describes this text: one rule, here.
+    The map returns ``None`` for an offset inside a removed block; an offset at a block's edge maps to where it was.
+    """
+    body = body or ""
+    unfenced = _unfenced_line_starts(body)
+    removed = [m.span() for m in _CLAIMS_BLOCK_RE.finditer(body) if m.start() in unfenced]
+    parts, cursor = [], 0
+    for start, end in removed:
+        parts.append(body[cursor:start])
+        cursor = end
+    parts.append(body[cursor:])
+    joined = "".join(parts)
+    lead = len(joined) - len(joined.lstrip())
+    served = joined.strip()
+
+    def to_served(offset: int) -> int | None:
+        shift = 0
+        for start, end in removed:
+            if offset <= start:
+                break
+            if offset < end:
+                return None
+            shift += end - start
+        return min(max(offset - shift - lead, 0), len(served))
+
+    return served, to_served
+
+
+def preserve_claims_blocks(original: str, rewritten: str) -> str:
+    """Reattach the authoritative fences unchanged after a prose-only rewrite.
+
+    Keep raw closed fences (including unknown fields and malformed YAML), rather
+    than parse/reserialize them. Unclosed fences are outside this helper.
+    A synthesis response cannot author claims.
+    """
+    blocks = [match.group(0) for match in _CLAIMS_BLOCK_RE.finditer(original or "")]
+    prose = strip_claims_block(rewritten)
+    return "\n\n".join(part for part in (prose, *blocks) if part) + "\n"
+
+
+def is_recovered_history(claim) -> bool:
+    """Was this entry put back by ``claim_recovery`` (G148 follow-up)? Such an entry is the record of a belief a Sleep
+    rewrite dropped, restored CLOSED — history, never a current belief. No writer reopens it, whatever it learned the id
+    from (a decay verdict raised before the drop, a source sync's deterministic id): a fresh assertion is a new entry,
+    and a "still true" verdict leaves it as it is. Every writer that clears ``valid_to`` asks this first (a test
+    enforces it)."""
+    return bool(getattr(claim, "recovered_by", None))
+
+
+# G148 follow-up — what a writer that must not re-render a fence needs (`claim_recovery`): the fence's structure checked
+# apart from its YAML, its raw entries, and an append that leaves every existing byte where it was.
+_FENCE_OPEN_RE = re.compile(r"^```claims[ \t]*\r?$", re.MULTILINE)
+FENCE_NONE, FENCE_OK, FENCE_UNREADABLE = "none", "ok", "unreadable"
+
+
+def fence_state(body: str) -> str:
+    """``none`` (no fence), ``ok`` (exactly one closed fence whose YAML strict parsing accepts) or ``unreadable``.
+
+    ``parse_claims`` reads only the FIRST closed fence and answers ``[]`` for an unterminated one, so a page holding
+    an unclosed or a second fence reads as having fewer claims than it does: such a page is ``unreadable`` here."""
+    body = body or ""
+    openings = len(_FENCE_OPEN_RE.findall(body))
+    if openings == 0:
+        return FENCE_NONE
+    if openings != 1 or len(_CLAIMS_BLOCK_RE.findall(body)) != 1:
+        return FENCE_UNREADABLE
+    try:
+        parse_claims(body, strict=True)
+    except MalformedClaimsBlockError:
+        return FENCE_UNREADABLE
+    return FENCE_OK
+
+
+_FENCE_CLOSE_RE = re.compile(r"^```[ \t]*\r?$", re.MULTILINE)
+
+
+def loose_claim_entries(body: str) -> list[dict] | None:
+    """Every entry in EVERY ```claims fence the page holds — each read from its opening to its closing fence, or to
+    the next opening or the end of the page when it has none — as YAML decodes it (escapes, quoting and aliases
+    resolved). For a reader that must know which ids an unreadable page still holds; never for a writer. ``None``
+    when any fence's YAML will not load as a list of mappings: what that page holds cannot be known."""
+    body = body or ""
+    entries: list[dict] = []
+    openings = list(_FENCE_OPEN_RE.finditer(body))
+    for i, opening in enumerate(openings):
+        start = opening.end() + 1
+        limit = openings[i + 1].start() if i + 1 < len(openings) else len(body)
+        close = _FENCE_CLOSE_RE.search(body, start, limit)
+        payload = body[start:close.start() if close else limit]
+        try:
+            loaded = load_fence_payload(payload)
+        except (yaml.YAMLError, ValueError):
+            return None
+        if loaded is None:
+            continue
+        if not isinstance(loaded, list) or not all(isinstance(e, dict) for e in loaded):
+            return None
+        entries.extend(dict(e) for e in loaded)
+    return entries
+
+
+def raw_claim_entries(body: str) -> list[dict]:
+    """The fence's entries as the YAML holds them — unknown fields and key order kept, no defaults added. ``[]``
+    without a fence; :class:`MalformedClaimsBlockError` unless :func:`fence_state` is ``none`` or ``ok``."""
+    state = fence_state(body)
+    if state == FENCE_NONE:
+        return []
+    if state != FENCE_OK:
+        raise MalformedClaimsBlockError("the ```claims fence is unterminated, repeated or unparseable")
+    loaded = load_fence_payload(_CLAIMS_BLOCK_RE.search(body).group("payload"))
+    return [dict(entry) for entry in loaded or []]
+
+
+def append_claim_entries(document: str, entries: list[dict]) -> str:
+    """Append raw entries to the one fence without re-rendering the entries already there (their bytes, unknown
+    fields included, are kept), or add a fence after the prose when there is none. Works on a whole page document.
+    The new entries take the fence's own form: JSON lines (:func:`_jsonl_line`) for a JSON Lines fence or a new one,
+    the legacy YAML list for a fence ``migrate_claims_jsonl`` has not converted yet — re-rendering it to append would
+    break the promise this function exists for. Raises :class:`MalformedClaimsBlockError` when the result would not
+    read back as exactly the old entries followed by ``entries`` (an unreadable fence, a flow-style or oddly indented
+    list)."""
+    if not entries:
+        return document
+    before = raw_claim_entries(document)
+    match = _CLAIMS_BLOCK_RE.search(document)
+    legacy = match is not None and match.group("payload").strip() not in ("", "[]") \
+        and not is_jsonl_payload(match.group("payload"))
+    if legacy:
+        rendered = yaml.dump(entries, default_flow_style=False, sort_keys=False, allow_unicode=True).strip()
+    else:
+        rendered = "\n".join(_jsonl_line(e) for e in entries)
+    if match is None:
+        stripped = document.rstrip()
+        out = f"{stripped}\n\n```{CLAIMS_FENCE_LANG}\n{rendered}\n```\n" if stripped else \
+            f"```{CLAIMS_FENCE_LANG}\n{rendered}\n```\n"
+    else:
+        payload = match.group("payload")
+        if payload.strip() in ("", "[]"):
+            payload = ""
+        elif not payload.endswith("\n"):
+            payload += "\n"
+        out = document[:match.start("payload")] + payload + rendered + "\n" + document[match.end("payload"):]
+    if _as_read(raw_claim_entries(out)) != _as_read([*before, *entries]):
+        raise MalformedClaimsBlockError("appending would change the entries already in the fence")
+    return out
+
+
+def _as_read(entries: list) -> list:
+    """Entries as a JSON line reads them back (a YAML date becomes the string ``Claim.from_dict`` makes of it)."""
+    return [json.loads(_jsonl_line(e)) for e in entries]

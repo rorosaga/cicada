@@ -31,6 +31,7 @@ from __future__ import annotations
 import contextlib
 import contextvars
 import json
+import os
 import re
 import threading
 from dataclasses import dataclass
@@ -59,6 +60,10 @@ PINNED_FLAGS: tuple[str, ...] = (
     "--strict-mcp-config", "--tools", "", "--setting-sources", "",
     "--no-session-persistence",
 )
+
+#: The only tools a Cicada call may ever be given (the web lookup's search, owner ruling 2026-10-16). Never a tool
+#: that reads files, runs code or fetches a page: the call answers from search results alone.
+ALLOWED_TOOLS: frozenset[str] = frozenset({"WebSearch"})
 
 DEFAULT_CLI_MAX_RETRIES = 2
 DEFAULT_STOP_UTILIZATION = 0.9
@@ -108,6 +113,9 @@ class CallPolicy:
     max_retries: int = DEFAULT_CLI_MAX_RETRIES
     allow_overage: bool = False
     stop_utilization: float = DEFAULT_STOP_UTILIZATION
+    #: The web lookup (owner ruling 2026-10-16): the plan's own web search is the ONE tool the call gets
+    #: (``--tools WebSearch``), never set by ``from_settings`` — only ``web_lookup`` asks for it, per call.
+    web_search: bool = False
 
     @classmethod
     def from_settings(cls, settings, *, reasoning_off: bool = False) -> "CallPolicy":
@@ -133,8 +141,10 @@ _RATE_LIMIT_MARKERS = ("rate limit", "rate_limit", "too many requests", "overloa
 _LOGGED_OUT_MARKERS = (
     "not logged in", "not authenticated", "claude auth login",
     "invalid api key", "oauth token has expired", "session expired",
+    "authentication_error", "please run /login", "api error: 401",
 )
 _NOT_FOUND_MARKERS = ("model not found", "unknown model", "no such model")
+_BILLING_MARKERS = ("billing_error", "credit balance", "api error: 402")
 
 _STATE_LOCK = threading.Lock()
 _BREAKER: dict[str, str | None] = {"reason": None}
@@ -306,8 +316,13 @@ def build_argv(
     json_schema: dict | None = None,
     binary: str = "claude",
     effort: str | None = None,
+    tools: tuple[str, ...] = (),
 ) -> list[str]:
     """The pinned invocation. Never grows a ``--bare``, never a ``--mcp-config``.
+
+    ``tools`` (the web lookup, owner ruling 2026-10-16): the built-in tools this one call may use, replacing the
+    pinned ``--tools ""`` and pre-approved with ``--allowedTools`` (print mode cannot ask). Only names in
+    :data:`ALLOWED_TOOLS` — today ``WebSearch`` alone; every other call keeps no tools at all.
 
     Argv hardening (review fix round 1, M1): a `--model`/`--system-prompt`
     value beginning with ``-`` would otherwise be appended as a bare argv
@@ -345,7 +360,15 @@ def build_argv(
         raise engine_errors.EngineModelNotFound(
             f"invalid effort level: {effort!r} — expected a lowercase word such as 'low'"
         )
-    argv = [binary, *PINNED_FLAGS]
+    unknown = [t for t in tools if t not in ALLOWED_TOOLS]
+    if unknown:
+        raise ValueError(f"tool not allowed for a Cicada call: {unknown[0]!r}")
+    flags = list(PINNED_FLAGS)
+    if tools:
+        at = flags.index("--tools")
+        flags[at + 1] = ",".join(tools)
+        flags += ["--allowedTools", ",".join(tools)]
+    argv = [binary, *flags]
     if model:
         argv += ["--model", model]
     if system_prompt:
@@ -398,6 +421,25 @@ def scratch_dir() -> Path:
     return path
 
 
+def is_runtime_path(name: str) -> bool:
+    """True when ``name`` is an absolute or ``~`` path that is ``$CICADA_HOME`` or lies under it.
+
+    The engine's scratch dir is one such path. The vendor CLI still tells the model its
+    working directory, platform and shell despite ``--system-prompt``; Stage 2 uses this
+    to drop an entity the extractor made of it. Pure string/``realpath`` work: reads no
+    file and never creates the scratch dir.
+    """
+    text = (name or "").strip()
+    if not text.startswith(("/", "~")):
+        return False
+    try:
+        path = os.path.realpath(os.path.expanduser(text))
+        home = os.path.realpath(cicada_home())
+    except (OSError, RuntimeError, ValueError):
+        return False
+    return path == home or path.startswith(home.rstrip(os.sep) + os.sep)
+
+
 def model_for_stage(settings, stage: str | None) -> str:
     """The Claude model id/alias for a stage — mirrors the litellm main/judge split."""
     if (stage or "") == "disambiguation":
@@ -429,7 +471,7 @@ def _classify_error(
         return engine_errors.EngineExhausted(
             "Claude plan budget is exhausted for this window — Sleep stopped with the queue intact."
         )
-    if any(marker in blob for marker in _LOGGED_OUT_MARKERS):
+    if status == 401 or any(marker in blob for marker in _LOGGED_OUT_MARKERS):
         return engine_errors.EngineUnavailable(
             "Claude Code is signed out — run `claude auth login`, then trigger Sleep again."
         )
@@ -441,13 +483,18 @@ def _classify_error(
     # markers — a billing retry means the plan is spent (not a transient),
     # a rate-limit/overloaded retry means throttled whatever the prose says.
     retried = {r.error for r in (stream.retries if stream is not None else [])}
-    if "billing_error" in retried:
+    if status == 402 or "billing_error" in retried or any(marker in blob for marker in _BILLING_MARKERS):
         return engine_errors.EngineExhausted(
             "Claude plan usage is used up for now — Sleep stopped with the queue intact."
         )
     if retried & set(_THROTTLE_RETRY_ERRORS) or status == 429 or any(
             marker in blob for marker in _RATE_LIMIT_MARKERS):
         return engine_errors.EngineThrottled(f"Claude plan throttled: {detail[:200]}")
+    transport = f"{blob} {' '.join(r for r in retried if r)}"
+    if engine_errors.is_connectivity_error(transport):
+        return engine_errors.EngineConnectionLost(
+            f"`claude -p` lost the connection: {detail or (result.stderr or '').strip() or 'connection error'}"
+        )
     return engine_errors.EngineFailed(
         f"`claude -p` failed ({reason or 'unknown reason'}): {detail[:200]}"
     )
@@ -457,9 +504,11 @@ def parse_envelope(result: CliResult, stream: agent_stream.StreamResult | None =
     """``CliResult`` -> the parsed envelope, or the right ``EngineError``.
 
     Detection order (spec §5, R-E9): rc 127 -> binary missing; rc 124 ->
-    throttled if the CLI was retrying a rate limit when the clock ran out,
-    else a timeout; no JSON at all -> unavailable; JSON but no result line ->
-    a truncated stream (protocol, one retry); ``is_error`` -> classify.
+    throttled if the CLI was retrying a rate limit, connection loss if diagnosed,
+    else a timeout. Other failed transport paths classify before missing-JSON
+    fallbacks, with auth/model/quota taking precedence. No JSON without such a
+    diagnosis -> unavailable; JSON but no result -> truncated stream (protocol,
+    one retry); ``is_error`` -> classify.
     ``stream`` is the already-parsed stdout when the caller has one
     (``complete``), so the NDJSON is read once.
     """
@@ -469,16 +518,26 @@ def parse_envelope(result: CliResult, stream: agent_stream.StreamResult | None =
             "and run `claude` once to sign in."
         ))
     stream = stream if stream is not None else agent_stream.parse_stream(result.stdout)
+    # No envelope/non-JSON transport failures used to look like a missing or
+    # signed-out binary. Only inspect failure paths, never completed reply text.
+    transport = " ".join([result.stderr or "", result.stdout or "" if stream.json_lines == 0 else "",
+                          *(r.error or "" for r in stream.retries)])
+    connection_lost = engine_errors.is_connectivity_error(transport)
+    account_failure = any(marker in transport.lower() for marker in (*_LOGGED_OUT_MARKERS, *_BILLING_MARKERS))
     if result.rc == 124:
         if any(r.error in _THROTTLE_RETRY_ERRORS for r in stream.retries):
             return _raise(engine_errors.EngineThrottled(
                 "Claude plan throttled — the CLI was still retrying a rate limit when Sleep's "
                 "time limit for the call ran out."
             ))
+        if connection_lost or account_failure:
+            return _raise(_classify_error({"result": transport.strip()}, result, stream))
         return _raise(engine_errors.EngineTimeout(
             f"`claude -p` timed out: {(result.stderr or '').strip()[:200]}"
         ))
     text = (result.stdout or "").strip()
+    if (connection_lost or account_failure) and (not text or stream.json_lines == 0 or stream.envelope is None):
+        return _raise(_classify_error({"result": transport.strip()}, result, stream))
     if not text and result.rc == 0:
         # The CLI ran and exited cleanly and said nothing: an empty answer, not a
         # signed-out engine (that one exits non-zero) — so a drain counts it against
@@ -739,7 +798,7 @@ def complete(
         system_prompt = f"{system_prompt}\n\n{JSON_ONLY_SUFFIX}" if system_prompt else JSON_ONLY_SUFFIX
 
     argv = build_argv(model=model, system_prompt=system_prompt, json_schema=schema,
-                      binary=binary, effort=policy.effort)
+                      binary=binary, effort=policy.effort, tools=("WebSearch",) if policy.web_search else ())
     run = runner or _default_runner()
     # R1 gap B: the CLI's default of 10 retries can ride a plan 429 until the
     # wall clock turns it into a retryable timeout that never trips the breaker.
@@ -761,7 +820,11 @@ def complete(
     if (stop is not None and stop.kind in ("overage", "rejected")
             and failed and result.rc != 127):
         raise _stop_error(stop)
-    return parse_envelope(result, stream)
+    envelope = parse_envelope(result, stream)
+    if policy.web_search:
+        # What the call searched for, so the caller can hold it to the pinned query (never logged).
+        envelope["_tool_uses"] = [[name, dict(inp)] for name, inp in stream.tool_uses]
+    return envelope
 
 
 def probe(*, runner: Runner | None = None, binary: str = "claude", timeout: float = 20.0) -> tuple[bool, str]:

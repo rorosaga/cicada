@@ -121,6 +121,37 @@ on-device search model, so nothing else needs installing, and it keeps itself up
 [Releases](https://github.com/rorosaga/cicada/releases) works too; until the app is notarized, macOS asks once
 (System Settings → Privacy & Security → Open Anyway). How releases are cut: [`docs/RELEASING.md`](docs/RELEASING.md).
 
+## Install on a server (Linux), or with Homebrew
+
+A headless Cicada — the backend, Sleep, the `cicada` command and the MCP server, no app — on a Linux machine with
+systemd, as the user who will own the memory:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/rorosaga/cicada/main/scripts/install-server.sh | bash
+```
+
+It needs `git`, `curl` and [uv](https://github.com/astral-sh/uv), and says exactly which one is missing. It installs
+the latest release into `~/.local/share/cicada`, the memory into `~/cicada/memory`, and a systemd user service bound to
+`127.0.0.1:8000`. Run the same line to update; `… | bash -s -- --uninstall` removes everything but the memory.
+`CICADA_REF=dev` installs a branch instead. Reaching it from your other machines, and giving each its own token:
+[`docs/architecture/headless.md`](docs/architecture/headless.md).
+
+On a Mac (or Linux) with Homebrew — the same backend, CLI and MCP server, without the app:
+
+```sh
+brew tap rorosaga/cicada https://github.com/rorosaga/cicada
+brew install rorosaga/cicada/cicada
+cicada-setup          # memory folder, search model, agent hooks, background service
+```
+
+**Not live yet:** both lines arrive with the next release (`main` is still 0.3.1, which has neither file). To try them
+before that, from `dev`:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/rorosaga/cicada/dev/scripts/install-server.sh | CICADA_REF=dev bash
+git clone -b dev https://github.com/rorosaga/cicada && brew tap rorosaga/cicada "$PWD/cicada" && brew install --HEAD rorosaga/cicada/cicada
+```
+
 ## Quick start (from source)
 
 Requirements: macOS 14+, Python 3.12, [uv](https://github.com/astral-sh/uv), Xcode command
@@ -142,6 +173,10 @@ First launch opens a four-step sheet — your name, a consolidation engine, one 
 your first Sleep cycle — or "try a demo bank first" if you'd rather look around before wiring in
 your own life. Re-open it any time from Settings → General → "Run setup again".
 
+`api/.env` is a source checkout's settings file. The backend reads it from its own folder, whatever directory it
+starts in, after a restart. A variable set in the backend's environment, such as its LaunchAgent plist, wins over the
+file. Settings → Advanced lists which settings came from the file and which the environment replaced with another value.
+
 Pick a consolidation engine in `api/.env`:
 
 ```sh
@@ -157,7 +192,8 @@ Day-to-day commands:
 |---|---|
 | `make dev` | Rebuild debug, reinstall over `~/Applications/Cicada.app`, relaunch |
 | `make install-app` | Release build, install without relaunch |
-| `make doctor` | Backend, MCP, and environment health checks |
+| `make doctor` | Backend, MCP, and environment health checks (including whether search embeddings are failing) |
+| `make embedding-model` | Fetch the on-device search model the release app ships (~130 MB, once; `install.sh` runs it) |
 | `curl -X POST -H "Authorization: Bearer $(cat ~/.cicada/api_token)" localhost:8000/sleep/trigger` | Consolidate: read everything waiting, in batches, each one filed and committed (also the Consolidate button in the app). A bare POST is always a fresh run; `-H 'Content-Type: application/json' -d '{"continue": true}'` resumes a paused one |
 | `api/.venv/bin/python -m pytest api/tests -q` | Backend suite |
 | `cd app/CicadaApp && swift test` | App suite |

@@ -83,6 +83,36 @@ extension Copy {
     static let tabGroupsSyncFailed = "Couldn't bring your tab groups in. Cicada will try again."
     static let tabGroupsTurnOnFirst = "Turn on Chrome's open tab groups in Settings → Integrations first — Cicada reads them only after you do."
     static let tabGroupUnnamed = "Unnamed group"
+
+    // MARK: YouTube watch history from Chrome (G71, 2026-10-16)
+    static let watchHistoryTitle = "YouTube history"
+    static let watchHistorySwitch = "Read the YouTube videos you watch in Chrome"
+    static let watchHistoryOffLine = "Off — turn it on to keep a daily record of the YouTube videos you watch in Chrome. Only YouTube video pages are read, never the rest of your history"
+    static let watchHistoryNoneYet = "Chrome hasn't kept any history on this Mac yet"
+    static let watchHistoryReading = "Reading the YouTube videos in Chrome's history"
+    static func watchHistorySending(_ visits: Int, locale: Locale = .autoupdatingCurrent) -> String {
+        "Bringing in \(UsageFormat.count(visits, locale: locale)) \(visits == 1 ? "visit" : "visits")"
+    }
+    static func watchHistoryCount(_ videos: Int, locale: Locale = .autoupdatingCurrent) -> String {
+        videos == 0 ? "No YouTube videos watched yet"
+                    : "\(UsageFormat.count(videos, locale: locale)) \(videos == 1 ? "video" : "videos") watched, one entry per day"
+    }
+    static func watchHistorySynced(added: Int, locale: Locale = .autoupdatingCurrent) -> String {
+        added == 0 ? "Already up to date"
+                   : "Synced · \(UsageFormat.count(added, locale: locale)) new \(added == 1 ? "watch" : "watches")"
+    }
+    static let watchHistoryUnreadable = "Chrome's history couldn't be read just now. Cicada will try again."
+    static let watchHistorySyncFailed = "Couldn't bring your YouTube history in. Cicada will try again."
+    static let watchHistoryTurnOnFirst = "Turn on YouTube history in Settings → Integrations first — Cicada reads it only after you do."
+    /// The import drop's switch (Takeout, TikTok): history is brought in as days, never as saves.
+    static let importIncludeHistory = "Include watch history"
+    static let importIncludeHistoryDetail = "Kept as one entry per day of what you watched — never as saved links."
+    static func importHistoryLeftOut(_ n: Int, locale: Locale = .autoupdatingCurrent) -> String {
+        "\(UsageFormat.count(n, locale: locale)) watched \(n == 1 ? "video" : "videos") left out"
+    }
+    static func importHistoryDays(videos: Int, days: Int, locale: Locale = .autoupdatingCurrent) -> String {
+        "\(UsageFormat.count(videos, locale: locale)) watched \(videos == 1 ? "video" : "videos") over \(UsageFormat.count(days, locale: locale)) \(days == 1 ? "day" : "days")"
+    }
     static let sourceBackendDown = "Cicada's background service isn't answering."
     static let sourceNeedsUpdate = "This version of Cicada's background service can't read this yet — update Cicada."
 
@@ -127,12 +157,12 @@ extension Copy {
     static func capturedOpenHelp(_ kind: ChannelItem.Kind) -> String {
         switch kind {
         case .episode: "Open in the Reader"
-        case .media: "Open in the Feed"
+        case .media: "Open in Saved"
         case .page: "Open their card"
         case .unknown: ""
         }
     }
-    static func capturedRowLabel(_ title: String, age: String?) -> String {
-        [title, age].compactMap { $0 }.joined(separator: ", ")
+    static func capturedRowLabel(_ title: String, age: String?, left: String? = nil) -> String {
+        [title, age, left].compactMap { $0 }.joined(separator: ", ")
     }
 }

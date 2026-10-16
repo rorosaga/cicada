@@ -26,11 +26,23 @@ enum LocalSourceRowText {
         return "Found " + parts.joined(separator: " · ")
     }
 
-    /// How much of it Sleep will read — a count, never a price (the 2026-09-03 ruling).
+    /// How much of it Sleep will read — a count of the person's own notes, never a price (the 2026-09-03 ruling) and
+    /// never a count of passes nobody can picture (Search & files, 2026-10-14). An agent's notes are kept, not read.
     static func sleepLine(_ r: FolderSyncResult, locale: Locale = .autoupdatingCurrent) -> String {
-        guard r.stage1Passes > 0 else { return "Nothing here for Sleep to read yet — an agent's notes are kept, not read." }
-        let n = UsageFormat.count(r.stage1Passes, locale: locale)
-        return "Sleep will read your own notes in about \(n) \(r.stage1Passes == 1 ? "step" : "steps")."
+        guard r.stage1Passes > 0 else { return Copy.SearchFiles.sleepWillRead(0, locale: locale) }
+        return Copy.SearchFiles.sleepWillRead(max(1, r.filesNew + r.filesChanged - r.agentFiles), locale: locale)
+    }
+
+    /// A folder row's state line on Search & files: its notes and when it was last read, or why it can't be.
+    static func folderState(_ channel: SourceChannel, onThisMac: Bool, reading: Bool, now: Date = Date(),
+                            locale: Locale = .autoupdatingCurrent) -> String {
+        if !onThisMac { return LocalSourceCopy.folderMissing }
+        if let error = channel.lastError { return error }
+        if reading { return Copy.SearchFiles.readingNow }
+        guard channel.connected else { return Copy.SearchFiles.notReadYet }
+        var parts = [Copy.SearchFiles.notes(channel.count, locale: locale)]
+        if let date = channel.lastSyncDate { parts.append(SourceRowText.lastSynced(date, now: now, locale: locale)) }
+        return parts.joined(separator: " · ")
     }
 
     /// Comma or newline separated names → a clean list (Wispr Flow's meeting names; the
@@ -48,7 +60,11 @@ struct PickedFolder: Identifiable {
     var id: String { url.path }
 }
 
-/// G133 — one watched folder in Settings → Integrations → Notes & files.
+/// G133 — one watched folder on Settings → Search & files (owner, 2026-10-14; it was Integrations → Notes & files).
+/// The row says its depth in words — a `Tag` (DR-44), *Kept in memory* — and one state line (its notes and when it was
+/// last read). The full path is the row's `.help` (DR-19, DR-54: monospace only in a path row). *Manage* is the one
+/// control; *Read now* lives in the sheet. A failure's first clause carries one `warning` glyph; the text is never
+/// tinted, and `danger` is for destructive actions only (DR-7).
 struct FolderChannelRow: View {
     let channel: SourceChannel
     @Environment(LocalSourceWatcher.self) private var localSources
@@ -58,24 +74,25 @@ struct FolderChannelRow: View {
 
     var body: some View {
         let onThisMac = folder.map { localSources.isOnThisMac($0) } ?? false
+        let reading = localSources.syncing.contains(channel.id)
         VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: CicadaTheme.spacingMD) {
                 LogoImage.platformTile(name: "", size: CicadaTheme.scaled(28), systemFallback: OriginIconography.symbol(for: "folder"))
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(channel.label)
-                        .font(CicadaTheme.font(size: 13, weight: .medium))
-                        .foregroundStyle(CicadaTheme.textPrimary)
-                    Text(LocalSourceRowText.folderLine(channel, onThisMac: onThisMac))
-                        .font(CicadaTheme.captionFont)
-                        .foregroundStyle(channel.lastError != nil ? CicadaTheme.danger : CicadaTheme.textSecondary)
+                    HStack(spacing: CicadaTheme.spacingSM) {
+                        Text(channel.label)
+                            .font(CicadaTheme.font(size: 13, weight: .medium))
+                            .foregroundStyle(CicadaTheme.textPrimary)
+                        Tag(text: Copy.SearchFiles.depthMemory)
+                            .help(Copy.SearchFiles.depthMemoryHelp)
+                    }
+                    WarningLine(text: LocalSourceRowText.folderState(channel, onThisMac: onThisMac, reading: reading),
+                                warning: channel.lastError != nil || !onThisMac)
                 }
+                .help(folder?.path ?? "")
                 Spacer()
-                if let folder {
-                    Button("Sync now") { Task { await localSources.syncNow(folder) } }
-                        .buttonStyle(.bordered)
-                        .disabled(!onThisMac || localSources.syncing.contains(channel.id))
-                    Button("Manage") { showManage = true }
-                        .buttonStyle(.bordered)
+                if folder != nil {
+                    NeutralButton(title: Copy.SearchFiles.manage, size: .compact) { showManage = true }
                 }
             }
             // R-HS16 — a sheet, not a popover anchored to the row: at the panel's edge the
@@ -86,10 +103,8 @@ struct FolderChannelRow: View {
                 }
             }
             if let folder, let error = localSources.folderErrors[folder.id] {
-                Text(error)
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.danger)
-                    .fixedSize(horizontal: false, vertical: true)
+                WarningLine(text: error, warning: true)
+                    .padding(.leading, CicadaTheme.scaled(28) + CicadaTheme.spacingMD)
             }
             // G161 — the notes the folder brought in, one row per file.
             if channel.connected {
@@ -99,16 +114,44 @@ struct FolderChannelRow: View {
         }
         .padding(.horizontal, CicadaTheme.spacingMD)
         .padding(.vertical, CicadaTheme.spacingSM)
+        .settingsRow(.channel(channel.id))
     }
 }
 
-/// "Add a folder" and "Obsidian vault" — the same flow: pick, name, look inside, watch.
+/// A caption-sized line that, when it is a failure, leads with one `warning` glyph and keeps its text untinted (DR-7).
+struct WarningLine: View {
+    let text: String
+    var warning = false
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: CicadaTheme.spacingXS) {
+            if warning {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(CicadaTheme.font(size: 11))
+                    .foregroundStyle(CicadaTheme.warning)
+                    .accessibilityHidden(true)
+            }
+            Text(text)
+                .font(CicadaTheme.captionFont)
+                .foregroundStyle(CicadaTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
+/// "Add a folder" and "Obsidian vault" — the same flow: pick, name, look inside, watch. On Search & files' empty
+/// folder list it is the page's one `PrimaryActionButton` (DR-40); everywhere else a `NeutralButton`. In the demo it
+/// stays visible, dimmed, and says why (DR-41): capture never writes into a demo bank.
 struct AddFolderRow: View {
     let title: String
     let blurb: String
     let bundleId: String?
     let symbol: String
     let panelMessage: String
+    var buttonTitle: String = Copy.SearchFiles.choose
+    var prominent = false
+    /// Non-nil disables the button and is its `.help` (the demo).
+    var disabledReason: String? = nil
     @State private var picked: PickedFolder?
     /// A chosen folder under a refused root, said in the intake's own words.
     @State private var refused: String?
@@ -122,9 +165,15 @@ struct AddFolderRow: View {
     }
 
     static var folder: AddFolderRow {
-        AddFolderRow(title: "Add a folder of notes",
-                     blurb: "Markdown notes, plans, reading lists — edits reach your memory on their own.",
-                     bundleId: nil, symbol: "folder.badge.plus", panelMessage: "Choose a folder of notes to keep in memory")
+        AddFolderRow(title: Copy.SearchFiles.addFolder, blurb: Copy.SearchFiles.addFolderDetail,
+                     bundleId: nil, symbol: "folder.badge.plus", panelMessage: Copy.SearchFiles.addFolderPanel)
+    }
+
+    /// Search & files' empty state: what a folder does, and the page's one primary action.
+    static func empty(disabledReason: String?) -> AddFolderRow {
+        AddFolderRow(title: Copy.SearchFiles.foldersEmptyTitle, blurb: Copy.SearchFiles.foldersEmptyDetail,
+                     bundleId: nil, symbol: "folder.badge.plus", panelMessage: Copy.SearchFiles.addFolderPanel,
+                     buttonTitle: Copy.SearchFiles.addFolder, prominent: true, disabledReason: disabledReason)
     }
 
     static var obsidian: AddFolderRow {
@@ -144,16 +193,21 @@ struct AddFolderRow: View {
                 Text(blurb)
                     .font(CicadaTheme.captionFont)
                     .foregroundStyle(CicadaTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
                 if let refused {
-                    Text(refused)
-                        .font(CicadaTheme.captionFont)
-                        .foregroundStyle(CicadaTheme.warning)
-                        .fixedSize(horizontal: false, vertical: true)
+                    WarningLine(text: refused, warning: true)
                 }
             }
             Spacer()
-            Button("Choose…") { pick() }
-                .buttonStyle(.bordered)
+            if prominent {
+                PrimaryActionButton(title: buttonTitle) { pick() }
+                    .disabled(disabledReason != nil)
+                    .opacity(disabledReason != nil ? NeutralButton.disabledOpacity : 1)
+                    .help(disabledReason ?? buttonTitle)
+            } else {
+                NeutralButton(title: buttonTitle, size: .compact, isDisabled: disabledReason != nil,
+                              disabledHelp: disabledReason) { pick() }
+            }
         }
         .padding(.horizontal, CicadaTheme.spacingMD)
         .padding(.vertical, CicadaTheme.spacingSM)
@@ -328,16 +382,13 @@ struct AddFolderSheet: View {
                     .foregroundStyle(CicadaTheme.textSecondary)
             }
             if let message {
-                Text(message)
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.danger)
-                    .fixedSize(horizontal: false, vertical: true)
+                WarningLine(text: message, warning: true)
             }
             // DR-40 — the sheet's one prominent action; the × is Cancel (it still removes a
             // looked-inside registration through `cancel()`).
             HStack {
                 Spacer()
-                PrimaryActionButton(title: preview == nil ? "Look inside" : "Start watching") {
+                PrimaryActionButton(title: preview == nil ? Copy.SearchFiles.lookInside : Copy.SearchFiles.startWatching) {
                     Task { if preview == nil { await look() } else { await start() } }
                 }
             }
@@ -386,7 +437,9 @@ struct AddFolderSheet: View {
     }
 }
 
-/// Which parts an agent wrote, and "Stop watching" (which keeps what was learned).
+/// Which parts an agent wrote, *Read now*, and "Stop watching" (which keeps what was learned, behind a
+/// confirmation). DR-40: Save is the sheet's one `PrimaryActionButton`, Read now a `NeutralButton`; DR-7: a failure
+/// leads with a `warning` glyph, never `danger` text.
 struct FolderManagePanel: View {
     let folder: FolderRegistration
     let onDone: () -> Void
@@ -412,12 +465,18 @@ struct FolderManagePanel: View {
                 .foregroundStyle(CicadaTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
             if let message {
-                Text(message).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.danger)
+                WarningLine(text: message, warning: true)
             }
             HStack {
-                Button("Stop watching", role: .destructive) { confirmStop = true }
+                Button(Copy.SearchFiles.stopWatching, role: .destructive) { confirmStop = true }
                 Spacer()
-                Button("Save") {
+                NeutralButton(title: Copy.SearchFiles.readNow, size: .regular,
+                              isDisabled: !localSources.isOnThisMac(folder) || localSources.syncing.contains(folder.channelId),
+                              help: Copy.SearchFiles.readNowHelp,
+                              disabledHelp: localSources.isOnThisMac(folder) ? Copy.SearchFiles.readingNow : Copy.SearchFiles.readNowAway) {
+                    Task { await localSources.syncNow(folder) }
+                }
+                PrimaryActionButton(title: Copy.SearchFiles.save) {
                     Task {
                         busy = true
                         defer { busy = false }
@@ -430,7 +489,6 @@ struct FolderManagePanel: View {
                         }
                     }
                 }
-                .buttonStyle(.borderedProminent)
             }
         }
         .disabled(busy)
@@ -438,15 +496,15 @@ struct FolderManagePanel: View {
             root = localSources.root(of: folder)
             rows = AgentFolders.rows(subfolders: localSources.subfolders(of: folder), globs: folder.agentGlobs)
         }
-        .confirmationDialog("Stop watching \(folder.label)?", isPresented: $confirmStop) {
-            Button("Stop watching", role: .destructive) {
+        .confirmationDialog(Copy.SearchFiles.stopWatchingTitle(folder.label), isPresented: $confirmStop) {
+            Button(Copy.SearchFiles.stopWatching, role: .destructive) {
                 Task {
                     try? await localSources.removeFolder(folder)
                     onDone()
                 }
             }
         } message: {
-            Text("Everything Cicada already learned from this folder stays in your memory.")
+            Text(Copy.SearchFiles.stopWatchingKeeps)
         }
     }
 }

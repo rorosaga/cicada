@@ -22,6 +22,15 @@ def _words(s: str) -> int:
     return len((s or "").split())
 
 
+def generate_prose_candidates(memory_path: Path, scratch: Path, **kwargs) -> dict:
+    """G194 person-started dry run, sharing the bounded orientation builder.
+
+    Separate from the legacy bank writer below: this path has no apply phase.
+    """
+    from api.services.prose_repair import run
+    return run(memory_path, scratch, **kwargs)
+
+
 def rewrite_entity_from_sources(memory_path: Path, entity_id: str, settings, *,
                                 corpus_path: Path | None = None, llm_fn=None,
                                 max_source_chars: int = 12000) -> dict:
@@ -52,7 +61,7 @@ def rewrite_entity_from_sources(memory_path: Path, entity_id: str, settings, *,
                                 stage="rewrite")
 
     resp = llm_fn(messages=[{"role": "user",
-                             "content": _PROMPT.format(page=par.body[:4000], sources=sources)}],
+                             "content": _PROMPT.format(page=strip_claims_block(par.body)[:4000], sources=sources)}],
                   response_format={"type": "json_object"})
     txt = resp["choices"][0]["message"]["content"]
     parsed = json_parse.parse_json_object_or(txt, {})
@@ -77,11 +86,12 @@ def rewrite_entity_from_sources(memory_path: Path, entity_id: str, settings, *,
     # Human-safe merge: never lose human sections or the claims block. Convert the
     # LLM's new body to the STRUCTURED new_fields shape via sections_to_fields
     # (a raw sections dict merges nothing).
-    human = bool(par.frontmatter.get("human_edited"))
+    existing_sections = entity_body.parse_sections(strip_claims_block(par.body))
+    human = entity_body.has_human_prose(par.frontmatter, existing_sections)
     new_sections = entity_body.parse_sections(strip_claims_block(new_body))
     new_fields = entity_body.sections_to_fields(new_sections)
     merged = entity_body.merge_sections_human_safe(
-        entity_body.parse_sections(strip_claims_block(par.body)), new_fields, human_edited=human)
+        existing_sections, new_fields, human_edited=human)
     # Preserve any non-canonical sections the model produced.
     for title, content in new_sections.items():
         if title and title not in entity_body.CANONICAL_SECTIONS and title not in merged:
@@ -92,6 +102,9 @@ def rewrite_entity_from_sources(memory_path: Path, entity_id: str, settings, *,
         final_body = write_claims(final_body, existing_claims)
     fm = dict(par.frontmatter)
     fm["layout_version"] = 2
+    from api.services import page_edits
+
+    final_body, _ = page_edits.apply_corrections(fm, final_body)   # G198: an edit's pinned fixes outlive the rewrite
     markdown_parser.write(ent, fm, final_body)
     return {"entity_id": entity_id, "changed": True,
             "before_words": before, "after_words": _words(final_body)}

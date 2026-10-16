@@ -9,13 +9,27 @@ import SwiftUI
 /// `GettingStartedProgress`, table-tested.
 ///
 /// Dormant until a bank has a record (the Welcome's Start, or *Show setup
-/// checklist* in Settings → General, R-IB17). Its one trigger — *Read now*,
-/// *Read the next N*, *Try again*, all through `read()` — is G125 R10's second
+/// checklist* in Settings → General, R-IB17).
+///
+/// **Owner ruling 2026-10-14, "Graduate + Needs you first"** (amends R-IB17/R-IB18): once the person has chats in
+/// memory (`HomeSetup.hasChatsInMemory`, a fact of the bank) the card graduates — it shrinks to one line,
+/// "Setup · N things left · Show ›", at the foot of Home, and leaves entirely when nothing is left
+/// (`GettingStartedPresentation`). Its viewer's open/closed choice is remembered per bank (DR-39), and *Show setup
+/// checklist* opens it whole. Inside, three labelled groups (review #7, DR-20/DR-35): Connected, Your past chats (one
+/// 36 pt row per vendor still to ask, opening the drawn walkthrough — review #1) and First read; *Also on this Mac* is
+/// an offer under them, never a blocker.
+///
+/// Its one trigger — *Read now*,
+/// *Read the next N*, all through `read()` — is G125 R10's second
 /// narrow amendment (R-IB19): a user act, subtitled with the manual engine like
 /// Consolidate, and the only trigger anywhere on Home. Home's steady state is a
 /// link to the Sleep page.
 struct GettingStartedCard: View {
     @Binding var selectedTab: AppTab
+    /// The export walkthrough Home presents over itself (`HomeWalkthroughLayer`).
+    @Binding var seeHow: ChatVendor?
+    /// The person has chats in memory: the card graduates (owner 2026-10-14).
+    var graduated = false
 
     @Environment(Store.self) private var store
     @Environment(SetupRunner.self) private var runner
@@ -26,6 +40,7 @@ struct GettingStartedCard: View {
     @Environment(IntakeRouter.self) private var intake
     @Environment(SleepViewModel.self) private var sleepVM
     @Environment(SleepEngineViewModel.self) private var engineVM
+    @Environment(AppRouter.self) private var appRouter
     @Environment(ExportWaitStore.self) private var waits
     /// R-OB9 — the app-side sources (Calendar, Apple Notes, Wispr Flow, Contacts, Chrome's open tab groups) turn on
     /// through their registered drivers, so their rows start here exactly as they do on the Import page. Optional: a
@@ -37,43 +52,76 @@ struct GettingStartedCard: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @AccessibilityFocusState private var headingFocused: Bool
-    @State private var showsEngineAfterFailure = false
+    /// A refused row's commands, shown on request (DR-39): the sentence above them leads with the fix.
+    @State private var showsCommands: Set<FoundItemID> = []
+
+    /// Review #7 — the groups inside the card sit 20 pt apart (DR-35: blocks inside the focus card are 20–24 pt).
+    static let groupGap: CGFloat = 20
+    static let labelGap: CGFloat = 6
 
     var body: some View {
         // Defaults are not observable; the revision is (every record write bumps it).
         let _ = runner.checklistRevision
         let record = GettingStartedState.load(bank: store.bank)
-        if GettingStartedProgress.visible(record: record) || runner.sawDoneThisSession {
-            card(record ?? GettingStartedRecord())
+        let visible = GettingStartedProgress.visible(record: record) || runner.sawDoneThisSession
+        let current = record ?? GettingStartedRecord()
+        let rows = visible ? GettingStartedProgress.rows(inputs(current)) : []
+        switch GettingStartedPresentation.of(visible: visible, graduated: graduated, expanded: current.expanded,
+                                             left: HomeSetup.thingsLeft(rows)) {
+        case .none:
+            EmptyView()
+        case .line(let left):
+            setupLine(left)
+        case .card:
+            card(current, rows: rows)
         }
+    }
+
+    /// R-OB4 — built through the one `.live` builder onboarding also uses, so a row never reads differently.
+    private func inputs(_ record: GettingStartedRecord) -> GettingStartedInputs {
+        GettingStartedInputs.live(record: record, inventory: inventory, runner: runner, watcher: watcher, apps: apps)
+    }
+
+    /// The graduated card, closed: one line, no card of its own (DR-37), the whole line a button (review #5).
+    private func setupLine(_ left: Int) -> some View {
+        HomeRowButton(help: Copy.homeSetupShowHelp, trailingLabel: Copy.homeSetupShow, action: {
+            GettingStartedState.setExpanded(true, bank: store.bank)
+            runner.checklistChanged()
+        }) {
+            Text(Copy.homeSetupLine(left: left))
+                .font(CicadaTheme.rowFont)
+                .monospacedDigit()
+                .foregroundStyle(CicadaTheme.textSecondary)
+        }
+        .task { await inventory.refresh() }
     }
 
     // MARK: The card
 
     @ViewBuilder
-    private func card(_ record: GettingStartedRecord) -> some View {
+    private func card(_ record: GettingStartedRecord, rows: [GettingStartedRow]) -> some View {
         let connections = store.connections.value ?? []
         let readiness = EngineReadiness.resolve(candidates: engineVM.response?.candidates ?? [],
                                                 connections: connections, preview: engineVM.response?.preview)
         let honesty = HonestyInputs.from(schedule: sleepVM.schedule, response: engineVM.response,
                                          connections: connections)
-        // R-OB4 — built through the one `.live` builder onboarding also uses, so a row never reads differently.
-        let inputs = GettingStartedInputs.live(record: record, inventory: inventory, runner: runner, watcher: watcher,
-                                               apps: apps)
-        let rows = GettingStartedProgress.rows(inputs)
         let asksSchedule = hasRunBefore && sleepVM.scheduleLoaded && !record.scheduleAsked
             && ScheduleChoice.asks(sleepVM.schedule)
         // R-IB20: unknown is never an answer — a placeholder `manual` is not "asked".
         let scheduleAnswered = record.scheduleAsked
             || (sleepVM.scheduleLoaded && !ScheduleChoice.asks(sleepVM.schedule))
-        let alsoFound = GettingStartedProgress.alsoFound(inputs)
+        let alsoFound = GettingStartedProgress.alsoFound(inputs(record))
         let done = GettingStartedProgress.isDone(rows: rows, hasRunBefore: hasRunBefore,
                                                  scheduleAnswered: scheduleAnswered,
                                                  alsoFoundIsEmpty: alsoFound.isEmpty,
                                                  inventoryLoaded: inventory.hasChecked)
         let hasDrop = rows.contains { if case .dropped = $0.id { return true }; return false }
+        let waiting = waits.active(bank: store.bank)
+        let toAsk = HomeSetup.vendorsToAsk(store.sourcesOverview.value)
+            .filter { vendor in !waiting.contains { $0.vendor == vendor.rawValue } }
+        let showsPastChats = !hasDrop && (!toAsk.isEmpty || !waiting.isEmpty)
 
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
+        VStack(alignment: .leading, spacing: CicadaTheme.scaled(Self.groupGap)) {
             header
             if done || runner.sawDoneThisSession {
                 Text(Copy.gsDone)
@@ -81,12 +129,22 @@ struct GettingStartedCard: View {
                     .foregroundStyle(CicadaTheme.textPrimary)
                     .transition(.opacity)
             } else {
-                rowList(rows)
-                if !hasDrop { chatHistoryRow.transition(.opacity) }
-                if readiness == .needsChoice { EngineChoice().transition(.opacity) }
-                firstRead(readiness: readiness)
-                if asksSchedule { scheduleQuestion(honesty).transition(.opacity) }
-                if !alsoFound.isEmpty { alsoFoundList(alsoFound).transition(.opacity) }
+                if !rows.isEmpty { group(Copy.gsConnected) { rowList(rows) } }
+                if showsPastChats {
+                    group(Copy.gsPastChats) { chatHistory(waiting: waiting, toAsk: toAsk) }.transition(.opacity)
+                }
+                // Review #2 — "Your memory has N pages now" is the first week's payoff; on a graduated card Last read and
+                // the graph own that number (DR-38), so a finished first read leaves the group.
+                let step = firstReadStep
+                let showsRead = !(graduated && step.action == .openGraph)
+                if showsRead || readiness == .needsChoice || asksSchedule {
+                    group(Copy.gsFirstRead) {
+                        if readiness == .needsChoice { EngineChoice().transition(.opacity) }
+                        if showsRead { firstRead(step, readiness: readiness) }
+                        if asksSchedule { scheduleQuestion(honesty).transition(.opacity) }
+                    }
+                }
+                if !alsoFound.isEmpty { group(Copy.gsAlsoFound) { alsoFoundList(alsoFound) }.transition(.opacity) }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -97,7 +155,7 @@ struct GettingStartedCard: View {
         .background(CicadaTheme.bgFocus, in: CicadaTheme.shape(CicadaTheme.radiusLarge))
         .ringed(in: CicadaTheme.shape(CicadaTheme.radiusLarge))
         .animation(CicadaMotion.settle(reduceMotion: reduceMotion),
-                   value: [done, hasDrop, readiness == .needsChoice, asksSchedule, alsoFound.isEmpty])
+                   value: [done, showsPastChats, readiness == .needsChoice, asksSchedule, alsoFound.isEmpty])
         // The first time it is done: "You're set up." for this session, and the
         // card is gone next launch (R-IB18). Never inside `body` — a state write
         // during evaluation would loop.
@@ -143,14 +201,30 @@ struct GettingStartedCard: View {
                          onChecklistChanged: runner.checklistChanged)
     }
 
+    /// Review #7 — one labelled group inside the card (DR-20, DR-47: every section label is a `SectionLabel`).
+    private func group<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.scaled(Self.labelGap)) {
+            SectionLabel(title)
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) { content() }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     private var header: some View {
-        HStack {
+        HStack(spacing: CicadaTheme.spacingXS) {
             Text(Copy.gsTitle)
                 .font(CicadaTheme.headingFont)
                 .foregroundStyle(CicadaTheme.textPrimary)
                 .accessibilityAddTraits(.isHeader)
                 .accessibilityFocused($headingFocused)
             Spacer(minLength: CicadaTheme.spacingSM)
+            if graduated {
+                // A graduated card closes back to its line, remembered (DR-39).
+                TextButton(title: Copy.homeSetupShowLess) {
+                    GettingStartedState.setExpanded(false, bank: store.bank)
+                    runner.checklistChanged()
+                }
+            }
             // DR-40 — the text button (R-HS5).
             TextButton(title: Copy.gsHide) {
                 GettingStartedState.setHidden(true, bank: store.bank)
@@ -169,7 +243,7 @@ struct GettingStartedCard: View {
     private func rowList(_ rows: [GettingStartedRow]) -> some View {
         let snapshots = SetupProgress.snapshots(rows, facts: facts(for: rows))
         TimelineView(.periodic(from: .now, by: SourceRowText.refreshInterval)) { context in
-            VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+            VStack(alignment: .leading, spacing: 0) {   // DR-35 — no gap between one-line rows
                 ForEach(snapshots) { snapshot in
                     let row = snapshot.row
                     VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
@@ -220,55 +294,50 @@ struct GettingStartedCard: View {
         }
     }
 
-    /// Exactly as `OnThisMacStrip` renders them: to inspect, never to run — no copy button.
+    /// As `OnThisMacStrip` renders them — to inspect, never to run, no copy button — but behind *Show the commands*
+    /// (review #6, DR-39): the sentence leads with the fix, and the commands are detail.
     @ViewBuilder
     private func refusedLines(_ id: FoundItemID) -> some View {
         if let lines = runner.refused[id] {
-            Text(Copy.foundRefused).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-            ForEach(lines, id: \.self) {
-                Text($0).font(CicadaTheme.monoFont).foregroundStyle(CicadaTheme.textTertiary)
+            let open = showsCommands.contains(id)
+            HStack(spacing: CicadaTheme.spacingSM) {
+                Text(Copy.foundRefused).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: CicadaTheme.spacingSM)
+                TextButton(title: open ? Copy.gsHideCommands : Copy.gsShowCommands) {
+                    if open { showsCommands.remove(id) } else { showsCommands.insert(id) }
+                }
+            }
+            if open {
+                ForEach(lines, id: \.self) {
+                    Text($0).font(CicadaTheme.monoFont).foregroundStyle(CicadaTheme.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
     }
 
     /// An invitation, not a connection with a state — so a plain row, not a
     /// `FoundRow`. It opens the one intake (design §5.1), never a picker of its own.
-    /// Under it (R-IB22): each export the person is waiting on, with when it was
-    /// asked and when the reminder comes — the text twin that needs no
-    /// notification permission — or, while nothing is awaited, how to ask for one.
-    private var chatHistoryRow: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+    /// Under it (R-IB22, review #11): each export the person is waiting on, leading with what to look for, ABOVE the
+    /// vendors still to ask — one 36 pt "See how ›" row each (review #1), which opens the drawn walkthrough. A vendor
+    /// whose export is already in this bank is not asked again (`HomeSetup.vendorsToAsk`).
+    private func chatHistory(waiting: [ExportWait], toAsk: [ChatVendor]) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
             chatDropLine
-            let active = waits.active(bank: store.bank)
-            if active.isEmpty {
-                ForEach(ChatVendor.allCases) { ExportAskRow(vendor: $0, startsOpen: false) }
-                    .padding(.horizontal, CicadaTheme.spacingSM)
-            } else {
+            if !waiting.isEmpty {
                 TimelineView(.periodic(from: .now, by: ExportWaits.refreshInterval)) { context in
-                    VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-                        ForEach(active) { waitRow($0, now: context.date) }
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(waiting) { wait in
+                            ExportWaitRow(wait: wait, now: context.date,
+                                          onChoose: { intake.present(from: wait.intakeOrigin(fallback: .onboardingRow)) },
+                                          onStop: { waits.remove(wait) })
+                        }
                     }
                 }
-                .padding(.horizontal, CicadaTheme.spacingSM)
             }
-        }
-    }
-
-    private func waitRow(_ wait: ExportWait, now: Date) -> some View {
-        HStack(spacing: CicadaTheme.spacingSM) {
-            VendorMark(origin: ChatVendor(rawValue: wait.vendor)?.origin, size: CicadaTheme.scaled(18))
-            Text(ExportWaits.rowLine(wait, now: now))
-                .font(CicadaTheme.captionFont)
-                .foregroundStyle(CicadaTheme.textSecondary)
-            Spacer(minLength: CicadaTheme.spacingSM)
-            NeutralButton(title: Copy.intakeChooseFile, size: .compact) {
-                intake.present(from: wait.intakeOrigin(fallback: .onboardingRow))
-            }
-            IconButton(systemName: "xmark", help: Copy.reminderDismiss,
-                       accessibilityLabel: "\(Copy.reminderDismiss), \(ExportWaits.vendorTitle(wait.vendor))") {
-                waits.remove(wait)
+            ForEach(toAsk) { vendor in
+                ExportVendorRow(vendor: vendor) { seeHow = $0 }
             }
         }
     }
@@ -289,16 +358,15 @@ struct GettingStartedCard: View {
             Spacer(minLength: CicadaTheme.spacingSM)
             NeutralButton(title: Copy.intakeChooseFile, size: .compact) { intake.present(from: .onboardingRow) }
         }
-        .padding(.vertical, CicadaTheme.spacingXS)
-        .padding(.horizontal, CicadaTheme.spacingSM)
+        .padding(.horizontal, CicadaTheme.scaled(10))
+        .frame(maxWidth: .infinity, minHeight: CicadaTheme.scaled(RowMetrics.twoLine), alignment: .leading)
     }
 
     // MARK: The first read (R-IB19)
 
-    @ViewBuilder
-    private func firstRead(readiness: EngineReadiness) -> some View {
+    private var firstReadStep: FirstReadStep {
         let status = sleepVM.status
-        let step = FirstReadStep.of(FirstReadInputs(
+        return FirstReadStep.of(FirstReadInputs(
             running: sleepVM.isRunning || store.status.value?.sleep.status == "running",
             stage: status?.stage ?? 0,
             error: status?.error,
@@ -309,6 +377,10 @@ struct GettingStartedCard: View {
             episodesQueued: status?.episodesQueued ?? 0,
             hasRunBefore: hasRunBefore,
             pages: store.graph.value.map { $0.nodes.filter { !$0.isHub && !$0.isFacet }.count }))
+    }
+
+    @ViewBuilder
+    private func firstRead(_ step: FirstReadStep, readiness: EngineReadiness) -> some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
             HStack(spacing: CicadaTheme.spacingSM) {
                 BookwormView(state: step.worm, pointSize: 24)
@@ -323,25 +395,18 @@ struct GettingStartedCard: View {
                 trigger(Copy.intakeReadNow, readiness: readiness)
             case .keepReading?:
                 trigger(Copy.gsKeepReading, readiness: readiness)
-            case .tryAgain?:
-                trigger(Copy.gsTryAgain, readiness: readiness)
-                // The needs-choice case already shows the chooser above.
-                if readiness != .needsChoice {
-                    DisclosureGroup(isExpanded: $showsEngineAfterFailure) {
-                        EngineChoice().padding(.top, CicadaTheme.spacingXS)
-                    } label: {
-                        Text(Copy.gsWhoReads).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
-                    }
-                }
+            case .seeDetails?:
+                // DR-40/59 — one calm fix action; the raw diagnosis lives in Sleep Details.
+                TextButton(title: Copy.sleepDetails) { appRouter.routeToSleepDetails(.lastCycle) }
             case .watchSleep?:
                 VStack(alignment: .leading, spacing: 2) {
-                    Button(Copy.gsWatchOnSleep) { selectedTab = .sleep }.buttonStyle(.link)
+                    TextButton(title: Copy.gsWatchOnSleep) { selectedTab = .sleep }
                     Text(Copy.gsLeaveWhileReading)
                         .font(CicadaTheme.captionFont)
                         .foregroundStyle(CicadaTheme.textTertiary)
                 }
             case .openGraph?:
-                Button(Copy.gsOpenGraph) { selectedTab = .graph }.buttonStyle(.link)
+                TextButton(title: Copy.gsOpenGraph) { selectedTab = .graph }
             case nil:
                 EmptyView()
             }
@@ -399,18 +464,14 @@ struct GettingStartedCard: View {
             Text(Copy.gsScheduleQuestion)
                 .font(CicadaTheme.font(size: 13, weight: .medium))   // DR-16 reserves semibold
                 .foregroundStyle(CicadaTheme.textPrimary)
-            HStack(spacing: CicadaTheme.spacingMD) {
+            // Review #5/#7 — three 28 pt neutral buttons (DR-40), the current one ticked; never 11 pt hand-rolled radios.
+            HStack(spacing: CicadaTheme.spacingSM) {
                 ForEach(options, id: \.0) { mode, label in
                     let current = sleepVM.schedule.mode == mode.rawValue
-                    Button { answer(mode) } label: {
-                        Label(label, systemImage: current ? "largecircle.fill.circle" : "circle")
-                            .font(CicadaTheme.captionFont)
-                    }
-                    .buttonStyle(.cicadaPlain)
-                    .foregroundStyle(CicadaTheme.textPrimary)
-                    .disabled(!enabled.contains(mode))
-                    .opacity(enabled.contains(mode) ? 1 : 0.45)
-                    .accessibilityAddTraits(current ? .isSelected : [])
+                    NeutralButton(title: label, systemImage: current ? "checkmark" : nil, size: .compact,
+                                  isDisabled: !enabled.contains(mode),
+                                  disabledHelp: ScheduleHonesty.engineLine(honesty)) { answer(mode) }
+                        .accessibilityAddTraits(current ? .isSelected : [])
                 }
             }
             .accessibilityElement(children: .contain)
@@ -420,19 +481,17 @@ struct GettingStartedCard: View {
                 .font(CicadaTheme.captionFont)
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
-            Button(Copy.gsNotNow) {
+            TextButton(title: Copy.gsNotNow) {
                 GettingStartedState.setScheduleAsked(bank: store.bank)
                 runner.checklistChanged()
             }
-            .buttonStyle(.link)
-            .font(CicadaTheme.captionFont)
         }
     }
 
     /// The one writer is `updateSchedule`; the question is answered only when
     /// the write landed, so a failure asks again rather than pretend.
     private func answer(_ mode: ScheduleMode) {
-        Task {
+        store.bankTask {
             if await sleepVM.updateSchedule(ScheduleChoice.config(for: mode, current: sleepVM.schedule)) {
                 GettingStartedState.setScheduleAsked(bank: store.bank)
                 runner.checklistChanged()
@@ -442,11 +501,9 @@ struct GettingStartedCard: View {
 
     // MARK: Also found
 
+    /// An offer, never a blocker (owner 2026-10-14): what else is on this Mac, under its own group label.
     private func alsoFoundList(_ items: [FoundItem]) -> some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-            Text(Copy.gsAlsoFound)
-                .font(CicadaTheme.captionFont)
-                .foregroundStyle(CicadaTheme.textSecondary)
+        VStack(alignment: .leading, spacing: 0) {
             ForEach(items) { item in
                 FoundRow(mark: OnThisMacStrip.mark(item.id), title: item.title,
                          detail: OnThisMacStrip.detail(item.id),

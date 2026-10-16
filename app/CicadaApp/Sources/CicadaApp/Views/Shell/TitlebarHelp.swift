@@ -6,8 +6,9 @@ import SwiftUI
 /// what Cicada is (R-DS18). Track P: the audit removed the Sleep and Upload buttons from every
 /// page (R1), so "About these actions" no longer had any actions to describe — `.actions`
 /// became `.aboutCicada`, one paragraph per half of Awake/Sleep, true on every page it renders
-/// on. The Sleep page keeps its own page-specific explainer (G125 R10); the list pages answer for
-/// themselves — the Inbox (R-DI17, DR-25), then Clusters (R-DL8), then the Feed, then Sources, then
+/// on. The Sleep page keeps its own page-specific explainer (G125 R10), with the keys of the lists that were the Feed's
+/// until it folded into Sleep (2026-10-16); the list pages answer for
+/// themselves — the Inbox (R-DI17, DR-25), then Clusters (R-DL8), then Sources, then
 /// Projects — with their subtitle and key map,
 /// since the eyebrow row that replaced each page header has no room for either; and the Graph its keys and gestures
 /// (R-DG6), which nothing on a canvas explains otherwise.
@@ -17,9 +18,10 @@ enum HelpContent: Equatable {
     case inbox
     case graph
     case clusters
-    case feed
     case sources
     case projects
+    case looks
+    case skills
 
     static func page(_ tab: AppTab) -> HelpContent {
         switch tab {
@@ -27,9 +29,10 @@ enum HelpContent: Equatable {
         case .inbox: .inbox
         case .graph: .graph
         case .clusters: .clusters
-        case .feed: .feed
         case .sources: .sources
         case .projects: .projects
+        case .looks: .looks
+        case .skills: .skills
         default: .aboutCicada
         }
     }
@@ -53,9 +56,10 @@ struct TitlebarHelpButton: View {
                     case .inbox: InboxHelpPopover()
                     case .graph: GraphHelpPopover()
                     case .clusters: ListHelpPopover(page: ListHelp.clusters)
-                    case .feed: ListHelpPopover(page: ListHelp.feed)
                     case .sources: ListHelpPopover(page: ListHelp.sources)
                     case .projects: ListHelpPopover(page: ListHelp.projects)
+                    case .looks: ListHelpPopover(page: ListHelp.looks)
+                    case .skills: ListHelpPopover(page: ListHelp.skills)
                     }
                     // G152 — every page's `?` replays the tour; the closure is built here, where the environment is.
                     TourReplayRow {
@@ -125,12 +129,34 @@ enum ListHelp {
             .init(key: "Esc", does: "Close the rightmost column"),
         ])
 
-    static let feed = Page(
-        title: "How the Feed works",
-        subtitle: "Everything Cicada has read. Open an item to see why it was saved and where it came from; + adds a source.",
+    /// The Skills page (owner, 2026-10-15).
+    static let skills = Page(
+        title: "How Skills works",
+        subtitle: "Every skill your coding agents have, where it came from and whether it is current. Tick an agent "
+            + "to give it a skill. Cicada installs only what you have seen, fixed to that version, and your agents "
+            + "can ask, or write a skill for you to publish.",
+        keys: [
+            .init(key: "⌘K", does: "Go to Skills from anywhere"),
+        ])
+
+    static let looks = Page(
+        title: "How Looks works",
+        subtitle: "Screenshots of sites whose look you like, with what you liked and their colours. Drop or paste one "
+            + "to save it, or to find the looks like it; your agents search the same board before they build.",
+        keys: [
+            .init(key: "⌘V", does: "Paste a screenshot"),
+            .init(key: "⏎", does: "Search by the words in the field"),
+            .init(key: "Esc", does: "Close the open look"),
+        ])
+
+    /// The Sleep page's lists (the Feed's keys until it folded into Sleep, 2026-10-16) — drawn under "How Cicada
+    /// sleeps" in the page's own popover.
+    static let sleepLists = Page(
+        title: "Sleep's lists",
+        subtitle: "Waiting, what you saved, your videos and past reads. Open a saved item to see why it was saved and where it came from; + adds a source.",
         keys: [
             .init(key: "⌘N", does: "Add a source"),
-            .init(key: "⌘F", does: "Find on this page"),
+            .init(key: "⌘F", does: "Find in Saved or Videos"),
             .init(key: "↑ ↓", does: "Move through the list"),
             .init(key: "⏎", does: "Step into the item"),
             .init(key: "Esc", does: "Close the rightmost column"),

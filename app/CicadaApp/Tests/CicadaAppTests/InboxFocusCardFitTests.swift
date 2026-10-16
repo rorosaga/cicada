@@ -29,6 +29,7 @@ final class InboxFocusCardFitTests: XCTestCase {
         "normalization": #"{"id":"1","kind":"normalization","requiredInput":"choice","title":"Was this fold right?","options":[{"key":"correct","label":"Correct fold"},{"key":"wrong","label":"Wrong fold"}]}"#,
         "followup": #"{"id":"1","kind":"followup","requiredInput":"choice","title":"t","question":"“Wire the lab cluster” — last heard 3 weeks ago. How did it go?","allowOther":true,"options":[{"key":"done","label":"Done","description":"Finished — dated today"},{"key":"still","label":"Still going"},{"key":"stopped","label":"Stopped"},{"key":"didnt","label":"That didn't happen"},{"key":"remind_later","label":"Not now — ask again in 30 days"}]}"#,
         "dismissOnly": #"{"id":"1","kind":"conflict","requiredInput":"none","title":"Nothing to pick"}"#,
+        "name": #"{"id":"1","kind":"clarification","requiredInput":"freetext","asks":"name","title":"What's the name of your partner?","question":"What's the name of your partner?","entityName":"Partner","allowOther":true,"allowDefer":true,"options":[{"key":"rather_not_say","label":"I'd rather not say"}]}"#,
     ]
 
     func testEveryVariantFitsItsColumnAtEveryZoomInBothThemes() throws {

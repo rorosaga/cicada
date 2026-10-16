@@ -425,3 +425,32 @@ def test_a_lone_chatgpt_extra_file_sniffs_as_a_quiet_skip(tmp_path, monkeypatch)
     assert body["recognized"] is False and body["reason"] is None
     assert body["ignored"] == [{"name": "ads.json", "reason": intake.SKIPPED_MEMBERS["ads.json"]}]
     config.get_settings.cache_clear()
+
+
+def test_a_takeout_zip_with_another_products_activity_still_sniffs_as_saved_content(tmp_path, monkeypatch):
+    """The chat reader names Takeout's YouTube activity page as skipped and finds no chat — the zip's saved
+    playlists must still be offered, not dropped as "nothing readable"."""
+    monkeypatch.setenv("CICADA_MEMORY_PATH", str(tmp_path))
+    config.get_settings.cache_clear()
+    z = _zip({"Takeout/My Activity/YouTube/MyActivity.html": "<html><body>activity</body></html>",
+              "Takeout/YouTube and YouTube Music/playlists/Watch later-videos.csv":
+                  "Video ID,Playlist Video Creation Timestamp\nvid0000001,2024-06-24T23:49:51+00:00\n"})
+    sniff = intake.sniff_bytes(z, "takeout.zip", config.get_settings(), None)
+    assert sniff.recognized and sniff.kind == "saved" and sniff.platform == "youtube"
+    assert sniff.counts.items == 1
+    config.get_settings.cache_clear()
+
+
+def test_a_walked_folders_files_sniff_by_their_path_inside_it(tmp_path, monkeypatch):
+    """The app names each file of a walked folder by its path inside it. A chat export is still a chat; a
+    LinkedIn Connections.csv (other people) is never offered as saved links; a save list is."""
+    client = _client(tmp_path, monkeypatch)
+    chat = _post(client, "/intake/sniff", "export/conversations.json", json.dumps(claude_conversations(1))).json()
+    assert chat["recognized"] and chat["kind"] == "chat"
+    people = _post(client, "/intake/sniff", "Basic_LinkedInDataExport/Connections.csv",
+                   "First Name,Last Name,URL\nBob,Example,https://www.linkedin.com/in/bob-example\n").json()
+    assert people["recognized"] is False and people["kind"] != "saved"
+    saves = _post(client, "/intake/sniff", "twitter-archive/data/like.js",
+                  'window.YTD.like.part0 = [{"like": {"tweetId": "1000000000000000001"}}]').json()
+    assert saves["recognized"] and saves["kind"] == "saved" and saves["platform"] == "x"
+    config.get_settings.cache_clear()

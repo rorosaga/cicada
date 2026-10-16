@@ -14,7 +14,7 @@ enum BookwormState: Equatable {
     case digesting
     /// Inbox empty, fed, idle.
     case happy
-    /// Inbox has `count` pending items; the badge renders `min(count, 99)`.
+    /// Inbox has `count` questions waiting; the badge renders the count up to 99, then "99+".
     case curious(count: Int)
     /// No episode ingested in 48h (or never).
     case hungry
@@ -52,7 +52,7 @@ enum BookwormState: Equatable {
         case .awake: "idle — listening for episodes"
         case .sleeping(let stage): "stage \(stage)/5"
         case .digesting: "chewing on new memories…"
-        case .curious(let n): "\(n) item\(n == 1 ? "" : "s") waiting"
+        case .curious(let n): Copy.questionsWaiting(n)
         case .hungry: "no episodes in 48h"
         case .reading: "reading what's waiting"
         case .error: "last sleep cycle failed"
@@ -77,9 +77,10 @@ enum BookwormState: Equatable {
         }
     }
 
-    /// The inbox count the badge draws (1…99) — `0` for every other state.
+    /// The inbox count the badge draws (1…99, and 100 for every count over 99, which draws "99+") — `0` for every
+    /// other state. Capped so 133 and 140 share one cached frame set.
     var badgeCount: Int {
-        if case .curious(let n) = self { return max(1, min(99, n)) }
+        if case .curious(let n) = self { return max(1, min(100, n)) }
         return 0
     }
 
@@ -114,6 +115,10 @@ struct StatusSnapshot: Codable, Equatable {
         var totalStages: Int
         var cycleId: String?
         var error: String?
+        /// G177 — Sleep holds the bank's pages right now (`sleep_cycle.is_writing`): the whole of a plain cycle, only
+        /// a batch's window in a person-started drain. `nil` from an older backend and the on-disk cache; the write
+        /// controls then fall back to `status` (`ProjectWriteGate`).
+        var writing: Bool? = nil
     }
     struct Inbox: Codable, Equatable {
         var total: Int
@@ -138,6 +143,24 @@ struct StatusSnapshot: Codable, Equatable {
     var telemetry: String? = nil
     var gates: Gates? = nil
     var envOverrides: [String]? = nil
+    /// 2026-10-13 — where each `CICADA_` setting came from (a developer checkout's `api/.env` or the environment),
+    /// by name only, and the pace and page-writing values in effect. Optional like the rest: an older backend has none.
+    var settings: SettingsSources? = nil
+
+    struct SettingsSources: Codable, Equatable {
+        var file: String?
+        var fromFile: [String]?
+        var fromEnvironment: [String]?
+        var replacedByEnvironment: [String]?
+        var effective: Effective?
+
+        struct Effective: Codable, Equatable {
+            var agentMaxConcurrency: Int?
+            var sleepResolveConcurrency: Int?
+            var summarySynthesisEnabled: Bool?
+            var pageArticlesEnabled: Bool?
+        }
+    }
 
     /// Each gate optional too: a missing key reads as "—" on Privacy & data,
     /// never as a guessed On or Off, and never fails the whole `/status`

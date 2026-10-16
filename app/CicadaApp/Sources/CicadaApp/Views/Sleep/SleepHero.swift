@@ -212,7 +212,8 @@ struct ReadoutRow: Equatable, Identifiable {
 }
 
 func readoutRows(entityCount: Int?, sourceCount: Int?, lastDurationMs: Int?, lastEngine: String?,
-                 engineDetail: String?, lastIsOneBatch: Bool = false, locale: Locale = .autoupdatingCurrent) -> [ReadoutRow] {
+                 engineDetail: String?, lastIsOneBatch: Bool = false, hasFinishedCycle: Bool = true,
+                 locale: Locale = .autoupdatingCurrent) -> [ReadoutRow] {
     let entities = entityCount.map { "\(UsageFormat.count($0, locale: locale)) \($0 == 1 ? "entity" : "entities")" }
     let sources = sourceCount.map { "\(UsageFormat.count($0, locale: locale)) \($0 == 1 ? "source" : "sources")" }
     let engine = lastEngine.map { id in
@@ -225,9 +226,13 @@ func readoutRows(entityCount: Int?, sourceCount: Int?, lastDurationMs: Int?, las
                    reason: sourceCount == nil ? Copy.sourceOverviewNotLoaded : nil, engine: nil),
         ReadoutRow(id: "lastCycle", key: lastIsOneBatch ? Copy.SleepDetailsWords.lastBatchTook : Copy.SleepDetailsWords.lastCycleTook,
                    value: SleepHistoryPresentation.durationText(ms: lastDurationMs),
-                   reason: lastDurationMs == nil ? Copy.noTimingRecorded : nil, engine: nil),
+                   reason: lastDurationMs != nil ? nil
+                       : hasFinishedCycle ? Copy.noTimingRecorded : Copy.SleepDetailsWords.noFinishedCycle,
+                   engine: nil),
         ReadoutRow(id: "engine", key: Copy.SleepDetailsWords.lastEngine, value: engine ?? "—",
-                   reason: lastEngine == nil ? Copy.SleepDetailsWords.noEngineYet : nil, engine: lastEngine),
+                   reason: lastEngine != nil ? nil
+                       : hasFinishedCycle ? Copy.SleepDetailsWords.noEngineYet : Copy.SleepDetailsWords.noFinishedCycle,
+                   engine: lastEngine),
     ]
 }
 
@@ -258,15 +263,17 @@ struct SleepReadoutView: View {
     /// The sums of `resolveOriginCounts` — the running meter's two numbers.
     let read: Int
     let total: Int
-    /// The newest `kind == "sleep"` commit's measured duration
-    /// (`SleepPageModel.lastCycle`, Z-P3). It used to be read here as
-    /// `history.first { $0.kind != "decay" }`, which also matched an inbox
-    /// resolution commit — the person's own answer timed as "the last cycle".
+    /// The latest finished cycle's measured time (`LastCycleFigures`: a drain's whole run, Z-P3's
+    /// `kind == "sleep"` rule kept — an inbox resolution is never timed as "the last cycle").
     let lastDurationMs: Int?
-    /// The newest history commit is one batch of a multi-batch run (G163): the duration row says so.
+    /// The figures are one batch's because its run summary is missing (G163): the duration row says so.
     var lastIsOneBatch: Bool = false
+    /// The engine that latest finished cycle's commits name — not the status's in-memory engine, which every run
+    /// start resets.
     let lastEngine: String?
     let engineDetail: String?
+    /// Whether history holds a finished cycle at all: a dash then says there is none yet, not "not recorded".
+    var hasFinishedCycle: Bool = true
 
     /// R-HS15 — the meter is a sentence and the tiles and the engine line are key–value rows, under
     /// the section's label, no card (DR-37). R-A5 still holds: `heroMeter` returning `nil` is what
@@ -296,7 +303,8 @@ struct SleepReadoutView: View {
             }
             ForEach(readoutRows(entityCount: activeBankEntityCount, sourceCount: feedingSourceCount,
                                 lastDurationMs: lastDurationMs, lastEngine: lastEngine,
-                                engineDetail: engineDetail, lastIsOneBatch: lastIsOneBatch)) { readoutRow($0) }
+                                engineDetail: engineDetail, lastIsOneBatch: lastIsOneBatch,
+                                hasFinishedCycle: hasFinishedCycle)) { readoutRow($0) }
         }
     }
 
@@ -376,9 +384,11 @@ struct SleepReadoutView: View {
 
 /// While a cycle runs, what Cancel does; otherwise nothing — the engine menu beside the control
 /// names what a click would run (R-HS9), the fact the retired "Runs on …" caption stated, so
-/// printing both would say it twice (DR-38).
-func controlCaption(isRunning: Bool, draining: Bool = false) -> String? {
+/// printing both would say it twice (DR-38). While the last stage files, what any stop does now
+/// (`Copy.SleepV5.filingWhisper`) — said here once, not again under the stepper (2026-10-16).
+func controlCaption(isRunning: Bool, draining: Bool = false, filing: Bool = false) -> String? {
     guard isRunning else { return nil }
+    if filing { return Copy.SleepV5.filingWhisper }
     return draining ? Copy.cancelDrainCaption : Copy.cancelCaption
 }
 
@@ -392,8 +402,8 @@ func controlCaption(isRunning: Bool, draining: Bool = false) -> String? {
 /// live while the sentence says there is nothing to read.
 ///
 /// Beside it sits the engine menu (`EngineQuickMenuButton`), which names what a cycle you start
-/// would run (R-HS8); the caption beside the pair is Cancel's while a cycle runs and nothing
-/// otherwise (R-HS9).
+/// would run (R-HS8); the caption under the pair, on its own centred line (2026-10-16), is the stop's
+/// while a cycle runs and nothing otherwise (R-HS9).
 struct SleepControlRow: View {
     @Environment(SleepViewModel.self) private var sleepVM
     @Environment(SleepEngineViewModel.self) private var engineVM
@@ -407,8 +417,14 @@ struct SleepControlRow: View {
 
     @State private var optionsOpen = false
 
-    private var draining: Bool { sleepVM.status?.drain?.active == true }
+    /// The page's own reading when there is one (H1: the control never disagrees with the sentence and the stepper
+    /// above and below it — the live capture showed Cancel under a stage that only a drain reaches).
+    private var draining: Bool { (page?.drain ?? sleepVM.status?.drain)?.active == true }
     private var paused: SleepPausedRun? { page?.paused }
+    /// The last stage is filing: a stop now waits for the commit.
+    private var filing: Bool {
+        sleepVM.isRunning && page?.runningStage == SleepStages.all.count
+    }
 
     var body: some View {
         VStack(spacing: CicadaTheme.spacingSM) {
@@ -422,21 +438,37 @@ struct SleepControlRow: View {
                 }
                 // The owner's quick switch (R-HS8, R-HS9). It stays while a cycle runs: a change
                 // applies to the next one (G80). It names the person's own engine and model — never another.
-                EngineQuickMenuButton()
+                EngineQuickMenuButton(size: .compact)
+                // The owner's at-rest row (2026-10-16): Consolidate · engine · Options, one height. Options opens the
+                // same reading options the floating "Reading options…" link did, on this row instead of its own line.
+                if showsOptionsLink {
+                    NeutralButton(title: Copy.SleepV5.options, size: .compact,
+                                  help: Copy.SleepV5.optionsHelp) { optionsOpen = true }
+                }
                 if paused != nil, !sleepVM.isRunning {
                     TextButton(title: Copy.SleepV5.endRun, help: Copy.SleepV5.endRunHelp) {
                         Task { await sleepVM.endRun() }
                     }
                 }
-                if let caption = caption {
-                    Text(caption)
-                        .font(CicadaTheme.captionFont)
-                        .monospacedDigit()
-                        .foregroundStyle(CicadaTheme.textTertiary)
-                }
             }
-            if showsOptionsLink {
-                TextButton(title: Copy.SleepV5.readingOptions, inline: true) { optionsOpen = true }
+            // The whisper sits on its own line under the group (2026-10-16): beside the buttons it pushed the pair
+            // off the column's centre by its own width.
+            if let caption = caption {
+                Text(caption)
+                    .font(CicadaTheme.captionFont)
+                    .monospacedDigit()
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            // A choice made while a run reads (here, in Settings, or by an agent) waits for the next start or
+            // Continue; the button already names the new choice, so the row says the run is not using it yet.
+            if sleepVM.isRunning, engineVM.response?.runKeepsEngine == true {
+                Text(Copy.EngineMenu.runKeepsEngine)
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .frame(maxWidth: .infinity)
@@ -456,7 +488,8 @@ struct SleepControlRow: View {
     /// Running: the elapsed time of a run that reads in batches (measured, never a remaining time — G107), else
     /// Cancel's caption. Idle after a run that left arrivals: the reason Consolidate is live again.
     private var caption: String? {
-        if sleepVM.isRunning, draining, let ms = sleepVM.status?.drain?.elapsedMs, ms > 0 {
+        if filing { return Copy.SleepV5.filingWhisper }
+        if sleepVM.isRunning, draining, let ms = (page?.drain ?? sleepVM.status?.drain)?.elapsedMs, ms > 0 {
             return Copy.SleepV5.runningFor(SleepHistoryPresentation.durationText(ms: ms))
         }
         if let running = controlCaption(isRunning: sleepVM.isRunning, draining: draining), !draining { return running }
@@ -467,7 +500,7 @@ struct SleepControlRow: View {
         return nil
     }
 
-    /// Reading options sits under the row while nothing reads and nothing is paused (A5, A10).
+    /// Options sits in the row while nothing reads and nothing is paused (A5, A10; owner 2026-10-16).
     private var showsOptionsLink: Bool {
         guard let page, !sleepVM.isRunning, page.paused == nil else { return false }
         return (page.readable ?? queuedCount) > 0
@@ -537,7 +570,7 @@ struct SleepControlRow: View {
         }
         .buttonStyle(.cicadaPlain)
         .disabled(sleepVM.isCancelling)
-        .help(Copy.SleepV5.pauseHelp)
+        .help(filing ? Copy.SleepV5.filingWhisper : Copy.SleepV5.pauseHelp)
         .accessibilityLabel(sleepVM.isCancelling ? Copy.SleepV5.pausing : Copy.SleepV5.pause)
     }
 
@@ -567,7 +600,8 @@ struct SleepControlRow: View {
         }
         .buttonStyle(.cicadaPlain)
         .disabled(sleepVM.isCancelling)
-        .help(sleepVM.status?.drain?.active == true ? Copy.cancelDrainExplainer : Copy.cancelSleepExplainer)
+        .help(filing ? Copy.SleepV5.filingWhisper
+                     : draining ? Copy.cancelDrainExplainer : Copy.cancelSleepExplainer)
         .accessibilityLabel(Copy.cancelSleep)
     }
 }

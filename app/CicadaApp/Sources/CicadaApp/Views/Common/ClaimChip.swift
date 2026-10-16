@@ -233,9 +233,12 @@ struct AuthorPill: View {
 /// at click time) rather than re-deriving its own convention, so a claim's
 /// wikilink and an entity body's wikilink for the same name can never resolve
 /// to two different ids.
+/// Compiled once: every belief row renders through `renderWikilinks`, and an owner-sized page has thousands.
+private let wikilinkPattern = try? NSRegularExpression(pattern: "\\[\\[([^\\[\\]|]+)(?:\\|([^\\[\\]]+))?\\]\\]")
+
 func renderWikilinks(_ text: String) -> AttributedString {
     var result = AttributedString()
-    guard let regex = try? NSRegularExpression(pattern: "\\[\\[([^\\[\\]|]+)(?:\\|([^\\[\\]]+))?\\]\\]") else {
+    guard let regex = wikilinkPattern else {
         var plain = AttributedString(text)
         plain.foregroundColor = CicadaTheme.textPrimary
         return plain
@@ -275,30 +278,10 @@ struct ClaimFooterFlow: Layout {
     var spacing: CGFloat = 6
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        layout(subviews: subviews, in: proposal.width ?? .infinity).size
+        FlowRows.layout(subviews, maxWidth: proposal.width ?? .infinity, spacing: spacing).size
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let positions = layout(subviews: subviews, in: bounds.width).points
-        for (index, subview) in subviews.enumerated() {
-            let pt = positions[index]
-            subview.place(at: CGPoint(x: bounds.minX + pt.x, y: bounds.minY + pt.y), proposal: .unspecified)
-        }
-    }
-
-    private func layout(subviews: Subviews, in maxWidth: CGFloat) -> (size: CGSize, points: [CGPoint]) {
-        var points: [CGPoint] = []
-        var x: CGFloat = 0, y: CGFloat = 0, rowHeight: CGFloat = 0, totalWidth: CGFloat = 0
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
-            if x + size.width > maxWidth, x > 0 {
-                x = 0; y += rowHeight + spacing; rowHeight = 0
-            }
-            points.append(CGPoint(x: x, y: y))
-            rowHeight = max(rowHeight, size.height)
-            x += size.width + spacing
-            totalWidth = max(totalWidth, x - spacing)
-        }
-        return (CGSize(width: totalWidth, height: y + rowHeight), points)
+        FlowRows.place(subviews, in: bounds, spacing: spacing)
     }
 }

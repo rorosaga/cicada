@@ -150,6 +150,7 @@ each subsystem — module names, wire shapes, routes, the app's views — lives 
 | API auth, ETags and their client mappings, endpoint traps | [`docs/architecture/api.md`](docs/architecture/api.md) |
 | The graph explorer, the entity card, the unified inbox, the Sleep trigger and schedule, conversation upload | [`docs/architecture/features.md`](docs/architecture/features.md) |
 | The three network gates, the remote connector, the ToS rail, credentials, video | [`docs/architecture/network.md`](docs/architecture/network.md) |
+| Headless: the server without the app, its systemd unit, the primary-writer topology (G181) | [`docs/architecture/headless.md`](docs/architecture/headless.md) |
 
 **Keeping it this size.** A PR updates the area doc its change makes wrong, in the same PR. It touches this file only
 when a *rail* changes (a new invariant, a ruling, a boundary), and then in one or two lines that point at the doc.
@@ -165,14 +166,22 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 - **The app reads `~/Library`, the backend parses bytes.** The launchd backend has no Full Disk Access and never opens
   those paths, never stats a path a request names, never runs git in a declared repo; the app reads (browsers, Notes via
   its own `osascript`, Calendar, Contacts, Chrome tab groups, watched folders, Wispr Flow) and posts bytes. A browser is
-  read only after the person turned it on. An unreadable file shows the exact fix in the app.
+  read only after the person turned it on. An unreadable file shows the exact fix in the app. Chrome's history is read
+  from a copy, YouTube video pages only; watch history is one episode per day, never a save (G71, `capture-and-sleep.md`).
 - **Capture never depends on a model calling a tool (G105).** Claude Code and Codex sessions are captured by the
   harness's own Stop hook; the backend reads a transcript only when it resolves under the harness root as
   `<session_id>.jsonl` within the size cap. Only the person's turns and the agent's final reply are kept, plus each agent
-  turn's model and effort. **One episode per session** (G104). Cicada's own `claude -p` / `codex exec` spawns run with
-  `CICADA_CAPTURE=off`. Recall is the same move (G149): the SessionStart/UserPromptSubmit hooks inject Cicada's note; a
-  recalled note is never captured back as the person's words.
+  turn's model and effort. After scrubbing, the first person message keeps up to 16k characters; later person turns
+  keep a 2k head, agent final replies a 2k head+tail including a recorded non-speaker gap (G110 A2).
+  Cursor and Gemini CLI hooks post the turn's own words to `/capture/turn` (same writer, caps, scrub and demo rule;
+  no transcript read, `capture-and-sleep.md`). **One episode per session** (G104). Cicada's own `claude -p` / `codex exec` spawns run with
+  `CICADA_CAPTURE=off`. Stop is the trigger; PreCompact and SessionEnd run the same hook as a best-effort, idempotent
+  flush, each log line tagged with its event (G110 gate A). Over the session cap the head and the latest turns are kept
+  around one marker line (G110 gate B2; its G104 costs in `capture-and-sleep.md`). Recall is the same move (G149): the
+  SessionStart/UserPromptSubmit hooks inject Cicada's note; a note the harness records as a separate non-person record
+  is never captured, and one that arrives inside the person's own text is kept, counted and disclosed (G110 gate C).
 - **Transcripts under `~/.claude/` are never read anywhere else** — the MCP seam and resume only `isfile()` them.
+  A client of a server elsewhere reads its session there with Cicada's own extractor and posts the capped turns (ruling 28).
 - **One id rule** (`episode_ids`): max-suffix+1 per date, aware UTC timestamps; `processed_by` says who flipped it.
   A new episode never replaces a file (`create_episode`); dedup, edits and Sleep's revision-checked retirement share
   `episode_lock`, and every page write is atomic (audit K01/A01/A02, `capture-and-sleep.md`).
@@ -180,6 +189,8 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   hash over the scrubbed body, edits in place with `processed: false`, deletions tombstoned, never unlinked).
 - **Capture never writes into a demo bank** (`demo_guard`, by `_bank.yaml`, never by name): every capture/sources
   POST/PUT answers 409; the Stop hook redirects to the real bank left most recently.
+- **Messages are read only for conversations the person ticked (G179)**: the app reads them, the backend refuses any
+  other; a texted agent's words are its `assistant:` turns and its claims `external:<name>`, never the person's own.
 
 ### Sleep
 
@@ -187,20 +198,35 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   **engine-independent tail** on every exit path, in a clean-tree-guarded slot, each step committing only its own paths.
 - **Consolidate reads everything** (rulings 13, 16): every run — the person's and a scheduled one — is a drain over the
   ids frozen at its start, in committed batches (default 25), so a stop loses at most the batch in progress. Decay and the
-  page reads run once per drain. A plan limit is a pause, not a failure. **Ruling 4: a scheduled run never uses a Claude or
-  ChatGPT plan**; on a metered engine it spends with no limit Cicada sets, said in words. Continue-after-reset is opt-in,
+  page reads run once per drain. A plan limit is a pause, not a failure. **Ruling 4: a scheduled run uses a Claude or ChatGPT plan only
+  through the person's off-by-default "Scheduled runs may use my plan" switch** (4b, 2026-10-16; `SUBSCRIPTION_MODES`
+  the one guard); on a metered engine it spends with no limit Cicada sets, said in words. Continue-after-reset is opt-in,
   off (ruling 15).
-- **The write window (G177):** `sleep_cycle.is_writing()` is the one predicate behind every "Sleep is running" refusal.
-- **Entity promotion:** a first mention stays in the index; a page needs 2+ conversations, >3 exchanges, or a link to a
-  high-confidence page. Claims about a name with no page yet are held (`pending_store`), never lost.
-- **Temporal decay is a signal:** at most one week charged per cycle (ruling 1), paced by how many weeks a page came up
-  in (G147); evergreen never decays; an import is not silence. Below 0.2 archived, below 0.4 a decay nudge.
-  **Confidence does not rank recall.**
+- **The write window (G177):** `sleep_cycle.is_writing()` is the one predicate behind every "Sleep is running" refusal,
+  read only through `write_admission` (G183): a writer holds it shared through its own commit (async: `run_admitted`),
+  Sleep sets its flag then waits holders out — past the bound it pauses, never reads; order admission → page → git;
+  never held across a model call or a fetch.
+- **Entity promotion:** a first mention stays in the index; a page needs 2+ conversations, >3 exchanges with the person's
+  own words, or a link the person made to a high-confidence page other than the owner's — counted on the conversation,
+  never guessed (`promotion`). What is said about a name with no page yet is held (`pending_store`), never lost.
+  A Stage-4 skill needs 2+ conversations too; one is held in its own store, `skill_hold` (G112, owner 2026-10-09).
+  A speaker's self-reference ("the user", "me", "yo"…) is the owner's page, never a page of its own (G169).
+  A person known only by a relation to the owner is titled by the relation, never the owner's name, and asked their
+  name; it is merged only on the person's answer or evidence on the record (`role_people`, `capture-and-sleep.md`).
+- **Temporal decay is a signal; age counts from when it was said** (owner 2026-10-09/13, amends G170): what the
+  conversations prove silent is charged once, when read; a one-off may archive by age, a page or claim on 2+ dated
+  conversations floors at 0.39 and only live silence archives it; ruling 1's one-week cap governs live silence; a
+  mention never lowers; a decay question only when live silence crosses 0.4. **Read on time** (2026-10-16): a
+  conversation read late counts as read the day it was said — when it is read never changes the result. Evergreen
+  never decays; a memory export entry is no mention. Below 0.2 archived. **Confidence does not rank recall.**
 
 ### Storage, claims and provenance
 
 - **The filesystem is the single source of truth**: wikilinked markdown with YAML frontmatter, git-versioned; the API
   and Sleep read and write the same files. No changelog in frontmatter — git holds history.
+- **A page's claims are its fence plus, past 64k characters, its ledger** `entities/<id>.claims.jsonl` (owner page,
+  2026-10-14): `markdown_parser` folds it on read and splits on write; a write never drops a ledger line; git commits
+  and restores a page with its ledger (`storage.md`).
 - **Entity types are a closed set of 10**; Stage 1 never produces `deadline` or `media`. Status: active → decaying →
   archived → dropped.
 - **Decay classes (G66):** one resolver; Stage 1 may propose `durable|active|volatile`, **never `evergreen`**, enforced at
@@ -214,11 +240,30 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   remembered (`sources_removed`) and respected by every automatic writer; a source may link to its own page (`entity:`),
   never creating one. A site is trusted only when the person added or took it, or Cicada's own read confirmed it; a
   destructive verdict needs positive evidence. Agents check sources before a question reaches the person only on sites the
-  person allowed, and **a check never settles, reorders or changes a belief** (S3 is shadow).
-- **Pictures:** one precedence (the person's choice → Contacts photo → a brand's logo → a media thumbnail → a monogram).
-  **A logo comes only from a trusted `website` source — never a domain guessed from a name; a person never gets a logo and
-  no service is sent a person's name (G146/G159).** Logos, pictures and repo observations are caches outside every bank.
+  person allowed, and **an inbox check never settles, reorders or changes a belief** (S3 is shadow) — **except a question
+  about a public thing (ruling 27):** a web lookup settles it with a cited claim (a citation, never a tracked source),
+  undoable under "Settled by a check"; never a person's name, their files, projects or life (`mcp.md`). **A tracked source's
+  dated re-check does (ruling 26):** a new dated fact; the newest evidence wins, even over the person's own words; the same
+  day or undated asks once; dead = two failed visits a week apart; walled pages only by the person's agent (`storage.md`).
+- **Pictures:** one precedence (the person's choice → Contacts photo → the photo a ticked Messages chat shares → a
+  person's public-profile photo → a brand's logo → a media thumbnail → a monogram). **A logo comes only from a trusted
+  `website` source — never a domain guessed from a name; a person never gets a logo and no service is sent a person's name (G146/G159).** A person's photo is asked only
+  with an identifier already on the page or record and given as their own account — the owner's hashed email, a GitHub,
+  X or LinkedIn profile link (owner, 2026-10-09; `network.md`). The photo a chat shares in Messages is its page's
+  picture everywhere — ticked chats only, read by the app from a copy, kept outside every bank, linked by the chat's
+  correspondent record, gone on untick (owner 2026-10-16, `storage.md`).
+  Logos, pictures, media previews (fetched once, then served from the store) and repo observations are caches outside
+  every bank.
+- **Link views (owner rulings 2026-10-14):** a view is a word in a link's markdown title (`[T](url "bookmark")`), one
+  grammar both sides (`link_views`); Sleep writes plain links, the person's switch is a pinned edit, no linked page is
+  fetched to draw a card, and the app loads no picture a page names from the web (`storage.md`, `app.md`).
 - **Backlogs (G150):** one markdown file per item, one writer behind every door, never an entity page.
+- **Site captures (G166, ruling 25):** one append-only dated record per visit, a ≤ 640×400 thumbnail in the bank only
+  when the look changed, full images and page text outside every bank (`$CICADA_HOME/captures`); one writer (`site_captures`).
+  Depth follows the person's reason through a plan Cicada computes with no model (`explore_plan`); each site's map is
+  append-only in the bank beside its captures (`captures/_sites/`, one writer `site_map`; `storage.md`).
+- **Design references (2026-10-14):** one markdown file plus its screenshot per look, in the bank, one writer
+  (`design_refs`), never an entity page; palette and vectors are computed here, the index lives outside the bank.
 - **`_state.md` is a cursor, never a copy**; it commits ALONE, the read path too (the G85-class smear). **The handshake is
   ≤ 1,800 tokens, and R12 holds: every argument a primer names exists in the tool schema.**
 - **Derived indexes are disposable** (vectors, FTS): rebuilt, never an error; never tracked by git; **the query is never
@@ -234,24 +279,57 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 
 - The handshake rides `initialize`; recall fuses vectors, words and claims. **An agent's write carries provenance** (the
   harness as `Cicada-Author`, the session trailer) and an agent withdraws only what it wrote.
+- **Prose is no longer Sleep's alone (G198, owner 2026-10-14):** `cicada_edit_page` changes a page's words or aliases, never
+  its claims, with a reason that is the commit message; only a harness on the person's trust list writes at once (Claude Code
+  and Codex until the person changes it, owner 2026-10-14; never remote, never `agent`), any other proposes in the inbox; pinned fixes and removed aliases outlive Sleep; blame is read from git (`storage.md`, `mcp.md`).
+  A device holding a per-device token the person issued counts as local (ruling 28); a G135 connector never does.
+- **Questions come up naturally (owner, 2026-10-14):** an inbox question reaches a conversation only when it is about
+  that question's subject (`inbox_ask_gate`), in the agent's own words; an answer the person already gave is recorded
+  with their words as evidence, never guessed; the whole inbox only on request (`mcp.md`).
+- **The CLI (G180, ruling 21)** is a second door onto the same bodies: in-process from one bootstrap that reads no
+  `.env` (the root resolved once, canonical, pinned with the bank; `--bank` asserts, never selects), names from one
+  tested CLI↔MCP table (`cli_map`), one JSON envelope, no generic dispatcher (`mcp.md`). **Ruling 21a (owner,
+  2026-10-13):** a command on state the running backend owns (Sleep, engine, search model, bank switch, settings, the
+  app's page writes) calls the backend's own route with the token and its pinned bank, only after `/healthz` confirms the
+  root; with the backend down it refuses. Commands that act as the person refuse from an agent's shell.
 - **The remote connector (G135)** is off by default, serves only MCP on its own listener, through a tunnel **the person**
   runs; capability tokens are hashed, scoped (`sources` gates every verbatim word of the person's), expiring and
   revocable; a remote claim is never the person's own words.
 - **Reading with the person's own agent (G166):** Cicada never spawns a browser and never signs in; it only asks. Only a
-  link the person asked about, or a wall page of a site they allowed, can be recorded. The backend never fetches a
-  login-walled page.
+  link the person asked about, or a wall page of a site they allowed, can be recorded — and (owner 2026-10-16, G71) the
+  person's YouTube Watch later or history page, a standing ask once they turn that list on, stdio only; one person's
+  LinkedIn profile only through the link their page lists, on the person's ask, ≤ 10 a day, stdio only (2026-10-16,
+  `mcp.md`). Imported LinkedIn connections enrich existing people only, never mint a page. The backend never fetches a
+  login-walled page. **Exploring saved sites (ruling 25):** only the person's click or a trusted local agent they asked
+  starts a run; the agent uses their signed-in session unless they turn it off, every capture says which (`mcp.md`).
+- **Skills (2026-10-15):** Cicada installs third-party skills only on the person's consent, pinned to what they saw
+  (a commit, or a catalog tool's commit); one writer (`skill_store`), never into a bank, never hooks or settings; an
+  agent only asks (`cicada_propose_skill`) or drafts a held skill (`api.md`, "Skills").
 - **Video (G162):** Cicada never downloads a video or derives a stream; a video's state is derived, never stored; the
   queue lives outside every bank.
+- **Continuity (G110, slice 1a/1b):** SessionStart carries a light pointer inside the whole 1,800-token note;
+  previous working history is retrieved on demand via `cicada_continue`, from captured episodes over a disposable index;
+  workspace state is not checked; the registry outside every bank holds ids, hashes and times only (`mcp.md`).
+  D2 permits the hook alone to observe git identity with a bounded fixed read-only pair; the backend only parses
+  supplied values, never inspects a declared workspace. Sibling workers never replace the root session's role (`mcp.md`).
 
 ### The app
 
-- **The app is not the primary surface — the chat is.** The app makes the graph observable.
+- **The app is not the primary surface — the chat is.** The app makes the graph observable. **New features live behind
+  the backend API; the app is one client of it** (the CLI and a future browser front end are others, owner 2026-10-13):
+  the app keeps only Mac readers that post bytes, per-viewer chrome and presentation.
 - **Design direction D is binding** (`docs/design/DESIGN_RULES.md`; a UI PR cites the DR ids it applies; a departure needs
-  a dated ruling). SF only; the accent in six uses; depth is a ring, not a shadow; painted art never behind data or text;
+  a dated ruling). SF only; the accent in six uses; depth is a ring, not a shadow; painted art is retired, the pixel study room the one
+  illustration and never behind data or text (owner 2026-10-16);
   Liquid Glass only in the chrome layer; a keyboard action never animates; every duration is spelled in `CicadaMotion` (a sprite's frame timings are data in its sheet, inside `CicadaMotion`'s sprite caps — TODO ruling 18).
+- **Bookmarks (G191 v3, 2026-10-15):** the app removes a bookmark from the person's browser only on their click, after
+  asking in words — Chrome through Apple Events (the Automation prompt only then), never Safari, never the backend; it
+  sees Chrome's bookmark bubble from window bounds alone (no title, no permission), read only in the moment after the
+  person's own click in a frontmost Chrome — never on a steady timer (G191 v4) — and posts no answer until a sync confirms the bookmark (`app.md`).
 - **Copy is provider-neutral** (owner, 2026-09-30): never name a provider or model as the one doing a job — describe the
   step; a name appears only where it shows the person's own current choice.
-- **Prices and plan usage show only on the Sleep page's Details and engine menu** (ruling 12), each figure with its basis.
+- **Prices and plan usage show only on the Sleep page's Past reads run detail and engine menu** (ruling 12, surface
+  renamed 2026-10-16 when the Feed folded into Sleep), each figure with its basis.
 - **Sync:** one Store, hydrated from disk, SSE deltas, **never blank**; writes are optimistic with rollback. **Ship an
   ETag and its client mapping together.** A read that is not a Store domain says so and caches in memory.
 - **d3-force stays (G109)**; every custom force multiplies by alpha; the release path never bumps alpha.
@@ -259,15 +337,25 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 ### The network
 
 - **Three gates, not one:** `CICADA_ALLOW_CONNECTOR_FETCH` (opt-out) gates every fetch Sleep starts on its own — a click
-  the person made never is; `CICADA_ALLOW_FEED_FETCH` (opt-in) gates RSS/ICS; `CICADA_ALLOW_LOGO_FETCH=off` disables logos.
+  the person made never is; `CICADA_ALLOW_FEED_FETCH` (opt-in) gates RSS/ICS; `CICADA_ALLOW_LOGO_FETCH=off` disables
+  logos and media previews.
   Every server-side fetch of someone else's URL goes through `net_guard`.
 - **Update check (G182):** release builds only, behind Settings → General's *Install updates automatically* (on by
   default; off = only Check for Updates… asks); a download installs only after its sha256 and Ed25519 signature verify.
+- **Search model download (2026-10-09):** EmbeddingGemma 2 is fetched only on the person's click or command — one pinned
+  revision, every file sha256-checked, into `~/.cicada/models`, never bundled; its image encoder is a second click
+  (`network.md`). A model change re-embeds in
+  the background, never during Sleep, and recall keeps the old table until the new one commits (`storage.md`).
 - **Study room weather (G176):** its own opt-out app gate reads only public city weather while the room is visible and Settings is closed, at 4 s / ≤ 64 KB / no cookies or identifiers; see `docs/architecture/network.md`.
 - **The ToS rail — not negotiable.** A fetched page is 4 s / ≤ 512 KB / no cookies / never behind auth. Consent
   interstitials and login walls are classified and retired **without a byte fetched**. **A block is never retried with
-  different headers.** No scraping behind authentication, ever.
+  different headers.** No scraping behind authentication, ever. **One dated exception (owner, 2026-10-09):** a person's
+  photo through unavatar.io from an X or LinkedIn link already on their page, behind its own gate, off by default.
 - **Credentials** live in `~/.cicada/secrets.env` (0600) — never in a bank, never logged.
+- **Headless (G181):** a server is its bank's one writer and binds 127.0.0.1 only; reach from another machine is an
+  overlay the person runs (never a public port, never funnel), and no installer creates or copies a credential (`headless.md`).
+  Another machine is a client (`CICADA_API_BASE`, or the app's `api_base` file, ruling 28) with its own revocable device
+  token and no bank of its own; what it posts records `device` (`headless.md`).
 - **Video:** only a provider's own player URL is loaded; an oEmbed response is read for its fields, never its HTML.
 
 ### Rulings
@@ -319,3 +407,7 @@ behind its healthy-skip guard, and the app runs it from Settings → General (G1
 is the supported one. **A release app (G182) carries its own backend** and every agent, hook and plist runs the
 `~/.cicada/bin` launchers it rewrites on launch — never a path inside the app; a developer build is unchanged
 (`docs/architecture/app.md`, "The release app").
+**Without the app (G181):** a Linux server installs with one `curl | bash` line (`scripts/install-server.sh`) and any
+Homebrew with this repo's tap (`Formula/cicada.rb` + `cicada-setup`); both end in the checkout's own `install.sh`, the
+formula has no `service do` (the two service scripts stay the one source), and its tag is a `VERSION` stamp
+(`docs/architecture/headless.md`).

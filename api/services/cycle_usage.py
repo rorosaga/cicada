@@ -24,6 +24,13 @@ never counted here: this is the cost of consolidation.
 Read side. ``Ledger`` indexes one ``telemetry.read_events`` pass; ``usage_for``
 and ``summary_for`` join a commit onto its ``sleep_run`` (the same hash-prefix
 rule as ``sleep_history.commit_matches``) and that run's ``llm_call`` rows.
+
+Plan share (owner 2026-10-16: "how much of the plan, instead of money"). A plan run's
+``plan_share`` says, per window, how much of it the run used, with its basis: ``measured``
+(the window's own reading moved), ``under`` (it did not move at the probe's 1-point
+resolution — below 1 %, never 0 %) or ``estimated`` (the run's list-price size times the
+rate earlier cycles moved that window by, ``plan_share`` below). Dollars stay on the wire as
+the secondary "would have cost" figure; the app decides the order.
 """
 from __future__ import annotations
 
@@ -35,6 +42,7 @@ from api.models.schemas import (
     CycleUsage,
     CycleUsageModel,
     CycleUsagePlan,
+    CycleUsagePlanShare,
     CycleUsagePlanWindow,
     CycleUsageSummary,
     CycleUsageSummaryPlan,
@@ -164,6 +172,17 @@ class Ledger:
     calls: dict[str, list] = field(default_factory=dict)     # cycle_id -> llm_call events
     runs_by_drain: dict[str, list] = field(default_factory=dict)    # drain_id -> its batches' sleep_run rows
     calls_by_drain: dict[str, list] = field(default_factory=dict)   # drain_id -> every llm_call of the run
+    _rates: dict | None = field(default=None, repr=False)
+
+    def rates(self) -> dict:
+        """The observed plan rates (``rates_of``): this ledger's own samples over the recent
+        machine-wide ones (``_recent_samples``) — a run detail's ledger opens at the run's own start,
+        too late to hold the earlier cycles a rate rests on. Computed once per ledger."""
+        if self._rates is None:
+            samples = dict(_recent_samples())
+            samples.update(rate_samples(self))
+            self._rates = rates_of(samples)
+        return self._rates
 
     @classmethod
     def build(cls, events) -> "Ledger":
@@ -227,8 +246,10 @@ def _plan_of(raw) -> CycleUsagePlan | None:
     return CycleUsagePlan(connection=raw.get("connection"), windows=wins) if wins else None
 
 
-def usage_of_run(run, calls: list) -> CycleUsage | None:
-    """The usage of one ``sleep_run`` and its cycle's ``llm_call`` rows."""
+def usage_of_run(run, calls: list, ledger: "Ledger | None" = None) -> CycleUsage | None:
+    """The usage of one ``sleep_run`` and its cycle's ``llm_call`` rows. ``ledger`` (its ``rates``) lets a
+    plan run's share be estimated where its own reading says too little; without it, no estimate. The rates
+    are read only for a plan run that called something — a metered history page never pays for them."""
     refs = run.refs or {}
     if not refs.get(TAGGED_REF):
         return None   # written before calls were tagged: not recorded
@@ -236,11 +257,15 @@ def usage_of_run(run, calls: list) -> CycleUsage | None:
     bases = {m.basis for m in models}
     basis = None if not bases else (bases.pop() if len(bases) == 1 else "mixed")
     plan = _plan_of(refs.get("plan"))
+    connection = plan_connection(run.engine, run.connection, plan)
     return CycleUsage(
         recorded=True, engine=run.engine, connection=run.connection, models=models,
         total_cost_usd=_sum([m.cost_usd for m in models]),
         total_equiv_usd=_sum([m.equiv_cost_usd for m in models]),
         basis=basis, plan=plan,
+        plan_share=plan_share(plan, connection, run_size(calls),
+                              ledger.rates() if ledger is not None and connection else {},
+                              ended_at=_epoch(run.ts)) if models else [],
     )
 
 
@@ -279,11 +304,16 @@ def usage_for_drain(ledger: Ledger, drain_id: str) -> CycleUsage | None:
         if wins:
             plan = CycleUsagePlan(connection=plans[0].connection, windows=wins)
     first = rows[0]
+    connection = plan_connection(first.engine, first.connection, plan)
     return CycleUsage(
         recorded=True, engine=first.engine, connection=first.connection, models=models,
         total_cost_usd=_sum([m.cost_usd for m in models]),
         total_equiv_usd=_sum([m.equiv_cost_usd for m in models]),
         basis=basis, plan=plan,
+        plan_share=plan_share(plan, connection, run_size(calls), ledger.rates() if connection else {},
+                              ended_at=max((e for e in (_epoch(r.ts) for r in rows) if e is not None),
+                                           default=None))
+        if models else [],
     )
 
 
@@ -291,7 +321,7 @@ def usage_for(ledger: Ledger, commit_hash: str) -> CycleUsage | None:
     run = ledger.run_for(commit_hash)
     if run is None:
         return None
-    return usage_of_run(run, ledger.calls.get(str(run.refs.get("cycle_id") or ""), []))
+    return usage_of_run(run, ledger.calls.get(str(run.refs.get("cycle_id") or ""), []), ledger)
 
 
 def summarize(usage: CycleUsage | None) -> CycleUsageSummary | None:
@@ -304,7 +334,7 @@ def summarize(usage: CycleUsage | None) -> CycleUsageSummary | None:
         plan = CycleUsageSummaryPlan(window=w.window, before=w.before, after=w.after)
     return CycleUsageSummary(
         basis=usage.basis, cost_usd=usage.total_cost_usd, equiv_cost_usd=usage.total_equiv_usd,
-        engine=usage.engine, connection=usage.connection, plan=plan,
+        engine=usage.engine, connection=usage.connection, plan=plan, plan_share=list(usage.plan_share),
     )
 
 
@@ -356,7 +386,10 @@ _last_cache: dict[str, tuple[float, dict]] = {}
 
 def last_cycles(events=None, bank: str | None = None) -> dict:
     """Newest recorded cycle per card: ``{"claude-plan": {...window...},
-    "byok-openrouter": {"cost_usd", "as_of"}, "byok": {...}}``. The ledger is
+    "byok-openrouter": {"cost_usd", "as_of"}, "byok": {...}, "last-run": {connection: {...}}}``.
+    ``last-run`` is a plan card's newest RUN (a drain's whole run, else the cycle): its
+    ``share`` of each window (``CycleUsagePlanShare``) and its list-price ``equiv_usd`` — what the
+    engine menu leads with on a plan instead of dollars (owner 2026-10-16). The ledger is
     machine-global, so ``bank`` scopes the runs to one bank (plan windows are
     the account's, but the cycle that last reported one is still that bank's).
     Cached 30 s per bank and dropped when a cycle finalizes or the bank
@@ -375,6 +408,7 @@ def last_cycles(events=None, bank: str | None = None) -> dict:
         events = telemetry.read_events(start=date.today() - timedelta(days=35))
     ledger = Ledger.build(events)
     out: dict = {}
+    newest_plan_run: dict[str, object] = {}
     for run in sorted(ledger.runs, key=lambda r: r.ts):
         if bank is not None and getattr(run, "bank", None) != bank:
             continue
@@ -387,15 +421,199 @@ def last_cycles(events=None, bank: str | None = None) -> dict:
             out["claude-plan"] = {"window": w.window, "used_fraction": w.after,
                                   "resets_at": w.resets_at, "as_of": run.ts}
         if usage.basis == "charged" and usage.total_cost_usd is not None:
-            key = "openrouter" if (usage.connection or "") == "byok-openrouter" else "byok"
-            out[key] = {"cost_usd": usage.total_cost_usd, "as_of": run.ts}
+            card = "openrouter" if (usage.connection or "") == "byok-openrouter" else "byok"
+            out[card] = {"cost_usd": usage.total_cost_usd, "as_of": run.ts}
+        connection = plan_connection(run.engine, run.connection, usage.plan)
+        if connection is not None and usage.models:
+            newest_plan_run[connection] = run
+    # Only the newest run per plan is worded, so a whole drain is summed once, not once per batch.
+    for connection, run in newest_plan_run.items():
+        drain = (run.refs or {}).get("drain_id")
+        whole = usage_for_drain(ledger, str(drain)) if drain else None
+        if whole is None:
+            whole = usage_of_run(run, ledger.calls.get(str(run.refs.get("cycle_id") or ""), []), ledger)
+        if whole is not None and whole.plan_share:
+            out.setdefault("last-run", {})[connection] = {
+                "share": list(whole.plan_share), "equiv_usd": whole.total_equiv_usd, "as_of": run.ts}
     if cacheable:
         _last_cache[key] = (now, out)
     return out
 
 
 def reset_cache() -> None:
+    global _samples_cache
     _last_cache.clear()
+    _samples_cache = None
+
+
+# --------------------------------------------------------------------------- #
+# A plan run's share of each window (owner 2026-10-16)
+# --------------------------------------------------------------------------- #
+
+#: A window's reading is a fraction to two places (Claude's utilization, the ChatGPT plan's whole
+#: percent), so a change under one point is invisible: "under 1%", never "0%".
+RESOLUTION = 0.01
+#: A cycle teaches a window's rate only when it moved the reading by at least this much — one point
+#: of rounding on a two-point move is already a 50% error, so smaller moves are left out.
+MIN_SAMPLE_MOVE = 0.02
+#: A rate rests on at least this many such cycles, or no estimate is made.
+MIN_RATE_SAMPLES = 2
+#: How far back the machine-wide samples reach (the engine menu's own ledger window).
+RATE_DAYS = 35
+_SAMPLES_TTL_S = 300.0
+#: The order a run's windows are said in: the weekly limit first (the one a person runs out of for
+#: days), then the short window, then a model's own windows.
+SHARE_ORDER = ("seven_day", "secondary", "five_hour", "primary", "seven_day_opus", "seven_day_sonnet")
+#: A model's own window moves only for that model, so it is never estimated for a run that did not
+#: report it.
+_MODEL_WINDOWS = frozenset({"seven_day_opus", "seven_day_sonnet"})
+_PLAN_ENGINES = {"claude-cli": "claude-plan", "codex-cli": "chatgpt-plan"}
+_PLAN_CONNECTIONS = frozenset(_PLAN_ENGINES.values())
+
+_samples_cache: tuple[str, float, dict] | None = None   # (ledger dir, read at, samples)
+
+
+def plan_connection(engine: str | None, connection: str | None, plan: CycleUsagePlan | None) -> str | None:
+    """The plan a run spent, or ``None`` for a metered or local run."""
+    if plan is not None and plan.connection in _PLAN_CONNECTIONS:
+        return plan.connection
+    if connection in _PLAN_CONNECTIONS:
+        return connection
+    return _PLAN_ENGINES.get(engine or "")
+
+
+def run_size(calls: list) -> float | None:
+    """A run's size as its list-price equivalent: the Claude CLI's own metering of the same tokens,
+    weighted by model and by cache use — a plan's meter weighs them too, which raw token counts do not
+    (an Opus token is not a Haiku token; a cache read is a tenth of a fresh one). ``None`` when a
+    successful call has no figure (a partial sum would understate) or nothing was spent."""
+    ok = [c for c in calls if getattr(c, "ok", True)]
+    if not ok or any(c.equiv_cost_usd is None for c in ok):
+        return None
+    total = sum(float(c.equiv_cost_usd) for c in ok)
+    return total if total > 0 else None
+
+
+def rate_samples(ledger: "Ledger") -> dict:
+    """``(cycle_id, window) -> (connection, moved, size)`` for every cycle that moved a plan window by
+    ``MIN_SAMPLE_MOVE`` or more and whose calls all carry a list-price figure. Per cycle (one
+    ``sleep_run``), where a window's reading is within one reset (``note_signals`` keeps it so)."""
+    out: dict = {}
+    for run in ledger.runs:
+        refs = run.refs or {}
+        cycle = str(refs.get("cycle_id") or "")
+        plan = _plan_of(refs.get("plan"))
+        if not cycle or plan is None:
+            continue
+        connection = plan_connection(run.engine, run.connection, plan)
+        size = run_size(ledger.calls.get(cycle, []))
+        if connection is None or size is None:
+            continue
+        ended = _epoch(run.ts)
+        for w in plan.windows:
+            if _rolled_over(w, ended):
+                continue   # its after is the pre-reset peak: the move undercounts the cycle
+            moved = w.after - w.before
+            if moved >= MIN_SAMPLE_MOVE - 1e-9:
+                out[(cycle, w.window)] = (connection, moved, size)
+    return out
+
+
+def rates_of(samples: dict) -> dict:
+    """``(connection, window) -> (share per list-price dollar, samples)``, pooled (total moved over
+    total size) so a big cycle weighs more than a small one. A window with fewer than
+    ``MIN_RATE_SAMPLES`` cycles has no rate. Honest limits, said in the app's help: a cycle's move
+    covers all use of the plan meanwhile (the rate reads high), and a Claude ``before`` is the reading
+    after the cycle's first call (it reads a little low)."""
+    acc: dict = {}
+    for (_cycle, window), (connection, moved, size) in samples.items():
+        m, total, n = acc.get((connection, window), (0.0, 0.0, 0))
+        acc[(connection, window)] = (m + moved, total + size, n + 1)
+    return {k: (m / total, n) for k, (m, total, n) in acc.items() if n >= MIN_RATE_SAMPLES and total > 0}
+
+
+def _recent_samples() -> dict:
+    """The machine-wide samples of the last ``RATE_DAYS`` days, cached ``_SAMPLES_TTL_S`` (a plan's
+    rate is the account's, not a bank's). Never raises: no samples means no estimate."""
+    global _samples_cache
+    now = time.monotonic()
+    try:
+        from datetime import date, timedelta
+
+        from api.services import telemetry
+
+        where = str(telemetry.telemetry_dir())
+        if _samples_cache is not None and _samples_cache[0] == where and now - _samples_cache[1] < _SAMPLES_TTL_S:
+            return _samples_cache[2]
+        samples = rate_samples(Ledger.build(telemetry.read_events(start=date.today() - timedelta(days=RATE_DAYS))))
+    except Exception:  # noqa: BLE001 - an estimate's input, never worth failing a read
+        return {}
+    _samples_cache = (where, now, samples)
+    return samples
+
+
+def _epoch(ts) -> float | None:
+    """A ledger ``ts`` (ISO-8601, ``Z``) as unix seconds; ``None`` when it does not parse."""
+    from datetime import datetime, timezone
+
+    try:
+        dt = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    return (dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)).timestamp()
+
+
+def _rolled_over(w: CycleUsagePlanWindow, ended_at: float | None) -> bool:
+    """The window reset before the run ended. Claude's ``after`` is then the pre-reset peak
+    (``note_signals`` drops the post-reset readings), so after − before misses whatever the run used
+    after the reset: neither a measurement nor "under 1%" can be said from it."""
+    if w.resets_at is None or ended_at is None:
+        return False
+    reset = float(w.resets_at)
+    if reset > 1e11:   # milliseconds, defensively
+        reset /= 1000.0
+    return reset <= ended_at
+
+
+def _order(window: str) -> tuple[int, str]:
+    return (SHARE_ORDER.index(window) if window in SHARE_ORDER else len(SHARE_ORDER), window)
+
+
+def plan_share(plan: CycleUsagePlan | None, connection: str | None, size: float | None,
+               rates: dict, *, ended_at: float | None = None) -> list[CycleUsagePlanShare]:
+    """How much of each window a plan run used, each with its basis (``CycleUsagePlanShare``):
+
+    * the reading moved by a point or more: ``measured``, the move itself;
+    * it did not move: ``estimated`` when a rate gives a figure under a point (the reading caps it),
+      else ``under`` — below one point, never zero;
+    * it fell, or it reset before the run ended (``ended_at``, unix seconds; ``_rolled_over``), or it
+      was never read: ``estimated`` when a rate exists and the window is not a model's own unread one,
+      else left out — unknown.
+    """
+    if connection is None:
+        return []
+    readings = {w.window: w for w in (plan.windows if plan else [])}
+    names = set(readings) | {w for (c, w) in rates if c == connection and w not in _MODEL_WINDOWS}
+    out: list[CycleUsagePlanShare] = []
+    for name in sorted(names, key=_order):
+        rate = rates.get((connection, name))
+        estimate = (size * rate[0], rate[1]) if rate is not None and size else None
+        if estimate is not None and estimate[0] >= 1.0:
+            estimate = None   # more than a whole window from one run is no estimate worth stating
+        w = readings.get(name)
+        moved = (w.after - w.before) if w is not None and not _rolled_over(w, ended_at) else None
+        if moved is not None and moved >= RESOLUTION - 1e-9:
+            out.append(CycleUsagePlanShare(window=name, basis="measured", share=round(moved, 4)))
+        elif moved is not None and moved >= 0:
+            if estimate is not None and estimate[0] < RESOLUTION:
+                out.append(CycleUsagePlanShare(window=name, basis="estimated", share=round(estimate[0], 5),
+                                               under=RESOLUTION, samples=estimate[1]))
+            else:
+                out.append(CycleUsagePlanShare(window=name, basis="under", under=RESOLUTION))
+        elif estimate is not None and (w is not None or name not in _MODEL_WINDOWS):
+            out.append(CycleUsagePlanShare(window=name, basis="estimated", share=round(estimate[0], 5),
+                                           samples=estimate[1]))
+    return out
 
 
 _PRICE_CACHE: dict[str, tuple[float | None, float | None]] = {}

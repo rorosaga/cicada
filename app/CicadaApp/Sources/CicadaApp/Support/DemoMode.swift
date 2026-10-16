@@ -86,7 +86,9 @@ enum DemoMode {
     static func liveExit(store: Store, router: AppRouter, graph: GraphViewModel) -> ExitEffects {
         ExitEffects(
             flushHeld: { await store.flushHeld() },
-            leaveDemo: { try await APIClient.shared.leaveDemo() },
+            // G183(d): leaving changes the active bank, so it is the Store's one serialized transition too.
+            leaveDemo: { try await store.switchBank(to: nil, post: { try await APIClient.shared.leaveDemo() },
+                                                    roster: { $0 }) },
             // `BankSwitcher.switchTo`'s pair: the roster, then the graph's own reload.
             refreshBanks: { await store.refresh([.banks]); await graph.loadGraph() },
             resetOnboarding: { OnboardingState.reset(bank: $0) },

@@ -278,8 +278,12 @@ def _backlog_line(items, can_backlog: bool) -> str | None:
     return line + (" — cicada_backlog(project) lists them all" if can_backlog else "")
 
 
+#: How a page is opened, as the MCP names it. The `cicada` command line passes its own spelling (G180).
+DETAIL_CALL = "cicada_recall_detail(entity_id)"
+
+
 def render(timeline, state: dict, *, memory_path: Path, today: date, raw: bool, can_note: bool,
-           can_detail: bool, backlog=(), can_backlog: bool = False) -> str:
+           can_detail: bool, backlog=(), can_backlog: bool = False, detail_call: str = DETAIL_CALL) -> str:
     """The reply, line by line (§10.2). `state` is `project_state.timeline_state`
     for `today`; it carries only `slug/state/days/moved` per milestone, so
     names, targets and chains are joined from `timeline.milestones` by slug.
@@ -316,9 +320,9 @@ def render(timeline, state: dict, *, memory_path: Path, today: date, raw: bool, 
         lines.append(around)
     note = "record progress with cicada_note_progress (settles=<claim id> to finish a thread above)"
     if can_detail and can_note:
-        lines.append(f"Open a page with cicada_recall_detail(entity_id); {note}.")
+        lines.append(f"Open a page with {detail_call}; {note}.")
     elif can_detail:
-        lines.append("Open a page with cicada_recall_detail(entity_id).")
+        lines.append(f"Open a page with {detail_call}.")
     elif can_note:
         lines.append(f"{note[0].upper()}{note[1:]}.")
     return "\n".join(lines)

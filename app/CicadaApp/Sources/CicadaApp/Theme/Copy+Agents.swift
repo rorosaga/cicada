@@ -19,6 +19,8 @@ extension Copy {
     static let agentStepPreparing = "Getting the setup ready…"
     static let agentStepOpenCursor = "Open in Cursor"
     static let agentStepCursorHow = "Cursor asks you to confirm. Then open a new chat."
+    static let agentStepSaveChats = "Save chats on their own"
+    static let agentStepSaveChatsHow = "Cicada keeps what you type and each final reply in a local chat — never files, tools or thinking."
     static let agentStepClaudeApp = "Set up the Claude app on this Mac"
     static let agentStepClaudeAppHow = "One click adds Cicada to Claude's settings. Then quit and reopen Claude."
     static let agentStepClaudeWeb = "Use it on claude.ai and your phone too"
@@ -37,4 +39,12 @@ extension Copy {
     static let agentNeedsReach = "Turn on From anywhere first. It needs a tunnel you run."
     static let agentsFooter = "Connect or disconnect agents any time in Settings → Agents"
     static let agentsDoItByHand = "Do it by hand"
+
+    // 2026-10-14 — a paste-able prompt beside every one-click path, and a row for any other agent.
+    /// Who the generic row's prompt goes to: whichever agent the person uses, never a name Cicada picks.
+    static let agentAnyAddressee = "your agent"
+    static let agentAnyTitle = "Connect another agent"
+    static let agentAnyHeader = "For an agent that isn't in the list."
+    static let agentStepSendAny = "It adds Cicada to its own settings and changes nothing else. If it can't, it tells you what to add."
+    static func agentStepOrSend(_ name: String) -> String { "Or copy and send this to \(name)" }
 }

@@ -15,7 +15,10 @@ only** — never from the transient result of a button press:
   appended after the fixed ids
 * ``<browser>-bookmarks`` for Brave, Vivaldi, Comet, Dia -> once synced (round 4, C9)
 * ``chrome-tab-groups`` -> Chrome's open tab groups, once synced (round 4, G160); ``tabs`` rides ``parts``
+* ``chrome-youtube-history`` -> the YouTube videos watched in Chrome, once synced (G71, 2026-10-16); ``count`` is the
+  videos memory's watch history holds
 * ``contacts-local`` -> macOS Contacts (G154), always listed; ``people`` rides ``parts``
+* ``imessage`` -> the Messages conversations the person ticked (G179), once one is ticked or it has synced
 
 Pure filesystem + one env flag passed in by the router. No network, no LLM,
 never raises: a corrupt registry or a missing directory yields a
@@ -34,9 +37,11 @@ from api.services import (
     feed_registry,
     folder_source,
     media_ingestor,
+    messages_source,
     origin_stats,
     sync_state,
     tab_groups,
+    watch_history,
     wispr_flow,
 )
 from api.services.connectors import ADAPTERS
@@ -394,6 +399,11 @@ def build_channels(
         channel = tab_groups.channel_id(browser)
         if state.get(channel):
             rows.append(_local_channel(channel, f"{name} tab groups", state, "tab group"))
+    # G71 (2026-10-16): the YouTube videos watched in a browser, once synced — the switch under Chrome offers it before.
+    for browser, name in watch_history.BROWSERS.items():
+        channel = watch_history.channel_id(browser)
+        if state.get(channel):
+            rows.append(_local_channel(channel, f"YouTube history from {name}", state, "video"))
     for folder in folder_source.list_folders(memory_path):
         rows.append(_local_channel(folder_source.channel_id(folder["id"]),
                                    str(folder.get("label") or "Folder"), state, "note"))
@@ -401,4 +411,7 @@ def build_channels(
     # unused note-taker is not a disconnected row on every install (R-LS25).
     if wispr_flow.load_settings(memory_path)["enabled"] or state.get(wispr_flow.CHANNEL_ID):
         rows.append(_local_channel(wispr_flow.CHANNEL_ID, "Wispr Flow", state, "capture"))
+    # G179: shown once a conversation is ticked (or it has ever synced) — an untouched Messages is no row.
+    if messages_source.any_ticked(memory_path) or state.get(messages_source.CHANNEL_ID):
+        rows.append(_local_channel(messages_source.CHANNEL_ID, messages_source.LABEL, state, "conversation"))
     return rows

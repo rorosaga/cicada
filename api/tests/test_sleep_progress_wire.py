@@ -134,7 +134,9 @@ def test_a_failure_is_its_own_count_never_folded_into_read(tmp_path, monkeypatch
     memory = seed_bank(tmp_path, episode_ids(3))
     rig = install(monkeypatch)
     ids = episode_ids(3)
-    rig.fail_exc = {ids[1]: engine_errors.EngineTimeout("slow")}
+    # A conversation failure is counted here; a CLI timeout now pauses the run
+    # before sorting, rather than counting against this conversation (G171).
+    rig.fail_exc = {ids[1]: engine_errors.EngineProtocolError("empty answer")}
     grabbed = {}
 
     async def look(extracted, existing, settings_, cancel_check=None, **_kw):

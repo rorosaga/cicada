@@ -1,7 +1,7 @@
 import Foundation
 
 /// G182 — the stable launchers in `~/.cicada/bin`. A release build's agents, hooks and background service never name
-/// a path inside `Cicada.app`: they run `~/.cicada/bin/cicada-*`, and each launch of the app rewrites those four
+/// a path inside `Cicada.app`: they run `~/.cicada/bin/cicada-*` (and `cicada`, the command line), and each launch of the app rewrites those five
 /// small scripts to point at the copy that opened last. Moving the app, or replacing it with an update, breaks
 /// nothing; opening it again repairs everything. A developer build never writes here (its shapes name the checkout).
 enum LauncherInstaller {

@@ -210,7 +210,8 @@ class ClarificationManager:
 
     def _next_id(self) -> str:
         max_num = 0
-        for filepath in self.dir.glob("inbox-*.md"):
+        # A settled question (``inbox/settled/``) keeps its number for its undo.
+        for filepath in [*self.dir.glob("inbox-*.md"), *(self.dir / "settled").glob("inbox-*.md")]:
             try:
                 max_num = max(max_num, int(filepath.stem.split("-")[-1]))
             except ValueError:

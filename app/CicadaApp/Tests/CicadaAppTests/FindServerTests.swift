@@ -108,6 +108,19 @@ final class FindServerTests: XCTestCase {
         XCTAssertEqual(FindServerRows.totals(capped, rows: [], kinds: ["entity"], perKind: 5)[.entities], .atLeast)
     }
 
+    func testClosedEventsKeepTheirDateAndReadAsPastEvents() {
+        let wire = #"{"results":[{"id":"clm_done","name":"Calibration finished","kind":"claim","subjectId":"alpha-project","validFrom":"2026-09-03","validTo":"2026-09-03","eventStatus":"done","eventDay":"2026-09-03"}]}"#
+        let rows = FindServerRows.rows(FakeFindSearch.decode(wire), query: "calibration", context: context)
+        XCTAssertEqual(rows.first?.history, "past event")
+        XCTAssertEqual(rows.first?.detail, "3 Sep · done")
+    }
+
+    func testFutureClaimReadsAsNotYetCurrent() {
+        let wire = #"{"results":[{"id":"clm_future","name":"Calibration method","kind":"claim","subjectId":"alpha-project","validFrom":"2099-09-03"}]}"#
+        let rows = FindServerRows.rows(FakeFindSearch.decode(wire), query: "calibration", context: context)
+        XCTAssertEqual(rows.first?.history, "from 3 Sep 2099")
+    }
+
     func testDatesSpeakTheReadersLocaleAndOnlyNameAnotherYear() {
         let c = context
         XCTAssertEqual(FindDates.short("2026-09-03T10:00:00+00:00", now: c.now, locale: c.locale, calendar: c.calendar), "3 Sep")

@@ -82,6 +82,7 @@ struct ReaderColumn: View {
         // DR-60 — Esc is a keyboard path, so it never animates.
         .onExitCommand { Instant.run { router.close() } }
         .task(id: router.current) { await load() }
+        .onAppear { DeviceDirectory.shared.ensureLoaded() }
     }
 
     // MARK: Loading
@@ -126,7 +127,10 @@ struct ReaderColumn: View {
         return known.isEmpty ? Copy.Provenance.untitled : known
     }
 
-    private var meta: String { loadedDoc.map { ReaderHeader.meta($0) } ?? "" }
+    /// G181 phase 3 — the header names the device a conversation came from (`DeviceDirectory`, read on demand).
+    private var meta: String {
+        loadedDoc.map { ReaderHeader.meta($0, device: DeviceDirectory.shared.label(for: $0.device)) } ?? ""
+    }
     private var conversationId: String? { loadedDoc?.conversationId }
 
     private func act(_ outcome: ResumeOutcome) async {
@@ -464,14 +468,10 @@ struct ReaderTurnView: View {
                     }
                 }
             }
-            CitedSpan.text(ReaderText.segments(block))
-                .font(CicadaTheme.quoteFont)
-                .lineSpacing(CicadaTheme.quoteLineSpacing)
-                .foregroundStyle(isLanding ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .textSelection(.enabled)
-                .citedSpans(reveal: revealed ? 1 : 0)
+            // Selectable, and washed: a `CitedPassage`, because a selectable `Text` never reaches the span renderer.
+            CitedPassage(segments: ReaderText.segments(block),
+                         color: isLanding ? CicadaTheme.textPrimary : CicadaTheme.textSecondary,
+                         reveal: revealed ? 1 : 0)
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(block.speaker.isEmpty || !block.startsTurn

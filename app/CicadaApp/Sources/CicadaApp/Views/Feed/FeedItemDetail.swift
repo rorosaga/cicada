@@ -55,6 +55,14 @@ struct FeedItemDetail: View {
                 whySection
                 savedFromSection
             }
+            // G191 v3 — a bookmark's page: why it was saved (every time), editable, and Remove.
+            if BookmarkHistory.isBookmark(item) {
+                BookmarkReasonsSection(item: item, onRemoved: onClose)
+            }
+            // Looks v2 — "Save its look": a design visit by the person's agent, kept in Looks.
+            if SaveLook.offers(item) {
+                SaveLookButton(mediaEntityId: item.mediaEntityId, url: item.url).padding(.top, CicadaTheme.scaled(16))
+            }
             // G166 — what an agent did with this link, and "Ask an agent".
             FeedReadSection(item: item)
             Text(meta)
@@ -147,11 +155,12 @@ struct FeedItemDetail: View {
             if let origin = FeedSourceLine.markOrigin(item) {
                 OriginMark(origin: origin, size: CicadaTheme.scaled(14)).markHover()
             }
-            Text(FeedSourceLine.text(item))
+            Text(FeedSourceLine.text(item, device: DeviceDirectory.shared.label(for: item.device)))
                 .font(CicadaTheme.metaFont)
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .lineLimit(1)
         }
+        .onAppear { DeviceDirectory.shared.ensureLoaded() }
         .help(FeedSourceLine.help(item) ?? "")
     }
 

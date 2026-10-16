@@ -107,6 +107,23 @@ def test_calendar_levels_and_merge(env):
     assert all(d["level"] == 0 for d in cal if d["date"] not in ("2026-08-27", "2026-08-28"))
 
 
+def test_a_day_of_only_unpriced_calls_reads_unknown_never_zero(tmp_path, monkeypatch):
+    """A model litellm's bundled table does not price records no figure; a bucket of only such calls is unknown."""
+    monkeypatch.setenv("CICADA_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("CICADA_TELEMETRY", "on")
+    repo = tmp_path / "memory"
+    repo.mkdir()
+    tm.record(tm.UsageEvent(ts="2026-08-28T03:10:00.000Z", kind="llm_call", stage="extraction",
+                            model="openrouter/example-lab/not-a-listed-model", connection="byok-openrouter",
+                            input_tokens=1000, output_tokens=100, cost_usd=None, equiv_cost_usd=None))
+    s = asyncio.run(cs.summary(repo, range_="7d", today=TODAY))
+    assert s["invocations"] == 1 and s["cost_usd"] is None and s["equiv_cost_usd"] is None
+    cal = asyncio.run(cs.calendar(repo, weeks=1, today=TODAY))
+    assert all(d["cost_usd"] is None and d["equiv_cost_usd"] is None for d in cal)
+    series = asyncio.run(cs.stats(repo, range_="7d", today=TODAY))["series"]
+    assert series[0]["events"] == 1 and series[0]["cost_usd"] is None
+
+
 def test_stats_breakdowns(env):
     st = asyncio.run(cs.stats(env, range_="all", today=TODAY))
     models = {m["model"]: m for m in st["by_model"]}

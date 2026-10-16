@@ -102,12 +102,13 @@ final class CycleUsageTextTests: XCTestCase {
         XCTAssertEqual(line(CycleUsageSummary(basis: "charged", costUsd: 0.42, engine: "litellm",
                                               connection: "byok-openrouter")), "$0.42 charged · OpenRouter")
         XCTAssertEqual(line(CycleUsageSummary(basis: "charged", costUsd: 0.42, engine: "litellm")), "$0.42 charged · API key")
+        // Owner 2026-10-16 — a plan run's line never leads with (or carries) dollars; with no share it says so.
         XCTAssertEqual(line(CycleUsageSummary(basis: "list", equivCostUsd: 0.42, engine: "claude-cli")),
-                       "About $0.42 at list price · Claude plan")
+                       "Claude plan · share of the plan not recorded")
         XCTAssertEqual(line(CycleUsageSummary(basis: "list", equivCostUsd: 0.42, engine: "claude-cli",
                                               connection: "claude-plan",
                                               plan: CycleUsageSummaryPlan(window: "five_hour", before: 0.12, after: 0.18))),
-                       "Claude plan · 5-hour window 12% → 18% · covers all your use of the plan · about $0.42 at list price")
+                       "Claude plan · 5-hour window 12% → 18% · covers all your use of the plan")
         XCTAssertEqual(line(CycleUsageSummary(basis: "plan", engine: "codex-cli", connection: "chatgpt-plan",
                                               plan: CycleUsageSummaryPlan(window: "primary", before: 0.31, after: 0.35))),
                        "ChatGPT plan · main window 31% → 35% · covers all your use of the plan")
@@ -154,7 +155,9 @@ final class CycleUsageTextTests: XCTestCase {
                                plan: CycleUsagePlan(connection: "claude-plan", windows: [
                                    CycleUsagePlanWindow(window: "five_hour", before: 0.12, after: 0.18, beforeIsFirstSeen: true)]))
         let lines = CycleUsageText.detailLines(usage, locale: us)
-        XCTAssertEqual(lines.total, "Total · about $0.42 at list price")
+        XCTAssertNil(lines.total, "a plan run's dollars are its secondary line, not a total")
+        XCTAssertEqual(lines.equiv, "Would have cost about $0.42 on an API key")
+        XCTAssertEqual(lines.models, ["m · 2 calls · 5 tokens in · 5 tokens out"])
         XCTAssertEqual(lines.plan.first?.text, "Claude plan · 5-hour window 12% → 18%")
         XCTAssertTrue(lines.plan.first?.help.contains(Copy.SleepUsage.firstSeenNote) ?? false)
         XCTAssertNil(lines.empty)

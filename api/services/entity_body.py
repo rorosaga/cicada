@@ -19,8 +19,14 @@ from __future__ import annotations
 
 import re
 
+from api.services import fact_policy, link_views, summary_policy
+
 CANONICAL_SECTIONS = [
     "Summary",
+    # The article (`entity_article`): `### <title>` sections of prose under the Summary lead, written by the article
+    # writer from the record below it. Canonical, so no merge folds it away or mistakes it for human prose; a person's
+    # edit of it is still seen, through its frontmatter stamp (:func:`has_human_prose`).
+    "Article",
     "Key Facts",
     "History",
     "Related",
@@ -30,7 +36,8 @@ CANONICAL_SECTIONS = [
 
 # H2 heading matcher. Captures the trimmed title after "## ".
 _H2 = re.compile(r"^##\s+(.+?)\s*$", re.MULTILINE)
-_URL_IN_LINK = re.compile(r"\]\((https?://[^)\s]+)\)")
+# A link's URL, titled or not (`[T](url "bookmark")` — the link-view grammar, `link_views`): `## Links` dedups by it.
+_URL_IN_LINK = re.compile(r"\]" + link_views.LINK_TAIL)
 
 
 def parse_sections(body: str) -> dict[str, str]:
@@ -103,15 +110,148 @@ def render_sections(sections: dict[str, str]) -> str:
 
 
 def _bullet_lines(content: str) -> list[str]:
-    """Return the bullet lines (``- ...``) of a section body, text only."""
+    """Top-level bullet items, including their indented continuations."""
     lines: list[str] = []
+    indent = 0
     for raw in (content or "").splitlines():
         stripped = raw.strip()
-        if stripped.startswith("- "):
+        depth = len(raw) - len(raw.lstrip())
+        if lines and depth > indent:
+            lines[-1] += '\n' + raw
+        elif stripped.startswith(("- ", "* ")):
+            indent = depth
             lines.append(stripped[2:].strip())
-        elif stripped.startswith("* "):
-            lines.append(stripped[2:].strip())
+        elif lines and not stripped:
+            lines[-1] += '\n'
+    lines = [line.rstrip() for line in lines]
     return lines
+
+
+def has_human_prose(frontmatter: dict, sections: dict[str, str]) -> bool:
+    """A page a person wrote or edited: the frontmatter says so, it has a heading no machine writer emits, or its
+    Summary/Article no longer match the stamp the article writer left (`entity_article.edited`) — an edit of a machine
+    article makes the page the person's, additive-only, like any other hand edit."""
+    from api.services import entity_article
+
+    return bool(frontmatter.get('human_edited')) or any(
+        title and title not in CANONICAL_SECTIONS for title in sections) or entity_article.edited(frontmatter, sections)
+
+
+def retain_orientation(sections: dict[str, str], text: str, *, names=()) -> int:
+    """Keep what a displaced orientation says that the page does not, as Key Facts.
+
+    An orientation that lost the Summary (an incoming one beside a usable
+    Summary, a replaced or overlong one) is split into sentences; a sentence the
+    Summary or a Key Fact already holds, as the same text (`fact_policy.restates`), is dropped,
+    every other one becomes a Key Fact, so its words survive once. Re-introducing
+    the thing is what a Summary is for, once; History is a timeline, not a drawer
+    for orientations (the "Undated background" bullets this replaced repeated Key
+    Facts word for word). Never assigns a date. Returns the sentences added."""
+    text = (text or '').strip()
+    if not text:
+        return 0
+    kept = _summary_sentences(sections.get('Summary', '')) + _bullet_lines(sections.get('Key Facts', ''))
+    keys = {_normalize_fact(k) for k in kept}
+    fresh = []
+    for paragraph in re.split(r'\n\s*\n', text):
+        for sentence in fact_policy.sentences(paragraph):
+            if _normalize_fact(sentence) in keys or _said(sentence, kept, names):
+                continue
+            fresh.append(sentence)
+            kept.append(sentence)
+            keys.add(_normalize_fact(sentence))
+    if fresh:
+        sections['Key Facts'] = _merge_facts(sections.get('Key Facts', ''), fresh)
+    return len(fresh)
+
+
+def _said(sentence: str, kept: list[str], names=()) -> bool:
+    """A displaced orientation sentence the page already holds as the same text in one item
+    (`fact_policy.restates`). Anything less is kept: a duplicate is cheaper than a lost fact."""
+    return fact_policy.covered(sentence, kept)
+
+
+def adds_anything(body: str, summary: str, facts=()) -> bool:
+    """True unless every sentence of ``summary`` and every one of ``facts`` is equal
+    (`fact_policy.normalized`) to a Summary sentence or Key Fact already on the page —
+    whether a re-read of a conversation still needs a model's merge (`conflict_resolver`)."""
+    from api.services.claims import strip_claims_block
+
+    sections = parse_sections(strip_claims_block(body or ''))
+    on_page = {fact_policy.normalized(k) for k in
+               _summary_sentences(sections.get('Summary', '')) + _bullet_lines(sections.get('Key Facts', ''))}
+    incoming = _summary_sentences(summary) + [str(f) for f in facts or [] if str(f).strip()]
+    return any(fact_policy.normalized(item) not in on_page for item in incoming)
+
+
+def _summary_sentences(summary: str) -> list[str]:
+    return [s for p in re.split(r'\n\s*\n', summary or '') for s in fact_policy.sentences(p)]
+
+
+def lead(text: str, *, names=()) -> tuple[str, str]:
+    """``(summary, rest)``: the orientation a machine Summary keeps, and what it moves out.
+
+    Whole sentences of the first paragraph, in order, while they fit the
+    600-character budget (`summary_policy`), skipping a sentence an earlier kept
+    one repeats and every second (re-)introduction of the thing ("X is a CI
+    platform. … X is a CI/CD automation platform."): several conversations'
+    orientations glued together keep the first. Never clips a sentence;
+    ``summary`` is empty when the first sentence alone is over budget. ``rest``
+    is every sentence not kept and every later paragraph, for
+    :func:`retain_orientation`."""
+    text = (text or '').strip()
+    if not text:
+        return '', ''
+    paragraphs = [p for p in re.split(r'\n\s*\n', text) if p.strip()]
+    kept: list[str] = []
+    rest: list[str] = []
+    introduced, full = False, False
+    for sentence in fact_policy.sentences(paragraphs[0]):
+        intro = fact_policy.introduces(sentence, names)
+        if (full or (intro and introduced) or fact_policy.covered(sentence, kept)
+                or _normalize_fact(sentence) in {_normalize_fact(k) for k in kept}):
+            rest.append(sentence)
+            continue
+        if len(' '.join(kept + [sentence])) > summary_policy.MAX_CHARS:
+            full = True  # the Summary is a prefix: nothing after an over-budget sentence
+            rest.append(sentence)
+            continue
+        kept.append(sentence)
+        introduced = introduced or intro
+    remainder = '\n\n'.join(part for part in [' '.join(rest)] + paragraphs[1:] if part.strip())
+    return ' '.join(kept), remainder
+
+
+def bound_summary(sections: dict[str, str], *, previous: str = '', name: str = '',
+                  entity_type: str = '', names=()) -> dict[str, str]:
+    """Bound machine prose: one orientation in Summary, what it displaces kept as Key Facts.
+
+    The Summary keeps its leading whole sentences that fit the budget, once each
+    (:func:`lead`); the rest goes through :func:`retain_orientation`. With no
+    sentence to keep: a usable ``previous`` Summary, else the identity fallback.
+    Human Summaries never come here (callers check). A page with an Article keeps its lead as written: the article
+    writer owns it, at whatever length the material gave it (`entity_article`)."""
+    sections = dict(sections)
+    if (sections.get('Article') or '').strip():
+        return sections
+    names = [n for n in (name, *names) if n]
+    lead_text = sections.pop('', '').strip()
+    candidate = sections.get('Summary', '').strip()
+    candidate = '\n\n'.join(part for part in (lead_text, candidate) if part)
+    if not candidate:
+        return sections
+    kept, rest = lead(candidate, names=names)
+    if not kept:
+        sections['Summary'] = previous if summary_policy.usable(previous) else summary_policy.fallback(
+            name=name, entity_type=entity_type)
+        rest = candidate
+    elif kept == ' '.join(candidate.split()) and summary_policy.usable(candidate):
+        sections['Summary'] = candidate  # nothing moved: keep the exact text (and its G118 guard)
+        rest = ''
+    else:
+        sections['Summary'] = kept
+    retain_orientation(sections, rest, names=names)
+    return sections
 
 
 def _normalize_fact(text: str) -> str:
@@ -122,7 +262,17 @@ def _normalize_fact(text: str) -> str:
 
 
 def _bullets_block(items: list[str]) -> str:
-    return "\n".join(f"- {it}" for it in items if it.strip())
+    # A carried orientation can have several lines/paragraphs. Indent fresh
+    # continuation lines so the next union/read treats the complete text as
+    # one item. Existing indentation is stable across repeated merges.
+    blocks = []
+    for item in items:
+        if not item.strip():
+            continue
+        lines = item.split('\n')
+        lines[1:] = [line if not line or line[:1].isspace() else '  ' + line for line in lines[1:]]
+        blocks.append('- ' + '\n'.join(lines))
+    return '\n'.join(blocks)
 
 
 def _history_sort_key(line: str):
@@ -153,18 +303,22 @@ def _merge_history_bullets(existing: str, new_entries: list[dict]) -> str:
 
 
 def _merge_facts(existing: str, new_facts: list[str]) -> str:
-    """Union of fact bullets, deduped by normalized text."""
+    """Existing fact bullets unchanged, then every new fact that is not a repeat.
+
+    A new fact equal to one already there (case, accents, whitespace, wikilink
+    brackets and trailing punctuation aside: `fact_policy.union`) is skipped;
+    everything else is kept. An existing bullet is never removed or reworded."""
     items = _bullet_lines(existing)
     seen = {_normalize_fact(it) for it in items}
+    fresh: list[str] = []
     for fact in new_facts or []:
         fact = str(fact).strip()
-        if not fact:
-            continue
         key = _normalize_fact(fact)
-        if key in seen:
+        if not fact or key in seen:
             continue
         seen.add(key)
-        items.append(fact)
+        fresh.append(fact)
+    items, _ = fact_policy.union(items, fresh)
     return _bullets_block(items)
 
 
@@ -224,6 +378,7 @@ def compose_body_v2(
     related: list[tuple[str, str]],
     links: list[dict],
     open_questions: list[str],
+    *, name: str = '', entity_type: str = '',
 ) -> str:
     """Build a fresh v2 body from extracted fields (Stage-1 create path)."""
     sections: dict[str, str] = {}
@@ -251,15 +406,28 @@ def compose_body_v2(
     if oq:
         sections["Open Questions"] = oq
 
+    if summary:
+        # A fact the Summary already says is not repeated under it ("Do NOT re-narrate the summary").
+        said = _summary_sentences(summary)
+        facts = [item for item in _bullet_lines(sections.get('Key Facts', ''))
+                 if _normalize_fact(item) != _normalize_fact(summary) and not fact_policy.covered(item, said)]
+        if facts:
+            sections['Key Facts'] = _bullets_block(facts)
+        else:
+            sections.pop('Key Facts', None)
+        sections = bound_summary(sections, name=name, entity_type=entity_type)
     return render_sections(sections)
 
 
-def merge_sections_fallback(existing: dict[str, str], new_fields: dict) -> dict[str, str]:
+def merge_sections_fallback(existing: dict[str, str], new_fields: dict, *,
+                            human_edited: bool = False) -> dict[str, str]:
     """Non-LLM section-aware merge used when synthesis is unavailable.
 
-    Union Key Facts / Links / Open Questions, append+dedupe History, keep the
-    existing Summary if no new summary is supplied (else integrate by
-    appending a sentence rather than replacing). Never raw-appends a blob.
+    Union Key Facts / Links / Open Questions (a new fact equal to one on the page
+    is skipped, `fact_policy`), append+dedupe History, keep
+    the existing usable Summary. A distinct orientation is never concatenated:
+    what it says that the page does not becomes Key Facts
+    (:func:`retain_orientation`). Human Summary is exempt and exact.
 
     ``new_fields`` keys (all optional): ``summary``, ``key_facts``,
     ``history_entries``, ``links``, ``open_questions``.
@@ -267,15 +435,35 @@ def merge_sections_fallback(existing: dict[str, str], new_fields: dict) -> dict[
     merged = dict(existing or {})
 
     new_summary = str(new_fields.get("summary", "") or "").strip()
-    if new_summary:
-        old_summary = (merged.get("Summary", "") or "").strip()
-        if not old_summary:
-            merged["Summary"] = new_summary
-        elif _normalize_fact(new_summary) not in _normalize_fact(old_summary):
-            # Append as a follow-on sentence — no raw paragraph stacking.
-            merged["Summary"] = (old_summary.rstrip() + " " + new_summary).strip()
-
+    old_summary = merged.get('Summary', '')
+    names = [str(new_fields.get('name') or '')]
+    if (merged.get('Article') or '').strip() and old_summary:
+        # An article page's lead is the article writer's, at any length (`entity_article`): kept exactly; what an
+        # incoming orientation says lands in Key Facts below, until the writer next rewrites the lead.
+        pass
+    elif not human_edited:
+        if summary_policy.usable(old_summary):
+            merged['Summary'] = old_summary
+        elif summary_policy.usable(new_summary):
+            merged['Summary'] = new_summary
+        elif old_summary or new_summary:
+            merged['Summary'] = (lead(old_summary, names=names)[0] or lead(new_summary, names=names)[0]
+                                 or summary_policy.fallback(name=names[0], entity_type=str(new_fields.get('type') or '')))
     new_facts = list(new_fields.get("key_facts", []) or [])
+    # A displaced orientation's sentences join the incoming facts, so one union
+    # skips a sentence the page already holds (`retain_orientation`'s rule).
+    for text, at_end in ((old_summary, False), (new_summary, True)):
+        if text and _normalize_fact(text) != _normalize_fact(merged.get('Summary', '')):
+            displaced = [sentence for paragraph in re.split(r'\n\s*\n', text)
+                         for sentence in fact_policy.sentences(paragraph)]
+            new_facts = new_facts + displaced if at_end else displaced + new_facts
+    # Existing prose (including human facts) remains untouched. Only suppress
+    # an incoming fact the retained orientation already says; an exact copy's
+    # source row can follow the Summary through the writer's selected-input mapping.
+    said = _summary_sentences(merged.get('Summary', ''))
+    new_facts = [item for item in new_facts
+                 if _normalize_fact(str(item)) != _normalize_fact(merged.get('Summary', ''))
+                 and not fact_policy.covered(str(item), said)]
     if new_facts or merged.get("Key Facts"):
         facts = _merge_facts(merged.get("Key Facts", ""), new_facts)
         if facts:
@@ -302,6 +490,27 @@ def merge_sections_fallback(existing: dict[str, str], new_fields: dict) -> dict[
     return merged
 
 
+def adopt_rewrite(original: dict[str, str], rewritten: dict[str, str]) -> dict[str, str]:
+    """What a whole-body rewrite (legacy synthesis) may change: the Summary, and
+    History lines it adds that no line already says. Every other section stays
+    as ``original`` had it, item for item, so a fact the rewrite left out or
+    rephrased is neither lost nor doubled; the extraction's own items are merged
+    after (:func:`merge_sections_fallback`)."""
+    merged = dict(original)
+    merged.pop('', None)
+    summary = '\n\n'.join(part for part in ((rewritten.get('') or '').strip(),
+                                              (rewritten.get('Summary') or '').strip()) if part)
+    if summary:
+        merged['Summary'] = summary
+    lines = _bullet_lines(merged.get('History', ''))
+    for line in _bullet_lines(rewritten.get('History', '')):
+        if _normalize_fact(line) not in {_normalize_fact(x) for x in lines} and not fact_policy.covered(line, lines):
+            lines.append(line)
+    if lines:
+        merged['History'] = _bullets_block(sorted(lines, key=_history_sort_key))
+    return merged
+
+
 def merge_sections_human_safe(
     existing: dict[str, str], new_fields: dict, *, human_edited: bool
 ) -> dict[str, str]:
@@ -309,13 +518,13 @@ def merge_sections_human_safe(
 
     On an agent-only page (``human_edited=False``) this is the normal
     :func:`merge_sections_fallback` (union Key Facts / Links / Open Questions,
-    additive Summary, dedupe History).
+    bounded Summary, dedupe History).
 
     On a **human-edited** page (``human_edited=True`` — the frontmatter carries
     ``human_edited: true``, or the page has non-canonical hand-added headings) the
     merge is **additive only**: every existing section (canonical or not) is
-    preserved verbatim, and the agent may only ADD a deduped bullet / append a
-    follow-on Summary sentence — it may never replace or drop an existing line.
+    preserved, with Summary exact. What an incoming orientation adds becomes Key
+    Facts; it may never replace or extend the person's Summary.
     This is the prose-level mirror of the Stage-3 ``COEXIST_FLAG`` rule (an agent
     may not regenerate-away human prose any more than it may close a human claim).
     """
@@ -331,7 +540,7 @@ def merge_sections_human_safe(
         if title not in CANONICAL_SECTIONS and title != ""
     }
 
-    merged = merge_sections_fallback(existing, new_fields)
+    merged = merge_sections_fallback(existing, new_fields, human_edited=True)
 
     # Re-assert the human sections verbatim — they are never rewritten.
     for title, content in human_sections.items():
@@ -398,7 +607,217 @@ def _related_bullets(related: list[tuple[str, str]]) -> str:
     return _bullets_block(items)
 
 
-def render_related(related_slugs: list[str], edges: list[dict], id_to_name: dict) -> str:
+#: A page linked to more pages than this is a hub (the owner's page links ~2,000): its ``## Related`` rolls up.
+RELATED_MAX = 60
+#: A verb a page holds for at most this many pages, in no activity family, is a relation of its own ("sibling of").
+RELATION_FAMILY_MAX = 3
+#: Names a rolled-up line shows.
+ROLLUP_NAMES = 8
+
+#: What a relation label MEANS, not how it is spelled (hub rollup, 2026-10-14). The real owner page's labels are
+#: free-form — "asked how to use", "asked for explanation of", "planned to use", "received recommendation for": hundreds
+#: of verbs, the commonest three times each — so grouping by exact verb left 1,676 of 2,024 lines.
+#:
+#: A label is read in this order (:func:`relation_family`), the first answer winning:
+#:
+#: 1. ``strong`` when the label folds exactly (the bank's predicate map, else the seed's synonyms) to one of
+#:    :data:`STRONG_PREDICATES` — ``works-at``, ``located-in``, ``part-of`` …: the vocabulary always wins.
+#: 2. an activity family when the label STARTS with an activity or intent verb (:data:`_LEADING`).
+#: 3. ``strong`` when it says a fact in another inflection (:data:`_STRONG`: "studying at", "living in", "got a job
+#:    at", "received a degree from", "graduate of", "sibling of"). Never a log.
+#: 4. an activity family — ``asked``, ``planned``, ``built``, ``used`` — when an activity verb says so positively,
+#:    whatever preposition follows ("learned from", "received recommendation from" are activity).
+#: 5. ``relation`` — a weaker fact word with no activity verb ("colleague", "mentor", "joined", "founded").
+#: 6. ``other`` — anything nobody claims. When unsure, a label is a fact (review 2026-10-14).
+STRONG_PREDICATES = frozenset({
+    "works-at", "studies-at", "lives-in", "located-in", "based-in", "born-in", "from", "part-of", "member-of",
+    "is-a", "employed-by", "graduated-from", "alumnus-of", "founder-of", "owner-of", "citizen-of", "married-to",
+    "partner-of", "spouse-of", "sibling-of", "brother-of", "sister-of", "parent-of", "mother-of", "father-of",
+    "child-of", "son-of", "daughter-of", "cousin-of", "relative-of", "grandparent-of", "grandchild-of",
+})
+_STRONG = re.compile(
+    r"\b((stud(y|ies|ied|ying)|work(s|ed|ing)?|intern(s|ed|ing)?|teach(es|ing)?|taught|lectur(es|ed|ing)|"
+    r"employed|hired|enrolled|enrolls?|enrolling) (at|for|in)|"
+    r"(liv(e|es|ed|ing)|resid(e|es|ed|ing)|based|located|born|raised|grew up|settled|moved|relocated|relocating) "
+    r"(in|to|at)|"
+    r"(got|landed|accepted|started|began|took|holds?|held|has|had) (a |an |the )?(new )?(job|position|role|offer|"
+    r"internship|post)|"
+    r"(received|earned|got|completed|finished|obtained|holds?|has) (a |an |the |his |her |their )?"
+    r"(degree|diploma|phd|doctorate|master'?s|bachelor'?s|mba|certificate|certification|license)|"
+    r"(employee|graduate|alumn\w*|founder|co-?founder|owner|ceo|cto|member|student|citizen|resident|native) "
+    r"(of|at|in|from)|graduated( from)?|co-?founded|(is|are|comes|came|was) from|"
+    r"(married|engaged) to|spouse of|partner of|(sibling|brother|sister|parent|mother|father|son|daughter|child|"
+    r"cousin|aunt|uncle|niece|nephew|grandmother|grandfather|grandparent|grandson|granddaughter|relative) of)\b")
+_ACTIVITY: tuple[tuple[str, str, re.Pattern], ...] = tuple((key, label, re.compile(pattern)) for key, label, pattern in (
+    ("asked", "asked or learned about",
+     r"\b(ask(s|ed|ing)?|question(s|ed|ing)?|learn(s|ed|t|ing)?|explain\w*|explanation|research\w*|read|reads|"
+     r"reading|explor\w*|curious|inquir\w*|look(ed|ing|s)? (into|up|at)|wonder\w*|understand\w*|clarif\w*|how to|"
+     r"what (is|are)|recommend\w*|advice|help with|received|sought|seek(s|ing)?|discuss\w*|talk(s|ed|ing)? about|"
+     r"interested in|mention\w*|search\w*|watch\w*|listen\w*|review\w*|heard)\b"),
+    ("planned", "planned or considered",
+     r"\b(plan(s|ned|ning)?|consider\w*|intend\w*|want(s|ed|ing)?|appl(y|ied|ies|ying)|think(s|ing)? (about|of)|"
+     r"thought (about|of)|evaluat\w*|compar\w*|decid\w*|schedul\w*|aim(s|ed|ing)?|hop(e|es|ed|ing)|prepar\w*|"
+     r"weigh\w*|choos\w*|chose|pick(s|ed|ing)?|propos\w*|expect\w*|wish\w*)\b"),
+    ("built", "built or wrote",
+     r"\b(buil(d|ds|t|ding)|creat\w*|develop\w*|writ(e|es|ing|ten)|wrote|implement\w*|design\w*|made|mak(e|es|ing)|"
+     r"draft\w*|publish\w*|launch\w*|ship(s|ped|ping)?|cod(e|ed|es|ing)|prototyp\w*|author\w*|produc\w*|"
+     r"compos\w*|generat\w*|refactor\w*|redesign\w*)\b"),
+    ("used", "used or worked with",
+     r"\b(us(e|es|ed|ing)|tr(y|ied|ies|ying)|test(s|ed|ing)?|install\w*|configur\w*|set(s|ting)? up|setup|"
+     r"run(s|ning)?|ran|deploy\w*|debug\w*|fix(es|ed|ing)?|troubleshoot\w*|integrat\w*|migrat\w*|maintain\w*|"
+     r"operat\w*|practi[cs]\w*|adopt\w*|switch\w*|upgrad\w*|connect\w*|host(s|ed|ing)?|play(s|ed|ing)?|"
+     r"visit\w*|bought|buy(s|ing)?|subscrib\w*|follow(s|ed|ing)?|track(s|ed|ing)?|edit(s|ed|ing)?|analy[sz]\w*|"
+     r"measur\w*|benchmark\w*|work(s|ed|ing)? (on|with))\b"),
+))
+_WEAK = re.compile(
+    r"\b(friends? (of|with)|best friend|colleague|coworker|co-worker|classmate|roommate|flatmate|mentor|mentee|"
+    r"advisor|advised by|supervisor|supervised by|manages|managed by|reports to|joined|belongs to|founded|owns|"
+    r"owned by|dating|neighbou?r|teammate|member|employer|employs|attend(s|ed|ing)?)\b")
+#: A label that STARTS with an activity or intent verb is activity, whatever follows: "considered studying at",
+#: "planned to move to", "asked about working at" (re-check 2026-10-14) — after the vocabulary's own fold, which always
+#: wins. Received or earned a degree, a job or a role is a fact said with a verb of receiving; "got" is no activity
+#: verb ("got hired at", "got married to").
+_LEADING = re.compile(
+    r"^(consider(s|ed|ing)?|plan(s|ned|ning)?|ask(s|ed|ing)?|learn(s|ed|t|ing)?|want(s|ed|ing)?|wish(es|ed|ing)?|"
+    r"hop(e|es|ed|ing)|intend(s|ed|ing)?|think(s|ing)? (of|about)|thought (of|about)|appl(y|ies|ied|ying)|"
+    r"tr(y|ies|ied|ying)|research(es|ed|ing)?|explor(e|es|ed|ing)|look(s|ed|ing)? (into|at|up)|compar(e|es|ed|ing)|"
+    r"evaluat(e|es|ed|ing)|decid(e|es|ed|ing)|discuss(es|ed|ing)?|talk(s|ed|ing)? about|mention(s|ed|ing)?|"
+    r"heard|read|curious|interested|wonder(s|ed|ing)?|search(es|ed|ing)?|"
+    r"(receiv(e|es|ed|ing)|earn(s|ed|ing)?)"
+    r"(?! (a |an |the |his |her |their |new )?(degree|diploma|phd|doctorate|master'?s|bachelor'?s|mba|certificate|"
+    r"certification|license|job|position|role|offer|internship|post)))\b")
+
+
+#: The families a line can roll into, with the words a rolled line says.
+FAMILIES: tuple[tuple[str, str], ...] = (
+    ("strong", "facts"), *((key, label) for key, label, _p in _ACTIVITY), ("relation", "relations"),
+)
+#: Families whose links are activity: a conversation touching a page, not a fact about the person.
+ACTIVITY_FAMILIES = frozenset(key for key, _l, _p in _ACTIVITY)
+#: Of the 60 lines, how many facts may take — strong ones first, then the weaker — so people keep the rest.
+FACT_LINES_MAX = 40
+
+
+def _seed_normalize(label: str) -> str:
+    """The seed vocabulary's fold of a label (``predicates-seed.yaml``), for a caller with no bank map in hand."""
+    from api.services import predicates
+
+    key = " ".join(re.sub(r"[-_]+", " ", str(label or "")).lower().split())
+    synonyms = (predicates._load_seed_map().get("synonyms") or {})
+    folded = synonyms.get(key)
+    return str(folded) if folded else predicates._slugify_predicate(key)
+
+
+def relation_family(label: str, normalize=None) -> str:
+    """The family a relation label or predicate belongs to: ``strong``, ``asked``, ``planned``, ``built``, ``used``,
+    ``relation`` or ``other`` (the order above :data:`STRONG_PREDICATES`). ``normalize`` folds a label to its
+    canonical predicate (the bank's ``predicates.load_normalizer``); without one, the seed's synonyms. Predicates are
+    slugs: ``asked-how-to-use`` reads as "asked how to use"."""
+    text = " ".join(re.sub(r"[-_]+", " ", str(label or "")).lower().split())
+    if not text:
+        return "other"
+    try:
+        canonical = (normalize or _seed_normalize)(text)
+    except Exception:  # noqa: BLE001 - a map that cannot be read costs the fold, never the family
+        canonical = ""
+    if canonical in STRONG_PREDICATES:   # the vocabulary's own fold always wins ("got hired at" → works-at)
+        return "strong"
+    if _LEADING.search(text):
+        for key, _label, pattern in _ACTIVITY:
+            if pattern.search(text.split(" ", 1)[0]) or pattern.search(text):
+                return key
+        return "planned"   # an intent verb no activity family spells ("hoped", "wished")
+    if _STRONG.search(text):
+        return "strong"
+    for key, _label, pattern in _ACTIVITY:
+        if pattern.search(text):
+            return key
+    if _WEAK.search(text):
+        return "relation"
+    return "other"
+
+
+def is_log(label: str, objects: int, normalize=None) -> bool:
+    """Is a label a log of activity rather than a fact about the page? Only when its stems positively say activity
+    (:data:`ACTIVITY_FAMILIES`) AND the page holds more than :data:`RELATION_FAMILY_MAX` objects under that family —
+    ``objects`` counts the family, not the exact spelling, since the real labels are free-form. Anything else is a
+    fact: when unsure, a label is a fact (review 2026-10-14). One rule for a hub's Related, the ledger's spill order
+    and the article's inputs."""
+    return relation_family(label, normalize) in ACTIVITY_FAMILIES and objects > RELATION_FAMILY_MAX
+
+
+def family_counts(labels, normalize=None) -> dict[str, int]:
+    """How many of ``labels`` (one per object) fall in each family — the ``objects`` :func:`is_log` takes."""
+    counts: dict[str, int] = {}
+    for label in labels:
+        family = relation_family(label, normalize)
+        counts[family] = counts.get(family, 0) + 1
+    return counts
+
+
+def _rolled_up(pairs: list[tuple[str, str]], id_types: dict[str, str], normalize=None) -> str:
+    """A hub page's Related (owner page, 2026-10-14; families and the reviews of 2026-10-14): never more than
+    :data:`RELATED_MAX` lines, family lines included. In order of right:
+
+    1. its strong facts (``strong``: the vocabulary's facts — works at, studies at, lives in, part of, family), up to
+       :data:`FACT_LINES_MAX`; any more go on one "facts" line, never dropped;
+    2. its weaker facts (``relation``, ``other``, and an activity family the page holds for few objects), the latest
+       first, in what is left of :data:`FACT_LINES_MAX`;
+    3. its people, the latest, in the room left.
+
+    Everything else is one line per family of meaning, the people who did not fit on a "people" line, each with the
+    latest few names. Related is a view of ``graph_edges.yaml`` (rebuilt on every write), so nothing is lost: each
+    rolled-up link is still an edge, still on the linked page's own Related and in its family line, and its claims,
+    with their evidence, are still this page's (its ledger, ``claims_ledger``)."""
+    family = {v: relation_family(v, normalize) for v in {v for _n, v in pairs if v}}
+    counts: dict[str, int] = {}
+    for _n, v in pairs:
+        if v:
+            counts[family[v]] = counts.get(family[v], 0) + 1
+    strong = [(n, v) for n, v in pairs if v and family[v] == "strong"]
+    weak = [(n, v) for n, v in pairs if v and family[v] != "strong"
+            and not (family[v] in ACTIVITY_FAMILIES and counts[family[v]] > RELATION_FAMILY_MAX)]
+    taken = set(strong) | set(weak)
+    people = [(n, v) for n, v in pairs if (n, v) not in taken and id_types.get(n.lower()) == "person"]
+    people_set = set(people)
+
+    def plan(budget: int) -> tuple[set, dict[str, list[str]]]:
+        keep = strong[:min(FACT_LINES_MAX, budget)]           # the earliest strong facts: they were said first
+        room = min(FACT_LINES_MAX, budget) - len(keep)
+        if room > 0:
+            keep += weak[-room:]
+        room = budget - len(keep)
+        if room > 0:
+            keep += people[-room:]
+        kept = set(keep)
+        rolled: dict[str, list[str]] = {}
+        for name, verb in pairs:
+            if (name, verb) not in kept:
+                key = "people" if (name, verb) in people_set else (family[verb] if verb else "")
+                rolled.setdefault(key, []).append(name)
+        return kept, rolled
+
+    budget = RELATED_MAX
+    while True:   # family lines count against the 60: give up a line for each until the block fits
+        kept, rolled = plan(budget)
+        if len(kept) + len(rolled) <= RELATED_MAX or budget == 0:
+            break
+        budget -= 1
+    lines = [pair for pair in pairs if pair in kept]
+    labels = dict(FAMILIES) | {"other": "other links", "": "linked", "people": "people"}
+    out = _related_bullets(lines)
+    rows = []
+    for key, names in sorted(rolled.items(), key=lambda kv: (-len(kv[1]), kv[0])):
+        latest = names[-ROLLUP_NAMES:][::-1]
+        shown = ", ".join(f"[[{n}]]" for n in latest)
+        more = f" and {len(names) - len(latest):,} more" if len(names) > len(latest) else ""
+        what = labels.get(key) or key
+        rows.append(f"- {what}: {len(names):,} page{'s' if len(names) != 1 else ''} — latest {shown}{more}")
+    return "\n".join(part for part in (out, "\n".join(rows)) if part)
+
+
+def render_related(related_slugs: list[str], edges: list[dict], id_to_name: dict,
+                   id_to_type: dict | None = None, normalize=None) -> str:
     """Build the ``## Related`` bullet block from the related slug list +
     ``graph_edges.yaml`` labels.
 
@@ -438,13 +857,17 @@ def render_related(related_slugs: list[str], edges: list[dict], id_to_name: dict
         seen.add(key)
         pairs.append((name, ""))
 
+    unique = {name.lower() for name, _ in pairs}
+    if len(unique) > RELATED_MAX:
+        types = {str(id_to_name.get(i, i)).lower(): str(t) for i, t in (id_to_type or {}).items()}
+        return _rolled_up(pairs, types, normalize)
     return _related_bullets(pairs)
 
 
 # Priority order for recall summaries: fact-bearing sections first. Summary +
 # Key Facts are ALWAYS included in full (they hold the answer); the rest fill
 # the remaining budget in this order.
-_RECALL_PRIORITY = ["Summary", "Key Facts", "History", "Links", "Related", "Open Questions"]
+_RECALL_PRIORITY = ["Summary", "Key Facts", "Article", "History", "Links", "Related", "Open Questions"]
 
 
 def summarize_for_recall(body: str, *, max_chars: int = 3200) -> str:

@@ -58,10 +58,15 @@ def test_the_prompt_is_short_plain_and_says_what_it_touches(harness):
     assert "change nothing else" in prompt and "uploads nothing" in prompt
 
 
-def test_gemini_gets_its_own_add_command_and_no_hook():
-    assert _setup("gemini-cli")["argv"] == [[
+def test_gemini_gets_its_own_add_command_and_its_after_agent_hook():
+    setup = _setup("gemini-cli")
+    assert setup["argv"] == [[
         "/opt/homebrew/bin/gemini", "mcp", "add", "-s", "user", "-e", f"CICADA_MEMORY_PATH={MEM}",
-        "cicada", PY, f"{REPO}/mcp/server.py"]]
+        "cicada", PY, f"{REPO}/mcp/server.py"],
+        [PY, f"{REPO}/api/hooks/registry.py", "install", "--settings", str(HOME / ".gemini/settings.json"),
+         "--event", "AfterAgent", "--command", f'"{PY}" "{REPO}/api/hooks/capture.py" --harness gemini-cli']]
+    assert len(setup["prompt"]) <= agent_wiring.PROMPT_MAX_CHARS
+    assert "saves our conversations" in setup["prompt"]
 
 
 def test_a_cli_the_backend_cannot_find_is_named_bare():
@@ -70,15 +75,17 @@ def test_a_cli_the_backend_cannot_find_is_named_bare():
 
 def test_cursor_gets_its_install_link_with_the_server_inside():
     setup = _setup("cursor")
-    assert (setup["kind"], setup.get("prompt"), setup.get("argv")) == ("deeplink", None, None)
+    assert setup["kind"] == "deeplink"
+    assert len(setup["argv"]) == 2 and all(a[1].endswith("/api/hooks/cursor_registry.py") for a in setup["argv"])
+    assert setup["argv"][1][-2:] == ["--hook", "capture"]
     link = setup["deeplink"]
     assert link.startswith("cursor://anysphere.cursor-deeplink/mcp/install?name=cicada&config=")
     assert json.loads(base64.b64decode(unquote(link.split("config=", 1)[1]))) == SPEC
 
 
-def test_the_claude_app_gets_a_merge_the_app_performs():
+def test_the_claude_app_gets_a_merge_the_app_performs_and_no_prompt():
     setup = _setup("claude-desktop")
-    assert setup["kind"] == "config-merge"
+    assert setup["kind"] == "config-merge" and setup.get("prompt") is None
     assert setup["config"] == {"path": "~/Library/Application Support/Claude/claude_desktop_config.json",
                                "key": "mcpServers.cicada", "value": SPEC}
     assert "Quit and reopen" in setup["note"]
@@ -100,7 +107,7 @@ def test_the_route_serves_every_harness_and_never_runs_a_cli(tmp_path, monkeypat
     try:
         client = TestClient(main.app)
         for harness in ("claude-code", "codex", "gemini-cli", "cursor", "claude-desktop",
-                        "opencode", "hermes", "openclaw", "claude", "chatgpt", "grok"):
+                        "opencode", "hermes", "openclaw", "claude", "chatgpt", "grok", "other"):
             r = client.get(f"/agents/setup?harness={harness}")
             assert r.status_code == 200, (harness, r.text)
             assert r.json()["harness"] == harness and r.json()["title"]
@@ -143,3 +150,76 @@ def test_cloud_agents_get_the_two_remote_steps_and_nothing_to_run(harness):
     assert "Create a link" in setup["display"][1]
     assert (setup.get("prompt"), setup.get("argv"), setup.get("deeplink"), setup.get("config")) == (None, None, None, None)
     assert "no automatic save" in setup["note"]
+
+
+# --- 2026-10-14: a paste-able prompt on every local row, and one for any other agent ---
+
+
+def _numbered(prompt):
+    return [line for line in prompt.splitlines() if re.match(r"^\d+\. ", line)]
+
+
+def test_cursor_s_prompt_adds_only_the_mcp_server_to_its_own_config():
+    prompt = _setup("cursor")["prompt"]
+    assert len(prompt) <= agent_wiring.PROMPT_MAX_CHARS, len(prompt)
+    assert "to Cursor" in prompt and "~/.cursor/mcp.json, at mcpServers.cicada" in prompt
+    assert f"command: {PY}\nargument: {REPO}/mcp/server.py\nenvironment: CICADA_MEMORY_PATH={MEM}" in prompt
+    assert "change nothing else" in prompt and "uploads nothing" in prompt and "one sentence" in prompt
+    # The startup hook stays its own click (R-H11): the prompt names no hook and no command to run.
+    assert "hooks.json" not in prompt and "cursor_registry" not in prompt and _numbered(prompt) == []
+
+
+def test_another_agent_gets_the_server_and_its_own_settings_and_no_name():
+    setup = _setup("other")
+    assert (setup["kind"], setup["argv"], setup["display"], setup.get("config")) == ("prompt", [], [], None)
+    assert setup["title"] == "Connect another agent" and setup["note"]
+    prompt = setup["prompt"]
+    assert len(prompt) <= agent_wiring.PROMPT_MAX_CHARS, len(prompt)
+    assert prompt.startswith("Please connect Cicada, the memory app on this Mac, to yourself.")
+    assert "MCP server named cicada" in prompt and "your own MCP settings" in prompt
+    assert f"command: {PY}\nargument: {REPO}/mcp/server.py\nenvironment: CICADA_MEMORY_PATH={MEM}" in prompt
+    assert "change nothing else" in prompt and "uploads nothing" in prompt and "one sentence" in prompt
+    assert "don't guess" in prompt
+    for product in ("Claude", "Codex", "Cursor", "Gemini", "OpenCode", "Hermes", "OpenClaw", "Windsurf"):
+        assert product not in prompt, product                           # provider-neutral: the person's choice
+
+
+def test_every_prompt_names_a_long_checkout_whole():
+    """Commands and paths are never shortened (R4B-11): a 60-character checkout still fits."""
+    repo = Path("/opt/example-person-with-a-long-name/Documents/code/cicada-x")
+    py = f"{repo}/api/.venv/bin/python"
+    for harness in ("claude-code", "codex", "gemini-cli", "cursor", "opencode", "hermes", "openclaw", "other"):
+        setup = agent_wiring.setup(harness, home=HOME, memory_root=repo / "memory", repo=repo, python=py,
+                                   resolve=BINARIES.get)
+        assert len(setup["prompt"]) <= agent_wiring.PROMPT_MAX_CHARS, (harness, len(setup["prompt"]))
+        assert py in setup["prompt"] and f"{repo}/memory" in setup["prompt"], harness
+
+
+@pytest.mark.parametrize("harness", ["claude-code", "codex", "gemini-cli", "cursor", "opencode", "hermes",
+                                     "openclaw", "other"])
+def test_a_release_app_s_prompt_names_its_launcher_and_no_checkout(monkeypatch, harness):
+    """G182: a release app has no venv and no `mcp/server.py`; the MCP command is the
+    argument-less `~/.cicada/bin/cicada-mcp` launcher. The config prompts used to
+    index the first argument and failed for OpenCode, Hermes and OpenClaw."""
+    home = Path("/Users/example-person")
+    monkeypatch.setenv("CICADA_DISTRIBUTION", "release")
+    monkeypatch.setenv("CICADA_HOME", str(home / ".cicada"))
+    launcher = f"{home}/.cicada/bin/cicada-mcp"
+    setup = agent_wiring.setup(harness, home=home, memory_root=home / "cicada" / "memory",
+                               repo=Path("/Applications/Cicada.app/Contents/Resources/backend/app"),
+                               python=None, resolve=BINARIES.get)
+    prompt = setup["prompt"]
+    assert len(prompt) <= agent_wiring.PROMPT_MAX_CHARS, len(prompt)
+    assert launcher in prompt and f"CICADA_MEMORY_PATH={home}/cicada/memory" in prompt
+    assert ".venv" not in prompt and "server.py" not in prompt and "Cicada.app" not in prompt
+    if harness in ("claude-code", "codex", "gemini-cli"):
+        assert _numbered(prompt)[0].endswith(f"-- {launcher}" if harness != "gemini-cli" else f"cicada {launcher}")
+    else:
+        assert f"command: {launcher}\nenvironment: CICADA_MEMORY_PATH=" in prompt   # no `argument:` line
+
+
+def test_release_config_values_carry_no_arguments(monkeypatch):
+    monkeypatch.setenv("CICADA_DISTRIBUTION", "release")
+    monkeypatch.setenv("CICADA_HOME", "/Users/example-person/.cicada")
+    setup = agent_wiring.setup("opencode", home=HOME, memory_root=MEM, repo=REPO, python=PY)
+    assert setup["config"]["value"]["command"] == ["/Users/example-person/.cicada/bin/cicada-mcp"]

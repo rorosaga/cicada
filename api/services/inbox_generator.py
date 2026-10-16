@@ -1,13 +1,14 @@
 """Stage 5: Inbox Generation, Clarification Queue & Versioning."""
 
+import asyncio
 from datetime import date
 from pathlib import Path
 
 import yaml
+from loguru import logger
 
-from api.services import decay_policy, inbox_questions, markdown_parser, predicates
+from api.services import inbox_questions, markdown_parser, predicates
 from api.services.conflict_resolver import apply_changes
-from api.services.id_utils import sanitize_id
 
 # Options with no claim behind them (the synthetic "both"/"neither" rows) always
 # sort last, so a merged-in competing value lands among the real answers.
@@ -109,6 +110,58 @@ def _open_decay_items(inbox_dir: Path) -> dict[str, Path]:
             continue
         out.setdefault(str(fm.get("entity_id", "") or ""), filepath)
     return out
+
+
+def _open_fold_items(inbox_dir: Path) -> dict[tuple[str, str], Path]:
+    """``{(raw_slug, canonical): oldest open normalization item}`` — one scan.
+
+    G98/G115: a fold is one question per pair per bank, whichever page or claim
+    raised it, so the key is the pair (:func:`predicates.fold_key`), never the
+    entity. A deferred item is still open."""
+    out: dict[tuple[str, str], Path] = {}
+    for filepath in sorted(inbox_dir.glob("inbox-*.md")):
+        try:
+            fm = markdown_parser.parse(filepath).frontmatter
+        except Exception:
+            continue
+        if str(fm.get("kind", "")) != "normalization":
+            continue
+        if str(fm.get("status", "pending") or "pending") != "pending":
+            continue
+        key = predicates.fold_key(str(fm.get("raw_predicate") or ""), str(fm.get("canonical_predicate") or ""))
+        if key[0] and key[1]:
+            out.setdefault(key, filepath)
+    return out
+
+
+def fold_claims(fm: dict) -> list[tuple[str, str]]:
+    """Every ``(entity_id, claim_id)`` a normalization item covers: the claim
+    that opened it, then the ones later batches folded the same way
+    (``covered_claims``), in order, no repeats. A "wrong fold" answer repoints
+    all of them (:func:`inbox_service._resolve_normalization`)."""
+    out: list[tuple[str, str]] = []
+    rows = [{"entity_id": fm.get("entity_id"), "claim_id": fm.get("claim_id")},
+            *[r for r in (fm.get("covered_claims") or []) if isinstance(r, dict)]]
+    for row in rows:
+        pair = (str(row.get("entity_id") or "").strip(), str(row.get("claim_id") or "").strip())
+        if pair[0] and pair[1] and pair not in out:
+            out.append(pair)
+    return out
+
+
+def _cover_fold(path: Path, refs: list[tuple[str, str]], today: str) -> None:
+    """Record more claims folded by an already-open pair, instead of a new item."""
+    parsed = markdown_parser.parse(path)
+    fm = parsed.frontmatter
+    have = fold_claims(fm)
+    fresh = [r for r in refs if r not in have]
+    if not fresh:
+        return
+    covered = [r for r in (fm.get("covered_claims") or []) if isinstance(r, dict)]
+    covered += [{"entity_id": e, "claim_id": c} for e, c in fresh]
+    fm["covered_claims"] = covered
+    fm["updated_date"] = today
+    markdown_parser.write(path, fm, parsed.body)
 
 
 def decay_claim_ids(fm: dict) -> list[str]:
@@ -249,7 +302,23 @@ async def generate(
     relationships: list[dict] | None = None,
     decay_budget: DecayBudget | None = None,
 ) -> None:
+    """Stage 5's page writes, in a worker thread: every line below is file I/O and YAML over the
+    pages a batch touched (the whole bank in a drain's decay batch), and on the event loop it froze
+    every request — ``GET /sleep/status`` included — for seconds per batch."""
+    await asyncio.to_thread(_generate_sync, changes, skills, memory_path, relationships, decay_budget)
+
+
+def _generate_sync(
+    changes: list[dict],
+    skills: list[dict],
+    memory_path: Path,
+    relationships: list[dict] | None = None,
+    decay_budget: DecayBudget | None = None,
+) -> None:
     """Generate inbox items, apply entity changes, persist relationships.
+
+    ``skills`` are Stage 4's GROUNDED changes (``skill_grounding.ground``): written by the same
+    ``apply_changes`` as every other page, with a ``draws on`` edge to each evidence page (G112).
 
     A ``decay_nudge`` is deduplicated against the OPEN decay items — an entity
     that already has one is refreshed, not asked about again — and new ones
@@ -261,8 +330,11 @@ async def generate(
     entities_dir = memory_path / "entities"
     inbox_dir.mkdir(parents=True, exist_ok=True)
 
-    # Apply entity file changes (create, update, archive, decay)
-    apply_changes(changes, memory_path)
+    # Apply entity file changes (create, update, archive, decay), the grounded skills last
+    apply_changes([*changes, *skills], memory_path)
+    if skills:
+        from api.services import skill_grounding
+        relationships = [*(relationships or []), *skill_grounding.edges(skills)]
 
     # Persist relationships to graph_edges.yaml (merge with existing)
     if relationships:
@@ -360,30 +432,6 @@ async def generate(
     # An entity a lower-confidence sibling nudge already opened is not deferred.
     budget.deferred |= {e for e in turned_away if e not in open_decay}
 
-    # Create skill entities — sanitize_id keeps skills in lockstep with the
-    # entity path so names like "AI/ML project framing" don't try to write to
-    # a non-existent `ai/` subdirectory and crash Stage 5.
-    for skill in skills:
-        skill_id = sanitize_id(skill["name"])
-        skill_path = entities_dir / f"{skill_id}.md"
-        if not skill_path.exists():
-            frontmatter = {
-                "name": skill["name"],
-                "type": "skill",
-                "status": "active",
-                "confidence": skill.get("confidence", 0.5),
-                "created": str(date.today()),
-                "last_referenced": str(date.today()),
-                **decay_policy.frontmatter_fields(
-                    decay_policy.default_class_for("skill")
-                ),
-                "source_episodes": [],
-                "tags": [],
-                "related": [],
-                "version": 1,
-            }
-            markdown_parser.write(skill_path, frontmatter, skill.get("description", ""))
-
 
 def write_claim_nudges(
     nudges: list[dict], memory_path: Path, decay_budget: DecayBudget | None = None
@@ -399,12 +447,20 @@ def write_claim_nudges(
     inbox item, **reusing the same ``inbox-NNN`` allocator** so it never collides
     with the legacy entity-path nudges written earlier in the same Stage 5.
 
-    Returns ``{"written": n, "merged": m, "skipped_multi_valued": s}`` —
+    Returns ``{"written": n, "merged": m, "skipped_multi_valued": s,
+    "skipped_confirmed_folds": f}`` —
     ``written`` counts inbox items newly created, ``merged`` counts conflict
     nudges folded into an already-open item on the same ``(entity, predicate)``
-    key instead of spawning a duplicate, and ``skipped_multi_valued`` counts
-    conflict nudges dropped by the G98 rule below. A subject without an entity
+    key (and fold nudges recorded on the open question for their pair) instead
+    of spawning a duplicate, ``skipped_multi_valued`` counts conflict nudges
+    dropped by the G98 rule below, and ``skipped_confirmed_folds`` counts fold
+    nudges for a pair the person already confirmed. A subject without an entity
     page still gets a nudge (the page may be promoted next cycle).
+
+    **A predicate fold is deduplicated by pair (G98/G115).** One question per
+    ``(raw -> canonical)`` pair per bank: a later claim folded the same way is
+    added to the open item's ``covered_claims``, and a pair the person confirmed
+    (``_predicates.yaml`` ``confirmed_folds``) writes nothing.
 
     **Decay is deduplicated by entity.** A ``decay_nudge`` is one question about
     the page ("Still tracking X?"), however many of its claims are fading, and
@@ -417,7 +473,7 @@ def write_claim_nudges(
     """
     budget = decay_budget if decay_budget is not None else DecayBudget()
     if not nudges:
-        return {"written": 0, "merged": 0, "skipped_multi_valued": 0}
+        return {"written": 0, "merged": 0, "skipped_multi_valued": 0, "skipped_confirmed_folds": 0}
     inbox_dir = memory_path / "inbox"
     entities_dir = memory_path / "entities"
     inbox_dir.mkdir(parents=True, exist_ok=True)
@@ -430,6 +486,10 @@ def write_claim_nudges(
         n.get("action") == "decay_nudge" for n in nudges
     ) else {}
     admitted = _admit_decay(nudges, open_decay, budget)
+    has_folds = any(n.get("action") == "normalization_audit" for n in nudges)
+    open_folds = _open_fold_items(inbox_dir) if has_folds else {}
+    confirmed = predicates.confirmed_folds(memory_path) if has_folds else {}
+    skipped_confirmed = 0
     turned_away: set[str] = set()
     lowest: dict[str, float] = {}   # entity -> lowest confidence seen this call
     today = str(date.today())
@@ -472,6 +532,22 @@ def write_claim_nudges(
             kind, priority, required = "divergence", 0.5, "choice"
             title = f"I'm reading something different about {entity_name}"
         elif action == "normalization_audit":
+            # G98/G115: one question per (raw -> canonical) pair per bank. A pair
+            # the person confirmed is never asked again; a pair with an open
+            # question gains this claim on it (merged), never a second file.
+            fold = predicates.fold_key(
+                str(nudge.get("raw_predicate") or ""), str(nudge.get("canonical_predicate") or "")
+            )
+            known = bool(fold[0] and fold[1])  # a legacy nudge may carry no pair
+            if known and fold[0] == fold[1]:
+                continue
+            if known and confirmed.get(fold[0]) == fold[1]:
+                skipped_confirmed += 1
+                continue
+            if known and fold in open_folds:
+                _cover_fold(open_folds[fold], fold_claims({**nudge, "entity_id": entity_id}), today)
+                merged += 1
+                continue
             kind, priority, required = "normalization", 0.3, "choice"
             title = f"Confirm a predicate fold for {entity_name}"
         elif action == "decay_nudge":
@@ -524,6 +600,12 @@ def write_claim_nudges(
             "raw_predicate": nudge.get("raw_predicate"),
             "canonical_predicate": nudge.get("canonical_predicate"),
         }
+        if kind == "normalization" and nudge.get("covered_claims"):
+            # G98/G115: the other claims Stage 3 kept under this fold, repointed too on "wrong fold".
+            frontmatter["covered_claims"] = [
+                {"entity_id": e, "claim_id": c}
+                for e, c in fold_claims({**nudge, "entity_id": entity_id})[1:]
+            ]
         body = nudge.get("conflict_context") or (
             f"{entity_name} hasn't been mentioned recently; confidence dropped to "
             f"{float(nudge.get('new_confidence', 0) or 0):.2f}."
@@ -535,41 +617,56 @@ def write_claim_nudges(
         if kind == "decay":
             open_decay[entity_id] = inbox_dir / f"{item_id}.md"
             budget.written += 1
+        elif kind == "normalization" and known:
+            open_folds[fold] = inbox_dir / f"{item_id}.md"
 
     budget.refreshed += decay_refreshed
     budget.deferred |= {e for e in turned_away if e not in open_decay}
-    return {"written": written, "merged": merged, "skipped_multi_valued": skipped_multi}
+    return {"written": written, "merged": merged, "skipped_multi_valued": skipped_multi,
+            "skipped_confirmed_folds": skipped_confirmed}
 
 
 def _write_graph_edges(memory_path: Path, new_edges: list[dict]) -> None:
-    """Merge new edges into graph_edges.yaml (dedup by source+target+label)."""
+    """Add Sleep's new edges (Stage 2's relationships, Stage 4's ``draws on``, 5.5's ``mentions``, 5.55's media
+    ``about``) to graph_edges.yaml. Every edge already in the file stays exactly as it is, every field and in order —
+    a claim-backed row's ``claim_id``, ``observer``, ``context``, ``valid_from`` included (Stage 5.7 owns those rows).
+    A new edge is added as ``{source, target, label}`` unless a bare edge (one with no ``claim_id``) of the same
+    source, target and label (case aside) is already there, or an earlier new edge was. Before 2026-10-14 this
+    rewrote the whole file as bare triples deduped by (source, target, label), so every Sleep write stripped the claim
+    rows (5.7 put them back) and left a bare copy of each behind for good."""
     edges_file = memory_path / "graph_edges.yaml"
 
-    existing_edges: list[dict] = []
+    data: dict = {}
     if edges_file.exists():
         try:
-            data = yaml.safe_load(edges_file.read_text(encoding="utf-8")) or {}
-            existing_edges = data.get("edges", [])
+            data = markdown_parser.load_yaml_file(edges_file) or {}
         except Exception:
-            existing_edges = []
+            # Unreadable: never overwritten with the new edges alone (that would drop every edge it holds).
+            logger.warning("graph_edges.yaml is unreadable; new edges not written")
+            return
+        if not isinstance(data, dict):
+            logger.warning("graph_edges.yaml is not a mapping; new edges not written")
+            return
+    existing_edges = list(data.get("edges") or [])
 
-    # Dedup by (source, target, label)
-    seen: set[tuple[str, str, str]] = set()
-    merged: list[dict] = []
-    for edge in existing_edges + new_edges:
-        key = (edge.get("source", ""), edge.get("target", ""), edge.get("label", "").lower())
-        if key not in seen:
-            seen.add(key)
-            merged.append({
-                "source": edge.get("source", ""),
-                "target": edge.get("target", ""),
-                "label": edge.get("label", "related to"),
-            })
+    def key(edge: dict) -> tuple[str, str, str]:
+        return (edge.get("source", ""), edge.get("target", ""), str(edge.get("label", "") or "").lower())
 
-    edges_file.write_text(
-        yaml.dump({"edges": merged}, default_flow_style=False, sort_keys=False),
-        encoding="utf-8",
-    )
+    seen = {key(e) for e in existing_edges if isinstance(e, dict) and not e.get("claim_id")}
+    added: list[dict] = []
+    for edge in new_edges:
+        if key(edge) in seen:
+            continue
+        seen.add(key(edge))
+        added.append({
+            "source": edge.get("source", ""),
+            "target": edge.get("target", ""),
+            "label": edge.get("label", "related to"),
+        })
+    if not added and edges_file.exists():
+        return
+    data["edges"] = existing_edges + added
+    markdown_parser.write_yaml(edges_file, data)
 
 
 def _update_related_fields(entities_dir: Path, relationships: list[dict]) -> None:
@@ -595,9 +692,10 @@ def _update_related_fields(entities_dir: Path, relationships: list[dict]) -> Non
 
 
 def _next_inbox_num(inbox_dir: Path) -> int:
-    """Next inbox number = max existing number + 1 (never count-based)."""
+    """Next inbox number = max existing number + 1 (never count-based), a settled question's included
+    (``inbox/settled/``, kept so its undo can return it under its number)."""
     max_num = 0
-    for filepath in inbox_dir.glob("inbox-*.md"):
+    for filepath in [*inbox_dir.glob("inbox-*.md"), *(inbox_dir / "settled").glob("inbox-*.md")]:
         try:
             max_num = max(max_num, int(filepath.stem.split("-")[-1]))
         except ValueError:

@@ -8,8 +8,10 @@ computes the merge's footprint before any write, refuses a merge whose
 footprint is dirty or cannot be put back exactly, commits only the merge's own
 changed paths (``cicada``), and puts a failed merge's footprint back as it was
 found; one that cannot be put back stops the sweep (``recovery_failed``).
-``may_write`` is asked before every judge call and again under each lock: once
-Sleep's write window opens, the sweep stops (``stopped_for_sleep``)."""
+``may_write`` is asked before every judge call and again once the merge holds
+the bank's write admission (G183), which it keeps through its commit: once
+Sleep's write window opens, the sweep stops (``stopped_for_sleep``), and a
+window never opens mid-merge."""
 from __future__ import annotations
 import logging
 import os
@@ -19,7 +21,8 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import Callable
-from api.services import entity_merge, git_service, markdown_parser, merge_rejections, page_lock, telemetry
+from api.services import (claims_ledger, entity_merge, git_service, markdown_parser, merge_rejections, page_lock,
+                          telemetry, write_admission)
 from api.services.entity_merge import merge_entities
 
 logger = logging.getLogger(__name__)
@@ -231,30 +234,33 @@ def _merge_and_commit(memory_path: Path, loser: str, winner: str, engine: str | 
     wrote outside its footprint, a failed put-back, or a HEAD that moved inside
     the transaction raises :class:`RecoveryFailed`.
 
-    ``may_write`` is re-asked once the page lock and again once the git lock is
-    held (``STOPPED``). Sleep's window transition takes neither lock (its
-    commits do take the git write lock), so admission is not atomic — disclosed in ``docs/architecture/storage.md``, "Residual race"."""
+    The whole transaction holds the bank's write admission (G183), taken first
+    (admission → page → git): ``may_write`` is asked once it is held
+    (``STOPPED``), and a Sleep window cannot open until the merge has committed
+    or been put back — Sleep sets its flag and then waits for this hold."""
     memory_path = Path(memory_path)
-    with page_lock.page_lock(memory_path):
+    with write_admission.shared(memory_path):
         if may_write is not None and not may_write():
             return STOPPED
-        if not (memory_path / ".git").exists():
-            merge_entities(memory_path, loser_id=loser, winner_id=winner)
-            return MERGED
-        with git_service.write_lock(memory_path):
-            if may_write is not None and not may_write():
-                return STOPPED
-            return _merge_transaction(memory_path, loser, winner, engine)
+        with page_lock.page_lock(memory_path):
+            if not (memory_path / ".git").exists():
+                merge_entities(memory_path, loser_id=loser, winner_id=winner)
+                return MERGED
+            with git_service.write_lock(memory_path):
+                return _merge_transaction(memory_path, loser, winner, engine)
 
 
 def _merge_transaction(memory_path: Path, loser: str, winner: str, engine: str | None) -> str:
     footprint = entity_merge.merge_footprint(memory_path, loser, winner)
-    index = _index_entries(memory_path, footprint)
-    if _unsafe(memory_path, footprint, index):
+    # Each footprint page's claims ledger, there or not (`claims_ledger`): a page write may create one, so it is
+    # snapshotted (absent) with its page and a put-back removes it — never left behind for the next writer to adopt.
+    guarded = claims_ledger.with_ledgers(memory_path, footprint)
+    index = _index_entries(memory_path, guarded)
+    if _unsafe(memory_path, guarded, index):
         return UNSAFE
-    if git_service.dirty_paths_sync(memory_path, *footprint):
+    if git_service.dirty_paths_sync(memory_path, *guarded):
         return DIRTY
-    found = {rel: _found(memory_path / rel, index.get(rel, [])) for rel in footprint}
+    found = {rel: _found(memory_path / rel, index.get(rel, [])) for rel in guarded}
     head = _head(memory_path)
     try:
         written = list(dict.fromkeys(
@@ -263,6 +269,7 @@ def _merge_transaction(memory_path: Path, loser: str, winner: str, engine: str |
         if outside:
             _recover(memory_path, found, head)
             raise RecoveryFailed(f"the merge wrote {len(outside)} path(s) outside its footprint")
+        written += [rel for rel in guarded if rel not in written and rel.endswith(claims_ledger.SUFFIX)]
         changed = [rel for rel in written if _read(memory_path / rel) != found[rel].data]
         git_service.commit_paths_sync(memory_path, commit_message(changed, loser, date.today(), engine), changed)
         return MERGED
@@ -367,6 +374,7 @@ def _put_back(path: Path, was: _Found) -> None:
 
 def _default_judge_fn(settings):  # pragma: no cover - needs a real model
     from api.services import json_parse
+    from api.services.claims import strip_claims_block
     from api.services.providers import resolve_llm_fn
     llm = resolve_llm_fn(settings, model=settings.effective_consolidation_model, stage="dedup")
 
@@ -375,7 +383,8 @@ def _default_judge_fn(settings):  # pragma: no cover - needs a real model
             "Are these two knowledge-graph entity pages the SAME real-world thing? "
             "Reply JSON {\"verdict\":\"same|different|unsure\",\"confidence\":0..1,"
             "\"winner\":\"<id to keep>\"}.\n\n"
-            f"PAGE A (id={a_id}):\n{a_body[:2500]}\n\nPAGE B (id={b_id}):\n{b_body[:2500]}"
+            f"PAGE A (id={a_id}):\n{strip_claims_block(a_body)[:2500]}\n\n"
+            f"PAGE B (id={b_id}):\n{strip_claims_block(b_body)[:2500]}"
         )
         resp = llm(messages=[{"role": "user", "content": prompt}],
                    response_format={"type": "json_object"})

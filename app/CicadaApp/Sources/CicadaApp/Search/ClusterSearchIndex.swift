@@ -17,8 +17,11 @@ struct ClusterSearchIndex {
         entries = entities.map { entity in
             var fields = [QuickMatch.Field(entity.name, weight: QuickMatch.Weight.name)]
             fields += entity.tags.map { QuickMatch.Field($0, weight: QuickMatch.Weight.keyword) }
-            if !entity.markdownContent.isEmpty {
-                fields.append(QuickMatch.Field(entity.markdownContent, weight: QuickMatch.Weight.body))
+            // The prose, never the ```claims fence (R-FX8): machine YAML is not what a person searches for, and on an
+            // owner-sized page it is 2.6 MB folded again after every opened card.
+            let prose = EntityProse.stripClaimsFence(entity.markdownContent)
+            if !prose.isEmpty {
+                fields.append(QuickMatch.Field(prose, weight: QuickMatch.Weight.body))
             }
             return Entry(entity: entity, fields: fields)
         }

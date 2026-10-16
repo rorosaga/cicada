@@ -15,15 +15,7 @@ extension Copy {
     static let appearanceSystem = "System"
     static let appearanceLight = "Light"
     static let appearanceDark = "Dark"
-    // Round-4 D4 (G144) — Settings → General → Scene: Home's painting by the clock, never by location.
-    static let scene = "Scene"
-    /// F-10 (R-HO16) — what the row controls; how Automatic works is the explainer under the row (`Copy+Scene`).
-    static let sceneDetail = "The meadow on Home and in setup"
-    static let sceneAutomatic = "Automatic"
-    // Round-4 T-Home (R-HO1) — F-10's words: Automatic · Day · Afternoon · Night.
-    static let sceneDay = "Day"
-    static let sceneAfternoon = "Afternoon"
-    static let sceneNight = "Night"
+    // Settings → General → Scene retired with the painted art (owner 2026-10-16): there is no painting left to pick.
     static let textSize = "Text size"
     static let textSizeDetail = "⌘+ and ⌘− do the same from any page."
     static let actualSize = "Actual size"
@@ -77,6 +69,30 @@ extension Copy {
         }
     }
     static let backgroundInstall = "Install"
+    // G180 — Settings → General → Command-line tool (ruling 21). Provider-neutral: agents, never a named one.
+    static let cliToolTitle = "Command-line tool"
+    static let cliToolInstall = "Install the command-line tool"
+    static let cliToolInstallHelp = "Adds one link, ~/.local/bin/cicada. No password needed."
+    static let cliToolPathLine = #"export PATH="$HOME/.local/bin:$PATH""#
+    static let cliToolWaitForLauncher = "Cicada writes its launcher each time it opens. Quit and open Cicada again, "
+        + "then install."
+    static let cliToolMoveApp = "Move Cicada to your Applications folder and open it from there first."
+    static let cliToolNoCheckoutLauncher = "This build's folder has no scripts/cicada to link."
+    static func cliToolDetail(_ state: CommandLineToolState) -> String {
+        switch state {
+        case .notInstalled:
+            "Lets agents that run shell commands use your memory as cicada. Adds one link, ~/.local/bin/cicada."
+        case .installed(onPath: true):
+            "Installed at ~/.local/bin/cicada. Agents can run cicada in a new terminal."
+        case .installed(onPath: false):
+            "Installed at ~/.local/bin/cicada, but your shell doesn't seem to look there. Add this line to your shell "
+                + "profile, then open a new terminal:"
+        case .elsewhere(let path): "~/.local/bin/cicada already points to \(path). Cicada left it alone."
+        case .blocked: "Something else is already at ~/.local/bin/cicada. Cicada left it alone."
+        case .unavailable(let why): why
+        case .failed(let why): "Couldn't add the link: \(why)"
+        }
+    }
     static let backgroundInstallHelp = "Runs the command below from your Cicada folder"
     static let backgroundNoPython = "Cicada's Python environment is missing — run the one-time install under Agents first."
     static let backgroundLaunchdRefused = "macOS wouldn't start the background service. The log in your Cicada folder says why."
@@ -125,10 +141,14 @@ extension Copy {
     }
     static let agentsOnThisMacGroup = "Agents on this Mac"
     static let agentsCloudTitle = "claude.ai, ChatGPT and your phone"
-    static let agentsCloudDetail = "Cloud apps can't start a program on your Mac, so they reach Cicada through a link. You can also bring web chats in from the Feed."
+    static let agentsCloudDetail = "Cloud apps can't start a program on your Mac, so they reach Cicada through a link. You can also bring web chats in with the + on the Sleep page."
 
     // MARK: Remembers automatically (G149) — plain words; no prices, no token counts (DR-59)
     static let autoRecallGroup = "Remembers automatically"
+    static let autoRecallMixedDetail = "Cicada offers context in supported chats. Each row shows when it applies."
+    static let autoRecallStartupOn = "On for new local chats."
+    static let autoRecallStartupOff = "Off for new local chats."
+    static let autoRecallStartupStale = "Startup context needs an update."
     static let autoRecallTitle = "Add what Cicada knows to your chats"
     static let autoRecallDetail = "Before your agent answers, Cicada adds a short note about the people and projects you mention, so it doesn't have to think to ask. It only reads your memory and never saves anything."
     static let autoRecallChecking = "Checking the agents on this Mac…"
@@ -234,7 +254,9 @@ extension Copy {
     static let memoryLocationTitle = "Where your memory lives"
     static let showInFinder = "Show in Finder"
     static let banksTitle = "Memory banks"
-    static let banksDetail = "Each bank is its own memory, with its own history. Switch or copy one from the Graph page."
+    /// DR-24 — the one bank selector is the search bar's menu; the Graph page lost it (QA 2026-10-16).
+    static let banksDetail = "Each bank is its own memory, with its own history. Switch or copy one from the bank "
+        + "menu in the search bar."
     static let bankExportTitle = "Export a bank"
     static let bankExportDetail = "A zip of the bank's pages and full history. You choose where it goes."
     static let bankDeleteTitle = "Delete a bank"
@@ -247,8 +269,9 @@ extension Copy {
     static let telemetryOn = "On — ids and counts only, never your words."
     static let telemetryOff = "Off."
     /// Not "in api/.env" (final review): `telemetry.enabled()` reads only the
-    /// process environment, pydantic's env_file never reaches `os.environ`, and
-    /// the LaunchAgent does not load api/.env — that instruction kept recording.
+    /// process environment. Since 2026-10-13 a developer checkout's backend fills
+    /// its environment from api/.env (`api/settings_file.py`), but a release has
+    /// no such file, so the environment is the one instruction true for both.
     static let telemetryHow = "To turn it off, set CICADA_TELEMETRY=off in the backend's environment (its LaunchAgent) and restart it."
     static let reachingTheInternet = "Reaching the internet"
     static let outboundConnectorsTitle = "Nightly connector check"
@@ -288,9 +311,8 @@ extension Copy {
 
     // MARK: Memory
     static let memorySection = "Memory"
-    static let memorySubtitle = "How Cicada finds and tidies what it knows."
-    static let searchIndexTitle = "Search index"
-    static let rebuildNow = "Rebuild now"
+    /// Search & files took finding (owner, 2026-10-14): Memory keeps how Cicada tidies what it knows.
+    static let memorySubtitle = "How Cicada tidies what it knows."
     static let enrichLinksTitle = "Fetch link previews"
     static let enrichLinksDetail = "Reads each saved link's page — 4 seconds at most, never behind a login — and writes a short description with your engine."
     static let fetchNow = "Fetch now"
@@ -318,6 +340,8 @@ extension Copy {
     static let apiTokenOverridden = "Replaced by CICADA_API_TOKEN in the environment."
     static let envOverridesTitle = "Set in api/.env or the environment"
     static let envOverridesNone = "None — Cicada is using its own settings."
+    static let settingsFileTitle = "Settings file"
+    static let settingsFileNone = "None read — settings come from the environment and Cicada's defaults."
     static let backendNotAnswering = "Not answering."
     static func backendLine(version: String?, entities: Int?, episodes: Int?) -> String {
         var parts = ["Connected"]
@@ -335,7 +359,7 @@ extension Copy {
     static let recommendedGroup = "Recommended"
     static func reviewedOn(_ date: String) -> String { "Reviewed \(date)" }
     static let installedGroup = "Already installed"
-    static let skillsFootnote = "Cicada never runs a skill itself. Installing one runs your agent's own installer, after you say yes."
+    static let skillsFootnote = "Cicada never runs a skill itself. It installs one only after you've seen what's inside, fixed to that version, on the Skills page."
     static let agentsSkillTitle = "Cicada's skill for your agents"
     static let agentsSkillDetail = "Tells an agent when to look things up in Cicada and when to save."
     static let openSkills = "Open Skills"
@@ -350,7 +374,7 @@ extension Copy {
     static let showExactCommand = "Show the exact command"
     static let copyCommand = "Copy command"
     static let understandThirdParty = "I understand this installs someone else's code on this Mac."
-    static func installIn(_ agent: String) -> String { "Install in \(agent)…" }
+    static let installOnSkillsPage = "Install on the Skills page"
     static func installTitle(_ skill: String, _ agent: String) -> String { "Install \(skill) in \(agent)?" }
     static func installLead(_ agent: String) -> String {
         "This runs \(agent)'s own installer on this Mac. Cicada never runs the skill itself."

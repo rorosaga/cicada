@@ -33,11 +33,11 @@ def _git(repo, *args):
     return subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True, text=True).stdout
 
 
-def _item(memory, item_id=ITEM, *, entity="bob-example", predicate="works-at"):
+def _item(memory, item_id=ITEM, *, entity="bob-example", predicate="takes-place-in"):
     markdown_parser.write(memory / "inbox" / f"{item_id}.md", {
         "kind": "conflict", "required_input": "choice", "status": "pending", "priority": 0.8, "entity_id": entity,
-        "entity_name": "Bob Example", "title": "Where does Bob Example work now?",
-        "question": "Where does Bob Example work now?", "predicate": predicate, "created_date": "2026-09-01",
+        "entity_name": "Bob Example", "title": "Where does Bob Example take place?",
+        "question": "Where does Bob Example take place?", "predicate": predicate, "created_date": "2026-09-01",
         "allow_other": True, "allow_defer": True,
         "options": [{"key": "a", "label": "company-a", "last_referenced": "2026-01-01"},
                     {"key": "b", "label": "company-b", "last_referenced": "2026-02-01"}]}, "Conflicting beliefs.")
@@ -54,7 +54,7 @@ def setup(reading):
     server, memory = reading
     (memory / "inbox").mkdir(exist_ok=True)
     _item(memory)
-    fact_sources.add_source(memory, "bob-example", TEAM, predicate="works-at", added_by="user", kind="url")
+    fact_sources.add_source(memory, "bob-example", TEAM, predicate="takes-place-in", added_by="user", kind="url")
     _commit(memory)
     enable(sites=(SITE,))
     return server, memory
@@ -71,7 +71,7 @@ def test_a_users_source_for_a_pending_question_is_a_check_entry_only_on_an_allow
     server, memory = reading
     (memory / "inbox").mkdir(exist_ok=True)
     _item(memory)
-    fact_sources.add_source(memory, "bob-example", TEAM, predicate="works-at", added_by="user", kind="url")
+    fact_sources.add_source(memory, "bob-example", TEAM, predicate="takes-place-in", added_by="user", kind="url")
     _commit(memory)
     enable()
     assert _entries(memory) == [], "a site the person never allowed is never listed"
@@ -79,7 +79,7 @@ def test_a_users_source_for_a_pending_question_is_a_check_entry_only_on_an_allow
     enable(sites=(SITE,))
     (e,) = _entries(memory)
     assert (e.origin, e.url, e.item_id, e.entity_id, e.predicate, e.site) == (
-        "check", TEAM, ITEM, "bob-example", "works-at", SITE)
+        "check", TEAM, ITEM, "bob-example", "takes-place-in", SITE)
     reading_settings.update(agent_enabled_=False)
     assert _entries(memory) == [] and reading_queue.entries(memory) == [], "the master switch off dequeues at once"
 
@@ -111,11 +111,11 @@ def test_an_agent_added_source_on_the_owners_page_is_a_target_only_after_use_thi
     (memory / "inbox").mkdir(exist_ok=True)
     _entity(memory, "owner-example", type="person", owner=True, name="Owner Example")
     _item(memory, entity="owner-example")
-    fact_sources.add_source(memory, "owner-example", TEAM, predicate="works-at", added_by="claude-code", kind="url")
+    fact_sources.add_source(memory, "owner-example", TEAM, predicate="takes-place-in", added_by="claude-code", kind="url")
     _commit(memory)
     enable(sites=(SITE,))
     assert _entries(memory) == [], "an agent's source on the owner's page is not a check target (D2, R-AC9)"
-    fact_sources.add_source(memory, "owner-example", TEAM, predicate="works-at", added_by="user", accepted=True)
+    fact_sources.add_source(memory, "owner-example", TEAM, predicate="takes-place-in", added_by="user", accepted=True)
     _commit(memory)
     assert [e.url for e in _entries(memory)] == [TEAM]
 
@@ -123,7 +123,7 @@ def test_an_agent_added_source_on_the_owners_page_is_a_target_only_after_use_thi
 def test_an_agent_planted_source_on_an_unallowed_site_is_never_listed_nor_recordable(setup):
     server, memory = setup
     planted = "https://evil-labs.io/profile"
-    fact_sources.add_source(memory, "bob-example", planted, predicate="works-at", added_by="claude-code", kind="url")
+    fact_sources.add_source(memory, "bob-example", planted, predicate="takes-place-in", added_by="claude-code", kind="url")
     _commit(memory)
     assert planted not in [e.url for e in _entries(memory)]
     out = server.handle_tool("cicada_record_check", {"item_id": ITEM, "source": planted, "outcome": "supports",
@@ -158,7 +158,7 @@ def test_a_website_source_answers_a_page_level_question_and_a_verified_one_waive
 def test_the_least_recently_checked_source_comes_first_within_a_class(setup):
     server, memory = setup
     second = "https://team-labs.io/people"
-    fact_sources.add_source(memory, "bob-example", second, predicate="works-at", added_by="user", kind="url")
+    fact_sources.add_source(memory, "bob-example", second, predicate="takes-place-in", added_by="user", kind="url")
     _commit(memory)
     first_ref = [e.url for e in _entries(memory)]
     assert first_ref == [TEAM, second]
@@ -180,7 +180,7 @@ def test_the_least_recently_checked_source_comes_first_within_a_class(setup):
 def test_the_reading_queue_lists_a_check_with_its_question_and_names_the_record_tool_only_when_held(setup):
     server, memory = setup
     out = server.handle_tool("cicada_reading_queue", {})
-    assert f"{TEAM} (team-labs.io, a source to check for `{ITEM}`: Where does Bob Example work now?" in out
+    assert f"{TEAM} (team-labs.io, a source to check for `{ITEM}`: Where does Bob Example take place?" in out
     assert "cicada_record_check(item_id, source, outcome, option_key, quotes=[...], via)" in out
     assert "settles nothing" in out
     held = mcp_tools.ToolContext(memory_path=lambda: memory, session_id="ses_x", harness="claude-web", connector_id="ab12cd34",
@@ -191,7 +191,7 @@ def test_the_reading_queue_lists_a_check_with_its_question_and_names_the_record_
 
 def test_one_check_per_site_per_call_like_a_site_entry(setup):
     server, memory = setup
-    fact_sources.add_source(memory, "bob-example", "https://team-labs.io/people", predicate="works-at",
+    fact_sources.add_source(memory, "bob-example", "https://team-labs.io/people", predicate="takes-place-in",
                             added_by="user", kind="url")
     _commit(memory)
     out = server.handle_tool("cicada_reading_queue", {})
@@ -208,7 +208,7 @@ def test_the_hook_count_includes_checks(setup):
 def test_a_source_linked_to_its_own_page_names_it_in_the_entry_and_the_episode(setup):
     server, memory = setup
     _entity(memory, "media-team-page", type="media", name="Team page")
-    fact_sources.change_source(memory, "bob-example", TEAM, "works-at", actor="user", entity="media-team-page")
+    fact_sources.change_source(memory, "bob-example", TEAM, "takes-place-in", actor="user", entity="media-team-page")
     _commit(memory)
     (e,) = _entries(memory)
     assert e.linked_entity == "media-team-page"
@@ -227,7 +227,7 @@ def test_the_permissions_page_lists_a_site_only_sources_reach_with_how_many_ques
     server, memory = reading
     (memory / "inbox").mkdir(exist_ok=True)
     _item(memory)
-    fact_sources.add_source(memory, "bob-example", TEAM, predicate="works-at", added_by="user", kind="url")
+    fact_sources.add_source(memory, "bob-example", TEAM, predicate="takes-place-in", added_by="user", kind="url")
     _commit(memory)
     enable()
     rows = {r["site"]: r for r in reading_queue.site_rows(memory)}
@@ -359,10 +359,10 @@ def test_a_resolved_item_a_removed_source_or_a_revoked_site_revokes_recording_at
     enable()
     assert "not on the person's list" in _record(server)
     enable(sites=(SITE,))
-    fact_sources.change_source(memory, "bob-example", TEAM, "works-at", actor="user", action="remove")
+    fact_sources.change_source(memory, "bob-example", TEAM, "takes-place-in", actor="user", action="remove")
     bank_index.invalidate()
     assert "not on the person's list" in _record(server)
-    fact_sources.add_source(memory, "bob-example", TEAM, predicate="works-at", added_by="user", kind="url")
+    fact_sources.add_source(memory, "bob-example", TEAM, predicate="takes-place-in", added_by="user", kind="url")
     bank_index.invalidate()
     assert "Recorded your check" in _record(server)
     (memory / "inbox" / f"{ITEM}.md").unlink()
@@ -587,7 +587,7 @@ def test_the_candidate_memo_follows_the_inbox_and_the_sources(setup):
     server, memory = setup
     reading_queue._candidate_memo.clear()
     assert len(reading_queue._check_candidates(memory)) == 1
-    fact_sources.add_source(memory, "bob-example", "https://team-labs.io/people", predicate="works-at", added_by="user",
+    fact_sources.add_source(memory, "bob-example", "https://team-labs.io/people", predicate="takes-place-in", added_by="user",
                             kind="url")
     bank_index.invalidate()
     assert len(reading_queue._check_candidates(memory)) == 2, "a new source moves the stamp"

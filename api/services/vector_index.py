@@ -29,7 +29,7 @@ from typing import Callable
 import numpy as np
 from loguru import logger
 
-from api.services import markdown_parser
+from api.services import evidence, markdown_parser
 from api.services import pending_store as _store
 # G141 PJ-0b (R-HP1): the pending store is its own module now. These two names
 # stay importable from here — entity_resolver, link_recon and the tests use them.
@@ -59,6 +59,28 @@ QUERY_CACHE_TTL_S = 60.0
 QUERY_CACHE_SIZE = 16
 _QUERY_CACHE: "OrderedDict[tuple[str, str], tuple[float, np.ndarray]]" = OrderedDict()
 _QUERY_CACHE_LOCK = threading.Lock()
+
+# One writer per index file at a time (EmbeddingGemma 2, owner 2026-10-09): Sleep's syncs and the background
+# re-embed after a model change (``embedding_models``) both run in the backend process and both write tables;
+# each holds this for one table's diff → embed → write, so neither writes a table the other read a moment
+# before. Readers never take it (WAL serves them the last committed table).
+_WRITE_LOCKS: dict[str, threading.Lock] = {}
+_WRITE_LOCKS_GUARD = threading.Lock()
+#: How many texts one embed call takes while a stoppable sync runs (the re-embed checks between calls).
+STOPPABLE_CHUNK = 64
+
+
+class IndexSyncStopped(RuntimeError):
+    """A stoppable sync (the background re-embed) gave way — Sleep started. Nothing was written."""
+
+
+def _write_lock(db_path: Path) -> threading.Lock:
+    key = str(Path(db_path).expanduser().resolve())
+    with _WRITE_LOCKS_GUARD:
+        lock = _WRITE_LOCKS.get(key)
+        if lock is None:
+            lock = _WRITE_LOCKS[key] = threading.Lock()
+        return lock
 
 
 def clear_query_cache() -> None:
@@ -138,19 +160,31 @@ class SqliteVecIndexer:
         embed_fn: EmbedFn | None = None,
         model_name: str | None = None,
         db_path: Path | None = None,
+        defer_model_switch: bool = False,
+        should_stop: Callable[[], bool] | None = None,
+        entity_text: str | None = None,
     ):
         self.memory_path = Path(memory_path)
+        # What an entity's vector is made from (`ENTITY_TEXT_MODES`); None reads `entity_embed_text` from Settings.
+        self.entity_text = entity_text
         self.entities_dir = self.memory_path / "entities"
         self.episodes_dir = self.memory_path / "episodes"
         self.db_path = Path(db_path) if db_path else self.memory_path / INDEX_DB_FILE
         self.pending_store = self.memory_path / PENDING_STORE_FILE
         self._embed_fn = embed_fn
+        self._injected = embed_fn is not None
         # Recorded next to the vectors so a reindex knows what it built and can
         # detect a model swap (different model => different dim => full rebuild).
         self.model_name = model_name or ("unknown" if embed_fn else None)
         # What the last `index_*` call of each kind did: embedded / reused /
         # removed / rebuilt counts (Sleep's report and the tests read it).
         self.last_sync: dict[str, dict[str, int]] = {}
+        # Sleep's syncs pass ``defer_model_switch``: a table built with a model this Mac can still run keeps that
+        # model (synced incrementally with it) even when the bank's model changed — the re-embed into the new
+        # model is the background job's (``embedding_models.start_reindex_if_needed``), never Sleep's.
+        self.defer_model_switch = defer_model_switch
+        # The background re-embed passes ``should_stop``: it embeds in chunks and gives way when this says so.
+        self._should_stop = should_stop
 
     # ---------- embedding ----------
 
@@ -256,6 +290,7 @@ class SqliteVecIndexer:
         kind: str,
         rows: list[tuple[np.ndarray, str, dict]],
         keys: list[str] | None = None,
+        model: str | None = None,
     ) -> None:
         """(Re)create the vec + metadata tables for ``kind`` and load ``rows``.
 
@@ -265,11 +300,13 @@ class SqliteVecIndexer:
         the ``hash`` of the text that was embedded — what :meth:`_sync_kind`
         diffs against so the next cycle embeds only what changed.
         """
-        import sqlite_vec
-
         dim = int(rows[0][0].shape[0])
         vec_table = f"vec_{kind}"
         meta_table = f"meta_{kind}"
+        # One transaction from the DROP to the commit: Python's sqlite3 opens none before DDL, and without it a
+        # reader would find the table gone (or empty, at the new width) for as long as the rows take to write.
+        if not conn.in_transaction:
+            conn.execute("BEGIN IMMEDIATE")
         conn.execute(f"DROP TABLE IF EXISTS {vec_table}")
         conn.execute(f"DROP TABLE IF EXISTS {meta_table}")
         conn.execute(
@@ -284,7 +321,7 @@ class SqliteVecIndexer:
         for i, (embedding, text, metadata) in enumerate(rows, start=1):
             conn.execute(
                 f"INSERT INTO {vec_table}(rowid, embedding) VALUES (?, ?)",
-                (i, sqlite_vec.serialize_float32([float(x) for x in embedding])),
+                (i, _blob(embedding)),
             )
             conn.execute(
                 f"INSERT INTO {meta_table}(rowid, text, metadata, key, hash) "
@@ -292,13 +329,13 @@ class SqliteVecIndexer:
                 (i, text, json.dumps(metadata),
                  keys[i - 1] if keys is not None else str(i), _text_hash(text)),
             )
-        self._write_index_meta(conn, model=self.model_name or "unknown", dim=dim, kind=kind)
+        self._write_index_meta(conn, model=model or self.model_name or "unknown", dim=dim, kind=kind)
         conn.commit()
 
     # ---------- incremental sync ----------
 
     def _existing_rows(
-        self, conn: sqlite3.Connection, kind: str
+        self, conn: sqlite3.Connection, kind: str, model: str | None = None
     ) -> tuple[dict[str, tuple[int, str, str]], int] | None:
         """``({key: (rowid, hash, metadata_json)}, dim)`` of what ``kind`` holds,
         or ``None`` when it cannot be diffed and must be rebuilt in full: no
@@ -312,7 +349,7 @@ class SqliteVecIndexer:
             if not {"key", "hash"} <= cols:
                 return None
             kv = dict(conn.execute("SELECT key, value FROM index_meta").fetchall())
-            if kv.get(f"model:{kind}") != (self.model_name or "unknown"):
+            if kv.get(f"model:{kind}") != (model or self.model_name or "unknown"):
                 return None
             dim = int(kv.get(f"dim:{kind}", 0) or 0)
             rows = {
@@ -325,6 +362,57 @@ class SqliteVecIndexer:
         except sqlite3.OperationalError:
             return None
 
+    def _build_embedder(self, kind: str, recorded: str | None) -> tuple[EmbedFn, str]:
+        """The embed_fn — and the model it records — that builds ``kind``'s table.
+
+        An injected embedder, or the bank's build model (``embedding_models.build_model``). With
+        ``defer_model_switch`` (Sleep's syncs), a table whose recorded model differs from the bank's but still
+        runs on this Mac keeps it: the switch is the background re-embed's, so Sleep never spends minutes
+        re-embedding a whole bank, and recall keeps answering from the old table until the new one is written."""
+        build_fn = self._ensure_or_global()
+        model = self.model_name or "unknown"
+        injected = getattr(self, "_injected", False)
+        if (self.defer_model_switch and not injected and _named(recorded) and _named(model)
+                and recorded != model):
+            from api.services import embedding_models
+
+            if embedding_models.is_available(recorded) and embedding_models.reindexes_in_background(model):
+                from api.services.providers import resolve_embed_fn_for_model
+
+                embed_fn, _model = resolve_embed_fn_for_model(recorded)
+                return embed_fn, recorded
+        return build_fn, model
+
+    def _embed_documents(self, embed_fn: EmbedFn, texts: list[str], model: str | None = None) -> np.ndarray:
+        """Documents through ``embed_fn``; a stoppable sync embeds in chunks and gives way between them.
+
+        A long batch for an on-device ``model`` is embedded in a child process with that same model
+        (``embed_worker``): Core ML holds the GIL for every predict, and minutes of them in this process starved
+        the event loop. Everything else here — the chunks, the stop check, what is written — is unchanged."""
+        if not getattr(self, "_injected", False) and _named(model):
+            from api.services import embed_worker
+
+            if embed_worker.eligible(model):
+                embed_fn = embed_worker.documents(model, embed_fn)
+        if self._should_stop is None:
+            return self._checked(embed_fn(texts, is_query=False), len(texts))
+        parts: list[np.ndarray] = []
+        for start in range(0, len(texts), STOPPABLE_CHUNK):
+            if self._should_stop():
+                raise IndexSyncStopped("the index sync gave way")
+            chunk = texts[start : start + STOPPABLE_CHUNK]
+            parts.append(self._checked(embed_fn(chunk, is_query=False), len(chunk)))
+        if self._should_stop():
+            raise IndexSyncStopped("the index sync gave way")
+        return np.concatenate(parts, axis=0) if parts else np.zeros((0, 0), dtype=np.float32)
+
+    def _recorded_kind_model(self, conn: sqlite3.Connection, kind: str) -> str | None:
+        try:
+            row = conn.execute("SELECT value FROM index_meta WHERE key = ?", (f"model:{kind}",)).fetchone()
+        except sqlite3.OperationalError:
+            return None
+        return row[0] if row else None
+
     def _sync_kind(self, kind: str, staged: list[tuple[str, str, dict]]) -> dict[str, int]:
         """Bring ``kind``'s table in line with ``staged`` ``(key, text, metadata)``
         rows, embedding only the texts whose content hash is new or changed.
@@ -336,11 +424,12 @@ class SqliteVecIndexer:
         so a failed embed leaves the previous index exactly as it was. The
         index stays derived and disposable: dropping the file just costs one
         full build. Returns ``{"embedded", "reused", "removed", "rebuilt"}``.
+        One writer per index file at a time (``_write_lock``).
         """
-        import sqlite_vec
+        with _write_lock(self.db_path):
+            return self._sync_kind_locked(kind, staged)
 
-        # Resolves `model_name` for a production embedder before the diff.
-        self._ensure_or_global()
+    def _sync_kind_locked(self, kind: str, staged: list[tuple[str, str, dict]]) -> dict[str, int]:
         unique_keys: list[str] = []
         seen: dict[str, int] = {}
         for key, _text, _meta in staged:
@@ -350,21 +439,32 @@ class SqliteVecIndexer:
         hashes = [_text_hash(text) for _k, text, _m in staged]
         stats = {"embedded": 0, "reused": 0, "removed": 0, "rebuilt": 0}
 
+        # The bank's build model first: resolving it reads the index's stamp, which must not find a file this
+        # call has just created empty.
+        self._ensure_or_global()
         conn = self._connect()
         try:
-            existing = self._existing_rows(conn, kind)
+            # The model this table is built with, before the diff: the bank's, or — deferred — its own.
+            embed_fn, model = self._build_embedder(kind, self._recorded_kind_model(conn, kind))
+            existing = self._existing_rows(conn, kind, model)
             if not staged:
-                if existing is not None:
+                # Nothing to index: no table, whatever model the old one was built with (a table left behind
+                # under another model would read as a switch still to do).
+                try:
+                    present = conn.execute(f"SELECT count(*) FROM meta_{kind}").fetchone()[0]
+                except sqlite3.OperationalError:
+                    present = None
+                if present is not None:
                     conn.execute(f"DROP TABLE IF EXISTS vec_{kind}")
                     conn.execute(f"DROP TABLE IF EXISTS meta_{kind}")
                     conn.commit()
-                    stats["removed"] = len(existing[0])
+                    stats["removed"] = int(present)
                 return stats
 
             def full() -> dict[str, int]:
-                embeddings = self._embed([t for _k, t, _m in staged])
+                embeddings = self._embed_documents(embed_fn, [t for _k, t, _m in staged], model)
                 rows = [(embeddings[i], staged[i][1], staged[i][2]) for i in range(len(staged))]
-                self._rebuild_table(conn, kind, rows, keys=unique_keys)
+                self._rebuild_table(conn, kind, rows, keys=unique_keys, model=model)
                 stats.update(embedded=len(rows), rebuilt=1)
                 return stats
 
@@ -382,7 +482,7 @@ class SqliteVecIndexer:
             stats["reused"] = len(staged) - len(todo)
             if not todo and not gone and not meta_moved:
                 return stats
-            embeddings = self._embed([staged[i][1] for i in todo]) if todo else None
+            embeddings = self._embed_documents(embed_fn, [staged[i][1] for i in todo], model) if todo else None
             if embeddings is not None and dim and int(embeddings.shape[1]) != dim:
                 return full()  # same model name, different width: nothing is reusable
 
@@ -402,7 +502,7 @@ class SqliteVecIndexer:
                         rowid, next_rowid = next_rowid, next_rowid + 1
                     conn.execute(
                         f"INSERT INTO {vec_table}(rowid, embedding) VALUES (?, ?)",
-                        (rowid, sqlite_vec.serialize_float32([float(x) for x in embeddings[j]])),
+                        (rowid, _blob(embeddings[j])),
                     )
                     conn.execute(
                         f"INSERT INTO {meta_table}(rowid, text, metadata, key, hash) "
@@ -413,7 +513,7 @@ class SqliteVecIndexer:
                     conn.execute(f"UPDATE {meta_table} SET metadata = ? WHERE rowid = ?",
                                  (meta_json[i], rows_by_key[unique_keys[i]][0]))
                 self._write_index_meta(
-                    conn, model=self.model_name or "unknown",
+                    conn, model=model,
                     dim=int(embeddings.shape[1]) if embeddings is not None else dim, kind=kind,
                 )
                 conn.commit()
@@ -452,6 +552,28 @@ class SqliteVecIndexer:
         """The model ``kind``'s vectors were built with: its own ``model:<kind>``
         stamp, else the bank-wide one (an index written before per-kind stamps)."""
         return (self.index_info(kind) or {}).get("model")
+
+    def table_models(self) -> dict[str, str]:
+        """``{kind: model}`` for every vector table that exists — its own ``model:<kind>`` stamp, else the
+        bank-wide one (an index written before per-kind stamps). ``{}`` when unbuilt or unreadable."""
+        if not self.db_path.exists():
+            return {}
+        conn = self._connect()
+        try:
+            names = [r[0] for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'meta\\_%' ESCAPE '\\'")]
+            kv = dict(conn.execute("SELECT key, value FROM index_meta").fetchall())
+        except sqlite3.OperationalError:
+            return {}
+        finally:
+            conn.close()
+        out: dict[str, str] = {}
+        for name in names:
+            kind = name[len("meta_"):]
+            model = kv.get(f"model:{kind}") or kv.get("model")
+            if model:
+                out[kind] = model
+        return out
 
     def index_info(self, kind: str | None = None) -> dict:
         """Return ``{model, dim}`` recorded at build time, or ``{}`` if unbuilt.
@@ -492,8 +614,6 @@ class SqliteVecIndexer:
         *,
         qvec: np.ndarray | None = None,
     ) -> list[dict]:
-        import sqlite_vec
-
         vec_table = f"vec_{kind}"
         meta_table = f"meta_{kind}"
         if qvec is None:
@@ -507,7 +627,7 @@ class SqliteVecIndexer:
             f"SELECT v.rowid, v.distance, m.text, m.metadata "
             f"FROM {vec_table} v JOIN {meta_table} m ON m.rowid = v.rowid "
             f"WHERE v.embedding MATCH ? AND k = ? ORDER BY v.distance",
-            (sqlite_vec.serialize_float32([float(x) for x in qvec]), int(top_k)),
+            (_blob(qvec), int(top_k)),
         )
         results: list[dict] = []
         for _rowid, distance, text, metadata_json in cur.fetchall():
@@ -532,6 +652,7 @@ class SqliteVecIndexer:
         """
         if not self.entities_dir.exists():
             return 0
+        mode = entity_text_mode(self.entity_text)
         staged: list[tuple[str, str, dict]] = []
         for filepath in sorted(self.entities_dir.glob("*.md")):
             try:
@@ -539,7 +660,7 @@ class SqliteVecIndexer:
             except Exception:
                 continue
             fm = parsed.frontmatter or {}
-            text = _entity_embed_text(fm, parsed.body, filepath.stem)
+            text = _entity_embed_text(fm, parsed.body, filepath.stem, mode=mode)
             if not text:
                 continue
             staged.append((
@@ -621,7 +742,8 @@ class SqliteVecIndexer:
         partial model switch that is two embeds, never one in the wrong space.
         Same graceful degrade as :meth:`_search_kind`: a missing db, a missing
         table or a failed embed gives empty lists, never a raise. No
-        archived-tier or superseded filtering happens here — the caller ranks.
+        archived-tier filtering happens here — the caller ranks. Claim hits
+        are checked against their current markdown before they leave the index.
         """
         out: dict[str, list[dict]] = {kind: [] for kind in top_k_by_kind}
         if not top_k_by_kind or not self.db_path.exists():
@@ -640,6 +762,8 @@ class SqliteVecIndexer:
                     )
         finally:
             conn.close()
+        if "claims" in out:
+            out["claims"] = self._current_claim_hits(out["claims"])
         return out
 
     def _search_kind(self, kind: str, query: str, top_k: int) -> list[dict]:
@@ -673,10 +797,11 @@ class SqliteVecIndexer:
                 parsed = markdown_parser.parse(filepath)
             except Exception:
                 continue
-            body = parsed.body.strip()
+            fm = parsed.frontmatter or {}
+            # Gate B2: the dropped-middle marker (the episode's own record) is blanked before chunking.
+            body = evidence.mask_gaps(parsed.body, evidence.gap_ranges(fm, parsed.body)).strip()
             if not body:
                 continue
-            fm = parsed.frontmatter or {}
             base_meta = {
                 "episode_id": str(fm.get("id", filepath.stem)),
                 "source": str(fm.get("source", "unknown")),
@@ -726,8 +851,6 @@ class SqliteVecIndexer:
 
     def rebuild_pending_index(self) -> int:
         entries = self._load_pending()
-        if not entries:
-            return 0
         self._rebuild_pending_index(entries)
         return len(entries)
 
@@ -767,16 +890,28 @@ class SqliteVecIndexer:
         ]
         keep = [i for i, t in enumerate(texts) if t]
         if not keep:
+            # An empty store leaves no table behind: its rows would name entities no longer pending.
+            if self.db_path.exists():
+                with _write_lock(self.db_path):
+                    conn = self._connect()
+                    try:
+                        conn.execute("DROP TABLE IF EXISTS vec_pending")
+                        conn.execute("DROP TABLE IF EXISTS meta_pending")
+                        conn.commit()
+                    finally:
+                        conn.close()
             return
         texts = [texts[i] for i in keep]
         rows_meta = [rows_meta[i] for i in keep]
-        embeddings = self._embed(texts)
-        rows = [(embeddings[i], texts[i], rows_meta[i]) for i in range(len(texts))]
-        conn = self._connect()
-        try:
-            self._rebuild_table(conn, "pending", rows)
-        finally:
-            conn.close()
+        # Always rebuilt in full, so always with the bank's model (a few hundred short names, never a deferral).
+        with _write_lock(self.db_path):
+            embeddings = self._embed_documents(self._ensure_or_global(), texts, self.model_name)
+            rows = [(embeddings[i], texts[i], rows_meta[i]) for i in range(len(texts))]
+            conn = self._connect()
+            try:
+                self._rebuild_table(conn, "pending", rows)
+            finally:
+                conn.close()
 
     def search_pending(self, query: str, top_k: int = 5) -> list[dict]:
         return self._search_kind("pending", query, top_k)
@@ -796,7 +931,7 @@ class SqliteVecIndexer:
         post-filter/pivot axes (mirrors the ``claims``-kind metadata in the D2
         index spec).
         """
-        from api.services.claims import parse_claims
+        from api.services.claims import is_current, parse_claims
 
         if not self.entities_dir.exists():
             return 0
@@ -807,7 +942,7 @@ class SqliteVecIndexer:
             except Exception:
                 continue
             for claim in parse_claims(parsed.body):
-                if claim.valid_to is not None:
+                if not is_current(claim):
                     continue  # only currently-valid claims are indexed
                 text = (claim.text or "").strip()
                 if not text:
@@ -826,6 +961,8 @@ class SqliteVecIndexer:
                         "source_trust": claim.source_trust,
                         "confidence": float(claim.confidence),
                         "valid_from": claim.valid_from,
+                        "valid_to": claim.valid_to,
+                        "expected_end": claim.expected_end,
                         "superseded_by": claim.superseded_by,
                         "origin": claim.origin,
                         "file_path": str(filepath),
@@ -871,7 +1008,7 @@ class SqliteVecIndexer:
         finally:
             conn.close()
         filtered: list[dict] = []
-        for r in results:
+        for r in self._current_claim_hits(results):
             meta = r.get("metadata", {})
             if observer is not None and meta.get("observer") != observer:
                 continue
@@ -882,6 +1019,47 @@ class SqliteVecIndexer:
             filtered.append(r)
         return filtered[:top_k]
 
+    def _current_claim_hits(self, results: list[dict]) -> list[dict]:
+        """A derived vector can outlive a closure or edit; markdown decides now.
+
+        Read each candidate page once. Never follow an indexed absolute path
+        outside this bank, and never revive a deleted page from indexed text.
+        """
+        from api.services.claims import is_current, parse_claims
+        from api.services.id_utils import resolve_entity_file
+
+        pages: dict[Path, dict] = {}
+        out = []
+        for hit in results:
+            meta = hit.get("metadata") or {}
+            raw = meta.get("file_path")
+            page = (self.entities_dir / Path(raw).name if raw else
+                    resolve_entity_file(self.memory_path, str(meta.get("subject") or "")))
+            if page is None:
+                continue
+            if page not in pages:
+                try:
+                    parsed = markdown_parser.parse(page)
+                    pages[page] = ({} if parsed.frontmatter.get("status") == "dropped" else
+                                   {c.id: c for c in parse_claims(parsed.body)})
+                except Exception:
+                    pages[page] = {}
+            claim = pages[page].get(meta.get("claim_id"))
+            if claim is None or not is_current(claim):
+                continue
+            out.append({**hit, "text": claim.text,
+                        "metadata": {**meta, **claim.to_dict(), "claim_id": claim.id,
+                                     "file_path": str(page)}})
+        return out
+
+
+def _blob(vector) -> bytes:
+    """A vector as the raw float32 bytes sqlite-vec stores. ``tolist()`` converts in C: the per-element Python loop it
+    replaces was a GIL-held second per thousand-odd rows of a re-embed's write (byte-identical output)."""
+    import sqlite_vec
+
+    return sqlite_vec.serialize_float32(np.asarray(vector, dtype=np.float32).tolist())
+
 
 def _text_hash(text: str) -> str:
     """The identity of an embedded text: what a sync compares to decide whether
@@ -890,7 +1068,10 @@ def _text_hash(text: str) -> str:
 
 
 def _chunk_episode_body(body: str) -> list[str]:
-    """Split an episode body into overlapping passages for embedding."""
+    """Split an episode body into overlapping passages for embedding. The
+    caller blanks a gate-B2 gap marker first (``evidence.mask_gaps``), exactly
+    as the lexical index does, so a chunk still finds its passage and never
+    embeds Cicada's own line."""
     body = body.strip()
     if not body:
         return []
@@ -913,8 +1094,35 @@ def _chunk_episode_body(body: str) -> list[str]:
     return chunks
 
 
-def _entity_embed_text(fm: dict, body: str, stem: str) -> str:
+#: What an entity's vector can be made from (Settings ``entity_embed_text``): ``full`` — today's — or ``prose``.
+ENTITY_TEXT_MODES = ("full", "prose")
+#: ``prose``'s cap on the embedded text: ~2k tokens, past every local model's window (EmbeddingGemma reads the first
+#: 512 tokens) and well inside a hosted model's (OpenAI refuses past 8,191 tokens — the owner page's 5M characters
+#: could never be embedded there). The page's head is what is kept: name, type, aliases, then its prose.
+ENTITY_EMBED_MAX_CHARS = 8_000
+
+
+def entity_text_mode(explicit: str | None = None) -> str:
+    """``explicit`` when given, else the setting; anything unknown is today's ``full``."""
+    mode = explicit
+    if mode is None:
+        try:
+            from api.config import get_settings
+
+            mode = getattr(get_settings(), "entity_embed_text", "full")
+        except Exception:  # noqa: BLE001 — a settings read never stops an index build
+            mode = "full"
+    mode = str(mode or "full").strip().lower()
+    return mode if mode in ENTITY_TEXT_MODES else "full"
+
+
+def _entity_embed_text(fm: dict, body: str, stem: str, *, mode: str = "full") -> str:
     """Compose the text embedded for an entity.
+
+    ``mode="prose"`` (2026-10-16, behind the ``entity_embed_text`` setting): the claims fence is left out — every
+    claim has its own vector in the claims index, and on a page whose claims overflow into its ledger the fence is
+    nearly all of the text (the synthetic owner page: 5.0M characters) — and the result is capped at
+    :data:`ENTITY_EMBED_MAX_CHARS`.
 
     We embed **name + type + aliases + body** but deliberately exclude the
     free-form ``tags``: tags are highly repetitive across the graph (many
@@ -930,7 +1138,14 @@ def _entity_embed_text(fm: dict, body: str, stem: str) -> str:
     aliases = fm.get("aliases") or []
     if aliases:
         header.append("aka: " + ", ".join(str(a) for a in aliases))
-    return "\n".join(str(p) for p in [" ".join(header), body] if p).strip()
+    if mode == "prose":
+        from api.services import claims as claims_mod
+
+        body = claims_mod.served_prose(body or "")[0]
+    text = "\n".join(str(p) for p in [" ".join(header), body] if p).strip()
+    if mode == "prose" and len(text) > ENTITY_EMBED_MAX_CHARS:
+        text = text[:ENTITY_EMBED_MAX_CHARS].rstrip()
+    return text
 
 
 def _resolve_embed_fn(memory_path: Path | None = None) -> tuple[EmbedFn, str]:

@@ -43,7 +43,7 @@ struct ProjectsPage: View {
 
     var body: some View {
         let lines = ProjectsModel.lines(rows, tab: tab, query: findOpen ? query : "", today: today)
-        let people = ProjectsModel.peopleIndex(store.graph.value)
+        let people = store.projectPeople
         let openId = columns.openId
         ProgressiveColumns(hasDetail: openId != nil, hasTrailing: provenance.isPresented || trailing != nil,
                            navWidth: ShellMetrics.navWidth(labelled: labelledSidebar)) { plan in

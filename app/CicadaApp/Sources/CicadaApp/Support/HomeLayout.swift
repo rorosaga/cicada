@@ -7,17 +7,17 @@ import Foundation
 /// mock's column geometry (R-HS2, R-HS6), so the page's numbers are table-tested rather than eyeballed (`HomeLayoutTests`).
 enum HomeLayout {
     /// D-Home (R-HS2, R-HS6): one 760 pt column (DR-36), the field 640 pt inside it (the approved
-    /// mock; §10's 560 lost to it), the headline 8 / 20 pt off its neighbours, 24 pt between blocks,
+    /// mock; §10's 560 lost to it), the headline 24 / 20 pt off its neighbours, 24 pt between blocks,
     /// 6 pt from a label to its block, and 64 pt under the last one.
     static let columnWidth: CGFloat = 760
     static let fieldWidth: CGFloat = 640
-    static let headlineTop: CGFloat = 8
-    /// With the band off (G189(a)) the headline is the first content: it takes the room pages' title inset (24 pt,
-    /// `PageHeader`'s top), well inside DR-26's 120 pt.
-    static let headlineTopWithoutBand: CGFloat = 24
-    static func headlineTopInset(showsBand: Bool) -> CGFloat { showsBand ? headlineTop : headlineTopWithoutBand }
+    /// The headline is Home's first content (the painted band retired, owner 2026-10-16; off since G189(a)): it takes
+    /// the room pages' title inset (24 pt, `PageHeader`'s top), well inside DR-26's 120 pt.
+    static let headlineTop: CGFloat = 24
     static let headlineBottom: CGFloat = 20
     static let blockGap: CGFloat = 24
+    /// The field is a block like the rest (owner 2026-10-06): the first card sits one block gap under it.
+    static let fieldToFirstBlock: CGFloat = blockGap
     static let labelGap: CGFloat = 6
     static let bottomPadding: CGFloat = 64
     static let gutter: CGFloat = 40

@@ -9,6 +9,9 @@ from pydantic import BaseModel
 
 from api.config import Settings, get_settings
 from api.models.schemas import (
+    BookmarkLeft,
+    BookmarkRemoveRequest,
+    BookmarkRemoveResponse,
     BookmarkSyncRequest,
     BookmarkSyncResponse,
     BookmarkTreePreview,
@@ -21,6 +24,11 @@ from api.models.schemas import (
     SafariTabsPreview,
     SafariTabsSyncRequest,
     SafariTabsSyncResponse,
+    SavedWhyEditRequest,
+    SavedWhyOptions,
+    SavedWhyRecord,
+    SavedWhyRequest,
+    SavedWhyResponse,
     SourceChannel,
     SourceChannelsResponse,
     SourceListResponse,
@@ -35,10 +43,14 @@ from api.models.schemas import (
 )
 from api.services import (
     agent_commits,
+    bank_index,
+    bookmark_forget,
+    bookmark_seen,
     bookmark_sync,
     calendar_registry,
     channel_items,
     channel_registry,
+    entity_picture,
     feed_registry,
     media_ingestor,
     notes_sync,
@@ -49,13 +61,18 @@ from api.services import (
     reading_walls,
     safari_tabs,
     saved_at as saved_at_service,
+    saved_why,
+    site_captures,
     source_overview,
     sync_service,
     sync_state,
+    watch_history,
+    write_admission,
 )
 from api.services.connectors import ADAPTERS
 from api.services.media_ingestor import MAX_BATCH, RawItem
 from api.routers.capture import refuse_capture_into_demo
+from api.services.sleep_refusal import SleepWriting
 
 router = APIRouter()
 
@@ -118,9 +135,25 @@ async def save_source(
         harness=request.harness,
         project_dir=request.project_dir,
     )
-    idx = media_ingestor.load_url_index(memory_path)
+    # G183: the link's metadata is fetched with no admission held; the page, index and episode are written and
+    # committed inside the bank's write admission, and a save that finds Sleep holding the pages is refused (409)
+    # with nothing written — a page written inside the window could ride the batch commit under Sleep's author
+    # (fix round 2). The person saves again in a moment; the app shows the sentence.
     async with httpx.AsyncClient() as client:
-        result = await media_ingestor.ingest_one(item, memory_path, client, idx)
+        prepared = await media_ingestor.prepare_one(
+            item, memory_path, client, media_ingestor.load_url_index(memory_path))
+    return await write_admission.run_admitted(
+        memory_path, lambda: _write_saved_source(memory_path, item, prepared, request),
+        refuse=lambda: SleepWriting(SAVE_BUSY))
+
+
+#: A single save while Sleep holds the pages (G183 round 2).
+SAVE_BUSY = "Sleep is updating your memory — save the link again in a moment."
+
+
+async def _write_saved_source(memory_path, item, prepared, request) -> SourceSaveResponse:
+    idx = media_ingestor.load_url_index(memory_path)
+    result = media_ingestor.write_prepared(prepared, memory_path, idx)
     media_ingestor.save_url_index(memory_path, idx)
 
     if result.status == "created":
@@ -198,8 +231,10 @@ async def upload_sources(
     before they commit to it. Nothing is cached server-side — Confirm re-posts
     the same file without the flag.
 
-    ``?include_history=true`` opts a TikTok export's Browsing History in (default
-    off: ambient exhaust, not saves — G69).
+    ``?include_history=true`` opts watch and browsing history in (default off:
+    history is not a save — G69). Brought in, it never becomes saved links: its
+    rows go to ``watch_history`` (one episode per day of what was watched,
+    committed alone) and only the saves go on to ``media_ingestor``.
     """
     content = await file.read()
     filename = file.filename or ""
@@ -224,6 +259,9 @@ async def upload_sources(
             total=result.total,
             collections=[SourceUploadCollection(**c) for c in result.collections],
             warnings=result.warnings,
+            history_excluded=result.history_excluded,
+            history_videos=result.history_videos,
+            history_days=result.history_days,
         )
 
     logger.info(f"Sources upload: {filename} ({len(content)} bytes)")
@@ -237,13 +275,23 @@ async def upload_sources(
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"Could not parse {filename}: {e}")
 
-    if len(items) > MAX_BATCH:
+    # Read at call time (not the import-time name): a whole archive of likes
+    # runs past one batch and is imported MAX_BATCH at a time below.
+    cap = media_ingestor.MAX_UPLOAD_ITEMS
+    if len(items) > cap:
         raise HTTPException(
             status_code=413,
-            detail=f"{len(items)} items exceeds the {MAX_BATCH}-item batch cap",
+            detail=f"{len(items)} items exceeds the {cap}-item import cap",
         )
 
     memory_path = settings.memory_path
+    # History is experience, never a save (G71, 2026-10-16): its days are written first, alone.
+    items, history_rows = watch_history.split(items)
+    history_note = ""
+    if history_rows:
+        history = await watch_history.import_history(memory_path, history_rows, door="takeout",
+                                                     trigger="user/watch_history")
+        history_note = " " + watch_history.summary(history)
     idx = media_ingestor.load_url_index(memory_path)
     fresh, duplicates, backfilled = media_ingestor._dedup_items(items, idx)
     # G99d (Devin round 1, PR #26 finding 1): this router loads its OWN `idx`
@@ -259,7 +307,8 @@ async def upload_sources(
             status="ok",
             episodes_created=0,
             duplicates_skipped=duplicates,
-            message="Nothing new — every URL was already saved",
+            message=("Nothing new — every URL was already saved" if items or not history_rows
+                     else "No saved links in this file.") + history_note,
             source=source_label,
         )
 
@@ -270,7 +319,7 @@ async def upload_sources(
         message = f"Saved {created} item(s) from {source_label}"
     else:
         background_tasks.add_task(
-            media_ingestor.ingest_batch,
+            media_ingestor.ingest_chunked,
             fresh,
             memory_path,
             from_bookmark_file=from_bookmark_file,
@@ -285,7 +334,7 @@ async def upload_sources(
         status="ok",
         episodes_created=created,
         duplicates_skipped=duplicates,
-        message=message,
+        message=message + history_note,
         source=source_label,
     )
 
@@ -503,6 +552,172 @@ async def sync_bookmarks(
     return BookmarkSyncResponse(**result)
 
 
+@router.post("/sources/sync-bookmarks/fresh", response_model=BookmarkSyncResponse, dependencies=_DEMO_GATE)
+async def sync_bookmarks_fresh(
+    request: BookmarkSyncRequest, settings: Settings = Depends(get_settings),
+) -> BookmarkSyncResponse:
+    """G191 — the early look (``bookmark_sync.fresh_preview``): the bookmarks in these bytes this bank does not hold
+    yet, and whether each channel was ever synced, WITHOUT ingesting. The app asks why from this a moment after the
+    save; the real ``/sources/sync-bookmarks`` follows with the same bytes. Read-only, so it takes no lock and is never
+    a 409 for a sync in progress. 422 without bookmark data, for bad base64 or an unknown browser, as the sync."""
+    import base64
+
+    def decode(value: str | None, name: str) -> bytes | None:
+        if not value:
+            return None
+        try:
+            return base64.b64decode(value, validate=True)
+        except Exception:
+            raise HTTPException(status_code=422, detail=f"Invalid {name}")
+
+    chrome_data = decode(request.chrome_data_b64, "chromeDataB64")
+    safari_data = decode(request.safari_data_b64, "safariDataB64")
+    chromium: list[tuple[str, bytes]] = []
+    for entry in request.chromium or []:
+        browser = entry.browser.strip().lower()
+        if browser not in bookmark_sync.CHROMIUM_BROWSERS:
+            raise HTTPException(status_code=422, detail=f"Unknown browser {entry.browser!r}")
+        if (browser == "chrome" and chrome_data is not None) or any(b == browser for b, _ in chromium):
+            raise HTTPException(status_code=422, detail=f"{browser} was sent twice")
+        chromium.append((browser, decode(entry.data_b64, f"dataB64 for {browser}") or b""))
+    if chrome_data is None and safari_data is None and not chromium:
+        raise HTTPException(status_code=422, detail="Send chromeDataB64, safariDataB64 or chromium")
+    # Off the event loop: a real Safari plist is a CPU-bound parse (the preview's reason).
+    result = await run_in_threadpool(bookmark_sync.fresh_preview, settings.memory_path, chrome_data=chrome_data,
+                                     safari_data=safari_data, chromium=chromium)
+    return BookmarkSyncResponse(**result)
+
+
+#: G191 — an answer that finds Sleep holding the pages.
+SAVED_WHY_BUSY = "Sleep is updating your memory — your answer wasn't saved. Try again in a moment."
+
+
+@router.get("/sources/saved-why/options", response_model=SavedWhyOptions)
+async def saved_why_options(settings: Settings = Depends(get_settings)) -> SavedWhyOptions:
+    """G191 — the one-tap answers to "What made you save this?": the fixed reasons plus up to three of the person's
+    live projects (open backlog first, then the most recently mentioned). Deterministic — no model call."""
+    return SavedWhyOptions.model_validate(await run_in_threadpool(saved_why.options, settings.memory_path))
+
+
+@router.post("/sources/saved-why", response_model=SavedWhyResponse, dependencies=_DEMO_GATE)
+async def save_why(request: SavedWhyRequest, settings: Settings = Depends(get_settings)) -> SavedWhyResponse:
+    """G191 — the person's answer to "What made you save this?", attached to that link's episode.
+
+    The episode gains (or rewrites) its ``## Why it was saved`` section, scrubbed, with the time the answer was
+    given beside the time the browser says the bookmark was made, and is queued for Sleep again; its frontmatter
+    carries the structured answer (``saved_why``) that ``GET /sources`` serves as ``savedWhy``. 404 for a link that
+    is not saved, 422 for an answer that names nothing or something unknown, 409 in a demo bank or while Sleep holds
+    the pages. Committed alone, as the person (``Cicada-Author: user``). An optional ``at`` (review B1) is when the
+    person answered, as the app recorded it — an answer the app held through a 409 keeps its own time; 422 when it is
+    naive, in the future or more than a day old."""
+    memory_path = settings.memory_path
+    try:
+        answer = saved_why.validate(memory_path, reasons=request.reasons, project=request.project, text=request.text)
+        said_at = saved_why.client_at(request.at)
+        saved_why.find_episode(memory_path, request.url)
+    except saved_why.SavedWhyError as e:
+        raise HTTPException(status_code=e.status, detail=str(e))
+
+    async def write() -> dict:
+        result = await run_in_threadpool(saved_why.attach, memory_path, url=request.url, answer=answer, at=said_at,
+                                         added_at=request.added_at)
+        if result["changed"]:
+            from api.services import git_service
+
+            try:
+                await git_service.commit_paths(memory_path, saved_why.commit_message(result["episode_id"]),
+                                               [f"episodes/{result['episode_id']}.md"])
+            except Exception as e:  # noqa: BLE001 — a non-git bank (tests) keeps the answer
+                logger.warning(f"saved-why commit failed: {type(e).__name__}: {e}")
+        return result
+
+    try:
+        result = await write_admission.run_admitted(memory_path, write, refuse=lambda: SleepWriting(SAVED_WHY_BUSY))
+    except saved_why.SavedWhyError as e:
+        raise HTTPException(status_code=e.status, detail=str(e))
+    return _saved_why_response(result)
+
+
+def _saved_why_response(result: dict) -> SavedWhyResponse:
+    return SavedWhyResponse(episode_id=result["episode_id"], media_entity_id=result["media_entity_id"],
+                            saved_why=SavedWhyRecord.model_validate(result["saved_why"]),
+                            history=[SavedWhyRecord.model_validate(h) for h in result.get("history") or []])
+
+
+@router.put("/sources/saved-why", response_model=SavedWhyResponse, dependencies=_DEMO_GATE)
+async def edit_saved_why(request: SavedWhyEditRequest, settings: Settings = Depends(get_settings)) -> SavedWhyResponse:
+    """G191 v3 — the person changes one of a bookmark's answers (the one given at ``at``) from its page in the app, or
+    any client of this route. Its time and moment of saving are kept, ``editedAt`` says when it changed, every other
+    answer is untouched; the section is rewritten, scrubbed and queued for Sleep, committed alone as the person. 404
+    for a link not saved or no answer at ``at``; 422 for an empty or unknown answer; 409 in a demo bank or while Sleep
+    holds the pages."""
+    memory_path = settings.memory_path
+    try:
+        answer = saved_why.validate(memory_path, reasons=request.reasons, project=request.project, text=request.text,
+                                    editing=True)
+        saved_why.find_episode(memory_path, request.url)
+    except saved_why.SavedWhyError as e:
+        raise HTTPException(status_code=e.status, detail=str(e))
+
+    async def write() -> dict:
+        result = await run_in_threadpool(saved_why.edit, memory_path, url=request.url, at=request.at, answer=answer)
+        if result["changed"]:
+            from api.services import git_service
+
+            try:
+                await git_service.commit_paths(memory_path, saved_why.commit_message(result["episode_id"]),
+                                               [f"episodes/{result['episode_id']}.md"])
+            except Exception as e:  # noqa: BLE001 — a non-git bank (tests) keeps the answer
+                logger.warning(f"saved-why edit commit failed: {type(e).__name__}: {e}")
+        return result
+
+    try:
+        result = await write_admission.run_admitted(memory_path, write, refuse=lambda: SleepWriting(SAVED_WHY_BUSY))
+    except saved_why.SavedWhyError as e:
+        raise HTTPException(status_code=e.status, detail=str(e))
+    return _saved_why_response(result)
+
+
+#: G191 v3 — a removal that finds Sleep holding the pages.
+BOOKMARK_REMOVE_BUSY = "Sleep is updating your memory — the bookmark wasn't removed. Try again in a moment."
+
+
+@router.post("/sources/bookmarks/remove", response_model=BookmarkRemoveResponse, dependencies=_DEMO_GATE)
+async def remove_bookmark(request: BookmarkRemoveRequest,
+                          settings: Settings = Depends(get_settings)) -> BookmarkRemoveResponse:
+    """G191 v3 — forget a bookmark in Cicada on the person's click (the bookmark page's Remove, or any client of this
+    route): its media page is archived — never deleted — and its episode stamped ``source_deleted_at``, the tombstone
+    path; the person's answers stay. Committed alone as the person (trigger ``user/bookmark_remove``). The browser's
+    own bookmark is the app's to remove (the backend never opens a browser). A link saved again later comes back.
+    404 for a link Cicada does not hold, 422 for a URL that is not one, 409 in a demo bank or while Sleep holds the
+    pages. Idempotent: a second call changes nothing."""
+    memory_path = settings.memory_path
+    try:
+        saved_why.find_episode(memory_path, request.url)
+    except saved_why.SavedWhyError as e:
+        raise HTTPException(status_code=e.status, detail=str(e))
+
+    async def write() -> dict:
+        result = await run_in_threadpool(bookmark_forget.forget, memory_path, url=request.url)
+        if result["paths"]:
+            from api.services import git_service
+
+            try:
+                await git_service.commit_paths(memory_path, bookmark_forget.commit_message(result["paths"]),
+                                               result["paths"])
+            except Exception as e:  # noqa: BLE001 — a non-git bank (tests) keeps the change
+                logger.warning(f"bookmark remove commit failed: {type(e).__name__}: {e}")
+        return result
+
+    try:
+        result = await write_admission.run_admitted(memory_path, write,
+                                                    refuse=lambda: SleepWriting(BOOKMARK_REMOVE_BUSY))
+    except saved_why.SavedWhyError as e:
+        raise HTTPException(status_code=e.status, detail=str(e))
+    return BookmarkRemoveResponse(episode_id=result["episode_id"], media_entity_id=result["media_entity_id"],
+                                  status=result["status"])
+
+
 @router.post("/sources/sync-safari-tabs", response_model=None, dependencies=_DEMO_GATE)
 async def sync_safari_tabs(
     request: SafariTabsSyncRequest,
@@ -598,6 +813,68 @@ def _read_block(entry, fm_read, ask_rows, *, enabled: bool, allowed, wall=None, 
         return None
 
 
+def _saved_why_of(fm: dict) -> SavedWhyRecord | None:
+    """G191: the source record's ``savedWhy`` from its episode's frontmatter — never raises."""
+    try:
+        shaped = saved_why.wire(fm.get("saved_why"), added_at=str(fm.get("added_at") or "") or None)
+        return SavedWhyRecord.model_validate(shaped) if shaped is not None else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _saved_why_history_of(fm: dict) -> list[SavedWhyRecord]:
+    """G191 v3: every answer on the episode, oldest first — never raises."""
+    try:
+        records = saved_why.records_of(fm)
+        if len(records) < 2:   # one answer is `savedWhy` itself; the list repeats it only beside others
+            return []
+        return [SavedWhyRecord.model_validate(h) for h in
+                saved_why.history_wire(records, added_at=str(fm.get("added_at") or "") or None)]
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def _left_browser(left_by_hash: dict, raw_key: str, entry: dict) -> list[BookmarkLeft]:
+    """G191 v4 — the source record's ``leftBrowser``: each browser the link left, named, with since when. The seen-set
+    keys a link by the hash of the URL the browser holds, the index by its own key; both are looked up."""
+    marks = left_by_hash.get(str(raw_key)) or left_by_hash.get(media_ingestor.url_hash(str(entry.get("url") or ""))) or []
+    return [BookmarkLeft(browser=bookmark_sync.BROWSER_BY_CHANNEL.get(channel, channel), channel=channel, since=at)
+            for channel, at in marks]
+
+
+def _capture_thumbs(memory_path: Path) -> dict[str, str]:
+    """G191 v3: the newest capture thumbnail of every captured page, as its route (`/explore/captures/...`) — one
+    listing of `captures/` (only the pages someone explored have a folder), never a fetch. Never raises."""
+    out: dict[str, str] = {}
+    try:
+        root = Path(memory_path) / site_captures.CAPTURES_DIR
+        if not root.is_dir():
+            return out
+        for folder in root.iterdir():
+            if not folder.is_dir() or folder.name.startswith("_"):
+                continue
+            for cap in site_captures.list_captures(memory_path, folder.name):
+                thumb = cap.get("thumb") if isinstance(cap.get("thumb"), dict) else None
+                if thumb and site_captures.thumb_file(memory_path, thumb.get("file")) is not None:
+                    out[folder.name] = f"/explore/captures/{folder.name}/{cap['id']}/thumb"
+                    break
+    except Exception:  # noqa: BLE001
+        return out
+    return out
+
+
+#: The `/sources` payload's shape version, folded into its ETag: `saved-why-2` added `savedWhyHistory`,
+#: `lastSavedAt` and `captureThumb` (G191 v3); `saved-why-3` added `leftBrowser` (G191 v4) and the four reason labels;
+#: `device-1` added `device` (G181 phase 3: which of the person's devices posted the save).
+SHAPE = "device-1"
+
+
+def _device_of(fm: dict) -> str | None:
+    """G181 phase 3: the device id the save's episode records (``device_context``), or None for the server's own."""
+    value = fm.get("device")
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
 @router.get("/sources", response_model=SourceListResponse)
 async def list_sources(
     request: Request,
@@ -615,7 +892,11 @@ async def list_sources(
     # G166: the `reading` component (the ask store and the reading settings, both
     # outside the bank) is an ETag input, so an agent's outcome or a per-site
     # switch reaches the Feed's read state without a bank write.
-    etag = sync_service.etag_for(memory_path, "sources", "episodes", "entities", "reading", extra=sort)
+    # `SHAPE` moves the tag once when the payload gains a field (`preview`), so a client holding the older body
+    # re-reads it instead of keeping a 304'd copy without the field.
+    # G191 v3: `captures` too — a new site capture gives a bookmark row its thumbnail.
+    etag = sync_service.etag_for(memory_path, "sources", "episodes", "entities", "reading", "captures",
+                                 extra=f"{sort}|{SHAPE}")
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
     idx = media_ingestor.load_url_index(memory_path)
@@ -626,9 +907,14 @@ async def list_sources(
     except ValueError:
         ask_rows = {}
     reading_paused = reading_queue.paused_sites(list(ask_rows.values()))
+    # G191: the person's answer lives on the link's episode; one cached listing of `episodes/` answers every row.
+    episode_fm = {f.stem: f.frontmatter for f in bank_index.files(memory_path, "episodes")}
+    capture_thumbs = _capture_thumbs(memory_path)
+    # G191 v4: the links that left a browser ride the bookmark seen-set (`sources/`, already an input of the ETag).
+    left_by_hash = bookmark_seen.left_by_hash(memory_path)
 
     items = []
-    for entry in idx.values():
+    for raw_key, entry in idx.items():
         # R-LS14: a paper's second canonical URL is an alias of its first; one
         # paper is one Feed row.
         if isinstance(entry, dict) and entry.get("alias_of"):
@@ -650,6 +936,7 @@ async def list_sources(
         duration_s: int | None = None
         kind: str | None = None
         paper: PaperSummary | None = None
+        preview: str | None = None
         fm_read = None
         wall_page = None
         entity_path = Path(memory_path) / "entities" / f"{entity_id}.md"
@@ -664,6 +951,9 @@ async def list_sources(
                 # `except: pass` would otherwise drop them if relevance or
                 # `media` raised on an odd page.
                 description = _description_excerpt(parsed.body)
+                # The page's own picture as Cicada stores it (the person's upload, else the stored preview) — the
+                # row never loads a provider's URL itself.
+                preview = entity_picture.media_picture(entity_id, fm)
                 about = [str(r) for r in (fm.get("related") or []) if str(r).strip()]
                 # G124 R6 — the Sources page filters these items by source and
                 # groups them by folder/board/device, straight from the page.
@@ -744,8 +1034,15 @@ async def list_sources(
                 site=site,
                 channel=channel,
                 thumbnail=entry.get("thumbnail"),
+                preview=preview,
                 saved_at=entry.get("saved_at", ""),
                 content_saved_at=entry.get("content_saved_at"),
+                saved_why=_saved_why_of(episode_fm.get(str(entry.get("episode_id") or "")) or {}),
+                saved_why_history=_saved_why_history_of(episode_fm.get(str(entry.get("episode_id") or "")) or {}),
+                last_saved_at=saved_why.last_saved(episode_fm.get(str(entry.get("episode_id") or "")) or {}),
+                capture_thumb=capture_thumbs.get(entity_id),
+                left_browser=_left_browser(left_by_hash, raw_key, entry),
+                device=_device_of(episode_fm.get(str(entry.get("episode_id") or "")) or {}),
                 tags=tags,
                 status=status,
                 related_count=related_count,
@@ -781,6 +1078,37 @@ async def list_sources(
     else:
         items.sort(key=_recency_key, reverse=True)
     return SourceListResponse(items=items, total=len(items))
+
+
+@router.get("/sources/due")
+async def sources_due(settings: Settings = Depends(get_settings)):
+    """G61, ruling 26 — the tracked sources due a re-check, and who works each: ``cicada`` (a public page, read on the
+    Sleep tail) or ``agent`` (a login-walled page, or one that changed past what Cicada's own read can state — only the
+    person's own agent reads it). Listing costs nothing: no fetch, no model. An agent row says why it cannot be worked
+    yet (``waitingFor``: a Reading-the-web switch), else null."""
+    from api.services import source_refresh
+
+    memory_path = settings.memory_path
+    items = await asyncio.to_thread(source_refresh.due, memory_path) or []
+    totals = await asyncio.to_thread(source_refresh.tracked_count, memory_path)
+    paused = source_refresh.paused_sites(memory_path)
+    consent = source_refresh.Consent.load()
+    rows = []
+    for d in items:
+        row = d.to_dict()
+        waiting = source_refresh.agent_refusal(d, consent) if d.checker == source_refresh.AGENT else None
+        if waiting is None and d.checker == source_refresh.AGENT and d.site in paused:
+            waiting = f"{d.site} asked for a sign-in; paused for a week"
+        row["waitingFor"] = waiting
+        rows.append(row)
+    agent_rows = [r for r in rows if r["checker"] == source_refresh.AGENT]
+    return {
+        "counts": {"tracked": totals["tracked"], "dead": totals["dead"], "due": len(rows),
+                   "cicada": len(rows) - len(agent_rows), "agent": len(agent_rows),
+                   "agentReady": sum(1 for r in agent_rows if r["waitingFor"] is None)},
+        "items": rows[:200],
+        "total": len(rows),
+    }
 
 
 @router.get("/sources/overview", response_model=SourceOverviewResponse)

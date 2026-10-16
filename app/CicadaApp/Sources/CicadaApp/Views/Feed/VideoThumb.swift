@@ -1,10 +1,11 @@
 import SwiftUI
 
-/// G162 — a saved video's frame: the thumbnail the page already stores, with its length in a corner badge where the
-/// provider reported one, or the neutral play tile when the page stores no thumbnail (or it cannot load: offline,
-/// blocked). Only the stored URL is ever loaded — no thumbnail URL is derived from a video id (R-7, Track V).
+/// G162 — a saved video's frame: Cicada's stored copy of the video's picture (`MediaFeedItem.preview` — oEmbed's
+/// thumbnail, or YouTube's standard still for the id, fetched once by the backend), with its length in a corner badge
+/// where the provider reported one, or the neutral play tile when there is none (or it cannot load). The app never
+/// asks the provider itself (`StoredPreview`).
 struct VideoThumb: View {
-    let thumbnail: String?
+    let preview: String?
     let durationS: Int?
     let width: CGFloat
     let height: CGFloat
@@ -12,10 +13,8 @@ struct VideoThumb: View {
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
-            if let thumbnail, let url = URL(string: thumbnail), ["http", "https"].contains(url.scheme?.lowercased() ?? "") {
-                AsyncImage(url: url) { phase in
-                    if case .success(let image) = phase { image.resizable().scaledToFill() } else { playTile }
-                }
+            if StoredPreviewPath.loads(preview) {
+                StoredPreview(path: preview) { playTile }
             } else {
                 playTile
             }

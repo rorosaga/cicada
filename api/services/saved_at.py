@@ -112,6 +112,20 @@ def from_netscape_epoch(raw: object) -> str | None:
     return _epoch_seconds_to_iso_date(seconds)
 
 
+def from_unix_seconds(raw: object) -> str | None:
+    """A Unix-seconds ``timestamp`` (Meta's exports: Instagram's saved and liked
+    posts), as an int, a float or a numeric string. ``<= 0`` is unset."""
+    if raw is None or raw == "" or isinstance(raw, bool):
+        return None
+    try:
+        seconds = float(str(raw).strip())
+    except (TypeError, ValueError):
+        return None
+    if seconds <= 0:
+        return None
+    return _epoch_seconds_to_iso_date(seconds)
+
+
 def from_webkit_micros(raw: object) -> str | None:
     """Chrome bookmarks ``date_added`` — microseconds since 1601-01-01T00:00:00Z."""
     if raw is None or raw == "":
@@ -163,6 +177,75 @@ def from_tiktok(raw: object) -> str | None:
         except ValueError:
             continue
     return None
+
+
+# --- G191: the exact instant, beside the day ---------------------------------
+#
+# ``RawItem.added`` stays a bare day (G99d). A browser that records the moment a
+# bookmark was made (Chrome's ``date_added``, Safari's Reading List
+# ``DateAdded``) also yields ``RawItem.added_at``: that instant as aware UTC to
+# the second. It is what lets the app ask "what made you save this?" only about
+# a bookmark made in the last minutes, and what the record keeps so a later
+# reader knows WHEN the page was saved (a website changes; the day alone cannot
+# say whether the page someone explores later is the page that was saved).
+# Same contract as the day: never a guess, ``None`` outside the sane range.
+
+
+def _sane_instant(dt: datetime) -> str | None:
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    dt = dt.astimezone(timezone.utc).replace(microsecond=0)
+    now = datetime.now(timezone.utc)
+    if dt.year < _MIN_SANE_YEAR or dt > now + timedelta(days=1):
+        return None
+    return dt.isoformat()
+
+
+def instant_from_webkit_micros(raw: object) -> str | None:
+    """Chrome ``date_added`` -> aware-UTC ISO instant (seconds), or ``None``."""
+    if raw is None or raw == "" or isinstance(raw, bool):
+        return None
+    try:
+        micros = int(str(raw).strip())
+    except (TypeError, ValueError):
+        return None
+    try:
+        dt = datetime.fromtimestamp(micros / 1_000_000 - _WEBKIT_EPOCH_OFFSET_SECONDS, tz=timezone.utc)
+    except (OverflowError, OSError, ValueError):
+        return None
+    return _sane_instant(dt)
+
+
+def instant_from_plist_date(raw: object) -> str | None:
+    """Safari ``ReadingList.DateAdded`` -> aware-UTC ISO instant (seconds), or ``None``."""
+    if isinstance(raw, datetime):
+        return _sane_instant(raw)
+    if isinstance(raw, str) and raw.strip():
+        text = raw.strip()
+        if text.endswith("Z"):
+            text = text[:-1] + "+00:00"
+        try:
+            return _sane_instant(datetime.fromisoformat(text))
+        except ValueError:
+            return None
+    return None
+
+
+def validate_instant(value: str | None) -> str | None:
+    """The write-boundary guard for ``RawItem.added_at`` (the ``validate`` of the instant):
+    an aware ISO datetime passes through normalised to UTC seconds, anything else is ``None``."""
+    if not isinstance(value, str) or "T" not in value:
+        return None
+    text = value.strip()
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        dt = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        return None
+    return _sane_instant(dt)
 
 
 def validate(value: str | None) -> str | None:

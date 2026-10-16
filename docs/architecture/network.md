@@ -11,19 +11,58 @@ Three backend gates, and a separate app-side scenery gate below. They do **not**
   in-cycle pass (`sleep_cycle._link_summarizer`, G61 phase 2 S0) and the G102 tail backfill, both
   through `link_enrichment.default_fetch`, the rail's reference transport — **the site check** (G61 S3-b: the Sleep tail's
   `site_sources.verify` reads a proposed official site through `link_enrichment.fetch_identity`, which shares that
-  transport's `_stream_html`; a walled or platform host is never requested) — and paper details
-  (below). It is **opt-OUT** (on by default; `=off` disables it, which is what the test suite sets).
-  A user-initiated `sync_now`, `POST /maintenance/enrich-links`, `POST /maintenance/verify-sites`, every OAuth
+  transport's `_stream_html`; a walled or platform host is never requested) — **the source refresh** (G61, TODO ruling
+  26: `source_refresh.run_tail` re-reads the due tracked PUBLIC sources through `_stream_html`, at most 20 a night, one
+  per site, a walled or refused host never requested; it states only what the page says in schema.org JSON-LD, and a
+  404/410, a name or connection failure, a parking host or "for sale" title, or a landing on another site is a strike —
+  two a week apart mark the source dead) — **the web check** (TODO ruling 27: `web_lookup.run_tail` sends no request of
+  its own; the engine's search does, so the gate is asked before any engine call, and what reaches the search is only a
+  public subject's name plus at most one generic category word, every reported search held to it (the prompt's
+  local context, ruling 27a, is never searched) — `capture-and-sleep.md`) — and
+  paper details (below). It is **opt-OUT** (on by default; `=off` disables it, which is what the test suite sets).
+  A user-initiated `sync_now`, `POST /maintenance/enrich-links`, `POST /maintenance/verify-sites`, the person's
+  "check now" on one source (`POST /entities/{id}/sources/refresh`; a login-walled source is only marked asked for
+  their agent, never fetched), every OAuth
   `authorize_url`/`exchange_code` call and OpenRouter's sign-in key exchange (`openrouter.ai/api/v1/auth/keys`,
   R-AG10; the key lands only in `secrets.env`) are **never** gated by it — they always need the network to
   do what the user just asked.
 - **`CICADA_ALLOW_FEED_FETCH`** gates RSS/ICS polling and is **opt-IN** (`=1`). A fresh install's
   LaunchAgent plist sets it; `install.sh` never rewrites a plist behind a running backend, so an
   older plist needs the key added by hand.
-- **`CICADA_ALLOW_LOGO_FETCH=off`** disables logo fetching entirely. The test suite runs that way
+- **`CICADA_ALLOW_LOGO_FETCH=off`** disables logo fetching entirely, and media previews with it (below). The test suite runs that way
   and injects fetchers instead. It also gates the icons of the sites Settings, Reading the web, lists (G166): those
   come from the icon service only and the login-walled site is never contacted for its favicon (nor, since
   `fetch_logo` skips its first two rungs for a walled host, is a company or tool page's logo domain when it is one).
+  It also covers a person's public-profile photo, which has a second, narrower gate of its own:
+- **`CICADA_ALLOW_PERSON_PHOTO_FETCH=off`** (G159 amendment, owner 2026-10-09; on by default, off for the test suite)
+  stops every public-profile photo lookup for people while logos keep working. `person_photo` asks only when the app
+  loads `GET /entities/{id}/photo` for a `person` page whose picture would be that rung — never from `/graph`, never
+  from Sleep (a later warm-up would also sit behind `CICADA_ALLOW_CONNECTOR_FETCH`). **What leaves the Mac, exactly:**
+  for the owner's own page, `https://gravatar.com/avatar/<sha256>?s=256&d=404`, where `<sha256>` is the SHA-256 of the
+  owner's Settings email, trimmed and lowercased — the address itself never leaves the Mac and neither it nor the hash
+  is logged or stored; for any person whose page lists a GitHub profile link, `https://github.com/<username>.png?size=256`
+  with the username from that link. Nothing else: no name, no page text, no claim, no cookie or credential, a fixed
+  User-Agent, and (as with any request) the Mac's network address. Each request is `https` to the provider's own hosts
+  only (`gravatar.com` and its subdomains, `github.com`, `avatars.githubusercontent.com`), every redirect hop re-checked
+  against that list and `net_guard`, at most three; 4 s a request (all its hops) and 10 s for the whole ladder, out of
+  time being a transient miss; the body streamed and cut past 512 KB; kept only as a
+  PNG or JPEG of 16–1024 px by its bytes (SVG refused whatever its header). `d=404` makes "no photo" a 404, so no
+  default image is cached as a photo.
+- **`CICADA_ALLOW_PERSON_PHOTO_PROXY=on`** (owner 2026-10-09, **off by default**) is the ToS rail's one exception: a
+  person's photo through the unavatar.io avatar proxy, from an X or LinkedIn profile link already in the person page's
+  `sources:` (`https://x.com/<handle>` or twitter.com, one path segment; `https://www.linkedin.com/in/<slug>` — never a
+  post, a company page or a guess). LinkedIn needs a login, so the proxy scrapes on Cicada's behalf; the owner chose
+  that knowingly, and the person turns it on knowingly: each lookup tells a third party whom they know. It never runs
+  past the two gates above. **What leaves the Mac, exactly:** the handle or slug, to unavatar.io only —
+  `https://unavatar.io/x/<handle>?fallback=false` and `https://unavatar.io/linkedin/user:<slug>?fallback=false` — with
+  the same fixed User-Agent, no cookie, no credential, no name and no page text; and, as with any request, the Mac's
+  network address. Asked only after the email and GitHub rungs miss, X before LinkedIn. `fallback=false` is unavatar's
+  documented "404 when there is no avatar", so a default image is never cached as a photo. Every hop must stay on
+  `unavatar.io` (a redirect elsewhere is refused and remembered as a miss) and pass `net_guard`; the same 4 s, 512 KB
+  and raster-only rules. At most 25 lookups a UTC day across the install (the proxy's anonymous allowance per IP),
+  counted in `$CICADA_HOME/pictures/proxy_budget.json`, outside every bank, and spent only once a request has passed
+  the host and `net_guard` checks; a lookup over budget is a transient miss,
+  asked again the next day, never a cached one. With the gate off, an X or LinkedIn link is not an identifier at all.
 
 **The study room's weather has its own app gate (G176, owner 2026-10-02).** It is opt-out through the per-viewer scenery
 setting, not any backend environment variable: Settings → Sleep → The scenery → Local weather (default). Choosing
@@ -62,6 +101,41 @@ person chooses Cicada → Check for Updates…. The requests carry no cookies, t
 the app before anything is unzipped, and nothing reaches the backend. The tester's install line
 (`scripts/install-release.sh`) is the person's own command and fetches the same two files with `curl`.
 
+**litellm fetches nothing at import (2026-10-16).** `import litellm` used to request its model price-and-capability
+table from GitHub (5 s timeout, falling back to the copy it ships), on every process start and behind no gate. `api/__init__.py`
+forces `LITELLM_LOCAL_MODEL_COST_MAP=True` before any module can import litellm — the backend, the CLI, the MCP server and the
+test suite all import that package first — and the CLI bootstrap and the settings file treat the name as a control key no
+file can set. The table is the installed litellm's own, so prices and the key providers' tested defaults change only with
+a litellm upgrade. A model the table does not list still runs; on OpenRouter its cost is OpenRouter's own reported charge
+(`refs.cost_source: provider`, `storage.md`), elsewhere it is unknown (`None`) on the ledger, the Sleep page's cost lines
+and the Usage aggregates, never `$0` (ruling 12).
+
+**The Neural Engine search model's download (owner 2026-10-09).** EmbeddingGemma 2 (`api/services/model_fetch.py`) is
+fetched only when the person asks: *Turn on* beside *Understand what you mean* in Settings → Search & files, or the
+*Download* in the confirm a *Sharper* pick under its Advanced raises — a selection alone never downloads
+(`POST /embeddings/install` with `model`; the size is stated before the click from
+the pins, `downloadBytes`), `make embedding-model-gemma2`, or `install.sh` on macOS 15+ — never on a schedule, never by Sleep,
+never by the backend on its own. It reads one pinned revision of `FluidInference/embeddinggemma-2-coreml` from
+`huggingface.co/<repo>/resolve/<revision>/<path>` (redirects followed to Hugging Face's own storage), the seven files
+listed under `files` in `api/data/embeddinggemma-2.lock.json` and nothing else (never the audio encoder): about 585 MB, 30 s
+to connect, 60 s between bytes, three tries a file, no cookies, no token, no account, a fixed `Cicada (search model
+download)` user agent. Every file's size and sha256 are checked while it streams; one mismatch drops it and installs
+nothing. The files land in `$CICADA_HOME/models/embeddinggemma-2` (staged beside it and swapped in whole), never in a
+bank or the signed app; `NOTICE.txt` beside them carries the Apache 2.0 license and the Gemma Prohibited Use Policy.
+The URLs are Cicada's own pins, never one someone else chose, so this is not a `net_guard` fetch — like the update
+check and `scripts/fetch-embedding-model.sh`.
+
+**The image encoder is its own click (design taste, 2026-10-14).** The same pinned revision's `vision_files` — the
+vision `.mlpackage` and `position_embeddings.f16`, about 309 MB — are fetched only when the person presses *Turn on*
+beside *Understand images* in Settings → Search & files (dimmed until the text encoder is here, so it is a second click)
+or on the Looks page (`POST /embeddings/install` with `model` and `part: "vision"`), or runs `make
+embedding-model-vision`; the text encoder is fetched first when it isn't here — the Looks shortcut's one click, whose
+row states the combined size first (`vision.includesText`). Same transport, same checks (size and sha256 while streaming,
+one mismatch installs nothing), staged in `.embeddinggemma-2.vision.partial` and grafted beside the text encoder, a
+`cicada-vision.json` mark written last. **Nothing about a screenshot leaves the Mac:** the design board fetches no page,
+no image and no font; its palette, tokens and vectors are computed here. A public page's HTML/CSS for tokens is a spec
+item only (fetched once, on the person's click, through `net_guard` under the ToS rail) and is not built.
+
 **The remote connector (G135) — the one way in from outside this Mac.** Off by default
 (`~/.cicada/remote/settings.json`). When on, a **second listener on `127.0.0.1:8765`**
 (`CICADA_REMOTE_PORT`) serves **only MCP** — none of the FastAPI routers — to cloud AI apps
@@ -87,6 +161,19 @@ neither; the name lookup runs off the event loop).
 `lastError`; a gate-skipped poll is recorded distinctly (`record_skip`) so a skip never reads as a
 failure or as a stale success.
 
+**Media previews ride the picture gate (`CICADA_ALLOW_LOGO_FETCH`), like logos.** `GET /entities/{id}/preview` is the
+app drawing a card; the first request for a page's source fetches it once (`media_preview.ensure_preview`) and every
+later one is served from `$CICADA_HOME/previews/<bank>/`. With the gate off nothing is fetched and nothing is recorded
+as a miss. A caller that runs on its own (`unattended=True`) also needs `CICADA_ALLOW_CONNECTOR_FETCH`; none does
+today — no Sleep step warms previews. The fetch is the rail's: `net_guard` before the first request and every redirect
+hop (≤ 3, never delegated to the client), 4 s, at most 512 KB read, no cookies, one fixed User-Agent; a walled host is
+never asked, a 401/403/407/451 or a redirect onto a login host is a miss and is never retried with other headers.
+Raster only, by magic bytes (PNG, JPEG, GIF, WebP; SVG refused; nothing under 16 px). A saved `.pdf` link is fetched
+under the same 512 KB bound and its first page rendered in a child process (`pdf_page`); an arXiv or DOI paper is
+never fetched (below). A YouTube video oEmbed gave no thumbnail for (embedding off) uses its standard still, a URL
+Cicada builds on its own pin from the validated id. The person's own PDF (`POST /entities/{id}/picture/pdf`) fetches
+nothing and is not gated.
+
 **Paper details (G133) ride the first gate, not a fourth.** The unattended Sleep-tail lookup is behind
 `CICADA_ALLOW_CONNECTOR_FETCH`; a folder sync the person asked for (`?resolve=true`) is not. Only two
 APIs are ever called — `export.arxiv.org/api/query` (≤ 50 ids a request, ≥ 3 s apart) and
@@ -105,6 +192,23 @@ browser profile. An ask's URL is the person's explicit hand-off to their agent, 
 the site, so a remote connection holding `read` sees them (TODO ruling 14; a site entry from a channel that is the
 person's own words needs `sources`); `sources` still gates every verbatim word of the person's conversations and any
 chat-harvested URL.
+
+**Exploring saved sites (G166, owner 2026-10-14) is the agent's browsing, not Cicada's fetch.** No server-side fetch is
+added: the backend and the MCP server never open a site (`test_explore_tools.py` refuses every outbound connection
+through the whole flow), so none of the three gates applies to it, and the connector gate is untouched. The person's own
+agent visits each saved site **in their everyday signed-in Chrome session by default** (owner D2, amended): every
+capture is marked `signed_in: true`, and the person's accounts carry the terms-of-service risk (the v3 acknowledgement
+says so, D3). A switch in Settings, Reading the web, turns that off: the agent then explores in a private, cookie-less
+`Target.createBrowserContext` the script creates and disposes of (verified drivable through browser-harness in a test
+Chrome; an agent that cannot open one hands the site back as `skipped`, never falling back to the signed-in session).
+The ToS rail's spirit binds the script: a wall or captcha is recorded `needs_login`/`blocked` with no screenshot and
+**never retried with different headers, a different user agent or a different context**; consent banners are never
+clicked or hidden (marked `consent_overlay`, a full-page one is `blocked`); one live lease per site, ≥ 8 s between pages
+of a site, ≤ 30 an hour, ≤ 6 a lease and never past the hour's room (slice 2: only as many as the person's reason asks
+for); further pages stay on the saved page's host, never a sign-in or account page, and only where robots.txt allows —
+read once per visit by the agent's browser from the page's own origin without cookies (`credentials: 'omit'`), never
+by Cicada; unread means no further page. Private workspaces and walled sites the person has not turned on are never
+offered, and any site can be set to **Never explore**. Cicada's own "may have changed" probe (D6) is slice 3.
 
 **The ToS rail — this one is not negotiable.** A fetched page is 4 s / ≤ 512 KB / no cookies / never
 behind auth. Consent interstitials and login walls are classified and retired as `junk` **without a
@@ -125,7 +229,9 @@ from the id by `video_urls.resolve` / `VideoRef`, so nothing a provider returns 
 **A stream is never derived** — no `yt-dlp`, no CDN or `.m3u8` URL lifted out of a page — so a
 direct file the app plays is one the *user* saved as a direct URL. Twitch stays external (its
 player validates `parent` against the real embedding origin; synthesising one is circumvention),
-X and Instagram stay external. The app itself makes **no** network call to classify: oEmbed runs
+X and Instagram stay external. A video's picture is the backend's stored preview (`media_preview`: oEmbed's
+`thumbnail_url`, else YouTube's standard still for the id) — a still image, never a frame or a stream, and the app no
+longer loads it from the provider. The app itself makes **no** network call to classify: oEmbed runs
 only on the ingest/enrich path, under the gates that path already has, and the three new
 provider calls take the rail's own 4 s / ≤ 512 KB numbers rather than the older, looser `_TIMEOUT`.
 

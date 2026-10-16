@@ -19,6 +19,9 @@ enum InboxKind: String, Codable {
     // Sleep's tail writes it; before this case it decoded as `.unknown` and
     // wore the "Update available" label, which reads as a software update.
     case followup
+    // G198: an agent's change to a page's words or aliases, waiting for the person (the agent is not on their list
+    // of agents that edit pages directly). Options `apply` / `dismiss` come from the server; `body` previews it.
+    case pageEdit = "page_edit"
     // Forward-compat fallback (matches `EntityType`/`Epistemic`/`SourceTrust`'s
     // existing pattern in this codebase). Before this, an unrecognized raw
     // value threw `DecodingError.dataCorrupted` out of `InboxItem.init(from:)`,
@@ -43,6 +46,7 @@ enum InboxKind: String, Codable {
         case .normalization: "Predicate fold"
         case .removal: "Removed bookmark"
         case .followup: "Follow-up"
+        case .pageEdit: "Page edit"
         case .unknown: "Update available"
         }
     }
@@ -58,6 +62,7 @@ enum InboxKind: String, Codable {
         case .normalization: "arrow.triangle.merge"
         case .removal: "bookmark.slash"
         case .followup: "arrow.uturn.backward.circle"
+        case .pageEdit: "pencil"
         case .unknown: "questionmark.circle"
         }
     }
@@ -221,6 +226,9 @@ struct InboxItem: Identifiable, Codable {
     var suggestedClassification: String?
     var suggestedConfidence: Double?
     var mergeTargetHint: String?
+    /// A clarification that asks for a person's name (`"name"`, the backend's `role_people`): the card draws a name
+    /// field and "I'd rather not say" (`NameBody`). Optional, so an older cache still decodes.
+    var asks: String?
     // G115 Phase 1 — every one optional so a pre-G115 cache still decodes.
     var entityType: String?
     var sourceEpisode: String?
@@ -240,7 +248,7 @@ struct InboxItem: Identifiable, Codable {
         case id, kind, requiredInput, status, priority
         case entityId, entityName, title, body, options, createdDate
         case question, allowOther, allowDefer, predicate, hint, channel, remindAfter, updatedDate
-        case uncertaintyType, suggestedClassification, suggestedConfidence, mergeTargetHint
+        case uncertaintyType, suggestedClassification, suggestedConfidence, mergeTargetHint, asks
         case entityType, sourceEpisode, sourceEpisodeTimestamp, claimId, cause
         case extractorConfidence, extractorModel, recommendedKey, informational, checks
     }
@@ -281,6 +289,7 @@ struct InboxItem: Identifiable, Codable {
         suggestedClassification = try c.decodeIfPresent(String.self, forKey: .suggestedClassification)
         suggestedConfidence = try c.decodeIfPresent(Double.self, forKey: .suggestedConfidence)
         mergeTargetHint = try c.decodeIfPresent(String.self, forKey: .mergeTargetHint)
+        asks = try c.decodeIfPresent(String.self, forKey: .asks)
         entityType = try c.decodeIfPresent(String.self, forKey: .entityType)
         sourceEpisode = try c.decodeIfPresent(String.self, forKey: .sourceEpisode)
         sourceEpisodeTimestamp = try c.decodeIfPresent(String.self, forKey: .sourceEpisodeTimestamp)

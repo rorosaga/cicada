@@ -46,6 +46,10 @@ struct EntityDetailCard: View {
     // keys; the perspective tab filters to valid claims itself.
     @State private var claims: [Claim] = []
     @State private var claimsLoaded = false
+    /// F4 — the verbatim file, fetched for Source or Copy when the card's payload withheld its fence (`rawOmitted`).
+    @State private var rawFile = RawFileLoader()
+    /// What every tab shows from `claims`, derived once per load off the main actor (`ClaimDigest`).
+    @State private var digest = ClaimDigest.empty
     /// R-DG23 — the Timeline tab's open rows, and the one a belief's clock asked for.
     @State private var expandedKeys: Set<BeliefKey> = []
     @State private var requestedKey: BeliefKey?
@@ -67,8 +71,30 @@ struct EntityDetailCard: View {
     @State private var paperDetail: PaperDetail?
     /// R-DG21 / DR-39 — the Details disclosure, collapsed until this viewer opens it, then remembered.
     @AppStorage(DetailsWords.openKey) private var detailsOpen = false
-    /// F-12 (R-PE17, DR-39) — a person's "Show the page" disclosure, closed until this viewer opens it, then remembered.
-    @AppStorage("cicada.person.pageOpen") private var personPageOpen = false
+    /// Owner 2026-10-09 (DR-39) — the card opens on the page; every other section waits behind its own remembered
+    /// disclosure and reads its data only when opened (`CardDisclosure`).
+    @AppStorage(CardSections.beliefsKey) private var beliefsOpen = false
+    @AppStorage(CardSections.provenanceKey) private var provenanceOpen = false
+    @AppStorage(CardSections.connectionsKey) private var connectionsOpen = false
+    /// A person's "Works at" and "Role" cells, read on open as the few current beliefs with those predicates — the
+    /// header never waits for (or reads) every belief on the page.
+    @State private var factClaims: [Claim] = []
+    /// `sources` has been read for this page (from the overview, else `/sources` when the section opens).
+    @State private var sourcesLoaded = false
+    /// Owner 2026-10-14 — "Where this comes from" (`/sources/overview`), read when the section opens or the beliefs
+    /// list is shown: it fills the section, and a belief's chip points at the source its fact can be checked at.
+    @State private var overview: PageSourcesOverview?
+    /// The source a belief's chip asked for: selected in the section and scrolled to.
+    @State private var highlightedSource: String?
+    @State private var sourceScroll = 0
+    /// Bumped to scroll the card to "Where this came from" (a line with no recorded source of its own).
+    @State private var provenanceScroll = 0
+    @State private var relatedScroll = 0
+    /// The full page could not be read: the card says so, with a retry, instead of "Reading the page…" forever (DR-32).
+    @State private var pageReadFailed = false
+    /// The one claims read in flight for this card: the beliefs section and the Perspectives or Timeline tab opening
+    /// together share it rather than each asking for megabytes.
+    @State private var claimsRead: Task<Void, Never>?
 
     // History tab (G68 §2.10). `entity.history` is empty BOTH before the full
     // entity body has landed and when the page has no commits, so track the
@@ -80,6 +106,11 @@ struct EntityDetailCard: View {
     /// mistaken for "fetched successfully, and it was empty" (see
     /// `HistoryTabState.error`).
     @State private var historyLoadFailed = false
+    /// #244 — changes older than the served window, read a page at a time by "Older changes".
+    @State private var olderHistory: [EntityHistoryEntry] = []
+    @State private var historyPaging: HistoryPaging?
+    @State private var olderLoading = false
+    @State private var olderFailed = false
 
     /// G66 — the decay class the user just picked, shown immediately while the
     /// PUT is in flight. Cleared once the reload lands (or on failure, so the
@@ -167,13 +198,14 @@ struct EntityDetailCard: View {
         if let navigation { navigation.navigate(id) } else { graphVM.pushEntity(id: id) }
     }
 
-    private var isStub: Bool { entity.rawMarkdown.isEmpty }
+    private var isStub: Bool { entity.isStub }
 
     /// F-12 (R-PE16) — a person's facts, derived from what the card already loaded; nothing for any other type.
     private var personFacts: [PersonFact] {
         guard entity.type == .person else { return [] }
-        return PersonFacts.cells(entity: entity, claims: claimsLoaded ? claims : [], provenance: provenanceState.value,
-                                 names: store.entityNames, typeOf: { id in graphVM.nodes.first { $0.id == id }?.type },
+        return PersonFacts.cells(entity: entity, claims: claimsLoaded ? digest.current : factClaims,
+                                 provenance: provenanceState.value,
+                                 names: store.entityNames, typeOf: { id in graphVM.node(id)?.type },
                                  picture: store.picture(for: entity.id, held: entity.pictureRef),
                                  docs: EvidenceDocIndex.from(provenanceState.value), today: ISODay.today())
     }
@@ -196,19 +228,36 @@ struct EntityDetailCard: View {
                 isStub: isStub,
                 canGoBack: canGoBack, backTargetName: backTargetName, onBack: goBack,
                 showsClose: showsCloseButton, onClose: close,
-                tabs: EntityTabs.tabs(claims: claimsLoaded ? claims : nil,
+                tabs: EntityTabs.tabs(digest: claimsLoaded ? digest : nil,
                                       historyCount: EntityTabs.historyCount(embedded: entity.history, fetched: fetchedHistory)),
                 selection: $selectedTab,
                 inset: style.inset,
                 facts: personFacts, pictureInputs: entity.pictureInputs,
                 onShowOnGraph: style == .card ? showOnGraph : nil,
                 onOpenEntity: { navigate(to: $0) })
-            ScrollView {
-                switch selectedTab {
-                case .content: contentTab
-                case .perspectives: perspectivesTab
-                case .history: historyTab
-                case .timeline: timelineTab
+            ScrollViewReader { proxy in
+                ScrollView {
+                    switch selectedTab {
+                    case .content: contentTab
+                    case .perspectives: perspectivesTab
+                    case .history: historyTab
+                    case .timeline: timelineTab
+                    }
+                }
+                .onChange(of: provenanceScroll) { proxy.scrollTo(Self.provenanceAnchor, anchor: .top) }
+                .onChange(of: sourceScroll) {
+                    // The section opened in this same click: let it lay out its rows before landing on one.
+                    let anchor = highlightedSource.map(PageSourcesWords.anchor) ?? Self.provenanceAnchor
+                    Task { @MainActor in
+                        await Task.yield()
+                        proxy.scrollTo(anchor, anchor: .center)
+                    }
+                }
+                .onChange(of: relatedScroll) {
+                    let rows = WikiArticleCache.shared.article(articleKey).rows
+                    if let row = rows.first(where: { WikiPageView.isSection($0, Copy.Graph.related) }) {
+                        proxy.scrollTo(WikiPageView.anchor(row.id), anchor: .top)
+                    }
                 }
             }
         }
@@ -232,11 +281,13 @@ struct EntityDetailCard: View {
         .wikilinkNavigation(onSelect: navigate)
         // Outermost on purpose: every evidence chip in the tabs reads it.
         .environment(\.evidenceDocIndex, EvidenceDocIndex.from(provenanceState.value))
+        // Provenance is read when the card opens but drawn only when asked: the header's facts are when the
+        // conversations were said (G194), every evidence chip names its agent from it, and it is a small read off the
+        // main actor. The claims are not: an owner-sized page's are megabytes, read when a section or tab asks.
         .task(id: entity.id) { await loadProvenance() }
-        // R-DG16 — the tab counts need the claims when the column opens, not when a tab is tapped. At the
-        // card's level: a tab switch removes `contentTab` and would cancel a task hung there.
-        .task(id: entity.id) { await loadClaimsIfNeeded() }
     }
+
+    private static let provenanceAnchor = "card-where-this-came-from"
 
     /// One `/provenance` per entity (ETag-revalidated by the cache). A 404 —
     /// an older backend — hides the section rather than showing an error.
@@ -255,14 +306,27 @@ struct EntityDetailCard: View {
 
     // MARK: - Content Tab
 
+    /// Owner 2026-10-09 — every type opens on its page, read as an article; what Cicada believes, where it came from,
+    /// a person's connections, where to look it up and the details wait behind their own disclosures (DR-39) and read
+    /// their data when opened. Capped at DR-36's 760.
     private var contentTab: some View {
-        Group {
-            if entity.type == .person { personContent } else { standardContent }
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingCard) {
+            pageBlock
+            if Self.listsFolder(entity.type) { locationSection }
+            if !repoContexts.isEmpty { repositorySection }
+            // The sections behind a click sit together, closer than the blocks above (DR-35).
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
+                beliefsSection
+                originsSection.id(Self.provenanceAnchor)
+                if entity.type == .person { connectionsSection }
+                detailsSection
+            }
         }
+        .frame(maxWidth: CicadaTheme.scaled(760), alignment: .leading)
         .modifier(EntityTabInsets(style: style))
         .task(id: entity.id) {
             // G124 R11 — a card open is a read. Fire-and-forget on its own
-            // Task so a slow ledger never delays the sources fetch below.
+            // Task so a slow ledger never delays the page below.
             Task { await APIClient.shared.recordEntityRead(id: entity.id) }
             // Reset before (re)fetching so swapping between entities can't show
             // a previous entity's location/repo/sources data. `.task(id:)`
@@ -271,6 +335,11 @@ struct EntityDetailCard: View {
             locationListing = nil
             repoContexts = []
             sources = []
+            sourcesLoaded = false
+            overview = nil
+            highlightedSource = nil
+            factClaims = []
+            pageReadFailed = false
             paperDetail = nil
             pendingDecayClass = nil
             activeEntityId = entity.id
@@ -278,7 +347,21 @@ struct EntityDetailCard: View {
             commitDiffs = [:]
             loadingCommits = []
             diffErrors = []
-            sources = (try? await APIClient.shared.fetchEntitySources(entityId: entity.id)) ?? []
+            rawFile = RawFileLoader()
+            olderHistory = []
+            historyPaging = nil
+            olderFailed = false
+            // A person's two belief-backed facts, beside the page: a few rows, never the whole claims list.
+            async let facts: [Claim]? = entity.type == .person
+                ? try? await APIClient.shared.fetchClaims(subject: entity.id, predicates: PersonFacts.predicates)
+                : nil
+            // §5.7 — the card opened on the graph-node stub, whose `markdownContent` is the server's short `summary`
+            // (already rendered above, so there is never an empty card). Upgrade it to the full entity through the
+            // Store's memoised cache; the swap lands via `graphVM.selectedEntity`/`entities`, which is what feeds
+            // this view its `entity`.
+            let pageRead = await graphVM.loadFullEntity(id: entity.id)
+            if !pageRead, !Task.isCancelled { pageReadFailed = true }
+            if let facts = await facts, !Task.isCancelled { factClaims = facts }
             // Gated on what the graph-node STUB already knows (task 7 review
             // r1): the card opens on a stub whose `media` is nil, and the
             // full-entity swap below keeps the same `.task(id:)`, so a check
@@ -287,13 +370,6 @@ struct EntityDetailCard: View {
             if Self.wantsPaperDetail(type: entity.type, media: entity.media) {
                 paperDetail = try? await APIClient.shared.fetchPaperDetail(id: entity.id)
             }
-            // §5.7 — the card opened on the graph-node stub, whose
-            // `markdownContent` is the server's short `summary` (already
-            // rendered above, so there is never an empty card). Upgrade it to
-            // the full entity through the Store's memoised cache; the swap
-            // lands via `graphVM.selectedEntity`/`entities`, which is what
-            // feeds this view its `entity`.
-            await graphVM.loadFullEntity(id: entity.id)
             // Location and directory pages declare a folder. The backend names the path only;
             // the app lists it, so any macOS prompt names Cicada (the ~/Library rail).
             if Self.listsFolder(entity.type) {
@@ -312,7 +388,7 @@ struct EntityDetailCard: View {
         }
     }
 
-    /// The Rendered/Source switch and Copy — shared by every type's page and a person's "Show the page".
+    /// The Rendered/Source switch and Copy.
     private var bodyToolbar: some View {
         HStack(spacing: 0) {
             TextTabs(tabs: EntityBodyView.tabs, selection: Binding(
@@ -320,94 +396,177 @@ struct EntityDetailCard: View {
                 set: { if let view = $0 { showRawMarkdown = view == .source } }))
                 .padding(.leading, -CicadaTheme.scaled(TextTabs<EntityBodyView>.horizontalPadding))
             Spacer(minLength: 0)
-            IconButton(systemName: "doc.on.doc", help: Copy.Graph.copyMarkdown) {
-                AppPasteboard.copy(buildFullMarkdown())
-            }
+            IconButton(systemName: "doc.on.doc", help: Copy.Graph.copyMarkdown) { copyMarkdown() }
         }
     }
 
-    /// Every type but a person: the page, then what Cicada knows about it (DS-3a).
-    private var standardContent: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingCard) {
-            VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
-                bodyToolbar
-                // G133: a paper leads with why it is in memory, then the dated abstract — and never loads
-                // arxiv.org in a preview (R-LS19).
-                if let paperDetail {
-                    PaperCard(detail: paperDetail)
-                } else if entity.type == .media, let media = entity.media, media.hasURL, !media.isPaper {
-                    // G11: rich media preview above the body for `media`-type entities.
-                    MediaPreview(model: MediaPreviewModel(block: media, title: entity.name, description: mediaDescription))
-                    if VideoBlock.isVideo(media) {
-                        // G162 (M6) — the entity card's media block carries what Cicada holds for a video, joined by
-                        // the page and its link (a media entity id alone is not unique).
-                        VideoBlock(feedId: entity.id + "|" + media.url, url: media.url, title: entity.name,
-                                   mediaEntityId: entity.id)
+    /// The page: Rendered/Source and Copy, a paper's or a media page's own card, then the article (or the file).
+    private var pageBlock: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
+            bodyToolbar
+            // G133: a paper leads with why it is in memory, then the dated abstract — and never loads
+            // arxiv.org in a preview (R-LS19).
+            if let paperDetail {
+                PaperCard(detail: paperDetail)
+            } else if entity.type == .media, let media = entity.media, media.hasURL, !media.isPaper {
+                // G11: rich media preview above the body for `media`-type entities.
+                MediaPreview(model: MediaPreviewModel(block: media, title: entity.name, description: mediaDescription))
+                if VideoBlock.isVideo(media) {
+                    // G162 (M6) — the entity card's media block carries what Cicada holds for a video, joined by
+                    // the page and its link (a media entity id alone is not unique).
+                    VideoBlock(feedId: entity.id + "|" + media.url, url: media.url, title: entity.name,
+                               mediaEntityId: entity.id)
+                }
+            }
+            if showRawMarkdown { rawMarkdownView } else { renderedMarkdownView }
+        }
+    }
+
+    // MARK: - The sections behind a click (DR-39)
+
+    /// R-FX11 — a full page whose prose is at most a Summary: its beliefs are its content, shown as they always were.
+    /// Every other page keeps them behind "What Cicada believes", read when opened.
+    @ViewBuilder
+    private var beliefsSection: some View {
+        if !showRawMarkdown, showsBeliefs {
+            Group {
+                if claimsLoaded {
+                    if !validClaims.isEmpty {
+                        WhatCicadaKnowsSection(claims: validClaims, onOpenTimeline: { claim in openTimeline(for: claim) },
+                                               lookUp: lookUp(for:), onLookUp: openSource)
+                    }
+                } else {
+                    SectionLoading(text: Copy.Graph.readingBeliefs)
+                }
+            }
+            .task(id: entity.id) { await loadBeliefs() }
+        } else if !isStub {
+            CardDisclosure(title: Copy.Graph.beliefsTitle,
+                           summary: claimsLoaded ? Copy.Graph.sectionCount(validClaims.count) : nil,
+                           isOpen: $beliefsOpen) {
+                Group {
+                    if !claimsLoaded {
+                        SectionLoading(text: Copy.Graph.readingBeliefs)
+                    } else if validClaims.isEmpty {
+                        Text(Copy.Graph.noBeliefsYet).font(CicadaTheme.font(size: 13))
+                            .foregroundStyle(CicadaTheme.textTertiary)
+                    } else if entity.type == .person {
+                        PersonBeliefsSection(ordered: digest.newestFirst, showsLabel: false,
+                                             onOpenTimeline: { claim in openTimeline(for: claim) },
+                                             lookUp: lookUp(for:), onLookUp: openSource)
+                    } else {
+                        WhatCicadaKnowsSection(claims: validClaims, showsLabel: false,
+                                               onOpenTimeline: { claim in openTimeline(for: claim) },
+                                               lookUp: lookUp(for:), onLookUp: openSource)
                     }
                 }
-                if showRawMarkdown { rawMarkdownView } else { renderedMarkdownView }
+                .task(id: entity.id) { await loadBeliefs() }
             }
-            if Self.listsFolder(entity.type) { locationSection }
-            if !repoContexts.isEmpty { repositorySection }
-            if !showRawMarkdown, showsBeliefs, !validClaims.isEmpty {
-                WhatCicadaKnowsSection(claims: validClaims) { claim in openTimeline(for: claim) }
-            }
-            WhereThisCameFromSection(entityId: entity.id, state: provenanceState)
-            // `.id` — the add field's draft belongs to one page, as the card's own field was reset per id.
-            LookItUpSection(entityId: entity.id, entityType: entity.type, sources: $sources, navigate: { navigate(to: $0) },
-                            isCurrent: { [id = entity.id] in activeEntityId == id }).id(entity.id)
-            detailsSection
         }
     }
 
-    // MARK: - A person's Content (F-12, R-PE17)
+    /// Owner 2026-10-14 — "Where this comes from": the sources (with what each backs), the links the conversations
+    /// named and the conversations by app, in one disclosure (it replaces "Where this came from" and "Look it up at",
+    /// and keeps the former's remembered choice). Its data is read when the card opens; the sources fall back to
+    /// `/sources` on a backend without the overview.
+    private var originsSection: some View {
+        CardDisclosure(title: Copy.PageSources.title,
+                       summary: PageSourcesWords.summary(overview, conversations: provenanceState.value?.totals.conversations),
+                       isOpen: $provenanceOpen) {
+            PageSourcesSection(entityId: entity.id, entityType: entity.type, overview: overview,
+                               sourcesLoaded: sourcesLoaded, sources: $sources, provenance: provenanceState,
+                               highlighted: highlightedSource, navigate: { navigate(to: $0) },
+                               isCurrent: { [id = entity.id] in activeEntityId == id },
+                               onOpenFact: { fact in openTimeline(for: fact.key) },
+                               onChanged: { Task { await loadOverview() } })
+                .task(id: entity.id) {
+                    await loadOverview()
+                    await loadSourcesIfNeeded()   // only an older backend, with no overview, gets here unloaded
+                }
+        }
+    }
 
-    /// Two columns when the card is at least 880 units wide (540 + 28 + 312), one below — each under DR-36's 760.
-    private var personContent: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(alignment: .top, spacing: CicadaTheme.spacingCard) {
-                personMain.frame(width: CicadaTheme.scaled(540))
-                personAside.frame(width: CicadaTheme.scaled(312))
-            }
+    /// A person's neighbourhood: "How you know <name>" (`PersonMapLayout`) and "What's happening" — read from the
+    /// graph and the Projects cache only when opened.
+    private var connectionsSection: some View {
+        CardDisclosure(title: PersonMapLayout.title(name: entity.name, isOwner: entity.isOwner),
+                       isOpen: $connectionsOpen) {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingCard) {
-                personMain
-                personAside
+                PersonMapSection(personId: entity.id, name: entity.name, isOwner: entity.isOwner, showsLabel: false,
+                                 navigate: { navigate(to: $0) }, showOnGraph: showOnGraph)
+                PersonHappeningsSection(personId: entity.id, projectIds: graphVM.personProjectIds(entity.id))
             }
         }
     }
 
-    private var personMain: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingCard) {
-            PersonBeliefsSection(claims: validClaims) { claim in openTimeline(for: claim) }
-            WhereThisCameFromSection(entityId: entity.id, state: provenanceState)
-            personPage
-            // `.id` — the add field's draft belongs to one page (as in `standardContent`).
-            LookItUpSection(entityId: entity.id, entityType: entity.type, sources: $sources, navigate: { navigate(to: $0) },
-                            isCurrent: { [id = entity.id] in activeEntityId == id }).id(entity.id)
-            detailsSection
+    /// The beliefs list and, for its "Check at …" chips, the overview — both only once the list is shown.
+    private func loadBeliefs() async {
+        await loadClaimsIfNeeded()
+        if overview == nil { await loadOverview() }
+    }
+
+    /// The page's "Where this comes from" through the in-memory cache (ETag-revalidated, never a Store domain), read
+    /// when the section opens or the beliefs list is shown — never on every card open, which already reads
+    /// `/provenance` (review B1: on an owner-sized page that route alone is ~850 ms warm). A failure keeps whatever
+    /// the card already shows; the sources are taken from it so the section needs no second read.
+    private func loadOverview() async {
+        guard let provenanceCache else { return }
+        let id = entity.id
+        let result = await provenanceCache.sourcesOverview(entityId: id)
+        guard !Task.isCancelled, id == entity.id, let value = result.value else { return }
+        overview = value
+        sources = value.sources.map(\.source)
+        sourcesLoaded = true
+    }
+
+    /// A belief's best source to check it at (`PageSourcesOverview.lookUps`); nil before the overview lands.
+    private func lookUp(for claim: Claim) -> PageSource? {
+        overview?.lookUps(predicate: claim.predicate).first
+    }
+
+    /// The way back from a belief: "Where this comes from" opens on its source, selected and scrolled to.
+    private func openSource(_ source: PageSource) {
+        highlightedSource = source.id
+        provenanceOpen = true
+        sourceScroll &+= 1
+    }
+
+    /// Only an older backend (no overview) reads `/sources` on its own.
+    private func loadSourcesIfNeeded() async {
+        guard !sourcesLoaded else { return }
+        let id = entity.id
+        let fetched = (try? await APIClient.shared.fetchEntitySources(entityId: id)) ?? []
+        guard !Task.isCancelled, id == entity.id else { return }
+        sources = fetched
+        sourcesLoaded = true
+    }
+
+    private func retryPageRead() {
+        let id = entity.id
+        pageReadFailed = false
+        Task {
+            let read = await graphVM.loadFullEntity(id: id)
+            if !read, id == entity.id { pageReadFailed = true }
         }
     }
 
-    private var personAside: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingCard) {
-            PersonMapSection(personId: entity.id, name: entity.name, navigate: { navigate(to: $0) },
-                             showOnGraph: showOnGraph)
-            PersonHappeningsSection(personId: entity.id,
-                                    projectIds: PersonMapLayout.projects(personId: entity.id, nodes: graphVM.nodes,
-                                                                         edges: graphVM.edges))
-        }
-    }
-
-    /// DR-39 — the page's own prose, collapsed and remembered: the hero shows its Summary and the beliefs carry its facts.
-    private var personPage: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            TextButton(title: personPageOpen ? Copy.People.hidePage : Copy.People.showPage) {
-                Instant.run { personPageOpen.toggle() }
+    /// One click from any line (owner 2026-10-09): the line's own recorded source in the Reader, else the page's
+    /// "Where this came from", opened and scrolled to.
+    private func openLineSource(_ row: WikiRow) {
+        let id = entity.id
+        let body = entity.markdownContent
+        Task {
+            var provenance = provenanceState.value
+            if provenance == nil, let provenanceCache {
+                provenance = ProvenanceSectionState(await provenanceCache.provenance(entityId: id)).value
             }
-            .padding(.leading, -CicadaTheme.scaled(10))
-            if personPageOpen {
-                bodyToolbar
-                if showRawMarkdown { rawMarkdownView } else { renderedMarkdownView }
+            guard id == entity.id else { return }
+            if let provenanceRouter,
+               let target = LineProvenance.target(for: row, body: body, provenance: provenance, subjectId: id) {
+                provenanceRouter.open(target)
+            } else {
+                provenanceOpen = true
+                provenanceScroll &+= 1
             }
         }
     }
@@ -616,22 +775,17 @@ struct EntityDetailCard: View {
     // The section readers live in `EntityProse` (F1 R-FX8): one copy of the
     // rule that strips the claims fence before any section is read.
 
-    /// The entity body with the sections that already render in their own
-    /// dedicated chrome (`## Summary` → the header, R-DG15; `## Description` → media
-    /// hero/website card) removed, so the rendered markdown view below doesn't
-    /// show them a second time. The claims fence goes first (R-FX8).
-    private var bodyForRendering: String {
-        // R-DG15 — a stub's markdown IS the preview the header already shows.
-        guard !isStub else { return "" }
-        let prose = EntityProse.stripClaimsFence(entity.markdownContent)
-        return EntityProse.stripSection(named: "## Description",
-                                        from: EntityProse.stripSection(named: "## Summary", from: prose))
+    /// The page's article (`WikiArticle`): the prose without the sections that already have their own surface
+    /// (`## Summary` → the header, R-DG15; `## Description` → the media card) or the claims fence (R-FX8). A stub's
+    /// markdown IS the preview the header already shows, so it has none.
+    private var articleKey: WikiArticleCache.Key {
+        WikiArticleCache.Key(markdown: isStub ? "" : entity.markdownContent, dropping: WikiArticle.ownSurfaces)
     }
 
-    /// R-FX11 — media pages have their own card (a paper's lists its why).
+    /// R-FX11 — media pages have their own card (a paper's lists its why); any other full page with no prose beyond
+    /// its Summary shows its beliefs as its content.
     private var showsBeliefs: Bool {
-        entity.type != .media
-            && EntityProse.showsBeliefs(markdown: entity.markdownContent, isStub: entity.rawMarkdown.isEmpty)
+        entity.type != .media && !isStub && WikiArticleCache.shared.article(articleKey).isEmpty
     }
 
     private var renderedMarkdownView: some View {
@@ -644,80 +798,116 @@ struct EntityDetailCard: View {
             if HeroPreview.hasPreviewableAsset(for: entity) {
                 HeroPreview(entity: entity)
             }
-
-            // Inline transclusion (§1): tokenize the body into text/embed segments
-            // and render `![[…]]` embeds as nested collapsible cards. Falls back to
-            // plain wikilink rendering for bodies with no embeds. Summary /
-            // Description are stripped here — they already render in their own
-            // chrome (the header, R-DG15 / media hero) and would otherwise double.
-            TranscludingMarkdownView(body: bodyForRendering)
+            if isStub, pageReadFailed {
+                HStack(spacing: CicadaTheme.spacingSM) {
+                    Text(Copy.Graph.pageUnavailable)
+                        .font(CicadaTheme.metaFont)
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                    NeutralButton(title: Copy.Graph.retry) { retryPageRead() }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            } else if isStub {
+                // The full page is on its way, said in words (it lands in well under a second); a failed read says so.
+                SectionLoading(text: Copy.Graph.readingPage)
+            } else {
+                WikiPageView(key: articleKey, onLineSource: openLineSource, entityId: isStub ? nil : entity.id)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    @ViewBuilder
     private var rawMarkdownView: some View {
         // Prefer the verbatim file from the API (transparency: this is the
         // exact markdown on disk, frontmatter included). The reconstruction
         // below only covers placeholder entities that haven't fully loaded.
-        let source = entity.rawMarkdown.isEmpty ? buildFullMarkdown() : entity.rawMarkdown
-
-        return Text(source)
-            .font(CicadaTheme.monoFont)
-            .foregroundStyle(CicadaTheme.textSecondary)
-            .textSelection(.enabled)
-            .frame(maxWidth: .infinity, alignment: .leading)
+        if entity.rawOmitted, rawFile.text == nil {
+            if rawFile.failed {
+                // Review r1 #5: a failed read is said, never replaced by a reconstruction shown as the file.
+                HStack(spacing: CicadaTheme.spacingSM) {
+                    Text(Copy.Graph.sourceUnavailable)
+                        .font(CicadaTheme.metaFont)
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                    NeutralButton(title: Copy.Graph.retry) { Task { await loadRaw() } }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                ProgressView().controlSize(.small)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .task(id: entity.id) { await loadRaw() }
+            }
+        } else {
+            let shown = SourceText.shown(RawFile.verbatim(entity, fetched: rawFile.text) ?? buildFullMarkdown())
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+                Text(shown.text)
+                    .font(CicadaTheme.monoFont)
+                    .foregroundStyle(CicadaTheme.textSecondary)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                if let folded = shown.foldedBytes {
+                    Text(Copy.Graph.sourceFolded(bytes: folded))
+                        .font(CicadaTheme.metaFont)
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
             .padding(CicadaTheme.spacingMD)
             .background(CicadaTheme.shape(CicadaTheme.cornerRadius).fill(CicadaTheme.bgFocus))
             .ringed(.resting, in: CicadaTheme.shape(CicadaTheme.cornerRadius))
+        }
+    }
+
+    /// F4 — the file the payload withheld, once per card; a failure stays a failure (Retry asks again).
+    private func loadRaw() async {
+        guard entity.rawOmitted else { return }
+        await rawFile.load(entity.id) { try await APIClient.shared.fetchEntityRaw(id: $0) }
+    }
+
+    /// Copy takes the whole file. For a withheld file that is the fetched one or nothing — never a reconstruction,
+    /// which would drop the claims fence and every frontmatter key it does not know (review r1 #5).
+    private func copyMarkdown() {
+        if let text = RawFile.verbatim(entity, fetched: rawFile.text) { return AppPasteboard.copy(text) }
+        guard entity.rawOmitted else { return AppPasteboard.copy(buildFullMarkdown()) }
+        Task {
+            await loadRaw()
+            if let text = RawFile.verbatim(entity, fetched: rawFile.text) {
+                AppPasteboard.copy(text)
+            } else {
+                store.toast = Copy.Graph.copyFailed
+            }
+        }
     }
 
     /// R-DG21 / DR-39 — secondary detail starts collapsed; each viewer's choice is remembered.
     private var detailsSection: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            Button { detailsOpen.toggle() } label: {
-                HStack(spacing: CicadaTheme.scaled(6)) {
-                    Image(systemName: detailsOpen ? "chevron.down" : "chevron.right")
-                        .font(CicadaTheme.font(size: 10, weight: .semibold))
-                        .accessibilityHidden(true)
-                    Text(Copy.Graph.details).foregroundStyle(CicadaTheme.textSecondary)
-                    if !detailsOpen {
-                        Text(Copy.Graph.detailsSummary).foregroundStyle(CicadaTheme.textTertiary)
+        CardDisclosure(title: Copy.Graph.details, summary: Copy.Graph.detailsSummary, isOpen: $detailsOpen) {
+            Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: CicadaTheme.spacingMD,
+                 verticalSpacing: CicadaTheme.scaled(10)) {
+                if !entity.tags.isEmpty {
+                    GridRow {
+                        detailLabel(Copy.Graph.tags)
+                        FlowLayout(spacing: 6) { ForEach(entity.tags, id: \.self) { Tag(text: $0) } }
                     }
                 }
-                .font(CicadaTheme.metaMediumFont)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.cicadaPlain)
-            .accessibilityValue(detailsOpen ? "Open" : "Closed")
-            if detailsOpen {
-                Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: CicadaTheme.spacingMD,
-                     verticalSpacing: CicadaTheme.scaled(10)) {
-                    if !entity.tags.isEmpty {
-                        GridRow {
-                            detailLabel(Copy.Graph.tags)
-                            FlowLayout(spacing: 6) { ForEach(entity.tags, id: \.self) { Tag(text: $0) } }
-                        }
-                    }
-                    if !entity.related.isEmpty {
-                        GridRow {
-                            detailLabel(Copy.Graph.related)
-                            FlowLayout(spacing: CicadaTheme.spacingMD) {
-                                ForEach(entity.related, id: \.self) { rel in relatedLink(rel) }
-                            }
-                        }
-                    }
+                if !entity.related.isEmpty {
                     GridRow {
-                        detailLabel(Copy.Graph.firstNoted)
-                        detailValue(EntityDates.day(entity.created) ?? "—")
+                        detailLabel(Copy.Graph.related)
+                        RelatedLinksRow(related: entity.related, entities: graphVM.entities,
+                                        onOpen: { navigate(to: $0) },
+                                        onMore: hasRelatedSection ? { openRelatedSection() } : nil)
                     }
-                    GridRow {
-                        detailLabel(Copy.Graph.lastMentioned)
-                        detailValue(DetailsWords.lastMentioned(entity.lastReferenced, now: .now))
-                    }
-                    GridRow {
-                        detailLabel(Copy.Graph.fades)
-                        fadesMenu
-                    }
+                }
+                GridRow {
+                    detailLabel(Copy.Graph.firstNoted)
+                    detailValue(EntityDates.day(entity.created) ?? "—")
+                }
+                GridRow {
+                    detailLabel(Copy.Graph.lastMentioned)
+                    detailValue(DetailsWords.lastMentioned(entity.lastReferenced, now: .now))
+                }
+                GridRow {
+                    detailLabel(Copy.Graph.fades)
+                    fadesMenu
                 }
             }
         }
@@ -732,17 +922,17 @@ struct EntityDetailCard: View {
         Text(text).font(CicadaTheme.font(size: 13)).foregroundStyle(CicadaTheme.textSecondary)
     }
 
-    /// A related name opens its page when one matches (DR-5 link); otherwise it is plain text.
-    @ViewBuilder
-    private func relatedLink(_ rel: String) -> some View {
-        if let id = DetailsWords.relatedTarget(rel, in: graphVM.entities) {
-            Button { navigate(to: id) } label: {
-                Text(rel).font(CicadaTheme.font(size: 13, weight: .medium)).foregroundStyle(CicadaTheme.accentText)
-            }
-            .buttonStyle(.cicadaPlain)
-        } else {
-            detailValue(rel)
-        }
+    /// The page's own `## Related` section, when its article has one: where "and K more" leads.
+    private var hasRelatedSection: Bool {
+        !isStub && WikiArticleCache.shared.article(articleKey).rows.contains { WikiPageView.isSection($0, Copy.Graph.related) }
+    }
+
+    /// "and K more" (owner page, 2026-10-14): the page's own Related section lists every link — the rendered page, on
+    /// the Content tab, scrolled to that heading at once (a click is no animation's cue here, CLAUDE.md motion rail).
+    private func openRelatedSection() {
+        showRawMarkdown = false
+        selectedTab = .content
+        relatedScroll &+= 1
     }
 
     // MARK: - Fades (G66 §1.7)
@@ -785,13 +975,21 @@ struct EntityDetailCard: View {
 
     private func setDecay(_ option: DecayClass) {
         guard option != entity.decayClass else { return }
+        guard !store.refusesWriteWhileSwitching() else { return }   // G183(d): the page may be the other bank's
+        let origin = store.bank
         pendingDecayClass = option  // optimistic: the chip flips immediately
         Task {
             do {
-                _ = try await APIClient.shared.setDecayClass(entityId: entity.id, option)
+                _ = try await BankScope.bound(to: origin) {
+                    try await APIClient.shared.setDecayClass(entityId: entity.id, option)
+                }
                 await graphVM.reloadEntity(id: entity.id)
             } catch {
-                // Leave the server's value in place rather than lying about it.
+                // Leave the server's value in place rather than lying about it, and say why (G177/G183: a 409 while
+                // Sleep holds the pages names Sleep; the chip's siblings toast through the Store the same way).
+                if !(SyncCancellation.isCancellation(error) || Task.isCancelled) {
+                    store.toast = DecayChangeFailure.message(error)
+                }
             }
             pendingDecayClass = nil
         }
@@ -837,7 +1035,7 @@ struct EntityDetailCard: View {
             .frame(maxWidth: .infinity)
             .padding(CicadaTheme.spacingXXL)
         case .entries(let rows):
-            historyList(rows)
+            historyList(HistoryPaging.merge(rows, older: olderHistory))
         }
     }
 
@@ -847,7 +1045,8 @@ struct EntityDetailCard: View {
     /// `FromConversationButton` out of the expand button).
     private func historyList(_ rows: [EntityHistoryEntry]) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            ForEach(rows.reversed(), id: \.id) { entry in
+            // Newest first, as `git log` serves it (#244; the old blame order was reversed here).
+            ForEach(rows, id: \.id) { entry in
                 HStack(alignment: .top, spacing: CicadaTheme.spacingMD) {
                     Circle()
                         .strokeBorder(CicadaTheme.textTertiary, lineWidth: 1.5)
@@ -894,8 +1093,38 @@ struct EntityDetailCard: View {
                     Spacer(minLength: 0)
                 }
             }
+            olderChangesRow
         }
         .modifier(EntityTabInsets(style: style))
+    }
+
+    private var paging: HistoryPaging { historyPaging ?? HistoryPaging(truncated: entity.historyTruncated) }
+
+    @ViewBuilder
+    private var olderChangesRow: some View {
+        if paging.hasMore {
+            OlderChangesRow(phase: olderLoading ? .loading : (olderFailed ? .failed : .idle)) { loadOlderHistory() }
+        }
+    }
+
+    private func loadOlderHistory() {
+        guard !olderLoading else { return }
+        var next = paging
+        let id = entity.id
+        olderLoading = true
+        olderFailed = false
+        Task {
+            defer { olderLoading = false }
+            do {
+                let page = try await APIClient.shared.fetchEntityHistory(id: id, skip: next.nextSkip)
+                guard id == entity.id else { return }
+                next.received(page)
+                olderHistory += page
+                historyPaging = next
+            } catch {
+                if id == entity.id { olderFailed = true }
+            }
+        }
     }
 
     private func isExpanded(_ entry: EntityHistoryEntry) -> Bool {
@@ -975,11 +1204,13 @@ struct EntityDetailCard: View {
                     .font(CicadaTheme.font(size: 13))
                     .foregroundStyle(CicadaTheme.textTertiary)
             } else {
-                ForEach(PerspectiveGroups.divergences(claims)) { d in divergenceBlock(d) }
-                ForEach(PerspectiveGroups.of(claims)) { group in
+                ForEach(digest.divergences) { d in divergenceBlock(d) }
+                ForEach(digest.groups) { group in
                     VStack(alignment: .leading, spacing: CicadaTheme.scaled(6)) {
                         SectionLabel(PerspectiveGroups.heading(group))
-                        VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
+                        // Lazy: an owner-sized page holds thousands of beliefs, and a plain stack laid every row out
+                        // at once (~2.7 ms a row in a debug build) before the tab could draw.
+                        LazyVStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
                             ForEach(group.claims) { claim in
                                 BeliefRow(claim: claim) { openTimeline(for: claim) }
                             }
@@ -1012,8 +1243,9 @@ struct EntityDetailCard: View {
     // MARK: - Timeline Tab (§4)
 
     /// R-DG23 — a belief's clock: the Timeline tab, that belief open.
-    private func openTimeline(for claim: Claim) {
-        let key = BeliefKey(claim)
+    private func openTimeline(for claim: Claim) { openTimeline(for: BeliefKey(claim)) }
+
+    private func openTimeline(for key: BeliefKey) {
         requestedKey = key
         expandedKeys.insert(key)
         selectedTab = .timeline
@@ -1025,7 +1257,7 @@ struct EntityDetailCard: View {
             if !claimsLoaded {
                 ProgressView().controlSize(.small).frame(maxWidth: .infinity, alignment: .center)
             } else {
-                let keys = TimelineKeys.rows(claims: claims, requested: requestedKey)
+                let keys = TimelineKeys.rows(contested: digest.contested, requested: requestedKey)
                 if keys.isEmpty {
                     VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
                         Text(Copy.Graph.noContested).font(CicadaTheme.font(size: 13)).foregroundStyle(CicadaTheme.textSecondary)
@@ -1034,7 +1266,7 @@ struct EntityDetailCard: View {
                 } else {
                     SectionLabel(TimelineKeys.heading(contested: contestedKeys.count))
                     ForEach(keys) { key in
-                        TimelineKeyRow(key: key, summary: TimelineKeys.summary(key, claims: claims),
+                        TimelineKeyRow(key: key, summary: digest.summary(key),
                                        expanded: expandedKeys.contains(key)) {
                             if expandedKeys.contains(key) { expandedKeys.remove(key) } else { expandedKeys.insert(key) }
                         }
@@ -1052,19 +1284,32 @@ struct EntityDetailCard: View {
 
     // MARK: - Claim derivations
 
-    private var validClaims: [Claim] { claims.filter { $0.isValid } }
+    private var validClaims: [Claim] { digest.current }
 
     /// (predicate, context) keys with ≥2 claims over time (valid + superseded).
-    private var contestedKeys: [BeliefKey] { EntityTabs.contested(claims) }
+    private var contestedKeys: [BeliefKey] { digest.contested }
 
+    /// Every caller awaits the one read in flight (the beliefs section and a tab opened together). The read is
+    /// unstructured so a caller's cancellation (a tab switch removing the section) never discards it half-way; the
+    /// card checks it is still on the same page before keeping the answer.
     private func loadClaimsIfNeeded() async {
         guard !claimsLoaded else { return }
-        // Include superseded so the timeline tab can detect contested keys.
-        let fetched = try? await APIClient.shared.fetchClaims(subject: entity.id, includeSuperseded: true)
-        // DS-3a — a load cancelled by a swap or a close must not read as "no beliefs" (R-DG16's counts).
-        guard !Task.isCancelled else { return }
-        claims = fetched ?? []
-        claimsLoaded = true
+        if let claimsRead { return await claimsRead.value }
+        let id = entity.id
+        let read = Task { @MainActor in
+            // Include superseded so the timeline tab can detect contested keys.
+            let fetched = try? await APIClient.shared.fetchClaims(subject: id, includeSuperseded: true)
+            let loaded = fetched ?? []
+            let derived = await Task.detached(priority: .userInitiated) { ClaimDigest(loaded) }.value
+            // DS-3a — an answer for a page the card has left must not land under the new one.
+            guard id == entity.id else { return }
+            claims = loaded
+            digest = derived
+            claimsLoaded = true
+        }
+        claimsRead = read
+        await read.value
+        if claimsRead == read { claimsRead = nil }
     }
 
     private var historyState: HistoryTabState {
@@ -1218,38 +1463,57 @@ struct FlowLayout: Layout {
     var spacing: CGFloat = 6
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let result = layout(subviews: subviews, in: proposal.width ?? .infinity)
-        return result.size
+        FlowRows.layout(subviews, maxWidth: proposal.width ?? .infinity, spacing: spacing).size
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let positions = layout(subviews: subviews, in: bounds.width)
-        for (index, subview) in subviews.enumerated() {
-            let pt = positions.points[index]
-            subview.place(at: CGPoint(x: bounds.minX + pt.x, y: bounds.minY + pt.y), proposal: .unspecified)
-        }
+        FlowRows.place(subviews, in: bounds, spacing: spacing)
+    }
+}
+
+/// The one wrapping rule behind `FlowLayout` and `ClaimFooterFlow`: items flow left to right and wrap when the width
+/// is used up, and an item wider than a whole row is offered the row's width (so a `lineLimit(1)` label truncates)
+/// instead of its ideal width. A flow never reports or draws wider than it was offered: the owner's page drew its
+/// whole main column off the card's left edge when one flow did (a fixed-width column centres what overflows it).
+enum FlowRows {
+    struct Result {
+        var size: CGSize
+        var frames: [CGRect]
     }
 
-    private func layout(subviews: Subviews, in maxWidth: CGFloat) -> (size: CGSize, points: [CGPoint]) {
-        var points: [CGPoint] = []
+    static func layout(_ subviews: Layout.Subviews, maxWidth: CGFloat, spacing: CGFloat) -> Result {
+        var frames: [CGRect] = []
         var x: CGFloat = 0
         var y: CGFloat = 0
         var rowHeight: CGFloat = 0
         var totalWidth: CGFloat = 0
 
         for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
+            var size = subview.sizeThatFits(.unspecified)
+            if size.width > maxWidth {
+                size = subview.sizeThatFits(ProposedViewSize(width: maxWidth, height: nil))
+                size.width = min(size.width, maxWidth)
+            }
             if x + size.width > maxWidth, x > 0 {
                 x = 0
                 y += rowHeight + spacing
                 rowHeight = 0
             }
-            points.append(CGPoint(x: x, y: y))
+            frames.append(CGRect(origin: CGPoint(x: x, y: y), size: size))
             rowHeight = max(rowHeight, size.height)
             x += size.width + spacing
             totalWidth = max(totalWidth, x - spacing)
         }
-        return (CGSize(width: totalWidth, height: y + rowHeight), points)
+        return Result(size: CGSize(width: totalWidth, height: y + rowHeight), frames: frames)
+    }
+
+    static func place(_ subviews: Layout.Subviews, in bounds: CGRect, spacing: CGFloat) {
+        let frames = layout(subviews, maxWidth: bounds.width, spacing: spacing).frames
+        for (index, subview) in subviews.enumerated() {
+            let frame = frames[index]
+            subview.place(at: CGPoint(x: bounds.minX + frame.minX, y: bounds.minY + frame.minY),
+                          proposal: ProposedViewSize(frame.size))
+        }
     }
 }
 
@@ -1260,3 +1524,79 @@ struct FlowLayout: Layout {
 // by `TranscludingMarkdownView` / `MarkdownBody`. Removed so nobody "fixes
 // markdown" here and sees no effect; all entity-body rendering now flows
 // through `MarkdownBody`.
+
+/// #244 — the History tab's last row while the served page left older changes out: "Older changes" as a text button
+/// (DR-40), a small spinner while it reads, and a failure in words with Retry. Never a count it does not know.
+struct OlderChangesRow: View {
+    enum Phase { case idle, loading, failed }
+
+    let phase: Phase
+    let action: () -> Void
+
+    var body: some View {
+        Group {
+            switch phase {
+            case .loading:
+                ProgressView().controlSize(.small)
+            case .failed:
+                HStack(spacing: CicadaTheme.spacingSM) {
+                    Text(Copy.Graph.olderChangesFailed)
+                        .font(CicadaTheme.metaFont)
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                    TextButton(title: Copy.Graph.retry, action: action)
+                }
+            case .idle:
+                TextButton(title: Copy.Graph.olderChanges, action: action)
+                    .padding(.leading, -CicadaTheme.scaled(10))
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+
+/// Details' Related row (owner page, 2026-10-14): the first `DetailsWords.relatedShown` names, each a link when it names
+/// a page (DR-5 link), then "and K more", which opens the page's own Related section (DR-38: that section already lists
+/// every one). Only the names shown are looked up: a hub's thousands of chips, each scanning the graph for its page,
+/// were the lag on opening the owner's card.
+struct RelatedLinksRow: View {
+    let related: [String]
+    let entities: [Entity]
+    var onOpen: (String) -> Void
+    /// Opens the page's Related section; nil when the page has none (the count is then words, not a link).
+    var onMore: (() -> Void)? = nil
+
+    var body: some View {
+        let preview = DetailsWords.relatedPreview(related)
+        FlowLayout(spacing: CicadaTheme.spacingMD) {
+            ForEach(Array(preview.shown.enumerated()), id: \.offset) { _, rel in link(rel) }
+            if preview.more > 0 { more(preview.more) }
+        }
+    }
+
+    @ViewBuilder
+    private func link(_ rel: String) -> some View {
+        if let id = DetailsWords.relatedTarget(rel, in: entities) {
+            Button { onOpen(id) } label: {
+                Text(rel).font(CicadaTheme.font(size: 13, weight: .medium)).foregroundStyle(CicadaTheme.accentText)
+            }
+            .buttonStyle(.cicadaPlain)
+        } else {
+            Text(rel).font(CicadaTheme.font(size: 13)).foregroundStyle(CicadaTheme.textSecondary)
+        }
+    }
+
+    @ViewBuilder
+    private func more(_ n: Int) -> some View {
+        if let onMore {
+            Button(action: onMore) {
+                Text(Copy.Graph.relatedMore(n)).font(CicadaTheme.font(size: 13, weight: .medium))
+                    .foregroundStyle(CicadaTheme.accentText)
+            }
+            .buttonStyle(.cicadaPlain)
+            .help(Copy.Graph.relatedMoreHelp)
+        } else {
+            Text(Copy.Graph.relatedMore(n)).font(CicadaTheme.font(size: 13)).foregroundStyle(CicadaTheme.textTertiary)
+        }
+    }
+}

@@ -1,0 +1,13 @@
+{
+  "questions": [
+    {"id": "status", "question": "What status does alpha-project have?", "answer": "alpha-project status planning.", "claim": ["alpha-project", "status", "planning"]},
+    {"id": "tool", "question": "What does alpha-project use?", "answer": "alpha-project uses sqlite-tool.", "claim": ["alpha-project", "uses", "sqlite-tool"]},
+    {"id": "unknown", "question": "What status does omega-project have?", "answer": "Unknown.", "claim": null}
+  ],
+  "required_final_claims": [
+    ["alpha-project", "uses", "sqlite-tool"],
+    ["alpha-project", "uses", "queue-tool"],
+    ["alpha-project", "uses", "shell-tool"],
+    ["alpha-project", "uses", "archive-tool"]
+  ]
+}

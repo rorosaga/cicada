@@ -533,7 +533,13 @@ def _schedule_calls(monkeypatch):
     ("engine", "schedule", 7, True),
     ("engine", "schedule", 1, False),     # a scheduled engine that is still away: not every five minutes
     ("user", "schedule", 48, False),      # a person's Pause is theirs
-    ("plan_window", "schedule", 48, False),
+    # Ruling 4b: a scheduled plan run's limit is the schedule's to replace once it has reset (no reset time given:
+    # after ENGINE_RETRY_S) — on a server nobody presses Continue. Extra usage stays the person's.
+    ("plan_window", "schedule", 48, True),
+    ("plan_window", "schedule", 1, False),
+    ("plan_weekly", "schedule", 48, True),
+    ("overage", "schedule", 48, False),
+    ("plan_window", "user", 48, False),
     ("restart", "user", 48, False),       # a run a person started is theirs
 ])
 def test_the_schedule_replaces_only_a_scheduled_pause_nobody_chose(tmp_path, monkeypatch, reason, started_by,

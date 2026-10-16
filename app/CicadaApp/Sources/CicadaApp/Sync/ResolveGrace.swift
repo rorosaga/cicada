@@ -40,8 +40,13 @@ extension Store {
 
     /// Hold an answer for the Undo window. A previous hold is sent NOW, without waiting, so the next
     /// question paints this frame; it moves to `sendingInboxIds` first so it never flashes back.
+    ///
+    /// G183(d) — refused while a bank switch is in flight (false, with a toast): the server may already be on
+    /// the new bank, so the answer could only be sent into the wrong one. The question stays where it is.
+    @discardableResult
     func hold(_ resolve: InboxResolve, label: String, shortLabel: String, question: String,
-              kind: InboxKind, channel: String?) {
+              kind: InboxKind, channel: String?) -> Bool {
+        if refusesWriteWhileSwitching() { return false }
         if let previous = heldResolve {
             heldResolve = nil
             sendingInboxIds.insert(previous.id)
@@ -58,6 +63,7 @@ extension Store {
             guard !Task.isCancelled else { return }
             await self?.expire(token: token)
         }
+        return true
     }
 
     /// Undo inside the window: nothing was sent, so nothing is reverted. Returns the id to reopen.
@@ -105,6 +111,10 @@ extension Store {
         await send(held)
     }
 
+    /// An accepted answer is never dropped by the switch (re-review finding 2): it is old-bank work already admitted,
+    /// so it passes the Store's switch hold — `Store.activateBank` waits for it before posting — and it names the bank
+    /// it was made in, so one that still arrives after the server moved is refused by the server (`bank_mismatch`),
+    /// rolled back and its question reopened, never filed in the other bank.
     private func send(_ held: ResolveGrace) async {
         defer { sendingInboxIds.remove(held.id) }
         guard held.bank == bank else {
@@ -115,7 +125,7 @@ extension Store {
         // already closed it, and a POST would 404 into a "reverted" toast. No snapshot at all (a cache
         // miss) is not evidence of that, so it still sends.
         if let items = inbox.value, !items.contains(where: { $0.id == held.id }) { return }
-        _ = await perform(held.resolve)
-        await onHeldResolveSent?()
+        let sent = await BankScope.bound(to: held.bank) { await perform(held.resolve, duringSwitch: true) }
+        if sent { await onHeldResolveSent?() }
     }
 }

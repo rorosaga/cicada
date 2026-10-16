@@ -101,7 +101,7 @@ final class SleepNumbersLintTests: XCTestCase {
     /// Reduce Motion removes transitions and holds sprite art on its key frame. `nil` is how
     /// SwiftUI spells "no transition — jump to the new value", which is
     /// exactly the terminal frame; `SpriteClip.loopStep` holds step 0
-    /// under `.still`, and `stagePulse(…)` holds its fully lit phase-0 value.
+    /// under `.still`, and the stepper's `LiveDot.breath` is `nil` (held lit).
     func testReduceMotionRemovesEveryTransition() {
         XCTAssertNil(SleepMotion.settle(reduceMotion: true))
         XCTAssertNil(SleepMotion.pile(reduceMotion: true))

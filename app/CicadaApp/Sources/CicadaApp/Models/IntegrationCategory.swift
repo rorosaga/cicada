@@ -48,7 +48,9 @@ enum IntegrationCategory: String, CaseIterable, Identifiable {
         case "chrome-bookmarks", "safari-bookmarks", "safari-tabs",
              "brave-bookmarks", "vivaldi-bookmarks", "comet-bookmarks", "dia-bookmarks",
              // Round 4 (G160): Chrome's open tab groups sit under Chrome's row.
-             "chrome-tab-groups":
+             "chrome-tab-groups",
+             // G71 (2026-10-16): the YouTube videos watched in Chrome sit under Chrome's row too.
+             WatchHistoryWatcher.channel:
             return .browsers
         case "pinterest", "reddit", "x":
             return .socialAndSaved
@@ -56,7 +58,8 @@ enum IntegrationCategory: String, CaseIterable, Identifiable {
         // Round 4 (G154): `contacts-local` is the Mac's address book, drawn by `ContactsRow` beside the calendar.
         case "rss", "calendar", "calendar-local", "contacts-local":
             return .feedsAndCalendars
-        case "telegram":
+        // G179: the Messages conversations the person ticked, drawn by `MessagesRow`.
+        case "telegram", MessagesWatcher.channel:
             return .messaging
         // R-LS25: Apple Notes moves beside the watched folders — both are notes.
         case "notes":

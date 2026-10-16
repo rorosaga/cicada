@@ -17,6 +17,8 @@ struct EvidenceDocMeta: Hashable, Sendable {
     var origin: String?
     /// The episode's `source`; `page-read` makes a `page` quote read "From the page, as <agent> read it".
     var source: String?
+    /// G179: a message conversation's other side, named — its words are theirs ("Instinct replied").
+    var correspondent: String? = nil
 }
 
 struct EvidenceDocIndex: Hashable, Sendable {
@@ -32,7 +34,8 @@ struct EvidenceDocIndex: Hashable, Sendable {
         var out: [String: EvidenceDocMeta] = [:]
         for row in provenance.conversations {
             let meta = EvidenceDocMeta(title: row.title.isEmpty ? nil : row.title,
-                                       harness: row.harness, origin: row.origin, source: row.source)
+                                       harness: row.harness, origin: row.origin, source: row.source,
+                                       correspondent: row.correspondent)
             for ep in Set(row.episodeIds + [row.episodeId]) { out[ep] = meta }
         }
         return EvidenceDocIndex(byEpisode: out)
@@ -167,7 +170,7 @@ enum EvidenceLabel {
     }
 
     static func agent(_ meta: EvidenceDocMeta?) -> String? {
-        EvidenceSpeaker.agentName(harness: meta?.harness, origin: meta?.origin)
+        meta?.correspondent ?? EvidenceSpeaker.agentName(harness: meta?.harness, origin: meta?.origin)
     }
 
     /// The chip's words before the day (R-FA14, DR-57 §9 amendment): an agent

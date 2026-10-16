@@ -27,9 +27,11 @@ final class TitlebarHelpTests: XCTestCase {
     /// be added without every call site (and this test) being revisited.
     /// The pages answer for themselves as each D track lands (R-DG6, R-DL8).
     func testHelpContentCasesAreExhaustive() {
-        for content: HelpContent in [.aboutCicada, .howSleepWorks, .inbox, .graph, .clusters, .feed, .sources, .projects] {
+        for content: HelpContent in [.aboutCicada, .howSleepWorks, .inbox, .graph, .clusters, .sources, .projects,
+                                     .looks, .skills] {
             switch content {
-            case .aboutCicada, .howSleepWorks, .inbox, .graph, .clusters, .feed, .sources, .projects: break
+            case .aboutCicada, .howSleepWorks, .inbox, .graph, .clusters, .sources, .projects, .looks,
+                 .skills: break
             }
         }
     }
@@ -38,11 +40,12 @@ final class TitlebarHelpTests: XCTestCase {
     func testTheInboxAnswersForItself() {
         XCTAssertEqual(HelpContent.page(.inbox), .inbox)
         XCTAssertEqual(HelpContent.page(.clusters), .clusters)
-        XCTAssertEqual(HelpContent.page(.feed), .feed)
         XCTAssertEqual(HelpContent.page(.sources), .sources)
         XCTAssertEqual(HelpContent.page(.sleep), .howSleepWorks)
         XCTAssertEqual(HelpContent.page(.graph), .graph)
         XCTAssertEqual(HelpContent.page(.projects), .projects)
+        XCTAssertEqual(HelpContent.page(.looks), .looks)
+        XCTAssertEqual(HelpContent.page(.skills), .skills)
         XCTAssertEqual(ListHelp.projects.keys.map(\.key), ["⌘F", "↑ ↓", "⏎", "← →", "L", "M", "D", "Esc"])
         XCTAssertEqual(InboxHelp.keys.map(\.key), ["1–9", "↑ ↓", "⏎", "O", "L", "⌘Z", "Esc", "Tab"])
         // R-DG6 — the Graph's `?` says its keys and gestures in words.

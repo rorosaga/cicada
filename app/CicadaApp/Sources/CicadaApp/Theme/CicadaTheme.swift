@@ -115,8 +115,6 @@ final class ThemeStore {
 }
 
 enum CicadaTheme {
-    /// Mode-independent shading for coloured pixel spines.
-    static let spineShade = Color.black.opacity(0.25)
     /// Active theme mode. Defaults to `.dark` to preserve the app's original
     /// hardcoded look for anyone who hasn't touched the toggle yet.
     ///
@@ -183,6 +181,21 @@ enum CicadaTheme {
     static var textTertiaryOnFill: Color { mode == .dark ? Dark.textTertiary : Light.textTertiaryOnFill }
     /// Disabled states only (DR-3) — never the only cue, never text a reader needs.
     static var textQuaternary: Color { mode == .dark ? Dark.textQuaternary : Light.textQuaternary }
+
+    // MARK: - The notch surface (G191, ruling of 2026-10-14 in DESIGN_RULES §9)
+    /// The ask-why panel is the notch growing, so it is the notch's black in both appearances, and every colour on it
+    /// is the dark ladder's — fixed, never following Appearance (light text on black always).
+    enum Notch {
+        static let surface = Color.black
+        /// The one sheen: a hairline along the grown edge, so the shape reads where it leaves the hardware notch.
+        static let edge = Color.white.opacity(0.10)
+        static let textPrimary = Dark.textPrimary
+        static let textSecondary = Dark.textSecondary
+        static let textTertiary = Dark.textTertiary
+        static let chipRing = Dark.borderLight
+        static let chipSelected = Dark.bgSelected
+        static let chipSelectedRing = Dark.textSecondary
+    }
 
     // MARK: - Accent (DR-4 … DR-6)
     /// DR-4 — one accent, and it is the Mac's. Native toggles, sliders, segmented controls and
@@ -307,6 +320,13 @@ enum CicadaTheme {
     /// `syncWindowChrome` runs for the mode being switched TO.
     static func windowBackground(for mode: AppColorScheme) -> NSColor {
         NSColor(mode == .dark ? Dark.bgBase : Light.bgBase)
+    }
+
+    /// The AppKit window colour, which is what the transparent titlebar band shows: the rail's surface, so band and rail
+    /// read as one frame around the page panel (owner 2026-10-07). `windowBackground` stays `bgBase` — `AccentInk`
+    /// measures the accent against the page, not the band.
+    static func titlebarBackground(for mode: AppColorScheme) -> NSColor {
+        NSColor(mode == .dark ? Dark.bgRail : Light.bgRail)
     }
 
     /// Timeline dot hue per commit change type (entity History tab). Replaces
@@ -516,6 +536,12 @@ enum CicadaTheme {
     static let radiusXS: CGFloat = 4               // keycaps, the span wash
     static let radiusLarge: CGFloat = 16           // the focus card, the Settings panel, error and empty cards
 
+    /// The page panel's rounded top-leading corner, where it meets the rail and the titlebar band (owner 2026-10-06;
+    /// drawn by `ShellContentPanel`, 2026-10-07): one fixed radius, `radiusLarge`, like every radius here (DR-12 — padding scales with
+    /// uiScale, radii do not). Decorative, not concentric: the corner sits a whole rail width in from the window's edge
+    /// and under the titlebar, so it shares no centre with the window's own corner.
+    static let contentCornerRadius: CGFloat = radiusLarge
+
     /// DR-12 — every rounded rectangle is continuous. New code draws through this; the
     /// app-wide sweep of bare `RoundedRectangle(cornerRadius:` is a page-track job (R-DS8).
     static func shape(_ radius: CGFloat) -> RoundedRectangle {
@@ -679,6 +705,8 @@ private extension CicadaTheme {
             // G141 PJ-6: a follow-up is a question the person answers —
             // clarification's hue, no new colour in the palette.
             case .followup: Color(hex: 0x8896FF)
+            // G198: a proposed edit is a question the person answers — clarification's hue, no new colour.
+            case .pageEdit: Color(hex: 0x8896FF)
             // G129 slice 2 — decay's amber, darkened: a retraction reads as a
             // graver cousin of decay's fade, not a wholly new hue (R9, same
             // "no new hue budget" precedent as divergence/normalization above).
@@ -817,6 +845,7 @@ private extension CicadaTheme {
             case .divergence: Color(hex: 0xE43D3D)
             case .normalization: Color(hex: 0x5A62E0)
             case .followup: Color(hex: 0x5A62E0)
+            case .pageEdit: Color(hex: 0x5A62E0)
             case .removal: Color(hex: 0x8A5A10)
             case .unknown: Light.textTertiary
             }

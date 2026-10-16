@@ -35,7 +35,7 @@ from api.services.claim_reconciler import is_human, reconcile_stage3
 from api.services.claims import (EVENT_STATUSES, HAPPENED, MILESTONE, PARTICIPANT_ROLES, Claim,
                                  MalformedClaimsBlockError, clean_participants, is_event, parse_claims,
                                  write_claims)
-from api.services.id_utils import bank_file, resolve_entity_file, sanitize_id
+from api.services.id_utils import bank_file, on_disk, resolve_entity_file, sanitize_id
 
 OBJECT_CHARS = 120
 _DUE_SLUG = re.compile(r"^due-(\d{4}-\d{2}-\d{2})(?:-\d+)?$")
@@ -165,7 +165,7 @@ def _anchor(memory_path: Path, spans: list, now: datetime, tz: tzinfo) -> when_m
             continue
         fm, text = doc
         if ev.is_span():
-            turn = evidence_mod.turn_at(text, ev.start, evidence_mod.turn_stamps(fm))
+            turn = evidence_mod.turn_at(text, ev.start, evidence_mod.turn_stamps(fm), evidence_mod.gap_ranges(fm, text))
             instant = when_mod.parse_instant((turn or {}).get("ts"))
             if instant is not None:
                 return when_mod.Anchor(instant, "turn", tz)
@@ -214,7 +214,8 @@ def _entity_page(memory_path: Path, ref: str) -> Path | None:
     symlink still works — and a legacy stem `sanitize_id` would not produce
     (upper case) is still a page, not a refusal."""
     path = bank_file(memory_path / "entities", str(ref or "").strip())
-    return path if path is not None and path.is_file() else None
+    # Spelled as on disk: on a case-insensitive filesystem "Cicada" finds `cicada.md`, and the link must be its id.
+    return on_disk(path) if path is not None and path.is_file() else None
 
 
 def _scrub(text: str, memory_path: Path, origin: str) -> str:
@@ -260,7 +261,8 @@ def _participants(memory_path: Path, raw, text: str) -> list[dict]:
         page = index_and_owner()[1]
         if page is None:
             oid = _owner_id(memory_path)
-            page = oid if _entity_page(memory_path, oid) is not None else None
+            found = _entity_page(memory_path, oid)
+            page = found.stem if found is not None else None
         return page
 
     out: list[dict] = []
@@ -275,8 +277,9 @@ def _participants(memory_path: Path, raw, text: str) -> list[dict]:
         else:
             for ref in (item.get("entity"), surface):
                 ref = str(ref or "").strip()
-                if ref and _entity_page(memory_path, ref) is not None:
-                    entity = ref
+                found = _entity_page(memory_path, ref) if ref else None
+                if found is not None:
+                    entity = found.stem
                     break
             if entity is None:
                 # A name, never a path: the index maps only to stems it read
@@ -321,8 +324,9 @@ def _reconcile_write(memory_path: Path, page: Path, entity_id: str, parsed, exis
     """One claim through Stage 3's event branch, the page written only when its
     body changed, the audit to the ledger (G113) and any divergence item into
     the inbox. Returns the inbox paths it created so the caller commits them."""
+    # Decay is Sleep's arithmetic, committed under `cicada` (G85) — never inside a progress write.
     reconciled, nudges, audit = reconcile_stage3([claim], {entity_id: existing}, _Settings(memory_path),
-                                                 now_date=today.isoformat())
+                                                 now_date=today.isoformat(), decay=False)
     telemetry.record_audit(audit, subject_hint=entity_id, bank=memory_path.name, stage="reconcile")
     claims = reconciled.get(entity_id, existing)
     body = write_claims(parsed.body, claims)
@@ -764,7 +768,8 @@ def link_participants(memory_path: Path, text: str) -> list[dict]:
     _, owner_page = _entity_index(memory_path)
     if owner_page is None:
         oid = _owner_id(memory_path)
-        owner_page = oid if _entity_page(memory_path, oid) is not None else None
+        found = _entity_page(memory_path, oid)
+        owner_page = found.stem if found is not None else None
     out: list[dict] = [{"role": "owner", "entity": owner_page}] if owner_page else []
     for f in sorted((memory_path / "entities").glob("*.md")):
         if f.stem == owner_page:

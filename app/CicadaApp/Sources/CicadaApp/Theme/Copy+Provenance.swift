@@ -38,6 +38,9 @@ extension Copy {
         static let setupMessage = "Setup message"
         static let unlabelledMessage = "Unlabelled message"
         static let someoneElse = "Someone else"
+        /// G110 gate B2 — the line Cicada writes where a long conversation's middle was not kept: its own note,
+        /// never anyone's words.
+        static let notCaptured = "Not captured · Cicada's note"
         static let fromThePage = "From the page"
         /// A quote an agent reported from a page (G166): Cicada never had the page and cannot check it, so the label
         /// says whose reading it is.
@@ -81,6 +84,9 @@ extension Copy {
 
 extension Copy.Provenance {
     static let youSaid = "You said"
+    /// DR-57 — a passage from a feed or a calendar: what arrived, never what the person said (⌘K, QA 2026-10-16).
+    static let fromTheFeed = "From the feed"
+    static let onYourCalendar = "On your calendar"
     static let theAgentReplied = "The agent replied"
     static func replied(_ agent: String) -> String { "\(agent) replied" }
     static let inTheVideo = "In the video"
@@ -116,11 +122,6 @@ extension Copy.Provenance {
 // MARK: - "Where this came from" on the entity card (§4.5) — Task 4
 
 extension Copy.Provenance {
-    static let whereThisCameFrom = "Where this came from"
-    /// G61's "Sources" section, renamed so "where to refresh this fact" can
-    /// never be read as "where this belief came from" (§4.5, R6 §5.3.7).
-    static let lookItUpAt = "Look it up at"
-
     static let noConversations = "Recorded before Cicada kept conversation links."
     static let noBeliefs = "No beliefs are recorded on this page yet."
     static let unavailable = "Couldn't load where this came from."

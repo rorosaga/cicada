@@ -80,9 +80,12 @@ def test_skill_entity_is_written_durable(tmp_path):
     (tmp_path / "entities").mkdir(parents=True)
     (tmp_path / "inbox").mkdir(parents=True)
 
+    # Stage 4's answers reach `generate` grounded (`skill_grounding.ground`, G112).
     _run(inbox_generator.generate(
-        [], [{"name": "Prefers concise summaries", "description": "Keep it short.",
-              "confidence": 0.6}],
+        [], [{"id": "prefers-concise-summaries", "action": "create", "trigger": "sleep/skills",
+              "source_episodes": ["ep_2026-01-02_1"], "source_episode": "ep_2026-01-02_1",
+              "entity": {"name": "Prefers concise summaries", "type": "skill",
+                         "description": "Keep it short.", "confidence": 0.6}}],
         tmp_path,
     ))
 

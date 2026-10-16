@@ -20,6 +20,12 @@ enum BrowserFile: CaseIterable {
     /// Round 4 (G160): Chrome's default-profile `Sessions/` directory — a folder, read by `ChromiumSessionFiles`,
     /// never by `BrowserFileReader.read`. The default profile only (R-SR1) and Chrome only (R-SR3).
     case chromeSessions
+    /// G179: the Messages database. Read only for the conversations the person ticked (`MessagesReader`); a refused
+    /// read shows the same Full Disk Access fix as the browsers.
+    case messagesDatabase
+    /// G71 (2026-10-16): Chrome's default-profile `History` database — copied, never opened in place, and only its
+    /// YouTube video pages read (`ChromeWatchHistoryReader`), after the person turned it on.
+    case chromeHistory
 
     /// Round 4 (C9): a browser's bookmarks file by its `BrowserInventory` id.
     static func bookmarks(forBrowser id: String) -> BrowserFile? {
@@ -66,6 +72,10 @@ enum BrowserFile: CaseIterable {
             return [appSupport.appendingPathComponent("Dia/User Data/Default/Bookmarks")]
         case .chromeSessions:
             return [appSupport.appendingPathComponent("Google/Chrome/Default/Sessions")]
+        case .messagesDatabase:
+            return [MessagesReader.standardDatabase]
+        case .chromeHistory:
+            return [ChromeWatchHistoryReader.standardHistory]
         }
     }
 
@@ -80,6 +90,8 @@ enum BrowserFile: CaseIterable {
         case .cometBookmarks: "Comet bookmarks"
         case .diaBookmarks: "Dia bookmarks"
         case .chromeSessions: "Chrome's open tabs"
+        case .messagesDatabase: "Messages"
+        case .chromeHistory: "Chrome's history"
         }
     }
 
@@ -147,6 +159,10 @@ enum BrowserFileError: Error, Equatable, LocalizedError {
                 return "\(file.browserName ?? file.displayName) isn't installed, or has no bookmarks in its main profile yet."
             case .chromeSessions:
                 return "Chrome hasn't saved any open windows on this Mac yet."
+            case .messagesDatabase:
+                return "Messages hasn't kept any conversations on this Mac yet."
+            case .chromeHistory:
+                return "Chrome isn't installed, or has no history in its main profile yet."
             }
         }
     }

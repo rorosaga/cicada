@@ -43,13 +43,58 @@ enum EntityHeaderWords {
         }
     }
 
-    static func statusLine(status: EntityStatus, confidence: Double) -> String {
-        "\(status.word) · \(self.confidence(confidence))"
+    /// G194 D1 — a page whose newest source is more than this many days old is "old": its header says when it was
+    /// last mentioned instead of how confident Cicada is. The backend's `source_dates.OLD_AFTER_DAYS`, pinned by
+    /// `api/tests/test_g194_header_pin.py`.
+    static let oldAfterDays = 90
+
+    /// The newest source's day when it is a readable past day more than `oldAfterDays` before `today`; a missing,
+    /// invalid or future day is never old (G194 A2).
+    static func oldDay(_ lastReferenced: String?, today: ISODay) -> ISODay? {
+        guard let day = calendarDay(lastReferenced), today - day > oldAfterDays else { return nil }
+        return day
     }
 
-    /// The number lives here, in `.help`, and never as a bare "%" (DR-59).
-    static func statusHelp(status: EntityStatus, confidence: Double) -> String {
-        let base = Copy.Graph.confidenceOutOf100(Int((confidence * 100).rounded()))
+    /// A strict stored day (G194 fix round 1): `YYYY-MM-DD`, alone or before a time (`T` or a space), naming a day
+    /// the Gregorian calendar has. `ISODay` normalizes "2025-02-30" into Mar 2; the header must never show a day the
+    /// page did not name, so anything else is no day and the confidence words stay.
+    static func calendarDay(_ raw: String?) -> ISODay? {
+        guard let raw else { return nil }
+        let bytes = Array(raw.utf8)
+        let digits = [0, 1, 2, 3, 5, 6, 8, 9]
+        guard bytes.count >= 10, bytes[4] == UInt8(ascii: "-"), bytes[7] == UInt8(ascii: "-"),
+              digits.allSatisfy({ (UInt8(ascii: "0")...UInt8(ascii: "9")).contains(bytes[$0]) }),
+              bytes.count == 10 || bytes[10] == UInt8(ascii: "T") || bytes[10] == UInt8(ascii: " "),
+              let day = ISODay(raw) else { return nil }
+        func number(_ range: Range<Int>) -> Int { range.reduce(0) { $0 * 10 + Int(bytes[$1] - UInt8(ascii: "0")) } }
+        let civil = day.civil
+        return (civil.year, civil.month, civil.day) == (number(0..<4), number(5..<7), number(8..<10)) ? day : nil
+    }
+
+    /// "Feb 2025" in the viewer's language — the header's month (G194 A2); `nil` when the page is not old.
+    static func lastMentionedMonth(_ lastReferenced: String?, today: ISODay,
+                                   locale: Locale = .autoupdatingCurrent) -> String? {
+        oldDay(lastReferenced, today: today).map { RelativeDay.monthYear($0, locale: locale) }
+    }
+
+    /// R-DG14, with G194 A2 (owner D4): an old page reads "Active · last mentioned Feb 2025" — the confidence word
+    /// is replaced, never appended, because a meta line is one line (DR-59) and confidence is not freshness.
+    static func statusLine(status: EntityStatus, confidence: Double, lastReferenced: String? = nil,
+                           today: ISODay = .today(), locale: Locale = .autoupdatingCurrent) -> String {
+        if let month = lastMentionedMonth(lastReferenced, today: today, locale: locale) {
+            return "\(status.word) · \(Copy.Graph.lastMentioned(month))"
+        }
+        return "\(status.word) · \(self.confidence(confidence))"
+    }
+
+    /// The number lives here, in `.help`, and never as a bare "%" (DR-59); an old page adds the absolute day it was
+    /// last mentioned (DR-58: the full date in `.help`).
+    static func statusHelp(status: EntityStatus, confidence: Double, lastReferenced: String? = nil,
+                           today: ISODay = .today(), locale: Locale = .autoupdatingCurrent) -> String {
+        var base = Copy.Graph.confidenceOutOf100(Int((confidence * 100).rounded()))
+        if let day = oldDay(lastReferenced, today: today) {
+            base += Copy.Graph.lastMentionedHelp(RelativeDay.absolute(day, today: today, locale: locale))
+        }
         return status == .decaying ? base + Copy.Graph.fadingReason : base
     }
 
@@ -68,11 +113,16 @@ enum EntityHeaderWords {
 enum EntityTabs {
     /// R-DG16 — a count only once it is known: current beliefs, commits in hand, contested beliefs.
     static func tabs(claims: [Claim]?, historyCount: Int?) -> [TextTab<EntityCardTab>] {
+        tabs(digest: claims.map { ClaimDigest($0) }, historyCount: historyCount)
+    }
+
+    /// The card's form: the counts from the digest it computed once per load, never re-derived per render.
+    static func tabs(digest: ClaimDigest?, historyCount: Int?) -> [TextTab<EntityCardTab>] {
         [
             TextTab(id: .content, label: EntityCardTab.content.label),
-            TextTab(id: .perspectives, label: EntityCardTab.perspectives.label, count: claims.map { $0.filter(\.isValid).count }),
+            TextTab(id: .perspectives, label: EntityCardTab.perspectives.label, count: digest?.current.count),
             TextTab(id: .history, label: EntityCardTab.history.label, count: historyCount),
-            TextTab(id: .timeline, label: EntityCardTab.timeline.label, count: claims.map { contested($0).count }),
+            TextTab(id: .timeline, label: EntityCardTab.timeline.label, count: digest?.contested.count),
         ]
     }
 
@@ -253,6 +303,16 @@ enum DetailsWords {
         return "\(day) · \(InboxAge.phrase(days: InboxAge.days(since: iso, now: now)))"
     }
 
+    /// Owner page, 2026-10-14 — how many related names Details shows. A hub links thousands of pages (the owner's
+    /// 2,024): one chip each made opening the card lag, and the page's own `## Related` already lists them (DR-38).
+    static let relatedShown = 12
+
+    /// The related names Details shows, and how many more there are.
+    static func relatedPreview(_ related: [String]) -> (shown: [String], more: Int) {
+        let shown = Array(related.prefix(relatedShown))
+        return (shown, related.count - shown.count)
+    }
+
     /// `related:` holds ids or names; a link opens only when one matches a page in the graph.
     static func relatedTarget(_ related: String, in entities: [Entity]) -> String? {
         let key = related.trimmingCharacters(in: .whitespaces)
@@ -289,14 +349,21 @@ enum BeliefWords {
 /// not one of them (a clock on an uncontested belief still opens its own timeline — the sheet it replaced did).
 enum TimelineKeys {
     static func rows(claims: [Claim], requested: BeliefKey?) -> [BeliefKey] {
-        let contested = EntityTabs.contested(claims)
+        rows(contested: EntityTabs.contested(claims), requested: requested)
+    }
+
+    static func rows(contested: [BeliefKey], requested: BeliefKey?) -> [BeliefKey] {
         guard let requested, !contested.contains(requested) else { return contested }
         return [requested] + contested
     }
 
     /// "2 beliefs since Jan 5" — the row's count and its first day (DR-58: an absolute day, no year in a row).
     static func summary(_ key: BeliefKey, claims: [Claim], locale: Locale = .autoupdatingCurrent) -> String {
-        let group = claims.filter { BeliefKey($0) == key }
+        summary(of: claims.filter { BeliefKey($0) == key }, locale: locale)
+    }
+
+    /// One key's own claims, already grouped.
+    static func summary(of group: [Claim], locale: Locale = .autoupdatingCurrent) -> String {
         let first = group.map(\.validFrom).filter { !$0.isEmpty }.min()
         return Copy.Graph.beliefsSince(group.count, EntityDates.shortDay(first, locale: locale))
     }
@@ -362,7 +429,11 @@ enum PerspectiveGroups {
     }
 
     static func of(_ claims: [Claim]) -> [Group] {
-        Dictionary(grouping: claims.filter(\.isValid), by: \.observer)
+        of(current: claims.filter(\.isValid))
+    }
+
+    static func of(current: [Claim]) -> [Group] {
+        Dictionary(grouping: current, by: \.observer)
             .map { Group(observer: $0.key, claims: $0.value) }
             .sorted { rank($0.observer) != rank($1.observer) ? rank($0.observer) < rank($1.observer)
                                                              : $0.observer.label < $1.observer.label }
@@ -372,7 +443,11 @@ enum PerspectiveGroups {
 
     /// Keys where two or more observers hold different current values.
     static func divergences(_ claims: [Claim]) -> [Divergence] {
-        Dictionary(grouping: claims.filter(\.isValid), by: { BeliefKey($0) })
+        divergences(current: claims.filter(\.isValid))
+    }
+
+    static func divergences(current: [Claim]) -> [Divergence] {
+        Dictionary(grouping: current, by: { BeliefKey($0) })
             .compactMap { key, group -> Divergence? in
                 guard Set(group.map(\.observer)).count >= 2, Set(group.map(\.object)).count >= 2 else { return nil }
                 let ordered = group.sorted { rank($0.observer) < rank($1.observer) }
@@ -380,6 +455,39 @@ enum PerspectiveGroups {
             }
             .sorted { $0.id < $1.id }
     }
+}
+
+/// Everything the entity card shows that is derived from a page's claims, computed once per load (off the main
+/// actor) rather than in every render. On an owner-sized page (3,500 claims) the card re-derived these — current
+/// beliefs, newest first, contested keys, observer groups, divergences, a summary per key — on every SwiftUI update,
+/// ~200 ms each time in a debug build (`OwnerScaleBenchTests`).
+struct ClaimDigest {
+    let all: [Claim]
+    /// Current beliefs (`Claim.isCurrent` on one `today`), in page order.
+    let current: [Claim]
+    /// `PersonBeliefs.ordered`: current beliefs by when they were written, else when they became true.
+    let newestFirst: [Claim]
+    /// (predicate, context) keys with two or more claims over time, current and superseded, by id.
+    let contested: [BeliefKey]
+    let groups: [PerspectiveGroups.Group]
+    let divergences: [PerspectiveGroups.Divergence]
+    private let summaries: [BeliefKey: String]
+
+    static let empty = ClaimDigest([])
+
+    init(_ claims: [Claim], today: ISODay = .today(), locale: Locale = .autoupdatingCurrent) {
+        all = claims
+        current = claims.filter { $0.isCurrent(on: today) }
+        newestFirst = PersonBeliefs.newestFirst(current)
+        let byKey = Dictionary(grouping: claims, by: { BeliefKey($0) })
+        contested = byKey.filter { $0.value.count >= 2 }.keys.sorted { $0.id < $1.id }
+        summaries = byKey.mapValues { TimelineKeys.summary(of: $0, locale: locale) }
+        groups = PerspectiveGroups.of(current: current)
+        divergences = PerspectiveGroups.divergences(current: current)
+    }
+
+    /// "2 beliefs since Jan 5" for a Timeline row (`TimelineKeys.summary`).
+    func summary(_ key: BeliefKey) -> String { summaries[key] ?? TimelineKeys.summary(of: []) }
 }
 
 enum BeliefTimelineWords {

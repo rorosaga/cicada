@@ -55,7 +55,30 @@ TOOL_SCOPE: dict[str, str | None] = {
     "cicada_resolve_inbox": "answer",
     "cicada_ask": "ask",
 }
-NEVER_REMOTE = frozenset({"cicada_pending", "cicada_mark_processed", "cicada_repo_context"})
+# G110 slice 1a: `cicada_continue` reads the person's verbatim words for a folder
+# the caller names; slice 4 (G135) decides whether and under which scope it goes remote.
+# Design taste (2026-10-14): the two board tools are stdio-only in their first slice — `image_path` reads a file the
+# local agent saved, and which scope a remote picture belongs under is the owner's open question.
+# G198: page edits are stdio and command line only in their first slice — the trust list names local harnesses, and
+# whether a remote app may ever edit a page is the owner's open question.
+NEVER_REMOTE = frozenset({"cicada_pending", "cicada_mark_processed", "cicada_repo_context", "cicada_continue",
+                          "cicada_save_design", "cicada_design_search", "cicada_edit_page",
+                          # G166 exploring (2026-10-14): stdio only in slice 1 — the record reads image files the agent
+                          # saved, and a run starts only from the person in a local conversation (D5: never remote).
+                          "cicada_explore_queue", "cicada_explore_claim", "cicada_record_capture",
+                          "cicada_explore_start", "cicada_site_map",
+                          # G61, ruling 26: a tracked source's re-check reads in the person's own browser session —
+                          # a local agent's job; a remote one is the owner's open question.
+                          "cicada_refresh_claim", "cicada_record_refresh",
+                          # G71 (2026-10-16): the person's YouTube lists, read in their own browser session by a local
+                          # agent — the same seat as a tracked source's re-check.
+                          "cicada_record_youtube_list",
+                          # 2026-10-16: one person's LinkedIn profile, read in the person's own browser session by a
+                          # local agent the person asked — the same seat.
+                          "cicada_record_profile",
+                          # The Skills page (2026-10-15): skills live in this Mac's agent folders, and a remote app is
+                          # no coding agent here; whether one may ever ask for a skill is the owner's open question.
+                          "cicada_skills", "cicada_propose_skill", "cicada_create_skill"})
 WRITE_TOOLS = frozenset({"cicada_save_episode", "cicada_write_claim", "cicada_retract_claim",
                          "cicada_save_url", "cicada_record_watch", "cicada_record_read", "cicada_record_check", "cicada_add_source",
                          "cicada_change_source",

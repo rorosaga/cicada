@@ -47,9 +47,10 @@ def _now() -> datetime:
 
 
 def _holding() -> bool:
-    from api.services import sleep_cycle
+    """A stale answer is enough (G183): the queue's lease judgement, never a page write."""
+    from api.services import write_admission
 
-    return sleep_cycle.is_writing()
+    return write_admission.probe()
 
 
 def browser_clause() -> str | None:

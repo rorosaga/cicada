@@ -57,7 +57,9 @@ class ClaudePlanAdapter:
             return self._base(available=True, detail=f"could not parse `claude auth status` output: {res.stderr.strip() or res.stdout[:80]!r}")
         if not info.get("loggedIn"):
             return self._base(available=True, detail="Not signed in — Connect opens Terminal with `claude auth login`.")
-        if info.get("authMethod") not in (None, "claude.ai"):
+        # `oauth_token` is a plan token Claude Code reads from CLAUDE_CODE_OAUTH_TOKEN (`claude setup-token`, the
+        # headless path): a subscription like `claude.ai`, never metered (G181, ruling 4b).
+        if info.get("authMethod") not in (None, "claude.ai", "oauth_token"):
             return self._base(available=True, detail="Claude Code is using an API key, not a plan. Use the OpenAI/Anthropic API-key connection for usage-based billing.")
         plan = (info.get("subscriptionType") or "").lower() or None
         if plan is None:
@@ -69,7 +71,7 @@ class ClaudePlanAdapter:
         # R-E24: conditional — POWERS, not `how`, says whether this plan runs
         # Sleep right now, so `how` must not claim it does.
         how = (
-            f"Signed in to Claude Code on this Mac {who}. When Sleep or Ask runs on your "
+            f"Signed in to Claude Code on this machine {who}. When Sleep or Ask runs on your "
             "Claude plan it goes through the `claude` CLI — Cicada never sees your token."
         )
         # `override`, never `note`: `note` above is the price note (R-E6).

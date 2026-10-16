@@ -163,3 +163,20 @@ def test_an_abandoned_export_is_swept_by_the_next_one(tmp_path):
     os.utime(stale, (old, old))
     fresh = bank_registry.export_zip(root, "scratch", exports, now=NOW)
     assert fresh.exists() and not stale.exists()
+
+
+def test_a_trashed_bank_takes_its_kept_linkedin_connections_and_a_rename_carries_them(tmp_path, monkeypatch):
+    """The LinkedIn connections kept outside every bank are keyed by the bank's folder: they never outlive the bank
+    (a new bank of the same name inherits nothing), and a rename carries them along."""
+    from api.services import linkedin_people
+
+    client, root = _client(tmp_path, monkeypatch)
+    monkeypatch.setenv("CICADA_HOME", str(tmp_path / "home"))
+    people = [linkedin_people.Connection("Bob", "Example", "https://www.linkedin.com/in/bob-example")]
+    assert linkedin_people.save_directory("scratch", people, "2026-09-01")
+    assert client.post("/banks/scratch/rename", json={"newName": "Moved"}).status_code == 200
+    assert not linkedin_people.directory_path("scratch").exists()
+    assert linkedin_people.load_directory("moved")["exported_on"] == "2026-09-01"
+    assert client.delete("/banks/moved").status_code == 200
+    assert not linkedin_people.directory_path("moved").parent.exists()
+    config.get_settings.cache_clear()

@@ -6,6 +6,7 @@ from loguru import logger
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings
 
+from api import settings_file
 from api.services.bank_registry import resolve_active_bank_path
 
 # Key-backed embedding modes -> the env var whose presence keeps them from
@@ -64,6 +65,12 @@ class Settings(BaseSettings):
     # CICADA_EMBEDDING_MODEL maps to this when mode=openrouter; we keep a separate
     # field so swapping mode doesn't clobber the openai model name and vice-versa.
     embedding_model_openrouter: str = "google/gemini-embedding-2"
+    # What an entity page's search vector is made from (2026-10-16 perf, owner decision 4) — CICADA_ENTITY_EMBED_TEXT:
+    #   "full"  -> name, type, aliases and the whole body, its claims fence included. Today's behaviour, the default.
+    #   "prose" -> the same without the claims fence (claims have their own vectors), capped at
+    #              `vector_index.ENTITY_EMBED_MAX_CHARS`. Flipped only after `benchmarks.recall_ab` shows search no
+    #              worse on the person's own queries. A change re-embeds every page once (the text hash moves).
+    entity_embed_text: str = "full"
 
     # LiteLLM model (format: provider/model-name)
     # Examples: gpt-5.4-mini, anthropic/claude-sonnet-4-20250514, gemini/gemini-2.0-flash
@@ -84,6 +91,16 @@ class Settings(BaseSettings):
     # the default litellm_model used everywhere else. Read via
     # ``effective_consolidation_model``.
     consolidation_model: str = ""             # CICADA_CONSOLIDATION_MODEL
+
+    # G194: opt-in until the owner reviews the synthetic call/timing results.
+    summary_synthesis_enabled: bool = False  # CICADA_SUMMARY_SYNTHESIS_ENABLED
+    # G194 articles (owner 2026-10-09): a page resting on 2+ conversations is rewritten as an article — a lead and
+    # prose sections compiled from its record — each time it gains material (`entity_article`). Opt-in until the
+    # owner reviews the before/after and the call/size numbers, like the synthesis switch above; on, it replaces
+    # that call for those pages, and a one-conversation page keeps the deterministic merge with no call.
+    page_articles_enabled: bool = False      # CICADA_PAGE_ARTICLES_ENABLED
+    # The writer's prompt is never clipped; a page whose inputs are larger keeps the deterministic merge.
+    page_article_max_input_chars: int = 60000  # CICADA_PAGE_ARTICLE_MAX_INPUT_CHARS
 
     # Optional OpenRouter attribution headers, attached by the provider factory
     # ONLY when the resolved model id starts with "openrouter/". Both empty (the
@@ -166,6 +183,11 @@ class Settings(BaseSettings):
 
     # Sleep cycle thresholds
     sleep_promotion_threshold: int = 2
+    # Stage 2's judge calls in flight at once (a batch's names judged against the
+    # pages on disk, ahead of the per-name loop; every decision is still made in
+    # order). 1 = one call after another. A plan engine is further capped,
+    # process-wide, by `agent_max_concurrency`, which Stage 1 already runs under.
+    sleep_resolve_concurrency: int = 3              # CICADA_SLEEP_RESOLVE_CONCURRENCY
     decay_nudge_threshold: float = 0.4
     archive_threshold: float = 0.2
 
@@ -233,6 +255,9 @@ class Settings(BaseSettings):
     # bank draining in about a month with at most 20 fetches + 20 summaries
     # + ~5 extraction calls per night.
     link_enrich_backfill_per_cycle: int = 20   # CICADA_LINK_ENRICH_BACKFILL_PER_CYCLE
+    # Owner ruling 2026-10-16 (G61): the web lookup on Sleep's tail settles at most this many public-thing
+    # questions a run (one search call each); 0 turns the step off. `web_lookup`.
+    web_check_per_run: int = 8                 # CICADA_WEB_CHECK_PER_RUN
     # Track C: reuse (zero-LLM) and fetch+summarize shared that one budget with
     # reuse spent first, so a night with 20 reuse candidates read no new page.
     # This many of the cap are reserved for fetches while any wait (the in-cycle
@@ -288,7 +313,10 @@ class Settings(BaseSettings):
     # no hook re-registration.
     capture_assistant_replies: bool = True  # CICADA_CAPTURE_ASSISTANT_REPLIES
 
-    model_config = {"env_prefix": "CICADA_", "env_file": ".env", "extra": "ignore"}
+    # The developer checkout's `api/.env`, as an absolute path found from this package's folder — never a `.env` in the
+    # working directory, which for an MCP server or a hook is an agent's project folder. None in a release
+    # (`api/settings_file.py`). The environment always wins over the file.
+    model_config = {"env_prefix": "CICADA_", "env_file": settings_file.path(), "extra": "ignore"}
 
     @property
     def telegram_enabled(self) -> bool:
@@ -329,8 +357,10 @@ class Settings(BaseSettings):
             return self.embedding_model_openrouter
         if "embedding_model_local" not in self.model_fields_set:
             # G182 — a release app bundles a small ONNX model (no torch) and a fresh
-            # bank is built with it; a developer checkout bundles none and keeps the
-            # default below. An explicit CICADA_EMBEDDING_MODEL_LOCAL always wins.
+            # bank is built with it; EmbeddingGemma 2 on the Neural Engine outranks it
+            # once downloaded on a Mac that runs it (owner 2026-10-09). A checkout with
+            # neither keeps the default below. An explicit CICADA_EMBEDDING_MODEL_LOCAL
+            # always wins.
             from api.services import onnx_embedder
 
             bundled = onnx_embedder.default_model()
@@ -357,3 +387,14 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+
+def disable_dotenv() -> None:
+    """G180: build every later ``Settings`` from the environment alone. The ``cicada`` command
+    runs in an agent's project folder, and ``env_file: ".env"`` is relative to the cwd, so that
+    project's own ``.env`` (or one in ``CICADA_HOME``) would otherwise steer the memory root and
+    the engine. The command publishes its one resolved root into the environment first
+    (``api/cli.py``'s bootstrap), then calls this."""
+    Settings.model_config["env_file"] = None
+    settings_file.disable()
+    get_settings.cache_clear()

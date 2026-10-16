@@ -66,7 +66,8 @@ final class UpdateService {
         var consumeDeferral: @MainActor () -> String? = { nil }
         /// Adopts a staged copy a deferred install left behind, or removes a stale one.
         var recoverStaged: @MainActor () -> StagedUpdate?
-        /// `ProjectWriteGate.blocked` over the Store's status — the cached answer, for the button.
+        /// `ProjectWriteGate.sleepRunning` over the Store's status — the cached answer, for the button. The whole run,
+        /// not G177's write window: installing stops the backend, which ends a drain between its batches too.
         var isSleepWriting: @MainActor () -> Bool
         /// The backend asked directly, with a timeout (`SleepProbe`).
         var probeSleep: @Sendable (Duration) async -> SleepProbe.Answer = { _ in .noAnswer }

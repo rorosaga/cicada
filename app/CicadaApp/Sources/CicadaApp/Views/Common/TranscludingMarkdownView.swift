@@ -50,20 +50,8 @@ struct TranscludingMarkdownView: View {
                         TransclusionCard(ref: ref, depth: depth + 1, visited: visited.union([ref]))
                     }
                 case .image(let url, let alt):
-                    if let u = URL(string: url) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            ImageThumbnail(url: u, width: 320, height: 180)
-                            if !alt.isEmpty {
-                                Text(alt)
-                                    .font(CicadaTheme.captionFont)
-                                    .foregroundStyle(CicadaTheme.textTertiary)
-                            }
-                        }
-                    } else {
-                        Text(alt.isEmpty ? url : alt)
-                            .font(CicadaTheme.captionFont)
-                            .foregroundStyle(CicadaTheme.textTertiary)
-                    }
+                    // Owner rulings 2026-10-14: a stored picture draws; a web image is a bookmark of its URL.
+                    ProseImage(url: url, alt: alt)
                 }
             }
         }
@@ -81,9 +69,8 @@ struct TranscludingMarkdownView: View {
     /// here) — `MarkdownBody` owns full block + inline markdown rendering,
     /// including `[[wikilinks]]`, for each `.text` segment.
     private var segments: [MarkdownSegment] {
-        // Group 1: embed ref (`![[ref]]`). Groups 2/3: image alt + url (`![alt](url)`).
-        let pattern = "!\\[\\[(.+?)\\]\\]|!\\[([^\\]]*)\\]\\(([^)]+)\\)"
-        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+        // Group 1: embed ref (`![[ref]]`). Groups 2/3: image alt + url (`![alt](url)`, a title never in the url).
+        guard let regex = WikiArticle.embedPattern else {
             return [.text(body0)]
         }
         let nsText = body0 as NSString
@@ -222,14 +209,13 @@ struct TransclusionCard: View {
         } else if let p = payload {
             if !p.resolved {
                 missingStub
-            } else if let media = p.mediaURL, let u = URL(string: media),
-                      MediaURLHelpers.isImageURL(media) {
+            } else if let media = p.mediaURL, StoredPreviewPath.loads(media) {
                 // G11: a media entity that surfaced an image url → render the
                 // image inline (tap → lightbox) instead of a text summary.
                 // Degrades to the summary branches below when no image url is
                 // present (the common case until the backend emits it).
                 VStack(alignment: .leading, spacing: 4) {
-                    ImageThumbnail(url: u, width: 300, height: 170)
+                    ImageThumbnail(path: media, width: 300, height: 170)
                     if !p.summary.isEmpty {
                         Text(p.summary)
                             .font(CicadaTheme.captionFont)

@@ -97,6 +97,9 @@ struct StudyRoom: View {
     /// Track Z Z9 (I15) — false while the page is stale (R-A12): a drop is
     /// declined in the worm's words and nothing is sent (Z-B9).
     var reachable: Bool = true
+    /// The Sleep redesign (2026-10-16) — points per lattice cell, a whole number chosen from the column's width
+    /// (`SleepLayout.artScale`, 5/4/3). `nil` keeps the zoom-derived cell (`RoomLattice.cell`).
+    var cell: CGFloat? = nil
 
     @Environment(IntakeRouter.self) private var intake
     @Environment(AppRouter.self) private var appRouter: AppRouter?
@@ -108,7 +111,7 @@ struct StudyRoom: View {
     @State private var windowVisible = false
 
     var body: some View {
-        let scene = deskSceneLayout()
+        let scene = deskSceneLayout(pixelScale: cell)
         let spots = deskHotspots(scene)
         let mode = SceneryMode.stored(sceneryRaw)
         let zoneID = SceneStore.shared.timeZoneIdentifier
@@ -123,15 +126,18 @@ struct StudyRoom: View {
                 WormStage(mood: page.mood, room: room, cell: scene.cell,
                           lighting: scenery.lighting, lampLit: page.lampLit)
             }
+            // DESIGN §3.2 — out of its card, the floor fades into the page ground over the art's own bottom edge: a
+            // mask on the ART layer only (never the pile, which is data), no shadow (DR-9/10).
+            .mask { RoomFloorFade(height: scene.size.height, fade: RoomFloorFade.fade(cell: scene.cell)) }
             .environment(\.scenePaused, !onScreen)
             if let clock = scene.layers.first(where: { $0.prop == .clock }) {
                 RoomClock(lighting: scenery.lighting, cell: scene.cell, onScreen: onScreen)
                     .offset(x: CGFloat(clock.cellX) * scene.cell, y: -CGFloat(clock.cellY) * scene.cell)
             }
-            // The REAL pile, in the column the layout reserves for it —
-            // never a painted stack (P10).
+            // The REAL pile, in the column the layout reserves for it: books placed from the queue, their art the
+            // room's sprites in the room's lighting, their counts on solid plates (P10, DR-13).
             BookPileView(books: page.books, rows: page.rows, episodes: episodes, room: room,
-                         onOpenDetails: onOpenDetails, layout: scene)
+                         onOpenDetails: onOpenDetails, layout: scene, night: scenery.lighting == .dark)
                 .frame(width: scene.pileFrame.width, height: scene.pileFrame.height, alignment: .bottomLeading)
                 .offset(x: scene.pileFrame.minX, y: -scene.pileFrame.minY)
             if let lamp = spots[.lamp] {
@@ -226,6 +232,25 @@ struct StudyRoom: View {
         if let phase = RoomModel.feedPhase(drag: nil, result: result, intakePhase: intake.phase) {
             AccessibilityNotification.Announcement(feedLine(phase, asleep: feedIsAsleep(page.mood)).spoken).post()
         }
+    }
+}
+
+/// The room's floor, fading into the page ground (DESIGN §3.2): opaque down to the last few cells, then clear at the
+/// art's bottom edge. Whole cells, so the fade starts on a pixel boundary; a mask, so no colour is painted.
+struct RoomFloorFade: View {
+    let height: CGFloat
+    let fade: CGFloat
+
+    /// About 24 pt at the 5 pt cell — five cells — and five cells at every scale.
+    static func fade(cell: CGFloat) -> CGFloat { cell * 5 }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Rectangle().fill(Color.black)
+            LinearGradient(colors: [Color.black, Color.black.opacity(0)], startPoint: .top, endPoint: .bottom)
+                .frame(height: min(fade, height))
+        }
+        .frame(height: height)
     }
 }
 

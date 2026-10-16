@@ -1,0 +1,13 @@
+{
+  "conversation_id": "cursor-synthetic-0001",
+  "generation_id": "generation-synthetic-0001",
+  "model": "synthetic-model",
+  "model_id": "synthetic-model",
+  "model_params": [],
+  "hook_event_name": "afterAgentResponse",
+  "cursor_version": "2.4.0",
+  "workspace_roots": ["/synthetic/alpha-project"],
+  "user_email": "sentinel@example.invalid",
+  "transcript_path": "/outside/must-not-open.jsonl",
+  "text": "Yes, once the migration lands."
+}

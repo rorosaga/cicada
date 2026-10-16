@@ -67,8 +67,8 @@ struct MemoryBank: Codable, Identifiable {
     }
 
     /// Memberwise init (the `init(from:)` below suppresses the synthesized
-    /// one). `ActivateBank`'s optimistic apply needs to flip `active` on a
-    /// roster row before the server echoes the new roster back.
+    /// one). `Store.activateBank` flips `active` on a roster row when the
+    /// server's answer carries no roster it can read.
     init(name: String, active: Bool, entityCount: Int, episodeCount: Int,
          createdAt: String, description: String?, legacy: Bool = false, demo: Bool = false) {
         self.name = name; self.active = active
@@ -223,7 +223,12 @@ struct MediaFeedItem: Codable, Identifiable {
     let mediaType: String
     let site: String?
     let channel: String?
+    /// The provider's own image URL, as the page stores it. Never loaded by the app: `preview` is.
     let thumbnail: String?
+    /// The item's picture as Cicada stores it — `/entities/{id}/preview?v=…` (fetched once by the backend) or the
+    /// person's own upload — loaded with the bearer through `PictureStore`. `nil` from an older backend and for an
+    /// item with nothing to show (the row draws its placeholder).
+    let preview: String?
     let savedAt: String
     let tags: [String]
     let status: String
@@ -268,6 +273,25 @@ struct MediaFeedItem: Codable, Identifiable {
     /// block. `nil` from an older backend, and for a link that is not a page to read (a video, a paper) with
     /// nothing recorded. It moves on the `reading` sync component, so a `needs_login` shows here over SSE.
     let read: MediaReadState?
+    /// G191 — the person's newest answer to "What made you save this?"; v3 adds every answer (oldest first, only when
+    /// there is more than one), the newest moment the link was saved and the site-capture thumbnail Cicada holds.
+    /// All optional: an older backend omits them.
+    var savedWhy: SavedWhyRecord? = nil
+    var savedWhyHistory: [SavedWhyRecord]? = nil
+    var lastSavedAt: String? = nil
+    var captureThumb: String? = nil
+    /// G191 v4 — the browsers this bookmark has left (one per browser whose file no longer holds it, with since when).
+    /// Cicada keeps the bookmark; this is its status. Empty from an older backend.
+    var leftBrowser: [BookmarkLeft] = []
+    /// G181 phase 3 — the id of the person's device whose token posted the save; nil for what the server's own machine
+    /// saved (`DeviceOrigin` names it on the "Saved from" line).
+    var device: String? = nil
+
+    /// Every answer, oldest first (the history when there are several, else the one answer).
+    var savedWhyAnswers: [SavedWhyRecord] {
+        if let history = savedWhyHistory, !history.isEmpty { return history }
+        return savedWhy.map { [$0] } ?? []
+    }
 
     // Row identity must be unique per SAVED ITEM, not per entity page: the
     // ingestor slugifies page titles into mediaEntityId, so 148 distinct
@@ -308,7 +332,7 @@ struct MediaFeedItem: Codable, Identifiable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case mediaEntityId, url, title, mediaType, site, channel, thumbnail
+        case mediaEntityId, url, title, mediaType, site, channel, thumbnail, preview
         case savedAt, tags, status, relatedCount, relevance, personalRelevance
         case contentSavedAt
         case description, about
@@ -316,6 +340,9 @@ struct MediaFeedItem: Codable, Identifiable {
         case provider, durationS
         case kind, paper
         case read
+        case savedWhy, savedWhyHistory, lastSavedAt, captureThumb
+        case leftBrowser
+        case device
     }
 
     init(from decoder: Decoder) throws {
@@ -327,6 +354,7 @@ struct MediaFeedItem: Codable, Identifiable {
         site = try c.decodeIfPresent(String.self, forKey: .site)
         channel = try c.decodeIfPresent(String.self, forKey: .channel)
         thumbnail = try c.decodeIfPresent(String.self, forKey: .thumbnail)
+        preview = try? c.decodeIfPresent(String.self, forKey: .preview)
         savedAt = (try? c.decode(String.self, forKey: .savedAt)) ?? ""
         tags = (try? c.decode([String].self, forKey: .tags)) ?? []
         status = (try? c.decode(String.self, forKey: .status)) ?? "active"
@@ -343,9 +371,23 @@ struct MediaFeedItem: Codable, Identifiable {
         kind = try c.decodeIfPresent(String.self, forKey: .kind)
         paper = try c.decodeIfPresent(PaperSummary.self, forKey: .paper)
         read = try? c.decodeIfPresent(MediaReadState.self, forKey: .read)
+        savedWhy = try? c.decodeIfPresent(SavedWhyRecord.self, forKey: .savedWhy)
+        savedWhyHistory = try? c.decodeIfPresent([SavedWhyRecord].self, forKey: .savedWhyHistory)
+        lastSavedAt = try? c.decodeIfPresent(String.self, forKey: .lastSavedAt)
+        captureThumb = try? c.decodeIfPresent(String.self, forKey: .captureThumb)
+        leftBrowser = (try? c.decodeIfPresent([BookmarkLeft].self, forKey: .leftBrowser)) ?? []
+        device = (try? c.decodeIfPresent(String.self, forKey: .device)) ?? nil
     }
 
     var isPaper: Bool { kind == "paper" }
+}
+
+/// G191 v4 — "No longer in Chrome since Oct 15": `GET /sources` → `leftBrowser[]`.
+struct BookmarkLeft: Codable, Equatable, Hashable, Sendable {
+    var browser: String
+    var channel: String = ""
+    /// When a sync first saw it gone (aware ISO).
+    var since: String
 }
 
 struct SourceListResponse: Codable {
@@ -381,6 +423,40 @@ struct BookmarkSyncSourceSummary: Codable {
     /// before round 4 still decodes; declared last so the memberwise init keeps its order.
     var readingList: Int? = nil
     var favorites: Int? = nil
+    /// G191 — this channel had never been synced before this pass. Optional so an older backend still decodes.
+    var firstSync: Bool? = nil
+}
+
+/// G191 — one bookmark a sync newly saved (`POST /sources/sync-bookmarks` → `fresh`). `addedAt` is the browser's own
+/// instant (aware UTC ISO), present only when its file records one (Chrome; Safari's Reading List).
+struct FreshBookmark: Codable, Equatable, Sendable {
+    let url: String
+    var title: String = ""
+    var origin: String = ""
+    var channel: String = ""
+    var episodeId: String = ""
+    var addedAt: String? = nil
+    /// G191 v3 — a link Cicada already held, saved again in this browser (removed and bookmarked again). Optional so
+    /// an older backend still decodes.
+    var resave: Bool? = nil
+    /// G191 v5 — Chromium's own `date_added` (WebKit microseconds since 1601), set only by the app's diff of the file,
+    /// never by the backend: the bubble watcher's teacher needs the instant to the millisecond, not floored to the
+    /// second as `addedAt` is.
+    var addedMicros: Int64? = nil
+
+    /// The page's host without `www.`, lower-cased — the key "Don't ask for this site" remembers.
+    var host: String? {
+        guard let host = URL(string: url)?.host?.lowercased(), !host.isEmpty else { return nil }
+        return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
+    }
+
+    var addedDate: Date? {
+        guard let addedAt else { return nil }
+        return ISO8601DateFormatter().date(from: addedAt)
+    }
+
+    /// G191 v5 — the exact instant the browser made it (`addedMicros`), when the app's diff read it.
+    var addedInstant: Date? { addedMicros.flatMap(BookmarkEntry.instant(micros:)) }
 }
 
 /// `POST /sources/sync-bookmarks` result — aggregate new/skipped plus the
@@ -395,6 +471,11 @@ struct BookmarkSyncResult {
     /// Non-nil only when the correctness rails refused to compute removals
     /// this sync (a folder-scope change since the last sync on some channel).
     var removalsSkipped: String? = nil
+    /// G191 — the bookmarks this sync newly saved (at most a few) and how many in all. Empty from an older backend.
+    var fresh: [FreshBookmark] = []
+    var freshTotal: Int = 0
+    /// G191 v4 — how many links this sync marked as gone from their browser (never a question).
+    var leftMarked: Int = 0
 }
 
 // `Codable` conformance lives in an extension, not the primary declaration,
@@ -403,7 +484,9 @@ struct BookmarkSyncResult {
 // memberwise init that `BrowserImportModelTests.swift` and call sites across
 // the app construct `BookmarkSyncResult` with directly.
 extension BookmarkSyncResult: Codable {
-    enum CodingKeys: String, CodingKey { case new, skipped, sources, removalsProposed, removalsSkipped }
+    enum CodingKeys: String, CodingKey {
+        case new, skipped, sources, removalsProposed, removalsSkipped, fresh, freshTotal, leftMarked
+    }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -412,7 +495,112 @@ extension BookmarkSyncResult: Codable {
         sources = try c.decodeIfPresent([BookmarkSyncSourceSummary].self, forKey: .sources) ?? []
         removalsProposed = try c.decodeIfPresent(Int.self, forKey: .removalsProposed) ?? 0
         removalsSkipped = try c.decodeIfPresent(String.self, forKey: .removalsSkipped)
+        fresh = (try? c.decodeIfPresent([FreshBookmark].self, forKey: .fresh)) ?? []
+        freshTotal = (try? c.decodeIfPresent(Int.self, forKey: .freshTotal)) ?? fresh.count
+        leftMarked = (try? c.decodeIfPresent(Int.self, forKey: .leftMarked)) ?? 0
     }
+}
+
+/// G191 — `GET /sources/saved-why/options`: the fixed one-tap reasons (G191 v4: four, and never a project —
+/// `projects` stays on the wire, always empty).
+struct SavedWhyOptions: Codable, Equatable, Sendable {
+    struct Reason: Codable, Equatable, Sendable, Identifiable {
+        let key: String
+        let label: String
+        var id: String { key }
+    }
+    struct Project: Codable, Equatable, Sendable, Identifiable {
+        let id: String
+        let name: String
+    }
+    var reasons: [Reason] = []
+    var projects: [Project] = []
+    var maxText: Int = 500
+
+    /// G191 v4 — the four fixed reasons (`saved_why.REASONS` on the backend, same keys and words), so the panel can
+    /// show at once before the backend's options arrive. The backend's list replaces it as soon as it answers.
+    static let basic = SavedWhyOptions(reasons: [
+        .init(key: "design", label: "The design"),
+        .init(key: "product", label: "The product"),
+        .init(key: "read_later", label: "To read later"),
+        .init(key: "someday", label: "Useful someday"),
+    ], projects: [], maxText: 500)
+}
+
+/// G191 — one answer as the source record carries it (`GET /sources` → `savedWhy` / `savedWhyHistory`): the reason
+/// keys with their labels, the project, the person's words, when they said it (`at`), when the browser says that save
+/// was made (`addedAt`) and when they last changed it (`editedAt`, v3).
+struct SavedWhyRecord: Codable, Equatable, Sendable, Hashable {
+    var reasons: [String] = []
+    var labels: [String] = []
+    var project: String? = nil
+    var text: String? = nil
+    var at: String? = nil
+    var addedAt: String? = nil
+    var editedAt: String? = nil
+
+    var answer: SavedWhyAnswer { SavedWhyAnswer(reasons: reasons, project: project, text: text) }
+}
+
+/// G191 v3 — `POST`/`PUT /sources/saved-why`'s answer: the answer written and every answer on the link now.
+struct SavedWhyReply: Codable, Equatable, Sendable {
+    var episodeId: String = ""
+    var mediaEntityId: String = ""
+    var savedWhy: SavedWhyRecord
+    var history: [SavedWhyRecord]? = nil
+}
+
+/// G191 v3 — `POST /sources/bookmarks/remove`'s answer.
+struct BookmarkRemoveReply: Codable, Equatable, Sendable {
+    var episodeId: String = ""
+    var mediaEntityId: String = ""
+    var status: String = "archived"
+}
+
+/// G191 — what the person answered, posted to `POST /sources/saved-why`.
+struct SavedWhyAnswer: Codable, Equatable, Sendable {
+    var reasons: [String] = []
+    var project: String? = nil
+    var text: String? = nil
+
+    var isEmpty: Bool { reasons.isEmpty && project == nil && (text?.isEmpty ?? true) }
+
+    var body: [String: Any] {
+        var out: [String: Any] = ["reasons": reasons]
+        if let project { out["project"] = project }
+        if let text, !text.isEmpty { out["text"] = text }
+        return out
+    }
+}
+
+/// G191 live — the bytes of one browser's bookmark file, as the early look sends them.
+enum BookmarkBytes: Sendable, Equatable {
+    case chrome(Data)
+    case safari(Data)
+    /// A Chromium-family browser beyond Chrome (round 4, C9), by its catalog id.
+    case chromium(browser: String, Data)
+
+    /// The sync's own request body (`chromeDataB64` / `safariDataB64` / `chromium`), so the look and the sync can
+    /// never send different shapes.
+    var body: [String: Any] {
+        switch self {
+        case .chrome(let data): return ["chromeDataB64": data.base64EncodedString()]
+        case .safari(let data): return ["safariDataB64": data.base64EncodedString()]
+        case .chromium(let browser, let data):
+            return ["chromium": [["browser": browser, "dataB64": data.base64EncodedString()]]]
+        }
+    }
+}
+
+/// G191 — the calls the panel makes; `APIClient` is the live one, tests inject their own.
+protocol SavedWhyAPI: Sendable {
+    /// G191 live — the early look (`POST /sources/sync-bookmarks/fresh`): which bookmarks in these bytes the bank
+    /// does not hold yet, without ingesting — answered in a parse, not after the sync's page fetches and commits.
+    func freshBookmarks(_ bytes: BookmarkBytes) async throws -> BookmarkSyncResult
+    func savedWhyOptions() async throws -> SavedWhyOptions
+    /// `at` is when the person answered — sent so an answer held through a 409 keeps its own time (review B1).
+    /// `addedAt` (G191 v3) is the moment of saving it answers: a re-save's answer is a new dated reason.
+    func saveWhy(url: String, answer: SavedWhyAnswer, at: Date, addedAt: String?) async throws
 }
 
 /// `POST /sources/sync-notes` result — Apple Notes one-way sync tally. Mirrors
@@ -787,9 +975,14 @@ struct SleepStatusResponse: Codable {
     /// `nil` while a run reads, when there is none, and on an older backend. Paused is not a state of Sleep:
     /// `status` stays `idle` and nothing is held.
     let paused: SleepPausedRun?
+    /// 2026-10-16 — the newest FINISHED cycle's figures, found by the backend (`last_cycle.latest`): a drain is one
+    /// cycle, and a run still reading or paused is skipped however many history rows it fills. `nil` with
+    /// `reportsLastFinishedCycle` = there is none; an older backend omits the key (`reportsLastFinishedCycle` false).
+    var lastFinishedCycle: LastFinishedCycle? = nil
+    var reportsLastFinishedCycle = false
 
     enum CodingKeys: String, CodingKey {
-        case drain, writing, paused
+        case drain, writing, paused, lastFinishedCycle
         case status, cycleId, startedAt, progress, error, indexWarning, stage, totalStages
         case episodesTotal, entitiesCreated, entitiesUpdated
         case relationshipsCreated, skillsDetected
@@ -827,7 +1020,41 @@ struct SleepStatusResponse: Codable {
         drain = try? c.decodeIfPresent(SleepDrainInfo.self, forKey: .drain)
         writing = (try? c.decodeIfPresent(Bool.self, forKey: .writing)) ?? false
         paused = (try? c.decodeIfPresent(SleepPausedRun.self, forKey: .paused)) ?? nil
+        reportsLastFinishedCycle = c.contains(.lastFinishedCycle)
+        lastFinishedCycle = (try? c.decodeIfPresent(LastFinishedCycle.self, forKey: .lastFinishedCycle)) ?? nil
     }
+}
+
+/// `SleepStatusResponse.lastFinishedCycle` — ids, numbers and enums. `drainId` names the run when the cycle was one;
+/// then `durationMs` is the run's reading time and `usageSummary` the whole run's cost. Unknown is `nil`, never zero.
+struct LastFinishedCycle: Codable, Equatable {
+    var commitHash: String
+    var date: String
+    var drainId: String?
+    var batches: Int?
+    var durationMs: Int?
+    var engine: String?
+    var usageSummary: CycleUsageSummary?
+    var state: String?
+
+    init(commitHash: String, date: String, drainId: String? = nil, batches: Int? = nil, durationMs: Int? = nil,
+         engine: String? = nil, usageSummary: CycleUsageSummary? = nil, state: String? = nil) {
+        self.commitHash = commitHash; self.date = date; self.drainId = drainId; self.batches = batches
+        self.durationMs = durationMs; self.engine = engine; self.usageSummary = usageSummary; self.state = state
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        commitHash = try c.decode(String.self, forKey: .commitHash)
+        date = ((try? c.decodeIfPresent(String.self, forKey: .date)) ?? nil) ?? ""
+        drainId = (try? c.decodeIfPresent(String.self, forKey: .drainId)) ?? nil
+        batches = (try? c.decodeIfPresent(Int.self, forKey: .batches)) ?? nil
+        durationMs = (try? c.decodeIfPresent(Int.self, forKey: .durationMs)) ?? nil
+        engine = (try? c.decodeIfPresent(String.self, forKey: .engine)) ?? nil
+        usageSummary = (try? c.decodeIfPresent(CycleUsageSummary.self, forKey: .usageSummary)) ?? nil
+        state = (try? c.decodeIfPresent(String.self, forKey: .state)) ?? nil
+    }
+    enum CodingKeys: String, CodingKey { case commitHash, date, drainId, batches, durationMs, engine, usageSummary, state }
 }
 
 /// The `drain` block of `GET /sleep/status` (`sleep_drain.to_wire`): counts and one
@@ -1090,12 +1317,17 @@ struct ScheduleConfig: Codable, Equatable {
     var minute: Int
     var intervalHours: Int
     var enabled: Bool { mode != "manual" }
+    /// Owner decision 2 (2026-10-16): while it runs on its own, why a scheduled run would have no engine it may use
+    /// — the server's sentence, and the code the app words its fix from (`no_engine`, `plan_signed_out`,
+    /// `plan_not_chosen`, `local_down`). Read only; never sent back.
+    var warning: String? = nil
+    var warningCode: String? = nil
 
     init(mode: String, hour: Int, minute: Int, intervalHours: Int = 6) {
         self.mode = mode; self.hour = hour; self.minute = minute; self.intervalHours = intervalHours
     }
 
-    enum CodingKeys: String, CodingKey { case mode, enabled, hour, minute, intervalHours }
+    enum CodingKeys: String, CodingKey { case mode, enabled, hour, minute, intervalHours, warning, warningCode }
 
     /// The backend always sends `enabled` (R6), on every version — so it is
     /// read here ONLY to derive `mode` when `mode` itself is absent (a
@@ -1108,6 +1340,8 @@ struct ScheduleConfig: Codable, Equatable {
         hour = (try? c.decodeIfPresent(Int.self, forKey: .hour)) ?? 3
         minute = (try? c.decodeIfPresent(Int.self, forKey: .minute)) ?? 0
         intervalHours = (try? c.decodeIfPresent(Int.self, forKey: .intervalHours)) ?? 6
+        warning = (try? c.decodeIfPresent(String.self, forKey: .warning)) ?? nil
+        warningCode = (try? c.decodeIfPresent(String.self, forKey: .warningCode)) ?? nil
     }
 
     func encode(to encoder: Encoder) throws {
@@ -1272,8 +1506,16 @@ enum BookmarkSyncError: Error, LocalizedError, Equatable {
 actor APIClient {
     static let shared = APIClient()
 
-    /// G182 — `http://127.0.0.1:<port>`, the port the backend was started on (`CICADA_PORT`, `cicada.port`, 8000).
-    private let baseURL = CicadaRuntime.current.backendURL
+    /// G182 — `http://127.0.0.1:<port>`, the port the backend was started on (`CICADA_PORT`, `cicada.port`, 8000) — or,
+    /// G181 phase 3, the server the person chose (`ServerConnection`): the Store, its ETags and the event stream all
+    /// ride this one base, so a server is this constant and nothing else. An invalid address is an unresolvable base,
+    /// never this Mac's.
+    private let baseURL: String
+    /// Which backend this client talks to, decided at launch (`ServerConnection.current`).
+    nonisolated let connection: ServerConnection
+    private let cicadaHome: URL
+    /// G181 phase 3 — the readers' posts that could not reach the server wait here (server mode only).
+    let outbox: ReaderOutbox
     private let decoder: JSONDecoder = {
         let d = JSONDecoder()
         return d
@@ -1294,7 +1536,12 @@ actor APIClient {
     /// configuration below) purely so tests can hand in a
     /// `URLProtocol`-backed session instead of hitting a real backend on
     /// 127.0.0.1 — `APIClient.shared` always uses the default.
-    init(session: URLSession? = nil) {
+    init(session: URLSession? = nil, connection: ServerConnection = .current,
+         runtime: CicadaRuntime = .current) {
+        self.connection = connection
+        self.cicadaHome = runtime.cicadaHome
+        self.baseURL = connection.baseURL(local: runtime.backendURL)
+        self.outbox = ReaderOutbox(folder: ReaderOutbox.folder(cicadaHome: runtime.cicadaHome))
         if let session {
             self.session = session
         } else {
@@ -1330,21 +1577,22 @@ actor APIClient {
     /// backend boots, so caching nil would strand the app in 401s until
     /// restart. Any 401 clears the cache (`invalidateToken()`) so a rotated
     /// token is picked up on the next attempt.
-    private nonisolated(unsafe) static var cachedToken: String?
+    ///
+    /// G181 phase 3: on a server the token is this device's own (`CICADA_API_TOKEN`, else `device_token`), never the
+    /// master token; the cache is keyed by the file it came from, so a client built for one never hands out the other's.
+    private nonisolated(unsafe) static var cachedToken: (key: String, token: String)?
 
     static func invalidateToken() { cachedToken = nil }
 
-    private static func loadToken() -> String? {
-        if let cachedToken { return cachedToken }
+    private static func loadToken(connection: ServerConnection, cicadaHome: URL) -> String? {
+        let file = cicadaHome.appendingPathComponent(connection.isServer ? ServerConnection.deviceTokenFile : "api_token")
+        if let cachedToken, cachedToken.key == file.path { return cachedToken.token }
         let env = ProcessInfo.processInfo.environment
-        if let t = env["CICADA_API_TOKEN"], !t.isEmpty { cachedToken = t; return t }
-        let home = env["CICADA_HOME"].map { URL(fileURLWithPath: $0) }
-            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".cicada")
-        let file = home.appendingPathComponent("api_token")
+        if let t = env["CICADA_API_TOKEN"], !t.isEmpty { cachedToken = (file.path, t); return t }
         guard let raw = try? String(contentsOf: file, encoding: .utf8) else { return nil }
         let token = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !token.isEmpty else { return nil }
-        cachedToken = token
+        cachedToken = (file.path, token)
         return token
     }
 
@@ -1352,8 +1600,12 @@ actor APIClient {
         var request = URLRequest(url: URL(string: "\(baseURL)\(path)")!)
         request.httpMethod = method
         if json { request.setValue("application/json", forHTTPHeaderField: "Content-Type") }
-        if let token = Self.loadToken() {
+        if let token = Self.loadToken(connection: connection, cicadaHome: cicadaHome) {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        // G183(d) — a write names the bank it started in; the server refuses it when that bank is no longer active.
+        if let bank = BankScope.value(method: method) {
+            request.setValue(bank, forHTTPHeaderField: BankScope.header)
         }
         return request
     }
@@ -1415,7 +1667,9 @@ actor APIClient {
     /// activate call needed.
     @discardableResult
     func createDemoBank() async throws -> BanksResponse {
-        try await post("/banks/demo")
+        // G181 phase 3 — a demo never reaches a server (`demo_guard`): it is a This Mac thing.
+        if connection.isServer { throw ServerLinkError.demoStaysLocal }
+        return try await post("/banks/demo")
     }
 
     /// `POST /banks/leave-demo` (G117 round 4, F-08) → the demo banner's way home: the server activates the real bank
@@ -1426,9 +1680,11 @@ actor APIClient {
         try await post("/banks/leave-demo")
     }
 
-    /// `POST /banks/{name}/activate` → switch the active bank.
-    func activateBank(name: String) async throws {
-        try await post("/banks/\(encodedBank(name))/activate")
+    /// `POST /banks/{name}/activate` → switch the active bank; answers the roster as the server then has it. A body
+    /// that will not decode is `nil`, never a failed switch — the server has already moved.
+    func activateBank(name: String) async throws -> BanksResponse? {
+        let data: Data = try await post("/banks/\(encodedBank(name))/activate")
+        return try? decoder.decode(BanksResponse.self, from: data)
     }
 
     /// `POST /banks/{name}/duplicate` `{newName}` → "save current under a name".
@@ -1471,6 +1727,13 @@ actor APIClient {
         return try await get("/entities/\(encodedID(id))")
     }
 
+    /// F4 — `GET /entities/{id}/raw`: the page verbatim, for the Source view and Copy when the card's payload left it
+    /// out (`Entity.rawOmitted`). On demand only; never a Store domain.
+    func fetchEntityRaw(id: String) async throws -> String {
+        let response: EntityRaw = try await get("/entities/\(encodedID(id))/raw")
+        return response.rawMarkdown
+    }
+
     /// `PUT /entities/{id}/decay` (G66 §1.7) — the user's decay override.
     /// The backend writes the class plus its mapped numeric rate and commits as
     /// `Cicada-Author: user`, then returns the refreshed entity. Errors
@@ -1500,8 +1763,17 @@ actor APIClient {
 
     /// C11 — `GET <path>` for a picture on this API (`/entities/{id}/picture?v=…`), with the bearer (plan R-PE6). nil on a
     /// 404 — "no picture" is an ordinary answer — and for any path that is not an entity picture.
+    /// The one gate for a picture path on Cicada's own API: exactly what `PictureURL.parse` calls `.api` (an entity's
+    /// picture or preview, a saved look's screenshot `/design/<id>/image`, a site capture's thumbnail). It used to
+    /// accept `/entities/` alone, so every Looks screenshot answered "no picture" here, `PictureStore` remembered the
+    /// miss, and the tile and the detail column drew their palette placeholder for good (looks v2).
+    nonisolated static func isPicturePath(_ path: String) -> Bool {
+        if case .api? = PictureURL.parse(path) { return true }
+        return false
+    }
+
     func fetchPictureBytes(path: String) async throws -> Data? {
-        guard path.hasPrefix("/entities/"), !path.contains("..") else { return nil }
+        guard Self.isPicturePath(path) else { return nil }
         var request = makeRequest(path, method: "GET", json: false)
         request.timeoutInterval = Self.refreshTimeout
         let (data, response) = try await session.data(for: request)
@@ -1535,6 +1807,29 @@ actor APIClient {
         return try decoder.decode(EntityPictureAnswer.self, from: reply)
     }
 
+    /// A saved item's picture from a PDF the person chose: the backend renders page 1 (`POST /entities/{id}/picture/pdf`).
+    func setEntityPictureFromPDF(entityId: String, data: Data) async throws -> EntityPictureAnswer {
+        var request = makeRequest("/entities/\(encodedID(entityId))/picture/pdf", method: "POST", json: false)
+        let boundary = UUID().uuidString
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        var body = Data()
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"document.pdf\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: application/pdf\r\n\r\n".data(using: .utf8)!)
+        body.append(data)
+        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+        request.httpBody = body
+        // The render runs in the backend before it answers: give it longer than a plain write.
+        request.timeoutInterval = 60
+        let (reply, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw APIError.serverUnreachable }
+        guard (200...299).contains(http.statusCode) else {
+            if http.statusCode == 401 { Self.invalidateToken() }
+            throw APIError.httpError(http.statusCode, String(data: reply, encoding: .utf8) ?? "Unknown error")
+        }
+        return try decoder.decode(EntityPictureAnswer.self, from: reply)
+    }
+
     /// C11 / F-12 — "Use initials instead" (plan R-PE4).
     func useEntityInitials(entityId: String) async throws -> EntityPictureAnswer {
         try await post("/entities/\(encodedID(entityId))/picture/initials")
@@ -1546,10 +1841,12 @@ actor APIClient {
         return try decoder.decode(EntityPictureAnswer.self, from: data)
     }
 
-    func fetchEntityHistory(id: String, includeDiff: Bool = false) async throws -> [EntityHistoryEntry] {
+    func fetchEntityHistory(id: String, includeDiff: Bool = false, skip: Int = 0) async throws -> [EntityHistoryEntry] {
         // FastAPI query params use the snake_case Python name (not the
         // camelCase body/response alias), so this is include_diff, not includeDiff.
-        let suffix = includeDiff ? "?include_diff=true" : ""
+        // #244: `skip` reads the changes older than the newest N.
+        let query = (includeDiff ? ["include_diff=true"] : []) + (skip > 0 ? ["skip=\(skip)"] : [])
+        let suffix = query.isEmpty ? "" : "?" + query.joined(separator: "&")
         return try await get("/entities/\(encodedID(id))/history\(suffix)")
     }
 
@@ -1619,8 +1916,12 @@ actor APIClient {
     /// currently-valid claims; `includeSuperseded` lifts the filter. Returns
     /// `[]` on a 404 so the perspective tab / claim chips degrade gracefully
     /// against a backend that hasn't shipped the endpoint yet.
-    func fetchClaims(subject: String, includeSuperseded: Bool = false) async throws -> [Claim] {
-        let q = includeSuperseded ? "?include_superseded=true" : ""
+    /// `predicates` — only the subject's claims with one of these predicates (a person card's facts): a few rows read
+    /// when the card opens, instead of every belief on an owner-sized page.
+    func fetchClaims(subject: String, includeSuperseded: Bool = false, predicates: [String] = []) async throws -> [Claim] {
+        var items: [String] = includeSuperseded ? ["include_superseded=true"] : []
+        items += predicates.map { "predicate=\($0.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? $0)" }
+        let q = items.isEmpty ? "" : "?" + items.joined(separator: "&")
         do {
             let r: ClaimListResponse = try await get("/entities/\(encodedID(subject))/claims\(q)")
             return r.claims
@@ -1921,6 +2222,17 @@ actor APIClient {
         try await post("/inbox/\(id)/resolve", body: body)
     }
 
+    /// Owner ruling 2026-10-16 — "Settled by a check": the questions a web lookup or the person's agent settled
+    /// (`GET /inbox/settled`). Not a Store domain: fetched when the Inbox opens and after an undo (`SettledChecks`).
+    func fetchSettledChecks() async throws -> [SettledCheck] {
+        try await get("/inbox/settled")
+    }
+
+    /// The one-tap undo (`POST /inbox/settled/{id}/undo`): the check's claim is withdrawn and the question returns.
+    func undoSettledCheck(id: String) async throws {
+        try await post("/inbox/settled/\(encodedID(id))/undo")
+    }
+
     // MARK: - Status (menu-bar tamagotchi)
 
     /// Fetch the aggregate status snapshot (`GET /status`). The endpoint is live
@@ -1934,8 +2246,8 @@ actor APIClient {
 
     // MARK: - Health (liveness probe; also the memory-root source of truth)
 
-    /// Fetch `GET /healthz` (auth-exempt, so this works even before a token
-    /// file exists). Used by `ConnectView` to read the backend's OWN
+    /// Fetch `GET /healthz`. Open, but its paths and counts answer only a caller holding the token (owner decision 3,
+    /// 2026-10-16) — this request carries it, so `memoryRoot` is there once the token file exists. Used by `ConnectView` to read the backend's OWN
     /// configured `memoryRoot` instead of re-deriving one locally — the two
     /// can otherwise disagree depending on install layout (G88 follow-up).
     /// Capped like the refresh path: it's retried with backoff while the
@@ -2030,6 +2342,52 @@ actor APIClient {
                        body: ["chromium": [["browser": browser, "dataB64": data.base64EncodedString()]]])
     }
 
+    /// G191 live — the early look (`POST /sources/sync-bookmarks/fresh`): read-only, never a 409 for a sync running.
+    func freshBookmarks(_ bytes: BookmarkBytes) async throws -> BookmarkSyncResult {
+        try await post("/sources/sync-bookmarks/fresh", body: bytes.body)
+    }
+
+    /// G191 — the one-tap answers to "What made you save this?" (`GET /sources/saved-why/options`).
+    func savedWhyOptions() async throws -> SavedWhyOptions {
+        try await get("/sources/saved-why/options")
+    }
+
+    /// G191 — the person's answer, attached by the backend to that bookmark's episode (`POST /sources/saved-why`).
+    func saveWhy(url: String, answer: SavedWhyAnswer, at: Date, addedAt: String?) async throws {
+        var body = answer.body
+        body["url"] = url
+        body["at"] = ISO8601DateFormatter().string(from: at)
+        if let addedAt { body["addedAt"] = addedAt }
+        try await post("/sources/saved-why", body: body)
+    }
+
+    /// G191 v3 — the person changes one answer (`PUT /sources/saved-why`), named by when it was given.
+    func editSavedWhy(url: String, at: String, answer: SavedWhyAnswer) async throws -> SavedWhyReply {
+        var body = answer.body
+        body["url"] = url
+        body["at"] = at
+        return try await put("/sources/saved-why", body: body)
+    }
+
+    /// G191 v3 — the bookmark page's write: an edit when `at` names an answer, else a new one.
+    func writeSavedWhy(url: String, at: String?, answer: SavedWhyAnswer) async throws -> SavedWhyReply {
+        if let at { return try await editSavedWhy(url: url, at: at, answer: answer) }
+        return try await addSavedWhy(url: url, answer: answer)
+    }
+
+    /// G191 v3 — a reason added from the bookmark's page (`POST /sources/saved-why`), answered now.
+    func addSavedWhy(url: String, answer: SavedWhyAnswer) async throws -> SavedWhyReply {
+        var body = answer.body
+        body["url"] = url
+        body["at"] = ISO8601DateFormatter().string(from: Date())
+        return try await post("/sources/saved-why", body: body)
+    }
+
+    /// G191 v3 — forget a bookmark in Cicada (`POST /sources/bookmarks/remove`): the page archived, never deleted.
+    func removeBookmark(url: String) async throws {
+        let _: BookmarkRemoveReply = try await post("/sources/bookmarks/remove", body: ["url": url])
+    }
+
     /// `POST /sources/sync-safari-tabs` — CloudTabs.db bytes the app read,
     /// plus the WAL sidecar when one exists (R2) and an exact-name device
     /// filter (nil = every device).
@@ -2118,6 +2476,62 @@ actor APIClient {
     /// Round 4 (G160): one browser profile's open tab groups, read by the app from Chrome's session file.
     func syncTabGroups(_ payload: TabGroupsPayload) async throws -> TabGroupsSyncResult {
         try await postData("/sources/tab-groups/sync", json: try JSONEncoder().encode(payload))
+    }
+
+    /// G71 (2026-10-16): the YouTube visits read from Chrome's History — one day episode per day on the backend.
+    func syncWatchHistory(_ payload: WatchHistoryPayload) async throws -> WatchHistorySyncResult {
+        try await postData("/sources/watch-history/sync", json: try JSONEncoder().encode(payload))
+    }
+
+    // MARK: - Messages (G179)
+
+    /// `GET /sources/messages/settings` — which conversations this memory has ticked.
+    func fetchMessagesSettings() async throws -> MessagesSettingsAnswer {
+        try await get("/sources/messages/settings")
+    }
+
+    /// `POST /sources/messages/conversations` — the person's tick and mark and the detectors' suggestion for each
+    /// listed conversation. The backend stores nothing.
+    func describeMessagesConversations(_ conversations: [MessagesConversationPayload]) async throws
+        -> MessagesConversationsAnswer {
+        try await postData("/sources/messages/conversations",
+                           json: try JSONEncoder().encode(["conversations": conversations]))
+    }
+
+    /// `PUT /sources/messages/settings` — tick or untick one conversation, or mark who it is with.
+    func updateMessagesConversation(id: String, name: String?, ticked: Bool?, mark: MessagesMark?) async throws
+        -> MessagesSettingsAnswer {
+        var conversation: [String: Any] = ["id": id]
+        if let name, !name.isEmpty { conversation["name"] = name }
+        if let ticked { conversation["ticked"] = ticked }
+        switch mark {
+        case .agent?: conversation["actor"] = ["kind": "agent"]
+        case .person?: conversation["actor"] = ["kind": "person"]
+        case .clear?: conversation["clearActor"] = true
+        case nil: break
+        }
+        return try await put("/sources/messages/settings", body: ["conversation": conversation])
+    }
+
+    /// `PUT /sources/messages/settings` — turn the AI-agent suggestions on or off for this memory.
+    func setMessagesSuggestAgents(_ on: Bool) async throws -> MessagesSettingsAnswer {
+        try await put("/sources/messages/settings", body: ["suggestAgents": on])
+    }
+
+    /// `POST /sources/messages/sync` — rows of one ticked conversation, serialised off the main actor.
+    func postMessages(_ json: Data) async throws -> MessagesSyncResult {
+        try await postData("/sources/messages/sync", json: json)
+    }
+
+    /// `GET /sources/messages/waiting` — the conversations Sleep has not read yet, with their message counts.
+    func fetchMessagesWaiting() async throws -> MessagesWaitingAnswer {
+        try await get("/sources/messages/waiting")
+    }
+
+    /// `PUT /sources/messages/photos` — the photos ticked chats share in Messages (2026-10-16), small PNG bytes the app
+    /// read; the backend keeps them outside every bank and draws each at its chat's page.
+    func putMessagesPhotos(_ photos: [MessagesPhotoPayload]) async throws -> MessagesPhotosAnswer {
+        try await putData("/sources/messages/photos", json: try JSONEncoder().encode(["photos": photos]))
     }
 
     /// `GET /entities/{id}/paper` — the paper card's two tiers (G133 / G121).
@@ -2209,14 +2623,23 @@ actor APIClient {
     /// `/sources/upload` reuse it. Generic over the response so the same
     /// wire-up serves the real upload (`UploadResponse`) and the staging-free
     /// preview (`UploadPreview`) without duplicating the multipart plumbing.
-    private func uploadMultipart<T: Decodable>(path: String, fileURL: URL) async throws -> T {
+    /// `filename`: the name the backend sees; nil is the file's own name. A walked folder's file is named by its
+    /// path inside the folder, which the backend reads as "a member of an export folder" (`saved_exports`).
+    private func uploadMultipart<T: Decodable>(path: String, fileURL: URL, filename: String? = nil) async throws -> T {
+        try await uploadMultipart(path: path, fileData: try Data(contentsOf: fileURL),
+                                  filename: filename ?? fileURL.lastPathComponent)
+    }
+
+    private func uploadMultipart<T: Decodable>(path: String, fileData: Data, filename: String) async throws -> T {
         var request = makeRequest(path, method: "POST", json: false)
 
         let boundary = UUID().uuidString
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
 
-        let fileData = try Data(contentsOf: fileURL)
-        let filename = fileURL.lastPathComponent
+        // A quote or line break would end the header early; a path inside a folder never needs one.
+        let filename = filename
+            .replacingOccurrences(of: "\"", with: "'").replacingOccurrences(of: "\r", with: " ")
+            .replacingOccurrences(of: "\n", with: " ")
 
         var body = Data()
         body.append("--\(boundary)\r\n".data(using: .utf8)!)
@@ -2236,6 +2659,25 @@ actor APIClient {
             throw APIError.httpError(http.statusCode, msg)
         }
         return try decoder.decode(T.self, from: data)
+    }
+
+    /// `POST /sources/linkedin-connections/preview` — how many of the export's connections are people Cicada already
+    /// knows. Writes nothing; Confirm re-posts the same bytes to `/import`. Only `Connections.csv`'s bytes are sent —
+    /// an export `.zip` is opened here (`LinkedInConnectionsFile`), never posted whole.
+    func previewLinkedInConnections(_ payload: LinkedInConnectionsPayload) async throws -> LinkedInConnectionsPreview {
+        try await uploadMultipart(path: "/sources/linkedin-connections/preview" + Self.exportedOnQuery(payload.exportedOn),
+                                  fileData: payload.data, filename: payload.filename)
+    }
+
+    /// `POST /sources/linkedin-connections/import` — enrich the people Cicada already has; never adds anyone.
+    func importLinkedInConnections(_ payload: LinkedInConnectionsPayload) async throws -> LinkedInConnectionsImport {
+        try await uploadMultipart(path: "/sources/linkedin-connections/import" + Self.exportedOnQuery(payload.exportedOn),
+                                  fileData: payload.data, filename: payload.filename)
+    }
+
+    static func exportedOnQuery(_ day: String?) -> String {
+        guard let day, day.range(of: #"^\d{4}-\d{2}-\d{2}$"#, options: .regularExpression) != nil else { return "" }
+        return "?exported_on=\(day)"
     }
 
     /// `POST /sources/upload?preview=true` — describe a file without importing
@@ -2531,6 +2973,13 @@ actor APIClient {
         try await post("/embeddings/install", body: ["hfToken": token])
     }
 
+    /// `POST /embeddings/install` (202) with `model` — a download that needs no account (the Neural Engine
+    /// model: pinned files, each checked before it is installed). 409 on a Mac that can't run it or while
+    /// another install runs.
+    func installEmbeddingModel(_ id: String) async throws -> EmbeddingsStatus {
+        try await post("/embeddings/install", body: ["model": id])
+    }
+
     /// `GET /memory/decay-suggestions` (G147) — the per-type pace suggestions and the pace
     /// already chosen. Not a Store domain, no ETag.
     func fetchDecayTuning() async throws -> DecayTuningResponse { try await get("/memory/decay-suggestions") }
@@ -2545,12 +2994,29 @@ actor APIClient {
     /// switch or a site on needs a current acknowledgement, given in the same call (`acknowledge`) or already stored;
     /// a 422 carries the sentence why.
     func setReadingSettings(agentEnabled: Bool? = nil, sites: [String: Bool]? = nil,
-                            acknowledge: Bool = false) async throws -> ReadingSettingsResponse {
+                            acknowledge: Bool = false, exploreSignedIn: Bool? = nil,
+                            neverExplore: [String: Bool]? = nil,
+                            youtubeLists: [String: Bool]? = nil) async throws -> ReadingSettingsResponse {
         var body: [String: Any] = [:]
+        // G71 (2026-10-16): a `{watch_later|history: Bool}` patch.
+        if let youtubeLists { body["youtubeLists"] = youtubeLists }
         if let agentEnabled { body["agentEnabled"] = agentEnabled }
+        // G166 exploring: the signed-in switch (D2 amended) and a Never explore patch (D3).
+        if let exploreSignedIn { body["exploreSignedIn"] = exploreSignedIn }
+        if let neverExplore { body["neverExplore"] = neverExplore }
         if let sites { body["sites"] = sites }
         if acknowledge { body["acknowledge"] = true }
         return try await put("/reading/settings", body: body)
+    }
+
+    /// G198 — `GET /settings/editors`: the agents the person lets edit a page's words directly, and the local ones
+    /// they could add. Machine-wide (outside every bank); not a Store domain.
+    func fetchPageEditors() async throws -> PageEditorsResponse { try await get("/settings/editors") }
+
+    /// G198 — `PUT /settings/editors` with a one-agent patch (`true` adds it, `false` removes it). A refusal is a 400
+    /// whose `detail` is the sentence to show.
+    func setPageEditor(_ harness: String, trusted: Bool) async throws -> PageEditorsResponse {
+        try await put("/settings/editors", body: ["trusted": [harness: trusted]])
     }
 
     /// `GET /reading/sites` — the sites Cicada's own reader could not read, with counts. Not a Store domain.
@@ -2643,6 +3109,22 @@ actor APIClient {
     /// state derived per request. No ETag and no Store domain (R-O23).
     func fetchRecommendedSkills() async throws -> RecommendedSkillsResponse { try await get("/skills/recommended") }
 
+    /// The Skills page's one door (owner 2026-10-15): any `/skills…` route, its body as JSON, the answer's bytes for
+    /// `SkillsAPI` to decode. A refusal carries the server's sentence (`APIError.httpError`).
+    func skillsRequest(_ method: String, _ path: String, body: [String: Any]? = nil,
+                       timeout: TimeInterval = 120) async throws -> Data {
+        var request = makeRequest(path, method: method, json: body != nil)
+        if let body { request.httpBody = try JSONSerialization.data(withJSONObject: body) }
+        request.timeoutInterval = timeout
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw APIError.serverUnreachable }
+        guard (200...299).contains(http.statusCode) else {
+            if http.statusCode == 401 { Self.invalidateToken() }
+            throw APIError.httpError(http.statusCode, String(data: data, encoding: .utf8) ?? "Unknown error")
+        }
+        return data
+    }
+
     /// `POST /maintenance/enrich-links` — the on-demand twin of the Sleep-tail
     /// backfill (G102); 409 while Sleep or another run is going. `limit=10`,
     /// not the backend's per-cycle 20: each link is a ≤ 4 s fetch plus a
@@ -2688,6 +3170,25 @@ actor APIClient {
         return try decoder.decode(RemoteConnector.self, from: data)
     }
 
+    // MARK: - Devices (G181 phase 3)
+
+    /// `GET /devices` — outside every bank, so never a Store domain (`DeviceDirectory` keeps it in memory).
+    func getDevicesList() async throws -> DeviceList {
+        try await get("/devices", timeout: Self.refreshTimeout)
+    }
+
+    /// `POST /devices` — the master token's alone (This Mac); the answer is the only place the token ever appears.
+    func createDevice(name: String) async throws -> DeviceCreated {
+        try await post("/devices", body: ["name": name])
+    }
+
+    /// `DELETE /devices/{id}` — the master token's alone; the device's next request is refused.
+    func revokeDevice(id: String) async throws -> DeviceRecord {
+        struct Answer: Decodable { let device: DeviceRecord }
+        let data = try await delete("/devices/\(encodedID(id))")
+        return try decoder.decode(Answer.self, from: data).device
+    }
+
     // MARK: - Generic Helpers
 
     /// `timeout` overrides Foundation's 60 s default for this one request.
@@ -2719,7 +3220,7 @@ actor APIClient {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
         }
 
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await deliver(request, path: path)
         guard let http = response as? HTTPURLResponse else {
             throw APIError.serverUnreachable
         }
@@ -2734,7 +3235,22 @@ actor APIClient {
     private func postData<T: Decodable>(_ path: String, json: Data) async throws -> T {
         var request = makeRequest(path, method: "POST")
         request.httpBody = json
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await deliver(request, path: path)
+        guard let http = response as? HTTPURLResponse else {
+            throw APIError.serverUnreachable
+        }
+        guard (200...299).contains(http.statusCode) else {
+            if http.statusCode == 401 { Self.invalidateToken() }
+            let msg = String(data: data, encoding: .utf8) ?? "Unknown error"
+            throw APIError.httpError(http.statusCode, msg)
+        }
+        return try decoder.decode(T.self, from: data)
+    }
+
+    private func putData<T: Decodable>(_ path: String, json: Data) async throws -> T {
+        var request = makeRequest(path, method: "PUT")
+        request.httpBody = json
+        let (data, response) = try await deliver(request, path: path)
         guard let http = response as? HTTPURLResponse else {
             throw APIError.serverUnreachable
         }
@@ -2753,7 +3269,7 @@ actor APIClient {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
         }
 
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await deliver(request, path: path)
         guard let http = response as? HTTPURLResponse else {
             throw APIError.serverUnreachable
         }
@@ -2763,6 +3279,72 @@ actor APIClient {
             throw APIError.httpError(http.statusCode, msg)
         }
         return data
+    }
+
+    /// G181 phase 3 — a POST, and for a reader's post on a server the outbox's door: when no answer comes (the server
+    /// is away) or the server fails (5xx), the bytes wait in `ReaderOutbox` and the caller hears
+    /// `ServerLinkError.queuedOffline` — a failure, so the reader keeps its cursor and reads again, while the waiting
+    /// copy goes first when the server answers (`flushOutbox`). Every other request is sent exactly as before.
+    private func deliver(_ request: URLRequest, path: String) async throws -> (Data, URLResponse) {
+        let queues = connection.isServer && ReaderOutbox.queues(path)
+        // Review fix — never ahead of an older post on the same route and memory: a reader's snapshot (bookmarks,
+        // tabs, tab groups…) replayed after a newer one would put the server back to the older state, and the reader,
+        // having landed the newer one, would not send it again. The older ones go first; if any still waits, this
+        // one waits behind it.
+        if queues, await waitingAhead(request, path: path), await keep(request, path: path) {
+            throw ServerLinkError.queuedOffline
+        }
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch let error as URLError where queues && error.code != .cancelled {
+            // A stopped run (the person's Cancel, or a bank switch replacing a reader's run, G183(d)) is not the
+            // server being away: its post never waits here under the memory it left (`keep` refuses too).
+            if await keep(request, path: path) { throw ServerLinkError.queuedOffline }
+            throw error
+        }
+        if queues, let http = response as? HTTPURLResponse, (500...599).contains(http.statusCode),
+           await keep(request, path: path) {
+            throw ServerLinkError.queuedOffline
+        }
+        return (data, response)
+    }
+
+    private func waitingAhead(_ request: URLRequest, path: String) async -> Bool {
+        let method = request.httpMethod ?? "POST"
+        let bank = request.value(forHTTPHeaderField: BankScope.header)
+        let same: @Sendable (ReaderOutbox.Entry) -> Bool = { $0.method == method && $0.path == path && $0.bank == bank }
+        guard await outbox.has(where: same) else { return false }
+        await flushOutbox(matching: same)
+        return await outbox.has(where: same)
+    }
+
+    private func keep(_ request: URLRequest, path: String) async -> Bool {
+        guard let body = request.httpBody, !Task.isCancelled else { return false }
+        let stored = try? await outbox.put(method: request.httpMethod ?? "POST", path: path, body: body,
+                                           bank: request.value(forHTTPHeaderField: BankScope.header))
+        return stored == true
+    }
+
+    /// Send what the readers left waiting while the server was away, oldest first, each signed now and named for the
+    /// memory it was read for. Called when the Store hears the server again. Server mode only.
+    @discardableResult
+    func flushOutbox() async -> ReaderOutbox.FlushResult { await flushOutbox(matching: { _ in true }) }
+
+    /// One route's waiting posts only (`waitingAhead`).
+    @discardableResult
+    func flushOutbox(matching matches: @escaping @Sendable (ReaderOutbox.Entry) -> Bool) async
+        -> ReaderOutbox.FlushResult {
+        guard connection.isServer else { return ReaderOutbox.FlushResult() }
+        return await outbox.flush(where: matches) { entry in
+            var request = await self.makeRequest(entry.path, method: entry.method)
+            if let bank = entry.bank { request.setValue(bank, forHTTPHeaderField: BankScope.header) }
+            request.httpBody = entry.body
+            guard let (_, response) = try? await self.session.data(for: request),
+                  let http = response as? HTTPURLResponse else { return nil }
+            return http.statusCode
+        }
     }
 
     /// Generic DELETE-with-JSON-body helper (`/sources/feeds` unsubscribe is the
@@ -3085,8 +3667,10 @@ extension APIClient: IntakeAPI {
     }
 
     /// `POST /intake/sniff` — stages nothing (G71 §4.3); safe on every drop.
-    func sniffIntake(fileURL: URL, bank: String?) async throws -> IntakeSniff {
-        try await uploadMultipart(path: "/intake/sniff" + Self.bankQuery(bank), fileURL: fileURL)
+    func sniffIntake(fileURL: URL, bank: String?, name: String?, includeHistory: Bool) async throws -> IntakeSniff {
+        let query = Self.bankQuery(bank)
+        let history = includeHistory ? (query.isEmpty ? "?" : "&") + "include_history=true" : ""
+        return try await uploadMultipart(path: "/intake/sniff" + query + history, fileURL: fileURL, filename: name)
     }
 
     /// `POST /intake/import` — 200 with counts, or 202 with `job` (Track I T2b).
@@ -3097,7 +3681,10 @@ extension APIClient: IntakeAPI {
     func intakeJob(id: String) async throws -> IntakeJobStatus { try await get("/intake/jobs/\(id)") }
 
     /// A `kind: saved` file commits through the path that previewed it (R-IA32).
-    func uploadSaved(fileURL: URL) async throws -> UploadResponse { try await uploadSource(fileURL: fileURL) }
+    func uploadSaved(fileURL: URL, name: String?, includeHistory: Bool) async throws -> UploadResponse {
+        try await uploadMultipart(path: "/sources/upload" + (includeHistory ? "?include_history=true" : ""),
+                                  fileURL: fileURL, filename: name)
+    }
 
     /// `GET /agents/wiring` (Track I T3) — read-only: which agents are wired
     /// and the exact argv `AgentConnect` may run after the person's click.
@@ -3208,5 +3795,119 @@ extension APIClient {
 
     func deleteVideo(_ path: String) async throws {
         _ = try await delete(path)
+    }
+}
+
+// MARK: - Design taste (2026-10-14) — the Looks page's board
+
+/// The board's reads and the person's two writes (`api/routers/design.py`). A protocol so `LooksCache` is tested
+/// against a fake, the `BacklogAPI` way.
+protocol DesignAPI: Sendable {
+    func fetchDesignBoard(etag: String?) async throws -> Conditional<DesignBoard>
+    func fetchDesignRef(id: String, etag: String?) async throws -> Conditional<DesignRef>
+    func saveDesignRef(_ upload: DesignUpload) async throws -> DesignRef
+    func deleteDesignRef(id: String) async throws
+    func searchDesign(query: String?, image: Data?, ext: String?) async throws -> DesignSearchResult
+    func installImageModel() async throws
+}
+
+extension APIClient: DesignAPI {
+    nonisolated static func designPath(_ id: String, _ tail: String...) -> String {
+        var allowed = CharacterSet.urlPathAllowed
+        allowed.remove(charactersIn: "/?#")
+        return "/design/" + ([id] + tail).map { $0.addingPercentEncoding(withAllowedCharacters: allowed) ?? $0 }
+            .joined(separator: "/")
+    }
+
+    func fetchDesignBoard(etag: String?) async throws -> Conditional<DesignBoard> {
+        try await getConditional("/design", etag: etag)
+    }
+
+    func fetchDesignRef(id: String, etag: String?) async throws -> Conditional<DesignRef> {
+        try await getConditional(Self.designPath(id), etag: etag)
+    }
+
+    /// `multipart/form-data`: the image as `image`, every other field as text — nothing the server would have to guess.
+    private func designMultipart(_ path: String, fields: [(String, String)], image: Data?, ext: String?) async throws -> Data {
+        var request = makeRequest(path, method: "POST", json: false)
+        let boundary = UUID().uuidString
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        var body = Data()
+        for (name, value) in fields {
+            body.append("--\(boundary)\r\nContent-Disposition: form-data; name=\"\(name)\"\r\n\r\n".data(using: .utf8)!)
+            body.append(value.data(using: .utf8)!)
+            body.append("\r\n".data(using: .utf8)!)
+        }
+        if let image {
+            let kind = ext == "png" ? "png" : "jpg"
+            body.append("--\(boundary)\r\n".data(using: .utf8)!)
+            body.append("Content-Disposition: form-data; name=\"image\"; filename=\"look.\(kind)\"\r\n".data(using: .utf8)!)
+            body.append("Content-Type: \(kind == "png" ? "image/png" : "image/jpeg")\r\n\r\n".data(using: .utf8)!)
+            body.append(image)
+            body.append("\r\n".data(using: .utf8)!)
+        }
+        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+        request.httpBody = body
+        let (reply, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw APIError.serverUnreachable }
+        guard (200...299).contains(http.statusCode) else {
+            if http.statusCode == 401 { Self.invalidateToken() }
+            throw APIError.httpError(http.statusCode, String(data: reply, encoding: .utf8) ?? "Unknown error")
+        }
+        return reply
+    }
+
+    func saveDesignRef(_ upload: DesignUpload) async throws -> DesignRef {
+        var fields: [(String, String)] = [("via", upload.via)]
+        if let url = upload.url, !url.isEmpty { fields.append(("url", url)) }
+        if let title = upload.title, !title.isEmpty { fields.append(("title", title)) }
+        if let note = upload.note, !note.isEmpty { fields.append(("note", note)) }
+        let reply = try await designMultipart("/design", fields: fields, image: upload.image, ext: upload.ext)
+        do { return try decoder.decode(DesignRef.self, from: reply) } catch { throw APIError.decodingError("\(error)") }
+    }
+
+    func deleteDesignRef(id: String) async throws {
+        _ = try await delete(Self.designPath(id))
+    }
+
+    func searchDesign(query: String?, image: Data?, ext: String?) async throws -> DesignSearchResult {
+        var fields: [(String, String)] = []
+        if let query, !query.isEmpty { fields.append(("query", query)) }
+        let reply = try await designMultipart("/design/search", fields: fields, image: image, ext: ext)
+        do { return try decoder.decode(DesignSearchResult.self, from: reply) } catch {
+            throw APIError.decodingError("\(error)")
+        }
+    }
+
+    /// The image model's own click (`POST /embeddings/install` with `part: vision`, 202).
+    func installImageModel() async throws {
+        _ = try await post("/embeddings/install", body: ["model": "google/embeddinggemma-2:768", "part": "vision"]) as Data
+    }
+}
+
+/// G191 — the panel's two calls, live.
+extension APIClient: SavedWhyAPI {}
+
+// MARK: - Links show as what they are (owner rulings 2026-10-14)
+
+/// The person's own page edit: `POST /entities/{id}/edits`, the same body as `cicada_edit_page`.
+struct PageEditAnswer: Decodable, Equatable, Sendable {
+    var entityId: String
+    var changes: [String]
+    var sections: [String]
+    var pinned: Int
+}
+
+extension APIClient {
+    /// A page's link facts, `GET /entities/{id}/links` (ETagged, on demand — `LinkFactsCache`).
+    func fetchEntityLinks(entityId: String, etag: String?) async throws -> Conditional<PageLinkFacts> {
+        try await getConditional(Self.provenancePath("/entities", entityId, "/links"), etag: etag)
+    }
+
+    /// One exact-words edit of a page as the person, pinned so Sleep's next rewrite keeps it (G198's corrections).
+    /// The link-view switcher's door: `old` is the link's token, `new` the same link with its view word.
+    func editPage(entityId: String, reason: String, old: String, new: String) async throws -> PageEditAnswer {
+        try await post(Self.provenancePath("/entities", entityId, "/edits"),
+                       body: ["reason": reason, "edits": [["old": old, "new": new, "all": true, "pin": true]]])
     }
 }

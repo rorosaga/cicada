@@ -159,3 +159,12 @@ def test_notes_on_a_page_from_another_origin_are_not_the_page(memory):
     put_page(memory, "tg", "https://x.com/alpha/status/20", origin="telegram",
              body="## Summary\nA saved link.\n\n## Notes\nlook at this later\n")
     assert [p.entity_id for p in reading_walls.scan(memory) if p.waiting] == ["media-tg"]
+
+
+def test_a_liked_post_from_an_export_holds_its_own_words_however_short(memory):
+    """An X archive like carries the post's whole text as its description: that IS the post, so even a
+    one-word post is not asked for again — while an export like with no text still is."""
+    put_page(memory, "liked", "https://x.com/i/web/status/12", origin="x-likes", body="## Description\n\nok\n")
+    put_page(memory, "liked-empty", "https://x.com/i/web/status/13", origin="x-likes")
+    waiting = {p.entity_id for p in reading_walls.scan(memory) if p.waiting}
+    assert waiting == {"media-liked-empty"}

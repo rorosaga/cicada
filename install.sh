@@ -11,7 +11,10 @@
 #   ./install.sh                 full install (prompts for optional API keys)
 #   ./install.sh --dry-run       print every action without executing
 #   ./install.sh --skill         also copy SKILL.md to ~/.claude/skills/cicada/
+#   ./install.sh --cli           also link ~/.local/bin/cicada to scripts/cicada (G180)
 #   ./install.sh --uninstall     unload+remove launchd + MCP entry (keeps memory)
+#   On Linux (a headless server, G181) the background service is a systemd user unit
+#   (scripts/install-backend-service.sh) instead of the launchd agent; everything else is the same.
 #   Every full install also registers the G105 session-capture hook under
 #   hooks.Stop in ~/.claude/settings.json (and ~/.codex/hooks.json when the
 #   codex CLI is present) — merged in, never clobbering other hooks; re-run
@@ -40,6 +43,7 @@ CLAUDE_SKILLS_DIR="${CLAUDE_SKILLS_DIR:-$HOME/.claude/skills}"
 CLAUDE_CLI="${CLAUDE_CLI:-claude}"
 CLAUDE_SETTINGS="${CLAUDE_SETTINGS:-$HOME/.claude/settings.json}"
 CODEX_HOOKS="${CODEX_HOOKS:-$HOME/.codex/hooks.json}"
+CURSOR_HOOKS="${CURSOR_HOOKS:-$HOME/.cursor/hooks.json}"
 
 API_DIR="$REPO/api"
 VENV="$API_DIR/.venv"
@@ -54,6 +58,7 @@ ENV_EXAMPLE="$API_DIR/.env.example"
 MCP_SERVER="$REPO/mcp/server.py"
 HOOK_SCRIPT="$REPO/api/hooks/capture.py"
 HOOKS_REGISTRY="$REPO/api/hooks/registry.py"
+CURSOR_REGISTRY="$REPO/api/hooks/cursor_registry.py"
 # The registered command, quoted per path so a space in $HOME survives the
 # harness's `sh -c`. One function so install, uninstall and doctor agree.
 hook_command() { printf '"%s" "%s" --harness %s' "$VENV_PY" "$HOOK_SCRIPT" "$1"; }
@@ -63,18 +68,23 @@ recall_command() { printf '"%s" "%s" --harness %s' "$VENV_PY" "$RECALL_SCRIPT" "
 PLIST_LABEL="com.cicada.backend"
 PLIST_PATH="$LAUNCH_AGENTS_DIR/$PLIST_LABEL.plist"
 PORT=8000
+# G181: Linux gets the systemd user unit; a Mac keeps launchd. SYSTEMD_USER_DIR is the test override.
+OS_NAME="$(uname -s)"
+SERVICE_UNIT="${SYSTEMD_USER_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user}/cicada-backend.service"
 
 DRY_RUN=0
 DO_SKILL=0
+DO_CLI=0
 DO_UNINSTALL=0
 
 for arg in "$@"; do
   case "$arg" in
     --dry-run)   DRY_RUN=1 ;;
     --skill)     DO_SKILL=1 ;;
+    --cli)       DO_CLI=1 ;;
     --uninstall) DO_UNINSTALL=1 ;;
     -h|--help)
-      sed -n '3,31p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+      sed -n '3,32p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
       exit 0 ;;
     *) echo "Unknown flag: $arg (try --help)" >&2; exit 2 ;;
   esac
@@ -102,13 +112,42 @@ backend_healthy() {
   curl -fsS "http://127.0.0.1:$PORT/healthz" 2>/dev/null | grep -q '"status"'
 }
 
+# G181 phase 3: a machine whose memory lives on a server (CICADA_API_BASE, or the app's $CICADA_HOME/api_base) runs no
+# backend of its own and holds no memory folder — its hooks, MCP and `cicada` already talk to the server (the same rule
+# as hook_client.raw_base). Decided once, here, so step 3 (the folder), step 4/5 (its path) and step 6 agree.
+CLIENT_OF=""
+if [ -n "$(printf '%s' "${CICADA_API_BASE:-}" | tr -d '[:space:]')" ]; then
+  CLIENT_OF="CICADA_API_BASE"
+elif [ -s "${CICADA_HOME:-$HOME/.cicada}/api_base" ] \
+    && [ -n "$(tr -d '[:space:]' < "${CICADA_HOME:-$HOME/.cicada}/api_base" 2>/dev/null)" ]; then
+  CLIENT_OF="${CICADA_HOME:-$HOME/.cicada}/api_base"
+fi
+
+# The check to run next: `make doctor` from a checkout that has make and its Makefile; the script itself elsewhere
+# (a minimal Linux server has no make, and a Homebrew keg has no Makefile).
+doctor_hint() {
+  if command -v make >/dev/null 2>&1 && [ -f "$REPO/Makefile" ]; then
+    printf "make -C '%s' doctor" "$REPO"
+  else
+    printf "bash '%s/scripts/doctor.sh'" "$REPO"
+  fi
+}
+
 # ============================================================
 # Uninstall path
 # ============================================================
 if [ "$DO_UNINSTALL" -eq 1 ]; then
   hdr "Uninstalling Cicada (memory dir is never touched)"
 
-  if [ -f "$PLIST_PATH" ]; then
+  if [ "$OS_NAME" = "Linux" ]; then
+    step "Removing the systemd backend service"
+    if [ "$DRY_RUN" -eq 1 ]; then
+      CICADA_REPO="$REPO" bash "$REPO/scripts/install-backend-service.sh" --uninstall --dry-run
+    else
+      CICADA_REPO="$REPO" bash "$REPO/scripts/install-backend-service.sh" --uninstall || true
+    fi
+    ok "Backend service removed (if it existed)"
+  elif [ -f "$PLIST_PATH" ]; then
     step "Unloading launchd agent $PLIST_LABEL"
     run launchctl bootout "gui/$(id -u)/$PLIST_LABEL" 2>/dev/null || true
     run rm -f "$PLIST_PATH"
@@ -129,12 +168,17 @@ if [ "$DO_UNINSTALL" -eq 1 ]; then
     step "Removing the session-capture and recall hooks"
     run "$VENV_PY" "$HOOKS_REGISTRY" uninstall --settings "$CLAUDE_SETTINGS" || true
     [ -f "$CODEX_HOOKS" ] && { run "$VENV_PY" "$HOOKS_REGISTRY" uninstall --settings "$CODEX_HOOKS" || true; }
+    [ -f "$CURSOR_HOOKS" ] && { run "$VENV_PY" "$CURSOR_REGISTRY" uninstall --settings "$CURSOR_HOOKS" || true; }
     ok "Capture and recall hooks removed (if they existed)"
   else
     warn "venv missing — remove the api/hooks/capture.py and api/hooks/recall.py entries from $CLAUDE_SETTINGS by hand"
   fi
 
-  ok "Memory dir left intact: $MEMORY_PATH"
+  if [ -n "$CLIENT_OF" ] && [ ! -d "$MEMORY_PATH" ]; then
+    ok "No memory folder on this machine — the memory lives on the server ($CLIENT_OF)"
+  else
+    ok "Memory dir left intact: $MEMORY_PATH"
+  fi
   hdr "Uninstall complete."
   exit 0
 fi
@@ -145,7 +189,11 @@ fi
 hdr "Installing Cicada"
 [ "$DRY_RUN" -eq 1 ] && warn "DRY RUN — no changes will be made"
 echo "  repo:   $REPO"
-echo "  memory: $MEMORY_PATH"
+if [ -n "$CLIENT_OF" ]; then
+  echo "  memory: on the server ($CLIENT_OF)"
+else
+  echo "  memory: $MEMORY_PATH"
+fi
 
 # --- 1. Preflight: required tools ---
 hdr "1. Preflight"
@@ -181,8 +229,43 @@ else
   ok "venv ready"
 fi
 
+# --- 2b. On-device embedding model ---
+# The release app's own small model (pins in scripts/release/inputs.env, each file
+# sha256-checked) into ${CICADA_HOME:-~/.cicada}/models, where the backend finds it.
+hdr "2b. Search model"
+if [ -f "${CICADA_HOME:-$HOME/.cicada}/models/multilingual-e5-small/cicada-model.json" ]; then
+  ok "search model present"
+else
+  step "Fetching the on-device search model (~130 MB, once)"
+  if run bash "$REPO/scripts/fetch-embedding-model.sh"; then
+    ok "search model ready"
+  else
+    warn "Could not fetch the search model — search will match words only until 'make embedding-model' succeeds"
+  fi
+fi
+# EmbeddingGemma 2 on the Neural Engine (owner 2026-10-09) where this Mac runs it: macOS 15+ on Apple silicon.
+# Pinned and sha256-checked (api/data/embeddinggemma-2.lock.json); ~585 MB and a ~90 s first load, once. Without
+# it the small model above answers; 'make embedding-model-gemma2' retries.
+MACOS_MAJOR="$(sw_vers -productVersion 2>/dev/null | cut -d. -f1 || true)"  # no sw_vers on Linux (G181)
+if [ "$(uname -m)" = "arm64" ] && [ "${MACOS_MAJOR:-0}" -ge 15 ] 2>/dev/null; then
+  if [ -f "${CICADA_HOME:-$HOME/.cicada}/models/embeddinggemma-2/cicada-model.json" ]; then
+    ok "Neural Engine search model present"
+  else
+    step "Fetching the Neural Engine search model (~585 MB, once; then ~90 s to get it ready)"
+    if run sh -c "cd '$REPO' && '$VENV_PY' -m api.services.model_fetch"; then
+      ok "Neural Engine search model ready"
+    else
+      warn "Could not fetch the Neural Engine search model — search keeps the small model until 'make embedding-model-gemma2' succeeds"
+    fi
+  fi
+fi
+
 # --- 3. Memory tree + git ---
 hdr "3. Memory directory"
+if [ -n "$CLIENT_OF" ]; then
+  # Owner decision 4 (2026-10-16): a client holds no bank, so it gets no empty one either.
+  ok "This machine's memory lives on a server ($CLIENT_OF) — no local memory folder"
+else
 for sub in entities nudges clarifications inbox episodes hubs sources leann; do
   d="$MEMORY_PATH/$sub"
   if [ -d "$d" ]; then
@@ -198,8 +281,11 @@ if [ -d "$MEMORY_PATH/.git" ]; then
   ok "memory is already a git repo"
 else
   step "git init memory + initial commit"
-  run sh -c "cd '$MEMORY_PATH' && git init -q && git add -A && git commit -q -m 'Initial Cicada memory' --allow-empty"
+  # G181: a fresh server has no git identity and git refuses to commit; the bank (only) gets a placeholder one,
+  # the same as the backend's git_service.ensure_commit_identity_sync. A resolving identity is never overridden.
+  run sh -c "cd '$MEMORY_PATH' && git init -q && { git var GIT_COMMITTER_IDENT >/dev/null 2>&1 || { git config user.name Cicada && git config user.email cicada@localhost; }; } && git add -A && git commit -q -m 'Initial Cicada memory' --allow-empty"
   ok "memory git repo initialized"
+fi
 fi
 
 # --- 4. Scaffold api/.env (fill missing keys only, never clobber) ---
@@ -241,10 +327,10 @@ else
   step "Creating api/.env (umask 077)"
 fi
 
-# Memory path + embedding default always present.
-ensure_env CICADA_MEMORY_PATH "$MEMORY_PATH"
-ensure_env CICADA_EMBEDDING_MODE "openai"
-ensure_env CICADA_EMBEDDING_MODEL "text-embedding-3-small"
+# Memory path + embedding default always present (no memory path on a client: it has none).
+[ -n "$CLIENT_OF" ] || ensure_env CICADA_MEMORY_PATH "$MEMORY_PATH"
+# Search embeds on this Mac with the model step 2b fetched: no key, no account, no spend.
+ensure_env CICADA_EMBEDDING_MODE "local"
 # LiteLLM defaults sourced from the example.
 ensure_env CICADA_LITELLM_MODEL "gpt-5.4-mini"
 ensure_env CICADA_LITELLM_DISAMBIGUATION_MODEL "gpt-5.4-nano"
@@ -268,17 +354,10 @@ prompt_key() {
   if [ -n "$entered" ]; then ok "$key saved"; else warn "$key skipped"; fi
 }
 
-prompt_key OPENAI_API_KEY "needed for openai embeddings; blank = local embedding fallback (~250MB)"
+prompt_key OPENAI_API_KEY "optional, for an OpenAI sleep-cycle model"
 prompt_key ANTHROPIC_API_KEY "optional, for an Anthropic sleep-cycle model"
 ensure_env GEMINI_API_KEY ""
 
-# If no OpenAI key ended up set, flip the embedding mode to local explicitly.
-if [ "$DRY_RUN" -eq 0 ] && [ -z "$(env_value OPENAI_API_KEY)" ]; then
-  if grep -qE '^CICADA_EMBEDDING_MODE=openai$' "$ENV_FILE"; then
-    warn "No OpenAI key — local embeddings will be used. Install the extra with:"
-    warn "  uv sync --extra local --directory api   (~250MB incl. torch, ~90MB model on first build)"
-  fi
-fi
 ok "api/.env ready"
 
 # --- 5. Register MCP server ---
@@ -288,21 +367,27 @@ if command -v "$CLAUDE_CLI" >/dev/null 2>&1; then
     ok "MCP server 'cicada' already registered"
   else
     step "Registering 'cicada' via claude mcp add"
-    run "$CLAUDE_CLI" mcp add cicada \
-      -s user \
-      --env "CICADA_MEMORY_PATH=$MEMORY_PATH" \
-      -- "$VENV_PY" "$MCP_SERVER"
+    if [ -n "$CLIENT_OF" ]; then
+      # A client's MCP server sends every tool to the server: it names no memory folder of this machine.
+      run "$CLAUDE_CLI" mcp add cicada -s user -- "$VENV_PY" "$MCP_SERVER"
+    else
+      run "$CLAUDE_CLI" mcp add cicada \
+        -s user \
+        --env "CICADA_MEMORY_PATH=$MEMORY_PATH" \
+        -- "$VENV_PY" "$MCP_SERVER"
+    fi
     ok "MCP server registered"
   fi
 else
   warn "claude CLI not found — add this entry to your MCP config manually:"
+  if [ -n "$CLIENT_OF" ]; then MCP_ENV_JSON='{}'; else MCP_ENV_JSON="{ \"CICADA_MEMORY_PATH\": \"$MEMORY_PATH\" }"; fi
   cat <<EOF
   {
     "mcpServers": {
       "cicada": {
         "command": "$VENV_PY",
         "args": ["$MCP_SERVER"],
-        "env": { "CICADA_MEMORY_PATH": "$MEMORY_PATH" }
+        "env": $MCP_ENV_JSON
       }
     }
   }
@@ -328,6 +413,23 @@ if command -v codex >/dev/null 2>&1; then
     warn "Could not register the Codex hook in $CODEX_HOOKS"
   fi
 fi
+# G110 gate A: the same command under PreCompact and SessionEnd, as a best-effort
+# flush — Stop stays the trigger; a flush is idempotent and catches a turn the
+# person interrupted (no Stop) before compacting, clearing or quitting.
+for ev in PreCompact SessionEnd; do
+  if run "$VENV_PY" "$HOOKS_REGISTRY" install --settings "$CLAUDE_SETTINGS" --event "$ev" --command "$(hook_command claude-code)"; then
+    ok "Claude Code $ev capture flush registered in $CLAUDE_SETTINGS (idempotent)"
+  else
+    warn "Could not register the $ev capture flush in $CLAUDE_SETTINGS — fix the file and re-run ./install.sh"
+  fi
+  if command -v codex >/dev/null 2>&1; then
+    if run "$VENV_PY" "$HOOKS_REGISTRY" install --settings "$CODEX_HOOKS" --event "$ev" --command "$(hook_command codex)"; then
+      ok "Codex $ev capture flush registered in $CODEX_HOOKS"
+    else
+      warn "Could not register the Codex $ev capture flush in $CODEX_HOOKS"
+    fi
+  fi
+done
 
 # --- 5c. Implicit recall hooks (G149) ---
 # SessionStart sends the primer and UserPromptSubmit a short note of what memory
@@ -356,10 +458,43 @@ else
   fi
 fi
 
-# --- 6. launchd backend ---
-hdr "6. Backend service (launchd)"
-if backend_healthy; then
-  ok "A Cicada backend is already serving /healthz on :$PORT — skipping launchd bootstrap"
+# Cursor user-level startup delivery only; MCP and chat capture are separate switches. Capture stays the person's
+# click in Settings → Agents until it is checked in an installed Cursor (its prompt hook holds each message).
+if [ -d "$HOME/.cursor" ] && [ "$(printf '%s' "${CICADA_RECALL:-}" | tr '[:upper:]' '[:lower:]')" != "off" ]; then
+  if run "$VENV_PY" "$CURSOR_REGISTRY" install --settings "$CURSOR_HOOKS"; then
+    ok "Cursor sessionStart context registered (MCP setup and saving chats are separate, in Settings → Agents)"
+  else
+    warn "Cursor hooks config needs repair — unchanged; use Settings → Agents or fix $CURSOR_HOOKS"
+  fi
+fi
+
+# --- 6. Background service: launchd on a Mac, a systemd user unit on Linux (G181) ---
+if [ "$OS_NAME" = "Linux" ]; then
+  hdr "6. Backend service (systemd user unit)"
+else
+  hdr "6. Backend service (launchd)"
+fi
+# CLIENT_OF (decided at the top): a client runs no backend of its own.
+if [ -n "$CLIENT_OF" ]; then
+  ok "This machine's memory lives on a server ($CLIENT_OF) — no local backend service"
+elif backend_healthy; then
+  ok "A Cicada backend is already serving /healthz on :$PORT — skipping the service install"
+elif [ "$OS_NAME" = "Linux" ]; then
+  step "Installing the background service (scripts/install-backend-service.sh)"
+  if [ "$DRY_RUN" -eq 1 ]; then
+    CICADA_REPO="$REPO" CICADA_MEMORY_PATH="$MEMORY_PATH" CICADA_PORT="$PORT" \
+      bash "$REPO/scripts/install-backend-service.sh" --dry-run
+    ok "systemd service (dry-run)"
+  else
+    CICADA_REPO="$REPO" CICADA_MEMORY_PATH="$MEMORY_PATH" CICADA_PORT="$PORT" \
+      bash "$REPO/scripts/install-backend-service.sh" || warn "the service did not start — see above"
+    step "Waiting for backend /healthz ..."
+    for _ in $(seq 1 10); do
+      backend_healthy && break
+      sleep 1
+    done
+    if backend_healthy; then ok "Backend is up on 127.0.0.1:$PORT"; else warn "Backend not yet healthy — check $REPO/logs/backend.err.log"; fi
+  fi
 else
   step "Installing the background service (scripts/install-backend-agent.sh)"
   if [ "$DRY_RUN" -eq 1 ]; then
@@ -388,9 +523,20 @@ if [ "$DO_SKILL" -eq 1 ]; then
   ok "Skill installed"
 fi
 
+# --- 8. Command line (opt-in, G180) ---
+if [ "$DO_CLI" -eq 1 ]; then
+  hdr "8. Command line"
+  step "Linking ~/.local/bin/cicada -> $REPO/scripts/cicada"
+  run "$REPO/scripts/install-cli.sh" || warn "the cicada link was left as it was (see above)"
+fi
+
 # --- Summary ---
 hdr "Done — what happened"
-echo "  memory:        $MEMORY_PATH"
+if [ -n "$CLIENT_OF" ]; then
+  echo "  memory:        on the server ($CLIENT_OF); none on this machine"
+else
+  echo "  memory:        $MEMORY_PATH"
+fi
 echo "  venv:          $VENV"
 echo "  api/.env:      $ENV_FILE (missing keys filled, existing preserved)"
 if command -v "$CLAUDE_CLI" >/dev/null 2>&1; then
@@ -398,10 +544,23 @@ if command -v "$CLAUDE_CLI" >/dev/null 2>&1; then
 else
   echo "  MCP:           manual JSON snippet printed above"
 fi
-echo "  capture hook:  $CLAUDE_SETTINGS (hooks.Stop → api/hooks/capture.py)"
+echo "  capture hook:  $CLAUDE_SETTINGS (hooks.Stop, + PreCompact/SessionEnd flush → api/hooks/capture.py)"
 echo "  recall hooks:  $CLAUDE_SETTINGS (hooks.SessionStart + hooks.UserPromptSubmit → api/hooks/recall.py)"
-echo "  launchd:       $PLIST_PATH"
+if [ -n "$CLIENT_OF" ]; then
+  echo "  service:       none — this machine's memory lives on a server ($CLIENT_OF)"
+elif [ "$OS_NAME" = "Linux" ]; then
+  echo "  service:       $SERVICE_UNIT (systemd --user; 127.0.0.1:$PORT only)"
+else
+  echo "  launchd:       $PLIST_PATH"
+fi
 [ "$DO_SKILL" -eq 1 ] && echo "  skill:         $CLAUDE_SKILLS_DIR/cicada/SKILL.md"
-echo "  API token:     ${CICADA_HOME:-$HOME/.cicada}/api_token (the app and MCP server read it automatically)"
-echo
-echo "  Next: run 'make doctor' to verify, or 'curl localhost:$PORT/healthz'."
+[ "$DO_CLI" -eq 1 ] && echo "  command line:  ~/.local/bin/cicada -> $REPO/scripts/cicada"
+if [ -n "$CLIENT_OF" ]; then
+  echo "  token:         this device's own, in ${CICADA_HOME:-$HOME/.cicada}/device_token or CICADA_API_TOKEN ('cicada device add <name>' on the server)"
+  echo
+  echo "  Next: run '$REPO/scripts/cicada status' — it asks the server."
+else
+  echo "  API token:     ${CICADA_HOME:-$HOME/.cicada}/api_token (the app and MCP server read it automatically)"
+  echo
+  echo "  Next: run $(doctor_hint) to verify, or 'curl localhost:$PORT/healthz'."
+fi

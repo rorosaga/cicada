@@ -148,16 +148,15 @@ function observerBadgeColor(wire) {
     return OBSERVER_BADGE_COLORS.rodrigo;
 }
 
-const MIN_ZOOM = 0.2;
+const MIN_ZOOM = 0.1;               // 2026-10-15: 0.2 -> 0.1, so a 5k-node graph with bigger dots still fits
 const MAX_ZOOM = 6.0;
 const LABEL_MIN_SCREEN_RADIUS = 6;  // only label nodes whose on-screen radius clears this
 const DRAG_CLICK_THRESHOLD = 4;     // pixels of movement before a mousedown becomes a drag
 const DOUBLE_CLICK_MS = 320;        // window for the second click of a double-click
 
-// Three semantic-zoom tiers. Below HUBS_ONLY only hub labels and hub-touching
-// links draw; between HUBS_ONLY and NODE_LABELS big nodes get labels; past
-// NODE_LABELS everything visible gets labels; past EDGE_LABELS edge labels
-// appear at link midpoints.
+// Semantic-zoom tiers. Past HUBS_ONLY observer badges draw; past NODE_LABELS logos draw; past EDGE_LABELS edge labels
+// appear at link midpoints. Every link draws at every zoom and node names fade in by on-screen size (2026-10-15,
+// `drawAmbientLabels`).
 const ZOOM_HUBS_ONLY   = 0.45;
 const ZOOM_NODE_LABELS = 1.2;
 const ZOOM_EDGE_LABELS = 2.2;
@@ -165,8 +164,19 @@ const ZOOM_EDGE_LABELS = 2.2;
 const LABEL_BUDGET = 200;           // max node labels rendered per frame
 
 const STATUS_ALPHA = { active: 0.92, decaying: 0.5, archived: 0.28, dropped: 0.0 };
+const LINK_ALPHA = 0.55;            // a neutral link at rest (the theme's edge colour)
+const LINK_ALPHA_CONTEXT = 0.22;    // a link in its context's hue at rest
+// Link width (G109 proportion pass, owner 2026-10-15: "the lines connecting nodes are too big compared to the size of
+// the nodes, they should be super thin"). At rest a link is LINK_WIDTH_OF_DOT of the smallest dot's on-screen
+// diameter, never wider than LINK_WIDTH_MAX_PT: a hairline that stays well under the dots at every zoom. Thinner than
+// one device pixel it is drawn one device pixel wide at a proportionally lower alpha (`linkStroke`), which is what a
+// sub-pixel line looks like anyway, minus the smear. A link a hover or a focus lights is LINK_LIT_PT wide.
+const LINK_WIDTH_OF_DOT = 0.12;
+const LINK_WIDTH_MAX_PT = 0.75;
+const LINK_LIT_PT = 1;
 
-const HUB_RING_FLOOR = 22;          // minimum radius for a hub node
+const PULSE_RING_FROM = 1.5;        // screen px past the dot where the pulse ring starts ...
+const PULSE_RING_TRAVEL = 4;        // ... and how far it travels out before it fades
 const PULSE_COLOR = "#FFCB57";      // amber attention color for pending pulse (= CicadaTheme.pendingPulse)
 
 // Surface uncaught JS errors to the Swift side — a silent exception here
@@ -490,7 +500,36 @@ function tickInitialFit() {
     if (initialFitTicksLeft < 0) return;
     if (--initialFitTicksLeft > 0) return;
     initialFitTicksLeft = -1;
-    fitGraph();
+    fitGraph(true);
+}
+// G109 (2026-10-14): a layout can now end before INITIAL_FIT_TICKS (settleCheck; a 12-node graph stops near step 80),
+// so the layout's end runs a fit still pending. Left armed, it fired on the next restart — mid-drag.
+function finishInitialFit() {
+    if (initialFitTicksLeft < 0) return;
+    initialFitTicksLeft = -1;
+    fitGraph(true);
+}
+
+// QA 2026-10-16 ("not centred on first show": the cluster top-left, the right third empty, the control bar over a
+// label). The first fit can run while the canvas still has a size it is about to lose — the page not on screen yet
+// (the WKWebView outlives tab switches, and entering the demo switches banks from Settings), or a column still
+// opening — so the graph sits in the corner of the view it finally gets. Until something else moves the view (the
+// person's zoom or pan, a reveal, a focus), the automatic fit is still the view: a resize fits again, at once (the
+// resize is the motion). `autoFit` is the transform that fit set; the view is still the fit's while `transform`
+// equals it.
+let autoFit = null;
+function viewIsStillTheFit() {
+    if (!autoFit || !transform) return false;
+    const close = (a, b) => Math.abs(a - b) <= 0.5 + 1e-6 * Math.abs(b);
+    return close(transform.x, autoFit.x) && close(transform.y, autoFit.y) && Math.abs(transform.k - autoFit.k) < 1e-6;
+}
+// The fit a resize applies, or null when the view is the person's (or nothing can be fitted).
+function refitForResize() {
+    if (selectedNodeId || !viewIsStillTheFit() || !visibleNodes.length) return null;
+    const t = transformForNodes(visibleNodes, FIT_PAD);
+    if (!t) return null;
+    autoFit = t;
+    return t;
 }
 function centerOnce() {
     if (hasCentered || width <= 0 || height <= 0 || !currentZoom) return;
@@ -510,6 +549,8 @@ function onResize() {
     resizeCanvas();
     centerOnce();
     if (selectedNodeId) ensureVisible(selectedNodeId, false);
+    const refit = refitForResize();
+    if (refit && currentZoom) d3.select(canvas).call(currentZoom.transform, refit);
     scheduleRedraw();
 }
 
@@ -599,10 +640,15 @@ function zoomReset() {
     );
 }
 
-function fitGraph() {
+const FIT_PAD = 60;                   // screen px round the fitted graph
+function fitGraph(automatic = false) {
+    if (!currentZoom) return;   // headless (no zoom behaviour attached), as revealNode/ensureVisible handle it
     if (!visibleNodes.length) { zoomReset(); return; }
-    const t = transformForNodes(visibleNodes, 60);
+    const t = transformForNodes(visibleNodes, FIT_PAD);
     if (!t) { zoomReset(); return; }
+    // The first-load fit is remembered so a resize can follow it (`refitForResize`); a fit the person asked for is
+    // theirs, and so is the view after it.
+    autoFit = automatic ? t : null;
     d3.select(canvas).transition().duration(400).call(currentZoom.transform, t);
 }
 
@@ -651,7 +697,6 @@ function updateGraph(dataStr) {
     for (const n of nodes) {
         if (n.x != null) prevPositions.set(n.id, { x: n.x, y: n.y, vx: n.vx || 0, vy: n.vy || 0 });
     }
-    const hadPrev = prevPositions.size > 0;
 
     nodes = data.nodes || [];
     links = data.links || [];
@@ -662,20 +707,53 @@ function updateGraph(dataStr) {
 
     // 2. seed positions: reuse previous for known nodes; place genuinely-new
     // nodes near their hub or type anchor.
+    beginSeeding();
+    const fresh = new Set();
+    let carried = 0;
     for (const n of nodes) {
         const p = prevPositions.get(n.id);
         if (p) {
-            n.x = p.x; n.y = p.y; n.vx = p.vx || 0; n.vy = p.vy || 0;
+            carried += 1;
+            n.x = p.x; n.y = p.y; n.vx = 0; n.vy = 0;
         } else {
             const s = seedPositionFor(n);
             n.x = s.x; n.y = s.y; n.vx = 0; n.vy = 0;
+            fresh.add(n.id);
+        }
+    }
+
+    // Review r1 #3: a full push replaces every node object. A drag in progress follows the live object for its id
+    // (its pin moves with it), so no later hold or release acts on a replaced one; a drag whose node left ends.
+    if (draggingNode) {
+        const live = nodes.find(n => n.id === draggingNode.id);
+        if (live) {
+            live.x = draggingNode.x; live.y = draggingNode.y;
+            live.fx = draggingNode.fx; live.fy = draggingNode.fy;
+            live.vx = 0; live.vy = 0;
+            draggingNode = live;
+        } else {
+            cancelInteraction();
         }
     }
 
     rebuildVisible();
     rebuildNeighborsIndex();
-    startSimulation({ reheat: hadPrev ? 0.3 : 1.0 });
-    if (!hadPrev) armInitialFit();
+    // Item 6: on a canvas that already has a layout, only the newcomers move (`relax`); a first paint lays out all.
+    // Proportion pass (review, 2026-10-15): "already has a layout" means some node of THIS push carries a position.
+    // A push where none does (another bank, after the blank push a bank switch sends first) is a first paint: a cold
+    // layout, the dot scale chosen afresh, and a fit. One whose carried layout asks for a dot scale more than
+    // SIZE_RELAYOUT_FROM away from the current one (a switch back to a bank whose positions are cached, a bank sharing
+    // ids with the last one) lays out every node from where it is, so the scale can follow, and fits.
+    const cold = carried === 0;
+    let rescale = false;
+    if (!cold) {
+        const want = wantedScaleNow();
+        rescale = want !== null && Math.abs(Math.log(want / sizeScale)) > Math.log(SIZE_RELAYOUT_FROM);
+    }
+    if (cold) startSimulation({ reheat: 1.0, seeded: fresh });
+    else if (rescale) startSimulation({ reheat: 0.3, seeded: fresh });
+    else startSimulation({ reheat: 0.3, relax: fresh, seeded: fresh });
+    if (cold || rescale) armInitialFit();
 
     if (focusNodeId) { computeFocusSet(); applyFocusPinning(); }
     scheduleRedraw();
@@ -775,12 +853,14 @@ function updateGraphDelta(dataStr) {
     computeDegree();
     buildHubIndex();
 
+    beginSeeding();
+    const fresh = new Set();
     for (const a of added) {
         const n = nodes.find(x => x.id === a.id);
         if (!n || n.x != null) continue;
         const p = prevPositions.get(n.id);
-        if (p) { n.x = p.x; n.y = p.y; n.vx = p.vx || 0; n.vy = p.vy || 0; }
-        else { const s = seedPositionFor(n); n.x = s.x; n.y = s.y; n.vx = 0; n.vy = 0; }
+        if (p) { n.x = p.x; n.y = p.y; n.vx = 0; n.vy = 0; }
+        else { const s = seedPositionFor(n); n.x = s.x; n.y = s.y; n.vx = 0; n.vy = 0; fresh.add(n.id); }
     }
 
     // Keep the position cache current for the touched nodes, so a later FULL
@@ -793,16 +873,11 @@ function updateGraphDelta(dataStr) {
 
     rebuildVisible();
     rebuildNeighborsIndex();
-    // Always a low reheat: a delta by definition sits on a settled layout.
-    // G109 (disclosed, phase 2): even a NO-OP delta still moves a packed core —
-    // bench `deltaNoop*`: 31 / 80 wu mean, 173 / 573 max on the medium / dense
-    // synthetic (was ~1,000 / 1,200 mean before phase 1). The value here is a
-    // real lever on medium density (0.1 -> 19 / 60) but not on dense (0.1 ->
-    // 73 / 340): the residual there is the never-alpha-scaled forceCollide
-    // re-resolving a core the alpha-scaled forces re-compress on every reheat.
-    // Retune with phase 2's settle criterion + a collide lever, measured in-app;
-    // the number stays until then (plan rulings R8/R10).
-    startSimulation({ reheat: 0.3 });
+    // Item 6 (2026-10-08): a delta relaxes only the nodes it brings; every settled node is held where it is
+    // (`holdSettled`) and a delta that brings none starts no layout at all. It used to reheat the whole graph at
+    // 0.3, which on the dense bench moved the settled core 80 wu mean / 573 max for a delta that changed nothing —
+    // and a push that landed while the page was hidden replayed that motion when the person came back.
+    startSimulation({ reheat: 0.3, relax: fresh, seeded: fresh });
 
     if (focusNodeId) { computeFocusSet(); applyFocusPinning(); }
     scheduleRedraw();
@@ -816,16 +891,27 @@ function updateGraphDelta(dataStr) {
 // when the server did not already provide one.
 function computeDegree() {
     const degreeMap = new Map();
+    const pairSeen = new Set();
+    const neighbours = new Map();
     links.forEach(l => {
         const sid = typeof l.source === "object" ? l.source.id : l.source;
         const tid = typeof l.target === "object" ? l.target.id : l.target;
         degreeMap.set(sid, (degreeMap.get(sid) || 0) + 1);
         degreeMap.set(tid, (degreeMap.get(tid) || 0) + 1);
+        if (sid === tid) return;
+        const key = sid < tid ? sid + "\u0000" + tid : tid + "\u0000" + sid;
+        if (pairSeen.has(key)) return;
+        pairSeen.add(key);
+        neighbours.set(sid, (neighbours.get(sid) || 0) + 1);
+        neighbours.set(tid, (neighbours.get(tid) || 0) + 1);
     });
     nodes.forEach(n => {
         const computed = degreeMap.get(n.id) || 0;
         // Local degree drives min-degree visibility; keep it on _localDegree.
         n._localDegree = computed;
+        // Size reads DISTINCT neighbours over every link the payload carries (2026-10-15): parallel claims between one
+        // pair are one connection on screen, and a filter never resizes a node.
+        n._neighbours = neighbours.get(n.id) || 0;
         // Server degree wins for sizing if it was supplied (>0 or explicitly set).
         if (n.degree == null) n.degree = computed;
     });
@@ -889,24 +975,62 @@ function buildHubIndex() {
     }
 }
 
+// G109 (2026-10-14): newcomers that share an anchor spread on a Vogel-phyllotaxis disc around it — d3's own initial
+// arrangement — instead of all landing within ±30 wu of one point. A cold paint of the bank-shaped synthetic seeded
+// ~3,500 pages on ~15 points; the first ~25 ticks were then every node at the speed clamp, blowing the pile apart.
+// `beginSeeding` resets the per-anchor counters for one push.
+const SEED_SPACING = 22;
+const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
+let seedCounts = new Map();
+let seedNodeById = new Map();
+function beginSeeding() {
+    seedCounts = new Map();
+    seedNodeById = new Map(nodes.map(n => [n.id, n]));
+}
+function seedAround(key, x, y) {
+    const k = seedCounts.get(key) || 0;
+    seedCounts.set(key, k + 1);
+    const r = SEED_SPACING * Math.sqrt(k + 0.5);
+    const a = k * GOLDEN_ANGLE + (Math.random() - 0.5) * 0.2;
+    return { x: x + r * Math.cos(a), y: y + r * Math.sin(a) };
+}
+
 function seedPositionFor(n) {
-    const jitter = () => (Math.random() - 0.5) * 60;
+    // 2026-10-15: a page with a big fan starts in the middle — d3 moves an end of a link in inverse proportion to its
+    // link count, so the owner's page, seeded at the person anchor, barely moved and settled off to one side.
+    if ((n._neighbours || 0) > DISSUADE_FROM && !nodeIsHub(n)) return seedAround("middle", 0, 0);
     // If the node belongs to a hub and that hub already has a position, seed
     // near it so new members land in the right cluster.
     const hid = memberToHub.get(n.id);
     if (hid) {
-        const hub = nodes.find(x => x.id === hid);
-        if (hub && hub.x != null) return { x: hub.x + jitter(), y: hub.y + jitter() };
+        const hub = seedNodeById.get(hid);
+        if (hub && hub.x != null) return seedAround(hid, hub.x, hub.y);
         const anchor = hubAnchors.get(hid);
-        if (anchor) return { x: anchor[0] + jitter(), y: anchor[1] + jitter() };
+        if (anchor) return seedAround(hid, anchor[0], anchor[1]);
     }
     if (nodeIsHub(n)) {
         const anchor = hubAnchors.get(n.id);
-        if (anchor) return { x: anchor[0] + jitter(), y: anchor[1] + jitter() };
+        if (anchor) return seedAround(n.id, anchor[0], anchor[1]);
     }
     const type = typeClusterPositions[n.type];
-    if (type) return { x: type[0] + jitter(), y: type[1] + jitter() };
-    return { x: jitter(), y: jitter() };
+    if (type) return seedAround("type:" + n.type, type[0], type[1]);
+    return seedAround("origin", 0, 0);
+}
+
+// After the components are known: a newcomer that is a satellite starts in its band slot, not at its type anchor
+// inside the body (it used to cross the body to get there).
+function seedSatellites(seeded) {
+    if (!seeded || !seeded.size || !satelliteUnits.length) return;
+    layoutBand();
+    for (const u of satelliteUnits) {
+        u.nodes.forEach((n, k) => {
+            if (!seeded.has(n.id)) return;
+            const r = k === 0 ? 0 : (2 * nodeRadius(n) + LEAF_LINK_GAP) * Math.sqrt(k);
+            n.x = u.x + r * Math.cos(k * GOLDEN_ANGLE);
+            n.y = u.y + r * Math.sin(k * GOLDEN_ANGLE);
+            n.vx = 0; n.vy = 0;
+        });
+    }
 }
 
 function rebuildVisible() {
@@ -989,91 +1113,291 @@ function hubGravityForce(strength) {
     return force;
 }
 
-// ---------- G109 isolate containment ----------
+// ---------- G109 layout (2026-10-14): one spring per pair, bodies and a band of satellites ----------
 //
-// A zero-degree node has nothing pulling it in: forceCenter is a uniform
-// translation of the centroid (it cannot pull an individual node), and the
-// 0.04 type anchor loses to forceManyBody(-150) from ~1,000 bodies until the
-// node clears distanceMax(700) and parks — the ring the user photographed. Each
-// isolate gets its own slot on a Vogel-phyllotaxis disc centred on its type's
-// anchor (the same arrangement d3 uses to initialise nodes), pulled by the
-// existing xType/yType forces at ISOLATE_ANCHOR_STRENGTH, and exerts a weaker
-// charge so a disc of them does not blast itself apart. Measured on the bench
-// (1500-node synthetic): isolate max radius 2.0x -> 1.3x core p90, no isolate
-// beyond the farthest connected node, core median unchanged. Phase 3 (not
-// built) excludes isolates from the simulation entirely, which makes the disc
-// a guarantee instead of a tuning outcome.
+// Measured on a synthetic with the owner's bank's shape (Tests/graph/graph-bank-shape.js: 3,698 nodes, 41,570
+// links, one 3,529-node component, a 2,092-degree page, 138 isolates and 11 small components), the layout this
+// replaces never reached equilibrium: a fixed link strength of 0.28 on every one of a dense page's ~100 links is a
+// spring constant of ~28 per tick, far past what an explicit integrator holds, so the core oscillated until the alpha
+// cut-off froze it mid-motion (KE/node still 130, the fastest node at 48 wu/tick, at tick 135); the never-alpha-scaled
+// collide kept what was left boiling (`collideForce`). Leaves were thrown far from their page by the body's summed
+// charge (the 2,092-degree page's 226 leaves at a median 933 wu, a 44-leaf star's at 800, its farthest at 1,400 — the
+// star "far outside on long links"), and a pair or a triple, with no anchor of its own, was pushed past the body's
+// edge: the "two small nodes far away".
 //
-// Levers, for the phase-2 live-bank tuning pass: ISOLATE_ANCHOR_STRENGTH (0.2
-// -> ratio 1.4, 0.3 -> 1.3, 0.5 -> 1.2 but +30% post-release motion and the
-// disc inside the type cluster); ISOLATE_SLOT_SPACING (20 is collision-free for
-// two high-confidence isolates: 2 x (4 + 8 + 6) = 36 wu); ISOLATE_ANCHOR_SCALE
-// (measured NOT to move the outcome at 1.0-1.8: the resting radius is set by
-// the core's outward push, which per-node charge cannot reduce — d3's
-// strength() sets what a body EXERTS, not what it receives).
-const ISOLATE_ANCHOR_SCALE = 1.0;     // multiplies the type anchor; 1.0 = centred on it
-const ISOLATE_RING_R = 480;           // fallback for a type with no anchor: same radius as the type anchors (450-540), never a halo beyond them
-const ISOLATE_SLOT_SPACING = 20;      // c in r = c * sqrt(i)
-const ISOLATE_ANCHOR_STRENGTH = 0.3;  // forceX/forceY strength for an isolate (d3 range [0, 1])
-const ISOLATE_CHARGE = -30;           // what an isolate EXERTS (vs -150 for a connected node)
-const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
-const VMAX_WU_PER_TICK = 60;          // speed clamp; a 1000 px/s flick at k=0.6 seeds ~28
+// What the layout does now, and where each idea comes from:
+//   - The simulation gets ONE link per connected pair (`buildSimLinks`), and draw() strokes one hairline per pair and
+//     colour (`drawLinks`, 2026-10-15): parallel claims between a pair no longer stack. Its strength is d3's own
+//     default, 1 / min(neighbours of either end), weakened by sqrt(DISSUADE_FROM / n) on a link to a page with more
+//     than DISSUADE_FROM (50) neighbours, never on a leaf's link (ForceAtlas2's "dissuade hubs"; see `linkStrength`).
+//     Never stronger than d3's default, so stable by construction.
+//   - Every body page has the same charge, BODY_CHARGE (2026-10-15, Obsidian's single repel force). A charge that grew
+//     with a page's neighbours carved holes round heavy pages and lined the rest into chains (see `chargeStrength`).
+//     A page with more than DISSUADE_FROM neighbours is seeded in the middle and pulled there (`anchorStrength`).
+//   - A link's rest length is the two discs plus a gap, shorter for a leaf, so a star reads as a star.
+//   - Components: the largest, and any bigger than SATELLITE_MAX, are BODIES and repel each other. Every smaller
+//     component — an isolate, a pair, a triple — is a SATELLITE: the bodies' charge neither reaches it nor counts
+//     it, and it is held by an alpha-scaled spring to its place in a loose HALO round the body (2026-10-15; it
+//     replaced #287's annulus of per-type arcs). Each unit's angle and depth are hashed from its own id, so the scatter
+//     is irregular and stable across pushes, and the halo follows the body's own edge as the layout breathes (see
+//     `layoutBand`). Obsidian leaves its orphans round the main cluster the same way; cytoscape's fcose/cola pack
+//     disconnected components beside the main one rather than simulating them against it.
+const SATELLITE_MAX = 30;            // a component this size or smaller (and not the largest) is packed in the band
+const LINK_GAP = 24;                 // wu between two linked discs
+const LEAF_LINK_GAP = 8;             // ... when one end has a single neighbour
+const CHARGE_K = 40;                 // a body page's charge is -CHARGE_K * sqrt(2) (BODY_CHARGE)
+const CHARGE_DISTANCE_MAX = 700;
+const CHARGE_THETA = 1.2;            // Barnes-Hut accuracy; 0.9 -> 1.2 took the charge from ~14 to ~10 ms a tick here
+const BAND_GAP = 40;                 // wu, at least, from the body's edge to the halo's inner edge
+const BAND_GAP_FRAC = 0.06;          // ... or this share of the body's radius, whichever is larger
+const BAND_SLOT_PAD = 4;             // wu around each satellite's footprint
+const BAND_SPRING = 0.6;             // strength of the pull to a satellite's slot (x alpha, like forceX)
+const VMAX_WU_PER_TICK = 60;         // speed clamp; a 1000 px/s flick at k=0.6 seeds ~28
+// The halo (2026-10-15): how loose it is. Each satellite claims HALO_SPACING footprints of room, and the halo is never
+// thinner than HALO_MIN_FRAC of the body's radius; its outer reach wobbles by HALO_WOBBLE of its thickness.
+const HALO_SPACING = 3;
+const HALO_MIN_ROOM = 1.8;           // ... and never less than this many of its footprints at the current dot scale
+const HALO_MIN_FRAC = 0.22;
+const HALO_WOBBLE = 0.3;
+const HALO_EDGE_BINS = 36;           // angular bins the body's edge is read in
 
-let isolateSlots = new Map();                 // id -> { x, y, type, index }
-const isolateSlotIndexByType = new Map();     // type -> Set<index> in use
+let simLinks = [];                    // one per connected pair, endpoints resolved to node objects
+let drawLinks = [];                   // one per connected pair and colour: what draw() strokes
+let simDegree = new Map();            // id -> distinct visible neighbours
+let simNodeById = new Map();          // id -> visible node
+let bodyNodes = [];                   // the nodes the bodies' charge acts on
+let satelliteUnits = [];              // [{ key, type, nodes, footprint, angle, depth, x, y }]
+const satelliteOf = new Map();        // id -> its unit
 
-// Visible degree 0, not a hub (hubs anchor to the ring), not a hub member or a
-// facet with its parent on the graph (both are pulled by hubGravity). Reads
-// neighborsById — built from visibleLinks — so a node whose only edges the
-// contexts filter dropped counts as isolated, unlike _localDegree. An orphan
-// facet (parent not on the graph) IS an isolate: today it falls to a 0.04 pull
-// toward typeClusterPositions[<facet type>], i.e. (0, 0), and drifts.
-function isIsolate(d) {
-    return !nodeIsHub(d) && !memberToHub.has(d.id) && !neighborsById.has(d.id);
+// Resolves every visible link's endpoints to the live node objects (draw() reads them, as it read what forceLink
+// left there) and returns one simulation link per unordered pair.
+function buildSimLinks() {
+    const byId = new Map(visibleNodes.map(n => [n.id, n]));
+    simNodeById = byId;
+    const pairs = new Map();
+    const drawn = new Set();
+    drawLinks = [];
+    for (const l of visibleLinks) {
+        const s = byId.get(typeof l.source === "object" ? l.source.id : l.source);
+        const t = byId.get(typeof l.target === "object" ? l.target.id : l.target);
+        if (!s || !t) continue;
+        l.source = s; l.target = t;
+        if (s === t) continue;
+        const key = s.id < t.id ? s.id + "\u0000" + t.id : t.id + "\u0000" + s.id;
+        // 2026-10-15: parallel claims between a pair drew one line each on top of each other (41,570 lines for 9,046
+        // pairs on the owner's graph), so a pair's alpha compounded with its claim count; now a pair draws once per
+        // colour, and every line is the same hairline.
+        const dkey = key + "\u0000" + (l.context || "");
+        if (!drawn.has(dkey)) { drawn.add(dkey); drawLinks.push(l); }
+        const p = pairs.get(key);
+        if (p) p.count += 1;
+        else pairs.set(key, { source: s, target: t, count: 1 });
+    }
+    simLinks = [...pairs.values()];
+    simDegree = new Map();
+    for (const l of simLinks) {
+        simDegree.set(l.source.id, (simDegree.get(l.source.id) || 0) + 1);
+        simDegree.set(l.target.id, (simDegree.get(l.target.id) || 0) + 1);
+    }
 }
 
-function isolateAnchor(type) {
-    const t = typeClusterPositions[type];
-    if (t && type !== "hub") return [t[0] * ISOLATE_ANCHOR_SCALE, t[1] * ISOLATE_ANCHOR_SCALE];
-    const a = (hashHue(String(type)) / 360) * 2 * Math.PI;
-    return [Math.cos(a) * ISOLATE_RING_R, Math.sin(a) * ISOLATE_RING_R];
+// A stable number in [0, 1) from a unit's key and a salt (FNV-1a): a satellite's place in the halo is a function of
+// its own id alone, so it keeps its place across pushes whatever else arrives or leaves.
+function unitHash(key, salt) {
+    let h = 2166136261 ^ salt;
+    for (let i = 0; i < key.length; i++) { h ^= key.charCodeAt(i); h = Math.imul(h, 16777619); }
+    h ^= h >>> 13; h = Math.imul(h, 0x5bd1e995); h ^= h >>> 15;
+    return (h >>> 0) / 4294967296;
 }
 
-function isolateSlotPosition(type, index) {
-    const [cx, cy] = isolateAnchor(type);
-    const r = ISOLATE_SLOT_SPACING * Math.sqrt(index + 0.5);
-    const a = index * GOLDEN_ANGLE;
-    return { x: cx + r * Math.cos(a), y: cy + r * Math.sin(a), type, index };
-}
-
-// Stable per-type free-list: an isolate keeps its slot across updateGraph /
-// updateGraphDelta / applyFilters for as long as it stays an isolate of the
-// same type; a newcomer takes the lowest free index of its type; a node that
-// gains a visible link, changes type, or leaves releases its index. Sorting
-// isolates by id instead would re-shuffle every slot after any insert that
-// sorts earlier, defeating the delta path's position preservation. Runs at
-// the top of startSimulation, which every caller reaches only after
-// rebuildNeighborsIndex(), and before d3 evaluates the forceX/forceY accessors
-// (once, at initialize).
-function assignIsolateSlots() {
-    const current = new Map();
-    for (const n of visibleNodes) if (isIsolate(n)) current.set(n.id, n.type);
-    for (const [id, slot] of isolateSlots) {
-        if (current.get(id) !== slot.type) {
-            isolateSlots.delete(id);
-            isolateSlotIndexByType.get(slot.type)?.delete(slot.index);
+// Components over the simulation links; the small ones become satellite units with a stable index in their sector.
+function assignComponents() {
+    const parent = new Map(visibleNodes.map(n => [n.id, n.id]));
+    const find = (x) => { while (parent.get(x) !== x) { const g = parent.get(parent.get(x)); parent.set(x, g); x = g; } return x; };
+    for (const l of simLinks) {
+        const a = find(l.source.id), b = find(l.target.id);
+        if (a !== b) parent.set(a, b);
+    }
+    const groups = new Map();
+    for (const n of visibleNodes) {
+        const r = find(n.id);
+        if (!groups.has(r)) groups.set(r, []);
+        groups.get(r).push(n);
+    }
+    const comps = [...groups.values()].sort((a, b) => b.length - a.length);
+    bodyNodes = [];
+    satelliteUnits = [];
+    satelliteOf.clear();
+    comps.forEach((members, i) => {
+        // The largest component is a body unless it is a single node; anything past SATELLITE_MAX is a body too.
+        if (members.length > SATELLITE_MAX || (i === 0 && members.length > 1)) {
+            for (const n of members) bodyNodes.push(n);
+            return;
         }
+        // The unit's key (lowest id) is what places it in the halo, so it keeps its place across pushes.
+        let lead = members[0], key = members[0].id;
+        for (const n of members) {
+            if ((simDegree.get(n.id) || 0) > (simDegree.get(lead.id) || 0)) lead = n;
+            if (n.id < key) key = n.id;
+        }
+        let rmaxBase = 0;
+        for (const n of members) rmaxBase = Math.max(rmaxBase, baseRadius(n));
+        // Its place: an angle anywhere around the body, and a depth into the halo from two draws averaged — most
+        // satellites sit in the halo's middle and fewer toward either edge, so both edges are soft.
+        const angle = unitHash(key, 1) * 2 * Math.PI;
+        const depth = (unitHash(key, 2) + unitHash(key, 3)) / 2;
+        const unit = { key, type: lead.type, nodes: members, rmaxBase, footprint: 0, room: 0, angle, depth, x: 0, y: 0 };
+        satelliteUnits.push(unit);
+        for (const n of members) satelliteOf.set(n.id, unit);
+    });
+    refreshFootprints();
+}
+
+// A satellite's footprint at a dot scale: a singleton is its disc; a component spreads about one link length per ring
+// of neighbours.
+function unitFootprint(u, scale) {
+    const rmax = u.rmaxBase * scale;
+    return 2 * rmax + 2 * BAND_SLOT_PAD + (u.nodes.length > 1 ? (2 * rmax + LINK_GAP) * Math.sqrt(u.nodes.length - 1) : 0);
+}
+
+// Each satellite's footprint and the room it claims in the halo, at the current dot scale (`sizeScale`). The room is
+// what it was at scale 1 (HALO_SPACING footprints), never less than HALO_MIN_ROOM of its footprint now (2026-10-15
+// proportion pass): bigger dots fill the halo's room instead of widening the halo, so the halo keeps its share of the
+// fitted view and the body is not pushed into a smaller middle.
+function refreshFootprints() {
+    for (const u of satelliteUnits) {
+        u.footprint = unitFootprint(u, sizeScale);
+        u.room = Math.max(HALO_SPACING * unitFootprint(u, 1), HALO_MIN_ROOM * u.footprint);
     }
-    const ids = [...current.keys()].filter(id => !isolateSlots.has(id)).sort();
-    for (const id of ids) {
-        const type = current.get(id);
-        if (!isolateSlotIndexByType.has(type)) isolateSlotIndexByType.set(type, new Set());
-        const used = isolateSlotIndexByType.get(type);
-        let index = 0;
-        while (used.has(index)) index += 1;
-        used.add(index);
-        isolateSlots.set(id, isolateSlotPosition(type, index));
+}
+
+// Where the halo is this tick. Exposed for the tests.
+//
+// G109 look pass (2026-10-15, owner: "it looks like a weird circle"). #287's ring stacked the satellites into columns
+// of an exact annulus, each type an arc: 846 saved links became neat concentric rows of identical dots, a printed
+// necklace. Obsidian's unlinked notes end up around the body too, but as a loose, irregular scatter — a halo. This is
+// that halo, placed rather than simulated (the band's guarantees stay: out of the body's charge, alpha-scaled spring,
+// nothing flies away):
+//   - the halo follows the body's own edge, read per angle (HALO_EDGE_BINS bins, smoothed, half-blended with the
+//     body's p99 radius), so it echoes the body's shape instead of ruling a circle round it;
+//   - it is as thick as HALO_SPACING footprints of room per satellite need, never thinner than HALO_MIN_FRAC of the
+//     body's radius, and its outer reach wobbles by a few slow waves, so the whole reads as an organic blob;
+//   - each satellite's angle and depth come from its own id (`unitHash`), so the scatter is random-looking — uneven
+//     density, small clumps and gaps, no rows — and still deterministic and stable across pushes.
+function layoutBand() {
+    let cx = 0, cy = 0;
+    const radii = new Float64Array(bodyNodes.length);
+    for (const n of bodyNodes) { cx += n.x; cy += n.y; }
+    if (bodyNodes.length) { cx /= bodyNodes.length; cy /= bodyNodes.length; }
+    const binMax = new Float64Array(HALO_EDGE_BINS);
+    bodyNodes.forEach((n, i) => {
+        const dx = n.x - cx, dy = n.y - cy;
+        const r = Math.hypot(dx, dy);
+        radii[i] = r;
+        const b = Math.min(HALO_EDGE_BINS - 1, Math.floor(((Math.atan2(dy, dx) + Math.PI) / (2 * Math.PI)) * HALO_EDGE_BINS));
+        if (r > binMax[b]) binMax[b] = r;
+    });
+    radii.sort();
+    const edge = radii.length ? radii[Math.floor(0.99 * (radii.length - 1))] : 0;
+    // the edge per angle: each bin's farthest page (capped at the p99 radius, so one stray page makes no bulge),
+    // averaged over its neighbours and blended half-and-half with the p99 circle
+    const edgeAt = new Float64Array(HALO_EDGE_BINS);
+    for (let b = 0; b < HALO_EDGE_BINS; b++) {
+        let sum = 0;
+        for (let o = -2; o <= 2; o++) sum += Math.min(edge, binMax[(b + o + HALO_EDGE_BINS) % HALO_EDGE_BINS] || edge * 0.6);
+        edgeAt[b] = 0.5 * edge + 0.5 * (sum / 5);
     }
+    const gap = Math.max(BAND_GAP, BAND_GAP_FRAC * edge);
+    const inner = edge + gap;
+    let area = 0;
+    for (const u of satelliteUnits) area += u.room * u.room;
+    const thickness = Math.max(HALO_MIN_FRAC * Math.max(edge, 1), Math.sqrt(inner * inner + area / Math.PI) - inner);
+    const wobble = (a) => 0.5 * Math.sin(2 * a + 0.7) + 0.3 * Math.sin(3 * a + 2.1) + 0.2 * Math.sin(5 * a + 4.4);
+    for (const u of satelliteUnits) {
+        const a = u.angle;
+        const fb = ((a + Math.PI) / (2 * Math.PI)) * HALO_EDGE_BINS;
+        const b0 = Math.floor(fb) % HALO_EDGE_BINS, b1 = (b0 + 1) % HALO_EDGE_BINS, t = fb - Math.floor(fb);
+        const base = edgeAt[b0] * (1 - t) + edgeAt[b1] * t + gap;
+        const rr = base + thickness * u.depth * (1 + HALO_WOBBLE * wobble(a));
+        u.x = cx + rr * Math.cos(a);
+        u.y = cy + rr * Math.sin(a);
+    }
+    return { cx, cy, edge, inner, thickness };
+}
+
+// The satellites' pull to their slot, alpha-scaled like forceX (G109 rule 1).
+function bandForce(strength) {
+    return function force(alpha) {
+        if (!satelliteUnits.length) return;
+        layoutBand();
+        const k = strength * alpha;
+        for (const u of satelliteUnits) {
+            for (const n of u.nodes) {
+                n.vx += (u.x - n.x) * k;
+                n.vy += (u.y - n.y) * k;
+            }
+        }
+    };
+}
+
+// d3's collide, its strength scaled by alpha below COLLIDE_FULL_ALPHA (G109 rule 1). Unscaled, it was the energy left
+// in a cooled layout: the alpha-scaled forces compress the core less and less as alpha falls, collide re-resolves
+// the same discs at full strength every tick, and with velocityDecay 0.2 the core boiled — on the bank-shaped
+// synthetic KE/node 11 at tick 125 with it, 6e-3 without. Scaled, every force keeps the same ratio as the layout
+// cools, so the equilibrium it cools toward stops moving. A hold (alphaTarget 0.1) keeps it at full strength.
+const ALPHA_DECAY = 0.05;
+const VELOCITY_DECAY = 0.2;
+const COLLIDE_STRENGTH = 0.85;
+const COLLIDE_FULL_ALPHA = 0.03;
+const COLLIDE_PAD = 4;                // wu around each disc
+function collideForce() {
+    const inner = d3.forceCollide().radius(d => nodeRadius(d) + COLLIDE_PAD).strength(COLLIDE_STRENGTH);
+    const f = (alpha) => {
+        inner.strength(COLLIDE_STRENGTH * Math.min(1, alpha / COLLIDE_FULL_ALPHA));
+        inner(alpha);
+    };
+    f.initialize = (nodes, random) => inner.initialize(nodes, random);
+    f.inner = inner;
+    return f;
+}
+
+// A d3 force that only sees some of the simulation's nodes (the bodies' charge).
+function restrictForce(inner, pick) {
+    const f = (alpha) => inner(alpha);
+    f.initialize = (nodes, random) => inner.initialize(nodes.filter(pick), random);
+    f.inner = inner;
+    return f;
+}
+
+// One charge for every body page (2026-10-15, Obsidian's single "repel force"). It grew with a page's neighbours
+// (-CHARGE_K * sqrt(n + 1), ForceAtlas2's degree-weighted repulsion), so each heavy page — the owner's at -1,790, hubs
+// and busy pages at -300 to -600 against -80 for a typical one — cleared a hole round itself, and the pages squeezed
+// between the holes lined up into chains: a foam of ruled arcs across the body (measured on the bank shape: capping
+// the count at 50 still drew it, at 6 faintly, a uniform charge not at all). A hub still reads by its fan: the
+// dissuaded links (`linkStrength`) let its neighbours spread instead of ringing it.
+const BODY_CHARGE = -CHARGE_K * Math.SQRT2;
+function chargeStrength() {
+    return BODY_CHARGE;
+}
+
+// d3's default strength, 1 / min(neighbours of either end), dissuaded further on a link to a page with more than
+// DISSUADE_FROM neighbours by sqrt(DISSUADE_FROM / its neighbours) (2026-10-15). At d3's default, each of the owner's
+// ~2,000 neighbours — most with 2-4 neighbours — was held to it by a strong spring of one rest length, while the body's
+// charge pushed them all outward alike: they settled on a CIRCLE round the owner's page (and smaller ones round the
+// next heaviest pages), and those circles crossed the body as ruled arcs of dots. Weaker, a page stays with its own
+// cluster and the big page's links fan out to it — ForceAtlas2's "dissuade hubs", applied only past a fan's size and
+// never to a leaf, so a star keeps d3's tight springs. Never stronger than d3's default, so as stable.
+const DISSUADE_FROM = 50;
+function linkStrength(l) {
+    const a = simDegree.get(l.source.id) || 1, b = simDegree.get(l.target.id) || 1;
+    const lo = Math.min(a, b), hi = Math.max(a, b);
+    // a leaf (one neighbour) keeps d3's full spring: it belongs in its page's fan, however big the page
+    return (1 / lo) * (hi > DISSUADE_FROM && lo > 1 ? Math.sqrt(DISSUADE_FROM / hi) : 1);
+}
+
+function linkDistance(l) {
+    const leaf = Math.min(simDegree.get(l.source.id) || 0, simDegree.get(l.target.id) || 0) <= 1;
+    return nodeRadius(l.source) + nodeRadius(l.target) + (leaf ? LEAF_LINK_GAP : LINK_GAP);
 }
 
 // Guard, not a force: with velocityDecay at 0.2 a reheat can launch a node;
@@ -1090,93 +1414,260 @@ function clampSpeedForce() {
     };
 }
 
-function startSimulation({ reheat = 1.0 } = {}) {
+// Item 6 — the settled nodes a layout of newcomers holds still, id -> the {x, y} it pinned them at. A hold is the
+// layout's own: it ends with that layout (d3's "end", or the next startSimulation), and it never takes over a pin
+// someone else set (a drag, focus mode) nor clears one when it ends.
+let layoutHolds = new Map();
+// The ids the current layout relaxes (null = every node). Review r1 #2: a push that arrives before that layout ends
+// (alpha still above alphaMin, running or held while the page is hidden) adds to it instead of replacing it.
+let layoutRelax = null;
+
+function holdSettled(relax) {
+    for (const n of visibleNodes) {
+        if (relax.has(n.id) || n.fx != null || n.x == null) continue;
+        n.fx = n.x; n.fy = n.y;
+        layoutHolds.set(n.id, { x: n.x, y: n.y });
+    }
+}
+
+function holdAroundDrag(node) {
+    releaseHolds();
+    const relax = new Set([node.id, ...(neighborsById.get(node.id) || [])]);
+    layoutRelax = relax;
+    holdSettled(relax);
+}
+
+function releaseHolds() {
+    if (!layoutHolds.size) return;
+    const byId = new Map(nodes.map(n => [n.id, n]));
+    for (const [id, p] of layoutHolds) {
+        const n = byId.get(id);
+        if (!n || n.fx !== p.x || n.fy !== p.y) continue;           // moved on by a drag: not ours any more
+        if (draggingNode && draggingNode.id === id) continue;
+        if (focusNodeId && focusSet && !focusSet.has(id)) continue;  // focus mode wants it pinned
+        n.fx = null; n.fy = null; n.vx = 0; n.vy = 0;
+    }
+    layoutHolds.clear();
+}
+
+// `relax`: the ids that may move (null = all, a first layout). An empty set starts no layout — nothing moves, the
+// simulation is rebuilt over the new arrays and left at rest.
+function startSimulation({ reheat = 1.0, relax = null, seeded = null } = {}) {
+    // An unfinished layout's work carries over: its nodes keep moving and it keeps its heat. A push that brings
+    // nothing new then simply continues it; one that brings newcomers joins them to it.
+    const current = simulation ? simulation.alpha() : 0;
+    const unfinished = Boolean(simulation) && typeof current === "number" && current >= simulation.alphaMin();
+    const bringsWork = relax === null || relax.size > 0;
+    if (unfinished) {
+        const carried = current;
+        if (relax === null || layoutRelax === null) relax = null;
+        else relax = new Set([...layoutRelax, ...relax]);
+        reheat = bringsWork ? Math.max(carried, reheat) : carried;
+    }
     if (simulation) simulation.stop();
-    assignIsolateSlots();
+    releaseHolds();
+    layoutRelax = relax;
+    buildSimLinks();
+    assignComponents();
+    seedSatellites(seeded);
+    if (relax === null) beginSizeAdapt(reheat);
 
     simulation = d3.forceSimulation(visibleNodes)
-        // Alpha/velocity tuning for dense graphs. Defaults are fine for a
-        // hundred nodes; at 1500 they keep the sim bouncing indefinitely.
-        .alphaDecay(0.05)
-        // G109: 0.2 (d3 default 0.4; was 0.55, then 0.45 under G84b). Each
-        // tick keeps 80% of velocity, so a 28 wu/tick flick coasts ~13 ticks /
-        // ~100 wu with collide on (bench) instead of 6 / 34. The "indefinite
-        // bouncing at ~1500 nodes" that kept this high was the unscaled
-        // hubGravity force, not d3: with it alpha-scaled, KE/node at tick 400
-        // is 4e-6 at 0.2 on the bench. graph-physics.test.js guards that.
-        .velocityDecay(0.2)
-        // G109: d3's default. 0.05 stopped the timer ~27 ticks after any
-        // reheat, freezing a thrown node mid-coast; the release path no longer
-        // bumps alpha (see onMouseUp), so the runway has to come from here.
-        // Cost: a cold run is 135 ticks instead of 59, a 0.3 reheat 112
-        // instead of 35 (log arithmetic); phase 2's owned loop replaces this
-        // alpha cut-off with a physical settle criterion.
+        .alphaDecay(ALPHA_DECAY)
+        // G109: 0.2 (d3 default 0.4). Each tick keeps 80% of velocity, so a 28 wu/tick flick coasts ~13 ticks
+        // instead of 6. graph-physics.test.js guards it.
+        .velocityDecay(VELOCITY_DECAY)
+        // G109: d3's default. The runway a throw needs; a settled layout ends earlier on its own (`settleCheck`).
         .alphaMin(0.001)
-        .force("link", d3.forceLink(visibleLinks)
-            .id(d => d.id)
-            .distance(90)
-            // Looser link pull (was 0.5): at ~1000 nodes a strong link force
-            // yanks the connected core into a hairball. Weaker links let the
-            // charge repulsion open the dense center while anchors keep clusters.
-            .strength(0.28))
-        .force("charge", d3.forceManyBody()
-            // Stronger, longer-reach repulsion so clusters breathe instead of
-            // clumping — nodes push apart farther before the type/hub anchors
-            // and center pull them back into recognizable clusters.
-            .strength(d => isIsolate(d) ? ISOLATE_CHARGE : -150)
-            .distanceMax(700)
-            .theta(0.9))
+        .force("link", d3.forceLink(simLinks).distance(linkDistance).strength(linkStrength))
+        .force("charge", restrictForce(
+            d3.forceManyBody().strength(chargeStrength).distanceMax(CHARGE_DISTANCE_MAX).theta(CHARGE_THETA),
+            d => !satelliteOf.has(d.id)))
         .force("center", d3.forceCenter(0, 0).strength(0.04))
-        .force("collision", d3.forceCollide()
-            .radius(d => nodeRadius(d) + 6)
-            .strength(0.85))
-        // Hubs are pulled toward their ring anchor; members toward their hub.
-        // Nodes with no hub fall back to the soft per-type anchor below.
-        .force("xType", d3.forceX(d => xAnchor(d)).strength(d => anchorStrength(d, "x")))
-        .force("yType", d3.forceY(d => yAnchor(d)).strength(d => anchorStrength(d, "y")))
+        .force("collision", collideForce())
+        // Hubs are pulled toward their ring anchor; members toward their hub; other body pages softly toward
+        // their type's anchor. Satellites ignore all three: the band places them.
+        .force("xType", d3.forceX(d => xAnchor(d)).strength(d => anchorStrength(d)))
+        .force("yType", d3.forceY(d => yAnchor(d)).strength(d => anchorStrength(d)))
         .force("hubGravity", hubGravityForce(0.05))
+        .force("band", bandForce(BAND_SPRING))
         .force("clampSpeed", clampSpeedForce())
-        .on("tick", () => { tickInitialFit(); scheduleRedraw(); })
-        .on("end", () => { simulation.stop(); });
+        .on("tick", () => { adaptSize(); tickInitialFit(); settleCheck(); scheduleRedraw(); })
+        .on("end", () => { simulation.stop(); sizeAdapting = false; releaseHolds(); layoutRelax = null; finishInitialFit(); });
 
+    if (relax && relax.size === 0) {
+        simulation.alpha(0).stop();
+        return;
+    }
+    if (relax) holdSettled(relax);
     simulation.alpha(reheat).restart();
     holdIfInactive();
 }
 
+function isBigPage(d) {
+    return (simDegree.get(d.id) || 0) > DISSUADE_FROM && !nodeIsHub(d);
+}
+
 function xAnchor(d) {
-    const slot = isolateSlots.get(d.id);
-    if (slot) return slot.x;
+    if (isBigPage(d)) return 0;
     if (nodeIsHub(d) && hubAnchors.has(d.id)) return hubAnchors.get(d.id)[0];
     return typeClusterPositions[d.type]?.[0] ?? 0;
 }
 
 function yAnchor(d) {
-    const slot = isolateSlots.get(d.id);
-    if (slot) return slot.y;
+    if (isBigPage(d)) return 0;
     if (nodeIsHub(d) && hubAnchors.has(d.id)) return hubAnchors.get(d.id)[1];
     return typeClusterPositions[d.type]?.[1] ?? 0;
 }
 
+// 2026-10-15: 0.08 -> 0. Every hub was pinned to an evenly spaced ring 400 wu out, and its members, pulled to it
+// (hubGravity), drew that ring as arcs of dots through the body — a ruled circle inside the circle. Free, a hub settles
+// where its members and links put it; the ring is now only where a cold paint seeds it.
+const HUB_ANCHOR_STRENGTH = 0;
+const BIG_PAGE_PULL = 0.3;
 function anchorStrength(d) {
-    if (isolateSlots.has(d.id)) return ISOLATE_ANCHOR_STRENGTH;  // G109: isolates sit in their disc
-    if (nodeIsHub(d) && hubAnchors.has(d.id)) return 0.08;  // hubs anchor strongly
-    if (memberToHub.has(d.id)) return 0;                    // hubGravity handles members
+    if (satelliteOf.has(d.id)) return 0;                    // G109: the band places satellites
+    if (nodeIsHub(d) && hubAnchors.has(d.id)) return HUB_ANCHOR_STRENGTH;
+    // A page with a fan bigger than DISSUADE_FROM is pulled to the middle, not to its type's anchor (2026-10-15). d3
+    // moves an end of a link in inverse proportion to its link count, so the owner's ~2,000 links barely move it: the
+    // crowd's charge pushed it ~500 wu out in the first 15 ticks of a cold layout and its links never brought it back
+    // (with 0.04 it rested 500 wu off the middle). ForceAtlas2 gives such pages more gravity for the same reason.
+    if (isBigPage(d)) return BIG_PAGE_PULL;
+    // hubGravity handles members — while their hub (or a facet's parent) is on screen. One a filter hid used to keep
+    // no anchor at all and drift; it falls back to its type's anchor.
+    if (simNodeById.has(memberToHub.get(d.id))) return 0;
     return 0.04;                                            // soft type clustering
 }
 
+// G109 (2026-10-14): the layout ends when it is still, not when alpha runs out. d3's own cut-off (alpha < alphaMin)
+// used to freeze a layout that was still moving (KE/node 130 and a node at 48 wu/tick, at tick 135, on the
+// bank-shaped synthetic). Now every force cools with alpha, so the motion dies on its own; and a layout that has
+// cooled below SETTLE_ALPHA ends as soon as it LOOKS still — no node faster than SETTLE_MAX_SPEED and at most
+// SETTLE_SHARE of them faster than SETTLE_SPEED wu a tick (a few leaves easing in are not worth more frames). d3's
+// step() stops the timer and fires "end" right after this tick handler. Never during a hold or a drag: a throw's
+// runway is alphaTarget 0 and a moving node, which the max-speed bound keeps going.
+const SETTLE_ALPHA = 0.05;
+const SETTLE_SPEED = 0.3;
+const SETTLE_MAX_SPEED = 1.0;
+const SETTLE_SHARE = 0.02;
+function settleCheck() {
+    if (!simulation || draggingNode || simulation.alphaTarget() > 0) return false;
+    if (simulation.alpha() > SETTLE_ALPHA) return false;
+    const slow2 = SETTLE_SPEED * SETTLE_SPEED, max2 = SETTLE_MAX_SPEED * SETTLE_MAX_SPEED;
+    let fast = 0, free = 0;
+    for (const n of visibleNodes) {
+        if (n.fx != null) continue;
+        free += 1;
+        const v2 = n.vx * n.vx + n.vy * n.vy;
+        if (v2 > max2) return false;
+        if (v2 > slow2) fast += 1;
+    }
+    if (fast > SETTLE_SHARE * free) return false;
+    simulation.alpha(0);
+    return true;
+}
+
+// G109 look pass (owner, 2026-10-15: "it looks like a weird circle … look at pictures of an Obsidian vault"). A node is
+// a small dot sized by how connected it is, as in Obsidian, with confidence a small second term: a leaf is ~3 wu, the
+// median page ~3.5, a 150-member hub ~8, the owner's page with ~2,000 neighbours ~23 — large, never dominant (max /
+// median ~6.5, was ~21). Distinct neighbours, not raw links (computeDegree): the owner's page counted 16,679 raw links
+// and drew a 206 wu disc over the centre. Hubs are sized like every page — they read by their size and their fan, not
+// by a floor and a ring. §2c: facet satellites stay the smallest dots.
+const R_BASE = 2.2;
+const R_CONFIDENCE = 0.8;
+const R_PER_SQRT_NEIGHBOUR = 0.45;
+const R_NEIGHBOURS_CAP = 2500;
 function nodeRadius(d) {
-    // Confidence is the primary size channel so "bigger = more confident" is
-    // preattentive and not dominated by hub degree. Degree is a secondary
-    // bump. Hubs get a size floor + multiplier so they read as the top tier.
-    // §2c: facet satellites are deliberately small — they orbit their parent
-    // and read as context tags, not first-class subjects.
-    if (nodeIsFacet(d)) return 3 + (d.confidence || 0) * 4;
-    const base = 4;
-    const confTerm = (d.confidence || 0) * 8;       // primary: 0–8 px
-    const degreeTerm = Math.sqrt(nodeDegree(d)) * 1.5;  // secondary
-    let r = base + confTerm + degreeTerm;
-    if (nodeIsHub(d)) r = Math.max(r * 1.6, HUB_RING_FLOOR);
-    return r;
+    return sizeScale * baseRadius(d);
+}
+// A node's size relative to the others, in layout units at scale 1: bigger means more connected.
+function baseRadius(d) {
+    if (nodeIsFacet(d)) return 1.5 + (d.confidence || 0) * 1.5;
+    const nb = Math.min(R_NEIGHBOURS_CAP, d._neighbours ?? nodeDegree(d));
+    return R_BASE + (d.confidence || 0) * R_CONFIDENCE + R_PER_SQRT_NEIGHBOUR * Math.sqrt(nb);
+}
+
+// G109 proportion pass (owner, 2026-10-15: "nodes can be a bit bigger, relative to the amount of nodes there are in the
+// graph, so that they also have a limit of how big and how small they can be, in a way that it always looks good and
+// proportional"). One scale, `sizeScale`, multiplies every dot (`nodeRadius`), and the layout uses the scaled radii
+// (collide, link rest lengths, the halo's footprints), so a bigger dot never lands on its neighbour. The scale is
+// chosen so that, at the zoom that fits the graph to the view, the MEDIAN dot's on-screen radius is
+//
+//     clamp( sqrt(DOT_COVER x view area / (pi x visible nodes)),  DOT_MIN_PT,  DOT_MAX_PT )
+//
+// i.e. the dots cover about DOT_COVER of the fitted view, a 50-node graph's dots stop at the ceiling and a 5k-node
+// graph's at the floor. #291's dots covered 1.3 % of the view on the owner's shape; a leaf was a 0.7 pt speck under a
+// 1 pt line. The fit zoom depends on the layout, which depends on the dots, so the scale FOLLOWS THE FIT while a full
+// layout is hot (`adaptSize`, each tick while alpha >= SIZE_ADAPT_UNTIL, damped): the fit zoom of the bank's shape is
+// within ~5 % of its final value by then, and the scale is fixed for the cooler rest of the settle, so the settling
+// guarantees hold. A layout of newcomers (a push) keeps the scale: settled, held dots never grow into each other.
+const DOT_COVER = 0.06;
+const DOT_MIN_PT = 2.2;
+const DOT_MAX_PT = 8;
+const SIZE_SCALE_MIN = 0.25;
+const SIZE_SCALE_MAX = 4;
+const SIZE_ADAPT_UNTIL = 0.15;
+const SIZE_ADAPT_UNTIL_WARM = 0.02;  // ... for a warm full layout (a filter change, reheat < 1): its whole run
+const SIZE_RELAYOUT_FROM = 1.25;      // a full push whose layout wants a scale this far off lays out every node
+const SIZE_ADAPT_RATE = 0.3;          // the share of the (log) distance to the wanted scale taken per tick
+let sizeScale = 1;
+let sizeAdapting = false;
+let sizeAdaptUntil = SIZE_ADAPT_UNTIL;
+let sizeBaseMedian = R_BASE;          // the visible pages' median baseRadius, read once per layout
+
+function dotTargetPt(count) {
+    const free = Math.sqrt(DOT_COVER * width * height / (Math.PI * Math.max(1, count)));
+    return Math.max(DOT_MIN_PT, Math.min(DOT_MAX_PT, free));
+}
+
+let sizeBaseMin = R_BASE;             // ... and the smallest dot's, which sets a link's width
+function measureBaseRadii() {
+    const radii = visibleNodes.filter(n => !nodeIsFacet(n)).map(baseRadius).sort((a, b) => a - b);
+    sizeBaseMedian = radii.length ? radii[Math.floor(radii.length / 2)] : R_BASE;
+    // the smallest dot drawn, a facet's included
+    sizeBaseMin = visibleNodes.reduce((m, n) => Math.min(m, baseRadius(n)), radii.length ? radii[0] : R_BASE);
+    return radii.length;
+}
+
+// A full layout chooses its scale as it runs. A cold one (reheat 1) settles its extent early, so the scale is fixed
+// below SIZE_ADAPT_UNTIL; a warm one (a filter change at reheat 0.3) starts from where every node was and its extent
+// keeps changing to the end — 251 pages filtered out of 4,544 contract the whole run (review: an adapt cut at 0.15 left
+// them at a 10 pt median, over the ceiling) — so it adapts until SIZE_ADAPT_UNTIL_WARM.
+function beginSizeAdapt(reheat) {
+    sizeAdapting = measureBaseRadii() > 0;
+    sizeAdaptUntil = reheat >= 1 ? SIZE_ADAPT_UNTIL : SIZE_ADAPT_UNTIL_WARM;
+}
+
+// The scale the fit of the current positions asks for, clamped; null when there is nothing to fit.
+function wantedScaleNow() {
+    if (!(width > 0 && height > 0) || !measureBaseRadii()) return null;
+    const t = transformForNodes(visibleNodes, FIT_PAD);
+    if (!t) return null;
+    const want = dotTargetPt(visibleNodes.length) / (sizeBaseMedian * t.k);
+    return Math.max(SIZE_SCALE_MIN, Math.min(SIZE_SCALE_MAX, want));
+}
+
+// A resting link's stroke at zoom k: { width, alpha } in screen points, the alpha a factor on the link's own.
+function linkStroke(k) {
+    const smallest = 2 * sizeBaseMin * sizeScale * k;
+    const w = Math.min(LINK_WIDTH_MAX_PT, LINK_WIDTH_OF_DOT * smallest);
+    const device = 1 / (dpr || 1);
+    return w >= device ? { width: w, alpha: 1 } : { width: device, alpha: w / device };
+}
+
+function adaptSize() {
+    if (!sizeAdapting || !simulation) return;
+    if (simulation.alpha() < sizeAdaptUntil) { sizeAdapting = false; return; }
+    if (!(width > 0 && height > 0)) return;
+    const t = transformForNodes(visibleNodes, FIT_PAD);
+    if (!t) return;
+    const want = dotTargetPt(visibleNodes.length) / (sizeBaseMedian * t.k);
+    const next = Math.max(SIZE_SCALE_MIN, Math.min(SIZE_SCALE_MAX, sizeScale * Math.pow(want / sizeScale, SIZE_ADAPT_RATE)));
+    if (Math.abs(next - sizeScale) < 0.002 * sizeScale) return;
+    sizeScale = next;
+    refreshFootprints();
+    simulation.force("link").distance(linkDistance);           // d3 re-reads every rest length
+    simulation.force("collision").inner.radius(d => nodeRadius(d) + COLLIDE_PAD);
 }
 
 // ---------- Focus / ego mode ----------
@@ -1204,7 +1695,7 @@ function applyFocusPinning() {
         const inFocus = !focusSet || focusSet.has(n.id);
         if (focusNodeId && !inFocus) {
             if (n.x != null) { n.fx = n.x; n.fy = n.y; }
-        } else if (!draggingNode || draggingNode.id !== n.id) {
+        } else if ((!draggingNode || draggingNode.id !== n.id) && !layoutHolds.has(n.id)) {
             n.fx = null; n.fy = null;
         }
     }
@@ -1335,12 +1826,12 @@ function schedulePulse() {
     pulseTimer = setTimeout(() => { pulseTimer = null; scheduleRedraw(); }, PULSE_FRAME_MS);
 }
 
-// A07: is any pending node's ring inside the canvas? The ring reaches 16 px past the node.
+// A07: is any pending node's ring inside the canvas? The ring reaches ~6 px past the node.
 function pendingOnScreen() {
     const k = transform.k;
     for (const n of visibleNodes) {
         if (!nodeHasPending(n) || n.x == null) continue;
-        const reach = nodeRadius(n) * k + 16;
+        const reach = nodeRadius(n) * k + PULSE_RING_FROM + PULSE_RING_TRAVEL + 1;
         const sx = n.x * k + transform.x, sy = n.y * k + transform.y;
         if (sx > -reach && sx < width + reach && sy > -reach && sy < height + reach) return true;
     }
@@ -1397,43 +1888,53 @@ function draw() {
         : null;
 
     const focusActive = focusSet !== null;
-    const lowZoom = transform.k < ZOOM_HUBS_ONLY;
 
     // ---- Links ----
-    // Single stroke path per link. We don't batch paths because each link
-    // can have its own alpha depending on hover/focus state, and
-    // beginPath/stroke per link is cheap at 1500-edge scale. At low zoom we
-    // cull leaf-to-leaf links (only links touching a hub draw) since
-    // individual leaf edges are invisible anyway and this halves the draw
-    // cost on dense graphs.
-    for (const l of visibleLinks) {
+    // One path per (colour, alpha), not one stroke per link (G109, 2026-10-14): the owner's graph draws ~41,600
+    // links, and a beginPath/stroke per link was 41,600 canvas flushes a frame; now it is one per bucket (a handful).
+    // Buckets draw faintest first so a hovered or focused edge lands on top, as it did when it was drawn last.
+    // 2026-10-15 (Obsidian's look): every pair draws once (`drawLinks`) as a hairline, at every zoom — the links are
+    // the structure (fans round a hub, threads between clusters), so the fit view no longer drops all but the hubs'
+    // links. A coloured (context) link is fainter than a neutral one: its hue is bright. Its width follows the dots
+    // (`linkStroke`, proportion pass): always well under the smallest dot; a lit link is LINK_LIT_PT.
+    const buckets = new Map();
+    for (const l of drawLinks) {
         const src = l.source;
         const tgt = l.target;
         if (typeof src !== "object" || typeof tgt !== "object") continue;
 
-        if (lowZoom && !nodeIsHub(src) && !nodeIsHub(tgt)) continue;
-
-        let alpha = 0.35;
+        let alpha = l.context ? LINK_ALPHA_CONTEXT : LINK_ALPHA;
+        let lit = false;
         if (focusActive) {
             const bothIn = focusSet.has(src.id) && focusSet.has(tgt.id);
-            alpha = bothIn ? 0.5 : 0.04;
+            alpha = bothIn ? Math.max(alpha, 0.7) : 0.04;
+            lit = bothIn;
         }
         if (hoverActive) {
             const touchesHover =
                 src.id === hoveredNode.id ||
                 tgt.id === hoveredNode.id;
-            if (!touchesHover) alpha = Math.min(alpha, 0.08);
-            else alpha = 0.8;
+            if (!touchesHover) { alpha = Math.min(alpha, 0.08); lit = false; }
+            else { alpha = 0.9; lit = true; }
         }
-
-        ctx.globalAlpha = alpha;
         // §2a: context-colored edges. An edge with a context paints in its
         // context hue; a contextless (legacy) edge keeps the flat gray.
-        ctx.strokeStyle = l.context ? contextColor(l.context) : PALETTE.edge;
-        ctx.lineWidth = 1 / transform.k;
+        const style = l.context ? contextColor(l.context) : PALETTE.edge;
+        const key = alpha + "|" + style + "|" + lit;
+        let bucket = buckets.get(key);
+        if (!bucket) { bucket = { alpha, style, lit, links: [] }; buckets.set(key, bucket); }
+        bucket.links.push(l);
+    }
+    const rest = linkStroke(transform.k);
+    for (const bucket of [...buckets.values()].sort((a, b) => a.alpha - b.alpha)) {
+        ctx.globalAlpha = bucket.lit ? bucket.alpha : bucket.alpha * rest.alpha;
+        ctx.lineWidth = (bucket.lit ? LINK_LIT_PT : rest.width) / transform.k;
+        ctx.strokeStyle = bucket.style;
         ctx.beginPath();
-        ctx.moveTo(src.x, src.y);
-        ctx.lineTo(tgt.x, tgt.y);
+        for (const l of bucket.links) {
+            ctx.moveTo(l.source.x, l.source.y);
+            ctx.lineTo(l.target.x, l.target.y);
+        }
         ctx.stroke();
     }
 
@@ -1446,7 +1947,6 @@ function draw() {
         const color = isFacet
             ? contextColor(nodeContext(n))
             : (typeColors[n.type] || typeColors.unknown);
-        const isHub = nodeIsHub(n);
 
         // Status drives base opacity. Focus dimming and hover dimming stack on
         // top: a node outside the focus neighborhood fades to context.
@@ -1464,12 +1964,13 @@ function draw() {
 
         // Pending-item pulse ring (preattentive "needs you"). A slow
         // expanding/fading ring driven by pulsePhase. Drawn before the node
-        // fill so the node sits on top.
+        // fill so the node sits on top. 2026-10-15: it hugs the dot (1.5 -> 5.5 px out, was 6 -> 16 px): around a
+        // 1 px dot at the fit zoom the wide ring read as an empty brown circle floating in the graph.
         if (nodeHasPending(n) && alpha > 0.1) {
             const t = pulsePhase % 1;
-            const pr = r + (6 + t * 10) / transform.k;
+            const pr = r + (PULSE_RING_FROM + t * PULSE_RING_TRAVEL) / transform.k;
             ctx.globalAlpha = (1 - t) * 0.6 * alpha;
-            ctx.lineWidth = 2 / transform.k;
+            ctx.lineWidth = 1.5 / transform.k;
             ctx.strokeStyle = PULSE_COLOR;
             ctx.beginPath();
             ctx.arc(n.x, n.y, pr, 0, Math.PI * 2);
@@ -1525,15 +2026,8 @@ function draw() {
 
         ctx.shadowBlur = 0;
 
-        // Hub ring — a second concentric stroke marking the top visual tier.
-        if (isHub) {
-            ctx.globalAlpha = alpha;
-            ctx.lineWidth = 2 / transform.k;
-            ctx.strokeStyle = color;
-            ctx.beginPath();
-            ctx.arc(n.x, n.y, r + 4 / transform.k, 0, Math.PI * 2);
-            ctx.stroke();
-        }
+        // (2026-10-15: hubs no longer carry a ring — 37 thick gold rings read as "rings everywhere". A hub reads by
+        // its size and its fan of links, as in Obsidian.)
 
         // Search highlight — a bright outer ring on matched nodes so they
         // glow in place while the user types in the toolbar search.
@@ -1580,12 +2074,14 @@ function draw() {
     ctx.globalAlpha = 1;
 
     // ---- Node labels ----
-    // Labels are off by default — a dense graph with ambient labels is
-    // unreadable (see the word-soup screenshots). They appear only when the
-    // user expresses intent: hovering a node (label it + its neighbors) or
-    // entering focus mode (label the drilled-in neighborhood).
+    // Hovering a node labels it and its neighbours; focus mode labels the drilled-in neighbourhood. Otherwise names
+    // fade in with zoom, as in Obsidian (2026-10-15): a node's label appears as its dot grows on screen, the biggest
+    // first, never overlapping and never more than LABEL_BUDGET — so the fit view stays clean (only a page as large as
+    // the owner's is named there) and the word soup of ambient labels at every zoom does not come back.
     if (hoverActive || focusActive) {
         drawNodeLabels(hoverActive, neighbors, focusActive);
+    } else {
+        drawAmbientLabels();
     }
 
     // ---- Edge labels (focus neighborhood, or zoomed in past the tier) ----
@@ -1606,8 +2102,9 @@ function draw() {
 }
 
 // Render the labels for whichever small set is in scope: the focus-mode
-// neighborhood, or (on hover) the hovered node's direct neighbors. There are
-// no ambient labels — scope is always small here, so the work is to rank by
+// neighborhood, or (on hover) the hovered node's direct neighbors. While
+// neither is active, names fade in with zoom instead (`drawAmbientLabels`,
+// 2026-10-15). Scope is always small here, so the work is to rank by
 // importance and greedily cull screen-space collisions so nothing overlaps.
 // The hovered node itself gets its prominent plate from drawHoverLabel; this
 // pass labels everything ELSE in scope.
@@ -1670,6 +2167,60 @@ function drawNodeLabels(hoverActive, neighbors, focusActive) {
         ctx.globalAlpha = hoverActive ? 0.8 : 0.95;
         ctx.fillStyle = PALETTE.label;
         ctx.fillText(n.name, n.x, n.y + r + (4 / k));
+    }
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 1;
+}
+
+// Labels that fade in with zoom: a node is named once its dot's on-screen radius passes LABEL_FADE_FROM px, fully at
+// LABEL_FADE_TO px. Largest dots first; a label that would overlap a placed one is skipped. The radius read is the dot's
+// size at scale 1 (`baseRadius`), not the drawn one (2026-10-15): names follow the zoom, as they did, whatever scale the
+// graph's size picked for its dots — the bigger dots of a 5k-node graph name no more pages at the fit zoom.
+const LABEL_FADE_FROM = 3.8;
+const LABEL_FADE_TO = 6;
+function labelFade(screenRadius) {
+    const t = Math.max(0, Math.min(1, (screenRadius - LABEL_FADE_FROM) / (LABEL_FADE_TO - LABEL_FADE_FROM)));
+    return t * t * (3 - 2 * t);
+}
+function drawAmbientLabels() {
+    const k = transform.k;
+    if (baseRadius({ confidence: 1, _neighbours: R_NEIGHBOURS_CAP }) * k < LABEL_FADE_FROM) return;
+    const candidates = [];
+    for (const n of visibleNodes) {
+        if (n.x == null || nodeIsFacet(n)) continue;
+        const r = nodeRadius(n);
+        if (baseRadius(n) * k < LABEL_FADE_FROM) continue;
+        const sx = n.x * k + transform.x, sy = n.y * k + transform.y;
+        if (sx < -100 || sx > width + 100 || sy < -20 || sy > height + 20) continue;
+        if (!nodeMatchesObservers(n)) continue;
+        candidates.push([r, n]);
+    }
+    if (!candidates.length) return;
+    candidates.sort((a, b) => b[0] - a[0]);
+    const fontSize = 11 / k;
+    ctx.font = `${fontSize}px -apple-system, 'SF Pro Text', system-ui, sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    ctx.shadowColor = PALETTE.labelShadow;
+    ctx.shadowBlur = 3 / k;
+    ctx.fillStyle = PALETTE.label;
+    const placed = [];
+    let drawn = 0;
+    for (const [r, n] of candidates) {
+        if (drawn >= LABEL_BUDGET) break;
+        const w = ctx.measureText(n.name).width * k;
+        const sx = n.x * k + transform.x;
+        const sy = (n.y + r) * k + transform.y + 3;
+        const rect = { x: sx - w / 2 - 2, y: sy - 1, w: w + 4, h: 15 };
+        let collides = false;
+        for (const p of placed) {
+            if (rect.x < p.x + p.w && rect.x + rect.w > p.x && rect.y < p.y + p.h && rect.y + rect.h > p.y) { collides = true; break; }
+        }
+        if (collides) continue;
+        placed.push(rect);
+        drawn++;
+        ctx.globalAlpha = 0.85 * labelFade(baseRadius(n) * k) * Math.min(1, (STATUS_ALPHA[n.status] ?? 0.92) + 0.2);
+        ctx.fillText(n.name, n.x, n.y + r + 3 / k);
     }
     ctx.shadowBlur = 0;
     ctx.globalAlpha = 1;
@@ -1885,7 +2436,14 @@ function onMouseDown(event) {
         // G109: 0.1, not 0.3 — the hold used to heat the whole graph so every
         // node jittered under the cursor (bench: KE/node 2e3-8e3 during a
         // hold, 4e-3-5.5 at 0.1). Enough alpha for the neighbours to follow.
-        if (simulation) simulation.alphaTarget(0.1).restart();
+        // 2026-10-14: and on a settled graph only the node's own neighbours follow it — every other node is held
+        // where it is for this gesture's layout (item 6's `holdSettled`, released when the layout ends). A hold on a
+        // leaf of the bank-shaped synthetic used to move the rest of the graph 234 wu on average (66 after the
+        // settle fix, 0 now). A layout still running is left to finish: it moves everything anyway.
+        if (simulation) {
+            if (simulation.alpha() < simulation.alphaMin()) holdAroundDrag(picked);
+            simulation.alphaTarget(0.1).restart();
+        }
         canvas.classList.add("dragging");
         // Claim this gesture: d3-zoom's own mousedown listener (registered on
         // the same canvas) calls stopImmediatePropagation to start a pan, which

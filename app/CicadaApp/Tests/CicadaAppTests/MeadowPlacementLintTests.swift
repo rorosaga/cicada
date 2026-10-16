@@ -1,24 +1,18 @@
 import XCTest
 @testable import CicadaApp
 
-/// G137 R-M6 / plan R-M21 — "art never on the graph, a list, a grid, a form
-/// or a number" as a build failure, not a doc comment. A painted component
-/// may be named only inside `Views/Meadow/` and by the files listed here;
-/// adding one is a design decision a reviewer sees in the diff (the same
-/// deliberate-act shape as `SleepNumbersLintTests`' noun list).
+/// Painted art is retired (owner 2026-10-16: "I would remove the painted grass actually. Remove it from everywhere").
+/// The study room — pixel art on the Sleep page and in onboarding — is the app's one illustration. This keeps paint
+/// from coming back by accident: no painted component is named anywhere, and no painting ships in the bundle. A new
+/// painting is a design decision that needs a dated ruling (DESIGN_RULES §9), not a quiet re-add.
 final class MeadowPlacementLintTests: XCTestCase {
-    static let allowed: [String] = [
-        "Views/Common/EmptyStateView.swift",   // G137 M1: grass corners + one cloud behind the worm
-    ]
     static let needles = ["MeadowBackdrop(", "DriftingCloud(", "GrassCorners(", "GrassEdge(",
-                          "MeadowSky(", "ArtImage(", "MeadowArt.image(",
-                          "PaintedScene(", "PaintedSceneFrame("]
+                          "MeadowSky(", "ArtImage(", "MeadowArt", "PaintedScene", "WelcomeHero(",
+                          "HomeHeroBand(", "OnboardingPane("]
 
-    func testPaintedArtIsDrawnOnlyWhereARulingAllowsIt() throws {
+    func testNoPaintedArtIsDrawnAnywhere() throws {
         var offenders: [String] = []
         for file in try ThemeTokenTests.swiftSources() {
-            let path = file.path
-            guard !path.contains("/Views/Meadow/"), !Self.allowed.contains(where: { path.hasSuffix($0) }) else { continue }
             let text = try String(contentsOf: file, encoding: .utf8)
             for (index, line) in text.components(separatedBy: .newlines).enumerated() {
                 let code = line.trimmingCharacters(in: .whitespaces)
@@ -28,13 +22,15 @@ final class MeadowPlacementLintTests: XCTestCase {
                 }
             }
         }
-        XCTAssertEqual(offenders, [], "painted art outside its allowlist — never on data surfaces (G137 R-M6)")
+        XCTAssertEqual(offenders, [], "painted art is retired (owner 2026-10-16)")
     }
 
-    func testTheAllowlistNamesRealFiles() throws {
-        let paths = try ThemeTokenTests.swiftSources().map(\.path)
-        for allowed in Self.allowed {
-            XCTAssertTrue(paths.contains { $0.hasSuffix(allowed) }, "\(allowed) no longer exists — drop it")
-        }
+    func testNoPaintingShipsInTheBundle() {
+        let resources = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("Sources/CicadaApp/Resources")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: resources.appendingPathComponent("art").path),
+                       "Resources/art held the paintings; they retired with the ruling")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: resources.appendingPathComponent("sprites").path),
+                      "the room's sprites stay")
     }
 }

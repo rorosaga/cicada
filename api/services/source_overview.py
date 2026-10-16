@@ -97,9 +97,11 @@ CATALOG: tuple[SourceSpec, ...] = (
     SourceSpec("chrome-tab-groups", "Chrome tab groups", "browser", "chrome-tab-group", ("chrome-tab-group",), "chrome-tab-groups"),
     SourceSpec("pinterest", "Pinterest", "social", "pinterest", ("pinterest",), "pinterest"),
     SourceSpec("reddit", "Reddit", "social", "reddit-saved", ("reddit-saved",), "reddit"),
-    SourceSpec("x", "X", "social", "x-bookmarks", ("x-bookmarks",), "x"),
+    # `x-likes`: the X archive's like.js (saved_exports); bookmarks come from the connector.
+    SourceSpec("x", "X", "social", "x-bookmarks", ("x-bookmarks", "x-likes"), "x"),
     SourceSpec("instagram", "Instagram", "social", "instagram-saved", ("instagram-saved",), None),
-    SourceSpec("youtube", "YouTube", "social", "youtube-playlist", ("youtube-playlist",), None),
+    # G71 (2026-10-16): `youtube-history` — the day episodes of what was watched (Takeout, Chrome, the agent).
+    SourceSpec("youtube", "YouTube", "social", "youtube-playlist", ("youtube-playlist", "youtube-history"), None),
     SourceSpec("linkedin", "LinkedIn", "social", "linkedin-saved", ("linkedin-saved",), None),
     SourceSpec("tiktok", "TikTok", "social", "tiktok-saved", ("tiktok-saved", "tiktok-history"), None),
     SourceSpec("rss", "RSS feeds", "feed", "rss", ("rss",), "rss"),
@@ -107,6 +109,8 @@ CATALOG: tuple[SourceSpec, ...] = (
     # G142 (round 4): Apple Calendar through EventKit, so its episodes never read as a raw id.
     SourceSpec("calendar-local", "Apple Calendar", "feed", "calendar-local", ("calendar-local",), "calendar-local"),
     SourceSpec("telegram", "Telegram", "messaging", "telegram", ("telegram",), "telegram"),
+    # G179: the Messages conversations the person ticked — one episode per sitting.
+    SourceSpec("imessage", "Messages", "messaging", "imessage", ("imessage",), "imessage"),
     SourceSpec("wispr-flow", "Wispr Flow", "voice", "wispr-flow", ("wispr-flow",), "wispr-flow"),
     SourceSpec("notes", "Apple Notes", "import", "apple-notes", ("apple-notes",), "notes"),
     SourceSpec("files", "Files & links", "import", "bookmark", ("saved-link",), "files"),

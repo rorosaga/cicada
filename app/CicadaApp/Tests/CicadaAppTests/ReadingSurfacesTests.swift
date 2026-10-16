@@ -90,7 +90,8 @@ final class ReadingSurfacesTests: XCTestCase {
 
     func testTheHomeBlockIsItsOwnAndLinksToReadingTheWeb() throws {
         let sections = try source("Views/Home/HomeSections.swift")
-        XCTAssertTrue(sections.contains("ReadingSitesSection()"))
+        // Owner 2026-10-14 — HomeView places the blocks in `HomeArrangement`'s order.
+        XCTAssertTrue(try source("Views/Home/HomeView.swift").contains("ReadingSitesSection()"))
         XCTAssertTrue(sections.contains("router.openSettings(.reading, row: .readingSites)"))
         let needsYou = try XCTUnwrap(sections.range(of: "struct NeedsYouSection").map { sections[$0.lowerBound...] })
         let end = try XCTUnwrap(needsYou.range(of: "// MARK: - Needs your browser"))
@@ -295,8 +296,10 @@ final class ReadingSurfacesTests: XCTestCase {
     }
 
     func testSettingsSectionRawValuesDidNotMove() {
-        let raw = ["general", "you", "privacy", "memory", "sleep", "integrations", "reading", "agents", "remote",
-                   "skills", "engines", "plansAndKeys", "advanced"]
+        // Search & files (owner, 2026-10-14) is a new case between privacy and memory; Devices (G181 phase 3) one after
+        // From anywhere; no existing value moved.
+        let raw = ["general", "you", "privacy", "searchFiles", "memory", "sleep", "integrations", "reading", "agents",
+                   "remote", "devices", "skills", "engines", "plansAndKeys", "advanced"]
         XCTAssertEqual(SettingsSection.allCases.map(\.rawValue), raw)
         for value in raw { XCTAssertNotNil(SettingsSection(rawValue: value), value) }
     }
@@ -322,7 +325,7 @@ final class ReadingSurfacesTests: XCTestCase {
 
     func testReadingSearchKeywordsNameNoProductOrSkill() {
         let reading = SettingsIndex.staticEntries.filter { $0.section == .reading || $0.id == .agentsReading }
-        XCTAssertEqual(reading.count, 5)
+        XCTAssertEqual(reading.count, 8, "G166 exploring added the signed-in switch and Never explore; G71 the YouTube lists")
         let banned = ["harness", "claude", "codex", "chatgpt", "cursor", "gemini", "ollama", "openrouter", "chrome"]
         for entry in reading {
             for keyword in entry.keywords {

@@ -3,25 +3,27 @@ import SwiftUI
 
 /// R-OB1 — the paged onboarding's six steps (G145). *See how* (F-03) is a sheet over Import, never a step.
 enum OnboardingPage: Int, CaseIterable, Comparable {
-    case welcome, `import`, agents, whoReads, keepRunning, ready
+    /// `skills` (owner 2026-10-15): after Agents — the skills that let those agents see websites and use apps.
+    case welcome, `import`, agents, skills, whoReads, keepRunning, ready
 
-    static let stepCount = 6
+    static let stepCount = 7
     static func < (a: OnboardingPage, b: OnboardingPage) -> Bool { a.rawValue < b.rawValue }
 
     var step: Int { rawValue + 1 }
     var next: OnboardingPage? { OnboardingPage(rawValue: rawValue + 1) }
     var previous: OnboardingPage? { OnboardingPage(rawValue: rawValue - 1) }
-    /// Welcome and You're set are the whole painting with a card; the working pages are the split frame.
-    var isSplit: Bool { pane != nil }
+    /// Welcome and You're set are the room over a card; the working pages are the split frame, the room in its pane.
+    var isSplit: Bool { self != .welcome && self != .ready }
 
-    /// The page's painting in the split frame (ART_DIRECTION §4's framings).
-    var pane: PaneFraming? {
+    /// The worm's mood in onboarding's room (owner 2026-10-16: the study room replaced the paintings), so each step's
+    /// room says what the step is about: awake to say hello, reading for what comes in and who reads it, happy to meet
+    /// the agents and skills and when it is set, asleep for what keeps running while the Mac rests.
+    var roomMood: BookwormState {
         switch self {
-        case .import: .import
-        case .agents: .agents
-        case .whoReads: .whoReads
-        case .keepRunning: .keepRunning
-        case .welcome, .ready: nil
+        case .welcome: .awake
+        case .import, .whoReads: .reading
+        case .agents, .skills, .ready: .happy
+        case .keepRunning: .sleeping(stage: 1)
         }
     }
 }
@@ -54,7 +56,7 @@ enum OnboardingLayout {
     static let gutter: CGFloat = 16
     static let twoColumnImport: CGFloat = 700
 
-    /// The painting gives way before the column does, and goes rather than become a sliver: it is paint only
+    /// The room's pane gives way before the column does, and goes rather than become a sliver: it is art only
     /// (DR-13), so losing it loses no word.
     static func paneWidth(windowWidth w: CGFloat, scale: CGFloat) -> CGFloat {
         guard w > 0, scale > 0 else { return 0 }

@@ -9,8 +9,9 @@ from datetime import date
 from fastapi import APIRouter, Depends, HTTPException
 
 from api.config import Settings, get_settings
-from api.models.schemas import OwnerSettingsResponse, OwnerUpdateRequest
-from api.services import git_service, owner_identity
+from api.models.schemas import OwnerSettingsResponse, OwnerUpdateRequest, PageEditorsResponse, PageEditorsUpdate
+from api.services import git_service, owner_identity, page_editors, write_admission
+from api.services.sleep_refusal import SleepWriting
 
 router = APIRouter(prefix="/settings")
 
@@ -28,6 +29,8 @@ async def get_owner(settings: Settings = Depends(get_settings)) -> OwnerSettings
 
 
 @router.put("/owner", response_model=OwnerSettingsResponse)
+# The owner's page is one Stage 5 rewrites: admitted like every page writer (G183 round 1), held through its commit.
+@write_admission.route(refuse=lambda: SleepWriting("Sleep is updating your memory — try again in a moment."))
 async def put_owner(
     req: OwnerUpdateRequest, settings: Settings = Depends(get_settings)
 ) -> OwnerSettingsResponse:
@@ -58,3 +61,22 @@ async def put_owner(
     return OwnerSettingsResponse(
         name=name, handle=req.handle, email=req.email, observer=entity_id, entity_id=entity_id,
     )
+
+
+# --- G198: the agents the person lets edit a page directly ------------------------------------------------------------
+
+
+@router.get("/editors", response_model=PageEditorsResponse)
+async def get_editors() -> PageEditorsResponse:
+    """Which harnesses may edit a page directly (``page_editors``); every other agent's edit waits in the inbox."""
+    return PageEditorsResponse(**page_editors.snapshot())
+
+
+@router.put("/editors", response_model=PageEditorsResponse)
+async def put_editors(update: PageEditorsUpdate) -> PageEditorsResponse:
+    """A patch ``{trusted: {harness: bool}}``. Writes ``$CICADA_HOME/editors.json`` only — nothing in the bank. Only
+    the app's Settings calls this; no MCP tool or agent-shell command can."""
+    try:
+        return PageEditorsResponse(**page_editors.update(update.trusted))
+    except page_editors.EditorsError as exc:
+        raise HTTPException(400, str(exc)) from exc

@@ -10,8 +10,9 @@ release.** CI then tags `vX.Y.Z` at the merge commit, builds, verifies and publi
 hand. Installed release apps update themselves from it.
 
 **`VERSION` is the one version.** It is plain semver (`0.4.0`), and everything that stamps a version must equal it:
-`api/pyproject.toml`, uv.lock's `cicada-api` entry, the app's `CFBundleShortVersionString` (stamped by `bundle.sh`),
-the tag, the release title (`Cicada X.Y.Z`) and `latest.json`. `scripts/release/check_version.py` is the one judge —
+`api/pyproject.toml`, uv.lock's `cicada-api` entry, the Homebrew formula's tag (`Formula/cicada.rb`'s
+`url …, tag: "vX.Y.Z"`, G181), the app's `CFBundleShortVersionString` (stamped by `bundle.sh`), the tag, the release
+title (`Cicada X.Y.Z`) and `latest.json`. `scripts/release/check_version.py` is the one judge —
 CI, the release PR check and `make release` all ask it — and any disagreement fails the run.
 
 ## Cut a release (owner)
@@ -20,7 +21,7 @@ CI, the release PR check and `make release` all ask it — and any disagreement 
    `cd app/CicadaApp && swift test`), and the last dry run green (below). Optional: `make release-app` builds the
    installable app on this Mac and smoke-tests it in a temp folder; it installs nothing.
 2. **Bump the version: `make release VERSION=x.y.z`.** It works in a temporary worktree — your checkout is never
-   switched — and bumps `VERSION`, `api/pyproject.toml` and uv.lock's project line on a `release/vx.y.z` branch off
+   switched — and bumps `VERSION`, `api/pyproject.toml`, uv.lock's project line and the formula's tag on a `release/vx.y.z` branch off
    `origin/dev`, shows what it will push and asks, then pushes that branch and opens a PR to `dev` titled
    `chore(release): x.y.z`. It refuses a version that already has a tag or is not greater than the latest one. Use
    the next minor (`0.4.0`) for features, the next patch (`0.3.1`) for fixes. Merge that PR into `dev` as usual. If
@@ -74,6 +75,14 @@ carry different versions, the older version is never published — its changes s
 **The website's download link** is `https://github.com/rorosaga/cicada/releases/latest/download/Cicada-macos-arm64.zip`:
 it always resolves to the newest release, so no release needs a website edit.
 
+**The other install lines follow the release with no edit either (G181).** `scripts/install-server.sh` (Linux,
+`curl … | bash`) installs the newest `vX.Y.Z` tag, and the tap (`brew tap rorosaga/cicada
+https://github.com/rorosaga/cicada`) reads `Formula/cicada.rb` from `main`, whose tag the bump stamped. Between the
+merge and CI publishing the tag (~10 minutes) `brew install rorosaga/cicada/cicada` cannot fetch it yet. The website's own
+`install.sh` (a separate repo) should hand off by platform: on macOS to
+`https://raw.githubusercontent.com/rorosaga/cicada/main/scripts/install-release.sh`, on Linux to
+`https://raw.githubusercontent.com/rorosaga/cicada/main/scripts/install-server.sh` — never to a copy of either.
+
 **A failed run advertises nothing.** A build or verification failure stops before the publish job: no tag, no release.
 A publish failure before publication deletes the draft this run created, by its id, and nothing else (a draft has no
 tag yet, so no tag is touched). A published release is never edited, re-uploaded to or deleted, and nothing
@@ -123,7 +132,7 @@ Once a Developer ID is in place this step disappears.
 **Where things live on a tester's Mac:** the app in `~/Applications/Cicada.app`; memory in `~/cicada/memory`; Cicada's
 own files in `~/.cicada` (the launchers in `~/.cicada/bin`, logs in `~/.cicada/logs` — `backend.log`, `update.log` —,
 the bytecode cache in `cache/pycache`, the optional larger search model's runtime in `extras/` and weights in
-`models/`, and the updater's one-shot notes `update-failed.json` / `update-deferred.json`). Agents and hooks run `~/.cicada/bin/cicada-*`, which the app re-points at
+`models/`, and the updater's one-shot notes `update-failed.json` / `update-deferred.json`). Agents and hooks run `~/.cicada/bin/cicada-*` (and agents with a shell, `~/.cicada/bin/cicada`, G180), which the app re-points at
 itself each time it opens, so moving or updating the app never breaks them.
 
 **Updates.** A release app checks GitHub's latest release on launch and every six hours while Settings → General →
@@ -155,6 +164,28 @@ backup at `~/.cicada/release/update-signing-key.pem` (mode 0600); the public key
 To rotate it (only if it leaks): generate a new pair, `gh secret set CICADA_UPDATE_SIGNING_KEY <
 new-key.pem`, commit the new public key, and cut a release **signed with the old key** that carries the new public key
 — an installed app only trusts the key it was built with. Then the next release can be signed with the new key.
+
+## Keeping macOS permissions across updates
+
+macOS (TCC) files every privacy grant — Full Disk Access, Contacts, Calendar, Automation, Screen Recording — against
+the app's *designated requirement*. An ad-hoc signature has no signer, so its requirement is the build's own code hash
+(cdhash): every new build is a new app to TCC, and an update silently drops every grant. Measured 2026-10-14 on a dev
+install: Full Disk Access granted at one build read "Needs Full Disk Access" again after the next auto-update.
+
+- **A developer install** (`make install-app`, `make dev`, the dev auto-update) signs with the self-signed
+  **Cicada Local** identity when the keychain has it (`app/CicadaApp/sign_identity.sh`); its requirement is "this
+  bundle id, signed by this certificate", which every rebuild keeps. Once per Mac, at the keyboard: `make signing-identity`
+  (creates the identity, authorises codesign to use its key with the login password, proves it with a trial signature),
+  then `make install-app`, then grant the permissions one last time (`scripts/dev/README.md`). Unattended, the install
+  signs under a time limit and skips the update rather than wait on a prompt. Free, no Apple account. It is not a Gatekeeper-trusted signature and signs
+  nothing for anyone else's Mac.
+- **A release** is still signed ad hoc in CI, so a tester's in-app update drops their grants the same way until a
+  Developer ID is in place. The update's own checks — sha256 and the Ed25519 signature over `latest.json` — are
+  unaffected by either signature.
+
+**What a Developer ID adds (not done):** a requirement anchored on Apple's certificate chain and the Team ID, so every
+release keeps every grant on every tester's Mac; Gatekeeper trust; and, with notarization, a browser download that
+opens without **Open Anyway**. Steps below.
 
 ## Adding a Developer ID and notarization later
 

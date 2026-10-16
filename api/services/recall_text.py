@@ -30,15 +30,23 @@ def is_injection(text: str | None) -> bool:
 def question_line(name: str, item_id: str, entity_id: str, question: str) -> str:
     """The one inbox pointer a note may carry (R-H5): the question's words when
     the item stores them, never its options or its cause. Those stay behind
-    ``cicada_check_nudges``, which also knows whether the agent skipped it."""
+    ``cicada_check_nudges``, which also knows whether the agent skipped it.
+
+    Owner, 2026-10-14: a question comes up naturally or not at all. The line says
+    so as a statement (the module note): the message may already answer it, in
+    which case it is recorded with the person's words and not asked; otherwise it
+    may come up in the agent's own words if it fits. Never a banner to append."""
     what = f": {question}" if question else " (a follow-up)"
-    return (f"Open question for the person about {name} (`{item_id}`){what} — it can wait until their request "
-            f"is done; `cicada_check_nudges(entity_ids=[\"{entity_id}\"])` shows the choices.")
+    return (f"Cicada has an open question on what this message is about — {name} (`{item_id}`){what} "
+            "If the message already answers it, it is recorded with "
+            "`cicada_resolve_inbox(id, option_key or answer, quote)` and not asked; otherwise it can come up in "
+            "the agent's own words once the request is done, only if it fits. "
+            f"`cicada_check_nudges(mode=\"list\", entity_ids=[\"{entity_id}\"])` shows the choices.")
 
 
 #: G166: the header of a note that only says links are waiting for an agent to
-#: read. Same prefix as every other note, so ``is_injection`` drops it from a
-#: captured transcript.
+#: read. Same prefix as every other note, so capture counts it when it arrives
+#: inside the person's own text (``note_like_turns``, G110 T2b).
 READING_HEADER = INJECTION_PREFIX + " by Cicada's hook, not typed by them) — a reading request:"
 
 
@@ -53,3 +61,48 @@ def reading_line(waiting: int, *, record: bool = True) -> str:
     return (f"{waiting} {noun} {'is' if waiting == 1 else 'are'} waiting in Cicada's reading queue for an agent "
             "to read (ones the person asked about, and pages from sites they allowed). Once their own request is "
             f"done (or if it is about those links), `cicada_reading_queue(limit)` lists what is waiting{tail}.")
+
+
+def refresh_line(due: int) -> str:
+    """G61, ruling 26: one sentence at SessionStart, per request and never stored — how many tracked sources are due a
+    re-check that only the person's own agent can do (a login-walled page, or one that changed past what Cicada's
+    own read can state). A statement, not a command: nothing scheduled works them (ruling 4)."""
+    noun = "tracked source is" if due == 1 else "tracked sources are"
+    return (f"{due} {noun} due for a check (pages the person's memory follows for facts that change, which need "
+            "their own browser session). If they ask, or once their own request is done, `cicada_refresh_claim` "
+            "takes one and `cicada_record_refresh` records what it says now.")
+
+
+#: G110: what the SessionStart note says when even the primer cannot fit — a
+#: pointer to the tool that serves it whole. R12: the tool takes no argument.
+PRIMER_FALLBACK = "Cicada's primer did not fit here; `cicada_handshake` returns it."
+
+
+def compose_note(header: str, primer: str, *, block_for=None, reading: str | None = None,
+                 max_tokens: int) -> tuple[str, str, bool]:
+    """The whole SessionStart ``additionalContext`` (G110 slice 1a, plan C4),
+    measured as the FINAL string by the chars/4 proxy (handshake R10).
+
+    Parts, in order: ``header``, ``primer``, the continuity block, the reading
+    sentence, joined by blank lines. ``block_for(max_chars)`` returns a light
+    history pointer that fits (``(text, rendering)``; ``("", "none")`` when
+    none does). Preserve that pointer: defer the reading sentence first,
+    then replace an oversized primer with :data:`PRIMER_FALLBACK`. Spare
+    room never expands the pointer into unsolicited history.
+
+    Returns ``(text, rendering, reading_kept)``."""
+    limit = max_tokens * 4 + 3          # len // 4 <= max_tokens
+
+    def join(*parts):
+        return "\n\n".join(p for p in parts if p)
+
+    for fitted_primer, fitted_reading in ((primer, reading), (primer, None), (PRIMER_FALLBACK, None)):
+        base = join(header, fitted_primer)
+        room = limit - len(join(base, fitted_reading)) - 2
+        text, rendering = ("", "none")
+        if block_for is not None and room > 0:
+            text, rendering = block_for(room)
+        note = join(base, text, fitted_reading)
+        if len(note) <= limit and (block_for is None or text):
+            return note, rendering if text else "none", bool(fitted_reading)
+    return join(header, PRIMER_FALLBACK), "none", False

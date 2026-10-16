@@ -1,0 +1,10 @@
+{
+  "session_id": "gemini-synthetic-0001",
+  "transcript_path": "/outside/must-not-open.json",
+  "cwd": "/synthetic/alpha-project",
+  "hook_event_name": "AfterAgent",
+  "timestamp": "2026-10-14T09:00:00.000Z",
+  "prompt": "Summarise alpha-project",
+  "prompt_response": "It ships on Friday.",
+  "stop_hook_active": false
+}

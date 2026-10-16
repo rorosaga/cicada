@@ -5,6 +5,11 @@ struct VersionVector: Codable, Equatable {
     let components: [String: String]
 
     static let mapping: [String: Set<SyncDomain>] = [
+        // G118 item provenance remains on-demand (R-PB11), using the existing
+        // entities/episodes/git_head ETag and its memory cache. No Store domain
+        // or new component mapping; sections3 includes empty rows and sections
+        // unavailable behind any open code fence in the existing defaulted
+        // Provenance decoding contract.
         // `sourcesOverview` (G124 R7) rides `entities`, `episodes` and
         // `sources` — the three components its ETag is computed from. `.inbox`
         // rides `entities` and `episodes` too (G97 / G115 R3): `GET /inbox`
@@ -16,15 +21,23 @@ struct VersionVector: Codable, Equatable {
         // The `sources` component folds in `feeds.yaml`, `calendars.yaml` and
         // `sync_state.json` (see `sync_service.components`), so the feed,
         // calendar and capture-channel lists all ride it.
-        "sources": [.sources, .feeds, .calendars, .channels, .sourcesOverview], "git_head": [.contributors], "sleep": [.status],
+        "sources": [.sources, .feeds, .calendars, .channels, .sourcesOverview], "git_head": [.contributors],
+        // The sleep token includes the paused engine kind and diagnosis; both move status together.
+        "sleep": [.status],
         // G166: the reading asks (`$CICADA_HOME/reading_asks/<bank>.json`) and the person's reading settings sit
         // outside every bank, so an agent's `needs_login` moves no other component; `GET /sources` folds this one
         // into its ETag and its `read` block, so the Feed refreshes over SSE with no bank write.
         "reading": [.sources],
+        // G191 v3: `GET /sources` folds `captures` into its ETag — a new site capture gives a bookmark's row (the
+        // Feed, the menu bar's history) its thumbnail, with no other component moving.
+        "captures": [.sources],
         // The logo cache sits outside the bank; a Sleep warm-up or an on-demand
         // fetch changes `/graph`'s `hasLogo` and nothing else, so it needs its
         // own key or the node keeps painting a monogram.
         "logos": [.graph],
+        // G159 (2026-10-09): a person's public-profile photo is cached outside the bank as well; a fetch, or a miss
+        // aging out, moves `/graph`'s versioned `picture` and nothing else.
+        "photos": [.graph],
         // The telemetry ledger and the consumption endpoints' etags all move
         // together with the current `events-YYYY-MM.jsonl` mtime (see
         // `sync_service.components`'s "telemetry" key) — one component so the

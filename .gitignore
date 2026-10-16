@@ -9,9 +9,11 @@ data/
 !/api/data/
 /api/data/*
 !/api/data/recommended_skills.json
-# G182: shipped data the release app reads — the predicate seed and the optional search model's hashed lock.
+# G182: shipped data the release app reads — the predicate seed, the optional search model's hashed
+# lock and its pinned download. Code that reads a new file here must re-include it (test_release_build).
 !/api/data/predicates-seed.yaml
 !/api/data/extras-requirements.lock
+!/api/data/embeddinggemma-2.lock.json
 
 # Raw chat-export corpus used to consolidate the memory graph (claude/gemini/openai).
 # ~200MB of personal conversations; kept local for source-grounded re-consolidation

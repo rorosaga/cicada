@@ -22,7 +22,7 @@ test keeps it that way.
   one ``user`` commit whose manifest reads ``updated``, keeping every claim and
   episode. Any other page is ``foreign``: left byte-identical, and the row links to it.
 * **Refused, not skipped.** While Sleep is writing (the one shared predicate,
-  ``sleep_cycle.is_writing``): ``busy``. A demo bank: ``demo``. A skill with no role
+  ``sleep_cycle.is_writing``, asked under the bank's write admission — G183): ``busy``. A demo bank: ``demo``. A skill with no role
   or page name: ``none``. One ``asyncio.Lock`` per process.
 * **Frontmatter is static.** Nothing machine-dependent (install state, the person's
   choice) is ever stored — it would be stale by the next click. ``human_edited: true``
@@ -46,7 +46,7 @@ from pathlib import Path
 from loguru import logger
 
 from api.services import (
-    decay_policy, demo_guard, entity_body, fact_sources, git_service, markdown_parser, skill_catalog,
+    decay_policy, demo_guard, entity_body, fact_sources, git_service, markdown_parser, skill_catalog, write_admission,
 )
 from api.services.decay_policy import DecayClass
 from api.services.id_utils import sanitize_id
@@ -54,7 +54,7 @@ from api.services.skill_tag import AGENT_SKILL_TAG, is_agent_skill
 
 __all__ = ["AGENT_SKILL_TAG", "PageResult", "page_id", "lookup", "ensure"]
 
-_LOCK = asyncio.Lock()
+_LOCK = write_admission.TransactionLock()   # taken inside admitted transactions (writer loop)
 _ADOPTABLE_TYPES = frozenset({"tool", "concept", "skill"})
 
 
@@ -90,12 +90,6 @@ def lookup(memory_path: Path, entry: dict) -> PageResult | None:
     except Exception:  # noqa: BLE001
         return PageResult("foreign", entity_id)
     return PageResult("exists" if is_agent_skill(fm) else "foreign", entity_id)
-
-
-def _sleep_writing() -> bool:
-    from api.services import sleep_cycle
-
-    return bool(sleep_cycle.is_writing())
 
 
 def _adoptable(fm: dict, body: str) -> bool:
@@ -166,6 +160,13 @@ async def ensure(memory_path: Path, skill_id: str, *, catalog: dict | None = Non
     entity_id = page_id(entry)
     if demo_guard.is_demo(memory_path):
         return PageResult("demo", entity_id)
+    # The bank's write admission (G183) is held from the "busy" answer through the commit, in the transaction's own
+    # task: a Sleep window cannot open between them. Never refused here — "busy" is this writer's own answer.
+    return await write_admission.run_admitted(
+        memory_path, lambda: _ensure_admitted(memory_path, entry, entity_id, today))
+
+
+async def _ensure_admitted(memory_path: Path, entry: dict, entity_id: str, today: date | None) -> PageResult:
     async with _LOCK:
         path = _path(memory_path, entity_id)
         day = (today or date.today()).isoformat()
@@ -178,7 +179,7 @@ async def ensure(memory_path: Path, skill_id: str, *, catalog: dict | None = Non
                 return PageResult("exists", entity_id)
             if not _adoptable(fm, parsed.body):
                 return PageResult("foreign", entity_id)
-        if _sleep_writing():
+        if write_admission.holding():
             return PageResult("busy", entity_id)
         rel = f"entities/{entity_id}.md"
         if existing:

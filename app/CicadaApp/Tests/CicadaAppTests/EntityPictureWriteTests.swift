@@ -47,6 +47,39 @@ final class EntityPictureWriteTests: XCTestCase {
         XCTAssertEqual(store.pictureInputs(for: "bob-example", held: nil)?.choice, "upload")
     }
 
+    func testAPDFPaintsNothingUntilTheBackendHasDrawnItsFirstPage() async throws {
+        let (store, api, pictures) = setup()
+        let url = "/entities/a-paper/picture?v=5c0ffee12345"
+        api.pictureAnswer = EntityPictureAnswer(entityId: "a-paper", picture: url, pictureSource: "upload",
+                                                pictureInputs: PictureInputs(type: "media", choice: "upload",
+                                                                             uploadSha: "5c0ffee12345"))
+        api.gateWrites = true
+        let pdf = Data("%PDF-1.7 a paper".utf8)
+        let task = Task {
+            await store.perform(EntityPictureWrite(entityId: "a-paper", type: .media, bank: "work", action: .pdf(pdf),
+                                                   inputs: nil, store: store, pictures: pictures))
+        }
+        await api.waitForParkedWrite()
+        XCTAssertNil(store.pictureOverrides[Store.pictureKey(bank: "work", id: "a-paper")], "the page's hash is the server's")
+        api.releaseWriteGate()
+        let landed = await task.value
+        XCTAssertTrue(landed)
+        XCTAssertEqual(api.writes.last, "setEntityPictureFromPDF:a-paper:\(pdf.count)")
+        XCTAssertEqual(store.picture(for: "a-paper"), EntityPictureRef(url: url, source: .upload))
+        XCTAssertTrue(PictureActions.takesPDF(.media))
+        XCTAssertFalse(PictureActions.takesPDF(.person))
+    }
+
+    func testAPDFTheBackendCannotDrawSaysItsSentence() async throws {
+        let (store, api, pictures) = setup()
+        api.pictureError = APIError.httpError(422, #"{"detail":"Cicada couldn't draw that PDF's first page."}"#)
+        let landed = await store.perform(EntityPictureWrite(entityId: "a-paper", type: .media, bank: "work",
+                                                            action: .pdf(Data("%PDF".utf8)), inputs: nil, store: store,
+                                                            pictures: pictures))
+        XCTAssertFalse(landed)
+        XCTAssertEqual(store.toast, "Cicada couldn't draw that PDF's first page.")
+    }
+
     func testAFailedWriteRollsBackAndSaysTheServersSentence() async throws {
         let (store, api, pictures) = setup()
         api.pictureError = APIError.httpError(409, #"{"detail":"Sleep is updating your memory — try the picture again in a moment."}"#)

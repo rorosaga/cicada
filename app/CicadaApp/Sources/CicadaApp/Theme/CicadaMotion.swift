@@ -62,6 +62,11 @@ enum CicadaMotion {
     static let railTooltipDelay: TimeInterval = 0.45
     static let railTooltipWarmWindow: TimeInterval = 1.0
 
+    /// Links show as what they are (owner rulings 2026-10-14) — a link row's preview card opens after a short hover
+    /// and closes soon after the pointer leaves (research-hub's HoverCard 250 / 80). Hover delays, not animations.
+    static let linkPreviewOpenDelay: TimeInterval = 0.25
+    static let linkPreviewCloseDelay: TimeInterval = 0.08
+
     /// Clouds drift, grass never moves (R-M6): at most 8 pt either way over a
     /// 60–120 s period — peripheral, never noticed as movement — at no more
     /// than 30 frames a second.
@@ -128,6 +133,28 @@ enum CicadaMotion {
     /// not nil under Reduce Motion, on purpose: a column appearing with no fade at all reads as a jump.
     static let reducedFadeDuration: TimeInterval = 0.1
     static var fade: Animation { .linear(duration: reducedFadeDuration) }
+
+    // MARK: - G191: the "what made you save this?" panel growing out of the notch
+    /// The panel arriving: the notch's own black shape grows down and out into the panel, a quick spring with a
+    /// little give (owner 2026-10-14: "the thing coming down out of the notch").
+    static let notchGrowDuration: TimeInterval = 0.34
+    static let notchGrowBounce: Double = 0.16
+    /// Leaving: the shape shrinks back into the notch, a little quicker than it came and without the give.
+    static let notchShrinkDuration: TimeInterval = 0.22
+
+    /// The grow. Under Reduce Motion there is no growing (the panel is drawn at full size), only DR-66's short fade.
+    static func notchGrow(reduceMotion: Bool) -> Animation {
+        reduceMotion ? fade : .spring(duration: notchGrowDuration, bounce: notchGrowBounce)
+    }
+
+    static func notchShrink(reduceMotion: Bool) -> Animation {
+        reduceMotion ? fade : .spring(duration: notchShrinkDuration)
+    }
+
+    /// How long AppKit waits before ordering the window out after the shrink starts — the shrink's own length.
+    static func notchShrinkLength(reduceMotion: Bool) -> TimeInterval {
+        reduceMotion ? reducedFadeDuration : notchShrinkDuration
+    }
 
     /// STATE 0 → 1 by pointer: the list's width on the drawer curve. Width is movement, so nil under
     /// Reduce Motion.

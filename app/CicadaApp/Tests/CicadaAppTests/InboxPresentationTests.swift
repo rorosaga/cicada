@@ -233,4 +233,21 @@ final class InboxPresentationTests: XCTestCase {
         XCTAssertEqual(FreeTextSubmit.resolution(for: object, text: "a colleague"), QuestionResolution(action: "resolve", answer: "a colleague"))
         XCTAssertNil(FreeTextSubmit.resolution(for: object, text: "   "))
     }
+
+    /// A placeholder person's question: the name field outranks its one option, a typed name answers through
+    /// `resolve`, and "I'd rather not say" sends the item's own option key with the server's label.
+    func testANameQuestionTakesATypedNameOrADecline() throws {
+        let json = #"{"id":"1","kind":"clarification","requiredInput":"freetext","asks":"name","title":"What's the name of your partner?","question":"What's the name of your partner?","allowOther":true,"allowDefer":true,"options":[{"key":"rather_not_say","label":"I'd rather not say"}]}"#
+        let named = try item(json)
+        XCTAssertEqual(named.asks, "name")
+        XCTAssertEqual(FocusCardVariant.of(named), .name)
+        XCTAssertEqual(NameAnswer.resolution(name: "  Dana Example "), QuestionResolution(action: "resolve", answer: "Dana Example"))
+        XCTAssertNil(NameAnswer.resolution(name: "   "))
+        XCTAssertEqual(NameAnswer.decline, QuestionResolution(action: "resolve", optionKey: "rather_not_say"))
+        XCTAssertEqual(NameAnswer.declineLabel(named), "I'd rather not say")
+        // Without `asks` the same item is the options card an older build drew: its option, then Other….
+        let older = try item(json.replacingOccurrences(of: #""asks":"name","#, with: ""))
+        XCTAssertNil(older.asks)
+        XCTAssertEqual(FocusCardVariant.of(older), .options)
+    }
 }

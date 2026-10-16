@@ -14,6 +14,7 @@ struct BrowsersSection: View {
     /// second time; its sub-row sits under Chrome's own.
     static func owns(_ channelId: String) -> Bool {
         BrowserInventory.spec(forBookmarksChannel: channelId) != nil || channelId == TabGroupWatcher.channel
+            || channelId == WatchHistoryWatcher.channel
     }
 
     var body: some View {
@@ -25,7 +26,14 @@ struct BrowsersSection: View {
                     if spec.tabGroupsChannel != nil {
                         TabGroupRow(channel: channels.first { $0.id == TabGroupWatcher.channel }, now: context.date)
                     }
+                    // G71 (2026-10-16): the YouTube videos watched in Chrome — its own switch, under Chrome.
+                    if spec.id == WatchHistoryWatcher.browser {
+                        WatchHistoryRow(channel: channels.first { $0.id == WatchHistoryWatcher.channel },
+                                        now: context.date)
+                    }
                 }
+                // G191 — next to where the bookmark watch is turned on: the question it may ask.
+                SaveWhySwitchRow(inventory: inventory)
             }
         }
     }
@@ -105,5 +113,79 @@ private struct BrowserSourceRow: View {
             catch BrowserFileError.notReadable { feedback = nil }
             catch { feedback = AddSourceSheet.friendlyError(error) }
         }
+    }
+}
+
+/// G191 — Settings → Integrations → Browsers: "Ask why when I bookmark something". Off by default (G191 (7)); per Mac,
+/// beside the bookmark watch's own consent flags (`SaveWhyPrefs`). v2 (2026-10-14): one switch that works — turning
+/// it on turns on the bookmark watch of every browser here (`SaveWhySetup`), named before the flip; once on, the row
+/// says what is watched, names a missing permission with its one click, and says the next bookmark is the first asked.
+/// Muted sites can be asked about again here.
+struct SaveWhySwitchRow: View {
+    let inventory: BrowserInventory
+    @AppStorage(SaveWhyPrefs.enabledKey) private var enabled = false
+    @Environment(BrowserWatcher.self) private var watcher
+    @State private var muted = 0
+
+    private var prefs: SaveWhyPrefs { SaveWhyPrefs(defaults: .standard) }
+
+    private var isOn: Binding<Bool> {
+        Binding(get: { enabled }, set: { on in
+            if on { SaveWhySetup.turnOn(prefs: prefs, inventory: inventory, watcher: watcher) }
+            else { prefs.enabled = false }
+        })
+    }
+
+    private var status: SaveWhySetup.Status {
+        SaveWhySetup.status(inventory: inventory, state: watcher.state(for:), isEnabled: watcher.isEnabled)
+    }
+
+    var body: some View {
+        SettingsRow(.saveWhy, title: Copy.SaveWhy.switchTitle, detail: Copy.SaveWhy.switchDetail) {
+            Toggle(Copy.SaveWhy.switchTitle, isOn: isOn)
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+                .labelsHidden()
+        } below: {
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+                if !enabled {
+                    let names = inventory.supported.map(\.name)
+                    if !names.isEmpty { caption(Copy.SaveWhy.willWatch(names)) }
+                } else {
+                    let status = status
+                    ForEach(SaveWhySetup.lines(enabled: enabled, status: status), id: \.self) { caption($0) }
+                    // G191 v3 — what Cicada watches to ask at once, in plain words.
+                    if status.watching.contains("Chrome") { caption(Copy.SaveWhy.bubbleLine) }
+                    if !status.needsFullDiskAccess.isEmpty {
+                        HStack(spacing: CicadaTheme.spacingSM) {
+                            NeutralButton(title: Copy.SaveWhy.openFullDiskAccess, size: .compact) {
+                                NSWorkspace.shared.open(BrowserFileError.fullDiskAccessURL)
+                            }
+                            TextButton(title: Copy.SaveWhy.checkAgain, help: Copy.SaveWhy.checkAgain) {
+                                for channel in SaveWhySetup.channels(inventory: inventory)
+                                where watcher.state(for: channel) == .blocked { watcher.enable(channel) }
+                            }
+                        }
+                    }
+                }
+                if muted > 0 {
+                    HStack(spacing: CicadaTheme.spacingSM) {
+                        caption(Copy.SaveWhy.mutedLine(muted))
+                        TextButton(title: Copy.SaveWhy.unmuteAll, help: Copy.SaveWhy.unmuteAll) {
+                            prefs.mutedHosts = []
+                            muted = 0
+                        }
+                    }
+                }
+            }
+        }
+        .onAppear { muted = prefs.mutedHosts.count }
+    }
+
+    private func caption(_ text: String) -> some View {
+        Text(text)
+            .font(CicadaTheme.captionFont)
+            .foregroundStyle(CicadaTheme.textTertiary)
+            .fixedSize(horizontal: false, vertical: true)
     }
 }

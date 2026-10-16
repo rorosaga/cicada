@@ -165,6 +165,9 @@ struct IntakePanel: View {
             // content in would split across memories behind the picker's back —
             // offer Into only when everything in the drop can follow it.
             if !p.chatFiles.isEmpty && p.savedFiles.isEmpty { intoPicker }
+            // G71 (2026-10-16): a Takeout (or TikTok) export's watch history — off by default; on, it comes in as one
+            // entry per day of what was watched, never as saved links.
+            if p.offersHistory || intake.includeHistory { historySwitch(p) }
             if p.importCount == 0 {
                 Text(Copy.intakeNothingNewLine).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
             }
@@ -177,6 +180,20 @@ struct IntakePanel: View {
                 }
                 .disabled(p.importCount == 0 || newBankName.map { $0.trimmingCharacters(in: .whitespaces).isEmpty } == true)
             }
+        }
+    }
+
+    private func historySwitch(_ p: IntakePreview) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Toggle(Copy.importIncludeHistory, isOn: Binding(get: { intake.includeHistory },
+                                                            set: { intake.setIncludeHistory($0) }))
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+                .font(CicadaTheme.bodyFont)
+            Text(IntakeSummary.historyLine(p, included: intake.includeHistory))
+                .font(CicadaTheme.captionFont)
+                .foregroundStyle(CicadaTheme.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 

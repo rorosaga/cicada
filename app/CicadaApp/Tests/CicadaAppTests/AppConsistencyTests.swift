@@ -27,7 +27,7 @@ final class StaleEntityReadTests: XCTestCase {
         let read = Task { await store.entity("x") }
         await api.waitForParkedEntityFetch()
         api.entities["x"] = try body("# From bank B")
-        _ = await store.perform(ActivateBank(name: "B"))
+        _ = await store.activateBank("B")
         api.releaseEntityGate()
         let late = await read.value
         XCTAssertNil(late, "bank A's body is never handed to a bank B caller")

@@ -69,24 +69,28 @@ enum SettingsIndex {
     /// holds the entries to the pages — a task that adds a row adds it here
     /// in the same commit (R-O1).
     static let staticIDs: [SettingsRowID] = [
-        .appearance, .heroScene, .textSize, .runSetup, .appVersion, .autoUpdate, .openAtLogin, .showInMenuBar,
-        .backgroundService,
+        .appearance, .textSize, .runSetup, .appVersion, .autoUpdate, .openAtLogin, .showInMenuBar,
+        .backgroundService, .memoryHome, .commandLineTool,
+        .devicesConnection, .devicesList,
         .guidedTour, .demoMemory,
         .ownerName, .ownerHandle, .ownerEmail, .ownerPage,
         .memoryLocation, .banks, .bankExport, .bankDelete, .telemetry,
         .outboundConnectors, .outboundFeeds, .outboundLogos, .credentials, .remoteAccess, .transcripts,
-        .searchIndex, .searchModel, .enrichLinks, .fadePace,
-        .sleepRuns, .sleepTime, .sleepInterval, .sleepEngine,
+        .searchFolders, .searchMeaning, .searchImages, .searchAdvanced, .searchModel, .searchIndex,
+        .enrichLinks, .fadePace,
+        .sleepRuns, .sleepTime, .sleepInterval, .sleepEngine, .sleepUsePlan,
         .scenerySource, .sceneryTime, .sceneryWeather, .sceneryPreview,
         .mascot,
-        .calendarApp, .contactsApp,
-        .agentsInstall, .agentsCloud, .agentsSkill, .agentsAutoRecall, .agentsReading,
-        .readingAgent, .readingMethods, .watchingMethods, .readingSites,
+        .calendarApp, .contactsApp, .saveWhy,
+        .agentsInstall, .agentsCloud, .agentsSkill, .agentsAutoRecall, .agentsEditors, .agentsReading,
+        .readingAgent, .readingExploreSignedIn, .readingNeverExplore, .readingMethods, .watchingMethods, .readingSites,
+        .readingYouTube,
         // Cicada's own skills — per-item ids (a `:`), so outside the bare-name lint
         .skill(CicadaSkillBundle.cicada.rawValue), .skill(CicadaSkillBundle.cicadaLibrarian.rawValue),
+        .skill(CicadaSkillBundle.linkedinPeople.rawValue),
         .remoteSwitch, .remoteReach, .remoteNew,
         .engineChoice, .engineModel, .engineOverage, .enginePreview, .engineAsk, .engineAutoClaude,
-        .backendStatus, .mcpCommand, .apiToken, .envOverrides,
+        .backendStatus, .mcpCommand, .apiToken, .envOverrides, .settingsFile,
     ]
 
     static let staticEntries: [SettingsEntry] = [
@@ -98,7 +102,6 @@ enum SettingsIndex {
         SettingsEntry(.sceneryPreview, .sleep, Copy.Scenery.preview, keywords: ["scenery", "study room"]),
         // General
         SettingsEntry(.appearance, .general, Copy.appearance, keywords: ["dark", "light", "theme", "mode", "system", "night"]),
-        SettingsEntry(.heroScene, .general, Copy.scene, keywords: ["painting", "picture", "home", "sky", "day", "night", "sunrise", "sunset", "afternoon", "golden hour", "evening", "meadow"], detail: Copy.sceneDetail),
         SettingsEntry(.textSize, .general, Copy.textSize, keywords: ["zoom", "font", "bigger", "smaller", "larger", "scale"], detail: Copy.textSizeDetail),
         SettingsEntry(.runSetup, .general, Copy.setup, keywords: ["onboarding", "first run", "welcome", "start over"], detail: Copy.runSetupDetail),
         SettingsEntry(.appVersion, .general, Copy.versionTitle, keywords: ["version", "build", "about", "update", "release"]),
@@ -110,6 +113,15 @@ enum SettingsIndex {
         SettingsEntry(.openAtLogin, .general, Copy.openAtLogin, keywords: ["login", "startup", "start", "launch", "boot"]),
         SettingsEntry(.showInMenuBar, .general, Copy.showInMenuBar, keywords: ["menu bar", "status", "bookworm", "icon", "tray", "hide"], detail: Copy.showInMenuBarDetail),
         SettingsEntry(.backgroundService, .general, Copy.keepMemoryWorking, keywords: ["background", "launchd", "service", "closed", "always on", "sync"]),
+        SettingsEntry(.memoryHome, .general, Copy.Devices.modeTitle,
+                      keywords: ["server", "this mac", "headless", "remote", "address", "device token", "home server",
+                                 "sync", "where", "memory lives"]),
+        // Devices (G181 phase 3)
+        SettingsEntry(.devicesConnection, .devices, Copy.Devices.connectionGroup,
+                      keywords: ["server", "connection", "reachable", "offline", "waiting", "queue"]),
+        SettingsEntry(.devicesList, .devices, Copy.Devices.devicesGroup,
+                      keywords: ["devices", "synced", "laptop", "token", "revoke", "add a device", "last seen"]),
+        SettingsEntry(.commandLineTool, .general, Copy.cliToolTitle, keywords: ["command line", "terminal", "shell", "cli", "path", "agent", "install"]),
         SettingsEntry(.guidedTour, .general, Copy.Tour.settingsTitle, keywords: ["tour", "walkthrough", "tutorial", "guide", "help", "learn"], detail: Copy.Tour.settingsDetail),
         SettingsEntry(.demoMemory, .general, Copy.Demo.demoTitle, keywords: ["demo", "example", "sample", "try", "made-up"], detail: Copy.Demo.demoDetail),
         // You
@@ -129,10 +141,29 @@ enum SettingsIndex {
         SettingsEntry(.credentials, .privacy, Copy.credentialsTitle, keywords: ["api keys", "secrets", "remove keys", "secrets.env"]),
         SettingsEntry(.remoteAccess, .privacy, Copy.remoteAccessTitle, keywords: ["remote", "outside", "from anywhere"]),
         SettingsEntry(.transcripts, .privacy, Copy.transcriptsTitle, keywords: ["transcripts", "conversations", "claude code"], detail: Copy.transcriptsFact),
+        // Search & files (owner, 2026-10-14). The page never shows a technical word; these hidden keywords keep every
+        // one the old Memory rows carried ("index", "model", "embedding", "embeddings", "semantic", "vectors"), so a
+        // technical search still lands on the right row (REVIEW §1e).
+        SettingsEntry(.searchFolders, .searchFiles, Copy.SearchFiles.foldersGroup,
+                      keywords: ["folder", "folders", "add a folder", "notes", "markdown", "files", "directory", "watch",
+                                 "watched folders", "vault", "notes & files", "documents"],
+                      detail: Copy.SearchFiles.addFolderDetail),
+        SettingsEntry(.searchMeaning, .searchFiles, Copy.SearchFiles.meaningTitle,
+                      keywords: ["meaning", "semantic", "embedding", "embeddings", "model", "vectors", "sharper",
+                                 "search model", "download", "neural engine", "languages", "smarter search"]),
+        SettingsEntry(.searchImages, .searchFiles, Copy.SearchFiles.imagesTitle,
+                      keywords: ["image", "images", "picture", "pictures", "photos", "screenshots", "vision", "looks",
+                                 "image model", "embedding"]),
+        SettingsEntry(.searchAdvanced, .searchFiles, Copy.SearchFiles.advanced,
+                      keywords: ["advanced", "search version", "rebuild"]),
+        // Advanced's two rows land on the disclosure, which opens on landing (R-O6: the row a hit names is on screen).
+        SettingsEntry(.searchModel, .searchFiles, Copy.SearchModel.title,
+                      keywords: ["model", "embedding", "embeddings", "semantic", "larger", "smaller", "built in",
+                                 "download", "vectors", "hugging face"],
+                      anchor: .searchAdvanced),
+        SettingsEntry(.searchIndex, .searchFiles, Copy.SearchFiles.rebuildTitle,
+                      keywords: ["search", "index", "rebuild", "find", "search index"], anchor: .searchAdvanced),
         // Memory
-        SettingsEntry(.searchIndex, .memory, Copy.searchIndexTitle, keywords: ["search", "index", "rebuild", "find"]),
-        SettingsEntry(.searchModel, .memory, Copy.SearchModel.title,
-                      keywords: ["model", "embedding", "embeddings", "semantic", "meaning", "larger", "smaller", "download", "vectors"]),
         SettingsEntry(.enrichLinks, .memory, Copy.enrichLinksTitle, keywords: ["links", "previews", "descriptions", "bookmarks"], detail: Copy.enrichLinksDetail),
         SettingsEntry(.fadePace, .memory, Copy.fadePaceTitle,
                       keywords: ["fade", "decay", "forget", "archive", "pace", "still tracking", "slower", "faster"],
@@ -142,12 +173,18 @@ enum SettingsIndex {
         SettingsEntry(.sleepTime, .sleep, Copy.runsAt, keywords: ["time", "hour", "clock"]),
         SettingsEntry(.sleepInterval, .sleep, Copy.runsEvery, keywords: ["hours", "how often", "interval"]),
         SettingsEntry(.sleepEngine, .sleep, Copy.sleepEngineRowTitle, keywords: ["model", "who runs"]),
+        SettingsEntry(.sleepUsePlan, .sleep, Copy.ServerPlan.usePlanTitle,
+                      keywords: ["plan", "subscription", "scheduled", "nightly", "server", "limits"]),
         // Integrations — round-4 D2: the one row the app owns there (R-FA13); every other row is a channel.
         SettingsEntry(.calendarApp, .integrations, Copy.calendarAppTitle,
                       keywords: ["calendar", "events", "meetings", "icloud", "google calendar", "exchange", "schedule"]),
         // Round 4 (G154): Contacts, the second row the app owns there.
         SettingsEntry(.contactsApp, .integrations, Copy.contactsTitle,
                       keywords: ["contacts", "address book", "people", "photos", "birthday"]),
+        // G191: the save-why question, under the browsers it listens to.
+        SettingsEntry(.saveWhy, .integrations, Copy.SaveWhy.switchTitle,
+                      keywords: ["bookmark", "why", "intent", "reason", "notch", "prompt", "ask"],
+                      detail: Copy.SaveWhy.switchDetail),
         // Agents
         SettingsEntry(.agentsInstall, .agents, Copy.agentsInstallTitle, keywords: ["make install", "setup", "python", "service"]),
         SettingsEntry(.agentsCloud, .agents, Copy.agentsCloudTitle, keywords: ["web", "cloud", "mobile", "claude.ai", "chatgpt"]),
@@ -155,6 +192,9 @@ enum SettingsIndex {
         SettingsEntry(.agentsAutoRecall, .agents, Copy.autoRecallTitle,
                       keywords: ["remember", "recall", "automatic", "hooks", "context", "claude code", "codex"],
                       detail: Copy.autoRecallDetail),
+        SettingsEntry(.agentsEditors, .agents, Copy.PageEdits.rowTitle,
+                      keywords: ["edit", "edits", "pages", "trust", "trusted", "permission", "fix", "aliases", "write"],
+                      detail: Copy.PageEdits.rowDetail),
         SettingsEntry(.agentsReading, .agents, Copy.Reading.agentsRowTitle,
                       keywords: ["read", "pages", "browser", "sites"], detail: Copy.Reading.agentsRowDetail),
         // Reading the web (G166)
@@ -162,6 +202,16 @@ enum SettingsIndex {
                       keywords: ["read", "pages", "links", "browser", "linkedin", "sign in", "login", "ask an agent",
                                  "reading", "web"],
                       detail: Copy.Reading.switchDetail),
+        SettingsEntry(.readingExploreSignedIn, .reading, Copy.Explore.signedInTitle,
+                      keywords: ["explore", "exploring", "bookmarks", "saved sites", "signed in", "private", "cookies",
+                                 "incognito", "screenshots"],
+                      detail: Copy.Explore.signedInDetail),
+        SettingsEntry(.readingYouTube, .reading, Copy.Reading.youtubeGroup,
+                      keywords: ["youtube", "watch later", "watch history", "history", "videos", "agent", "browser"],
+                      detail: Copy.Reading.youtubeIntro),
+        SettingsEntry(.readingNeverExplore, .reading, Copy.Explore.neverTitle,
+                      keywords: ["never explore", "explore", "exclude", "block", "skip", "site", "bookmarks"],
+                      detail: Copy.Explore.neverDetail),
         SettingsEntry(.readingMethods, .reading, Copy.Reading.methodsGroup,
                       keywords: ["skill", "tool", "browser", "computer", "how", "reads", "own tools", "let my agent choose",
                                  "agent"],
@@ -178,6 +228,9 @@ enum SettingsIndex {
                       keywords: ["cicada skill", "recall", "save"], detail: CicadaSkillBundle.cicada.summary),
         SettingsEntry(.skill(CicadaSkillBundle.cicadaLibrarian.rawValue), .skills, CicadaSkillBundle.cicadaLibrarian.title,
                       keywords: ["librarian", "consolidate"], detail: CicadaSkillBundle.cicadaLibrarian.summary),
+        SettingsEntry(.skill(CicadaSkillBundle.linkedinPeople.rawValue), .skills, CicadaSkillBundle.linkedinPeople.title,
+                      keywords: ["linkedin", "people", "profile", "connections"],
+                      detail: CicadaSkillBundle.linkedinPeople.summary),
         // From anywhere — landing on its header (R-O12)
         SettingsEntry(.remoteSwitch, .remote, Copy.remoteSwitchTitle,
                       keywords: ["phone", "claude.ai", "chatgpt", "perplexity", "connector", "remote", "mobile"], anchor: .page(.remote)),
@@ -201,10 +254,12 @@ enum SettingsIndex {
         SettingsEntry(.mcpCommand, .advanced, Copy.mcpCommandTitle, keywords: ["mcp", "command", "python"]),
         SettingsEntry(.apiToken, .advanced, Copy.apiTokenTitle, keywords: ["token", "bearer", "CICADA_API_TOKEN"]),
         SettingsEntry(.envOverrides, .advanced, Copy.envOverridesTitle, keywords: ["env", ".env", "environment", "variables", "CICADA_LLM_MODE"]),
+        SettingsEntry(.settingsFile, .advanced, Copy.settingsFileTitle, keywords: ["api/.env", ".env", "settings", "concurrency", "in effect"]),
     ]
 
+    /// A page whose header asks its own question (Search & files) is also found by it.
     static let pageEntries: [SettingsEntry] = SettingsSection.allCases.map {
-        SettingsEntry(.page($0), $0, $0.title, detail: $0.subtitle)
+        SettingsEntry(.page($0), $0, $0.title, keywords: $0.pageTitle == $0.title ? [] : [$0.pageTitle], detail: $0.subtitle)
     }
 
     /// Names and ids only: a connection's account line, an agent's install
@@ -216,14 +271,19 @@ enum SettingsIndex {
         var out: [SettingsEntry] = []
         // R-FA13 — `calendar-local` is `.calendarApp`'s row, never a second search entry; `contacts-local` is
         // `.contactsApp`'s (G154).
-        out += channels.filter { $0.id != CalendarRow.channelId && $0.id != ContactsReader.channel }.map { SettingsEntry(.channel($0.id), .integrations, $0.label,
-                                            keywords: [$0.id, IntegrationCategory.of(channelId: $0.id).title]) }
+        // A watched folder lists on Search & files (owner, 2026-10-14), every other channel on Integrations.
+        out += channels.filter { $0.id != CalendarRow.channelId && $0.id != ContactsReader.channel }.map {
+            $0.id.hasPrefix("folder:")
+                ? SettingsEntry(.channel($0.id), .searchFiles, $0.label, keywords: [$0.id, "folder", Copy.SearchFiles.foldersGroup])
+                : SettingsEntry(.channel($0.id), .integrations, $0.label,
+                                keywords: [$0.id, IntegrationCategory.of(channelId: $0.id).title])
+        }
         out += harnessRows.map { SettingsEntry(.harness($0.harness ?? $0.id), .integrations, $0.label,
                                                keywords: ["agent", "conversations"]) }
         out += exportOnly.map { SettingsEntry(.exportOnly($0.id), .integrations, $0.title, keywords: ["import", "export"]) }
         out += connections.map { SettingsEntry(.connection($0.id), .plansAndKeys, $0.label,
                                                keywords: [$0.planLabel ?? "", "sign in", "key", "plan"].filter { !$0.isEmpty }) }
-        out += agents.map { SettingsEntry(.agent($0.id), .agents, $0.name, keywords: ["mcp", "connect", "register"]) }
+        out += agents.map { SettingsEntry(.agent($0.id), .agents, $0.name, keywords: ["mcp", "connect", "register"] + $0.searchTerms) }
         // G138 — the recommended and installed skills the window already
         // fetched; a title, a publisher and an id, never an install command.
         out += skills.map { SettingsEntry(.skill($0.id), .skills, $0.title,
@@ -289,8 +349,6 @@ enum SettingsLiveValue {
     struct Inputs {
         var scheduleMode: String?
         var appearance: AppearancePreference = .dark
-        /// Round-4 D4 — Settings → General → Scene.
-        var heroScene: HeroScenePreference = .automatic
         var uiScale: Double = 1.0
         var connections: [ConnectionStatus] = []
     }
@@ -305,8 +363,6 @@ enum SettingsLiveValue {
             return SleepScheduleText.modes.first { $0.value == inputs.scheduleMode }?.label
         case .appearance:
             return inputs.appearance.label
-        case .heroScene:
-            return inputs.heroScene.label
         case .textSize:
             return "\(Int((inputs.uiScale * 100).rounded()))%"
         default:

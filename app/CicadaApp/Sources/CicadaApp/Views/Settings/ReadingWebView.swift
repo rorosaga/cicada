@@ -16,6 +16,19 @@ final class ReadingAgentModel {
         var fetchMethods: @MainActor () async throws -> AgentMethodsResponse
         var setMethod: @MainActor (String, String) async throws -> AgentMethodWriteResponse
         var addPage: @MainActor (String) async throws -> AgentMethodPage
+        /// G166 exploring — the signed-in switch (D2 amended). Last, with the live call as its default, so every
+        /// existing `Deps(...)` stays source-compatible.
+        var writeExplore: @MainActor (Bool) async throws -> ReadingSettingsResponse = {
+            try await APIClient.shared.setReadingSettings(exploreSignedIn: $0)
+        }
+        /// G166 exploring — a Never explore patch `{site: true|false}` (D3).
+        var writeNever: @MainActor ([String: Bool]) async throws -> ReadingSettingsResponse = {
+            try await APIClient.shared.setReadingSettings(neverExplore: $0)
+        }
+        /// G71 (2026-10-16) — a YouTube list patch `{watch_later|history: true|false}`.
+        var writeYouTube: @MainActor ([String: Bool]) async throws -> ReadingSettingsResponse = {
+            try await APIClient.shared.setReadingSettings(youtubeLists: $0)
+        }
 
         @MainActor static var live: Deps {
             Deps(fetch: { try await APIClient.shared.fetchReadingSettings() },
@@ -49,6 +62,66 @@ final class ReadingAgentModel {
     convenience init() { self.init(deps: .live) }
 
     var enabled: Bool { settings?.agentEnabled ?? false }
+    /// G166 exploring: on by default (D2 amended).
+    var exploreSignedIn: Bool { settings?.exploreSignedIn ?? true }
+
+    /// The sites the person said never to explore, in site order.
+    var neverExplore: [String] { (settings?.neverExplore ?? [:]).keys.sorted() }
+
+    /// Add (`true`) or lift (`false`) one site's Never explore. A name that is not a site is the server's 422 sentence.
+    @discardableResult
+    func setNeverExplore(_ site: String, _ on: Bool) async -> Bool {
+        let key = site.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            .replacingOccurrences(of: "https://", with: "").replacingOccurrences(of: "http://", with: "")
+            .replacingOccurrences(of: "www.", with: "").split(separator: "/").first.map(String.init) ?? ""
+        guard !key.isEmpty else { return false }
+        busy = true
+        defer { busy = false }
+        do {
+            settings = try await deps.writeNever([key: on])
+            note = nil
+            return true
+        } catch APIError.httpError(let code, let body) where code == 422 {
+            note = ProjectWriteFailure.detail(body) ?? Copy.Reading.saveFailed
+            return false
+        } catch {
+            note = Copy.Reading.saveFailed
+            return false
+        }
+    }
+
+    /// G71 — turn one YouTube list on or off. On again lifts a sign-in pause (Try again).
+    @discardableResult
+    func setYouTubeList(_ list: YouTubeList, _ on: Bool) async -> Bool {
+        busy = true
+        defer { busy = false }
+        do {
+            settings = try await deps.writeYouTube([list.rawValue: on])
+            note = nil
+            return true
+        } catch APIError.httpError(let code, let body) where code == 422 {
+            note = ProjectWriteFailure.detail(body) ?? Copy.Reading.saveFailed
+            return false
+        } catch {
+            note = Copy.Reading.saveFailed
+            return false
+        }
+    }
+
+    /// The signed-in switch: off explores in a private, cookie-less context; on uses the person's everyday session.
+    @discardableResult
+    func setExploreSignedIn(_ on: Bool) async -> Bool {
+        busy = true
+        defer { busy = false }
+        do {
+            settings = try await deps.writeExplore(on)
+            note = nil
+            return true
+        } catch {
+            note = Copy.Reading.saveFailed
+            return false
+        }
+    }
 
     /// The first-use sheet is for a person who has not acknowledged its current wording. Turning the switch back on
     /// after an off keeps the acknowledgement and the per-site choices (the server's rule), so it asks nothing.
@@ -161,6 +234,8 @@ struct ReadingWebView: View {
     /// A reading skill whose "Install…" was clicked: its own detail opens here as the page's one sub-page (R-O5), since
     /// the Skills list shows only five and a lower-ranked skill has no card to open there (critic M5).
     @State private var openSkill: RecommendedSkill?
+    /// G166 exploring — the Never explore field's draft.
+    @State private var neverDraft = ""
     @Environment(Store.self) private var store
     @Environment(SkillsViewModel.self) private var skillsVM
     @Environment(SettingsFocus.self) private var focus: SettingsFocus?
@@ -216,11 +291,24 @@ struct ReadingWebView: View {
                 if model.enabled, let settings = model.settings {
                     SettingsDivider()
                     promptRow(settings)
+                    // G166 exploring (D2 amended): the person's signed-in session by default, off in one switch.
+                    SettingsDivider()
+                    SettingsRow(.readingExploreSignedIn, title: Copy.Explore.signedInTitle,
+                                detail: Copy.Explore.signedInDetail) {
+                        Toggle(Copy.Explore.signedInLabel, isOn: Binding(
+                            get: { model.exploreSignedIn },
+                            set: { on in Task { await model.setExploreSignedIn(on) } }))
+                            .toggleStyle(.switch)
+                            .labelsHidden()
+                            .disabled(model.busy)
+                    }
                 }
             }
+            youtubeGroup
             methodsGroup
             watchMethodsGroup
             sitesGroup
+            neverExploreGroup
         }
         // R-HS16 — a sheet centred on the window, never a popover at the panel's edge.
         .sheet(isPresented: $showSheet) {
@@ -345,6 +433,42 @@ struct ReadingWebView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    // MARK: Your YouTube lists (G71, 2026-10-16)
+
+    /// Shown only while agent reading is on: the lists ride the same first-use sheet and the same never-sign-in rule.
+    @ViewBuilder private var youtubeGroup: some View {
+        if model.enabled, let settings = model.settings {
+            SettingsGroupCard(header: Copy.Reading.youtubeGroup) {
+                introRow(Copy.Reading.youtubeIntro, color: CicadaTheme.textSecondary)
+                    .settingsRow(.readingYouTube)
+                ForEach(YouTubeList.allCases) { list in
+                    SettingsDivider()
+                    SettingsRowShell(.readingYouTubeList(list.rawValue)) {
+                        HStack(alignment: .firstTextBaseline) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(YouTubeListWords.title(list))
+                                    .font(CicadaTheme.bodyFont)
+                                    .foregroundStyle(CicadaTheme.textPrimary)
+                                Text(YouTubeListWords.detail(list, on: settings.youtubeLists.isOn(list),
+                                                             status: settings.youtube))
+                                    .font(CicadaTheme.captionFont)
+                                    .foregroundStyle(CicadaTheme.textTertiary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            Spacer()
+                            Toggle(YouTubeListWords.title(list), isOn: Binding(
+                                get: { settings.youtubeLists.isOn(list) },
+                                set: { on in Task { await model.setYouTubeList(list, on) } }))
+                                .toggleStyle(.switch)
+                                .labelsHidden()
+                                .disabled(model.busy)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // MARK: Sites that need your browser
 
     @ViewBuilder private var sitesGroup: some View {
@@ -372,6 +496,44 @@ struct ReadingWebView: View {
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
         }
+    }
+
+    /// G166 exploring (D3): sites an agent never explores, machine-wide. Add one by name; remove one in a tap.
+    @ViewBuilder private var neverExploreGroup: some View {
+        SettingsGroupCard(header: Copy.Explore.neverGroup) {
+            SettingsRow(.readingNeverExplore, title: Copy.Explore.neverTitle, detail: Copy.Explore.neverDetail) {
+                HStack(spacing: CicadaTheme.spacingSM) {
+                    TextField(Copy.Explore.neverPlaceholder, text: $neverDraft)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: CicadaTheme.scaled(160))
+                        .onSubmit { addNever() }
+                    NeutralButton(title: Copy.Explore.neverAdd, size: .compact, help: Copy.Explore.neverAddHelp) {
+                        addNever()
+                    }
+                    .disabled(neverDraft.trimmingCharacters(in: .whitespaces).isEmpty || model.busy)
+                }
+            }
+            ForEach(model.neverExplore, id: \.self) { site in
+                SettingsDivider()
+                SettingsRowShell(.readingNever(site)) {
+                    HStack {
+                        Text(site)
+                            .font(CicadaTheme.bodyFont)
+                            .foregroundStyle(CicadaTheme.textPrimary)
+                        Spacer()
+                        NeutralButton(title: Copy.Explore.neverRemove, size: .compact,
+                                      help: Copy.Explore.neverRemoveHelp) {
+                            Task { await model.setNeverExplore(site, false) }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func addNever() {
+        let draft = neverDraft
+        Task { if await model.setNeverExplore(draft, true) { neverDraft = "" } }
     }
 
     private func siteRow(_ site: ReadingSite) -> some View {
@@ -482,7 +644,8 @@ struct ReadingFirstUseSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
             ForEach([Copy.Reading.sheetHow, Copy.Reading.sheetOnlyAsks, Copy.Reading.sheetInstruction,
-                     Copy.Reading.sheetTerms, Copy.Reading.sheetSaferExport], id: \.self) { paragraph in
+                     Copy.Reading.sheetTerms, Copy.Reading.sheetExploring, Copy.Reading.sheetSaferExport],
+                    id: \.self) { paragraph in
                 Text(paragraph)
                     .font(CicadaTheme.bodyFont)
                     .foregroundStyle(CicadaTheme.textSecondary)

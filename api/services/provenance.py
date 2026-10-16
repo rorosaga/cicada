@@ -48,19 +48,25 @@ from api.models.schemas import (
     ProvenancePage,
     ProvenanceSpan,
     ProvenanceTotals,
+    SectionEvidence,
+    SectionProvenance,
+    SectionProvenanceItem,
 )
 from api.services import (
     agent_turns,
     bank_index,
     episode_ids,
+    episode_time,
     evidence,
     git_service,
     inbox_context,
     markdown_parser,
+    section_provenance,
+    source_dates,
     turn_authorship,
     video_state,
 )
-from api.services.claims import Claim, Evidence, is_event, is_record, parse_claims
+from api.services.claims import Claim, Evidence, is_current, is_event, is_record, parse_claims, served_prose
 from api.services.id_utils import resolve_entity_file
 
 # The Reader's cap (R-PB5). A Stop-hook episode is already capped at 100,000
@@ -82,11 +88,13 @@ def _opt(value) -> str | None:
 
 
 def _asserted_focus(doc_id: str, text: str, start: int, end: int, hash: str | None, *,  # noqa: A002
-                    is_episode: bool, override: str | None = None) -> EpisodeFocus:
+                    is_episode: bool, override: str | None = None, gaps: tuple = ()) -> EpisodeFocus:
     status = evidence.span_status(text, end=end, hash=hash, appendable=is_episode)
     # R-LS7: the one kind decision — a folder file's declared authorship wins
     # over markers, exactly as the stored span's kind was minted.
-    kind = evidence.kind_for(doc_id, text, start, override)
+    kind = evidence.kind_for(doc_id, text, start, override, gaps)
+    if kind == evidence.GAP_KIND or evidence.touches_gap(start, end, gaps):
+        return EpisodeFocus(kind=kind)  # gate B2: Cicada's gap line is nobody's words — never highlighted
     if status == evidence.SPAN_STALE:
         return EpisodeFocus(kind=kind, stale=True)  # R-PB2: no offsets to wash
     return EpisodeFocus(start=start, end=end, kind=kind, grown=status == evidence.SPAN_GROWN)
@@ -139,10 +147,19 @@ def episode_document(
 
     stamps = evidence.turn_stamps(fm) if is_episode else {}
     override = (str(fm.get("evidence_kind") or "") or None) if is_episode else None
-    spans = evidence.turns(text, page=not is_episode, stamps=stamps, override=override)
+    # Gate B2: the episode's own gap record, never the body's words.
+    gaps = evidence.gap_ranges(fm, text) if is_episode else ()
+    spans = evidence.turns(text, page=not is_episode, stamps=stamps, override=override, gaps=gaps)
     # Round 4 C4: an agent turn's model/effort is its sidecar entry at exactly
     # the turn's start (the entry the capture wrote); never on a person's turn.
     agents = {s.offset: s for s in agent_turns.stamps(fm) if s.speaker == "assistant"} if is_episode else {}
+    for i, t in enumerate(spans):
+        if t.role == "assistant" and t.marker is None and i >= 2 and spans[i - 1].role == evidence.GAP_KIND:
+            # A recorded reply gap splits one agent turn into Reader blocks.
+            # Its resumed tail inherits the actual head's stamp, never a guess.
+            head = agents.get(spans[i - 2].start)
+            if head is not None:
+                agents[t.start] = head
     # R4B-15: `agent` is the most recent agent turn's — of the WHOLE document,
     # read before the Reader's cut — and null when that turn names neither; an
     # older turn's model never stands in for it (D1: never guessed).
@@ -159,7 +176,7 @@ def episode_document(
     focus_model: EpisodeFocus | None = None
     if start is not None:
         focus_model = _asserted_focus(doc_id, text, start, end, hash, is_episode=is_episode,
-                                      override=override)
+                                      override=override, gaps=gaps)
     elif focus:
         focus_model = _derived_focus(memory_path, text, focus)
 
@@ -184,11 +201,20 @@ def episode_document(
         source=_opt(fm.get("source")),
         conversation_id=_opt(fm.get("session_id")) or _opt(fm.get("source_id")),
         capture_kind=_opt(fm.get("capture_kind")),
+        correspondent=_opt(_correspondent(fm).get("name")) if is_episode else None,
+        correspondent_kind=_opt(_correspondent(fm).get("kind")) if is_episode else None,
+        device=_opt(fm.get("device")) if is_episode else None,
         turns=turn_models,
         focus=focus_model,
         agent=agent,
         watch=watch,
     )
+
+
+def _correspondent(fm: dict) -> dict:
+    """G179: a message conversation's ``correspondent`` record, or ``{}``."""
+    value = fm.get("correspondent")
+    return value if isinstance(value, dict) else {}
 
 
 def _watch(memory_path: Path, doc_id: str, fm: dict) -> EpisodeWatch | None:
@@ -226,6 +252,7 @@ def _watch(memory_path: Path, doc_id: str, fm: dict) -> EpisodeWatch | None:
 # `best` is computed only for the rows that ship, so body reads stay bounded
 # by what is shown.
 MAX_PROVENANCE_CONVERSATIONS = 50
+MAX_SECTION_RESPONSE_BYTES = 128 * 1024
 
 
 class _Episodes:
@@ -254,8 +281,17 @@ class _Episodes:
         return self._bodies[ep_id]
 
 
+def _said(timestamp: str, ep_id: str) -> str | None:
+    """When an episode was said: its ``timestamp``, else the day in its id — ``source_dates.episode_day``'s rule
+    (G194), so the card and Sleep's prompts date a conversation the same way. ``None`` when neither is known."""
+    if timestamp:
+        return timestamp
+    day = source_dates.parse_day(ep_id)
+    return day.isoformat() if day else None
+
+
 def _current(claim: Claim) -> bool:
-    return claim.valid_to is None and not claim.superseded_by
+    return is_current(claim)
 
 
 def _recency(claim: Claim) -> str:
@@ -308,6 +344,37 @@ def _best_span(docs: _Episodes, episode_ids: list[str],
     if stale is not None:
         return _stale_model(*stale)
     return None
+
+
+def cited_episodes(claim: Claim) -> set[str]:
+    """The conversations a belief cites: its ``source_episodes`` and its evidence's episodes (never a page)."""
+    episodes = {e for e in claim.source_episodes if evidence.is_episode_id(e)}
+    episodes.update(ev.episode for ev in claim.evidence if evidence.is_episode_id(ev.episode))
+    return episodes
+
+
+def conversation_groups(docs: _Episodes, episode_ids_in_order) -> list[dict]:
+    """Episodes grouped into conversations — one session id (a hook's turns), else one source id (an import's
+    conversation), else the episode alone — the one grouping ``/provenance`` and the card's page-sources overview
+    share, so both count the same conversations. Each group is ``{id, episodes, said}``: ``episodes`` sorted by
+    instant as ``(timestamp, episode id, frontmatter, exists)``; ``said`` the ``(first, last)`` time it was said,
+    or ``None`` when no episode is a dated mention (#242: a memory export entry is facts, not activity)."""
+    groups: dict[str, dict] = {}
+    for ep_id in episode_ids_in_order:
+        indexed = docs.meta(ep_id)
+        efm = indexed.frontmatter if indexed is not None else {}
+        conversation_id = _opt(efm.get("session_id")) or _opt(efm.get("source_id"))
+        group = groups.setdefault(conversation_id or ep_id, {"id": conversation_id, "episodes": []})
+        group["episodes"].append((str(efm.get("timestamp") or ""), ep_id, efm, indexed is not None))
+    for group in groups.values():
+        # By instant, never by string (G114 R2): a bank holds naive, `Z` and
+        # `+00:00` stamps side by side, and lexical order across them is wrong.
+        group["episodes"].sort(key=lambda e: (episode_ids.timestamp_sort_key(e[0]), e[1]))
+        stamps = [stamp for e in group["episodes"]
+                  if episode_time.counts_as_activity(e[2]) and (stamp := _said(e[0], e[1]))]
+        group["said"] = ((min(stamps, key=episode_ids.timestamp_sort_key),
+                          max(stamps, key=episode_ids.timestamp_sort_key)) if stamps else None)
+    return list(groups.values())
 
 
 def entity_provenance(
@@ -385,23 +452,13 @@ def entity_provenance(
     fed_by = [str(e) for e in (fm.get("source_episodes") or []) if evidence.is_episode_id(str(e))]
     ordered = list(dict.fromkeys(fed_by + sorted({e for eps in cited.values() for e in eps})))
 
-    groups: dict[str, dict] = {}
-    for ep_id in ordered:
-        indexed = docs.meta(ep_id)
-        efm = indexed.frontmatter if indexed is not None else {}
-        conversation_id = _opt(efm.get("session_id")) or _opt(efm.get("source_id"))
-        group = groups.setdefault(conversation_id or ep_id, {"id": conversation_id, "episodes": []})
-        group["episodes"].append((str(efm.get("timestamp") or ""), ep_id, efm, indexed is not None))
-
     rows: list[ProvenanceConversation] = []
-    for group in groups.values():
-        # By instant, never by string (G114 R2): a bank holds naive, `Z` and
-        # `+00:00` stamps side by side, and lexical order across them is wrong.
-        group["episodes"].sort(key=lambda e: (episode_ids.timestamp_sort_key(e[0]), e[1]))
+    said: dict[int, tuple[str, str]] = {}   # id(row) -> (first, last) said, over every conversation
+    for group in conversation_groups(docs, ordered):
         ep_ids = [e[1] for e in group["episodes"]]
         first, last = group["episodes"][0], group["episodes"][-1]
         members = set(ep_ids)
-        rows.append(ProvenanceConversation(
+        row = ProvenanceConversation(
             conversation_id=group["id"],
             episode_id=last[1],
             episode_ids=ep_ids,
@@ -409,10 +466,19 @@ def entity_provenance(
             harness=next((_opt(e[2].get("harness")) for e in group["episodes"] if _opt(e[2].get("harness"))), None),
             origin=_opt(last[2].get("origin")) or _opt(last[2].get("source")),
             source=_opt(last[2].get("source")),
+            correspondent=_opt(_correspondent(last[2]).get("name")),
+            device=next((_opt(e[2].get("device")) for e in reversed(group["episodes"]) if _opt(e[2].get("device"))),
+                        None),
             timestamp=last[0] or None,
             claim_count=sum(1 for eps in cited.values() if eps & members),
             available=any(e[3] for e in group["episodes"]),
-        ))
+        )
+        rows.append(row)
+        if group["said"]:
+            said[id(row)] = group["said"]
+    dated = [r for r in rows if id(r) in said]
+    first = min(dated, key=lambda r: episode_ids.timestamp_sort_key(said[id(r)][0]), default=None)
+    last = max(dated, key=lambda r: episode_ids.timestamp_sort_key(said[id(r)][1]), default=None)
     rows.sort(key=lambda r: (r.claim_count, episode_ids.timestamp_sort_key(r.timestamp)), reverse=True)
     shown = rows[:MAX_PROVENANCE_CONVERSATIONS]
     for row in shown:
@@ -424,6 +490,9 @@ def entity_provenance(
         pname = str((pdoc[0] if pdoc else {}).get("name") or doc_id)
         pages.append(ProvenancePage(entity_id=doc_id, name=pname, claim_count=len(claim_ids)))
 
+    # F4: `/entities` serves the prose without the claims fence; the hash and the section ranges describe that text.
+    served, to_served = served_prose(parsed.body)
+    sections, sections_partial = _sections(parsed, docs, shown, to_served)
     return EntityProvenance(
         entity_id=entity_id,
         entity_name=name,
@@ -433,9 +502,122 @@ def entity_provenance(
         pages=pages,
         inferred_count=inferred,
         totals=ProvenanceTotals(claims=len(current), with_span=with_span, legacy=legacy,
-                                conversations=len(rows)),
+                                conversations=len(rows),
+                                first_said=said[id(first)][0] if first else None,
+                                last_said=said[id(last)][1] if last else None),
+        first_conversation=first.model_copy(update={"best": None}) if first else None,
+        last_conversation=last.model_copy(update={"best": None}) if last else None,
         commits_truncated=commits_truncated,
+        page_body_hash=evidence.body_hash(served),
+        sections=sections,
+        sections_partial=sections_partial,
     )
+
+
+def _section_evidence(ev: Evidence, docs: _Episodes, allowed: set[str]) -> SectionEvidence:
+    """Share page provenance reads; unchecked coordinates never become a wash."""
+    memory_path = docs._memory_path
+    path = evidence.source_path(memory_path, ev.episode)
+    is_episode = evidence.is_episode_id(ev.episode)
+    directory = memory_path / ('episodes' if is_episode else 'entities')
+    safe = path is not None and path.resolve().parent == directory.resolve()
+    indexed = docs.meta(ev.episode) if safe and is_episode else None
+    fm = indexed.frontmatter if indexed is not None else {}
+    row = SectionEvidence(
+        evidence=EvidenceModel(**ev.to_dict()),
+        source_available=safe,
+        source_title=str(fm.get('title') or ev.episode),
+        conversation_id=_opt(fm.get('session_id')) or _opt(fm.get('source_id')),
+        status='not_checked' if safe else 'missing',
+    )
+    if not safe:
+        return row
+    # Read only episodes in the shown conversation set, with a shared cap on
+    # unique document bodies. Existing cache hits cost no new read. Page spans
+    # are supported too, but share that same cap rather than escaping it.
+    if is_episode and ev.episode not in allowed:
+        return row
+    if ev.episode not in docs._bodies and len(docs._bodies) >= MAX_PROVENANCE_CONVERSATIONS:
+        return row
+    if is_episode:
+        text = docs.body(ev.episode)
+    else:
+        if ev.episode not in docs._bodies:
+            doc = evidence.source_document(memory_path, ev.episode)
+            docs._bodies[ev.episode] = doc[1] if doc else None
+        text = docs._bodies[ev.episode]
+    if text is None:
+        row.status = 'unavailable'
+        row.source_available = False
+        return row
+    row.status = evidence.span_status(text, end=ev.end, hash=ev.hash, appendable=is_episode)
+    if not ev.is_span():
+        return row  # reasoning opens a source without asserting a quotation
+    gaps = evidence.gap_ranges(fm, text) if is_episode else ()
+    if evidence.touches_gap(ev.start, ev.end, gaps):
+        row.status = 'gap'
+    elif row.status == evidence.SPAN_STALE or ev.end > len(text):
+        row.status = evidence.SPAN_STALE
+        row.span = _stale_model(text, ev)
+    else:
+        row.span = _span_model(text, ev.episode, ev.start, ev.end, hash=ev.hash, kind=ev.kind,
+                               grown=row.status == evidence.SPAN_GROWN)
+    return row
+
+
+def _sections(parsed, docs: _Episodes, shown: list[ProvenanceConversation],
+              to_served=lambda offset: offset) -> tuple[list[SectionProvenance], bool]:
+    sp = section_provenance
+    raw = parsed.frontmatter.get(sp.FIELD)
+    records = sp.decode(raw)
+    matched = sp.matched(parsed.frontmatter, parsed.body)
+    unavailable = sp.unavailable_sections(parsed.body, records or {})
+    allowed = {ep for conversation in shown for ep in conversation.episode_ids}
+    sections = []
+    used = 0
+    partial = False
+    current_sections = sp.scan(parsed.body)
+    for key, stored in (records or {}).items():
+        if stored:
+            current_sections.setdefault(key, [])
+    for key, items in current_sections.items():
+        links = matched.get(key, {})
+        if (raw is not None and records is None) or key in unavailable:
+            status = 'metadata_unavailable'
+            links = {}
+        else:
+            status = ('tracked' if len(links) == len(items) and links else 'partial' if links else 'not_tracked')
+        spans = sum(ev.is_span() for _, evs in links.values() for ev in evs)
+        reasoning = sum(ev.kind == 'reasoning' for _, evs in links.values() for ev in evs)
+        section = SectionProvenance(key=key, title=sp.TITLES[key], status=status, item_count=len(items),
+            recorded_items=len(links), span_count=spans, reasoning_count=reasoning,
+            unmatched_records=len((records or {}).get(key, {})) - len(links))
+        for item in items:
+            evs = links.get(item.key, ('', []))[1] if not item.ambiguous else []
+            row = SectionProvenanceItem(identity=f'{key}:{item.key}:{item.text_hash}:{item.ranges[0][0]}', text=item.text,
+                body_ranges=_served_ranges(item.ranges, to_served), ambiguous=item.ambiguous,
+                evidence=[_section_evidence(ev, docs, allowed) for ev in evs])
+            size = len(row.model_dump_json(by_alias=True).encode('utf-8'))
+            if used + size > MAX_SECTION_RESPONSE_BYTES:
+                section.partial = partial = True
+                continue
+            used += size
+            section.items.append(row)
+        sections.append(section)
+    return sections, partial
+
+
+def _served_ranges(ranges, to_served) -> list[list[int]]:
+    """An item's ranges in the served prose. A range that would not keep its length there — it touches or crosses a
+    removed claims block — cannot describe the item's text honestly, so the item's ranges are withheld (empty: not
+    locatable in the served body) rather than shortened (review r2 B1)."""
+    out = []
+    for start, end in ranges:
+        a, b = to_served(start), to_served(end)
+        if a is None or b is None or b - a != end - start:
+            return []
+        out.append([a, b])
+    return out
 
 
 # The most entity pages one citations call parses (R-PB10). A page is parsed
@@ -526,10 +708,9 @@ def episode_citations(memory_path: Path, doc_id: str) -> EpisodeCitations | None
                 "authored_by": git_service.canonical_author(claim.authored_by), "observer": claim.observer,
             }
             if is_event(claim):
-                # G141 R-PJB11: a born-closed done happening's `valid_to` is its
-                # shape, not its end — it reads as a dated happening, and is
-                # "no longer current" only when something replaced it.
-                base.update(current=not claim.superseded_by, event_status=claim.status,
+                # G141: a dated happening is not an obsolete belief. Only
+                # a successor makes its citation an earlier event state.
+                base.update(current=not bool(claim.superseded_by), event_status=claim.status,
                             event_day=claim.valid_from)
             mine = [ev for ev in claim.evidence if ev.episode == doc_id]
             spans = [ev for ev in mine if ev.is_span()]

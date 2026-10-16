@@ -110,7 +110,8 @@ struct Claim: Identifiable, Codable, Hashable {
     let sourceTrust: SourceTrust
     let confidence: Double
     let validFrom: String
-    let validTo: String?              // nil = currently valid
+    let validTo: String?              // any stored close means history
+    let expectedEnd: String?
     let supersededBy: String?
     let supersedes: String?
     let sourceEpisodes: [String]
@@ -135,11 +136,25 @@ struct Claim: Identifiable, Codable, Hashable {
     let authorModel: String?
     let authorEffort: String?
 
-    var isValid: Bool { validTo == nil }
+    var isValid: Bool { isCurrent(on: .today()) }
+
+    /// Same local-day rule as claims.is_current; stated ends include their whole day.
+    func isCurrent(on today: ISODay) -> Bool {
+        guard validTo == nil, supersededBy?.isEmpty != false else { return false }
+        let start = Self.claimDay(validFrom)
+        let end = Self.claimDay(expectedEnd) ?? (predicate == "due" ? Self.claimDay(object) : nil)
+        return (start == nil || start! <= today) && (end == nil || today <= end!)
+    }
+
+    private static func claimDay(_ raw: String?) -> ISODay? {
+        guard let raw = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
+              let day = ISODay(raw), day.description == String(raw.prefix(10)) else { return nil }
+        return day
+    }
 
     enum CodingKeys: String, CodingKey {
         case id, text, subject, predicate, object, objectKind, observer, context
-        case epistemic, sourceTrust, confidence, validFrom, validTo
+        case epistemic, sourceTrust, confidence, validFrom, validTo, expectedEnd
         case supersededBy, supersedes, sourceEpisodes, premises, authoredBy
         case evidence, sessionIds, origin, recordedAt, authorKind, authorProvider
         case authorModel, authorEffort
@@ -160,6 +175,7 @@ struct Claim: Identifiable, Codable, Hashable {
         confidence = try k.decodeIfPresent(Double.self, forKey: .confidence) ?? 0
         validFrom = try k.decodeIfPresent(String.self, forKey: .validFrom) ?? ""
         validTo = try k.decodeIfPresent(String.self, forKey: .validTo)
+        expectedEnd = (try? k.decodeIfPresent(String.self, forKey: .expectedEnd)) ?? nil
         supersededBy = try k.decodeIfPresent(String.self, forKey: .supersededBy)
         supersedes = try k.decodeIfPresent(String.self, forKey: .supersedes)
         sourceEpisodes = try k.decodeIfPresent([String].self, forKey: .sourceEpisodes) ?? []

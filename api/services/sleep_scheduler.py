@@ -19,7 +19,7 @@ from loguru import logger
 
 from api.config import Settings
 from api.models.schemas import ScheduleConfig
-from api.services import sleep_cycle, sleep_paused
+from api.services import bank_registry, sleep_cycle, sleep_paused
 
 JOB_ID = "sleep_daily"
 SCHEDULE_FILE = "sleep_schedule.yaml"
@@ -121,7 +121,15 @@ def register_job(
     scheduler: AsyncIOScheduler, settings: Settings, cfg: ScheduleConfig
 ) -> None:
     """Remove any existing sleep job and register the trigger this mode
-    needs — or none, for ``manual`` (G125 (4))."""
+    needs — or none, for ``manual`` (G125 (4)).
+
+    G183(d): registered in an unpinned copy of the context. ``PUT /sleep/schedule`` calls this inside a request pinned
+    to its bank, and APScheduler's wakeup/timer callbacks capture the context they are created in — the scheduled run
+    must resolve the bank active when it fires, never the one the schedule was saved in."""
+    bank_registry.run_unpinned(_register_job, scheduler, settings, cfg)
+
+
+def _register_job(scheduler: AsyncIOScheduler, settings: Settings, cfg: ScheduleConfig) -> None:
     try:
         scheduler.remove_job(JOB_ID)
     except Exception:
@@ -202,6 +210,7 @@ async def _run_after_intake_if_settled(settings) -> None:
     undo a Pause within minutes and clear the record), but runs the engine-free upkeep once a
     day meanwhile (``run(tail_only=True)``). A parked conversation is waiting but not
     readable, so a queue of only parked ones never fires an empty run every five minutes."""
+    bank_registry.unpin()   # G183(d): the bank active now, whatever context scheduled this (`register_job`)
     from api.services import sleep_debt
 
     if sleep_cycle.get_sleep_state().status == "running":
@@ -239,6 +248,7 @@ async def _run_if_idle(settings: Settings) -> None:
     """Cron callback. Skips if a cycle is already running so we never stack. While a paused
     run waits for the person it reads nothing (that would replace the pause) but still runs
     the engine-free tail (``run(tail_only=True)``)."""
+    bank_registry.unpin()   # G183(d): the bank active now, whatever context scheduled this (`register_job`)
     state = sleep_cycle.get_sleep_state()
     if state.status == "running":
         logger.info("Skipping scheduled sleep cycle: another cycle is running")

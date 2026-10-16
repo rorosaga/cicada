@@ -29,9 +29,12 @@ extension Copy {
         static let showAll = "Show all"
         static let showLogos = "Show logos"
         static let showLogosHelp = "Show entity logos on graph nodes"
+        /// 2026-10-15 — Obsidian's orphans filter, in plain words: pages and saved links that link to nothing yet.
+        static let showUnlinked = "Show unlinked"
+        static let showUnlinkedHelp = "Show pages and saved links that are not connected to anything yet"
         static let dashed = "dashed"
         static let hiddenByDefault = "hidden by default"
-        static let keyBigger = "Bigger means more confident"
+        static let keyBigger = "Bigger means more connected"
         static let keyDashed = "Dashed means fading"
         static let keyPulse = "Amber ring: a question waits"
 
@@ -49,6 +52,9 @@ extension Copy {
 extension Copy.Graph {
     static func confidenceOutOf100(_ n: Int) -> String { "Confidence \(n) out of 100" }
     static let fadingReason = " · not mentioned lately, so it is fading"
+    /// G194 A2 — an old page's header and its `.help`; the month and day come from `RelativeDay`.
+    static func lastMentioned(_ month: String) -> String { "last mentioned \(month)" }
+    static func lastMentionedHelp(_ day: String) -> String { " · last mentioned \(day)" }
     /// G117 — the owner's own page.
     static func ownerName(_ name: String) -> String { "\(name) (you)" }
     static func backTo(_ name: String?) -> String { name.map { "‹ Back to \($0)" } ?? "‹ Back" }
@@ -65,6 +71,21 @@ extension Copy.Graph {
     static let rendered = "Rendered"
     static let source = "Source"
     static let copyMarkdown = "Copy markdown"
+    /// The person hero's two-line Summary (F-12): a click shows all of it.
+    static let showWholeSummary = "Show the whole summary"
+    static let showLess = "Show less"
+    /// #244 — the History tab past its first page.
+    static let olderChanges = "Older changes"
+    static let olderChangesFailed = "Couldn't read older changes."
+    /// F4 — Source and Copy when `/entities/{id}/raw` could not be read.
+    static let sourceUnavailable = "Couldn't read this page's file."
+    static let copyFailed = "Couldn't copy: the page's file could not be read."
+    /// F4 — the line in place of a claims block too large to draw in Source.
+    static func sourceFolded(bytes: Int) -> String {
+        let size = ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
+        return "The rest of the file is its claims block (\(size)), not drawn here. Perspectives lists those beliefs; "
+            + "Copy markdown copies the whole file."
+    }
     static let copyPath = "Copy path"
     static let folder = "Folder"
     static let folderNotFound = "This folder isn't on this Mac."
@@ -133,10 +154,14 @@ extension Copy.Graph {
     static let detailsSummary = "· tags, related, dates, how it fades"
     static let tags = "Tags"
     static let related = "Related"
+    /// Owner page, 2026-10-14 — the Details row of a hub that links thousands of pages: the rest are one click away.
+    static func relatedMore(_ n: Int) -> String { "and \(UsageFormat.count(n)) more" }
+    static let relatedMoreHelp = "Show every related page in this page's Related section"
     static let firstNoted = "First noted"
     static let lastMentioned = "Last mentioned"
     static let fades = "Fades"
     static let fadesHelp = "How fast this fades when it stops coming up — the more weeks it came up in, the slower"
+    static let fadesNotChanged = "Couldn't change how this fades — try again"
 
     // Beliefs
     static let beliefTimelineHelp = "How this belief changed over time"
@@ -169,4 +194,16 @@ extension Copy.Graph {
         return day.map { "\(count) since \($0)" } ?? count
     }
     static let supersededByNewer = "Superseded by a newer belief"
+}
+
+// Owner 2026-10-09 — the card opens on the page; the rest waits behind a click.
+extension Copy.Graph {
+    static let beliefsTitle = "What Cicada believes"
+    static let readingPage = "Reading the page…"
+    static let pageUnavailable = "Couldn't read this page."
+    static let readingBeliefs = "Reading what Cicada believes…"
+    static let readingSources = "Reading where to look this up…"
+    static let lineSource = "Where this line came from"
+    /// A closed section's count, after its name ("What Cicada believes · 4,770").
+    static func sectionCount(_ n: Int) -> String { "· \(UsageFormat.count(n))" }
 }

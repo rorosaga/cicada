@@ -428,6 +428,10 @@ class EntityMedia(CamelModel):
     site: Optional[str] = None
     channel: Optional[str] = None
     thumbnail: Optional[str] = None
+    # The page's own picture as Cicada stores it (`media_preview.preview_path`: `/entities/{id}/preview?v=<key>`, loaded
+    # with the bearer) — what a card draws instead of fetching `thumbnail` from the provider. Derived from the page
+    # alone, so it moves only with the `entities` component. Additive: an older client ignores it.
+    preview: Optional[str] = None
     description: Optional[str] = None
     # Track V (R-V2) — the two video keys from the page's `media:` block, both
     # additive + defaulted so an older page (which carries neither) decodes
@@ -461,6 +465,16 @@ class EntityDecay(CamelModel):
     mention_weeks: int
 
 
+class EntityBands(CamelModel):
+    """G180 parity — the card's classifications, computed behind the API (`entity_bands`) so no client re-derives
+    them: ``confidence`` very|fairly|unsure|doubtful, ``fade_pace`` never|very_slowly|slowly|usual|quickly (from the
+    charged rate), ``last_mentioned`` the page's day when it is old (G194), else null. Words stay in each client."""
+
+    confidence: str
+    fade_pace: str
+    last_mentioned: Optional[str] = None
+
+
 class PictureInputsModel(CamelModel):
     """C11 — the rung inputs `entity_picture.resolve` read (plan R-PE5), so the app's twin can paint a removal before
     the server answers (R-PE10). `choice` is the person's (`upload` | `initials`); `logo` is already the logo rung's
@@ -472,6 +486,12 @@ class PictureInputsModel(CamelModel):
     contacts_sha: Optional[str] = None
     logo: bool = False
     thumbnail: Optional[str] = None
+    #: G159 (2026-10-09) — the public-profile rung: offered (server-decided, like `logo`) and the stored copy's hash.
+    profile: bool = False
+    profile_sha: Optional[str] = None
+    profile_key: Optional[str] = None
+    #: 2026-10-16 — the photo the page's ticked Messages chat shares (`messages_photos`), rung 2a.
+    messages_sha: Optional[str] = None
 
 
 class EntityPictureResponse(CamelModel):
@@ -502,9 +522,18 @@ class EntityResponse(CamelModel):
     version: int
     markdown_content: str
     # Verbatim file content (frontmatter + body) for the Source view in the
-    # companion app — transparency over reconstruction.
+    # companion app — transparency over reconstruction. F4: when the page is
+    # larger than the inline bound, ``raw_omitted`` is set and this is the file
+    # verbatim up to its first claims fence (frontmatter and prose) — for a page
+    # whose older claims live in its ledger, its frontmatter alone; the app
+    # reads ``GET /entities/{id}/raw`` for the whole file. ``markdown_content``
+    # is the prose without the claims fence (the claims are ``/claims``).
     raw_markdown: str = ""
+    raw_omitted: bool = False
     history: list[EntityHistoryEntry]
+    # Review round 1: more touching commits than `MAX_PROVENANCE_COMMITS` — `history` is the newest ones plus every
+    # commit whose lines survive; the rest via `GET /entities/{id}/history?skip=N`. Additive (an older client ignores it).
+    history_truncated: bool = False
     # Structured media metadata for ``type: media`` entities (G11); ``None`` for
     # every other entity. Populated from the nested ``media:`` frontmatter block.
     media: Optional[EntityMedia] = None
@@ -515,9 +544,11 @@ class EntityResponse(CamelModel):
     # builds an EntityResponse without a page. Additive: an older client
     # ignores it and keeps showing the class.
     decay: Optional[EntityDecay] = None
+    # G180 parity: additive; `GET /entities/{id}` has no ETag and is not a Store domain, so no VersionVector change.
+    bands: Optional[EntityBands] = None
     # C11 (G146) — the page's picture (`entity_picture.resolve`): a path on this API the app loads with the bearer
-    # (`/entities/{id}/picture?v=…`, `/entities/{id}/logo`) or a media page's https thumbnail it loads without it
-    # (plan R-PE6); which rung won; and the inputs the app's twin re-resolves from. Additive: an older client ignores
+    # (`/entities/{id}/picture?v=…`, `/entities/{id}/logo`, `/entities/{id}/preview?v=…` — a media page's stored
+    # preview; no provider URL any more); which rung won; and the inputs the app's twin re-resolves from. Additive: an older client ignores
     # all three.
     picture: Optional[str] = None
     picture_source: Optional[str] = None
@@ -675,6 +706,24 @@ class EntitySource(CamelModel):
     effective_access: Optional[str] = None
     trusted: bool = True
     checked: Optional[dict] = None
+    # G61, ruling 26: a tracked source's re-check state as stored (`refresh`: `at`, `outcome`, `good`, `dead`…), the
+    # person's cadence (`recheckDays`, null = the default), and — derived at read — whether it is re-checked at all,
+    # who re-checks it (`cicada` | `agent`) and why it is due now (null when it is not).
+    refresh: Optional[dict] = None
+    recheck_days: Optional[int] = None
+    tracked: Optional[bool] = None
+    refresh_checker: Optional[str] = None
+    refresh_due: Optional[str] = None
+
+
+class SourceRefreshRequest(CamelModel):
+    """``POST /entities/{id}/sources/refresh`` (G61, ruling 26): re-check ONE source now, keyed ``(ref, predicate)``.
+    ``everyDays`` instead sets the person's cadence for it (``clear`` puts it back to the default)."""
+
+    ref: str
+    predicate: Optional[str] = None
+    every_days: Optional[int] = None
+    clear: bool = False
 
 
 class EntitySourceCreate(CamelModel):
@@ -1013,7 +1062,9 @@ class EpisodeTurn(CamelModel):
     """One turn of a document (G118 slice 2, design §4.8.1) — offsets into the
     evidence text, never a copy of it. See ``evidence.TurnSpan``: ``role`` is
     ``user`` | ``assistant`` | ``speaker`` (a note-taker's ``speaker:<label>:``
-    line, R-LS7) | ``media`` (a timed ``video [m:ss]:`` line, G140) | ``page``;
+    line, R-LS7) | ``media`` (a timed ``video [m:ss]:`` line, G140) | ``page``
+    | ``gap`` (G110 gate B2: Cicada's dropped-middle line in a long captured
+    session — nobody's words);
     ``marker`` is the word as written (``None`` for a marker-less block);
     ``ts``/``speaker`` exist only where the episode stores a ``turns`` sidecar
     entry for this turn; ``t`` = seconds into the video for a media turn
@@ -1101,6 +1152,13 @@ class EpisodeText(CamelModel):
     source: Optional[str] = None
     conversation_id: Optional[str] = None
     capture_kind: Optional[str] = None
+    #: G179: a message conversation's other side — its name (what its `assistant`/`speaker` turns are labelled) and
+    #: kind (`agent` | `person` | `unknown`). Null for every other episode.
+    correspondent: Optional[str] = None
+    correspondent_kind: Optional[str] = None
+    #: G181 phase 3: the id of the person's device whose token posted this episode; null for a page and for what the
+    #: server's own machine wrote.
+    device: Optional[str] = None
     turns: list[EpisodeTurn] = []
     focus: Optional[EpisodeFocus] = None
     agent: Optional[EpisodeAgent] = None
@@ -1167,6 +1225,11 @@ class ProvenanceConversation(CamelModel):
     harness: Optional[str] = None
     origin: Optional[str] = None
     source: Optional[str] = None
+    #: G179: a message conversation's other side (its agent's or person's name), so a chip reads "Instinct replied".
+    correspondent: Optional[str] = None
+    #: G181 phase 3: the id of the person's device whose token posted it (its episode's ``device``); null for what the
+    #: server's own machine wrote. Ids only — the app names it from ``GET /devices``.
+    device: Optional[str] = None
     timestamp: Optional[str] = None
     claim_count: int = 0
     available: bool = True
@@ -1188,6 +1251,43 @@ class ProvenanceTotals(CamelModel):
     with_span: int = 0
     legacy: int = 0
     conversations: int = 0
+    #: When the earliest and the newest of ALL ``conversations`` were said — an episode's ``timestamp``, else the
+    #: day in its id (G194's basis) — so the person card's "Known since" / "Last mentioned" never read the page's
+    #: write dates or the 50 rows shown.
+    first_said: Optional[str] = None
+    last_said: Optional[str] = None
+
+
+class SectionEvidence(CamelModel):
+    """Recorded input; raw coordinates are metadata, `span` alone may wash."""
+
+    evidence: EvidenceModel
+    source_title: str = ""
+    conversation_id: Optional[str] = None
+    source_available: bool = False
+    status: str = "not_checked"
+    span: Optional[ProvenanceSpan] = None
+
+
+class SectionProvenanceItem(CamelModel):
+    identity: str
+    text: str
+    body_ranges: list[list[int]] = []
+    ambiguous: bool = False
+    evidence: list[SectionEvidence] = []
+
+
+class SectionProvenance(CamelModel):
+    key: str
+    title: str
+    status: str = "not_tracked"
+    item_count: int = 0
+    recorded_items: int = 0
+    span_count: int = 0
+    reasoning_count: int = 0
+    unmatched_records: int = 0
+    items: list[SectionProvenanceItem] = []
+    partial: bool = False
 
 
 class EntityProvenance(CamelModel):
@@ -1206,6 +1306,115 @@ class EntityProvenance(CamelModel):
     inferred_count: int = 0
     totals: ProvenanceTotals = Field(default_factory=ProvenanceTotals)
     commits_truncated: bool = False
+    page_body_hash: str = ""
+    section_schema: int = 1
+    sections: list[SectionProvenance] = []
+    sections_partial: bool = False
+    #: The conversations ``totals.first_said`` / ``last_said`` come from (their app leads the card's line), whether or
+    #: not they are among the 50 shown; ``best`` is never filled on these.
+    first_conversation: Optional[ProvenanceConversation] = None
+    last_conversation: Optional[ProvenanceConversation] = None
+
+
+class SourceFact(CamelModel):
+    """One current belief a source backs (owner 2026-10-14): the page's own claim of the source's predicate — the
+    sentence, and the key the card's Timeline opens (``predicate`` + ``context``)."""
+
+    claim_id: str
+    text: str
+    predicate: str = ""
+    context: str = "general"
+
+
+class OverviewSource(EntitySource):
+    """A ``sources:`` entry as ``GET /entities/{id}/sources`` serves it, plus what the card says about it: its
+    ``site`` key (``reading_hosts.site_of``, a url only), a ``title`` — the page's own ``## Links`` title for that URL,
+    else the name of the saved page it is linked to (``entity``), never fetched —
+    its ``scope`` (``fact``: it backs one predicate; ``site``: the official-site role; ``page``: no predicate) and
+    the current beliefs it backs (at most ``page_sources.MAX_FACTS``, newest first; ``fact_count`` is all of them)."""
+
+    site: Optional[str] = None
+    title: Optional[str] = None
+    scope: str = "page"
+    facts: list[SourceFact] = []
+    fact_count: int = 0
+
+
+class OverviewLinkOrigin(CamelModel):
+    """The conversation a ``## Links`` line came from, by its section-provenance record: what the Reader opens."""
+
+    episode: str
+    title: str = ""
+    harness: Optional[str] = None
+    origin: Optional[str] = None
+    said: Optional[str] = None
+    available: bool = True
+    evidence: Optional[EvidenceModel] = None
+
+
+class OverviewLink(CamelModel):
+    """A URL from the page's ``## Links`` that is not one of its sources: its title, site and note as the line says
+    them, and the conversation that named it when the page recorded one."""
+
+    url: str
+    title: str = ""
+    site: Optional[str] = None
+    note: Optional[str] = None
+    came_from: Optional[OverviewLinkOrigin] = None
+
+
+class OverviewApp(CamelModel):
+    """The conversations that fed a page from one app (a harness, else an origin): how many, the beliefs and the
+    page's passages they back, and when the newest was said."""
+
+    harness: Optional[str] = None
+    origin: Optional[str] = None
+    source: Optional[str] = None
+    conversations: int = 0
+    facts: int = 0
+    passages: int = 0
+    last_said: Optional[str] = None
+
+
+class OverviewConversations(CamelModel):
+    total: int = 0
+    first_said: Optional[str] = None
+    last_said: Optional[str] = None
+    apps: list[OverviewApp] = []
+
+
+class SourceUpdate(CamelModel):
+    """G61, ruling 26 — one fact a tracked source's re-check wrote: what it says now (``value``), what it replaced
+    (``was``, null when nothing did), the capture day (``at``), the site it was read on, whether it is still current,
+    and whether the reading said the value ENDED (``ended``)."""
+
+    claim_id: str
+    predicate: str = ""
+    value: str = ""
+    was: Optional[str] = None
+    at: Optional[str] = None
+    site: Optional[str] = None
+    current: bool = True
+    ended: bool = False
+
+
+class SourcesOverview(CamelModel):
+    """``GET /entities/{id}/sources/overview`` (owner 2026-10-14) — where a page's knowledge comes from and how fresh
+    it is, in one read the card asks for: its sources with the beliefs each backs, the links its conversations named,
+    and those conversations by app. Engine-free, never fetches, writes nothing; bounded by the ``MAX_*`` caps in
+    ``page_sources`` so an owner-sized page answers in kilobytes. On demand, ETagged, not a Store domain."""
+
+    entity_id: str
+    entity_type: str = ""
+    sources: list[OverviewSource] = []
+    links: list[OverviewLink] = []
+    links_total: int = 0
+    conversations: OverviewConversations = OverviewConversations()
+    facts_total: int = 0
+    facts_with_source: int = 0
+    last_checked: Optional[str] = None
+    # G61, ruling 26: what tracked sources changed on this page, newest first (at most `page_sources.MAX_UPDATES`).
+    updates: list[SourceUpdate] = []
 
 
 class EpisodeCitation(CamelModel):
@@ -1213,7 +1422,8 @@ class EpisodeCitation(CamelModel):
     ``evidence`` is the stored entry for a span or reasoning row, ``None`` for
     a derived one. ``start``/``end`` are what to wash — the asserted offsets,
     a derived name match, or ``None`` (reasoning, no match, or ``stale``:
-    R-PB2). ``current`` is false for a superseded or closed claim."""
+    R-PB2). ``current`` is false for a superseded or closed belief; dated events
+    stay visible unless superseded (G141)."""
 
     claim_id: str
     subject_id: str
@@ -1230,8 +1440,7 @@ class EpisodeCitation(CamelModel):
     stale: bool = False
     grown: bool = False
     derived: bool = False
-    # G141 R-PJB11 — an event cited here is a dated happening: `current` is
-    # false only when something replaced it, never for a born-closed done one.
+    # G141 — born-closed events remain visible unless superseded.
     event_status: Optional[str] = None
     event_day: Optional[str] = None
     # G162: on a `media` row only — how faithful the video's words are.
@@ -1727,9 +1936,7 @@ class SearchHit(CamelModel):
     valid_from: str | None = None
     valid_to: str | None = None
     superseded_by: str | None = None
-    # G141 R-PJB11 — an event claim hit: its status and day. Its `valid_to` /
-    # `superseded_by` are sent only when something replaced it, so a
-    # born-closed done happening never renders as history.
+    # G141 — an event claim hit keeps its status, day and closure metadata.
     event_status: str | None = None
     event_day: str | None = None
 
@@ -1798,6 +2005,13 @@ class ContextEpisodeExcerpt(CamelModel):
     episode_id: str
     timestamp: str
     excerpt: str
+
+
+class EntityRawResponse(CamelModel):
+    """F4 — ``GET /entities/{id}/raw``: the page file verbatim."""
+
+    id: str
+    raw_markdown: str
 
 
 class EntityContextResponse(CamelModel):
@@ -1874,6 +2088,9 @@ class InboxKind(str, Enum):
     # G141 PJ-6: "how did it go?" on a quiet thread or an overdue milestone —
     # engine-free, question synthesised at read (like decay).
     followup = "followup"
+    # G198: an agent's edit of a page's words or aliases, waiting for the person (the agent is not on their list of
+    # agents that edit pages directly). `apply` writes it under the agent and the person; `dismiss` leaves the page.
+    page_edit = "page_edit"
 
 
 class RequiredInput(str, Enum):
@@ -2014,6 +2231,9 @@ class InboxItem(CamelModel):
     suggested_classification: Optional[str] = None
     suggested_confidence: Optional[float] = None
     merge_target_hint: Optional[str] = None
+    # A clarification that asks for a person's name (``"name"``, `role_people`): the app draws a name field and
+    # "I'd rather not say"; an older build sees its option and Other… and still answers it. Null otherwise.
+    asks: Optional[str] = None
     # G115 Phase 1 — all additive so an older app build still decodes.
     entity_type: Optional[str] = None
     source_episode: Optional[str] = None
@@ -2047,6 +2267,44 @@ class InboxResolveRequest(CamelModel):
     # When it names the cleaner mention instead, the surviving file is renamed to
     # the survivor's slug so a merge can go either direction.
     merge_survivor: Optional[str] = None
+    # Owner, 2026-10-14: what the person said in conversation that answered the question (asked or not), as the
+    # AGENT relays it — never verified as their verbatim words. Kept as a small episode marked relayed (the agent's
+    # text, `relayed_by` + `session_id`) and cited as the answer's evidence; never sent by a remote connection
+    # (R-R22); dropped in a demo bank.
+    quote: Optional[str] = None
+    # Who relayed ``quote``: the harness (its ``Cicada-Author`` name) and the conversation it came from.
+    relayed_by: Optional[str] = None
+    session_id: Optional[str] = None
+    # G198 review B1: "agent" when an agent's tool posted the answer (`cicada_resolve_inbox`, an edit's `resolves`).
+    # The backend refuses such a caller an answer only the person gives (a proposed page edit). Defense in depth: the
+    # tool refuses first; a process that skips the tool can write the bank's files anyway.
+    via: Optional[str] = None
+
+
+class SettledCheck(CamelModel):
+    """``GET /inbox/settled`` — one question a web lookup or the person's own agent settled (owner ruling
+    2026-10-16): the answer, the citation it rests on (``ref`` + ``quote``, on that claim only — never a tracked
+    source) and who settled it. ``hasPage``: the subject has a page, so the citation can be promoted to a tracked
+    source with the person's own add-source route."""
+
+    id: str
+    kind: str
+    question: str = ""
+    entity_id: str = ""
+    entity_name: str = ""
+    answer: str = ""
+    predicate: str = ""
+    ref: str = ""
+    host: str = ""
+    quote: str = ""
+    settled_at: str = ""
+    settled_by: str = ""
+    settled_by_kind: str = ""
+    scope: str = "public"
+    claim_id: str = ""
+    episode: str = ""
+    held: bool = False
+    has_page: bool = False
 
 
 class CheckCensus(CamelModel):
@@ -2075,6 +2333,9 @@ class StatusSleep(CamelModel):
     total_stages: int = 5
     cycle_id: Optional[str] = None
     error: Optional[str] = None
+    # G177 — Sleep holds the bank's pages right now (`sleep_cycle.is_writing`). The app's write controls key off
+    # this, not `status`: a person-started drain is `running` for hours but accepts writes between its batches.
+    writing: bool = False
 
 
 class StatusInbox(CamelModel):
@@ -2094,6 +2355,27 @@ class StatusGates(CamelModel):
     logo_fetch: bool = True
 
 
+class StatusSettingsEffective(CamelModel):
+    """The four values Sleep's pace and page writing turn on — never a path, a key or a token."""
+    agent_max_concurrency: int
+    sleep_resolve_concurrency: int
+    summary_synthesis_enabled: bool
+    page_articles_enabled: bool
+
+
+class StatusSettings(CamelModel):
+    """Where each `CICADA_` setting came from, by NAME only (`api/settings_file.py`): the developer checkout's
+    settings file (`file`, null when none was read) or the environment, and which names the file set but the
+    environment replaced with a different value — so a value that is set but not in effect is visible. A name the
+    environment carries with the file's own value (the plist's memory path, the app-spawned developer backend's copy
+    of the whole file) counts as from the file."""
+    file: Optional[str] = None
+    from_file: list[str] = []
+    from_environment: list[str] = []
+    replaced_by_environment: list[str] = []
+    effective: Optional[StatusSettingsEffective] = None
+
+
 class StatusResponse(CamelModel):
     sleep: StatusSleep
     inbox: StatusInbox
@@ -2106,20 +2388,24 @@ class StatusResponse(CamelModel):
     telemetry: Optional[str] = None
     gates: Optional[StatusGates] = None
     env_overrides: list[str] = []
+    settings: Optional[StatusSettings] = None
 
 
 # --- Health (liveness probe for installer / doctor) ---
 
 
 class HealthResponse(CamelModel):
+    """``GET /healthz``. Without a token (owner decision 3, 2026-10-16) only ``status``, ``version``, ``bankId`` and
+    ``bankIds`` are filled — liveness and identity, never the memory's path or name; every other field is ``null``
+    and needs the master or a device token (``auth.bearer_admits``)."""
     status: str = "ok"
     version: str
-    entity_count: int
-    episode_count: int
+    entity_count: Optional[int] = None
+    episode_count: Optional[int] = None
     # The *resolved* embedding mode after openai->local auto-degrade, so the
     # installer/doctor can confirm the offline path is actually active.
-    embedding_mode: str
-    memory_path: str
+    embedding_mode: Optional[str] = None
+    memory_path: Optional[str] = None
     # The raw *configured* root (Settings.memory_root / CICADA_MEMORY_PATH) —
     # the container of banks.yaml + banks/<name>/, distinct from memory_path
     # above (the *resolved active bank*). This is the single source of truth
@@ -2130,9 +2416,19 @@ class HealthResponse(CamelModel):
     # ConnectView.swift, which fetches this instead of re-deriving a root
     # from local heuristics that could disagree with whatever the backend
     # was actually started with).
-    memory_root: str
+    memory_root: Optional[str] = None
+    # G181 phase 2 — the active bank's id and every bank's id in this root (banks.yaml), so a `cicada` command on
+    # this machine or another compares identities, never filesystem paths (ruling 21a, amended 2026-10-16).
+    # Ids only: no bank name is said to an unauthenticated caller.
+    bank_id: Optional[str] = None
+    bank_ids: list[str] = []
     # True when any LEANN index sidecar (<name>.meta.json) exists on disk.
-    leann_present: bool
+    leann_present: Optional[bool] = None
+    # The model the active bank's index records (else the one a build would use), and the
+    # kind of its last unresolved embedding failure (``embedding_health.KINDS``) — enums
+    # only, never a message, so doctor can say why search fell back to words.
+    embedding_model: Optional[str] = None
+    embedding_problem: Optional[str] = None
 
 
 # --- Sleep ---
@@ -2185,7 +2481,7 @@ class SleepDebtResponse(CamelModel):
 
 class SleepDrainStop(CamelModel):
     """Why a person-started run stopped before it read everything it froze.
-    ``reason``: ``cancelled | plan_limit | engine | bank_switched | error``.
+    ``reason``: ``cancelled | plan_limit | engine | bank_switched | error | reserve | busy``.
     ``sentence`` is a plain sentence (the vendor's own for a plan limit) and
     ``resets_at`` the vendor's unix reset time when one was measured — never
     estimated (G107)."""
@@ -2299,11 +2595,13 @@ class SleepPaused(CamelModel):
     """A run that stopped with conversations still waiting and can be continued. Paused
     is a fact about a run, not a state of Sleep: ``status`` stays ``idle`` and nothing is
     held. ``reason``: ``user | plan_window | plan_weekly | reserve | overage | engine |
-    restart``; ``sentence`` is the vendor's own for a plan stop; ``resets_at`` is the
+    restart``; ``engine_kind`` distinguishes transient interruptions from fixes;
+    ``sentence`` is the plan's own diagnosis or the engine's fix; ``resets_at`` is the
     vendor's, ``null`` when none was given — never guessed."""
     run_id: str
     started_by: str = "user"
     reason: str
+    engine_kind: Optional[Literal["transient", "needs_fix"]] = None
     sentence: Optional[str] = None
     resets_at: Optional[int] = None
     limit: Optional[str] = None
@@ -2408,6 +2706,10 @@ class SleepStatusResponse(CamelModel):
     # A run that stopped with conversations still waiting (Sleep page v5), read from its
     # machine-local sidecar for the active bank; ``None`` while a run is reading.
     paused: Optional[SleepPaused] = None
+    # 2026-10-16 — the newest FINISHED cycle's figures for Details › Last cycle (`last_cycle.latest`): a drain is one
+    # cycle (its run's time, engine and whole cost); a run still reading or paused is skipped. Always sent — ``None``
+    # means no finished cycle in the newest 200 consolidation commits; an older backend omits the key.
+    last_finished_cycle: Optional["LastFinishedCycle"] = None
 
 
 class CycleUsageModel(CamelModel):
@@ -2447,6 +2749,25 @@ class CycleUsagePlan(CamelModel):
     windows: list[CycleUsagePlanWindow] = Field(default_factory=list)
 
 
+class CycleUsagePlanShare(CamelModel):
+    """How much of one plan window a run used (owner 2026-10-16: on a plan, the share leads, not dollars).
+    ``basis`` says what the figure IS:
+
+    * ``measured`` — the window's own reading moved: ``share`` = after − before (the whole plan's change, so
+      it can include other use meanwhile);
+    * ``under`` — the reading did not move at the probe's resolution: the share is below ``under`` (0.01), and
+      ``share`` is ``null`` — never 0;
+    * ``estimated`` — this run's list-price size times the window's observed rate from earlier cycles that
+      moved it (``samples`` of them). When the reading itself did not move, ``under`` is set too.
+
+    A window with neither a reading nor a rate is left out: unknown, never zero."""
+    window: str
+    basis: str
+    share: Optional[float] = None
+    under: Optional[float] = None
+    samples: Optional[int] = None
+
+
 class CycleUsage(CamelModel):
     """``GET /sleep/history/{commit}`` ``usage`` — derived at read from the
     ledger; ``null`` on the wire means "not recorded" (a cycle from before
@@ -2460,6 +2781,8 @@ class CycleUsage(CamelModel):
     # charged | list | plan | free | mixed; null when no model was called.
     basis: Optional[str] = None
     plan: Optional[CycleUsagePlan] = None
+    # A plan run's share of each window (``CycleUsagePlanShare``); empty for a metered run or when unknown.
+    plan_share: list[CycleUsagePlanShare] = Field(default_factory=list)
 
 
 class CycleUsageSummaryPlan(CamelModel):
@@ -2477,6 +2800,24 @@ class CycleUsageSummary(CamelModel):
     engine: Optional[str] = None
     connection: Optional[str] = None
     plan: Optional[CycleUsageSummaryPlan] = None
+    plan_share: list[CycleUsagePlanShare] = Field(default_factory=list)
+
+
+class LastFinishedCycle(CamelModel):
+    """``SleepStatusResponse.lastFinishedCycle`` — ids, numbers and enums only. ``drain_id`` names the run when the
+    cycle was one (then ``duration_ms`` is the run's reading time and ``usage_summary`` the whole run's cost); a plain
+    cycle has neither ``drain_id`` nor ``state``. Unknown is ``None``, never zero."""
+    commit_hash: str
+    date: str
+    drain_id: Optional[str] = None
+    batches: Optional[int] = None
+    duration_ms: Optional[int] = None
+    engine: Optional[str] = None
+    usage_summary: Optional[CycleUsageSummary] = None
+    state: Optional[str] = None            # finished | failed | ended, for a run
+
+
+SleepStatusResponse.model_rebuild()
 
 
 class SleepHistoryEntry(CamelModel):
@@ -2660,6 +3001,14 @@ class ScheduleConfig(CamelModel):
         return self
 
 
+class ScheduleResponse(ScheduleConfig):
+    """``GET``/``PUT /sleep/schedule``'s answer: the schedule, and — while it runs on its own — why a scheduled run
+    would have no engine it may use (owner decision 2, 2026-10-16; ``engine_readiness``). ``warning`` is the sentence,
+    ``warningCode`` what each client words its own fix from (``no_engine``, ``plan_signed_out``, ``local_down``)."""
+    warning: Optional[str] = None
+    warning_code: Optional[str] = None
+
+
 # --------------------------------------------------------------------------- #
 # G122 — GET/PUT /sleep/engine: the Settings → Engines engine & model picker.
 # --------------------------------------------------------------------------- #
@@ -2708,6 +3057,10 @@ class SleepEngineUsage(CamelModel):
     input_per_million_usd: Optional[float] = None
     output_per_million_usd: Optional[float] = None
     last_cycle_cost_usd: Optional[float] = None
+    # A plan card: the newest run's share of each window and its list-price equivalent (the secondary
+    # "would have cost" figure, never a charge).
+    last_run_share: list[CycleUsagePlanShare] = Field(default_factory=list)
+    last_run_equiv_usd: Optional[float] = None
 
 
 class SleepEngineProvider(CamelModel):
@@ -2774,6 +3127,9 @@ class SleepEngineResponse(CamelModel):
     # the engine a run you start would use, and which windows are enforced (from the last
     # run's observations; ``null`` = nothing could tell yet).
     reserve: Optional["SleepReserveStatus"] = None
+    # A run of this bank is reading on the engine it resolved at its start or Continue, and that is not
+    # what the choice above resolves to now: the change applies from the next start or Continue.
+    run_keeps_engine: bool = False
 
 
 class SleepReserveStatus(CamelModel):
@@ -2792,6 +3148,9 @@ class SleepRunOptions(CamelModel):
     continue_after_reset: bool = False
     reserve_pct: Optional[int] = None
     reserve_choices: list[int] = Field(default_factory=list)
+    # TODO ruling 4b (owner, 2026-10-16): this machine lets SCHEDULED runs use the person's plan (Claude or ChatGPT).
+    # Off by default; nightly runs then count against the plan's limits.
+    scheduled_use_plan: bool = False
 
 
 class SleepRunOptionsUpdate(CamelModel):
@@ -2799,6 +3158,7 @@ class SleepRunOptionsUpdate(CamelModel):
     batch_size: Optional[int] = None
     continue_after_reset: Optional[bool] = None
     reserve_pct: Optional[int] = None
+    scheduled_use_plan: Optional[bool] = None
 
 
 class SleepTriggerBody(BaseModel):
@@ -2868,6 +3228,80 @@ class OwnerSettingsResponse(CamelModel):
     entity_id: Optional[str] = None
 
 
+# --- G198: agents that edit pages, and who wrote what ---
+
+
+class PageEditor(CamelModel):
+    harness: str
+    label: str
+    since: Optional[str] = None
+
+
+class PageEditorsResponse(CamelModel):
+    """``GET/PUT /settings/editors``: the harnesses the person lets edit a page directly, and the local ones they
+    could add. Machine-wide (``$CICADA_HOME/editors.json``), never in a bank. ``defaults`` are the agents trusted
+    while the person never changed the list (owner, 2026-10-14); ``customized`` says whether they have."""
+    trusted: list[PageEditor] = Field(default_factory=list)
+    candidates: list[PageEditor] = Field(default_factory=list)
+    defaults: list[PageEditor] = Field(default_factory=list)
+    customized: bool = False
+
+
+class PageEditorsUpdate(CamelModel):
+    """A patch: ``{harness: true}`` adds one, ``{harness: false}`` removes it."""
+    trusted: dict[str, bool] = Field(default_factory=dict)
+
+
+class BlameCommit(CamelModel):
+    hash: str
+    date: str
+    subject: str = ""
+    author: str = "unknown"
+    author_kind: str = "unknown"
+    author_provider: Optional[str] = None
+    # An agent edit's reason (its commit's `Reason:` line); None for every other commit.
+    reason: Optional[str] = None
+    trigger: Optional[str] = None
+    # "user" when the person applied an agent's proposed edit (the commit names both).
+    accepted_by: Optional[str] = None
+
+
+class BlameContributor(CamelModel):
+    author: str
+    author_kind: str = "unknown"
+    author_provider: Optional[str] = None
+    lines: int = 0
+    last_date: Optional[str] = None
+    commits: list[str] = Field(default_factory=list)   # newest first
+
+
+class BlameSection(CamelModel):
+    title: str
+    line_start: int
+    line_end: int
+    contributors: list[BlameContributor] = Field(default_factory=list)
+
+
+class BlameLine(CamelModel):
+    line: int
+    section: str
+    commit: Optional[str] = None
+
+
+class PageBlameResponse(CamelModel):
+    """``GET /entities/{id}/blame``: who wrote each section of the page's prose, when and why — from git, never
+    stored (`page_blame`). ``lines`` only with ``?lines=true``. Not a Store domain: the app reads it when the card's
+    Where this comes from opens and caches it in memory."""
+    entity_id: str
+    commits: list[BlameCommit] = Field(default_factory=list)
+    sections: list[BlameSection] = Field(default_factory=list)
+    uncommitted_lines: int = 0
+    lines: Optional[list[BlameLine]] = None
+    # G198 review B3: the blame is still running (or git could not answer in time). The app keeps its last copy and
+    # asks again; nothing here is an empty page.
+    pending: bool = False
+
+
 # --- Conversation Upload ---
 
 
@@ -2898,6 +3332,9 @@ class BankInfo(CamelModel):
     # G117 round 4 (T-Demo) — `demo_guard.is_demo`: the demo banner and the
     # tour's demo stops read it; never inferred from the name (R-CS10).
     demo: bool = False
+    # G181 phase 2 — the bank's identity in banks.yaml (a random hex id), what a client on another machine compares
+    # instead of a path. None for a bank the backend has not given one yet.
+    id: Optional[str] = None
 
 
 class BankListResponse(CamelModel):
@@ -3012,6 +3449,11 @@ class IntakeSniffResponse(CamelModel):
     titles_truncated: bool = False
     reason: Optional[str] = None
     warnings: list[str] = []
+    #: A saved-content file's watch history (G71, 2026-10-16): left out when the sniff did not ask for it, else the
+    #: videos and days it becomes. The app shows its "Include watch history" switch when either is non-zero.
+    history_excluded: int = 0
+    history_videos: int = 0
+    history_days: int = 0
 
 
 class IntakeJobRef(CamelModel):
@@ -3058,7 +3500,7 @@ class AgentWiringStep(CamelModel):
     ``display == shlex.join(argv)`` so the disclosure can never show one thing
     and run another; ``touches`` are ``~/``-relative (R-IA15)."""
 
-    step: Literal["mcp", "hook", "autorecall", "autorecall-off"]
+    step: Literal["mcp", "hook", "flush", "autorecall", "autorecall-off"]
     display: str
     argv: list[str]
     touches: list[str] = []
@@ -3077,11 +3519,17 @@ class AgentWiringRow(CamelModel):
     binary: Optional[str] = None
     recall: Literal["on", "off", "unknown"] = "off"
     autosave: Literal["on", "off", "stale", "invalid", "n/a"] = "n/a"
+    # G110 gate A: the PreCompact/SessionEnd capture flushes, apart from
+    # ``autosave`` (the Stop hook alone), so an install from before them reads on.
+    autosave_flush: Literal["on", "off", "stale", "invalid", "n/a"] = "n/a"
+    flush_on: list[AgentWiringStep] = []
     connect: list[AgentWiringStep] = []
     detail: Optional[str] = None
     autorecall: Literal["on", "off", "stale", "invalid", "n/a"] = "n/a"
     autorecall_on: list[AgentWiringStep] = []
     autorecall_off: list[AgentWiringStep] = []
+    # Integration support/evidence, separate from MCP registration and hook config.
+    capabilities: dict[str, str] = {}
 
 
 class AgentWiringResponse(CamelModel):
@@ -3110,7 +3558,9 @@ class AgentSetupResponse(CamelModel):
     exactly those commands, ``display == shlex.join(argv)``), ``deeplink`` or
     ``config`` is set. A ``prompt`` with ``argv: []`` (OpenCode, Hermes,
     OpenClaw) is a config registration the agent performs itself, with
-    ``config`` riding along for doing it by hand (round 4 C8, R-AG3).
+    ``config`` riding along for doing it by hand (round 4 C8, R-AG3); ``other``
+    is the same with no ``config`` — any agent, its own MCP settings. A
+    ``deeplink`` (Cursor) also carries a ``prompt`` for Cursor's own agent.
     ``remote`` is produced by ``claude``/``chatgpt``/``grok``: ``display`` holds
     exactly the two steps before Confirm on the G135 connector and ``note`` the
     honesty line; nothing is set to run (R-AG19)."""
@@ -3205,6 +3655,11 @@ class SourceUploadPreview(CamelModel):
     total: int = 0
     collections: list[SourceUploadCollection] = []
     warnings: list[str] = []
+    #: G71 (2026-10-16): watch history left out (the caller did not ask for it), or — asked for — the watched
+    #: videos and the days they become (one episode per day, never saves). Lets a drop offer the switch.
+    history_excluded: int = 0
+    history_videos: int = 0
+    history_days: int = 0
 
 
 class SourceRssRequest(CamelModel):
@@ -3260,6 +3715,8 @@ class MediaSourceItem(CamelModel):
     site: Optional[str] = None
     channel: Optional[str] = None
     thumbnail: Optional[str] = None
+    # `EntityMedia.preview`'s twin: the stored copy of the page's own picture, from the page alone. Additive.
+    preview: Optional[str] = None
     saved_at: str
     tags: list[str] = []
     status: str = "active"
@@ -3275,6 +3732,23 @@ class MediaSourceItem(CamelModel):
     # (GET /sources ?sort=recent, the app's Recent toggle) should prefer this
     # and fall back to `saved_at`.
     content_saved_at: Optional[str] = None
+    # G191 — the person's answer to "What made you save this?", read from the link's episode (the one record of it),
+    # with when they said it and when the browser says the bookmark was made. `None` when nobody was asked or the
+    # person dismissed the question. Additive and defaulted: an older client is unaffected.
+    saved_why: Optional["SavedWhyRecord"] = None
+    # G191 v3 — every answer, oldest first (a bookmark removed and saved again keeps one dated reason per moment of
+    # saving); `saved_why` is the newest of them. Empty when nobody was asked.
+    saved_why_history: list["SavedWhyRecord"] = []
+    # G191 v3 — the newest moment this link was saved by the browser's own clock (the episode's `added_at`, or a later
+    # re-save an answer names): the menu bar's bookmark history orders by it. `None` when the browser kept no instant.
+    last_saved_at: Optional[str] = None
+    # G191 v3 — the newest site-capture thumbnail Cicada holds for this page (ruling 25; `/explore/captures/...`,
+    # served from the bank), for the bookmark history's row. `None` when the page was never captured.
+    capture_thumb: Optional[str] = None
+    # G191 v4 — the browsers this bookmark has left: one entry per browser whose bookmark file no longer holds it, with
+    # the sync instant that first saw it gone (`bookmark_seen` `left`). Cicada keeps the bookmark; this is its status.
+    # Empty while every browser that had it still does, and for a link no browser synced.
+    left_browser: list["BookmarkLeft"] = []
     # G102 cheap slice (R12): the link's own description — OpenGraph at ingest
     # or the Sleep-tail backfill's summary — cut at ~280 chars on a word
     # boundary, and the ids of the entities the page is `about` (the media
@@ -3288,6 +3762,9 @@ class MediaSourceItem(CamelModel):
     # filter the Feed's items to one source and group them by bookmark folder,
     # Pinterest board or iCloud device without a second endpoint. Optional:
     # a page ingested before origins were stamped simply has neither.
+    #: G181 phase 3: the id of the person's device whose token posted the save (its episode's ``device``); null for
+    #: what the server's own machine saved.
+    device: Optional[str] = None
     origin: Optional[str] = None
     folder: Optional[str] = None
     # Track V (R-V2/R15) — read back from the media page's own `media:` block,
@@ -3352,6 +3829,24 @@ class BookmarkSyncSourceSummary(CamelModel):
     # R-SR13 — Safari only; 0 for every other browser.
     reading_list: int = 0
     favorites: int = 0
+    # G191 — this channel had no seen-set before this pass: a first sync, which never asks why.
+    first_sync: bool = False
+
+
+class FreshBookmark(CamelModel):
+    """G191 — one bookmark this sync newly saved. `added_at` is the browser's own instant (aware UTC), when the
+    file records one (Chrome; Safari's Reading List); absent, never a guess."""
+
+    url: str
+    title: str = ""
+    origin: str = ""
+    channel: str = ""
+    episode_id: str = ""
+    media_entity_id: str = ""
+    added_at: Optional[str] = None
+    # G191 v3 — a link Cicada already held, saved again in this browser (removed and bookmarked again): a new moment
+    # of saving, asked about like a new one (`bookmark_sync._resaved`).
+    resave: bool = False
 
 
 class BookmarkSyncResponse(CamelModel):
@@ -3364,6 +3859,100 @@ class BookmarkSyncResponse(CamelModel):
     # sync on some channel this pass touched).
     removals_proposed: int = 0
     removals_skipped: Optional[str] = None
+    # G191 v4 — how many links this sync marked as gone from their browser (a status, never a question; the removal
+    # question above is never asked for a bookmark any more, so `removals_proposed` stays 0).
+    left_marked: int = 0
+    # G191 — what this sync newly saved (at most `bookmark_sync.FRESH_CAP`) and how many in all.
+    fresh: list[FreshBookmark] = []
+    fresh_total: int = 0
+
+
+class SavedWhyRecord(CamelModel):
+    """G191 — the person's answer to "What made you save this?" on a saved link's source record: the reason keys
+    (with their labels), the project it was for, their own words, when they said it (`at`) and when the browser
+    says the bookmark was made (`added_at`)."""
+
+    reasons: list[str] = []
+    labels: list[str] = []
+    project: Optional[str] = None
+    text: Optional[str] = None
+    at: Optional[str] = None
+    added_at: Optional[str] = None
+    # G191 v3 — when the person last changed this answer (`PUT /sources/saved-why`); `None` when never.
+    edited_at: Optional[str] = None
+
+
+class BookmarkLeft(CamelModel):
+    """G191 v4 — "No longer in Chrome since Oct 15": which browser (its name and its channel) and since when."""
+
+    browser: str
+    channel: str
+    since: str
+
+
+MediaSourceItem.model_rebuild()
+
+
+class SavedWhyRequest(CamelModel):
+    model_config = ConfigDict(extra="forbid")
+    url: str
+    reasons: list[str] = []
+    project: Optional[str] = None
+    text: Optional[str] = None
+    # Review B1 — when the person answered, as the app recorded it: an answer the app held through Sleep's write
+    # window (a 409) or a backend restart keeps its own time. Aware, not in the future, at most a day old.
+    at: Optional[str] = None
+    # G191 v3 — the moment of saving this answers (the browser's instant from the sync's `fresh` item), so an answer
+    # for a bookmark saved again is a new dated reason and the same moment answered again replaces its own.
+    added_at: Optional[str] = None
+
+
+class SavedWhyEditRequest(CamelModel):
+    """G191 v3 — the person changes one answer, named by when it was given (`at`)."""
+
+    model_config = ConfigDict(extra="forbid")
+    url: str
+    at: str
+    reasons: list[str] = []
+    project: Optional[str] = None
+    text: Optional[str] = None
+
+
+class SavedWhyResponse(CamelModel):
+    episode_id: str
+    media_entity_id: str = ""
+    saved_why: SavedWhyRecord
+    # G191 v3 — every answer on the link now, oldest first.
+    history: list[SavedWhyRecord] = []
+
+
+class BookmarkRemoveRequest(CamelModel):
+    """G191 v3 — forget a bookmark in Cicada (the media page archived, its episode tombstoned)."""
+
+    model_config = ConfigDict(extra="forbid")
+    url: str
+
+
+class BookmarkRemoveResponse(CamelModel):
+    episode_id: str
+    media_entity_id: str = ""
+    status: str = "archived"
+
+
+class SavedWhyOption(CamelModel):
+    key: str
+    label: str
+
+
+class SavedWhyProject(CamelModel):
+    id: str
+    name: str
+
+
+class SavedWhyOptions(CamelModel):
+    reasons: list[SavedWhyOption] = []
+    projects: list[SavedWhyProject] = []
+    max_text: int = 500
 
 
 class BookmarkFolderNode(CamelModel):
@@ -3781,6 +4370,192 @@ class TabGroupsSyncResponse(CamelModel):
     bank: str = ""
 
 
+class WatchHistoryVisit(CamelModel):
+    """One visit to a YouTube video page, as the app read it from the browser's own History (G71, 2026-10-16)."""
+
+    url: str
+    title: str = ""
+    visited_at: str
+
+
+class WatchHistorySyncRequest(CamelModel):
+    """``POST /sources/watch-history/sync`` — YouTube videos watched in a browser, read on this Mac by the app."""
+
+    browser: str
+    profile: str = "Default"
+    visits: list[WatchHistoryVisit] = []
+
+
+class WatchHistorySyncResponse(CamelModel):
+    received: int = 0
+    kept: int = 0
+    ignored: int = 0
+    added: int = 0
+    videos: int = 0
+    days_created: int = 0
+    days_updated: int = 0
+    days_unchanged: int = 0
+    bank: str = ""
+
+
+class MessagesConversationIn(CamelModel):
+    """One conversation the app lists or posts (G179). ``id`` is the app's hash of ``chat.guid`` — the phone number or
+    address inside it never crosses. ``name`` is what the person sees (the contact's name, else the chat's own);
+    ``from_me``/``from_them`` are counts the detectors may read, never words."""
+
+    id: str
+    name: str = ""
+    display_name: str = ""
+    service: str = "iMessage"
+    group: bool = False
+    from_me: int = 0
+    from_them: int = 0
+
+
+class MessagesAttachmentIn(CamelModel):
+    """An attachment's NAME and type — the file itself is never read or sent."""
+
+    name: str = ""
+    mime_type: Optional[str] = None
+    uti: Optional[str] = None
+    total_bytes: int = 0
+
+
+class MessagesRowIn(CamelModel):
+    """One ``message`` row of a ticked conversation, as the app read it. ``attributed_body`` is the archived blob,
+    base64 — decoded here (``typedstream``), never in the app."""
+
+    rowid: int = 0
+    guid: str = ""
+    date: int = 0
+    is_from_me: bool = False
+    text: Optional[str] = None
+    attributed_body: Optional[str] = None
+    associated_message_type: int = 0
+    item_type: int = 0
+    is_system_message: bool = False
+    date_edited: int = 0
+    date_retracted: int = 0
+    attachments: list[MessagesAttachmentIn] = []
+
+
+class MessagesSyncRequest(CamelModel):
+    """``POST /sources/messages/sync`` — rows of ONE ticked conversation: past the app's ROWID cursor, plus rows
+    edited or unsent since its last pass."""
+
+    conversation: MessagesConversationIn
+    messages: list[MessagesRowIn] = []
+
+
+class MessagesSyncResponse(CamelModel):
+    conversation: str = ""
+    messages_seen: int = 0
+    kept: int = 0
+    reactions: int = 0
+    events: int = 0
+    empty: int = 0
+    unsent: int = 0
+    edited: int = 0
+    attachments: int = 0
+    decoded: int = 0
+    sittings: int = 0
+    created: int = 0
+    updated: int = 0
+    skipped: int = 0
+    tombstoned: int = 0
+    actor: dict[str, Any] = {}
+    bank: str = ""
+
+
+class MessagesActorIn(CamelModel):
+    """The person's mark: ``agent`` | ``person``, or ``null`` to clear it and go back to the detector's answer."""
+
+    kind: Optional[str] = None
+    label: Optional[str] = None
+
+
+class MessagesConversationUpdate(CamelModel):
+    id: str
+    name: Optional[str] = None
+    service: Optional[str] = None
+    ticked: Optional[bool] = None
+    #: Present → the mark changes (``{"kind": null}`` clears it); absent → untouched.
+    actor: Optional[MessagesActorIn] = None
+    clear_actor: bool = False
+
+
+class MessagesSettingsUpdate(CamelModel):
+    suggest_agents: Optional[bool] = None
+    conversation: Optional[MessagesConversationUpdate] = None
+
+
+class MessagesSettings(CamelModel):
+    suggest_agents: bool = True
+    conversations: dict[str, dict[str, Any]] = {}
+    #: Episodes re-rendered because the person changed who a conversation is with.
+    reattributed: int = 0
+
+
+class MessagesConversationsRequest(CamelModel):
+    conversations: list[MessagesConversationIn] = []
+
+
+class MessagesConversationOut(CamelModel):
+    id: str
+    ticked: bool = False
+    group: bool = False
+    actor: dict[str, Any] = {}
+    suggestion: dict[str, Any] = {}
+    marked: Optional[dict[str, Any]] = None
+
+
+class MessagesConversationsResponse(CamelModel):
+    suggest_agents: bool = True
+    conversations: list[MessagesConversationOut] = []
+
+
+class MessagesWaitingConversation(CamelModel):
+    conversation: str
+    service: str = "iMessage"
+    name: str = ""
+    kind: str = "unknown"
+    messages: int = 0
+    sittings: int = 0
+    latest: str = ""
+    ticked: bool = False
+    #: The correspondent's own page (`messages_source.waiting`), so the app draws the chat with its picture.
+    page: Optional[str] = None
+
+
+class MessagesPhotoIn(CamelModel):
+    """One ticked chat's shared Messages photo (2026-10-16): PNG or JPEG bytes the app shrank to ≤ 128 px, or none —
+    the chat shares no photo, so a stored one goes."""
+
+    conversation: str
+    photo_b64: Optional[str] = None
+
+
+class MessagesPhotosRequest(CamelModel):
+    """``PUT /sources/messages/photos`` — the chats the app looked up this pass; any other chat's photo is untouched."""
+
+    photos: list[MessagesPhotoIn] = []
+
+
+class MessagesPhotosResponse(CamelModel):
+    stored: int = 0
+    removed: int = 0
+    unchanged: int = 0
+    #: Each posted chat's linked page (`messages_photos.links`), or null while it has none.
+    pages: dict[str, Optional[str]] = {}
+
+
+class MessagesWaitingResponse(CamelModel):
+    """``GET /sources/messages/waiting`` — the Sleep page's and Home's bubbles. Not a Store domain."""
+
+    conversations: list[MessagesWaitingConversation] = []
+    messages: int = 0
+
+
 class ContactRecord(CamelModel):
     """One card the app read through the Contacts framework (G154). Names and WHICH facts the card holds — never an
     address or a number (R-SR8). ``photo_b64`` is the card's thumbnail, sent only when it has one."""
@@ -3811,6 +4586,44 @@ class ContactsLocalSyncResponse(CamelModel):
     sources_added: int = 0
     sources_removed: int = 0
     photos: int = 0
+    bank: str = ""
+
+
+class LinkedInConnectionsPreview(CamelModel):
+    """``POST /sources/linkedin-connections/preview`` — what an import would do; counts only, nothing written."""
+
+    connections: int = 0
+    matched: int = 0
+    ambiguous: int = 0
+    unmatched: int = 0
+    skipped: int = 0
+    with_company: int = 0
+    exported_on: str = ""
+    bank: str = ""
+
+
+class LinkedInConnectionsImportResponse(CamelModel):
+    """``POST /sources/linkedin-connections/import`` — what the import wrote onto pages Cicada already had."""
+
+    connections: int = 0
+    matched: int = 0
+    ambiguous: int = 0
+    unmatched: int = 0
+    sources_added: int = 0
+    claims_written: int = 0
+    claims_closed: int = 0
+    older: int = 0
+    removed_kept_out: int = 0
+    exported_on: str = ""
+    bank: str = ""
+
+
+class LinkedInConnectionsStatus(CamelModel):
+    """``GET /sources/linkedin-connections`` — the kept export's day and size; never a name."""
+
+    exported_on: str | None = None
+    imported_at: str | None = None
+    connections: int = 0
     bank: str = ""
 
 
@@ -3930,8 +4743,9 @@ class StatusConnections(CamelModel):
 
 
 class ConsumptionSummary(CamelModel):
-    cost_usd: float = 0.0
-    equiv_cost_usd: float = 0.0
+    # ``None`` is unknown: no call in range carried a figure (a model litellm's bundled table does not price).
+    cost_usd: Optional[float] = None
+    equiv_cost_usd: Optional[float] = None
     invocations: int = 0
     tokens: int = 0
     memory_writes: int = 0
@@ -3948,8 +4762,8 @@ class CalendarDay(CamelModel):
     memory_writes: int = 0
     events: int = 0
     tokens: int = 0
-    cost_usd: float = 0.0
-    equiv_cost_usd: float = 0.0
+    cost_usd: Optional[float] = None       # unknown, never 0.0, when no call that day carried a figure
+    equiv_cost_usd: Optional[float] = None
     level: int = 0
 
 
@@ -4069,3 +4883,69 @@ class RemoteStatusOut(CamelModel):
     reachable: Optional[bool] = None
     funnel_command: str
     ngrok_command: str
+
+
+class PageEditRequest(CamelModel):
+    """``POST /entities/{id}/edits`` — the person's own edit of a page's words or aliases (owner rulings 2026-10-14):
+    the same request ``cicada_edit_page`` takes (``page_edits``), committed alone under the person. The link-view
+    switcher sends one ``edits`` row, ``[T](url)`` → ``[T](url "bookmark")``, with ``all`` and ``pin`` set, so Sleep's
+    next rewrite keeps the view (G198's ``corrections``)."""
+
+    reason: str
+    edits: Optional[list[dict]] = None
+    section: Optional[str] = None
+    text: Optional[str] = None
+    add_aliases: Optional[list[str]] = None
+    remove_aliases: Optional[list[str]] = None
+
+
+class PageEditResponse(CamelModel):
+    entity_id: str
+    changes: list[str] = []
+    sections: list[str] = []
+    pinned: int = 0
+
+
+class LinkCapture(CamelModel):
+    """One dated picture of a linked page. Empty until the exploration pipeline lands; a Looks screenshot of the same
+    URL stands in meanwhile (``kind: look``)."""
+
+    day: str
+    at: Optional[str] = None
+    kind: str = "capture"
+    image: str
+
+
+class LinkLook(CamelModel):
+    """A saved look (G196) of the same URL: its day, its screenshot on Cicada's API, its palette."""
+
+    id: str
+    day: str = ""
+    image: str
+    palette: list[dict] = []
+
+
+class LinkFact(CamelModel):
+    """What Cicada knows about one URL a page's prose links to — every fact a link card draws. Nothing here was
+    fetched to answer: a URL Cicada never read carries only what the page itself says (owner ruling 3, 2026-10-14)."""
+
+    url: str
+    views: list[str] = []
+    site: Optional[str] = None
+    page_id: Optional[str] = None
+    title: Optional[str] = None
+    description: Optional[str] = None
+    saved_at: Optional[str] = None
+    read_at: Optional[str] = None
+    preview: Optional[str] = None
+    captures: list[LinkCapture] = []
+    looks: list[LinkLook] = []
+    icon: bool = False
+
+
+class PageLinksResponse(CamelModel):
+    """``GET /entities/{id}/links``: the link facts of a page's prose, one per distinct URL, in first-seen order.
+    Engine-free, never fetches, on demand and ETagged — not a Store domain (the card's in-memory cache)."""
+
+    entity_id: str
+    links: list[LinkFact] = []

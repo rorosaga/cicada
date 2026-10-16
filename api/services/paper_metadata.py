@@ -312,9 +312,11 @@ def _replay_index(memory_path: Path, ops: list[_IndexOp]) -> bool:
 
 
 def _sleep_running() -> bool:
-    from api.services import sleep_cycle
+    """A long networked run's stop check, not admission (G183): no admission may span its fetches. A window that opens
+    after it leaves the pages written so far to the tail's commit — disclosed in docs/architecture/storage.md."""
+    from api.services import write_admission
 
-    return sleep_cycle.is_writing()
+    return write_admission.probe()
 
 
 def _write_guarded(memory_path: Path, entity_id: str, report: dict, paths: set[str], ops: list[_IndexOp],
@@ -502,9 +504,7 @@ async def resolve_in_background(memory_path: Path) -> None:
     """The user-triggered run, scheduled by ``POST /sources/folders/{id}/sync?resolve=true``.
     Skipped while a Sleep cycle runs — its tail runs this anyway (R-LS17)."""
     try:
-        from api.services import sleep_cycle
-
-        if sleep_cycle.is_writing():
+        if _sleep_running():
             return
         await run_locked(memory_path, stop_if_sleeping=True)
     except Exception as e:  # noqa: BLE001 - a background run never surfaces as a 500

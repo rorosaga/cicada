@@ -292,17 +292,20 @@ def test_a_malformed_plan_block_is_ignored_not_raised():
 
 def test_wire_shape_is_camel_case_with_the_documented_fields():
     plan = {"connection": "claude-plan", "windows": [
-        {"window": "five_hour", "before": 0.1, "after": 0.2, "resets_at": 7, "before_is_first_seen": True}]}
+        {"window": "five_hour", "before": 0.1, "after": 0.2, "resets_at": 4_000_000_000,
+         "before_is_first_seen": True}]}
     u = _usage([_run("w", engine="claude-cli", connection="claude-plan", plan=plan),
                 _call("w", engine="claude-cli", model="m", cost=None, equiv=0.5)])
     body = json.loads(u.model_dump_json(by_alias=True))
     assert set(body) == {"recorded", "engine", "connection", "models", "totalCostUsd", "totalEquivUsd",
-                         "basis", "plan"}
+                         "basis", "plan", "planShare"}
+    assert body["planShare"] == [{"window": "five_hour", "basis": "measured", "share": 0.1, "under": None,
+                                  "samples": None}]
     assert set(body["models"][0]) == {"model", "engine", "calls", "failedCalls", "inputTokens", "outputTokens",
                                       "costUsd", "equivCostUsd", "basis", "stages"}
     assert set(body["plan"]["windows"][0]) == {"window", "before", "after", "resetsAt", "beforeIsFirstSeen"}
     summary = json.loads(cycle_usage.summarize(u).model_dump_json(by_alias=True))
-    assert set(summary) == {"basis", "costUsd", "equivCostUsd", "engine", "connection", "plan"}
+    assert set(summary) == {"basis", "costUsd", "equivCostUsd", "engine", "connection", "plan", "planShare"}
 
 
 def test_last_cycles_reads_the_newest_window_and_charge_per_card():
@@ -433,7 +436,7 @@ def test_the_llm_call_ledger_row_stays_ids_enums_and_numbers(ledger_bank):
     with agent_engine.use_scope("sleep:idc"):
         _fn(events)(messages=[{"role": "user", "content": "secret words"}])
     row = json.loads(events[0].to_json())
-    assert row["refs"] == {"cycle_id": "idc"}
+    assert row["refs"] == {"cycle_id": "idc", "cost_source": "table"}   # an enum from telemetry.COST_SOURCES
     assert "secret words" not in events[0].to_json()
 
 

@@ -14,7 +14,7 @@ enum SpriteTestAssets {
             [false, true].map { BookwormArt.sheetName(state, .room, lighting: .dark, lampLit: $0, mascot: mascot) }
         }
     }
-    static let roomNames = ["room-backdrop", "room-clock", "room-window", "room-weather", "room-skyfx", "room-lamp", "room-fly", "room-beanbag", "room-plant", "room-mug", "room-spines"]
+    static let roomNames = ["room-backdrop", "room-clock", "room-window", "room-weather", "room-skyfx", "room-lamp", "room-fly", "room-beanbag", "room-plant", "room-mug", "room-books"]
     static let sheetNames = dayWormNames + nightWormNames + MascotRegistry.all.map(\.menuBarSheet) + roomNames
 
     static func url(_ name: String, ext: String) throws -> URL {
@@ -201,7 +201,7 @@ enum SpriteTestAssets {
                 XCTAssertGreaterThanOrEqual(seconds, CicadaMotion.spriteFrameMin, "\(sheet.name)/\(clip.tag)", file: file, line: line)
                 XCTAssertLessThanOrEqual(seconds, CicadaMotion.spriteFrameMax, "\(sheet.name)/\(clip.tag)", file: file, line: line)
             }
-            if clip.order.count == 1 || sheet.name == "room-spines" || sheet.name == "room-clock" {
+            if clip.order.count == 1 || sheet.name == "room-books" || sheet.name == "room-clock" {
                 XCTAssertTrue(clip.seconds.allSatisfy { $0 == 1 }, "\(sheet.name)/\(clip.tag)", file: file, line: line)
             } else if clip.tag == "intro" || clip.tag == "outro" {
                 XCTAssertLessThanOrEqual(clip.total, CicadaMotion.spriteTransitionMax, file: file, line: line)

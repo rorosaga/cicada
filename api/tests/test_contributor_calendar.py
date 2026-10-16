@@ -72,7 +72,7 @@ def test_contributor_calendar_levels_come_from_writes_alone(repo):
     by_date = {d["date"]: d for d in days}
     assert by_date["2026-08-03"]["memory_writes"] == 2 and by_date["2026-08-03"]["level"] == 4
     assert by_date["2026-08-01"]["memory_writes"] == 0 and by_date["2026-08-01"]["level"] == 0
-    assert all(d["tokens"] == 0 and d["cost_usd"] == 0.0 for d in days), "R14: writes only"
+    assert all(d["tokens"] == 0 and d["cost_usd"] is None for d in days), "R14: writes only; no cost is unknown"
 
 
 def test_top_written_entities_counts_commits_per_page(repo):

@@ -155,7 +155,7 @@ class TurnAuthorship:
             fm = self._frontmatter(episode) if self._frontmatter is not None else None
             if fm is None:
                 f = self._index().get(episode)
-                fm = f.frontmatter if f is not None else None
+                fm = bank_index.with_turns(f) if f is not None else None
             self._stamps[episode] = agent_turns.stamps(fm)
         return self._stamps[episode]
 

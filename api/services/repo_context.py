@@ -378,3 +378,74 @@ def resolve_repo_context(repo_decl: dict[str, Any], *, timeout_s: float = 2.0) -
         return parse_snapshot({}, repo_decl)
     outputs, error = run_repo_commands(str(repo_decl.get("path", "") or ""), timeout_s=timeout_s)
     return parse_snapshot(outputs, repo_decl, error=error)
+
+
+# --- `cicada_repo_context`'s two halves (G181 phase 2) ---------------------------------------------------------------
+#
+# The declared repos are read from the bank (wherever the bank is); the git context is probed only where the
+# repository is — the agent's own machine, never the backend (the backend never runs git in a declared repo).
+
+def declared_repos(memory_path, entity_id: str) -> tuple[str, list[dict] | None, str | None]:
+    """``(resolved id, the page's declared repos, refusal text)``: exactly one of the last two is set."""
+    from pathlib import Path
+
+    from api.services import markdown_parser
+    from api.services.mcp_tools import _entity_id_for_name
+
+    entities_dir = Path(memory_path) / "entities"
+    resolved_id = _entity_id_for_name(entities_dir, entity_id) or entity_id
+    entity_path = entities_dir / f"{resolved_id}.md"
+    if not entity_path.exists():
+        return resolved_id, None, f"Entity '{entity_id}' not found."
+    try:
+        parsed = markdown_parser.parse(entity_path)
+    except Exception as e:
+        return resolved_id, None, f"Could not read '{entity_id}': {e}"
+    declared = parsed.frontmatter.get("repos") or []
+    declared = [d for d in declared if isinstance(d, dict) and d.get("path")]
+    if not declared:
+        return resolved_id, None, f"Entity '{resolved_id}' has no declared repos."
+    return resolved_id, declared, None
+
+
+def render_contexts(label: str, contexts: list[dict]) -> str:
+    """Render one or more ``RepoContext`` dicts as human-readable text."""
+    blocks = []
+    for ctx in contexts:
+        if ctx.get("status") != "ok":
+            blocks.append(
+                f"repo context unavailable for `{ctx.get('path')}` "
+                f"(status: {ctx.get('status')})"
+            )
+            continue
+
+        lines = [f"**{ctx.get('path')}**"]
+        branch = ctx.get("current_branch") or "(detached)"
+        lines.append(f"- branch: {branch}")
+        ahead, behind = ctx.get("ahead"), ctx.get("behind")
+        if ahead is not None or behind is not None:
+            lines.append(f"- ahead/behind origin: {ahead or 0}/{behind or 0}")
+        dirty = ctx.get("dirty_files")
+        if dirty is not None:
+            lines.append(f"- dirty files: {dirty}")
+        commit = ctx.get("last_commit")
+        if commit:
+            lines.append(
+                f"- last commit: {commit.get('hash', '')[:8]} "
+                f"by {commit.get('author')} ({commit.get('date')}): {commit.get('subject')}"
+            )
+        worktrees = ctx.get("worktrees") or []
+        if len(worktrees) > 1:
+            wt_lines = ", ".join(
+                f"{w.get('path')} ({w.get('branch') or 'detached'}"
+                f"{', main' if w.get('is_main') else ''})"
+                for w in worktrees
+            )
+            lines.append(f"- worktrees: {wt_lines}")
+        if ctx.get("stale_hint"):
+            lines.append(f"- note: {ctx['stale_hint']}")
+        blocks.append("\n".join(lines))
+
+    header = f"Repo context for `{label}`:" if len(contexts) > 1 or contexts[0].get("path") != label else ""
+    body = "\n\n".join(blocks)
+    return f"{header}\n\n{body}".strip() if header else body

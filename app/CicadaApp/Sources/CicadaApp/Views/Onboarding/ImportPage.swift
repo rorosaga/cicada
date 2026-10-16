@@ -97,7 +97,7 @@ struct ImportPage: View {
         }
     }
 
-    /// Folders added from this page (G133): shown as they sync; managed in Settings → Integrations.
+    /// Folders added from this page (G133): shown as they sync; managed in Settings → Search & files.
     private var folderChannels: [SourceChannel] {
         (store.channels.value ?? []).filter { $0.id.hasPrefix(ChannelActions.folderPrefix) }
     }

@@ -80,10 +80,12 @@ struct EntityPicture: View {
         guard let provider = providers.first(where: { $0.hasItemConformingToTypeIdentifier(UTType.image.identifier) })
         else { return false }
         let (id, type, store) = (self.id, self.type, self.store)
+        let bank = store.bank   // G183(d): the bank the picture was dropped in, before the data loads
         let inputs = store.pictureInputs(for: id, held: heldInputs)
         provider.loadDataRepresentation(forTypeIdentifier: UTType.image.identifier) { data, _ in
             guard let data else { return }
-            Task { @MainActor in await PictureActions.upload(data: data, id: id, type: type, store: store, inputs: inputs) }
+            Task { @MainActor in await PictureActions.upload(data: data, id: id, type: type, bank: bank, store: store,
+                                                                   inputs: inputs) }
         }
         return true
     }
@@ -117,7 +119,7 @@ struct EntityPicture: View {
         switch picture.source {
         case .logo:
             return await LogoStore.shared.image(entityId: id, bank: store.bank)
-        case .upload, .contacts, .thumbnail:
+        case .upload, .contacts, .messages, .thumbnail, .profile:
             guard let url = PictureURL.parse(raw) else { return nil }
             return await PictureStore.shared.image(url, bank: store.bank)
         case .initials:
@@ -169,6 +171,16 @@ enum EntityPictureLayout {
         }
     }
 
+    /// The initials' size and weight at `units`: 0.36 of the picture, medium. `compact` (the Messages bubbles only,
+    /// 2026-10-16) — a stacked bubble below 24 units, where 0.36 set a 7 pt hairline nobody read as a picture, takes
+    /// half its height, semibold. Every other small picture sits beside its own name in a row and keeps the proportion.
+    static let smallInitialsBelow: CGFloat = 24
+    /// A stacked bubble's monogram disc: the person's hue at this opacity over the ground (2026-10-16).
+    static let bubbleFill: Double = 0.35
+    static func initialsType(units: CGFloat, compact: Bool = false) -> (size: CGFloat, weight: Font.Weight) {
+        compact && units < smallInitialsBelow ? (units * 0.5, .semibold) : (units * 0.36, .medium)
+    }
+
     /// DR-53 — outline symbols; Clusters' card header wears the same one (F-11).
     static func glyph(_ type: EntityType) -> String {
         switch type {
@@ -201,13 +213,27 @@ struct EntityPictureFallback: View {
     let units: CGFloat
     let frame: CGSize
     var chosenInitials = false
+    /// A stacked bubble's face (`MessageBubbleFace`): bigger, semibold initials below 24 units.
+    var compactInitials = false
 
     var body: some View {
         let hue = CicadaTheme.entityColor(for: type)
+        let initials = EntityPictureLayout.initialsType(units: units, compact: compactInitials)
         switch EntityPictureLayout.fallback(type, name: name, chosenInitials: chosenInitials) {
+        case .initials(let text) where compactInitials:
+            // A stacked bubble (owner, 2026-10-16): a disc filled with the hue over the ground and the letter in the
+            // primary text colour. A ring around one hue letter at bubble size read as an info glyph ("ⓘ").
+            Text(text)
+                .font(CicadaTheme.font(size: initials.size, weight: initials.weight))
+                .foregroundStyle(CicadaTheme.textPrimary)
+                .minimumScaleFactor(0.6)
+                .lineLimit(1)
+                .frame(width: frame.width, height: frame.height)
+                .background(Circle().fill(hue.opacity(EntityPictureLayout.bubbleFill)))
+                .background(Circle().fill(CicadaTheme.bgBase))
         case .initials(let text):
             Text(text)
-                .font(CicadaTheme.font(size: units * 0.36, weight: .medium))
+                .font(CicadaTheme.font(size: initials.size, weight: initials.weight))
                 .foregroundStyle(hue)
                 .minimumScaleFactor(0.6)
                 .lineLimit(1)
@@ -216,7 +242,7 @@ struct EntityPictureFallback: View {
                 .overlay(Circle().strokeBorder(hue, lineWidth: CicadaTheme.scaled(1.5)))
         case .monogram(let text):
             Text(text)
-                .font(CicadaTheme.font(size: units * 0.36, weight: .medium))
+                .font(CicadaTheme.font(size: initials.size, weight: initials.weight))
                 .foregroundStyle(hue)
                 .minimumScaleFactor(0.6)
                 .lineLimit(1)

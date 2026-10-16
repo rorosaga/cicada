@@ -54,7 +54,7 @@ struct SentenceLine: Hashable {
     /// The service the tail names, if any, drawn beside it as its mark.
     var mark: SentenceMark? = nil
 
-    /// R-Z13's two budgets: one line of the 30 pt display face, two of 22 pt italic.
+    /// R-Z13's two budgets: one line of the 30 pt display face, two of the 17 pt tail.
     static let maxLead = 40
     static let maxTail = 80
 
@@ -235,7 +235,7 @@ private func sentenceLead(_ ctx: RoomContext) -> SentenceLine {
         let numeral = "\(count(ctx.read)) of \(count(ctx.total))"
         return SentenceLine(lead: "Reading \(numeral).", numeral: numeral)                      // L3
     case .error:
-        return SentenceLine(lead: "The last cycle failed.", tone: .danger)                      // L6
+        return SentenceLine(lead: Copy.SleepV5.readingStoppedLead, tone: .warning)               // L6 (DR-7, DR-59)
     case .digesting:
         if let drain = ctx.drain, drain.finished, drain.filed > 0 {                              // V5
             let numeral = count(drain.filed)
@@ -250,8 +250,9 @@ private func sentenceLead(_ ctx: RoomContext) -> SentenceLine {
             guard heroQualifier(ctx.mood, debt: ctx.debt) == "overdue" else {
                 return SentenceLine(lead: "\(numeral) to read.", numeral: numeral)
             }
-            return SentenceLine(lead: "\(numeral) to read — overdue.", numeral: numeral,
-                                qualifier: "overdue", tone: .warning)
+            // Said plainly (owner 2026-10-16): the word carries "overdue", in the lead's own colour — DR-7 keeps
+            // `warning` for the gear's dot and a failed source, never body text. The worm and the pile show it too.
+            return SentenceLine(lead: "\(numeral) to read — overdue.", numeral: numeral, qualifier: "overdue")
         }
         if case .hungry = ctx.mood { return SentenceLine(lead: "Nothing new to read.") }        // L9
         return SentenceLine(lead: "Something new just arrived.")                                // L8b, Z-P6
@@ -284,13 +285,13 @@ private func sentenceTail(_ ctx: RoomContext) -> SentenceTail? {
         if number == 3, countedStageLead(ctx, stage: 3) != nil {
             return SentenceTail(text: Copy.SleepV5.decidingTail)
         }
-        if let drain = ctx.drain, drain.active, drain.batches > 1 {                              // T2b (G163)
-            return SentenceTail(text: drainProgressClause(drain, locale: ctx.locale))
-        }
+        // T2b retired (2026-10-16): "Batch 3 of 12 · 62 of 287 filed." repeated the legend under the bar, which now
+        // leads with the batch; the one secondary line says what the stage does.
         return SentenceTail(text: stage(ctx).detail)
     }
-    if case .error = ctx.mood, let clause = sentenceClause(ctx.cycleError) {                     // T3
-        return SentenceTail(text: clause, tone: .danger, action: .openDetails(.lastCycle))
+    if case .error = ctx.mood {                                                                 // T3
+        return SentenceTail(text: Copy.SleepV5.readingStoppedTail, tone: .warning,
+                            action: .openDetails(.lastCycle))
     }
     if ctx.cancelled {                                                                           // T4
         if let drain = ctx.drain {                                                               // T4b (G163)
@@ -308,14 +309,14 @@ private func sentenceTail(_ ctx: RoomContext) -> SentenceTail? {
             .map { String($0).trimmingCharacters(in: .whitespaces) }
         let text = vendor.flatMap { !$0.isEmpty && $0.count <= SentenceLine.maxTail ? $0 : nil }
             ?? (vendor == nil ? "Stopped at your plan's limit — the rest wait."
-                              : "Stopped at your plan's limit — the reset time is in Details.")
+                              : "Stopped at your plan's limit — the reset time is in Past reads.")
         return SentenceTail(text: text, tone: .warning, action: .openDetails(.lastCycle))
     }
     if ctx.capped {                                                                              // T5
         return SentenceTail(text: "The rest wait for the next cycle.", action: .openDetails(.lastCycle))
     }
     if let warning = ctx.indexWarning, !warning.isEmpty {                                        // T6
-        return SentenceTail(text: "Finished with a warning — it's in Details.", tone: .warning,
+        return SentenceTail(text: "Finished with a warning — it's in Past reads.", tone: .warning,
                             action: .openDetails(.lastCycle))
     }
     if ctx.recentCycleCommit != nil {                                                             // T7
@@ -329,15 +330,9 @@ private func sentenceTail(_ ctx: RoomContext) -> SentenceTail? {
     if case .hungry = ctx.mood, let hours = ctx.debt?.hoursSinceLastCycle, hours >= 48 {         // T10
         return SentenceTail(text: "It's been \(Int(hours / 24)) days.")
     }
-    if count > 0, ctx.scheduleMode == "manual" {                                                 // T11
-        return SentenceTail(text: "The lamp is off — I read when you ask.", action: .openLamp)
-    }
-    if case .reading = ctx.mood, let label = ctx.topOriginLabel {                                // T12
-        let text = "The \(label) pile is the big one."
-        if text.count <= SentenceLine.maxTail {
-            return SentenceTail(text: text, mark: ctx.topOrigin.map { SentenceMark.origin($0) })
-        }
-    }
+    // T11 and T12 retired (owner 2026-10-16, the Sleep page at rest: one headline, one row of controls, one schedule
+    // sentence; DR-38). "The lamp is off — I read when you ask." is the schedule sentence under the controls now, said
+    // once; "The <source> pile is the big one." repeated the pile the room draws.
     // T13 (Z9, Z-B19) — only once the queue has loaded: "Checking what's
     // waiting…" never carries an invitation.
     if case .happy = ctx.mood, case .loaded = ctx.queueLoad {                                    // T13
@@ -374,7 +369,8 @@ private func pausedLead(_ paused: SleepPausedRun) -> SentenceLine {
     case "plan_window": SentenceLine(lead: Copy.SleepV5.pausedPlanWindowLead)
     case "plan_weekly": SentenceLine(lead: Copy.SleepV5.pausedPlanWeeklyLead)
     case "overage": SentenceLine(lead: Copy.SleepV5.pausedOverageLead)
-    case "engine": SentenceLine(lead: Copy.SleepV5.pausedEngineLead, tone: .warning)
+    case "engine": SentenceLine(lead: paused.engineKind == "transient"
+                               ? Copy.SleepV5.pausedEngineLead : Copy.SleepV5.pausedEngineFixLead, tone: .warning)
     case "restart": SentenceLine(lead: Copy.SleepV5.restartLead)
     case "bank_switched": SentenceLine(lead: Copy.SleepV5.bankSwitchedLead)
     default: SentenceLine(lead: Copy.SleepV5.pausedLead)
@@ -406,7 +402,10 @@ private func pausedTail(_ paused: SleepPausedRun, _ ctx: RoomContext) -> Sentenc
         return SentenceTail(text: ctx.resetWhen.map(Copy.SleepV5.resetsThenContinue) ?? Copy.SleepV5.continueWhenItResets,
                             action: .openDetails(.lastCycle))
     case "engine":
-        return SentenceTail(text: Copy.SleepV5.continueWhenFixed(filed: filed, frozen: frozen, locale),
+        let text = paused.engineKind == "transient"
+            ? Copy.SleepV5.continueToTryAgain(filed: filed, frozen: frozen, locale)
+            : Copy.SleepV5.continueWhenFixed(filed: filed, frozen: frozen, locale)
+        return SentenceTail(text: text,
                             tone: .warning, action: .openDetails(.lastCycle))
     case "restart":
         return SentenceTail(text: Copy.SleepV5.restartTail(filed: filed, frozen: frozen, locale))
@@ -417,13 +416,6 @@ private func pausedTail(_ paused: SleepPausedRun, _ ctx: RoomContext) -> Sentenc
     }
 }
 
-/// The tail while a person-started run reads: which batch, and how much of what it set out to
-/// read is already filed. Measured counts only (G107), in the reader's locale.
-func drainProgressClause(_ drain: SleepDrainInfo, locale: Locale) -> String {
-    let count = { (n: Int) in UsageFormat.count(n, locale: locale) }
-    return "Batch \(count(drain.batch)) of \(count(drain.batches)) · \(count(drain.filed)) of \(count(drain.frozen)) filed."
-}
-
 /// After a cancel of a person-started run: what earlier batches filed stays filed. The batch that
 /// was still reading is dropped (its reads are paid again next time), so this never says
 /// "nothing was lost".
@@ -432,27 +424,41 @@ func drainCancelledClause(_ drain: SleepDrainInfo, locale: Locale) -> String {
     return "Stopped — \(filed) filed stay filed; the rest wait."
 }
 
-/// The lamp's twin in words (§7.2): the schedule, then when the next run is —
-/// or that the lamp is off.
+/// The lamp's twin in words (§7.2), and the page's one schedule sentence (owner 2026-10-16): the schedule, then when
+/// the next run is — or, with the lamp off, that it reads when asked. The lamp-off fact is said here and nowhere else
+/// on the page (T11, which said it again above the controls, retired; DR-38).
 func whisperLine(scheduleText: String, nextRunText: String, lampLit: Bool) -> String {
-    lampLit ? "\(scheduleText) · \(nextRunText)" : "\(scheduleText) — the lamp is off"
+    lampLit ? "\(scheduleText) · \(nextRunText)" : Copy.lampOffSentence
 }
 
 // MARK: - The slot
 
 /// The one place the worm speaks (R-Z5), directly under the room. Its height
-/// is reserved — one lead line, two tail lines (`lineLimit(2, reservesSpace:)`)
-/// — so a longer tail, an answer or no tail at all never reflows what sits
-/// below it.
+/// is reserved — one lead line and ONE tail line (2026-10-16) — so a tail, an
+/// answer or no tail at all never reflows what sits below it. Two reserved tail
+/// lines were sized for the old 480 pt card; in the 760 pt column the second
+/// one stood empty above the control on almost every line (the live capture:
+/// ≈ 70 pt between "1 to read — overdue." and Consolidate). A tail takes one
+/// line at 17 pt, else one line at 15 pt, and only a tail
+/// too long for even that wraps to a second line (`SentenceSlot.tailForm`) —
+/// never cut: R-Z13's 80-character budget still holds.
 ///
 /// Meadow's faces (Z10, Z-B12; F1 R-FX13): the lead in the display face — SF
 /// Pro Display semibold at 30 pt with `displayTracking`, shrinking only to the
-/// display floor; the tail in the display face's italic (SF italic) at 22 pt —
+/// display floor; the tail in SF regular at 17 pt (2026-10-16, it was a 22 pt italic) —
 /// the owner asked for a minimal sans, so the sentence no longer uses the
 /// quote face.
 struct RoomSentenceView: View {
     static let leadSize: CGFloat = 30
-    static let tailSize: CGFloat = 22
+    /// The one secondary line (2026-10-16): 17 pt regular — the heading step of the ladder (DR-16), not the display
+    /// face. At 22 pt it read as a second headline under "Filing…" (the owner's live capture). No italic (owner
+    /// 2026-10-16, the page at rest): it is a sentence in `textSecondary`, set like every other line.
+    static let tailSize: CGFloat = 17
+    /// The size a tail steps down to before it wraps: the detail-body step of the ladder.
+    static let tailFloorSize: CGFloat = 15
+
+    /// The tail's face at a size — SF regular through the ladder, so it scales with `uiScale` (DR-70).
+    static func tailFont(size: CGFloat) -> Font { CicadaTheme.font(size: size) }
     /// The lead fits one line by shrinking no further than the display
     /// face's own floor (R-M3) — the old 0.7 would have reached 21 pt.
     static var leadMinimumScale: CGFloat { CicadaTheme.displayMinimumSize / leadSize }
@@ -581,19 +587,37 @@ struct RoomSentenceView: View {
     /// slot is one ignored-children element, so the mark adds nothing to what
     /// VoiceOver reads. The words already name the service.
     private func tailView(_ line: SentenceLine) -> some View {
-        HStack(alignment: .top, spacing: CicadaTheme.spacingXS) {
+        HStack(alignment: .center, spacing: CicadaTheme.spacingXS) {
             if let mark = line.mark {
                 SentenceMarkView(mark: mark)
-                    .padding(.top, CicadaTheme.spacingXS)
             }
             tailText(line)
         }
     }
 
-    @ViewBuilder
+    /// The slot's reserve (one tail line), then the first form that fits the column: one line at 17 pt, one line at
+    /// 15 pt, else two lines at 17 pt. `ViewThatFits` measures each form's ideal width, which for a
+    /// one-line text is its unwrapped width, so a form is picked only when the whole tail fits it.
     private func tailText(_ line: SentenceLine) -> some View {
+        ZStack(alignment: .top) {
+            Text(verbatim: " ")
+                .font(Self.tailFont(size: Self.tailSize))
+                .lineLimit(SentenceSlot.reservedTailLines, reservesSpace: true)
+                .hidden()
+                .accessibilityHidden(true)
+            // In `SentenceSlot.TailForm`'s order.
+            ViewThatFits(in: .horizontal) {
+                tailForm(line, .oneLine)
+                tailForm(line, .oneLineAtFloor)
+                tailForm(line, .twoLines)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func tailForm(_ line: SentenceLine, _ form: SentenceSlot.TailForm) -> some View {
         let tail = line.tail ?? " "
-        let tailFont = CicadaTheme.displayFont(size: Self.tailSize, italic: true)
+        let tailFont = Self.tailFont(size: form.size)
         let tailColor = color(line.tailTone, plain: CicadaTheme.textSecondary)
         if let action = line.action, line.tail != nil {
             let link = tailLink(tail)
@@ -602,15 +626,34 @@ struct RoomSentenceView: View {
                 (Text(verbatim: prefix).foregroundStyle(tailColor)
                  + Text(verbatim: link).foregroundStyle(CicadaTheme.accent))
                     .font(tailFont)
-                    .lineLimit(2, reservesSpace: true)
+                    .lineLimit(form.lines)
             }
             .buttonStyle(.cicadaPlain)
         } else {
             Text(verbatim: tail)
                 .font(tailFont)
                 .foregroundStyle(tailColor)
-                .lineLimit(2, reservesSpace: true)
+                .lineLimit(form.lines)
         }
+    }
+}
+
+/// The sentence slot's geometry (R-Z5 as amended 2026-10-16): what it reserves, and the forms a tail may take, in
+/// the order the slot tries them.
+enum SentenceSlot {
+    /// One lead line plus this many tail lines are always reserved.
+    static let reservedTailLines = 1
+
+    enum TailForm: CaseIterable, Hashable {
+        /// One line at the tail's own 17 pt.
+        case oneLine
+        /// One line at the tail's floor (15 pt), before anything wraps.
+        case oneLineAtFloor
+        /// Two lines at 17 pt — the last resort, for a tail near R-Z13's 80-character budget.
+        case twoLines
+
+        var size: CGFloat { self == .oneLineAtFloor ? RoomSentenceView.tailFloorSize : RoomSentenceView.tailSize }
+        var lines: Int { self == .twoLines ? 2 : 1 }
     }
 }
 
@@ -621,15 +664,15 @@ private struct DwellKey: Equatable {
     let inside: Bool
 }
 
-/// A `SentenceMark`, drawn. At 18 pt it sits beside the 22 pt italic tail
+/// A `SentenceMark`, drawn. At 15 pt it sits beside the 17 pt tail
 /// without out-weighing it.
 private struct SentenceMarkView: View {
     let mark: SentenceMark
 
     var body: some View {
         switch mark {
-        case .origin(let origin): OriginMark(origin: origin, size: 18)
-        case .engine(let engine): EngineMark(engine: engine, size: 18)
+        case .origin(let origin): OriginMark(origin: origin, size: 15)
+        case .engine(let engine): EngineMark(engine: engine, size: 15)
         }
     }
 }

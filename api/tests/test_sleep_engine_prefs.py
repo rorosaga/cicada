@@ -205,7 +205,7 @@ def test_openrouter_is_a_byok_card_that_needs_a_key(client):
     body = client.get("/sleep/engine").json()
     card = next(c for c in body["candidates"] if c["id"] == "openrouter")
     assert card["mode"] == "byok" and card["connected"] is False
-    assert card["models"] == ["openrouter/~openai/gpt-mini-latest"]
+    assert card["models"] == ["openrouter/openai/gpt-oss-120b"]
     assert [c["id"] for c in body["candidates"]] == ["auto", "agent", "codex", "openrouter", "local", "byok"]
     assert body["selected"] == body["mode"] == "byok"
 
@@ -220,7 +220,7 @@ def test_the_picker_lists_six_providers_and_which_have_a_key(client, monkeypatch
 
 
 def test_choosing_openrouter_selects_its_card_pins_the_judge_and_runs_on_a_schedule(client):
-    model = "openrouter/~openai/gpt-mini-latest"
+    model = "openrouter/openai/gpt-oss-120b"
     body = client.put("/sleep/engine", json={"mode": "byok", "model": model}).json()
     assert (body["mode"], body["selected"], body["provider"]) == ("byok", "openrouter", "openrouter")
     assert body["disambiguationModel"] == model                               # R-AG13
@@ -251,7 +251,7 @@ def test_from_openrouter_the_api_key_card_writes_a_key_model(client):
     """R-HS7: a tap writes the card's first model, and the app OMITS a nil model — so a bare
     `{mode: byok}` from the OpenRouter card would keep the `openrouter/` model and never leave it."""
     assert next(c for c in client.get("/sleep/engine").json()["candidates"] if c["id"] == "byok")["models"] == []
-    client.put("/sleep/engine", json={"mode": "byok", "model": "openrouter/~openai/gpt-mini-latest"})
+    client.put("/sleep/engine", json={"mode": "byok", "model": "openrouter/openai/gpt-oss-120b"})
     key = next(c for c in client.get("/sleep/engine").json()["candidates"] if c["id"] == "byok")
     assert key["models"] == ["anthropic/claude-haiku-4-5"]      # no key stored: the picker's first provider
     assert client.put("/sleep/engine", json={"mode": "byok", "model": key["models"][0]}).json()["selected"] == "byok"
@@ -316,6 +316,7 @@ def test_a_signed_in_chatgpt_card_carries_its_fullest_window_and_its_reading_tim
         "kind": "plan-window", "window": "secondary", "usedFraction": 0.62, "resetsAt": 1790500000,
         "asOf": "2026-09-29T10:20:00Z", "source": "codex-snapshot", "lastCycleCostUsd": None,
         "model": None, "inputPerMillionUsd": None, "outputPerMillionUsd": None,
+        "lastRunShare": [], "lastRunEquivUsd": None,
     }
 
 
@@ -330,6 +331,23 @@ def test_the_claude_card_reads_its_window_from_the_last_recorded_cycle(client, m
     assert agent["usage"]["asOf"] == "2026-09-29T09:00:00Z"
 
 
+def test_a_plan_card_carries_its_last_runs_share_and_list_price_equivalent(client, monkeypatch):
+    """Owner 2026-10-16: a plan card leads with how much of the plan its last run used; the dollar figure is
+    the secondary list-price equivalent, never a charge. A card with no recorded window still gets the share."""
+    from api.models.schemas import CycleUsagePlanShare
+    from api.services import cycle_usage
+
+    share = [CycleUsagePlanShare(window="seven_day", basis="under", under=0.01)]
+    monkeypatch.setattr(cycle_usage, "last_cycles", lambda events=None, bank=None: {
+        "last-run": {"claude-plan": {"share": share, "equiv_usd": 0.49, "as_of": "2026-10-16T09:00:00Z"}}})
+    cards = {c["id"]: c for c in client.get("/sleep/engine").json()["candidates"]}
+    usage = cards["agent"]["usage"]
+    assert usage["lastRunShare"] == [{"window": "seven_day", "basis": "under", "share": None, "under": 0.01,
+                                      "samples": None}]
+    assert usage["lastRunEquivUsd"] == 0.49 and usage["usedFraction"] is None
+    assert usage["lastCycleCostUsd"] is None
+
+
 def test_key_cards_carry_a_list_price_and_the_last_cycles_charge(client, monkeypatch):
     from api.services import cycle_usage
 
@@ -341,7 +359,7 @@ def test_key_cards_carry_a_list_price_and_the_last_cycles_charge(client, monkeyp
     assert usage["kind"] == "list-price" and usage["inputPerMillionUsd"] == 0.4
     assert usage["outputPerMillionUsd"] == 1.6 and usage["lastCycleCostUsd"] == 0.42
     assert cards["openrouter"]["modelPrices"] == {
-        "openrouter/~openai/gpt-mini-latest": {"inputPerMillionUsd": 0.4, "outputPerMillionUsd": 1.6}}
+        "openrouter/openai/gpt-oss-120b": {"inputPerMillionUsd": 0.4, "outputPerMillionUsd": 1.6}}
     assert cards["byok"]["usage"]["lastCycleCostUsd"] is None
     assert cards["local"]["usage"] is None and cards["auto"]["usage"] is None
 
@@ -353,3 +371,64 @@ def test_an_unpriced_model_leaves_the_caption_source_empty(client, monkeypatch):
     monkeypatch.setattr(cycle_usage, "list_price_per_million", lambda m: (None, None))
     cards = {c["id"]: c for c in client.get("/sleep/engine").json()["candidates"]}
     assert cards["openrouter"]["usage"] is None and cards["openrouter"]["modelPrices"] == {}
+
+
+# --------------------------------------------------------------------------- #
+# The Sleep page follows an engine change it did not make, and says when a run keeps its own
+# --------------------------------------------------------------------------- #
+
+
+@pytest.fixture
+def idle_sleep_state():
+    from api.services import sleep_cycle
+
+    s = sleep_cycle.get_sleep_state()
+    s.status, s.drain = "idle", None
+    yield s
+    s.status, s.drain = "idle", None
+
+
+def test_a_put_from_outside_the_app_moves_the_engine_sync_component(client, idle_sleep_state):
+    """`connections.json` sits outside every bank: before the `engine` component, a PUT from curl,
+    an agent or the CLI moved nothing the app watches, and the Sleep page named the old engine."""
+    before = client.get("/sync/version").json()["components"]["engine"]
+    assert client.put("/sleep/engine", json={"mode": "local", "model": "llama3.1"}).status_code == 200
+    after = client.get("/sync/version").json()["components"]["engine"]
+    assert after != before
+
+
+def test_the_engine_component_carries_a_reading_runs_pinned_engine(client, idle_sleep_state, tmp_path):
+    from api.services import sleep_drain
+
+    idle = client.get("/sync/version").json()["components"]["engine"]
+    ds = sleep_drain.DrainState(drain_id="sleep_x", memory_path=config.get_settings().memory_path)
+    ds.engine_label, ds.engine_shown = "claude-cli", "sonnet"
+    idle_sleep_state.status, idle_sleep_state.drain = "running", ds
+    running = client.get("/sync/version").json()["components"]["engine"]
+    assert running != idle and running.endswith(":claude-cli/sonnet")
+    ds.memory_path = tmp_path / "another-bank"   # a lingering run of another bank says nothing here
+    assert client.get("/sync/version").json()["components"]["engine"] == idle
+
+
+def test_run_keeps_engine_while_a_run_reads_on_another_engine(client, idle_sleep_state):
+    from api.services import sleep_drain
+
+    assert client.put("/sleep/engine", json={"mode": "local", "model": "llama3.1"}).status_code == 200
+    body = client.get("/sleep/engine").json()
+    assert body["runKeepsEngine"] is False, "nothing is running"
+    manual, scheduled = body["preview"]["manual"], body["preview"]["scheduled"]
+
+    ds = sleep_drain.DrainState(drain_id="sleep_x", memory_path=config.get_settings().memory_path)
+    ds.engine_label, ds.engine_shown = "claude-cli", "sonnet"   # what the run resolved at its start
+    idle_sleep_state.status, idle_sleep_state.drain = "running", ds
+    assert client.get("/sleep/engine").json()["runKeepsEngine"] is True
+
+    ds.engine_label, ds.engine_shown = manual["engine"], manual["model"]
+    assert client.get("/sleep/engine").json()["runKeepsEngine"] is False, "the run already uses the choice"
+
+    ds.started_by = "schedule"   # a scheduled run is compared with the scheduled line (ruling 4)
+    differs = (scheduled["engine"], scheduled["model"]) != (manual["engine"], manual["model"])
+    assert client.get("/sleep/engine").json()["runKeepsEngine"] is differs
+
+    ds.engine_label = None   # reserved, not yet resolved
+    assert client.get("/sleep/engine").json()["runKeepsEngine"] is False

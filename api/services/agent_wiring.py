@@ -28,7 +28,12 @@ performs. Round 4 C8 adds two more shapes. OpenCode, Hermes and OpenClaw get a
 prompt with no commands (``argv: []``) that names the server and where it lives
 in the agent's own settings, so the agent writes the entry itself — their CLIs'
 registration flags could not be verified, and a wrong argv the app runs is worse
-than a prompt an agent reads (R-AG3). Claude (on the web), ChatGPT and Grok get
+than a prompt an agent reads (R-AG3). 2026-10-14: Cursor's link carries a
+prompt too (MCP only, ``mcp.json``), and ``other`` serves one generic prompt —
+the server spec and "add it to your own MCP settings" — for any agent not in
+the list; the Claude app keeps its merge alone (its chat cannot edit its own
+config). Every prompt names the server through ``server_lines``, so a release
+app's argument-less launcher (G182) reads right. Claude (on the web), ChatGPT and Grok get
 ``kind: "remote"``: the two steps before Confirm on the G135 connector, worded
 here so Settings and onboarding read one source (R-AG19). No probe, no
 subprocess, no harness file read.
@@ -57,11 +62,43 @@ from urllib.parse import quote
 import yaml
 
 from api.hooks import registry as hook_registry
-from api.services import runtime_layout
+from api.services import runtime_layout, harness_integrations
 from api.services.connections import base
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PROBE_TIMEOUT_S = 6.0
+
+
+@dataclass(frozen=True)
+class Agent:
+    """One of the person's local agents, as every surface names it. ``home`` (HOME-relative) existing means the
+    agent is on this Mac; ``skills`` is the user-level skills folder its own docs name (``None``: it has none, and it
+    is left out of every skill list); ``reads`` are other folders it also loads skills from."""
+
+    id: str
+    label: str
+    home: str
+    skills: str | None
+    reads: tuple[str, ...] = ()
+
+
+#: **The one list of the person's local agents** (owner 2026-10-15: "one place in the code"). The Skills page, its
+#: MCP tools and CLI rows, and the app (which reads it from ``GET /skills``) all derive from this tuple, so adding or
+#: removing an agent is this one change. Skill folders are from each agent's docs (2026-10-15): Codex also reads
+#: ``~/.agents/skills`` (openai/codex host_roots.rs), Cursor reads Claude Code's and Codex's folders and the shared one
+#: (cursor.com/docs), OpenCode reads Claude Code's and the shared one (opencode.ai/docs/skills), Hermes keeps
+#: ``~/.hermes/skills`` and OpenClaw ``~/.openclaw/skills`` (their docs; neither reads another's). Gemini CLI stays
+#: listed (``~/.gemini/skills`` and the shared folder) but, like every agent here, shows only when it is installed.
+#: The owner: "Gemini isn't a relevant provider for us right now. More relevant are Hermes and other personal agents."
+AGENTS: tuple[Agent, ...] = (
+    Agent("claude-code", "Claude Code", ".claude", ".claude/skills"),
+    Agent("codex", "Codex", ".codex", ".codex/skills", (".agents/skills",)),
+    Agent("cursor", "Cursor", ".cursor", ".cursor/skills", (".agents/skills", ".claude/skills", ".codex/skills")),
+    Agent("opencode", "OpenCode", ".config/opencode", ".config/opencode/skills", (".claude/skills", ".agents/skills")),
+    Agent("hermes", "Hermes", ".hermes", ".hermes/skills"),
+    Agent("openclaw", "OpenClaw", ".openclaw", ".openclaw/skills"),
+    Agent("gemini-cli", "Gemini CLI", ".gemini", ".gemini/skills", (".agents/skills",)),
+)
 
 Runner = Callable[..., Awaitable[base.CliResult]]
 
@@ -118,6 +155,22 @@ def hook_step(h: Harness, *, home: Path, repo: Path, python: str) -> dict:
     return _step("hook", [*runtime_layout.registry_argv(python, repo), "install",
                           "--settings", str(home / h.settings), "--event", "Stop",
                           "--command", hook_command(python, repo, h.id)], [f"~/{h.settings}"])
+
+
+#: G110 gate A (ruling 2026-10-07): the capture hook's best-effort flushes. Stop
+#: stays the trigger and alone decides ``autosave``, so an install from before
+#: the flush still reads ``on``; ``autosave_flush`` reports these two apart and
+#: ``flush_on`` carries their commands.
+FLUSH_EVENTS = ("PreCompact", "SessionEnd")
+
+
+def flush_steps(h: Harness, *, home: Path, repo: Path, python: str) -> list[dict]:
+    """install.sh's flush registrations: the Stop hook's own command under each
+    of :data:`FLUSH_EVENTS`."""
+    return [_step("flush", [*runtime_layout.registry_argv(python, repo), "install",
+                            "--settings", str(home / h.settings), "--event", event,
+                            "--command", hook_command(python, repo, h.id)], [f"~/{h.settings}"])
+            for event in FLUSH_EVENTS]
 
 
 GEMINI_SETTINGS = ".gemini/settings.json"
@@ -232,6 +285,20 @@ def gemini_mcp_step(binary: str, *, memory_root: Path, repo: Path, python: str) 
                          "cicada", *runtime_layout.mcp_argv(python, repo)], [f"~/{GEMINI_SETTINGS}"])
 
 
+#: Capture-everywhere: Gemini CLI's end-of-turn hook carries the prompt and the reply.
+GEMINI_CAPTURE_EVENT = "AfterAgent"
+
+
+def gemini_hook_step(*, home: Path, repo: Path, python: str) -> dict:
+    """The capture hook under ``AfterAgent`` in ``~/.gemini/settings.json``, merged
+    in by ``registry.py`` (same nested shape as Claude Code's; its timeout is in
+    milliseconds, which ``registry.default_timeout`` picks from the event). Served,
+    like the MCP step, only inside the prompt the person's own agent runs."""
+    return _step("hook", [*runtime_layout.registry_argv(python, repo), "install",
+                          "--settings", str(home / GEMINI_SETTINGS), "--event", GEMINI_CAPTURE_EVENT,
+                          "--command", hook_command(python, repo, "gemini-cli")], [f"~/{GEMINI_SETTINGS}"])
+
+
 def server_spec(*, memory_root: Path, repo: Path, python: str) -> dict:
     """The MCP server as a config object — the shape `ConnectView.swift` already
     writes for Cursor and the Claude app."""
@@ -296,15 +363,44 @@ def config_value(agent_id: str, spec: dict) -> dict:
     return spec
 
 
+def server_lines(spec: dict) -> str:
+    """The server as the lines a prompt names: its command, one ``argument:``
+    line per argument — none for a release app, whose launcher takes none (G182,
+    ``runtime_layout.mcp_argv``) — and its environment. Every value verbatim."""
+    lines = [f"command: {spec['command']}", *(f"argument: {arg}" for arg in spec["args"]),
+             *(f"environment: {name}={value}" for name, value in spec["env"].items())]
+    return "\n".join(lines)
+
+
 def config_prompt(product: str, where: str, key: str, spec: dict) -> str:
     """C5's promises, for an agent that edits a file instead of running a
     command: what to add, where, change nothing else, nothing is uploaded."""
-    memory = spec["env"]["CICADA_MEMORY_PATH"]
     return (f"Please connect Cicada, the memory app on this Mac, to {product}. Add one MCP server named cicada "
             f"to your own settings — {where}, at {key} — and change nothing else. It runs:\n\n"
-            f"command: {spec['command']}\nargument: {spec['args'][0]}\nenvironment: CICADA_MEMORY_PATH={memory}\n\n"
+            f"{server_lines(spec)}\n\n"
             "It lets you read and add to my memory. If Cicada is already there, that's fine. This uploads nothing: "
             "my memory stays on this computer. Then tell me in one sentence whether it worked.")
+
+
+#: The Agents page's "another agent" row (2026-10-14): any agent that keeps its
+#: own MCP servers — Windsurf, Zed, VS Code, Cline, Goose, one not written yet.
+GENERIC_AGENT = "other"
+
+
+def generic_prompt(spec: dict) -> str:
+    """C5's promises for an agent Cicada knows nothing about: the server spec, a
+    request to add it to the agent's OWN MCP settings in whatever shape they
+    take, change nothing else, nothing uploaded, a one-sentence answer. The
+    agent is never named — the person chose it, not Cicada (provider-neutral
+    copy) — and an agent that cannot change its own settings says where they
+    are instead of guessing."""
+    return ("Please connect Cicada, the memory app on this Mac, to yourself. Add one MCP server named cicada to "
+            "your own MCP settings, in the shape they already use, and change nothing else. It is a local "
+            f"stdio server that runs:\n\n{server_lines(spec)}\n\n"
+            "It lets you read and add to my memory. If Cicada is already there, that's fine. If you can't change "
+            "your own settings, don't guess: tell me which file they live in and what to add. This uploads "
+            "nothing: my memory stays on this computer. Then tell me in one sentence whether it worked and "
+            "whether I need to restart you.")
 
 
 # Round 4 C8 (R-AG19): cloud agents reach this Mac only through the G135 connector.
@@ -341,13 +437,17 @@ def setup(harness: str, *, home: Path, memory_root: Path, repo: Path = REPO_ROOT
                                        hook_step(h, home=home, repo=repo, python=python)])
     if harness == "gemini-cli":
         binary = resolve("gemini") or "gemini"
-        return _prompt_setup(harness, [gemini_mcp_step(binary, memory_root=memory_root, repo=repo, python=python)],
+        return _prompt_setup(harness, [gemini_mcp_step(binary, memory_root=memory_root, repo=repo, python=python),
+                                       gemini_hook_step(home=home, repo=repo, python=python)],
                              note="Once it's done, start a new Gemini CLI session so it can see your memory. "
-                                  "Gemini CLI conversations aren't saved into Cicada on their own yet.")
-    if harness == "cursor":
-        return {"harness": harness, "kind": "deeplink", "title": "Connect Cursor", "deeplink": cursor_deeplink(spec),
-                "note": "Cursor asks you to confirm. Then open a new chat so it can see your memory."}
+                                  "Saving keeps what you type and each final reply; it is built from Gemini CLI's "
+                                  "hook docs and not yet checked in an installed Gemini CLI.")
+    if harness in harness_integrations.LOCAL:
+        return harness_integrations.LOCAL[harness].setup(home=home, repo=repo, python=python, spec=spec)
     if harness == "claude-desktop":
+        # No prompt (2026-10-14): the Claude app's chat cannot edit its own config file, and handing the job
+        # to some other agent would ask a stranger to hand-edit a file that holds other servers' secrets —
+        # the app's own merge does it with a backup first, merging, never replacing.
         return {"harness": harness, "kind": "config-merge", "title": "Connect the Claude app",
                 "config": {"path": CLAUDE_DESKTOP_CONFIG, "key": "mcpServers.cicada", "value": spec},
                 "note": "Quit and reopen Claude so it picks Cicada up."}
@@ -357,6 +457,10 @@ def setup(harness: str, *, home: Path, memory_root: Path, repo: Path = REPO_ROOT
         return {"harness": harness, "kind": "prompt", "title": f"Connect {product}",
                 "prompt": config_prompt(product, where, key, spec), "argv": [], "display": [],
                 "config": {"path": where, "key": key, "value": value}, "note": note}
+    if harness == GENERIC_AGENT:
+        return {"harness": harness, "kind": "prompt", "title": "Connect another agent",
+                "prompt": generic_prompt(spec), "argv": [], "display": [],
+                "note": "Once it says it worked, start a new conversation with it so it can see your memory."}
     if harness in REMOTE_SETUPS:
         title, product, link_step = REMOTE_SETUPS[harness]
         return {"harness": harness, "kind": "remote", "title": title, "display": [REACH_STEP, link_step],
@@ -372,6 +476,17 @@ def _autosave(path: Path, command: str) -> str:
         return "invalid"
     state = hook_registry.status(path, event="Stop", command=command)
     return {"present": "on", "absent": "off", "stale": "stale"}[state]
+
+
+def _autosave_flush(path: Path, command: str) -> str:
+    """``on`` when both flushes are registered with the Stop hook's command,
+    ``off`` when neither is, ``stale`` otherwise (half, or a moved checkout)."""
+    try:
+        hook_registry.load(path)
+    except hook_registry.RegistryError:
+        return "invalid"
+    states = {hook_registry.status(path, event=event, command=command) for event in FLUSH_EVENTS}
+    return "on" if states == {"present"} else "off" if states == {"absent"} else "stale"
 
 
 RECALL_EVENTS = ("SessionStart", "UserPromptSubmit")
@@ -437,23 +552,30 @@ async def _harness(h: Harness, *, home: Path, memory_root: Path, repo: Path, pyt
     command = hook_command(python, repo, h.id)
     autosave = _autosave(settings_path, command)
     connect: list[dict] = []
+    flush = _autosave_flush(settings_path, command)
     if recall == "off":
         connect.append(mcp_step(h, binary, memory_root=memory_root, repo=repo, python=python))
     if autosave in ("off", "stale"):
         connect.append(hook_step(h, home=home, repo=repo, python=python))
+    # G110 gate A: the flush is its own list, not part of `connect` — the setup
+    # prompt runs exactly `connect` (C5) and four commands do not fit it. The app
+    # appends these to a Connect it is already running (`AgentWiring.turnOnSteps`),
+    # so an agent already on is never shown anything new; install.sh adds them too.
+    flush_on = flush_steps(h, home=home, repo=repo, python=python) if flush in ("off", "stale") else []
     detail = None
     if autosave == "invalid":
         detail = f"~/{h.settings} isn't valid JSON, so Cicada won't touch it."
     elif recall == "unknown":
         detail = "Couldn't check in time. Try again."
     return {"id": h.id, "installed": True, "binary": binary, "recall": recall,
-            "autosave": autosave, "connect": connect, "detail": detail}
+            "autosave": autosave, "autosave_flush": flush, "flush_on": flush_on, "connect": connect,
+            "detail": detail}
 
 
 CONFIG_AGENT_BINARIES = {"gemini-cli": "gemini", "opencode": "opencode", "hermes": "hermes", "openclaw": "openclaw"}
 
 
-def _config_agent(agent_id: str, home: Path, resolve) -> dict:
+def _config_agent(agent_id: str, home: Path, resolve, *, python: str | None = None, repo: Path | None = None) -> dict:
     """Read-only until the app has verified a registration command for it
     (R-IA15, R-AG3): the row reports the agent's own config and offers nothing.
     Dict order is the row order — Gemini CLI stays where it was, the three
@@ -462,8 +584,18 @@ def _config_agent(agent_id: str, home: Path, resolve) -> dict:
     if binary is None:
         return {"id": agent_id, "installed": False, "binary": None, "recall": "off",
                 "autosave": "n/a", "connect": [], "detail": None}
+    autosave = "n/a"
+    if agent_id == "gemini-cli" and python is not None and repo is not None:
+        # Capture-everywhere: read-only like recall — the hook is turned on by the
+        # setup prompt the person's own agent runs, never by an argv offered here.
+        try:
+            hook_registry.load(home / GEMINI_SETTINGS)
+            autosave = {"present": "on", "absent": "off", "stale": "stale"}[hook_registry.status(
+                home / GEMINI_SETTINGS, event=GEMINI_CAPTURE_EVENT, command=hook_command(python, repo, agent_id))]
+        except hook_registry.RegistryError:
+            autosave = "invalid"
     return {"id": agent_id, "installed": True, "binary": binary, "recall": config_state(agent_id, home),
-            "autosave": "n/a", "connect": [], "detail": None}
+            "autosave": autosave, "connect": [], "detail": None}
 
 
 async def probe(*, home: Path, memory_root: Path, repo: Path = REPO_ROOT, python: str | None = None,
@@ -478,5 +610,6 @@ async def probe(*, home: Path, memory_root: Path, repo: Path = REPO_ROOT, python
     by_id = {h.id: h for h in HARNESSES}
     rows = [{**row, **autorecall_fields(by_id[row["id"]], home=home, repo=repo, python=python)}
             if row["installed"] else row for row in rows]
-    return {"agents": [*rows, *(_config_agent(a, home, resolve) for a in CONFIG_AGENT_BINARIES)], "python": python,
+    return {"agents": [*rows, *(_config_agent(a, home, resolve, python=python, repo=repo) for a in CONFIG_AGENT_BINARIES),
+                       *(adapter.wiring(home=home, repo=repo, python=python) for adapter in harness_integrations.LOCAL.values())], "python": python,
             "repo": str(repo), "memory": str(memory_root)}

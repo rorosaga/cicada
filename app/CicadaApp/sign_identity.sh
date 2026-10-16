@@ -43,6 +43,29 @@ _cicada_pick_identity() {
   return 1
 }
 
+# Run codesign with a time limit: $1 seconds, then the rest as codesign's arguments. Returns codesign's status, or
+# 124 when it was still running at the limit (killed). Why: codesign asks "codesign wants to use the key" in a dialog
+# when the key was never authorised, and an unattended run (the dev auto-update) would wait on it for ever — the job
+# hung, its lock was cleared and the next run hung the same way. `CODESIGN` overrides the binary (tests).
+cicada_codesign_bounded() {
+  local limit="$1" pid waited=0
+  shift
+  "${CODESIGN:-codesign}" "$@" &
+  pid=$!
+  while kill -0 "$pid" 2>/dev/null; do
+    if [ "$waited" -ge "$((limit * 10))" ]; then
+      # Its children too (a wrapper's), so nothing it started keeps running or holds the log open.
+      pkill -TERM -P "$pid" 2>/dev/null; kill "$pid" 2>/dev/null; sleep 0.2
+      pkill -KILL -P "$pid" 2>/dev/null; kill -9 "$pid" 2>/dev/null
+      wait "$pid" 2>/dev/null
+      return 124
+    fi
+    sleep 0.1
+    waited=$((waited + 1))
+  done
+  wait "$pid"
+}
+
 cicada_sign_identity() {
   local hash
   if [ -n "${CICADA_SIGN_IDENTITY:-}" ]; then

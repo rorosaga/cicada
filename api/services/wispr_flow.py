@@ -372,8 +372,9 @@ def _stored_dictation(entry) -> list[tuple[str, str]]:
     missing entry; one past ``MAX_TURN_STAMPS`` comes back without a time."""
     if entry is None:
         return []
-    body = markdown_parser.parse(entry.path).body
-    stamps = evidence.turn_stamps(entry.fm)
+    parsed = markdown_parser.parse(entry.path)   # the sidecar is the file's, never the header cache's
+    body = parsed.body
+    stamps = evidence.turn_stamps(parsed.frontmatter)
     return [(str(t.ts or ""), body[t.content_start:t.end])
             for t in evidence.turns(body, stamps=stamps) if t.marker is not None]
 

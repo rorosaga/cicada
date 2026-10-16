@@ -9,7 +9,7 @@ from pathlib import Path
 from loguru import logger
 
 from api.config import Settings
-from api.services import bank_index, episode_ids, git_service, markdown_parser, sleep_drain, sleep_reserve
+from api.services import bank_index, episode_ids, evidence, git_service, markdown_parser, sleep_drain, sleep_reserve
 
 
 @dataclass
@@ -300,8 +300,32 @@ def is_writing() -> bool:
     and the gaps between batches touch no page, so the app's writes and an
     agent's claim commit alone under their own author there, never swept into a
     batch commit under the Sleep model's."""
-    state = get_sleep_state()   # through the accessor: the route guards' tests substitute it
+    return writing_of(get_sleep_state())   # through the accessor: the route guards' tests substitute it
+
+
+def writing_of(state) -> bool:
+    """``is_writing`` for a state already in hand — the sync version and the SSE tick read the one they were given,
+    so ``/status``, the `sleep` component and the event never disagree with the refusals (G177)."""
     return state.status == "running" and (not getattr(state, "drain_run", False) or getattr(state, "writing", False))
+
+
+#: Why a run stopped before reading a page: a writer admitted before the window still held the bank (G183).
+WINDOW_BUSY = ("A write was still in progress, so Sleep paused before reading your pages. What was filed stays "
+               "filed; continue when you like.")
+
+
+async def _open_window(memory_path) -> bool:
+    """Open the write window (G183): the flag first, then wait — off the event loop — until no writer still holds
+    the bank's admission (``write_admission``). A writer that saw the window shut took its hold before the flag was
+    set, so it finishes its write and its own commit before Sleep reads a page; every later one sees the flag and
+    refuses. Never called holding the page or git lock (admission comes first in the order). Closing needs nothing.
+
+    False when the wait timed out or could not be confirmed: the window did NOT open, and the caller reads and
+    writes nothing — it pauses (fix round 1). The flag stays set until the caller's exit path clears it."""
+    from api.services import write_admission
+
+    _state.writing = True
+    return bool(await asyncio.to_thread(write_admission.wait_for_writers, memory_path))
 
 
 def _cancel_requested() -> bool:
@@ -637,12 +661,12 @@ async def _refresh_questions_safely(memory_path: Path, settings: Settings) -> No
     """
     try:
         from api.services import inbox_questions
-        from api.services.claim_pipeline import _load_existing_claims_by_subject
+        from api.services.claim_pipeline import claims_on_demand
 
         today = str(datetime.now().date())
         refresh = inbox_questions.refresh_open_questions(
             memory_path,
-            _load_existing_claims_by_subject(memory_path),
+            claims_on_demand(memory_path),
             today,
             stale_after_days=settings.inbox_stale_after_days,
         )
@@ -1015,6 +1039,39 @@ async def _link_sources_safely(memory_path: Path) -> None:
         await asyncio.to_thread(source_links.restore, memory_path, report)
 
 
+async def _rematch_linkedin_safely(memory_path: Path) -> None:
+    """2026-10-16 (G154's pattern) — the person's kept LinkedIn connections against tonight's pages: a person who got a
+    page since the import gains their profile link and dated LinkedIn facts (`linkedin_people.rematch`). Engine-free,
+    no fetch, in its own `cicada` commit; pages dirty before it ran are skipped, a failed commit undoes what it wrote.
+    Writes nothing when no export is kept. Never raises."""
+    from api.services import linkedin_people
+
+    if not linkedin_people.directory_path(memory_path.name).exists():
+        return
+    skip: frozenset[str] = frozenset()
+    if (memory_path / ".git").exists():
+        try:
+            skip = await _dirty_paths(memory_path)
+        except Exception as exc:
+            logger.warning(f"LinkedIn rematch skipped: tree status unreadable ({type(exc).__name__})")
+            return
+    try:
+        report = await asyncio.to_thread(linkedin_people.rematch, memory_path, skip=skip)
+    except Exception as exc:
+        logger.warning(f"LinkedIn rematch failed: {type(exc).__name__}")
+        return
+    if not report.paths or not (memory_path / ".git").exists():
+        return
+    try:
+        async with _lock:
+            await git_service.commit_paths(memory_path, linkedin_people.commit_message(report, date.today()),
+                                           report.paths)
+        logger.info(f"LinkedIn rematch: {len(report.paths)} page(s) enriched")   # counts only — never a name
+    except Exception as exc:
+        logger.warning(f"LinkedIn rematch commit failed — undoing: {type(exc).__name__}")
+        await asyncio.to_thread(linkedin_people.restore, memory_path, report)
+
+
 async def _site_sources_safely(memory_path: Path) -> None:
     """G61 S3-b — propose an official site from what a page already says (its `website` claim, a `## Links` host that
     is its own name) and confirm proposed sites on Cicada's OWN rail (`link_enrichment.fetch_identity`): at most
@@ -1054,6 +1111,95 @@ async def _site_sources_safely(memory_path: Path) -> None:
     except Exception as exc:
         logger.warning(f"Site check commit failed — undoing: {type(exc).__name__}: {exc}")
         await asyncio.to_thread(site_sources.restore, memory_path, report)
+
+
+async def _source_refresh_safely(memory_path: Path) -> None:
+    """G61, ruling 26 — re-check the tracked PUBLIC sources that are due (the person's own, or ones Cicada's read
+    confirmed) on Cicada's own rail, and fold what each page states as a new dated fact: the newest evidence wins
+    (`source_refresh`). At most `source_refresh.TAIL_BUDGET` fetches a night, one per site; a login-walled source is
+    never fetched here (it is only listed for the person's own agent). No model runs. Behind
+    `CICADA_ALLOW_CONNECTOR_FETCH`; one path-scoped `cicada` commit (`Source refresh <date>`, trigger
+    `sleep/source-refresh`); pages dirty before it ran are skipped and a failed commit restores them. Never raises."""
+    from api.services import source_refresh
+    from api.services.connectors.base import network_allowed
+
+    if not network_allowed():
+        logger.info("source refresh skipped: unattended fetches are off (CICADA_ALLOW_CONNECTOR_FETCH)")
+        return
+    skip: frozenset[str] = frozenset()
+    if (memory_path / ".git").exists():
+        try:
+            skip = await _dirty_paths(memory_path)
+        except Exception as exc:
+            logger.warning(f"Source refresh skipped: tree status unreadable ({type(exc).__name__})")
+            return
+    report = source_refresh.Report()
+    try:
+        await source_refresh.run_tail(memory_path, skip=skip, report=report)
+    except Exception as exc:
+        logger.warning(f"Source refresh failed — undoing {len(report.paths)} file(s): {type(exc).__name__}: {exc}")
+        await asyncio.to_thread(source_refresh.restore, memory_path, report)
+        return
+    logger.info(f"Source refresh: {report.counts}")   # counts only — never a host, a page or a value
+    if not report.paths or not (memory_path / ".git").exists():
+        return
+    try:
+        async with _lock:
+            await git_service.commit_paths(
+                memory_path, source_refresh.commit_message(report, date.today()), report.paths)
+    except Exception as exc:
+        logger.warning(f"Source refresh commit failed — undoing: {type(exc).__name__}: {exc}")
+        await asyncio.to_thread(source_refresh.restore, memory_path, report)
+
+
+async def _web_check_safely(memory_path: Path, settings: Settings, *, user_triggered: bool) -> None:
+    """Owner ruling 2026-10-16 (G61): after the run's nudges, look up the public-thing questions (a film, a paper, a
+    tool, a company — never a person, the person's files, projects or life) and settle the ones a search answers,
+    each with its link and quote on its claim (`web_lookup`, `web_settle`). Behind `CICADA_ALLOW_CONNECTOR_FETCH`;
+    ruling 4: a scheduled run never uses a plan, a metered engine's search is priced in the run's usage. Its calls run
+    in the run's own scope (a drain's calls are tagged with the drain), so Past reads counts them. One commit
+    (`Web check <date>`, trigger `sleep/web-check`) under the model that looked; pages dirty before it ran are left
+    alone (a settle there is skipped); a failed step or commit puts every settle back (`web_lookup.restore`). Never
+    raises."""
+    from api.services import agent_engine, web_lookup, web_settle
+
+    skip: frozenset[str] = frozenset()
+    if (memory_path / ".git").exists():
+        try:
+            skip = await _dirty_paths(memory_path)
+        except Exception as exc:
+            logger.warning(f"Web check skipped: tree status unreadable ({type(exc).__name__})")
+            return
+    cycle_id = _state.cycle_id
+    drain = _state.drain
+    batch_id = f"{cycle_id}-web" if (cycle_id and drain is not None) else cycle_id
+    report = web_lookup.Report()
+    try:
+        if drain is not None and batch_id:
+            sleep_drain.register_batch(batch_id, drain)   # its calls count toward the run, like a batch's
+        with agent_engine.use_scope(web_lookup.scope_name(batch_id)):
+            await web_lookup.run_tail(memory_path, settings, user_triggered=user_triggered, skip=skip, report=report)
+    except Exception as exc:
+        logger.warning(f"Web check failed — undoing {report.settled} settle(s): {type(exc).__name__}: {exc}")
+        await asyncio.to_thread(web_lookup.restore, memory_path, report)
+        return
+    finally:
+        if drain is not None and batch_id:
+            sleep_drain.unregister_batch(batch_id)
+    # Counts and enums only — never a name, a query, a link or an answer.
+    logger.info(f"Web check: {report.looked_up} looked up, {report.settled} settled, skipped {report.skipped}"
+                + (f" ({report.reason})" if report.reason else ""))
+    if not report.paths or not (memory_path / ".git").exists():
+        return
+    message = web_settle.commit_message("Web check", report.lines, authors=report.models or [report.engine or "agent"],
+                                        engine=report.engine)
+    try:
+        async with _lock:
+            await asyncio.to_thread(web_settle.commit_sync, memory_path, message, report.paths)
+    except Exception as exc:
+        # Never left dangling for a later `git add -A` to commit under the wrong author (the G85 smear): undone.
+        logger.warning(f"Web check commit failed — undoing {report.settled} settle(s): {type(exc).__name__}")
+        await asyncio.to_thread(web_lookup.restore, memory_path, report)
 
 
 async def _run_engine_independent_tail(
@@ -1138,6 +1284,8 @@ async def _run_engine_independent_tail(
         await _propose_followups_safely(memory_path)
         # G61 S3-a (D8): exact-match source -> its own page links, before any poll's `git add -A`.
         await _link_sources_safely(memory_path)
+        # LinkedIn connections kept outside the bank, matched against tonight's pages — before any poll's `git add -A`.
+        await _rematch_linkedin_safely(memory_path)
         from api.services import demo_guard
 
         if demo_guard.is_demo(memory_path):
@@ -1149,6 +1297,13 @@ async def _run_engine_independent_tail(
         else:
             # G61 S3-b: before any poll's `git add -A`, so it cannot sweep this step's pages.
             await _site_sources_safely(memory_path)
+            # G61, ruling 26: tracked sources re-checked (public pages only), before any poll's `git add -A`.
+            await _source_refresh_safely(memory_path)
+            # Owner ruling 2026-10-16: public-thing questions looked up and settled, before any poll's `git add -A`.
+            if skip_links:
+                logger.info("web check skipped: the run stopped at the plan's limit")
+            else:
+                await _web_check_safely(memory_path, settings, user_triggered=user_triggered)
             await _poll_connectors_safely(memory_path)
             await _poll_feeds_and_calendars_safely(memory_path)
             if skip_links:
@@ -1226,6 +1381,11 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True,
     """
     global _state
 
+    # G181 phase 3: a client's click may start this run inside its request; nothing Sleep writes is that device's.
+    from api.services import device_context
+
+    device_context.clear()
+
     # Sleep control (Devin PR #27 round 1, finding 2): if `reserve_cycle`
     # already claimed this EXACT cycle_id (the synchronous trigger-time
     # reservation that closes the "background task hasn't started yet"
@@ -1293,9 +1453,19 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True,
     agent_engine.reset_models_used()
 
     outcome = _StageOutcome()
+    window_refused = False
     try:
-        await _flush_pending_commits_safely(memory_path)
-        if tail_only:
+        # status/writing are set above; no page is read, flushed or committed before writers are out.
+        if not await _open_window(memory_path):
+            window_refused = True
+            _state.error = WINDOW_BUSY
+            _state.progress = f"Paused: {WINDOW_BUSY}"
+            logger.warning("Sleep did not start: a write admitted before it still held the bank")
+        else:
+            await _flush_pending_commits_safely(memory_path)
+        if window_refused:
+            pass
+        elif tail_only:
             _state.progress = "Tidying up while your run is paused"
         elif drain:
             outcome = await _drain(settings, cycle_id, memory_path, user_triggered=user_triggered,
@@ -1333,13 +1503,16 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True,
         # while `status == "running"`, so every later cycle would be silently
         # refused with no way to recover short of restarting the process.
         try:
-            _state.writing = True   # the tail's commits sweep with `git add -A`: a hold, like a plain cycle
-            await _run_engine_independent_tail(
-                memory_path, settings, outcome, user_triggered=user_triggered,
-                # Only a drain stopped at the plan's limit passes this; the call
-                # stays the plain one otherwise, exactly as before.
-                **({"skip_links": True} if outcome.skip_links else {}),
-            )
+            # The tail's commits sweep with `git add -A`: a hold, like a plain cycle — and never past a holder.
+            if window_refused or not await _open_window(memory_path):
+                logger.warning("Sleep's engine-free tail skipped: a write admitted before it still held the bank")
+            else:
+                await _run_engine_independent_tail(
+                    memory_path, settings, outcome, user_triggered=user_triggered,
+                    # Only a drain stopped at the plan's limit passes this; the call
+                    # stays the plain one otherwise, exactly as before.
+                    **({"skip_links": True} if outcome.skip_links else {}),
+                )
         finally:
             _state.status = "idle"
             _state.writing = False
@@ -1351,6 +1524,13 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True,
                 _state.drain.active = False
                 if _state.drain.ended_mono is None:
                     _state.drain.ended_mono = time.monotonic()
+            # A search-model change waits for Sleep to end: the background re-embed starts now if one is due.
+            try:
+                from api.services import embedding_models
+
+                embedding_models.start_reindex_if_needed(memory_path, settings)
+            except Exception as e:  # noqa: BLE001 — never a reason for a run to fail
+                logger.debug(f"re-embed check skipped: {type(e).__name__}")
 
 
 def _reset_batch_counters() -> None:
@@ -1404,7 +1584,9 @@ async def _run_batch(
         if batch.ds is not None:
             sleep_drain.register_batch(batch_cycle_id, batch.ds)   # its calls count toward the drain
     try:
-        with agent_engine.use_scope(f"sleep:{batch_cycle_id}"):
+        # One batch's page reads are served from a stat-checked cache (2026-10-16 perf): freed when the batch ends,
+        # dropped on every write and on every admitted writer's release (`markdown_parser.page_cache`).
+        with agent_engine.use_scope(f"sleep:{batch_cycle_id}"), markdown_parser.page_cache(memory_path):
             try:
                 outcome = await _run_stages(
                     settings, batch_cycle_id, memory_path, user_triggered=user_triggered,
@@ -1416,7 +1598,9 @@ async def _run_batch(
                 stop = sleep_drain.classify(
                     exc, agent_engine.breaker_reason(), agent_engine.breaker_resets_at(),
                     agent_engine.breaker_kind())
-                if stop.reason != "plan_limit":
+                if stop.transient:
+                    logger.warning(f"Sleep batch {batch_cycle_id} paused: {stop.sentence}")
+                elif stop.reason != "plan_limit":
                     logger.error(f"Sleep batch {batch_cycle_id} failed: {exc}")
                     logger.exception("Full traceback:")
                 return _StageOutcome(raised=exc, stop=stop)
@@ -1434,14 +1618,15 @@ async def _run_batch(
 
 
 def _apply_drain_stop(ds: "sleep_drain.DrainState", stop: "sleep_drain.DrainStop") -> None:
-    """Turn a stop into what the status route shows. A plan limit, the reserve line
-    and a cancel are pauses, not failures (no ``error``); an unusable engine, a moved
-    bank and anything unexpected fail the run exactly like a failed cycle does."""
+    """Turn a stop into what the status route shows. A plan limit, the reserve line,
+    a transient engine interruption and a cancel are pauses, not failures (no
+    ``error``); an unusable engine, a moved bank and anything unexpected still
+    carry the diagnostic error of a failed cycle."""
     ds.stop = stop
     ds.finished = False
     where = (f"Stopped after batch {ds.committed_batches} of {ds.batches} — "
              if ds.committed_batches else "")
-    if stop.reason in ("plan_limit", "reserve"):
+    if stop.reason in ("plan_limit", "reserve") or stop.transient:
         _state.error = None
         _state.engine_detail = stop.sentence or _state.engine_detail
         _state.progress = f"{where}{stop.sentence}".strip() or "Stopped at the plan's limit"
@@ -1587,6 +1772,7 @@ async def _drain(
         ds.skipped = int(continue_from.get("skipped") or 0)
         ds.decay_ran = bool(continue_from.get("decay_ran"))
         ds.attempts = {str(k): int(v) for k, v in (continue_from.get("attempts") or {}).items()}
+        ds.timeout_attempts = {str(k): int(v) for k, v in (continue_from.get("timeout_attempts") or {}).items()}
         ds.totals.update({k: int(v) for k, v in (continue_from.get("totals") or {}).items()
                           if k in sleep_drain.CUMULATIVE_COUNTERS})
         ds.owner_beliefs = continue_from.get("owner_beliefs")
@@ -1630,6 +1816,7 @@ async def _drain(
     ds.engine_label = engine_lbl
     try:
         ds.engine_model = engine_select.author_model(resolved[0])
+        ds.engine_shown = engine_select.shown_model(resolved[0])
     except Exception:  # noqa: BLE001 - a settings stand-in names no model
         ds.engine_model = None
     if continue_from:
@@ -1915,15 +2102,25 @@ def _sync_vector_indexes(memory_path: Path) -> list[str]:
     """Sync the entity, episode and claims vector indexes; blocking, so the
     cycle calls it through ``asyncio.to_thread``. Returns one warning per
     failed step — never raises."""
+    from api.services import embedding_health
+
     warnings: list[str] = []
     try:
         from api.services.vector_index import SqliteVecIndexer
-        indexer = SqliteVecIndexer(memory_path)
+        # A table keeps the model it records while that model runs here: re-embedding a bank into a new model
+        # is the background job's (``embedding_models.start_reindex_if_needed``, at the end of this run), never
+        # minutes inside Sleep.
+        indexer = SqliteVecIndexer(memory_path, defer_model_switch=True)
     except Exception as e:
         warning = f"vector indexer init failed: {type(e).__name__}: {e}"
         logger.warning(warning)
         return [warning]
 
+    # A failure the embedder caused (out of credits, throttled, a missing model…) is one
+    # plain sentence for the whole step — every kind fails the same way — and is remembered
+    # per bank, so the Sleep page and doctor still show it after a restart. Anything else
+    # keeps its raw per-kind warning.
+    embed_kind: str | None = None
     # M5e: the claims index is derived from the in-page ```claims blocks so
     # claim-first /ask + get_perspective reflect the post-Sleep belief state.
     # Only currently-valid claims are indexed.
@@ -1935,9 +2132,18 @@ def _sync_vector_indexes(memory_path: Path) -> list[str]:
         try:
             step()
         except Exception as e:
-            warning = f"{label} index rebuild failed: {type(e).__name__}: {e}"
-            logger.warning(f"vector {warning}")
-            warnings.append(warning)
+            kind = embedding_health.classify(e)
+            logger.warning(f"vector {label} index rebuild failed: {type(e).__name__}"
+                           + (f" (embedder: {kind})" if kind else f": {e}"))
+            if kind:
+                embed_kind = embed_kind or kind
+            else:
+                warnings.append(f"{label} index rebuild failed: {type(e).__name__}: {e}")
+    if embed_kind:
+        embedding_health.record(memory_path, indexer.model_name, embed_kind)
+        warnings.insert(0, embedding_health.sentence(embed_kind))
+    elif not warnings:
+        embedding_health.clear(memory_path)
     return warnings
 
 
@@ -1947,10 +2153,10 @@ def _ae_breaker() -> str | None:
     return agent_engine.breaker_reason()
 
 
-def _batch_hooks(live: "sleep_drain.BatchLive", guard) -> dict:
+def _batch_hooks(live: "sleep_drain.BatchLive", guard, ds: "sleep_drain.DrainState") -> dict:
     """Stage 1's per-conversation hooks for a drain's batch: what started, what was
     read, what failed and whether that was the conversation's or the engine's, what
-    the reserve line stopped from starting."""
+    the reserve line or engine interruption stopped from starting."""
     def started(ep: dict) -> None:
         live.started.add(ep["id"])
 
@@ -1958,21 +2164,36 @@ def _batch_hooks(live: "sleep_drain.BatchLive", guard) -> dict:
         live.read.add(ep["id"])
 
     def failed(ep: dict, exc: BaseException) -> None:
+        from api.services import engine_errors
+
+        if isinstance(exc, engine_errors.EngineTimeout):
+            live.timeouts.add(ep["id"])
+            if not ds.timeout_attempts.get(ep["id"]):
+                live.engine_failed.add(ep["id"])
+                live.transient_stop = live.transient_stop or sleep_drain.classify(exc)
+            else:
+                # This episode timed out on a previous leg too: let the batch
+                # file its healthy reads and give this episode its second attempt.
+                live.failed[ep["id"]] = "timed_out"
+            return
         kind, reason = sleep_drain.classify_episode(exc)
         if kind == "pause":
             live.engine_failed.add(ep["id"])
             live.pause_class = True
             live.pause_sentence = live.pause_sentence or str(exc).strip()[:300]
+            if isinstance(exc, engine_errors.TRANSIENT):
+                live.transient_stop = live.transient_stop or sleep_drain.classify(exc)
         else:
             live.failed[ep["id"]] = reason or "other"
+            if isinstance(exc, engine_errors.EngineFailed):
+                live.unnamed_failed.add(ep["id"])
 
     def skipped(ep: dict) -> None:
         live.skipped.add(ep["id"])
 
     hooks = {"on_episode_started": started, "on_episode_read": read,
              "on_episode_failed": failed, "on_episode_skipped": skipped}
-    if guard is not None:
-        hooks["stop_check"] = guard.is_reached
+    hooks["stop_check"] = lambda: live.transient_stop is not None or (guard is not None and guard.is_reached())
     return hooks
 
 
@@ -2174,7 +2395,7 @@ async def _run_stages(
     else:
         hooks: dict = {}
         if live is not None:
-            hooks = _batch_hooks(live, guard)
+            hooks = _batch_hooks(live, guard, batch.ds)
         extracted = await extract(
             episodes, settings, cancel_check=_cancel_requested,
             progress_callback=_tick_stage1, on_episode_done=_on_episode_done,
@@ -2194,6 +2415,22 @@ async def _run_stages(
     # cycle is not a failure and must not be reported as one.
     if _state.cancel_requested:
         return _cycle_cancelled()
+
+    if live is not None:
+        for ep_id in live.timeouts:
+            batch.ds.timeout_attempts[ep_id] = batch.ds.timeout_attempts.get(ep_id, 0) + 1
+        if live.transient_stop is not None:
+            # A newly affected id or a positive connection interruption dooms
+            # this leg. Keep per-id observations but discard its content work.
+            for ep_id in live.timeouts:
+                live.failed.pop(ep_id, None)
+            live.engine_failed.update(live.timeouts)
+            return _StageOutcome(stop=live.transient_stop)
+        for ep_id in live.timeouts:
+            # Each repeated id failed across legs. _fold charges its second
+            # content attempt and parks it, allowing this drain to finish.
+            batch.ds.attempts[ep_id] = max(batch.ds.attempts.get(ep_id, 0),
+                                          batch.ds.timeout_attempts[ep_id] - 1)
 
     # A drain's per-conversation outcomes (Sleep page v5): who could not be read and why,
     # and whether the ENGINE is what failed (never counted against a conversation).
@@ -2218,6 +2455,14 @@ async def _run_stages(
         resets, kind = guard.stop_values()
         reserve_stop = sleep_drain.DrainStop("reserve", sleep_reserve.SENTENCE, resets, kind)
 
+    # An unnamed rejection can be the input's fault only with evidence that
+    # the engine works. A sole retry may use this run's already-filed work:
+    # its first attempt ran beside a healthy input. Fresh ids and all-failing
+    # multi-input retries cannot borrow evidence from an earlier batch.
+    unnamed_content = live is not None and (bool(live.read) or (
+        len(episodes) == 1 and bool(batch.ds.filed_ids)
+        and batch.ds.attempts.get(episodes[0]["id"], 0) > 0))
+
     # Resumable queue — hard stop if EVERY episode failed Stage 1 (wrong
     # model id, exhausted credits, total outage). Abort with the queue
     # untouched instead of running the rest of the pipeline on nothing and
@@ -2229,10 +2474,10 @@ async def _run_stages(
             i: r for i, r in unread_content.items() if i in live.failed} if live is not None else {})
     if (episodes and not extracted and live is not None and not pause_class and not _ae_breaker()
             and unread_content and all(i in live.failed for i in unread_content)
-            # An unrecognised failure on EVERY conversation is far likelier the engine's (an
-            # outage, a bad model parameter) than each conversation's: that falls through to the
-            # engine stop below — nothing parked, no attempt counted, the queue left as it was.
-            and "other" not in unread_content.values()):
+            # Without healthy-read evidence, unnamed CLI failures retain the
+            # whole-engine guard below and charge no conversation attempts.
+            and all(r != "other" or (i in live.unnamed_failed and unnamed_content)
+                    for i, r in unread_content.items())):
         # Every conversation failed for ITS OWN reasons (empty answers, timeouts): not an
         # engine failure — nothing to commit, no error, each one gets its retry or is parked.
         _state.progress = f"{label}Could not read {len(unread_content)} conversation(s)"
@@ -2262,9 +2507,17 @@ async def _run_stages(
     # Stage 2: Entity Resolution & Deduplication
     _say("Stage 2/5: Resolving entities...")
     logger.info("Stage 2: Resolving entities against existing graph")
-    if batch is not None:
-        _state.writing = True   # the pages Stage 5 rewrites are read from here (see `is_writing`)
-    existing = _load_existing_entities(memory_path)
+    if batch is not None and not await _open_window(memory_path):
+        # A writer admitted before the flag still holds the bank: read nothing, file nothing — the batch's
+        # conversations stay waiting and the run pauses (`busy`), never reads past a live holder (G183 round 1).
+        _state.writing = False
+        _say(f"Paused: {WINDOW_BUSY}")
+        return _StageOutcome(stop=sleep_drain.DrainStop("busy", WINDOW_BUSY))
+    # (A plain cycle opened its window at the run's start.) The pages Stage 5 rewrites are read from here.
+    # Every page in the bank, parsed: off the event loop, as is everything Stage 5 reads or writes
+    # below — on the loop each step froze every request (`GET /sleep/status` measured at seconds
+    # per batch on a 3,600-page bank) for as long as it ran.
+    existing = await asyncio.to_thread(_load_existing_entities, memory_path)
     from api.services.entity_resolver import resolve
     if decay_only:
         resolved_result = {"changes": [], "relationships": [], "episode_cooccurrences": {}, "name_to_id": {}}
@@ -2320,8 +2573,21 @@ async def _run_stages(
             settings,
             episode_cooccurrences=episode_cooccurrences,
         )
-    logger.info(f"Stage 4 complete: {len(skills)} skills detected")
-    _state.skills_detected = len(skills)
+    # G112 (1): an answer becomes a page only with the conversations it came from — Stage 4's
+    # evidence matched to this batch, no model call; the rest is logged and not written. A new
+    # page needs two conversations (owner ruling 2026-10-09); a skill seen in one is held in its
+    # own store (`skill_hold`) by `settle` in Stage 5. It reads every page's frontmatter (the
+    # name index), so it runs off the event loop like the rest (#250).
+    from api.services import skill_grounding
+    skill_plan = await asyncio.to_thread(
+        skill_grounding.ground, skills, changes, extracted, memory_path,
+        name_to_id=resolved_result.get("name_to_id"),
+    ) if skills else skill_grounding.SkillPlan()
+    skill_changes = skill_plan.changes
+    changes = skill_grounding.without_decay_of(changes, skill_changes)
+    logger.info(f"Stage 4 complete: {len(skills)} skills detected, {len(skill_changes)} grounded, "
+                f"{len(skill_plan.held)} held for a second conversation")
+    _state.skills_detected = len(skill_changes)
     _state.stage = 4
 
     # Sleep control — the LAST safe point: one more check before Stage 5
@@ -2347,15 +2613,54 @@ async def _run_stages(
     # One allowance of NEW decay questions for the whole cycle, drawn on by the
     # entity path here and the claim path in Stage 5.56 (the cap is a setting).
     decay_budget = DecayBudget(getattr(settings, "decay_inbox_cap_per_cycle", 10))
-    await generate(changes, skills, memory_path, relationships=resolved_edges,
+    await generate(changes, skill_changes, memory_path, relationships=resolved_edges,
                    decay_budget=decay_budget)
+    # The pending lines Stage 2 promoted leave the store only now that their pages carry what they held
+    # (page quality, 2026-10-09): a cancel before Stage 5 kept them. A line holding claims stays until
+    # Stage 5.56 writes those claims (`pending_store.take`).
+    promoted_pending = resolved_result.get("promoted_pending") or []
+    if promoted_pending:
+        from api.services import pending_store
+
+        def _take_promoted():
+            return sum(1 for name in promoted_pending if pending_store.take(memory_path, name)[1])
+        try:
+            taken = await asyncio.to_thread(_take_promoted)
+            logger.info(f"Stage 5: {taken} promoted pending line(s) left the store")
+        except Exception as e:
+            logger.warning(f"Stage 5 pending take failed: {type(e).__name__}: {e}")
+    # G112: the one-conversation skills go into the skill hold, and the lines a skill page of this
+    # batch carried leave it — after the pages exist. A failed hold write is a warning, as Stage 2's
+    # own pending writes are: the pages stand.
+    if skill_plan.held or skill_plan.promoted:
+        try:
+            held, taken = await asyncio.to_thread(skill_grounding.settle, memory_path, skill_plan)
+            logger.info(f"Stage 5: {held} skill(s) held for a second conversation, "
+                        f"{taken} held skill(s) written to their page")
+        except Exception as e:
+            logger.warning(f"Stage 5 skill hold failed: {type(e).__name__}: {e}")
+
+    # Stage 5.4: a person known only by their relation to the owner ("Partner") is asked about once its page is
+    # written — "What's the name of your partner?" (`role_people`; one question per page, never after "I'd rather
+    # not say"). The item rides this cycle's commit like every other question it opens.
+    try:
+        from api.services import role_people
+
+        def _ask_names():
+            return role_people.ask_after_write(
+                memory_path, changes, role_people.owner_frontmatter(memory_path, settings))
+        asked = await asyncio.to_thread(_ask_names)
+        if asked:
+            logger.info(f"Stage 5.4: asked for {len(asked)} unnamed person name(s)")
+    except Exception as e:
+        logger.warning(f"Stage 5.4 name questions failed: {type(e).__name__}: {e}")
 
     # Stage 5.5: Materialize entity-body wikilinks as `mentions` edges so the
     # graph stops ignoring them. Runs after relationships are written so the
     # `mentions` wave merges into the same graph_edges.yaml. Idempotent.
     try:
         from api.services.wikilink_resolver import materialize_wikilink_edges
-        n_mentions = materialize_wikilink_edges(memory_path)
+        n_mentions = await asyncio.to_thread(materialize_wikilink_edges, memory_path, extracted, settings)
         logger.info(f"Stage 5.5: materialized {n_mentions} wikilink `mentions` edges")
     except Exception as e:
         logger.warning(f"Stage 5.5 wikilink materialization failed: {type(e).__name__}: {e}")
@@ -2366,7 +2671,7 @@ async def _run_stages(
     # it mentions never cross the 2-conversation threshold.
     try:
         from api.services.media_ingestor import inject_media_edges
-        n_media = inject_media_edges(memory_path, changes)
+        n_media = await asyncio.to_thread(inject_media_edges, memory_path, changes)
         logger.info(f"Stage 5.55: injected {n_media} media `about` edges")
     except Exception as e:
         logger.warning(f"Stage 5.55 media edge injection failed: {type(e).__name__}: {e}")
@@ -2386,8 +2691,8 @@ async def _run_stages(
     try:
         from api.services.claim_pipeline import run_claim_pipeline
         from api.services.inbox_generator import write_claim_nudges
-        claim_result = run_claim_pipeline(
-            extracted, existing, memory_path, settings,
+        claim_result = await asyncio.to_thread(
+            run_claim_pipeline, extracted, existing, memory_path, settings,
             # G141 PJ-0: Stage 2's own map, so a claim lands where its edge did.
             name_to_id=resolved_result.get("name_to_id"),
             **decay_kw,
@@ -2398,8 +2703,8 @@ async def _run_stages(
         _state.claims_released = int(claim_result.get("claims_released", 0) or 0)
         _state.claims_hold_capped = int(claim_result.get("claims_hold_capped", 0) or 0)
         _state.claims_waiting = int(claim_result.get("claims_waiting", 0) or 0)
-        nudge_result = write_claim_nudges(
-            claim_result.get("nudges", []), memory_path, decay_budget=decay_budget
+        nudge_result = await asyncio.to_thread(
+            write_claim_nudges, claim_result.get("nudges", []), memory_path, decay_budget=decay_budget
         )
 
         # G60 §2.3 — re-score the OPEN questions against the freshly-written
@@ -2407,14 +2712,17 @@ async def _run_stages(
         # AFTER write_claim_nudges so this cycle's new competing values are
         # already merged into their open question.
         from api.services import inbox_questions
-        from api.services.claim_pipeline import _load_existing_claims_by_subject
+        from api.services.claim_pipeline import claims_on_demand
 
-        refresh = inbox_questions.refresh_open_questions(
-            memory_path,
-            _load_existing_claims_by_subject(memory_path),
-            str(datetime.now().date()),
-            stale_after_days=settings.inbox_stale_after_days,
-        )
+        def _refresh_questions():
+            return inbox_questions.refresh_open_questions(
+                memory_path,
+                claims_on_demand(memory_path),
+                str(datetime.now().date()),
+                stale_after_days=settings.inbox_stale_after_days,
+            )
+
+        refresh = await asyncio.to_thread(_refresh_questions)
         _state.questions_refreshed = refresh["bumped"] + refresh["escalated"]
         _state.organic_resolutions = refresh["organic_resolutions"]
         organic_resolution_paths = set(refresh.get("resolved_paths") or [])
@@ -2453,7 +2761,7 @@ async def _run_stages(
     # Deterministic, no LLM; gives small LLMs a filesystem traversal path.
     try:
         from api.services.hub_builder import regenerate_hubs_and_index
-        hub_result = regenerate_hubs_and_index(memory_path, settings)
+        hub_result = await asyncio.to_thread(regenerate_hubs_and_index, memory_path, settings)
         logger.info(f"Stage 5.6: regenerated {hub_result['hub_count']} hubs + _index.md")
     except Exception as e:
         logger.warning(f"Stage 5.6 hub generation failed: {type(e).__name__}: {e}")
@@ -2487,7 +2795,7 @@ async def _run_stages(
     # with no claims yet, so seeded/legacy edge graphs are not wiped (M5e).
     try:
         from api.services.graph_builder import regenerate_edges_from_claims
-        n_edges = regenerate_edges_from_claims(memory_path)
+        n_edges = await asyncio.to_thread(regenerate_edges_from_claims, memory_path)
         if n_edges:
             logger.info(f"Stage 5.7: regenerated {n_edges} valid-only claim edges")
     except Exception as e:
@@ -2502,7 +2810,7 @@ async def _run_stages(
     extracted_ids = {r["episode_id"] for r in extracted if r.get("episode_id")}
     processed_episodes = [ep for ep in episodes if ep["id"] in extracted_ids]
     requeued = len(episodes) - len(processed_episodes)
-    _state.episodes_processed = _mark_episodes_processed(processed_episodes)
+    _state.episodes_processed = await asyncio.to_thread(_mark_episodes_processed, processed_episodes)
     _state.episodes_requeued = requeued
     if requeued:
         logger.warning(
@@ -2553,7 +2861,8 @@ async def _run_stages(
     await _finalize(
         memory_path,
         cycle_id,
-        changes,
+        # A skill's line names its conversations and their sessions like any page's (G112).
+        [*changes, *skill_changes],
         settings,
         organic_resolution_paths=organic_resolution_paths,
         # This batch's own clock (`_run_batch`); a plain cycle's is its run's.
@@ -2680,6 +2989,10 @@ def _get_unprocessed_episodes(
             "source_id": str(fm.get("source_id") or "") or None,
             # R-F2 / R-LS7: whose words a folder file holds, for Stage-1 evidence.
             "evidence_kind": str(fm.get("evidence_kind") or "") or None,
+            # G110 gate B2: the dropped-middle marker's range, from the episode's own record.
+            "gaps": evidence.gap_ranges(fm, content) if with_body else (),
+            # G179: who the other side of a message conversation is (an agent's turns are never the person's).
+            "correspondent": fm.get("correspondent") if isinstance(fm.get("correspondent"), dict) else None,
         })
     # Order by INSTANT, not by string (G114 R2): a bank holds legacy
     # naive-local stamps beside `Z` and `+00:00` UTC ones, and a lexical sort

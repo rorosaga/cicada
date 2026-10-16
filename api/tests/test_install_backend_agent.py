@@ -68,6 +68,7 @@ def test_it_writes_the_plist_install_sh_wrote_and_bootstraps_it(tmp_path):
     assert plist["EnvironmentVariables"]["CICADA_ALLOW_FEED_FETCH"] == "1"
     assert plist["EnvironmentVariables"]["PYTHONPATH"] == str(repo)
     assert plist["RunAtLoad"] is True and plist["KeepAlive"] is True
+    assert "ProcessType" not in plist, "launchd's Background class throttles the search model's loads"
     assert (repo / "logs").is_dir()
     uid = os.getuid()
     assert log.read_text().splitlines() == [f"bootout gui/{uid}/{LABEL}", f"bootstrap gui/{uid} {plist_path}"]

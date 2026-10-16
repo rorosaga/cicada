@@ -112,7 +112,7 @@ struct LampPopover: View {
     private func write(_ on: Bool) {
         writing = on
         failed = false
-        Task { @MainActor in
+        sleepVM.bankTask {
             let landed = await sleepVM.updateSchedule(ScheduleToggle.toggled(on: on, current: sleepVM.schedule))
             failed = !landed
             writing = nil

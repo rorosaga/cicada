@@ -103,6 +103,8 @@ _LOGGED_OUT_MARKERS = (
     "401 unauthorized", "missing bearer", "not logged in", "sign in again", "log in again",
     "refresh token was already used", "refresh token was revoked", "refresh_token_expired",
     "refresh_token_reused", "refresh_token_invalidated",
+    "routing discovery unauthorized", "unauthorized (401)",
+    "selected workspace missing from routing discovery", "workspace routing requires a chatgpt account id",
 )
 _NOT_FOUND_MARKERS = ("model_not_found", "model not found", "does not exist", "is not supported",
                       "unknown model")
@@ -203,29 +205,41 @@ def check(result: CliResult, parsed: ExecResult) -> None:
     """Raise the ``EngineError`` a failed call means; return on success."""
     if result.rc == 127:
         raise engine_errors.EngineUnavailable(INSTALL_HINT)
-    if result.rc == 124:
-        raise engine_errors.EngineTimeout(f"`codex exec` timed out: {(result.stderr or '').strip()[:200]}")
     if result.rc == 0 and parsed.completed and parsed.failure is None and parsed.text is not None:
         for warning in parsed.warnings:
             logger.info(f"codex engine warning: {warning}")
         return
-    if parsed.json_lines == 0:
-        raise engine_errors.EngineUnavailable(
-            f"`codex exec` produced no events (rc {result.rc}): "
-            f"{(result.stderr or '').strip()[:200] or 'no stderr'}")
     reason = parsed.failure or ""
     # Log the whole failure message the first time any shape is seen — the
     # agent_engine stance for failures that could not be produced on demand.
     logger.warning(f"codex engine failure (rc {result.rc}): {reason[:500]}")
-    blob = f"{reason} {result.stderr or ''}".lower()
+    # Warnings only diagnose a FAILED turn: a recovered completed turn above
+    # stays successful, even when its reply discusses being offline.
+    transport = " ".join([reason, result.stderr or "", *parsed.warnings,
+                          result.stdout or "" if parsed.json_lines == 0 else ""])
+    # Warnings can identify an interrupted connection, but a config notice is
+    # not proof that the selected model, account or plan failed.
+    blob = f"{reason} {result.stderr or ''} {result.stdout or '' if parsed.json_lines == 0 else ''}".lower()
     if any(m in blob for m in _LOGGED_OUT_MARKERS):
         raise engine_errors.EngineUnavailable(SIGNED_OUT)
+    if result.rc == 124:
+        if any(m in blob for m in _LIMIT_MARKERS):
+            raise engine_errors.EngineThrottled(f"ChatGPT plan limit reached: {reason[:200]}")
+        if engine_errors.is_connectivity_error(transport):
+            raise engine_errors.EngineConnectionLost(f"`codex exec` lost the connection: {transport.strip()[:300]}")
+        raise engine_errors.EngineTimeout(f"`codex exec` timed out: {(result.stderr or '').strip()[:200]}")
     if any(m in blob for m in _NOT_FOUND_MARKERS):
         raise engine_errors.EngineModelNotFound(f"the ChatGPT plan rejected the model: {reason[:200]}")
     if any(m in blob for m in _SCHEMA_MARKERS):
         raise engine_errors.EngineProtocolError(f"Codex rejected the output schema: {reason[:200]}")
     if any(m in blob for m in _LIMIT_MARKERS):
         raise engine_errors.EngineThrottled(f"ChatGPT plan limit reached: {reason[:200]}")
+    if engine_errors.is_connectivity_error(transport):
+        raise engine_errors.EngineConnectionLost(f"`codex exec` lost the connection: {transport.strip()[:300]}")
+    if parsed.json_lines == 0:
+        raise engine_errors.EngineUnavailable(
+            f"`codex exec` produced no events (rc {result.rc}): "
+            f"{(result.stderr or '').strip()[:200] or 'no stderr'}")
     if parsed.failure is None:
         raise engine_errors.EngineProtocolError("`codex exec` finished without a reply")
     raise engine_errors.EngineFailed(f"`codex exec` failed: {reason[:200]}")

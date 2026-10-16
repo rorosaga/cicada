@@ -33,10 +33,20 @@ def verify_night(report):
     placements={l['sheet']:(l['x'],64-l['y']-l['h']) for l in plan['layers']}
 
     baseline=json.loads((ART/'day-art-contract.json').read_text())['sheets']
-    check(len(baseline)==18,'day baseline coverage')
+    # 2026-10-16: room-spines retired (the pile is room-books, built after this baseline), so 17 of the 18 remain.
+    check(len(baseline)==17,'day baseline coverage')
     for name,contract in baseline.items():
         if name=='room-weather':continue
         d,ims=load(name);ranges={t['name']:t for t in d['meta']['frameTags']}
+        if name=='room-backdrop':
+            # Dated 2026-10-16 widening (the Sleep room after #305): wall, floor and trim now span the 160-column
+            # lattice. Strictly pin the new canvas, then compare the authored pixels against the unchanged historical
+            # hash: columns 0-107 as drawn, and the corner post that moved from 108-109 to 158-159.
+            check(all(im.size==(160,64) for im in ims),'room-backdrop: widened to the lattice')
+            def authored(im):
+                out=Image.new('RGBA',(110,64));out.paste(im.crop((0,0,108,64)),(0,0));out.paste(im.crop((158,0,160,64)),(108,0))
+                return out
+            ims=[authored(im) for im in ims]
         tags={t:{'ms':[f['duration'] for f in d['frames'][ranges[t]['from']:ranges[t]['to']+1]],
                  'pixels':[hashlib.sha256(im.tobytes()).hexdigest() for im in tag_images(d,ims,t)]} for t in contract['tags']}
         check(hashlib.sha256(json.dumps(tags,sort_keys=True,separators=(',',':')).encode()).hexdigest()==contract['dayTagsSha256'],name+': day art/timing unchanged')
@@ -143,7 +153,7 @@ def verify_night(report):
         check(lit[region]['luma']<day[region]['luma']*.4,region+': room dark away from lamp')
     check(dark['sill']['luma']>dark['far-wall']['luma']+8,'window spill readable')
     check(dark['sill']['warmth']<0 and dark['moon-floor']['warmth']<0,'window spill cool')
-    bd=load('room-backdrop');means={tag:sum(luma(p) for p in tag_images(*bd,tag)[0].get_flattened_data())/(110*64) for tag in ('dark','lit','night-dark','night-lit')}
+    bd=load('room-backdrop');means={tag:sum(luma(p) for p in tag_images(*bd,tag)[0].get_flattened_data())/(160*64) for tag in ('dark','lit','night-dark','night-lit')}
     check(means['night-dark']<means['night-lit']<means['lit']*.6,'room well below day luminance')
     mug=load('room-mug');unlit_mug=tag_images(*mug,'night-dark')[0]
     check(max(luma(p) for p in unlit_mug.get_flattened_data() if p[3])<90,'far mug rim must not glow like the shade')

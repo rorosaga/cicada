@@ -25,7 +25,17 @@ import sys
 
 import pytest
 
-from api.services import logo_service
+# A developer checkout's settings file (`api/.env`, `api/settings_file.py`) never reaches the suite: off before any
+# module builds `Settings` or imports the backend's entry. A test that wants it turns it back on for itself.
+from api import settings_file as _settings_file
+
+_settings_file.disable()
+
+from api import config as _config  # noqa: E402
+
+_config.Settings.model_config["env_file"] = None
+
+from api.services import logo_service  # noqa: E402
 from api.services import codex_app_server as _codex_app_server
 from api.services.connections import base as _conn_base
 
@@ -109,6 +119,27 @@ def _no_real_agent_home(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_real_skill_tools_or_network(monkeypatch):
+    """The Skills page runs `uv`, a tool's `skill` and `doctor`, and fetches GitHub. No test may run a real tool on
+    the developer's Mac or reach the network: every command answers "not found" and every fetch fails, unless the
+    test installs its own fakes."""
+    from api.services import skill_sources, skill_tools
+    from api.services.connections import base
+
+    async def no_tool(argv, **kwargs):
+        return base.CliResult(127, "", f"{argv[0]}: not found (test)")
+
+    async def no_network(url, accept=None):
+        raise OSError("no network in tests")
+
+    monkeypatch.setattr(skill_tools, "RUNNER", no_tool)
+    monkeypatch.setattr(skill_tools, "WHICH", lambda name: None)
+    monkeypatch.setattr(skill_sources, "FETCH", no_network)
+    skill_tools.clear_cache()
+    skill_sources._PLANS.clear()
+
+
+@pytest.fixture(autouse=True)
 def _no_live_sleep_probe(monkeypatch):
     """G135 final review: a stdio `cicada_write_claim` asks the backend's
     `GET /sleep/status` before committing. Unpinned, every such test would hit
@@ -128,6 +159,9 @@ def _disable_api_auth(monkeypatch):
 @pytest.fixture(autouse=True)
 def _disable_logo_fetch(monkeypatch):
     monkeypatch.setenv("CICADA_ALLOW_LOGO_FETCH", "off")
+    # G159 (2026-10-09): a person's public-profile photo has its own gate too; no test ever asks the real services.
+    monkeypatch.setenv("CICADA_ALLOW_PERSON_PHOTO_FETCH", "off")
+    monkeypatch.setenv("CICADA_ALLOW_PERSON_PHOTO_PROXY", "off")
 
 
 @pytest.fixture(autouse=True)
@@ -144,6 +178,17 @@ def _default_public_net_guard_resolver(monkeypatch):
     from api.services import net_guard
 
     monkeypatch.setattr(net_guard, "_resolve_host", lambda host: ["93.184.216.34"])
+
+
+@pytest.fixture(autouse=True)
+def _no_background_reindex(monkeypatch):
+    """EmbeddingGemma 2 (2026-10-09): the backend re-embeds a bank in a background thread after a model change,
+    started from the lifespan, a choice, a download and the end of every Sleep run. Off for the suite, so no
+    TestClient's lifespan starts a thread that writes a test's index; the re-embed's own tests turn it on.
+    A long embed's child process (``embed_worker``) is off too: a child never sees a test's fakes, so the suite
+    embeds in-process and the worker's own tests turn it on with a stand-in the child can import."""
+    monkeypatch.setenv("CICADA_BACKGROUND_REINDEX", "off")
+    monkeypatch.setenv("CICADA_EMBED_WORKER", "off")
 
 
 @pytest.fixture(autouse=True)

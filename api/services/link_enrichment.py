@@ -505,6 +505,7 @@ async def enrich_media_links(
         # §2a reuse path: a substantive on-page description -> claim, no LLM.
         desc = _claim_description(_extract_description_section(parsed.body), min_len)
         description: str | None = None
+        read_now = False   # the page's words were read now (a fetch), not reused from the page
         if _is_substantive(desc, min_len):
             description = desc
         elif summarize_fn is not None:
@@ -524,6 +525,7 @@ async def enrich_media_links(
                 _stamp(media_fp, fetch_status=walled, fetch_attempted_at=today)
             if summary and len(summary.strip()) >= 20:
                 description = summary.strip()
+                read_now = True
 
         if not description:
             # Nothing usable — mark attempted so we don't re-spend next cycle.
@@ -533,6 +535,9 @@ async def enrich_media_links(
         describes = _build_describes_claim(media_id, description, episode, today, model)
         _append_claim(media_fp, describes)
         _set_attempted(media_fp)
+        if read_now:
+            # Owner rulings 2026-10-14: a link card's "Read Oct 2" is the day Cicada read the site's words.
+            _stamp(media_fp, read_at=utc_now_iso())
         enriched += 1
 
         # recommends + bidirectional transclusion for any person sharing the episode.
@@ -1190,6 +1195,7 @@ async def backfill(
             continue
         parsed = markdown_parser.parse(cand.path)
         parsed.frontmatter["description_source"] = "summary"
+        parsed.frontmatter["read_at"] = utc_now_iso()   # the card's "Read <day>" (owner, 2026-10-14)
         markdown_parser.write(cand.path, parsed.frontmatter, _upsert_description(parsed.body, summary))
         if _describe(cand, summary, model):
             report.summarized += 1

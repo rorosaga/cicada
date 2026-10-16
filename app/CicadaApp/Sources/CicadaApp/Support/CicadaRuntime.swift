@@ -21,7 +21,7 @@ struct CicadaRuntime: Equatable, Sendable {
     static let portDefaultsKey = "cicada.port"
     static let distributionInfoKey = "CicadaDistribution"
     /// The launchers `LauncherInstaller` writes into `binDir`, one per entry point under `backend/bin`.
-    static let launcherNames = ["cicada-backend", "cicada-mcp", "cicada-hook", "cicada-python"]
+    static let launcherNames = ["cicada-backend", "cicada-mcp", "cicada-hook", "cicada-python", "cicada"]
 
     let distribution: Distribution
     /// The `.app` this process runs from, standardized.
@@ -70,6 +70,17 @@ struct CicadaRuntime: Equatable, Sendable {
     /// The argv prefix of a hook-registry call. Two elements in both shapes, so the verb is always `argv[2]`.
     var registryArgv: [String] {
         isRelease ? [launcher("cicada-hook"), "registry"] : [pythonPath, root + "/api/hooks/registry.py"]
+    }
+
+    /// User-level Cursor startup adapter; independent of capture/engine selection.
+    var cursorRegistryArgv: [String] {
+        isRelease ? [launcher("cicada-hook"), "cursor_registry"] : [pythonPath, root + "/api/hooks/cursor_registry.py"]
+    }
+
+    var cursorHookCommand: String {
+        func quote(_ value: String) -> String { "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'" }
+        return isRelease ? quote(launcher("cicada-hook")) + " cursor"
+            : quote(pythonPath) + " " + quote(root + "/api/hooks/cursor.py")
     }
 
     /// A hook's command string, byte for byte what `agent_wiring.hook_command` writes: `kind` is `capture` (Stop)

@@ -17,7 +17,7 @@ final class DemoModeTests: XCTestCase {
     func testTheDemoFlagDecodesAndAnOlderBackendReadsAsNotTheDemo() throws {
         let flagged = try JSONDecoder().decode(MemoryBank.self, from: Data(#"{"name":"demo","active":true,"demo":true}"#.utf8))
         XCTAssertTrue(flagged.demo)
-        XCTAssertTrue(flagged.settingActive(false).demo, "ActivateBank's optimistic copy keeps the flag")
+        XCTAssertTrue(flagged.settingActive(false).demo, "the switch's roster flip keeps the flag")
         let older = try JSONDecoder().decode(MemoryBank.self, from: Data(#"{"name":"default"}"#.utf8))
         XCTAssertFalse(older.demo)
     }

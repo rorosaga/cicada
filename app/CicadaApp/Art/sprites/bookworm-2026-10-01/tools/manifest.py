@@ -20,7 +20,7 @@ def main():
   elif name=='room-weather':role='weather';script='build_weather'
   elif name=='room-skyfx':role='skyfx';script='build_skyfx'
   elif name=='room-clock':role='room';script='build_clock'
-  elif name=='room-spines':role='spines';script='build_spines'
+  elif name=='room-books':role='books';script='build_books'
   else:role='fly' if name=='room-fly' else 'room';script='build_room'
   relit='-night-' in name or name in ['room-backdrop','room-window','room-plant','room-lamp','room-beanbag','room-mug']
   if relit:script='build_night'

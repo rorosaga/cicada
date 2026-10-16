@@ -14,6 +14,7 @@ struct AdvancedView: View {
     private let mcp = CicadaRuntime.current.mcpCommand
 
     private var overrides: [String] { store.status.value?.envOverrides ?? [] }
+    private var settingsSources: StatusSnapshot.SettingsSources? { store.status.value?.settings }
 
     private var backendLine: String {
         guard store.isConnected else { return Copy.backendNotAnswering }
@@ -31,14 +32,16 @@ struct AdvancedView: View {
                 }
                 SettingsDivider()
                 SettingsRow(.apiToken, title: Copy.apiTokenTitle,
-                            detail: overrides.contains("CICADA_API_TOKEN") ? Copy.apiTokenOverridden : Copy.apiTokenDetail) {
+                            detail: overrides.contains("CICADA_API_TOKEN") ? Copy.apiTokenOverridden
+                                : (ServerConnection.current.isServer ? Copy.Devices.deviceTokenDetail : Copy.apiTokenDetail)) {
                     Button(Copy.showInFinder) {
                         // The same home `APIClient.loadToken` reads: `CICADA_HOME`
                         // when the app was given one, else `~/.cicada`. Finder
                         // only selects the file; nothing here opens it.
                         let dir = ProcessInfo.processInfo.environment["CICADA_HOME"].map { URL(fileURLWithPath: $0) }
                             ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".cicada")
-                        NSWorkspace.shared.activateFileViewerSelecting([dir.appendingPathComponent("api_token")])
+                        NSWorkspace.shared.activateFileViewerSelecting([dir.appendingPathComponent(
+                            ServerConnection.current.isServer ? ServerConnection.deviceTokenFile : "api_token")])
                     }
                 }
             }
@@ -50,6 +53,23 @@ struct AdvancedView: View {
                             HStack(alignment: .firstTextBaseline, spacing: CicadaTheme.spacingSM) {
                                 Text(name).font(CicadaTheme.monoFont).foregroundStyle(CicadaTheme.textPrimary)
                                 Text(EnvOverrideCopy.meaning(name) ?? "").font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
+                            }
+                        }
+                    }
+                }
+                if let sources = settingsSources {
+                    SettingsDivider()
+                    SettingsRow(.settingsFile, title: Copy.settingsFileTitle,
+                                detail: SettingsFileText.detail(sources)) { EmptyView() } below: {
+                        VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+                            ForEach(SettingsFileText.lines(sources), id: \.name) { line in
+                                HStack(alignment: .firstTextBaseline, spacing: CicadaTheme.spacingSM) {
+                                    Text(line.name).font(CicadaTheme.monoFont).foregroundStyle(CicadaTheme.textPrimary)
+                                    Text(line.note).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
+                                }
+                            }
+                            if let effective = SettingsFileText.effective(sources.effective) {
+                                Text(effective).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
                             }
                         }
                     }

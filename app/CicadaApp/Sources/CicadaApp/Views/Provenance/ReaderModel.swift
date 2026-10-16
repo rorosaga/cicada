@@ -77,13 +77,16 @@ enum EvidenceSpeaker {
         return t == 0 ? "0:00" : VideoRef.durationLabel(t)
     }
 
-    static func turnSpeaker(_ turn: EpisodeTurn, harness: String?, origin: String?, source: String? = nil) -> String {
+    static func turnSpeaker(_ turn: EpisodeTurn, harness: String?, origin: String?, source: String? = nil,
+                            correspondent: String? = nil) -> String {
         switch turn.role {
         case "assistant":
             // R-FA14 — the turn's own model when capture recorded one (C4).
             // harness: nil — "model not shared" belongs on the header, once,
             // not on every turn of the conversation.
-            return ModelNames.agentLine(agent: agentName(harness: harness, origin: origin) ?? Copy.Provenance.theAgent,
+            // G179 — a texted agent is named by the person's own contact name for it ("Instinct").
+            return ModelNames.agentLine(agent: correspondent ?? agentName(harness: harness, origin: origin)
+                                            ?? Copy.Provenance.theAgent,
                                         harness: nil, model: turn.model, effort: turn.effort)
                 ?? Copy.Provenance.theAgent
         case "page":
@@ -94,7 +97,11 @@ enum EvidenceSpeaker {
             // G162 — "From the video · 4:05 · approximate wording": what the video said, never the person's words.
             return Copy.Videos.mediaTurnMeta(time: mediaTime(turn.t), fidelity: turn.fidelity)
         case "speaker":
-            return named(turn.speaker) ?? Copy.Provenance.someoneElse
+            // G179 — the other side of a message conversation, by the name the person sees.
+            return correspondent ?? named(turn.speaker) ?? Copy.Provenance.someoneElse
+        case "gap":
+            // G110 gate B2 — the dropped-middle marker: Cicada's own line, never "You" or the agent.
+            return Copy.Provenance.notCaptured
         default:
             switch turn.marker {
             case "system": return Copy.Provenance.setupMessage
@@ -277,7 +284,8 @@ enum ReaderLayout {
         doc.turns.flatMap { turn -> [ReaderBlock] in
             let content = scalars.clamped(turn.contentStart, turn.end)
             guard content.upperBound > content.lowerBound || turn.role == "page" else { return [] }
-            let speaker = EvidenceSpeaker.turnSpeaker(turn, harness: doc.harness, origin: doc.origin, source: doc.source)
+            let speaker = EvidenceSpeaker.turnSpeaker(turn, harness: doc.harness, origin: doc.origin, source: doc.source,
+                                                      correspondent: doc.correspondent)
             let mark = turn.role == "assistant"
                 ? EvidenceSpeaker.agentOrigin(harness: doc.harness, origin: doc.origin) : nil
             let time = ReaderTime.label(turn.ts, locale: locale, timeZone: timeZone)
@@ -423,7 +431,8 @@ enum ReaderHeader {
     }
 
     /// "Claude Code · 3 Sep 2026 · 42 turns". A page has no turns to count.
-    static func meta(_ doc: EpisodeText, locale: Locale = .autoupdatingCurrent,
+    /// G181 phase 3 — `device` is the word for where it came from (`DeviceDirectory.label`), last and quiet.
+    static func meta(_ doc: EpisodeText, device: String? = nil, locale: Locale = .autoupdatingCurrent,
                      timeZone: TimeZone = .autoupdatingCurrent) -> String {
         var parts: [String] = []
         if doc.isPage {
@@ -441,6 +450,7 @@ enum ReaderHeader {
             parts.append(day)
         }
         if !doc.isPage, !doc.turns.isEmpty { parts.append(Copy.Provenance.turnCount(doc.turns.count)) }
+        if !doc.isPage, let device { parts.append(Copy.Devices.from(device)) }
         return parts.joined(separator: " · ")
     }
 

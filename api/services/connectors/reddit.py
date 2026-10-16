@@ -157,7 +157,8 @@ def children_to_items(children: list) -> list[RawItem]:
     """One ``RawItem`` per saved thing.
 
     A link post keeps its outbound ``url``; a self post or a saved comment uses
-    the reddit permalink. Titles come straight off the listing, so an offline
+    the reddit permalink, and a link post also carries its permalink as an alias
+    (the data export knows only that). Titles come straight off the listing, so an offline
     install still gets a real title with no hydration call (G69's ``/api/info``
     suggestion is unnecessary here). ``folder`` is the subreddit — the same
     user-authored topic label the board/collection paths use.
@@ -170,9 +171,10 @@ def children_to_items(children: list) -> list[RawItem]:
         url = str(data.get("url") or "").strip()
         if data.get("is_self") or url.startswith("/"):
             url = ""
+        permalink = str(data.get("permalink") or "").strip()
+        permalink = (BASE_URL + permalink) if permalink.startswith("/") else permalink
         if not url:
-            permalink = str(data.get("permalink") or "").strip()
-            url = (BASE_URL + permalink) if permalink.startswith("/") else permalink
+            url = permalink
         if not url.startswith(("http://", "https://")):
             continue
         subreddit = str(data.get("subreddit") or "").strip()
@@ -181,6 +183,9 @@ def children_to_items(children: list) -> list[RawItem]:
             title=(str(data.get("title") or data.get("link_title") or "").strip() or None),
             folder=f"r/{subreddit}" if subreddit else "Reddit saved",
             origin="reddit-saved",
+            # Reddit's own data export lists a save by its permalink only; kept
+            # as an alias so the export and this connector are one page.
+            aliases=[permalink] if permalink.startswith(("http://", "https://")) and permalink != url else [],
         ))
     return items
 

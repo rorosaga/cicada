@@ -4,21 +4,28 @@ import XCTest
 /// G126 R9 — the Feed hand-off. `AppRouter` is a small `@Observable
 /// @MainActor` class, not a `NotificationCenter` post: "Import in Feed →"
 /// on an Integrations row stages a tile AND switches the tab together
-/// (`routeToFeedAddSource`), and `consumeAddSource()` reads-then-clears in
+/// (`routeToAddSource`), and `consumeAddSource()` reads-then-clears in
 /// one call so a caller can never re-consume a stale tile.
 @MainActor
 final class AppRouterTests: XCTestCase {
-
-    func testRouteToFeedStagesTileAndTab() {
+    func testHomeFailureDetailsStagesSleepAndConsumesSectionOnce() {
         let router = AppRouter()
-        router.routeToFeedAddSource(.instagram)
-        XCTAssertEqual(router.pendingTab, .feed)
+        router.routeToSleepDetails(.lastCycle)
+        XCTAssertEqual(router.pendingTab, .sleep)
+        XCTAssertEqual(router.consumeSleepDetails(), .lastCycle)
+        XCTAssertNil(router.consumeSleepDetails())
+    }
+
+    func testRouteToAddSourceStagesTileAndTab() {
+        let router = AppRouter()
+        router.routeToAddSource(.instagram)
+        XCTAssertEqual(router.pendingTab, .sleep, "the import door lives on the Sleep page since the Feed folded into it")
         XCTAssertEqual(router.pendingAddSource, .instagram)
     }
 
     func testConsumeClearsAfterOneRead() {
         let router = AppRouter()
-        router.routeToFeedAddSource(.youtube)
+        router.routeToAddSource(.youtube)
         XCTAssertEqual(router.consumeAddSource(), .youtube)
         XCTAssertNil(router.pendingAddSource)
         XCTAssertNil(router.consumeAddSource())
@@ -102,7 +109,7 @@ final class AppRouterTests: XCTestCase {
     /// R-DS24 — anything that leaves the panel closes it.
     func testEveryHandOffToAPageClosesThePanel() {
         let hands: [(String, (AppRouter) -> Void)] = [
-            ("feed", { $0.routeToFeedAddSource(.instagram) }), ("source", { $0.routeToSourceDetail("rss") }),
+            ("import", { $0.routeToAddSource(.instagram) }), ("videos", { $0.routeToVideos(choose: true) }), ("source", { $0.routeToSourceDetail("rss") }),
             ("entity", { $0.routeToEntity("alpha-project") }), ("setup", { $0.requestFirstRun() }),
         ]
         for (name, hand) in hands {
@@ -114,12 +121,21 @@ final class AppRouterTests: XCTestCase {
         }
     }
 
-    func testRouteToFeedItemStagesTheItemAndTheTab() {
+    /// G162 — the video picker's hand-off lands on Sleep (its Videos tab), read-then-clear.
+    func testRouteToVideosStagesSleepAndThePickerOnce() {
         let router = AppRouter()
-        router.routeToFeedItem("media-example")
-        XCTAssertEqual(router.pendingTab, .feed)
-        XCTAssertEqual(router.consumeFeedItem(), "media-example")
-        XCTAssertNil(router.consumeFeedItem(), "read-then-clear")
+        router.routeToVideos(choose: true)
+        XCTAssertEqual(router.pendingTab, .sleep)
+        XCTAssertTrue(router.consumeVideoChooser())
+        XCTAssertFalse(router.consumeVideoChooser())
+    }
+
+    func testRouteToSavedItemStagesTheItemAndTheTab() {
+        let router = AppRouter()
+        router.routeToSavedItem("media-example")
+        XCTAssertEqual(router.pendingTab, .sleep, "Sleep › Saved holds a saved item since 2026-10-16")
+        XCTAssertEqual(router.consumeSavedItem(), "media-example")
+        XCTAssertNil(router.consumeSavedItem(), "read-then-clear")
         router.routeToClustersEntity("alpha-project")
         XCTAssertEqual(router.pendingTab, .clusters)
         XCTAssertEqual(router.consumeClustersEntity(), "alpha-project")

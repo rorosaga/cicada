@@ -33,8 +33,9 @@ def test_populate_writes_the_expected_counts(tmp_path):
     assert len(list((bank_dir / "entities").glob("*.md"))) >= 60
     assert len(list((bank_dir / "episodes").glob("*.md"))) >= 40
     # PJ-6: the quiet camera thread's follow-up (spec §12), deliberately; then round 4's showcase adds the three kinds
-    # DS-2 found missing (R-DI21): a removal, a divergence and a normalization.
-    assert len(list((bank_dir / "inbox").glob("inbox-*.md"))) == 10
+    # DS-2 found missing (R-DI21): a divergence and a normalization (G191 v4: the bookmark removal question is retired —
+    # a bookmark that left the browser is a status on the seen-set, never a question).
+    assert len(list((bank_dir / "inbox").glob("inbox-*.md"))) == 9
     assert (bank_dir / "entities" / "bob-example.md").exists()  # placeholder owner (R7)
 
 

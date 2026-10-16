@@ -42,6 +42,8 @@ final class TabGroupWatcher {
     @ObservationIgnored private var watch: FSEventsWatch?
     @ObservationIgnored private var pending: Task<Void, Never>?
     @ObservationIgnored private var running: Task<String, Error>?
+    /// The memory `running` reads for: a run for another memory is stopped and replaced, never joined (G183(d)).
+    @ObservationIgnored private var runningBank: String?
     @ObservationIgnored private var lastStarted: ContinuousClock.Instant?
 
     init(lights: BrowserWatcher? = nil, activity: SyncActivity? = nil, api: any TabGroupsSyncAPI = APIClient.shared,
@@ -61,7 +63,9 @@ final class TabGroupWatcher {
     }
 
     private var enabledKey: String { BrowserWatchPolicy.enabledKey(Self.channel) }
-    private func digestKey(_ bank: String) -> String { "cicada.tabGroups.\(bank).digest" }
+    private func digestKey(_ bank: String) -> String {
+        ServerConnection.current.scoped("cicada.tabGroups.\(bank).digest")  // per connection (G181 phase 3)
+    }
 
     /// On launch: arm and catch up, only if the person turned it on.
     func start() {
@@ -106,20 +110,30 @@ final class TabGroupWatcher {
 
     @discardableResult
     func run(force: Bool) async -> Result<String, Error> {
-        if let running { return await running.result }   // one at a time; a second caller shares the run
-        guard enabled else { return .failure(CancellationError()) }
         let bank = self.bank()
+        if let running {
+            // One at a time per memory; a second caller shares the run. A run still reading for the memory the person
+            // switched away from is stopped instead: its writes are bound to that memory (refused there now), and the
+            // memory on screen reads past its own digest at once rather than after the old run (G183(d)).
+            if runningBank == bank { return await running.result }
+            running.cancel()
+        }
+        guard enabled else { return .failure(CancellationError()) }
         let task = Task { @MainActor [weak self] () throws -> String in
             guard let self else { throw CancellationError() }
-            return try await self.perform(bank: bank, force: force)
+            // G183(d): the post names the memory whose digest it records.
+            return try await BankScope.bound(to: bank) { try await self.perform(bank: bank, force: force) }
         }
         running = task
+        runningBank = bank
         lastStarted = .now
         activity?.began(Self.channel, detail: Copy.tabGroupsReading, cancel: { [weak self] in self?.cancel() })
         status = .syncing
         publish()
         let result = await task.result
+        guard running == task else { return result }   // replaced by the memory on screen's own run: it owns the row
         running = nil
+        runningBank = nil
         activity?.ended(Self.channel)
         switch result {
         case .success:

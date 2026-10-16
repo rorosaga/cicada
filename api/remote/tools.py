@@ -66,7 +66,9 @@ REMOTE_TOOLS: dict[str, dict] = {t["name"]: t for t in (
           read_only=True),
     _tool("cicada_recall_detail",
           "Return one page of the person's memory in full, by id or by name.",
-          {"entity_id": {"type": "string", "description": "The page id or name, for example 'alpha-project'."}},
+          {"entity_id": {"type": "string", "description": "The page id or name, for example 'alpha-project'."},
+           "start": {"type": "integer", "description": "The first line to return. A long page comes in parts; each "
+                                                     "part names the next call. Omit for the beginning."}},
           ("entity_id",), read_only=True),
     _tool("cicada_get_perspective",
           "Return the facts currently believed about one subject — optionally only one observer's view "
@@ -78,10 +80,15 @@ REMOTE_TOOLS: dict[str, dict] = {t["name"]: t for t in (
            "history": {"type": "boolean", "description": "Optional: also list earlier facts — replaced, withdrawn or ended — newest first."}},
           ("subject",), read_only=True),
     _tool("cicada_check_nudges",
-          "List the questions Cicada has for the person — something fading, two facts that disagree, a name "
-          "that could be two people. Pass the ids a search returned as `entity_ids` to see only what matters "
-          "now.",
-          {"topic": {"type": "string", "description": "Optional topic to filter by."},
+          "The questions Cicada has for the person — two facts that disagree, a name that could be two people. "
+          "mode=\"ask\" with `topic` (the person's own words this turn) returns only questions about what they "
+          "are talking about now — ask one only if it fits, in your own words; mode=\"list\" (default) lists "
+          "everything, for when the person asks what is in their inbox.",
+          {"mode": {"type": "string", "enum": ["ask", "list"],
+                    "description": "\"ask\": only questions about what the person is talking about now. "
+                                   "\"list\" (default): every question."},
+           "topic": {"type": "string", "description": "With mode=\"ask\": the person's own words this turn. "
+                                                      "With \"list\": an optional word filter."},
            "entity_ids": {"type": "array", "items": dict(_STRING),
                           "description": "Optional page ids; only questions about them are listed."}},
           read_only=True),

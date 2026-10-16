@@ -1,0 +1,580 @@
+{
+ "owner": "Alex Example",
+ "seed_pages": [
+  {
+   "id": "alex-example",
+   "frontmatter": {
+    "name": "Alex Example",
+    "type": "person",
+    "owner": true,
+    "confidence": 1.0,
+    "decay_class": "evergreen"
+   },
+   "body": "## Summary\nAlex Example is the owner of this memory."
+  },
+  {
+   "id": "python",
+   "frontmatter": {
+    "name": "Python",
+    "type": "tool",
+    "confidence": 0.8
+   },
+   "body": "## Summary\nPython is the language Alex Example writes most backends in."
+  },
+  {
+   "id": "git",
+   "frontmatter": {
+    "name": "Git",
+    "type": "tool",
+    "confidence": 0.8
+   },
+   "body": "## Summary\nGit is the version control Alex Example uses for every project."
+  },
+  {
+   "id": "alpha-project",
+   "frontmatter": {
+    "name": "alpha-project",
+    "type": "project",
+    "confidence": 0.85
+   },
+   "body": "## Summary\nalpha-project is a web service Alex Example builds and maintains."
+  }
+ ],
+ "batches": [
+  [
+   {
+    "id": "ep_2026-03-02_001",
+    "timestamp": "2026-03-02T10:00:00Z",
+    "content": "user: My Forge CI build for alpha-project fails at the upload step since this morning.\n\nassistant: Forge CI runs each job in a fresh runner. The upload-artifact@v4 action needs the path to exist. Here is a helper you could add:\n```python\ndef parse_manifest(path):\n    data = json.load(open(path))\n    return data['files']\n```\nThe parse_manifest function reads manifest.json and returns the file list.\n\nuser: The error says EACCES: permission denied when it writes alpha-build.zip.\n\nassistant: That usually means the runner user cannot write the workspace. You could also store your token with git-credential-vault, a credential helper that works with Git, so the push step stops prompting.\n\nuser: Forge CI runs alpha-project's tests on every push, so this blocks every merge.\n\nassistant: Then fix the permission first: add a chmod step before the upload.\n\nuser: That worked, thanks.\n\nassistant: Glad it works. Consider caching dependencies in Forge CI too.\n",
+    "extraction": {
+     "entities": [
+      {
+       "name": "Forge CI",
+       "type": "tool",
+       "aliases": [],
+       "summary": "Forge CI is a CI platform.",
+       "key_facts": [
+        "Forge CI is a CI/CD automation platform.",
+        "The assistant suggested configuring caching in Forge CI.",
+        "The workflow uses the upload-artifact@v4 action.",
+        "The build failed with the error EACCES: permission denied.",
+        "The build artifact is named alpha-build.zip.",
+        "Forge CI was mentioned in a conversation.",
+        "Forge CI runs alpha-project's tests on every push."
+       ],
+       "history_entries": [],
+       "links": [],
+       "open_questions": [],
+       "tags": [],
+       "confidence": 0.85,
+       "description": "Forge CI is a CI platform."
+      },
+      {
+       "name": "git-credential-vault",
+       "type": "tool",
+       "aliases": [],
+       "summary": "git-credential-vault is a credential helper for Git that the assistant suggested for storing tokens so the push step stops prompting for credentials in CI runs.",
+       "key_facts": [
+        "The assistant suggested configuring git-credential-vault to store tokens.",
+        "git-credential-vault was described as a credential helper that works with Git."
+       ],
+       "history_entries": [],
+       "links": [],
+       "open_questions": [],
+       "tags": [],
+       "confidence": 0.8,
+       "description": "git-credential-vault is a credential helper for Git that the assistant suggested for storing tokens so the push step stops prompting for credentials in CI runs."
+      },
+      {
+       "name": "parse_manifest",
+       "type": "concept",
+       "aliases": [],
+       "summary": "parse_manifest is a Python helper function from the assistant's code example that reads manifest.json and returns the list of files to upload in the Forge CI workflow of alpha-project.",
+       "key_facts": [
+        "parse_manifest reads manifest.json.",
+        "parse_manifest calls json.load on the path.",
+        "parse_manifest returns data['files']."
+       ],
+       "history_entries": [],
+       "links": [],
+       "open_questions": [],
+       "tags": [],
+       "confidence": 0.9,
+       "description": "parse_manifest is a Python helper function from the assistant's code example that reads manifest.json and returns the list of files to upload in the Forge CI workflow of alpha-project."
+      },
+      {
+       "name": "alpha-project",
+       "type": "project",
+       "aliases": [],
+       "summary": "alpha-project is Alex Example's project.",
+       "key_facts": [
+        "alpha-project's tests run on Forge CI on every push."
+       ],
+       "history_entries": [],
+       "links": [],
+       "open_questions": [],
+       "tags": [],
+       "confidence": 0.8
+      }
+     ],
+     "relationships": [
+      {
+       "source": "Forge CI",
+       "target": "alpha-project",
+       "label": "runs tests for",
+       "evidence_quote": "Forge CI runs alpha-project's tests on every push"
+      },
+      {
+       "source": "git-credential-vault",
+       "target": "Git",
+       "label": "integrates with",
+       "evidence_quote": "git-credential-vault, a credential helper that works with Git"
+      },
+      {
+       "source": "parse_manifest",
+       "target": "Python",
+       "label": "written in"
+      },
+      {
+       "source": "parse_manifest",
+       "target": "alpha-project",
+       "label": "used by"
+      },
+      {
+       "source": "Alex Example",
+       "target": "Forge CI",
+       "label": "uses",
+       "evidence_quote": "My Forge CI build for alpha-project fails"
+      }
+     ]
+    }
+   },
+   {
+    "id": "ep_2026-03-03_001",
+    "timestamp": "2026-03-03T18:00:00Z",
+    "content": "user: I'm planning a day at Lakeside Park with Bob Example in April. What should we do first?\n\nassistant: Arrive at opening. Thunder Loop is the most popular roller coaster there, so ride it first; lines grow after 11am.\n\nuser: Bob gets motion sick. Is Lakeside Park good for that?\n\nassistant: Lakeside Park also has a lake boat tour and gardens, both gentle.\n\nuser: Can we bring food into Lakeside Park?\n\nassistant: Sealed snacks and water are allowed; picnic areas are near the east gate.\n\nuser: And parking at Lakeside Park, is it expensive?\n\nassistant: Parking is a flat daily fee; arriving early gets you the closest lot.\n\nuser: Great, I'll book Lakeside Park tickets for the 12th.\n\nassistant: Have a great day out.\n",
+    "extraction": {
+     "entities": [
+      {
+       "name": "Lakeside Park",
+       "type": "location",
+       "aliases": [],
+       "summary": "Lakeside Park is an amusement park Alex Example planned to visit with Bob Example in April 2026.",
+       "key_facts": [
+        "In March 2026, Alex Example planned to book Lakeside Park tickets for April 12.",
+        "Lakeside Park has a lake boat tour and gardens.",
+        "Lakeside Park allows sealed snacks and water."
+       ],
+       "history_entries": [],
+       "links": [],
+       "open_questions": [],
+       "tags": [],
+       "confidence": 0.8
+      },
+      {
+       "name": "Thunder Loop",
+       "type": "tool",
+       "aliases": [],
+       "summary": "Thunder Loop is a roller coaster at Lakeside Park.",
+       "key_facts": [
+        "Thunder Loop is the most popular roller coaster at Lakeside Park.",
+        "The assistant recommended riding Thunder Loop first because lines grow after 11am."
+       ],
+       "history_entries": [],
+       "links": [],
+       "open_questions": [],
+       "tags": [],
+       "confidence": 0.85,
+       "description": "Thunder Loop is the most popular roller coaster at Lakeside Park, a steel coaster near the main entrance that the assistant recommended riding first on the day of the visit because lines grow after 11am."
+      },
+      {
+       "name": "Bob Example",
+       "type": "person",
+       "aliases": [],
+       "summary": "Bob Example is Alex Example's friend from university.",
+       "key_facts": [
+        "Bob Example is a friend of Alex Example from university.",
+        "Bob Example gets motion sick."
+       ],
+       "history_entries": [],
+       "links": [],
+       "open_questions": [],
+       "tags": [],
+       "confidence": 0.75
+      }
+     ],
+     "relationships": [
+      {
+       "source": "Thunder Loop",
+       "target": "Lakeside Park",
+       "label": "located at",
+       "evidence_quote": "Thunder Loop is the most popular roller coaster there"
+      },
+      {
+       "source": "Alex Example",
+       "target": "Lakeside Park",
+       "label": "plans to visit",
+       "evidence_quote": "I'm planning a day at Lakeside Park with Bob Example in April"
+      },
+      {
+       "source": "Alex Example",
+       "target": "Bob Example",
+       "label": "friends with",
+       "evidence_quote": "planning a day at Lakeside Park with Bob Example"
+      }
+     ]
+    }
+   },
+   {
+    "id": "ep_2026-03-04_001",
+    "timestamp": "2026-03-04T09:00:00Z",
+    "content": "user: I started building beta-app, a habit tracker for iOS, in Swift.\n\nassistant: Nice. What is the data layer?\n\nuser: beta-app stores everything locally with SwiftData; no server.\n\nassistant: That keeps it simple. Will you sync?\n\nuser: Maybe later. For now beta-app needs reminders that fire at a chosen time.\n\nassistant: Use UNUserNotificationCenter with calendar triggers.\n\nuser: I want beta-app on TestFlight by June.\n\nassistant: Then freeze features by mid May.\n",
+    "extraction": {
+     "entities": [
+      {
+       "name": "beta-app",
+       "type": "project",
+       "aliases": [],
+       "summary": "beta-app is an iOS habit tracker that Alex Example started building in Swift in March 2026. It stores all data locally with SwiftData and has no server component, which keeps the architecture simple and private. The app needs reminders that fire at a chosen time, which the assistant suggested implementing with UNUserNotificationCenter calendar triggers. Alex Example wants the app on TestFlight by June 2026 and plans to freeze features by mid May 2026. Sync between devices was considered as a possible later feature in March 2026 but is not planned yet.",
+       "key_facts": [
+        "Alex Example is building beta-app in Swift.",
+        "beta-app stores data locally with SwiftData.",
+        "beta-app has no server.",
+        "beta-app needs time-based reminders.",
+        "In March 2026, Alex Example wanted beta-app on TestFlight by June 2026."
+       ],
+       "history_entries": [],
+       "links": [],
+       "open_questions": [],
+       "tags": [],
+       "confidence": 0.9,
+       "description": "beta-app is an iOS habit tracker that Alex Example started building in Swift in March 2026. It stores all data locally with SwiftData and has no server component, which keeps the architecture simple and private. The app needs reminders that fire at a chosen time, which the assistant suggested implementing with UNUserNotificationCenter calendar triggers. Alex Example wants the app on TestFlight by June 2026 and plans to freeze features by mid May 2026. Sync between devices was considered as a possible later feature in March 2026 but is not planned yet."
+      }
+     ],
+     "relationships": [
+      {
+       "source": "Alex Example",
+       "target": "beta-app",
+       "label": "builds",
+       "evidence_quote": "I started building beta-app, a habit tracker for iOS, in Swift."
+      },
+      {
+       "source": "beta-app",
+       "target": "SwiftData",
+       "label": "stores data with",
+       "evidence_quote": "beta-app stores everything locally with SwiftData"
+      }
+     ]
+    }
+   }
+  ],
+  [
+   {
+    "id": "ep_2026-04-10_001",
+    "timestamp": "2026-04-10T10:00:00Z",
+    "content": "user: I moved alpha-project's release job to Forge CI today.\n\nassistant: Good. Forge CI can run the release on tags only; you could pin the runner version.\n\nuser: How do I cache in Forge CI?\n\nassistant: Add a cache step keyed on the lockfile.\n",
+    "extraction": {
+     "entities": [
+      {
+       "name": "Forge CI",
+       "type": "tool",
+       "aliases": [],
+       "summary": "Forge CI is the workflow platform used by alpha-project.",
+       "key_facts": [
+        "Forge CI is a continuous integration platform.",
+        "Forge CI runs the tests of alpha-project on each push.",
+        "The assistant suggested pinning the Forge CI runner version.",
+        "Alex Example asked about caching in Forge CI.",
+        "Forge CI is a CI platform used by alpha-project."
+       ],
+       "history_entries": [
+        {
+         "date": "2026-04-10",
+         "event": "Alex Example moved alpha-project's release job to Forge CI."
+        }
+       ],
+       "links": [],
+       "open_questions": [],
+       "tags": [],
+       "confidence": 0.85,
+       "description": "Forge CI is the workflow platform used by alpha-project."
+      }
+     ],
+     "relationships": [
+      {
+       "source": "alpha-project",
+       "target": "Forge CI",
+       "label": "releases with",
+       "evidence_quote": "I moved alpha-project's release job to Forge CI today."
+      }
+     ]
+    }
+   },
+   {
+    "id": "ep_2026-04-10_002",
+    "timestamp": "2026-04-10T20:00:00Z",
+    "content": "user: Bob Example and I studied together at university; he lives in Lisbon now and invited me over.\n\nassistant: Lisbon in spring is lovely.\n",
+    "extraction": {
+     "entities": [
+      {
+       "name": "Bob Example",
+       "type": "person",
+       "aliases": [],
+       "summary": "Bob Example studied with Alex Example at university and lives in Lisbon.",
+       "key_facts": [
+        "Bob Example and Alex Example were classmates at university.",
+        "Bob Example lives in Lisbon.",
+        "Bob Example went to university with Alex Example."
+       ],
+       "history_entries": [],
+       "links": [],
+       "open_questions": [],
+       "tags": [],
+       "confidence": 0.8
+      }
+     ],
+     "relationships": [
+      {
+       "source": "Alex Example",
+       "target": "Bob Example",
+       "label": "studied with",
+       "evidence_quote": "Bob Example and I studied together at university"
+      }
+     ]
+    }
+   },
+   {
+    "id": "ep_2026-03-02_001",
+    "timestamp": "2026-03-02T10:00:00Z",
+    "content": "user: My Forge CI build for alpha-project fails at the upload step since this morning.\n\nassistant: Forge CI runs each job in a fresh runner. The upload-artifact@v4 action needs the path to exist. Here is a helper you could add:\n```python\ndef parse_manifest(path):\n    data = json.load(open(path))\n    return data['files']\n```\nThe parse_manifest function reads manifest.json and returns the file list.\n\nuser: The error says EACCES: permission denied when it writes alpha-build.zip.\n\nassistant: That usually means the runner user cannot write the workspace. You could also store your token with git-credential-vault, a credential helper that works with Git, so the push step stops prompting.\n\nuser: Forge CI runs alpha-project's tests on every push, so this blocks every merge.\n\nassistant: Then fix the permission first: add a chmod step before the upload.\n\nuser: That worked, thanks.\n\nassistant: Glad it works. Consider caching dependencies in Forge CI too.\nuser: One more thing: should the cache key include the lockfile hash?\n\nassistant: Yes. Use the lockfile hash so parse_manifest output and dependencies stay in sync; git-credential-vault is unaffected by caching.\n",
+    "resumed": true,
+    "extraction": {
+     "entities": [
+      {
+       "name": "git-credential-vault",
+       "type": "tool",
+       "aliases": [],
+       "summary": "git-credential-vault is a credential helper the assistant suggested.",
+       "key_facts": [
+        "The assistant suggested git-credential-vault for storing tokens."
+       ],
+       "history_entries": [],
+       "links": [],
+       "open_questions": [],
+       "tags": [],
+       "confidence": 0.8
+      },
+      {
+       "name": "parse_manifest",
+       "type": "concept",
+       "aliases": [],
+       "summary": "parse_manifest is a helper function in the assistant's example.",
+       "key_facts": [
+        "parse_manifest output should stay in sync with dependencies."
+       ],
+       "history_entries": [],
+       "links": [],
+       "open_questions": [],
+       "tags": [],
+       "confidence": 0.85
+      }
+     ],
+     "relationships": [
+      {
+       "source": "parse_manifest",
+       "target": "Python",
+       "label": "written in"
+      }
+     ]
+    }
+   },
+   {
+    "id": "ep_2026-04-11_001",
+    "timestamp": "2026-04-11T09:00:00Z",
+    "content": "user: Forge CI is slow for alpha-project; the test job takes twenty minutes.\n\nassistant: Split the suite into parallel shards.\n",
+    "extraction": {
+     "entities": [
+      {
+       "name": "Forge CI",
+       "type": "tool",
+       "aliases": [],
+       "summary": "Forge CI is a CI/CD automation platform.",
+       "key_facts": [
+        "Forge CI's test job for alpha-project took twenty minutes in April 2026.",
+        "Forge CI is a CI/CD automation platform.",
+        "The assistant suggested splitting the suite into parallel shards."
+       ],
+       "history_entries": [],
+       "links": [],
+       "open_questions": [],
+       "tags": [],
+       "confidence": 0.8,
+       "description": "Forge CI is a CI/CD automation platform."
+      }
+     ],
+     "relationships": []
+    }
+   },
+   {
+    "id": "ep_2026-04-11_002",
+    "timestamp": "2026-04-11T15:00:00Z",
+    "content": "user: Is Forge CI free for a private repo like alpha-project?\n\nassistant: The free tier covers 2,000 minutes a month.\n",
+    "extraction": {
+     "entities": [
+      {
+       "name": "Forge CI",
+       "type": "tool",
+       "aliases": [],
+       "summary": "Forge CI is a hosted CI service that alpha-project uses.",
+       "key_facts": [
+        "Forge CI's free tier covers 2,000 minutes a month.",
+        "Forge CI is a hosted continuous integration service.",
+        "Forge CI was discussed in the conversation."
+       ],
+       "history_entries": [],
+       "links": [],
+       "open_questions": [],
+       "tags": [],
+       "confidence": 0.8,
+       "description": "Forge CI is a hosted CI service that alpha-project uses."
+      }
+     ],
+     "relationships": []
+    }
+   }
+  ],
+  [
+   {
+    "id": "ep_2026-05-01_001",
+    "timestamp": "2026-05-01T10:00:00Z",
+    "content": "user: Forge CI sharding cut alpha-project's tests to seven minutes.\n\nassistant: Great result.\n",
+    "extraction": {
+     "entities": [
+      {
+       "name": "Forge CI",
+       "type": "tool",
+       "aliases": [],
+       "summary": "Forge CI is the CI platform that runs alpha-project's tests.",
+       "key_facts": [
+        "Sharding in Forge CI cut alpha-project's tests to seven minutes in May 2026.",
+        "Forge CI runs alpha-project's tests.",
+        "Forge CI is a continuous integration platform."
+       ],
+       "history_entries": [],
+       "links": [],
+       "open_questions": [],
+       "tags": [],
+       "confidence": 0.85,
+       "description": "Forge CI is the CI platform that runs alpha-project's tests."
+      }
+     ],
+     "relationships": []
+    }
+   },
+   {
+    "id": "ep_2026-05-01_002",
+    "timestamp": "2026-05-01T19:00:00Z",
+    "content": "user: Flying to Lisbon to see Bob Example next week; he's my oldest friend from university.\n\nassistant: Enjoy the trip.\n",
+    "extraction": {
+     "entities": [
+      {
+       "name": "Bob Example",
+       "type": "person",
+       "aliases": [],
+       "summary": "Bob Example is Alex Example's oldest friend from university and lives in Lisbon.",
+       "key_facts": [
+        "Bob Example is Alex Example's oldest friend from university.",
+        "Bob Example is a friend of Alex Example from university.",
+        "Bob Example lives in Lisbon.",
+        "In May 2026, Alex Example planned to fly to Lisbon to see Bob Example."
+       ],
+       "history_entries": [],
+       "links": [],
+       "open_questions": [],
+       "tags": [],
+       "confidence": 0.85
+      }
+     ],
+     "relationships": []
+    }
+   },
+   {
+    "id": "ep_2026-05-02_001",
+    "timestamp": "2026-05-02T10:00:00Z",
+    "content": "user: beta-app is on TestFlight now with twelve testers.\n\nassistant: Congratulations. Collect crash reports early.\n",
+    "extraction": {
+     "entities": [
+      {
+       "name": "beta-app",
+       "type": "project",
+       "aliases": [],
+       "summary": "beta-app is Alex Example's iOS habit tracker, on TestFlight with twelve testers in May 2026.",
+       "key_facts": [
+        "In May 2026, beta-app was on TestFlight with twelve testers.",
+        "beta-app is an iOS habit tracker."
+       ],
+       "history_entries": [],
+       "links": [],
+       "open_questions": [],
+       "tags": [],
+       "confidence": 0.85,
+       "description": "beta-app is Alex Example's iOS habit tracker, on TestFlight with twelve testers in May 2026."
+      }
+     ],
+     "relationships": []
+    }
+   }
+  ]
+ ],
+ "merge_answers": {
+  "Forge CI|2": {
+   "summary": "Forge CI is the CI service that runs alpha-project's tests and, from April 2026, its release job.",
+   "restated": [
+    "Forge CI is a continuous integration platform.",
+    "Forge CI is a CI platform used by alpha-project.",
+    "Forge CI is a CI/CD automation platform.",
+    "Forge CI is a hosted continuous integration service.",
+    "Forge CI is a hosted CI service that alpha-project uses.",
+    "Forge CI runs the tests of alpha-project on each push."
+   ],
+   "covered": [
+    "Forge CI is a CI platform.",
+    "Forge CI is the workflow platform used by alpha-project.",
+    "Forge CI is a CI/CD automation platform.",
+    "Forge CI is a hosted CI service that alpha-project uses."
+   ]
+  },
+  "Forge CI|3": {
+   "summary": "Forge CI is the CI service that runs alpha-project's tests and release job; sharding cut the test run to seven minutes in May 2026.",
+   "restated": [
+    "Forge CI runs alpha-project's tests.",
+    "Forge CI is a continuous integration platform."
+   ],
+   "covered": [
+    "Forge CI is the CI service that runs alpha-project's tests and, from April 2026, its release job.",
+    "Forge CI is the CI platform that runs alpha-project's tests."
+   ]
+  },
+  "Bob Example|3": {
+   "summary": "Bob Example is Alex Example's oldest friend from university; he lives in Lisbon, where Alex Example planned to visit him in May 2026.",
+   "restated": [
+    "Bob Example is a friend of Alex Example from university.",
+    "Bob Example lives in Lisbon.",
+    "Bob Example is Alex Example's oldest friend from university."
+   ],
+   "covered": [
+    "Bob Example studied with Alex Example at university and lives in Lisbon.",
+    "Bob Example is Alex Example's oldest friend from university and lives in Lisbon."
+   ]
+  },
+  "beta-app|3": {
+   "summary": "beta-app is Alex Example's iOS habit tracker, built in Swift with local SwiftData storage; it was on TestFlight with twelve testers in May 2026.",
+   "restated": [
+    "beta-app is an iOS habit tracker."
+   ],
+   "covered": [
+    "beta-app is Alex Example's iOS habit tracker, on TestFlight with twelve testers in May 2026."
+   ]
+  }
+ }
+}

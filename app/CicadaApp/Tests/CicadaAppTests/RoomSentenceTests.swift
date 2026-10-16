@@ -54,12 +54,12 @@ final class RoomSentenceTests: XCTestCase {
         XCTAssertEqual(SleepStages.all.map(\.progressive), ["Reading", "Sorting", "Deciding", "Noticing", "Filing"])
     }
 
-    func test_L6_T3_aFailureLeadsWithItsFirstClause() {
+    func test_L6_T3_aFailureKeepsItsDiagnosisInDetails() {
         let line = roomSentence(ctx(.error) { $0.cycleError = "claude exited 1: rate limited\nTraceback (most recent call last)" })
-        XCTAssertEqual(line.lead, "The last cycle failed.")
-        XCTAssertEqual(line.tone, .danger)
-        XCTAssertEqual(line.tail, "claude exited 1: rate limited")
-        XCTAssertEqual(line.tailTone, .danger)
+        XCTAssertEqual(line.lead, "Reading stopped.")
+        XCTAssertEqual(line.tone, .warning)
+        XCTAssertEqual(line.tail, "See what needs a fix in Past reads, then try again.")
+        XCTAssertEqual(line.tailTone, .warning)
         XCTAssertEqual(line.action, .openDetails(.lastCycle))
     }
 
@@ -76,7 +76,7 @@ final class RoomSentenceTests: XCTestCase {
         XCTAssertEqual(hungry.lead, "1,234 to read — overdue.")
         XCTAssertEqual(hungry.numeral, "1,234")
         XCTAssertEqual(hungry.qualifier, "overdue")
-        XCTAssertEqual(hungry.tone, .warning)
+        XCTAssertEqual(hungry.tone, .plain, "said plainly, never in warning orange (owner 2026-10-16; DR-7)")
         // P9: a bank that has never consolidated is not "overdue" — T8 says why.
         let firstNight = roomSentence(ctx(.hungry, debt: debt(12, hasRunBefore: false, rested: 10)))
         XCTAssertEqual(firstNight.lead, "12 to read.")
@@ -104,13 +104,13 @@ final class RoomSentenceTests: XCTestCase {
         let capped = roomSentence(ctx(.reading, debt: debt(40)) { $0.capped = true })
         XCTAssertEqual(capped.tail, "The rest wait for the next cycle.")
         let warned = roomSentence(ctx(.happy, debt: debt(0)) { $0.indexWarning = "index rebuild failed" })
-        XCTAssertEqual(warned.tail, "Finished with a warning — it's in Details.")
+        XCTAssertEqual(warned.tail, "Finished with a warning — it's in Past reads.")
         XCTAssertEqual(warned.tailTone, .warning)
     }
 
     func test_newsOutranksTheStateTails() {
         let failedAndCancelled = roomSentence(ctx(.error) { $0.cycleError = "boom"; $0.cancelled = true })
-        XCTAssertEqual(failedAndCancelled.tail, "boom", "T3 before T4")
+        XCTAssertEqual(failedAndCancelled.tail, "See what needs a fix in Past reads, then try again.", "T3 before T4")
         let runningAndCancelled = roomSentence(ctx(.sleeping(stage: 2)) { $0.activeStage = 2; $0.cancelled = true })
         XCTAssertEqual(runningAndCancelled.tail, SleepStages.all[1].detail, "T2 before T4")
         let cancelledFirstNight = roomSentence(ctx(.reading, debt: debt(3, hasRunBefore: false)) { $0.cancelled = true })
@@ -123,7 +123,7 @@ final class RoomSentenceTests: XCTestCase {
         XCTAssertEqual(line.tail, "See what changed ›")
         XCTAssertEqual(line.action, .whatChanged)
         let warned = roomSentence(ctx(.happy, debt: debt(0)) { $0.recentCycleCommit = "c0ffee"; $0.indexWarning = "w" })
-        XCTAssertEqual(warned.tail, "Finished with a warning — it's in Details.", "T6 before T7")
+        XCTAssertEqual(warned.tail, "Finished with a warning — it's in Past reads.", "T6 before T7")
         let firstNight = roomSentence(ctx(.happy, debt: debt(0, hasRunBefore: false)) { $0.recentCycleCommit = "c0ffee" })
         XCTAssertEqual(firstNight.tail, "See what changed ›", "T7 before T9")
     }
@@ -142,21 +142,18 @@ final class RoomSentenceTests: XCTestCase {
         XCTAssertNil(roomSentence(ctx(.hungry, debt: debt(9, hours: 47, rested: 10))).tail, "under two days, no day count")
     }
 
-    func test_T11_theLampIsOffOnlyWhenSomethingWaits() {
+    /// T11 and T12 retired (owner 2026-10-16, the page at rest): the lamp-off sentence is the schedule line under the
+    /// controls, said once, and the biggest pile is what the room already draws (DR-38). Nothing ambient takes their
+    /// place above the controls.
+    func test_T11_T12_retired_theLampAndThePileAreNotSaidAboveTheControls() {
         let off = roomSentence(ctx(.reading, debt: debt(5)) { $0.scheduleMode = "manual" })
-        XCTAssertEqual(off.tail, "The lamp is off — I read when you ask.")
-        XCTAssertEqual(off.action, .openLamp)
+        XCTAssertNil(off.tail)
+        XCTAssertNil(off.action)
+        let pile = roomSentence(ctx(.reading, debt: debt(5)) { $0.topOriginLabel = "Claude Code"; $0.topOrigin = "claude-code" })
+        XCTAssertNil(pile.tail)
+        XCTAssertNil(pile.mark)
         XCTAssertEqual(roomSentence(ctx(.happy, debt: debt(0)) { $0.scheduleMode = "manual" }).tail,
-                       "Drop a file on me to add it to the pile.",
-                       "nothing waits, so no lamp line — T13 speaks instead")
-    }
-
-    func test_T12_theBigPile_orNothingWhenItWouldNotFit() {
-        let line = roomSentence(ctx(.reading, debt: debt(5)) { $0.topOriginLabel = "Claude Code"; $0.topOrigin = "claude-code" })
-        XCTAssertEqual(line.tail, "The Claude Code pile is the big one.")
-        XCTAssertEqual(line.mark, .origin("claude-code"), "a named source wears its mark (Z-P26)")
-        let long = String(repeating: "x", count: 70)
-        XCTAssertNil(roomSentence(ctx(.reading, debt: debt(5)) { $0.topOriginLabel = long }).tail)
+                       "Drop a file on me to add it to the pile.", "T13 still invites a file")
     }
 
     /// T13 (Z-B19) — feeding shipped, so a happy worm invites a file.
@@ -268,8 +265,9 @@ final class RoomSentenceTests: XCTestCase {
     func test_whisperLine_isTheLampsTwinInWords() {
         XCTAssertEqual(whisperLine(scheduleText: "Every day at 03:00", nextRunText: "Next run Sep 24, 3:00 AM", lampLit: true),
                        "Every day at 03:00 · Next run Sep 24, 3:00 AM")
+        // The page's one lamp-off sentence (owner 2026-10-16): said here, not again above the controls.
         XCTAssertEqual(whisperLine(scheduleText: Copy.nextRunManual, nextRunText: Copy.nextRunManual, lampLit: false),
-                       "Manual only — the lamp is off")
+                       "The lamp is off — I read when you ask.")
     }
 
     /// R-HS9 — the caption is what Cancel does while a cycle runs, and nothing otherwise: the

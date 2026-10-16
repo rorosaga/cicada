@@ -8,6 +8,188 @@
 
 ## Current state and evidence
 
+- **2026-10-16 — server and readers: the owner's decisions after headless QA and the hunts (G181, ruling 4b; branch
+  `feat/server-readers`, not merged).** Ruling 4b (above): scheduled runs may use the person's plan — Claude or
+  ChatGPT — behind an off-by-default switch (Settings → Sleep, `cicada sleep schedule --use-plan`), and
+  `cicada engine connect claude-plan|chatgpt-plan` signs a plan in on a server through its own CLI. A schedule with no
+  engine it may use warns (schedule, `engine list`, `ask`), plan first. `/healthz` without a token says only status,
+  version and bank ids. A client install makes no memory folder. Bookmarks keep what was synced per memory and catch up
+  on a bank switch (never the demo); the app's outbox flushes lane by lane, so another memory's refused post never
+  blocks the active one's. From the backend hunt: raw watch instants per day (merge order never matters), agent writes
+  commit someone else's uncommitted edit apart, long path ids are 404, the session and Messages-photo bodies are bounded
+  before parsing, one stuck spool session never blocks turns, Watch later duplicates save `url_index`, a timed-out tool
+  write says it may have written; from headless QA: duplicate device names warn, the doctor hint names `doctor.sh`
+  where there is no `make`, `sleep status` names the running stage once. Tests: `test_server_readers.py`,
+  `test_headless_server.py`, `ServerReadersTests.swift`. Pick up: review and merge; on the home server run
+  `cicada engine connect claude-plan`, `cicada sleep engine --mode agent`, `cicada sleep schedule --use-plan on`.
+- **2026-10-16 — people from LinkedIn connections: the export enriches who is already in memory, and a skill for the
+  rest (G154's pattern, G71, G166; branch `feat/linkedin-people`, not merged).** Owner: "extracting people profiles from
+  my LinkedIn connections (maybe could be a skill) would be nice". `linkedin_people.py` reads `Connections.csv` (or the
+  export zip; notes preamble, credentials after a comma, the email column never read) behind
+  `POST /sources/linkedin-connections/preview|import` (demo 409, admitted, one `user` commit); exactly one existing
+  `person` page per connection — never a new page — gains the profile link as a source and dated `external:linkedin`
+  `works-at`/`role`/`connected-on` claims, newest wins; removal respected; re-import a no-op. The directory waits at
+  `$CICADA_HOME/people/<bank>/` and Sleep's tail (`_rematch_linkedin_safely`, own `cicada` commit) matches later pages.
+  Skill `skills/linkedin-people` (own bundle) + stdio-only `cicada_record_profile` (the one listed link, reading on,
+  ≤ 10/day, episode with `page` spans). App: the LinkedIn tile's **Connections** (`LinkedInConnectionsPanel`).
+  Tests: `test_linkedin_people.py`, `LinkedInConnectionsTests`. Pick up: review and merge; the owner drops his
+  Connections.csv in the tile, reads the preview counts, and asks an agent "what does <a known person> do now?".
+- **2026-10-16 — Messages follow-ups: a chat's shared photo is its page's picture, and a mark always reaches Sleep
+  (G179; branch `fix/messages-followups`, not merged).** The app reads each ticked chat's shared Messages photo (at most
+  hourly, from a copy) and posts changes to `PUT /sources/messages/photos` (409 unticked or demo, 422 bad bytes);
+  `messages_photos` keeps them at `$CICADA_HOME/pictures/<bank>/messages/` by conversation, never in a bank or git, and
+  links each to its page at read time through the correspondent record; untick deletes it. New rung 2a on both
+  resolvers (choice → Contacts → shared Messages photo → profile/logo → monogram), `person` and `tool` pages; it rides
+  the `photos` sync component. `messages_source._stage` records the `correspondent`/title on a sitting the stager
+  skipped (frontmatter only via `episode_staging.reattribute`, no re-queue of a read sitting). Tests:
+  `test_messages_photos.py`, the reproduction in `test_messages_source.py`, Swift watcher and resolver twins. Pick up:
+  merge; the owner ticks the agent's chat and checks its page shows the photo.
+- **2026-10-16 — on a plan, a run says how much of the plan it used, not dollars (ruling 12's two homes; branch
+  `feat/plan-usage-share`, not merged).** Owner: "For Claude plans could you see how much usage was used from the plan
+  instead of money?" The backend derives `planShare` per window at read (`cycle_usage.plan_share`): measured when the
+  window's reading moved, "under 1%" when it did not (never 0 %), estimated from the run's list-price size against the
+  rate earlier cycles moved that window (≥ 2 points each, ≥ 2 cycles, 35 days machine-wide), always with its basis; no
+  new ledger field. The app leads Past reads' rows, Last cycle, an opened run and the engine menu's last line with it;
+  the dollar figure becomes "would have cost about $X on an API key" (a secondary line or the help). Metered runs keep
+  dollars. Tests: `test_plan_share.py`, `PlanShareTextTests`. Pick up: review; the owner's next plan run should read
+  "under 1% of your weekly limit · reading unchanged" (or an estimate once two earlier runs moved the window). Not done: Past
+  nights' folded run row (no whole-run usage on the history wire; its opened detail shows the share).
+- **2026-10-16 — install anywhere: one curl line on Linux, a Homebrew tap in this repo (G181, G76; branch
+  `feat/install-anywhere`, not merged).** Owner: "how I can install it with a `curl` command on a Linux machine … can I
+  use Brew for that? If not make it so". `scripts/install-server.sh` (curl | bash: prerequisites named together, the
+  newest `vX.Y.Z` tag or `CICADA_REF`, `~/.local/share/cicada`, then the checkout's own `install.sh --cli`; re-run is a
+  no-op, a new ref restarts the unit, `--uninstall` keeps the memory). `Formula/cicada.rb` (`brew tap rorosaga/cicada
+  https://github.com/rorosaga/cicada`; backend + CLI + MCP in a venv on `python@3.12`; `cicada-setup` = `install.sh`
+  on the opt path; no `service do`, no cask until notarization). Both build the venv with `scripts/sync-server-env.sh`
+  (the lock minus sentence-transformers' subtree: no torch/CUDA; 338 MB on Linux arm64). The formula's tag is a
+  version stamp (`check_version.py`, `release.sh bump`). Proven in Docker: `scripts/dev/test-install-linux.sh`
+  (ubuntu 24.04 + fedora 41, real systemd) and `scripts/dev/test-install-brew.sh` (Linuxbrew: style, audit --new
+  --strict, install, test, setup, upgrade, uninstall). Live from the next release (main has neither file); testers use
+  the `dev` URLs in `headless.md`. Pick up: review; after the release, run the curl line on a real server; the website's
+  `install.sh` should hand Linux to `install-server.sh` (RELEASING.md).
+- **2026-10-16 — headless server, phase 3: the Mac app as a server's client, and Settings → Devices (G181, branch
+  `feat/headless-app`, not merged).** Settings → General → *Where your memory lives*: This Mac or a server (address +
+  device token, checked before anything is written; `$CICADA_HOME/api_base` + `device_token`, used from the next
+  launch, and the hooks/MCP/CLI on the Mac follow the same file). On a server the app starts no backend, keeps its
+  caches and reader cursors per connection, queues reader posts in `$CICADA_HOME/spool/app` and flushes them when the
+  event stream reconnects, and refuses the demo. Settings → Devices shows where the memory lives (reachable, as of
+  when), the person's devices (added, last seen; add/revoke on This Mac). New episodes a device posts record `device`
+  (`device_context`), shown as "from <device>" on Saved rows, the Reader and the entity card's conversations. Tests:
+  `test_headless_app.py`, `HeadlessAppTests` (incl. two real loopback listeners). Pick up: review; the owner tries
+  A server against a test server over his overlay.
+- **2026-10-16 — headless server, phase 2: every client can talk to a backend on another machine (G181, branch
+  `feat/headless-clients`, not merged; ruling 28).** `CICADA_API_BASE` (+ a device token) makes the hooks, the stdio
+  MCP server and the CLI clients of a server: the Stop hook reads the session locally and posts turns to
+  `/capture/session` (spooled under `$CICADA_HOME/spool/capture` while the server is away), every MCP tool runs on the
+  server through `POST /tools/call` (the same bodies), the CLI pins the server's bank by name and id. Per-device tokens
+  (`cicada device add|list|revoke`, `/devices`, master only); bank ids in `banks.yaml` (`/healthz` `bankIds`,
+  `X-Cicada-Bank-Id`). Proven with two real backends on two loopback ports (`test_headless_two_machines.py`). Unset,
+  nothing changes. Pick up: phase 3, the app's server setting (Swift).
+- **2026-10-16 — YouTube Watch later and watch history (G71 follow-up, G94, G166; branch `feat/youtube-sync`, not
+  merged).** Owner: "my watch later videos from youtube and maybe also sync history" (Takeout once plus Chrome's history
+  live), then "the agent being able to go to youtube using the browser … like for youtube watch later/history". Three
+  doors, one record: Watch later is a save (`url_index`, one identity across Takeout, bookmarks and the agent); history
+  is one episode per platform per day (`watch_history`), never Saved. Built: Takeout's `watch-history.html` read as
+  history (it was parsed as bookmarks before), **Include watch history** on the drop and the YouTube tile, the app's
+  Chrome History reader (a copy, YouTube video pages only, its own switch under Chrome), `POST
+  /sources/watch-history/sync`, and `cicada_record_youtube_list` with Reading the web's two YouTube list switches (the
+  reading queue offers a due list; `needs_login` pauses a week). Pick up: review; the owner turns the Chrome switch on
+  and checks a day's episode; a real Takeout of a non-English account is not recognised by name yet.
+- **2026-10-16 — a web lookup settles questions about public things (ruling 27, G61; branch `feat/web-settles`, not
+  merged).** `web_settle` (the filter, the pinned query, the one settle/undo writer, `inbox/settled/`), `web_lookup` (the
+  Sleep-tail step: plan search on a run the person started, a metered provider's search at its price, the pinned-query
+  check, 8 a run, a 30-day memo outside the bank), `cicada_record_check(outcome="settles")` for the person's own agent
+  (repo-state questions from a commit, trusted local agents only), `GET /inbox/settled` + `POST
+  /inbox/settled/{id}/undo`, the `web_check` ledger kind, and the Inbox's "Settled by a check" list with Undo and Track
+  this source. The answer is a citation on its claim only, never a tracked source. Tests: `test_web_settle.py`,
+  `SettledChecksTests`. Pick up: review; then a person-started run on a copy of the real bank, reading the settled list
+  and the `web_check` counts (ids only) before merging.
+- **2026-10-16 — the web lookup reads local context (ruling 27a, G61; branch `fix/web-lookup-context`, not merged).** The
+  first real run settled 0 of 8 (all unsure: an ambiguous name, a wrong category word). The prompt now carries
+  `web_settle.local_context` (≤ 600 characters: Cicada's description, up to two mention lines, scrubbed, no one's name,
+  no path) to pick the right result; the query is the name plus at most one category word from the description (none on
+  a type question); clarifications first, conflicts with a mention line next. `api/scripts/web_check_dry_run.py --bank
+  <path> --limit N [--include-recent]` runs the real engine and prints counts only, writing nothing. Pick up: the
+  coordinator runs the dry run on the owner's bank (with `--include-recent` to re-measure the first eight) before
+  merging.
+- **2026-10-16 — the Sleep page redesigned, the Feed folded into it (branch `feat/sleep-redesign`, not merged; owner
+  approval 2026-10-16, ⌘ map A).** The "Sleep Cycle" title is gone (an eyebrow: "Sleep · 42 waiting · last read 2 h
+  ago"); the room left its card and draws at a whole 5/4/3 pt per cell by the column's width; Details became the tabs
+  Waiting · Saved · Videos · Past reads, sticky once the room scrolls away. The Feed page retired: Saved and Videos are
+  its list, View menu (sort, kind), detail column, watch run and ⌘N; Connected lives on Sources, export waits head Saved.
+  Skills took the Feed's ⌘4 (nothing else moved), with a one-time hint the first time ⌘4 lands there. Ruling 12's
+  surface is renamed "the Sleep page's Past reads run detail". DESIGN_RULES §9 carries the dated ruling. Pick up:
+  review on the owner's Mac (the worker never launches the app); phase 2 (Clusters into Graph, then ⌘ map B) is not
+  part of this branch.
+
+- **2026-10-16 — the key defaults and the price table (G122, branch `fix/byok-default`, not merged).**
+  `test_byok_providers` failed on dev because `import litellm` fetched its price table from GitHub at every start
+  (ungated), and upstream had dropped the OpenRouter default's alias (today it lists no `openrouter/` row at all). Now
+  `api/__init__.py` pins the table to the one litellm ships (`LITELLM_LOCAL_MODEL_COST_MAP`, a control key for the CLI and
+  the settings file); defaults moved to listed, priced models with structured output — OpenRouter
+  `openrouter/openai/gpt-oss-120b`, xAI `xai/grok-4-1-fast-reasoning-latest`; a saved pref keeping an old id still runs,
+  with its cost unknown. The Usage aggregates now say `null`, never `0.0`, for a bucket no call priced.
+- **2026-10-15 — Messages conversations, Instinct first, on branch `feat/imessage-instinct` (not merged; G179, G188's
+  minimal slice).** Settings → Integrations → Messages: tick a one-to-one conversation, mark who it is with (detector
+  registry, Instinct first; the person's mark wins). The app reads only ticked rows past a ROWID cursor; the backend
+  decodes `attributedBody`, stages one episode per 3 h sitting, keeps a texted agent's words as `assistant:` turns and
+  their claims as `external:<name>`. Bubbles on the Sleep page's What's waiting and Home. Pick up: the coordinator
+  ticks the real conversation on the owner's Mac and runs consolidation.
+- **2026-10-16 — a texted agent gets its own page (G179, branch `fix/agent-identity`, not merged).** The real run put
+  the agent on an archived same-name `concept` page (Stage 2 resolved it by name). Now the episode's decided
+  `correspondent` is marked in Stage 1, typed (`tool` agent / `person`) and resolved to its own page in Stage 2
+  (`correspondents`; a new page is `<id>-agent` / `<id>-person`), its own claims pinned there; below the unchanged
+  promotion bar it is held under that key in the pending store, never on the same-name page. Repair:
+  `api.scripts.repair_correspondent_pages --bank <path>` (dry run counts; `--apply` one `cicada` commit) takes a
+  conversation's part off a page that absorbed it, moving nothing else. Pick up: review, then the coordinator runs the repair on
+  the real bank.
+- **2026-10-14 (night) — tracked sources re-checked, on branch `feat/source-refresh` (not merged; ruling 26).** A
+  trusted source is re-checked monthly (or on the person's ask) and what it says now is a new dated fact; the newest
+  evidence wins, even over the person's words; same-day/undated asks once; two failed visits a week apart mark it dead.
+  Public pages: the Sleep tail (`source_refresh.run_tail`, connector gate). Login-walled: only the person's agent
+  (`cicada_refresh_claim` / `cicada_record_refresh`, stdio). `GET /sources/due`, `POST /entities/{id}/sources/refresh`,
+  the SessionStart line. Not built: the app's rendering of `updates` / due state (the API serves them).
+- **2026-10-14 (late evening) — exploring, slice 2, merged as #286.** Depth follows the
+  person's reason (G191 ids, their words, their conversations) through a deterministic plan (`explore_plan`; no model),
+  a site map per explored site in the bank (`captures/_sites/<site>.md`, append-only, `cicada_site_map`,
+  `GET /explore/sites`), and auto-Looks for a design reason (G166, G196). The catalog pins `site-explore` to the dev
+  squash commit of #286 (`2a9b5990`; `scripts/verify-skills.sh` passes), as #283 did.
+- **2026-10-14 (evening) — exploring saved sites, slice 1, on branch `feat/explore-sites` (not merged).** The owner
+  ruled D1–D6 (ruling 25). Built: the explore queue, dated captures with thumbnails in the bank and full images in
+  `~/.cicada/captures/`, four stdio MCP tools (`cicada_explore_claim`, `cicada_record_capture`, `cicada_explore_queue`,
+  `cicada_explore_start`), `/explore/*` routes, the pinned `skills/site-explore` capture script, the Sources sheet and run
+  card, the signed-in switch and Never explore in Settings. The catalog pins `site-explore` to its dev squash commit
+  (#283; `scripts/verify-skills.sh` passes). Slices 2 and 3 are open on G166.
+- **2026-10-14 (acting-owner session, afternoon) — pick up here.** Merged to dev after the overnight entry below:
+  - **#273:** docs for the overnight state.
+  - **#274, every agent:** a paste-able setup prompt for Cursor and for "another agent" (G76); Cursor and Gemini CLI conversations are captured through their prompt/reply hooks, built from the documented payloads and not yet seen in the real apps (G197, with a capture matrix in `capture-and-sleep.md`); the owner's ruling on file search (G195).
+  - **This PR, agents as contributors:**
+    - trusted agents edit a page's text and aliases directly, with blame from git (G198);
+    - an untrusted agent's edit becomes a one-tap inbox proposal;
+    - inbox questions come up only when the conversation is about them, and an answer the person already gave is relayed with attribution (G115);
+    - `cicada_ask` reads a hub page's aliases, summary and linked people.
+  - **Found:** an MCP server process started before an update keeps running old code. One refused an owner-page write after the claims-ledger change; it refused safely, without corrupting the page. Opening a new session fixes it. A server that notices a code change and restarts is not built yet.
+  - **Owner, open:**
+    - whether to turn on the SessionStart/UserPromptSubmit recall hooks in Claude Code and Codex (only the Stop capture hook is installed);
+    - which agents go on the page-edit trust list;
+    - Cursor capture is the owner's click (Agents → Cursor).
+- **2026-10-14 (acting-owner session, overnight) — previous state.** Merged to dev, in three themed PRs per the owner's "fewer, bigger contributions":
+  - **#270 memory quality:** a very large page's older claims go to a claims ledger beside it; unnamed people get relation titles and a "What's the name of your partner?" question; `works-at` holds several places at once and ends only on evidence; a project name typed in another case finds its page.
+  - **#271:** "Where this comes from" on every page (G61), and the Looks board (G196).
+  - **#272:** merges and renames keep every edge whole (a placeholder merge on the real bank had stripped 14,298 claim-backed edges; reverted the same night, nothing lost); hub Related at most 60 lines by meaning; the owner card opens in ~0.1 s; session titles in the person's words.
+  - **Owner bank:** the hub split, the works-at reopen (4 places), the placeholder repair (1 merged, 5 asked), an article for the owner page and the episode retitle are all applied, each as its own revertible bank commit.
+  - **Tested end to end:** Claude Desktop connects and reads, writes and consolidates, but does not capture its chats (G197). A fresh Claude Code session resumed the project unprompted. The Cursor install dialog awaits the owner's click.
+  - **Owner decisions:** G195 (5 questions), G196 (spec questions), G159/G154 Gravatar for contacts.
+  - **No Codex** from 2026-10-14: the subscription has ended.
+- **2026-10-13 (acting-owner session) — previous state.** Merged to dev: #261 links, videos and PDFs get their own picture (G159 rung 5, PDF page 1 in the backend); #262 platform data exports bring in what the person saved (G71: Instagram, TikTok, YouTube Takeout, LinkedIn, X archive, Reddit; one reader, three doors); #263 pages as articles and #264 one bad answer never aborts the rebuild (G194); #265 a person's photo from their public profile (G159; the ToS rail's one dated exception); #266 the CLI does what the app does (G180, ruling 21a); #267 the backend reads `api/.env` on purpose and `/status` shows what is in effect (it already did, through litellm's import-time dotenv walk — a `python -c` probe cannot see that); #268 age counts from when it was said (G170 amended). Owner bank: 1,050 pages rebuilt as articles (record lossless), then the age recompute — 570 active, 821 faded, 2,241 archived, one question. Rulings: 24 below. Open: Contacts email hash for Gravatar (DECIDE, G154/G159); the X and Pinterest connectors store the post's own text as the person's note (bug, parked); `test_byok_providers` fails on dev (a default model id unknown to the installed litellm); the web-readiness follow-ups listed on G180; the owner page has no article (over the writer's input budget); 222 aliases equal to another page's name; G118 1b; G148.
+- **2026-10-09 (acting-owner session) — previous state.** Merged to dev: #249 a recorded alias brings its page to the Stage 2 judge (context, never a decision); #250 the Sleep page answers during a run (G163); #251/#252 skill pages carry their conversations, a skill needs two (G112, ruling 23); #253 EmbeddingGemma 2 is the search model where it runs, #255 its pin file ships; #254 the entity card opens on its wiki page (dated DESIGN_RULES ruling); #256 page quality (G194: promotion measured on the transcript, pending lines keep facts, only an equal fact folds); #257 long embeds run in a child process (coremltools' predict holds the GIL — capture POSTs timed out during a re-embed); #258 Stage 3's page calls overlap; #259 a fresh-process recall reads only what moved (2.15 s → 0.42 s, synthetic). The owner bank was re-embedded with EmbeddingGemma 2 (391 s) and repaired by `repair_page_quality --apply` (544 pages, lossless, checked on a clone first). Engine: Claude plan, Haiku 5.5 for extraction and disambiguation, `CICADA_AGENT_MAX_CONCURRENCY=10`, `CICADA_SLEEP_RESOLVE_CONCURRENCY=10`; summary synthesis on (ruling 23). Superseded 2026-10-13 by ruling 24's age rule: 222 aliases equal to another page's name (merge candidates); G118 1b; G148 Haiku-vs-Sonnet and real-bank embedding comparison.
+- **2026-10-08 (acting-owner session) — pick up here.** Merged to dev since the 2026-10-07 entry: #223 docs, #224 engine-timeout pauses (G163/G171), #225/#229/#232/#234/#237 G110 slice 1b (index privacy, light pointer + on-demand context, 16k first message + reply head/tail + `State:` guidance, worktree/subfolder project identity, Cursor startup), #226/#239 dev auto-updater waits out Sleep, #227 no claims fence in any page-body prompt, #228 G169 self-references are the owner, #230 G194 dated writing + *last mentioned* header, #231/#235/#238 G180 CLI slice 1 (eight commands, Settings install, skill), #233 Claude-engine environment never becomes memory, #236 G118 section-provenance records. **Approved, waiting to merge after the clean run:** G118 slice 1b (app *Supporting passages*). **The owner's clean consolidation** is running on a fresh bank of his ChatGPT + Claude exports (1,519 conversations; ChatGPT plan · GPT Luna; batch 25; continue-after-reset off; user-started). The trial bank was stopped and is throwaway; the recovery/reopen work for its lost claims was dropped (owner: old banks are test runs). **Owner direction 2026-10-07:** less review process — one cross-vendor review per change, blockers only; priority is a working memory he can test. **Next:** when the run ends — a quick page-quality pass, merge G118 1b, the owner's live tests (real questions; G110 acceptance: a fresh Claude Code/Codex/Cursor session asked "what was the last thing we were working on?"), then the VERIFY rows. **Open owner decisions:** real-cost measurement vs the input-size proxy for the 16k first-message retention before a release; G118 1a-ii (💸 prompt change + pilot); G179 FDA.
+- **2026-10-07 (later, acting-owner session).** Merged to dev since the handoff below: #213 write admission (G183/G177), #214 G98 fold dedup/migration, #215 a prose rewrite never drops a page's claims, #216 closed claims are history on every read path, #217 recovery of dropped claims as closed history (dry run first), #218 G191, #219 G110 rulings A/B/C, #220 rail corner variant A, #221 G192/G193, #222 G148 benchmark harness. In review or build: engine-timeout pauses (a timeout or an unnamed engine-wide failure pauses instead of ending the run or parking the queue; approved, gating), reopen mode for recovered claims (fail-closed admission, round 3), the contradiction-prompt claims fence (G148 follow-up), G180 CLI plan (owner rulings in ruling 21), G110 slice 1b cross-harness plan (owner rulings in ruling 22; revision 2), and a qmd research comparison (two independent reports). The G10 trial drain continues on `trial-2026-10-06` (batch 12 of 89 at writing); external backend restarts pause it and it is resumed at batch boundaries. Owner kept the G105 capture rule when offered tool-call capture; the idea is parked on G112 for research. New trial findings: the owner appears as both a generic `user` page and a named page (owner-entity resolution, G98-class); clean batches of 10 take ~5–10 min (~10 model calls per conversation), and each external backend restart loses the batch in progress (cause under investigation).
+- **2026-10-07 handoff (acting-owner session).** Merged to dev: #198 backlog review + ruling 19, #199 G189(a), #200 G185, #201 G183(b,c), #202 G182 release-on-merge, #204 G183(a,e)/G21 guards, #205 installer UTF-8 hotfix, #206 0.3.1 bump, #208 Home scroll + rail corner, #209 G177/G183(d) bank pin, #210 G110 slice 1a, #211 G98 slug-fold core. Releases **v0.3.0** and **v0.3.1** are published from `main`; install acceptance passes on v0.3.1. Backend suite is fully green (G185 fixed). In review: write-admission lock (G183/G177), G98 fold dedup/migration, G148 system-bench runner (found and fixed a Stage-5 claim-loss bug — under opus review), cicada-website #18 (live download button).
+- **G10 trial in progress** on a new named bank (`trial-2026-10-06`, ChatGPT plan, gpt-6-luna, user-started drain, batch 10, continue-after-reset off): 1,519 episodes imported via the app (ChatGPT 1,116 + Claude 345 + 5 project notes + 53 memories; count gaps = empty conversations). Findings so far (generic): onboarding has no import step and the import card offers only "read everything"; Claude memory titles show raw paths; the file picker imports a whole folder when nothing is selected; an `api/.env` model pin overrode the engine menu's model for one stage (owner's local config corrected; the mismatch is a product bug); imported episodes swept into Sleep's first commit (G183); the predicate-fold inbox flood (G98, core fixed).
+- **Pending owner decisions:** G179 FDA; G110 slice 1b's remaining DECIDE items (after revision 2); reopen counts on a non-trial bank before any write there; GitHub settings for `main` (required Release PR check, PR-only).
+
+
 - Reviewed merged `dev` at `02979949`; during the review it advanced to `3efba432` with the inbox count fix (#196). This was a code-path/scope audit of 186 original G addresses; subsequent requirements at `ba7a4957` add G188 and amend provider/source/benchmark/release priorities. No live-memory run or full-suite rerun is claimed. Preserve other staged/unstaged work in the shared checkout.
 - Import/delta capture, Stop hooks, implicit recall, claims/provenance, Sleep drain, lexical/vector recall, remote MCP, onboarding and release/update infrastructure exist. Completion of the first public release and real-client acceptance are separate open tasks.
 - GitHub release listing returned no releases on 2026-10-06. G182’s **built** status must not be read as **published**. Follow [RELEASING.md](../RELEASING.md) for the current mechanism; G182 now requests release-scoped automatic promotion/synchronization as an explicit owner amendment when implemented; implementation PRs target `dev`.
@@ -31,10 +213,10 @@
 | 4 · P1 | Repair the failures that make answers untrustworthy | G98/G118/G147/G103; G93/G53/G113/G115/G141 as indicated | Canonical/retired question subjects, preserved keep feedback on merge, intelligible observer and evidence navigation. Trigger/rationale trace slices and cross-stream relevance follow observed trial failures. Do not rebuild already-implemented state/Ask/Reader components. |
 | 4b · P1 | Selected iMessage conversations, optional Instinct recognition | G179; minimum G188 seam; G95/G134 attribution | App reads selected permitted bytes; backend parses scrubbed attributed drafts. Verify continuation/revision/deletion/date/source semantics through actual Sleep and useful answers. Optional separate Instinct detector supports uncertainty/user overrides and never broadens capture. [Requirements](../specs/2026-10-06-provider-and-ingestion-modularity.md). Other messenger exports follow later. |
 | 5 · P2 | Shell agents use a lean governed surface | G180; G157 redirects | Packaged CLI, structured output/error/discovery contracts and portable usage skill; measure schema/task overhead. Keep scoped MCP for clients without a shell. |
-| 6 · P2 | App-free server package | G181/G187/G135/G92; Cursor engine G50/G49/G122 | Supported Linux/macOS install/service/upgrade path with one primary bank writer and client/remote smoke checks. Evaluate Windows native versus WSL separately. An existing Python backend is not a supported headless package. |
+| 6 · P2 | App-free server package | G181/G187/G135/G92; Cursor engine G50/G49/G122 | Supported Linux/macOS install/service/upgrade path with one primary bank writer and client/remote smoke checks. Evaluate Windows native versus WSL separately. An existing Python backend is not a supported headless package. **2026-10-15:** phase 1 (Linux install + systemd user unit, commits with no git identity) on `feat/headless-server`; the plan and the owner decisions for phase 2 are in G181 and `docs/research/2026-10-15-headless-server.md`. **2026-10-16:** the packages — one curl line on Linux (`scripts/install-server.sh`) and a Homebrew tap in this repo (`Formula/cicada.rb`), both proven end to end in Docker (`feat/install-anywhere`). |
 | 7 · P2 | Modular providers and ingestion in frontend/backend | G50/G49/G122; G188/G190/G126/G161; Cursor G76/G110 | Registered capabilities/small adapters drive setup/status/engine controls and source intake. Add/remove a fixture provider/source without unrelated core/view changes; preserve unavailable saved selections/history. Verify Cursor client versus engine capabilities separately. iMessage uses a minimal source/detector seam earlier; broader migration follows. [Requirements](../specs/2026-10-06-provider-and-ingestion-modularity.md). |
 | 8 · P2 | Start prompts and portable skills | G73/G118/G113, G138/G178, G112/G55; G186 after CLI | Save/find/adapt reusable objective briefs with candidate status, original/variant provenance, project inputs and outcome evidence; copy/export across harnesses without requiring Sleep or skill compilation. See [start prompts](../specs/2026-10-06-start-prompts.md). Then verify catalog/BYO install, ground existing skills and compile standalone bundles; demonstrate schema-aware SQL reuse with R2 governance. Generate AMR export separately; external AMR import remains research. |
-| 8b · P2 | Home revamp | G189 (b); G110/G137/G125 | The owner picks from 2–3 direction-D mockups of what Home shows first (projects in flight, what changed, what needs them) before any build. Do not rebuild the Ask field or inbox counts. |
+| 8b · P2 | Home revamp | G189 (b); G110/G137/G125 | **2026-10-14:** owner picked "Graduate + Needs you first" (built on `feat/home-front-door`; retake Home's screenshots on the demo bank, light/dark, first-week/returning/empty). Still open: projects in flight and what changed since the last visit, from 2–3 direction-D mockups. Do not rebuild the Ask field or inbox counts. |
 | 9 · P3 | Design identity and personal mascot | G70/G151, G127, G175/G176; G73 supplies creation templates | Start with own-repo/image tokens, cited structured design read/UI, then vision/video/style bundles. Add Cicada skin, copyable neutral creation prompt and validated sprite import/preview. Remaining app/Reader work follows the explicit ledger; profile G184 before energy changes. |
 | 10 · P4 | Multi-server/device sync and selective contributors | G132/G1/G181, G16/G103/G116/G92 | Many clients of one writer first; backup separate from replication. Specify node/project scopes, contributor routing, evidence exposure, revocation and conflict verdicts before offline replication or multi-person writes. |
 | Triggered only | Additional channels and model/browser research | Later/Research IDs; G167/G168 | Dedicated adapters are not implemented by generic ingestion. Work from a named use case/failure/trigger; keep declined parallel reading and relational-tier decisions out of the automatic build queue. |
@@ -61,15 +243,15 @@
 
 For **every row**, use a fresh session after actual consolidation: recall and correctly use a synthetic memory, write a permitted attributed contribution, retrieve it from another fresh session/client, and verify its persistence/evidence/commit. Record read, contribution, source scope, capture and continuity separately. Enumerate each tested iPhone app rather than claiming one mobile check covers all apps. Record availability/date and PASS/FAIL/BLOCKED/UNSUPPORTED plus the exact supported setup, build/account/platform and generic evidence; registration or connection is not a pass. No personal question text or retrieved private facts belongs here. [Full protocol](../specs/2026-10-06-release-and-integration-acceptance.md).
 
-## Embeddings: keep the present choice for the first trial
+## Embeddings: EmbeddingGemma 2 where it runs (owner 2026-10-09)
 
 Markdown, evidence and git hold memory. Embeddings provide semantic recall and candidates for entity resolution/dedup; they are not the authoritative record. `search_service.py` fuses lexical, vector and claim results and can fall back when vectors fail. `entity_resolver.py` still reads/writes the pending entity index, so full consolidation is not established as an index-free mode.
 
-The release bundles local ONNX `intfloat/multilingual-e5-small` (384 dimensions); development defaults can use `google/embeddinggemma-300m` (768). `embedding_models.py`/`providers.py` select models and retain per-table metadata. Check the active bank’s actual selection and index health through supported status/settings paths at execution time; do not assume it from the build type. Keep that model, avoid silent re-embedding and try literal as well as paraphrased questions. If meaning-based recall fails but lexical recall succeeds, record that failure for G148/model comparison later. A larger model is not a prerequisite to the new consolidation.
+**Ruling (owner 2026-10-09, after the spike: "cant we just run everything with embedding gemma 2?").** EmbeddingGemma 2 on the Neural Engine (`google/embeddinggemma-2:768`, Core ML, macOS 15+ on Apple silicon) is the embedder wherever it runs: Sleep's index builds, recall from MCP and the CLI, the release app. It is downloaded once on the person's request (Settings, `make embedding-model-gemma2`, `install.sh`), never bundled; the release keeps `intfloat/multilingual-e5-small` (384) bundled as the floor for macOS 14, a download not finished yet or a failed load, and search never errors. A bank recording one of Cicada's former defaults moves to it in a **background re-embed** that never runs during Sleep and never blocks recall (the old table answers until its replacement commits); a model the person chose or set explicitly is kept. This replaces "keep the present choice for the first trial": the evidence is the spike (parity ≥ 0.9998 with the reference model; cross-language EN↔ES page retrieval +0.11 MRR over e5 on a 3k-page set; a query 2.8 ms) and the build's own measurements (`docs/architecture/storage.md`, sqlite-vec). Revisit only if the owner's real-bank comparison (G148) shows meaning-based recall worse than e5's on literal or paraphrased questions. Check the active bank's actual selection, `reindex` state and index health through `GET /embeddings` at execution time; do not assume it from the build type. If meaning-based recall fails but lexical recall succeeds, record that failure for G148.
 
 ## Consolidation boundaries
 
-Use a separate named real test bank or an explicitly chosen existing bank, with a recoverable committed baseline. New exports are imported normally; do not wipe the bank or mark every episode unprocessed to force a rerun. Inspect the import preview, preserve dates/speakers, then run a small batch with the selected engine. An API-funded run needs a budget; a user-started plan engine respects its plan limits and pause behavior. Scheduled plan use remains forbidden by ruling 4. Runbook details: [G10 trial](2026-10-06-first-memory-trial.md).
+Use a separate named real test bank or an explicitly chosen existing bank, with a recoverable committed baseline. New exports are imported normally; do not wipe the bank or mark every episode unprocessed to force a rerun. Inspect the import preview, preserve dates/speakers, then run a small batch with the selected engine. An API-funded run needs a budget; a user-started plan engine respects its plan limits and pause behavior. Scheduled plan use needs the person's switch (ruling 4b). Runbook details: [G10 trial](2026-10-06-first-memory-trial.md).
 
 ## Unstructured follow-ups retained from the old handoff
 
@@ -108,6 +290,26 @@ A whole row moves to DONE only after its remaining implementation and required a
    `engine_select.SUBSCRIPTION_MODES`, so a third plan engine cannot forget the guard (Track E,
    2026-09-23). Only an explicit `CICADA_LLM_MODE` in `api/.env` runs a plan on the schedule. The UI
    copy says "never on the nightly schedule" and that is literally true for both plans.
+   **4b — amended (owner, 2026-10-16): "The server should be allowed to use plans too. Just have to set them up
+   somehow."** and, on the ChatGPT plan, the same day: **"Yeah chat too."** A machine may let **scheduled** runs use
+   the person's plan behind an explicit switch, **off by default**: "Scheduled runs may use my plan" in Settings → Sleep,
+   `cicada sleep schedule --use-plan on|off`, stored machine-wide as `sleep_run_prefs.scheduled_use_plan`; where it is
+   turned on it says once that nightly runs then count against the plan's limits. With it on, a scheduled run resolves
+   exactly as one the person starts would — the Claude or the ChatGPT plan, each only when it is the engine the person's
+   own choice resolves to and it is signed in (`engine_select.SCHEDULE_PLAN_MODES`). `SUBSCRIPTION_MODES` stays the one
+   guard; the switch is its only door besides an explicit `CICADA_LLM_MODE`. Such a run drains like any scheduled run
+   (the dotfile pin keeps ruling 16's one batch); a plan limit pauses it, Past reads shows the plan share (#317), and the
+   schedule replaces its `plan_window`/`plan_weekly` pause once the limit has reset (the vendor's `resets_at`, else after
+   six hours) since on a server nobody presses Continue; extra usage stays the person's and ruling 15's continue never
+   arms from a scheduled run. The scheduled web lookup (ruling 27) may use the Claude plan's search under the switch too.
+   **Setting a plan up headless:** `cicada engine connect claude-plan` (Claude Code's own `claude auth login
+   --claudeai`; where it cannot finish, `claude setup-token` elsewhere and `CLAUDE_CODE_OAUTH_TOKEN` in the unit's own
+   environment, which reads as `oauth_token`, a plan) and `cicada engine connect chatgpt-plan` (the Codex CLI's own
+   `codex login --device-auth`, in Cicada's own `CODEX_HOME`): in the person's own terminal on the server, through the
+   CLI's own sign-in; Cicada never sees, prints or stores the token. **Owner decision 2, same day:** a schedule with no
+   engine it may use says so — when it is turned on (`/sleep/schedule`'s `warning`), in `engine list` ("no key"), and
+   `ask` says it has no engine — each offering to connect a plan first. Revisit if a scheduled run is found to have
+   spent a plan without the switch on, or if the switch's disclosure is found missing where it is turned on.
 5. **Raw storage does not replace Sleep** (G101). Text cannot decay — only a belief can go stale or
    be contradicted — so "time as a signal" needs a belief object.
 6. **Capture is agent-judgment and that is a measured problem** (G105): 0 MCP invocations in 12
@@ -160,8 +362,10 @@ A whole row moves to DONE only after its remaining implementation and required a
     - The transcript keys move. The extractor then reads null, never a wrong value.
     - A claim is ever shown with a model its turn did not use. The second-precision join rule is
       then wrong; read `turn_authorship.turn_at` first.
-12. **Plan usage and model prices show on the Sleep page's Details and its engine menu — and nowhere
-    else yet (owner, 2026-09-28).** This supersedes the 2026-09-03 "prices and token usage are not
+12. **Plan usage and model prices show on the Sleep page's Past reads run detail and its engine menu — and
+    nowhere else yet (owner, 2026-09-28; surface renamed 2026-10-16, when the Sleep redesign turned Details into the
+    page's tabs: Details' Last cycle and Past nights are the Past reads tab, so the figures live where they lived —
+    `PriceLintTests` still holds them to `SleepDetails.swift`, `CycleUsageText` and the engine menu).** This supersedes the 2026-09-03 "prices and token usage are not
     shown anywhere in the app" ruling for those two surfaces only; ruling 4 (a scheduled cycle never
     spends plan quota) is untouched, and so is the no-cost-tiles, no-cost-per-day-chart half of the
     old ruling.
@@ -170,6 +374,10 @@ A whole row moves to DONE only after its remaining implementation and required a
     - **Every figure carries its basis in words.** "Charged" is the provider's own bill (API key,
       OpenRouter). "At list price" is an estimate from the public price table or the Claude CLI's
       metering, never a charge. A plan cycle is its window's before → after.
+    - **On a plan, the share leads, not dollars (owner, 2026-10-16).** A plan run says how much of each window it
+      used — measured (the reading moved), "under 1%" (it did not; never 0 %), or estimated from the run's list-price
+      size against earlier cycles' observed rate, each basis said, an estimate never shown as a reading. Its list-price
+      figure stays only as the secondary "would have cost about $X on an API key". Metered runs keep dollars.
     - **A plan's percentage is the whole plan's.** The change across a cycle can include anything else
       the person used meanwhile; the UI says so. Claude reports a window only after a call, so its
       "before" is the reading after the cycle's first call, not a pre-cycle one.
@@ -330,7 +538,7 @@ A whole row moves to DONE only after its remaining implementation and required a
     cron and the after-import probe); `user_triggered=False` still keeps every plan engine out, so an unattended run
     reads on the scheduled engine — a key, OpenRouter or Ollama — and **on a metered engine it spends until the queue is
     empty, with no limit Cicada sets.** That is said in words where the person chooses it (the engine menu's Scheduled
-    row and Details' Last cycle, never a price outside them — ruling 12) rather than prevented. Consequences built with
+    row and Past reads' Last cycle, never a price outside them — ruling 12) rather than prevented. Consequences built with
     it: a scheduled drain pins its bank for hours and holds the same 409 on switch/export/delete as any run (disclosed,
     not fixed); a scheduled run that stops leaves a paused record and **the scheduler then starts nothing until the
     person continues or ends it** (`sleep_paused.exists`, both entry points), or a Pause would be undone within five
@@ -545,3 +753,168 @@ A whole row moves to DONE only after its remaining implementation and required a
     `main` and the website must never drift. Before this, 0.3.0 was built and dry-run four times but never published,
     and `main` trailed `dev` by 88 commits.
     Revisit on the owner's word (e.g. a release-candidate channel or an older-line hotfix branch).
+
+20. **G110 continuity rulings (owner, 2026-10-07): A — flush yes; B — head and tail; C — strip only what the harness marks.**
+    Recorded with the build that implements them (feat/g110-gates).
+    **A — amends ruling 7.** Stop stays the capture trigger; PreCompact and SessionEnd ALSO run the same deterministic
+    capture as a best-effort, idempotent flush, so a turn the person interrupted before a `/clear` or a compaction is not
+    lost. Every capture log line is tagged with its event (Stop / PreCompact / SessionEnd), so ruling 7's revisit signal
+    (timeout `error:` lines) stays visible per event. SessionEnd posts within Claude Code's 1.5 s budget.
+    **B — the capture cap keeps the head and the tail.** Over the 100k-character session cap, capture keeps the first
+    60k and the last 40k (the tail advancing in blocks of whole turns) with an explicit gap marker that is never a
+    speaker's words. Costs accepted knowingly (G104): a long active session is re-extracted as its tail moves; quotes in
+    turns that slide out degrade to `reasoning`; the person's words that slide out of the tail leave the bank. Revisit
+    if re-extraction cost on long sessions is measured as a problem (G104/G148).
+    **C — clarifies G149.** A Cicada note is dropped from capture only when the harness marks it as injected (whole
+    non-person records / harness envelopes). Text the person typed or pasted — even one starting with Cicada's header — is
+    kept as the person's words and counted/disclosed (`note_like_turns`). G105 R5's tool-output and system-reminder
+    rules are unchanged.
+
+21. **G180 CLI rulings (owner, 2026-10-07).** **Transport:** the `cicada` CLI runs Cicada's services in-process, the
+    stdio MCP's own model, under the same locks (write admission, page, git), the bank pin and `demo_guard`; before a
+    write it cross-checks the backend's `/healthz` `memory_root` and refuses on a mismatch (the split-brain guard). It
+    works with the app closed and in network-off sandboxes. **PATH:** an app Settings button links `~/.local/bin/cicada`
+    without admin; the skill falls back to `~/.cicada/bin/cicada`. **Session:** a write from a shell with no harness
+    session id omits `session_id` and the `Cicada-Session` trailer, never a per-command minted id (it would fragment the
+    stream, G104). **Names:** short grouped commands (`cicada recall`, `cicada save`, `cicada claim add`, `cicada inbox`,
+    `cicada sleep status`); MCP tools keep the `cicada_` prefix, and grouping them is the lean-MCP slice, decided on
+    measured schema numbers with old names kept as aliases. No generic `call <tool>` door.
+    **Why.** Over HTTP nothing works with the backend down and sandboxed shells cannot even read; in-process is the
+    MCP's proven model, and the root check closes its one gap.
+    Revisit if the CLI and the backend are measured to disagree on a bank in practice, or for a server package (G181).
+
+22. **G110 slice 1b rulings (owner, 2026-10-07).** **D1:** capture keeps up to ~16k characters of the person's FIRST
+    message in a session (other turns keep the 2k clip), inside the session budget and with the same scrub, so a long role
+    or objective can be continued; the Sleep cost is measured before shipping. **D2:** amends slice 1a's "no `.git`
+    reading anywhere" for the hook alone: a bounded, read-only, fixed-command git identity observer may run harness-side
+    and send plain values (repository root, worktree list); the backend never reads the person's folders and only parses
+    what is supplied. **Requirement restated:** no handoff prompts; a fresh session in Claude Code, Codex, Cursor or another
+    harness continues the role and the work (G110 row).
+    **Why.** The owner's acceptance example is an orchestrator whose role came from a long first instruction and whose
+    workers run in sibling worktrees; the 2k clip and exact-folder matching each break it.
+    Revisit if the first-message exception is measured as a Sleep-cost or privacy problem.
+
+23. **Memory-quality rulings (owner, 2026-10-09).** **Engine:** Sleep runs on the owner's Claude plan with Haiku 5.5 for extraction and disambiguation, at concurrency 10 (Sonnet measured ~15 min per 25-conversation batch, Haiku ~9). **Skills (G112):** a Stage 4 skill needs two or more conversations, a one-conversation skill is held in `skill_hold`; skill pages whose sources cannot be traced are archived (44 on the owner bank); no contradiction check on skill updates; possessive aliases ("my mom") are kept, a reference phrase is never an alias. **Pages (G194):** summary synthesis is on for the owner's install — one bounded summary per page and paraphrase folding, its calls overlapped (#258); the rule-based fact fold drops a fact only when it **equals** one already kept after trivial normalization — never containment, never stopword or preposition stripping. **Search:** EmbeddingGemma 2 is downloaded only when the person asks, never automatically.
+    **Why.** Two review rounds showed every containment rule dropped a fact that said something different ("works at X" inside "works at X's competitor", a from/to swap, "1,200" vs "200"); a duplicate is cheaper than a lost fact. Synthesis-on costs ~1,000–1,500 calls per full run (clean run: 742 page updates) and is the only place paraphrases fold. An automatic 585 MB download would be a new automatic network behaviour.
+    Revisit the fold only with a measured loss-free paraphrase rule; synthesis if its call count per run is measured as a plan-limit problem.
+24. **Pages, age, pictures and the CLI (owner, 2026-10-09 to 2026-10-13).** **Pages are articles (G194):** a lead and prose sections with no length cap, written for pages on 2+ conversations, over a record (Key Facts, History, Links, Open Questions, claims) that is unioned and never shortened; provenance per paragraph; an edited article is the person's. **Age counts from when it was said (G170 amended):** what the conversations prove silent is charged once, when read; a one-off may archive by age; a page or claim on 2+ dated conversations floors at 0.39 and only live silence archives it; a mention never lowers; a decay question only when live silence crosses 0.4. **Pictures (G159/G162):** Gravatar (the owner's hashed email) and GitHub for people, X and LinkedIn through unavatar.io behind their own default-off gate as the ToS rail's one exception — only from a link given as the person's own account; link-card icons only from the page's own tags; a YouTube still from its id when oEmbed gives none. **CLI (ruling 21a):** commands on state the backend owns go through its routes after `/healthz` confirms the root; person-only commands refuse from an agent's shell. **Web:** keep the door open — new features live behind the backend API, no browser front end yet.
+    **Why.** Pages: rich pages had a median 26 facts and a 36-word summary because the merge prompt capped summaries at 1–3 sentences; the owner pointed at gbrain and Cognition's agent-memory repo — free prose, git as the safety net. Age: the owner's own reading ("if we track the time where i did that work, then it would be irrelevant now"); a straight age rule archived 79% of the bank (601/664 projects) in a dry run, so repeats floor. Pictures: the owner's own chain from another app, minus guessing. CLI: one implementation for the app, the CLI and a future browser front end; no second Sleep.
+    Revisit articles if G148 measures a recall loss or the plan limit bites; the age floor if the owner reports losing things he needed (count revivals first); the unavatar exception if the provider changes terms or starts scraping behind a login for X.
+    **Amended 2026-10-16 (owner: "Yes I agree with read on time then") — read on time.** A conversation read late (a newly connected source's history, an export imported later) counts as if Cicada had read it the day it was said: when a conversation is read never changes where a page or claim ends, only when it was said does. Before, one dated before a page's watermark added its source and week and moved nothing, so a page decay had lowered stayed faded although a newly connected chat had mentioned it three days ago. Now the decay pass places it (`read_late` → `conflict_resolver._revive_on_time`, `claim_reconciler._place_on_time`, one `decay_policy.on_time`): revived on its day (a page to 0.6, a claim to its restatement's confidence), less proven silence (repeat floor) up to the day the page's previous mention was read and live silence after it, through the watermark plus at most one pass (ruling 1); only raises; a lift left below 0.4 and heard late is `faded_by_age`. To keep it order-independent a live mention now raises any settled page to `max(current, 0.6)`, active pages included (G66 §1.6 had raised only decaying/archived ones), and a settled claim restated after its watermark but read days later is placed on the day it was said instead of restarting the day it was read. Existing banks: `api/scripts/recompute_read_on_time.py` (dry run by type, `--apply` one `cicada` commit). Revisit if the owner reports pages coming back he considers stale (count lifts by age of the mention first).
+25. **Exploring saved sites (owner, 2026-10-14; G166, G196 open question 2).** **D1 storage (b):** one thumbnail per
+    changed look in the bank, full images in `~/.cicada/captures/` outside git, kept and exportable with the bank;
+    deliberate Looks keep their full image in the bank. **D2 browser context, amended by the owner:** "My signed-in
+    sessions by default, but I can choose to disable this in Settings" — agents explore in the person's everyday
+    signed-in Chrome session and every capture taken signed in is marked `signed_in: true`; the Settings switch (Reading
+    the web) turns it off, and off is a private, cookie-less browser context (`Target.createBrowserContext`, verified
+    drivable through browser-harness in a test Chrome; an agent that cannot open one hands the site back, never falls
+    back to the signed-in session). Still binding: private workspaces excluded; walls and captchas recorded
+    `needs_login`/`blocked`, never retried with different headers; consent banners never clicked or hidden; one agent per
+    site, ≥ 8 s between pages. **D3 consent (a):** the reading acknowledgement is v3 with an exploring paragraph saying
+    plainly that exploring uses the signed-in session by default and the person's accounts carry the terms-of-service
+    risk, plus a per-site *Never explore*. **D4 depth (a):** a scripted capture of the viewport and metadata by default;
+    Sleep's recon finds the relations; full page, mobile, dark and second pages only where the person's why (G191) asks.
+    **D5 who starts (b):** the person's click, or a trusted local agent they asked in chat, stamped with who started it,
+    shown at once and stoppable in one tap; never remote, never from an agent's shell. **D6 change detection (a):**
+    Cicada's own fetcher may check an explored public page at most monthly on the Sleep tail, under the connector gate
+    and the ToS rail, and only marks "may have changed" — slice 3.
+    **Why.** The design (2026-10-14) measured ~1 GB of images a first pass of 1,000 sites, which in git would grow
+    forever (ruling 3's failure); the owner wants his logged-in view of the sites he saved, accepting the account risk
+    in words he signs.
+    Revisit D2's default if a capture taken signed in is found to have kept another person's private data in a bank; D1
+    if exported banks are measured to miss the full images people want.
+26. **Tracked sources: update, dated; the newest evidence wins (owner, 2026-10-14 evening; G61, amends the S3 rail).**
+    Owner: "Marking a dead site and being able to recheck a website after a certain time to see any updates … If I have
+    the LinkedIn of a person … I know that through LinkedIn I'm going to get it … being able to update these things
+    through consolidation would be nice." **What is re-checked:** a source the person added or took, or one Cicada's
+    own read confirmed (the existing trust rule), monthly by default (a per-source cadence) or when the person asks.
+    **What a re-check produces:** a new dated fact with the page and the capture date as evidence; the old fact's
+    validity closes (bi-temporal, nothing deleted); provenance is the agent or Cicada, the source, the date. **The newest
+    evidence wins, even over the person's own words** (owner amendment, same evening: "it can override something I
+    said if it has evidence, there is no problem with that"): a re-check dated after the person's statement supersedes
+    it and the statement stays as history; a statement dated after the capture stands; only a clash with no clear order
+    (the same day, or an undated statement) becomes one inbox question with both sides and their dates; nothing changes
+    silently (the page and the timeline say what changed, from where and when; git reverts it). **Dead:** "gone" needs
+    two failed visits a week apart (not found, gone, parked, moved); marked dead with the date, the last good capture
+    kept. **Who checks:** public pages, Cicada's own fetcher on the Sleep tail under the connector gate and the ToS rail;
+    login-walled sources only the person's own agent, through an explore-style queue, in the signed-in session per
+    ruling 25 D2 and its switch — Cicada never fetches them. **Ruling 4 holds:** due checks are only listed; the agent
+    works them when the person asks or when the hook's one line ("N tracked sources are due for a check") leads them to.
+    The inbox check (G61 S3) is unchanged: it still settles nothing.
+    **Why.** The owner tracks facts that change at their source (positions, roles) and wants memory to follow them
+    without maintenance; the S3 rail had been written for a check proposing an answer to an open question, where a
+    planted source could steer a belief — a dated re-check of a source the person chose is evidence he accepts.
+    Revisit if a re-check is found to have overwritten a statement the person had to restore (count the divergence
+    answers and `git revert`s of `Source refresh` / re-check commits first), or if a site's terms change for the walled
+    family.
+27. **A web lookup settles questions about public things (owner, 2026-10-16; G61, amends the S3 rail).** Owner: "A web
+    lookup answers 'what is X' for public things and closes the question. The answer is saved with its link and quote,
+    and you can undo it from a 'Settled by a check' list. Never searched: people's names, your own files, your projects,
+    your life. Runs from your Claude plan in runs you start; a scheduled metered run costs a few cents more." Refinement,
+    same day: the answer carries a citation (the URL and the short quote, shown where the claim's evidence shows) but is
+    **not** a tracked source — it never joins the page's re-check set, never makes a site trusted, never drives a logo;
+    the person may promote it with one tap. **What:** a pending conflict or clarification about a work, product, tool,
+    company, public concept or paper; never a person (typed, an untyped name whose description says so, a person's name
+    or alias), the owner's page, a file or path, a project, anything only the conversations know; when in doubt, the
+    question stays. **What leaves the machine:** the subject's name plus generic category words — never conversation
+    text, never another name from the bank, never the person's name. **Who:** Sleep's tail on a run the person started,
+    with the Claude plan's own search as the call's one tool (ruling 4: a scheduled run never uses a plan); a metered
+    engine's own search at its price, priced in Past reads (ruling 12); `CICADA_ALLOW_CONNECTOR_FETCH` gates it; the
+    person's own agent through `cicada_record_check(outcome="settles")`; questions about whether a PR or a G row merged
+    are answered from the commit by a trusted local agent, never searched. **Settling:** a claim (observer the agent,
+    the citation as its evidence), the question resolved and listed under "Settled by a check" with one-tap undo that
+    takes back only what the check wrote (and marks the question so no check settles it again). The S3 rule stays true
+    for everything else: an inbox check on any other question still settles nothing. **What a thing is** (owner, same
+    day, his own example "Is <tool-a> an agent harness or an AI agent itself?"): a type/`is-a` conflict is eligible
+    though `is-a` is multi-valued; it settles on one option only when the cited page rules the others out, on the
+    item's own "both" option when the page supports both, and never on an option Cicada invents.
+    **Why.** About 60 of 126 open conflicts and clarifications on the owner's bank (2026-10-16) asked about public
+    things a lookup answers, and the person was asked to look them up by hand.
+    Revisit if an undo count on `web_check` rows (ids only) shows settles being taken back often, or if a settle is
+    found to have searched or written something personal.
+    **27a — local context (owner, 2026-10-16: "Yes, use local context").** The model may read what Cicada already
+    knows about the subject — its page's one-line description and up to two lines where it was mentioned (the item's
+    conversation, its option claims' evidence), ≤ 600 characters, scrubbed as every writer scrubs, people's names,
+    links, addresses, handles and paths taken out (`web_settle.local_context`) — **to judge which search result is the
+    right one**. The search query stays the subject's name plus at most ONE generic category word, checked word for
+    word (any other query settles nothing); the word comes from Cicada's own description, never from the page's type
+    alone, never on a question about what the thing is, never one an option label carries — a bare name when unsure.
+    Clarifications are looked up before conflicts; conflicts with a mention line before those without. **Why.** The
+    first person-started run looked up 8 questions: 8 searched the pinned query, 0 settled, all unsure; a replay with no
+    writes found 69 eligible (31 type conflicts, 1 other conflict, 37 clarifications), three clarifications replayed
+    all unsure. The model saw only a name that also belongs to a restaurant, a town or a product, often with a wrong
+    category word, and was right to be unsure; only the person's context says which thing was meant. The same engine
+    already reads those conversations during Sleep, so the prompt sends nothing new anywhere and what reaches the
+    search provider is unchanged. Measure with `api/scripts/web_check_dry_run.py` (counts only, writes nothing).
+    Revisit if the dry run on the owner's bank still settles none, or if a prompt is found to have carried a person's
+    name or a path.
+28. **Headless clients (owner, 2026-10-16; G181 phase 2, amends the transcript rail and ruling 21a).** **1 — Per-device
+    tokens.** A second device never gets the server's master token: each gets its own named, hashed, revocable token
+    (`device_tokens`, the G135 store's shape kept apart). Issuing one is an act of the person — `cicada device add` on
+    the server or `POST /devices` with the master token — never automatic, never by an installer, never by a device
+    token. **2 — The transcript rail, amended.** A harness session is read on the machine where it lives, by Cicada's
+    own extractor, and posted as scrubbed, capped turns (`POST /capture/session`); ids are minted on the server under
+    its lock, so one episode per session (G104) holds. The backend still never opens a path a remote client names;
+    same scrub, caps, G110 markers and demo rule, re-checked on arrival. **3 — A tailnet device counts as local for
+    the G198 trust list.** A trusted harness (Claude Code by default) on a device holding a token the person issued
+    edits pages at once, exactly as on the same machine; the G135 remote connector and the `agent` author stay off the
+    list. **How the server knows (worker's decision, 2026-10-16):** from the token alone — `auth.require_token` looks
+    the bearer up and records the device on `request.state.device`; the tool door runs the call as a local stdio call
+    (no `connector_id`), and the device id is written as `device:` on what it writes. Nothing a client puts in a header
+    or body can claim a device, because a claim is not evidence and the token already is. **21a, amended:** the CLI
+    compares a bank identity (an `id` per bank in `banks.yaml`, minted by the backend), not a path; a client pins the
+    server's bank by name and id and names both on every write.
+    **Why.** The owner wants a home server holding the bank with Sleep running uninterrupted and the Mac as a client
+    (research `2026-10-15-headless-server.md`, option C); a copied master token could not be revoked per device, a
+    path posted across machines cannot be opened, and a path compared across machines means nothing.
+    Revisit 2 if a client's extractor is found to have sent something the server-side extractor would not keep (the
+    `turn_over_cap` refusals in the capture ledger are the signal); 3 if a device token is found in the hands of
+    anything but the person's own machine.
+    **Phase 3 (worker's decisions, 2026-10-16):** a device token may READ `GET /devices` (ids, names, times, and
+    `current` for the asker) so the app on any of the person's devices can show them; issuing and revoking stay the
+    master token's (1 unchanged). The device a request came from is bound for the request (`device_context`) and
+    stamped on every new episode it causes, except Sleep's run, which clears it. The app's server setting is a file the
+    hooks read too (`$CICADA_HOME/api_base`), so one switch moves the whole Mac; `CICADA_API_BASE` still wins.
+    Review (2026-10-16): the click writes `api_base.next`, moved into place at the next launch, so the agents never
+    switch before the app; a background service is stopped on a server (plist kept); a reader's newer post never
+    overtakes a waiting one on its route; provenance and Reader ETags carry `device1`.

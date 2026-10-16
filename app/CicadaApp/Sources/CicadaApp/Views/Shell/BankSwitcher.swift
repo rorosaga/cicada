@@ -27,6 +27,10 @@ struct BankSwitcher: View {
             // between them (the mock's "Manage memory banks" group), and the shell's files
             // carry no divider (DR-11, ShellElevationLintTests).
             Section {
+                // G181 phase 3 — the memories listed live on the server this app uses: "on <host>", one quiet line.
+                if let host = DeviceOrigin.bankHost(ServerConnection.current) {
+                    Text(host)
+                }
                 if banksVM.banks.isEmpty {
                     Text(Copy.noMemoryBanks)
                 } else {
@@ -78,7 +82,7 @@ struct BankSwitcher: View {
                 Image(systemName: "chevron.down")
                     .font(CicadaTheme.font(size: 9, weight: .semibold))
             }
-            .foregroundStyle(isHovered ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
+            .foregroundStyle(isHovered && !isSwitching ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
             .padding(.leading, CicadaTheme.spacingSM)
             .padding(.trailing, CicadaTheme.scaled(6))
             .frame(height: CicadaTheme.scaled(24))
@@ -90,9 +94,15 @@ struct BankSwitcher: View {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
+        // G183(d) — while the server has not answered a switch the selector keeps the current name, disabled at
+        // DR-41's 45 % with the target in `.help`: quiet, no spinner and no animation (a palette switch is a
+        // keyboard action, DR-60).
+        .disabled(isSwitching)
+        .opacity(isSwitching ? NeutralButton.disabledOpacity : 1)
         .onHover { isHovered = $0 }
-        .help(Copy.switchMemoryBank)
-        .accessibilityLabel("\(Copy.memoryBanks): \(displayName)")
+        .help(banksVM.switchingTo.map(Copy.switchingMemoryBank) ?? (isSwitching ? Copy.switchingMemory : Copy.switchMemoryBank))
+        .accessibilityLabel("\(Copy.memoryBanks): \(displayName)"
+                            + (DeviceOrigin.bankHost(ServerConnection.current).map { ", \($0)" } ?? ""))
         .task { await banksVM.load() }
         .sheet(isPresented: $showCreateSheet) {
             BankNameSheet(
@@ -150,19 +160,26 @@ struct BankSwitcher: View {
         }
     }
 
+    private var isSwitching: Bool { banksVM.isSwitching }
+
     private var displayName: String {
         banksVM.activeBank?.name ?? banksVM.activeName ?? Copy.memoryBank
     }
 
     private func bankLabel(_ bank: MemoryBank) -> String {
-        if bank.entityCount > 0 || bank.episodeCount > 0 {
-            return "\(bank.name)  (\(UsageFormat.count(bank.entityCount)) entities · \(UsageFormat.count(bank.episodeCount)) episodes)"
-        }
-        return bank.name
+        Self.label(name: bank.name, entities: bank.entityCount, episodes: bank.episodeCount)
+    }
+
+    /// A menu row: the bank's name and, once it holds anything, its counts — each with its noun in the right number
+    /// (DR-21; a fresh bank read "1 entities", QA 2026-10-16).
+    static func label(name: String, entities: Int, episodes: Int) -> String {
+        guard entities > 0 || episodes > 0 else { return name }
+        func counted(_ n: Int, _ one: String, _ many: String) -> String { "\(UsageFormat.count(n)) \(n == 1 ? one : many)" }
+        return "\(name) (\(counted(entities, "entity", "entities")) · \(counted(episodes, "episode", "episodes")))"
     }
 
     private func switchTo(_ name: String) {
-        guard name != banksVM.activeName else { return }
+        guard name != banksVM.activeName, !isSwitching else { return }
         Task {
             if await banksVM.activate(name) {
                 await graphVM.loadGraph()

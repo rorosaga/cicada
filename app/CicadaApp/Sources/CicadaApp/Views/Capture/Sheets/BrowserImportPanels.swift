@@ -24,22 +24,30 @@ enum BrowserImportActions {
             guard await store.perform(m), let r = m.result else { try Task.checkCancellation(); throw ImportActionError.failed(store.toast ?? "Sync failed") }
             return BrowserImportSummary.tabs(r)
         case "safari-bookmarks":
+            let look = BookmarkSyncSignal.takeLook()   // review B2: numbered before the read
             let data = try await BrowserFileReader.read(.safariBookmarks)
+            // G191 live: ask before the sync; v3: the app's own diff names the link beside the look.
+            let looked = await BookmarkSyncSignal.diffAndLook(channel: id, data: data, bytes: .safari(data), look: look)
             let m = SyncBrowserBookmarks(chromeData: nil, safariData: data, folders: nil)
             guard await store.perform(m), let r = m.result else {
                 try Task.checkCancellation()
                 if m.wasBusy { throw ImportActionError.busy }
                 throw ImportActionError.failed(store.toast ?? "Sync failed")
             }
+            BookmarkSyncSignal.post(r, lookedEarly: looked)   // G191: the save-why question decides whether to ask
             return BrowserImportSummary.bookmarks(r)
         case "chrome-bookmarks":
+            let look = BookmarkSyncSignal.takeLook()   // review B2: numbered before the read
             let data = try await BrowserFileReader.read(.chromeBookmarks)
+            // G191 live: ask before the sync; v3: the app's own diff names the link beside the look.
+            let looked = await BookmarkSyncSignal.diffAndLook(channel: id, data: data, bytes: .chrome(data), look: look)
             let m = SyncBrowserBookmarks(chromeData: data, safariData: nil, folders: nil)
             guard await store.perform(m), let r = m.result else {
                 try Task.checkCancellation()
                 if m.wasBusy { throw ImportActionError.busy }
                 throw ImportActionError.failed(store.toast ?? "Sync failed")
             }
+            BookmarkSyncSignal.post(r, lookedEarly: looked)   // G191: the save-why question decides whether to ask
             return BrowserImportSummary.bookmarks(r)
         default:
             // Round 4 (C9): a Chromium-family browser beyond Chrome — the same read, its own entry on the wire.
@@ -49,14 +57,46 @@ enum BrowserImportActions {
                 // internal id never belongs in the person's copy (L final review, finding 1).
                 throw ImportActionError.failed("This source can't be synced from here.")
             }
+            let look = BookmarkSyncSignal.takeLook()   // review B2: numbered before the read
             let data = try await BrowserFileReader.read(file)
+            let looked = await BookmarkSyncSignal.diffAndLook(channel: id, data: data,
+                                                              bytes: .chromium(browser: spec.id, data), look: look)
             let m = SyncChromiumBookmarks(browser: spec.id, data: data)
             guard await store.perform(m), let r = m.result else {
                 try Task.checkCancellation()
                 if m.wasBusy { throw ImportActionError.busy }
                 throw ImportActionError.failed(store.toast ?? "Sync failed")
             }
+            BookmarkSyncSignal.post(r, lookedEarly: looked)   // G191: the save-why question decides whether to ask
             return BrowserImportSummary.bookmarks(r)
+        }
+    }
+
+    /// G191 live — a save the watch saw while this channel's sync (or its 5 s floor) still runs: read the file and
+    /// look early now, as a live save, instead of waiting for the sync ahead (measured: +12 s for the second of two
+    /// bookmarks 12 s apart). The sync itself follows once the way is clear. Any failure is silent: the sync's own
+    /// look still decides.
+    @MainActor
+    static func peek(_ id: String) async {
+        let (bytes, look, data): (BookmarkBytes, Int?, Data)
+        do {
+            look = BookmarkSyncSignal.$live.withValue(true) { BookmarkSyncSignal.takeLook() }   // before the read
+            switch id {
+            case "safari-bookmarks":
+                data = try await BrowserFileReader.read(.safariBookmarks)
+                bytes = .safari(data)
+            case "chrome-bookmarks":
+                data = try await BrowserFileReader.read(.chromeBookmarks)
+                bytes = .chrome(data)
+            default:
+                guard let spec = BrowserInventory.spec(forBookmarksChannel: id), spec.engine == .chromium,
+                      spec.id != "chrome", let file = BrowserFile.bookmarks(forBrowser: spec.id) else { return }
+                data = try await BrowserFileReader.read(file)
+                bytes = .chromium(browser: spec.id, data)
+            }
+        } catch { return }
+        _ = await BookmarkSyncSignal.$live.withValue(true) {
+            await BookmarkSyncSignal.diffAndLook(channel: id, data: data, bytes: bytes, look: look)
         }
     }
 
@@ -229,7 +269,7 @@ struct SafariTabsPanel: View {
         guard let bytes, stage == .ready else { return }
         stage = .importing
         let devices = Array(selected).sorted()
-        task = Task { @MainActor in
+        task = store.bankTask {   // G183(d): bound to the bank the import was asked for in
             let m = SyncSafariTabs(db: bytes.db, wal: bytes.wal, devices: devices)
             let ok = await store.perform(m)
             guard !Task.isCancelled else { return }
@@ -332,7 +372,7 @@ struct BookmarkFolderPanel: View {
         guard let data, stage == .ready else { return }
         stage = .importing
         let folders = selection.requestFolders
-        task = Task { @MainActor in
+        task = store.bankTask {   // G183(d): bound to the bank the import was asked for in
             let m = SyncBrowserBookmarks(chromeData: browser == .chrome ? data : nil, safariData: browser == .safari ? data : nil, folders: folders)
             let ok = await store.perform(m)
             guard !Task.isCancelled else { return }

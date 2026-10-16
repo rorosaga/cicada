@@ -120,7 +120,9 @@ private struct ConnectionCard: View {
                 }
                 VStack(alignment: .leading, spacing: 2) {
                     Text(connection.label).font(CicadaTheme.headingFont).foregroundStyle(CicadaTheme.textPrimary)
-                    Text(connection.priceLine).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
+                    if let subtitle = connection.subtitle {
+                        Text(subtitle).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
+                    }
                 }
                 Spacer()
                 statusPill

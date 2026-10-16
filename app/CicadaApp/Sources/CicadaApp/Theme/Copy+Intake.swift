@@ -91,8 +91,8 @@ extension Copy {
     /// the commands it cannot vouch for byte for byte, and each wires a hook
     /// that runs on every agent turn — recommending them by hand undid the
     /// allowlist (final review, finding 6). The lines are shown to inspect only.
-    static let foundRefused = "These commands don't match this copy of Cicada, so it didn't run them. Reinstall Cicada, then try again."
-    static let foundBackendDown = "Waiting for Cicada's background service…"
+    static let foundRefused = "Reinstall Cicada to finish this step. These commands don't match this copy of Cicada, so it didn't run them."
+    static let foundBackendDown = "Starting up…"
 
     // MARK: Honesty (Task 6, design §5.3) — ruling 4, said out loud
     static let afterImportWhenYouAsk = "Cicada reads these when you ask."

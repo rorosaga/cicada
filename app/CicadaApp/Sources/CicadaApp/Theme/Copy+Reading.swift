@@ -10,6 +10,18 @@ extension Copy {
         static let pageTitle = "Reading the web"
         static let pageSubtitle = "Which sites your own agent may read for you, and how it reads them."
         static let withAgentGroup = "With an agent"
+        // G71 (2026-10-16): the YouTube lists the person's own agent keeps current from their signed-in browser.
+        static let youtubeGroup = "Your YouTube lists"
+        static let youtubeIntro = "YouTube shares Watch later and your watch history with no one, so your own agent can read them in your browser and keep them current here. Watch later videos are saved like your other videos; watch history becomes one entry per day, never saved links. Cicada never signs in for you."
+        static let youtubeWatchLaterTitle = "Keep Watch later current"
+        static let youtubeHistoryTitle = "Keep watch history current"
+        static let youtubeWatchLaterOff = "Off — your agent never opens your Watch later."
+        static let youtubeHistoryOff = "Off — your agent never opens your watch history."
+        static let youtubeWaiting = "Waiting for your agent — it is offered with the pages to read."
+        static func youtubeLastRead(_ day: String) -> String { "Last read by your agent · \(day)" }
+        static func youtubePaused(_ day: String) -> String {
+            "Your agent wasn't signed in to YouTube. Paused until \(day) — turn it on again to try sooner."
+        }
         static let switchTitle = "Let an agent read pages for you"
         static let switchDetail = "When Cicada’s reader can’t open a page (a sign-in, a consent page, a refusal), your own agent can read it in your browser. You choose each page with “Ask an agent”, and which sites below. Cicada never signs in for you."
         static let switchLabel = "Let an agent read pages for you"
@@ -90,6 +102,9 @@ extension Copy {
         static let sheetOnlyAsks = "Cicada only asks. What your agent does in your browser is up to it and you."
         static let sheetTerms = "Some sites, LinkedIn and X among them, forbid automated access even when you are signed in. You are responsible for following a site’s terms, and the site may restrict your account."
         static let sheetInstruction = "Cicada asks your agent not to type credentials, and not to post, message or change anything. It can’t see or enforce what happens in your browser."
+        /// Ack v3 (owner 2026-10-14, D3): the exploring paragraph. Its wording change is why an earlier "I understand"
+        /// no longer counts (`reading_settings.ACK_VERSION`).
+        static let sheetExploring = "Exploring your saved sites opens each one in your browser, one after another, and keeps a dated picture of it. By default it uses your signed-in session, so sites see you as you; you can turn that off below. Some sites’ terms don’t allow automated visits: if a site objects, it is your account and your connection it objects to, not Cicada’s. You can mark any site Never explore."
         static let sheetSaferExport = "If a site offers a download of your own data, that is safer."
         static func sheetAlsoAllows(_ site: String) -> String { "This also lets an agent read pages from \(site)." }
         static let sheetUnderstand = "I understand"
@@ -143,8 +158,8 @@ extension Copy {
         /// or item still learns of it (the Read section on the link has the detail and the way out).
         static let rowFlag = "Needs sign-in"
         static func walledToast(_ hosts: [String]) -> String {
-            hosts.count == 1 ? "\(hosts[0]) needs you to sign in. It's marked in the Feed."
-                             : "\(hosts.count) pages need you to sign in. They're marked in the Feed."
+            hosts.count == 1 ? "\(hosts[0]) needs you to sign in. It's marked in Sleep › Saved."
+                             : "\(hosts.count) pages need you to sign in. They're marked in Sleep › Saved."
         }
         /// The agent's own one-sentence note, marked as its words (never Cicada's).
         static func agentNote(_ who: String, _ note: String) -> String { "\(who) noted: \(note)" }

@@ -28,6 +28,8 @@ extension Copy {
         static let plansAndKeys = "Plans & keys ›"
         static let autoPrefix = "Auto"
         static func signInFirst(_ label: String) -> String { "Sign in on Plans & keys to use your \(label)" }
+        /// A run resolves its engine once and keeps it; a change made while it reads waits (never names an engine).
+        static let runKeepsEngine = "This run keeps the engine it started with. Your choice applies when a run starts or continues."
     }
 
     /// What a cycle cost (2026-09-28 ruling, TODO ruling 12): the Sleep page's Details and its engine
@@ -103,6 +105,40 @@ extension Copy {
             "\(UsageFormat.count(n, locale: locale)) tokens out"
         }
         static func lastCycle(_ amount: String) -> String { "Last cycle: \(amount) charged" }
+
+        // Owner 2026-10-16 — on a plan, a run is said as how much of the plan it used; dollars are secondary.
+
+        /// A window as the limit it is, for "about 3% of your weekly limit".
+        static func limit(_ id: String) -> String {
+            switch id {
+            case "five_hour": "the 5-hour window"
+            case "seven_day": "your weekly limit"
+            case "seven_day_opus": "your weekly Opus limit"
+            case "seven_day_sonnet": "your weekly Sonnet limit"
+            case "primary": "the plan's main window"
+            case "secondary": "the plan's second window"
+            default: "the plan's usage window"
+            }
+        }
+        static func about(_ share: String, of limit: String) -> String { "about \(share) of \(limit)" }
+        static func under(_ share: String, of limit: String) -> String { "under \(share) of \(limit)" }
+        static let measured = "measured"
+        static let estimated = "estimated"
+        /// The basis of an "under 1%" figure: the plan's reading did not move — never called "measured".
+        static let unmoved = "reading unchanged"
+        /// A plan run whose share nothing recorded: unknown, never zero.
+        static let shareNotRead = "share of the plan not recorded"
+        static let measuredNote = "Measured: the plan's own reading before and after the run."
+        static let underNote =
+            "The plan's reading did not move by a whole point, so the run used under one percent of it — too small to read, not zero."
+        static func estimatedNote(samples: Int?) -> String {
+            let runs = samples.map { "\($0) earlier run\($0 == 1 ? "" : "s")" } ?? "earlier runs"
+            return "Estimated, not read from the plan: this run's size at list price against how far \(runs) moved "
+                + "the same window for theirs. Those runs' readings include anything else you used meanwhile."
+        }
+        static let estimateCappedNote = "The plan's own reading moved less than one point, which the estimate stays under."
+        static func wouldHaveCost(_ amount: String) -> String { "would have cost about \(amount) on an API key" }
+        static func lastRun(_ share: String) -> String { "Last run: \(share)" }
         static func asOf(_ relative: String) -> String { "as of \(relative)" }
         static func resets(_ when: String) -> String { "resets \(when)" }
     }
@@ -175,6 +211,8 @@ extension Copy {
         /// The engine row's dash reason. Not "Sleep hasn't run": `lastEngine` is also nil while the
         /// status is still loading and on an older backend, and a dash's reason is never a guess (R-A14).
         static let noEngineYet = "No cycle has reported its engine yet."
+        /// The readout's dash while no cycle in the recent history has finished (one still reads, or is paused).
+        static let noFinishedCycle = "No finished cycle to show yet."
         static let untitled = "Untitled"
     }
 
@@ -220,7 +258,7 @@ extension Copy {
         SleepDetailsWords.pausedTitle, SleepUsage.lastBatchTitle,
         SleepDetailsWords.capTitle(2), SleepDetailsWords.warningTitle, SleepDetailsWords.inMemory,
         SleepDetailsWords.feedingIt, SleepDetailsWords.lastCycleTook, SleepDetailsWords.lastEngine,
-        SleepDetailsWords.noEngineYet, SleepDetailsWords.untitled,
+        SleepDetailsWords.noEngineYet, SleepDetailsWords.noFinishedCycle, SleepDetailsWords.untitled,
         SleepUsage.notRecorded, SleepUsage.noCalls, SleepUsage.ranLocally, SleepUsage.modelsTitle,
         SleepUsage.lastCycleTitle, SleepUsage.windowReset,
         // `writtenByAnAgentHelp`, `noSubfolders`, `notOnThisMac` and `manageHelp` are sentences over 60 characters,

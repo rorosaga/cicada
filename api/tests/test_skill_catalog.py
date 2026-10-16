@@ -21,7 +21,7 @@ LOGOS = Path(__file__).resolve().parents[2] / "app/CicadaApp/Sources/CicadaApp/R
 def test_the_brief_s_list_is_the_catalog():
     assert set(BY_ID) == {"watch", "skill-creator", "pdf", "paper-lookup", "literature-review",
                           "arxiv-mcp-server", "transcribe", "granola", "wispr-flow", "browser-harness",
-                          "macos-harness"}
+                          "macos-harness", "site-explore"}
     assert CATALOG["maxShown"] <= 5
     assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", CATALOG["reviewedAt"])
 
@@ -156,7 +156,7 @@ def test_at_most_five_by_rank_and_installed_ones_step_aside(tmp_path):
     home = tmp_path / "h"
     fresh = skill_catalog.recommended(home=home)
     assert [s["id"] for s in fresh["recommended"]] == ["watch", "paper-lookup", "wispr-flow", "granola", "skill-creator"]
-    assert fresh["installed"] == [] and fresh["catalogSize"] == 11
+    assert fresh["installed"] == [] and fresh["catalogSize"] == 12
     _skill(home, ".claude/skills", "watch")
     after = skill_catalog.recommended(home=home)
     assert [s["id"] for s in after["installed"]] == ["watch"]
@@ -247,12 +247,14 @@ def test_the_three_role_skills_are_pinned_to_a_real_sha_and_hash():
     # the values the reviewer verified with scripts/verify-skills.sh
     assert BY_ID["browser-harness"]["pin"]["sha"] == "c24e5072ee66f8499bacd663f4f4bcb089bc4492"
     assert BY_ID["browser-harness"]["pin"]["path"] == ""
-    assert BY_ID["macos-harness"]["pin"]["sha"] == "b88e4d77403bbcac35752eef4f4dd72db3663fd6"
+    assert BY_ID["macos-harness"]["pin"]["sha"] == "43d9edf8286153482348b15f7d8c22d9e38f6c6b"
 
 
 def test_new_entries_do_not_displace_the_top_five():
     assert BY_ID["browser-harness"]["rank"] == 10 and BY_ID["macos-harness"]["rank"] == 11
-    assert max(s["rank"] for s in SKILLS if s["id"] not in ROLE_SKILLS) < 10
+    # Cicada's own site-explore skill (G166 exploring) ranks after the role skills: it needs browser-harness first.
+    assert BY_ID["site-explore"]["rank"] == 12
+    assert max(s["rank"] for s in SKILLS if s["id"] not in (*ROLE_SKILLS, "site-explore")) < 10
 
 
 def test_agent_prompt_plans_are_copy_only_and_run_nothing():
@@ -268,7 +270,7 @@ def test_prompts_pin_the_reviewed_version_carry_no_global_trigger_and_ask_before
     bh = skill_catalog.install_plan(BY_ID["browser-harness"], "claude-code")["prompt"]
     mh = skill_catalog.install_plan(BY_ID["macos-harness"], "claude-code")["prompt"]
     assert "browser-harness==0.1.13" in bh and "--upgrade" not in bh and "--force" not in bh
-    assert "macos-harness==0.1.2" in mh and "--upgrade" not in mh and "--force" not in mh
+    assert "macos-harness==0.2.1" in mh and "--upgrade" not in mh and "--force" not in mh
     for prompt in (bh, mh):
         assert "Always use" not in prompt and "do not make it your default" in prompt
         assert "ask me" in prompt.lower()

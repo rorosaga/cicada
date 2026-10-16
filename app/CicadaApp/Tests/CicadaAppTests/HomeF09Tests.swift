@@ -11,10 +11,6 @@ final class HomeF09Tests: XCTestCase {
         return try String(contentsOf: file, encoding: .utf8)
     }
 
-    func testTheBandIsF09sLivingBand() {
-        XCTAssertEqual(HomeBandLayout.bandHeight, 208, "F-09 (R-HO6)")
-    }
-
     func testTheTipShowsOnlyAfterStartAndNeverAfterItIsHidden() throws {
         XCTAssertFalse(AppearanceTipPolicy.visible(armed: false, dismissed: false))
         XCTAssertTrue(AppearanceTipPolicy.visible(armed: true, dismissed: false))
@@ -48,23 +44,23 @@ final class HomeF09Tests: XCTestCase {
         XCTAssertFalse(record.contains("AppearanceTipPolicy"), "arming lives in armAppearanceTip, called by SetupRunner")
     }
 
-    func testTheTipSitsBesideTheColumnOnlyWhenItFits() {
-        XCTAssertEqual(AppearanceTipLayout.placement(pageWidth: 1384, scale: 1), .side, "1440 × 900 with the rail")
-        XCTAssertEqual(AppearanceTipLayout.placement(pageWidth: 1144, scale: 1), .inline, "1200 × 800")
-        XCTAssertEqual(AppearanceTipLayout.placement(pageWidth: 1384, scale: 1.4), .inline)
-        XCTAssertEqual(AppearanceTipLayout.placement(pageWidth: 0, scale: 0), .inline, "a zero width never traps")
+    /// Owner 2026-10-14 (Home review #4) — the tip is a row of the column, after Needs you, never beside the headline:
+    /// that spot sat above everything on a wide window.
+    func testTheTipIsARowOfTheColumnNeverBesideIt() throws {
+        let home = try source("Views/Home/HomeView.swift")
+        XCTAssertFalse(home.contains("AppearanceTipLayout.placement"), "the side placement retired")
+        XCTAssertFalse(home.contains(".overlay(alignment: .topTrailing)"))
+        XCTAssertTrue(home.contains("if tipShown { AppearanceTip() }"))
     }
 
+    /// Its pickers still fit the narrowest column the tip can sit in (1200 × 800 at 1.4×: the 760 pt column scaled).
     func testTheTipsPickersFitItsCard() throws {
         let saved = CicadaTheme.uiScale
         defer { CicadaTheme.uiScale = saved }
         for scale in [1.0, 1.4] {
             CicadaTheme.uiScale = scale
-            let room = CicadaTheme.scaled(AppearanceTipLayout.width - 2 * AppearanceTipLayout.padding)
+            let room = CicadaTheme.scaled(264 - 2 * AppearanceTipLayout.padding)
             let pickers: [AnyView] = [
-                AnyView(PillPicker(title: Copy.scene, selection: .constant(HeroScenePreference.automatic),
-                                   options: HeroScenePreference.allCases.map { PillOption(value: $0, label: $0.label) },
-                                   compact: true)),
                 AnyView(PillPicker(title: Copy.appearance, selection: .constant(AppearancePreference.system),
                                    options: AppearancePreference.allCases.map { PillOption(value: $0, label: $0.label) },
                                    compact: true)),
@@ -100,6 +96,6 @@ final class HomeF09Tests: XCTestCase {
         XCTAssertTrue(sections.contains("InboxRowSlots(entity: false, source: false)"), "R-HO12 — glyph · question · age")
         XCTAssertTrue(sections.contains("showsOpenButton: false"))
         XCTAssertTrue(sections.contains("linkTitle: Copy.homeOpenInbox"))
-        XCTAssertTrue(sections.contains("LastReadSection("), "R-HO13 — Last read stays")
+        XCTAssertTrue(try source("Views/Home/HomeView.swift").contains("LastReadSection("), "R-HO13 — Last read stays")
     }
 }

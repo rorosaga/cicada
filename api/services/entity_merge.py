@@ -12,7 +12,7 @@ from pathlib import Path
 import yaml
 from loguru import logger
 
-from api.services import markdown_parser, entity_body, page_lock
+from api.services import entity_article, entity_body, markdown_parser, page_lock
 from api.services.claims import (
     Claim, MalformedClaimsBlockError, parse_claims, strip_claims_block, write_claims,
 )
@@ -214,6 +214,9 @@ def _repoint_page(ep: Path, old: set[str], old_id: str, new_id: str, new_name: s
         claims_changed |= _repoint_claim(c, old, old_id, new_id)
 
     new_body, n_subs = _relink(wikilink_re, new_name, epar.body)
+    if n_subs:
+        # A renamed link is a mechanical edit: an article stamp that held before still holds (`entity_article`).
+        entity_article.carry_stamp(efm, epar.body, new_body)
     if claims_changed:
         new_body = write_claims(new_body, page_claims)
     if n_subs or claims_changed:
@@ -250,7 +253,7 @@ def _edges_name(memory_path: Path, old_id: str) -> bool:
     edges_file = Path(memory_path) / "graph_edges.yaml"
     if not edges_file.exists():
         return False
-    data = yaml.safe_load(edges_file.read_text()) or {}
+    data = markdown_parser.load_yaml(edges_file.read_text(encoding="utf-8")) or {}
     return any(e.get(end) == old_id for e in data.get("edges", []) for end in ("source", "target"))
 
 
@@ -273,38 +276,62 @@ def merge_footprint(memory_path: Path, loser_id: str, winner_id: str) -> list[st
             continue
         if _repoint_page(ep, old, loser_id, winner_id, winner_name, wikilink_re, warn=False)[0]:
             paths.append(f"entities/{ep.name}")
-    return paths
+    # Each page's claims ledger that exists: the merge folds it in and writes it back (the loser's is removed). A ledger
+    # a write creates is committed with its page (`git_service`), never left behind.
+    from api.services import claims_ledger
+
+    return claims_ledger.with_ledgers(memory_path, paths, existing_only=True)
 
 
 def repoint_edges(memory_path: Path, old_id: str, new_id: str) -> int | None:
-    """Repoint ``graph_edges.yaml`` endpoints old -> new, dropping the self-loops
-    and duplicates that creates. The number of endpoints moved, or ``None``
-    when nothing was written: no edges file, or no endpoint named ``old_id``
-    (G183(e): an untouched graph is never rewritten, so it never enters a
-    merge's manifest — or its commit)."""
+    """Repoint ``graph_edges.yaml`` endpoints old -> new. The number of endpoints moved, or ``None`` when nothing was
+    written: no edges file, or no endpoint named ``old_id`` (G183(e): an untouched graph is never rewritten, so it
+    never enters a merge's manifest — or its commit).
+
+    Only an edge that named ``old_id`` changes, and only its ``source``/``target``: every other field — a
+    claim-backed row's ``claim_id``, ``observer``, ``context``, ``valid_from`` — and every other edge stay exactly as
+    they were, in their order. A moved edge is dropped only when it now runs from a page to itself (the merge made
+    it, and the claim projection never draws one, ``graph_builder._claim_edge_row``) or is now identical, field for
+    field, to an edge already in the file. Edges that differ in any field are never collapsed: before 2026-10-14 this
+    deduped the WHOLE file by (source, target, label), which on a real bank turned a 45,786-edge file into 31,545 and
+    dropped the claim fields of all but 59 of its 14,298 claim-backed rows on one merge."""
+    import json
+
     edges_file = Path(memory_path) / "graph_edges.yaml"
     if not edges_file.exists():
         return None
-    data = yaml.safe_load(edges_file.read_text()) or {}
-    repointed = 0
-    for e in data.get("edges", []):
-        for end in ("source", "target"):
-            if e.get(end) == old_id:
-                e[end] = new_id; repointed += 1
-    if not repointed:
+    data = markdown_parser.load_yaml(edges_file.read_text(encoding="utf-8")) or {}
+    edges = data.get("edges") or []
+
+    def canon(edge: dict) -> str:
+        return json.dumps(edge, sort_keys=True, default=str)
+
+    def names_old(edge) -> bool:
+        return isinstance(edge, dict) and old_id in (edge.get("source"), edge.get("target"))
+
+    if not any(names_old(e) for e in edges):
         return None
-    seen = set()
-    cleaned = []
-    for e in data.get("edges", []):
-        if e.get("source") == e.get("target"):
-            continue  # drop self-loop created by repointing
-        key = (e.get("source"), e.get("target"), e.get("label"))
-        if key in seen:
-            continue  # drop duplicate
-        seen.add(key)
-        cleaned.append(e)
-    data["edges"] = cleaned
-    edges_file.write_text(yaml.safe_dump(data, sort_keys=False))
+    kept_keys = {canon(e) for e in edges if isinstance(e, dict) and not names_old(e)}
+    repointed = 0
+    out = []
+    for e in edges:
+        if not names_old(e):
+            out.append(e)
+            continue
+        moved = dict(e)
+        for end in ("source", "target"):
+            if moved.get(end) == old_id:
+                moved[end] = new_id
+                repointed += 1
+        if moved.get("source") == moved.get("target"):
+            continue
+        key = canon(moved)
+        if key in kept_keys:
+            continue
+        kept_keys.add(key)
+        out.append(moved)
+    data["edges"] = out
+    markdown_parser.write_yaml(edges_file, data)   # atomic: tens of thousands of rows on a real bank
     return repointed
 
 
@@ -322,7 +349,10 @@ def rename_references(memory_path: Path, old_id: str, old_name: str, new_id: str
     changed = False
     for c in own:
         changed |= _repoint_claim(c, old, old_id, new_id)
+    before = body
     body, n = _relink(_wikilink_re(old_id, old_name), new_name, body)
+    if n:
+        entity_article.carry_stamp(fm, before, body)
     if changed:
         body = write_claims(body, own)
     self_names = old | _names(new_id, new_name)
@@ -389,6 +419,11 @@ def merge_entities(memory_path: Path, loser_id: str, winner_id: str,
         if loser_name.lower() not in {str(a).lower() for a in aliases}:
             wfm["aliases"] = [*aliases, loser_name]
     _merge_sources(winner_id, loser_id, wfm, lfm)
+    # G198: both pages' pinned corrections and removed aliases travel to the winner, and an alias either page had
+    # removed is not unioned back in (the loser's own name included).
+    from api.services import page_edits
+
+    page_edits.carry_marks(wfm, lfm)
     wfm["confidence"] = max(float(wfm.get("confidence", 0) or 0),
                             float(lfm.get("confidence", 0) or 0))
     # Mentioned most recently on either page: a merge must not make the
@@ -396,17 +431,22 @@ def merge_entities(memory_path: Path, loser_id: str, winner_id: str,
     last = [v for v in (wfm.get("last_referenced"), lfm.get("last_referenced")) if v]
     if last:
         wfm["last_referenced"] = max(last, key=str)
+    # And read most recently: a silence the loser's mention proves is still the merged page's to charge.
+    learned = [str(v)[:10] for v in (wfm.get("learned_on"), lfm.get("learned_on")) if v]
+    if learned:
+        wfm["learned_on"] = max(learned)
 
     # Section-merge loser body into winner (human-safe: never drop winner prose).
     # merge_sections_human_safe needs the STRUCTURED new_fields shape, so convert
     # the loser's sections via sections_to_fields (a raw sections dict merges nothing).
     # Both bodies are merged claims-stripped so a fence can never end up
     # mid-section; the claims are re-attached below as one block.
-    human = bool(wfm.get("human_edited"))
+    winner_sections = entity_body.parse_sections(strip_claims_block(wpar.body))
+    human = entity_body.has_human_prose(wfm, winner_sections)
     loser_sections = entity_body.parse_sections(strip_claims_block(lpar.body))
     loser_fields = entity_body.sections_to_fields(loser_sections)
     merged_sections = entity_body.merge_sections_human_safe(
-        entity_body.parse_sections(strip_claims_block(wpar.body)), loser_fields, human_edited=human)
+        winner_sections, loser_fields, human_edited=human)
     # Preserve any non-canonical (human-authored) loser sections too — the
     # structured merge only carries the canonical fields. If the winner
     # already has a same-titled custom section with different content,
@@ -423,10 +463,32 @@ def merge_entities(memory_path: Path, loser_id: str, winner_id: str,
         elif content not in existing:
             merged_sections[title] = existing + "\n\n" + content
         # identical content: keep winner's, no dup
+    # The loser's `## Article` (G194). Canonical, so neither loop above carries it. A person's article (a hand-written
+    # one, or a machine one edited since its stamp) is never lost: it joins the winner's Article, after the winner's
+    # own, which makes the winner's prose the person's too (its stamp no longer matches: additive-only from now on).
+    # A machine article is not carried: it was compiled from the loser's record, which merged in above, and the
+    # winner's next article is rewritten from the merged record; git keeps the loser's page.
+    loser_article = (loser_sections.get(entity_article.SECTION) or "").strip()
+    if loser_article and not entity_article.stamped(lfm, loser_sections):
+        winner_article = (merged_sections.get(entity_article.SECTION) or "").strip()
+        if loser_article not in winner_article:
+            merged_sections[entity_article.SECTION] = (
+                f"{winner_article}\n\n{loser_article}" if winner_article else loser_article)
+            if not (merged_sections.get("Summary") or "").strip():
+                merged_sections["Summary"] = (loser_sections.get("Summary") or "").strip()
+            merged_sections = {t: merged_sections[t] for t in sorted(
+                merged_sections, key=lambda t: -1 if not t else entity_body.CANONICAL_SECTIONS.index(t)
+                if t in entity_body.CANONICAL_SECTIONS else len(entity_body.CANONICAL_SECTIONS))}
+    elif loser_article:
+        logger.info(f"merge: {loser_id}'s machine article is not carried; {winner_id}'s next article is written "
+                    "from the merged record")
     new_body = "\n\n".join(f"## {t}\n{c}" if t else c
                            for t, c in merged_sections.items() if c).strip()
     # A wikilink to the loser inside the merged prose now names this page.
-    new_body, _n = _relink(_wikilink_re(loser_id, loser_name), winner_name, new_body)
+    relinked, _n = _relink(_wikilink_re(loser_id, loser_name), winner_name, new_body)
+    if _n:
+        entity_article.carry_stamp(wfm, new_body, relinked)
+    new_body = relinked
     all_claims = _carry_claims(winner_claims, loser_claims, loser_id, loser_name, winner_id)
     if all_claims:
         new_body = write_claims(new_body, all_claims)
@@ -444,6 +506,12 @@ def merge_entities(memory_path: Path, loser_id: str, winner_id: str,
 
     lp.unlink()
     paths.append(f"entities/{loser_id}.md")
+    # The loser's ledger claims were read with its page (`markdown_parser.parse` folds them in) and now sit on the
+    # winner's page or its ledger; git keeps the loser's file.
+    from api.services import claims_ledger
+
+    if claims_ledger.remove(lp):
+        paths.append(claims_ledger.rel_for(f"entities/{loser_id}.md"))
     return {"winner": winner_id, "merged_source_episodes": len(wfm.get("source_episodes", [])),
             "merged_claims": len(all_claims) - len(winner_claims),
             "repointed_edges": repointed or 0, "repointed_refs": len(others), "paths": paths}

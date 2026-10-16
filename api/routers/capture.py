@@ -1,11 +1,13 @@
 """Inbound capture connectors — webhooks that stage episodes/media without
 going through MCP or the companion app's own upload flow.
 
-Three today: the Telegram webhook (parse+route logic in
+Four today: the Telegram webhook (parse+route logic in
 ``api/services/telegram_capture.py``; this router is only the token gate +
 HTTP surface), the G105 session-capture endpoint the harness's Stop hook
 posts to (``api/services/transcript_capture.py`` does the validation, the
-extraction and the write), and the G149 recall hooks' read,
+extraction and the write), the per-turn capture endpoint Cursor's and Gemini
+CLI's hooks post to (``POST /capture/turn``, ``api/services/turn_capture.py``),
+and the G149 recall hooks' read,
 ``POST /capture/hook-context`` (``api/services/hook_recall.py``).
 """
 
@@ -13,20 +15,21 @@ import asyncio
 import os
 import secrets as _secrets_mod
 import time
-from typing import Literal
+from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from loguru import logger
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from api.config import Settings, get_settings
-from api.services import bank_registry, demo_guard, hook_recall
+from api.services import bank_registry, continuity_sessions, demo_guard, episode_ids, hook_recall, harness_integrations
 from api.services.telegram_capture import (
     TELEGRAM_WEBHOOK_SECRET_ENV,
     ensure_webhook_secret,
     ingest_telegram_update,
 )
-from api.services.transcript_capture import capture_transcript
+from api.services import turn_capture as turn_capture_mod
+from api.services.transcript_capture import capture_posted, capture_transcript
 
 router = APIRouter()
 
@@ -151,18 +154,22 @@ async def capture_telegram(
 
 
 class TranscriptCaptureRequest(BaseModel):
-    """What the Stop hook forwards — the harness's own stdin fields, nothing
-    computed client-side. Snake_case on purpose: the sender is a stdlib
+    """What the Stop hook forwards — harness stdin plus D2's git observation.
+    Snake_case on purpose: the sender is a stdlib
     script, not the app."""
 
     harness: Literal["claude-code", "codex"]
     session_id: str
     transcript_path: str
     cwd: str | None = None
+    # Stop, or a PreCompact/SessionEnd flush (G110 gate A); free text on the
+    # wire (never refused: a capture must not fail on it), an enum in the ledger.
     hook_event: str | None = None
     # Round 4 C1: the Stop hook's `effort.level` for the reply it fired after —
     # validated by the capture writer (`agent_turns.clean_effort`), unknown dropped.
     effort: str | None = Field(default=None, max_length=32)
+    # D2: plain hook-observed git values; only parsed/hashed, never opened.
+    workspace: Any = None
 
 
 @router.post("/capture/transcript")
@@ -179,7 +186,7 @@ async def capture_transcript_endpoint(
     harness root before a byte is read, and a refusal is a 400 carrying the
     enum reason plus a ledger row, never a partial write. One episode per
     session, updated in place on every later firing (R3); ``status`` says
-    which of ``created | updated | unchanged | empty`` happened. Runs the
+    which of ``created | updated | unchanged | metadata | superseded | empty`` happened. Runs the
     read + parse off the event loop — an 85 MB transcript takes real time
     and must not stall SSE or the app.
 
@@ -194,17 +201,24 @@ async def capture_transcript_endpoint(
     # No real bank to fall back to: the service is handed the demo path and
     # refuses it unread, so the refusal lands in the ledger like any other.
     memory_path = target.path if target is not None else settings.memory_path
-    result = await asyncio.to_thread(
-        capture_transcript,
-        memory_path,
-        harness=req.harness,
-        session_id=req.session_id,
-        transcript_path=req.transcript_path,
-        cwd=req.cwd,
-        keep_assistant=settings.capture_assistant_replies,
-        bank=memory_path.name,
-        effort=req.effort,
-    )
+    def _capture():
+        return capture_transcript(
+            memory_path,
+            harness=req.harness,
+            session_id=req.session_id,
+            transcript_path=req.transcript_path,
+            cwd=req.cwd,
+            keep_assistant=settings.capture_assistant_replies,
+            bank=memory_path.name,
+            effort=req.effort,
+            hook_event=req.hook_event,
+            workspace=req.workspace,
+            # G110: the continuity registry's every-bank guard needs the root and
+            # every configured bank — resolved once, off the event loop.
+            bank_paths=continuity_sessions.bank_paths_for(settings.memory_root),
+        )
+
+    result = await asyncio.to_thread(_capture)
     if target is None or result.status == "refused":
         if target is None or result.reason == "demo_bank":
             raise HTTPException(status_code=409, detail=demo_guard.HOOK_REFUSAL)
@@ -222,19 +236,132 @@ async def capture_transcript_endpoint(
     }
 
 
+class SessionCaptureRequest(BaseModel):
+    """A harness session read on the machine where it lives, by Cicada's own extractor (G181 phase 2, owner ruling
+    2): what the extractor kept, never a path. Snake_case: the sender is the Stop hook."""
+
+    harness: Literal["claude-code", "codex"]
+    session_id: str = Field(..., min_length=1, max_length=200)
+    conversation: dict
+    transcript_bytes: int = Field(..., ge=0)
+    transcript_size: int = Field(..., ge=0)
+    cwd: str | None = Field(None, max_length=4096)
+    hook_event: str | None = Field(None, max_length=64)
+    effort: str | None = Field(default=None, max_length=32)
+    workspace: Any = None
+
+
+@router.post("/capture/session")
+async def capture_session_endpoint(req: SessionCaptureRequest, request: Request,
+                                   settings: Settings = Depends(get_settings)):
+    """G181 phase 2: a Claude Code or Codex session from another machine. The transcript was read there, by Cicada's
+    own extractor (the transcript rail, amended by owner ruling 2, 2026-10-16); the backend opens nothing, re-checks
+    what arrived and writes it with ``/capture/transcript``'s writer (``transcript_capture.capture_posted``): one
+    episode per session, ids minted here, the same demo redirect and answers. The device that signed the post
+    (its token, ``request.state.device``) is recorded on the episode."""
+    target = bank_registry.capture_bank(settings.memory_root)
+    memory_path = target.path if target is not None else settings.memory_path
+    device = getattr(request.state, "device", None)
+
+    def _capture():
+        return capture_posted(
+            memory_path, harness=req.harness, session_id=req.session_id, conversation=req.conversation,
+            transcript_bytes=req.transcript_bytes, transcript_size=req.transcript_size, cwd=req.cwd,
+            keep_assistant=settings.capture_assistant_replies, bank=memory_path.name, effort=req.effort,
+            hook_event=req.hook_event, workspace=req.workspace,
+            bank_paths=continuity_sessions.bank_paths_for(settings.memory_root),
+            device=device.id if device is not None else None)
+
+    result = await asyncio.to_thread(_capture)
+    if target is None or result.status == "refused":
+        if target is None or result.reason == "demo_bank":
+            raise HTTPException(status_code=409, detail=demo_guard.HOOK_REFUSAL)
+        raise HTTPException(status_code=400, detail=result.reason)
+    if target.redirected_from:
+        logger.info(f"capture: the demo bank is open — saved the {req.harness} session into '{target.name}'")
+    return {"status": result.status, "episodeId": result.episode_id, "turnsUser": result.turns_user,
+            "turnsAssistant": result.turns_assistant, "summary": result.summary, "bank": target.name,
+            "redirectedFrom": target.redirected_from}
+
+
+class PostedTurn(BaseModel):
+    speaker: Literal["user", "assistant"]
+    # The hook trims to this before posting; the writer keeps ≤16k/≤2k after cleaning.
+    text: str = Field(..., max_length=turn_capture_mod.TEXT_MAX_CHARS)
+
+
+class TurnCaptureRequest(BaseModel):
+    """What a per-turn capture hook forwards (Cursor's ``beforeSubmitPrompt`` /
+    ``afterAgentResponse``, Gemini CLI's ``AfterAgent``): the turn's own words
+    from the harness's stdin, never a path. Snake_case: the sender is a stdlib
+    script."""
+
+    harness: Literal[*turn_capture_mod.HARNESSES]
+    session_id: str = Field(..., min_length=1, max_length=200)
+    messages: list[PostedTurn] = Field(..., min_length=1, max_length=2)
+    turn_id: str | None = Field(None, max_length=128)
+    retry: bool = False
+    model: str | None = Field(None, max_length=200)
+    cwd: str | None = Field(None, max_length=4096)
+    hook_event: str | None = Field(None, max_length=64)
+
+
+@router.post("/capture/turn")
+async def capture_turn_endpoint(req: TurnCaptureRequest, settings: Settings = Depends(get_settings)):
+    """Capture-everywhere: a harness whose hook carries each turn's text (Cursor,
+    Gemini CLI) instead of a transcript path. Bearer-authed like
+    ``/capture/transcript``, the same one-episode-per-session write
+    (``turn_capture``), and the same demo rule: while the demo bank is open the
+    turn is saved into the real bank left most recently and the response names
+    it; with no real bank, ``409`` and nothing is written."""
+    target = bank_registry.capture_bank(settings.memory_root)
+    memory_path = target.path if target is not None else settings.memory_path
+
+    def _capture():
+        return turn_capture_mod.capture_turns(
+            memory_path, harness=req.harness, session_id=req.session_id,
+            turns=[turn_capture_mod.Posted(t.speaker, t.text) for t in req.messages],
+            turn_id=req.turn_id, retry=req.retry, model=req.model, cwd=req.cwd,
+            keep_assistant=settings.capture_assistant_replies, bank=memory_path.name,
+            bank_paths=continuity_sessions.bank_paths_for(settings.memory_root), hook_event=req.hook_event)
+
+    result = await asyncio.to_thread(_capture)
+    if target is None or result.status == "refused":
+        if target is None or result.reason == "demo_bank":
+            raise HTTPException(status_code=409, detail=demo_guard.HOOK_REFUSAL)
+        raise HTTPException(status_code=400, detail=result.reason)
+    if target.redirected_from:
+        logger.info(f"capture: the demo bank is open — saved the {req.harness} turn into '{target.name}'")
+    return {"status": result.status, "episodeId": result.episode_id, "turnsUser": result.turns_user,
+            "turnsAssistant": result.turns_assistant, "bank": target.name, "redirectedFrom": target.redirected_from}
+
+
 class HookContextRequest(BaseModel):
     """What the recall hook forwards (G149): the harness's own stdin fields.
     Snake_case like ``TranscriptCaptureRequest``, because the sender is a stdlib
     script. The prompt rides in this JSON body and nowhere else, never a query
     string, so uvicorn's access line can never hold it (G136 R22, R-H1).
-    ``cwd`` is accepted and unused (R-H17)."""
+
+    G110 slice 1a: ``cwd`` is now the folder a continuity block is matched on —
+    an exact string, never logged, never stored (the registry keeps its hash).
+    ``source`` is the harness's SessionStart kind; it is ``Any`` so a value a
+    newer harness invents still answers 200 (normalized in the handler)."""
 
     event: Literal["session_start", "user_prompt_submit"]
-    harness: Literal["claude-code", "codex"]
+    harness: Literal[*continuity_sessions.HARNESSES]
     session_id: str = Field(..., min_length=1, max_length=200)
     cwd: str | None = Field(None, max_length=4096)
     prompt: str | None = Field(None, max_length=hook_recall.PROMPT_MAX_CHARS)
     model: str | None = Field(None, max_length=200)
+    source: Any = None
+    workspace: Any = None
+
+    @model_validator(mode="after")
+    def supported_event(self):
+        adapter = harness_integrations.LOCAL.get(self.harness)
+        if adapter and self.event not in adapter.EVENTS:
+            raise ValueError("Event unsupported by this startup integration")
+        return self
 
 
 @router.post("/capture/hook-context")
@@ -253,13 +380,16 @@ async def hook_context_endpoint(req: HookContextRequest, settings: Settings = De
     came back (R-H7). Nothing here logs the prompt: a failure is logged by its
     class name alone (K9, R-H10)."""
     started = time.perf_counter()
+    arrived = episode_ids.utc_now_iso()   # G110: the event's own time, before any work
+    source = req.source if isinstance(req.source, str) and req.source in hook_recall.SESSION_SOURCES else None
     budget = hook_recall.PRIMER_BUDGET_S if req.event == "session_start" else hook_recall.PROMPT_BUDGET_S
     deadline = time.monotonic() + budget
     bank = None
     try:
         result, bank = await asyncio.wait_for(asyncio.to_thread(
             hook_recall.respond, settings.memory_root, event=req.event, harness=req.harness,
-            session_id=req.session_id, prompt=req.prompt or "", deadline=deadline), timeout=budget)
+            session_id=req.session_id, prompt=req.prompt or "", deadline=deadline, cwd=req.cwd, source=source,
+            start=arrived, workspace=req.workspace), timeout=budget)
         if req.event == "user_prompt_submit":
             hook_recall.RECENT.remember(req.session_id, result.injected)
     except TimeoutError:

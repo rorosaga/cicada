@@ -26,6 +26,14 @@ the person eventually answers, means a URL that has left the browser drops out
 of ``hashes`` on the very sync that notices it — the next sync's diff (browser
 still lacking it, seen-set already lacking it) is empty, so nothing is ever
 re-proposed. No bookkeeping of the person's answer is needed for this to hold.
+
+**Left the browser (G191 v4, owner 2026-10-15: "I'd like to know that Cicada has the status, like it's not linked, or
+is no longer a bookmark saved in Chrome").** Each channel's entry also keeps ``left`` — ``{url_hash: at}`` for every
+link Cicada holds that dropped out of this browser's file, with the sync instant that first saw it gone. Cicada keeps
+the bookmark, its page and its reasons; the status is all that changes, and nothing is asked. The map moves only by
+the diff above, so the rails are the diff's rails: a channel's first sync and a folder-scope change add nothing (Rail
+1 refuses the diff), a move or a rename keeps the URL in the file (never gone), and a link present again — the person
+bookmarked it again — leaves the map on the sync that sees it (:func:`next_left`).
 """
 
 from __future__ import annotations
@@ -61,6 +69,8 @@ def write_channel_seen(
     folders: list[str] | None,
     hashes: list[str],
     at: str | None = None,
+    newest_added: str | None = None,
+    left: dict[str, str] | None = None,
 ) -> None:
     """Replace ``channel``'s entry with the CURRENT sync's scope + hashes.
 
@@ -74,6 +84,13 @@ def write_channel_seen(
         "hashes": sorted(set(hashes)),
         "at": at or episode_ids.utc_now_iso(),
     }
+    # G191 v3: the newest browser instant this sync saw, so the next one can tell a bookmark saved again (a newer
+    # node for a known link) from one moved (the same node, the same instant). Absent when the file records none.
+    if newest_added:
+        state[channel]["newest_added"] = newest_added
+    # G191 v4: the links held that left this browser, each with when a sync first saw it gone (`next_left`).
+    if left:
+        state[channel]["left"] = {str(h): str(at) for h, at in sorted(left.items())}
     path = seen_path(memory_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -111,3 +128,44 @@ def diff_removed(
     prev_hashes = set(previous.get("hashes") or [])
     current = set(current_hashes)
     return sorted(prev_hashes - current)
+
+
+def left_of(entry: dict[str, Any] | None) -> dict[str, str]:
+    """``{url_hash: at}`` — the links that left this channel's browser (G191 v4); ``{}`` for none or an odd file."""
+    raw = (entry or {}).get("left") if isinstance(entry, dict) else None
+    if not isinstance(raw, dict):
+        return {}
+    return {str(h): str(at) for h, at in raw.items() if isinstance(at, str) and at}
+
+
+def next_left(
+    previous: dict[str, Any] | None,
+    current_hashes: list[str],
+    removed: list[str] | None,
+    *,
+    at: str,
+    held: set[str] | None = None,
+) -> dict[str, str]:
+    """The channel's ``left`` map after this sync (G191 v4). Pure.
+
+    Starts from the previous map; every hash present in the browser now leaves it (the person bookmarked it again —
+    whatever the folder scope, present is present); every hash in ``removed`` (the diff's answer: ``None`` when the
+    rails refused it, so nothing is added) joins it with ``at`` unless it was already marked (the first day it was
+    seen gone stays the day). ``held`` limits new marks to links Cicada holds — a link never ingested has no page to
+    mark."""
+    out = {h: when for h, when in left_of(previous).items() if h not in set(current_hashes)}
+    for h in removed or []:
+        if held is not None and h not in held:
+            continue
+        out.setdefault(h, at)
+    return out
+
+
+def left_by_hash(memory_path: Path) -> dict[str, list[tuple[str, str]]]:
+    """Every link marked as gone from a browser, across channels: ``{url_hash: [(channel, at), ...]}``, channels in
+    name order — what ``GET /sources`` and the channel item lists read."""
+    out: dict[str, list[tuple[str, str]]] = {}
+    for channel, entry in sorted(read_seen(memory_path).items()):
+        for h, at in left_of(entry).items():
+            out.setdefault(h, []).append((channel, at))
+    return out

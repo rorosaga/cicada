@@ -22,6 +22,12 @@ extension Copy {
     static let memoryBank = "Memory bank"
     static let memoryBanks = "Memory banks"
     static let switchMemoryBank = "Switch memory bank"
+    /// G183(d) — the switcher's `.help` while the server has not yet answered a switch (DR-41).
+    static func switchingMemoryBank(_ name: String) -> String { "Switching to \(name)…" }
+    /// G183(d) — a write or a second switch asked for while a bank switch waits on the server.
+    static let switchingMemory = "Switching memory — try again in a moment."
+    /// G183(d) — the server refused a write made in a bank that is no longer active (`bank_mismatch`); nothing landed.
+    static let memorySwitched = "Memory switched — try that again"
     static let noMemoryBanks = "No memory banks yet"
     static let newMemoryBankItem = "New memory bank…"
     static let saveMemoryBankAsItem = "Save as…"

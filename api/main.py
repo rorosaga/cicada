@@ -1,6 +1,12 @@
-import asyncio
-import logging
-import sys
+# The settings file first, before any other import (`api/settings_file.py`): a developer checkout's `api/.env` fills
+# the environment (the environment wins), and litellm's own walk-up `.env` load is turned off for good.
+from api import settings_file
+
+settings_file.load()
+
+import asyncio  # noqa: E402
+import logging  # noqa: E402
+import sys  # noqa: E402
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI
@@ -24,7 +30,10 @@ from api.routers import (
     consumption,
     contributors,
     conversations,
+    design,
+    devices,
     embeddings,
+    explore,
     entities,
     episodes,
     graph,
@@ -47,8 +56,9 @@ from api.routers import (
     state,
     status,
     sync,
+    tools,
 )
-from api.services import bank_registry, search_index, sleep_scheduler
+from api.services import bank_binding, bank_registry, response_compression, search_index, sleep_refusal, sleep_scheduler
 from api.services.providers import warm_query_embedder
 from api.services.auth import auth_enabled, get_token, require_token
 from api.services.bank_migrations import run_bank_migrations
@@ -83,13 +93,21 @@ logging.getLogger("openai").setLevel(logging.WARNING)
 _QUERY_PATHS = frozenset({"/search", "/conversations/recent"})
 
 
+def _is_callback(path: str) -> bool:
+    """An OAuth sign-in's landing (``/sources/connectors/<id>/callback``, ``/connections/<id>/callback/<nonce>``): its
+    query carries the authorization code, a credential — never logged (the credentials rail)."""
+    parts = path.split("/")
+    return (len(parts) == 5 and parts[1] == "sources" and parts[2] == "connectors" and parts[4] == "callback") or \
+        (len(parts) == 5 and parts[1] == "connections" and parts[3] == "callback")
+
+
 class _RedactQueryString(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         args = record.args
         # uvicorn's access record: (client, method, path?query, http_version, status)
         if isinstance(args, tuple) and len(args) == 5 and isinstance(args[2], str):
             path, sep, _query = args[2].partition("?")
-            if sep and path in _QUERY_PATHS:
+            if sep and (path in _QUERY_PATHS or _is_callback(path)):
                 record.args = (args[0], args[1], f"{path}?…", args[3], args[4])
         return True
 
@@ -102,9 +120,14 @@ litellm.suppress_debug_info = True
 litellm.set_verbose = False
 
 
+#: How long shutdown waits for admitted writes still in flight (G183).
+SHUTDOWN_DRAIN_S = 30.0
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
+    settings_file.log_summary()
     if auth_enabled():
         get_token()  # generate the token file on first boot so clients can read it
     else:
@@ -121,6 +144,12 @@ async def lifespan(app: FastAPI):
     # cost. Never awaited — must not block startup — and warm_query_embedder
     # swallows its own errors so a slow/missing index can't crash boot.
     asyncio.get_running_loop().run_in_executor(None, warm_query_embedder, settings.memory_path)
+    # A search-model change that hasn't reached every table yet (a download that landed while the backend was
+    # down, an interrupted re-embed) resumes in the background; it never runs while Sleep does.
+    from api.services import embedding_models
+
+    asyncio.get_running_loop().run_in_executor(
+        None, embedding_models.start_reindex_if_needed, settings.memory_path, settings)
 
     logger.info(f"Memory path: {settings.memory_path}")
     logger.info(f"LLM model: {settings.litellm_model}")
@@ -139,6 +168,11 @@ async def lifespan(app: FastAPI):
     bank_registry.scaffold_bank(settings.memory_path)
     if not git_existed and (settings.memory_path / ".git").exists():
         logger.info("Initialized git repo in memory directory")
+
+    # G181 phase 2: every bank gets its identity in banks.yaml (what a client on another machine compares, never a
+    # path). Resolution is unchanged; never raises into boot. After the scaffold, so a legacy root's fresh git repo
+    # already exists to keep banks.yaml out of the bank's history.
+    bank_registry.ensure_bank_ids(settings.memory_root)
 
     # The one-shot per-bank migrations (legacy nudges -> inbox/, duplicate open
     # question collapse, decay-class backfill). Each is marker-guarded and never
@@ -191,13 +225,22 @@ async def lifespan(app: FastAPI):
     finally:
         await remote_listener.LISTENER.stop()
         scheduler.shutdown(wait=False)
+        from api.services import bank_watch
+
+        bank_watch.stop_all()   # the SSE tick's file-change watchers
+        # G183: an admitted write still in flight finishes (its workers and its commit) before the process goes.
+        from api.services import write_admission
+
+        if not await asyncio.to_thread(write_admission.drain, SHUTDOWN_DRAIN_S):
+            logger.warning("shutdown: an admitted write was still running after the drain")
 
 
 app = FastAPI(
     title="Cicada API",
     version=__version__,
     lifespan=lifespan,
-    dependencies=[Depends(require_token)],
+    # G183(d): a write the app made in one bank never lands in another (`bank_binding`).
+    dependencies=[Depends(require_token), Depends(bank_binding.require_same_bank)],
 )
 
 # This backend is a LOCAL service: the only legitimate browser origins are the
@@ -209,6 +252,16 @@ app = FastAPI(
 # Origin at all and are unaffected; the bearer scheme is untouched.
 LOCAL_ORIGIN_REGEX = r"^https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$"
 
+# G177 — every "Sleep holds the pages" refusal carries a stable `code` beside its sentence (`sleep_refusal`).
+app.add_exception_handler(sleep_refusal.SleepWriting, sleep_refusal.handler)
+app.add_exception_handler(bank_binding.BankMismatch, bank_binding.handler)
+
+# Backend hunt (2026-10-16): a path segment longer than any file name is a 404, and the two routes that took a whole
+# body before bounding it refuse one past their ceiling as it arrives (`request_limits`).
+from api.services.request_limits import RequestLimits  # noqa: E402
+
+app.add_middleware(RequestLimits)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origin_regex=LOCAL_ORIGIN_REGEX,
@@ -216,6 +269,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# 2026-10-16 perf: gzip level 1 for a client on another machine only (a headless server's client); loopback is
+# answered exactly as before (`response_compression`).
+app.add_middleware(response_compression.RemoteGZipMiddleware)
 
 app.include_router(graph.router, tags=["graph"])
 app.include_router(search.router, tags=["search"])
@@ -228,6 +284,7 @@ app.include_router(entities.router, tags=["entities"])
 app.include_router(claims.router, tags=["claims"])
 app.include_router(projects.router, tags=["projects"])
 app.include_router(backlog.router, tags=["backlog"])
+app.include_router(design.router, tags=["design"])
 app.include_router(episodes.router, tags=["episodes"])
 app.include_router(contributors.router, tags=["contributors"])
 app.include_router(origins.router, tags=["origins"])
@@ -252,4 +309,7 @@ app.include_router(reading.router, tags=["reading"])
 app.include_router(remote.router, tags=["remote"])
 app.include_router(skills.router, tags=["skills"])
 app.include_router(videos.router, tags=["videos"])
+app.include_router(explore.router, tags=["explore"])
 app.include_router(embeddings.router, tags=["embeddings"])
+app.include_router(devices.router, tags=["devices"])
+app.include_router(tools.router, tags=["tools"])

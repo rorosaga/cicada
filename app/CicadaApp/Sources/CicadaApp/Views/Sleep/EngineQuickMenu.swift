@@ -45,12 +45,17 @@ struct EngineQuickMenuModel: Equatable {
     let showsRuling: Bool
     /// Set while `CICADA_LLM_MODE` pins the engine: said above the rows, which then choose nothing.
     var pinnedNote: String? = nil
+    /// Set while a run reads on the engine it started with and the choice now resolves to another: the change
+    /// waits for the next start or Continue, said above the rows (never naming either engine).
+    var runNote: String? = nil
     /// 2026-09-28 — a model's list price per million tokens ("$0.40 / $1.60"), by model id, for the
     /// picker; and the sentence that says what the two figures are.
     var modelPrices: [String: String] = [:]
     var pricesNote: String? = nil
-    /// "Last cycle: $0.42 charged", under the two ruling-4 lines, when a card knows it.
+    /// "Last cycle: $0.42 charged", under the two ruling-4 lines, when a card knows it — on a plan, "Last run: under 1%
+    /// of your weekly limit · reading unchanged" (owner 2026-10-16), its help the bases in full and the "would have cost" figure.
     var lastCycleLine: String? = nil
+    var lastCycleHelp: String? = nil
     /// Sleep page v5 — *Keep plan free* (the reserve), only when a run you start would use a plan.
     var reserve: Reserve? = nil
     /// How a scheduled run spends (ruling 16), in words from `preview.scheduled.billing`; never a provider's name.
@@ -127,6 +132,7 @@ struct EngineQuickMenuModel: Equatable {
         } ?? []
         let prices = pickable ? (chosen?.modelPrices ?? [:]).compactMapValues { CycleUsageText.modelPrice($0, locale: locale) } : [:]
         let manualCard = response.preview.flatMap { EngineOption.candidateId(forEngine: $0.manual.engine, model: $0.manual.model) }
+        let last = CycleUsageText.lastCycle(response.candidates, preferring: manualCard, locale: locale)
         return EngineQuickMenuModel(
             rows: rows,
             modelLabel: current == "auto" ? Copy.EngineMenu.howAutoPicks : Copy.EngineMenu.model,
@@ -138,9 +144,11 @@ struct EngineQuickMenuModel: Equatable {
             previews: previews,
             showsRuling: response.preview.map { $0.manual.engine != $0.scheduled.engine } ?? false,
             pinnedNote: response.isPinnedByEnvironment ? Copy.EngineMenu.pinnedByEnvironment(response.mode) : nil,
+            runNote: response.runKeepsEngine ? Copy.EngineMenu.runKeepsEngine : nil,
             modelPrices: prices,
             pricesNote: prices.isEmpty ? nil : Copy.SleepUsage.perMillionNote,
-            lastCycleLine: CycleUsageText.lastCycleLine(response.candidates, preferring: manualCard, locale: locale),
+            lastCycleLine: last?.line,
+            lastCycleHelp: last?.help,
             reserve: Reserve.from(response.reserve, billing: response.preview?.manual.billing),
             scheduledSpend: Copy.SleepV5.scheduledSpend(response.preview?.scheduled.billing))
     }
@@ -163,27 +171,33 @@ struct EngineQuickMenuButton: View {
     @Environment(SleepViewModel.self) private var sleepVM
     @Environment(Store.self) private var store
     @Environment(AppRouter.self) private var router
+    /// The Sleep page's row draws it at Consolidate's height (owner 2026-10-16: "the engine button the same height as
+    /// Consolidate"); the reading options sheet keeps the regular size.
+    var size: NeutralButton.Size = .regular
     @State private var open = false
 
     var body: some View {
         if let response = engineVM.response, let label = EngineQuickMenuModel.buttonLabel(response) {
-            NeutralButton(title: label,
-                          leading: AnyView(EngineMark(engine: response.preview?.manual.engine ?? "",
-                                                      size: CicadaTheme.scaled(14),
-                                                      model: response.preview?.manual.model)),
-                          trailingSystemImage: "chevron.down",
-                          help: Copy.EngineMenu.buttonHelp) { open.toggle() }
-                .frame(maxWidth: CicadaTheme.scaled(EngineQuickMenu.buttonMaxWidth))
-                .accessibilityLabel(Copy.EngineMenu.buttonAccessibility(label))
-                .popover(isPresented: $open, arrowEdge: .bottom) {
-                    // The fixed width lives HERE, not in the menu, so `EngineQuickMenuTests`
-                    // can measure the menu unframed and catch a rigid child (DR-70).
-                    EngineQuickMenu(model: .from(response), isSaving: engineVM.isSaving,
-                                    writeFailed: engineVM.writeFailed,
-                                    choose: choose, pickModel: pickModel, openSettings: openSettings,
-                                    setReserve: setReserve)
-                        .frame(width: CicadaTheme.scaled(EngineQuickMenu.width), alignment: .leading)
-                }
+            // Snug to its label, up to the cap (2026-10-16): a `.frame(maxWidth:)` here took the whole cap whenever the
+            // row offered more, centring a 185 pt button in a 300 pt frame, so Consolidate and the menu stood apart.
+            HugWidth(maxWidth: CicadaTheme.scaled(EngineQuickMenu.buttonMaxWidth)) {
+                NeutralButton(title: label,
+                              leading: AnyView(EngineMark(engine: response.preview?.manual.engine ?? "",
+                                                          size: CicadaTheme.scaled(14),
+                                                          model: response.preview?.manual.model)),
+                              trailingSystemImage: "chevron.down", size: size,
+                              help: Copy.EngineMenu.buttonHelp) { open.toggle() }
+                    .accessibilityLabel(Copy.EngineMenu.buttonAccessibility(label))
+            }
+            .popover(isPresented: $open, arrowEdge: .bottom) {
+                // The fixed width lives HERE, not in the menu, so `EngineQuickMenuTests`
+                // can measure the menu unframed and catch a rigid child (DR-70).
+                EngineQuickMenu(model: .from(response), isSaving: engineVM.isSaving,
+                                writeFailed: engineVM.writeFailed,
+                                choose: choose, pickModel: pickModel, openSettings: openSettings,
+                                setReserve: setReserve)
+                    .frame(width: CicadaTheme.scaled(EngineQuickMenu.width), alignment: .leading)
+            }
         }
     }
 
@@ -203,7 +217,7 @@ struct EngineQuickMenuButton: View {
     /// Sleep page v5 — the reserve lives in the reading options (`PUT /sleep/run-options`); the engine response
     /// re-reads it so the row shows what the server now holds.
     private func setReserve(_ pct: Int?) {
-        Task { @MainActor in
+        store.bankTask {
             await sleepVM.updateRunOptions(.reservePct(pct))
             await engineVM.load()
         }
@@ -246,8 +260,8 @@ struct EngineQuickMenu: View {
                 .padding(.horizontal, CicadaTheme.spacingSM)
                 .padding(.top, CicadaTheme.spacingSM)
                 .padding(.bottom, CicadaTheme.spacingXS)
-            if let pinned = model.pinnedNote {
-                Text(pinned)
+            ForEach([model.pinnedNote, model.runNote].compactMap { $0 }, id: \.self) { note in
+                Text(note)
                     .font(CicadaTheme.metaFont)
                     .foregroundStyle(CicadaTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -385,6 +399,7 @@ struct EngineQuickMenu: View {
                         .monospacedDigit()
                         .foregroundStyle(CicadaTheme.textSecondary)
                         .lineLimit(1)
+                        .help(model.lastCycleHelp ?? last)
                 }
                 if let spend = model.scheduledSpend {
                     Text(spend)

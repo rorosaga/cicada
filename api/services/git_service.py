@@ -529,10 +529,101 @@ def _git_sync(memory_path: Path, *args: str) -> str:
 
 def run_git_write_sync(memory_path, *args: str) -> str:
     """One mutating git command under the bank's write lock (R-B1) — for a sync
-    caller (the expiry restore) and for `_run_git`'s write branch."""
+    caller (the expiry restore) and for `_run_git`'s write branch. A ``checkout``
+    that puts pages back puts back each page's claims ledger with it, when git
+    has one (``claims_ledger``)."""
     memory_path = Path(memory_path)
     with write_lock(memory_path):
-        return _git_sync(memory_path, *args)
+        if args and args[0] == "checkout" and "--" in args:
+            cut = args.index("--") + 1
+            rev = [a for a in args[1:cut - 1] if not a.startswith("-")]
+            args = (*args[:cut], *_with_tracked_ledgers(memory_path, list(args[cut:]), rev[0] if rev else None))
+        try:
+            return _git_sync(memory_path, *args)
+        finally:
+            if args and args[0] in _TREE_WRITERS:
+                # Git rewrote working-tree files behind the parser's back: an open Sleep batch's page cache of this
+                # bank starts over (`markdown_parser.page_cache`), stamps or no stamps.
+                from api.services import markdown_parser
+
+                markdown_parser.invalidate_pages(memory_path)
+
+
+#: Write subcommands that can change a working-tree file (``add``, ``commit``, ``update-index`` and ``update-ref`` never
+#: touch one).
+_TREE_WRITERS = WRITE_SUBCOMMANDS - {"add", "commit", "update-index", "update-ref"}
+
+
+#: The commit identity a bank falls back to on a machine with none configured (G181): a fresh Linux server has no
+#: ``user.name``/``user.email``, and git then refuses every commit. Placeholder values, never the person's — who wrote
+#: a change is the ``Cicada-Author`` trailer's job, not git's author field.
+FALLBACK_IDENTITY = ("Cicada", "cicada@localhost")
+
+
+def _identity_resolves(memory_path: Path) -> bool:
+    for var in ("GIT_AUTHOR_IDENT", "GIT_COMMITTER_IDENT"):
+        try:
+            proc = subprocess.run(["git", "var", var], cwd=str(memory_path), capture_output=True)
+        except OSError:
+            return True  # no git at all: nothing to fix here, and every write already degrades
+        if proc.returncode != 0:
+            return False
+    return True
+
+
+def ensure_commit_identity_sync(memory_path) -> bool:
+    """Give a bank a repo-local commit identity only when git resolves none (no global, system or environment
+    identity). Never overrides one that resolves, never touches ``~/.gitconfig``. Returns True when it set one."""
+    memory_path = Path(memory_path)
+    if not (memory_path / ".git").exists() or _identity_resolves(memory_path):
+        return False
+    name, email = FALLBACK_IDENTITY
+    run_git_write_sync(memory_path, "config", "user.name", name)
+    run_git_write_sync(memory_path, "config", "user.email", email)
+    logger.info("git: this machine has no commit identity; the bank commits as Cicada <cicada@localhost>")
+    return True
+
+
+def _ledger_rels(paths) -> list[str]:
+    from api.services import claims_ledger
+
+    return [companion for p in paths if (companion := claims_ledger.rel_for(str(p)))]
+
+
+def _with_tracked_ledgers(memory_path: Path, paths: list[str], rev: str | None) -> list[str]:
+    """``paths`` plus the ledger of each page among them that git holds (in ``rev``, else the index) — a pathspec git
+    does not know would fail the whole checkout. Called with the write lock held."""
+    wanted = _ledger_rels(paths)
+    if not wanted:
+        return paths
+    try:
+        listing = (_git_sync(memory_path, "ls-tree", "-r", "-z", "--name-only", rev, "--", *wanted) if rev
+                   else _git_sync(memory_path, "ls-files", "-z", "--", *wanted))
+    except GitError:
+        return paths
+    known = {r for r in listing.split("\0") if r}
+    return list(dict.fromkeys([*paths, *(w for w in wanted if w in known)]))
+
+
+def _with_ledgers(memory_path: Path, paths: list[str]) -> list[str]:
+    """``paths`` plus the claims ledger of each page among them that exists or that git knows (a page and its ledger
+    are committed as one unit: a page write moves claims between them, ``claims_ledger``). Write lock held."""
+    wanted = [w for w in _ledger_rels(paths) if w not in paths]
+    if not wanted:
+        return paths
+    present = [w for w in wanted if (memory_path / w).exists()]
+    # A ledger is removed only with its page (a merge, a rename): git is asked only about a gone page's ledger, so an
+    # ordinary commit spawns nothing more than before.
+    absent = [w for w in wanted if w not in present and not (memory_path / (w[:-len(".claims.jsonl")] + ".md")).exists()]
+    known: set[str] = set()
+    if absent:
+        try:
+            known = {r for r in _git_sync(memory_path, "ls-files", "-z", "--", *absent).split("\0") if r}
+            known |= {r for r in _git_sync(memory_path, "ls-tree", "-r", "-z", "--name-only", "HEAD", "--",
+                                           *absent).split("\0") if r}
+        except GitError:
+            pass
+    return list(dict.fromkeys([*paths, *present, *(w for w in absent if w in known)]))
 
 
 def commit_paths_sync(memory_path, message: str, paths) -> None:
@@ -548,6 +639,7 @@ def commit_paths_sync(memory_path, message: str, paths) -> None:
         return
     memory_path = Path(memory_path)
     with write_lock(memory_path):
+        paths = _with_ledgers(memory_path, paths)
         _git_sync(memory_path, "add", "--", *paths)
         if not _git_sync(memory_path, "status", "--porcelain", "--", *paths).strip():
             return  # Nothing to commit
@@ -645,6 +737,7 @@ def commit_touched_sync(memory_path, message: str, paths, *, before: dict[str, b
     if not paths:
         return
     with write_lock(memory_path):
+        paths = _with_ledgers(memory_path, paths)
         missing = [p for p in paths if not (memory_path / p).exists()]
         known = set()
         if missing:
@@ -756,6 +849,28 @@ async def snapshot_dirty(memory_path: Path) -> dict[str, bytes | None] | None:
     return out
 
 
+def snapshot_dirty_sync(memory_path) -> dict[str, bytes | None] | None:
+    """:func:`snapshot_dirty` for a sync caller (an agent's tool call, before its write): the same paths, the same
+    ``None`` when the tree cannot be read."""
+    memory_path = Path(memory_path)
+    if not (memory_path / ".git").exists():
+        return None
+    try:
+        dirty = dirty_paths_sync(memory_path)
+    except GitError:
+        return None
+    out: dict[str, bytes | None] = {}
+    for rel in dirty:
+        if "/" in rel and not rel.startswith(_TOUCHABLE_DIRS):
+            continue
+        path = memory_path / rel
+        try:
+            out[rel] = path.read_bytes() if path.is_file() else None
+        except OSError:
+            out[rel] = None
+    return out
+
+
 async def _run_git(memory_path: Path, *args: str) -> str:
     if args and args[0] in WRITE_SUBCOMMANDS:
         # R-B1: a write through the async helper (`inbox_service`'s `git mv` /
@@ -789,59 +904,63 @@ async def get_entity_history(
     memory_path: Path,
     *,
     include_diff: bool = False,
+    skip: int = 0,
 ) -> list[EntityHistoryEntry]:
-    """Build entity history from git blame — field-level provenance grouped by commit.
+    """:func:`entity_history`'s rows, for a caller that serves the plain list."""
+    rows, _ = await entity_history(entity_id, memory_path, include_diff=include_diff, skip=skip)
+    return rows
 
-    Each entry carries the authoring agent (from the commit's ``Cicada-Author:``
-    trailer; "unknown" when absent) and the commit hash. When ``include_diff`` is
-    set, each entry also carries the per-commit add/remove diff for this entity
-    file (opt-in so the default response stays small — backlog A1).
+
+_HISTORY_FORMAT = "--format=%x1e%H%x1f%ad%x1f%s%x1f%b"
+_BLAME_HEADER = re.compile(r"^([0-9a-f]{40}) \d+ \d+ \d+$", re.MULTILINE)
+
+
+async def entity_history(
+    entity_id: str,
+    memory_path: Path,
+    *,
+    include_diff: bool = False,
+    skip: int = 0,
+) -> tuple[list[EntityHistoryEntry], bool]:
+    """``(rows, truncated)``: every commit that touched ``entities/<entity_id>.md``, newest first, with field-level
+    provenance, and whether older touching commits were left out.
+
+    ONE ``git log`` over the path, at most :data:`MAX_PROVENANCE_COMMITS` rows after ``skip`` — the rule
+    ``entity_commit_authors`` serves the provenance strip, so the History tab and "N changes by" count the same
+    commits. It replaced ``git blame`` plus one ``git log -1`` per surviving commit: 1.0 s on a 3,500-claim page, 1.7 s
+    at 6,000, against ~30 ms (benchmarks/scale). Past the cap (review round 1) nothing the page still shows is lost:
+    every commit whose lines survive — the creation row and its conversation, say — is added after the window from
+    ``git blame --incremental`` and one batched ``git log``, and ``truncated`` says older touches were left out; they
+    are reachable with ``skip``. Each entry carries the authoring agent (from the commit's ``Cicada-Author:`` trailer;
+    "unknown" when absent) and the commit hash; ``include_diff`` adds the per-commit diff for this file (opt-in so the
+    default response stays small — backlog A1).
     """
     entity_file = f"entities/{entity_id}.md"
     entity_path = memory_path / entity_file
 
     if not entity_path.exists():
-        return []
+        return [], False
 
-    # git blame with porcelain format for structured parsing
+    limit = MAX_PROVENANCE_COMMITS
     try:
-        blame_output = await _run_git(
-            memory_path, "blame", "--porcelain", entity_file
+        log_output = await _run_git(
+            memory_path, "log", f"-n{limit + 1}", f"--skip={max(0, int(skip))}",
+            _HISTORY_FORMAT, "--date=short", "--", entity_file,
         )
     except GitError:
-        return []
+        return [], False
+    records = log_output.split("\x1e")[1:]
+    truncated = len(records) > limit
+    records = records[:limit]
+    if truncated and not skip:
+        records += await _older_survivors(memory_path, entity_file, entity_path, records)
 
-    # Extract unique commit hashes from blame output
-    commit_hashes: list[str] = []
-    seen: set[str] = set()
-    for line in blame_output.splitlines():
-        match = re.match(r"^([0-9a-f]{40})\s", line)
-        if match:
-            h = match.group(1)
-            if h not in seen and not h.startswith("0000000"):
-                seen.add(h)
-                commit_hashes.append(h)
-
-    # For each unique commit, get date + structured message
     entries: list[EntityHistoryEntry] = []
-    for commit_hash in commit_hashes:
-        try:
-            log_output = await _run_git(
-                memory_path,
-                "log", "-1", f"--format=%ad|%s|%b", "--date=short", commit_hash,
-            )
-        except GitError:
+    for record in records:
+        parts = record.split("\x1f", 3)
+        if len(parts) < 4:
             continue
-
-        line = log_output.strip()
-        if not line:
-            continue
-
-        parts = line.split("|", 2)
-        date = parts[0] if len(parts) > 0 else ""
-        subject = parts[1] if len(parts) > 1 else ""
-        body = parts[2] if len(parts) > 2 else ""
-
+        commit_hash, date, subject, body = parts[0].strip(), parts[1].strip(), parts[2], parts[3].rstrip("\n")
         change_type = _infer_change_type(subject, body, entity_id)
         description = _build_description(subject, body, entity_id)
         authors = _parse_authors(body)
@@ -875,7 +994,63 @@ async def get_entity_history(
             sessions=sessions,
         ))
 
-    return entries
+    return entries, truncated
+
+
+#: Owner page, 2026-10-14: ``git blame`` over a page rewritten by hundreds of Sleep commits diffs every multi-MB
+#: revision it walks back through — 2.3 s on a synthetic owner page with 520 commits, paid on every card open (the
+#: card and its History tab both ask). What it finds depends only on the page as it stands and its history, so it is
+#: kept per (bank, page, newest touching commit, the file's mtime and size) for this process, and a card does not wait
+#: for it longer than :data:`_SURVIVORS_WAIT_S`: past that the window is served (``truncated`` already says older
+#: touches are left out) while the blame finishes in the background for the next open. Process-local, disposable.
+_SURVIVORS: dict[tuple, list[str]] = {}
+_SURVIVORS_MAX = 64
+_SURVIVORS_WAIT_S = 0.5
+_SURVIVORS_PENDING: dict[tuple, "asyncio.Task"] = {}
+
+
+async def _blame_survivors(memory_path: Path, entity_file: str, shown: set[str], key) -> list[str]:
+    try:
+        blame = await _run_git(memory_path, "blame", "--incremental", "--", entity_file)
+        survivors = [h for h in dict.fromkeys(_BLAME_HEADER.findall(blame))
+                     if h not in shown and not h.startswith("0000000")]
+        older: list[str] = []
+        if survivors:
+            out = await _run_git(memory_path, "log", "--no-walk=sorted", _HISTORY_FORMAT, "--date=short",
+                                 *survivors, "--")
+            older = out.split("\x1e")[1:]
+    except GitError:
+        return []
+    finally:
+        _SURVIVORS_PENDING.pop(key, None)
+    if key is not None:
+        while len(_SURVIVORS) >= _SURVIVORS_MAX:
+            _SURVIVORS.pop(next(iter(_SURVIVORS)))
+        _SURVIVORS[key] = older
+    return older
+
+
+async def _older_survivors(memory_path: Path, entity_file: str, entity_path: Path, records: list[str]) -> list[str]:
+    """The history rows of commits older than the window whose lines the page still shows (``git blame``), or ``[]``
+    when git cannot say or has not said within :data:`_SURVIVORS_WAIT_S` — the window still stands, and
+    ``truncated`` already says it is partial."""
+    shown = {r.split("\x1f", 1)[0].strip() for r in records}
+    try:
+        st = entity_path.stat()
+        key = (str(memory_path), entity_file, records[0].split("\x1f", 1)[0].strip(), st.st_mtime_ns, st.st_size)
+    except (OSError, IndexError):
+        return await _blame_survivors(memory_path, entity_file, shown, None)
+    if key in _SURVIVORS:
+        return list(_SURVIVORS[key])
+    loop = asyncio.get_running_loop()
+    task = _SURVIVORS_PENDING.get(key)
+    if task is None or task.done() or task.get_loop() is not loop:
+        task = loop.create_task(_blame_survivors(memory_path, entity_file, shown, key))
+        _SURVIVORS_PENDING[key] = task
+    try:
+        return list(await asyncio.wait_for(asyncio.shield(task), timeout=_SURVIVORS_WAIT_S))
+    except asyncio.TimeoutError:
+        return []
 
 
 # G118 slice 2 (R-PB6): enough history for "N changes by <author>" on the
@@ -942,11 +1117,12 @@ def _infer_change_type(subject: str, body: str, entity_id: str) -> str:
 
 
 def _build_description(subject: str, body: str, entity_id: str) -> str:
-    """Build a human-readable description from commit message."""
+    """Build a human-readable description from commit message. An agent's page edit (G198) adds its reason."""
+    reason = next((line[len("Reason: "):].strip() for line in body.splitlines() if line.startswith("Reason: ")), "")
     # Look for entity-specific line in body
     for line in body.splitlines():
         if entity_id in line.lower():
-            return line.strip()
+            return f"{line.strip()} — {reason}" if reason else line.strip()
     return subject
 
 
@@ -1124,15 +1300,28 @@ async def get_contributors(
         return []
 
     # NUL-record-delimited log so multi-line bodies never collide with the
-    # field separator: hash <US> date <US> body <RS-record>.
+    # field separator: <RS> hash <US> date <US> body <US>, then the commit's
+    # changed paths (``--name-only``). One git process for the whole history
+    # (2026-10-16 perf): a ``git diff-tree`` per commit cost ~18 s on a
+    # 1,043-commit synthetic bank, paid again on every commit since the ETag is
+    # HEAD. ``--root`` lists the first commit's files and ``--no-renames``
+    # lists a rename's two paths, as ``diff-tree -r --root`` did; a merge
+    # lists no files under either.
     sep = "\x1f"
     rec = "\x1e"
     try:
         out = await _run_git(
             memory_path,
             "log",
-            f"--format=%H{sep}%ad{sep}%b{rec}",
+            f"--format={rec}%H{sep}%ad{sep}%b{sep}",
             "--date=short",
+            "--name-only",
+            "--root",
+            "--no-renames",
+            # A `log.showSignature` config prints each signed commit's check
+            # before its record, which would land in the previous commit's
+            # file list.
+            "--no-show-signature",
         )
     except GitError:
         return []
@@ -1141,30 +1330,17 @@ async def get_contributors(
     agg: dict[str, dict] = {}
 
     for record in out.split(rec):
-        record = record.strip("\n")
         if not record.strip():
             continue
-        fields = record.split(sep, 2)
-        if len(fields) < 3:
+        fields = record.split(sep, 3)
+        if len(fields) < 4:
             continue
-        commit_hash, date, body = fields[0].strip(), fields[1].strip(), fields[2]
+        commit_hash, date, body, tail = fields[0].strip(), fields[1].strip(), fields[2], fields[3]
+        if not commit_hash:
+            continue
 
         authors = _parse_authors(body) or [UNKNOWN_AUTHOR]
-
-        # Files changed in this commit (best-effort).
-        try:
-            names_out = await _run_git(
-                memory_path,
-                "diff-tree",
-                "--no-commit-id",
-                "--name-only",
-                "-r",
-                "--root",  # so the initial (parentless) commit lists its added files
-                commit_hash,
-            )
-            files = [f for f in names_out.strip().splitlines() if f]
-        except GitError:
-            files = []
+        files = [f for f in tail.strip().splitlines() if f]
 
         for author in authors:
             state = agg.setdefault(
@@ -1560,6 +1736,8 @@ async def commit_resolution(
     change: str = "updated",
     paths: list[str] | None = None,
     before: dict[str, bytes | None] | None = None,
+    relayed_by: str | None = None,
+    sessions: list[str] | None = None,
 ) -> None:
     """Commit after an inbox (nudge/clarification/conflict) resolution.
 
@@ -1581,6 +1759,25 @@ async def commit_resolution(
     (``before``, from :func:`snapshot_dirty`) is committed first on its own,
     with no author claimed (:func:`commit_touched_sync`).
     """
+    await asyncio.to_thread(commit_resolution_sync, memory_path, entity_id, trigger, extra_lines,
+                            change=change, paths=paths, before=before, relayed_by=relayed_by, sessions=sessions)
+
+
+def commit_resolution_sync(
+    memory_path: Path,
+    entity_id: str,
+    trigger: str,
+    extra_lines: list[str] | None = None,
+    *,
+    change: str = "updated",
+    paths: list[str] | None = None,
+    before: dict[str, bytes | None] | None = None,
+    relayed_by: str | None = None,
+    sessions: list[str] | None = None,
+) -> None:
+    """:func:`commit_resolution` for a resolver that already holds the bank's
+    page lock in a worker thread and commits inside it (G98/G115: a
+    normalization answer's pages, map and item are one critical section)."""
     date_str = date.today().isoformat()
     # trigger is "inbox/<kind>/resolved[:<label>]" — tag the kind into the
     # subject so the dashboard can distinguish a conflict adjudication from a
@@ -1602,12 +1799,14 @@ async def commit_resolution(
     for line in extra_lines or []:
         if line not in body_lines:
             body_lines.append(line)
-    # An inbox resolution is a user/companion-app action -> attribute to "user".
-    message = build_commit_message(subject, body_lines, authors=["user"])
+    # An inbox resolution is a user/companion-app action -> attribute to "user". An answer an agent relayed from a
+    # conversation (owner, 2026-10-14) also names that agent and the conversation, so git says who carried it.
+    message = build_commit_message(subject, body_lines, authors=["user", *([relayed_by] if relayed_by else [])],
+                                   sessions=sessions)
     touched = [line.split(": ", 1)[0].strip() for line in body_lines if ": " in line]
     touched += list(paths or [])
-    await asyncio.to_thread(commit_touched_sync, memory_path, message, touched, before=before,
-                            kept_subject=f"Uncommitted edit kept apart {date_str}", kept_trigger="inbox/kept-apart")
+    commit_touched_sync(memory_path, message, touched, before=before,
+                        kept_subject=f"Uncommitted edit kept apart {date_str}", kept_trigger="inbox/kept-apart")
 
 
 # G147 — the manifest line `commit_resolution` writes for a decay answer. Its

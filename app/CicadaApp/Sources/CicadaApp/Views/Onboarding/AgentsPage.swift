@@ -49,7 +49,8 @@ struct AgentsPage: View {
                     onOpenFromAnywhere: { _ = router.openSettings(.remote) },
                     onCreateLink: { linkFor = $0 })
             }
-            OnboardingPointerLine(lead: Copy.agentsFoot, section: .agents, label: Copy.onboardingSettingsAgents)
+            // The pointer to Settings → Agents is the frame's foot line (`OnboardingView.footLine`), pinned under
+            // the scroll; a second copy here said it twice on one screen (DR-38, QA 2026-10-16).
         }
         // R-AG15 — cancelled by SwiftUI when the page leaves, so nothing polls behind another page.
         .task { await live.run() }

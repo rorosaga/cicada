@@ -8,19 +8,30 @@ import XCTest
 final class NavRailTests: XCTestCase {
     override func tearDown() { CicadaTheme.uiScale = 1.0; super.tearDown() }
 
+    private func rgb(_ color: NSColor) -> [Int] {
+        let c = color.usingColorSpace(.sRGB) ?? color
+        return [c.redComponent, c.greenComponent, c.blueComponent].map { Int(($0 * 255).rounded()) }
+    }
+
     private func source(_ path: String) throws -> String {
         let file = try XCTUnwrap(ThemeTokenTests.swiftSources().first { $0.path.hasSuffix(path) }, path)
         return try String(contentsOf: file, encoding: .utf8)
     }
 
-    /// The rail's order IS its ⌘ order, so a new page joins at the end and no shortcut moves.
+    /// The rail's order IS its ⌘ order, so a new page joins at the end and no shortcut moves — save ⌘ map A (owner,
+    /// 2026-10-16): the retired Feed's cell went to Skills, so ⌘4 opens Skills and nothing else moved.
     func testTheRailIsAppTabInItsCommandOrder() {
         XCTAssertEqual(AppTab.allCases.map(RailItem.digit(for:)), Array(1...AppTab.allCases.count))
         XCTAssertEqual(RailItem.shortcut(for: .home), "⌘1")
         XCTAssertEqual(RailItem.shortcut(for: .inbox), "⌘6")
         XCTAssertEqual(RailItem.shortcut(for: .sources), "⌘7")
         XCTAssertEqual(RailItem.shortcut(for: .projects), "⌘8", "the eighth page, after Sources — no shortcut moved")
+        XCTAssertEqual(RailItem.shortcut(for: .looks), "⌘9", "the ninth page, after Projects — no shortcut moved")
         XCTAssertEqual(RailItem.key(for: .graph), KeyEquivalent("2"))
+        XCTAssertEqual(RailItem.shortcut(for: .sleep), "⌘5", "Sleep kept its digit when the Feed folded into it")
+        XCTAssertEqual(AppTab.allCases.last, .looks)
+        XCTAssertEqual(RailItem.key(for: .skills), KeyEquivalent("4"))
+        XCTAssertEqual(RailItem.shortcut(for: .skills), "⌘4")
     }
 
     func testTooltipsAndLabelsSayWhatTheCellIsDoing() {
@@ -77,6 +88,41 @@ final class NavRailTests: XCTestCase {
         XCTAssertFalse(text.contains("Text(\"Cicada\")"), "DR-22: no wordmark")
         XCTAssertFalse(text.contains("withAnimation"), "DR-60/61: a page switch is instant")
         XCTAssertTrue(text.contains("router.openSettings()"), "the gear opens the panel through the one door (R-DS22)")
+    }
+
+    /// Owner 2026-10-07 (picked over a rounded rail) — the 2026-10-06 fillet painted `bgRail` into the page's corner under
+    /// a `bgBase` band, so the rail ended in a horn. Now the band takes the rail's surface, rail and band are one L, and
+    /// the page is a panel whose top-leading corner alone is rounded, at one fixed radius, and clips what it holds.
+    func testTheRailAndTitlebarAreOneFrameAroundARoundedPagePanel() throws {
+        XCTAssertEqual(CicadaTheme.contentCornerRadius, CicadaTheme.radiusLarge)
+        for scale in [0.8, 1.0, 1.4] {
+            CicadaTheme.uiScale = scale
+            XCTAssertEqual(CicadaTheme.contentCornerRadius, 16, "radii stay put under zoom (scale \(scale))")
+        }
+        let saved = CicadaTheme.mode
+        defer { CicadaTheme.mode = saved }
+        for mode in AppColorScheme.allCases {
+            CicadaTheme.mode = mode
+            XCTAssertEqual(rgb(CicadaTheme.titlebarBackground(for: mode)), rgb(NSColor(CicadaTheme.bgRail)))
+            XCTAssertEqual(rgb(CicadaTheme.windowBackground(for: mode)), rgb(NSColor(CicadaTheme.bgBase)),
+                           "the window's base colour is unchanged (AccentInk measures against it)")
+        }
+        let r = CicadaTheme.contentCornerRadius
+        XCTAssertEqual(ShellContentPanel.shape.cornerRadii, RectangleCornerRadii(topLeading: r))
+        let panel = ShellContentPanel.shape.path(in: CGRect(x: 0, y: 0, width: 200, height: 200))
+        XCTAssertFalse(panel.contains(CGPoint(x: 1, y: 1)), "the corner is the chrome's")
+        XCTAssertTrue(panel.contains(CGPoint(x: 199, y: 1)), "the top-trailing corner is square")
+        XCTAssertTrue(panel.contains(CGPoint(x: 1, y: 199)), "the bottom-leading corner is square")
+        XCTAssertTrue(try source("ContentView.swift").contains(".shellContentPanel()"), "the page host is the panel")
+        XCTAssertTrue(try source("Views/Shell/ShellMetrics.swift").contains(".clipShape(Self.shape)"),
+                      "the panel clips what scrolls up into the band")
+        XCTAssertTrue(try source("CicadaApp.swift").contains("CicadaTheme.titlebarBackground(for: mode)"),
+                      "the AppKit band is the rail's surface")
+        let sources = try ThemeTokenTests.swiftSources().map { (try? String(contentsOf: $0, encoding: .utf8)) ?? "" }
+        XCTAssertFalse(sources.contains { $0.contains("struct RailCornerFillet") }, "no fill reaches out of the rail")
+        XCTAssertFalse(sources.contains { $0.contains("enum RailCorner") }, "one shape, no switch")
+        XCTAssertFalse(try source("Theme/CicadaTheme.swift").contains("windowCornerRadius"),
+                       "no claimed concentricity with the window's corner")
     }
 
     func testTheSplitViewIsGone() throws {

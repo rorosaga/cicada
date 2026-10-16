@@ -86,12 +86,11 @@ for banned in torch sentence_transformers transformers; do
   [ ! -e "$SITE/$banned" ] || die "$banned is in the release set — it must stay out (G182)"
 done
 # What no code path imports at runtime: test suites, type stubs, litellm's proxy
-# web UI, sympy/mpmath (onnxruntime's graph tools, never its inference) and
-# hf_xet (huggingface_hub falls back to plain HTTPS without it).
+# web UI, onnxruntime's graph tools and hf_xet (huggingface_hub falls back to plain
+# HTTPS without it). sympy and mpmath stay: coremltools imports them (EmbeddingGemma 2).
 find "$SITE" -type d \( -name tests -o -name test \) -prune -exec rm -rf {} +
 find "$SITE" -name '*.pyi' -delete
 rm -rf "$SITE/litellm/proxy/_experimental/out" "$SITE/litellm/proxy/swagger" \
-  "$SITE"/sympy "$SITE"/mpmath "$SITE"/sympy-*.dist-info "$SITE"/mpmath-*.dist-info \
   "$SITE/onnxruntime/transformers" "$SITE/onnxruntime/quantization" "$SITE/onnxruntime/tools" \
   "$SITE"/hf_xet "$SITE"/hf_xet-*.dist-info "$SITE"/bin
 cat > "$SITE/sitecustomize.py" <<'PY'
@@ -115,7 +114,9 @@ step "Cicada's code…"
   | grep -Ev '^api/tests/|^api/\.env|^api/uv\.lock$|^api/\.python-version$|^api/\.gitignore$|^api/routers/\.gitignore$|^mcp/mcp_config\.json$' \
   | while IFS= read -r f; do [ -f "$f" ] && printf '%s\0' "$f"; done \
   | xargs -0 tar -cf - ) | tar -xf - -C "$OUT/app"
-[ -f "$OUT/app/api/data/predicates-seed.yaml" ] || die "api/data/predicates-seed.yaml missing from the bundle"
+for shipped in predicates-seed.yaml extras-requirements.lock embeddinggemma-2.lock.json; do
+  [ -f "$OUT/app/api/data/$shipped" ] || die "api/data/$shipped missing from the bundle"
+done
 [ -f "$OUT/app/VERSION" ] || die "VERSION missing from the bundle"
 ok "version $(cat "$OUT/app/VERSION")"
 
@@ -149,95 +150,17 @@ EOF
 ok "git $(env GIT_EXEC_PATH="$OUT/git/libexec/git-core" "$OUT/git/bin/git" --version | awk '{print $3}')"
 
 # --- 5. The embedding model ------------------------------------------------------
+# The same script a developer checkout runs (`make embedding-model`): one reader of the pins.
 step "Embedding model ($MODEL_ID)…"
-MODEL_OUT="$OUT/models/$MODEL_DIR_NAME"
-mkdir -p "$MODEL_OUT"
-while IFS=: read -r src dest sha; do
-  [ -n "$src" ] || continue
-  cp "$(fetch "https://huggingface.co/$MODEL_REPO/resolve/$MODEL_REVISION/$src" "$sha" \
-    "model-$MODEL_DIR_NAME-$MODEL_REVISION-$dest")" "$MODEL_OUT/$dest"
-done <<< "$MODEL_FILES"
-cat > "$MODEL_OUT/cicada-model.json" <<EOF
-{
-  "id": "$MODEL_ID",
-  "dimensions": 384,
-  "pooling": "mean",
-  "normalize": true,
-  "max_tokens": 512,
-  "query_prefix": "query: ",
-  "document_prefix": "passage: ",
-  "source": "https://huggingface.co/$MODEL_REPO/tree/$MODEL_REVISION",
-  "license": "MIT (intfloat/multilingual-e5-small)"
-}
-EOF
+MODEL_OUT="$(CICADA_RELEASE_CACHE="$CACHE" /bin/bash "$REPO/scripts/fetch-embedding-model.sh" "$OUT/models")" \
+  || die "the embedding model could not be fetched"
 ok "$(du -sh "$MODEL_OUT" | cut -f1)"
 
 # --- 6. Launchers ---------------------------------------------------------------
-# The app writes ~/.cicada/bin/cicada-{backend,mcp,hook} pointing at these; agents
-# and launchd only ever see the stable ~/.cicada/bin paths.
+# The app writes ~/.cicada/bin/cicada-{backend,mcp,hook,python} and `cicada` pointing at these; agents
+# and launchd only ever see the stable ~/.cicada/bin paths. One writer, shared with the tests (G180).
 step "Launchers…"
-cat > "$OUT/bin/cicada-env" <<'EOF'
-# Sourced by the launchers beside it, never run. $0 is the launcher's own path
-# inside Cicada.app (the ~/.cicada/bin shims exec it by absolute path).
-CICADA_BACKEND_DIR="$(cd "$(dirname "$0")/.." && pwd -P)"
-export CICADA_BACKEND_DIR
-# An agent's own Python settings must never steer the bundled interpreter.
-unset PYTHONHOME PYTHONSTARTUP VIRTUAL_ENV
-export CICADA_DISTRIBUTION=release
-: "${CICADA_HOME:=$HOME/.cicada}"; export CICADA_HOME
-: "${CICADA_PORT:=8000}"; export CICADA_PORT
-export CICADA_BUNDLED_MODELS="$CICADA_BACKEND_DIR/models"
-CICADA_PYTHON="$CICADA_BACKEND_DIR/python/bin/python3.12"
-PYTHONPATH="$CICADA_BACKEND_DIR/app"
-# The optional larger search model's runtime, installed from Settings outside the signed app;
-# sitecustomize.py appends it AFTER the bundled packages, so it never shadows one of them.
-CICADA_EXTRAS_SITE="$CICADA_HOME/extras/site-packages"; export CICADA_EXTRAS_SITE
-# Bytecode is cached outside the signed app (nothing may be written inside it).
-PYTHONPYCACHEPREFIX="$CICADA_HOME/cache/pycache"
-export PYTHONPATH PYTHONPYCACHEPREFIX PYTHONNOUSERSITE=1 PYTHONUTF8=1
-: "${SSL_CERT_FILE:=$CICADA_BACKEND_DIR/python/lib/python3.12/site-packages/certifi/cacert.pem}"; export SSL_CERT_FILE
-# The bundled git comes first for everything the backend runs (a Mac without the
-# developer tools has only Apple's install-prompt shim at /usr/bin/git).
-PATH="$CICADA_BACKEND_DIR/bin:$PATH"; export PATH
-EOF
-cat > "$OUT/bin/git" <<'EOF'
-#!/bin/sh
-# The bundled git, with its helper and template paths set for this call only.
-d="$(cd "$(dirname "$0")/.." && pwd -P)/git"
-GIT_EXEC_PATH="$d/libexec/git-core" GIT_TEMPLATE_DIR="$d/share/git-core/templates" exec "$d/bin/git" "$@"
-EOF
-cat > "$OUT/bin/cicada-backend" <<'EOF'
-#!/bin/sh
-# The backend: uvicorn on 127.0.0.1:$CICADA_PORT (default 8000).
-. "$(dirname "$0")/cicada-env"
-cd "$CICADA_BACKEND_DIR/app" || exit 1
-exec "$CICADA_PYTHON" -m uvicorn api.main:app --host 127.0.0.1 --port "$CICADA_PORT" "$@"
-EOF
-cat > "$OUT/bin/cicada-mcp" <<'EOF'
-#!/bin/sh
-# The stdio MCP server every agent registers.
-. "$(dirname "$0")/cicada-env"
-exec "$CICADA_PYTHON" "$CICADA_BACKEND_DIR/app/mcp/server.py" "$@"
-EOF
-cat > "$OUT/bin/cicada-hook" <<'EOF'
-#!/bin/sh
-# cicada-hook capture|recall|registry [args] — the harness hooks (G105, G149) and
-# the hook registry the app runs to install them.
-. "$(dirname "$0")/cicada-env"
-case "$1" in
-  capture|recall|registry) name="$1"; shift ;;
-  *) echo "usage: cicada-hook capture|recall|registry [args]" >&2; exit 2 ;;
-esac
-exec "$CICADA_PYTHON" "$CICADA_BACKEND_DIR/app/api/hooks/$name.py" "$@"
-EOF
-cat > "$OUT/bin/cicada-python" <<'EOF'
-#!/bin/sh
-# The bundled interpreter with Cicada's environment (diagnostics, the agent install script).
-. "$(dirname "$0")/cicada-env"
-exec "$CICADA_PYTHON" "$@"
-EOF
-chmod 755 "$OUT"/bin/{git,cicada-backend,cicada-mcp,cicada-hook,cicada-python}
-chmod 644 "$OUT/bin/cicada-env"
+/bin/bash "$HERE/write-launchers.sh" "$OUT/bin"
 ok "bin/: $(ls "$OUT/bin" | tr '\n' ' ')"
 
 # --- 7. Bytecode, manifest, cleanup --------------------------------------------------
@@ -246,7 +169,7 @@ step "Checking the assembled backend…"
 CHECK_HOME="$(mktemp -d)"
 CICADA_HOME="$CHECK_HOME/home" CICADA_MEMORY_PATH="$CHECK_HOME/bank" CICADA_CAPTURE=off \
   "$OUT/bin/cicada-python" - <<'PYCHECK' || die "the assembled backend does not import"
-import api.main, sqlite_vec, onnxruntime, tokenizers, certifi  # noqa: F401
+import api.main, sqlite_vec, onnxruntime, tokenizers, certifi, pypdfium2  # noqa: F401
 from api.version import __version__
 print(f"    imports ok · version {__version__}")
 PYCHECK
@@ -261,7 +184,7 @@ cat > "$OUT/manifest.json" <<EOF
   "git": "$GIT_VERSION",
   "git_source": "$GIT_URL",
   "embedding_model": "$MODEL_ID",
-  "embedding_model_source": "https://huggingface.co/$MODEL_REPO/tree/$MODEL_REVISION",
+  "embedding_model_source": "$MODEL_SOURCE",
   "commit": "$(cd "$REPO" && git rev-parse HEAD 2>/dev/null || echo unknown)"
 }
 EOF

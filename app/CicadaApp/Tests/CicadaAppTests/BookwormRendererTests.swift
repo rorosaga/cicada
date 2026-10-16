@@ -48,7 +48,7 @@ final class BookwormRendererTests: XCTestCase {
     func testCacheKeyDistinguishesCountStageRectAndSize() {
         XCTAssertEqual(BookwormRenderer.cacheKey(state: .awake, rectIndex: 0, pointSize: 18), "small|bookworm|awake|0|18")
         XCTAssertEqual(BookwormRenderer.cacheKey(state: .curious(count: 47), rectIndex: 2, pointSize: 18), "small|bookworm|curious|47|2|18")
-        XCTAssertEqual(BookwormRenderer.cacheKey(state: .curious(count: 250), rectIndex: 0, pointSize: 18), "small|bookworm|curious|99|0|18")
+        XCTAssertEqual(BookwormRenderer.cacheKey(state: .curious(count: 250), rectIndex: 0, pointSize: 18), "small|bookworm|curious|100|0|18")
         XCTAssertEqual(BookwormRenderer.cacheKey(state: .sleeping(stage: 3), rectIndex: 1, pointSize: 18), "small|bookworm|sleeping|3|1|18")
     }
 

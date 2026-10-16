@@ -1440,17 +1440,22 @@ def _build_takeout_zip() -> bytes:
     return buf.getvalue()
 
 
-def test_parse_youtube_takeout_zip_mixed_content():
-    data = _build_takeout_zip()
-    items = media_ingestor.parse_youtube_takeout_zip(data)
-    # 2 items from Watch later, 1 from My Faves, 1 from watch-history.json.
-    assert len(items) == 4
-    urls = {i.url for i in items}
-    assert "https://www.youtube.com/watch?v=abc123" in urls
-    assert "https://www.youtube.com/watch?v=def456" in urls
-    assert "https://www.youtube.com/watch?v=zzz999" in urls
-    assert "https://www.youtube.com/watch?v=wat001" in urls
+def test_takeout_zip_reads_playlists_and_watch_history_only_on_request():
+    from api.services import saved_exports
 
+    data = _build_takeout_zip()
+    # Watch history is not a save: read only when asked (G69, the same rule as
+    # TikTok's browsing history), and its size is said.
+    plain = saved_exports.parse_archive(data)
+    assert {i.url for i in plain.items} == {
+        "https://www.youtube.com/watch?v=abc123",
+        "https://www.youtube.com/watch?v=def456",
+        "https://www.youtube.com/watch?v=zzz999",
+    }
+    assert plain.history_excluded == 1
+
+    items = saved_exports.parse_archive(data, include_history=True).items
+    assert len(items) == 4
     by_url = {i.url: i for i in items}
     assert by_url["https://www.youtube.com/watch?v=abc123"].folder == "Watch later"
     assert by_url["https://www.youtube.com/watch?v=abc123"].origin == "youtube-playlist"
@@ -1460,9 +1465,12 @@ def test_parse_youtube_takeout_zip_mixed_content():
     assert by_url["https://www.youtube.com/watch?v=wat001"].title == "Watched Something"
 
 
-def test_parse_youtube_takeout_zip_unrecognized_or_corrupt_returns_empty():
-    assert media_ingestor.parse_youtube_takeout_zip(b"not a zip file") == []
-    assert media_ingestor.parse_youtube_takeout_zip(b"") == []
+def test_an_unreadable_zip_is_empty_and_says_so():
+    from api.services import saved_exports
+
+    for junk in (b"not a zip file", b""):
+        result = saved_exports.parse_archive(junk)
+        assert result.items == [] and result.warnings == ["This file is not a readable zip archive."]
 
 
 def test_parse_upload_routes_takeout_zip():
@@ -1470,14 +1478,15 @@ def test_parse_upload_routes_takeout_zip():
     items, label, from_bookmark = media_ingestor.parse_upload(data, "takeout.zip")
     assert label == "YouTube Takeout (zip)"
     assert from_bookmark is False
+    assert len(items) == 3
+    items, _, _ = media_ingestor.parse_upload(data, "takeout.zip", include_history=True)
     assert len(items) == 4
 
 
 def test_parse_upload_of_a_non_takeout_zip_labels_it_generically(tmp_path):
     """L4 (final review): a zip is sniffed by extension alone, but
-    `parse_youtube_takeout_zip` only recognizes `playlists/*.csv` /
-    `watch-history.json` — an Instagram/TikTok export zip (or anything else)
-    must not be previewed as "YouTube Takeout (zip)" just because it's a
+    the archive walker recognizes only save lists it can name — a zip holding
+    none (here an empty Instagram file) must not be previewed as "YouTube Takeout (zip)" just because it's a
     .zip with nothing Takeout-shaped inside."""
     import io
     import zipfile
@@ -1509,13 +1518,13 @@ def test_ingest_takeout_zip_dedups_on_second_import(tmp_path, monkeypatch):
     data = _build_takeout_zip()
     items, _, _ = media_ingestor.parse_upload(data, "takeout.zip")
     created1, dups1 = run(media_ingestor.ingest_batch(items, memory, commit=False))
-    assert created1 == 4
+    assert created1 == 3
     assert dups1 == 0
 
     items2, _, _ = media_ingestor.parse_upload(data, "takeout.zip")
     created2, dups2 = run(media_ingestor.ingest_batch(items2, memory, commit=False))
     assert created2 == 0
-    assert dups2 == 4
+    assert dups2 == 3
 
 
 # --- G71 §1: the reason on the episode body ---------------------------------

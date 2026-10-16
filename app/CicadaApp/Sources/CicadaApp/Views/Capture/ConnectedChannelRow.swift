@@ -141,7 +141,10 @@ struct ConnectedChannelRow: View {
     private var rowLink: some View {
         let spoken = ChannelDetailLine.text(channel).map { "\(channel.label). \($0)" } ?? channel.label
         if ChannelActions.managesInIntegrations(channel.id) {
-            SettingsSectionLink(section: .integrations, accessibilityText: spoken) { rowLabel }
+            // A folder lands on its own row on Search & files; the others open Integrations as before.
+            let section = ChannelActions.settingsSection(for: channel.id)
+            SettingsSectionLink(section: section, row: section == .searchFiles ? .channel(channel.id) : nil,
+                                accessibilityText: spoken) { rowLabel }
         } else {
             Button { onAction("manage") } label: { rowLabel }
                 .buttonStyle(.cicadaPlain)
@@ -284,6 +287,8 @@ struct ConnectedChannelRow: View {
         case "safari-tabs": "safari-tab"
         // Round 4 (G160): Chrome's open tab groups wear Chrome's own mark.
         case "chrome-tab-groups": "chrome-tab-group"
+        // G71 (2026-10-16): the YouTube videos watched in Chrome wear YouTube's mark.
+        case "chrome-youtube-history": "youtube-history"
         case "notes": "apple-notes"
         case "reddit": "reddit-saved"
         case "x": "x-bookmarks"

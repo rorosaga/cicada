@@ -1,5 +1,5 @@
 {
-  "live": ["claude-code", "codex", "claude", "chatgpt", "cursor", "opencode", "hermes", "openclaw", "grok", "gemini-cli"],
+  "live": ["claude-code", "codex", "claude", "chatgpt", "cursor", "opencode", "hermes", "openclaw", "grok", "gemini-cli", "other"],
   "featured": ["claude-code", "codex", "claude", "chatgpt", "cursor", "opencode", "hermes", "openclaw", "grok"],
-  "setup": ["claude-code", "codex", "gemini-cli", "cursor", "claude-desktop", "opencode", "hermes", "openclaw", "claude", "chatgpt", "grok"]
+  "setup": ["claude-code", "codex", "gemini-cli", "cursor", "claude-desktop", "opencode", "hermes", "openclaw", "claude", "chatgpt", "grok", "other"]
 }

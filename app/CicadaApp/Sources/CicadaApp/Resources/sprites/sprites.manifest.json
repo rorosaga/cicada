@@ -439,8 +439,8 @@
    "provenance": "authoring-provenance.json#night",
    "licence": "MIT, as this repository (see LICENSE). Own work for Cicada; no third-party artwork or brand marks.",
    "processing": "export_all.sh: --sheet-pack --format json-array --list-tags --list-slices; no trim; RGBA8888; binary alpha; palette-locked to palette.json",
-   "pngSha256": "9ae370b9e6345044009c7dbd93843ac8176492d527092972fa5fdd828b0cd5d2",
-   "jsonSha256": "ba510ba2160924077ea04288ed43b7a094c256faaaf0a78910e427a1ea21199d"
+   "pngSha256": "9376fb0fbc7da54d190abb4b19a4bfe434c640eb706961e7e40f885dac8db31d",
+   "jsonSha256": "2cbbbc392738d06e491694949f3102beef17a5f67866634ccc9a90334f7afae6"
   },
   {
    "id": "room-beanbag",
@@ -457,6 +457,22 @@
    "processing": "export_all.sh: --sheet-pack --format json-array --list-tags --list-slices; no trim; RGBA8888; binary alpha; palette-locked to palette.json",
    "pngSha256": "0d8b131b2124de941a8dc70b26e0a0bf7151f622ca0baa5fd35eceb9cc1ee1e5",
    "jsonSha256": "cc04fb4161ba8eeb337d0a9e517c98586e9cf771b24a34e9ec6bf0d83dee2c6b"
+  },
+  {
+   "id": "room-books",
+   "png": "room-books.png",
+   "json": "room-books.json",
+   "role": "books",
+   "generator": "Aseprite 1.3.18.6-dev, headless (-b), from saved Aseprite sources and Lua",
+   "script": "lua/build_books.lua",
+   "source": "src/room-books.aseprite",
+   "authoring": "Codex (gpt-6.1-sol, extra-high effort); original day art authored in Aseprite",
+   "date": "2026-10-01",
+   "provenance": "authoring-provenance.json#day",
+   "licence": "MIT, as this repository (see LICENSE). Own work for Cicada; no third-party artwork or brand marks.",
+   "processing": "export_all.sh: --sheet-pack --format json-array --list-tags --list-slices; no trim; RGBA8888; binary alpha; palette-locked to palette.json",
+   "pngSha256": "99ffe9015f55661a4649c3c7737298f4054336fa3608033a9e3de0c45bab275d",
+   "jsonSha256": "f5e07dd33b6f9533c0aff9e37b2496cb81bfd955b452c47be692b676251dd7fb"
   },
   {
    "id": "room-clock",
@@ -553,22 +569,6 @@
    "processing": "export_all.sh: --sheet-pack --format json-array --list-tags --list-slices; no trim; RGBA8888; binary alpha; palette-locked to palette.json",
    "pngSha256": "c1e9159f90d591e7a82773e12cc75933bd530c78c15749981e026169fe2172f3",
    "jsonSha256": "a90d08e752fb292da38249b8288b1ac94e11882c3eef28dd888e3ab2c9affb3f"
-  },
-  {
-   "id": "room-spines",
-   "png": "room-spines.png",
-   "json": "room-spines.json",
-   "role": "spines",
-   "generator": "Aseprite 1.3.18.6-dev, headless (-b), from saved Aseprite sources and Lua",
-   "script": "lua/build_spines.lua",
-   "source": "src/room-spines.aseprite",
-   "authoring": "Codex (gpt-6.1-sol, extra-high effort); original day art authored in Aseprite",
-   "date": "2026-10-01",
-   "provenance": "authoring-provenance.json#day",
-   "licence": "MIT, as this repository (see LICENSE). Own work for Cicada; no third-party artwork or brand marks.",
-   "processing": "export_all.sh: --sheet-pack --format json-array --list-tags --list-slices; no trim; RGBA8888; binary alpha; palette-locked to palette.json",
-   "pngSha256": "2bc50f8abd337d80c860219d10f30282e4c51bb0078197e99bd04e325bd3091f",
-   "jsonSha256": "2f24ba07f9895637b0146376df7d646b0af7154222556f7252f076b19d271f36"
   },
   {
    "id": "room-weather",

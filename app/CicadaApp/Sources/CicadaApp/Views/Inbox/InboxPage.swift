@@ -14,6 +14,7 @@ struct InboxPage: View {
     @Environment(InboxViewModel.self) private var viewModel
     @Environment(AppRouter.self) private var router
     @Environment(ProvenanceRouter.self) private var provenance
+    @Environment(Store.self) private var store
     @AppStorage(ShellMetrics.labelledKey) private var labelledSidebar = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -24,6 +25,8 @@ struct InboxPage: View {
     @State private var landingToken = 0
     /// R-DL4 — the column plan's DR-27 answer, mirrored out of the header builder so the focus policy can read it.
     @State private var listHidden = false
+    /// Owner ruling 2026-10-16 — "Settled by a check", in memory (not a Store domain).
+    @State private var settled = SettledChecks()
 
     var body: some View {
         Group {
@@ -41,7 +44,16 @@ struct InboxPage: View {
         .background(CicadaTheme.bgBase)
         .onAppear { consumeLanding(); viewModel.reconcile() }
         .onChange(of: router.pendingInboxItem) { _, _ in consumeLanding() }
-        .onChange(of: viewModel.items.map(\.id)) { _, _ in viewModel.reconcile() }
+        .onChange(of: viewModel.items.map(\.id)) { _, _ in
+            viewModel.reconcile()
+            Task { await settled.load() }   // a run may have settled some; an undo brought one back
+        }
+        // Per memory: a switch reloads it even when the two memories' question ids happen to match (`inbox-001`…).
+        .task(id: store.bank) { await settled.load() }
+    }
+
+    private var settledSection: some View {
+        SettledChecksSection(model: settled) { await viewModel.loadInbox() }
     }
 
     private var columns: some View {
@@ -49,10 +61,13 @@ struct InboxPage: View {
                            navWidth: ShellMetrics.navWidth(labelled: labelledSidebar)) { plan in
             EyebrowRow(eyebrow: viewModel.eyebrow,
                        horizontalPadding: viewModel.openItem == nil && !provenance.isPresented
-                           ? plan.gutter : CicadaTheme.spacingXL) {
-                TextTabs(tabs: viewModel.tabs, selection: Binding(
+                           ? plan.gutter : CicadaTheme.spacingXL,
+                       adaptiveTrailing: true) {
+                // Owner 2026-10-16: when the kinds do not fit (1200 pt with the Reader open, 1100), All and the
+                // selected kind stay and the rest go under More — never a truncated label.
+                OverflowTextTabs(tabs: viewModel.tabs, selection: Binding(
                     get: { viewModel.columns.kindFilter },
-                    set: { viewModel.setFilter($0) }))
+                    set: { viewModel.setFilter($0) }), moreAccessibilityLabel: Copy.Inbox.moreKinds)
             }
             .onChange(of: plan.listHidden, initial: true) { _, hidden in listHidden = hidden }
         } list: { plan in
@@ -60,7 +75,8 @@ struct InboxPage: View {
                               openId: viewModel.columns.openId,
                               undoShortcut: !editingText, landingToken: landingToken,
                               open: { open($0) }, undo: { undo() }, move: { move($0) },
-                              focusQuestion: { focus = .question }, escape: { escape() })
+                              focusQuestion: { focus = .question }, escape: { escape() },
+                              footer: AnyView(settledSection))
                 .focused($focus, equals: .list)
                 .tourAnchor(.inbox)
         } detail: { plan in
@@ -207,6 +223,8 @@ struct InboxPage: View {
             // G117 — "Nothing pending" is a GOOD state, not a deficiency to fix, so it carries no
             // action; `emptyStateDetail` is the R12-honest "what Sleep actually did".
             EmptyStateView(title: Copy.Inbox.nothingPending, message: emptyStateDetail)
+            settledSection
+                .padding(.horizontal, CicadaTheme.spacingGutter)
         }
     }
 

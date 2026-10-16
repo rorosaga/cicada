@@ -7,6 +7,11 @@
 #
 # It never touches work in progress: it does nothing unless this checkout is ON
 # `dev`, has no tracked changes, and can fast-forward. Untracked files are fine.
+# It also waits out Sleep: while the backend reports a running cycle, a write window
+# or an unfinished drain, or a paused run waiting on Continue (the status carries a
+# top-level `paused` block; its drain is idle and unfinished, or null after a restart)
+# it changes nothing and the next tick retries. CICADA_AUTOUPDATE_FORCE=1
+# skips that wait.
 set -uo pipefail
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO" || exit 1
@@ -25,6 +30,35 @@ trap 'rmdir "$LOCK"' EXIT
 branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null)"
 [ "$branch" = "dev" ] || exit 0
 git diff --quiet && git diff --cached --quiet || { log "skip: tracked changes on dev"; exit 0; }
+
+# Ask the backend before anything moves: the running process lazily imports modules
+# from this checkout, so a fast-forward under it mixes versions, and a restart kills
+# the batch in progress. Only "nothing is listening" (curl exit 7) or no token means
+# nothing to protect. A slow backend (timeout), any other failure, an HTTP error or an
+# unreadable answer is a busy one: defer and retry next tick.
+sleep_busy() {
+  local token body port="${CICADA_PORT:-8000}"
+  token="$(tr -d '[:space:]' < "${CICADA_HOME:-$HOME/.cicada}/api_token" 2>/dev/null)" || return 1
+  [ -n "$token" ] || return 1
+  local rc=0
+  body="$(curl -sf -m 10 -H "Authorization: Bearer $token" "http://127.0.0.1:$port/sleep/status" 2>/dev/null)" || rc=$?
+  [ "$rc" = 7 ] && return 1
+  [ "$rc" = 0 ] || return 0
+  printf '%s' "$body" | /usr/bin/python3 -c '
+import json, sys
+try:
+    b = json.load(sys.stdin)
+    d = b.get("drain") if isinstance(b.get("drain"), dict) else {}
+    busy = b.get("status") == "running" or b.get("writing") is True or (d.get("active") is True and d.get("finished") is not True) or isinstance(b.get("paused"), dict)
+except Exception:
+    busy = True
+sys.exit(0 if busy else 1)' 2>/dev/null
+}
+if [ "${CICADA_AUTOUPDATE_FORCE:-}" != "1" ] && sleep_busy; then
+  log "deferred: Sleep is running"
+  exit 0
+fi
+
 git fetch -q origin dev || { log "skip: fetch failed"; exit 0; }
 head="$(git rev-parse HEAD)"
 target="$(git rev-parse origin/dev)"
@@ -51,7 +85,8 @@ if moved api/pyproject.toml api/uv.lock; then
   (cd api && uv sync -q) >> "$LOG_DIR/auto-update.log" 2>&1 || log "fail: uv sync"
 fi
 
-if moved api mcp && launchctl print "gui/$(id -u)/com.cicada.backend" >/dev/null 2>&1; then
+# Only runtime code restarts the backend: a test-only or benchmark-only merge does not.
+if moved api ":(exclude)api/tests" mcp && launchctl print "gui/$(id -u)/com.cicada.backend" >/dev/null 2>&1; then
   launchctl kickstart -k "gui/$(id -u)/com.cicada.backend" && log "backend restarted"
 fi
 
@@ -62,7 +97,8 @@ if ! moved app; then
 fi
 flags=(--release)
 pgrep -x CicadaApp >/dev/null 2>&1 && flags+=(--relaunch)
-if app/CicadaApp/install_app.sh "${flags[@]}" >> "$LOG_DIR/auto-update.log" 2>&1; then
+# Unattended: install_app.sh bounds codesign, so a key prompt nobody answers skips this update instead of hanging.
+if CICADA_UNATTENDED=1 app/CicadaApp/install_app.sh "${flags[@]}" >> "$LOG_DIR/auto-update.log" 2>&1; then
   echo "$target" > "$STAMP"
   log "app installed (${target:0:7})"
 else

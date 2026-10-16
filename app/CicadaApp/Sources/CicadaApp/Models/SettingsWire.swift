@@ -106,6 +106,34 @@ enum EnvOverrideCopy {
     }
 }
 
+/// Settings → Advanced's *Settings file* row (2026-10-13), pure so it is tested in words. Names only, never a value:
+/// the backend sends none but the four pace and page-writing values below.
+enum SettingsFileText {
+    static func detail(_ sources: StatusSnapshot.SettingsSources) -> String {
+        guard let file = sources.file else { return Copy.settingsFileNone }
+        let count = sources.fromFile?.count ?? 0
+        return "\(file) — \(count) setting\(count == 1 ? "" : "s") read."
+    }
+
+    /// One line per name: what the file set, then what it named but the environment replaced.
+    static func lines(_ sources: StatusSnapshot.SettingsSources) -> [(name: String, note: String)] {
+        guard let file = sources.file else { return [] }
+        let replaced = sources.replacedByEnvironment ?? []
+        return (sources.fromFile ?? []).map { ($0, "From \(file).") }
+            + replaced.map { ($0, "In \(file), but the environment replaces it.") }
+    }
+
+    static func effective(_ effective: StatusSnapshot.SettingsSources.Effective?) -> String? {
+        guard let effective else { return nil }
+        var parts: [String] = []
+        if let calls = effective.agentMaxConcurrency { parts.append("\(calls) model calls at once") }
+        if let checks = effective.sleepResolveConcurrency { parts.append("\(checks) name checks at once") }
+        if let on = effective.summarySynthesisEnabled { parts.append("summaries rewritten \(on ? "on" : "off")") }
+        if let on = effective.pageArticlesEnabled { parts.append("pages as articles \(on ? "on" : "off")") }
+        return parts.isEmpty ? nil : "In effect: " + parts.joined(separator: " · ") + "."
+    }
+}
+
 /// The Memory page's two status lines, pure so they are tested in words.
 enum MemoryMaintenanceText {
     static func index(_ status: SearchIndexStatus?, now: Date = Date()) -> String? {
@@ -114,9 +142,9 @@ enum MemoryMaintenanceText {
         case "ready":
             guard let built = StatusSnapshot.parseDate(status.builtAt) else { return "Up to date." }
             let ago = RelativeDateTimeFormatter().localizedString(for: built, relativeTo: now)
-            return "Up to date · rebuilt \(ago)"
+            return "Up to date · rebuilt \(ago). Rebuilding costs only time."
         case "stale": return "Catching up with your latest pages…"
-        case "building": return "Building for the first time…"
+        case "building": return "Getting search ready for the first time…"
         default: return "Not available on this Mac — search still works from your pages."
         }
     }

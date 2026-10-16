@@ -153,4 +153,5 @@ def test_bank_index_reads_times_as_strings(tmp_path):
                          tmp_path / "episodes")
     bank_index.invalidate()
     [f] = bank_index.files(tmp_path, "episodes")
-    assert isinstance(f.frontmatter["turns"][0]["ts"], str)
+    assert "turns" not in f.frontmatter and f.has_turns   # the cached header leaves the sidecar out (2026-10-16)
+    assert isinstance(bank_index.with_turns(f)["turns"][0]["ts"], str)

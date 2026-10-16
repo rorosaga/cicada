@@ -10,13 +10,10 @@ import SwiftUI
 /// toggle already writes, so the two never disagree; `"system"` is the one new
 /// value, and `ThemeStore` resolves it against the Mac's own appearance.
 ///
-/// Scene (round-4 D4, G144) is independent of Appearance: it picks Home's and
-/// the Welcome's painting by the clock (Automatic) or pins it, so a dark window
-/// can show a day painting. Per viewer, in `cicada.heroScene`.
+/// Scene (round-4 D4, G144) retired with the painted art (owner 2026-10-16): it picked a painting, and none is left.
 ///
-/// F-10 (round-4 T-Home, R-HO16) groups the page as *Look* (Appearance · Scene · Text size), *Startup* (Open Cicada at
-/// login · Show in menu bar) and *When Cicada is closed* (Keep memory working), then Setup. The Scene row shows what the
-/// clock paints now beside its title and F-10's two lines under it. Text size stays in Look — F-10 omits it, and removing
+/// F-10 (round-4 T-Home, R-HO16) groups the page as *Look* (Appearance · Text size), *Startup* (Open Cicada at
+/// login · Show in menu bar) and *When Cicada is closed* (Keep memory working), then Setup. Text size stays in Look — F-10 omits it, and removing
 /// a working control needs the owner's word. Show in menu bar (`MenuBarPreference`) hides the bookworm without tearing
 /// it down; the app keeps its Dock icon, so hiding it never strands Cicada. The rows never promise what the app does not
 /// do (R-FA7): the login row says the quiet start R-OB18 built, and 'calendar polls keep going' is not used — the
@@ -31,7 +28,6 @@ import SwiftUI
 /// a `CommandBox` (DR-19).
 struct SettingsGeneralView: View {
     @AppStorage(ThemeStore.defaultsKey) private var appearanceRaw: String = AppearancePreference.dark.rawValue
-    @AppStorage(HeroScenePreference.defaultsKey) private var heroSceneRaw = HeroScenePreference.automatic.rawValue
     @AppStorage(MenuBarPreference.defaultsKey) private var showsMenuBar = true
     // G117 — "Run setup again" needs the active bank (to clear the right
     // per-bank `OnboardingState` flag) and the cross-scene hand-off
@@ -52,10 +48,6 @@ struct SettingsGeneralView: View {
         Binding(get: { AppearancePreference.stored(appearanceRaw) }, set: { appearanceRaw = $0.rawValue })
     }
 
-    private var heroScene: Binding<HeroScenePreference> {
-        Binding(get: { HeroScenePreference.stored(heroSceneRaw) }, set: { heroSceneRaw = $0.rawValue })
-    }
-
     /// A direct `Binding` onto `CicadaTheme.uiScale` — not a locally-drafted
     /// `@State` mirror — so dragging this slider AND choosing ⌘+/⌘−/⌘0 from
     /// the View menu while Settings is open stay in lockstep: reading
@@ -68,29 +60,11 @@ struct SettingsGeneralView: View {
 
     var body: some View {
         SettingsPage(section: .general) {
-            // F-10 — Look: the window's light, the painting's, and the chrome's size.
+            // F-10 — Look: the window's light and the chrome's size.
             SettingsGroupCard(header: Copy.lookGroup) {
                 SettingsRow(.appearance, title: Copy.appearance, detail: Copy.appearanceDetail) {
                     PillPicker(title: Copy.appearance, selection: appearance,
                                options: AppearancePreference.allCases.map { PillOption(value: $0, label: $0.label) })
-                }
-                SettingsDivider()
-                // R-HO16 — "Day now" is what the clock paints (Automatic's answer), whatever is picked; a pick
-                // crossfades Home's band behind the panel at once (R-HO4).
-                SettingsRow(.heroScene, title: Copy.scene, accessory: Copy.sceneNow(SceneStore.shared.time),
-                            detail: Copy.sceneDetail) {
-                    PillPicker(title: Copy.scene, selection: heroScene,
-                               options: HeroScenePreference.allCases.map { PillOption(value: $0, label: $0.label) })
-                } below: {
-                    VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
-                        Text(Copy.sceneAutomaticExplainer)
-                            .font(CicadaTheme.captionFont)
-                            .foregroundStyle(CicadaTheme.textSecondary)
-                        Text(Copy.sceneCrossfadeExplainer)
-                            .font(CicadaTheme.captionFont)
-                            .foregroundStyle(CicadaTheme.textTertiary)
-                    }
-                    .fixedSize(horizontal: false, vertical: true)
                 }
                 SettingsDivider()
                 SettingsRow(.textSize, title: Copy.textSize, detail: Copy.textSizeDetail) {
@@ -129,12 +103,18 @@ struct SettingsGeneralView: View {
                         .labelsHidden()
                 }
             }
+            // G181 phase 3 — This Mac or a server; the choice is used when Cicada opens again.
+            SettingsGroupCard(header: Copy.Devices.whereGroup) {
+                MemoryHomeSetting()
+            }
             SettingsGroupCard(header: Copy.whenClosedGroup) {
+                // G181 phase 3 — on a server nothing runs on this Mac for the memory, so nothing is offered.
+                let onServer = ServerConnection.current.isServer
                 SettingsRow(.backgroundService, title: Copy.keepMemoryWorking,
-                            detail: Copy.backgroundDetail(backendAgent.state)) {
-                    BackgroundServiceButton()
+                            detail: onServer ? Copy.Devices.backgroundNotNeeded : Copy.backgroundDetail(backendAgent.state)) {
+                    if !onServer { BackgroundServiceButton() }
                 } below: {
-                    if BackgroundServiceButton.showsCommand(backendAgent.state) {
+                    if !onServer && BackgroundServiceButton.showsCommand(backendAgent.state) {
                         CommandBox(command: backendAgent.display)
                     }
                 }
@@ -154,7 +134,7 @@ struct SettingsGeneralView: View {
                         }
                         // R-IB17 — the checklist is re-openable, beside Run setup again so G139's index lands on both.
                         TextButton(title: Copy.gsShowChecklist) {
-                            GettingStartedState.record(bank: store.bank, enabled: [])
+                            GettingStartedState.showChecklist(bank: store.bank)
                             // A card already seen done this session would otherwise reopen as "You're set up."
                             runner.sawDoneThisSession = false
                             runner.checklistChanged()
@@ -163,6 +143,9 @@ struct SettingsGeneralView: View {
                         }
                     }
                 }
+                SettingsDivider()
+                // G180 — the `cicada` command for agents with a shell: one link, no admin (ruling 21).
+                CommandLineToolSetting()
                 SettingsDivider()
                 // G182 — the version a tester reports; the backend's only when it differs (an updated app beside a
                 // background service still running the old one). Plain text, monospaced digits (DR-21). An update
@@ -218,12 +201,12 @@ struct BackgroundServiceButton: View {
         switch backendAgent.state {
         case .missing, .stopped, .failed:
             // Finding 6 (DR-41) — installing stops the app's own backend once launchd has the port, which would kill
-            // a running cycle mid-stage and leave its pages for the next `git add -A` writer (the G85 smear); the
-            // Projects writes' own gate, so the two never disagree about "running".
-            let sleeping = ProjectWriteGate.blocked(store.status.value)
+            // a running cycle mid-stage and leave its pages for the next `git add -A` writer (the G85 smear). The whole
+            // run, not only its write window (G177): a stopped backend ends a drain between its batches too.
+            let sleeping = ProjectWriteGate.sleepRunning(store.status.value)
             NeutralButton(title: Copy.backgroundInstall, size: .compact, isDisabled: sleeping,
                           help: Copy.backgroundInstallHelp, disabledHelp: Copy.backgroundWaitForSleep) {
-                guard !ProjectWriteGate.blocked(store.status.value) else { return }
+                guard !ProjectWriteGate.sleepRunning(store.status.value) else { return }
                 Task { await backendAgent.install() }
             }
         case .unknown:
@@ -270,10 +253,10 @@ struct UpdateStatusLine: View {
             }
         case .ready(let manifest):
             notes(manifest)
-            let sleeping = ProjectWriteGate.blocked(store.status.value)
+            let sleeping = ProjectWriteGate.sleepRunning(store.status.value)
             NeutralButton(title: Copy.Updates.restart, size: .compact, isDisabled: sleeping,
                           help: Copy.Updates.restartHelp(manifest.version), disabledHelp: Copy.Updates.waitForSleep) {
-                guard !ProjectWriteGate.blocked(store.status.value) else { return }
+                guard !ProjectWriteGate.sleepRunning(store.status.value) else { return }
                 Task { await updates.restartToUpdate() }
             }
         case .checking, .downloading, .installing:

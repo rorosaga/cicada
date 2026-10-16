@@ -136,27 +136,44 @@ def excerpt_around(text: str, span: tuple[int, int] | None, *, radius: int = EXC
 
 
 class InboxContext:
-    """Per-``load_inbox`` read cache: episode + entity frontmatter via
-    ``bank_index`` (one scandir each, parses only what changed since the last
-    call) and entity claim blocks parsed at most once per context."""
+    """Per-``load_inbox`` read cache: one scandir each of ``episodes/`` and
+    ``entities/``, the frontmatter of only the pages a lookup lands on (via
+    ``bank_index``'s cache, so a warm process parses nothing that did not
+    move) and entity claim blocks parsed at most once per context."""
 
     def __init__(self, memory_path: Path, *, today: str):
         self.memory_path = Path(memory_path)
         self.today = today
-        self._episodes: dict[str, bank_index.IndexedFile] | None = None
-        self._entities: dict[str, bank_index.IndexedFile] | None = None
+        # stem -> filename (the listing), and the sanitized-stem aliases, built on the first miss.
+        self._episodes: dict[str, str] | None = None
+        self._entities: dict[str, str] | None = None
+        self._aliases: dict[str, str] | None = None
+        self._files: dict[tuple[str, str], bank_index.IndexedFile | None] = {}
         self._claims: dict[str, list] = {}
         self._bodies: dict[str, str] = {}
         self._check_vocab = None
 
     # ---------- indices ----------
 
+    # Both indices are directory listings (one scandir, no parse); a page is parsed only when a lookup
+    # lands on it (`bank_index.file`, sharing its cache). Listing AND parsing every page on the first
+    # lookup cost a fresh process ~0.7 s (3,600 pages, 1,500 episodes) for the one or two pages a
+    # recall's inbox block reads.
+
+    def _read(self, subdir: str, filename: str | None):
+        if filename is None:
+            return None
+        key = (subdir, filename)
+        if key not in self._files:
+            self._files[key] = bank_index.file(self.memory_path, subdir, filename)
+        return self._files[key]
+
     def episode(self, ep_id: str | None):
         if not ep_id:
             return None
         if self._episodes is None:
-            self._episodes = {f.stem: f for f in bank_index.files(self.memory_path, "episodes")}
-        return self._episodes.get(str(ep_id))
+            self._episodes = {n[: -len(".md")]: n for n in bank_index.stamps(self.memory_path, "episodes")}
+        return self._read("episodes", self._episodes.get(str(ep_id)))
 
     def entity(self, entity_id: str | None):
         """The subject page, by stem then by ``sanitize_id`` of the stem.
@@ -173,12 +190,21 @@ class InboxContext:
         if not entity_id:
             return None
         if self._entities is None:
-            pages = bank_index.files(self.memory_path, "entities")
-            self._entities = {f.stem: f for f in pages}
-            for f in pages:
-                self._entities.setdefault(sanitize_id(f.stem), f)
+            self._entities = {n[: -len(".md")]: n for n in bank_index.stamps(self.memory_path, "entities")}
         key = str(entity_id)
-        return self._entities.get(key) or self._entities.get(sanitize_id(key))
+        if key in self._entities:  # an exact stem always wins over a sanitized alias
+            page = self._read("entities", self._entities[key])
+            if page is not None:
+                return page
+        if self._aliases is None:
+            self._aliases = dict(self._entities)
+            for stem, filename in sorted(self._entities.items()):
+                self._aliases.setdefault(sanitize_id(stem), filename)
+        for candidate in (key, sanitize_id(key)):
+            page = self._read("entities", self._aliases.get(candidate))
+            if page is not None:
+                return page
+        return None
 
     def entity_type(self, entity_id: str | None) -> str | None:
         page = self.entity(entity_id)

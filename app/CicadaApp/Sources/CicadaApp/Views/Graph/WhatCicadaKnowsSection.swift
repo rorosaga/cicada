@@ -6,20 +6,34 @@ import SwiftUI
 /// here and in Perspectives.
 struct WhatCicadaKnowsSection: View {
     let claims: [Claim]
+    /// False inside the card's "What Cicada believes" disclosure, which already names the section (DR-38).
+    var showsLabel = true
     var onOpenTimeline: (Claim) -> Void = { _ in }
+    /// Owner 2026-10-14 — the source a belief can be checked at (nil: none), and opening it in "Where this comes from".
+    var lookUp: (Claim) -> PageSource? = { _ in nil }
+    var onLookUp: ((PageSource) -> Void)? = nil
+    /// A page at a time (`BeliefPaging`): a summary-only page can carry thousands of beliefs.
+    @State private var shown = BeliefPaging.step
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            SectionLabel(Copy.Beliefs.heading(claims.count))
+            if showsLabel { SectionLabel(Copy.Beliefs.heading(claims.count)) }
             Text(Copy.Beliefs.caption)
                 .font(CicadaTheme.metaFont)
                 .foregroundStyle(CicadaTheme.textTertiary)
-            VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
-                ForEach(claims) { claim in
-                    BeliefRow(claim: claim) { onOpenTimeline(claim) }
+            LazyVStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
+                ForEach(claims.prefix(shown)) { claim in
+                    BeliefRow(claim: claim, onOpenTimeline: { onOpenTimeline(claim) }, lookUp: lookUp(claim),
+                              onLookUp: onLookUp)
                 }
             }
             .padding(.horizontal, -CicadaTheme.scaled(10))
+            if let more = BeliefPaging.more(shown: shown, total: claims.count) {
+                TextButton(title: Copy.People.showMore(more)) {
+                    Instant.run { shown = BeliefPaging.next(shown: shown, total: claims.count) }
+                }
+                .padding(.leading, -CicadaTheme.scaled(10))
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }

@@ -126,6 +126,7 @@ func nextRunSentence(_ schedule: ScheduleConfig, nextSleepAt: String?,
 struct StudyListCard: View {
     @Environment(SleepViewModel.self) private var sleepVM
     @Environment(Store.self) private var store
+    @Environment(MessagesWatcher.self) private var watcher: MessagesWatcher?
     /// R-A13 — a row's disclosure is a transition, and Reduce Motion turns it
     /// into a jump (`SleepMotion.disclosure` returns `nil`).
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -166,14 +167,16 @@ struct StudyListCard: View {
         return .loading
     }
 
-    /// "What's waiting" — the Details section's own name (Track Z §4.2), in the plain words the
-    /// sentence above already uses. R-HS15: its label over rows, no card (DR-37); the error line is
-    /// a quiet meta line, not `danger` (DR-7 keeps `danger` for destructive actions).
+    /// The Waiting tab's rows (the Details section "What's waiting" until the Sleep redesign, 2026-10-16): the tab
+    /// names the list, so the section draws no label of its own. R-HS15: rows, no card (DR-37); the error line is a
+    /// quiet meta line, not `danger` (DR-7 keeps `danger` for destructive actions). The video queue's row retired with
+    /// Details: the Videos tab is that queue's one place (DR-38).
     var body: some View {
-        SleepDetailsSection(title: "What's waiting") {
+        SleepDetailsSection(title: "") {
             content
-            // G162 — the video queue's one row (its own file; it hides itself when nothing is queued).
-            VideosWaitingRow()
+            // G179 — the ticked Messages conversations Sleep has not read, as stacked pictures: on the Messages source
+            // row when there is one (owner, 2026-10-16: one row, never a second line), else on a row of their own.
+            MessagesWaitingRow(inline: rows.contains { $0.origin == MessagesWatcher.channel })
 
             if let err = sleepVM.errorMessage ?? sleepVM.lastError, !err.isEmpty {
                 Text(err)
@@ -263,6 +266,11 @@ struct StudyListCard: View {
                     .font(CicadaTheme.rowFont)
                     .foregroundStyle(CicadaTheme.textPrimary)
                     .lineLimit(1)
+                if row.origin == MessagesWatcher.channel {
+                    // The waiting chats' pictures and their messages, on this row (2026-10-16). A picture names its
+                    // chat on hover; the row's own click still discloses its episodes.
+                    MessageBubbleStack(size: 18, interactive: false)
+                }
                 if let age = row.oldestAge {
                     Text("oldest \(age)")
                         .font(CicadaTheme.metaFont)
@@ -282,7 +290,15 @@ struct StudyListCard: View {
         .background(room?.hoveredOrigin == row.origin ? CicadaTheme.bgHover : Color.clear,
                     in: CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
         .onHover { inside in room?.hover(origin: row.origin, inside: inside) }
-        .accessibilityLabel(Self.rowAccessibilityLabel(row))
+        .help(chatsLine(row) ?? "")
+        .accessibilityLabel([Self.rowAccessibilityLabel(row), chatsLine(row)].compactMap { $0 }.joined(separator: ", "))
+    }
+
+    /// The Messages row's waiting chats in words — each picture's own line, for the row's tooltip and VoiceOver.
+    private func chatsLine(_ row: StudyRow) -> String? {
+        guard row.origin == MessagesWatcher.channel, let watcher,
+              let model = MessageBubbles.model(watcher.waiting, name: { watcher.name(ofWaiting: $0) }) else { return nil }
+        return model.accessibility
     }
 
     /// The trailing mark's meaning in words — the ✓ and the micro-fill are

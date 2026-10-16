@@ -62,4 +62,4 @@ def test_the_search_route_takes_the_backlog_kind(bank, monkeypatch):
 
 
 def test_the_schema_bump_rebuilds_every_index_once():
-    assert search_index.SCHEMA_VERSION == "4" and "blg" in search_index.WEIGHTS
+    assert search_index.SCHEMA_VERSION == "5" and "blg" in search_index.WEIGHTS

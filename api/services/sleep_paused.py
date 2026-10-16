@@ -19,6 +19,8 @@ rebuilt from ``processed: true`` on load, so a stale sidecar can only make
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -28,14 +30,19 @@ from api.services import bank_index, sleep_local
 FILE = "run.json"
 
 #: Why a run is paused (a closed set; the wire carries it).
-REASONS = ("user", "plan_window", "plan_weekly", "reserve", "overage", "engine", "restart", "bank_switched")
+REASONS = ("user", "plan_window", "plan_weekly", "reserve", "overage", "engine", "restart", "bank_switched", "busy")
 
-#: A scheduled run's pause that no person chose — the process went away (``restart``) or the
-#: scheduled engine failed (``engine``) — is the schedule's own to replace with a fresh
-#: unattended run (TODO ruling 16, final review): otherwise one quit of the app, or one night
+#: A scheduled run's pause that no person chose — the process went away (``restart``), the
+#: scheduled engine failed (``engine``) or a write held the bank (``busy``, G183) — is the schedule's own to replace
+#: with a fresh unattended run (TODO ruling 16, final review): otherwise one quit of the app, or one night
 #: the scheduled engine was away, would stop scheduled reading until someone pressed Continue.
 #: A person's Pause, a plan or reserve stop, and every run a person started stay theirs.
-SCHEDULE_REPLACEABLE = ("restart", "engine")
+SCHEDULE_REPLACEABLE = ("restart", "engine", "busy")
+#: Ruling 4b (owner, 2026-10-16): a scheduled run on the person's plan (their "Scheduled runs may use my plan" switch,
+#: or the old dotfile pin) that stopped at the plan's limit is the schedule's own to replace too — on a server nobody
+#: presses Continue — but only once the limit has reset: at the vendor's reset time when it gave one, else after
+#: ``ENGINE_RETRY_S``. Before then a fresh run would only stop again on its first call. Extra usage stays the person's.
+SCHEDULE_REPLACEABLE_AFTER_RESET = ("plan_window", "plan_weekly")
 #: An engine pause is replaced only once it is this old, so a scheduled engine that stays
 #: away costs one failed call every few hours, never one every five minutes.
 ENGINE_RETRY_S = 6 * 3600
@@ -57,6 +64,8 @@ def reason_for(stop) -> str | None:
         return "reserve"
     if r == "engine":
         return "engine"
+    if r == "busy":
+        return "busy"   # a write held the bank when a batch would have read it (G183): nothing of it was read
     if r == "plan_limit":
         limit = getattr(stop, "limit", None)
         return "plan_weekly" if limit == "seven_day" else "overage" if limit == "overage" else "plan_window"
@@ -98,16 +107,24 @@ def schedule_may_replace(record: dict | None, now: float | None = None) -> bool:
     if not record or record.get("phase") != "paused" or record.get("started_by") != "schedule":
         return False
     reason = record.get("reason")
+    now = time.time() if now is None else now
+    if reason in SCHEDULE_REPLACEABLE_AFTER_RESET:
+        resets = record.get("resets_at")
+        if isinstance(resets, (int, float)) and not isinstance(resets, bool) and resets > 0:
+            return now >= float(resets)
+        return now - _paused_at(record) >= ENGINE_RETRY_S
     if reason not in SCHEDULE_REPLACEABLE:
         return False
     if reason == "engine":
-        now = time.time() if now is None else now
-        try:
-            at = float(record.get("paused_at_ts") or 0)
-        except (TypeError, ValueError):
-            at = 0.0
-        return now - at >= ENGINE_RETRY_S
+        return now - _paused_at(record) >= ENGINE_RETRY_S
     return True
+
+
+def _paused_at(record: dict) -> float:
+    try:
+        return float(record.get("paused_at_ts") or 0)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def save(memory_path: Path, record: dict) -> None:
@@ -122,12 +139,14 @@ def clear(memory_path: Path) -> None:
 
 def sync_token(memory_path: Path) -> str:
     """What moves ``/sync/version``'s ``sleep`` component when a pause appears,
-    is armed or cleared: the paused run's id and its auto-continue state."""
+    is armed, changes diagnosis or clears: id, auto-continue state and diagnosis hash."""
     rec = get_paused(memory_path)
     if not rec:
         return ""
     ac = rec.get("auto_continue") or {}
-    return f"paused:{rec.get('run_id')}:{int(bool(ac.get('armed')))}:{ac.get('left', '')}"
+    diagnosis = hashlib.sha256(json.dumps([rec.get("engine_kind"), rec.get("sentence")],
+                                         ensure_ascii=True).encode()).hexdigest()[:16]
+    return f"paused:{rec.get('run_id')}:{int(bool(ac.get('armed')))}:{ac.get('left', '')}:{diagnosis}"
 
 
 def remaining_ids(memory_path: Path, record: dict) -> list[str]:
@@ -150,6 +169,7 @@ def build(ds, *, phase: str, stop=None, engine_label: str | None = None,
         "batch": ds.batch, "batch_size": ds.batch_size,
         "requeued": ds.requeued, "requeued_ids": sorted(ds.requeued_ids), "skipped": ds.skipped,
         "attempts": {k: int(v) for k, v in ds.attempts.items() if v},
+        "timeout_attempts": {k: int(v) for k, v in ds.timeout_attempts.items() if v},
         "first_run": bool(ds.first_run), "owner_beliefs": ds.owner_beliefs,
         "engine_label": engine_label or ds.engine_label, "engine_model": ds.engine_model,
         "elapsed_ms": int(elapsed_ms if elapsed_ms is not None else ds.elapsed_ms()),
@@ -166,6 +186,8 @@ def build(ds, *, phase: str, stop=None, engine_label: str | None = None,
         reason = reason_for(stop) if stop is not None else "restart"
         rec.update({
             "reason": reason or "engine",
+            "engine_kind": ("transient" if getattr(stop, "transient", False) else "needs_fix")
+                           if reason == "engine" else None,
             "sentence": (getattr(stop, "sentence", "") or None) if stop is not None else None,
             "resets_at": getattr(stop, "resets_at", None) if stop is not None else None,
             "limit": getattr(stop, "limit", None) if stop is not None else None,
@@ -196,6 +218,7 @@ def to_wire(record: dict | None, memory_path: Path | None = None) -> dict | None
         "run_id": record.get("run_id"),
         "started_by": record.get("started_by", "user"),
         "reason": record.get("reason"),
+        "engine_kind": (record.get("engine_kind") or "needs_fix") if record.get("reason") == "engine" else None,
         "sentence": record.get("sentence"),
         "resets_at": record.get("resets_at"),
         "limit": record.get("limit"),
@@ -234,7 +257,7 @@ def recover_after_restart(memory_path: Path) -> str | None:
         now = time.time()
         rec = dict(rec)
         rec.update({
-            "phase": "paused", "reason": "restart", "sentence": None, "resets_at": None, "limit": None,
+            "phase": "paused", "reason": "restart", "engine_kind": None, "sentence": None, "resets_at": None, "limit": None,
             "paused_at": datetime.fromtimestamp(now, tz=timezone.utc).isoformat(timespec="seconds"),
             "paused_at_ts": int(now), "can_continue": True, "auto_continue": None,
         })

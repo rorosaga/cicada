@@ -14,6 +14,8 @@ struct ChannelSourceView: View {
     @Environment(Store.self) private var store
     @Environment(CalendarReader.self) private var calendarReader: CalendarReader?
     @Environment(TabGroupWatcher.self) private var tabGroups: TabGroupWatcher?
+    @Environment(WatchHistoryWatcher.self) private var watchHistory: WatchHistoryWatcher?
+    @Environment(MessagesWatcher.self) private var messages: MessagesWatcher?
     @Environment(ContactsReader.self) private var contacts: ContactsReader?
     @Environment(BrowserWatcher.self) private var watcher
     @Environment(LocalSourceWatcher.self) private var localSources
@@ -95,19 +97,19 @@ struct ChannelSourceView: View {
                             VStack(spacing: CicadaTheme.scaled(RowMetrics.twoLineGap)) {
                                 ForEach(group.items) { item in
                                     FeedListRow(item: item, style: .triage, selected: false, now: now) {
-                                        router.routeToFeedItem(item.mediaEntityId)
+                                        router.routeToSavedItem(item.mediaEntityId)
                                     }
                                 }
                             }
                         }
                     }
                 } else {
-                    // R-DL16 — a source's saved item opens in the Feed's detail column ("Open in the Feed").
+                    // R-DL16 — a source's saved item opens in Sleep › Saved's detail column ("Open in Saved").
                     let now = Date.now
                     VStack(spacing: CicadaTheme.scaled(RowMetrics.twoLineGap)) {
                         ForEach(items) { item in
                             FeedListRow(item: item, style: .triage, selected: false, now: now) {
-                                router.routeToFeedItem(item.mediaEntityId)
+                                router.routeToSavedItem(item.mediaEntityId)
                             }
                         }
                     }
@@ -130,7 +132,7 @@ struct ChannelSourceView: View {
             TimelineView(.periodic(from: .now, by: SourceRowText.refreshInterval)) { context in
                 SourceRow(model: model, now: context.date, onCancel: { activity.cancel(channel.id) }) {
                     if channel.actions.contains("sync") {
-                        actionButton("Sync now") { try await ChannelActions.sync(channel.id, store: store, watcher: watcher, local: localSources, calendar: calendarReader, tabGroups: tabGroups, contacts: contacts) }
+                        actionButton("Sync now") { try await ChannelActions.sync(channel.id, store: store, watcher: watcher, local: localSources, calendar: calendarReader, tabGroups: tabGroups, contacts: contacts, messages: messages, watchHistory: watchHistory) }
                     }
                     if channel.actions.contains("poll") {
                         actionButton("Poll now") { try await ChannelActions.poll(channel.id) }

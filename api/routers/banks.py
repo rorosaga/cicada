@@ -53,7 +53,7 @@ def _refuse_switch_during_drain() -> None:
 #: miss once. Without it the app keeps the body it cached under that ETag on
 #: every 304, and a pre-`legacy` body offers the memory folder itself for
 #: deletion until some capture happens to move a stamp.
-_BANKS_BODY_SHAPE = "3"   # G117 round 4 (T-Demo): rows gained `demo`
+_BANKS_BODY_SHAPE = "4"   # G181 phase 2: rows gained `id` (the app ignores it: MemoryBank.CodingKeys)
 
 
 @router.get("/banks", response_model=BankListResponse)
@@ -168,6 +168,8 @@ async def rename_bank(
         raise HTTPException(400, "newName is required")
     if name == bank_registry.load_registry(settings.memory_root).get("active", bank_registry.DEFAULT_BANK):
         _refuse_switch_during_drain()   # renaming the bank a run is reading moves its directory
+    legacy = bool(((bank_registry.load_registry(settings.memory_root).get("banks") or {}).get(name) or {})
+                  .get("legacy"))
     try:
         slug = bank_registry.rename_bank(settings.memory_root, name, req.new_name)
     except ValueError as e:
@@ -180,6 +182,11 @@ async def rename_bank(
         else:
             code = 400
         raise HTTPException(code, msg)
+    if not legacy and slug != name:
+        # Kept LinkedIn connections are keyed by the bank's folder, which a non-legacy rename moves.
+        from api.services import linkedin_people
+
+        linkedin_people.rename(name, slug)
     logger.info(f"Renamed bank '{name}' -> '{slug}'")
     data = bank_registry.list_banks(settings.memory_root)
     return BankListResponse(
@@ -214,6 +221,10 @@ async def delete_bank(name: str, settings: Settings = Depends(get_settings)) -> 
     except ValueError as exc:
         # The same bank already sits in the trash under this second's stamp.
         raise HTTPException(409, str(exc))
+    # The bank's kept LinkedIn connections (outside every bank) go with it: names never outlive their bank.
+    from api.services import linkedin_people
+
+    linkedin_people.forget(name)
     logger.info(f"Moved bank '{name}' to the trash")
     data = bank_registry.list_banks(root)
     return BankTrashResponse(

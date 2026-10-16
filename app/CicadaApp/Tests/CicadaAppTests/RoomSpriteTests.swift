@@ -4,7 +4,7 @@ import XCTest
 final class RoomSpriteTests: XCTestCase {
     func testRoomSheetsHaveExactTagsCanvasesAndSlices() throws {
         let contracts: [(String, Int, Int, Set<String>, Set<String>)] = [
-            ("room-backdrop", 110, 64, ["dark", "lit", "night-dark", "night-lit"], ["glow"]),
+            ("room-backdrop", 160, 64, ["dark", "lit", "night-dark", "night-lit"], ["glow"]),
             ("room-window", 40, 38, ["idle", "night-dark", "night-lit"], ["glass"]),
             ("room-weather", 36, 32, Set(Scenery.weatherTags), []),
             ("room-skyfx", 36, 32, Set(SkyOverlay.tags), []),
@@ -13,7 +13,7 @@ final class RoomSpriteTests: XCTestCase {
             ("room-beanbag", 62, 12, ["idle", "night-dark", "night-lit"], ["ink", "seat"]),
             ("room-plant", 12, 22, ["idle", "night-dark", "night-lit"], ["ink"]),
             ("room-mug", 8, 9, ["idle", "night-dark", "night-lit"], ["ink"]),
-            ("room-spines", 24, 12, Set(SpineKind.allCases.map(\.rawValue)), []),
+            ("room-books", 24, 13, Set(BookKind.allCases.flatMap { [$0.rawValue, $0.rawValue + "-night"] }), []),
         ]
         for (name, w, h, tags, slices) in contracts {
             let sheet = try SpriteTestAssets.sheet(name)

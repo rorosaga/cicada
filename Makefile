@@ -9,14 +9,18 @@ ABLATIONS ?= default promotion_1 promotion_3 decay_aggressive decay_loose
 
 INSTALL_FLAGS ?=
 
-.PHONY: help install doctor app run-app install-app release-app release release-pr dev login-item no-login-item backfill-structural rebuild-episodes table1 table3 table3-sleep table3-sleep-smoke ablation ablation-smoke eval all-safe all-full
+.PHONY: help install cli doctor signing-identity embedding-model embedding-model-gemma2 embedding-model-vision app run-app install-app release-app release release-pr dev login-item no-login-item backfill-structural rebuild-episodes table1 table3 table3-sleep table3-sleep-smoke ablation ablation-smoke eval all-safe all-full
 
 help:
 	@printf '%s\n' \
 	  'Targets:' \
 	  '  make install               # plug-and-play install (install.sh)' \
 	  '  make doctor                # health checks (scripts/doctor.sh)' \
+	  '  make embedding-model       # fetch the on-device search model the release app ships (~130 MB, once)' \
+	  '  make embedding-model-gemma2 # EmbeddingGemma 2 on the Neural Engine, macOS 15+ (~585 MB + ~90 s, once)' \
+	  '  make embedding-model-vision # its image encoder, to search saved looks by picture (~309 MB, once)' \
 	  '  make install-app           # release-build, install ~/Applications/Cicada.app' \
+	  '  make signing-identity      # once per Mac: a local signing certificate, so updates keep Full Disk Access' \
 	  '  make dev                   # rebuild (debug) + reinstall + relaunch the app — the devloop command' \
 	  '  make release-app           # build the installable app with its backend (G182; nothing installed)' \
 	  '  make release VERSION=x.y.z # owner only: PR the version bump to dev (G182)' \
@@ -45,8 +49,27 @@ help:
 install:
 	bash install.sh $(INSTALL_FLAGS)
 
+# G180 — link ~/.local/bin/cicada to this checkout's `scripts/cicada` (no admin; never replaces a working link).
+cli:
+	@scripts/install-cli.sh
+
 doctor:
 	bash scripts/doctor.sh
+
+# The release app's own search model (pinned + sha256-checked in scripts/release/inputs.env) into
+# $${CICADA_HOME:-~/.cicada}/models: a checkout then embeds as a release does — onnxruntime, no torch.
+embedding-model:
+	bash scripts/fetch-embedding-model.sh
+
+# EmbeddingGemma 2 on the Neural Engine (macOS 15+, owner 2026-10-09): its pinned files (api/data/
+# embeddinggemma-2.lock.json, each sha256-checked) into $${CICADA_HOME:-~/.cicada}/models, compiled and warmed
+# once. The same code the app's Settings → Memory → Search model runs. A running backend then moves the active
+# bank to it in the background (restart it, or pick the model in Settings).
+embedding-model-gemma2:
+	$(PYTHON) -m api.services.model_fetch
+
+embedding-model-vision:
+	$(PYTHON) -m api.services.model_fetch --vision
 
 # Build the macOS app as a proper .app bundle (NOT `swift run`, which produces
 # a bundle-less executable whose window never becomes key — that breaks graph
@@ -57,12 +80,18 @@ app:
 run-app:
 	cd app/CicadaApp && ./bundle.sh --run
 
-# Install a release build as a real ~/Applications/Cicada.app — ad-hoc
-# code-signed, deterministic replace-while-running (quits any live instance
-# first; aborts rather than half-copying). Run this occasionally; `make dev`
-# below is the everyday loop.
+# Install a release build as a real ~/Applications/Cicada.app — code-signed
+# with "Cicada Local" when `make signing-identity` made it, else ad hoc;
+# deterministic replace-while-running (quits any live instance first; aborts
+# rather than half-copying). Run this occasionally; `make dev` below is the
+# everyday loop.
 install-app:
 	cd app/CicadaApp && ./install_app.sh --release
+
+# Once per Mac: the self-signed "Cicada Local" code-signing identity in the login
+# keychain, so every local build keeps macOS's privacy grants (scripts/dev/README.md).
+signing-identity:
+	scripts/dev/make-signing-identity.sh
 
 # G182 — the installable app (its own Python, code, git and model), built into
 # app/CicadaApp/.build/release/Cicada.app and smoke-tested in a temp folder.

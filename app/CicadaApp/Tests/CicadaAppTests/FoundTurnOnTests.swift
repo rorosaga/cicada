@@ -22,6 +22,20 @@ final class FoundTurnOnTests: XCTestCase {
                         readiness: { _ in readiness }, open: opened, commitDrop: { _ in drop }, refresh: {})
     }
 
+    func testTurnOnRunsTheConnectStepsAndTheCaptureFlush() async {
+        let flush = AgentWiringStep(step: "flush", display: "f", argv: ["b"], touches: [])
+        let mcp = AgentWiringStep(step: "mcp", display: "d0", argv: ["a"], touches: [])
+        let w = AgentWiringResponse(agents: [AgentWiring(id: "codex", installed: true, binary: "/bin/codex", recall: "off",
+                                                         autosave: "off", connect: [mcp], detail: nil, flushOn: [flush])],
+                                    python: "/R/api/.venv/bin/python", repo: "/R", memory: "/M")
+        var ran: [AgentWiringStep] = []
+        var d = deps(wiring: w)
+        d.connect = { steps, _, _ in ran = steps; return .done }
+        let r = await FoundTurnOn.run(.agent("codex"), deps: d)
+        XCTAssertEqual(r, .on(nil))
+        XCTAssertEqual(ran, [mcp, flush])
+    }
+
     func testAnAgentRunsItsStepsAndReportsOn() async {
         let r = await FoundTurnOn.run(.agent("codex"), deps: deps(wiring: wiring()))
         XCTAssertEqual(r, .on(nil))

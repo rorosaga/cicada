@@ -19,7 +19,7 @@ import MapKit
 //     ONLY url ever loaded is the entity's own media url (or the embed url
 //     derived from it), mirroring the "only the media's url" invariant
 //     elsewhere.
-//   • `ImageLightbox` (ImageLightbox.swift) for tap-to-enlarge.
+//   • `StoredPreview` for every picture: the one Cicada stores, never a provider's URL (owner rulings 2026-10-14).
 //
 // KNOWN, DISCLOSED, NOT FIXED HERE: a `media` entity page renders BOTH this
 // hero and `MediaPreview` — `EntityDetailCard.contentTab` shows the preview
@@ -57,12 +57,15 @@ struct HeroPreview: View {
         guard let media = entity.media, media.hasURL else { return false }
         let model = MediaPreviewModel(block: media, title: entity.name)
         switch model.kind {
-        case .embedVideo, .fileVideo, .image:
+        case .embedVideo, .fileVideo:
             return true
+        case .image:
+            // Owner rulings 2026-10-14: only the picture Cicada stores — the provider's URL is never loaded.
+            return model.hasPicture
         case .instagram:
-            return model.thumbnailURL != nil
+            return model.hasPicture
         case .website:
-            return model.thumbnailURL != nil || !(model.site ?? "").isEmpty
+            return model.hasPicture || !(model.site ?? "").isEmpty
         }
     }
 
@@ -84,19 +87,19 @@ struct HeroPreview: View {
             FileVideoHero(ref: ref)
 
         case .image:
-            if let url = model.resolvedURL {
-                HeroImage(url: url)
+            if model.hasPicture {
+                HeroStoredImage(path: model.preview)
             }
 
         case .instagram:
             // Login-walled — no in-app embed, but a saved thumbnail is still
             // a "usable image" per the catch-all rule.
-            if let thumb = model.thumbnailURL {
-                HeroImage(url: thumb)
+            if model.hasPicture {
+                HeroStoredImage(path: model.preview)
             }
 
         case .website:
-            if model.thumbnailURL != nil {
+            if model.hasPicture {
                 WebsiteHero(model: model)
             } else if let site = model.site, !site.isEmpty {
                 CompactSiteHero(model: model)
@@ -147,14 +150,8 @@ private struct EmbedVideoHero: View {
             if let url = model.resolvedURL { NSWorkspace.shared.open(url) }
         } label: {
             ZStack {
-                if let thumb = model.thumbnailURL {
-                    AsyncImage(url: thumb) { phase in
-                        if case .success(let image) = phase {
-                            image.resizable().scaledToFill()
-                        } else {
-                            CicadaTheme.surfaceHover
-                        }
-                    }
+                if model.hasPicture {
+                    StoredPreview(path: model.preview) { CicadaTheme.surfaceHover }
                 } else {
                     CicadaTheme.surfaceHover
                 }
@@ -208,51 +205,28 @@ private struct FileVideoHero: View {
     }
 }
 
-// MARK: - Hero image (any entity with a usable thumbnail/image url)
+// MARK: - Hero stored picture (a login-walled page's saved preview)
 
-private struct HeroImage: View {
-    let url: URL
-    @State private var showLightbox = false
+/// The stored preview at hero size — a saved image, or a login-walled page's saved preview.
+private struct HeroStoredImage: View {
+    let path: String?
 
     var body: some View {
-        Button { showLightbox = true } label: {
-            AsyncImage(url: url) { phase in
-                switch phase {
-                case .success(let image):
-                    image.resizable().scaledToFill()
-                case .failure:
-                    placeholder(symbol: "photo")
-                case .empty:
-                    ZStack {
-                        CicadaTheme.surfaceHover
-                        ProgressView().controlSize(.small)
-                    }
-                @unknown default:
-                    placeholder(symbol: "photo")
-                }
+        StoredPreview(path: path) {
+            ZStack {
+                CicadaTheme.mediaPink.opacity(0.1)
+                Image(systemName: "photo")
+                    .font(CicadaTheme.font(size: 28))
+                    .foregroundStyle(CicadaTheme.mediaPink.opacity(0.6))
             }
-            .frame(maxWidth: .infinity)
-            .frame(height: HeroPreview.maxHeight)
-            .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadius))
-            .overlay(
-                RoundedRectangle(cornerRadius: CicadaTheme.cornerRadius)
-                    .stroke(CicadaTheme.border, lineWidth: 1)
-            )
         }
-        .buttonStyle(.cicadaPlain)
-        .help("Click to enlarge")
-        .sheet(isPresented: $showLightbox) {
-            ImageLightbox(url: url)
-        }
-    }
-
-    private func placeholder(symbol: String) -> some View {
-        ZStack {
-            CicadaTheme.mediaPink.opacity(0.1)
-            Image(systemName: symbol)
-                .font(CicadaTheme.font(size: 28))
-                .foregroundStyle(CicadaTheme.mediaPink.opacity(0.6))
-        }
+        .frame(maxWidth: .infinity)
+        .frame(height: HeroPreview.maxHeight)
+        .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadius))
+        .overlay(
+            RoundedRectangle(cornerRadius: CicadaTheme.cornerRadius)
+                .stroke(CicadaTheme.border, lineWidth: 1)
+        )
     }
 }
 
@@ -266,14 +240,8 @@ private struct WebsiteHero: View {
             if let url = model.resolvedURL { NSWorkspace.shared.open(url) }
         } label: {
             VStack(alignment: .leading, spacing: 0) {
-                if let thumb = model.thumbnailURL {
-                    AsyncImage(url: thumb) { phase in
-                        if case .success(let image) = phase {
-                            image.resizable().scaledToFill()
-                        } else {
-                            siteThumbPlaceholder
-                        }
-                    }
+                if model.hasPicture {
+                    StoredPreview(path: model.preview) { siteThumbPlaceholder }
                     .frame(maxWidth: .infinity)
                     .frame(height: HeroPreview.maxHeight - 64)
                     .clipped()
@@ -374,7 +342,7 @@ private struct CompactSiteHero: View {
 // `.location`). Results are cached in-memory per entity id (`resolveCache`)
 // so re-renders (tab switches, scroll, parent re-layout) never re-geocode.
 
-private struct LocationHero: View {
+struct LocationHero: View {
     let entity: Entity
 
     @State private var coordinate: CLLocationCoordinate2D?
@@ -431,25 +399,11 @@ private struct LocationHero: View {
     }
 
     private func mapView(_ coordinate: CLLocationCoordinate2D) -> some View {
-        Map(initialPosition: .region(
-            MKCoordinateRegion(
-                center: coordinate,
-                span: MKCoordinateSpan(latitudeDelta: 0.08, longitudeDelta: 0.08)
-            )
-        )) {
-            Marker(entity.name, coordinate: coordinate)
-        }
-        .frame(maxWidth: .infinity)
-        .frame(height: HeroPreview.maxHeight)
-        .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadius))
-        .overlay(
-            RoundedRectangle(cornerRadius: CicadaTheme.cornerRadius)
-                .stroke(CicadaTheme.border, lineWidth: 1)
-        )
-        .overlay(alignment: .bottomTrailing) {
-            openInMapsButton(coordinate)
-                .padding(CicadaTheme.spacingSM)
-        }
+        LocationMap(name: entity.name, coordinate: coordinate)
+            .overlay(alignment: .bottomTrailing) {
+                openInMapsButton(coordinate)
+                    .padding(CicadaTheme.spacingSM)
+            }
     }
 
     private func openInMapsButton(_ coordinate: CLLocationCoordinate2D) -> some View {
@@ -504,7 +458,7 @@ private struct LocationHero: View {
     /// a nested block. No backend support for these keys exists today — this
     /// only pays off if frontmatter is hand-edited or a future backend adds
     /// them — so it degrades to `nil` (→ geocoding) whenever absent.
-    private static func declaredCoordinate(from raw: String) -> CLLocationCoordinate2D? {
+    static func declaredCoordinate(from raw: String) -> CLLocationCoordinate2D? {
         guard !raw.isEmpty else { return nil }
         let lines = raw.components(separatedBy: "\n")
         var fmLines: [String] = []
@@ -540,5 +494,30 @@ private struct LocationHero: View {
         }
         guard let lat, let lon else { return nil }
         return CLLocationCoordinate2D(latitude: lat, longitude: lon)
+    }
+}
+
+/// A location page's map (`LocationHero`): one pin, the region around it.
+struct LocationMap: View {
+    let name: String
+    let coordinate: CLLocationCoordinate2D
+
+    var body: some View {
+        Map(initialPosition: .region(
+            MKCoordinateRegion(
+                center: coordinate,
+                span: MKCoordinateSpan(latitudeDelta: 0.08, longitudeDelta: 0.08)
+            )
+        ), interactionModes: []) {
+            Marker(name, coordinate: coordinate)
+        }
+        .allowsHitTesting(false)
+        .frame(maxWidth: .infinity)
+        .frame(height: HeroPreview.maxHeight)
+        .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadius))
+        .overlay(
+            RoundedRectangle(cornerRadius: CicadaTheme.cornerRadius)
+                .stroke(CicadaTheme.border, lineWidth: 1)
+        )
     }
 }

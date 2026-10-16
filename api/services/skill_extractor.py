@@ -15,16 +15,9 @@ from api.config import Settings
 from api.services import engine_errors, json_parse
 from api.services.providers import resolve_llm_fn
 
-SKILL_DETECTION_PROMPT = """You are analyzing patterns in a personal knowledge graph to extract procedural skills and preferences.
-
-ENTITY CHANGES THIS CYCLE:
-{changes}
-
-FREQUENTLY CO-OCCURRING ENTITIES (appeared together in 3+ conversations):
-{cooccurrences}
-
-RELATED EXISTING ENTITIES:
-{existing}
+# One request in two messages (2026-10-16 perf): the fixed instructions as the system message — the same bytes every
+# call, so an engine's prompt cache serves them — and this cycle's changes as the user message.
+SKILL_DETECTION_RULES = """You are analyzing patterns in a personal knowledge graph to extract procedural skills and preferences.
 
 Look for:
 1. WORKFLOW PATTERNS — recurring sequences of actions or tools used together.
@@ -35,18 +28,27 @@ Look for:
    Example: "Career conversations always involve both the current employer and the field."
 
 Output valid JSON:
-{{
+{
   "skills": [
-    {{
+    {
       "name": "Descriptive Skill Name",
       "description": "1-2 sentence procedural description written as an instruction or observation",
       "evidence_entities": ["Entity A", "Entity B"],
       "confidence": 0.7
-    }}
+    }
   ]
-}}
+}
 
-Only extract skills with clear evidence from multiple conversations. Do not speculate. If there is no strong pattern, return {{"skills": []}}."""
+Only extract skills with clear evidence from multiple conversations. Do not speculate. If there is no strong pattern, return {"skills": []}."""
+
+SKILL_DETECTION_INPUT = """ENTITY CHANGES THIS CYCLE:
+{changes}
+
+FREQUENTLY CO-OCCURRING ENTITIES (appeared together in 3+ conversations):
+{cooccurrences}
+
+RELATED EXISTING ENTITIES:
+{existing}"""
 
 COOCCURRENCE_MIN_COUNT = 3
 MAX_CHANGES_IN_PROMPT = 40
@@ -68,7 +70,7 @@ async def detect_patterns(
     change_payload = _format_changes(changes)
     existing_payload = _format_existing(existing, changes)
 
-    prompt = SKILL_DETECTION_PROMPT.format(
+    prompt = SKILL_DETECTION_INPUT.format(
         changes=change_payload,
         cooccurrences=_format_cooccurrences(cooccurrences),
         existing=existing_payload,
@@ -84,7 +86,7 @@ async def detect_patterns(
             completion=litellm.acompletion, stage="skills",
         )
         response = await llm_fn(
-            messages=[{"role": "user", "content": prompt}],
+            messages=[{"role": "system", "content": SKILL_DETECTION_RULES}, {"role": "user", "content": prompt}],
             response_format={"type": "json_object"},
         )
         content = response.choices[0].message.content
@@ -146,6 +148,7 @@ def _format_existing(existing: list[dict], changes: list[dict]) -> str:
     An installed agent skill's page (``tags: [agent-skill]``, ``skill_tag``) is
     left out: it is a tool the person chose, and the extractor must never mistake
     it for a pattern it found."""
+    from api.services.claims import strip_claims_block
     from api.services.skill_tag import is_agent_skill
 
     existing = [e for e in existing if not is_agent_skill(e.get("frontmatter"))]
@@ -162,6 +165,6 @@ def _format_existing(existing: list[dict], changes: list[dict]) -> str:
         fm = entity_data.get("frontmatter", {}) or {}
         name = fm.get("name", entity_data.get("id", "unknown"))
         etype = fm.get("type", "unknown")
-        body = (entity_data.get("body") or "")[:EXISTING_BODY_CHAR_BUDGET]
+        body = strip_claims_block(entity_data.get("body"))[:EXISTING_BODY_CHAR_BUDGET]
         lines.append(f"### {name} ({etype})\n{body}")
     return "\n\n".join(lines) if lines else "(none)"

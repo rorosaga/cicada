@@ -95,7 +95,7 @@ enum AddSourceTile: String, CaseIterable, Identifiable {
         case .pinterest: "Boards and pins, pulled straight from your account."
         case .reddit: "Saved posts and comments, pulled every night."
         case .tiktok: "Favourites and likes, from a data export."
-        case .linkedin: "Saved items — links and dates, nothing more."
+        case .linkedin: "Saved items, and your connections for the people you already know."
         case .x: "Bookmarks, pulled straight from your account."
         }
     }
@@ -624,14 +624,28 @@ struct AddSourceSheet: View {
                 // is imported.
                 VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
                     WalkthroughPanel(vendors: tile.vendors, vendor: $vendor) { pickForPreview() }
-                    if tile == .tiktok {
-                        Toggle("Also import browsing history (noisy)", isOn: $includeHistory)
+                    if tile == .tiktok || tile == .youtube {
+                        // G71 (2026-10-16): history comes in as one entry per day of what was watched, never as
+                        // saved links — for YouTube's Takeout as for TikTok's export.
+                        Toggle(Copy.importIncludeHistory, isOn: $includeHistory)
                             .font(CicadaTheme.captionFont)
-                            .accessibilityLabel("Also import TikTok browsing history")
+                            .help(Copy.importIncludeHistoryDetail)
+                            .accessibilityLabel(tile == .youtube ? "Include YouTube watch history"
+                                                                 : "Include TikTok browsing history")
                     }
                     ImportPreviewSection(stage: stage,
                                          onConfirm: { confirmImport($0) },
                                          onCancel: { stage = .idle })
+                    if tile.offersConnections {
+                        // 2026-10-16 (G154's pattern): the people the person is connected to, enriching only the
+                        // people Cicada already has — its own drop target, never the save-list importer above.
+                        Divider()
+                        LinkedInConnectionsPanel()
+                    }
+                }
+                // A flip after the preview previews again, so Confirm imports what the counts say.
+                .onChange(of: includeHistory) { _, _ in
+                    if case .preview(_, let file, _) = stage { preview(file) }
                 }
                 .onDrop(of: [.fileURL], isTargeted: nil) { providers in
                     guard let provider = providers.first else { return false }
@@ -700,7 +714,7 @@ struct AddSourceSheet: View {
             VStack(spacing: CicadaTheme.spacingXS) {
                 ForEach(feeds) { feed in
                     FeedSubscriptionRow(feed: feed, isRemoving: removingFeed == feed.url) {
-                        Task {
+                        store.bankTask {
                             removingFeed = feed.url
                             await store.perform(UnsubscribeFeed(url: feed.url))
                             removingFeed = nil
@@ -717,7 +731,7 @@ struct AddSourceSheet: View {
             VStack(spacing: CicadaTheme.spacingXS) {
                 ForEach(calendars) { cal in
                     CalendarSubscriptionRow(calendar: cal, isRemoving: removingCalendar == cal.url) {
-                        Task {
+                        store.bankTask {
                             removingCalendar = cal.url
                             await store.perform(UnsubscribeCalendar(url: cal.url))
                             removingCalendar = nil

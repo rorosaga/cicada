@@ -11,7 +11,7 @@ One command for both events: the harness's own stdin names the event
 (``hook_event_name``, a common input field in Claude Code; Codex's
 ``SessionStartCommandInput`` / ``UserPromptSubmitCommandInput``, openai/codex
 ``codex-rs/hooks/src/schema.rs`` @ c098f97). This script POSTs the event, the
-session id and, for UserPromptSubmit only, the prompt (``prompt`` in both
+session id, for SessionStart the harness's ``source`` (G110), and, for UserPromptSubmit only, the prompt (``prompt`` in both
 harnesses, windowed exactly as ``hook_recall.prompt_window`` reads it) to
 ``POST /capture/hook-context`` as a JSON body, never a query string. It
 prints ``{"hookSpecificOutput": {"hookEventName": …, "additionalContext": …}}``
@@ -51,6 +51,9 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).parent))
+from workspace_identity import observe_if_needed, remember  # stdlib sibling, run by path
+
 TIMEOUT_S = 0.9
 LOG_MAX_BYTES = 1024 * 1024
 HEAD_CHARS = 6000
@@ -64,8 +67,10 @@ def _default_post(url: str, body: bytes, token: str, timeout: float) -> tuple[in
         url, data=body, method="POST",
         headers={"Content-Type": "application/json", "Authorization": f"Bearer {token}"},
     )
+    import hook_client  # stdlib sibling: no proxy, and no redirect followed with the token (G181 phase 2)
+
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 - loopback only
+        with hook_client.opener().open(req, timeout=timeout) as resp:  # noqa: S310 - loopback or the person's server
             return resp.status, resp.read().decode("utf-8", "replace")
     except urllib.error.HTTPError as exc:
         # A 4xx body can echo the prompt back (FastAPI's 422): never read it.
@@ -94,6 +99,14 @@ def _window(prompt: str) -> str:
     if len(prompt) <= HEAD_CHARS + TAIL_CHARS:
         return prompt
     return prompt[:HEAD_CHARS] + "\n" + prompt[-TAIL_CHARS:]
+
+
+def _client(environ) -> bool:
+    """G181 phase 2: ``CICADA_API_BASE`` (or, phase 3, the app's ``api_base`` file) names a backend on another machine
+    (``hook_client.py``, stdlib at import)."""
+    import hook_client as remote_client
+
+    return remote_client.is_client(environ)
 
 
 def _off(environ, key: str) -> bool:
@@ -143,12 +156,24 @@ def main(argv=None, *, stdin=None, stdout=None, environ=None, post=None, log_pat
         if event == "user_prompt_submit" and payload.get("agent_id"):
             _log(log_path, f"{tag} {event} skipped: a sub-agent's prompt")
             return 0
-        token = str(environ.get("CICADA_API_TOKEN") or "").strip()
-        if not token:
-            try:
-                token = token_path.read_text(encoding="utf-8").strip()
-            except OSError:
-                token = ""
+        if _client(environ):
+            # G181 phase 2: the backend is on another machine (CICADA_API_BASE), reached with this device's token.
+            import hook_client as remote_client
+
+            base, token, problem = remote_client.target(environ)
+            if problem:
+                _log(log_path, f"{tag} {event} skipped: {problem}")
+                return 0
+            url = f"{base}/capture/hook-context"
+        else:
+            token = str(environ.get("CICADA_API_TOKEN") or "").strip()
+            if not token:
+                try:
+                    token = token_path.read_text(encoding="utf-8").strip()
+                except OSError:
+                    token = ""
+            port = str(environ.get("CICADA_PORT") or "8000")
+            url = f"http://127.0.0.1:{port}/capture/hook-context"
         if not token:
             _log(log_path, f"{tag} {event} skipped: no api_token at {token_path.name}")
             return 0
@@ -161,13 +186,22 @@ def main(argv=None, *, stdin=None, stdout=None, environ=None, post=None, log_pat
             "model": payload.get("model") if isinstance(payload.get("model"), str) else None,
             "prompt": _window(prompt) if event == "user_prompt_submit" and isinstance(prompt, str) else None,
         }
-        port = str(environ.get("CICADA_PORT") or "8000")
+        source = payload.get("source")
+        if event == "session_start" and isinstance(source, str) and source:
+            # G110: how the session started (startup/resume/clear/compact/fork in
+            # both harnesses). The backend sends a continuity block only for
+            # startup and clear, and treats a missing value as unknown.
+            body["source"] = source[:32]
+        workspace = observe_if_needed(body["cwd"], home=home, environ=environ, harness=harness,
+                                      session_id=session_id, startup=event == "session_start")
+        if workspace is not None:
+            body["workspace"] = workspace
         started = time.monotonic()
-        status, text = post(f"http://127.0.0.1:{port}/capture/hook-context", json.dumps(body).encode("utf-8"),
-                            token, TIMEOUT_S)
+        status, text = post(url, json.dumps(body).encode("utf-8"), token, TIMEOUT_S)
         ms = int((time.monotonic() - started) * 1000)
         reason, pages, context = "-", 0, None
         if status == 200:
+            remember(home, harness, session_id, workspace, environ=environ)
             try:
                 parsed = json.loads(text)
                 raw = str(parsed.get("reason") or "")

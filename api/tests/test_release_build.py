@@ -10,6 +10,8 @@ import re
 import tomllib
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 RELEASE = ROOT / "scripts" / "release"
 
@@ -86,3 +88,25 @@ def test_the_predicate_seed_ships_inside_api():
 
     assert predicates._SEED_PATH == ROOT / "api" / "data" / "predicates-seed.yaml"
     assert predicates._SEED_PATH.is_file()
+
+
+def test_every_data_file_the_code_reads_is_tracked():
+    """The bundle copies tracked files only and ``/api/data/*`` is ignored but for a list, so a file the code
+    reads there that git ignores works in the checkout that made it and fails everywhere else (#253's pins)."""
+    import subprocess
+
+    try:
+        tracked = set(subprocess.run(["git", "ls-files", "--", "api/data"], cwd=ROOT, check=True,
+                                     capture_output=True, text=True).stdout.split())
+    except (OSError, subprocess.CalledProcessError):
+        pytest.skip("not a git checkout")
+    named = set()
+    for src in [*(ROOT / "api").rglob("*.py"), *(ROOT / "mcp").rglob("*.py")]:
+        if "tests" in src.relative_to(ROOT).parts or ".venv" in src.parts:
+            continue
+        text = src.read_text(encoding="utf-8")
+        named |= set(re.findall(r'"data"\s*/\s*"([\w.-]+)"', text))
+        named |= set(re.findall(r"api/data/([\w-]+(?:\.[\w-]+)+)", text))
+    assert {"predicates-seed.yaml", "embeddinggemma-2.lock.json"} <= named, "the scan still finds the readers"
+    missing = sorted(f"api/data/{n}" for n in named if f"api/data/{n}" not in tracked)
+    assert not missing, f"read at runtime but not tracked (re-include in .gitignore): {missing}"

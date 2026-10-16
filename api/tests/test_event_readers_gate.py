@@ -9,7 +9,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 READS = re.compile(r"parse_claims\(|claims_about\(|_lexical_claims|claim_subject_hits")
-CLOSED = re.compile(r"valid_to|superseded_by")
+CLOSED = re.compile(r"valid_to|superseded_by|\bis_current\(")
 KNOWS = re.compile(r"\bis_event\(|\bis_record\(|_is_history\(")
 EXEMPT = {
     "api/services/claims.py": "defines is_event/is_record",
@@ -27,6 +27,7 @@ EXEMPT = {
     "api/services/reading_walls.py": "current-only: asks whether a live `describes` claim exists (valid_to unset)",
     "api/services/inbox_service.py": "a resolver: closes the claims a question names",
     "api/services/entity_merge.py": "a merge: carries every claim — events and records too — unchanged but its subject",
+    "api/services/linkedin_people.py": "writes its own external:linkedin claims; reads only works-at/role/connected-on",
 }
 HISTORY_READERS = ("api/services/mcp_tools.py", "api/routers/claims.py", "api/services/provenance.py",
                    "api/services/search_service.py", "api/services/search_index.py")

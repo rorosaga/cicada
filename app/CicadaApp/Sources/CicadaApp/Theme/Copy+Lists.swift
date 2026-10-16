@@ -9,6 +9,9 @@ extension Copy {
         static let findHelp = "Find on this page (⌘F)"
         static let closeCard = "Close (Esc)"
         static let showList = "Show the list"
+        /// The tabs that did not fit (owner 2026-10-16): one menu after All and the selected tab.
+        static let more = "More"
+        static let moreTabs = "More tabs"
         static func matches(_ n: Int) -> String { n == 1 ? "1 match" : "\(UsageFormat.count(n)) matches" }
 
         // Clusters
@@ -74,6 +77,8 @@ extension Copy {
         static func savedOn(_ day: String) -> String { "Saved \(day)" }
         static func savedRow(_ day: String) -> String { "saved \(day)" }
         static func relevanceLine(_ pct: String) -> String { "relevance \(pct)" }
+        /// A Saved row's relevance with its noun (DR-59: never a bare "%"; the rows read "90%", QA 2026-10-16).
+        static func relevanceShort(_ pct: String) -> String { "\(pct) relevant" }
         static func noFeedMatch(_ q: String) -> String { "Nothing saved matches “\(q)”." }
         static func openInClusters(_ name: String) -> String { "Open \(name) in Clusters" }
         static func sourceHelp(_ origin: String) -> String { "Saved from \(origin)" }

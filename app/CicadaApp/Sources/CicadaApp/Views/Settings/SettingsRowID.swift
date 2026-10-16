@@ -12,7 +12,6 @@ struct SettingsRowID: RawRepresentable, Hashable, Codable, Sendable {
 
     // General (Task 1)
     static let appearance = SettingsRowID("appearance")
-    static let heroScene = SettingsRowID("heroScene")
     static let textSize = SettingsRowID("textSize")
     static let runSetup = SettingsRowID("runSetup")
     // General → the app's version (G182)
@@ -24,6 +23,13 @@ struct SettingsRowID: RawRepresentable, Hashable, Codable, Sendable {
     // General → Startup → Show in menu bar (round-4 decision 6, R-HO16)
     static let showInMenuBar = SettingsRowID("showInMenuBar")
     static let backgroundService = SettingsRowID("backgroundService")
+    // General → Where your memory lives (G181 phase 3): This Mac or a server
+    static let memoryHome = SettingsRowID("memoryHome")
+    // Devices (G181 phase 3): this app's connection, and the person's devices
+    static let devicesConnection = SettingsRowID("devicesConnection")
+    static let devicesList = SettingsRowID("devicesList")
+    // General → Setup → Command-line tool (G180, TODO ruling 21)
+    static let commandLineTool = SettingsRowID("commandLineTool")
     // General → Getting to know Cicada (G152, G117 round 4)
     static let guidedTour = SettingsRowID("guidedTour")
     static let demoMemory = SettingsRowID("demoMemory")
@@ -32,6 +38,8 @@ struct SettingsRowID: RawRepresentable, Hashable, Codable, Sendable {
     static let sleepTime = SettingsRowID("sleepTime")
     static let sleepInterval = SettingsRowID("sleepInterval")
     static let sleepEngine = SettingsRowID("sleepEngine")
+    /// Ruling 4b — "Scheduled runs may use my plan".
+    static let sleepUsePlan = SettingsRowID("sleepUsePlan")
     static let scenerySource = SettingsRowID("scenerySource")
     static let sceneryTime = SettingsRowID("sceneryTime")
     static let sceneryWeather = SettingsRowID("sceneryWeather")
@@ -46,6 +54,8 @@ struct SettingsRowID: RawRepresentable, Hashable, Codable, Sendable {
     static let engineAutoClaude = SettingsRowID("engineAutoClaude")
     // Integrations (round-4 D2)
     static let calendarApp = SettingsRowID("calendarApp")
+    // Integrations → Browsers (G191): ask why when a bookmark is made
+    static let saveWhy = SettingsRowID("saveWhy")
     // Integrations (round 4, G154)
     static let contactsApp = SettingsRowID("contactsApp")
     // Agents and From anywhere (Task 3)
@@ -57,9 +67,18 @@ struct SettingsRowID: RawRepresentable, Hashable, Codable, Sendable {
     static let agentsReading = SettingsRowID("agentsReading")
     // Agents' Remembers automatically (G149)
     static let agentsAutoRecall = SettingsRowID("agentsAutoRecall")
+    // Agents' Editing pages (G198): the agents that may edit a page's words directly
+    static let agentsEditors = SettingsRowID("agentsEditors")
     // Reading the web (G166): the master switch, the hand-off prompt, how the agent reads, the sites that need a browser
     static let readingAgent = SettingsRowID("readingAgent")
     static let readingPrompt = SettingsRowID("reading:prompt")
+    // G166 exploring (D2 amended): explore in the signed-in session, or a private context
+    static let readingExploreSignedIn = SettingsRowID("readingExploreSignedIn")
+    static let readingNeverExplore = SettingsRowID("readingNeverExplore")
+    // G71 (2026-10-16): the YouTube lists the person's own agent keeps current
+    static let readingYouTube = SettingsRowID("readingYouTube")
+    static func readingYouTubeList(_ list: String) -> SettingsRowID { SettingsRowID("reading:youtube:\(list)") }
+    static func readingNever(_ site: String) -> SettingsRowID { SettingsRowID("reading:never:\(site)") }
     static let readingMethods = SettingsRowID("readingMethods")
     static let watchingMethods = SettingsRowID("watchingMethods")
     static let readingSites = SettingsRowID("readingSites")
@@ -86,6 +105,12 @@ struct SettingsRowID: RawRepresentable, Hashable, Codable, Sendable {
     static let transcripts = SettingsRowID("transcripts")
     // Memory (Task 6)
     static let searchIndex = SettingsRowID("searchIndex")
+    // Search & files (owner, 2026-10-14): the folder list, the two consent rows and the Advanced disclosure
+    // (Search version and Rebuild search land on it and open it).
+    static let searchFolders = SettingsRowID("searchFolders")
+    static let searchMeaning = SettingsRowID("searchMeaning")
+    static let searchImages = SettingsRowID("searchImages")
+    static let searchAdvanced = SettingsRowID("searchAdvanced")
     // Memory → Search model (G182 phase 3)
     static let searchModel = SettingsRowID("searchModel")
     static let enrichLinks = SettingsRowID("enrichLinks")
@@ -95,6 +120,7 @@ struct SettingsRowID: RawRepresentable, Hashable, Codable, Sendable {
     static let mcpCommand = SettingsRowID("mcpCommand")
     static let apiToken = SettingsRowID("apiToken")
     static let envOverrides = SettingsRowID("envOverrides")
+    static let settingsFile = SettingsRowID("settingsFile")
 
     /// Every section's header — what a section-level hit lands on (R-O14).
     static func page(_ section: SettingsSection) -> SettingsRowID { SettingsRowID("page:\(section.rawValue)") }

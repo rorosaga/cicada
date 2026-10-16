@@ -226,7 +226,7 @@ def _default_backend() -> str:
     """``CICADA_PORT``'s backend, else ``DEFAULT_BACKEND`` (G182)."""
     from api.services import runtime_layout
 
-    return runtime_layout.backend_url()
+    return runtime_layout.local_backend_url()
 SLEEP_REFUSAL = ("a Sleep cycle is running, and its commit would take these files under its own author; "
                  "nothing was imported — run it again once the cycle ends")
 DEMO_REFUSAL = "that bank is the demo, which holds only made-up examples; nothing was imported"

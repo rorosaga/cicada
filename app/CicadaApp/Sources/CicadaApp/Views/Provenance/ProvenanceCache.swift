@@ -75,6 +75,8 @@ final class ProvenanceCache {
     static let documentCapacity = 12
     static let provenanceCapacity = 64
     static let citationsCapacity = 24
+    static let overviewCapacity = 64
+    static let blameCapacity = 32
 
     struct SpanKey: Hashable { let episode: String; let start: Int; let end: Int; let hash: String }
     struct DocumentKey: Hashable { let episode: String; let focus: ReaderFocusQuery }
@@ -88,6 +90,15 @@ final class ProvenanceCache {
         LRUCache<String, Tagged<EntityProvenance>>(capacity: ProvenanceCache.provenanceCapacity)
     @ObservationIgnored private var citationSets =
         LRUCache<String, Tagged<EpisodeCitations>>(capacity: ProvenanceCache.citationsCapacity)
+    /// Owner 2026-10-14 — a page's "Where this comes from" (`/sources/overview`), by entity id. Same contract as
+    /// `provenances`: revalidated by ETag on every ask (a source the person just added shows at once), a failure keeps
+    /// the last-known-good copy, a 404 is gone.
+    @ObservationIgnored private var overviews =
+        LRUCache<String, Tagged<PageSourcesOverview>>(capacity: ProvenanceCache.overviewCapacity)
+
+    /// G198 — "Who wrote it" (`/blame`), by entity id. No ETag: asked again each time the section shows (the backend
+    /// keeps its own answer per HEAD), a failure keeps the last-known-good copy, a 404 is gone.
+    @ObservationIgnored private var blames = LRUCache<String, PageBlame>(capacity: ProvenanceCache.blameCapacity)
 
     init(api: any ProvenanceAPI = APIClient.shared) { self.api = api }
 
@@ -97,6 +108,8 @@ final class ProvenanceCache {
         documents = LRUCache(capacity: Self.documentCapacity)
         provenances = LRUCache(capacity: Self.provenanceCapacity)
         citationSets = LRUCache(capacity: Self.citationsCapacity)
+        overviews = LRUCache(capacity: Self.overviewCapacity)
+        blames = LRUCache(capacity: Self.blameCapacity)
     }
 
     /// Forget the hover previews only — called whenever the bank's episodes or
@@ -169,6 +182,36 @@ final class ProvenanceCache {
         } catch {
             if Self.isGone(error) { provenances.remove(entityId) }
             return Self.classify(error, cached: cached?.value)
+        }
+    }
+
+    func sourcesOverview(entityId: String) async -> ProvenanceLoad<PageSourcesOverview> {
+        let cached = overviews.get(entityId)
+        do {
+            let result = try await api.fetchSourcesOverview(entityId: entityId, etag: cached?.etag)
+            if result.notModified, let cached { return .loaded(cached.value) }
+            guard let value = result.value else { return Self.classify(nil, cached: cached?.value) }
+            overviews.set(entityId, Tagged(etag: result.etag, value: value))
+            return .loaded(value)
+        } catch {
+            if Self.isGone(error) { overviews.remove(entityId) }
+            return Self.classify(error, cached: cached?.value)
+        }
+    }
+
+    /// The last answer held for `entityId`, without asking — what the section draws at once on a re-open.
+    func cachedBlame(entityId: String) -> PageBlame? { blames.get(entityId) }
+
+    func blame(entityId: String) async -> ProvenanceLoad<PageBlame> {
+        let cached = blames.get(entityId)
+        do {
+            let value = try await api.fetchEntityBlame(entityId: entityId)
+            // A pending answer is not a page with no authors: it never replaces the copy held (G198 review B3).
+            if !value.pending { blames.set(entityId, value) }
+            return .loaded(value)
+        } catch {
+            if Self.isGone(error) { blames.remove(entityId) }
+            return Self.classify(error, cached: cached)
         }
     }
 

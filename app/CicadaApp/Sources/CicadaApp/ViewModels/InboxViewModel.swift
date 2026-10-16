@@ -100,11 +100,12 @@ final class InboxViewModel {
     /// once; the POST waits for the Undo window (R-DI2). Nothing to await: there is no request yet.
     func answer(_ item: InboxItem, _ resolution: QuestionResolution) {
         let words = UndoLabel.of(resolution, item: item, names: store.entityNames)
-        store.hold(InboxResolve(id: item.id, action: resolution.action, answer: resolution.answer,
+        let held = store.hold(InboxResolve(id: item.id, action: resolution.action, answer: resolution.answer,
                                 optionKey: resolution.optionKey, remindDays: resolution.remindDays,
                                 mergeTarget: resolution.mergeTarget, mergeSurvivor: resolution.mergeSurvivor),
                    label: words.full, shortLabel: words.short, question: item.questionText,
                    kind: item.kind, channel: item.channel)
+        guard held else { return }   // a bank switch is in flight: the question stays open (G183(d))
         // DR-29 — the next row opens at once (`visible` already leaves the held one out).
         columns.afterAnswer(item.id, remaining: visible)
     }

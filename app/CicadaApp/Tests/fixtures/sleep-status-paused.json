@@ -131,6 +131,7 @@
     "error": "Stage 1 extracted nothing \u2014 every episode failed on the Claude Code engine. Run `claude auth status` to check the plan is signed in. The queue is intact; trigger Sleep again once it is. (signed in)",
     "indexWarning": null,
     "lastEngine": "claude-cli",
+    "lastFinishedCycle": null,
     "organicResolutions": 0,
     "paused": {
       "autoContinue": {
@@ -142,6 +143,7 @@
       "calls": 0,
       "canContinue": true,
       "committedBatches": 1,
+      "engineKind": "needs_fix",
       "engineLabel": "claude-cli",
       "filed": 3,
       "frozen": 9,
@@ -288,6 +290,7 @@
     "error": null,
     "indexWarning": null,
     "lastEngine": "claude-cli",
+    "lastFinishedCycle": null,
     "organicResolutions": 0,
     "paused": {
       "autoContinue": {
@@ -299,6 +302,7 @@
       "calls": 0,
       "canContinue": true,
       "committedBatches": 1,
+      "engineKind": null,
       "engineLabel": "claude-cli",
       "filed": 3,
       "frozen": 9,
@@ -459,6 +463,7 @@
     "error": null,
     "indexWarning": null,
     "lastEngine": "claude-cli",
+    "lastFinishedCycle": null,
     "organicResolutions": 0,
     "paused": {
       "autoContinue": {
@@ -470,6 +475,7 @@
       "calls": 0,
       "canContinue": true,
       "committedBatches": 2,
+      "engineKind": null,
       "engineLabel": "claude-cli",
       "filed": 4,
       "frozen": 9,
@@ -526,12 +532,14 @@
     "error": "Stage 1 extracted nothing \u2014 every episode failed on the Claude Code engine. Run `claude auth status` to check the plan is signed in. The queue is intact; trigger Sleep again once it is. (signed in)",
     "indexWarning": null,
     "lastEngine": "claude-cli",
+    "lastFinishedCycle": null,
     "organicResolutions": 0,
     "paused": {
       "autoContinue": null,
       "calls": 40,
       "canContinue": true,
       "committedBatches": 1,
+      "engineKind": null,
       "engineLabel": "claude-cli",
       "filed": 3,
       "frozen": 9,
@@ -678,12 +686,14 @@
     "error": null,
     "indexWarning": null,
     "lastEngine": "litellm",
+    "lastFinishedCycle": null,
     "organicResolutions": 0,
     "paused": {
       "autoContinue": null,
       "calls": 0,
       "canContinue": true,
       "committedBatches": 1,
+      "engineKind": null,
       "engineLabel": "litellm",
       "filed": 3,
       "frozen": 9,

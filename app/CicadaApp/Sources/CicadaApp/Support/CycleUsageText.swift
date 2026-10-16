@@ -23,6 +23,17 @@ enum CycleUsageText {
         guard kind == "sleep" else { return nil }
         guard let s = summary else { return Copy.SleepUsage.notRecorded }
         let source = Copy.SleepUsage.source(connection: s.connection, engine: s.engine)
+        if isPlan(s), s.basis != nil {
+            // Owner 2026-10-16 — a plan run leads with how much of the plan it used; its list-price equivalent is
+            // in the help (`summaryHelp`), never the line. A real charge in the same run (continued on another
+            // engine) still shows.
+            let lead = shareLine(s.planShare, limit: 1, locale: locale)
+                ?? s.plan.map { windowShift(window: $0.window, before: $0.before, after: $0.after) + " · "
+                    + Copy.SleepUsage.planCoversAll }
+                ?? Copy.SleepUsage.shareNotRead
+            let charged = s.costUsd.map { Copy.SleepUsage.chargedTotal(UsageFormat.currency($0, locale: locale)) }
+            return [source, lead, charged].compactMap { $0 }.joined(separator: " · ")
+        }
         // The limit is said in the line itself: a plan's share covers all use of the plan.
         let plan = s.plan.map {
             windowShift(window: $0.window, before: $0.before, after: $0.after) + " · " + Copy.SleepUsage.planCoversAll
@@ -50,9 +61,109 @@ enum CycleUsageText {
         }
     }
 
-    /// `.help` for a line that carries a plan window — the honest limit.
-    static func summaryHelp(_ summary: CycleUsageSummary?) -> String? {
-        summary?.plan == nil ? nil : Copy.SleepUsage.planNote
+    /// Past reads' "What it cost" for the latest finished cycle (a drain's whole run). A plan run leads with its
+    /// share of the plan (`shareLine`, owner 2026-10-16), else its window's before → after, and no price; a real
+    /// charge in the same run (a run continued on another engine) still shows.
+    static func lastCycleLine(_ summary: CycleUsageSummary?, locale: Locale = .autoupdatingCurrent) -> String? {
+        guard let s = summary else { return nil }
+        if isPlan(s), s.basis == nil {
+            // A plan run that called nothing used nothing to word: its plan, and a window if one was read.
+            return [Copy.SleepUsage.source(connection: s.connection, engine: s.engine),
+                    s.plan.map { windowShift(window: $0.window, before: $0.before, after: $0.after) + " · "
+                        + Copy.SleepUsage.planCoversAll }]
+                .compactMap { $0 }.joined(separator: " · ")
+        }
+        return summaryLine(kind: "sleep", summary: s, locale: locale)
+    }
+
+    /// The run spent a plan, not money: a plan connection or engine, or a plan window it moved.
+    static func isPlan(_ s: CycleUsageSummary) -> Bool {
+        ["claude-plan", "chatgpt-plan"].contains(s.connection ?? "") || ["claude-cli", "codex-cli"].contains(s.engine ?? "")
+            || s.plan != nil
+    }
+
+    /// The run spent a plan (the opened-cycle form of `isPlan`).
+    static func isPlan(_ u: CycleUsage) -> Bool {
+        ["claude-plan", "chatgpt-plan"].contains(u.connection ?? "") || ["claude-cli", "codex-cli"].contains(u.engine ?? "")
+            || u.plan != nil
+    }
+
+    /// `.help` for a row's line: on a plan run, every window's share with each basis in full and the list-price
+    /// equivalent ("would have cost…"); a bare window shift carries the honest limit; nil otherwise.
+    static func summaryHelp(_ summary: CycleUsageSummary?, locale: Locale = .autoupdatingCurrent) -> String? {
+        guard let s = summary else { return nil }
+        if isPlan(s), let help = shareHelp(s.planShare, equivUsd: s.equivCostUsd, locale: locale) { return help }
+        return s.plan == nil ? nil : Copy.SleepUsage.planNote
+    }
+
+    // MARK: A plan run's share (owner 2026-10-16: "how much of the plan, instead of money")
+
+    /// "about 3% of your weekly limit", "under 1% of the 5-hour window", "about 0.4% of your weekly limit" — nil
+    /// for a share with no figure. Never "0%": below a tenth of a point an estimate reads "under 0.1%".
+    static func shareFigure(_ s: CycleUsagePlanShare, locale: Locale = .autoupdatingCurrent) -> String? {
+        let limit = Copy.SleepUsage.limit(s.window)
+        switch s.basis {
+        case "measured":
+            guard let v = s.share, v > 0 else { return nil }
+            return Copy.SleepUsage.about(UsageFormat.share(fraction: v, locale: locale), of: limit)
+        case "under":
+            guard let u = s.under, u > 0 else { return nil }
+            return Copy.SleepUsage.under(UsageFormat.share(fraction: u, locale: locale), of: limit)
+        case "estimated":
+            guard let v = s.share, v >= 0 else { return nil }
+            if v < 0.001 { return Copy.SleepUsage.under(UsageFormat.share(fraction: 0.001, locale: locale), of: limit) }
+            return Copy.SleepUsage.about(UsageFormat.share(fraction: v, locale: locale), of: limit)
+        default:
+            return nil
+        }
+    }
+
+    /// The share as one line: the first `limit` windows in the server's order (weekly first), then the basis
+    /// in words — once when every figure shares it, else each figure's own. "measured" only when the reading
+    /// moved; an unmoved reading says so; an estimate is never presented as a measurement.
+    static func shareLine(_ shares: [CycleUsagePlanShare], limit: Int = 2, locale: Locale = .autoupdatingCurrent) -> String? {
+        let shown = Array(shares.compactMap { s in shareFigure(s, locale: locale).map { (basisWord(s.basis), $0) } }
+            .prefix(limit))
+        guard let first = shown.first else { return nil }
+        if shown.allSatisfy({ $0.0 == first.0 }) { return (shown.map(\.1) + [first.0]).joined(separator: " · ") }
+        return shown.map { "\($0.1) (\($0.0))" }.joined(separator: " · ")
+    }
+
+    /// A share's basis in words: `measured` (the reading moved), `under` (it did not), `estimated`.
+    static func basisWord(_ basis: String) -> String {
+        switch basis {
+        case "measured": Copy.SleepUsage.measured
+        case "under": Copy.SleepUsage.unmoved
+        default: Copy.SleepUsage.estimated
+        }
+    }
+
+    /// The share's help: every window's figure, each basis that appears said in full, the plan's honest limit,
+    /// and the list-price equivalent as the secondary figure. Nil when there is no share to explain.
+    static func shareHelp(_ shares: [CycleUsagePlanShare], equivUsd: Double?, locale: Locale = .autoupdatingCurrent) -> String? {
+        let figures = shares.compactMap { shareFigure($0, locale: locale) }
+        guard !figures.isEmpty else { return nil }
+        var notes = [figures.joined(separator: " · ").prefix(1).uppercased()
+            + figures.joined(separator: " · ").dropFirst() + "."]
+        let bases = Set(shares.map(\.basis))
+        if bases.contains("measured") { notes.append(Copy.SleepUsage.measuredNote) }
+        if bases.contains("measured") || bases.contains("under") { notes.append(Copy.SleepUsage.planNote) }
+        if bases.contains("under") { notes.append(Copy.SleepUsage.underNote) }
+        if bases.contains("estimated") {
+            notes.append(Copy.SleepUsage.estimatedNote(samples: shares.compactMap(\.samples).max()))
+            if shares.contains(where: { $0.basis == "estimated" && $0.under != nil }) {
+                notes.append(Copy.SleepUsage.estimateCappedNote)
+            }
+        }
+        if let line = equivLine(equivUsd, locale: locale) { notes.append(line + ".") }
+        return notes.joined(separator: " ")
+    }
+
+    /// "Would have cost about $0.49 on an API key" — a plan run's list-price equivalent, the secondary figure.
+    static func equivLine(_ equivUsd: Double?, locale: Locale = .autoupdatingCurrent) -> String? {
+        guard let equivUsd else { return nil }
+        let line = Copy.SleepUsage.wouldHaveCost(UsageFormat.currency(equivUsd, locale: locale))
+        return line.prefix(1).uppercased() + line.dropFirst()
     }
 
     // MARK: An opened cycle (Details, Models)
@@ -60,7 +171,8 @@ enum CycleUsageText {
     /// One `(engine, model)`: "claude-sonnet-5-5 · 14 calls · 1 failed · 182,340 tokens in · 9,120 tokens out
     /// · about $0.42 at list price". A plan call reports no tokens and says so; a figure that is unknown is
     /// left out, never zero.
-    static func modelLine(_ m: CycleUsageModel, locale: Locale = .autoupdatingCurrent) -> String {
+    /// `priced: false` on a plan run: its list-price figure is the run's one secondary "would have cost" line.
+    static func modelLine(_ m: CycleUsageModel, priced: Bool = true, locale: Locale = .autoupdatingCurrent) -> String {
         var parts = [m.model ?? Copy.SleepUsage.source(connection: nil, engine: m.engine) ?? "Model",
                      Copy.SleepUsage.calls(m.calls, locale: locale)]
         if m.failedCalls > 0 { parts.append(Copy.SleepUsage.failed(m.failedCalls, locale: locale)) }
@@ -71,6 +183,8 @@ enum CycleUsageText {
             parts.append(Copy.SleepUsage.tokensOut(m.outputTokens, locale: locale))
         }
         switch m.basis {
+        case "list" where !priced:
+            break
         case "charged":
             if let c = m.costUsd {
                 parts.append(Copy.SleepUsage.chargedTotal(UsageFormat.currency(c, locale: locale)))
@@ -109,14 +223,25 @@ enum CycleUsageText {
     }
 
     /// The whole opened-cycle block. `nil` usage is "not recorded"; a recorded cycle with nothing called
-    /// is "No model calls".
+    /// is "No model calls". A plan run (owner 2026-10-16) leads with `share` — how much of the plan it used, with
+    /// its basis — and its dollars move to `equiv`, the secondary "would have cost" line; its models carry no
+    /// price, and its total only a real charge.
     static func detailLines(_ u: CycleUsage?, kind: String = "sleep", locale: Locale = .autoupdatingCurrent)
-        -> (models: [String], total: String?, plan: [(text: String, help: String)], empty: String?) {
-        guard kind == "sleep" else { return ([], nil, [], nil) }
-        guard let u, u.recorded else { return ([], nil, [], Copy.SleepUsage.notRecorded) }
+        -> (models: [String], total: String?, plan: [(text: String, help: String)], empty: String?,
+            share: (text: String, help: String)?, equiv: String?) {
+        guard kind == "sleep" else { return ([], nil, [], nil, nil, nil) }
+        guard let u, u.recorded else { return ([], nil, [], Copy.SleepUsage.notRecorded, nil, nil) }
         let plan = planRows(u)
-        if u.models.isEmpty { return ([], nil, plan, plan.isEmpty ? Copy.SleepUsage.noCalls : nil) }
-        return (u.models.map { modelLine($0, locale: locale) }, totalLine(u, locale: locale), plan, nil)
+        if u.models.isEmpty { return ([], nil, plan, plan.isEmpty ? Copy.SleepUsage.noCalls : nil, nil, nil) }
+        guard isPlan(u) else {
+            return (u.models.map { modelLine($0, locale: locale) }, totalLine(u, locale: locale), plan, nil, nil, nil)
+        }
+        let share = shareLine(u.planShare, locale: locale).map { line in
+            (text: line, help: shareHelp(u.planShare, equivUsd: nil, locale: locale) ?? line)
+        }
+        let charged = u.totalCostUsd.map { "Total · " + Copy.SleepUsage.chargedTotal(UsageFormat.currency($0, locale: locale)) }
+        return (u.models.map { modelLine($0, priced: false, locale: locale) }, charged, plan, nil, share,
+                equivLine(u.totalEquivUsd, locale: locale))
     }
 
     // MARK: The engine menu
@@ -204,12 +329,27 @@ enum CycleUsageText {
         return nil
     }
 
-    /// "Last cycle: $0.42 charged" from the candidate that says so, the one a cycle you start would
-    /// use first.
+    /// "Last cycle: $0.42 charged" — or, on a plan (owner 2026-10-16), "Last run: under 1% of your weekly limit ·
+    /// reading unchanged" — from the candidate that says so, the one a cycle you start would use first. The second
+    /// element is the help: the share's bases in full and the plan run's list-price equivalent ("would have cost…").
+    static func lastCycle(_ candidates: [SleepEngineCandidate], preferring id: String?,
+                          locale: Locale = .autoupdatingCurrent) -> (line: String, help: String?)? {
+        let ordered = candidates.sorted { ($0.id == id ? 0 : 1) < ($1.id == id ? 0 : 1) }
+        for candidate in ordered {
+            guard let u = candidate.usage else { continue }
+            if let shares = u.lastRunShare, let line = shareLine(shares, locale: locale) {
+                return (Copy.SleepUsage.lastRun(line), shareHelp(shares, equivUsd: u.lastRunEquivUsd, locale: locale))
+            }
+            if let cost = u.lastCycleCostUsd {
+                return (Copy.SleepUsage.lastCycle(UsageFormat.currency(cost, locale: locale)), nil)
+            }
+        }
+        return nil
+    }
+
+    /// The menu's one line (`lastCycle`), without its help.
     static func lastCycleLine(_ candidates: [SleepEngineCandidate], preferring id: String?,
                               locale: Locale = .autoupdatingCurrent) -> String? {
-        let ordered = candidates.sorted { ($0.id == id ? 0 : 1) < ($1.id == id ? 0 : 1) }
-        guard let cost = ordered.lazy.compactMap({ $0.usage?.lastCycleCostUsd }).first else { return nil }
-        return Copy.SleepUsage.lastCycle(UsageFormat.currency(cost, locale: locale))
+        lastCycle(candidates, preferring: id, locale: locale)?.line
     }
 }

@@ -54,6 +54,42 @@ final class AgentStepsTests: XCTestCase {
         XCTAssertEqual(steps("cursor")[0].actions, [.openCursor])
     }
 
+    private func cursorLink(prompt: String?) throws -> AgentSetupPrompt {
+        let field = prompt.map { #","prompt":"\#($0)""# } ?? ""
+        return try JSONDecoder().decode(AgentSetupPrompt.self, from: Data("""
+        {"harness":"cursor","kind":"deeplink","title":"t","deeplink":"cursor://x","argv":[],"display":[],"note":"n"\(field)}
+        """.utf8))
+    }
+
+    /// 2026-10-14 — the link first, then the same server by a prompt Cursor's own agent carries out.
+    func testCursorAlsoOffersItsPromptBesideTheLink() throws {
+        let s = steps("cursor", setups: ["cursor": try cursorLink(prompt: "Please connect Cicada… to Cursor.")])
+        XCTAssertEqual(s.map(\.title), ["Open in Cursor", "Or copy and send this to Cursor", "Confirm"])
+        XCTAssertEqual(s[0].actions, [.openCursor])
+        XCTAssertEqual(s[1].actions, [.copy("Please connect Cicada… to Cursor.")])
+        XCTAssertEqual(s[1].snippet, "Please connect Cicada… to Cursor.", "the prompt is read before it is copied")
+        XCTAssertEqual(s[1].detail, "Cursor adds Cicada to its own settings and changes nothing else.")
+        // An older backend's link carries no prompt: nothing new shows.
+        XCTAssertEqual(steps("cursor", setups: ["cursor": try cursorLink(prompt: nil)]).map(\.title),
+                       ["Open in Cursor", "Confirm"])
+    }
+
+    func testAnotherAgentIsCopyThenConfirmAndNamesNoAgent() throws {
+        let entry = AgentCatalog.entry(for: "other")!
+        let s = steps("other", setups: ["other": try prompt("other")])
+        XCTAssertEqual(AgentSteps.title(for: entry), "Connect another agent")
+        XCTAssertEqual(AgentSteps.header(for: entry, wiring: nil), Copy.agentAnyHeader)
+        XCTAssertEqual(s.map(\.title), ["Copy and send this to your agent", "Confirm"])
+        XCTAssertEqual(s[0].actions, [.copy("Please connect Cicada…")])
+        XCTAssertEqual(s[0].snippet, "Please connect Cicada…")
+        XCTAssertEqual(s[1].detail, "Cicada sees your agent connect — this turns green by itself.")
+        XCTAssertEqual(s[1].trailing, "Waiting for your agent…")
+        XCTAssertEqual(AgentSteps.honesty(for: entry), Copy.agentNoAutosave)
+        XCTAssertEqual(steps("other")[0].detail, Copy.agentStepPreparing)
+        XCTAssertEqual(steps("other")[0].actions, [])
+        XCTAssertEqual(AgentSteps.title(for: AgentCatalog.entry(for: "codex")!), "Connect Codex")
+    }
+
     func testClaudeIsTheAppFirstThenClaudeAiAsAdvanced() throws {
         let s = steps("claude", setups: ["claude": try remote("claude")])
         XCTAssertEqual(s.map(\.title), ["Set up the Claude app on this Mac", "Use it on claude.ai and your phone too", "Confirm"])

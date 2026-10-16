@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from api.services import entity_picture, papers
+from api.services import entity_picture, media_preview, papers
 from api.services.entity_picture import PictureInputs, Resolved
 
 CASES = json.loads((Path(__file__).parent / "fixtures" / "entity_picture.json").read_text(encoding="utf-8"))
@@ -54,11 +54,16 @@ def test_inputs_read_the_persons_choice_and_nothing_a_hand_edit_invented():
 
 
 def test_a_thumbnail_is_a_media_pages_own_and_never_a_papers():
+    """The media rung's input is the preview's KEY — the app loads Cicada's stored copy, never the provider's URL."""
     media = {"url": "https://video.example.com/v/1", "thumbnail": "https://img.example.com/1.jpg"}
-    assert entity_picture.inputs_for({"type": "media", "media": media}).thumbnail == "https://img.example.com/1.jpg"
+    key = entity_picture.inputs_for({"type": "media", "media": media}).thumbnail
+    assert key == media_preview.source_for({"type": "media", "media": media}).key and len(key) == 12
+    resolved = entity_picture.resolve("v-1", entity_picture.inputs_for({"type": "media", "media": media}))
+    assert resolved == entity_picture.Resolved("thumbnail", f"/entities/v-1/preview?v={key}")
     paper = {"type": "media", "media": {"kind": entity_picture.PAPER_KIND, "thumbnail": "https://img.example.com/p.jpg"}}
     assert entity_picture.inputs_for(paper).thumbnail is None
-    assert entity_picture.inputs_for({"type": "media", "media": {"thumbnail": "http://img.example.com/1.jpg"}}).thumbnail is None
+    # An http image is the backend's to fetch now (the app never loads it), so it counts too.
+    assert entity_picture.inputs_for({"type": "media", "media": {"thumbnail": "http://img.example.com/1.jpg"}}).thumbnail
     assert entity_picture.inputs_for({"type": "concept", "media": media}).thumbnail is None
     assert entity_picture.PAPER_KIND == papers.KIND
 

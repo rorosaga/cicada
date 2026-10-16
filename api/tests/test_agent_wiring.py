@@ -41,6 +41,11 @@ def test_an_unwired_harness_gets_install_sh_s_exact_commands(tmp_path):
     row = _row(data, "claude-code")
     assert (row["installed"], row["recall"], row["autosave"]) == (True, "off", "off")
     [mcp, hook] = row["connect"]
+    flush = row["flush_on"]
+    assert [(f["step"], f["argv"][6]) for f in flush] == [("flush", "PreCompact"), ("flush", "SessionEnd")]
+    assert all(f["argv"][:6] == hook["argv"][:6] and f["argv"][7:] == hook["argv"][7:] for f in flush), \
+        "the flush is the Stop hook's own registration under another event"
+    assert row["autosave_flush"] == "off"
     assert mcp["argv"] == ["claude", "mcp", "add", "cicada", "--scope", "user", "--env",
                            f"CICADA_MEMORY_PATH={MEM}", "--", PY, f"{REPO}/mcp/server.py"]
     assert hook["argv"] == [PY, f"{REPO}/api/hooks/registry.py", "install", "--settings",
@@ -54,9 +59,30 @@ def test_an_unwired_harness_gets_install_sh_s_exact_commands(tmp_path):
 
 def test_a_wired_harness_reads_on_and_offers_nothing(tmp_path):
     settings = tmp_path / ".claude/settings.json"
+    for event in ("Stop", *agent_wiring.FLUSH_EVENTS):
+        hook_registry.install(settings, event=event, command=agent_wiring.hook_command(PY, REPO, "claude-code"))
+    row = _row(_probe(tmp_path, rc=0), "claude-code")
+    assert (row["recall"], row["autosave"], row["autosave_flush"], row["connect"], row["flush_on"]) == (
+        "on", "on", "on", [], [])
+
+
+def test_an_install_from_before_the_flush_still_reads_on(tmp_path):
+    """G110 gate A: a Stop-only install (every install before the flush) is not
+    broken — ``autosave`` stays ``on``; the flush is offered as its own steps."""
+    settings = tmp_path / ".claude/settings.json"
     hook_registry.install(settings, event="Stop", command=agent_wiring.hook_command(PY, REPO, "claude-code"))
     row = _row(_probe(tmp_path, rc=0), "claude-code")
-    assert (row["recall"], row["autosave"], row["connect"]) == ("on", "on", [])
+    assert (row["recall"], row["autosave"], row["autosave_flush"], row["connect"]) == ("on", "on", "off", [])
+    assert [(s["step"], s["argv"][6]) for s in row["flush_on"]] == [("flush", "PreCompact"), ("flush", "SessionEnd")]
+
+
+def test_a_half_registered_flush_is_stale(tmp_path):
+    settings = tmp_path / ".claude/settings.json"
+    command = agent_wiring.hook_command(PY, REPO, "claude-code")
+    hook_registry.install(settings, event="Stop", command=command)
+    hook_registry.install(settings, event="PreCompact", command=command)
+    row = _row(_probe(tmp_path, rc=0), "claude-code")
+    assert (row["autosave"], row["autosave_flush"]) == ("on", "stale")
 
 
 def test_a_stale_hook_is_offered_the_update(tmp_path):
@@ -91,7 +117,25 @@ def test_gemini_cli_is_read_only(tmp_path):
     (tmp_path / ".gemini").mkdir()
     (tmp_path / ".gemini/settings.json").write_text(json.dumps({"mcpServers": {"cicada": {}}}), encoding="utf-8")
     row = _row(_probe(tmp_path, resolve=lambda name: name), "gemini-cli")
-    assert (row["recall"], row["autosave"], row["connect"]) == ("on", "n/a", [])
+    # Capture-everywhere: the AfterAgent hook's state is reported, but nothing is
+    # offered to run — the setup prompt the person's own agent runs turns it on.
+    assert (row["recall"], row["autosave"], row["connect"]) == ("on", "off", [])
+
+
+def test_gemini_cli_autosave_reads_its_after_agent_hook(tmp_path):
+    settings = tmp_path / ".gemini/settings.json"
+    settings.parent.mkdir()
+    settings.write_text(json.dumps({"mcpServers": {"cicada": {}}}), encoding="utf-8")
+    step = agent_wiring.gemini_hook_step(home=tmp_path, repo=REPO, python=PY)
+    assert step["argv"][-4:-2] == ["--event", "AfterAgent"]
+    hook_registry.install(settings, event="AfterAgent", command=step["argv"][-1])
+    data = json.loads(settings.read_text())
+    assert data["mcpServers"] == {"cicada": {}}
+    assert data["hooks"]["AfterAgent"][0]["hooks"][0]["timeout"] == 5000  # Gemini CLI counts milliseconds
+    row = _row(_probe(tmp_path, resolve=lambda name: name), "gemini-cli")
+    assert (row["autosave"], row["connect"]) == ("on", [])
+    settings.write_text("{not json", encoding="utf-8")
+    assert _row(_probe(tmp_path, resolve=lambda name: name), "gemini-cli")["autosave"] == "invalid"
 
 
 def test_the_probe_never_writes(tmp_path):
@@ -222,6 +266,25 @@ def test_the_route_serves_the_recall_fields_in_camel_case(tmp_path, monkeypatch)
     assert agent["autorecall"] == "off" and agent["autorecallOn"][0]["step"] == "autorecall"
     assert agent["autorecallOff"] == []
 
+
+def test_the_route_serves_the_flush_fields_in_camel_case(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    from api import main
+
+    step = {"step": "flush", "display": "x", "argv": ["x"], "touches": []}
+
+    async def fake_probe(*, home, memory_root):
+        return {"agents": [{"id": "codex", "installed": True, "autosave": "on", "autosave_flush": "off",
+                            "flush_on": [step]}], "python": PY, "repo": str(REPO), "memory": str(memory_root)}
+
+    monkeypatch.setenv("CICADA_MEMORY_PATH", str(tmp_path))
+    config.get_settings.cache_clear()
+    monkeypatch.setattr(agent_wiring, "probe", fake_probe)
+    agent = TestClient(main.app).get("/agents/wiring").json()["agents"][0]
+    config.get_settings.cache_clear()
+    assert agent["autosaveFlush"] == "off" and agent["flushOn"][0]["step"] == "flush"
+
+
 def test_the_probes_run_side_by_side_on_a_six_second_budget(tmp_path):
     """R4B-12: the live Welcome read Claude Code as 'couldn't check in time' at
     2 s — `claude mcp get` starts the server to health-check it."""
@@ -290,7 +353,7 @@ def test_the_three_new_agents_are_read_only_rows(tmp_path):
 
 def test_the_row_order_keeps_gemini_where_it_was(tmp_path):
     ids = [row["id"] for row in _probe(tmp_path)["agents"]]
-    assert ids == ["claude-code", "codex", "gemini-cli", "opencode", "hermes", "openclaw"]
+    assert ids == ["claude-code", "codex", "gemini-cli", "opencode", "hermes", "openclaw", "cursor"]
 
 
 def test_no_config_probe_reaches_library_or_anything_of_claude_code_s():

@@ -52,6 +52,8 @@ struct CicadaApp: App {
     /// G162 — every saved video's state and the person's video queue; app-level for ProjectsCache's reason, never a
     /// Store domain.
     @State private var videoStateCache = VideoStateCache()
+    /// G166 exploring — the explore run and the Explore sheet's counts, for Sources.
+    @State private var exploreCache = ExploreCache()
     /// G166 — the sites Cicada's reader could not read, for Home's one line; app-level for ProjectsCache's reason.
     @State private var readingSitesCache = ReadingSitesCache()
     @State private var banksVM: BanksViewModel
@@ -81,6 +83,15 @@ struct CicadaApp: App {
     @State private var browserWatcher: BrowserWatcher
     /// Round 4 (R-SR17) — the one registry of running syncs every `SourceRow` reads, and where its × goes.
     @State private var syncActivity: SyncActivity
+    /// G191 — "What made you save this?": listens to the bookmark watch's syncs and, when the person turned it on,
+    /// drops a small panel from the notch for one bookmark made a moment ago. The controller is held here because the
+    /// center keeps its presenter weakly.
+    @State private var saveWhy = SaveWhyCenter()
+    @State private var saveWhyPanel = SaveWhyPanelController()
+    /// G191 v3 — Chrome's bookmark bubble, seen from the window list (no permission), opens the question at once.
+    @State private var bookmarkBubbles = BookmarkBubbleWatcher()
+    /// G191 v3 — the menu bar's bookmark history.
+    @State private var bookmarkHistory = BookmarkHistoryController()
     /// G133 / G134: watched folders and Wispr Flow, read by the app (the backend
     /// never opens them). Lights ride `browserWatcher` (R-LS26).
     @State private var localSources: LocalSourceWatcher
@@ -90,9 +101,15 @@ struct CicadaApp: App {
     /// Round 4 (G160 first slice): Chrome's open tab groups, read by the app from its session file only after the
     /// person turns on their own switch (R-SR3), and posted per memory.
     @State private var tabGroups: TabGroupWatcher
+    /// G71 (2026-10-16): the YouTube videos watched in Chrome, read by the app from Chrome's History (a copy, YouTube
+    /// video pages only) only after the person turns on its own switch, and posted per memory as one entry per day.
+    @State private var watchHistory: WatchHistoryWatcher
     /// Round 4 (G154): the Mac's address book, read by the app only after Connect in Settings → Integrations and
     /// posted per memory, where it enriches the people Cicada already knows (R-SR8, R-SR10).
     @State private var contactsReader: ContactsReader
+    /// G179: the Messages conversations the person ticked, read by the app from `chat.db` (Full Disk Access) and posted
+    /// per memory; nothing is read before a tick.
+    @State private var messages: MessagesWatcher
     /// Track I T5 (design §5.1) — the one intake: a drop anywhere, the Dock,
     /// File → Import…, the menu-bar worm, an empty state and the `+` tiles all
     /// go through it, and its request counter owns `Store.intakeInFlight`.
@@ -156,7 +173,7 @@ struct CicadaApp: App {
         let store = Store()
         _store = State(initialValue: store)
         // G182 — one runtime for the whole app. A release's agents, hooks and background service run the launchers
-        // in ~/.cicada/bin, so they are rewritten before anything can spawn through one (four small files; a failure
+        // in ~/.cicada/bin, so they are rewritten before anything can spawn through one (five small files; a failure
         // is logged, never fatal). A developer build writes nothing.
         let runtime = CicadaRuntime.current
         LauncherInstaller.install(runtime: runtime)
@@ -168,11 +185,23 @@ struct CicadaApp: App {
         _backendAgent = State(initialValue: backendAgent)
         // G182 — a background service an older build installed keeps running what it named; point it at this
         // copy's launcher. Never blocks launch, and installs nothing when the person never chose the service.
-        if runtime.isRelease { Task { @MainActor in await backendAgent.migrateIfNeeded() } }
+        // G181 phase 3: nothing to migrate or keep running while the memory lives on a server.
+        if runtime.isRelease && !ServerConnection.current.isServer {
+            Task { @MainActor in await backendAgent.migrateIfNeeded() }
+        }
+        // G181 phase 3 (review fix) — on a server, a background service left from This Mac would keep serving this
+        // Mac's bank while everything here points elsewhere: stop it (its plist stays, for This Mac again). An invalid
+        // address stops nothing — the person fixes it or chooses This Mac, and the service is still there.
+        if ServerConnection.current.serverURL != nil {
+            Task { @MainActor in await backendAgent.stopForServer() }
+        }
         // G182 phase 5 — checks and installs only in a release run from a real folder, never while Sleep writes.
         let updates = UpdateService.live(runtime: runtime,
-                                         isSleepWriting: { [store] in ProjectWriteGate.blocked(store.status.value) },
-                                         repairService: { [backendAgent] in await backendAgent.reinstallIfStopped() })
+                                         isSleepWriting: { [store] in ProjectWriteGate.sleepRunning(store.status.value) },
+                                         repairService: { [backendAgent] in
+                                             guard !ServerConnection.current.isServer else { return true }  // nothing runs here to repair
+                                             return await backendAgent.reinstallIfStopped()
+                                         })
         _updates = State(initialValue: updates)
         Task { @MainActor in updates.start() }
         let activity = SyncActivity()
@@ -181,7 +210,10 @@ struct CicadaApp: App {
         _browserWatcher = State(initialValue: lights)
         _localSources = State(initialValue: LocalSourceWatcher(lights: lights))
         _tabGroups = State(initialValue: TabGroupWatcher(lights: lights, activity: activity, bank: { [store] in store.bank }))
+        _watchHistory = State(initialValue: WatchHistoryWatcher(lights: lights, activity: activity,
+                                                                bank: { [store] in store.bank }))
         _contactsReader = State(initialValue: ContactsReader(activity: activity, bank: { [store] in store.bank }))
+        _messages = State(initialValue: MessagesWatcher(lights: lights, activity: activity, bank: { [store] in store.bank }))
         _inventory = State(initialValue: LocalInventory(probes: LocalInventory.live(watcher: lights)))
         _graphVM = State(initialValue: GraphViewModel(store: store))
         _inboxVM = State(initialValue: InboxViewModel(store: store))
@@ -216,6 +248,7 @@ struct CicadaApp: App {
                 .environment(backlogCache)
                 .environment(channelItemsCache)
                 .environment(videoStateCache)
+                .environment(exploreCache)
                 .environment(readingSitesCache)
                 .environment(banksVM)
                 .environment(feedVM)
@@ -226,11 +259,14 @@ struct CicadaApp: App {
                 .environment(findModel)
                 .environment(homeSearch)
                 .environment(browserWatcher)
+                .environment(saveWhy)
                 .environment(syncActivity)
                 .environment(localSources)
                 .environment(calendarReader)
                 .environment(tabGroups)
+                .environment(watchHistory)
                 .environment(contactsReader)
+                .environment(messages)
                 .environment(loginItems)
                 .environment(backendAgent)
                 .environment(updates)
@@ -256,14 +292,39 @@ struct CicadaApp: App {
                 }
                 // G133 / G134: folders and Wispr Flow settings are per memory, so a
                 // bank switch re-reads them and re-arms the watches.
+                // G191, review B1 — Sleep let go of the pages (the SSE `sleep` event's `writing`): send any answer the
+                // backend refused while it held them.
+                .onChange(of: ProjectWriteGate.blocked(store.status.value)) { was, now in
+                    if was && !now { Task { await saveWhy.retryHeld() } }
+                }
+                // …and when the backend first answers after launch (a launch-time retry can beat its start).
+                .onChange(of: store.status.value == nil) { _, missing in
+                    if !missing { Task { await saveWhy.retryHeld() } }
+                }
+                // G181 phase 3 — the server answers again: what the readers left waiting goes first.
+                .onChange(of: store.isConnected) { _, connected in
+                    if connected { Task { await APIClient.shared.flushOutbox() } }
+                }
+                // G191 live — back from System Settings: a browser whose file was refused when its watch was armed
+                // (Safari before Full Disk Access) is armed again now that it can be read. The watcher also looks
+                // every few seconds while one is refused, for a grant made without coming back here.
+                .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+                    browserWatcher.refreshAccess()
+                }
                 .onChange(of: store.bank) { _, _ in
                     Task { await localSources.reload() }
                     // Round-4 D2 — the new memory gets the calendar too (a demo's 409 is said in words).
                     Task { await calendarReader.bankChanged() }
                     // G160 — the new memory gets the open groups too (its digest is its own).
                     Task { await tabGroups.bankChanged() }
+                    // G71 — the new memory's YouTube history, past its own cursor.
+                    Task { await watchHistory.bankChanged() }
                     // G154 (R-SR10) — the new memory's people get their Contacts sources too.
                     Task { await contactsReader.bankChanged() }
+                    // G179 — the new memory's ticked conversations, past their own cursors.
+                    Task { await messages.bankChanged() }
+                    // Owner decision 5 (2026-10-16) — the new memory's bookmarks, past its own "what was synced".
+                    Task { await browserWatcher.bankChanged() }
                 }
                 .onAppear {
                     // G130 R5: the View menu's CommandGroup below already
@@ -288,10 +349,31 @@ struct CicadaApp: App {
                             return nil
                         }
                     }
-                    backend.start()
+                    // G181 phase 3 — on a server this Mac runs no backend of its own (and never falls back to one).
+                    if !ServerConnection.current.isServer { backend.start() }
                     // Arms the per-browser watches and catches up on anything
                     // saved while the app was closed.
                     browserWatcher.start(store: store)
+                    // G191 — off until the person turns it on (Settings → Integrations → Browsers).
+                    saveWhy.attach(presenter: saveWhyPanel)
+                    saveWhy.start()
+                    bookmarkBubbles.isWanted = { [saveWhy, browserWatcher] channel in
+                        saveWhy.prefs.enabled && browserWatcher.isEnabled(channel)
+                    }
+                    bookmarkBubbles.onBubble = { [saveWhy] channel in saveWhy.bubbleSeen(channel: channel) }
+                    saveWhy.onNamed = { [bookmarkBubbles] item in bookmarkBubbles.bookmarkNamed(item) }
+                    bookmarkBubbles.start()
+                    // G191 v3 — the app's own diff needs a "before" for each watched browser: read once now, so the
+                    // first bookmark after launch is named from the file without waiting for the backend.
+                    if saveWhy.prefs.enabled {
+                        Task {
+                            let browsers = await Task.detached { BrowserInventory.live() }.value
+                            await BookmarkFileDiff.shared.seed(channels: SaveWhySetup.channels(inventory: browsers)
+                                .filter { browserWatcher.isEnabled($0) })
+                        }
+                    }
+                    // Review B1 — an answer held through a 409 or a restart goes out again now.
+                    Task { await saveWhy.retryHeld() }
                     // Track I T5 — the one intake owns `store.intakeInFlight`
                     // through its request counter, and the Dock's opens wait in
                     // `DockOpenQueue` until this line attaches it (R-IA25).
@@ -307,8 +389,12 @@ struct CicadaApp: App {
                     calendarReader.start()
                     // G160 (R-SR3) — reads only if the person turned the tab-groups switch on.
                     tabGroups.start()
+                    // G71 — reads only if the person turned the YouTube history switch on.
+                    watchHistory.start()
                     // G154 (R-SR10) — reads only after Connect, and on launch only when the book moved or a day passed.
                     contactsReader.start()
+                    // G179 — reads only the conversations this memory has ticked.
+                    messages.start()
                     // R-IB22 — the export someone was waiting for arrived (a sniff
                     // recognised its vendor): its wait, in the active memory, is done.
                     intakeRouter.onVendorSniffed = { [exportWaits, store] vendor in
@@ -388,6 +474,14 @@ struct CicadaApp: App {
                             intakeRouter.present(from: .menuBar)
                         }
                     )
+                    // G191 v2 — the developer-only preview (hidden unless its defaults key is set; never in a release).
+                    menuBarManager.onPreviewSaveWhy = { [saveWhy] channel in Task { await saveWhy.preview(channel: channel) } }
+                    // G191 v3 — Bookmarks…: the history under the status item; a row opens its page in the Feed.
+                    menuBarManager.onShowBookmarks = { [bookmarkHistory, store, appRouter] anchor in
+                        bookmarkHistory.toggle(store: store, anchor: anchor) { row in
+                            appRouter.routeToBookmark(row.mediaEntityId)
+                        }
+                    }
                     // R-HO16 — the switch, applied at launch too.
                     menuBarManager.setVisible(menuBarVisible)
 
@@ -485,8 +579,9 @@ struct CicadaApp: App {
         }
         // G137 R-M10: the one AppKit surface that paints a theme colour reads
         // the token — the hand-copied RGB that was here went stale the moment
-        // the neutrals moved.
-        window.backgroundColor = CicadaTheme.windowBackground(for: mode)
+        // the neutrals moved. The band takes the rail's surface: band and rail
+        // are one frame around the page panel (owner 2026-10-07).
+        window.backgroundColor = CicadaTheme.titlebarBackground(for: mode)
     }
 
     /// Reparents the window's existing (SwiftUI-owned) content view under a

@@ -48,16 +48,19 @@ enum FeedKind: String, CaseIterable, Hashable {
     }
 }
 
-/// DR-25 — "Feed · 160 saved" / "Feed · Videos · 2 saved" / "Feed · 3 of 160" / "Feed · 4 matches"; plain "Feed" when
-/// nothing is indexed (R-DL18 — never "0 items").
+/// DR-25 — beside an open item the eyebrow says where the list is: "Sleep · Saved · 3 of 160", "Sleep · Saved · 4
+/// matches", "Sleep · Videos · 2 of 6" (the Feed's eyebrow until it folded into Sleep, 2026-10-16). Plain "Sleep · Saved"
+/// when nothing is indexed (R-DL18 — never "0 items").
 enum FeedEyebrow {
-    static func text(total: Int, kind: FeedKind?, visible: [MediaFeedItem], openId: String?, searching: Bool) -> String {
-        if searching { return Eyebrow.text(Copy.feed, Copy.Lists.matches(visible.count)) }
+    static func text(total: Int, kind: FeedKind?, visible: [MediaFeedItem], openId: String?, searching: Bool,
+                     tab: String = Copy.SleepTabs.saved) -> String {
+        let lead = Copy.SleepTabs.page
+        if searching { return Eyebrow.text(lead, tab, Copy.Lists.matches(visible.count)) }
         if let openId, let i = visible.firstIndex(where: { $0.id == openId }) {
-            return Eyebrow.text(Copy.feed, kind?.label ?? "", Copy.Inbox.position(i + 1, of: visible.count))
+            return Eyebrow.text(lead, tab, kind?.label ?? "", Copy.Inbox.position(i + 1, of: visible.count))
         }
-        if let kind { return Eyebrow.text(Copy.feed, kind.label, Copy.Lists.saved(visible.count)) }
-        return Eyebrow.text(Copy.feed, total == 0 ? "" : Copy.Lists.saved(total))
+        if let kind { return Eyebrow.text(lead, tab, kind.label, Copy.Lists.saved(visible.count)) }
+        return Eyebrow.text(lead, tab, total == 0 ? "" : Copy.Lists.saved(total))
     }
 }
 
@@ -90,13 +93,15 @@ enum FeedSourceLine {
         return o
     }
 
-    static func text(_ item: MediaFeedItem, locale: Locale = .autoupdatingCurrent,
+    /// G181 phase 3 — `device` is where the save came from (`DeviceDirectory.label`): "· from laptop", last and quiet.
+    static func text(_ item: MediaFeedItem, device: String? = nil, locale: Locale = .autoupdatingCurrent,
                      timeZone: TimeZone = .autoupdatingCurrent) -> String {
         var parts: [String] = []
         if let origin = markOrigin(item) { parts.append(OriginIconography.label(for: origin)) }
         if let folder = item.folder?.trimmingCharacters(in: .whitespaces), !folder.isEmpty { parts.append(folder) }
-        guard !parts.isEmpty else { return InboxSourceLine.noSource }
+        guard !parts.isEmpty else { return device.map(Copy.Devices.from) ?? InboxSourceLine.noSource }
         if let day = FeedDates.day(item, locale: locale, timeZone: timeZone) { parts.append(day) }
+        if let device { parts.append(Copy.Devices.from(device)) }
         return parts.joined(separator: " · ")
     }
 

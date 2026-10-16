@@ -12,11 +12,14 @@ final class PageTitleTests: XCTestCase {
         return try String(contentsOf: file, encoding: .utf8)
     }
 
-    func test_theSleepPageTitleIsThePageTitle() throws {
+    /// The Sleep redesign (owner, 2026-10-16: "remove the title Sleep Cycle") — the page opens on its eyebrow like a
+    /// list page (DR-25); `PageTitle` survives on Home alone of the pages.
+    func test_theSleepPageHasNoTitleOnlyItsEyebrow() throws {
         let text = try source("Views/Sleep/SleepView.swift")
-        XCTAssertTrue(text.contains("PageTitle(Copy.sleepPageTitle)"))
+        XCTAssertFalse(text.contains("PageTitle("), "no title band on the Sleep page")
+        XCTAssertTrue(text.contains("EyebrowRow(eyebrow: SleepEyebrow.text("))
         XCTAssertFalse(text.contains("CicadaTheme.titleFont"), "the SF 20 semibold title G137 retired")
-        XCTAssertFalse(text.contains("Text(\"Sleep Cycle\")"))
+        XCTAssertFalse(text.contains("Sleep Cycle"))
     }
 
     func test_pageHeaderDrawsItsTitleThroughTheSameView() throws {
@@ -29,6 +32,5 @@ final class PageTitleTests: XCTestCase {
     func test_theTitleIsTheDisplayFaceAtItsSize() {
         XCTAssertEqual(PageTitle.size, 28)
         XCTAssertGreaterThanOrEqual(PageTitle.size, CicadaTheme.displayMinimumSize)
-        XCTAssertEqual(Copy.sleepPageTitle, "Sleep Cycle")
     }
 }

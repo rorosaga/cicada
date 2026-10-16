@@ -29,7 +29,7 @@ archives via the entity engine.
 from __future__ import annotations
 
 import math
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Callable, NamedTuple
 
@@ -192,18 +192,20 @@ def _week_of(value) -> str | None:
     return f"{year}-W{week:02d}"
 
 
-def mention_weeks(episode_refs, kept_on=()) -> int:
+def mention_weeks(episode_refs, kept_on=(), *, untimed=frozenset()) -> int:
     """Distinct ISO weeks among episode ids (``ep_<date>_<n>``, G114) and kept dates.
 
     An id that does not parse — a legacy stem, an impossible date — is still a
     mention: all of them together count ONCE as an unknown week (R-FD2), so a
     legacy page gets bounded credit, never zero and never one week per id.
+    An id in ``untimed`` (a memory export entry, ``episode_time``) is no week at
+    all: its date is the summary's, not a mention's.
     """
     weeks: set[str] = set()
     unknown = False
     for ref in _as_list(episode_refs):
         stem = str(ref or "").strip()
-        if not stem:
+        if not stem or stem in untimed:
             continue
         parsed = episode_ids.parse_episode_id(stem)
         week = _week_of(parsed[0]) if parsed else None
@@ -274,11 +276,13 @@ def effective(
     alpha: float = SPACING_ALPHA,
     floor: float = SPACING_FLOOR,
     tuning: dict[str, float] | None = None,
+    untimed=frozenset(),
 ) -> EffectiveDecay:
-    """``base x f(w) x pace`` for one page's frontmatter. Never raises."""
+    """``base x f(w) x pace`` for one page's frontmatter. Never raises.
+    ``untimed``: the bank's memory-export episode ids (``episode_time.untimed_ids``)."""
     fm = fm or {}
     cls, base = resolve(fm)
-    weeks = mention_weeks(fm.get("source_episodes"), kept_dates(fm))
+    weeks = mention_weeks(fm.get("source_episodes"), kept_dates(fm), untimed=untimed)
     factor = stability(weeks, alpha=alpha, floor=floor)
     pace = float((tuning or {}).get(entity_type(fm), 1.0))
     rate = 0.0 if cls is DecayClass.evergreen else base * factor * pace
@@ -360,7 +364,7 @@ def class_lookup(memory_path) -> Callable[[str], DecayClass]:
     return lambda entity_id: subject(entity_id).decay_class
 
 
-def claim_mention_weeks(claim, kept_on=()) -> int:
+def claim_mention_weeks(claim, kept_on=(), *, untimed=frozenset()) -> int:
     """Distinct ISO weeks a claim was stated or restated in (R-FD4): its
     ``source_episodes`` and the ``ep_*`` documents its evidence cites (a ``page``
     span cites an entity, not a conversation), plus the subject's kept weeks.
@@ -372,4 +376,186 @@ def claim_mention_weeks(claim, kept_on=()) -> int:
         doc = str(getattr(ev, "episode", "") or "")
         if doc.startswith("ep_"):
             refs.append(doc)
-    return mention_weeks(refs, kept_on)
+    return mention_weeks(refs, kept_on, untimed=untimed)
+
+
+# --------------------------------------------------------------------------- #
+# Age counts from when it was said (owner ruling 2026-10-09, amends G170)
+# --------------------------------------------------------------------------- #
+
+# A page or claim fades from the day it was last SAID, not the day Cicada read it. Two kinds of silence:
+#
+# * proven silence — from the last mention to the day Cicada read that mention (a page's `learned_on`, a claim's
+#   `recorded_at`). The run that read it read everything waiting, so that gap is the person's, never an outage:
+#   charged in full, once, by the decay pass of the run that read it;
+# * live silence — everything after that day. TODO ruling 1 unchanged: at most `cap_days` per pass, the watermark
+#   advancing only by what was charged, so a gap between runs is worked off over several passes.
+
+#: A mention read more than this many days after it was said was heard late (an import, not a live conversation):
+#: what it fades into is the age of the record, not a change the person is asked about.
+HEARD_LATE_DAYS = 7
+
+
+def _day(value) -> date | None:
+    try:
+        return date.fromisoformat(str(value).strip()[:10]) if value else None
+    except ValueError:
+        return None
+
+
+class Silence(NamedTuple):
+    """What one decay pass charges a page or claim, in days, and the watermark it leaves."""
+
+    proven_days: int   # last said -> the day Cicada read it, charged in full
+    live_days: int     # after that, at most the per-pass cap (ruling 1)
+    watermark: date    # the new `decayed_through`
+
+    @property
+    def days(self) -> int:
+        return self.proven_days + self.live_days
+
+
+def silence(said, charged_through, learned, today: date, cap_days: int) -> Silence | None:
+    """The silence one pass charges. ``said``: the last mention's day; ``charged_through``: the watermark
+    (``decayed_through``); ``learned``: the day Cicada read the last mention. ``None`` when neither ``said`` nor
+    ``charged_through`` is a date (the caller keeps its own fallback).
+
+    The baseline is the later of ``said`` and ``charged_through``. Proven silence runs from it to ``learned`` (never
+    past ``today``); live silence from there, capped. ``cap_days=0`` charges proven silence only — for a page or
+    claim this very pass read, whose live clock starts now."""
+    baseline = max([d for d in (_day(said), _day(charged_through)) if d is not None], default=None)
+    if baseline is None:
+        return None
+    start = baseline
+    proven = 0
+    read_on = _day(learned)
+    if read_on is not None and read_on > baseline:
+        start = min(read_on, today)
+        proven = max(0, (start - baseline).days)
+    live = min(max(0, (today - start).days), max(0, int(cap_days)))
+    return Silence(proven, live, min(today, start + timedelta(days=live)))
+
+
+def heard_late(said, learned) -> bool:
+    """True when the last mention was read more than :data:`HEARD_LATE_DAYS` after it was said — it came from an
+    import, so its fading asks the person nothing (an archived page stays findable; recall ranks it last)."""
+    s, r = _day(said), _day(learned)
+    return s is not None and r is not None and (r - s).days > HEARD_LATE_DAYS
+
+
+def latest_said(episode_refs, *, untimed=frozenset()) -> str | None:
+    """The latest day among dated episode ids (``ep_<date>_<n>``) — when a claim was last said. A memory export
+    entry (``untimed``) and an id without a date say nothing about when."""
+    days = []
+    for ref in _as_list(episode_refs):
+        stem = str(ref or "").strip()
+        if not stem or stem in untimed:
+            continue
+        parsed = episode_ids.parse_episode_id(stem)
+        if parsed and _day(parsed[0]) is not None:
+            days.append(parsed[0])
+    return max(days) if days else None
+
+
+# Owner 2026-10-09, after the first dry run on a real bank (79% archived): one-offs archive, repeats fade. Proven
+# silence alone never takes something that rests on two or more conversations below just under the decay-question
+# line — `decaying`, dimmed, still on the graph; only live silence after Cicada read it carries it on to the archive
+# line, at the normal pace. (A floor just above 0.2 archived a repeat after two to four days of live silence.)
+PROVEN_FLOOR_MARGIN = 0.01
+
+#: The frontmatter key (a claim's field of the same name) a page or claim gets when its own age took it below the
+#: decay-question line: it then fades and archives quietly, never asked about, until it is mentioned again.
+FADED_BY_AGE_KEY = "faded_by_age"
+
+
+def proven_floor(nudge_threshold: float) -> float:
+    """Where proven silence stops for a page or claim heard in 2+ conversations: just under the question line."""
+    return float(nudge_threshold) - PROVEN_FLOOR_MARGIN
+
+
+def asks(confidence_before: float, confidence_after: float, nudge_threshold: float, *, faded_by_age) -> bool:
+    """Does this pass raise a decay question? Only below the line — and never for something its age took there
+    (``faded_by_age``) that has not been back above the line since: a question fires when live silence carries a
+    page or claim across 0.4, never as live silence continues after its age was charged."""
+    if confidence_after >= nudge_threshold:
+        return False
+    return not (faded_by_age and confidence_before < nudge_threshold)
+
+
+def conversations(episode_refs, *, untimed=frozenset()) -> int:
+    """Distinct dated conversations among episode ids (``ep_<date>_<n>``). A memory export entry (``untimed``) and
+    an id without a date are not one."""
+    seen = set()
+    for ref in _as_list(episode_refs):
+        stem = str(ref or "").strip()
+        if stem and stem not in untimed and episode_ids.parse_episode_id(stem) is not None:
+            seen.add(stem)
+    return len(seen)
+
+
+def charge(confidence: float, rate: float, owed: Silence, *, conversations: int, nudge_threshold: float,
+           at_least: float | None = None) -> float:
+    """Confidence after one pass: proven silence first — floored at :func:`proven_floor` for something heard in 2+
+    conversations, and at ``at_least`` (where a revived page stood before the mention), never raising what is
+    already below them — then live silence, which may go anywhere."""
+    confidence = float(confidence)
+    after = confidence - rate * owed.proven_days / 7.0
+    if conversations >= 2:
+        after = max(after, min(confidence, proven_floor(nudge_threshold)))
+    if at_least is not None:
+        after = max(after, min(confidence, float(at_least)))
+    return max(0.0, after - rate * owed.live_days / 7.0)
+
+
+def owed(said, charged_through, learned) -> bool:
+    """Is there proven silence not yet charged — a mention read after the later of when it was said and the
+    watermark? A page or claim with none is settled: a further mention is a re-mention (see the writers)."""
+    read_on = _day(learned)
+    baseline = max([d for d in (_day(said), _day(charged_through)) if d is not None], default=None)
+    return read_on is not None and baseline is not None and read_on > baseline
+
+
+# --------------------------------------------------------------------------- #
+# Read on time (owner ruling 2026-10-16): when a conversation is read never changes the result
+# --------------------------------------------------------------------------- #
+
+# A conversation read late — a newly connected source's history, an export imported after a page was known — counts
+# as if Cicada had read it the day it was said. A mention revives a page or claim (a page to ``max(current, 0.6)``, a
+# claim to ``max(current, the restatement's confidence)``) and restarts its clock the day it was said; read late, the
+# revival is placed on that day and the silence since is charged, so the result is where reading it on time would have
+# left it — never lower than where it stands (a mention never lowers). Only the newest such mention can matter, so the
+# order the late conversations are read in, and the runs they are split across, never change the result.
+
+
+#: A page's frontmatter key (a claim's field of the same name): the newest conversation said before its watermark and
+#: read late, waiting for the decay pass that places it on its day (nothing is charged mid-drain, so the order and
+#: the batches a drain reads in never change the result). Cleared by that pass.
+READ_LATE_KEY = "read_late"
+
+
+def through_day(charged_through, today: date | str, cap_days: int) -> date:
+    """How far an on-time lift charges: the watermark plus at most one pass of live silence (ruling 1's cap), never
+    past ``today``; ``today`` when there is no watermark."""
+    end = _day(today)
+    start = _day(charged_through)
+    if start is None or end is None:
+        return end
+    return min(end, max(start, start + timedelta(days=max(0, int(cap_days)))))
+
+
+def on_time(revived: float, rate: float, said, read_on, through, *, conversations: int,
+            nudge_threshold: float) -> float | None:
+    """Where a mention said on ``said`` leaves a page or claim had Cicada read it that day: ``revived`` on ``said``,
+    less the silence from then to ``through`` (the watermark plus at most one pass of live silence,
+    :func:`through_day`; a later pass charges the rest). ``read_on`` is the day Cicada read its latest mention before
+    this one: silence before it is proven silence (floored for a repeat, :func:`charge`, as when that mention was
+    read); silence after it, while Cicada was already watching, is live silence on time — charged in full, never
+    floored. ``None`` when a date
+    is missing or ``through`` is before ``said`` (nothing late to place)."""
+    s, end = _day(said), _day(through)
+    if s is None or end is None or end < s:
+        return None
+    read = _day(read_on)
+    watch = min(max(s, read) if read is not None else s, end)
+    owed_silence = Silence((watch - s).days, (end - watch).days, end)
+    return charge(revived, rate, owed_silence, conversations=conversations, nudge_threshold=nudge_threshold)

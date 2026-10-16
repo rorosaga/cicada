@@ -63,14 +63,25 @@ enum FindServerRows {
                 let type = EntityType(rawValue: hit.type) ?? .concept
                 // R-SU19 — the server ranks these after every current claim (R10); drawn as history.
                 let isHistory = hit.validTo != nil || hit.supersededBy != nil
+                let future = ISODay(hit.validFrom).map {
+                    $0 > ISODay.today(now: context.now, calendar: context.calendar)
+                } ?? false
                 let span = hit.episodeId.map {
                     ReaderSpan(doc: $0, start: hit.start, end: hit.end, hash: hit.hash, claimId: hit.id)
                 }
-                let detail = [hit.subtitle, speaker(hit.evidenceKind)].compactMap { $0 }.joined(separator: " · ")
+                let detail = [hit.subtitle, date(hit.eventDay), hit.eventStatus, speaker(hit.evidenceKind)]
+                    .compactMap { $0 }.joined(separator: " · ")
+                let history: String? = future && !isHistory
+                    ? date(hit.validFrom).map { "from \($0)" }
+                    : isHistory
+                    ? (hit.eventStatus != nil
+                        ? (hit.supersededBy != nil ? "earlier state" : "past event")
+                        : (date(hit.validTo).map { "until \($0)" } ?? "no longer current"))
+                    : nil
                 rows.append(FindRow(key: FindRowKey(kind: .belief, id: hit.id), group: .beliefs, title: hit.name,
                                     titleRanges: bold(hit.name), detail: detail.isEmpty ? nil : detail,
                                     mark: .entity(id: subject, name: hit.subtitle ?? subject, type: type),
-                                    history: isHistory ? (date(hit.validTo).map { "until \($0)" } ?? "no longer current") : nil,
+                                    history: history,
                                     score: hit.score, destination: .belief(subjectId: subject, claimId: hit.id),
                                     secondary: context.readerAvailable ? span.map { .evidence($0) } : nil))
             case "episode":
@@ -91,7 +102,7 @@ enum FindServerRows {
                                     title: hit.name, titleRanges: bold(hit.name),
                                     snippet: hit.snippet.isEmpty ? nil : hit.snippet, snippetRanges: hit.snippetOffsets,
                                     mark: .origin(hit.harness ?? hit.origin ?? "unknown"),
-                                    trailing: date(hit.timestamp), speaker: speaker(hit.evidenceKind), score: hit.score,
+                                    trailing: date(hit.timestamp), speaker: speaker(hit.evidenceKind, origin: hit.origin), score: hit.score,
                                     destination: .conversation(target),
                                     secondary: .conversations(harness: hit.harness, origin: hit.origin, query: nil)))
             case "backlog":
@@ -132,14 +143,27 @@ enum FindServerRows {
     }
 
     /// Design §4.2's labels for `evidenceKind` — the row-level twin of the
-    /// chips Track P draws on the entity card.
-    static func speaker(_ kind: String?) -> String? {
+    /// chips Track P draws on the entity card. DR-57 — the TRUE speaker: a
+    /// feed item or a calendar event is stored on the person's side of the
+    /// episode, but nobody said it, so its passage reads "From the feed" or
+    /// "On your calendar", never "You said" (QA 2026-10-16, finding 11).
+    static func speaker(_ kind: String?, origin: String? = nil) -> String? {
+        if kind == "user", let source = sourceSpeaker(origin) { return source }
         switch kind ?? "" {
-        case "user": "You said"
-        case "assistant": "Agent replied"
-        case "page": "From page"
-        case "reasoning": "Inferred"
-        default: nil
+        case "user": return "You said"
+        case "assistant": return "Agent replied"
+        case "page": return "From page"
+        case "reasoning": return "Inferred"
+        default: return nil
+        }
+    }
+
+    /// Origins whose "user" side is a thing that arrived, not words the person said.
+    static func sourceSpeaker(_ origin: String?) -> String? {
+        switch origin ?? "" {
+        case "rss": return Copy.Provenance.fromTheFeed
+        case "calendar", "calendar-local": return Copy.Provenance.onYourCalendar
+        default: return nil
         }
     }
 

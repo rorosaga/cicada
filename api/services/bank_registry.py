@@ -26,10 +26,14 @@ behaves *exactly* as before banks existed.
 from __future__ import annotations
 
 import os
+import re
+import secrets
 import shutil
 import subprocess
 import time
+import contextvars
 import zipfile
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -216,34 +220,116 @@ def registry_path(root: Path) -> Path:
     return Path(root) / REGISTRY_FILENAME
 
 
-def resolve_active_bank_path(root: Path) -> Path:
-    """Return the on-disk dir for the active bank.
+@dataclass(frozen=True)
+class PinnedBank:
+    """The bank one request runs in (G183(d), ``bank_binding``): resolved once, when the request starts."""
 
-    Legacy fallback: missing registry, or an active bank that is legacy /
-    unknown, resolves to ``root`` unchanged. This keeps every pre-banks install
-    and every test tmp dir behaving exactly as before.
-    """
+    root: Path
+    name: str
+    path: Path
+    #: The bank's identity in ``banks.yaml`` (G181 phase 2), or None for a bank that has none yet.
+    id: str | None = None
+
+
+#: Set by ``bank_binding.require_same_bank`` for the request it runs in. A ContextVar, so it follows the request into
+#: ``run_in_threadpool`` / ``asyncio.to_thread`` and into tasks the request starts, and never leaks into another request.
+_PINNED: ContextVar[PinnedBank | None] = ContextVar("cicada_pinned_bank", default=None)
+
+
+def _pinned(root: Path) -> PinnedBank | None:
+    pin = _PINNED.get()
+    return pin if pin is not None and pin.root == Path(root) else None
+
+
+def pinned_bank() -> PinnedBank | None:
+    """This context's pin, whatever its root — write admission checks it names the bank it admits (G183)."""
+    return _PINNED.get()
+
+
+def _active_record(root: Path) -> tuple[str, Path, str | None]:
+    """``(name, dir, id)`` of the active bank from ONE registry read, ignoring any pin (see :func:`current_active`)."""
     root = Path(root)
     reg_file = registry_path(root)
     if not reg_file.exists():
-        return root
+        return DEFAULT_BANK, root, None
+    try:
+        registry = _read_registry_file(reg_file)
+    except Exception:
+        return DEFAULT_BANK, root, None
+    active = registry.get("active")
+    banks = registry.get("banks", {}) or {}
+    name = str(active) if active and banks else DEFAULT_BANK
+    record = banks.get(active)
+    ident = _clean_id(record.get("id")) if isinstance(record, dict) else None
+    if not record or record.get("legacy"):
+        return name, root, ident
+    return name, root / BANKS_SUBDIR / active, ident
 
+
+def current_active(root: Path) -> tuple[str, Path]:
+    """``(name, dir)`` of the active bank from ONE registry read, ignoring any pin — what a request is pinned to.
+
+    The name is ``list_banks``' ``active`` (the roster the app names banks by); the dir follows the legacy fallbacks:
+    a missing or corrupt registry, or an active bank that is legacy or unknown, resolves to ``root`` unchanged."""
+    root = Path(root)
+    reg_file = registry_path(root)
+    if not reg_file.exists():
+        return DEFAULT_BANK, root
     try:
         registry = _read_registry_file(reg_file)
     except Exception:
         # A corrupt registry must never break path resolution — degrade to
         # legacy behavior rather than crash every request.
-        return root
-
+        return DEFAULT_BANK, root
     active = registry.get("active")
     banks = registry.get("banks", {}) or {}
+    name = str(active) if active and banks else DEFAULT_BANK
     record = banks.get(active)
-    if not record:
+    if not record or record.get("legacy"):
         # Unknown / dangling active pointer degrades gracefully to the root.
-        return root
-    if record.get("legacy"):
-        return root
-    return root / BANKS_SUBDIR / active
+        return name, root
+    return name, root / BANKS_SUBDIR / active
+
+
+def pin_request_bank(root: Path) -> PinnedBank:
+    """Pin the active bank, as it is now, for the rest of this request's context."""
+    name, path, ident = _active_record(root)
+    pin = PinnedBank(Path(root), name, path, ident)
+    _PINNED.set(pin)
+    return pin
+
+
+def unpin() -> None:
+    """Drop this context's pin, so the work that follows resolves the active bank when it runs. Called first by every
+    unattended entry point (a scheduler job): a callback can carry a copy of the request context that scheduled it,
+    and the bank it must use is the one active when it FIRES, not when it was registered."""
+    _PINNED.set(None)
+
+
+def unpinned_context() -> contextvars.Context:
+    """A copy of the current context with no pin — to register a scheduler job, or start a long-lived task, from inside
+    a request without handing it that request's bank."""
+    ctx = contextvars.copy_context()
+    ctx.run(_PINNED.set, None)
+    return ctx
+
+
+def run_unpinned(fn, /, *args, **kwargs):
+    """Call ``fn`` in an unpinned copy of the current context: anything it schedules (APScheduler's wakeup and timer
+    callbacks, ``call_soon``/``call_later``) captures that clean context, not the request's pin."""
+    return unpinned_context().run(fn, *args, **kwargs)
+
+
+def resolve_active_bank_path(root: Path) -> Path:
+    """Return the on-disk dir for the active bank — the request's pinned bank inside a request (G183(d)), so a
+    switch while the request awaits a lock, a thread or a commit never moves its writes into another bank.
+
+    Legacy fallback: missing registry, or an active bank that is legacy /
+    unknown, resolves to ``root`` unchanged. This keeps every pre-banks install
+    and every test tmp dir behaving exactly as before.
+    """
+    pin = _pinned(root)
+    return pin.path if pin is not None else current_active(root)[1]
 
 
 def bank_dir(root: Path, name: str) -> Path:
@@ -274,6 +360,13 @@ def _read_registry_file(reg_file: Path) -> dict[str, Any]:
         return {}
     data.setdefault("banks", {})
     return data
+
+
+def active_bank_name(root: Path) -> str:
+    """The active bank's name as the roster reports it (``list_banks``' ``active``) — the request's pinned bank inside
+    a request (G183(d)). Read-only, like ``load_registry``."""
+    pin = _pinned(root)
+    return pin.name if pin is not None else current_active(root)[0]
 
 
 def load_registry(root: Path) -> dict[str, Any]:
@@ -321,6 +414,96 @@ def _ensure_registry(root: Path) -> dict[str, Any]:
     if not reg_file.exists():
         save_registry(root, registry)
     return registry
+
+
+# --- Identity (G181 phase 2) ------------------------------------------------
+#
+# Every bank carries a random ``id`` in its ``banks.yaml`` record: what a client on another machine (the `cicada`
+# command, the app later) compares instead of a filesystem path, which means nothing across machines (ruling 21a,
+# amended 2026-10-16). Minted by the backend at startup (:func:`ensure_bank_ids`) and by every create or duplicate;
+# kept by a rename (the same bank); never copied. Reading never writes one.
+
+_ID_RE = re.compile(r"^[0-9a-f]{16,64}$")
+
+
+def _clean_id(value) -> str | None:
+    return value if isinstance(value, str) and _ID_RE.match(value) else None
+
+
+def new_bank_id() -> str:
+    return secrets.token_hex(16)
+
+
+def bank_id(root: Path, name: str) -> str | None:
+    """The named bank's id, or None (no registry, no record, or none minted yet). Read-only."""
+    reg_file = registry_path(Path(root))
+    if not reg_file.exists():
+        return None
+    try:
+        record = (_read_registry_file(reg_file).get("banks", {}) or {}).get(name)
+    except Exception:
+        return None
+    return _clean_id(record.get("id")) if isinstance(record, dict) else None
+
+
+def bank_ids(root: Path) -> list[str]:
+    """Every bank's id in this memory root (the root's identity, as a set of its banks). Read-only."""
+    reg_file = registry_path(Path(root))
+    if not reg_file.exists():
+        return []
+    try:
+        banks = _read_registry_file(reg_file).get("banks", {}) or {}
+    except Exception:
+        return []
+    return [i for r in banks.values() if isinstance(r, dict) and (i := _clean_id(r.get("id")))]
+
+
+def ensure_bank_ids(root: Path) -> bool:
+    """Give every bank in ``banks.yaml`` an id it lacks, persisting the synthesized legacy default first when the root
+    has no registry yet (resolution is unchanged by construction: :func:`load_registry` synthesizes exactly what is
+    written). True when anything was written. The backend's startup call; never raises into it."""
+    root = Path(root)
+    try:
+        registry = load_registry(root)
+        changed = not registry_path(root).exists()
+        for record in (registry.get("banks", {}) or {}).values():
+            if isinstance(record, dict) and _clean_id(record.get("id")) is None:
+                record["id"] = new_bank_id()
+                changed = True
+        if changed:
+            save_registry(root, registry)
+        _registry_out_of_root_history(root, wrote=changed)
+        return changed
+    except Exception as exc:  # noqa: BLE001 - an identity never blocks a boot
+        logger.warning(f"bank: could not give the banks an id ({type(exc).__name__})")
+        return False
+
+
+_REGISTRY_EXCLUDE_HEADER = "# Cicada: the bank registry (banks.yaml) is the root's, never a bank's history (G181)"
+
+
+def _registry_out_of_root_history(root: Path, *, wrote: bool) -> None:
+    """A legacy root IS its default bank's git repo, so ``banks.yaml`` sits in that bank's tree. Written at boot by
+    :func:`ensure_bank_ids`, it would otherwise be swept into the next ``git add -A`` writer's commit under that
+    writer's author (the G85-class smear). Untracked: excluded via ``.git/info/exclude`` (never ``.gitignore``, G136
+    R2). Already tracked (an older install's sweep): the id write is committed alone, as ``cicada``. A root that is not
+    a git repo has nothing to protect."""
+    if _git_dir(root) is None:
+        return
+    from api.services import git_service
+
+    try:
+        tracked = bool(git_service._git_sync(root, "ls-files", "--", REGISTRY_FILENAME).strip())
+    except git_service.GitError:
+        return
+    if not tracked:
+        _append_exclude(root, (REGISTRY_FILENAME,), _REGISTRY_EXCLUDE_HEADER)
+        return
+    if wrote:
+        message = git_service.build_commit_message(
+            f"Bank identities {date.today().isoformat()}",
+            [f"{REGISTRY_FILENAME}: updated (trigger: bank-ids)"], authors=["cicada"])
+        git_service.commit_paths_sync(root, message, [REGISTRY_FILENAME])
 
 
 # --- Scaffolding -----------------------------------------------------------
@@ -376,6 +559,15 @@ def scaffold_bank(path: Path, *, git_init: bool = True) -> None:
             # features simply degrade.
             pass
 
+    if git_init:
+        # G181: a headless server has no git identity, and git refuses every commit without one.
+        from api.services import git_service
+
+        try:
+            git_service.ensure_commit_identity_sync(path)
+        except git_service.GitError as exc:
+            logger.warning(f"bank: could not set a fallback commit identity: {exc}")
+
     # G136: every derived name is excluded even in a bank whose .gitignore
     # predates it (see ensure_derived_excluded for why not .gitignore).
     ensure_derived_excluded(path)
@@ -419,6 +611,8 @@ def list_banks(root: Path) -> dict[str, Any]:
                 # demo_guard answer — the manifest or the generator's identity,
                 # never the name (R-CS10). One small read per bank.
                 "demo": demo_guard.is_demo(path),
+                # G181 phase 2: the bank's identity, what a client on another machine pins (never a path).
+                "id": _clean_id(record.get("id")) if isinstance(record, dict) else None,
             }
         )
     return {"banks": banks, "active": active}
@@ -451,6 +645,7 @@ def create_bank(root: Path, name: str, description: str = "", *, seed_owner: boo
         "legacy": False,
         "created": date.today().isoformat(),
         "description": description or "",
+        "id": new_bank_id(),
     }
     save_registry(root, registry)
     if seed_owner:
@@ -563,8 +758,7 @@ def capture_bank(root: Path) -> CaptureBank | None:
     recently, or ``None`` when there is none to choose (R-CS12). Resolved per
     call from ``banks.yaml``, like every bank path (the split-brain rule)."""
     root = Path(root)
-    registry = load_registry(root)
-    active = str(registry.get("active") or DEFAULT_BANK)
+    active = active_bank_name(root)   # pin-aware, with the path below: one bank, never two halves of a switch
     path = resolve_active_bank_path(root)
     if not demo_guard.is_demo(path):
         return CaptureBank(active, path)
@@ -635,6 +829,7 @@ def duplicate_bank(root: Path, name: str, new_name: str) -> str:
         "legacy": False,
         "created": date.today().isoformat(),
         "description": f"Copy of {name}",
+        "id": new_bank_id(),   # a copy is another bank: never the source's identity
     }
     save_registry(root, registry)
     return new_slug

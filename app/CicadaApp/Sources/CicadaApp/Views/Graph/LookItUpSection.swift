@@ -13,6 +13,17 @@ struct LookItUpSection: View {
     var navigate: (String) -> Void = { _ in }
     /// Audit A05 review — the card is still on `entityId`; the card's `sources` outlives an entity switch.
     var isCurrent: () -> Bool = { true }
+    /// Owner 2026-10-14 — what each source backs and the links the page's conversations named
+    /// (`GET /entities/{id}/sources/overview`); nil (an older backend, or still reading) shows the sources alone.
+    var overview: PageSourcesOverview? = nil
+    /// The source a belief's chip asked for: its row is selected (DR-48) and scrolled to.
+    var highlighted: String? = nil
+    /// A backed belief opens its own timeline (the card's `openTimeline`).
+    var onOpenFact: (PageSourceFact) -> Void = { _ in }
+    /// A link opens the conversation that named it in the Reader.
+    var onOpenLinkOrigin: ((PageLinkOrigin) -> Void)? = nil
+    /// A write landed: the card reads the overview again (what each source backs, which links are still only links).
+    var onChanged: () -> Void = {}
     @Environment(Store.self) private var store
     @Environment(AppRouter.self) private var router
     @State private var newRef = ""
@@ -25,22 +36,42 @@ struct LookItUpSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            SectionLabel(Copy.Provenance.lookItUpAt)
-            if !sources.isEmpty {
+            let links = overview?.links ?? []
+            if !sources.isEmpty || !links.isEmpty {
                 VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-                    // A page holds many sources; each fact's are together, in words (G61 S3-a).
-                    ForEach(SourceGroups.groups(sources)) { group in
+                    // A page holds many sources; each fact's are together, in words (G61 S3-a), with the beliefs
+                    // that fact's sources back under them (owner 2026-10-14).
+                    let groups = SourceGroups.groups(sources)
+                    ForEach(groups) { group in
+                        let backing = group.rows.lazy.compactMap { overview?.backing($0) }.first
+                        let backs = backing.flatMap(PageSourcesWords.backs)
                         VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
-                            if SourceGroups.groups(sources).count > 1 {
-                                Text(group.title)
-                                    .font(CicadaTheme.metaFont)
-                                    .foregroundStyle(CicadaTheme.textSecondary)
-                                    .padding(.leading, CicadaTheme.scaled(10))
-                                    .padding(.top, CicadaTheme.spacingXS)
+                            if groups.count > 1 || backs != nil {
+                                groupTitle(backs.map { "\(group.title) · \($0)" } ?? group.title)
                             }
                             ForEach(group.rows) { source in
                                 row(source)
                                 if editing?.id == source.id, let editing { editor(editing, for: source) }
+                            }
+                            if let backing, backing.scope == .fact, !backing.facts.isEmpty {
+                                BackedFacts(source: backing, onOpen: onOpenFact)
+                            }
+                        }
+                    }
+                    if !links.isEmpty {
+                        VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
+                            groupTitle(Copy.PageSources.namedInConversations)
+                            ForEach(links) { link in
+                                PageLinkRow(link: link, entityId: entityId,
+                                            onOpenOrigin: onOpenLinkOrigin.flatMap { open in
+                                                link.cameFrom.map { origin in { open(origin) } } },
+                                            onUseAsSource: { addRef(link.url) })
+                            }
+                            if let total = overview?.linksTotal, total > links.count {
+                                Text(Copy.PageSources.moreLinks(total - links.count))
+                                    .font(CicadaTheme.metaFont)
+                                    .foregroundStyle(CicadaTheme.textTertiary)
+                                    .padding(.leading, CicadaTheme.scaled(10))
                             }
                         }
                     }
@@ -53,12 +84,26 @@ struct LookItUpSection: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        // Owner rulings 2026-10-14: the links' dates and previews come from the page's link facts.
+        .task(id: "\(entityId)|\(overview?.links.count ?? 0)") {
+            if !(overview?.links ?? []).isEmpty { await LinkFactsCache.shared.refresh(entityId) }
+        }
+    }
+
+    private func groupTitle(_ text: String) -> some View {
+        Text(text)
+            .font(CicadaTheme.metaFont)
+            .foregroundStyle(CicadaTheme.textSecondary)
+            .padding(.leading, CicadaTheme.scaled(10))
+            .padding(.top, CicadaTheme.spacingXS)
     }
 
     private func row(_ source: EntitySource) -> some View {
         let linked = source.entity.flatMap { id in store.entityNames.name(for: id).map { (id: id, name: $0) } }
+        let heading = PageSourcesWords.heading(source, title: overview?.backing(source)?.title)
         return FactSourceRow(
-            line: FactSourceWords.line(source), url: source.url, linked: linked,
+            line: FactSourceWords.line(source), title: heading.title, fullURL: heading.url, url: source.url,
+            linked: linked,
             node: linked.flatMap { pair in store.graph.value?.nodes.first { $0.id == pair.id } },
             canBeTaken: source.canBeTaken,
             entityId: entityId, site: SourceSite.key(of: source),
@@ -68,7 +113,9 @@ struct LookItUpSection: View {
             isManaged: !source.ref.hasPrefix("addressbook://"),
             onOpenPage: { if let linked { navigate(linked.id) } },
             onChange: { change in write(change, on: source) },
-            onEdit: { mode in editing = SourceEditing(id: source.id, mode: mode) })
+            onEdit: { mode in editing = SourceEditing(id: source.id, mode: mode) },
+            isHighlighted: highlighted == source.id)
+            .id(PageSourcesWords.anchor(source.id))
     }
 
     @ViewBuilder
@@ -134,20 +181,28 @@ struct LookItUpSection: View {
     }
 
     /// Audit A06 — the draft stays in the field until the answer; a failure keeps it and toasts the server's sentence.
-    private func add() {
-        let ref = newRef.trimmed
+    private func add() { addRef(newRef.trimmed, fromField: true) }
+
+    /// The field's text, or a link from a conversation kept as a source ("Use as a source", owner 2026-10-14).
+    private func addRef(_ text: String, fromField: Bool = false) {
+        let ref = text.trimmed
         guard !ref.isEmpty, pendingAdd != ref else { return }
         pendingAdd = ref
         // A link typed on a brand page is its official site: the person's own word, trusted at once (G61 S3-b).
-        let predicate = addsSite && ref.lowercased().hasPrefix("http")
+        // A link kept from a conversation is a place to look the page up, never its official site by default.
+        let predicate = fromField && addsSite && ref.lowercased().hasPrefix("http")
             && !sources.contains { $0.isOfficialSite && ($0.trusted ?? true) } ? "website" : nil
         let mutation = EntitySourceAdd(entityId: entityId, ref: ref, predicate: predicate, sources: $sources,
                                        isCurrent: isCurrent)
         writes.run {
             let landed = await store.perform(mutation)
             if pendingAdd == ref { pendingAdd = nil }
-            newRef = SourceDraft.afterAdd(submitted: ref, current: newRef.trimmed == ref ? ref : newRef, landed: landed)
+            if fromField {
+                newRef = SourceDraft.afterAdd(submitted: ref, current: newRef.trimmed == ref ? ref : newRef,
+                                              landed: landed)
+            }
             if landed {
+                onChanged()
                 await SiteIconStore.shared.forget(entity: entityId)   // a 404 from before this site was trusted is stale
                 await store.refresh([.graph])   // its picture is drawn from a trusted site
             }
@@ -161,6 +216,7 @@ struct LookItUpSection: View {
                                          isCurrent: isCurrent)
         writes.run {
             let landed = await store.perform(mutation)
+            if landed { onChanged() }
             if landed { await SiteIconStore.shared.forget(entity: entityId) }   // "Use this site" makes its mark available
             if landed, let words = change.doneMessage { store.toast = words }
         }
@@ -242,6 +298,10 @@ private struct SourceLinkPicker: View {
 /// linked to its own page wears that page's picture and offers "Open page ›" (G61 S3-a).
 private struct FactSourceRow: View {
     let line: FactSourceWords.Line
+    /// What the row leads with — a link's site name, else the ref (`PageSourcesWords.heading`).
+    var title: String? = nil
+    /// A link's full URL, under its name (review polish 2026-10-14).
+    var fullURL: String? = nil
     let url: URL?
     /// The page this source is linked to, when it still exists.
     let linked: (id: String, name: String)?
@@ -257,19 +317,29 @@ private struct FactSourceRow: View {
     let onOpenPage: () -> Void
     let onChange: (SourceChange) -> Void
     let onEdit: (SourceEditing.Mode) -> Void
+    /// A belief's chip asked for this source (owner 2026-10-14): selected, DR-48's `bgSelected`.
+    var isHighlighted = false
     @State private var hovering = false
 
     var body: some View {
         HStack(alignment: .top, spacing: CicadaTheme.scaled(10)) {
             mark
             VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
-                Text(line.ref)
+                Text(title ?? line.ref)
                     .font(CicadaTheme.rowFont)
                     .foregroundStyle(line.isLink ? (hovering ? CicadaTheme.textPrimary : CicadaTheme.accentText)
                                                  : CicadaTheme.textSecondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .help(line.help)
+                if let fullURL, fullURL != title {
+                    Text(fullURL)
+                        .font(CicadaTheme.metaFont)
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .help(line.help)
+                }
                 HStack(spacing: CicadaTheme.spacingXS) {
                     Text(line.forFact)
                     if let readBy = line.readBy {
@@ -306,7 +376,8 @@ private struct FactSourceRow: View {
         .padding(.leading, CicadaTheme.scaled(10))
         .padding(.trailing, CicadaTheme.spacingXS)
         .padding(.vertical, CicadaTheme.scaled(6))
-        .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).fill(hovering ? CicadaTheme.bgHover : Color.clear))
+        .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
+            .fill(hovering ? CicadaTheme.bgHover : (isHighlighted ? CicadaTheme.bgSelected : Color.clear)))
         .onHover { hovering = $0 }
     }
 

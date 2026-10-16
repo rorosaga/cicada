@@ -14,6 +14,8 @@ from pathlib import Path
 
 import yaml
 
+from api.services.claims import load_fence_payload
+
 from api.services import conflict_resolver, decay_watermark_migration, markdown_parser
 from api.services.claims import Claim, parse_claims, write_claims
 
@@ -424,7 +426,7 @@ def test_a_malformed_claim_entry_does_not_block_its_siblings(tmp_path):
     counts = decay_watermark_migration.backfill_decay_watermarks(repo)
 
     assert counts["claims"] == 1, "the one well-formed claim must still be backfilled"
-    reparsed_raw = yaml.safe_load(
+    reparsed_raw = load_fence_payload(
         decay_watermark_migration._CLAIMS_BLOCK_RE.search(
             markdown_parser.parse(page).body
         ).group("payload")

@@ -2,7 +2,7 @@ import Foundation
 import Observation
 
 // G162 — the watch run's brain, pure where it can be: which rows each picker tab shows, what is selected and asked for,
-// the size and the prompt, and how a hand-off's progress is laid out. `FeedPage` owns one `VideoRunModel`; the views
+// the size and the prompt, and how a hand-off's progress is laid out. `SleepView` owns one `VideoRunModel` (the Feed's, until it folded into Sleep); the views
 // (`VideoPickRow`, `VideoRunCard`) only draw what it decides. Nothing here fetches, downloads or watches a video
 // (Track V's rail): the one write is the hand-off, which puts the person's own request in a queue outside the bank.
 
@@ -176,11 +176,11 @@ final class VideoRunModel {
         switch mode {
         case .browse: return ""
         case .choosing:
-            return Eyebrow.text(Copy.feed, FeedKind.video.label, Copy.Videos.picking,
+            return Eyebrow.text(Copy.SleepTabs.page, FeedKind.video.label, Copy.Videos.picking,
                                 selected.isEmpty ? "" : Copy.Videos.pickedCount(selected.count))
         case .progress:
-            guard let batch = summary?.batch else { return Eyebrow.text(Copy.feed, FeedKind.video.label, Copy.Videos.runEyebrow) }
-            return Eyebrow.text(Copy.feed, FeedKind.video.label, Copy.Videos.runEyebrow,
+            guard let batch = summary?.batch else { return Eyebrow.text(Copy.SleepTabs.page, FeedKind.video.label, Copy.Videos.runEyebrow) }
+            return Eyebrow.text(Copy.SleepTabs.page, FeedKind.video.label, Copy.Videos.runEyebrow,
                                 Copy.Videos.recordedOf(batch.done, batch.total))
         }
     }

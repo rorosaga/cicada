@@ -34,7 +34,7 @@ def test_evidence_round_trips_through_the_claims_block():
     assert back == [c]
     assert back[0].evidence[0].is_span() is True
     assert back[0].evidence[1].is_span() is False
-    assert "start: 12" in body and "hash: 0123456789ab" in body
+    assert '"start": 12' in body and '"hash": "0123456789ab"' in body
 
 
 def test_legacy_claim_without_evidence_parses_to_empty_list():

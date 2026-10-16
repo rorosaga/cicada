@@ -143,7 +143,7 @@ def test_one_ledger_row_per_firing_ids_and_enums_only_filed_beside_reads(client,
     assert len(rows) == 2
     first = rows[0]
     assert set(first.refs) == {"harness", "event", "reason", "injected", "entity_ids", "inbox", "tokens",
-                               "latency", "model"}
+                               "latency", "model", "continuity", "rendering", "registry"}   # G110: enums only
     assert first.refs["entity_ids"] == ["alpha-project"] and first.refs["model"] == "claude-example-1"
     assert rows[1].refs["model"] is None, "only an id-shaped model string is kept"
     assert first.stage == "hook_recall" and first.billing == "free" and first.connection is None

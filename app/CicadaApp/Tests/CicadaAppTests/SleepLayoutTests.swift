@@ -2,25 +2,126 @@ import SwiftUI
 import XCTest
 @testable import CicadaApp
 
-/// Track Z §4.1 (R-A1 amended) — the page is ONE 760 pt column at every width.
-/// The room is the widest thing in it, so the column's one real constraint is
-/// that the room fits at every zoom step (Z-P23).
+/// Track Z §4.1 (R-A1 amended), and the Sleep redesign (2026-10-16, DESIGN §3.2/§6.5) — the room's sentence, control and
+/// whisper keep the 760 pt text column; the art left its card and takes a WHOLE number of points per lattice cell,
+/// chosen by the width it may take (5 from 880, 4 from 720, else 3), so a pixel is never resampled (ruling R3).
 final class SleepLayoutTests: XCTestCase {
 
     func test_theColumnIsSevenSixty() {
         XCTAssertEqual(SleepLayout.contentWidth, 760)
+        XCTAssertEqual(SleepLayout.artMaxWidth, 880)
     }
 
-    /// Room + the card's padding (`spacingLG`) + the page's (`spacingXL`), both
-    /// scaled, must fit the unscaled column at every View-menu step. At 1.4×
-    /// that is 640 + 44.8 + 67.2 = 752 pt.
-    func test_theRoomFitsTheColumnAtEveryZoomStep() {
-        for step in 8...14 {
-            let scale = Double(step) / 10
-            let room = deskSceneLayout(uiScale: scale).size.width
-            let padding = 2 * 16 * CGFloat(scale) + 2 * 24 * CGFloat(scale)
-            XCTAssertLessThanOrEqual(room + padding, SleepLayout.contentWidth, "uiScale \(scale)")
+    /// The step function, at its edges, and whole points everywhere — never fractional, so a resize never blurs a pixel.
+    func test_theArtScaleIsAWholePointStepFunction() {
+        XCTAssertEqual(SleepLayout.artScale(columnWidth: 880), 5)
+        XCTAssertEqual(SleepLayout.artScale(columnWidth: 879.5), 4)
+        XCTAssertEqual(SleepLayout.artScale(columnWidth: 720), 4)
+        XCTAssertEqual(SleepLayout.artScale(columnWidth: 719), 3)
+        XCTAssertEqual(SleepLayout.artScale(columnWidth: 480), 3)
+        var previous: CGFloat = 0
+        for tenth in stride(from: 2000, through: 16000, by: 5) {
+            let width = CGFloat(tenth) / 10
+            let scale = SleepLayout.artScale(columnWidth: width)
+            XCTAssertEqual(scale, scale.rounded(), "\(width) — whole points only")
+            XCTAssertGreaterThanOrEqual(scale, previous, "\(width) — a wider column never draws a smaller room")
+            previous = scale
+            if width >= 320 {
+                XCTAssertLessThanOrEqual(CGFloat(RoomLattice.cols) * scale, width, "\(width) — the art fits its column")
+            }
         }
+    }
+
+    /// The layout's own geometry follows the cell: 800 × 320 at 5 pt, every hotspot on whole cells.
+    func test_theRoomAtFivePointsIsEightHundredByThreeTwenty() {
+        let layout = deskSceneLayout(pixelScale: 5)
+        XCTAssertEqual(layout.size, CGSize(width: 800, height: 320))
+        for rect in deskHotspots(layout).values {
+            XCTAssertEqual(rect.minX.truncatingRemainder(dividingBy: 5), 0)
+            XCTAssertEqual(rect.minY.truncatingRemainder(dividingBy: 5), 0)
+        }
+    }
+
+    /// ColumnLayout for the new page (DESIGN §6.5), at the reference windows: with nothing open the list column IS the
+    /// page, and at 1440 and at the 1200 minimum — rail or labelled sidebar — the room draws at 5 pt.
+    func test_atTheReferenceWindowsTheRoomIsFivePoints() {
+        for (window, nav) in [(1440.0, ShellMetrics.railWidth), (1200.0, ShellMetrics.railWidth),
+                              (1200.0, ShellMetrics.sidebarWidth)] {
+            let plan = ColumnLayout.plan(contentWidth: window - nav, navWidth: nav, scale: 1,
+                                         hasDetail: false, hasTrailing: false)
+            XCTAssertEqual(plan.listStyle, .wide)
+            let art = min(plan.list - 2 * plan.gutter, SleepLayout.artMaxWidth)
+            XCTAssertEqual(SleepLayout.artScale(columnWidth: art), 5, "\(window) with a \(nav) pt rail")
+        }
+    }
+
+    /// An open saved item (STATE 1) collapses the list to the triage column — 328 at 1440, 280 at 1200 — and the
+    /// detail keeps the question's floor (DR-27); the Reader beside the room still leaves it a whole-point scale.
+    func test_anOpenItemIsTheTriageColumnAtFourteenFortyAndTwelveHundred() {
+        let wide = ColumnLayout.plan(contentWidth: 1440 - 56, navWidth: 56, scale: 1, hasDetail: true, hasTrailing: false)
+        XCTAssertEqual(wide.listStyle, .triage)
+        XCTAssertEqual(wide.list, 328)
+        XCTAssertGreaterThanOrEqual(wide.detail, ColumnLayout.minQuestion)
+        let narrow = ColumnLayout.plan(contentWidth: 1200 - 56, navWidth: 56, scale: 1, hasDetail: true, hasTrailing: false)
+        XCTAssertEqual(narrow.listStyle, .triage)
+        XCTAssertEqual(narrow.list, 280)
+        let reader = ColumnLayout.plan(contentWidth: 1200 - 208, navWidth: 208, scale: 1.4, hasDetail: false, hasTrailing: true)
+        let art = min(reader.list - 2 * reader.gutter, SleepLayout.artMaxWidth)
+        XCTAssertLessThanOrEqual(CGFloat(RoomLattice.cols) * SleepLayout.artScale(columnWidth: art), max(art, 320))
+    }
+}
+
+/// The page's tabs (DESIGN §3.4, §3.5): which show, which opens, and where a choice falls back.
+final class SleepTabTests: XCTestCase {
+    func test_waitingHidesAtZeroAndVideosOnlyWithAVideo() {
+        XCTAssertEqual(SleepTab.visible(waitingHasRows: true, saved: 7, videos: 6), [.waiting, .saved, .videos, .pastReads])
+        XCTAssertEqual(SleepTab.visible(waitingHasRows: false, saved: 3, videos: 0), [.saved, .pastReads])
+        // Owner 2026-10-16 — a fresh page shows no "Waiting 0 · Saved 0": a zero count hides its tab.
+        XCTAssertEqual(SleepTab.visible(waitingHasRows: false, saved: 0, videos: 0), [.pastReads])
+        XCTAssertEqual(SleepTab.resolve(chosen: .saved, waitingHasRows: false, saved: 0, videos: 0), .pastReads)
+        // R-IB22 — an export being waited on heads Saved; with nothing saved it still keeps the tab up.
+        XCTAssertEqual(SleepTab.visible(waitingHasRows: false, saved: 0, exportWaiting: true, videos: 0),
+                       [.saved, .pastReads])
+        XCTAssertEqual(SleepTab.resolve(chosen: .saved, waitingHasRows: false, saved: 0, exportWaiting: true, videos: 0),
+                       .saved)
+    }
+
+    func test_thePageOpensOnWaitingWhileAnythingWaitsElsePastReads() {
+        XCTAssertEqual(SleepTab.resolve(chosen: nil, waitingHasRows: true, saved: 3, videos: 0), .waiting)
+        XCTAssertEqual(SleepTab.resolve(chosen: nil, waitingHasRows: false, saved: 3, videos: 0), .pastReads)
+    }
+
+    func test_aChoiceWinsWhileItsTabShowsAndFallsBackWhenItHides() {
+        XCTAssertEqual(SleepTab.resolve(chosen: .saved, waitingHasRows: true, saved: 3, videos: 0), .saved)
+        XCTAssertEqual(SleepTab.resolve(chosen: .videos, waitingHasRows: true, saved: 3, videos: 0), .waiting,
+                       "the last video went: the page's own tab, never an undrawn list")
+        XCTAssertEqual(SleepTab.resolve(chosen: .waiting, waitingHasRows: false, saved: 3, videos: 2), .pastReads)
+    }
+
+    func test_onlyTheSavedListsHaveFind() {
+        XCTAssertEqual(SleepTab.allCases.filter(\.hasFind), [.saved, .videos])
+    }
+
+    func test_theTabsCarryTheirCountsAndPastReadsNone() {
+        let tabs = SleepTabRow.tabs([.waiting, .saved, .videos, .pastReads], waiting: 42, saved: 318, videos: 6)
+        XCTAssertEqual(tabs.map(\.label), ["Waiting", "Saved", "Videos", "Past reads"])
+        XCTAssertEqual(tabs.map(\.count), [42, 318, 6, nil])
+        XCTAssertEqual(SavedViewMenu.label(kind: nil), "View")
+        XCTAssertEqual(SavedViewMenu.label(kind: .paper), "View · Papers")
+    }
+
+    /// DR-25/DR-26 — the eyebrow replaced the "Sleep Cycle" title.
+    func test_theEyebrowSaysWhatWaitsAndWhenItLastRead() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let twoHours = ISO8601DateFormatter().string(from: now.addingTimeInterval(-2 * 3_600))
+        XCTAssertEqual(SleepEyebrow.text(waiting: 42, lastSleepAt: twoHours, now: now),
+                       "Sleep · 42 waiting · last read 2 h ago")
+        XCTAssertEqual(SleepEyebrow.text(waiting: 0, lastSleepAt: nil, now: now), "Sleep · nothing waiting")
+        XCTAssertEqual(SleepEyebrow.text(waiting: 1_200, lastSleepAt: nil, now: now),
+                       "Sleep · \(UsageFormat.count(1_200)) waiting", "counts go through UsageFormat (DR-21)")
+        XCTAssertEqual(SleepEyebrow.ago(now.addingTimeInterval(-30), now: now), "just now")
+        XCTAssertEqual(SleepEyebrow.ago(now.addingTimeInterval(-12 * 60), now: now), "12 min ago")
+        XCTAssertEqual(SleepEyebrow.ago(now.addingTimeInterval(-3 * 86_400), now: now), "3 days ago")
     }
 }
 

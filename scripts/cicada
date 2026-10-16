@@ -1,0 +1,21 @@
+#!/bin/sh
+# cicada — the developer checkout's command-line door onto Cicada's memory (G180).
+# Link it onto PATH (`make cli` / `./install.sh --cli`); every link in the chain is followed back
+# to this file to find the checkout, so the link may live anywhere. Never a venv console script:
+# their shebang pins one interpreter path and breaks when the checkout moves (G88).
+# A release app has its own launcher in ~/.cicada/bin; this one is for a source checkout only.
+p="$0"
+while [ -L "$p" ]; do
+  t="$(readlink "$p")"
+  case "$t" in
+    /*) p="$t" ;;
+    *) p="$(dirname "$p")/$t" ;;
+  esac
+done
+repo="$(cd -P "$(dirname "$p")/.." && pwd)"
+py="$repo/api/.venv/bin/python"
+if [ ! -x "$py" ]; then
+  echo "cicada: no Python environment in $repo/api/.venv — run ./install.sh in the checkout first." >&2
+  exit 127
+fi
+CICADA_CHECKOUT="$repo" PYTHONPATH="$repo" exec "$py" -P -m api.cli "$@"

@@ -2,7 +2,9 @@
 
 import asyncio
 import hashlib
+import re
 import sys
+from datetime import date
 from pathlib import Path
 from typing import Callable
 
@@ -11,7 +13,8 @@ from loguru import logger
 from tqdm import tqdm
 
 from api.config import Settings
-from api.services import decay_policy, engine_errors, evidence
+from api.services import (correspondents, decay_policy, engine_errors, episode_time, evidence, fact_policy, promotion,
+                          section_provenance, source_dates)
 from api.services.json_parse import parse_json_object
 
 EXTRACTION_SYSTEM_PROMPT = """You are an entity extraction system for a personal knowledge graph.
@@ -23,8 +26,8 @@ Output valid JSON with this exact structure:
     {
       "name": "Entity Name",
       "type": "person|project|company|concept|tool|skill|location|directory",
-      "aliases": ["Mongo", "the db"],
-      "summary": "1-3 sentence orientation. See SUMMARY LENGTH BY TYPE below.",
+      "aliases": ["Mongo"],
+      "summary": "1-3 sentence orientation. See SUMMARY below.",
       "key_facts": ["atomic fact", "another atomic fact"],
       "history_entries": [
         {"date": "YYYY-MM-DD", "event": "What happened"}
@@ -54,25 +57,32 @@ The entity body is rendered as ordered markdown sections: ## Summary, ## Key Fac
 ## History, ## Links, ## Open Questions. The fields above map directly onto those
 sections. ## Related is generated from `relationships` — do NOT emit a related field.
 
-SUMMARY (## Summary) — the orientation line, "what is this and why does the user care":
-- skill: 1-2 sentences. Procedural rule or preference, written as an instruction.
-- location: 2-3 sentences. Where the physical place is, why it's relevant to the user.
-- directory: 1-2 sentences. What the folder/path holds and why it matters.
-- person: 2-4 sentences. Who they are, relationship to user, key context.
-- tool: 2-4 sentences. What it is, how the user uses it, why it matters.
-- concept: 3-4 sentences. Definition, relevance to user's work.
-- project: 3-5 sentences. What it is, user's role, current status, goal.
-- company: 3-5 sentences. What they do, user's relationship, relevance.
-Do NOT cram every fact into the summary — atomic facts belong in key_facts.
+WHAT A PAGE IS FOR: each entity becomes a short wiki article about the thing AS IT FIGURES IN THE
+USER'S LIFE — what it is, what it is to them (they built it, use it, work with them, are deciding
+about it, visited it), where it stands, and the facts worth remembering, once each. Every line must
+earn its place: if the user would never ask about it months later, leave it out.
 
-KEY FACTS (## Key Facts) — this is where density lives:
-- Emit every concrete, atomic fact stated about the entity: roles, stack components,
-  dates-as-facts, identifiers, quantities, prices, versions, capacities, locations,
-  affiliations, contact handles.
-- One fact per bullet. Do NOT re-narrate the summary.
-- Prefer 3-8 facts for project/company/tool; 2-5 for person/concept; 1-3 for
-  location/directory. key_facts may be empty ONLY for skill.
-- key_facts is REQUIRED (emit when any relevant content exists) for project, company, tool.
+SUMMARY (## Summary) — one paragraph, at most 600 characters:
+- What it is, then what it is to the user and where it stands in this conversation.
+- skill: 1 sentence, written as an instruction. person, tool, concept, location, directory: 1-2
+  sentences. project, company: 2-3 sentences.
+- Introduce the thing once. Atomic facts belong in key_facts, not in the summary.
+
+KEY FACTS (## Key Facts) — facts about the thing worth remembering:
+- First the user's relation to it: what they built, chose, use it for, decided, plan, think of it.
+- Then durable facts about the thing that this conversation established: roles, components the
+  user relies on, dates-as-facts, identifiers, quantities, prices, versions the user chose,
+  locations, affiliations, contact handles.
+- Write each fact about the thing, not about the conversation: never "the assistant suggested /
+  said / recommended / explained …", "was described as …", "was mentioned / discussed in a
+  conversation", "the user asked about …". When the user acted on an assistant's suggestion, write
+  what they did or decided; a suggestion nobody took up is not a fact about the thing.
+- Leave out implementation trivia of a single debugging or how-to session — an artifact or file
+  name, an action or package version, an error message, a command, a line of code — unless the user
+  said it matters beyond that session.
+- One fact per bullet, said once: never restate the summary, and never two bullets that say the
+  same thing in different words.
+- Usually 0-5 facts; a minor thing may have one or none. Never pad.
 
 HISTORY ENTRIES (## History):
 - Include dated events extracted from the conversation, one sentence each.
@@ -106,8 +116,30 @@ WEBSITE (optional, company, tool or project ONLY) — the entity's own official 
 - An origin URL only ("https://example.com"): never a profile, an article, a repository host or a social page.
 - Omit it when unsure. A guess is worse than nothing: it is checked against the site itself and removed when wrong.
 
+TIME (every conversation is written up as of its own date):
+- A note before the conversation gives the date it took place and today's date. Write what it says as of the
+  conversation's date, never as of today.
+- When the note says the conversation is older than 90 days, every statement that can change (a role, a status,
+  a plan, a current focus, an intention) names its month and year — "In February 2025, the user was considering …"
+  — and is never presented as current.
+- Plans, intentions and states of mind ("considering", "planning", "interested in", "wants", "hopes") always name
+  the month and year they were stated, whatever the conversation's age.
+- Never write words that only make sense relative to when the page is read: "currently", "now", "recently",
+  "this week", "soon", "next month".
+- Resolve a relative time phrase against the conversation's date, in the direction the sentence states it: a
+  past-tense "met on Monday" is the Monday before the conversation. When the day or the direction is unclear, name
+  the conversation's month and year instead of guessing a day.
+- Keep every explicit date the conversation states exactly as stated: the date something happened is not the date
+  of the conversation, and one never replaces the other.
+- history_entries: the date the event happened when it is stated, otherwise the conversation's date.
+
 EXTRACTION GUIDELINES:
+- The agent's own runtime (its working directory, platform, shell, git status, the date of the session)
+  is never conversation content: extract nothing from it, and never an entity for a path it shows you.
 - Extract entities that are meaningful to the user's life, work, or goals. Skip trivial mentions.
+- A detail of the assistant's answer is not an entity: a function or variable in a code example, a
+  command, a library, tool or place the assistant only suggested or listed. Extract it only when the
+  user engaged with it — used it, asked about it by name, chose it, built it, went there.
 - ATTACHMENTS ARE NOT THE USER'S WORDS. A turn written `attachment [<file name>]:` (its lines quoted
   with "> ") is the text of a document the user shared — a CV, contract, paper, article. Never
   attribute a document's contents to the user (no "user works at / lives in / is ..." taken from a
@@ -119,8 +151,10 @@ EXTRACTION GUIDELINES:
 - Confidence reflects how certain you are about the entity's attributes, not how important it is.
 - If an entity is mentioned but you lack context to classify it confidently (e.g., a bare name
   with no role), still extract it but set confidence below 0.5.
-- aliases: list any alternate surface forms used for the entity ("Mongo" for MongoDB,
-  "the database", a nickname). Leave empty if there is only one name.
+- aliases: other NAMES the same thing goes by ("Mongo" for MongoDB, an acronym, a nickname). Never a
+  reference that only makes sense inside this conversation ("the database", "this project", "my app",
+  "the new format"), and never the name of a part, product, dataset, file format or version of the
+  entity — that is a different thing. Leave empty if there is only one name.
 - Use wikilinks `[[Entity Name]]` inside summary and key_facts to reference other entities.
   Do NOT fabricate links bullets — those come only from real URLs in the source.
 - Entity types must be exactly one of: person, project, company, concept, tool, skill, location, directory.
@@ -135,11 +169,40 @@ EXTRACTION GUIDELINES:
 - Relationships are critical — capture every meaningful connection between entities with a specific
   verb phrase (e.g. "works at", "built with", "supervised by", "depends on", "evaluated against",
   "replaced by", "due"). Use short verb phrases, not full sentences or generic "related to".
+- "works at" says the place is CURRENT. A job or role that ended is labelled by its ending — "left",
+  "previously worked at" — never "works at". Two places at once (a job and a lab, a day job and a side
+  project) are two "works at" relationships; one never replaces the other.
 - EVIDENCE QUOTE (required on every relationship): copy the shortest passage of the transcript,
   VERBATIM and at most 240 characters, that states this relationship — the sentence the user or
   assistant actually wrote, not your paraphrase. If the relationship is your own inference across
   several passages and no single passage states it, omit evidence_quote entirely. Never invent one:
   a quote that is not in the transcript is discarded and the relationship is recorded as inference."""
+
+def owner_block(name: str | None) -> str:
+    """G169 — appended to :data:`EXTRACTION_SYSTEM_PROMPT` when the bank has an
+    ``owner: true`` page: the prompt's "the user" is that person, and everything
+    the model writes calls them by the page's ``name``. Without an owner page the
+    prompt is unchanged (Stage 2 still never makes a page of a self-reference)."""
+    if not name:
+        return ""
+    from api.services.owner_identity import self_reference_list
+
+    return (
+        "\n\nTHE OWNER OF THIS MEMORY:\n"
+        f'- "the user" in these instructions is the person this memory belongs to: "{name}". In the transcript\n'
+        "  they write the user turns and speak of themselves in the first person, in any language.\n"
+        f"- In everything you write — entity names, relationship sources and targets, summaries, key_facts,\n"
+        f'  history entries, open questions — call them "{name}". When you mean them, never write\n'
+        f'  {self_reference_list()}; write "{name}" in a conversation in any language.\n'
+        f'- Their own facts go on one entity named exactly "{name}" (type person); never a second entity for them.\n'
+        "- A real company, product, tool or concept that happens to be called one of those words keeps its own\n"
+        "  name and type.\n"
+        f"- A person the conversation names only by their relation to {name} (a partner, a parent, a friend, a\n"
+        '  teacher) and never by a name: name the entity by the relation followed by "(unnamed)" — "Partner (unnamed)",\n'
+        f'  "Father (unnamed)", "Former roommate (unnamed)" — never "{name}\'s partner". When the conversation gives\n'
+        "  their name, use the name and keep the relation as a key fact."
+    )
+
 
 # Max concurrent LLM calls — stay under rate limits
 MAX_CONCURRENCY = 10
@@ -251,6 +314,60 @@ MEMORY_SOURCE_NOTE = (
 )
 
 
+#: G179: a message conversation's other side, told to the model before the conversation (the model sees the chunk,
+#: never the frontmatter). An agent's turns are `assistant:` lines and a person's `speaker:<label>:` lines; either way
+#: their "I" is theirs and what they say about the person is their statement, never the person's own words.
+SOURCE_NOTE_PREFIX = "[Source: a text-message conversation."
+
+
+def correspondent_note(correspondent: dict | None) -> str | None:
+    """The note for an episode whose ``correspondent`` record names the other side, else ``None``."""
+    if not isinstance(correspondent, dict):
+        return None
+    name = " ".join(str(correspondent.get("name") or "").split())[:80] or "the other side"
+    own = 'Lines starting "user:" are the person\'s own messages.'
+    if correspondent.get("kind") == "agent":
+        return (f'{SOURCE_NOTE_PREFIX} {own} Lines starting "assistant:" are messages from {name}, an AI agent the '
+                f'person texts: {name}\'s words, never the person\'s. "I", "me" or "my" in an assistant line is {name}; '
+                f"what {name} says about the person is {name}'s statement, not something the person said. Attribute a "
+                "fact to the person only from their own lines.]\n\n")
+    return (f'{SOURCE_NOTE_PREFIX} {own} Lines starting "speaker:" are messages from {name}, someone else: their words, '
+            f'never the person\'s. "I", "me" or "my" in such a line is {name}.]\n\n')
+
+
+def correspondent_observer(correspondent: dict | None) -> str | None:
+    """``external:<slug>`` — the observer of a claim drawn only from the other side's words (G95's speaker → observer
+    rule, G179's "a claim drawn only from the agent's message says the agent said it")."""
+    if not isinstance(correspondent, dict):
+        return None
+    from api.services.id_utils import sanitize_id
+
+    slug = sanitize_id(str(correspondent.get("name") or ""))
+    return f"external:{slug}" if slug and slug != "unnamed" else None
+
+
+def _only_their_words(rel: dict) -> bool:
+    """Every located span of ``rel`` sits in the other side's turns (``assistant`` or ``speaker``), and there is one."""
+    spans = [e for e in rel.get("evidence") or [] if isinstance(e, dict) and e.get("kind") != "reasoning"]
+    return bool(spans) and all(e.get("kind") in ("assistant", "speaker") for e in spans)
+
+
+#: G110 gate B2: a captured session's dropped-middle marker never reaches the
+#: model as conversation text. The episode's own gap range (``episode["gaps"]``)
+#: is blanked on the WHOLE body before the chunker slices it — offsets kept, so
+#: evidence still lands in the stored body and no chunk can start inside the
+#: marker with an unlabelled fragment — and each chunk that touches it is told
+#: about the gap in a note placed apart from, and before, the conversation.
+GAP_NOTE_PREFIX = "[Cicada's note, not part of the conversation and nobody's words:"
+
+
+def _gap_note(gaps, start: int, end: int) -> str | None:
+    if not evidence.touches_gap(start, end, gaps):
+        return None
+    return (f"{GAP_NOTE_PREFIX} some conversation text (turns or parts of replies) was not captured; "
+            "the blank line marks where. Never quote or attribute it.]\n\n")
+
+
 async def _extract_chunk(
     ep_id: str,
     chunk: str,
@@ -259,6 +376,10 @@ async def _extract_chunk(
     settings: Settings,
     *,
     source: str | None = None,
+    gap_note: str | None = None,
+    date_note: str | None = None,
+    owner: str | None = None,
+    source_note: str | None = None,
     _attempt: int = 0,
 ) -> dict:
     """Extract entities from a single chunk via LLM.
@@ -277,8 +398,11 @@ async def _extract_chunk(
         )
         response = await llm_fn(
             messages=[
-                {"role": "system", "content": EXTRACTION_SYSTEM_PROMPT},
-                {"role": "user", "content": (MEMORY_SOURCE_NOTE + chunk) if source == "claude_memory" else chunk},
+                {"role": "system", "content": EXTRACTION_SYSTEM_PROMPT + owner_block(owner)},
+                # Cicada's notes first (the gap, then the date — G194 A1), the conversation last. The model sees
+                # this message only; evidence is verified against the stored body, so offsets never move.
+                {"role": "user", "content": (gap_note or "") + (date_note or "") + (source_note or "")
+                 + ((MEMORY_SOURCE_NOTE + chunk) if source == "claude_memory" else chunk)},
             ],
             response_format={"type": "json_object"},
             extra_body=EXTRACTION_EXTRA_BODY,
@@ -298,7 +422,9 @@ async def _extract_chunk(
         )
         await asyncio.sleep(backoff)
         return await _extract_chunk(
-            ep_id, chunk, chunk_idx, total_chunks, settings, source=source, _attempt=_attempt + 1
+            ep_id, chunk, chunk_idx, total_chunks, settings, source=source, gap_note=gap_note, date_note=date_note,
+            owner=owner, source_note=source_note,
+            _attempt=_attempt + 1,
         )
 
 
@@ -314,8 +440,13 @@ async def extract(
     on_episode_failed: Callable[[dict, BaseException], None] | None = None,
     on_episode_skipped: Callable[[dict], None] | None = None,
     stop_check: Callable[[], bool] | None = None,
+    today: date | None = None,
 ) -> list[dict]:
     """Extract entities and relationships from unprocessed episodes (parallel).
+
+    ``today`` (G194 A1): the day every chunk's date note calls today — fixed once for the whole fan-out, so a run
+    that crosses midnight tells every conversation the same thing. ``None`` is the machine-local day
+    (``claims.current_day``), the day claim readers use.
 
     ``cancel_check`` (sleep-control): an optional zero-arg predicate polled at
     the natural per-episode checkpoints in this fan-out — before an episode
@@ -351,9 +482,12 @@ async def extract(
     succeeded, ``on_episode_failed(episode, exc)`` where the exception is swallowed
     below (the drain classifies it — an engine's trouble is not the conversation's),
     and ``on_episode_skipped`` for one never started because ``stop_check`` (the
-    reserve line — a *soft* stop, unlike ``cancel_check`` which discards the batch)
-    said stop starting new reads. Reads already running finish either way.
+    reserve line or an engine interruption) said stop starting new reads. Reads
+    already running finish either way; the caller decides whether to discard the batch.
     """
+    from api.services.claims import current_day
+
+    today = today or current_day()
     semaphore = asyncio.Semaphore(MAX_CONCURRENCY)
     results: list[dict | None] = [None] * len(episodes)
     success = 0
@@ -368,6 +502,13 @@ async def extract(
         bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]",
         leave=True,
     )
+    # G169: read once per extraction — what every chunk's prompt calls the person.
+    from api.services import owner_identity
+
+    try:
+        owner = owner_identity.owner_name(getattr(settings, "memory_path", None), settings)
+    except Exception:  # noqa: BLE001 - a missing name costs the prompt line, never the read
+        owner = None
     # R-E22: the per-episode reasons name the engine that actually ran.
     from api.services import engine_select
 
@@ -395,7 +536,7 @@ async def extract(
         ep_id = episode["id"]
         content = episode["content"]
 
-        # The reserve line (soft stop): no new read starts once a plan window is past it.
+        # The drain's reserve line or engine interruption stops new episode reads.
         if stop_check is not None and stop_check():
             _note_skipped(episode)
             return
@@ -421,7 +562,19 @@ async def extract(
             return
 
         spans = _chunk_spans(content)
-        chunks = [content[s:e] for s, e in spans]
+        # G110 gate B2: blank the episode's own gap range on the WHOLE body, then slice.
+        gaps = tuple(episode.get("gaps") or ())
+        masked = evidence.mask_gaps(content, gaps)
+        chunks = [masked[s:e] for s, e in spans]
+        # G194 A1: every chunk is told when the conversation took place and what day it is now.
+        ep_day = source_dates.episode_day(episode)
+        # "Facts yes, activity no" (owner 2026-10-08): a memory export entry's date is the summary's, not a
+        # mention's — its pages keep the facts and the source, never its date as when the thing came up.
+        untimed = not episode_time.counts_as_activity(episode)
+        date_note = source_dates.summary_note(ep_day, today) if untimed else source_dates.date_note(ep_day, today)
+        # G179: a message conversation says who its other side is, before every chunk.
+        source_note = correspondent_note(episode.get("correspondent"))
+        their_observer = correspondent_observer(episode.get("correspondent"))
 
         async with semaphore:
             # Sleep-control checkpoint 2: this task may have waited a while
@@ -440,10 +593,15 @@ async def extract(
                 all_entities = []
                 all_relationships = []
                 for ci, chunk in enumerate(chunks):
+                    note = _gap_note(gaps, *spans[ci])
                     parsed = await _extract_chunk(
                         ep_id, chunk, ci, len(chunks), settings,
                         # Only a memory episode carries a note; every other call keeps its shape.
                         **({"source": "claude_memory"} if episode.get("source") == "claude_memory" else {}),
+                        **({"gap_note": note} if note else {}),
+                        **({"date_note": date_note} if date_note else {}),
+                        **({"owner": owner} if owner else {}),
+                        **({"source_note": source_note} if source_note else {}),
                     )
                     all_entities.extend(parsed.get("entities", []))
                     chunk_rels = [r for r in (parsed.get("relationships", []) or []) if isinstance(r, dict)]
@@ -451,20 +609,48 @@ async def extract(
                     # chunk came from, preferring the chunk window (R11). The
                     # quote is consumed here — nothing downstream sees it.
                     for rel in chunk_rels:
-                        evidence.attach_relationship_evidence(rel, ep_id, content, window=spans[ci], kind_override=episode.get("evidence_kind"))
+                        evidence.attach_relationship_evidence(rel, ep_id, content, window=spans[ci], kind_override=episode.get("evidence_kind"),
+                                                              gaps=gaps)
                     all_relationships.extend(chunk_rels)
 
                 ep_origin = episode.get("origin", "unknown")
+                # The promotion rule's "more than 3 exchanges" and "the person's own words", counted on the
+                # conversation itself (`promotion`), never guessed from what the model wrote about it.
+                units = promotion.exchanges(content, override=episode.get("evidence_kind"), gaps=gaps)
+                narration = 0
                 for entity in all_entities:
+                    facts = entity.get("key_facts")
+                    if isinstance(facts, list):
+                        aliases = entity.get("aliases") if isinstance(entity.get("aliases"), list) else []
+                        names = [entity.get("name"), *aliases]
+                        kept = [f for f in facts
+                                if not (isinstance(f, str) and fact_policy.about_the_conversation(f, names))]
+                        narration += len(facts) - len(kept)
+                        entity["key_facts"] = kept
+                    entity["mention_exchanges"], entity["named_by_person"] = promotion.measure(entity, units)
+                    section_provenance.attach(entity, ep_id, content)
                     entity["source_episode"] = ep_id
-                    entity["source_episode_timestamp"] = episode.get("timestamp")
+                    entity["source_episode_timestamp"] = None if untimed else episode.get("timestamp")
+                    # G194 fix 1: the day the date note gave (timestamp, else the id's date) rides along for Stage
+                    # 3's prompts only — never written, so no stored timestamp is invented from an id.
+                    entity["source_episode_day"] = ep_day.isoformat() if ep_day and not untimed else None
+                    if untimed:
+                        entity["untimed"] = True
                     entity["origin"] = ep_origin
                     sanitize_decay_class(entity)
                     sanitize_website(entity)
+                if narration:
+                    # "X was mentioned in a conversation": the page's sources already say so.
+                    logger.debug(f"  {ep_id}: {narration} fact(s) that only said the thing came up were left out")
                 for rel in all_relationships:
                     rel["source_episode"] = ep_id
                     rel["source_episode_timestamp"] = episode.get("timestamp")
                     rel["origin"] = ep_origin
+                    # The observer is never the model's to set; G179: a claim resting only on the other side's
+                    # words is theirs (`external:<name>`), never the person's and never Cicada's own reading.
+                    rel.pop("observer", None)
+                    if their_observer and _only_their_words(rel):
+                        rel["observer"] = their_observer
 
                 results[i] = {
                     "episode_id": ep_id,
@@ -473,6 +659,9 @@ async def extract(
                     "entities": all_entities,
                     "relationships": all_relationships,
                 }
+                # G179: the other side of a message conversation is its own page, of its own type — the entity
+                # that names them is marked (and typed) here, from the episode's own record (`correspondents`).
+                correspondents.mark_extraction(results[i], episode.get("correspondent"))
 
                 success += 1
                 if on_episode_read is not None:
@@ -621,8 +810,10 @@ def entities_to_claims(
             raw_label = str(rel.get("label", "") or "").strip() or "relates to"
             if not source or not target:
                 continue
-            subject = to_id(source)
-            obj = to_id(target)
+            # G179: an endpoint Stage 2 pinned to a message conversation's correspondent page lands there, whatever
+            # page the same letters key to elsewhere (`correspondents`).
+            subject = str(rel.get("source_page") or "") or to_id(source)
+            obj = str(rel.get("target_page") or "") or to_id(target)
             if subject == obj:
                 continue
             if normalize is not None:
@@ -635,6 +826,8 @@ def entities_to_claims(
             rel_evidence = [
                 Evidence.from_dict(e) for e in (rel.get("evidence") or []) if isinstance(e, dict)
             ]
+            raw_observer = str(rel.get("observer") or "")
+            observer = raw_observer if raw_observer.startswith("external:") else "agent"
             if cid in by_id:
                 # Overlapping chunks re-emit the same triple; the first claim
                 # wins and only gains the later chunk's evidence (G118).
@@ -642,6 +835,9 @@ def entities_to_claims(
                 for ev in rel_evidence:
                     if ev not in first.evidence:
                         first.evidence.append(ev)
+                if first.observer != observer:
+                    # G179: the person's own words (or Cicada's reading) back it too — no longer only theirs.
+                    first.observer = "agent"
                 continue
             claim = Claim(
                 id=cid,
@@ -650,7 +846,7 @@ def entities_to_claims(
                 predicate=predicate,
                 object=obj,
                 object_kind="node",
-                observer="agent",
+                observer=observer,
                 context="general",
                 epistemic="explicit",
                 source_trust="agent_extracted",

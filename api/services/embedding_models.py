@@ -1,4 +1,4 @@
-"""Which embedding model each bank is built with, and the optional larger one (G182 phase 3).
+"""Which embedding model each bank is built with, the downloads, and the background re-embed (G182 phase 3).
 
 Owner's decision (2026-10-05): a fresh install embeds with a small, open, ungated
 model on a light runtime — the release app bundles ``intfloat/multilingual-e5-small`` as ONNX
@@ -11,13 +11,28 @@ default changed.
 
 The model a bank's vectors are built with, first hit wins:
 
-1. the person's choice for that bank (Settings → Memory → Search model), kept in
+1. the person's choice for that bank (Settings → Search & files), kept in
    ``$CICADA_HOME/embedding-models.json`` — outside every bank and every git repo;
 2. the model the bank's index already records, when this machine can run it and the
    embedding settings were not set explicitly (an explicit ``CICADA_EMBEDDING_*``
    keeps its old meaning: switch every bank);
 3. the configured default (``Settings.resolved_embedding_model``): the bundled model
    in a release app, EmbeddingGemma in a developer checkout.
+
+**EmbeddingGemma 2 is the model wherever it runs** (owner 2026-10-09: "cant we just run everything with
+embedding gemma 2?"). On Apple silicon with macOS 15 or later it runs on the Neural Engine through Core ML
+(``coreml_embedder``), downloaded once into ``$CICADA_HOME/models`` (``model_fetch``, one click in Settings or
+``make embedding-model-gemma2``). Once it is here it is the configured default, and a bank whose index records
+one of Cicada's own former defaults (``FORMER_DEFAULTS``: the small model, or EmbeddingGemma-300M in a checkout
+that never chose it) moves to it; a model the person picked, or set explicitly, is kept. Where it can't run
+(macOS 14, not downloaded yet, a failed load) the small bundled model answers as before and search never errors.
+
+**A model change is a background re-embed, never Sleep's** (``start_reindex_if_needed``): each table is
+re-embedded in full with the new model from this process's background thread — the embed first (in a child
+process, ``embed_worker``: Core ML holds the GIL), then one transaction swaps the table, so recall keeps
+answering from the old table (queried with the old model it records) until the new one is written. It starts after a choice, an install, the backend's start and the end
+of every Sleep run, never while Sleep runs, and gives way within one chunk of 64 texts when Sleep starts
+(Sleep's own syncs keep each table's recorded model meanwhile: ``SqliteVecIndexer(defer_model_switch=True)``).
 
 The larger model's download installs ``sentence-transformers`` (and torch) into
 ``$CICADA_HOME/extras/site-packages`` with the bundled interpreter's pip — never into
@@ -43,10 +58,16 @@ from pathlib import Path
 
 from loguru import logger
 
-from api.services import onnx_embedder, runtime_layout
+from api.services import coreml_embedder, onnx_embedder, runtime_layout
 
 SMALL_ID = onnx_embedder.DEFAULT_ID
 LARGE_ID = "google/embeddinggemma-300m"
+#: EmbeddingGemma 2 on the Neural Engine at 768 dimensions — the width is part of the id, so a table records
+#: exactly which vector space it holds (768: best or tied on every set the spike ran; 21,500 vectors are 66 MB).
+PREFERRED_ID = onnx_embedder.PREFERRED_ID
+#: Models Cicada picked as its own default before 2026-10-09. A bank that records one of them — and that nobody
+#: chose for it — moves to ``PREFERRED_ID`` once this Mac runs it.
+FORMER_DEFAULTS = (SMALL_ID, LARGE_ID)
 #: What the extras install puts beside the bundled packages: sentence-transformers and
 #: what it needs beyond the bundled set, at the developer lock's versions, hashed
 #: (``scripts/release/lock-requirements.sh`` writes it; it ships inside ``api/data/``).
@@ -61,11 +82,18 @@ class ModelInfo:
     dimensions: int
     detail: str
     needs_download: bool
+    needs_token: bool = False
 
 
 CATALOG: tuple[ModelInfo, ...] = (
-    ModelInfo(SMALL_ID, "Small", 384, "Built in. Quick, reads about 100 languages, good for most memories.", False),
-    ModelInfo(LARGE_ID, "Larger", 768, "Finds looser matches. A one-time download of about 2 GB.", True),
+    # Labels and details are the person's words (Search & files, owner 2026-10-14): what each version does, never the
+    # hardware or the family it runs on — "Sharper", not "Neural Engine" (``test_search_words_are_plain``).
+    ModelInfo(PREFERRED_ID, "Sharper", 768,
+              "Finds looser matches, in any language. A one-time download of about 585 MB that stays on this Mac.",
+              True),
+    ModelInfo(SMALL_ID, "Built in", 384, "Quick, reads about 100 languages, good for most memories.", False),
+    ModelInfo(LARGE_ID, "Larger", 768, "For a Mac that can't run Sharper. A one-time download of about 2 GB.",
+              True, True),
 )
 
 
@@ -144,6 +172,8 @@ def is_available(model_id: str, environ=os.environ) -> bool:
         return False
     if onnx_embedder.find(mid, environ) is not None:
         return True
+    if is_neural_engine_model(mid):
+        return False  # only ever its downloaded Core ML folder (above), on a Mac that runs it
     if providers._model_is_openai(mid):
         return bool((environ.get("OPENAI_API_KEY") or "").strip())
     if providers._model_is_openrouter(mid):
@@ -157,6 +187,14 @@ def is_available(model_id: str, environ=os.environ) -> bool:
         return local_model_path(mid, environ) is not None or (
             not runtime_layout.is_release(environ) and _in_hf_cache(mid))
     return True
+
+
+def is_neural_engine_model(model_id: str | None) -> bool:
+    return onnx_embedder.base_id(model_id or "").lower() == onnx_embedder.PREFERRED_BASE
+
+
+def neural_engine_supported() -> bool:
+    return coreml_embedder.supported()
 
 
 def _in_hf_cache(model_id: str) -> bool:
@@ -191,32 +229,68 @@ def build_model(bank: Path, settings, environ=os.environ) -> str:
         return choice
     if not _explicitly_configured(settings):
         recorded = recorded_model(bank)
+        default = settings.resolved_embedding_model
         if recorded and is_available(recorded, environ):
+            if recorded in FORMER_DEFAULTS and default == PREFERRED_ID and recorded != default:
+                return default   # Cicada's own old default gives way to the better model once it runs here
             return recorded
-        if recorded == LARGE_ID:
-            # A bank built with the larger model keeps it even where it isn't installed yet: its vectors are left as
-            # they are (search falls back to words, and Settings offers the install) rather than re-embedded with
-            # another model behind the person's back.
+        if recorded == LARGE_ID or is_neural_engine_model(recorded):
+            # A bank built with a downloaded model keeps it even where it isn't here (yet): its vectors are left
+            # as they are (search falls back to words, and Settings offers the download) rather than re-embedded
+            # with another model behind the person's back.
             return recorded
     return settings.resolved_embedding_model
+
+
+def pending_switch(bank: Path, settings, environ=os.environ) -> tuple[str, list[str]] | None:
+    """``(model, kinds)`` when some vector table holds another model than the one ``bank`` is built with and
+    that model runs here — what the background re-embed would do — else None."""
+    from api.services.vector_index import SqliteVecIndexer
+
+    target = build_model(bank, settings, environ)
+    if not is_available(target, environ):
+        return None
+    stale = [kind for kind, model in SqliteVecIndexer(Path(bank)).table_models().items() if model != target]
+    return (target, stale) if stale else None
 
 
 # --------------------------------------------------------------------------- #
 # The optional larger model: one install at a time, in the background
 # --------------------------------------------------------------------------- #
 
+#: Which download the one job is running (Search & files, 2026-10-14): Settings shows the meaning download and the
+#: image download on two rows, so the row a step belongs to is said, never guessed from the step's words.
+PART_TEXT, PART_VISION, PART_LARGER = "text", "vision", "larger"
+
+#: The steps every download says, in the person's words: what is happening, never which model or runtime does it
+#: (``test_search_words_are_plain``). The row the step sits on already names the part.
+STEP_STARTING = "Getting ready"
+STEP_CHECKING = "Checking the download"
+STEP_SETTING_UP = "Setting up on this Mac — about a minute and a half, once"
+STEP_LARGER_RUNTIME = "Getting what it needs to run — about 1 GB"
+STEP_LARGER_DOWNLOAD = "Downloading — about 1.2 GB"
+
+
+def step_downloading(done: int, total: int) -> str:
+    return f"Downloading — {done / 1e6:.0f} of {total / 1e6:.0f} MB"
+
+
 @dataclass
 class InstallJob:
     state: str = "idle"            # idle | installing | done | failed
     step: str = ""                 # what it is doing now, in words
     error: str = ""
+    part: str = ""                 # PART_TEXT | PART_VISION | PART_LARGER: which download this is
+    done: int = 0                  # bytes fetched so far, while a pinned download streams
+    total: int = 0                 # bytes it fetches in all (0: not known, or not downloading now)
     started_at: float | None = None
     finished_at: float | None = None
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
     def snapshot(self) -> dict:
         with self._lock:
-            return {"state": self.state, "step": self.step, "error": self.error}
+            return {"state": self.state, "step": self.step, "error": self.error, "part": self.part,
+                    "done": self.done, "total": self.total}
 
     def _set(self, **kw) -> None:
         with self._lock:
@@ -240,12 +314,12 @@ def _pip_install(target: Path, environ) -> None:
              "-r", str(EXTRAS_LOCK)],
             capture_output=True, text=True, timeout=INSTALL_TIMEOUT_S, env=env)
     except subprocess.TimeoutExpired as exc:
-        raise RuntimeError("The install took over an hour and was stopped. Check your connection and try again.") from exc
+        raise RuntimeError("The download took over an hour and was stopped. Check your connection and try again.") from exc
     if done.returncode != 0:
         tail = (done.stderr or done.stdout).strip().splitlines()[-1:] or [""]
         logger.warning(f"embedding_models: pip failed: {tail[0][:300]}")
-        raise RuntimeError("Couldn't install the larger model's runtime. Check your connection and free space, "
-                           "then try again.")
+        raise RuntimeError("Couldn't get what the larger version needs to run. Check your connection and free "
+                           "space, then try again.")
 
 
 def _download_model(token: str, environ) -> str:
@@ -257,12 +331,12 @@ def _download_model(token: str, environ) -> str:
     try:
         path = snapshot_download(LARGE_ID, token=token, local_dir=str(dest))
     except GatedRepoError as exc:
-        raise RuntimeError("Your Hugging Face account hasn't accepted this model's license yet — accept it on the "
-                           "model's page, then try again.") from exc
+        raise RuntimeError("Your Hugging Face account hasn't accepted the terms on its page yet — accept them, "
+                           "then try again.") from exc
     except HfHubHTTPError as exc:
         status = getattr(getattr(exc, "response", None), "status_code", None)
         if status in (401, 403):
-            raise RuntimeError("Hugging Face didn't accept that token. Check it has read access and try again.") from exc
+            raise RuntimeError("Hugging Face didn't accept that key. Check it can read, then try again.") from exc
         raise RuntimeError("The download stopped. Check your connection and try again.") from exc
     except OSError as exc:
         raise RuntimeError("The download couldn't be saved. Check the free space on this Mac and try again.") from exc
@@ -270,13 +344,14 @@ def _download_model(token: str, environ) -> str:
 
 
 def _run_install(token: str, environ) -> None:
-    JOB._set(state="installing", step="Preparing", error="", started_at=time.time(), finished_at=None)
+    JOB._set(state="installing", step=STEP_STARTING, error="", part=PART_LARGER, done=0, total=0,
+             started_at=time.time(), finished_at=None)
     staging = extras_site(environ).with_name("site-packages.partial")
     try:
         if not sentence_transformers_available():
             site = extras_site(environ)
             shutil.rmtree(staging, ignore_errors=True)
-            JOB._set(step="Installing the model's runtime (about 1 GB)")
+            JOB._set(step=STEP_LARGER_RUNTIME)
             _pip_install(staging, environ)
             shutil.rmtree(site, ignore_errors=True)
             staging.rename(site)
@@ -284,8 +359,8 @@ def _run_install(token: str, environ) -> None:
 
             site_module.addsitedir(str(site))
             if not sentence_transformers_available():
-                raise RuntimeError("The runtime installed but can't be loaded; open Cicada again and retry.")
-        JOB._set(step="Downloading the model (about 1.2 GB)")
+                raise RuntimeError("It installed but can't start; open Cicada again and retry.")
+        JOB._set(step=STEP_LARGER_DOWNLOAD)
         path = _download_model(token, environ)
         data = _read_json(models_path(environ))
         data[LARGE_ID] = path
@@ -293,7 +368,7 @@ def _run_install(token: str, environ) -> None:
         JOB._set(state="done", step="", finished_at=time.time())
         logger.info("embedding_models: the larger model is installed")
     except Exception as exc:  # noqa: BLE001 — every failure becomes a sentence the person reads
-        message = str(exc) if isinstance(exc, RuntimeError) else "The install stopped unexpectedly. Try again."
+        message = str(exc) if isinstance(exc, RuntimeError) else "The download stopped unexpectedly. Try again."
         shutil.rmtree(staging, ignore_errors=True)  # never leave a half-installed gigabyte behind
         JOB._set(state="failed", step="", error=message, finished_at=time.time())
         logger.warning(f"embedding_models: install failed: {type(exc).__name__}")
@@ -304,24 +379,275 @@ def start_install(token: str, environ=os.environ) -> bool:
     with JOB._lock:
         if JOB.state == "installing":
             return False
-        JOB.state = "installing"
+        # One lock for the whole claim: a poll between here and the runner's first step never reads the previous
+        # download's part or bytes (review, 2026-10-14).
+        JOB.state, JOB.step, JOB.error, JOB.done, JOB.total = "installing", STEP_STARTING, "", 0, 0
+        JOB.part = PART_LARGER
     threading.Thread(target=_run_install, args=(token, environ), name="cicada-embedding-install", daemon=True).start()
     return True
 
 
+# --------------------------------------------------------------------------- #
+# EmbeddingGemma 2: the one-click download (no account, no token)
+# --------------------------------------------------------------------------- #
+
+def _pinned_progress(phase: str, done: int, total: int) -> None:
+    """A pinned download's progress, for either part: bytes while it streams, then the two setup steps."""
+    if phase == "download":
+        JOB._set(step=step_downloading(done, total), done=int(done), total=int(total))
+    elif phase == "prepare":
+        JOB._set(step=STEP_CHECKING, done=0, total=0)
+    elif phase == "warm":
+        JOB._set(step=STEP_SETTING_UP, done=0, total=0)
+
+
+def _run_download(bank: Path | None, settings, environ) -> None:
+    from api.services import model_fetch
+
+    JOB._set(state="installing", step=STEP_STARTING, error="", part=PART_TEXT, done=0, total=0,
+             started_at=time.time(), finished_at=None)
+
+    try:
+        model_fetch.install(_home(environ) / "models", progress=_pinned_progress)
+        JOB._set(state="done", step="", finished_at=time.time())
+        logger.info("embedding_models: the Neural Engine search model is installed")
+    except Exception as exc:  # noqa: BLE001 — every failure becomes a sentence the person reads
+        message = str(exc) if isinstance(exc, model_fetch.FetchError) else "The download stopped unexpectedly. Try again."
+        JOB._set(state="failed", step="", error=message, finished_at=time.time())
+        logger.warning(f"embedding_models: download failed: {type(exc).__name__}")
+        return
+    if bank is not None and settings is not None:
+        start_reindex_if_needed(bank, settings, environ)
+
+
+def start_download(bank: Path | None = None, settings=None, environ=os.environ) -> bool:
+    """Start EmbeddingGemma 2's download in the background; False when an install is already running."""
+    with JOB._lock:
+        if JOB.state == "installing":
+            return False
+        # One lock for the whole claim: a poll between here and the runner's first step never reads the previous
+        # download's part or bytes (review, 2026-10-14).
+        JOB.state, JOB.step, JOB.error, JOB.done, JOB.total = "installing", STEP_STARTING, "", 0, 0
+        JOB.part = PART_TEXT
+    threading.Thread(target=_run_download, args=(bank, settings, environ), name="cicada-embedding-download",
+                     daemon=True).start()
+    return True
+
+
+def _run_vision_download(environ) -> None:
+    from api.services import model_fetch
+
+    JOB._set(state="installing", step=STEP_STARTING, error="", part=PART_VISION, done=0, total=0,
+             started_at=time.time(), finished_at=None)
+
+    try:
+        model_fetch.install_vision(_home(environ) / "models", progress=_pinned_progress)
+        JOB._set(state="done", step="", finished_at=time.time())
+        logger.info("embedding_models: the image model is installed")
+    except Exception as exc:  # noqa: BLE001 — every failure becomes a sentence the person reads
+        message = str(exc) if isinstance(exc, model_fetch.FetchError) else "The download stopped unexpectedly. Try again."
+        JOB._set(state="failed", step="", error=message, finished_at=time.time())
+        logger.warning(f"embedding_models: image model download failed: {type(exc).__name__}")
+
+
+def start_vision_download(environ=os.environ) -> bool:
+    """Start the image encoder's download in the background (design taste, 2026-10-14) — the person's click on the
+    Looks page, never on its own; False when an install is already running. Fetches the text encoder first when it
+    isn't here (an image's tokens are embedded by it)."""
+    with JOB._lock:
+        if JOB.state == "installing":
+            return False
+        # One lock for the whole claim: a poll between here and the runner's first step never reads the previous
+        # download's part or bytes (review, 2026-10-14).
+        JOB.state, JOB.step, JOB.error, JOB.done, JOB.total = "installing", STEP_STARTING, "", 0, 0
+        JOB.part = PART_VISION
+    threading.Thread(target=_run_vision_download, args=(environ,), name="cicada-vision-download",
+                     daemon=True).start()
+    return True
+
+
+def vision_status(environ=os.environ) -> dict:
+    """Whether this Mac can search by image: ``supported`` (macOS 15+ on Apple silicon), ``installed`` (the image
+    encoder sits beside the text encoder at the pinned revision), the one-time download's size, and whether that size
+    ``includes_text`` — the text encoder is fetched first when it isn't here, so the Looks page's one click states the
+    combined size before it is pressed."""
+    from api.services import model_fetch
+
+    text_here = False
+    try:
+        p = model_fetch.pins()
+        folder = model_fetch.destination(_home(environ) / "models", p)
+        installed = model_fetch.vision_installed(folder, p)
+        text_here = model_fetch.installed_revision(folder) == p["revision"]
+        size = 0 if installed else model_fetch.vision_total_bytes(p) + (0 if text_here else model_fetch.total_bytes(p))
+    except model_fetch.FetchError:
+        installed, size = False, 0
+    supported = neural_engine_supported()
+    return {"supported": supported, "installed": bool(installed and supported), "download_bytes": int(size),
+            "includes_text": bool(size and not text_here)}
+
+
+# --------------------------------------------------------------------------- #
+# The background re-embed after a model change
+# --------------------------------------------------------------------------- #
+
+#: The kinds in the order the re-embed rebuilds them: pages first (what recall leans on most), passages last
+#: (the bulk: about 4 minutes of the owner-sized bank's 5).
+REINDEX_ORDER = ("entities", "claims", "pending", "episodes")
+
+
+@dataclass
+class ReindexJob:
+    state: str = "idle"            # idle | running | waiting | done | failed
+    bank: str = ""
+    model: str = ""
+    done: int = 0                  # tables re-embedded so far
+    total: int = 0
+    error: str = ""
+    started_at: float | None = None
+    finished_at: float | None = None
+    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+
+    def snapshot(self, bank: Path | None = None) -> dict:
+        with self._lock:
+            if bank is not None and self.bank and self.bank != _bank_key(bank):
+                return {"state": "idle", "model": "", "done": 0, "total": 0, "error": ""}
+            return {"state": self.state, "model": self.model, "done": self.done, "total": self.total,
+                    "error": self.error}
+
+    def _set(self, **kw) -> None:
+        with self._lock:
+            for k, v in kw.items():
+                setattr(self, k, v)
+
+
+REINDEX = ReindexJob()
+
+
+REINDEX_ENV = "CICADA_BACKGROUND_REINDEX"
+
+
+def background_reindex_enabled(environ=os.environ) -> bool:
+    """``CICADA_BACKGROUND_REINDEX=off`` turns the background re-embed off: a model change then happens inside the
+    next Sleep's index step, as it did before (the suite runs with it off; its own tests turn it on)."""
+    return (environ.get(REINDEX_ENV) or "").strip().lower() not in ("off", "0", "false", "no")
+
+
+def reindexes_in_background(model_id: str | None, environ=os.environ) -> bool:
+    """Whether a switch TO ``model_id`` is the background job's: an on-device model folder (the bundled small
+    model, EmbeddingGemma 2) that runs here, with the job on. A switch to anything else (a hosted model, a
+    sentence-transformers id) still happens in Sleep's index step."""
+    return bool(model_id) and background_reindex_enabled(environ) and onnx_embedder.find(model_id, environ) is not None
+
+
+def _sleep_running() -> bool:
+    from api.services import sleep_cycle
+
+    return sleep_cycle.get_sleep_state().status == "running"
+
+
+def start_reindex_if_needed(bank: Path, settings, environ=os.environ) -> bool:
+    """Start the background re-embed when a table holds another model than the bank's (``pending_switch``).
+    Never while Sleep runs: then it waits, and the end of the run starts it. Never raises."""
+    try:
+        pending = pending_switch(Path(bank), settings, environ)
+    except Exception as exc:  # noqa: BLE001 — a locked or unreadable index: try at the next trigger
+        logger.debug(f"embedding_models: no re-embed check: {type(exc).__name__}")
+        return False
+    if pending is None:
+        return False
+    target, kinds = pending
+    if not reindexes_in_background(target, environ):
+        return False
+    with REINDEX._lock:
+        if REINDEX.state == "running":
+            return False
+        if _sleep_running():
+            REINDEX.state, REINDEX.bank, REINDEX.model = "waiting", _bank_key(bank), target
+            REINDEX.done, REINDEX.total, REINDEX.error = 0, len(kinds), ""
+            return False
+        REINDEX.state, REINDEX.bank, REINDEX.model = "running", _bank_key(bank), target
+        REINDEX.done, REINDEX.total, REINDEX.error = 0, len(kinds), ""
+        REINDEX.started_at, REINDEX.finished_at = time.time(), None
+    threading.Thread(target=_run_reindex, args=(Path(bank), settings, kinds), name="cicada-reindex",
+                     daemon=True).start()
+    return True
+
+
+def _run_reindex(bank: Path, settings, kinds: list[str]) -> None:
+    from api.services import embedding_health
+    from api.services.vector_index import IndexSyncStopped, SqliteVecIndexer
+
+    started = time.monotonic()
+    indexer = SqliteVecIndexer(bank, should_stop=_sleep_running)
+    steps = {"entities": indexer.index_entities, "claims": indexer.index_claims,
+             "pending": indexer.rebuild_pending_index, "episodes": indexer.index_episodes}
+    try:
+        for kind in (k for k in REINDEX_ORDER if k in kinds):
+            if _sleep_running():
+                raise IndexSyncStopped("Sleep started")
+            steps[kind]()
+            REINDEX._set(done=REINDEX.done + 1)
+        REINDEX._set(state="done", finished_at=time.time())
+        embedding_health.clear(bank)
+        logger.info(f"embedding_models: search re-embedded with {indexer.model_name} in "
+                    f"{time.monotonic() - started:.0f}s")
+    except IndexSyncStopped:
+        REINDEX._set(state="waiting")
+        logger.info("embedding_models: re-embed paused for Sleep; it resumes when the run ends")
+    except Exception as exc:  # noqa: BLE001 — the old tables stay as they were; said in words
+        kind = embedding_health.classify(exc)
+        REINDEX._set(state="failed", finished_at=time.time(),
+                     error=embedding_health.sentence(kind) if kind else
+                     "Search couldn't switch, so it keeps working as before. The next Sleep tries again.")
+        logger.warning(f"embedding_models: re-embed failed: {type(exc).__name__}")
+        return
+    # The person may have picked another model while this ran: one more look — only for a model other than the
+    # one just built, so a table that cannot move never loops the job.
+    try:
+        again = pending_switch(bank, settings)
+    except Exception:  # noqa: BLE001
+        again = None
+    if again is not None and again[0] != indexer.model_name:
+        start_reindex_if_needed(bank, settings)
+
+
+def _download_bytes(model_id: str) -> int:
+    """What the one-click download of ``model_id`` fetches, from Cicada's own pins — so the button states its size
+    before it is pressed (Search & files). 0 when it isn't a pinned download or the pins can't be read."""
+    if model_id != PREFERRED_ID:
+        return 0
+    from api.services import model_fetch
+
+    try:
+        return int(model_fetch.total_bytes())
+    except (model_fetch.FetchError, KeyError, TypeError, ValueError):
+        return 0
+
+
 def status(bank: Path, settings, environ=os.environ) -> dict:
-    """What Settings → Memory → Search model shows for the active bank."""
+    """What Settings → Search & files shows for the active bank."""
     building = build_model(bank, settings, environ)
     recorded = recorded_model(bank)
+    choice = bank_choice(bank, environ)
+    supported = neural_engine_supported()
+    keep = {recorded, choice, building}
+    offered = [m for m in CATALOG
+               if not (m.id == PREFERRED_ID and not supported and m.id not in keep)
+               and not (m.id == LARGE_ID and supported and m.id not in keep and not is_available(m.id, environ))]
     return {
         "model": recorded or building,
         "next_model": building,
-        "choice": bank_choice(bank, environ),
+        "choice": choice,
         "release": runtime_layout.is_release(environ),
+        "recommended": PREFERRED_ID if supported and not is_available(PREFERRED_ID, environ) else None,
         "models": [
             {"id": m.id, "label": m.label, "dimensions": m.dimensions, "detail": m.detail,
-             "needs_download": m.needs_download, "available": is_available(m.id, environ)}
-            for m in CATALOG
+             "needs_download": m.needs_download, "needs_token": m.needs_token,
+             "available": is_available(m.id, environ), "download_bytes": _download_bytes(m.id)}
+            for m in offered
         ],
         "install": JOB.snapshot(),
+        "reindex": REINDEX.snapshot(bank),
+        "vision": vision_status(environ),
     }

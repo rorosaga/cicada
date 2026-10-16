@@ -514,7 +514,7 @@ final class VideoRunModelTests: XCTestCase {
         let model = VideoRunModel()
         model.begin(summary: m.summary)
         XCTAssertEqual(model.mode, .progress, "an unfinished hand-off reopens its progress (G-1)")
-        XCTAssertEqual(model.eyebrow(summary: m.summary), "Feed · Videos · Watch run · 2 of 5 recorded")
+        XCTAssertEqual(model.eyebrow(summary: m.summary), "Sleep · Videos · Watch run · 2 of 5 recorded")
     }
 
     func testAboveTenTheMeterIsOneBarAndTheRowsAreGrouped() {
@@ -552,7 +552,7 @@ final class VideoCopyNeutralityTests: XCTestCase {
     private func sources() throws -> [(String, String)] {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().appendingPathComponent("Sources/CicadaApp")
-        let files = ["Theme/Copy+Videos.swift", "Support/WatchLeavesMacNote.swift", "Views/Sleep/VideosWaitingRow.swift",
+        let files = ["Theme/Copy+Videos.swift", "Support/WatchLeavesMacNote.swift", "Theme/Copy+SleepTabs.swift",
                      "Views/Common/NeutralCheckToggleStyle.swift"]
         let feed = try FileManager.default.contentsOfDirectory(atPath: root.appendingPathComponent("Views/Feed").path)
             .filter { $0.hasPrefix("Video") && $0.hasSuffix(".swift") }.map { "Views/Feed/" + $0 }
@@ -597,23 +597,19 @@ final class VideoCopyNeutralityTests: XCTestCase {
     }
 }
 
+/// The Sleep redesign (2026-10-16) — the video queue has one place, Sleep's Videos tab: Details' Videos row retired
+/// with Details (DR-38: the queue was described twice).
 final class SleepVideoRowTests: XCTestCase {
-    func testTheRowSpeaksTheOneQueueWordingAndHidesAtZero() {
-        XCTAssertEqual(VideosWaitingRowText.line(VideoSummary(total: 23, unread: 8, queued: 4, claimed: 1, failed: 1, read: 9)),
-                       "4 queued · 1 picked up by an agent · 1 couldn't be done")
-        XCTAssertNil(VideosWaitingRowText.line(VideoSummary(total: 23, unread: 23)))
-        XCTAssertNil(VideosWaitingRowText.line(nil))
-        XCTAssertEqual(Copy.Videos.sleepRowLink, "Choose videos ›")
-    }
-
-    func testTheRowStartsNothing() throws {
+    func testTheVideoQueueHasOnePlace() throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent().appendingPathComponent("Sources/CicadaApp/Views/Sleep/VideosWaitingRow.swift")
-        let text = try String(contentsOf: root, encoding: .utf8)
-        for needle in ["trigger", "consolidate", "PrimaryActionButton(", "handoff", "sleepVM"] {
-            XCTAssertFalse(text.lowercased().contains(needle.lowercased()), "R-VU4: the row must not \(needle)")
-        }
-        XCTAssertTrue(text.contains("routeToVideos(choose: true)"), "its one action opens the picker")
+            .deletingLastPathComponent().appendingPathComponent("Sources/CicadaApp/Views/Sleep")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("VideosWaitingRow.swift").path))
+        let list = try String(contentsOf: root.appendingPathComponent("StudyListCard.swift"), encoding: .utf8)
+        XCTAssertFalse(list.contains("VideosWaitingRow("), "Waiting no longer repeats the video queue")
+        let page = try String(contentsOf: root.appendingPathComponent("SleepView.swift"), encoding: .utf8)
+        XCTAssertTrue(page.contains("VideosStrip(summary:"), "the Videos tab carries the watch run's door")
+        XCTAssertEqual(SleepTab.visible(waitingHasRows: true, saved: 3, videos: 0), [.waiting, .saved, .pastReads],
+                       "no Videos tab while no video is saved")
     }
 }
 
@@ -695,7 +691,7 @@ final class VideoRowLintTests: XCTestCase {
 
     func testVideoRowsNeverLiftAndNeverSetALiteralVerticalPadding() throws {
         let files = ["Views/Feed/VideosStrip.swift", "Views/Feed/VideoRunList.swift", "Views/Feed/VideoRunCard.swift",
-                     "Views/Feed/VideoBlock.swift", "Views/Sleep/VideosWaitingRow.swift"]
+                     "Views/Feed/VideoBlock.swift"]
         for path in files {
             let text = try source(path)
             XCTAssertFalse(text.contains(".hoverLift("), "\(path): rows never lift (DR-48)")
@@ -710,9 +706,10 @@ final class VideoRowLintTests: XCTestCase {
         XCTAssertTrue(card.contains("pinnedFooter"), "the footer sits outside the scrolling body")
         XCTAssertFalse(card.contains("footer(disabled: true)") || card.contains("footer(disabled: false)"),
                        "no footer inside the scrolling body")
-        let page = try source("Views/Feed/FeedPage.swift")
+        let page = try source("Views/Sleep/SleepView.swift")
+        XCTAssertTrue(page.contains("VideoRunCard("))
         XCTAssertNil(page.range(of: #"ScrollView \{\s*VideoRunCard"#, options: .regularExpression),
-                     "the Feed never wraps the run card in a second scroll view")
+                     "the Sleep page never wraps the run card in a second scroll view")
     }
 
     func testAVideosWhyAndSavedFromShareARowWhenTheyFit() throws {
@@ -721,10 +718,7 @@ final class VideoRowLintTests: XCTestCase {
         XCTAssertTrue(detail.contains("whySection.frame(minWidth: Self.sideBySideFloor"))
     }
 
-    func testTheSleepRowAndTheStripUseTheSharedControls() throws {
-        let row = try source("Views/Sleep/VideosWaitingRow.swift")
-        XCTAssertTrue(row.contains("TextButton(") && row.contains("help:"), "a trailing link with its help (DR-69)")
-        XCTAssertTrue(row.contains("RowMetrics.oneLine"))
+    func testTheStripUsesTheSharedControls() throws {
         let strip = try source("Views/Feed/VideosStrip.swift")
         XCTAssertTrue(strip.contains("NeutralCheckToggleStyle()"), "the boards' neutral check (P8)")
         XCTAssertTrue(strip.contains("NeutralButton("), "Choose videos… is a neutral button, never a second primary (DR-40)")

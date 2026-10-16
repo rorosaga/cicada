@@ -5,14 +5,17 @@ session). **`CLAUDE.md` keeps the rails and the map; this file keeps the detail.
 a change makes this file wrong, update it in the same PR (repository paths below are relative to the repository root).
 
 ### 1. Graph Explorer
-Force-directed d3 graph: node color by type, size by confidence, edge labels, cluster detection,
-decay/clarification indicators. Open ideas live in the backlog.
+Force-directed d3 graph: node color by type, size by how connected a page is (distinct neighbours, confidence a small
+second term — G109 2026-10-15, the Obsidian look: small dots, hairline links, a loose halo of unlinked pages, names
+fading in with zoom; `app.md`), edge labels, cluster detection, decay/clarification indicators. Open ideas live in the
+backlog.
 
 **The page (Direction D, DS-3a).** The canvas fills the content area under the command bar. Its chrome is one
 floating group at the bottom-left — the whose-beliefs text tabs (only with more than one observer; they move
 into the Legend under 640 units), Legend, − + fit and the pan toggle — an opaque floating surface, never glass
 over the canvas until the G109 frame-time check has run (R-DG2). The Legend is the context legend, the filters
-and a key in one: a context click shows only that context, confidence is words, Show logos is a switch. ⌘F
+and a key in one: a context click shows only that context, confidence is words, Show unlinked (on by default) and Show logos are
+switches. ⌘F
 opens find on the canvas as an overlay (⌘K searches everything); the page's own field is gone. A node opens
 its entity card as the right-hand column (`GraphColumns`: 560 alone, 480 beside the Reader, never under 440;
 the canvas takes the rest and keeps the open node in view by panning, never zooming), and its evidence opens
@@ -21,43 +24,132 @@ a time — find, Legend, Reader, column; another node swaps the column in place 
 posts `backgroundClicked` and `escape` and takes `setSelectedNode` (a neutral ring), read and spelled in one
 place (`GraphMessage`, `GraphJS`) and tested on both sides — none of them touches the simulation.
 
+**Layout on a push (item 6, 2026-10-08).** A data push relaxes only the nodes it brings: every settled node is held
+where it is for that layout (`holdSettled`/`releaseHolds` in graph.js — never over a drag's or focus mode's pin, and
+released when the layout ends), and a push that brings no node (a rename, a confidence, a removal) starts no layout.
+A push that lands before a layout ends (running, or held while the page is hidden) joins it — its nodes keep moving
+and it keeps its heat — and a full push rebinds a drag in progress to the live node. So Sleep's batches update the
+graph live without moving what was there, and a push that lands while the page is
+hidden no longer replays whole-graph motion on return. Only a first paint (and a filter change) lays out everything.
+Measured in WebKit at 2,000 nodes (`GraphWebKitBenchTests`, opt-in): draw 1–2 ms, a tick 7 ms, a cold layout 135
+ticks; 20 new pages settle in 112 ticks with 0 settled nodes moved. At the live bank's shape (3,698 nodes, 41,570 links, the opt-in
+bank-shape bench, G109 2026-10-14): a tick 12 ms, a cold layout stops at ~129 steps (1.7 s of tick CPU) at rest. A hold
+on a settled graph is a push of its own kind: every node but the dragged page and its neighbours is held the same way. Per-type zones are the existing `typeClusterPositions`
+anchors; `graph-zones.bench.js` measures their strength (no overlap at rest at any strength; stronger = more separate
+zones, same settle time).
+
 **The entity card (DS-3a).** One component, `EntityDetailCard` — the Graph's column, Clusters' card. Header:
-the type as a `Tag`, status and confidence in words ("Active · very confident", the number in `.help`), the
+the type as a `Tag`, status and confidence in words ("Active · very confident", the number in `.help`) — or, when
+the page's `lastReferenced` is more than 90 days before the viewer's today, the status and when it was last mentioned
+("Active · last mentioned Feb 2025", G194 A2: the confidence word is replaced, the number and the full day go to
+`.help`). The three bands behind those words — confidence, fade pace, the old day — are served by the backend as
+`bands: {confidence, fadePace, lastMentioned}` on `GET /entities/{id}` (`entity_bands`, G180 parity; no ETag, not a
+Store domain); the app's `EntityHeaderWords` / `FadeWords` twin paints them from the existing fields and is pinned to
+the backend by one table, `api/tests/fixtures/entity_bands.json` (`EntityBandsTests`). Words stay in each client. The
 name, the page's Summary, Back ⌘[ and ×; text tabs Content · Perspectives · History · Timeline with counts once
-known. Content: Rendered/Source and Copy; the page; its folder or repository in words; What Cicada knows (R-FX11
-pages); Where this came from; Look it up at — each G61 source's fact ("For uses"), how it can be read (the
-stated `access`, else a path or repo is "A file on this Mac" and an app "An app"; `effective_access` is not on
-this endpoint), who added it with their mark, "You chose to use this" / "Only you know this", no check line
-until G61 S3 serves one, and the page's open inbox question with Open in Inbox; Details (collapsed, remembered):
-tags, related, dates, how it fades. Beliefs are rows — the sentence, its evidence chip and its age, the rest in
-`.help`. History: Show in conversation (straight to the Reader when one conversation maps here) and What
-changed. Timeline: contested beliefs inline; a belief's clock opens its own.
+known (the belief counts once the claims are read, when a section or tab asks). **Content opens on the page (owner
+2026-10-09): every type, a person's too, shows its prose first as an article, and everything else waits behind a
+click.** Content: Rendered/Source and Copy; the article; its folder or repository in words; then the sections, each a
+remembered disclosure (`CardDisclosure`, DR-39) that reads its data only when opened — What Cicada believes (the
+claims; shown open on an R-FX11 page, whose beliefs are its content), Where this comes from, a person's *How you know
+<name>* (*What you're connected to* on the owner's page) with *What's happening*, and Details. The
+article is `WikiArticle`: the served prose without `## Summary` (the header's), `## Description` (a media card's) or
+a claims fence, parsed once into flat rows — one per list item or paragraph — off the main actor. `## Article` (G194
+articles, `storage.md`) is a container: its heading row is not drawn and its `### ` titles are drawn as level-2
+headings, peers of `## Key Facts`, so the article reads as the page's sections under the header's lead; each paragraph
+is one row whose range is its `article` provenance item's and cached by text
+(`WikiArticleCache`, in memory, not a Store domain). Its first 48 rows are built synchronously, so the page never
+draws blank, and `WikiPageView` draws the rows in a `LazyVStack`: only the lines on screen are laid out. Until the full page lands the card says "Reading the page…"; a failed read says "Couldn't read this page." with Retry, never a spinner forever (DR-32). One claims read per card is shared by every section and tab that asks at once. Every line
+offers *Where this line came from* on hover and as an accessibility action: the `/provenance` section item whose
+`bodyRanges` cover the line opens its evidence in the Reader (checked against `pageBodyHash`); a line no item covers
+opens the page's Where this comes from and scrolls to it. A line with web links has a 🔗 beside it (and an accessibility
+action) that opens each link's bookmark card and the person's view switcher; a link alone on its line asking for a block
+view is a card row of its own (app.md, *Links show as what they are*). `/provenance` is read when the card opens — the header's
+facts are when the conversations were said (G194) and every evidence chip names its agent from it — but drawn only
+when asked; a person's Works at and Role read only those beliefs (`GET /entities/{id}/claims?predicate=…`), never the
+whole list. Measured on a synthetic owner page of the real one's size (5.6 MB, 5,921 claims, ~180 KB of prose;
+`CardOpenProbeTests`, opt-in, against a scratch backend; debug build): `MarkdownBody` laid the whole prose out at once,
+a 2.1–3.2 s main-thread stall when the page landed and ~0.5 s on every graph push while it was shown; the article
+costs ~60 ms of first screen and no stall over 16 ms on a push. **Where this comes from ends with *Who wrote it*
+(G198):** per part of the page's text, who last changed it, when, and an agent edit's reason ("accepted by you" when the
+person applied a proposal), from `GET /entities/{id}/blame` (git, never stored; not a Store domain, cached in memory;
+a `pending` answer keeps the copy held and is asked again up to `CicadaTiming.blamePendingTries` times).
+**Where this comes from (owner 2026-10-14, G61)** is
+one disclosure for where the page's knowledge comes from and how fresh it is (it replaced *Where this came from* and
+*Look it up at*, and keeps the former's remembered choice). Closed, it says only "· 3 conversations" (from `/provenance`,
+known before the section is read, so the words never change on a first open and never claim a page with unread sources
+has nothing). Open: how
+many beliefs have a place to check them, when the page was last said and its sources last checked; **Sources and
+links** — each G61 source grouped by its fact ("Employs · backs 5 beliefs"), its row leading with the site's name (the
+page's own `## Links` title for that URL, or the name of the saved page it is linked to, else its host) over the full
+URL, then as before (the fact, how it can
+be read, who added it with their mark, "You chose to use this" / "Only you know this", the official site's
+confirmation, ↗ and the menu), under each fact group the beliefs its sources back (four, then "and N more"), each a
+way into that belief's timeline; then *Named in conversations*, the page's `## Links` lines that are not sources, each
+with its title (else its host), its URL, its note and the conversation that named it (mark, app, title, day — opens in the Reader), ↗, and
+*Use as a source* in its menu; the add field and the page's open inbox question with Open in Inbox; **Conversations**
+— one row per app (mark, name, conversations, beliefs and passages they back, last day), then *Where this came
+from*'s writers, conversation rows and coverage. It reads `GET /entities/{id}/sources/overview` (`page_sources`, one
+bounded read — ~170 ms warm on an owner-sized page of 5,900 beliefs over 3,000 conversations, pinned under 500 ms by
+`test_page_sources_owner_scale.py` — through `ProvenanceCache`, ETag-revalidated, never a Store domain) only when the
+section opens or the beliefs list is shown (for its chips), never on every card open, which already reads
+`/provenance`; never the claims list. A belief whose fact has a source wears a *Check at example.org* chip beside its
+evidence (`PageSourcesOverview.lookUps`: the person's, then a taken or confirmed one, then the rest; never the
+official-site or page-wide ones): it opens the section on that source, selected (DR-48) and scrolled to — the way back
+from a fact to where to check it. Nothing here says a source WAS checked against a belief (S3 is shadow); Details:
+tags, related, dates, how it fades — related as its first 12 names and "and K more" (`RelatedLinksRow`, owner page
+2026-10-14: a hub's 2,024 chips, each scanning the graph for its page, took ~1 s a render), which opens the Content
+tab at the page's own `## Related` heading (DR-38, DR-5 link); a page with no such section says the count in words.
+A page sent `rawOmitted` (its fence withheld, or for a page with a ledger its frontmatter alone) is never shown,
+copied or reconstructed from that head — Source and Copy read `/raw` (`RawFile`); the app has no flow that writes a
+page body back. Beliefs are rows — the sentence, its evidence chip and its age, the rest in
+`.help`. A location page's map is a picture of where it is, never a scroll trap: it takes no pointer events, so
+the column scrolls with the pointer over it, and *Open in Maps* is the way to pan (`LocationMap`). A page with
+thousands of beliefs stays usable: what the tabs show from the claims is derived once per load,
+off the main actor (`ClaimDigest`), Perspectives builds its rows lazily, and a belief list grows twenty rows per
+"Show N more" (`BeliefPaging`), never all at once. History: newest first, Show in conversation (straight to the Reader when one conversation maps here) and What
+changed; when the page left older changes out (`historyTruncated`, #244) its last row is *Older changes*, which reads
+the next page with `?skip=N` (`HistoryPaging`; the window is pinned to `MAX_PROVENANCE_COMMITS` by a test). Timeline: contested beliefs inline; a belief's clock opens its own.
 
 **Pictures and the person card (G146, round 4).** Every entity avatar is `EntityPicture` over the one picture
 precedence (`entity_picture.resolve` and its Swift twin `EntityPictureResolver`, one fixture): the person's own upload
-or "initials" → a person's Contacts photo → a brand's logo → a media page's thumbnail → a ring monogram, never a solid
-fill; `PictureStore` holds uploads, Contacts photos and thumbnails by URL (the bearer only for Cicada's own paths, never
-to a provider), `LogoStore` the logos. Any editable picture opens the image picker on a click, takes a dropped image,
+or "initials" → a person's Contacts photo → a person's public-profile photo (G159, 2026-10-09; "Photo from their public
+profile", served from Cicada's own copy at `/entities/{id}/photo`, with Change and "Use initials instead" like any
+detected picture) → a brand's logo → a media page's thumbnail → a ring monogram, never a solid
+fill; `PictureStore` holds uploads, Contacts photos, public-profile photos and media previews by URL — all on Cicada's own API with the bearer
+(a media page's picture is the backend's stored `/entities/{id}/preview?v=…`, and `MediaPreview`, `HeroPreview` and
+`VideoThumb` draw the same stored copy through `StoredPreview`; no view loads a provider's thumbnail) —, `LogoStore` the
+logos. Any editable picture opens the image picker on a click (a saved item's also takes a PDF: the backend draws its
+first page, `POST /entities/{id}/picture/pdf`, and nothing is painted before that answer), takes a dropped image,
 dims under a camera on hover and offers "Use initials instead" / "Remove picture" on right-click; the app shrinks the
 picture (ImageIO, ≤ 512 px) and `EntityPictureWrite` paints the answer before the server gives it. A `person` opens
-with mock C's top (F-12): an 88 pt picture, the name at 24, the Summary as a standfirst, the picture's source line and a
-facts strip whose every cell comes from something the card loaded (`PersonFacts`); then the tabs, and in Content two
-columns — beliefs signed with who wrote them (`SignedLine`: harness, model and effort from the captured turn), Where
-this came from, the page behind a remembered disclosure — beside *How you know <name>* (`PersonMapLayout`, the graph's
-own edges) and *What's happening* (`PersonHappenings`, from `ProjectsCache`). Every other type keeps this header with a
-40 pt picture. In Clusters a person's card may grow to 1024 units; the header adds "Show on the graph".
+with mock C's top (F-12): an 88 pt picture, the name at 24, the Summary as a two-line standfirst (a click unfolds it and the header grows; *Show less* folds it —
+a capped Summary or name is never selectable, since a selectable field opens over its neighbours on a click), the
+picture's source line and a
+facts strip whose every cell comes from something the card loaded (`PersonFacts`; Works at names every current place,
+newest first, each opening its own page, two then "+N" with the rest in its help — 2026-10-14; Known since, Last mentioned and
+Conversations are when the conversations were said, over all of them — `/provenance`'s `totals` — with the page's own
+dates only as a fallback); then the tabs, and in Content the page like every other type, one column; behind its
+disclosures, beliefs signed with who wrote them (`SignedLine`: harness, model and effort from the captured turn), Where
+this came from, and *How you know <name>* (*What you're connected to* on the owner's own page, by its `owner` flag;
+`PersonMapLayout`, the graph's own edges) with *What's happening* (`PersonHappenings`, from `ProjectsCache`). Every
+other type keeps this header with a 40 pt picture. In Clusters every card keeps the focus width (the two-column person
+card retired with the page-first card); the header adds "Show on the graph".
 
 ### 2/3. Unified inbox (`memory/inbox/`)
 Nudges and clarifications live in **one store**: `memory/inbox/inbox-NNN.md`, each with a `kind`
 discriminator (`decay`, `conflict`, `clarification`, `merge_suggestion`, `removal`, `divergence`,
 `normalization` — the last two were written by Sleep since G49/G98 but only became loadable and
 resolvable kinds with G113; `removal` is written by a live browser sync, not Sleep, at proposal
-time (G129 slice 2); `followup`, G141 PJ-6, by Sleep's engine-free tail), behind `GET /inbox` /
+time (G129 slice 2); `followup`, G141 PJ-6, by Sleep's engine-free tail; `page_edit`, G198, by an agent's proposed page
+edit), behind `GET /inbox` /
 `POST /inbox/{id}/resolve`. `api/routers/nudges.py` and `clarifications.py` are thin **deprecated**
 shims (they set `Deprecation: true`) kept only for external callers — the app calls `/inbox`. Every resolve door answers
-409 while Sleep holds the pages (`inbox_service.resolve`, G177/G183(a)), asked again after its awaited snapshot and before
-any write; between a drain's batches it commits alone (a window opening mid-answer is the disclosed residual race in
-`storage.md`).
+409 while Sleep holds the pages (`inbox_service.resolve`, G177/G183(a)), asked under the bank's write admission and held
+through the answer's commit, so a window waits for the answer (`storage.md`, "Write admission"); a conflict answer's
+prose rewrite is a model call made before admission and used only when the item, the pick and the page are what it
+was made for. Between a
+drain's batches it commits alone.
 
 **A count is what the inbox serves, never a count of files.** `load_inbox` skips a deferred item and
 one whose subject is archived, dropped or (for every kind but `clarification`) gone; those files stay
@@ -71,7 +163,19 @@ phrase ("6 months ago") so staleness is visible before choosing; `age_days` is d
 never stored. Legacy flat `options: [str]` still render.
 
 **Dedup + time.** Items are keyed `(entity_id, predicate)`. A second competing value **merges** into
-the open item as another option instead of writing a duplicate. Each Sleep,
+the open item as another option instead of writing a duplicate. **A predicate fold is asked once per pair per bank
+(G98/G115):** Stage 3 raises `normalization` only when a synonym in `_predicates.yaml` maps a label onto a *different*
+predicate — a label kept as its own slug (`uses dataset` → `uses-dataset`) is formatting, never a question. The
+reconciler raises one question per `(slug(raw), canonical)` pair *after* the pass, naming the claim each page keeps (a
+restatement that reinforced an existing claim names that claim) and listing the rest in `covered_claims`;
+`write_claim_nudges` merges a later batch's claims into the open item for the pair, and a pair the person answered
+"Correct fold" to (`_predicates.yaml` `confirmed_folds`) is never asked again. "Wrong fold" drops every synonym spelling
+of the pair and repoints every covered claim still on the canonical. The answer runs inside the request's write admission, as one
+page-and-git-lock section through its own `user` commit, the map written atomically (`storage.md`). Every reader takes the map through `predicates._read_runtime_map`, parsed once per change of the file's (inode, mtime, size) and handed out as a copy (2026-10-16: `GET /inbox` re-parsed it once per conflict item — ~0.6 s of a 240-item read). The question is served on the first covered page still live
+(`_fold_anchor`), hidden only when every covered page is gone. The claim write itself never changes. A one-shot bank
+migration (`dedup_normalization_items`, marker `inbox/.deduped_normalization`) clears the items raised before the fix:
+an admitted transaction (G183) that defers while Sleep holds the pages, under the page and git locks, committing only
+the files it changed and restoring them — bytes and index entries as they were — on any failure. Each Sleep,
 `inbox_questions.refresh_open_questions` bumps re-mentioned options, auto-resolves questions the
 user answered organically, escalates a question whose every option has been silent for
 `inbox_stale_after_days` (90) by inserting "Neither anymore", and keeps deferred items out of
@@ -95,13 +199,16 @@ neither `clarification_manager` nor the dedup sweep proposes the pair again, and
 see Telemetry ledger.
 
 **The page (Direction D, DS-2).** Progressive columns (`ProgressiveColumns`, `ColumnLayout` — DESIGN_RULES §5.3): the
+eyebrow's kind tabs show every kind with its count while they fit, else All and the selected kind with the rest under
+one "More" menu that lists each with its count (`OverflowTextTabs`, owner 2026-10-16 — never a truncated label); the
 questions alone at full width; a click narrows them to the triage column and opens the question as C's focus card;
 "Show in conversation" opens the Reader as the third column. Widths are units (÷ uiScale); the list hides before the
 question drops under 440, and when neither the question's 440 nor the Reader's 360 fits they share the width, so
 nothing is pushed off-window. **One tap answers, and Undo is a send delay** (`ResolveGrace`, in the `Store`): the
 answer leaves `visibleInbox` at once and `POST /inbox/{id}/resolve` waits 5 s (`CicadaTiming.undoWindow`), sent
-early by the next answer, `ActivateBank` (before the bank moves), the window closing and quit (`.terminateLater`,
-≤ 3 s) — an undone answer makes no commit, claim or G113 event; a page switch does not send. Every kind renders in
+early by the next answer, `Store.activateBank` (before the switch is posted; a new answer is refused while it waits), the window closing and quit (`.terminateLater`,
+≤ 3 s) — an undone answer makes no commit, claim or G113 event; a page switch does not send. A refused answer comes
+back with a toast; one refused while Sleep holds the pages says Sleep is running (`SleepRefusal`, app.md *Sync engine*). Every kind renders in
 the card (`FocusCardVariant`), options come from the server (a follow-up's 30-day "not now" is its own option), the
 source is named in a person's words (`InboxSourceLine`, ids in `.help` only), an asserted span is washed and
 underlined and a found mention is semibold. Esc closes the Other… field, then the Reader, then the question; keys
@@ -123,6 +230,26 @@ flag and claims, and the predicate `locus`: pure, engine-free, zero-network, nev
 G61 S3 an agent can CHECK a `checkable` item (recommend-only, below); nothing settles, holds or reorders one (S4–S8 wait). `GET
 /inbox/check-census` and `scripts/check-census.sh <bank>` report it as ids-free counts — the coverage
 gate for S3–S8.
+
+**Settled by a check (owner ruling 2026-10-16, TODO ruling 27).** A conflict or clarification about a **public thing** —
+a film, a paper, a tool, a company, a public concept — is looked up on the web and settled with a cited answer:
+Sleep's tail does it on a run the person started (their Claude plan's own search, the call's one tool) or on a metered
+engine at its price, and the person's own agent may do it through `cicada_record_check(outcome="settles")`
+(`mcp.md`). Never searched: a `person`, an untyped name the description says is someone, the owner's page, a file or
+path, a project, a multi-valued predicate other than what the thing *is*, an option label naming a person or saying
+"my", anything personal (`web_settle.classify`; when in doubt the question stays). A type question (`is-a`, `type`,
+`description`…, the owner's own example: "Is <tool-a> an agent harness or an AI agent itself?") settles on one option
+only when the page rules the others out, on the item's own "both" option when the page says it is all of them (one
+cited claim per option, nothing closed), never on an option the item lacks.
+The settled question moves to `inbox/settled/<id>.md` with a `settled:` block naming exactly what it wrote, and is
+served by `GET /inbox/settled` (not a Store domain). **The Inbox shows it under "Settled by a check"** (closed until
+asked for, below the questions and on the empty page): the answer, the quote and the site with when and who
+(`SettledChecksSection`), **Undo** (`POST /inbox/settled/{id}/undo`: the check's claim is withdrawn, what it closed
+reopens — only a claim still as the check left it — and the question returns under its number, marked
+`web_check: undone` so no check settles it again; committed as the person's, `Web check undone <date>`, with an edit
+already on the page committed apart first) and, for a public citation on a subject with a page, **Track this source**, which
+calls the person's own add-source route — a citation is never a tracked source by itself (`storage.md`). Questions
+about whether a PR or a G row merged are answered from the commit by a trusted local agent, never searched.
 
 **Decay is no longer the special case.** Served as `Still tracking {name}?` with `archive` / `keep`,
 synthesised at read from the page's `last_referenced`, never written. (The item *file* Sleep writes for
@@ -151,12 +278,55 @@ false, so the shipped app's 7-day button never shows; the server clamps any defe
 through `progress.py` (origin `clarification`) and grade the extractor: done/still agreed, 'That didn't
 happen' overruled, a person's own thread always neutral.
 
+**An agent's proposed page edit (`page_edit`, G198, owner ruling 2026-10-14).** When an agent that is not on the person's
+list of agents that edit pages directly (Settings; `GET/PUT /settings/editors`, `page_editors`; Claude Code and Codex are on
+it until the person changes it, owner 2026-10-14) calls `cicada_edit_page`,
+the edit is checked against the page and filed as one item: `question` "An agent suggests a change to <name>: <reason>",
+two closed options (`apply`, `dismiss`; no recommendation — Cicada proposed nothing), `allow_defer`, and a body that previews
+each change in plain words; the item keeps `proposed_by`, `reason`, the request (`edit`), its evidence spans and the
+conversation. `apply` plans the edit again on the page as it is then — a page that changed so it no longer applies answers
+409 and writes nothing — writes it and commits the page with the retired item in one commit under the agent and `user`
+(`storage.md`, *A page edit's commit*); `dismiss` retires the item as the person's. Both run inside the answer's write
+admission, under the page lock and git's write lock. It is graded like every verdict (G113): `apply` agreed, `dismiss`
+overruled — the agent's reward signal. App-only: no agent ask path serves it and `cicada_resolve_inbox` refuses it.
+
 **G98 rule.** A multi-valued predicate never opens a conflict; an existing one is served
 `informational: true` — the card lists the values and offers `Got it`, which removes the item and
 touches no claim.
 
 **Three resolution paths for a clarification:** organic (the user provides context later, Sleep
 promotes it), agent-initiated (the agent asks in flow when the topic comes up), manual (the app).
+
+**In conversation, questions come up naturally (owner, 2026-10-14).** An agent sees an item only when the
+conversation is about that question's own subject — its page in scope AND its predicate, options or words in what the
+person said (`inbox_ask_gate`; a decay question never comes up in conversation). It asks in its own words, or not at
+all; when the person's words already answer it, it resolves it without asking (`cicada_resolve_inbox(…, quote=<their
+words>)`: kept as a relay episode — the agent's text, `relayed_by` and `session_id`, untimed — cited as the answer's
+evidence, the commit naming the agent and the conversation, `answered_in: conversation` on the ledger row; never in a
+demo bank) and says what it noted in one line. "What is in my inbox?" lists everything (`mode="list"`). Detail:
+`mcp.md`, *Questions come up naturally*.
+
+**"What's the name of your partner?" (placeholder people, 2026-10-14).** A `clarification` with `asks: name` is
+the question about a person Cicada knows only by a relation to the owner (`role_people`; written by Sleep's Stage
+5.4 or the repair script, one per page, never after a decline). It carries `question`, one option
+(`rather_not_say`, "I'd rather not say"), `allow_other` and `allow_defer`, and `owner_role`. The answer
+(`inbox_service._resolve_name`): a typed name (`resolve` or `answer` with `answer`) that is exactly one person
+page's name or alias (case, accents and spacing aside) folds the placeholder into that page through
+`entity_merge.merge_entities` — the person's answer is the evidence — and records the relation in `owner_roles`;
+any other name renames the page (`rename_references`: its claims, the graph's edges, every other page's `related`
+and wikilinks follow; the id moves to the name's), and a person page whose name contains it or is contained in it
+("Carl" / "Carl Example"), or several pages of exactly that name, gets a "Possible duplicate" `merge_suggestion`
+each — never a merge; such an item carries `fold_page: true`, and only a flagged item's "merge" folds its page into
+the target. An answer that reads as a relation ("my girlfriend", or the asked relation itself) or a self-reference
+is a 400 and writes nothing; a bare word that is also a name ("Tia") is a name.
+`rather_not_say` (or a dismiss) keeps a role title, never the owner's name, and sets `name_declined`. The commit is
+the person's (`Cicada-Author: user`, `inbox/clarification/resolved:answer|rather_not_say`). The question is served
+while its page is archived (it is about who the person is, not whether the page is live; `_hidden` asks
+`_subject_gone` with `clarification:name`): only a dropped or merged-away page retires it. A `merge_suggestion`
+flagged `fold_page` folds its page into the target on `merge`; every other item (Stage 2's, asked about a mention)
+keeps the note-only answer, even when a page was promoted under the mention's slug since.
+The app draws a name field, Submit and "I'd rather not say" (`NameBody`, `app.md`); an older build sees the option
+and Other… and still answers it.
 
 **Observer inconsistency — resolved (G117).** All five sites (the inbox resolve path, Telegram
 capture, `agentic_write`'s trust/origin gate, and MCP `cicada_write_claim`'s schema/description) now
@@ -192,3 +362,15 @@ previews and stages nothing; `POST /intake/import` stages. `/conversations/uploa
 `Deprecation: true`) and `/banks/{name}/import` are shims over it.
 
 ---
+
+**Closed beliefs (G118/G93, 2026-10-07).** The timeline and belief chips share
+`Claim.isValid`: a close date or successor means history, including a legacy
+successor-only claim with no close date. Search preserves these markers and
+renders a closed event with its day/state as a past event or earlier state,
+using the existing row layout (DR-48) and date formatting (DR-58).
+
+Swift claim validity uses the same machine-local day as backend claim writers:
+future starts and elapsed stated ends are excluded, end dates are inclusive,
+and `due` objects supply an end while milestone targets never do. `expectedEnd`
+is decoded from the existing wire field. The Find palette uses this local-day
+convention for its future-start label too (DR-48, DR-58).

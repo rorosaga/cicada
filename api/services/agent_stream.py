@@ -51,6 +51,10 @@ class StreamResult:
     retries: list[RetrySignal] = field(default_factory=list)
     api_key_source: str | None = None
     json_lines: int = 0
+    #: Every ``tool_use`` block the assistant turns carried, as ``(name, input)`` — only a call that was given a tool
+    #: has any (Sleep's are spawned with ``--tools ""``). The web lookup reads its searches' queries from here, so a
+    #: search that strayed from the pinned query voids the answer (owner ruling 2026-10-16). Never logged.
+    tool_uses: list[tuple[str, dict]] = field(default_factory=list)
 
 
 def _number(raw) -> float | None:
@@ -147,6 +151,16 @@ def _objects(text: str) -> list[dict]:
     return out
 
 
+def _tool_uses(message) -> list[tuple[str, dict]]:
+    content = message.get("content") if isinstance(message, dict) else None
+    out: list[tuple[str, dict]] = []
+    for block in content if isinstance(content, list) else []:
+        if isinstance(block, dict) and block.get("type") in ("tool_use", "server_tool_use"):
+            raw = block.get("input")
+            out.append((str(block.get("name") or ""), raw if isinstance(raw, dict) else {}))
+    return out
+
+
 def parse_stream(stdout: str | None) -> StreamResult:
     """NDJSON (or one json-mode object) → the envelope plus every signal."""
     out = StreamResult()
@@ -168,6 +182,8 @@ def parse_stream(stdout: str | None) -> StreamResult:
                 error=error if isinstance(error, str) else None,
                 status=int(status) if status is not None else None,
             ))
+        elif kind == "assistant":
+            out.tool_uses.extend(_tool_uses(obj.get("message")))
         elif kind == "system" and obj.get("subtype") == "init":
             source = obj.get("apiKeySource")
             out.api_key_source = source if isinstance(source, str) else None

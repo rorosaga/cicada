@@ -1,0 +1,13 @@
+{
+  "conversation_id": "cursor-synthetic-0001",
+  "generation_id": "generation-synthetic-0001",
+  "session_id": "cursor-synthetic-0001",
+  "hook_event_name": "sessionStart",
+  "cursor_version": "2.4.0",
+  "model": "synthetic-model",
+  "workspace_roots": ["/synthetic/alpha-project"],
+  "is_background_agent": false,
+  "composer_mode": "agent",
+  "user_email": "sentinel@example.invalid",
+  "transcript_path": null
+}

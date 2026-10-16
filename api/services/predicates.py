@@ -33,10 +33,12 @@ rewrite (M5e), to avoid silently mutating direction during a $0 backfill.
 
 from __future__ import annotations
 
+import copy
 import re
+import threading
 from functools import lru_cache
 from pathlib import Path
-from typing import Callable
+from typing import Callable, NamedTuple
 
 import yaml
 from loguru import logger
@@ -48,6 +50,8 @@ from api.services.claims import event_cardinality
 _SEED_PATH = Path(__file__).resolve().parents[1] / "data" / "predicates-seed.yaml"
 
 RUNTIME_FILE = "_predicates.yaml"
+#: libyaml's scanner when PyYAML has it — the same safe constructor and output as ``yaml.safe_load``.
+_SAFE_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
 
 NormalizeFn = Callable[[str], str]
 
@@ -103,15 +107,71 @@ def install_predicate_map(memory_path: Path) -> Path:
     return runtime
 
 
+#: path -> ((st_ino, st_mtime_ns, st_size), parsed map). Process-local and disposable: a write of the file (an
+#: ``os.replace`` or an in-place rewrite) moves its stat, and the next read parses it again.
+_runtime_cache: dict[str, tuple[tuple[int, int, int], dict]] = {}
+_runtime_lock = threading.Lock()
+
+
 def _read_runtime_map(memory_path: Path) -> dict:
+    """The bank's ``_predicates.yaml``, parsed once per change of the file (2026-10-16 perf: ``GET /inbox`` asked
+    ``cardinality`` once per conflict item and re-parsed the map each time — 121 parses, ~0.6 s of a 0.64 s inbox
+    read on a 240-item synthetic inbox). Every caller gets its own deep copy, so a caller that edits what it read
+    (``update_runtime_map``) never edits the cache. Every writer replaces the file (``update_runtime_map``'s
+    ``os.replace``) or rewrites it (``install_predicate_map``), so its inode, mtime or size moves and the next read —
+    in this process or another — parses the new file."""
     runtime = Path(memory_path) / RUNTIME_FILE
-    if not runtime.exists():
-        return {}
     try:
-        data = yaml.safe_load(runtime.read_text(encoding="utf-8")) or {}
-    except yaml.YAMLError:
+        st = runtime.stat()
+    except OSError:
         return {}
-    return data if isinstance(data, dict) else {}
+    stamp = (st.st_ino, st.st_mtime_ns, st.st_size)
+    key = str(runtime)
+    with _runtime_lock:
+        hit = _runtime_cache.get(key)
+    if hit is not None and hit[0] == stamp:
+        return copy.deepcopy(hit[1])
+    try:
+        data = yaml.load(runtime.read_text(encoding="utf-8"), Loader=_SAFE_LOADER) or {}
+    except (OSError, yaml.YAMLError):
+        return {}
+    data = data if isinstance(data, dict) else {}
+    with _runtime_lock:
+        _runtime_cache[key] = (stamp, copy.deepcopy(data))
+    return data
+
+
+def update_runtime_map(memory_path: Path, mutate: Callable[[dict], bool]) -> bool:
+    """Read-modify-write ``<memory>/_predicates.yaml`` as one critical section.
+
+    G98/G115: an inbox answer writes the map (a confirmed fold, a split one),
+    and two answers that both read before either wrote lost one of them. The
+    bank's page lock (cross-process, re-entrant — a caller already holding it
+    re-enters) spans the read and the write, and the write is atomic (temp
+    file + ``os.replace``), so a reader never sees half a map. ``mutate``
+    edits the map in place and returns whether it changed anything; nothing
+    is written when it returns False. Returns what ``mutate`` returned.
+    """
+    import os
+    import tempfile
+
+    from api.services.page_lock import page_lock
+
+    memory_path = Path(memory_path)
+    with page_lock(memory_path):
+        data = _read_runtime_map(memory_path)
+        if not mutate(data):
+            return False
+        text = yaml.safe_dump(data, allow_unicode=True, sort_keys=False)
+        fd, tmp = tempfile.mkstemp(prefix=".predicates-", suffix=".tmp", dir=memory_path)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(text)
+            os.replace(tmp, memory_path / RUNTIME_FILE)
+        except BaseException:
+            Path(tmp).unlink(missing_ok=True)
+            raise
+        return True
 
 
 def load_normalizer(memory_path: Path) -> NormalizeFn:
@@ -145,6 +205,31 @@ def load_normalizer(memory_path: Path) -> NormalizeFn:
     return normalize
 
 
+def fold_key(raw_label: str, canonical: str) -> tuple[str, str]:
+    """The identity of one predicate fold: ``(slug(raw), canonical)``.
+
+    G98/G115: a fold is asked about once per pair per bank, so ``built with``
+    and ``Built  With`` folding onto ``uses`` are the same question. A pair
+    whose two sides are equal is no fold at all — the normalizer kept the
+    label as its own slug.
+    """
+    return _slugify_predicate(raw_label), str(canonical or "").strip()
+
+
+def confirmed_folds(memory_path: Path | None) -> dict[str, str]:
+    """``raw_slug -> canonical`` folds the person confirmed ("Correct fold").
+
+    Kept in ``<memory>/_predicates.yaml`` under ``confirmed_folds`` beside the
+    synonyms they confirm; the inbox writer never asks about one again.
+    """
+    if memory_path is None:
+        return {}
+    raw = _read_runtime_map(memory_path).get("confirmed_folds")
+    if not isinstance(raw, dict):
+        return {}
+    return {str(k).strip(): str(v).strip() for k, v in raw.items() if k and v}
+
+
 def inverse_pairs(memory_path: Path) -> dict[str, str]:
     """``raw_inverse_label -> canonical_active`` map (for edge-flipping callers)."""
     data = _read_runtime_map(memory_path)
@@ -167,16 +252,27 @@ def build_cardinality_fn(memory_path: Path | None) -> CardinalityFn:
     normal coexistence (multi-valued).
 
     Resolution order (cheapest first, $0):
-    1. canonical is in ``single_valued`` -> True;
-    2. canonical is in ``multi_valued`` -> False;
-    3. **unseen predicate => default to multi-valued (coexist).** This is the safe
+    1. canonical is in the committed seed's ``multi_valued`` -> False;
+    2. canonical is in the bank's ``single_valued`` -> True;
+    3. canonical is in the bank's ``multi_valued`` -> False;
+    4. **unseen predicate => default to multi-valued (coexist).** This is the safe
        default per §5/§9 — never auto-close on an uncertain cardinality. (The
        LLM-cardinality fallback for genuinely-new conflicting predicates is a
        documented, cached future extension; coexisting is correct in the meantime.)
+
+    Step 1 is :func:`cardinality`'s "``multi`` wins" rule, applied here too:
+    :func:`install_predicate_map` never refreshes a populated map, so a bank
+    seeded before a predicate moved to ``multi_valued`` (``uses`` in ``e9a7c6b``,
+    ``works-at`` on 2026-10-14) still lists it single-valued, and Stage 3 kept
+    closing one value whenever another arrived while the inbox already called
+    them a set. A seed and a bank that disagree are an uncertain cardinality, and
+    an uncertain cardinality never auto-closes. The seed's ``single_valued`` is
+    NOT imported: a bank with no map still coexists everything, as before.
     """
     data = _read_runtime_map(memory_path) if memory_path is not None else {}
-    single = {str(p).strip().lower() for p in (data.get("single_valued") or [])}
-    multi = {str(p).strip().lower() for p in (data.get("multi_valued") or [])}
+    seed_multi = {str(p).strip().lower() for p in (_load_seed_map().get("multi_valued") or [])}
+    single = {str(p).strip().lower() for p in (data.get("single_valued") or [])} - seed_multi
+    multi = {str(p).strip().lower() for p in (data.get("multi_valued") or [])} | seed_multi
 
     def is_single_valued(predicate: str) -> bool:
         p = (predicate or "").strip().lower()
@@ -187,6 +283,73 @@ def build_cardinality_fn(memory_path: Path | None) -> CardinalityFn:
         return False  # conservative: unseen => coexist, never auto-close
 
     return is_single_valued
+
+
+#: What an ending label does (``endings`` in the seed): ``over`` closes the open
+#: belief on the same object; ``past`` reinforces it and never closes it.
+ENDING_OVER, ENDING_PAST = "over", "past"
+
+class Ending(NamedTuple):
+    canonical: str     # the predicate whose belief the label ends
+    mode: str          # ENDING_OVER | ENDING_PAST
+    synonym: bool      # the label is itself a synonym of `canonical` ("previously worked at"), not "left"
+
+
+EndingFn = Callable[[str], "Ending | None"]
+
+
+def build_endings_fn(memory_path: Path | None) -> EndingFn:
+    """A ``label -> Ending(canonical, "over" | "past", synonym) | None`` oracle over
+    the seed's ``endings`` and the bank's (union; a bank may add labels, never
+    remove one). ``synonym`` says the label folds into ``canonical`` through the
+    vocabulary's synonyms (either source), so with nothing open it is still a
+    statement about that predicate; "left" is not, and keeps its own label.
+
+    A label that says a belief stopped being true — "left", "previously worked
+    at" — is the only thing that ends a multi-valued place in Stage 3 besides a
+    stated end and the person's own edit (2026-10-14). Labels compare slugged, so
+    "Previously  Worked At" and ``previously-worked-at`` are one label. A label
+    listed under two canonicals is ambiguous and dropped: when unsure, nothing
+    closes. ``over`` wins over ``past`` for one canonical (the stronger reading
+    is the curated one; both lists are hand-written)."""
+    sources = [_load_seed_map()]
+    if memory_path is not None:
+        sources.append(_read_runtime_map(memory_path))
+    found: dict[str, set[tuple[str, str]]] = {}
+    folds: dict[str, set[str]] = {}
+    for data in sources:
+        for k, v in ((data.get("synonyms") or {}) if isinstance(data, dict) else {}).items():
+            folds.setdefault(_slugify_predicate(str(k)), set()).add(_slugify_predicate(str(v)))
+        raw = data.get("endings") if isinstance(data, dict) else None
+        if not isinstance(raw, dict):
+            continue
+        for canonical, modes in raw.items():
+            canon = _slugify_predicate(str(canonical))
+            if not canon or not isinstance(modes, dict):
+                continue
+            for mode in (ENDING_OVER, ENDING_PAST):
+                for label in modes.get(mode) or []:
+                    slug = _slugify_predicate(str(label))
+                    if slug:
+                        found.setdefault(slug, set()).add((canon, mode))
+    table: dict[str, Ending] = {}
+    for slug, hits in found.items():
+        if len({c for c, _ in hits}) != 1:
+            continue   # two canonicals claim one label: ambiguous, never closes
+        canon = next(iter(hits))[0]
+        table[slug] = Ending(canon, ENDING_OVER if (canon, ENDING_OVER) in hits else ENDING_PAST,
+                             folds.get(slug) == {canon})
+
+    def ending(label: str) -> Ending | None:
+        return table.get(_slugify_predicate(label or ""))
+
+    # Every `over` label, by the canonical it ends — Stage 3 looks for a departure already on the page.
+    over: dict[str, set[str]] = {}
+    for slug, hit in table.items():
+        if hit.mode == ENDING_OVER:
+            over.setdefault(hit.canonical, set()).add(slug)
+    ending.over = over  # type: ignore[attr-defined]
+    return ending
 
 
 def is_single_valued(memory_path: Path | None, predicate: str) -> bool:

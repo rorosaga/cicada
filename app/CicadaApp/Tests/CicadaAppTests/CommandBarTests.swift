@@ -71,7 +71,10 @@ final class CommandBarTests: XCTestCase {
         // R-DG6 — the Graph's `?` answers for the Graph (its keys and gestures).
         XCTAssertEqual(HelpContent.page(.graph), .graph)
         XCTAssertEqual(HelpContent.page(.projects), .projects)
-        for tab in AppTab.allCases where ![.sleep, .inbox, .graph, .clusters, .feed, .sources, .projects].contains(tab) {
+        XCTAssertEqual(HelpContent.page(.looks), .looks)
+        XCTAssertEqual(HelpContent.page(.skills), .skills)
+        for tab in AppTab.allCases
+        where ![.sleep, .inbox, .graph, .clusters, .sources, .projects, .looks, .skills].contains(tab) {
             XCTAssertEqual(HelpContent.page(tab), .aboutCicada, tab.rawValue)
         }
     }

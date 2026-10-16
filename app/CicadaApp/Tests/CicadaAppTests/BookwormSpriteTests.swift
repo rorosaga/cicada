@@ -53,7 +53,8 @@ final class BookwormSpriteTests: XCTestCase {
         XCTAssertEqual(b[17], ".........qqqqqqqqq")
         XCTAssertEqual(BookwormOverlays.badgeOverlay(7)[11], ".............qqqqq")
         XCTAssertFalse(b.joined().contains("w"))
-        XCTAssertEqual(BookwormOverlays.badgeOverlay(250), BookwormOverlays.badgeOverlay(99))
+        XCTAssertEqual(BookwormOverlays.badgeOverlay(250), BookwormOverlays.badgeOverlay(100), "every count over 99 draws 99+")
+        XCTAssertNotEqual(BookwormOverlays.badgeOverlay(100), BookwormOverlays.badgeOverlay(99))
         XCTAssertEqual(BookwormOverlays.badgeOverlay(0), BookwormOverlays.badgeOverlay(1))
         XCTAssertEqual(BookwormOverlays.badgeOverlay(-4), BookwormOverlays.badgeOverlay(1))
     }

@@ -56,9 +56,9 @@ func wormAnswers(_ ctx: RoomContext) -> [SentenceLine] {
                               tail: "+\(count(ctx.cycleCreated, ctx)) new · \(count(ctx.cycleUpdated, ctx)) updated."),
                  whenRung(ctx)]
     case .error:
-        let clause = sentenceClause(ctx.cycleError)
-        rungs = [SentenceLine(lead: "The last cycle failed.", tone: .danger, tail: clause, tailTone: .danger,
-                              action: clause == nil ? nil : .openDetails(.lastCycle)),
+        rungs = [SentenceLine(lead: Copy.SleepV5.readingStoppedLead, tone: .warning,
+                              tail: Copy.SleepV5.readingStoppedTail, tailTone: .warning,
+                              action: .openDetails(.lastCycle)),
                  engineRung(ctx, verb: "It ran on"), lastTimeRung(ctx)]
     case .awake:
         rungs = [SentenceLine(lead: "I haven't heard from Cicada yet.", tail: "This fills in as soon as it answers.")]
@@ -107,14 +107,15 @@ private func inboxRung(_ ctx: RoomContext) -> SentenceLine? {
                         tail: "They're in the Inbox.", action: .openInbox)
 }
 
-/// The engine a running or failed cycle used, with its mark (Z-P26). The
-/// backend's `engineDetail` is shown sentence-cased, never reworded.
+/// The person's engine choice, with its mark (Z-P26). A stopped run's
+/// diagnostic `engineDetail` belongs only in Details (DR-59).
 private func engineRung(_ ctx: RoomContext, verb: String) -> SentenceLine? {
     guard let engine = ctx.lastEngine else { return nil }
+    let detail = ctx.paused != nil || ctx.mood == .error ? nil : ctx.engineDetail
     // One under the budget: `sentenceCase` may append a stop, and an
     // 80-character clause plus "." failed the ladder's fit filter, which
     // dropped the whole engine rung (Task 6 review r1).
     return SentenceLine(lead: "\(verb) \(Copy.engineLabel(engine)).",
-                        tail: sentenceCase(sentenceClause(ctx.engineDetail, limit: SentenceLine.maxTail - 1)),
+                        tail: sentenceCase(sentenceClause(detail, limit: SentenceLine.maxTail - 1)),
                         mark: .engine(engine))
 }

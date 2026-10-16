@@ -2,17 +2,17 @@
 # Saved Aseprite sources own the pixels; every builder reads them and every sheet is re-exported.
 set -euo pipefail
 ASE="${ASEPRITE:-/Applications/Aseprite.app/Contents/MacOS/aseprite}"
-BUILDS="${BUILDS:-build_worm build_worm_small build_room build_clock build_weather build_skyfx build_spines}"
+BUILDS="${BUILDS:-build_worm build_worm_small build_room build_clock build_weather build_skyfx build_books}"
 STAGE="${STAGE:-all}"
 case "$STAGE" in all|worm) ;; *) echo "Unknown stage: $STAGE" >&2; exit 1 ;; esac
 want_clock=false
 want_scenery=false
-want_spines=false
+want_books=false
 for build in $BUILDS; do
   case "$build" in
     build_clock) want_clock=true ;;
     build_weather|build_skyfx) want_scenery=true ;;
-    build_spines) want_spines=true ;;
+    build_books) want_books=true ;;
     build_worm|build_worm_small|build_room|build_night) ;;
     *) echo "Unknown builder: $build" >&2; exit 1 ;;
   esac
@@ -24,7 +24,7 @@ BUILDS="build_worm build_worm_small build_room"
 if [[ "$want_scenery" == true ]]; then
   BUILDS="$BUILDS build_weather build_skyfx"
 fi
-[[ "$want_spines" != true ]] || BUILDS="$BUILDS build_spines"
+[[ "$want_books" != true ]] || BUILDS="$BUILDS build_books"
 ART="$(cd "$(dirname "$0")/.." && pwd)"
 RES="$(cd "$ART/../../../Sources/CicadaApp/Resources" && pwd)/sprites"
 mkdir -p "$RES" "$ART/src" "$ART/qa"

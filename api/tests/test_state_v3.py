@@ -29,7 +29,7 @@ def test_the_primer_shows_the_current_line_and_stays_in_budget(tmp_path, monkeyp
     state_dictionary.refresh(bank, None, force=True, today=T)
     text = handshake.build(state_dictionary.read_state(bank), variant="claude-code", bank="demo", tz="UTC")
     assert f"`rover-arm-project` Rover Arm Project — A small arm that picks parts off a tray. · next: Pick And Place Demo, {d(12)}" in text
-    assert "Ask where a project stands with `cicada_project(project)`." in text
+    assert "Ask where a project stands with `cicada_project(project)` and where the work in this folder stopped with `cicada_continue()`." in text
     assert len(text) // 4 <= handshake.MAX_TOKENS
 
 

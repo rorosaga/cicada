@@ -78,4 +78,30 @@ final class SettingsPanelTests: XCTestCase {
         XCTAssertFalse(focus.contains("dandelion"))
         XCTAssertTrue(focus.contains("CicadaTheme.focusRing"))
     }
+
+    /// Owner's live check 2026-10-14: "Skills" kept a fill while "Agents" was selected, pointer elsewhere. The hover is
+    /// one value: entering a row replaces it, a late exit from a row the pointer already left changes nothing, a pick
+    /// clears it — so at most one row is lit by hover, and only the selected row has the selection fill.
+    func testTheSidebarLightsOneHoveredRowAtMostAndOnlyTheSelectedOneAsSelected() {
+        var hovered: SettingsSection?
+        hovered = SettingsSidebarHover.next(hovered, row: .skills, inside: true)
+        XCTAssertEqual(hovered, .skills)
+        // The pointer moves to Agents; Skills' exit is lost (or arrives late).
+        hovered = SettingsSidebarHover.next(hovered, row: .agents, inside: true)
+        XCTAssertEqual(hovered, .agents, "entering a row replaces a hover whose exit never came")
+        hovered = SettingsSidebarHover.next(hovered, row: .skills, inside: false)
+        XCTAssertEqual(hovered, .agents, "a late exit never unlights the row the pointer is on")
+        hovered = SettingsSidebarHover.afterPick   // Agents clicked
+        XCTAssertNil(hovered)
+
+        let selection = SettingsSection.searchFiles
+        let fills = SettingsSection.allCases.map {
+            SettingsSidebarHover.fill(isSelected: $0 == selection, hovering: $0 == hovered)
+        }
+        XCTAssertEqual(fills.filter { $0 == .selected }.count, 1)
+        XCTAssertEqual(fills.filter { $0 == .hover }.count, 0)
+        XCTAssertEqual(SettingsSidebarHover.fill(isSelected: true, hovering: true), .selected)
+        XCTAssertEqual(SettingsSidebarHover.fill(isSelected: false, hovering: true), .hover)
+        XCTAssertEqual(SettingsSidebarHover.fill(isSelected: false, hovering: false), .none)
+    }
 }

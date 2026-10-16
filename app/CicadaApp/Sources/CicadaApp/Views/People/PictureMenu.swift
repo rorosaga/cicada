@@ -11,7 +11,7 @@ enum PictureMenuModel {
         switch current.source {
         case .upload: return [.change, .remove]
         case .initials: return [.change] + (detected.map { [.useDetected($0.source)] } ?? [])
-        case .contacts, .logo, .thumbnail: return [.change, .useInitials]
+        case .contacts, .messages, .profile, .logo, .thumbnail: return [.change, .useInitials]
         }
     }
 }
@@ -24,42 +24,76 @@ enum PictureActions {
     /// caller (a test, a model) can ask without the main actor.
     nonisolated static func canEdit(_ type: EntityType) -> Bool { type != .hub && type != .unknown }
 
-    /// F-11 — "It opens an NSOpenPanel for images."
+    /// A saved item (a paper, a saved document) also takes a PDF: the backend draws its first page.
+    nonisolated static func takesPDF(_ type: EntityType) -> Bool { type == .media }
+    /// The backend's own bound (`pdf_page.MAX_PDF_BYTES`).
+    nonisolated static let maxPDFBytes = 32 * 1024 * 1024
+
+    /// F-11 — "It opens an NSOpenPanel for images" — and, for a saved item, PDFs.
     static func change(id: String, name: String, type: EntityType, store: Store, inputs: PictureInputs?) {
+        let bank = store.bank   // G183(d): the bank the person chose this entity in, before the panel and the preparation
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.image]
+        panel.allowedContentTypes = takesPDF(type) ? [.image, .pdf] : [.image]
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
         panel.message = Copy.People.pickMessage(name)
         panel.prompt = Copy.People.pickPrompt
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        Task { await upload(fileURL: url, id: id, type: type, store: store, inputs: inputs) }
+        if takesPDF(type), UTType(filenameExtension: url.pathExtension)?.conforms(to: .pdf) == true {
+            Task { await uploadPDF(fileURL: url, id: id, type: type, bank: bank, store: store, inputs: inputs) }
+            return
+        }
+        Task { await upload(fileURL: url, id: id, type: type, bank: bank, store: store, inputs: inputs) }
     }
 
-    static func upload(fileURL: URL, id: String, type: EntityType, store: Store, inputs: PictureInputs?) async {
+    /// The PDF goes to the backend as it is; the backend renders page 1 and keeps it as the page's picture.
+    static func uploadPDF(fileURL: URL, id: String, type: EntityType, bank: String, store: Store,
+                          inputs: PictureInputs?) async {
+        let data = await Task.detached(priority: .userInitiated) { () -> Data? in
+            let size = (try? fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+            guard size <= maxPDFBytes else { return nil }
+            return try? Data(contentsOf: fileURL)
+        }.value
+        guard let data, !data.isEmpty else {
+            store.toast = Copy.People.importFailed(.unreadable)
+            return
+        }
+        await BankScope.bound(to: bank) {
+            await store.perform(EntityPictureWrite(entityId: id, type: type, bank: bank, action: .pdf(data),
+                                                   inputs: inputs, store: store))
+        }
+    }
+
+    /// `bank` is the bank the person acted in, captured before anything is awaited (G183(d)): the preparation runs
+    /// detached, a switch can complete meanwhile, and the write must still name — and be refused in — that bank.
+    static func upload(fileURL: URL, id: String, type: EntityType, bank: String, store: Store,
+                       inputs: PictureInputs?) async {
         let prepared = await Task.detached(priority: .userInitiated) { () -> Result<PreparedPicture, PictureImport.Failure> in
             do { return .success(try PictureImport.prepare(fileURL: fileURL)) } catch {
                 return .failure(error as? PictureImport.Failure ?? .unreadable)
             }
         }.value
-        await send(prepared, id: id, type: type, store: store, inputs: inputs)
+        await send(prepared, id: id, type: type, bank: bank, store: store, inputs: inputs)
     }
 
-    static func upload(data: Data, id: String, type: EntityType, store: Store, inputs: PictureInputs?) async {
+    static func upload(data: Data, id: String, type: EntityType, bank: String, store: Store,
+                       inputs: PictureInputs?) async {
         let prepared = await Task.detached(priority: .userInitiated) { () -> Result<PreparedPicture, PictureImport.Failure> in
             do { return .success(try PictureImport.prepare(data: data)) } catch {
                 return .failure(error as? PictureImport.Failure ?? .unreadable)
             }
         }.value
-        await send(prepared, id: id, type: type, store: store, inputs: inputs)
+        await send(prepared, id: id, type: type, bank: bank, store: store, inputs: inputs)
     }
 
     private static func send(_ prepared: Result<PreparedPicture, PictureImport.Failure>, id: String, type: EntityType,
-                             store: Store, inputs: PictureInputs?) async {
+                             bank: String, store: Store, inputs: PictureInputs?) async {
         switch prepared {
         case .success(let picture):
-            await store.perform(EntityPictureWrite(entityId: id, type: type, bank: store.bank, action: .upload(picture),
-                                                   inputs: inputs, store: store))
+            await BankScope.bound(to: bank) {
+                await store.perform(EntityPictureWrite(entityId: id, type: type, bank: bank, action: .upload(picture),
+                                                       inputs: inputs, store: store))
+            }
         case .failure(let failure):
             store.toast = Copy.People.importFailed(failure)
         }
@@ -71,11 +105,17 @@ enum PictureActions {
         case .change, .add:
             change(id: id, name: name, type: type, store: store, inputs: inputs)
         case .useInitials:
-            Task { await store.perform(EntityPictureWrite(entityId: id, type: type, bank: store.bank, action: .useInitials,
-                                                          inputs: inputs, store: store)) }
+            let bank = store.bank
+            store.bankTask {
+                await store.perform(EntityPictureWrite(entityId: id, type: type, bank: bank, action: .useInitials,
+                                                       inputs: inputs, store: store))
+            }
         case .remove, .useDetected:
-            Task { await store.perform(EntityPictureWrite(entityId: id, type: type, bank: store.bank, action: .clear,
-                                                          inputs: inputs, store: store)) }
+            let bank = store.bank
+            store.bankTask {
+                await store.perform(EntityPictureWrite(entityId: id, type: type, bank: bank, action: .clear,
+                                                       inputs: inputs, store: store))
+            }
         }
     }
 }

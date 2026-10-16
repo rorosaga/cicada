@@ -38,7 +38,7 @@ from api.config import Settings, get_settings
 from api.routers.capture import refuse_capture_into_demo
 from api.services import (
     logo_service, media_ingestor, reading_asks, reading_hosts, reading_prompt, reading_queue, reading_service,
-    reading_settings, sync_service,
+    reading_settings, sync_service, youtube_lists,
 )
 
 router = APIRouter()
@@ -52,24 +52,35 @@ class SettingsUpdate(BaseModel):
     acknowledge: bool = False
     #: A patch ``{site: bool}``: true lets an agent read that site with the person's browser, false takes it back.
     sites: dict[str, bool] | None = None
+    #: G166 exploring (D2 amended): false explores in a private, cookie-less context instead of the signed-in session.
+    exploreSignedIn: bool | None = None
+    #: A patch ``{site: bool}``: true never explores that site (D3), false lifts it.
+    neverExplore: dict[str, bool] | None = None
+    #: G71 (2026-10-16): a patch ``{watch_later|history: bool}`` — the YouTube lists the person's own agent keeps
+    #: current from their signed-in browser. Turning one on lifts a ``needs_login`` pause (Try again).
+    youtubeLists: dict[str, bool] | None = None
 
 
 class AskRequest(BaseModel):
     url: str
 
 
-def _settings_body() -> dict:
-    return {
+def _settings_body(memory_path=None) -> dict:
+    body = {
         **reading_settings.snapshot(),
         "ackVersion": reading_settings.ACK_VERSION,
         "lastAgentRead": reading_settings.last_agent_read(),
         "shape": SHAPE,
     }
+    if memory_path is not None:
+        # G71: when each YouTube list was last read for this memory, and whether the lists are paused.
+        body["youtube"] = youtube_lists.status(memory_path)
+    return body
 
 
 @router.get("/reading/settings")
-async def get_reading_settings(request: Request, response: Response):
-    body = _settings_body()
+async def get_reading_settings(request: Request, response: Response, settings: Settings = Depends(get_settings)):
+    body = _settings_body(settings.memory_path)
     etag = '"' + sync_service._digest(body) + '"'
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
@@ -89,13 +100,16 @@ async def put_reading_settings(update: SettingsUpdate, settings: Settings = Depe
     try:
         reading_settings.update(
             agent_enabled_=update.agentEnabled, acknowledge=update.acknowledge, sites=update.sites,
-            surfaced=surfaced)
+            surfaced=surfaced, explore_signed_in_=update.exploreSignedIn, never_explore_=update.neverExplore,
+            youtube_lists_=update.youtubeLists)
     except reading_settings.SettingsError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     for site, on in (update.sites or {}).items():
         if on:
             reading_queue.resume_site(memory_path, site)
-    return _settings_body()
+    if update.youtubeLists and any(update.youtubeLists.values()):
+        youtube_lists.resume()
+    return _settings_body(memory_path)
 
 
 @router.get("/reading/sites")
@@ -199,8 +213,8 @@ async def post_reading_ask(request: AskRequest, settings: Settings = Depends(get
     """"Ask an agent". 409 while agent reading is switched off (there is no per-site
     condition: this ask is the person's own consent for this one page); 422 (with a
     sentence) for a link an agent is never offered. A link that is not
-    saved is saved first — without a fetch, as the person's own save — and this
-    does not 409 while Sleep runs, like ``POST /sources/save``."""
+    saved is saved first — without a fetch, as the person's own save — and that save
+    answers 409 while Sleep holds the pages, like ``POST /sources/save`` (G183 round 2)."""
     try:
         return await reading_service.ask(settings.memory_path, request.url)
     except reading_service.AskRefused as exc:

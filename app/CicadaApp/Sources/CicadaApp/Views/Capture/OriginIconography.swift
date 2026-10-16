@@ -34,7 +34,9 @@ enum OriginIconography {
         "chrome-bookmark", "safari-bookmark", "safari-tab", "apple-notes",
         "telegram", "rss", "calendar", "share-sheet", "bookmark", "saved-link",
         "instagram-saved", "youtube-playlist", "pinterest", "reddit-saved", "reddit",
-        "x-bookmarks", "x", "linkedin-saved", "tiktok-saved", "tiktok-history", "unknown",
+        "x-bookmarks", "x-likes", "x", "linkedin-saved", "tiktok-saved", "tiktok-history", "unknown",
+        // G71 (2026-10-16): YouTube watch history — one episode per day (`watch_history.ORIGINS`).
+        "youtube-history",
         // G133 / G134 — a watched folder's episodes and Wispr Flow's.
         "folder", "wispr-flow",
         // Round-4 D2 (C6, R-FA13): the Calendar app read on this Mac — the backend track stamps it.
@@ -45,6 +47,8 @@ enum OriginIconography {
         "chrome-tab-group",
         // Round 4 (G154): the Mac's address book — no episode carries it; its Integrations row does.
         "contacts-local",
+        // G179: a ticked Messages conversation, one episode per sitting (`messages_source.ORIGIN`).
+        "imessage",
         // G135 R-R26: a remote connector's app, as its episodes stamp it
         "claude-web", "chatgpt", "perplexity", "claude-code-remote",
         "codex-remote", "vscode", "remote-app",
@@ -56,11 +60,10 @@ enum OriginIconography {
 
     static func label(for origin: String) -> String {
         switch origin {
-        // "mcp" is the legacy label, kept byte-for-byte so any existing
-        // caller (the Sleep debt breakdown; the Sources grid since G124)
-        // never silently renames — "claude-code" is the newer G9-normalized
-        // id for the same source and gets its own, equally legible label.
-        case "mcp": "MCP"
+        // "mcp" is the legacy origin of what an agent saved through Cicada's own tools (before G9 normalised the
+        // harness ids; "claude-code" is the newer id for the same source). DR-54 (QA 2026-10-16): named the way a
+        // person would, never the protocol — the Sleep page's Waiting group read "MCP".
+        case "mcp": "Saved by an agent"
         case "claude-code": "Claude Code"
         // G124 R17 — harness ids an MCP client stamps (`mcp/server.py`
         // SESSION) read as the Sources grid's harness cards. Generic on
@@ -89,13 +92,16 @@ enum OriginIconography {
         case "calendar": "Calendar"
         case "calendar-local": "Calendar"
         case "contacts-local": "Contacts"
+        case "imessage": "Messages"
         case "apple-notes": "Apple Notes"
         case "share-sheet": "Share Sheet"
         case "instagram-saved": "Instagram Saved"
         case "youtube-playlist": "YouTube Playlist"
+        case "youtube-history": "YouTube History"
         case "pinterest": "Pinterest"
         case "reddit-saved": "Reddit Saved"
         case "x-bookmarks": "X Bookmarks"
+        case "x-likes": "X Likes"
         case "linkedin-saved": "LinkedIn Saved"
         case "tiktok-saved": "TikTok Saved"
         case "tiktok-history": "TikTok History"
@@ -154,13 +160,15 @@ enum OriginIconography {
         // `calendar-local` too, else the Sources grid (which passes a channel id through) draws a tray.
         case "calendar", "calendar-local": "calendar"
         case "contacts-local": "person.crop.circle"
+        case "imessage": "message.fill"
         case "apple-notes": "note.text"
         case "share-sheet": "square.and.arrow.up"
         case "instagram-saved": "camera.fill"
         case "youtube-playlist": "play.rectangle.fill"
+        case "youtube-history": "clock.arrow.circlepath"
         case "pinterest": "pin.fill"
         case "reddit-saved", "reddit": "bubble.left.and.text.bubble.right.fill"
-        case "x-bookmarks", "x": "x.circle"
+        case "x-bookmarks", "x-likes", "x": "x.circle"
         case "linkedin-saved": "briefcase.fill"
         case "tiktok-saved": "music.note"
         case "tiktok-history": "clock.arrow.circlepath"
@@ -201,10 +209,10 @@ enum OriginIconography {
         case "apple-notes": Color(hex: 0xFFCC00)
         case "share-sheet": Color(hex: 0x8896FF)
         case "instagram-saved": Color(hex: 0xE1306C)
-        case "youtube-playlist": Color(hex: 0xFF0000)
+        case "youtube-playlist", "youtube-history": Color(hex: 0xFF0000)
         case "pinterest": Color(hex: 0xE60023)
         case "reddit-saved", "reddit": Color(hex: 0xFF4500)
-        case "x-bookmarks", "x": Color(hex: 0x14171A)
+        case "x-bookmarks", "x-likes", "x": Color(hex: 0x14171A)
         case "linkedin-saved": Color(hex: 0x0A66C2)
         case "tiktok-saved", "tiktok-history": Color(hex: 0xFE2C55)
         // Google blue, the same swatch the Chrome row carries — same vendor,
@@ -258,11 +266,11 @@ enum OriginIconography {
         case "telegram": "telegram"
         case "pinterest": "pinterest"
         case "reddit-saved", "reddit": "reddit"
-        case "x-bookmarks", "x": "x"
+        case "x-bookmarks", "x-likes", "x": "x"
         case "linkedin-saved": "linkedin"
         case "tiktok-saved", "tiktok-history": "tiktok"
         case "instagram-saved": "instagram"
-        case "youtube-playlist": "youtube"
+        case "youtube-playlist", "youtube-history": "youtube"
         // G135 R-R26/R-R34 — a remote app wears the same mark as its local
         // twin. Perplexity and `remote-app` stay nil: the only Commons
         // Perplexity file is a wordmark, and "Other" has no brand.
@@ -306,6 +314,8 @@ enum OriginIconography {
         // Round 4 (G154) — Cicada reads the Contacts app's own store, so the app is here; Apple's marks are never
         // committed (Track L).
         case "contacts-local": "com.apple.AddressBook"
+        // G179 — Cicada reads the Messages app's own database, so the app is here; Apple's marks are never committed.
+        case "imessage": "com.apple.MobileSMS"
         default: nil
         }
     }

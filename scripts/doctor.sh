@@ -29,14 +29,44 @@ echo "  repo:   $REPO"
 echo "  memory: $MEMORY_PATH"
 echo
 
-# 1. Backend /healthz reachable (+ embeddingMode shown).
-HEALTH_JSON=$(curl -fsS "http://127.0.0.1:$PORT/healthz" 2>/dev/null || true)
+# 1. Backend /healthz reachable (+ embeddingMode shown). Its details (mode, model, index) answer only a caller
+#    holding the token (owner decision 3, 2026-10-16), so doctor sends this machine's own — as a header read from the
+#    file by curl itself, never on a command line another user could list.
+TOKEN_FILE="${CICADA_HOME:-$HOME/.cicada}/api_token"
+if [ -n "${CICADA_API_TOKEN:-}" ]; then
+  HEALTH_JSON=$(printf 'Authorization: Bearer %s\n' "$CICADA_API_TOKEN" | curl -fsS -H @- "http://127.0.0.1:$PORT/healthz" 2>/dev/null || true)
+elif [ -r "$TOKEN_FILE" ]; then
+  HEALTH_JSON=$(printf 'Authorization: Bearer %s\n' "$(tr -d '[:space:]' < "$TOKEN_FILE")" | curl -fsS -H @- "http://127.0.0.1:$PORT/healthz" 2>/dev/null || true)
+else
+  HEALTH_JSON=$(curl -fsS "http://127.0.0.1:$PORT/healthz" 2>/dev/null || true)
+fi
 if [ -n "$HEALTH_JSON" ] && printf '%s' "$HEALTH_JSON" | grep -q '"status"'; then
   MODE=$(printf '%s' "$HEALTH_JSON" | sed -n 's/.*"embeddingMode":"\([^"]*\)".*/\1/p')
   pass "Backend /healthz reachable on :$PORT (embeddingMode=${MODE:-unknown})"
 else
   fail "Backend /healthz not reachable on :$PORT"
   note "start it: ./install.sh  (or check logs/backend.err.log)"
+fi
+
+# 1a. Search embeddings: the active bank's model and, when its embedder last failed, why
+#     (/healthz carries an enum, never a message; the sentences mirror api/services/embedding_health.py).
+if [ -n "$HEALTH_JSON" ]; then
+  EMB_MODEL=$(printf '%s' "$HEALTH_JSON" | sed -n 's/.*"embeddingModel": *"\([^"]*\)".*/\1/p')
+  EMB_PROBLEM=$(printf '%s' "$HEALTH_JSON" | sed -n 's/.*"embeddingProblem": *"\([^"]*\)".*/\1/p')
+  case "$EMB_PROBLEM" in
+    "") pass "Search embeddings working (${EMB_MODEL:-model not recorded yet})" ;;
+    credits) fail "Search embeddings failing: the embedding service says the account is out of credits"
+             note "add credits, or set CICADA_EMBEDDING_MODE=local and run 'make embedding-model'" ;;
+    rate_limited) fail "Search embeddings failing: the embedding service is limiting requests"
+                  note "the next Sleep retries; search matches words only until then" ;;
+    auth) fail "Search embeddings failing: the embedding service didn't accept the key"
+          note "check the key in api/.env, or set CICADA_EMBEDDING_MODE=local and run 'make embedding-model'" ;;
+    unreachable|unavailable) fail "Search embeddings failing: the embedding service couldn't be reached"
+                             note "the next Sleep retries; search matches words only until then" ;;
+    model_missing) fail "Search embeddings failing: the search model isn't installed"
+                   note "run 'make embedding-model'" ;;
+    *) fail "Search embeddings failing ($EMB_PROBLEM)" ;;
+  esac
 fi
 
 # 1b. Bearer-token auth: /status must accept the token in $CICADA_HOME/api_token.
@@ -103,8 +133,15 @@ else
   note "run ./install.sh (uv sync) from the repo"
 fi
 
-# 8. launchd plist loaded.
-if launchctl print "gui/$(id -u)/com.cicada.backend" >/dev/null 2>&1; then
+# 8. The background service: the launchd agent on a Mac, the systemd user unit on Linux (G181 headless).
+if [ "$(uname -s)" = "Linux" ]; then
+  if systemctl --user is-active --quiet cicada-backend.service 2>/dev/null; then
+    pass "systemd backend service active (cicada-backend.service)"
+  else
+    fail "systemd backend service not active"
+    note "run ./install.sh (or scripts/install-backend-service.sh); logs: journalctl --user -u cicada-backend.service"
+  fi
+elif launchctl print "gui/$(id -u)/com.cicada.backend" >/dev/null 2>&1; then
   pass "launchd backend agent loaded"
 else
   fail "launchd backend agent not loaded"
@@ -190,6 +227,26 @@ else
   note "run ./install.sh to register it — sessions are not captured until then"
 fi
 
+# 12b. The capture flush (G110 gate A): the same command under PreCompact and SessionEnd. Stop alone
+#     decides whether sessions are captured, so absent (an install from before the flush) passes with a
+#     note; half-registered or stale is a failure, like the Stop hook's.
+F1=1; F2=1
+if [ -x "$VENV_PY" ]; then
+  "$VENV_PY" "$REPO/api/hooks/registry.py" status --settings "$CLAUDE_SETTINGS" --event PreCompact \
+    --command "$HOOK_CMD" >/dev/null 2>&1 && F1=0 || F1=$?
+  "$VENV_PY" "$REPO/api/hooks/registry.py" status --settings "$CLAUDE_SETTINGS" --event SessionEnd \
+    --command "$HOOK_CMD" >/dev/null 2>&1 && F2=0 || F2=$?
+fi
+if [ "$F1" -eq 0 ] && [ "$F2" -eq 0 ]; then
+  pass "Capture flush registered in $CLAUDE_SETTINGS (PreCompact, SessionEnd)"
+elif [ "$F1" -eq 1 ] && [ "$F2" -eq 1 ]; then
+  pass "Capture flush not registered — the Stop hook still captures every reply"
+  note "re-run ./install.sh to also save a turn interrupted before /compact, /clear or quitting"
+else
+  fail "Capture flush half-registered or stale in $CLAUDE_SETTINGS"
+  note "run ./install.sh to fix it"
+fi
+
 # 13. Implicit recall hooks (G149). Registered by install.sh unless CICADA_RECALL=off, and turned
 #     on or off in Settings → Agents. Absent is a choice, not a failure; half-registered or stale
 #     (a moved repo) is a failure, like the Stop hook's.
@@ -209,6 +266,31 @@ elif [ "$S1" -eq 1 ] && [ "$S2" -eq 1 ]; then
 else
   fail "Recall hooks half-registered or stale in $CLAUDE_SETTINGS"
   note "run ./install.sh (or Settings → Agents → Update) to fix them"
+fi
+
+# Local Cursor startup and chat capture are independent of MCP connectivity and of each other.
+if [ -d "$HOME/.cursor" ] && [ -x "$VENV_PY" ]; then
+  CURSOR_STATE=0
+  "$VENV_PY" "$REPO/api/hooks/cursor_registry.py" status --settings "${CURSOR_HOOKS:-$HOME/.cursor/hooks.json}" \
+    >/dev/null 2>&1 || CURSOR_STATE=$?
+  if [ "$CURSOR_STATE" -eq 0 ]; then
+    pass "Cursor sessionStart hook configured (installed delivery unverified)"
+  elif [ "$CURSOR_STATE" -eq 1 ]; then
+    pass "Cursor startup hook off — Settings → Agents turns it on"
+  else
+    fail "Cursor startup hook stale or invalid — repair hooks.json or use Settings → Agents → Update"
+  fi
+  CURSOR_SAVE=0
+  "$VENV_PY" "$REPO/api/hooks/cursor_registry.py" status --hook capture \
+    --settings "${CURSOR_HOOKS:-$HOME/.cursor/hooks.json}" >/dev/null 2>&1 || CURSOR_SAVE=$?
+  if [ "$CURSOR_SAVE" -eq 0 ]; then
+    pass "Cursor chat capture configured (installed delivery unverified; see capture.log)"
+  elif [ "$CURSOR_SAVE" -eq 1 ]; then
+    pass "Cursor chat capture off — Settings → Agents → Cursor turns it on"
+  else
+    fail "Cursor capture hooks stale or invalid — repair hooks.json or use Settings → Agents"
+  fi
+  note "Cursor MCP connectivity is separate from both hooks"
 fi
 
 echo

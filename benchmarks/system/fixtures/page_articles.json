@@ -1,0 +1,539 @@
+{
+ "owner": "owner-example",
+ "conversations": [
+  {
+   "id": "ep_2025-06-12_001",
+   "timestamp": "2025-06-12T09:00:00+00:00",
+   "entities": [
+    {
+     "name": "alpha-project",
+     "type": "project",
+     "summary": "alpha-project is a local-first notes app owner-example started building.",
+     "key_facts": [
+      "alpha-project stores notes as plain markdown files.",
+      "alpha-project is written in Swift."
+     ],
+     "history_entries": [
+      {
+       "date": "2025-06-12",
+       "event": "owner-example started alpha-project as a weekend experiment."
+      }
+     ]
+    },
+    {
+     "name": "bob-example",
+     "type": "person",
+     "summary": "bob-example is a former colleague of owner-example who designs interfaces.",
+     "key_facts": [
+      "bob-example worked with owner-example at a previous job.",
+      "bob-example is an interface designer."
+     ],
+     "history_entries": []
+    }
+   ]
+  },
+  {
+   "id": "ep_2025-07-03_001",
+   "timestamp": "2025-07-03T18:00:00+00:00",
+   "entities": [
+    {
+     "name": "alpha-project",
+     "type": "project",
+     "summary": "alpha-project syncs notes between devices.",
+     "key_facts": [
+      "alpha-project syncs through a [[SQLite]] database.",
+      "Sync conflicts are resolved by keeping both copies."
+     ],
+     "history_entries": [
+      {
+       "date": "2025-07-03",
+       "event": "Sync between a laptop and a phone first worked."
+      }
+     ]
+    },
+    {
+     "name": "gamma-tool",
+     "type": "tool",
+     "summary": "gamma-tool is a diagramming tool owner-example tried once.",
+     "key_facts": [
+      "gamma-tool exports diagrams as SVG."
+     ],
+     "history_entries": []
+    }
+   ]
+  },
+  {
+   "id": "ep_2025-08-20_001",
+   "timestamp": "2025-08-20T10:00:00+00:00",
+   "entities": [
+    {
+     "name": "alpha-project",
+     "type": "project",
+     "summary": "alpha-project is a notes app owner-example builds with bob-example.",
+     "key_facts": [
+      "[[bob-example]] designed alpha-project's editor.",
+      "The editor supports wikilinks between notes."
+     ],
+     "history_entries": [
+      {
+       "date": "2025-08-20",
+       "event": "bob-example joined to design the editor."
+      }
+     ]
+    },
+    {
+     "name": "bob-example",
+     "type": "person",
+     "summary": "bob-example designs the editor of alpha-project.",
+     "key_facts": [
+      "bob-example designed the editor of [[alpha-project]].",
+      "bob-example works from Lisbon."
+     ],
+     "history_entries": [
+      {
+       "date": "2025-08-20",
+       "event": "Started working with owner-example on alpha-project."
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "ep_2025-09-15_001",
+   "timestamp": "2025-09-15T10:00:00+00:00",
+   "entities": [
+    {
+     "name": "alpha-project",
+     "type": "project",
+     "summary": "alpha-project moved its search to a local full-text index.",
+     "key_facts": [
+      "Search uses a local full-text index.",
+      "Search answers in under 20 ms on 5,000 notes."
+     ],
+     "history_entries": [
+      {
+       "date": "2025-09-15",
+       "event": "Search moved to a local full-text index."
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "ep_2025-10-02_001",
+   "timestamp": "2025-10-02T10:00:00+00:00",
+   "entities": [
+    {
+     "name": "alpha-project",
+     "type": "project",
+     "summary": "owner-example is considering charging for alpha-project.",
+     "key_facts": [
+      "owner-example considered a one-time price of 30 euros for alpha-project."
+     ],
+     "history_entries": []
+    },
+    {
+     "name": "bob-example",
+     "type": "person",
+     "summary": "bob-example suggested a one-time price for alpha-project.",
+     "key_facts": [
+      "bob-example argued against a subscription for alpha-project."
+     ],
+     "history_entries": []
+    }
+   ]
+  },
+  {
+   "id": "ep_2025-11-11_001",
+   "timestamp": "2025-11-11T10:00:00+00:00",
+   "entities": [
+    {
+     "name": "alpha-project",
+     "type": "project",
+     "summary": "alpha-project got an iOS app.",
+     "key_facts": [
+      "alpha-project has an iOS app built with SwiftUI.",
+      "The iOS app shares its sync code with the Mac app."
+     ],
+     "history_entries": [
+      {
+       "date": "2025-11-11",
+       "event": "First iOS build ran on a phone."
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "ep_2025-12-05_001",
+   "timestamp": "2025-12-05T10:00:00+00:00",
+   "entities": [
+    {
+     "name": "alpha-project",
+     "type": "project",
+     "summary": "alpha-project's sync broke on large vaults.",
+     "key_facts": [
+      "Sync failed on vaults over 10,000 notes because of a lock timeout."
+     ],
+     "history_entries": [
+      {
+       "date": "2025-12-05",
+       "event": "A sync failure on large vaults was traced to a lock timeout."
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "ep_2026-01-14_001",
+   "timestamp": "2026-01-14T10:00:00+00:00",
+   "entities": [
+    {
+     "name": "alpha-project",
+     "type": "project",
+     "summary": "alpha-project fixed its large-vault sync.",
+     "key_facts": [
+      "The lock timeout was fixed by batching writes."
+     ],
+     "history_entries": [
+      {
+       "date": "2026-01-14",
+       "event": "Large-vault sync fixed by batching writes."
+      }
+     ]
+    },
+    {
+     "name": "bob-example",
+     "type": "person",
+     "summary": "bob-example reviewed the new onboarding screens.",
+     "key_facts": [
+      "bob-example reviewed alpha-project's onboarding screens."
+     ],
+     "history_entries": [
+      {
+       "date": "2026-01-14",
+       "event": "Reviewed the onboarding screens."
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "ep_2026-02-08_001",
+   "timestamp": "2026-02-08T10:00:00+00:00",
+   "entities": [
+    {
+     "name": "alpha-project",
+     "type": "project",
+     "summary": "alpha-project opened a private beta.",
+     "key_facts": [
+      "The private beta started with 40 testers."
+     ],
+     "history_entries": [
+      {
+       "date": "2026-02-08",
+       "event": "Private beta opened with 40 testers."
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "ep_2026-03-19_001",
+   "timestamp": "2026-03-19T10:00:00+00:00",
+   "entities": [
+    {
+     "name": "alpha-project",
+     "type": "project",
+     "summary": "Beta testers asked for end-to-end encryption.",
+     "key_facts": [
+      "Beta testers asked for end-to-end encryption of synced notes."
+     ],
+     "history_entries": []
+    }
+   ]
+  },
+  {
+   "id": "ep_2026-04-22_001",
+   "timestamp": "2026-04-22T10:00:00+00:00",
+   "entities": [
+    {
+     "name": "alpha-project",
+     "type": "project",
+     "summary": "alpha-project added end-to-end encryption.",
+     "key_facts": [
+      "Synced notes are encrypted end to end with a key that never leaves the device."
+     ],
+     "history_entries": [
+      {
+       "date": "2026-04-22",
+       "event": "End-to-end encryption shipped to the beta."
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "ep_2026-05-30_001",
+   "timestamp": "2026-05-30T10:00:00+00:00",
+   "entities": [
+    {
+     "name": "alpha-project",
+     "type": "project",
+     "summary": "owner-example decided on a one-time price for alpha-project.",
+     "key_facts": [
+      "alpha-project will cost 25 euros, paid once."
+     ],
+     "history_entries": [
+      {
+       "date": "2026-05-30",
+       "event": "Pricing decided: 25 euros, paid once."
+      }
+     ]
+    },
+    {
+     "name": "bob-example",
+     "type": "person",
+     "summary": "bob-example agreed with the one-time price.",
+     "key_facts": [
+      "bob-example will receive a share of alpha-project's sales."
+     ],
+     "history_entries": [
+      {
+       "date": "2026-05-30",
+       "event": "Agreed to a share of sales for the design work."
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "ep_2026-07-07_001",
+   "timestamp": "2026-07-07T10:00:00+00:00",
+   "entities": [
+    {
+     "name": "alpha-project",
+     "type": "project",
+     "summary": "alpha-project prepared its public launch.",
+     "key_facts": [
+      "The launch is planned for September 2026."
+     ],
+     "history_entries": []
+    }
+   ]
+  },
+  {
+   "id": "ep_2026-08-18_001",
+   "timestamp": "2026-08-18T10:00:00+00:00",
+   "entities": [
+    {
+     "name": "alpha-project",
+     "type": "project",
+     "summary": "alpha-project's beta grew.",
+     "key_facts": [
+      "The beta reached 320 testers."
+     ],
+     "history_entries": [
+      {
+       "date": "2026-08-18",
+       "event": "Beta reached 320 testers."
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "ep_2026-09-20_001",
+   "timestamp": "2026-09-20T10:00:00+00:00",
+   "entities": [
+    {
+     "name": "alpha-project",
+     "type": "project",
+     "summary": "alpha-project launched publicly.",
+     "key_facts": [
+      "alpha-project launched on the App Store."
+     ],
+     "history_entries": [
+      {
+       "date": "2026-09-20",
+       "event": "Public launch on the App Store."
+      }
+     ]
+    }
+   ]
+  }
+ ],
+ "recorded_articles": {
+  "alpha-project": {
+   "summary": {
+    "text": "alpha-project is the local-first notes app [[owner-example]] has built since June 2025, with [[bob-example]] designing its editor; it launched publicly on the App Store in September 2026, priced at 25 euros paid once.",
+    "from": [
+     "local-first notes app",
+     "launched publicly",
+     "launched on the App Store",
+     "25 euros",
+     "designed alpha-project's editor",
+     "started alpha-project"
+    ]
+   },
+   "sections": [
+    {
+     "title": "What it is",
+     "paragraphs": [
+      {
+       "text": "alpha-project keeps every note as a plain markdown file and is written in Swift. Notes link to one another with wikilinks in an editor [[bob-example]] designed, and search runs on a local full-text index that answers in under 20 ms on 5,000 notes.",
+       "from": [
+        "plain markdown files",
+        "written in Swift",
+        "supports wikilinks",
+        "designed alpha-project's editor",
+        "local full-text index",
+        "20 ms"
+       ]
+      }
+     ]
+    },
+    {
+     "title": "How sync works",
+     "paragraphs": [
+      {
+       "text": "Notes sync between devices through a [[SQLite]] database, and a sync conflict keeps both copies. Since April 2026 synced notes are encrypted end to end with a key that never leaves the device, which beta testers had asked for in March 2026.",
+       "from": [
+        "syncs through a [[SQLite]]",
+        "syncs notes between devices",
+        "keeping both copies",
+        "encrypted end to end",
+        "asked for end-to-end encryption",
+        "End-to-end encryption shipped"
+       ]
+      }
+     ]
+    },
+    {
+     "title": "How it developed",
+     "paragraphs": [
+      {
+       "text": "owner-example started alpha-project in June 2025 as a weekend experiment, and in July 2025 sync between a laptop and a phone first worked. bob-example joined in August 2025 to design the editor; in September 2025 search moved to a local full-text index, and in November 2025 the first iOS build, made with SwiftUI and sharing its sync code with the Mac app, ran on a phone.",
+       "from": [
+        "weekend experiment",
+        "Sync between a laptop",
+        "joined to design",
+        "Search moved",
+        "moved its search",
+        "First iOS build",
+        "got an iOS app",
+        "SwiftUI",
+        "shares its sync code"
+       ]
+      },
+      {
+       "text": "In December 2025 sync failed on vaults over 10,000 notes because of a lock timeout; batching writes fixed it in January 2026.",
+       "from": [
+        "lock timeout",
+        "batching writes",
+        "broke on large vaults",
+        "fixed its large-vault sync"
+       ]
+      },
+      {
+       "text": "The private beta opened in February 2026 with 40 testers and had grown to 320 by August 2026. The public launch on the App Store, planned since July 2026, came on 20 September 2026.",
+       "from": [
+        "private beta",
+        "40 testers",
+        "320 testers",
+        "beta grew",
+        "Public launch",
+        "launch is planned",
+        "prepared its public launch"
+       ]
+      }
+     ]
+    },
+    {
+     "title": "Pricing",
+     "paragraphs": [
+      {
+       "text": "In October 2025 owner-example was considering charging a one-time price of 30 euros for alpha-project. In May 2026 owner-example decided on a one-time price: alpha-project costs 25 euros, paid once.",
+       "from": [
+        "one-time price of 30 euros",
+        "considering charging",
+        "will cost 25 euros",
+        "Pricing decided",
+        "decided on a one-time price"
+       ]
+      }
+     ]
+    },
+    {
+     "title": "Where it stands",
+     "paragraphs": [
+      {
+       "text": "As of September 2026, alpha-project is on the App Store at 25 euros, paid once, with end-to-end encrypted sync.",
+       "from": [
+        "launched on the App Store",
+        "will cost 25 euros",
+        "encrypted end to end"
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  "bob-example": {
+   "summary": {
+    "text": "bob-example is an interface designer and a former colleague of [[owner-example]] who has designed the editor of [[alpha-project]] since August 2025.",
+    "from": [
+     "interface designer",
+     "former colleague",
+     "previous job",
+     "designed the editor",
+     "designs the editor",
+     "Started working"
+    ]
+   },
+   "sections": [
+    {
+     "title": "Who they are",
+     "paragraphs": [
+      {
+       "text": "bob-example is an interface designer who works from Lisbon. bob-example and owner-example worked together at a previous job.",
+       "from": [
+        "interface designer",
+        "Lisbon",
+        "previous job"
+       ]
+      }
+     ]
+    },
+    {
+     "title": "Work on alpha-project",
+     "paragraphs": [
+      {
+       "text": "Since August 2025 bob-example has designed the editor of [[alpha-project]], and in January 2026 bob-example reviewed alpha-project's onboarding screens.",
+       "from": [
+        "designed the editor",
+        "designs the editor",
+        "Started working",
+        "onboarding screens"
+       ]
+      }
+     ]
+    },
+    {
+     "title": "Pricing",
+     "paragraphs": [
+      {
+       "text": "In October 2025 bob-example argued against a subscription for alpha-project and suggested a one-time price. In May 2026 bob-example agreed with the one-time price and will receive a share of alpha-project's sales for the design work.",
+       "from": [
+        "argued against",
+        "suggested a one-time",
+        "agreed with the one-time price",
+        "share of"
+       ]
+      }
+     ]
+    }
+   ]
+  }
+ }
+}

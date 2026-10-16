@@ -1,7 +1,10 @@
 """Stage 2: Entity Resolution & Deduplication."""
 
 import asyncio
+import functools
+import re
 from collections import Counter
+from pathlib import Path
 from typing import Callable
 
 import litellm
@@ -9,7 +12,8 @@ from loguru import logger
 from thefuzz import fuzz
 
 from api.config import Settings
-from api.services import engine_errors, json_parse
+from api.services import (agent_engine, correspondents, engine_errors, entity_body, fact_policy, json_parse,
+                          owner_identity, promotion, role_people, section_provenance)
 from api.services.clarification_manager import (
     CONFIDENCE_THRESHOLD,
     ClarificationManager,
@@ -39,6 +43,15 @@ def endpoint_id(name: str, name_to_id: dict[str, str]) -> str | None:
     return None
 
 
+def _edge_endpoint(name: str, name_to_id: dict[str, str], refs: "owner_identity.SelfReferences") -> str | None:
+    """:func:`endpoint_id`, with a speaker reference keyed to the owner page (G169) —
+    and to nothing when the bank has none, never to a page named after a pronoun.
+    A name a non-person page or entity holds ("Owner" the company) is not one."""
+    if refs.is_speaker(name):
+        return refs.owner_id
+    return endpoint_id(name, name_to_id)
+
+
 async def resolve(
     extracted: list[dict],
     existing: list[dict],
@@ -56,10 +69,10 @@ async def resolve(
     Returns dict with 'changes' (entity updates) and 'relationships' (resolved edges).
 
     ``cancel_check`` (sleep-control): an optional zero-arg predicate polled at
-    the top of every iteration of the per-name judging loop below — the long
-    sequential LLM-judge loop the whole Stage exists to run. Once it starts
-    returning ``True``, the loop stops taking new names (no further judge
-    calls spent) and this returns whatever it has accumulated so far; the
+    the top of every iteration of the per-name judging loop below, and before
+    every judge call taken ahead of it (``sleep_resolve_concurrency``). Once it
+    starts returning ``True``, no new judge call starts — the ones in flight
+    finish, never interrupted — and this returns whatever it has accumulated so far; the
     caller (``sleep_cycle._run_stages``) discards a partial result like this
     entirely on a cancelled cycle, so returning early rather than raising
     keeps this function's contract simple. ``None`` (the default, and every
@@ -97,10 +110,35 @@ async def resolve(
     )
     logger.info(f"Stage 2 disambiguation model: {disambig_model}")
 
+    # A person named only by their relation to the owner ("<owner>'s partner", "my dad") is titled by the
+    # relation and attached to the ONE page that holds it, before anything keys a name (`role_people`): every
+    # later step — promotion, claims, wikilink edges — reads the same renamed batch. Never the owner's name.
+    owner_page_id = owner_identity.owner_page_id(existing, getattr(settings, "memory_path", None), settings)
+    owner_page = next((e for e in existing if owner_page_id and e.get("id") == owner_page_id), None)
+    role_people.canonicalize(extracted, existing, (owner_page or {}).get("frontmatter"))
+
     existing_by_name: dict[str, dict] = {}
     for e in existing:
         name = e["frontmatter"].get("name", e["id"].replace("-", " ").title())
+        if agent_engine.is_runtime_path(str(name)):
+            continue  # an old leaked page: never a merge target, endpoint or judge candidate
         existing_by_name[name.lower()] = e
+    aliases = _alias_index(existing_by_name)
+
+    # G169: a speaker reference ("User", "the user", "me", "yo", "mí"...) is the
+    # bank's owner, never a page of its own. One qualified decision
+    # (`owner_identity.SelfReferences`), built from the same inputs by Sleep's
+    # claims (`claim_pipeline`) and wikilink edges (`wikilink_resolver`).
+    refs = owner_identity.self_references(existing, extracted, getattr(settings, "memory_path", None), settings)
+    owner_id = refs.owner_id
+    owner_entity = next((e for e in existing if e["id"] == owner_id), None) if owner_id else None
+    self_entities = [
+        entity for extraction in extracted for entity in extraction.get("entities", [])
+        if refs.is_speaker(entity.get("name", ""), entity.get("type"))
+    ]
+    if self_entities:
+        logger.info(f"Stage 2: {len(self_entities)} self-reference(s) "
+                    + ("merged into the owner page" if owner_entity else "dropped (this bank has no owner page)"))
 
     # Count mentions across episodes for promotion threshold
     mention_counts: Counter = Counter()
@@ -108,17 +146,29 @@ async def resolve(
 
     all_entities: list[dict] = []
     all_relationships: list[dict] = []
+    # G179: a message conversation's other side, as Stage 1 marked it (`correspondents`) — resolved to a page of its
+    # own type below, never through the by-name path every other name takes.
+    correspondent_entities: list[dict] = []
     # episode_id -> list of entity names mentioned in that episode
     episode_cooccurrences: dict[str, list[str]] = {}
-    # Count how many relationships each entity_name participates in within a
-    # single episode. Signals "substantively discussed in this conversation".
-    in_episode_relationship_count: dict[tuple[str, str], int] = {}
 
     for extraction in extracted:
         episode_id = extraction["episode_id"]
         per_episode_names: list[str] = []
         for entity in extraction.get("entities", []):
             name = entity["name"]
+            if refs.is_speaker(name, entity.get("type")):
+                continue
+            if agent_engine.is_runtime_path(name):
+                logger.debug("Stage 2: dropped an entity named for the engine runtime path")
+                continue
+            # A texted person saved under a relation ("Mom") is `role_people`'s: one relation page, a person already.
+            if (correspondents.from_mark(entity.get(correspondents.MARK)) is not None
+                    and not entity.get(role_people.UNNAMED_KEY)):
+                correspondent_entities.append(entity)
+                if name not in per_episode_names:
+                    per_episode_names.append(name)
+                continue
             mention_counts[name.lower()] += 1
             episode_mentions.setdefault(name.lower(), set()).add(episode_id)
             all_entities.append(entity)
@@ -127,16 +177,7 @@ async def resolve(
         if per_episode_names:
             episode_cooccurrences[episode_id] = per_episode_names
 
-        episode_relationships = extraction.get("relationships", [])
-        all_relationships.extend(episode_relationships)
-        for rel in episode_relationships:
-            for endpoint in (rel.get("source"), rel.get("target")):
-                if not endpoint:
-                    continue
-                key = (episode_id, str(endpoint).lower())
-                in_episode_relationship_count[key] = (
-                    in_episode_relationship_count.get(key, 0) + 1
-                )
+        all_relationships.extend(extraction.get("relationships", []))
 
     # Track name -> final entity_id so we can resolve relationships to existing IDs
     name_to_id: dict[str, str] = {}
@@ -145,10 +186,16 @@ async def resolve(
     for existing_name, existing_data in existing_by_name.items():
         name_to_id[existing_name] = existing_data["id"]
 
-    # Deduplicate entities by exact normalized name (keep the strongest extraction).
+    # Deduplicate entities by exact normalized name: the strongest extraction
+    # (first on ties) is judged and promoted for the name. Every other one is
+    # kept beside it and folded into whatever that judgment produces — each is a
+    # conversation that mentioned the page, with its own facts and G118 evidence,
+    # and used to be dropped whole, credit included.
     best_by_name: dict[str, dict] = {}
+    extractions_by_name: dict[str, list[dict]] = {}
     for entity in all_entities:
         name_lower = entity["name"].lower()
+        extractions_by_name.setdefault(name_lower, []).append(entity)
         current = best_by_name.get(name_lower)
         if current is None or entity.get("confidence", 0) > current.get("confidence", 0):
             best_by_name[name_lower] = entity
@@ -174,7 +221,41 @@ async def resolve(
     # (callable, args, kwargs), executed in this exact order only if the
     # loop completes without cancelling. `cancelled` records whether it did.
     pending_actions: list[tuple[Callable, tuple, dict]] = []
+    promoted_pending: list[str] = []
     cancelled = False
+
+    # A self-reference's facts are the owner's: they land on the owner page, under
+    # its own name and type (a "User" concept must not retype or rename it). With
+    # no owner page they are dropped — never a `user` page, never a pending line,
+    # never a "Who is User?" question (R-CS2).
+    if owner_entity is not None:
+        owner_fm = owner_entity.get("frontmatter") or {}
+        for entity in self_entities:
+            _merge_into_update(
+                updates_by_id=resolved_updates,
+                existing_entity=owner_entity,
+                incoming={
+                    **entity,
+                    "name": owner_fm.get("name") or entity.get("name"),
+                    "type": "person",
+                    "aliases": [a for a in entity.get("aliases") or [] if not refs.is_speaker(a)],
+                },
+            )
+
+    # G179: the other side of a message conversation gets (or keeps) a page of its own type, and the conversation's
+    # own edges and claims about them are pinned to it — before any other name is judged, so nothing below can
+    # take its id.
+    correspondent_pages: frozenset[str] = frozenset()
+    if correspondent_entities:
+        pinned, correspondent_pages = _resolve_correspondents(
+            correspondent_entities, extracted, existing, resolved_updates, resolved_creates, name_to_id,
+            general_names=frozenset(best_by_name), memory_path=getattr(settings, "memory_path", None),
+            threshold=settings.sleep_promotion_threshold,
+            linked=lambda n: _is_linked_to_existing(n, all_relationships, existing_by_name, owner_id=owner_id,
+                                                    refs=refs),
+            park=indexer.index_pending_entity if indexer is not None else None,
+            pending_actions=pending_actions, promoted_pending=promoted_pending)
+        logger.info(f"Stage 2: {len(correspondent_entities)} correspondent mention(s), {pinned} endpoint(s) pinned")
 
     # Process more specific names first so "Bob Example" becomes the
     # canonical in-cycle entity and "Bob" can merge into it rather than
@@ -185,157 +266,187 @@ async def resolve(
         reverse=True,
     )
 
+    # What a name an alias brings to its page was connected to in this batch:
+    # the judge's context for "same thing, or another thing with the same letters?".
+    connections = {
+        name_lower: _batch_connections(name_lower, all_relationships, episode_mentions, episode_cooccurrences, refs)
+        for name_lower, _ in best_by_name.items() if name_lower.strip() in aliases
+    }
+
     total_names = len(ordered_entities)
     if progress_callback is not None:
         progress_callback(0, total_names)
-    for done_names, (name_lower, entity) in enumerate(ordered_entities):
-        if progress_callback is not None and done_names:
-            progress_callback(done_names, total_names)
-        # Sleep-control checkpoint: the long sequential loop the task calls
-        # out by name. Checked BEFORE each name's own (possibly LLM-calling)
-        # judge — never mid-judge — so a cancel stops taking new names
-        # without ever interrupting one already in flight.
-        if cancel_check is not None and cancel_check():
-            cancelled = True
-            break
-        name = entity["name"]
-        match = _find_direct_candidate_match(
-            new_entity=entity,
-            existing_by_name=existing_by_name,
-            created_by_id=resolved_creates,
-        )
-        if match is None:
-            match = await _find_llm_candidate_match(
+    # The judge calls against pages on disk run ahead of this loop, bounded
+    # (``sleep_resolve_concurrency``; 1 is the plain serial loop). Every
+    # decision is still made here, in this order (``_Lookahead``).
+    concurrency = max(1, int(getattr(settings, "sleep_resolve_concurrency", 1) or 1))
+    lookahead = (
+        _Lookahead(_lookahead_plan(ordered_entities, existing_by_name, aliases), settings=settings,
+                   cache=llm_match_cache, concurrency=concurrency, cancel_check=cancel_check,
+                   connections=connections)
+        if concurrency > 1 else None
+    )
+    try:
+        for done_names, (name_lower, entity) in enumerate(ordered_entities):
+            if progress_callback is not None and done_names:
+                progress_callback(done_names, total_names)
+            # Sleep-control checkpoint. Checked BEFORE each name's own (possibly
+            # LLM-calling) judge — never mid-judge — so a cancel stops taking new
+            # names without ever interrupting a call already in flight (the
+            # lookahead polls the same predicate before each of its calls).
+            if cancel_check is not None and cancel_check():
+                cancelled = True
+                break
+            name = entity["name"]
+            siblings = [e for e in extractions_by_name.get(name_lower, []) if e is not entity]
+            match = _find_direct_candidate_match(
                 new_entity=entity,
                 existing_by_name=existing_by_name,
                 created_by_id=resolved_creates,
-                cache=llm_match_cache,
-                settings=settings,
+            )
+            if match is not None and lookahead is not None:
+                lookahead.discard(done_names)
+            if match is None:
+                match = await _find_llm_candidate_match(
+                    new_entity=entity,
+                    existing_by_name=existing_by_name,
+                    created_by_id=resolved_creates,
+                    cache=llm_match_cache,
+                    settings=settings,
+                    aliases=aliases,
+                    connections=connections.get(name_lower, ""),
+                    prejudged=await lookahead.take(done_names) if lookahead is not None else None,
+                    gate=lookahead.gate if lookahead is not None else None,
+                )
+
+            if match is not None and match["decision"] == "same":
+                candidate = match["candidate"]
+                name_to_id[name_lower] = candidate["id"]
+                # Deferred (see the transactional-Stage-2 docstring above): this
+                # can DELETE an inbox item, which must never happen for a name
+                # whose match a cancellation is about to discard.
+                pending_actions.append((
+                    clarifier.check_organic_resolution,
+                    (),
+                    {"entity_name": name, "confidence": float(entity.get("confidence", 0.0) or 0.0)},
+                ))
+
+                for incoming in (entity, *siblings):
+                    if candidate["source"] == "existing":
+                        _merge_into_update(
+                            updates_by_id=resolved_updates,
+                            existing_entity=candidate["data"],
+                            incoming=incoming,
+                        )
+                    else:
+                        _merge_into_create(resolved_creates[candidate["id"]], incoming)
+                continue
+
+            ambiguous_match = match is not None and match["decision"] == "unsure"
+
+            # New entity — the promotion rule, measured (`promotion`): 2+ conversations
+            # (this batch's, plus any an earlier batch parked the name from), more than
+            # 3 exchanges with the person's own words in one, or a link the person made
+            # to an existing high-confidence page.
+            heard_now = episode_mentions.get(name_lower, set())
+            linked_to_existing = _is_linked_to_existing(name, all_relationships, existing_by_name, owner_id=owner_id, refs=refs)
+
+            pending_entry = None
+            if indexer is not None:
+                try:
+                    pending_entry = indexer.pending_by_name(name)
+                except Exception:
+                    pending_entry = None
+            # A line parked from this same conversation (a resumed one read again, G104) is not a second one.
+            heard_before = set(pending_entry.episodes()) - heard_now if pending_entry is not None else set()
+            if pending_entry is not None and not pending_entry.episodes():
+                heard_before = {"(unrecorded)"}  # a line from before episodes were kept: an earlier conversation
+
+            should_promote = (
+                len(heard_now | heard_before) >= settings.sleep_promotion_threshold
+                or linked_to_existing
+                or any(promotion.substantive(e) for e in (entity, *siblings))
             )
 
-        if match is not None and match["decision"] == "same":
-            candidate = match["candidate"]
-            name_to_id[name_lower] = candidate["id"]
-            # Deferred (see the transactional-Stage-2 docstring above): this
-            # can DELETE an inbox item, which must never happen for a name
-            # whose match a cancellation is about to discard.
-            pending_actions.append((
-                clarifier.check_organic_resolution,
-                (),
-                {"entity_name": name, "confidence": float(entity.get("confidence", 0.0) or 0.0)},
-            ))
-
-            if candidate["source"] == "existing":
-                _merge_into_update(
-                    updates_by_id=resolved_updates,
-                    existing_entity=candidate["data"],
-                    incoming=entity,
-                )
-            else:
-                create_change = resolved_creates[candidate["id"]]
-                create_change["entity"] = _merge_entity_payload(
-                    create_change.get("entity", {}) or {},
-                    entity,
-                )
-                _append_change_source(create_change, entity)
-            continue
-
-        ambiguous_match = match is not None and match["decision"] == "unsure"
-
-        # New entity — check promotion threshold
-        episodes_seen = len(episode_mentions.get(name_lower, set()))
-        linked_to_existing = _is_linked_to_existing(name, all_relationships, existing_by_name)
-
-        # Promote if the entity is already in pending from a previous cycle
-        pending_entry = None
-        if indexer is not None:
-            try:
-                pending_entry = indexer.pending_by_name(name)
-            except Exception:
-                pending_entry = None
-
-        substantively_discussed = _is_substantively_discussed(
-            entity,
-            in_episode_relationship_count=in_episode_relationship_count,
-        )
-
-        should_promote = (
-            episodes_seen >= settings.sleep_promotion_threshold
-            or linked_to_existing
-            or pending_entry is not None
-            or substantively_discussed
-        )
-
-        if ambiguous_match:
-            pending_actions.append((
-                _create_duplicate_clarification,
-                (),
-                {"clarifier": clarifier, "entity": entity, "candidate": match["candidate"]},
-            ))
-
-        if should_promote and not ambiguous_match:
-            entity_id = sanitize_id(name)
-            name_to_id[name_lower] = entity_id
-            if pending_entry is not None:
-                merged_history = list(entity.get("history_entries", []) or [])
-                for h in pending_entry.history_entries or []:
-                    if h not in merged_history:
-                        merged_history.append(h)
-                if merged_history:
-                    entity["history_entries"] = merged_history
-            resolved_creates[entity_id] = {
-                "id": entity_id,
-                "action": "create",
-                "entity": entity,
-                "existing": None,
-                "source_episode": entity.get("source_episode", ""),
-                "source_episodes": [entity.get("source_episode", "")] if entity.get("source_episode") else [],
-                "source_episode_timestamp": entity.get("source_episode_timestamp"),
-                "source_episode_timestamps": [entity.get("source_episode_timestamp")] if entity.get("source_episode_timestamp") else [],
-                "trigger": "sleep/promotion",
-            }
-            # Deferred (same reasoning as the "same"-match branch above).
-            pending_actions.append((
-                clarifier.check_organic_resolution,
-                (),
-                {"entity_name": name, "confidence": float(entity.get("confidence", 0.0) or 0.0)},
-            ))
-            if indexer is not None and pending_entry is not None:
-                pending_actions.append((indexer.promote_from_pending, (name,), {}))
-        else:
-            confidence = float(entity.get("confidence", 0.3) or 0.3)
-            if confidence < CONFIDENCE_THRESHOLD and not ambiguous_match:
+            if ambiguous_match:
                 pending_actions.append((
-                    clarifier.create,
+                    _create_duplicate_clarification,
                     (),
-                    {
-                        "entity_name": name,
-                        "source_episode": entity.get("source_episode", ""),
-                        "uncertainty_type": _infer_uncertainty_type(entity),
-                        "suggested_classification": (
-                            f"{entity.get('type', 'concept')} — "
-                            f"{(entity.get('description') or '')[:120]}"
-                        ),
-                        "suggested_confidence": confidence,
-                        "source_context": entity.get("description", "") or "",
-                        "source_episode_timestamp": entity.get("source_episode_timestamp"),
-                    },
+                    {"clarifier": clarifier, "entity": entity, "candidate": match["candidate"]},
                 ))
 
-            if indexer is not None:
+            if should_promote and not ambiguous_match:
+                entity_id = sanitize_id(name)
+                name_to_id[name_lower] = entity_id
+                resolved_creates[entity_id] = {
+                    "id": entity_id,
+                    "action": "create",
+                    "entity": entity,
+                    "existing": None,
+                    "source_episode": entity.get("source_episode", ""),
+                    "source_episodes": [entity.get("source_episode", "")] if entity.get("source_episode") else [],
+                    "source_episode_timestamp": entity.get("source_episode_timestamp"),
+                    "source_episode_timestamps": [entity.get("source_episode_timestamp")] if entity.get("source_episode_timestamp") else [],
+                    "source_episode_days": _source_days(entity),
+                    "untimed": bool(entity.get("untimed")),
+                    "trigger": "sleep/promotion",
+                }
+                for sibling in siblings:
+                    _merge_into_create(resolved_creates[entity_id], sibling)
+                if pending_entry is not None:
+                    # What the earlier conversations said, and the credit for each of them.
+                    _fold_pending(resolved_creates[entity_id], pending_entry)
+                # Deferred (same reasoning as the "same"-match branch above).
                 pending_actions.append((
-                    indexer.index_pending_entity,
-                    (PendingEntity(
-                        name=name,
-                        type=entity.get("type", "concept"),
-                        description=entity.get("description", "") or "",
-                        source_episode=entity.get("source_episode", ""),
-                        confidence=confidence,
-                        tags=list(entity.get("tags", []) or []),
-                        history_entries=list(entity.get("history_entries", []) or []),
-                    ),),
-                    {},
+                    clarifier.check_organic_resolution,
+                    (),
+                    {"entity_name": name, "confidence": float(entity.get("confidence", 0.0) or 0.0)},
                 ))
+                if pending_entry is not None:
+                    # The line leaves the store only once Stage 5 has written the page that now carries
+                    # what it held (`sleep_cycle`): a cancel before that keeps it, and the next run
+                    # promotes it again with everything it heard.
+                    promoted_pending.append(name)
+            else:
+                confidence = float(entity.get("confidence", 0.3) or 0.3)
+                # A placeholder person is asked for a name once it has a page (`role_people`), never "Who or
+                # what is Partner?" — whose answer would become the page's prose, not its name.
+                if confidence < CONFIDENCE_THRESHOLD and not ambiguous_match and not entity.get(role_people.UNNAMED_KEY):
+                    pending_actions.append((
+                        clarifier.create,
+                        (),
+                        {
+                            "entity_name": name,
+                            "source_episode": entity.get("source_episode", ""),
+                            "uncertainty_type": _infer_uncertainty_type(entity),
+                            "suggested_classification": (
+                                f"{entity.get('type', 'concept')} — "
+                                f"{(entity.get('description') or '')[:120]}"
+                            ),
+                            "suggested_confidence": confidence,
+                            "source_context": entity.get("description", "") or "",
+                            "source_episode_timestamp": entity.get("source_episode_timestamp"),
+                        },
+                    ))
+
+                if indexer is not None:
+                    # One pending line per name: what every mention said rides on it
+                    # (the line keeps the strongest mention's episode, as before).
+                    parked = entity
+                    for sibling in siblings:
+                        parked = _merge_entity_payload(parked, sibling)
+                    pending_actions.append((
+                        indexer.index_pending_entity,
+                        (_pending_line(name, entity, parked, siblings, confidence),),
+                        {},
+                    ))
+
+    finally:
+        if lookahead is not None:
+            # Starts nothing more and waits out the calls in flight, on every exit.
+            await lookahead.close()
+    if lookahead is not None and lookahead.error is not None and not cancelled:
+        raise lookahead.error  # a plan limit met ahead of the loop is still the batch's pause
 
     if progress_callback is not None and not cancelled:
         progress_callback(total_names, total_names)
@@ -346,9 +457,15 @@ async def resolve(
     seen_edges: set[tuple[str, str, str]] = set()
     for rel in all_relationships:
         label = rel.get("label", "related to")
-        # Exact, then fuzzy — one rule, shared with Sleep's claims (G141 PJ-0).
-        source_id = endpoint_id(rel.get("source", ""), name_to_id)
-        target_id = endpoint_id(rel.get("target", ""), name_to_id)
+        # A conversation's own correspondent first (G179, pinned above), then self-references (G169), then exact,
+        # then fuzzy — one rule, shared with Sleep's claims (G141 PJ-0, `claim_pipeline.subject_resolver`).
+        # (A pin to a correspondent still held below the promotion bar has no page yet: no edge, as for any name.)
+        source_id = _pinned(rel, correspondents.SOURCE_PAGE, correspondent_pages, resolved_creates)
+        if source_id is None:
+            source_id = _edge_endpoint(rel.get("source", ""), name_to_id, refs)
+        target_id = _pinned(rel, correspondents.TARGET_PAGE, correspondent_pages, resolved_creates)
+        if target_id is None:
+            target_id = _edge_endpoint(rel.get("target", ""), name_to_id, refs)
 
         if source_id and target_id and source_id != target_id:
             key = (source_id, target_id, label.lower())
@@ -399,7 +516,166 @@ async def resolve(
         # G141 PJ-0 (R-PJ17): the map the edges above resolved through, so
         # Stage 5.56's claims land on the same pages (`claim_pipeline`).
         "name_to_id": dict(name_to_id),
+        # G169: the qualified self-reference decision this stage keyed by.
+        "self_references": refs,
+        # The pending lines this batch's creates folded in, for Stage 5 to take once the pages exist.
+        "promoted_pending": [] if cancelled else promoted_pending,
     }
+
+
+def _resolve_correspondents(
+    entities: list[dict],
+    extracted: list[dict],
+    existing: list[dict],
+    updates_by_id: dict[str, dict],
+    creates_by_id: dict[str, dict],
+    name_to_id: dict[str, str],
+    *,
+    general_names: frozenset[str],
+    memory_path=None,
+    threshold: int = 2,
+    linked: Callable[[str], bool] = lambda _name: False,
+    park: Callable[[PendingEntity], None] | None = None,
+    pending_actions: list | None = None,
+    promoted_pending: list | None = None,
+) -> tuple[int, frozenset[str]]:
+    """G179: each correspondent Stage 1 marked lands on a page of its own type (`correspondents`) — never on a
+    same-name page of another type, and never through the by-name path.
+
+    An existing page of that type named so (else listing the name as an alias) is updated. Otherwise the
+    correspondent faces the promotion rule like any name (`promotion`: 2+ conversations — this batch's and the ones
+    its held line heard —, more than 3 exchanges with the person's own words, or a link the person made to an
+    existing page). Below it, it waits in the pending store under its OWN key: a line named by the id its page will
+    get (`correspondents.free_id`, always ``<id>-agent`` / ``<id>-person``, never the plain same-name id) and marked
+    with the correspondent, so Stage 5.56 holds its claims there (``pending_store.hold`` keys by that slug) and no
+    same-name page or same-name pending line ever receives them. Once the rule passes, the page is created under that
+    id with everything the line held (`_fold_pending`, the held claims released by Stage 5.56).
+
+    Every relationship of a correspondent episode whose endpoint names them is pinned to that id (``source_page`` /
+    ``target_page``): its claim lands there, held or written; its edge is drawn only once the page exists (the caller
+    drops a pin to a page that does not). ``name_to_id`` maps the name to the page only when the page exists or is
+    created now and no other conversation in the batch extracted that name. Returns ``(endpoints pinned, the ids of
+    pages that exist or are created this batch)``."""
+    from api.services import pending_store
+
+    groups: dict[tuple[str, str], list[dict]] = {}
+    idents: dict[tuple[str, str], correspondents.Identity] = {}
+    for entity in entities:
+        ident = correspondents.from_mark(entity.get(correspondents.MARK))
+        key = (ident.key, ident.kind)
+        groups.setdefault(key, []).append(entity)
+        idents.setdefault(key, ident)
+
+    entities_dir = Path(memory_path) / "entities" if memory_path else None
+    try:
+        lines = pending_store.load(memory_path) if memory_path else []
+    except Exception:  # noqa: BLE001 - an unreadable store holds nothing to find; the line is written fresh
+        lines = []
+    taken = {str(page.get("id")) for page in existing} | set(creates_by_id) | {sanitize_id(ln.name) for ln in lines}
+    pages: dict[tuple[str, str], str] = {}
+    live: set[str] = set()
+    for key, group in groups.items():
+        ident = idents[key]
+        best = group[0]
+        for entity in group[1:]:
+            if float(entity.get("confidence", 0) or 0) > float(best.get("confidence", 0) or 0):
+                best = entity
+        siblings = [entity for entity in group if entity is not best]
+        page = correspondents.find_page(existing, ident)
+        if page is not None:
+            page_id = page["id"]
+            for incoming in (best, *siblings):
+                _merge_into_update(updates_by_id=updates_by_id, existing_entity=page, incoming=incoming)
+            live.add(page_id)
+        else:
+            line = correspondents.held_line(lines, ident)
+            page_id = line.name if line is not None else correspondents.free_id(ident, taken, entities_dir)
+            taken.add(page_id)
+            heard_now = {str(e.get("source_episode") or "") for e in group} - {""}
+            heard_before = set(line.episodes()) - heard_now if line is not None else set()
+            promote = (len(heard_now | heard_before) >= threshold
+                       or any(promotion.substantive(e) for e in group)
+                       or any(linked(str(e.get("name") or "")) for e in group))
+            if promote:
+                entity = {**best, "name": ident.name, "type": ident.page_type}
+                if str(best.get("name") or "") != ident.name:
+                    entity["aliases"] = [*(best.get("aliases") or []), best.get("name")]
+                creates_by_id[page_id] = {
+                    "id": page_id,
+                    "action": "create",
+                    "entity": entity,
+                    "existing": None,
+                    "source_episode": best.get("source_episode", ""),
+                    "source_episodes": [best.get("source_episode", "")] if best.get("source_episode") else [],
+                    "source_episode_timestamp": best.get("source_episode_timestamp"),
+                    "source_episode_timestamps": ([best.get("source_episode_timestamp")]
+                                                  if best.get("source_episode_timestamp") else []),
+                    "source_episode_days": _source_days(best),
+                    "untimed": bool(best.get("untimed")),
+                    "trigger": "sleep/correspondent",
+                }
+                for sibling in siblings:
+                    _merge_into_create(creates_by_id[page_id], sibling)
+                if line is not None:
+                    # What the earlier sittings said and their credit; the line leaves after Stage 5 (its held claims
+                    # through Stage 5.56's release), as a promoted name's does.
+                    _fold_pending(creates_by_id[page_id], line)
+                    creates_by_id[page_id]["entity"].update(name=ident.name, type=ident.page_type)
+                    if promoted_pending is not None:
+                        promoted_pending.append(line.name)
+                live.add(page_id)
+            elif park is not None and pending_actions is not None:
+                parked = best
+                for sibling in siblings:
+                    parked = _merge_entity_payload(parked, sibling)
+                held = _pending_line(page_id, best, parked, siblings,
+                                     float(best.get("confidence", 0.5) or 0.5))
+                held.type = ident.page_type
+                held.correspondent = ident.to_dict()
+                pending_actions.append((park, (held,), {}))
+        pages[key] = page_id
+        if page_id in live:
+            for entity in group:
+                name_lower = str(entity.get("name") or "").lower()
+                if name_lower and name_lower not in general_names:
+                    name_to_id[name_lower] = page_id
+
+    pinned = 0
+    for extraction in extracted:
+        ident = correspondents.from_mark(extraction.get(correspondents.MARK))
+        if ident is None:
+            continue
+        page_id = pages.get((ident.key, ident.kind))
+        if page_id is None:
+            page = correspondents.find_page(existing, ident)
+            line = correspondents.held_line(lines, ident) if page is None else None
+            page_id = page["id"] if page is not None else (line.name if line is not None else None)
+            if page is not None:
+                live.add(page_id)
+        if page_id is None:
+            continue
+        # The names this conversation's own entity for them went by (an alias the model listed), and theirs.
+        names = {ident.key}
+        for entity in extraction.get("entities") or []:
+            if isinstance(entity, dict) and entity.get(correspondents.MARK):
+                names |= {correspondents.agent_detectors.fold(str(n)) for n in correspondents.entity_names(entity) if n}
+        for rel in extraction.get("relationships") or []:
+            if not isinstance(rel, dict):
+                continue
+            for end, pin in (("source", correspondents.SOURCE_PAGE), ("target", correspondents.TARGET_PAGE)):
+                if correspondents.agent_detectors.fold(str(rel.get(end) or "")) in names:
+                    rel[pin] = page_id
+                    pinned += 1
+    return pinned, frozenset(live)
+
+
+def _pinned(rel: dict, key: str, live: frozenset[str], creates: dict) -> str | None:
+    """A correspondent pin (`_resolve_correspondents`) whose page exists or is created now; ``""`` (no edge, and no
+    by-name fallback) for one still held; ``None`` for an endpoint with no pin."""
+    pin = rel.get(key)
+    if not pin:
+        return None
+    return pin if (pin in live or pin in creates) else ""
 
 
 def existing_by_name(existing: list[dict]) -> dict[str, dict]:
@@ -461,17 +737,50 @@ def _merge_entity_payload(base: dict, incoming: dict) -> dict:
     )
     if not merged.get("type") or merged.get("type") == "concept":
         merged["type"] = incoming.get("type", merged.get("type", "concept"))
+    # A proposal only the other input made is still proposed (both re-pass their
+    # rails where they are written: `agent_class`, `fact_sources.propose_site`).
+    for field in ("website", "decay_class"):
+        if not merged.get(field) and incoming.get(field):
+            merged[field] = incoming[field]
     merged["confidence"] = max(
         float(base.get("confidence", 0.0) or 0.0),
         float(incoming.get("confidence", 0.0) or 0.0),
     )
 
-    base_desc = (base.get("description") or "").strip()
-    incoming_desc = (incoming.get("description") or "").strip()
-    if len(incoming_desc) > len(base_desc):
-        merged["description"] = incoming_desc
-    else:
-        merged["description"] = base_desc
+    # One effective summary per input — `summary`, falling back to the legacy
+    # `description` (G169 review r2) — and the longer one is the merge's summary
+    # AND, when either input carried one, its description (synthesis runs on a
+    # `description`, so a summary-only merge still takes the deterministic path).
+    # Every other distinct one is still something said about it: kept, once, as a key fact.
+    base_text, incoming_text = _effective_summary(base), _effective_summary(incoming)
+    chosen = incoming_text if len(incoming_text) > len(base_text) else base_text
+    merged["summary"] = chosen
+    had_description = (base.get("description") or "").strip() or (incoming.get("description") or "").strip()
+    merged["description"] = chosen if had_description else ""
+
+    # Additive fields are unions (G169 review): two extractions of one thing —
+    # "User" and "me" both landing on the owner page — each carry their own facts,
+    # links, questions and aliases, and the first payload's lists used to win whole.
+    # A fact repeated (the same text after trivial normalization, `fact_policy.restates`)
+    # is kept once; so is a sentence of a summary that lost.
+    key_facts, _ = fact_policy.union([], _union_text(base.get("key_facts"), incoming.get("key_facts")))
+    said = fact_policy.sentences(chosen)
+    key_facts = [f for f in key_facts if not fact_policy.covered(str(f), said)]
+    folded = " ".join(chosen.split()).lower()
+    for text in (base_text, incoming_text, *_effective_summaries(base), *_effective_summaries(incoming)):
+        if text and " ".join(text.split()).lower() not in folded:
+            for sentence in fact_policy.sentences(text):
+                if not fact_policy.covered(sentence, said + [str(f) for f in key_facts]):
+                    key_facts = _union_text(key_facts, [sentence])
+    if key_facts:
+        merged["key_facts"] = key_facts
+    for field in ("open_questions", "aliases"):
+        values = _union_text(base.get(field), incoming.get(field))
+        if values:
+            merged[field] = values
+    links = _union_links(base.get("links"), incoming.get("links"))
+    if links:
+        merged["links"] = links
 
     merged["tags"] = sorted(
         set(base.get("tags", []) or []) | set(incoming.get("tags", []) or [])
@@ -489,7 +798,46 @@ def _merge_entity_payload(base: dict, incoming: dict) -> dict:
         base.get("source_episode_timestamp"),
         incoming.get("source_episode_timestamp"),
     )
+    merged[section_provenance.INPUTS] = section_provenance.merge_selected(
+        base, incoming, merged,
+    )
     return merged
+
+
+def _effective_summary(entity: dict) -> str:
+    """An input's one orientation line: ``summary``, else the legacy ``description``."""
+    return str(entity.get("summary") or entity.get("description") or "").strip()
+
+
+def _effective_summaries(entity: dict) -> tuple[str, ...]:
+    """Both orientation fields of one input, when it carries two different ones."""
+    return tuple(str(entity.get(k) or "").strip() for k in ("summary", "description"))
+
+
+def _union_text(*lists) -> list:
+    """Every distinct string, first spelling and order kept (case-insensitive)."""
+    out: list = []
+    seen: set[str] = set()
+    for values in lists:
+        for value in values or []:
+            key = " ".join(str(value).split()).lower()
+            if key and key not in seen:
+                seen.add(key)
+                out.append(value)
+    return out
+
+
+def _union_links(*lists) -> list[dict]:
+    """Every distinct link by its URL, the first entry for a URL kept."""
+    out: list[dict] = []
+    seen: set[str] = set()
+    for values in lists:
+        for link in values or []:
+            url = str((link or {}).get("url") or "").strip() if isinstance(link, dict) else ""
+            if url and url not in seen:
+                seen.add(url)
+                out.append(link)
+    return out
 
 
 def _preferred_entity_name(
@@ -523,6 +871,19 @@ def _dedupe_history_entries(entries: list[dict]) -> list[dict]:
     return out
 
 
+def _source_days(entity: dict) -> list[str]:
+    """G194: the conversation's day as Stage 1 resolved it (timestamp, else the id's date) — prompt-only metadata
+    for Stage 3's merge and contradiction prompts; nothing writes it to a page."""
+    day = entity.get("source_episode_day")
+    return [str(day)] if day else []
+
+
+def _merge_into_create(change: dict, incoming: dict) -> None:
+    """Fold one more extraction into an in-cycle create: its payload and its credit."""
+    change["entity"] = _merge_entity_payload(change.get("entity", {}) or {}, incoming)
+    _append_change_source(change, incoming)
+
+
 def _append_change_source(change: dict, entity: dict) -> None:
     episode_id = entity.get("source_episode", "")
     if episode_id:
@@ -536,6 +897,13 @@ def _append_change_source(change: dict, entity: dict) -> None:
         if timestamp not in timestamps:
             timestamps.append(timestamp)
 
+    for day in _source_days(entity):
+        days = change.setdefault("source_episode_days", [])
+        if day not in days:
+            days.append(day)
+
+    # Only memory export entries in the change: its facts are new, but nothing came up ("facts yes, activity no").
+    change["untimed"] = bool(change.get("untimed")) and bool(entity.get("untimed"))
     change["source_episode"] = episode_id or change.get("source_episode", "")
     latest = _latest_timestamp(
         change.get("source_episode_timestamp"),
@@ -562,6 +930,8 @@ def _merge_into_update(
             "source_episodes": [incoming.get("source_episode", "")] if incoming.get("source_episode") else [],
             "source_episode_timestamp": incoming.get("source_episode_timestamp"),
             "source_episode_timestamps": [incoming.get("source_episode_timestamp")] if incoming.get("source_episode_timestamp") else [],
+            "source_episode_days": _source_days(incoming),
+            "untimed": bool(incoming.get("untimed")),
             "trigger": "sleep/extraction",
         }
         updates_by_id[entity_id] = current
@@ -569,6 +939,56 @@ def _merge_into_update(
 
     current["entity"] = _merge_entity_payload(current.get("entity", {}) or {}, incoming)
     _append_change_source(current, incoming)
+
+
+def _pending_line(name: str, entity: dict, parked: dict, siblings: list[dict], confidence: float) -> PendingEntity:
+    """The pending line for a name below the bar: what every mention in this batch
+    said about it — summary, facts, links, questions, aliases, their G118 item
+    records — and every conversation it came up in (page quality, 2026-10-09).
+    The line keeps the strongest mention's episode, as before."""
+    heard = []
+    for e in (entity, *siblings):
+        episode = e.get("source_episode") or ""
+        if episode and episode not in {h["episode"] for h in heard}:
+            heard.append({"episode": episode, "timestamp": e.get("source_episode_timestamp"),
+                          "day": e.get("source_episode_day")})
+    return PendingEntity(
+        name=name,
+        type=entity.get("type", "concept"),
+        description=parked.get("description", "") or "",
+        source_episode=entity.get("source_episode", ""),
+        confidence=confidence,
+        tags=list(parked.get("tags", []) or []),
+        history_entries=list(parked.get("history_entries", []) or []),
+        summary=_effective_summary(parked),
+        key_facts=[str(f) for f in parked.get("key_facts") or [] if str(f).strip()],
+        links=[link for link in parked.get("links") or [] if isinstance(link, dict) and link.get("url")],
+        open_questions=[str(q) for q in parked.get("open_questions") or [] if str(q).strip()],
+        aliases=[str(a) for a in parked.get("aliases") or [] if str(a).strip()],
+        item_inputs=list(parked.get(section_provenance.INPUTS) or []),
+        heard_in=heard,
+    )
+
+
+def _fold_pending(change: dict, line: PendingEntity) -> None:
+    """Fold a pending line into the create its promotion made: its text through the
+    same seam a same-name extraction uses, and one source credit per conversation
+    it heard the name in (its timestamp and day, when the line kept them)."""
+    payload = {
+        "name": line.name, "type": line.type, "confidence": line.confidence,
+        "summary": line.summary or line.description, "description": line.description,
+        "key_facts": list(line.key_facts), "links": list(line.links),
+        "open_questions": list(line.open_questions), "aliases": list(line.aliases),
+        "tags": list(line.tags or []), "history_entries": list(line.history_entries or []),
+        section_provenance.INPUTS: list(line.item_inputs),
+    }
+    change["entity"] = _merge_entity_payload(change.get("entity", {}) or {}, payload)
+    records = {str(r.get("episode")): r for r in line.heard_in if isinstance(r, dict) and r.get("episode")}
+    for episode in line.episodes():
+        record = records.get(episode, {})
+        _append_change_source(change, {"source_episode": episode,
+                                       "source_episode_timestamp": record.get("timestamp"),
+                                       "source_episode_day": record.get("day")})
 
 
 def _find_direct_candidate_match(
@@ -605,6 +1025,68 @@ def _find_direct_candidate_match(
             }
 
     return None
+
+
+def _page_aliases(page: dict) -> list[str]:
+    values = (page.get("frontmatter") or {}).get("aliases")
+    if isinstance(values, str):
+        values = [values]
+    if not isinstance(values, list):
+        return []
+    return [text for text in (str(v or "").strip() for v in values) if text]
+
+
+def _alias_index(existing_by_name: dict[str, dict]) -> dict[str, list[dict]]:
+    """``alias.lower() -> the pages listing it`` (frontmatter ``aliases``, which Stage 5
+    unions from every extraction merged into the page and a manual merge fills with the
+    loser's name). A hit makes the page a judge candidate, never a decision: one page
+    holding an alias today says nothing about the next thing with those letters."""
+    index: dict[str, list[dict]] = {}
+    for page in existing_by_name.values():
+        for alias in _page_aliases(page):
+            holders = index.setdefault(alias.lower(), [])
+            if all(held["id"] != page["id"] for held in holders):
+                holders.append(page)
+    return index
+
+
+#: The most connections of each kind a judge call is shown for one name.
+ALIAS_CONTEXT_CONNECTIONS = 12
+
+
+def _batch_connections(
+    name_lower: str,
+    relationships: list[dict],
+    episode_mentions: dict[str, set[str]],
+    episode_cooccurrences: dict[str, list[str]],
+    refs: "owner_identity.SelfReferences",
+) -> str:
+    """What ``name_lower`` was connected to in this batch, as bullet lines: its
+    relationships, then the names mentioned in the same conversations. A speaker
+    reference is left out (everything the person mentions is linked to them).
+    Built before the loop from the extractions alone, so a judgment that reads it
+    is still a function of the name and the bank (``_Lookahead``)."""
+    edges: list[str] = []
+    for rel in relationships:
+        source, target = str(rel.get("source") or ""), str(rel.get("target") or "")
+        label = str(rel.get("label") or "related to")
+        if source.lower() == name_lower and target and not refs.is_speaker(target):
+            line = f"- {label} {target}"
+        elif target.lower() == name_lower and source and not refs.is_speaker(source):
+            line = f"- {source} {label} it"
+        else:
+            continue
+        if line not in edges:
+            edges.append(line)
+    alongside: list[str] = []
+    for episode_id in sorted(episode_mentions.get(name_lower, ())):
+        for other in episode_cooccurrences.get(episode_id, ()):
+            if other.lower() != name_lower and other not in alongside:
+                alongside.append(other)
+    lines = edges[:ALIAS_CONTEXT_CONNECTIONS]
+    if alongside:
+        lines.append("- mentioned alongside: " + ", ".join(alongside[:ALIAS_CONTEXT_CONNECTIONS]))
+    return "\n".join(lines)
 
 
 def _create_duplicate_clarification(
@@ -670,6 +1152,32 @@ def _candidate_description(candidate: dict) -> str:
     return description
 
 
+#: The order a page's sections are shown to the judge for an alias candidate:
+#: what it is and what it is connected to before its timeline, so the judge's
+#: 2,000-character cut never drops them behind a long history.
+_ALIAS_CONTEXT_SECTIONS = ("", "Summary", "Key Facts", "Related", "History", "Links", "Open Questions")
+
+
+def _alias_page_context(page: dict) -> str:
+    """The page as the judge sees it when an alias brought it: its other names on
+    record, then summary, key facts and connections ahead of the rest."""
+    from api.services.claims import strip_claims_block
+
+    fm = page.get("frontmatter") or {}
+    sections = entity_body.parse_sections(strip_claims_block(page.get("body", "") or ""))
+    parts: list[str] = []
+    names = [str(fm.get("name") or ""), *_page_aliases(page)]
+    others = [n for n in dict.fromkeys(names[1:]) if n and n != names[0]]
+    if others:
+        parts.append("Other names on record: " + ", ".join(others))
+    order = [*_ALIAS_CONTEXT_SECTIONS, *(t for t in sections if t not in _ALIAS_CONTEXT_SECTIONS)]
+    for title in order:
+        text = (sections.get(title) or "").strip()
+        if text:
+            parts.append(f"## {title}\n{text}" if title else text)
+    return "\n\n".join(parts)
+
+
 def _latest_timestamp(left: str | None, right: str | None) -> str | None:
     candidates = [c for c in (left, right) if c]
     if not candidates:
@@ -678,61 +1186,35 @@ def _latest_timestamp(left: str | None, right: str | None) -> str | None:
 
 
 def _is_linked_to_existing(
-    name: str, relationships: list[dict], existing: dict[str, dict]
+    name: str, relationships: list[dict], existing: dict[str, dict], *, owner_id: str | None = None,
+    refs: "owner_identity.SelfReferences | None" = None,
 ) -> bool:
-    """Check if entity is linked to a high-confidence existing entity."""
+    """Check if entity is linked to a high-confidence existing entity — explicitly.
+
+    The owner's page never counts (G169): everything the person talks about is
+    linked to them, so that link is no sign a first mention matters — the
+    promotion rule would otherwise promote every name on its first mention.
+    Explicit means the relationship's evidence is located in a person's own words
+    (`promotion.person_said`): a link only the model's answer drew, or one it
+    inferred, is the assistant's detail, not the person's."""
     for rel in relationships:
+        if not promotion.person_said(rel):
+            continue
         partner = None
         if rel.get("source", "").lower() == name.lower():
             partner = rel.get("target", "").lower()
         elif rel.get("target", "").lower() == name.lower():
             partner = rel.get("source", "").lower()
 
+        speaker = refs.is_speaker(partner) if refs is not None else owner_identity.is_self_reference(partner or "")
+        if partner and speaker:
+            continue
         if partner and partner in existing:
+            if owner_id and existing[partner]["id"] == owner_id:
+                continue
             confidence = existing[partner]["frontmatter"].get("confidence", 0)
             if confidence >= 0.6:
                 return True
-    return False
-
-
-SUBSTANTIVE_CONFIDENCE = 0.75
-SUBSTANTIVE_DESCRIPTION_CHARS = 200
-SUBSTANTIVE_HISTORY_ENTRIES = 2
-SUBSTANTIVE_RELATIONSHIP_COUNT = 2
-
-
-def _is_substantively_discussed(
-    entity: dict,
-    in_episode_relationship_count: dict[tuple[str, str], int],
-) -> bool:
-    """Decide whether a single-episode entity was discussed deeply enough to promote.
-
-    The extractor's own `confidence` field is defined as "how substantive the
-    discussion was", so a high score plus a meaty description is the strongest
-    signal. We also promote when the extractor produced multiple history
-    entries (indicating a timeline worth preserving) or when the entity
-    connects to several other entities within the same conversation.
-    """
-    confidence = float(entity.get("confidence", 0.0) or 0.0)
-    description = (entity.get("description") or "").strip()
-    history_entries = entity.get("history_entries", []) or []
-
-    if (
-        confidence >= SUBSTANTIVE_CONFIDENCE
-        and len(description) >= SUBSTANTIVE_DESCRIPTION_CHARS
-    ):
-        return True
-
-    if len(history_entries) >= SUBSTANTIVE_HISTORY_ENTRIES:
-        return True
-
-    episode_id = entity.get("source_episode", "")
-    name_lower = (entity.get("name") or "").lower()
-    if episode_id and name_lower:
-        rel_count = in_episode_relationship_count.get((episode_id, name_lower), 0)
-        if rel_count >= SUBSTANTIVE_RELATIONSHIP_COUNT:
-            return True
-
     return False
 
 
@@ -757,11 +1239,17 @@ _STOPWORD_TOKENS = {
 }
 
 
-def _name_tokens(name: str) -> set[str]:
-    """Lowercased content tokens from an entity name, stopwords removed."""
-    import re
-    raw = re.findall(r"[\w'-]+", (name or "").lower())
-    return {t for t in raw if t and t not in _STOPWORD_TOKENS and len(t) >= 2}
+_NAME_TOKEN_RE = re.compile(r"[\w'-]+")
+
+
+@functools.lru_cache(maxsize=65536)
+def _name_tokens(name: str) -> frozenset[str]:
+    """Lowercased content tokens from an entity name, stopwords removed.
+
+    Memoised: Stage 2 asks it of every page in the bank for every name a batch extracted
+    (``_existing_llm_candidates``) — ~10^5–10^6 regex runs on a large bank, on the event loop."""
+    raw = _NAME_TOKEN_RE.findall((name or "").lower())
+    return frozenset(t for t in raw if t and t not in _STOPWORD_TOKENS and len(t) >= 2)
 
 
 def _share_content_token(a: str, b: str) -> bool:
@@ -771,7 +1259,7 @@ def _share_content_token(a: str, b: str) -> bool:
 _DISAMBIG_PROMPT = """You are deciding whether two entity entries from a personal knowledge graph refer to the same real-world thing.
 
 Both entries have overlapping names (for example a bare first name and that same first name with a surname) but the existing one was built from different conversations, so you need to look at the descriptions and decide whether merging them would be correct.
-
+{alias_note}
 ENTITY A (existing in graph)
 Name: {existing_name}
 Type: {existing_type}
@@ -782,7 +1270,7 @@ ENTITY B (new extraction)
 Name: {new_name}
 Type: {new_type}
 Description:
-{new_description}
+{new_description}{new_connections}
 
 Guidelines:
 - Say SAME only when the descriptions clearly point at the same real person, project, company, concept, tool, deadline, skill, or location. Shared last names alone are not enough. Shared first names alone are definitely not enough.
@@ -795,6 +1283,13 @@ Respond with JSON only:
 {{"decision": "same" | "different" | "unsure", "reason": "one short sentence"}}
 """
 
+# An alias hit is a lead, never a decision (2026-10-08): acronyms, short forms
+# and first names are shared by different things, so the judge is told the
+# page recorded the name and asked to decide on the context.
+_ALIAS_NOTE = """
+Entity A's page already lists "{new_name}" among the other names it goes by (its aliases), so the names need not share a word. That is a lead, not proof: acronyms, short forms and first names are often shared by different things. Say SAME only when B's description and connections fit A's; say DIFFERENT when they point at something else; say UNSURE when there is too little to tell.
+"""
+
 
 async def _llm_judge_same_entity(
     new_name: str,
@@ -804,17 +1299,29 @@ async def _llm_judge_same_entity(
     existing_type: str,
     existing_body: str,
     settings: Settings,
+    *,
+    recorded_alias: bool = False,
+    new_connections: str = "",
 ) -> str:
-    """One LLM call: same, different, or unsure."""
+    """One LLM call: same, different, or unsure.
+
+    ``recorded_alias``: the page already lists ``new_name`` among its aliases —
+    the prompt says so, and that an alias is a lead, not proof
+    (``_ALIAS_NOTE``); ``new_connections`` is what the name was connected to in
+    the batch. Without them the prompt is the plain one, byte for byte."""
+    from api.services.claims import strip_claims_block
+
     if new_type and existing_type and new_type.lower() != existing_type.lower():
         return "different"
     prompt = _DISAMBIG_PROMPT.format(
         existing_name=existing_name,
         existing_type=existing_type or "unknown",
-        existing_body=(existing_body or "")[:2000] or "(empty)",
+        existing_body=strip_claims_block(existing_body)[:2000] or "(empty)",
         new_name=new_name,
         new_type=new_type or "unknown",
         new_description=(new_description or "")[:1500] or "(empty)",
+        alias_note=_ALIAS_NOTE.format(new_name=new_name) if recorded_alias else "",
+        new_connections=f"\nConnections in its conversations:\n{new_connections[:800]}" if new_connections else "",
     )
     # Stage 2 disambiguation has its own dedicated model so we can route the
     # judge to a cheaper/faster model without downgrading the rest of Sleep.
@@ -855,31 +1362,31 @@ async def _llm_judge_same_entity(
         return "unsure"
 
 
-async def _find_llm_candidate_match(
-    new_entity: dict,
-    existing_by_name: dict[str, dict],
-    created_by_id: dict[str, dict],
-    cache: dict[tuple[str, str], str],
-    settings: Settings,
-) -> dict | None:
-    """Look for an existing or in-cycle entity that the LLM judges as same/unsure.
+def _existing_llm_candidates(
+    new_entity: dict, existing_by_name: dict[str, dict], aliases: dict[str, list[dict]] | None = None,
+) -> list[dict]:
+    """The pages on disk the judge weighs ``new_entity`` against, in judging order.
 
-    Candidates are same-type entities that share at least one content token with
-    the new entity's name and do not already fall under the strict-fuzz match.
-    Returns the first SAME match immediately; otherwise returns the strongest
-    UNSURE match so the caller can create a clarification instead of inventing
-    a new page.
-    """
+    First the same-type pages that list the name among their ``aliases`` (marked
+    ``alias``; they need share no word with it — an acronym, a short form), then
+    the same-type pages that share a content token with the name and are not
+    already a strict-fuzz match. A function of the name and the bank alone —
+    nothing the per-name loop decides changes it — which is what lets ``resolve``
+    judge these ahead of the loop (``_Lookahead``)."""
     new_name = new_entity.get("name") or ""
-    new_name_lower = new_name.lower()
     new_type = (new_entity.get("type") or "concept").lower()
-    new_description = new_entity.get("description") or ""
-
-    if not new_name or not _name_tokens(new_name):
-        return None
-
     candidates: list[dict] = []
+    for page in (aliases or {}).get(new_name.strip().lower(), ()) if new_name else ():
+        candidate = {"source": "existing", "id": page["id"], "data": page, "alias": True}
+        if _candidate_type(candidate) == new_type:
+            candidates.append(candidate)
+    if not new_name or not _name_tokens(new_name):
+        return candidates
+    new_name_lower = new_name.lower()
+    held = {candidate["id"] for candidate in candidates}
     for existing_name_lower, existing_data in existing_by_name.items():
+        if existing_data["id"] in held:
+            continue
         candidate = {"source": "existing", "id": existing_data["id"], "data": existing_data}
         if _candidate_type(candidate) != new_type:
             continue
@@ -889,7 +1396,17 @@ async def _find_llm_candidate_match(
         if fuzz.ratio(new_name_lower, existing_name_lower) > 85:
             continue
         candidates.append(candidate)
+    return candidates
 
+
+def _created_llm_candidates(new_entity: dict, created_by_id: dict[str, dict]) -> list[dict]:
+    """The in-cycle creates the judge weighs ``new_entity`` against — what the loop has decided so far."""
+    new_name = new_entity.get("name") or ""
+    if not new_name or not _name_tokens(new_name):
+        return []
+    new_name_lower = new_name.lower()
+    new_type = (new_entity.get("type") or "concept").lower()
+    candidates: list[dict] = []
     for candidate_id, create_change in created_by_id.items():
         candidate = {"source": "created", "id": candidate_id, "data": create_change}
         existing_display = _candidate_display_name(candidate)
@@ -900,45 +1417,263 @@ async def _find_llm_candidate_match(
         if fuzz.ratio(new_name_lower, existing_display.lower()) > 85:
             continue
         candidates.append(candidate)
+    return candidates
 
-    unsure_candidate: dict | None = None
+
+async def _judge_candidates(
+    new_entity: dict,
+    candidates: list[dict],
+    cache: dict[tuple[str, str], str],
+    settings: Settings,
+    *,
+    gate: asyncio.Semaphore | None = None,
+    stop: Callable[[], bool] | None = None,
+    connections: str = "",
+) -> list[tuple[dict, str]]:
+    """Judge ``candidates`` in order, one call each, stopping at the first ``same``.
+
+    Returns ``(candidate, decision)`` per candidate judged. ``gate`` bounds the
+    calls in flight across every name ``resolve`` is judging; ``stop`` is polled
+    before each call so a cancel or a plan limit starts nothing new. A candidate an
+    alias brought is judged with the alias note, the page's context first
+    (``_alias_page_context``) and the name's ``connections`` in the batch."""
+    new_name = new_entity.get("name") or ""
+    new_name_lower = new_name.lower()
+    new_type = (new_entity.get("type") or "concept").lower()
+    new_description = new_entity.get("description") or ""
+    judged: list[tuple[dict, str]] = []
     for candidate in candidates:
-        existing_display = _candidate_display_name(candidate)
         cache_key = (new_name_lower, candidate["id"])
         if cache_key in cache:
             decision = cache[cache_key]
-            if decision == "same":
-                return {"decision": "same", "candidate": candidate}
-            if decision == "unsure" and unsure_candidate is None:
-                unsure_candidate = candidate
-            continue
-
-        decision = await _llm_judge_same_entity(
-            new_name=new_name,
-            new_type=new_type,
-            new_description=new_description,
-            existing_name=existing_display,
-            existing_type=_candidate_type(candidate),
-            existing_body=_candidate_description(candidate),
-            settings=settings,
-        )
-        cache[(new_name_lower, candidate["id"])] = decision
-        if decision == "same":
-            logger.info(
-                f"LLM disambiguation merged '{new_name}' -> '{existing_display}'"
+        else:
+            if stop is not None and stop():
+                break
+            kwargs = dict(
+                new_name=new_name,
+                new_type=new_type,
+                new_description=new_description,
+                existing_name=_candidate_display_name(candidate),
+                existing_type=_candidate_type(candidate),
+                existing_body=_candidate_description(candidate),
+                settings=settings,
             )
+            if candidate.get("alias"):
+                kwargs.update(existing_body=_alias_page_context(candidate["data"]), recorded_alias=True,
+                              new_connections=connections)
+            if gate is None:
+                decision = await _llm_judge_same_entity(**kwargs)
+            else:
+                async with gate:
+                    if stop is not None and stop():  # stopped while waiting for a slot
+                        break
+                    decision = await _llm_judge_same_entity(**kwargs)
+            cache[cache_key] = decision
+        judged.append((candidate, decision))
+        if decision == "same":
+            break
+    return judged
+
+
+def _pick_match(new_name: str, judged: list[tuple[dict, str]]) -> dict | None:
+    """The first ``same`` in judging order, else the first ``unsure``, else ``None``."""
+    unsure_candidate: dict | None = None
+    for candidate, decision in judged:
+        if decision == "same":
+            logger.info(f"LLM disambiguation merged '{new_name}' -> '{_candidate_display_name(candidate)}'")
             return {"decision": "same", "candidate": candidate}
         if decision == "unsure" and unsure_candidate is None:
             unsure_candidate = candidate
-
     if unsure_candidate is not None:
         logger.info(
             f"LLM disambiguation deferred '{new_name}' for clarification "
             f"against '{_candidate_display_name(unsure_candidate)}'"
         )
         return {"decision": "unsure", "candidate": unsure_candidate}
-
     return None
+
+
+async def _find_llm_candidate_match(
+    new_entity: dict,
+    existing_by_name: dict[str, dict],
+    created_by_id: dict[str, dict],
+    cache: dict[tuple[str, str], str],
+    settings: Settings,
+    *,
+    aliases: dict[str, list[dict]] | None = None,
+    connections: str = "",
+    prejudged: list[tuple[dict, str]] | None = None,
+    gate: asyncio.Semaphore | None = None,
+) -> dict | None:
+    """Look for an existing or in-cycle entity that the LLM judges as same/unsure.
+
+    Candidates are same-type entities that share at least one content token with
+    the new entity's name and do not already fall under the strict-fuzz match:
+    the pages on disk first — those listing the name among their ``aliases``
+    ahead of the rest — then the in-cycle creates. Returns the first SAME
+    match; otherwise the first UNSURE match so the caller can create a
+    clarification instead of inventing a new page.
+
+    ``prejudged`` is the existing-page part already judged ahead of the loop
+    (``_Lookahead``: the same calls, in the same order, with the same early
+    exit); only the in-cycle creates are then judged here.
+    """
+    new_name = new_entity.get("name") or ""
+    if not new_name:
+        return None
+
+    if prejudged is None:
+        judged = await _judge_candidates(
+            new_entity, _existing_llm_candidates(new_entity, existing_by_name, aliases), cache, settings,
+            gate=gate, connections=connections)
+    else:
+        judged = list(prejudged)
+    if not any(decision == "same" for _, decision in judged):
+        judged += await _judge_candidates(
+            new_entity, _created_llm_candidates(new_entity, created_by_id), cache, settings, gate=gate)
+    return _pick_match(new_name, judged)
+
+
+#: How many names per concurrent slot ``_Lookahead`` takes ahead of the loop.
+#: A name's own calls stay sequential, so while the loop waits on a name with a
+#: long candidate list the other slots keep working on names further ahead; the
+#: window bounds what a cancel can waste (judgments taken but never used).
+LOOKAHEAD_NAMES_PER_SLOT = 4
+
+
+def _lookahead_plan(
+    ordered_entities: list[tuple[str, dict]], existing_by_name: dict[str, dict],
+    aliases: dict[str, list[dict]] | None = None,
+) -> list[tuple[dict, list[dict]] | None]:
+    """What ``_Lookahead`` may judge ahead: per name in the loop's order, its
+    existing-page candidates — or ``None`` where the loop makes no existing-page
+    call (a direct match on disk, no candidate) or may settle the name on an
+    in-cycle create before judging (an earlier name in the batch within the
+    direct-match fuzz of it; an in-cycle create can only carry a batch name).
+    The plan only decides what runs early: the loop re-checks every match itself."""
+    plan: list[tuple[dict, list[dict]] | None] = []
+    earlier: list[str] = []
+    for _, entity in ordered_entities:
+        name_lower = (entity.get("name") or "").strip().lower()
+        entry: tuple[dict, list[dict]] | None = None
+        if (_find_direct_candidate_match(entity, existing_by_name, {}) is None
+                and not any(name_lower == other or fuzz.ratio(name_lower, other) > 85 for other in earlier)):
+            candidates = _existing_llm_candidates(entity, existing_by_name, aliases)
+            if candidates:
+                entry = (entity, candidates)
+        plan.append(entry)
+        earlier.append(str(entity.get("name") or "").lower())
+    return plan
+
+
+class _Lookahead:
+    """Stage 2's judgments against EXISTING pages, taken ahead of the per-name loop.
+
+    A name's existing-page judgments depend only on its own extraction and the
+    bank, so they can run while the loop is still deciding earlier names. Each
+    name's candidates are still judged one after another with the first-``same``
+    exit (the very calls the serial loop made); different names overlap, at most
+    ``concurrency`` calls in flight (the gate the loop's own inline calls share).
+    At most ``LOOKAHEAD_NAMES_PER_SLOT × concurrency`` names are taken ahead of the loop's position, so
+    a cancel or a plan limit wastes a bounded number of calls.
+
+    ``plan[i]`` is ``(entity, candidates)`` for the i-th name in the loop's
+    order, or ``None`` when the loop would make no existing-page call for it
+    (a direct match, no candidate) or might settle it on an in-cycle
+    create first — those are left to the loop, exactly as before.
+    ``close`` starts nothing more and waits out the calls in flight: a call is
+    never interrupted (a plan call runs in a worker thread), and none outlives
+    the batch.
+    """
+
+    def __init__(self, plan: list[tuple[dict, list[dict]] | None], *, settings: Settings,
+                 cache: dict[tuple[str, str], str], concurrency: int,
+                 cancel_check: Callable[[], bool] | None = None, connections: dict[str, str] | None = None):
+        self._plan = plan
+        self._connections = connections or {}
+        self._cancel_check = cancel_check
+        self._settings = settings
+        self._cache = cache
+        self.gate = asyncio.Semaphore(concurrency)
+        self._window = LOOKAHEAD_NAMES_PER_SLOT * concurrency
+        self._tasks: dict[int, asyncio.Task] = {}
+        self._dropped: list[asyncio.Task] = []
+        self._next = 0
+        self._stopped = False
+        self._error: BaseException | None = None
+
+    @property
+    def error(self) -> BaseException | None:
+        """The first engine error a lookahead call met, if any."""
+        return self._error
+
+    def _stop(self) -> bool:
+        if not self._stopped and self._cancel_check is not None and self._cancel_check():
+            self._stopped = True
+        return self._stopped
+
+    def _fill(self, cursor: int) -> None:
+        while (not self._stopped and self._next < len(self._plan)
+               and sum(1 for i in self._tasks if i >= cursor) < self._window):
+            index = self._next
+            self._next += 1
+            if self._plan[index] is not None:
+                self._tasks[index] = asyncio.create_task(self._judge(index))
+
+    async def _judge(self, index: int) -> list[tuple[dict, str]]:
+        entity, candidates = self._plan[index]
+        try:
+            # The loop's cache is shared safely: names are deduplicated before the
+            # loop, so no two names write the same ``(name, candidate)`` key.
+            return await _judge_candidates(entity, candidates, self._cache, self._settings,
+                                           gate=self.gate, stop=self._stop, connections=self._connections_of(entity))
+        except BaseException as exc:
+            if self._error is None and not isinstance(exc, asyncio.CancelledError):
+                self._error = exc
+            self._stopped = True
+            raise
+
+    async def take(self, index: int) -> list[tuple[dict, str]] | None:
+        """The existing-page judgments for the loop's ``index``-th name, or
+        ``None`` when the loop is to judge that name itself. Raises the first
+        engine error any lookahead call met — the drain's pause, as before."""
+        self._fill(index)
+        if self._error is not None:
+            raise self._error
+        task = self._tasks.pop(index, None)
+        if task is None:
+            return None
+        judged = await task
+        if self._error is not None:
+            raise self._error
+        entity, candidates = self._plan[index]
+        if len(judged) < len(candidates) and not any(decision == "same" for _, decision in judged):
+            # Stopped between this name's candidates (a cancel): the loop is on this
+            # name, and the serial loop always finished the name it was on — so
+            # finish it here, never decide it on half its judgments.
+            judged += await _judge_candidates(entity, candidates[len(judged):], self._cache, self._settings,
+                                              gate=self.gate, connections=self._connections_of(entity))
+        self._fill(index + 1)
+        return judged
+
+    def _connections_of(self, entity: dict) -> str:
+        return self._connections.get(str(entity.get("name") or "").lower(), "")
+
+    def discard(self, index: int) -> None:
+        """The loop settled ``index`` without its judgments (a direct match to an
+        in-cycle create): drop them. A call already made is not undone."""
+        task = self._tasks.pop(index, None)
+        if task is not None:
+            self._dropped.append(task)  # still awaited by `close`
+        self._fill(index + 1)
+
+    async def close(self) -> None:
+        self._stopped = True
+        pending = [*self._tasks.values(), *self._dropped]
+        self._tasks.clear()
+        self._dropped.clear()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
 
 
 def _infer_uncertainty_type(entity: dict) -> str:
@@ -950,5 +1685,3 @@ def _infer_uncertainty_type(entity: dict) -> str:
     if not description or len(description) < 40:
         return "Insufficient context to classify"
     return "Ambiguous type or role"
-
-

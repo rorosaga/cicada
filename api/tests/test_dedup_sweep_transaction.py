@@ -232,33 +232,50 @@ def test_a_failed_recovery_is_reported_and_stops_the_sweep(bank, monkeypatch):
     assert judged == [("esa", "esta")], "no further pair is judged or merged"
 
 
-# --- Finding 4: the window is re-asked once the page lock is held ---------------------------------------------------
+# --- Finding 4, closed by admission (G183): a merge admitted before Sleep's flip commits before Sleep reads ---------
+
+from api.services import write_admission
 
 
-def test_a_window_that_opens_while_the_merge_waits_for_the_page_lock_stops_it(bank, monkeypatch):
+def _flip_when_admitted(bank, state, seen) -> threading.Thread:
+    """Sleep's order once the merge holds admission: the flag first, then the wait; records what Sleep would read."""
+    def flip():
+        deadline = time.monotonic() + 10
+        while write_admission.holders(bank) == 0:
+            assert time.monotonic() < deadline
+            time.sleep(0.01)
+        state["writing"] = True
+        seen["drained"] = write_admission.wait_for_writers(bank, give_up_after=10)
+        seen["head_at_read"] = _head(bank)
+    t = threading.Thread(target=flip)
+    t.start()
+    return t
+
+
+@pytest.mark.parametrize("held", ["page", "git"])
+def test_a_window_that_opens_while_an_admitted_merge_waits_for_a_lock_waits_for_its_commit(bank, monkeypatch, held):
     state = {"writing": False}
     monkeypatch.setattr(sleep_cycle, "get_sleep_state",
                         lambda: SimpleNamespace(status="running", drain_run=True, writing=state["writing"]))
-    judged = threading.Event()
-
-    def judge(a_body, b_body, a_id, b_id):
-        judged.set()
-        return {"verdict": "same", "confidence": 0.95, "winner": "esa"}
-
-    before, head = _files(bank), _head(bank)
+    judge = lambda *a: {"verdict": "same", "confidence": 0.95, "winner": "esa"}   # noqa: E731
     result: dict = {}
-    with page_lock.page_lock(bank):
-        t = threading.Thread(target=lambda: result.update(
-            _sweep(bank, judge=judge, may_write=lambda: not sleep_cycle.is_writing())))
+    seen: dict = {}
+    lock = page_lock.page_lock(bank) if held == "page" else git_service.write_lock(bank)
+    with lock:
+        t = threading.Thread(target=lambda: result.update(_sweep(
+            bank, pairs=[("esa", "esta"), ("bob-example", "carol-example")], judge=judge,
+            may_write=lambda: not write_admission.holding())))
         t.start()
-        assert judged.wait(5)
-        time.sleep(0.3)            # past its last pre-lock check, waiting on the page lock
-        state["writing"] = True    # Sleep's batch reaches Stage 2
+        flip = _flip_when_admitted(bank, state, seen)
+        flip.join(0.3)
+        assert flip.is_alive(), "Sleep must not read while an admitted merge is mid-transaction"
     t.join(10)
+    flip.join(10)
 
-    assert result["merged"] == []
-    assert result["stopped_for_sleep"] is True
-    assert _files(bank) == before and _head(bank) == head
+    assert result["merged"] == [("esta", "esa")], "the admitted merge finishes and commits"
+    assert result["stopped_for_sleep"] is True, "the next pair sees the window and stops"
+    assert seen["drained"] is True and seen["head_at_read"] == _head(bank)
+    assert _git(bank, "status", "--porcelain") == ""
 
 
 def test_a_dry_run_also_stops_judging_once_sleep_is_writing(bank):
@@ -426,20 +443,3 @@ def test_the_footprint_leaves_out_a_graph_no_edge_of_which_names_the_loser(tmp_p
     (tmp_path / "graph_edges.yaml").write_text(yaml.safe_dump({"edges": [
         {"source": "alpha-project", "target": "gamma", "label": "x"}]}))
     assert "graph_edges.yaml" not in entity_merge.merge_footprint(tmp_path, "beta-project", "alpha-project")
-
-
-def test_a_window_that_opens_while_the_merge_waits_for_the_git_lock_stops_it(bank, monkeypatch):
-    state = {"writing": False}
-    monkeypatch.setattr(sleep_cycle, "get_sleep_state",
-                        lambda: SimpleNamespace(status="running", drain_run=True, writing=state["writing"]))
-    before, head = _files(bank), _head(bank)
-    result: dict = {}
-    with git_service.write_lock(bank):
-        t = threading.Thread(target=lambda: result.update(
-            _sweep(bank, may_write=lambda: not sleep_cycle.is_writing())))
-        t.start()
-        time.sleep(0.5)            # past its in-page-lock check, waiting on the git lock
-        state["writing"] = True
-    t.join(10)
-    assert result["merged"] == [] and result["stopped_for_sleep"] is True
-    assert _files(bank) == before and _head(bank) == head

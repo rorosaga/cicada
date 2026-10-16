@@ -22,8 +22,15 @@ enum ShellMetrics {
 /// One rail cell's words and key — the rail's order is `AppTab.allCases`, which is its ⌘ order.
 enum RailItem {
     static func digit(for tab: AppTab) -> Int { (AppTab.allCases.firstIndex(of: tab) ?? 0) + 1 }
-    static func key(for tab: AppTab) -> KeyEquivalent { KeyEquivalent(Character(String(digit(for: tab)))) }
-    static func shortcut(for tab: AppTab) -> String { "⌘\(digit(for: tab))" }
+    /// The key on the digit row, 1…9 — nine pages since the Feed folded into Sleep (2026-10-16), so every page has one.
+    /// A tenth page would get none (⌘0 is Actual Size), and no shortcut moves to make room (DR-22). Never a
+    /// two-character key (`Character("10")` would trap).
+    static func keyDigit(for tab: AppTab) -> String? {
+        let n = digit(for: tab)
+        return n <= 9 ? String(n) : nil
+    }
+    static func key(for tab: AppTab) -> KeyEquivalent? { keyDigit(for: tab).map { KeyEquivalent(Character($0)) } }
+    static func shortcut(for tab: AppTab) -> String { keyDigit(for: tab).map { "⌘\($0)" } ?? "" }
     static func tooltipTitle(_ tab: AppTab, busy: Bool) -> String {
         busy ? "\(tab.title) · \(Copy.railConsolidating)" : tab.title
     }
@@ -32,6 +39,18 @@ enum RailItem {
         if count > 0 { label += ", \(UsageFormat.count(count)) pending" }
         if busy { label += ", \(Copy.railConsolidating)" }
         return label
+    }
+}
+
+/// ⌘ map A (owner, 2026-10-16) — Skills took the retired Feed's ⌘4, so for one release the first time ⌘4 lands on
+/// Skills the window says where the Feed went, once per viewer and never again (`UserDefaults`, a per-viewer
+/// convenience: losing it only shows the line once more). Only the key says so: a click on the rail's Skills cell is
+/// someone who meant Skills.
+enum FeedMovedHint {
+    static let shownKey = "cicada.hint.feedMovedToSleep"
+
+    static func shouldShow(tab: AppTab, commandHeld: Bool, alreadyShown: Bool) -> Bool {
+        tab == .skills && commandHeld && !alreadyShown
     }
 }
 
@@ -64,4 +83,25 @@ extension View {
             .disabled(chrome.itemsDisabled)
             .accessibilityHidden(chrome.itemsHidden)
     }
+}
+
+/// The page is a panel inside one L-shaped chrome (owner 2026-10-07, picked over a rounded rail): the titlebar band takes
+/// the rail's surface (`CicadaTheme.titlebarBackground`), and the page host's top-leading corner alone is rounded at
+/// `contentCornerRadius`. The page's own `bgBase` fills the shape and the shape clips what the page holds, so the corner
+/// shows the chrome and nothing a page scrolls up draws over the band. A fill and a clip — never a shadow or glass.
+struct ShellContentPanel: ViewModifier {
+    static var shape: UnevenRoundedRectangle {
+        UnevenRoundedRectangle(topLeadingRadius: CicadaTheme.contentCornerRadius, style: .continuous)
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .background(alignment: .top) { Self.shape.fill(CicadaTheme.background) }
+            .clipShape(Self.shape)
+    }
+}
+
+extension View {
+    /// The one door for the page host's panel shape (`ShellContentPanel`).
+    func shellContentPanel() -> some View { modifier(ShellContentPanel()) }
 }

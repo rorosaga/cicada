@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import XCTest
 @testable import CicadaApp
@@ -30,6 +31,94 @@ final class EntityHeaderTests: XCTestCase {
         XCTAssertTrue(fading.hasPrefix("Confidence 50 out of 100"))
         XCTAssertTrue(fading.contains("fading"))
         XCTAssertFalse(fading.contains("%"), "DR-59")
+    }
+
+    /// G194 A2 (owner D4) — a page whose newest source is older than 90 days says when it was last mentioned, in
+    /// the place the confidence word was; confidence is not freshness, so the number moves to `.help` (DR-59).
+    func testAnOldPageSaysWhenItWasLastMentionedInsteadOfHowSure() {
+        let en = Locale(identifier: "en_US")
+        let today = ISODay(year: 2026, month: 10, day: 7)
+        XCTAssertEqual(EntityHeaderWords.statusLine(status: .active, confidence: 0.99, lastReferenced: "2025-02-06",
+                                                    today: today, locale: en), "Active · last mentioned Feb 2025")
+        XCTAssertEqual(EntityHeaderWords.statusLine(status: .decaying, confidence: 0.5, lastReferenced: "2025-02-06",
+                                                    today: today, locale: en), "Fading · last mentioned Feb 2025")
+        let help = EntityHeaderWords.statusHelp(status: .active, confidence: 0.99, lastReferenced: "2025-02-06",
+                                                today: today, locale: en)
+        XCTAssertEqual(help, "Confidence 99 out of 100 · last mentioned Feb 6, 2025")
+        let fading = EntityHeaderWords.statusHelp(status: .decaying, confidence: 0.5, lastReferenced: "2025-02-06",
+                                                  today: today, locale: en)
+        XCTAssertTrue(fading.hasPrefix("Confidence 50 out of 100 · last mentioned Feb 6, 2025"))
+        XCTAssertTrue(fading.hasSuffix(Copy.Graph.fadingReason), "the decaying reason stays")
+        XCTAssertFalse(help.contains("%"), "DR-59")
+    }
+
+    /// The boundary is 90 whole days (the backend's `source_dates.OLD_AFTER_DAYS`); anything the header cannot read
+    /// as a past day keeps the confidence words — a missing, invalid or future day is never called old.
+    func testOnlyAReadablePastDayOlderThanNinetyDaysChangesTheHeader() {
+        let en = Locale(identifier: "en_US")
+        let today = ISODay(year: 2026, month: 10, day: 7)
+        XCTAssertEqual(EntityHeaderWords.oldAfterDays, 90)
+        func line(_ day: String?) -> String {
+            EntityHeaderWords.statusLine(status: .active, confidence: 0.92, lastReferenced: day, today: today, locale: en)
+        }
+        XCTAssertEqual(line("2026-07-09"), "Active · very confident", "90 days: not old yet")
+        XCTAssertEqual(line("2026-07-08"), "Active · last mentioned Jul 2026", "91 days")
+        XCTAssertEqual(line("2026-07-08T23:30:00Z"), "Active · last mentioned Jul 2026", "an instant's day part")
+        for day in [nil, "", "not-a-date", "2026-13-01", "2026-12-01", "2027-01-01"] {
+            XCTAssertEqual(line(day), "Active · very confident", day ?? "nil")
+            XCTAssertEqual(EntityHeaderWords.statusHelp(status: .active, confidence: 0.92, lastReferenced: day,
+                                                        today: today, locale: en), "Confidence 92 out of 100")
+        }
+    }
+
+    /// Fix round 1 (review finding 1): an impossible calendar day is not a day. `ISODay` normalizes Feb 30 into
+    /// Mar 2; the header must not show a month the payload never named, so it keeps the confidence words.
+    func testAnImpossibleCalendarDayIsNeverShownAsAnotherDay() {
+        let en = Locale(identifier: "en_US")
+        let today = ISODay(year: 2026, month: 10, day: 7)
+        for day in ["2025-02-30", "2025-04-31", "2026-02-29", "2025-06-31", "2025-00-10", "2025-02-00",
+                    "2025-2-6", "20250206", "2025-02-06x", "2025/02/06", " 2025-02-06"] {
+            XCTAssertEqual(EntityHeaderWords.statusLine(status: .active, confidence: 0.92, lastReferenced: day,
+                                                        today: today, locale: en), "Active · very confident", day)
+            XCTAssertEqual(EntityHeaderWords.statusHelp(status: .active, confidence: 0.92, lastReferenced: day,
+                                                        today: today, locale: en), "Confidence 92 out of 100", day)
+        }
+        // A real leap day, and an instant on a real day, are still read.
+        XCTAssertEqual(EntityHeaderWords.statusLine(status: .active, confidence: 0.92, lastReferenced: "2024-02-29",
+                                                    today: today, locale: en), "Active · last mentioned Feb 2024")
+        XCTAssertEqual(EntityHeaderWords.statusHelp(status: .active, confidence: 0.92, lastReferenced: "2024-02-29",
+                                                    today: today, locale: en),
+                       "Confidence 92 out of 100 · last mentioned Feb 29, 2024")
+        XCTAssertEqual(EntityHeaderWords.statusLine(status: .active, confidence: 0.92,
+                                                    lastReferenced: "2025-02-06 10:00:00", today: today, locale: en),
+                       "Active · last mentioned Feb 2025")
+    }
+
+    /// Today is the viewer's calendar day (DR-58: computed at read); the stored day is a calendar day with no zone.
+    func testTodayIsTheViewersDayAtTheBoundary() {
+        let now = ISO8601DateFormatter().date(from: "2026-05-07T09:00:00Z")!
+        var west = Calendar(identifier: .gregorian)
+        west.timeZone = TimeZone(secondsFromGMT: -10 * 3600)!
+        var east = Calendar(identifier: .gregorian)
+        east.timeZone = TimeZone(secondsFromGMT: 14 * 3600)!
+        let en = Locale(identifier: "en_US")
+        XCTAssertEqual(EntityHeaderWords.statusLine(status: .active, confidence: 0.92, lastReferenced: "2026-02-05",
+                                                    today: .today(now: now, calendar: west), locale: en),
+                       "Active · very confident", "UTC−10: still May 6, 90 days")
+        XCTAssertEqual(EntityHeaderWords.statusLine(status: .active, confidence: 0.92, lastReferenced: "2026-02-05",
+                                                    today: .today(now: now, calendar: east), locale: en),
+                       "Active · last mentioned Feb 2026", "UTC+14: already May 7, 91 days")
+    }
+
+    /// The month is the viewer's language; the words around it are the app's copy.
+    func testTheMonthFollowsTheLocale() {
+        let today = ISODay(year: 2026, month: 10, day: 7)
+        for id in ["es_ES", "de_DE", "ja_JP"] {
+            let month = EntityHeaderWords.lastMentionedMonth("2025-02-06", today: today, locale: Locale(identifier: id))
+            XCTAssertEqual(month, RelativeDay.monthYear(ISODay(year: 2025, month: 2, day: 6), locale: Locale(identifier: id)))
+            XCTAssertTrue(month?.contains("2025") ?? false, id)
+            XCTAssertNotEqual(month, "Feb 2025", id)
+        }
     }
 
     /// R-DG15 — the Summary, never the agentic-write placeholder; a stub's preview until the page lands.
@@ -93,6 +182,69 @@ final class EntityHeaderTests: XCTestCase {
             let size = try XCTUnwrap(renderer.nsImage).size
             XCTAssertLessThanOrEqual(size.width, width + 0.5, "\(scale): \(size.width)")
         }
+    }
+
+    /// G194 A2 — the old page's line ("last mentioned Feb 2025") fits the 440 floor at every zoom, one line (DR-59).
+    @MainActor
+    func testAnOldPagesHeaderNeverWantsMoreThanItsColumn() throws {
+        for scale in [0.8, 1.0, 1.4] {
+            CicadaTheme.uiScale = scale
+            let width = GraphColumns.entityMin * CGFloat(scale)
+            let renderer = ImageRenderer(content: Self.oldPageHeader(width: width))
+            renderer.proposedSize = ProposedViewSize(width: width, height: nil)
+            let size = try XCTUnwrap(renderer.nsImage).size
+            XCTAssertLessThanOrEqual(size.width, width + 0.5, "\(scale): \(size.width)")
+        }
+    }
+
+    /// Offscreen review renders (never the app): light and dark, the column floor and 1.4× text, written only when
+    /// `G194_RENDER_DIR` names a folder — the orchestrator's live look is separate.
+    @MainActor
+    func testRenderTheOldPageHeaderForReview() throws {
+        guard let dir = ProcessInfo.processInfo.environment["G194_RENDER_DIR"], !dir.isEmpty else {
+            throw XCTSkip("set G194_RENDER_DIR to write the review renders")
+        }
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        defer { CicadaTheme.mode = .dark }
+        for mode in [AppColorScheme.light, .dark] {
+            for (scale, tag) in [(1.0, "1x"), (1.4, "1.4x")] {
+                CicadaTheme.mode = mode
+                CicadaTheme.uiScale = scale
+                let width = GraphColumns.entityMin * CGFloat(scale)
+                for (name, last) in [("old", "2025-02-06"), ("recent", "2026-09-30")] {
+                    let view = Self.oldPageHeader(width: width, lastReferenced: last)
+                        .padding(.vertical, 12)
+                        .background(CicadaTheme.bgBase)
+                        .environment(\.colorScheme, mode == .dark ? .dark : .light)
+                    let renderer = ImageRenderer(content: view)
+                    renderer.proposedSize = ProposedViewSize(width: width, height: nil)
+                    renderer.scale = 2
+                    let image = try XCTUnwrap(renderer.nsImage)
+                    let tiff = try XCTUnwrap(image.tiffRepresentation)
+                    let png = try XCTUnwrap(NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]))
+                    let file = URL(fileURLWithPath: dir).appendingPathComponent("header-\(name)-\(mode == .dark ? "dark" : "light")-\(tag).png")
+                    try png.write(to: file)
+                }
+            }
+        }
+    }
+
+    @MainActor
+    private static func oldPageHeader(width: CGFloat, lastReferenced: String = "2025-02-06") -> some View {
+        let store = Store(cache: SnapshotCache(
+            root: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        ), api: FakeSyncAPI())
+        let entity = Entity(id: "alpha-co", name: "Alpha Co", type: .company, status: .active, confidence: 0.99,
+                            created: "2025-02-04", lastReferenced: lastReferenced, decayRate: 0.05, sourceEpisodes: [],
+                            tags: [], related: [], version: 1,
+                            markdownContent: "## Summary\nAs of February 2025, a company running a summer programme.",
+                            history: [])
+        return EntityCardHeader(
+            entity: entity, summary: EntityHeaderWords.summary(markdown: entity.markdownContent, isStub: false),
+            isStub: false, canGoBack: false, backTargetName: nil, onBack: {}, showsClose: true, onClose: {},
+            tabs: EntityTabs.tabs(claims: [], historyCount: 2), selection: .constant(.content),
+            inset: EntityCardStyle.column.inset, today: ISODay(year: 2026, month: 10, day: 7)
+        ).environment(store)
     }
 
     /// F-12 (R-PE16) — the person hero and a six-cell strip never want more than the column, at every zoom.

@@ -9,8 +9,8 @@ final class SpineAndLampTests: XCTestCase {
     private let en = Locale(identifier: "en_US")
     private let idleRow = StudyRow(origin: "claude-code", label: "Claude Code", count: 12, oldestAge: "3d", read: nil, total: nil)
     private let runningRow = StudyRow(origin: "claude-code", label: "Claude Code", count: 12, oldestAge: "3d", read: 4, total: 12)
-    private let spine = BookSpec(origin: "claude-code", count: 12, height: 20, widthFraction: 1, isRemainder: false)
-    private let remainder = BookSpec(origin: "+more", count: 4, height: 10, widthFraction: 1, isRemainder: true)
+    private let spine = BookSpec(origin: "claude-code", count: 12)
+    private let remainder = BookSpec(origin: "+more", count: 4, isRemainder: true)
 
     // MARK: Spines (§7.1, I5)
 
@@ -22,13 +22,13 @@ final class SpineAndLampTests: XCTestCase {
     func test_aSpineSaysWhatItsRowSays() {
         XCTAssertEqual(StudyListCard.rowAccessibilityLabel(idleRow), "Claude Code, 12 waiting, oldest 3d")
         XCTAssertEqual(spineAccessibilityLabel(spec: spine, row: idleRow), StudyListCard.rowAccessibilityLabel(idleRow))
-        XCTAssertEqual(spineAccessibilityLabel(spec: remainder, row: nil), "4 more on the pile, in Details")
+        XCTAssertEqual(spineAccessibilityLabel(spec: remainder, row: nil), "4 more on the pile, in Waiting")
     }
 
     func test_aSpinesHelpIsItsNumbersWithTheirNouns() {
         XCTAssertEqual(spineHelp(spec: spine, row: idleRow, locale: en), "Claude Code · 12 waiting · oldest 3d")
         XCTAssertEqual(spineHelp(spec: spine, row: runningRow, locale: en), "Claude Code · 4 of 12 read")
-        XCTAssertEqual(spineHelp(spec: remainder, row: nil, locale: en), "4 more on the pile, in Details")
+        XCTAssertEqual(spineHelp(spec: remainder, row: nil, locale: en), "4 more on the pile, in Waiting")
     }
 
     func test_queueRowWords() {

@@ -87,7 +87,7 @@ from loguru import logger
 
 from api.models.schemas import DecayClass
 from api.services import decay_policy, git_service, markdown_parser
-from api.services.claims import _CLAIMS_BLOCK_RE, Claim, write_claims
+from api.services.claims import _CLAIMS_BLOCK_RE, Claim, load_fence_payload, write_claims
 
 _MARKER = ".decay_watermarked"
 # The write-ahead journal for finding 2 — see module docstring.
@@ -266,8 +266,8 @@ def _load_claims_tolerant(body: str, filepath: Path) -> tuple[list, bool]:
         return [], True  # no block at all — nothing to do, not an error
 
     try:
-        loaded = yaml.safe_load(match.group("payload"))
-    except yaml.YAMLError as exc:
+        loaded = load_fence_payload(match.group("payload"))
+    except (yaml.YAMLError, ValueError) as exc:
         logger.warning(
             f"decay-watermark backfill: unreadable ```claims block in {filepath.name}, "
             f"skipping its claims this run ({exc})"

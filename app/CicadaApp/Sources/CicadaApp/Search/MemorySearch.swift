@@ -28,11 +28,13 @@ struct MemorySearchHit: Decodable, Equatable, Sendable {
     let validFrom: String?
     let validTo: String?
     let supersededBy: String?
+    let eventStatus: String?
+    let eventDay: String?
 
     enum CodingKeys: String, CodingKey {
         case id, name, type, status, score, snippet, kind, subtitle, snippetOffsets, matchedField, subjectId
         case episodeId, conversationId, harness, origin, timestamp, start, end, hash, evidenceKind
-        case validFrom, validTo, supersededBy
+        case validFrom, validTo, supersededBy, eventStatus, eventDay
     }
 
     init(from decoder: Decoder) throws {
@@ -60,6 +62,8 @@ struct MemorySearchHit: Decodable, Equatable, Sendable {
         validFrom = try c.decodeIfPresent(String.self, forKey: .validFrom)
         validTo = try c.decodeIfPresent(String.self, forKey: .validTo)
         supersededBy = try c.decodeIfPresent(String.self, forKey: .supersededBy)
+        eventStatus = try c.decodeIfPresent(String.self, forKey: .eventStatus)
+        eventDay = try c.decodeIfPresent(String.self, forKey: .eventDay)
     }
 }
 

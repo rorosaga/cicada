@@ -12,10 +12,20 @@ final class FakeIntakeAPI: IntakeAPI, @unchecked Sendable {
     /// Every name the router asked to sniff, so a test can prove a refused
     /// drop sent nothing (Track Z Z-B5).
     var sniffed: [String] = []
+    /// The name each file was sent under (`name`, else its own), sniff and upload alike.
+    var sentNames: [String] = []
+    /// G71: the include-history flag each sniff and upload carried, in order.
+    var sniffHistory: [Bool] = []
+    var uploadHistory: [Bool] = []
+    /// A sniff answer per file when history is included (else `sniffs`).
+    var historySniffs: [String: IntakeSniff] = [:]
 
-    func sniffIntake(fileURL: URL, bank: String?) async throws -> IntakeSniff {
+    func sniffIntake(fileURL: URL, bank: String?, name sent: String?, includeHistory: Bool) async throws -> IntakeSniff {
         let name = fileURL.lastPathComponent
         sniffed.append(name)
+        sniffHistory.append(includeHistory)
+        if includeHistory, let answer = historySniffs[name] { sentNames.append(sent ?? name); return answer }
+        sentNames.append(sent ?? name)
         if let delay = sniffDelay[name] { try await Task.sleep(for: delay) }
         return sniffs[name] ?? IntakeSniff(reason: "unknown")
     }
@@ -28,8 +38,10 @@ final class FakeIntakeAPI: IntakeAPI, @unchecked Sendable {
 
     func intakeJob(id: String) async throws -> IntakeJobStatus { jobPolls.removeFirst() }
 
-    func uploadSaved(fileURL: URL) async throws -> UploadResponse {
-        UploadResponse(status: "ok", episodesCreated: 2, duplicatesSkipped: 0, message: "", source: "Bookmarks")
+    func uploadSaved(fileURL: URL, name sent: String?, includeHistory: Bool) async throws -> UploadResponse {
+        sentNames.append(sent ?? fileURL.lastPathComponent)
+        uploadHistory.append(includeHistory)
+        return UploadResponse(status: "ok", episodesCreated: 2, duplicatesSkipped: 0, message: "", source: "Bookmarks")
     }
 }
 
@@ -67,6 +79,42 @@ final class IntakeRouterTests: XCTestCase {
 
     private func isPreview(_ r: IntakeRouter) -> Bool { if case .preview = r.phase { return true }; return false }
     private func isDone(_ r: IntakeRouter) -> Bool { if case .done = r.phase { return true }; return false }
+
+    /// G71 (2026-10-16): a Takeout's watch history is offered, off by default; the switch sniffs again with history
+    /// and the import carries it, and a new drop starts with it off.
+    func testIncludeWatchHistoryResniffsAndRidesTheUpload() async throws {
+        let api = FakeIntakeAPI()
+        api.sniffs["takeout.zip"] = IntakeSniff(recognized: true, kind: "saved", platform: "youtube",
+                                                counts: IntakeCounts(items: 2), historyExcluded: 4)
+        api.historySniffs["takeout.zip"] = IntakeSniff(recognized: true, kind: "saved", platform: "youtube",
+                                                       counts: IntakeCounts(items: 2), historyVideos: 3, historyDays: 2)
+        let router = IntakeRouter(api: api)
+        router.accept(urls: [try file("takeout.zip")], from: .windowDrop)
+        try await eventually("preview") { self.isPreview(router) }
+        guard case .preview(let off) = router.phase else { return XCTFail() }
+        XCTAssertTrue(off.offersHistory)
+        XCTAssertEqual(off.importCount, 2)
+        XCTAssertTrue(IntakeSummary.historyLine(off, included: false).hasPrefix("4 watched videos left out"))
+        router.setIncludeHistory(true)
+        try await eventually("history preview") {
+            if case .preview(let p) = router.phase { return p.historyVideos == 3 }
+            return false
+        }
+        guard case .preview(let on) = router.phase else { return XCTFail() }
+        XCTAssertEqual(on.importCount, 5, "the watched videos count toward the import")
+        XCTAssertTrue(IntakeSummary.historyLine(on, included: true).hasPrefix("3 watched videos over 2 days"))
+        router.confirm(createBank: { _ in nil })
+        try await eventually("done") { self.isDone(router) }
+        XCTAssertEqual(api.sniffHistory, [false, true])
+        XCTAssertEqual(api.uploadHistory, [true])
+        router.accept(urls: [try file("again.zip")], from: .windowDrop)
+        XCTAssertFalse(router.includeHistory, "every new drop starts with history off")
+    }
+
+    func testAWalkedTakeoutFolderSendsItsWatchHistoryPage() {
+        XCTAssertTrue(IntakeRouter.isWalkedExportFile(URL(fileURLWithPath: "/t/Takeout/YouTube/history/watch-history.html")))
+        XCTAssertFalse(IntakeRouter.isWalkedExportFile(URL(fileURLWithPath: "/t/Takeout/YouTube/history/search-history.html")))
+    }
 
     func testAStaleSniffNeverLandsOnANewerPreview() async throws {
         let api = FakeIntakeAPI()
@@ -230,6 +278,61 @@ final class IntakeRouterTests: XCTestCase {
         let (many, cappedMany) = IntakeRouter.expand([dir.appendingPathComponent("many")])
         XCTAssertEqual(many.count, IntakeRouter.maxFiles)
         XCTAssertTrue(cappedMany)
+    }
+
+    /// An unzipped X archive: only its like and bookmark lists leave this Mac — never its messages, its posts or
+    /// the archive viewer's own scripts (the backend refuses those too; this keeps them from being sent at all).
+    func testExpandKeepsOnlyTheXArchivesSaveListsAmongItsScripts() throws {
+        _ = try file("twitter/data/like.js")
+        _ = try file("twitter/data/bookmark-part1.js")
+        _ = try file("twitter/data/direct-messages.js")
+        _ = try file("twitter/data/tweets.js")
+        _ = try file("twitter/assets/js/main.js")
+        _ = try file("twitter/Your archive.html")
+        let (files, _) = IntakeRouter.expand([dir.appendingPathComponent("twitter")])
+        XCTAssertEqual(files.map(\.lastPathComponent), ["bookmark-part1.js", "like.js"],
+                       "the archive's viewer page is not a save list and is not sent")
+        XCTAssertTrue(IntakeRouter.isExportFile(URL(fileURLWithPath: "/x/Like.js")))
+        XCTAssertFalse(IntakeRouter.isExportFile(URL(fileURLWithPath: "/x/likes-partner.js")))
+    }
+
+    /// A walked export folder obeys the same allow-list as a zip: an unzipped LinkedIn export's
+    /// Connections.csv (other people's profiles) and a Takeout's subscriptions are never sent; save lists are.
+    /// A file dropped by itself keeps the wider rule — the person chose it.
+    func testAWalkedFolderSendsOnlySaveListsAmongItsCSVsAndPages() throws {
+        _ = try file("linkedin/Connections.csv")
+        _ = try file("linkedin/Saved Items.csv")
+        _ = try file("linkedin/Messages.html")
+        _ = try file("Takeout/YouTube and YouTube Music/playlists/Later-videos.csv")
+        _ = try file("Takeout/YouTube and YouTube Music/subscriptions/subscriptions.csv")
+        _ = try file("Takeout/YouTube and YouTube Music/history/watch-history.json")
+        _ = try file("Takeout/My Activity/Gemini Apps/MyActivity.html")
+        _ = try file("reddit/saved_posts.csv")
+        _ = try file("reddit/comments.csv")
+        _ = try file("tiktok/Activity/Like List.txt")
+        _ = try file("tiktok/Activity/Login History.txt")
+        let roots = ["linkedin", "Takeout", "reddit", "tiktok"].map { dir.appendingPathComponent($0) }
+        let (files, _) = IntakeRouter.expand(roots)
+        XCTAssertEqual(Set(files.map(\.lastPathComponent)),
+                       ["Saved Items.csv", "Later-videos.csv", "watch-history.json", "MyActivity.html",
+                        "saved_posts.csv", "Like List.txt"])
+        let alone = try file("Connections.csv")
+        XCTAssertEqual(IntakeRouter.expand([alone]).files, [alone], "a file dropped by itself is the person's choice")
+    }
+
+    func testAWalkedFilesAreSentNamedByTheirPathInsideTheDroppedFolder() async throws {
+        let api = FakeIntakeAPI()
+        api.sniffs["like.js"] = IntakeSniff(recognized: true, kind: "saved", platform: "x", counts: IntakeCounts(items: 2))
+        let router = IntakeRouter(api: api)
+        _ = try file("twitter-archive/data/like.js")
+        let alone = try file("bookmarks.html")
+        router.accept(urls: [dir.appendingPathComponent("twitter-archive"), alone], from: .windowDrop)
+        try await eventually("the preview") { self.isPreview(router) }
+        XCTAssertEqual(api.sentNames.sorted(), ["bookmarks.html", "twitter-archive/data/like.js"])
+        guard case .preview(let p) = router.phase else { return XCTFail("\(router.phase)") }
+        api.sentNames = []
+        _ = await router.commit(p, from: .windowDrop)
+        XCTAssertEqual(api.sentNames, ["twitter-archive/data/like.js"], "the upload names it as the sniff did")
     }
 
     /// R-IB15 — while the Welcome shows, every arrival is staged on it; nothing imports before Start.

@@ -20,6 +20,7 @@ Everything here is hermetically testable: ``resolve_llm_fn`` takes an injectable
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import inspect
 import os
 import threading
@@ -85,7 +86,12 @@ def warm_local_embed_fn(model_id: str | None) -> EmbedFn | None:
         return None
     with _EMBED_LOCK:
         hit = _EMBED_CACHE.get(mid)
-    return hit[0] if hit else None
+    if not hit:
+        return None
+    # A Core ML model loads per function: here it never loads one inside the hook's budget (it answers "not
+    # yet" at once and the lexical order stands).
+    loaded_only = getattr(hit[0], "loaded_only", None)
+    return loaded_only() if callable(loaded_only) else hit[0]
 
 
 def cached_embed_fn_for_model(model_id: str, settings: Settings | None = None) -> tuple[EmbedFn, str]:
@@ -136,7 +142,13 @@ def warm_query_embedder(memory_path) -> None:
         # Every model a table was built with — after a partial switch, two (audit 2026-10-05 P2-4).
         for recorded in dict.fromkeys(idx.kind_model(k) for k in ("entities", "claims", "episodes", "pending")):
             if recorded and recorded != "unknown":
-                cached_embed_fn_for_model(recorded)
+                embed_fn, _mid = cached_embed_fn_for_model(recorded)
+                warm = getattr(embed_fn, "warm", None)
+                if callable(warm):
+                    # A Core ML model loads per function; the backend loads all seven (≈ 5 s in the background,
+                    # ≈ 13 MB more than the query ones): its recall hook embeds prompts of any length and never
+                    # loads one inside its budget, and its builds need them anyway.
+                    warm()
                 logger.info(f"Warmed query embedder: {recorded}")
     except Exception as exc:  # never fatal
         logger.warning(f"embedder warm-up skipped: {exc}")
@@ -416,6 +428,10 @@ def resolve_llm_fn(
                         usage["cache_read_tokens"], usage["cache_write_tokens"])
             else:
                 cost = None if billing == "free" else usage["cost_usd"]
+                if cost is not None:
+                    _source = telemetry.cost_from_response(resp)[1]
+                    if _source:
+                        refs = {**(refs or {}), "cost_source": _source}
                 equiv = pricing.estimate_cost(
                     resolved_model, usage["input_tokens"], usage["output_tokens"],
                     usage["cache_read_tokens"], usage["cache_write_tokens"])
@@ -451,7 +467,8 @@ def resolve_llm_fn(
         except Exception as sink_exc:
             logger.warning(f"telemetry sink failed: {sink_exc}")
 
-    def _agent_invoke(messages, response_format, timeout: float, reasoning_off: bool = False):
+    def _agent_invoke(messages, response_format, timeout: float, reasoning_off: bool = False,
+                      web_search: bool = False):
         """One plan-CLI call (`claude -p` or `codex exec`), the response shim,
         and telemetry.
 
@@ -493,10 +510,15 @@ def resolve_llm_fn(
                     messages=messages, model=argv_model, stage=stage,
                     want_json=response_format is not None, timeout=timeout, runner=runner,
                     scope=resolved_scope,
-                    policy=agent_engine.CallPolicy.from_settings(settings, reasoning_off=reasoning_off),
+                    policy=dataclasses.replace(
+                        agent_engine.CallPolicy.from_settings(settings, reasoning_off=reasoning_off),
+                        web_search=web_search),
                     on_signals=lambda stream, stop: seen.update(stream=stream, stop=stop),
                 )
                 resp = agent_engine.response_shim(envelope, argv_model)
+                if web_search:
+                    # The searches the call made (the web lookup holds them to its pinned query).
+                    resp["tool_uses"] = envelope.get("_tool_uses") or []
                 used = resp["model"]
                 equiv = agent_engine.equiv_cost_from_envelope(envelope)
                 refs = _claude_refs(envelope, seen.get("stream"))
@@ -570,11 +592,34 @@ def resolve_llm_fn(
             if guard is not None:
                 guard.observe_signals(seen_["stream"].rate_limits)
 
-    def _agent_invoke_sync(messages, response_format, timeout: float, reasoning_off: bool = False):
-        with _agent_semaphore(getattr(settings, "agent_max_concurrency", 3)):
-            return _agent_invoke(messages, response_format, timeout, reasoning_off)
+    def _agent_invoke_sync(messages, response_format, timeout: float, reasoning_off: bool = False,
+                           web_search: bool = False):
+        for attempt in range(2):
+            try:
+                with _agent_semaphore(getattr(settings, "agent_max_concurrency", 3)):
+                    return _agent_invoke(messages, response_format, timeout, reasoning_off, web_search)
+            except engine_errors.RETRYABLE as exc:
+                delay = _drain_retry_delay(attempt, exc)
+                if delay is None:
+                    raise
+                time.sleep(delay)
 
-    async def _agent_invoke_async(messages, response_format, timeout: float, reasoning_off: bool = False):
+    def _drain_retry_delay(attempt: int, exc: Exception) -> int | None:
+        from api.services import sleep_drain
+
+        # Extraction already owns exactly one retry per chunk. Later calls in
+        # a drain retry here, rather than replaying the whole paid batch. Other
+        # workloads retain their existing retry policy. Every actual attempt
+        # passes through _agent_invoke's ledger and call counter separately.
+        if (attempt or stage == "extraction" or not isinstance(exc, engine_errors.TRANSIENT)
+                or sleep_drain.drain_for(agent_engine_cycle_id()) is None):
+            return None
+        delay = 10 if isinstance(exc, engine_errors.EngineTimeout) else 2
+        logger.warning(f"Sleep engine call timed out or failed; retrying once in {delay}s")
+        return delay
+
+    async def _agent_invoke_async(messages, response_format, timeout: float, reasoning_off: bool = False,
+                                  web_search: bool = False):
         # Round 2 finding 2: the acquire, the call, and the release all
         # happen INSIDE this one `asyncio.to_thread` dispatch, sharing the
         # exact same `threading.BoundedSemaphore` a sync caller blocks on —
@@ -582,9 +627,16 @@ def resolve_llm_fn(
         # loop, while still drawing from the ONE process-wide capacity pool.
         def _run_with_permit():
             with _agent_semaphore(getattr(settings, "agent_max_concurrency", 3)):
-                return _agent_invoke(messages, response_format, timeout, reasoning_off)
+                return _agent_invoke(messages, response_format, timeout, reasoning_off, web_search)
 
-        return await asyncio.to_thread(_run_with_permit)
+        for attempt in range(2):
+            try:
+                return await asyncio.to_thread(_run_with_permit)
+            except engine_errors.RETRYABLE as exc:
+                delay = _drain_retry_delay(attempt, exc)
+                if delay is None:
+                    raise
+                await asyncio.sleep(delay)
 
     def _agent_call(*, messages, response_format=None, **kw):
         # Accept-and-drop every unknown kwarg (`temperature`, `max_tokens`,
@@ -605,15 +657,23 @@ def resolve_llm_fn(
             if parsed is not None and parsed > 0:
                 timeout = parsed
         reasoning_off = _reasoning_off(kw.get("extra_body"))
+        # The web lookup (owner ruling 2026-10-16): the plan's own search as the call's one tool. Only the
+        # Claude plan has it here; the ChatGPT rung never gets a tool.
+        web_search = bool(kw.get("web_search")) and mode == "agent"
         if is_async:
-            return _agent_invoke_async(messages, response_format, timeout, reasoning_off)
-        return _agent_invoke_sync(messages, response_format, timeout, reasoning_off)
+            return _agent_invoke_async(messages, response_format, timeout, reasoning_off, web_search)
+        return _agent_invoke_sync(messages, response_format, timeout, reasoning_off, web_search)
 
     if is_cli:
         return _agent_call
 
     def _call(*, messages, response_format=None, **kw):
+        # The web lookup on a metered engine: the provider's own search, one search per call
+        # (litellm's `search_context_size: low` is Anthropic's `max_uses: 1`), at its price (ruling 12).
+        web_search = bool(kw.pop("web_search", False))
         call_kw: dict[str, Any] = {"model": resolved_model, "messages": messages, **kw}
+        if web_search:
+            call_kw["web_search_options"] = {"search_context_size": "low"}
         if response_format is not None:
             call_kw["response_format"] = response_format
         if headers is not None and "extra_headers" not in call_kw:
@@ -751,7 +811,8 @@ def resolve_embed_fn(
 
     spec = onnx_embedder.find(model)
     if spec is not None:
-        return onnx_embedder.OnnxEmbedder(spec), spec.id
+        return onnx_embedder.embedder_for(spec), spec.id
+    _refuse_missing_on_device(model)
 
     # Local sentence-transformers (default: google/embeddinggemma-300m).
     if sentence_transformer_factory is None:
@@ -782,6 +843,15 @@ def resolve_embed_fn(
 # Recorded model ids that map to the OpenRouter ``/embeddings`` route. Gemini
 # embedding models are served via OpenRouter in Cicada.
 _OPENROUTER_EMBED_MODELS = ("gemini",)
+
+
+def _refuse_missing_on_device(model_id: str) -> None:
+    """EmbeddingGemma 2 runs only from its downloaded Core ML folder on a Mac that can run it: never through
+    sentence-transformers, which would try to fetch an id that names no Hugging Face repository."""
+    from api.services import coreml_embedder, onnx_embedder
+
+    if onnx_embedder.base_id(model_id).lower() == onnx_embedder.PREFERRED_BASE:
+        raise coreml_embedder.EmbedderUnavailable(f"{model_id} isn't installed or can't run on this Mac")
 
 
 def _local_source(model_id: str) -> str:
@@ -895,7 +965,8 @@ def resolve_embed_fn_for_model(
 
     spec = onnx_embedder.find(mid)
     if spec is not None:
-        return onnx_embedder.OnnxEmbedder(spec), spec.id
+        return onnx_embedder.embedder_for(spec), spec.id
+    _refuse_missing_on_device(mid)
 
     # Local sentence-transformers (the recorded id is the ST model name).
     if sentence_transformer_factory is None:

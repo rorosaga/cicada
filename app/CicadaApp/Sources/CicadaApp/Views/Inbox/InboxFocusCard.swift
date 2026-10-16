@@ -106,7 +106,7 @@ struct InboxFocusCard: View {
             guard field == nil else { return .ignored }
             switch variant {
             case .options where item.allowOther: selection.openOther(); field = .other
-            case .freeText: field = .answer
+            case .freeText, .name: field = .answer
             default: return .ignored
             }
             return .handled
@@ -167,14 +167,8 @@ struct InboxFocusCard: View {
     @ViewBuilder
     private var quote: some View {
         if let segments = QuoteSegments.of(item) {
-            CitedSpan.text(segments)
-                .font(CicadaTheme.quoteFont)
-                .lineSpacing(CicadaTheme.quoteLineSpacing)
-                .foregroundStyle(CicadaTheme.textPrimary)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .textSelection(.enabled)
-                .citedSpans()
+            // Selectable and washed: a selectable `Text` never reaches the span renderer, so the washes ride `CitedPassage`.
+            CitedPassage(segments: segments)
                 .quoteBlock()
                 .padding(.top, CicadaTheme.scaled(20))
             if QuoteSegments.isDerived(item) {
@@ -183,7 +177,8 @@ struct InboxFocusCard: View {
                     .foregroundStyle(CicadaTheme.textTertiary)
                     .padding(.top, CicadaTheme.spacingXS)
             }
-        } else if !item.hasCause, !item.body.isEmpty {
+        }
+        if InboxBodyPreview.shows(item, hasQuote: QuoteSegments.of(item) != nil) {
             // Owner defect 2 (2026-09-03) survives: a long legacy body shows three lines and "Show all N".
             // Cleaned line by line: `clean` joins lines with a space, which would fold the three kept
             // lines back into the one run-on paragraph the collapse exists to prevent.
@@ -245,6 +240,7 @@ struct InboxFocusCard: View {
         case .options: optionsBody
         case .informational: InformationalBody(item: item, names: store.entityNames, onAnswer: onAnswer)
         case .freeText: FreeTextBody(item: item, field: $field, onAnswer: onAnswer)
+        case .name: NameBody(item: item, field: $field, onAnswer: onAnswer)
         case .merge: MergeBody(item: item, names: store.entityNames, field: $field, onAnswer: onAnswer)
         case .legacyDecay: LegacyDecayBody(onAnswer: onAnswer)
         case .dismissOnly: DismissBody(onAnswer: onAnswer)

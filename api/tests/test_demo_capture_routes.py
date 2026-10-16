@@ -22,9 +22,15 @@ from api.services import bank_registry, demo_guard, sleep_cycle
 #: with a concrete path to call (R-CS15).
 GATED = {
     ("POST", "/sources/save"): "/sources/save",
+    ("POST", "/sources/saved-why"): "/sources/saved-why",
+    ("PUT", "/sources/saved-why"): "/sources/saved-why",          # G191 v3: the person's edit of one answer
+    ("POST", "/sources/bookmarks/remove"): "/sources/bookmarks/remove",   # G191 v3: Remove on a bookmark's page
     ("POST", "/sources/upload"): "/sources/upload",
     ("POST", "/sources/rss"): "/sources/rss",
     ("POST", "/sources/sync-bookmarks"): "/sources/sync-bookmarks",
+    # G191 live: the early look writes nothing, but asking why about a bookmark a demo bank will not capture is
+    # pointless — gated like the sync it precedes.
+    ("POST", "/sources/sync-bookmarks/fresh"): "/sources/sync-bookmarks/fresh",
     ("POST", "/sources/sync-safari-tabs"): "/sources/sync-safari-tabs",
     ("POST", "/sources/feeds"): "/sources/feeds",
     ("POST", "/sources/poll-feeds"): "/sources/poll-feeds",
@@ -36,7 +42,19 @@ GATED = {
     ("POST", "/sources/folders/{folder_id}/sync"): "/sources/folders/f1/sync",
     ("POST", "/sources/calendar-local/sync"): "/sources/calendar-local/sync",
     ("POST", "/sources/tab-groups/sync"): "/sources/tab-groups/sync",
+    # G71 (2026-10-16): the YouTube videos watched in Chrome — day episodes.
+    ("POST", "/sources/watch-history/sync"): "/sources/watch-history/sync",
     ("POST", "/sources/contacts-local/sync"): "/sources/contacts-local/sync",
+    # 2026-10-16: LinkedIn connections — the import writes person pages; the preview is pointless into a demo bank.
+    ("POST", "/sources/linkedin-connections/preview"): "/sources/linkedin-connections/preview",
+    ("POST", "/sources/linkedin-connections/import"): "/sources/linkedin-connections/import",
+    # G179: the Messages conversations the person ticked — the rows, the settings, and the list (computes only, but
+    # a demo bank takes no conversation in, so offering to pick one is pointless).
+    ("POST", "/sources/messages/sync"): "/sources/messages/sync",
+    ("PUT", "/sources/messages/settings"): "/sources/messages/settings",
+    ("POST", "/sources/messages/conversations"): "/sources/messages/conversations",
+    # 2026-10-16: a ticked chat's shared photo — outside the bank, but a demo bank ticks no chat.
+    ("PUT", "/sources/messages/photos"): "/sources/messages/photos",
     # A connector id no adapter has: were the gate missing, the handler 404s
     # before any adapter could reach the network (sync_now passes allow_fetch=True).
     ("POST", "/sources/connectors/{connector_id}/sync"): "/sources/connectors/no-such-connector/sync",
@@ -50,6 +68,9 @@ GATED = {
 #: The rest of the prefixes, each with the reason it is not the dependency's.
 HANDLED_ELSEWHERE = {
     ("POST", "/capture/transcript"): "redirects to the real bank left last (test_demo_capture.py)",
+    ("POST", "/capture/turn"): "redirects to the real bank left last, like the Stop hook (test_turn_capture.py)",
+    ("POST", "/capture/session"):
+        "redirects to the real bank left last, like the Stop hook (test_headless_clients.py)",
     ("POST", "/capture/telegram"): "answers 200 with a reply so Telegram never retries (test_demo_capture.py)",
     ("POST", "/capture/hook-context"):
         "reads only, from bank_registry.capture_bank — the real bank left last while the demo is open "

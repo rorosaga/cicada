@@ -48,11 +48,18 @@ enum BookwormOverlays {
         "7": ["ooo", "..o", "..o", "..o", "..o"],
         "8": ["ooo", "o.o", "ooo", "o.o", "ooo"],
         "9": ["ooo", "o.o", "ooo", "..o", "ooo"],
+        "+": ["...", ".o.", "ooo", ".o.", "..."],
     ]
+
+    /// The badge's words: the count up to 99, then "99+" (owner 2026-10-14: 133 waiting read as "99", and as a
+    /// consolidation count). Three glyphs still fit the 18-pixel frame (a 13-pixel pill).
+    static func badgeText(_ count: Int) -> String {
+        count > 99 ? "99+" : String(max(1, count))
+    }
 
 
     static func badgeOverlay(_ count: Int) -> PixelGrid {
-        let text = String(max(1, min(99, count)))
+        let text = badgeText(count)
         let width = text.count * 4 + 1
         let left = size - width
         var out = glyph(Array(repeating: String(repeating: "q", count: width), count: 7), top: 11, left: left)

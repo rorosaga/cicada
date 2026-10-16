@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 
 from api import config, main
 from api.routers import graph as graph_router
-from api.services import bank_index, graph_builder, logo_service, markdown_parser, sync_service
+from api.services import bank_index, graph_builder, logo_service, markdown_parser, media_preview, sync_service
 
 UPLOAD = {"kind": "upload", "sha": "3f9a1c0b2d4e", "ext": "jpg", "added": "2026-09-24"}
 
@@ -57,7 +57,8 @@ def test_every_node_carries_its_resolved_picture_and_last_mention(bank):
         ("/entities/bob-example/picture?v=3f9a1c0b2d4e", "upload")
     assert (nodes["acme"].picture, nodes["acme"].picture_source) == ("/entities/acme/logo", "logo")
     assert (nodes["video-example"].picture, nodes["video-example"].picture_source) == \
-        ("https://img.example.com/1.jpg", "thumbnail")
+        (media_preview.preview_path("video-example", {"type": "media", "media": {
+            "url": "https://www.youtube.com/watch?v=abc", "thumbnail": "https://img.example.com/1.jpg"}}), "thumbnail")
     assert nodes["alpha-project"].picture is None and nodes["alpha-project"].picture_source is None
     assert nodes["bob-example"].last_referenced == "2026-09-20" and nodes["alpha-project"].last_referenced is None
 
@@ -100,7 +101,8 @@ def test_the_entity_carries_its_picture_and_the_twins_inputs(bank):
         project = c.get("/entities/alpha-project").json()
     assert person["picture"] == "/entities/bob-example/picture?v=3f9a1c0b2d4e" and person["pictureSource"] == "upload"
     assert person["pictureInputs"] == {"type": "person", "choice": "upload", "uploadSha": "3f9a1c0b2d4e",
-                                       "contactsSha": None, "logo": False, "thumbnail": None}
+                                       "contactsSha": None, "logo": False, "thumbnail": None, "profile": False, "profileSha": None, "profileKey": None,
+                                          "messagesSha": None}
     assert project["picture"] is None and project["pictureSource"] is None
     assert project["pictureInputs"]["type"] == "project"
 

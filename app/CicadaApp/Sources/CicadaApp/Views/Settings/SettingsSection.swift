@@ -34,10 +34,15 @@ import Foundation
 ///
 /// O5 — Skills (G138) closes Customize: what your agents can add, installed
 /// only by the agent's own installer after consent (R-O26).
+///
+/// Search & files (owner, 2026-10-14) sits between Privacy & data and Memory: the folders Cicada keeps and how well
+/// search understands what it finds, in one place. Its sidebar label is short ("Search & files"); its page title is
+/// the question it answers ("What Cicada can look through") — `pageTitle`. A new case only, so every persisted raw
+/// value still restores.
 enum SettingsSection: String, CaseIterable, Identifiable {
     // Declared in sidebar order — `SettingsGroup.sections` filters this list,
     // and `SettingsKitTests` pins that the groups read it back unchanged.
-    case general, you, privacy, memory, sleep, integrations, reading, agents, remote, skills, engines, plansAndKeys, advanced
+    case general, you, privacy, searchFiles, memory, sleep, integrations, reading, agents, remote, devices, skills, engines, plansAndKeys, advanced
 
     var id: String { rawValue }
 
@@ -46,16 +51,26 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .general: Copy.general
         case .you: Copy.youSection
         case .privacy: Copy.privacyAndData
+        case .searchFiles: Copy.SearchFiles.sidebar
         case .memory: Copy.memorySection
         case .sleep: Copy.sleepSettings
         case .integrations: Copy.integrations
         case .reading: Copy.Reading.pageTitle
         case .agents: Copy.agents
         case .remote: Copy.fromAnywhere
+        case .devices: Copy.Devices.sidebar
         case .skills: Copy.skills
         case .engines: Copy.engines
         case .plansAndKeys: Copy.plansAndKeys
         case .advanced: Copy.advanced
+        }
+    }
+
+    /// The page header's title: the sidebar's label, except where the page asks its own question (Search & files).
+    var pageTitle: String {
+        switch self {
+        case .searchFiles: Copy.SearchFiles.pageTitle
+        default: title
         }
     }
 
@@ -65,12 +80,14 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .general: Copy.generalSubtitle
         case .you: Copy.youSubtitle
         case .privacy: Copy.privacySubtitle
+        case .searchFiles: Copy.SearchFiles.subtitle
         case .memory: Copy.memorySubtitle
         case .sleep: Copy.sleepSettingsSubtitle
         case .integrations: Copy.integrationsSubtitle
         case .reading: Copy.Reading.pageSubtitle
         case .agents: Copy.agentsSubtitle
         case .remote: Copy.remoteSubtitle
+        case .devices: Copy.Devices.subtitle
         case .skills: Copy.skillsSubtitle
         case .engines: Copy.enginesSubtitle
         case .plansAndKeys: Copy.plansAndKeysSubtitle
@@ -83,12 +100,14 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .general: "gearshape"
         case .you: "person.crop.circle"
         case .privacy: "hand.raised"
+        case .searchFiles: "doc.text.magnifyingglass"
         case .memory: "books.vertical"
         case .sleep: "moon.zzz"
         case .integrations: "puzzlepiece.extension"
         case .reading: "globe"
         case .agents: "cable.connector"
         case .remote: "dot.radiowaves.left.and.right"
+        case .devices: "laptopcomputer.and.iphone"
         case .skills: "sparkles"
         case .engines: "cpu"
         // K4: `creditcard` read as a price on a page that must never show one.
@@ -99,8 +118,8 @@ enum SettingsSection: String, CaseIterable, Identifiable {
 
     var group: SettingsGroup {
         switch self {
-        case .general, .you, .privacy, .memory, .sleep: .cicada
-        case .integrations, .reading, .agents, .remote, .skills: .customize
+        case .general, .you, .privacy, .searchFiles, .memory, .sleep: .cicada
+        case .integrations, .reading, .agents, .remote, .devices, .skills: .customize
         case .engines, .plansAndKeys, .advanced: .enginesAndKeys
         }
     }

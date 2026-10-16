@@ -4,7 +4,7 @@ import Foundation
 // the paused run, the reading options, the per-conversation queue, a whole run's detail and the
 // reserve line. Every field decodes leniently, the `SleepDrainSSE` pattern: an older backend, or
 // one that adds a key, reads as no news and never fails the status it rides on. Ids, counts and
-// enums only; the one text a record carries is the vendor's own sentence for a plan stop.
+// enums only, plus the pause's plan or engine diagnosis.
 
 /// The reserve line ("Leave room in my plan") and which plan windows it can hold. `enforced` is
 /// `true` only for a window the engine reported, `false` for one it should have reported and did
@@ -93,7 +93,9 @@ struct SleepPausedRun: Codable, Equatable {
     var runId: String
     var startedBy: String
     var reason: String
-    /// The vendor's own sentence for a plan stop; `nil` otherwise.
+    /// `transient | needs_fix`; older backends omit this and retain the fix guidance.
+    var engineKind: String?
+    /// The pause's diagnosis: a plan's own sentence, or an engine interruption/fix.
     var sentence: String?
     /// The vendor's unix reset time — `nil` when none was given, never guessed.
     var resetsAt: Int?
@@ -110,8 +112,9 @@ struct SleepPausedRun: Codable, Equatable {
     init(runId: String = "run", startedBy: String = "user", reason: String, sentence: String? = nil,
          resetsAt: Int? = nil, limit: String? = nil, filed: Int = 0, frozen: Int = 0, calls: Int = 0,
          committedBatches: Int = 0, pausedAt: String? = nil, canContinue: Bool = true,
-         engineLabel: String? = nil, autoContinue: AutoContinue? = nil) {
+         engineLabel: String? = nil, autoContinue: AutoContinue? = nil, engineKind: String? = nil) {
         self.runId = runId; self.startedBy = startedBy; self.reason = reason; self.sentence = sentence
+        self.engineKind = engineKind
         self.resetsAt = resetsAt; self.limit = limit; self.filed = filed; self.frozen = frozen
         self.calls = calls; self.committedBatches = committedBatches; self.pausedAt = pausedAt
         self.canContinue = canContinue; self.engineLabel = engineLabel; self.autoContinue = autoContinue
@@ -124,6 +127,7 @@ struct SleepPausedRun: Codable, Equatable {
         runId = str(.runId) ?? ""
         startedBy = str(.startedBy) ?? "user"
         reason = str(.reason) ?? "user"
+        engineKind = str(.engineKind)
         sentence = str(.sentence)
         resetsAt = (try? c.decodeIfPresent(Int.self, forKey: .resetsAt)) ?? nil
         limit = str(.limit)
@@ -135,7 +139,7 @@ struct SleepPausedRun: Codable, Equatable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case runId, startedBy, reason, sentence, resetsAt, limit, filed, frozen, calls, committedBatches
+        case runId, startedBy, reason, engineKind, sentence, resetsAt, limit, filed, frozen, calls, committedBatches
         case pausedAt, canContinue, engineLabel, autoContinue
     }
 }
@@ -145,21 +149,25 @@ struct SleepPausedRun: Codable, Equatable {
 struct SleepPausedSSE: Codable, Equatable {
     var runId: String?
     var reason: String?
+    var engineKind: String?
     var autoArmed: Bool
     var autoLeft: Int?
 
-    init(runId: String? = nil, reason: String? = nil, autoArmed: Bool = false, autoLeft: Int? = nil) {
+    init(runId: String? = nil, reason: String? = nil, autoArmed: Bool = false, autoLeft: Int? = nil,
+         engineKind: String? = nil) {
         self.runId = runId; self.reason = reason; self.autoArmed = autoArmed; self.autoLeft = autoLeft
+        self.engineKind = engineKind
     }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         runId = (try? c.decodeIfPresent(String.self, forKey: .runId)) ?? nil
         reason = (try? c.decodeIfPresent(String.self, forKey: .reason)) ?? nil
+        engineKind = (try? c.decodeIfPresent(String.self, forKey: .engineKind)) ?? nil
         autoArmed = ((try? c.decodeIfPresent(Bool.self, forKey: .autoArmed)) ?? nil) ?? false
         autoLeft = (try? c.decodeIfPresent(Int.self, forKey: .autoLeft)) ?? nil
     }
-    enum CodingKeys: String, CodingKey { case runId, reason, autoArmed, autoLeft }
+    enum CodingKeys: String, CodingKey { case runId, reason, engineKind, autoArmed, autoLeft }
 }
 
 /// `GET/PUT /sleep/run-options` — how often progress is saved, the opt-in continue-after-reset
@@ -171,11 +179,14 @@ struct SleepRunOptions: Codable, Equatable {
     var continueAfterReset: Bool
     var reservePct: Int?
     var reserveChoices: [Int]
+    /// TODO ruling 4b (owner, 2026-10-16): this machine lets scheduled runs use the person's plan. Off by default.
+    var scheduledUsePlan: Bool
 
     init(batchSize: Int = 25, batchSizeChoices: [Int] = [10, 25, 50], continueAfterReset: Bool = false,
-         reservePct: Int? = nil, reserveChoices: [Int] = [5, 10, 20, 30]) {
+         reservePct: Int? = nil, reserveChoices: [Int] = [5, 10, 20, 30], scheduledUsePlan: Bool = false) {
         self.batchSize = batchSize; self.batchSizeChoices = batchSizeChoices
         self.continueAfterReset = continueAfterReset; self.reservePct = reservePct; self.reserveChoices = reserveChoices
+        self.scheduledUsePlan = scheduledUsePlan
     }
 
     init(from decoder: Decoder) throws {
@@ -185,8 +196,11 @@ struct SleepRunOptions: Codable, Equatable {
         continueAfterReset = ((try? c.decodeIfPresent(Bool.self, forKey: .continueAfterReset)) ?? nil) ?? false
         reservePct = (try? c.decodeIfPresent(Int.self, forKey: .reservePct)) ?? nil
         reserveChoices = ((try? c.decodeIfPresent([Int].self, forKey: .reserveChoices)) ?? nil) ?? []
+        scheduledUsePlan = ((try? c.decodeIfPresent(Bool.self, forKey: .scheduledUsePlan)) ?? nil) ?? false
     }
-    enum CodingKeys: String, CodingKey { case batchSize, batchSizeChoices, continueAfterReset, reservePct, reserveChoices }
+    enum CodingKeys: String, CodingKey {
+        case batchSize, batchSizeChoices, continueAfterReset, reservePct, reserveChoices, scheduledUsePlan
+    }
 }
 
 /// A `PUT /sleep/run-options` change: only the fields set are sent (`reservePct` as JSON `null`
@@ -195,12 +209,15 @@ enum SleepRunOptionsChange: Equatable {
     case batchSize(Int)
     case continueAfterReset(Bool)
     case reservePct(Int?)
+    /// Ruling 4b: the machine's "Scheduled runs may use my plan" switch.
+    case scheduledUsePlan(Bool)
 
     var body: [String: Any] {
         switch self {
         case .batchSize(let n): ["batchSize": n]
         case .continueAfterReset(let on): ["continueAfterReset": on]
         case .reservePct(let pct): ["reservePct": pct.map { $0 as Any } ?? NSNull()]
+        case .scheduledUsePlan(let on): ["scheduledUsePlan": on]
         }
     }
 }

@@ -126,6 +126,87 @@ final class SleepV5WireTests: XCTestCase {
 // MARK: - The sentence ladder
 
 final class SleepV5RoomSentenceTests: XCTestCase {
+    func test_engineFailuresAndPausesNeverSpeakRawDiagnosesOutsideDetails() {
+        for diagnosis in ["EngineFailed: `codex exec` failed: workspace routing discovery failed",
+                          "EngineUnavailable: `claude -p` did not return the JSON envelope",
+                          "ValueError: invalid configuration"] {
+            var context = RoomContext(mood: .error, scheduleMode: "manual", locale: V5Fixture.en)
+            context.cycleError = diagnosis
+            context.engineDetail = diagnosis
+            context.lastEngine = "codex-cli"
+            let line = roomSentence(context)
+            XCTAssertEqual(line.lead, "Reading stopped.")
+            XCTAssertEqual(line.tail, "See what needs a fix in Past reads, then try again.")
+            XCTAssertEqual(line.action, .openDetails(.lastCycle))
+            XCTAssertEqual(LastCycleRow.rows(pageError: diagnosis, cancelled: false, capped: false,
+                                             indexWarning: nil, status: nil).first?.text, diagnosis)
+            XCTAssertFalse(wormAnswers(context).contains { $0.spoken.contains(diagnosis) })
+            for kind in ["transient", "needs_fix"] {
+                context.paused = SleepPausedRun(reason: "engine", sentence: diagnosis, engineKind: kind)
+                let pausedLine = roomSentence(context)
+                XCTAssertFalse(pausedLine.spoken.contains(diagnosis))
+                XCTAssertEqual(pausedLine.action, .openDetails(.lastCycle))
+                XCTAssertFalse(wormAnswers(context).contains { $0.spoken.contains(diagnosis) })
+            }
+        }
+    }
+
+    func test_aTimeoutPauseSaysItCanBeTriedAgainAndOffersContinue() throws {
+        let diagnosis = "The engine timed out. Continue to try again; the part it was reading will be read again."
+        let paused = try JSONDecoder().decode(SleepPausedRun.self, from: Data(
+            #"{"runId":"run","reason":"engine","engineKind":"transient","filed":3,"frozen":9}"#.utf8))
+        var diagnosed = paused
+        diagnosed.sentence = diagnosis
+        let page = SleepPageModel.resolve(
+            status: nil, sse: nil, queued: [], schedule: ScheduleConfig(mode: "manual", hour: 3, minute: 0),
+            enginePreview: nil, history: [], storeStatus: nil, queueLoad: .loaded(count: 6),
+            justFinishedAt: nil, intakeInFlight: false, paused: diagnosed, now: V5Fixture.now, locale: V5Fixture.en)
+        let line = V5Fixture.sentence(page)
+        XCTAssertEqual(line.lead, "Paused. The engine stopped answering.")
+        XCTAssertEqual(line.tail, "Continue to try again. 3 of 9 filed.")
+        XCTAssertTrue(page.paused?.canContinue == true)
+        XCTAssertFalse(page.consolidateEnabled)
+        let rows = LastCycleRow.runRows(drain: nil, paused: diagnosed, run: nil, detail: nil, parkedCount: 0,
+                                        runBilling: nil, reserveValue: nil, locale: V5Fixture.en)
+        XCTAssertEqual(rows.first { $0.kind == .paused }?.text, diagnosis)
+        XCTAssertNil(page.autoContinueWhen)
+    }
+
+    func test_authAndModelPausesKeepTheFixCopyAndTheirDiagnosis() throws {
+        for diagnosis in ["The engine is signed out. Sign in before continuing.",
+                          "The selected model was not found. Choose an available model."] {
+            let paused = try JSONDecoder().decode(SleepPausedRun.self, from: Data(
+                #"{"runId":"run","reason":"engine","engineKind":"needs_fix","filed":3,"frozen":9}"#.utf8))
+            var diagnosed = paused
+            diagnosed.sentence = diagnosis
+            let page = SleepPageModel.resolve(
+                status: nil, sse: nil, queued: [], schedule: ScheduleConfig(mode: "manual", hour: 3, minute: 0),
+                enginePreview: nil, history: [], storeStatus: nil, queueLoad: .loaded(count: 6),
+                justFinishedAt: nil, intakeInFlight: false, paused: diagnosed, now: V5Fixture.now, locale: V5Fixture.en)
+            let line = V5Fixture.sentence(page)
+            XCTAssertEqual(line.lead, "Paused. The engine needs a look.")
+            XCTAssertEqual(line.tail, "Continue when it is fixed. 3 of 9 filed.")
+            let rows = LastCycleRow.runRows(drain: nil, paused: diagnosed, run: nil, detail: nil, parkedCount: 0,
+                                            runBilling: nil, reserveValue: nil, locale: V5Fixture.en)
+            XCTAssertEqual(rows.first { $0.kind == .paused }?.text, diagnosis)
+        }
+    }
+
+    func test_engineKindSurvivesStatusAndSSEDecodingAndMovesTheStatusDomain() throws {
+        let paused = try JSONDecoder().decode(SleepPausedRun.self, from: Data(
+            #"{"runId":"run","reason":"engine","engineKind":"transient"}"#.utf8))
+        let encoded = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(paused)) as? [String: Any])
+        XCTAssertEqual(encoded["engineKind"] as? String, "transient")
+        let transient = try JSONDecoder().decode(SleepPausedSSE.self, from: Data(
+            #"{"runId":"run","reason":"engine","engineKind":"transient"}"#.utf8))
+        let fix = try JSONDecoder().decode(SleepPausedSSE.self, from: Data(
+            #"{"runId":"run","reason":"engine","engineKind":"needs_fix"}"#.utf8))
+        XCTAssertNotEqual(transient, fix, "a changed diagnosis refetches the paused record")
+        let old = VersionVector(version: "a", components: ["bank": "example", "sleep": "paused:run:transient"])
+        let new = VersionVector(version: "b", components: ["bank": "example", "sleep": "paused:run:needs_fix"])
+        XCTAssertEqual(new.changedDomains(since: old), [.status])
+    }
+
     func test_everyV5SentenceFitsAndPromisesNothingUntrue() {
         for sentence in Copy.sleepV5Sentences where !sentence.isEmpty {
             for word in V5Fixture.journalWords {
@@ -139,7 +220,8 @@ final class SleepV5RoomSentenceTests: XCTestCase {
         let leads = [Copy.SleepV5.sortingLead(31, 86), Copy.SleepV5.decidingLead(4, 12), Copy.SleepV5.filingLead,
                      Copy.SleepV5.pausingLead, Copy.SleepV5.pausedLead, Copy.SleepV5.pausedReserveLead,
                      Copy.SleepV5.pausedPlanWindowLead, Copy.SleepV5.pausedPlanWeeklyLead,
-                     Copy.SleepV5.pausedOverageLead, Copy.SleepV5.pausedEngineLead, Copy.SleepV5.restartLead,
+                     Copy.SleepV5.pausedOverageLead, Copy.SleepV5.pausedEngineLead, Copy.SleepV5.pausedEngineFixLead,
+                     Copy.SleepV5.restartLead,
                      Copy.SleepV5.bankSwitchedLead, Copy.SleepV5.filedLead(286)]
         for lead in leads { XCTAssertLessThanOrEqual(lead.count, SentenceLine.maxLead, lead) }
         let tails = [Copy.SleepV5.firstNightTail(batchSize: 25), Copy.SleepV5.sortingTail, Copy.SleepV5.decidingTail,
@@ -147,7 +229,8 @@ final class SleepV5RoomSentenceTests: XCTestCase {
                      Copy.SleepV5.pausedByYouTail(filed: 74, frozen: 287),
                      Copy.SleepV5.continueWhenYouLike(filed: 98, frozen: 287),
                      Copy.SleepV5.continuesAfter("3:40 PM", filed: 98, frozen: 287),
-                     Copy.SleepV5.resetsContinue("after 2:00 PM"), Copy.SleepV5.continueWhenFixed(filed: 98, frozen: 287),
+                     Copy.SleepV5.resetsContinue("after 2:00 PM"), Copy.SleepV5.continueToTryAgain(filed: 98, frozen: 287),
+                     Copy.SleepV5.continueWhenFixed(filed: 98, frozen: 287),
                      Copy.SleepV5.restartTail(filed: 98, frozen: 287), Copy.SleepV5.bankSwitchedTail]
         for tail in tails { XCTAssertLessThanOrEqual(tail.count, SentenceLine.maxTail, tail) }
     }
@@ -312,17 +395,21 @@ final class SleepV5StagesTests: XCTestCase {
         }
     }
 
-    func test_captionsPerStage() throws {
+    /// The stage caption retired (2026-10-16): its words repeated the lead ("Filing…" / "Filing. It cannot be stopped
+    /// now."). What only it said — conversations in the batch that could not be read — stays, under the stepper.
+    func test_onlyTheBatchFailureOutlivesTheStageCaption() throws {
         var d = try JSONDecoder().decode(SleepDrainInfo.self, from: Data(#"{"frozen":287,"active":true}"#.utf8))
         d.batchState = .init(index: 3, of: 12, total: 25, read: 24, reading: 0, failed: 1)
-        d.stages = stages(sort: (0, nil), decide: (0, 12))
-        XCTAssertEqual(stageCaption(drain: d, activeStage: 1, locale: V5Fixture.en)?.text, "Reading conversations")
-        XCTAssertEqual(stageCaption(drain: d, activeStage: 1, locale: V5Fixture.en)?.failed,
+        XCTAssertEqual(batchFailureNote(drain: d, activeStage: 1, locale: V5Fixture.en),
                        "1 could not be read, it gets one more try")
-        XCTAssertEqual(stageCaption(drain: d, activeStage: 2, locale: V5Fixture.en)?.text,
-                       "Sorting names · 24 read, 1 could not be read")
-        XCTAssertEqual(stageCaption(drain: d, activeStage: 3, locale: V5Fixture.en)?.text, "Deciding · 12 pages to update")
-        XCTAssertEqual(stageCaption(drain: d, activeStage: 5, locale: V5Fixture.en)?.text, "Filing. It cannot be stopped now.")
+        XCTAssertEqual(batchFailureNote(drain: d, activeStage: 2, locale: V5Fixture.en),
+                       "1 could not be read, it gets one more try")
+        for stage in [3, 4, 5] { XCTAssertNil(batchFailureNote(drain: d, activeStage: stage, locale: V5Fixture.en)) }
+        d.batchState = .init(index: 3, of: 12, total: 25, read: 24, reading: 0, failed: 0)
+        XCTAssertNil(batchFailureNote(drain: d, activeStage: 1, locale: V5Fixture.en), "nothing failed, nothing said")
+        d.active = false
+        d.batchState = .init(index: 3, of: 12, total: 25, read: 24, reading: 0, failed: 2)
+        XCTAssertNil(batchFailureNote(drain: d, activeStage: 1, locale: V5Fixture.en), "a run not reading says nothing")
     }
 }
 
@@ -715,13 +802,15 @@ final class SleepProviderNeutralLintTests: XCTestCase {
     }
 }
 
-/// Ruling 12 (spec 5.3: this suite did not exist yet) — a price, a token count or a plan window's percentage is said
-/// only in Details and the engine menu, through `CycleUsageText`. Under Views/Sleep a `$` or "tokens" literal may appear
-/// only in the allowed files; the v5 copy's one percentage (the reserve) is rendered only by them.
+/// Ruling 12 (spec 5.3: this suite did not exist yet; its surface renamed 2026-10-16) — a price, a token count or a plan
+/// window's percentage is said only in the Sleep page's Past reads run detail and the engine menu, through
+/// `CycleUsageText`. Past reads lives in `SleepDetails.swift` (the file kept its name when Details became the page's
+/// tabs). Under Views/Sleep a `$` or "tokens" literal may appear only in the allowed files; the v5 copy's one
+/// percentage (the reserve) is rendered only by them.
 final class PriceLintTests: XCTestCase {
     static let allowed = ["EngineQuickMenu.swift", "SleepDetails.swift", "CycleUsageText.swift"]
 
-    func test_pricesAndTokensLiveInDetailsAndTheEngineMenuOnly() throws {
+    func test_pricesAndTokensLiveInPastReadsAndTheEngineMenuOnly() throws {
         let files = try ThemeTokenTests.swiftSources().filter {
             $0.path.contains("/Views/Sleep/") && !Self.allowed.contains($0.lastPathComponent)
         }
@@ -740,7 +829,7 @@ final class PriceLintTests: XCTestCase {
         XCTAssertEqual(offenders, [])
     }
 
-    func test_theReservesPercentageIsRenderedOnlyByTheEngineMenuAndDetails() throws {
+    func test_theReservesPercentageIsRenderedOnlyByTheEngineMenuAndPastReads() throws {
         var renderers: [String] = []
         for file in try ThemeTokenTests.swiftSources() where file.lastPathComponent != "Copy+SleepV5.swift" {
             let text = try String(contentsOf: file, encoding: .utf8)

@@ -33,6 +33,9 @@ extension Copy {
         static func firstIn(_ app: String) -> String { "first in \(app)" }
         static func pages(_ n: Int) -> String { n == 1 ? "1 page" : "\(UsageFormat.count(n)) pages" }
         static func openHelp(_ name: String) -> String { "Open \(name)" }
+        /// The places past the cell's cap (DR-51: a count is text, never a capsule).
+        static func more(_ n: Int) -> String { "+\(UsageFormat.count(n))" }
+        static func alsoAt(_ names: [String]) -> String { "Also \(names.joined(separator: ", "))" }
 
         // The person body (F-12)
         static let you = "you"
@@ -45,6 +48,8 @@ extension Copy {
         static func showMore(_ n: Int) -> String { "Show \(UsageFormat.count(n)) more" }
         static func firstName(_ name: String) -> String { name.split(separator: " ").first.map(String.init) ?? name }
         static func howYouKnow(_ name: String) -> String { "How you know \(firstName(name))" }
+        /// The same map on the owner's own page: their connections, not how they know themselves.
+        static let whatYouAreConnectedTo = "What you're connected to"
         static func connected(_ n: Int) -> String {
             n == 1 ? "Connected to 1 page in your memory." : "Connected to \(UsageFormat.count(n)) pages in your memory."
         }
@@ -72,6 +77,8 @@ extension Copy {
             case .contacts: "Use the photo from Contacts"
             case .logo: "Use the logo"
             case .thumbnail: "Use the saved preview"
+            case .profile: "Use their public profile photo"
+            case .messages: "Use the photo they share in Messages"
             case .upload, .initials: "Use the picture Cicada found"
             }
         }
@@ -107,6 +114,8 @@ extension Copy {
             case .contacts: "Photo from your Contacts"
             case .logo: "Logo from its website"
             case .thumbnail: "Preview from the saved page"
+            case .profile: "Photo from their public profile"
+            case .messages: "Photo they share in Messages"
             case nil: "No picture yet"
             }
         }

@@ -22,7 +22,8 @@ where they differ. [INTEGRATION_REPORT.md](INTEGRATION_REPORT.md) records fixes,
 | `room-backdrop`, `room-lamp` | Existing | `dark`, `lit`, `night-dark`, `night-lit` |
 | `room-window`, `room-plant`, `room-beanbag`, `room-mug` | Existing | `idle`, `night-dark`, `night-lit` |
 | `room-clock` | 15 × 15 | Two dials, 60 angles each for day/night hour/minute/second hands |
-| `room-fly`, `room-spines` | Existing | Fly buzz; five kinds × body/light/shade masks |
+| `room-fly` | Existing | Fly buzz |
+| `room-books` | 24 × 13 | The waiting pile's books (2026-10-16): six kinds × day/night, four count-step frames each (7/9/11/13 rows); the app joins the 4-column leading cap, the one middle column and the 8-column trailing cap to any whole width. `room-spines` retired |
 
 Owner 2026-10-01: error has **black X eyes plus the drop**, never red pupils. The menu retains its dark outlines on a
 dark bar. The day worm totals 130 tags / 1,095 frames. [TAG_TIMINGS.md](TAG_TIMINGS.md) gives its exact holds.

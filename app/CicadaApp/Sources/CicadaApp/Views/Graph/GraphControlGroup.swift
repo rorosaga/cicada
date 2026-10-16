@@ -173,6 +173,17 @@ struct GraphLegendPanel: View {
                    in: 0...1, step: 0.05)
                 .controlSize(.small)
                 .padding(.horizontal, CicadaTheme.spacingSM)
+            // 2026-10-15 — the halo of unlinked pages, on by default (Obsidian's Orphans filter). Hiding it is
+            // `minDegree` 1, which graph.js already reads; the Legend then says "filtered" (R-DG4).
+            Toggle(Copy.Graph.showUnlinked, isOn: Binding(
+                get: { GraphChrome.showsUnlinked(graphVM.filter) },
+                set: { graphVM.filter = GraphChrome.settingShowUnlinked($0, in: graphVM.filter) }))
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+                .font(CicadaTheme.font(size: 13))
+                .help(Copy.Graph.showUnlinkedHelp)
+                .frame(height: CicadaTheme.scaled(32))
+                .padding(.horizontal, CicadaTheme.spacingSM)
             Toggle(Copy.Graph.showLogos, isOn: Binding(
                 get: { graphVM.filter.showLogos },
                 set: { on in

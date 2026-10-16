@@ -40,8 +40,8 @@ struct LiveSetupEffects: SetupEffects {
     func close() { onClose() }
 
     func createDemoBank() async throws {
-        _ = try await APIClient.shared.createDemoBank()
-        await store.refresh([.banks])
+        // G183(d): entering the demo changes the active bank — the Store's one serialized transition.
+        _ = try await store.switchBank(to: nil, post: { try await APIClient.shared.createDemoBank() }, roster: { $0 })
     }
 
     func turnOn(_ id: FoundItemID) async -> FoundTurnOnResult { await FoundTurnOn.run(id, deps: deps) }

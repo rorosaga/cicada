@@ -182,15 +182,21 @@ def test_resolve_and_prune_decay_false_skips_only_the_decay_loop():
     from api.services import conflict_resolver
 
     cfg = SimpleNamespace(archive_threshold=0.2, decay_nudge_threshold=0.4)
-    referenced = {"id": "fresh", "action": "create", "source_episode": "ep_1", "entity": {"name": "Fresh"}}
+    def referenced():
+        return {"id": "fresh", "action": "create", "source_episode": "ep_1", "entity": {"name": "Fresh"}}
+
     now = datetime(2026, 9, 29)
-    with_decay = asyncio.run(conflict_resolver.resolve_and_prune([referenced], [_old_entity()], cfg, now=now, tuning={}))
+    with_decay = asyncio.run(conflict_resolver.resolve_and_prune([referenced()], [_old_entity()], cfg, now=now,
+                                                                 tuning={}))
     without = asyncio.run(conflict_resolver.resolve_and_prune(
-        [dict(referenced)], [_old_entity()], cfg, now=now, tuning={}, decay=False))
+        [referenced()], [_old_entity()], cfg, now=now, tuning={}, decay=False))
 
     assert [c["id"] for c in with_decay] == ["fresh", "old-topic"] and with_decay[1]["trigger"] == "sleep/decay"
     assert [c["id"] for c in without] == ["fresh"]
-    assert without[0]["decayed_through"] == "2026-09-29", "the watermark on a created page stays either way"
+    assert without[0]["learned_on"] == with_decay[0]["learned_on"] == "2026-09-29", \
+        "the day Cicada read a created page is stamped either way"
+    # Only the pass that charges decay settles what it reads (its age, charged on the page as written).
+    assert "settle" in with_decay[0] and "settle" not in without[0]
 
 
 def test_reconcile_stage3_decay_false_skips_only_claim_decay(tmp_path):

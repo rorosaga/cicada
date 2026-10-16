@@ -161,7 +161,7 @@ struct FirstReadInputs: Equatable {
     var pages: Int? = nil
 }
 
-enum FirstReadAction: Equatable { case readNow, watchSleep, openGraph, keepReading, tryAgain }
+enum FirstReadAction: Equatable { case readNow, watchSleep, openGraph, keepReading, seeDetails }
 
 /// Track I part b (design §4.2 "the first read: the payoff", R-IB19) — one total
 /// function over the status: each state has one line (the text twin), one worm
@@ -172,11 +172,11 @@ enum FirstReadStep: Equatable {
     case running(read: Int, total: Int, stage: Int)
     case finished(pages: Int?)
     case capped(read: Int, left: Int)
-    case failed(String)
+    case failed
 
     static func of(_ i: FirstReadInputs) -> FirstReadStep {
         if i.running { return .running(read: i.read, total: i.total, stage: activeStage(completed: i.stage)) }
-        if let e = i.error?.trimmingCharacters(in: .whitespacesAndNewlines), !e.isEmpty { return .failed(firstSentence(e)) }
+        if let e = i.error?.trimmingCharacters(in: .whitespacesAndNewlines), !e.isEmpty { return .failed }
         if i.hasRunBefore {
             // The run stopped early (a plan limit, a cancel): more was queued than it took.
             if i.episodesQueued > i.episodesTotal, let left = i.unprocessed, left > 0 {
@@ -187,13 +187,6 @@ enum FirstReadStep: Equatable {
         // Unknown is never a number: a missing count reads as "nothing yet".
         guard let n = i.unprocessed, n > 0 else { return .nothingYet }
         return .waiting(n)
-    }
-
-    /// A failure's first sentence only — the row is one line, and the rest of
-    /// the server's message is on the Sleep page.
-    static func firstSentence(_ s: String) -> String {
-        guard let r = s.range(of: ". ") else { return s }
-        return String(s[..<r.lowerBound]) + "."
     }
 
     var worm: BookwormState {
@@ -213,7 +206,7 @@ enum FirstReadStep: Equatable {
         case .running: .watchSleep
         case .finished: .openGraph
         case .capped: .keepReading
-        case .failed: .tryAgain
+        case .failed: .seeDetails
         }
     }
 
@@ -226,7 +219,7 @@ enum FirstReadStep: Equatable {
         case .running(let read, let total, _): total > 0 ? Copy.gsRunning(read: read, total: total, locale: locale) : Copy.gsReading
         case .finished(let pages): pages.map { Copy.gsFinished(pages: $0, locale: locale) } ?? Copy.gsFinishedNoCount
         case .capped(let read, let left): Copy.gsCapped(read: read, left: left, locale: locale)
-        case .failed(let why): why
+        case .failed: "\(Copy.SleepV5.readingStoppedLead) \(Copy.SleepV5.readingStoppedTail)"
         }
     }
 }

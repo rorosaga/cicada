@@ -141,7 +141,7 @@ struct VideoRunCard: View {
 
     private func pickRow(_ row: VideoRow, want: VideoWant) -> some View {
         HStack(spacing: CicadaTheme.scaled(10)) {
-            VideoThumb(thumbnail: row.item.thumbnail, durationS: row.item.durationS, width: 64, height: 36)
+            VideoThumb(preview: row.item.preview, durationS: row.item.durationS, width: 64, height: 36)
             VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
                 Text(row.item.title.isEmpty ? row.item.url : row.item.title)
                     .font(CicadaTheme.font(size: 13))
@@ -388,7 +388,7 @@ struct VideoRunProgressRow: View {
                 .foregroundStyle(member.status == .failed ? CicadaTheme.warning : CicadaTheme.textSecondary)
                 .frame(width: CicadaTheme.scaled(16))
                 .accessibilityHidden(true)
-            VideoThumb(thumbnail: member.row.item.thumbnail, durationS: member.row.item.durationS, width: 56, height: 32)
+            VideoThumb(preview: member.row.item.preview, durationS: member.row.item.durationS, width: 56, height: 32)
             VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
                 Text(member.row.item.title.isEmpty ? member.row.item.url : member.row.item.title)
                     .font(CicadaTheme.font(size: 13))

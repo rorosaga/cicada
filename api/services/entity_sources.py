@@ -5,8 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from functools import lru_cache
-from api.services import markdown_parser
-from api.services.id_utils import bank_file
+from api.services import evidence, markdown_parser
+from api.services.id_utils import bank_file, on_disk
 
 
 @lru_cache(maxsize=4)
@@ -29,6 +29,8 @@ def gather_entity_sources(memory_path: Path, entity_id: str, *, mode: str = "chu
     ent = bank_file(memory_path / "entities", entity_id)
     if ent is None or not ent.exists():
         return {"entity_id": entity_id, "episodes": [], "degraded": True}
+    ent = on_disk(ent)   # the page's own id, whatever case was typed
+    entity_id = ent.stem
     par = markdown_parser.parse(ent)
     ep_ids = par.frontmatter.get("source_episodes", []) or []
     convs = _load_claude_corpus(str(corpus_path)) if (mode == "full" and corpus_path) else {}
@@ -43,7 +45,8 @@ def gather_entity_sources(memory_path: Path, entity_id: str, *, mode: str = "chu
         sid = eppar.frontmatter.get("source_id")
         episodes.append({
             "id": ep_id,
-            "chunk": eppar.body,
+            # G110 gate B2: a long capture's dropped-middle marker reads as Cicada's note, never a turn's words.
+            "chunk": evidence.label_gaps(eppar.body, evidence.gap_ranges(eppar.frontmatter, eppar.body)),
             "source_id": sid,
             "conversation": convs.get(sid) if convs else None,
         })

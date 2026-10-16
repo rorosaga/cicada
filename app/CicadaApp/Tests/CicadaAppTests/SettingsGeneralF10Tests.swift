@@ -12,7 +12,7 @@ final class SettingsGeneralF10Tests: XCTestCase {
 
     func testGeneralIsF10sGroupsInOrder() throws {
         let text = try source("Views/Settings/SettingsGeneralView.swift")
-        let marks = ["header: Copy.lookGroup", "SettingsRow(.heroScene,", "header: Copy.startupGroup",
+        let marks = ["header: Copy.lookGroup", "SettingsRow(.textSize,", "header: Copy.startupGroup",
                      "SettingsRow(.openAtLogin,", "SettingsRow(.showInMenuBar,", "header: Copy.whenClosedGroup",
                      "SettingsRow(.backgroundService,", "SettingsRow(.runSetup,"]
         let positions = try marks.map { try XCTUnwrap(text.range(of: $0), $0).lowerBound }
@@ -22,11 +22,12 @@ final class SettingsGeneralF10Tests: XCTestCase {
         XCTAssertEqual(Copy.whenClosedGroup, "When Cicada is closed")
     }
 
-    func testTheSceneRowSaysWhatItShowsNowAndHowItWorks() {
-        XCTAssertEqual(SceneTime.allCases.map(Copy.sceneNow), ["Day now", "Afternoon now", "Night now"])
-        XCTAssertEqual(Copy.sceneDetail, "The meadow on Home and in setup")
-        XCTAssertTrue(Copy.sceneAutomaticExplainer.contains("no location needed"))
-        XCTAssertTrue(Copy.sceneCrossfadeExplainer.contains("crossfades"))
+    /// Scene retired with the painted art (owner 2026-10-16): there is no painting left to pick, so General has no
+    /// Scene row and search finds none.
+    func testTheSceneRowRetiredWithThePaintings() throws {
+        let text = try source("Views/Settings/SettingsGeneralView.swift")
+        XCTAssertFalse(text.contains("heroScene"))
+        XCTAssertFalse(SettingsIndex.staticEntries.contains { $0.id.rawValue == "heroScene" })
     }
 
     func testShowInMenuBarIsARealIndexedRow() {

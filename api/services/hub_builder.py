@@ -258,9 +258,7 @@ def _count_edges(memory_path: Path) -> int:
     if not edges_file.exists():
         return 0
     try:
-        import yaml
-
-        data = yaml.safe_load(edges_file.read_text(encoding="utf-8")) or {}
+        data = markdown_parser.load_yaml(edges_file.read_text(encoding="utf-8")) or {}
         return len(data.get("edges", []) or [])
     except Exception:
         return 0

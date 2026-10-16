@@ -110,8 +110,13 @@ def arm(settings, memory_path: Path, rec: dict, ds) -> dict | None:
 def _add_job(sched, memory_path: str, at: int, rec: dict) -> None:
     from apscheduler.triggers.date import DateTrigger
 
+    from api.services import bank_registry
+
     remaining = max(60, int(float(rec.get("paused_at_ts") or _now()) + MAX_PAUSE_S - _now()))
-    sched.add_job(
+    # G183(d): armed from a request (a pause, a bank activation) — registered unpinned, so the job compares the bank
+    # active when it fires with the paused run's, never the arming request's pin.
+    bank_registry.run_unpinned(
+        sched.add_job,
         _fire, DateTrigger(run_date=datetime.fromtimestamp(at, tz=timezone.utc)),
         id=job_id(memory_path), args=[memory_path, str(rec.get("run_id"))], replace_existing=True,
         misfire_grace_time=remaining,
@@ -167,8 +172,9 @@ async def _fire(memory_path: str, run_id: str) -> None:
     """The job. Every guard is checked again at fire time; any failure leaves the run
     paused, says why in ``autoContinue.blocked``, and starts nothing."""
     from api.config import get_settings
-    from api.services import engine_select, sleep_cycle, sleep_paused
+    from api.services import bank_registry, engine_select, sleep_cycle, sleep_paused
 
+    bank_registry.unpin()   # G183(d): `settings.memory_path` below must be the bank active now (the bank_changed guard)
     mp = Path(memory_path)
     rec = sleep_paused.get_paused(mp)
     if not rec or str(rec.get("run_id")) != str(run_id):

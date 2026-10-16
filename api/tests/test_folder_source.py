@@ -238,9 +238,12 @@ APP_SYNC_ROUTED = {
     "chrome-tab-groups",
     # round 4 (G154): always listed — the app's Contacts reader (Task 4) owns its `syncRoute`.
     "contacts-local",
+    # G71 (2026-10-16): the YouTube videos watched in Chrome, once synced — `WatchHistoryWatcher` owns its `syncRoute`.
+    "chrome-youtube-history",
 }
 #: Round-4 rows the registry emits only once synced (R-SR15).
-ONCE_SYNCED = ("brave-bookmarks", "vivaldi-bookmarks", "comet-bookmarks", "dia-bookmarks", "chrome-tab-groups")
+ONCE_SYNCED = ("brave-bookmarks", "vivaldi-bookmarks", "comet-bookmarks", "dia-bookmarks", "chrome-tab-groups",
+               "chrome-youtube-history")
 
 
 def test_every_sync_row_the_registry_can_emit_is_one_the_app_routes(bank):

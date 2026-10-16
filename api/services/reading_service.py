@@ -27,7 +27,7 @@ from pathlib import Path
 
 from loguru import logger
 
-from api.services import media_ingestor, reading_asks, reading_hosts, reading_prompt, reading_settings
+from api.services import media_ingestor, reading_asks, reading_hosts, reading_prompt, reading_settings, write_admission
 
 
 class AskRefused(Exception):
@@ -93,6 +93,10 @@ def read_state(url: str, fm_read, ask_row, *, enabled: bool, wall: str | None = 
     return {k: v for k, v in state.items() if v is not None or k == "reason"}
 
 
+#: The ask's save while Sleep holds the pages (G183 round 2).
+SAVE_BUSY = "Sleep is updating your memory — ask again in a moment."
+
+
 async def ask(memory_path: Path, url: str) -> dict:
     """The person's "Ask an agent". Returns ``{ask, mediaEntityId, saved, prompt}``
     or raises :class:`AskRefused` with a sentence the person can read."""
@@ -108,19 +112,26 @@ async def ask(memory_path: Path, url: str) -> dict:
     entry = idx.get(h)
     saved = False
     if not (isinstance(entry, dict) and entry.get("media_entity_id")):
-        item = media_ingestor.RawItem(url=url, origin="saved-link", defer_enrich=True)
-        result = await media_ingestor.ingest_one(item, memory_path, None, idx)
-        media_ingestor.save_url_index(memory_path, idx)
+        # No fetch (``defer_enrich``): the save and its commit are one admitted transaction, refused (409, nothing
+        # written) while Sleep holds the pages — like ``POST /sources/save`` (G183 round 2).
+        async def save():
+            item = media_ingestor.RawItem(url=url, origin="saved-link", defer_enrich=True)
+            index = media_ingestor.load_url_index(memory_path)
+            result = await media_ingestor.ingest_one(item, memory_path, None, index)
+            media_ingestor.save_url_index(memory_path, index)
+            if result.status == "created":
+                paths = ["sources/url_index.json", f"entities/{result.media_entity_id}.md",
+                         f"episodes/{result.episode_id}.md"]
+                try:
+                    await media_ingestor._commit_media(
+                        memory_path, 1, paths, author="user", trigger="user/media_save")
+                except Exception as exc:  # noqa: BLE001 — the save stands; the next writer's commit takes it
+                    logger.warning(f"Reading ask: save commit failed: {type(exc).__name__}")
+            return result
+
+        result = await write_admission.run_admitted(memory_path, save, refuse=lambda: AskRefused(409, SAVE_BUSY))
         entity_id = result.media_entity_id
         saved = result.status == "created"
-        if saved:
-            paths = ["sources/url_index.json", f"entities/{result.media_entity_id}.md",
-                     f"episodes/{result.episode_id}.md"]
-            try:
-                await media_ingestor._commit_media(
-                    memory_path, 1, paths, author="user", trigger="user/media_save")
-            except Exception as exc:  # noqa: BLE001 — the save stands; the next writer's commit takes it
-                logger.warning(f"Reading ask: save commit failed: {type(exc).__name__}")
     else:
         entity_id = str(entry["media_entity_id"])
     row = reading_asks.ask(memory_path, h, host=reading_hosts.display_host(verdict.host),

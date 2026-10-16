@@ -10,9 +10,12 @@ from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
 from api.models.schemas import (
+    PageBlameResponse,
+    SourcesOverview,
     ContextEpisodeExcerpt,
     ContextNeighbor,
     EntityContextResponse,
+    EntityBands,
     EntityDecay,
     EntityDecayUpdate,
     EntityDiff,
@@ -20,6 +23,7 @@ from api.models.schemas import (
     EntityMedia,
     EntityPictureResponse,
     EntityReadRequest,
+    EntityRawResponse,
     EntityReadResponse,
     EntityResponse,
     EntitySource,
@@ -27,6 +31,10 @@ from api.models.schemas import (
     EntitySourceCreate,
     EntitySourceList,
     LocationListing,
+    SourceRefreshRequest,
+    PageEditRequest,
+    PageEditResponse,
+    PageLinksResponse,
     PaperDetailResponse,
     PictureInputsModel,
     RepoContext,
@@ -39,25 +47,42 @@ from api.models.schemas import (
     VideoChapter,
 )
 from api.services import (
+    claims_ledger,
     decay_policy,
     decay_tuning,
+    entity_bands,
     entity_picture,
+    episode_time,
     fact_sources,
     git_service,
     local_refs,
     logo_service,
     markdown_parser,
+    media_preview,
     page_lock,
+    person_photo,
     repo_context,
     repo_observations,
+    source_refresh,
+    sync_service,
     telemetry,
+    write_admission,
 )
-from api.services.claims import strip_claims_block
+from api.services.claims import claims_block_start, served_prose, strip_claims_block
 from api.services.hub_builder import _one_line_summary
 from api.services.id_utils import build_name_index, resolve_entity_id
 from api.services.wikilink_resolver import extract_wikilinks
+from api.services.sleep_refusal import SleepWriting
 
 router = APIRouter()
+
+#: F4 — above this a page's ``raw_markdown`` stops at its first claims fence (``raw_omitted``); the Source view and
+#: Copy ask ``GET /entities/{id}/raw`` for the whole file. Every page but an owner-sized one is far below it (the largest others measured
+#: ~70 KB); the owner's is ~2.6 MB, 96% of it the claims fence the card already reads from ``/claims``.
+RAW_INLINE_MAX_BYTES = 256 * 1024
+#: Owner page, 2026-10-14: a page whose claims live partly in its ledger, or whose fence alone is over this, withholds
+#: the fence too — the card reads claims from `/claims`, and the fence was the largest machine block left in the card.
+RAW_INLINE_FENCE_MAX_CHARS = 16 * 1024
 
 # G59: bound concurrent first-fetches so opening a graph full of new companies
 # can't fan out into dozens of simultaneous outbound requests.
@@ -79,20 +104,39 @@ async def get_entity(
     if not entity_path.exists():
         raise HTTPException(404, f"Entity {entity_id} not found")
 
-    parsed = markdown_parser.parse(entity_path)
+    # The page file alone: the card shows prose and reads claims from `/claims`, so an owner-sized page's ledger
+    # (`claims_ledger`) is never opened here.
+    parsed = markdown_parser.parse(entity_path, ledger=False)
     fm = parsed.frontmatter
-    history = await git_service.get_entity_history(entity_id, settings.memory_path)
+    history, history_truncated = await git_service.entity_history(entity_id, settings.memory_path)
     decay_class, decay_rate = decay_policy.resolve(fm)
     # G147 — the pace the decay pass actually charges, from the SAME function
     # (`decay_policy.effective`, plan R-FD11), so the card can never describe a
     # pace Sleep does not charge. Read time only; nothing is stored.
     alpha, floor = decay_policy.spacing_params(settings)
     effective = decay_policy.effective(
-        fm, alpha=alpha, floor=floor, tuning=decay_tuning.load(settings.memory_path)
+        fm, alpha=alpha, floor=floor, tuning=decay_tuning.load(settings.memory_path),
+        # Only this page's conversations are read (a full episode scan was most of a cold open's time).
+        untimed=episode_time.untimed_among(settings.memory_path, decay_policy._as_list(fm.get("source_episodes"))),
     )
     # C11 (G146) — the page's picture, resolved at read like everything else on this card (plan R-PE5).
+    page_stat = entity_path.stat()
     picture, picture_inputs = entity_picture.resolve_page(
-        settings.memory_path, entity_id, fm, parsed.body, page_mtime=entity_path.stat().st_mtime)
+        settings.memory_path, entity_id, fm, parsed.body, page_mtime=page_stat.st_mtime)
+    raw = entity_path.read_text(encoding="utf-8")
+    raw_omitted = False
+    fence = claims_block_start(raw)
+    big_fence = page_stat.st_size > RAW_INLINE_MAX_BYTES or claims_ledger.STAMP in fm \
+        or (fence is not None and len(raw) - fence > RAW_INLINE_FENCE_MAX_CHARS)
+    if claims_ledger.STAMP in fm and (split := markdown_parser.split_frontmatter(raw)) is not None:
+        # A hub page (its claims partly in its ledger): the frontmatter alone — every frontmatter reader (a location's
+        # lat/lon, a media block) keeps its input, the prose is `markdown_content` already, and Source and Copy read
+        # `/raw` for the file (owner page, 2026-10-14: the prose twice was a third of a 490 KB card).
+        raw, raw_omitted = raw[:len(raw) - len(split[1])], True
+    elif big_fence and fence is not None:
+        # Review r1 #4: withhold only the fence. The frontmatter and prose stay verbatim, so every frontmatter reader
+        # (a location's declared lat/lon, a media block) keeps its input; Source and Copy read `/raw` for the rest.
+        raw, raw_omitted = raw[:fence], True
 
     return EntityResponse(
         id=entity_id,
@@ -108,20 +152,40 @@ async def get_entity(
         tags=fm.get("tags", []),
         related=fm.get("related", []),
         version=fm.get("version", 1),
-        markdown_content=parsed.body,
-        raw_markdown=entity_path.read_text(encoding="utf-8"),
+        # F4: prose only — the fence is machine data the card reads from `/claims`, and on the owner's page it was
+        # 2.5 MB shipped twice per open.
+        markdown_content=served_prose(parsed.body)[0],
+        raw_markdown=raw,
+        raw_omitted=raw_omitted,
         history=history,
-        media=_build_media_block(fm, parsed.body),
+        history_truncated=history_truncated,
+        media=_build_media_block(fm, parsed.body, entity_id=entity_id),
         is_owner=bool(fm.get("owner")),
         decay=EntityDecay(
             decay_class=effective.decay_class,
             effective_rate_per_week=round(effective.rate, 6),
             mention_weeks=effective.mention_weeks,
         ),
+        # G180 parity: the card's bands from the backend, the charged rate above being the pace's one input.
+        bands=EntityBands(**entity_bands.bands(confidence=fm.get("confidence", 0.5),
+                                               rate_per_week=round(effective.rate, 6),
+                                               last_referenced=str(fm.get("last_referenced", "")),
+                                               today=date.today())),
         picture=picture.url,
         picture_source=picture.source,
         picture_inputs=PictureInputsModel(**picture_inputs.to_fields()),
     )
+
+
+@router.get("/entities/{entity_id}/raw", response_model=EntityRawResponse)
+async def get_entity_raw(entity_id: str, settings: Settings = Depends(get_settings)):
+    """F4 — the page verbatim (frontmatter, prose and claims fence), for the Source view and Copy when
+    ``GET /entities/{id}`` left ``raw_markdown`` out (``raw_omitted``). Read on demand only; not a Store domain."""
+    entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
+    if not entity_path.exists():
+        raise HTTPException(404, f"Entity {entity_id} not found")
+    text = await run_in_threadpool(entity_path.read_text, encoding="utf-8")
+    return EntityRawResponse(id=entity_id, raw_markdown=text)
 
 
 @router.post("/entities/{entity_id}/read", response_model=EntityReadResponse)
@@ -185,45 +249,51 @@ async def get_entity_logo(
     return FileResponse(path, media_type=media_type, headers=headers)
 
 
+_PREVIEW_SEMAPHORE = asyncio.Semaphore(4)
+
+
+@router.get("/entities/{entity_id}/preview")
+async def get_entity_preview(entity_id: str, request: Request, settings: Settings = Depends(get_settings)):
+    """A media page's own picture — the saved page's image, a provider's thumbnail, a YouTube still or a saved PDF's
+    first page (`media_preview`) — served from Cicada's store outside the bank. The first request fetches it once
+    (under the picture-fetch gate, the ToS rail and `net_guard`); every later one is the stored copy, so a dead link
+    keeps its card. 404 means "no preview" and the app draws its placeholder. The `v=` the wire adds is the source's
+    key and is only for the app's caches. `GET /graph` never comes through here."""
+    memory_path = settings.memory_path
+    if not (memory_path / "entities" / f"{entity_id}.md").is_file():
+        raise HTTPException(404, f"Entity {entity_id} not found")
+    async with _PREVIEW_SEMAPHORE:
+        path = await media_preview.ensure_preview(memory_path, entity_id)
+    if path is None or not path.is_file():
+        raise HTTPException(404, "no preview for this entity")
+    data = await asyncio.to_thread(path.read_bytes)
+    etag = '"' + entity_picture.sha12(data) + '"'
+    headers = {"ETag": etag, "Cache-Control": "private, max-age=86400"}
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=headers)
+    media_type = media_preview.MEDIA_TYPES.get(path.suffix.lstrip("."), "application/octet-stream")
+    return Response(content=data, media_type=media_type, headers=headers)
+
+
 PICTURE_BUSY = "Sleep is updating your memory — try the picture again in a moment."
 #: One picture write at a time in this process (`projects._write_lock`'s reason): an upload and a quick "Use initials"
 #: would otherwise both read the page, and the second rewrite — or its `_drop_uploads` — would land between the first's
 #: write and its commit, leaving that commit to stage a file that is already gone.
-_PICTURE_LOCK = asyncio.Lock()
+_PICTURE_LOCK = write_admission.TransactionLock()   # taken inside admitted transactions (writer loop)
 
 
 SOURCE_BUSY = "Sleep is updating your memory — try the source change again in a moment."
 
 
-def _source_guard() -> None:
-    """G61 S3-a review — the person's source writes wait for Sleep like the picture's (same reason): a page frontmatter
-    rewrite between Sleep's read and its commit would be lost or swept into the cycle's commit under a model's name."""
-    from api.services import sleep_cycle
-
-    if sleep_cycle.is_writing():
-        raise HTTPException(409, SOURCE_BUSY)
-
-
-def _picture_guard() -> None:
-    """G146 plan R-PE8 — 409 while Sleep runs (`projects._guard`'s reason): Sleep rewrites the same pages, and a picture
-    written between its read and its commit would be lost or swept into the cycle's commit under a model's name."""
-    from api.services import sleep_cycle
-
-    if sleep_cycle.is_writing():
-        raise HTTPException(409, PICTURE_BUSY)
-
-
 PAGE_BUSY = "Sleep is updating your memory — try again in a moment."
 
 
-def _page_guard() -> None:
-    """G177/G183(a) — the decay-class and repo-link rewrites wait for Sleep like a source change (same reason): a
-    frontmatter rewrite between Sleep's read and its commit would be lost or swept into the cycle's commit under a
-    model's name."""
-    from api.services import sleep_cycle
-
-    if sleep_cycle.is_writing():
-        raise HTTPException(409, PAGE_BUSY)
+def _admits(busy: str):
+    """The route's write admission (G183): 409 with ``busy`` when Sleep holds the pages, asked once the hold is taken
+    and held through the route's write and its commit — so a window cannot open between them. The person's source,
+    picture, decay-class and repo-link writes (G61 S3-a, G146 R-PE8, G177/G183(a)): a frontmatter rewrite between
+    Sleep's read and its commit would be lost or swept into the cycle's commit under a model's name."""
+    return write_admission.route(refuse=lambda: SleepWriting(busy))
 
 
 def _rewrite_page_and_commit(memory_path: Path, entity_id: str, mutate, message: str) -> dict:
@@ -234,8 +304,7 @@ def _rewrite_page_and_commit(memory_path: Path, entity_id: str, mutate, message:
     first, unauthored (``commit_touched_sync``'s ``before`` — the inbox's P1-3 mechanism). Returns the frontmatter."""
     rel = f"entities/{entity_id}.md"
     page = memory_path / rel
-    with page_lock.page_lock(memory_path):
-        _page_guard()   # re-asked once the lock is held: a window can open while this waited for it
+    with page_lock.page_lock(memory_path):   # under the route's admission (`_admits`): no window opens here
         if not page.exists():
             raise HTTPException(404, f"Entity {entity_id} not found")
         tracked = (memory_path / ".git").exists()
@@ -284,12 +353,34 @@ async def get_entity_picture(entity_id: str, request: Request, settings: Setting
     return Response(content=data, media_type=media_type, headers=headers)
 
 
+#: G159 (2026-10-09) — at most two people's public-profile lookups at once (`_LOGO_FETCH_SEMAPHORE`'s reason).
+_PHOTO_FETCH_SEMAPHORE = asyncio.Semaphore(2)
+
+
+@router.get("/entities/{entity_id}/photo")
+async def get_entity_photo(entity_id: str, request: Request, settings: Settings = Depends(get_settings)):
+    """G159 amendment — a person's public-profile photo, fetched ONCE on demand from an identifier already on the page
+    (`person_photo`), then served from the copy outside the bank. 404 means none: no identifier, a remembered miss,
+    a gate off, or the person's own choice or Contacts photo outranks it. `GET /graph` never comes through here."""
+    _entity_page(settings, entity_id)
+    async with _PHOTO_FETCH_SEMAPHORE:
+        path = await person_photo.ensure_photo(settings.memory_path, entity_id)
+    if path is None or not path.is_file():
+        raise HTTPException(404, "no photo for this person")
+    data = path.read_bytes()
+    etag = '"' + entity_picture.sha12(data) + '"'
+    headers = {"ETag": etag, "Cache-Control": "private, max-age=86400"}
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=headers)
+    return Response(content=data, media_type=person_photo.MEDIA_TYPES[path.suffix.lstrip(".")], headers=headers)
+
+
 @router.post("/entities/{entity_id}/picture", response_model=EntityPictureResponse)
+@_admits(PICTURE_BUSY)
 async def set_entity_picture(entity_id: str, file: UploadFile, settings: Settings = Depends(get_settings)):
     """C11 — the person's own picture for this page (G146; round-4 decision 9). Kept in the bank at
     `assets/pictures/<id>.<png|jpg>` and committed alone as `Cicada-Author: user` (plan R-PE1, R-PE8). The app sends it
     already shrunk; the server only bounds it (R-PE2)."""
-    _picture_guard()
     _entity_page(settings, entity_id)
     data = await file.read(entity_picture.MAX_UPLOAD_BYTES + 1)
     async with _PICTURE_LOCK:
@@ -304,9 +395,9 @@ async def set_entity_picture(entity_id: str, file: UploadFile, settings: Setting
 
 
 @router.post("/entities/{entity_id}/picture/initials", response_model=EntityPictureResponse)
+@_admits(PICTURE_BUSY)
 async def use_entity_initials(entity_id: str, settings: Settings = Depends(get_settings)):
     """C11 / F-12 — "Use initials instead": the person's choice, kept (plan R-PE4)."""
-    _picture_guard()
     _entity_page(settings, entity_id)
     async with _PICTURE_LOCK:
         write = await asyncio.to_thread(entity_picture.write_initials, settings.memory_path, entity_id,
@@ -315,11 +406,47 @@ async def use_entity_initials(entity_id: str, settings: Settings = Depends(get_s
         return _picture_payload(settings.memory_path, entity_id)
 
 
+@router.post("/entities/{entity_id}/picture/pdf", response_model=EntityPictureResponse)
+async def set_entity_picture_from_pdf(entity_id: str, file: UploadFile, settings: Settings = Depends(get_settings)):
+    """A PDF the person gave a saved item (a paper, a saved document): its first page, rendered in the backend
+    (`pdf_page`, never the app), becomes the page's picture — the person's own choice, rung 1, kept in the bank and
+    committed alone as `user` exactly like an uploaded picture. Nothing is fetched; the PDF itself is not kept. The
+    render (a child process, up to `pdf_page.TIMEOUT_S`) runs BEFORE the write admission is taken, so Sleep never
+    waits on it; only the write and its commit are admitted."""
+    from api.services import pdf_page
+
+    page = _entity_page(settings, entity_id)
+    if str(markdown_parser.parse(page).frontmatter.get("type") or "").strip().lower() != "media":
+        raise HTTPException(400, "Cicada draws a PDF's first page for saved items only.")
+    data = await file.read(pdf_page.MAX_PDF_BYTES + 1)
+    if len(data) > pdf_page.MAX_PDF_BYTES:
+        raise HTTPException(413, "That PDF is too large — Cicada reads PDFs up to 32 MB.")
+    if not pdf_page.looks_like_pdf(data):
+        raise HTTPException(400, "That file isn't a PDF.")
+    png = await asyncio.to_thread(pdf_page.render_first_page, data)
+    if png is None:
+        raise HTTPException(422, "Cicada couldn't draw that PDF's first page.")
+    try:
+        ext = entity_picture.validate_upload(png)
+    except entity_picture.InvalidPicture as exc:
+        raise HTTPException(exc.status, str(exc)) from exc
+
+    async def store() -> EntityPictureResponse:
+        async with _PICTURE_LOCK:
+            _entity_page(settings, entity_id)   # still there once admitted
+            write = await asyncio.to_thread(entity_picture.write_upload, settings.memory_path, entity_id, png, ext,
+                                            today=date.today())
+            await entity_picture.commit(settings.memory_path, write)
+            return _picture_payload(settings.memory_path, entity_id)
+
+    return await write_admission.run_admitted(settings.memory_path, store, refuse=lambda: SleepWriting(PICTURE_BUSY))
+
+
 @router.delete("/entities/{entity_id}/picture", response_model=EntityPictureResponse)
+@_admits(PICTURE_BUSY)
 async def clear_entity_picture(entity_id: str, settings: Settings = Depends(get_settings)):
     """C11 — back to what was detected (plan R-PE4): the person's upload or initials go; nothing to clear commits
     nothing."""
-    _picture_guard()
     _entity_page(settings, entity_id)
     async with _PICTURE_LOCK:
         write = await asyncio.to_thread(entity_picture.write_clear, settings.memory_path, entity_id)
@@ -346,7 +473,7 @@ def _chapters(raw) -> list[VideoChapter] | None:
     return out or None
 
 
-def _build_media_block(frontmatter: dict, body: str) -> EntityMedia | None:
+def _build_media_block(frontmatter: dict, body: str, *, entity_id: str | None = None) -> EntityMedia | None:
     """Build the structured ``media`` block for a ``type: media`` entity.
 
     Reads the nested ``media:`` frontmatter block written by
@@ -379,6 +506,7 @@ def _build_media_block(frontmatter: dict, body: str) -> EntityMedia | None:
         site=media.get("site") or None,
         channel=media.get("channel") or None,
         thumbnail=media.get("thumbnail") or None,
+        preview=entity_picture.media_picture(entity_id, frontmatter) if entity_id else None,
         description=description,
         # Track V — both written by `write_media_entity` only when set, so an
         # older page simply has neither. `duration_s` is type-checked rather
@@ -400,20 +528,37 @@ def _build_media_block(frontmatter: dict, body: str) -> EntityMedia | None:
 async def get_entity_history(
     entity_id: str,
     include_diff: bool = False,
+    skip: int = 0,
     settings: Settings = Depends(get_settings),
 ):
     """Entity history with per-commit author attribution.
 
     Pass ``?include_diff=true`` to inline the added/removed diff for each commit
-    (opt-in so the default response stays small — backlog A1).
+    (opt-in so the default response stays small — backlog A1). ``?skip=N`` reads
+    the touching commits older than the newest N — the rows the card leaves out
+    when ``history_truncated`` (review round 1).
     """
     entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
     if not entity_path.exists():
         raise HTTPException(404, f"Entity {entity_id} not found")
 
     return await git_service.get_entity_history(
-        entity_id, settings.memory_path, include_diff=include_diff
+        entity_id, settings.memory_path, include_diff=include_diff, skip=max(0, skip)
     )
+
+
+@router.get("/entities/{entity_id}/blame", response_model=PageBlameResponse, response_model_exclude_none=True)
+async def get_entity_blame(entity_id: str, lines: bool = False, settings: Settings = Depends(get_settings)):
+    """Who wrote each section of the page's prose, when and why (G198) — one ``git blame`` and the commits' trailers,
+    never stored. ``?lines=true`` adds the commit behind every prose line."""
+    from api.services import page_blame
+
+    if not (settings.memory_path / "entities" / f"{entity_id}.md").is_file():
+        raise HTTPException(404, f"Entity {entity_id} not found")
+    result = await page_blame.blame(settings.memory_path, entity_id, with_lines=lines)
+    if result is None:
+        raise HTTPException(404, f"Entity {entity_id} not found")
+    return PageBlameResponse(**result)
 
 
 @router.get("/entities/{entity_id}/history/{commit_hash}/diff", response_model=EntityDiff)
@@ -433,6 +578,7 @@ async def get_entity_commit_diff(
 
 
 @router.put("/entities/{entity_id}/decay", response_model=EntityResponse)
+@_admits(PAGE_BUSY)
 async def update_entity_decay(
     entity_id: str,
     request: EntityDecayUpdate,
@@ -448,7 +594,6 @@ async def update_entity_decay(
     content. Commits scoped to this one file — trigger ``user/companion_app``,
     ``Cicada-Author: user``. 409 while Sleep holds the pages (G177).
     """
-    _page_guard()
     message = git_service.build_commit_message(
         f"Set decay class {date.today().isoformat()}",
         [
@@ -658,6 +803,7 @@ def _repo_input_to_frontmatter(r: RepoInput) -> dict:
 
 
 @router.patch("/entities/{entity_id}/repos", response_model=RepoDeclarationList)
+@_admits(PAGE_BUSY)
 async def update_entity_repos(
     entity_id: str,
     request: RepoUpdateRequest,
@@ -673,7 +819,6 @@ async def update_entity_repos(
     scoped to this one page, never ``git add -A`` (G183(a)). 409 while Sleep
     holds the pages (G177). Answers the declarations, like ``GET`` — never a probe.
     """
-    _page_guard()
     repos = [_repo_input_to_frontmatter(r) for r in request.repos]
 
     def mutate(fm: dict) -> None:
@@ -699,6 +844,14 @@ def _sources_payload(memory_path: Path, entity_id: str) -> EntitySourceList:
         s["entity"] = fact_sources.linked_entity(memory_path, s, self_id=entity_id)
         s["effective_access"] = fact_sources.effective_access(s)
         s["trusted"] = fact_sources.trusted(s)
+        # G61, ruling 26: whether it is re-checked, by whom, and why it is due now — derived, never stored.
+        s["tracked"] = source_refresh.tracked(s)
+        s["refresh_checker"] = source_refresh.checker(s) if s["tracked"] else None
+        s["refresh_due"] = source_refresh.due_reason(s, date.today())
+        if not isinstance(s.get("refresh"), dict):
+            s.pop("refresh", None)
+        if not isinstance(s.get("recheck_days"), int):
+            s.pop("recheck_days", None)
         rows.append(EntitySource(**s))
     return EntitySourceList(entity_id=entity_id, sources=rows)
 
@@ -731,6 +884,33 @@ async def get_entity_sources(
     return _sources_payload(settings.memory_path, entity_id)
 
 
+@router.get("/entities/{entity_id}/sources/overview", response_model=SourcesOverview)
+async def get_entity_sources_overview(
+    entity_id: str,
+    request: Request,
+    response: Response,
+    settings: Settings = Depends(get_settings),
+):
+    """Where this page's knowledge comes from, and how fresh it is (owner 2026-10-14, G61): its sources with the
+    beliefs each backs, the links its conversations named, and those conversations by app — the card's one read for
+    "Where this comes from" (``page_sources``). Engine-free, never fetches, writes nothing. On demand, not a Store
+    domain: the ETag (entities + episodes, the shape and today — what counts as a current belief moves at midnight)
+    serves the card's in-memory cache (``ProvenanceCache.sourcesOverview``), so there is no ``VersionVector`` mapping."""
+    from api.services import page_sources
+    from api.services.claims import current_day
+    from api.services.id_utils import resolve_entity_file
+
+    memory_path = settings.memory_path
+    page = resolve_entity_file(memory_path, entity_id)
+    if page is None or not page.exists():
+        raise HTTPException(404, f"Entity {entity_id} not found")
+    etag = sync_service.etag_for(memory_path, "entities", "episodes",
+                                 extra=f"{page_sources.SHAPE}|{page.stem}|{current_day()}")
+    if (early := sync_service.conditional(request, response, etag)) is not None:
+        return early
+    return await run_in_threadpool(page_sources.overview, memory_path, page)
+
+
 @router.get("/entities/{entity_id}/sources/icon/{site}")
 async def get_entity_source_icon(
     entity_id: str,
@@ -754,12 +934,117 @@ async def get_entity_source_icon(
     # G159: a person's page never draws a mark — a personal domain can carry the name, and no service is sent it.
     if str(markdown_parser.parse(entity_path).frontmatter.get("type") or "").strip().lower() in ("person", "media"):
         raise HTTPException(404, "no icon for this site")
-    allowed = {reading_hosts.site_of(str(s.get("ref") or "")) for s in fact_sources.list_sources(settings.memory_path, entity_id)
-               if str(s.get("kind") or "") == "url" and fact_sources.trusted(s)}
+    allowed = _icon_sites(settings.memory_path, entity_id, entity_path)
     domain = reading_hosts.icon_host(site) if site in allowed else None
     if not domain:
         raise HTTPException(404, "no icon for this site")
     return await serve_site_icon(request, settings.memory_path, site, domain)
+
+
+def _icon_sites(memory_path: Path, entity_id: str, entity_path: Path) -> set[str]:
+    """The sites whose mark this page may draw: a trusted source's site (G61 S3-b), and — owner rulings 2026-10-14 —
+    the site of a page the person **saved** that this page's prose links to (``page_links.linked_sites``). Never a
+    site only named or linked: that draws a ring monogram. Callers refuse a ``person`` or ``media`` page first (G159)."""
+    from api.services import page_links, reading_hosts
+
+    allowed = {reading_hosts.site_of(str(s.get("ref") or "")) for s in fact_sources.list_sources(memory_path, entity_id)
+               if str(s.get("kind") or "") == "url" and fact_sources.trusted(s)}
+    try:
+        allowed |= page_links.linked_sites(memory_path, markdown_parser.parse(entity_path).body or "")
+    except Exception:  # noqa: BLE001 — an unreadable page vouches for nothing
+        pass
+    return allowed
+
+
+@router.get("/entities/{entity_id}/links", response_model=PageLinksResponse, response_model_exclude_none=True)
+async def get_entity_links(
+    entity_id: str,
+    request: Request,
+    response: Response,
+    settings: Settings = Depends(get_settings),
+):
+    """A page's link facts (owner rulings 2026-10-14): per URL in its prose, everything a link card draws — the saved
+    page's title, site, description, save and read dates and stored picture, the looks saved of it, its captures
+    (empty until site exploration lands) and whether its site's mark may be drawn (``page_links``). Engine-free, never
+    fetches, writes nothing. On demand, not a Store domain: the ETag (entities, sources — the URL index — and design,
+    plus the shape) serves the card's in-memory cache (``LinkFactsCache``), so there is no ``VersionVector`` mapping."""
+    from api.services import page_links
+    from api.services.id_utils import resolve_entity_file
+
+    memory_path = settings.memory_path
+    page = resolve_entity_file(memory_path, entity_id)
+    if page is None or not page.exists():
+        raise HTTPException(404, f"Entity {entity_id} not found")
+    etag = sync_service.etag_for(memory_path, "entities", "sources", "design", extra=f"{page_links.SHAPE}|{page.stem}")
+    if (early := sync_service.conditional(request, response, etag)) is not None:
+        return early
+
+    def build() -> dict:
+        kind = str(markdown_parser.parse(page).frontmatter.get("type") or "").strip().lower()
+        allowed = set() if kind in ("person", "media") else _icon_sites(memory_path, page.stem, page)
+        return page_links.facts(memory_path, page, icon_allowed=allowed)
+
+    return await run_in_threadpool(build)
+
+
+@router.post("/entities/{entity_id}/edits", response_model=PageEditResponse)
+@_admits(PAGE_BUSY)
+async def edit_entity_page(
+    entity_id: str,
+    request: PageEditRequest,
+    settings: Settings = Depends(get_settings),
+):
+    """The person's own edit of a page's words or aliases (owner rulings 2026-10-14) — the link-view switcher's door,
+    and any other prose fix the app offers. The same body as ``cicada_edit_page`` (``page_edits.plan``: never the
+    claims, never a heading or a fence, ``Related`` refused), applied at once and committed alone under the person
+    (``Cicada-Author: user``, trigger ``user/companion_app``) with the reason as its ``Reason:`` line. A second door onto
+    one writer, as the CLI is (ruling 21). 400: a request the editor refuses; 409: words no longer on the page, or Sleep
+    holding the pages (G177)."""
+    from api.services import page_edits
+
+    try:
+        reason = page_edits.clean_reason(request.reason)
+        edit = page_edits.parse_request(request.edits, request.section, request.text, request.add_aliases,
+                                        request.remove_aliases)
+    except page_edits.EditError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    outcome = await run_in_threadpool(_person_edit, settings.memory_path, entity_id, edit, reason)
+    return PageEditResponse(entity_id=entity_id, changes=outcome.changes, sections=outcome.sections,
+                            pinned=outcome.pinned)
+
+
+#: The person's page edits commit under this trigger, beside the app's other writes.
+PERSON_EDIT_TRIGGER = "user/companion_app"
+
+
+def _person_edit(memory_path: Path, entity_id: str, edit, reason: str):
+    """Plan, write and commit one person's edit as ONE page-lock section, in a worker thread (G183(a)), like
+    ``_rewrite_page_and_commit``: an edit already on the page is committed apart first, unauthored."""
+    from api.services import bank_index, page_edits
+    from api.services.id_utils import resolve_entity_file
+
+    with page_lock.page_lock(memory_path):
+        page = resolve_entity_file(memory_path, entity_id)
+        if page is None or not page.is_file():
+            raise HTTPException(404, f"Entity {entity_id} not found")
+        rel = f"entities/{page.name}"
+        tracked = (memory_path / ".git").exists()
+        before = None
+        if tracked:
+            before = {rel: page.read_bytes()} if rel in git_service.dirty_paths_sync(memory_path, rel) else {}
+        current = page_edits.read(page)
+        try:
+            outcome = page_edits.plan(current.frontmatter, current.body, edit, author="user")
+        except page_edits.EditError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        page_edits.write(page, outcome)
+        if tracked:
+            message = git_service.build_commit_message(
+                f"{page_edits.COMMIT_SUBJECT} {date.today().isoformat()}",
+                page_edits.commit_lines(rel, PERSON_EDIT_TRIGGER, reason), authors=["user"])
+            git_service.commit_touched_sync(memory_path, message, [rel], before=before)
+    bank_index.invalidate(memory_path)
+    return outcome
 
 
 @router.get("/entities/{entity_id}/paper", response_model=PaperDetailResponse)
@@ -776,6 +1061,7 @@ async def get_entity_paper(entity_id: str, settings: Settings = Depends(get_sett
 
 
 @router.post("/entities/{entity_id}/sources", response_model=EntitySourceList)
+@_admits(SOURCE_BUSY)
 async def add_entity_source(
     entity_id: str,
     request: EntitySourceCreate,
@@ -786,7 +1072,6 @@ async def add_entity_source(
     G61 phase 2 S1 (plan R-AC21, R-AC27): the person's ``access``/``accepted``/
     ``only_me`` ride along, and a value the record does not allow is a 400 with
     ``fact_sources.InvalidSource``'s message — never a silently dropped field."""
-    _source_guard()
     entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
     if not entity_path.exists():
         raise HTTPException(404, f"Entity {entity_id} not found")
@@ -813,6 +1098,7 @@ async def add_entity_source(
 
 
 @router.post("/entities/{entity_id}/sources/change", response_model=EntitySourceList)
+@_admits(SOURCE_BUSY)
 async def change_entity_source(
     entity_id: str,
     request: EntitySourceChange,
@@ -824,7 +1110,6 @@ async def change_entity_source(
     ``newRef``/``newPredicate`` replaces the entry; ``remove`` drops it and leaves a ``sources_removed``
     tombstone so no machine writer puts it back. 404: no page, or nothing under that key; 400: a value the
     record does not allow. Commits alone as ``user`` (``user/companion_app``), like the other source writes."""
-    _source_guard()
     entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
     if not entity_path.exists():
         raise HTTPException(404, f"Entity {entity_id} not found")
@@ -855,14 +1140,86 @@ async def change_entity_source(
     return _sources_payload(settings.memory_path, entity_id)
 
 
+@router.post("/entities/{entity_id}/sources/refresh", response_model=EntitySourceList)
+async def refresh_entity_source(
+    entity_id: str,
+    request: SourceRefreshRequest,
+    settings: Settings = Depends(get_settings),
+):
+    """G61, ruling 26 — the person asks to re-check ONE tracked source now (or sets how often: ``everyDays``,
+    ``clear``). A public page is read now on Cicada's own rail (the person's click: ungated by
+    ``CICADA_ALLOW_CONNECTOR_FETCH``, never a walled host) and what it states is folded at once — the newest evidence
+    wins — in one ``cicada`` commit (trigger ``user/companion_app``). A login-walled page is never fetched here: it is
+    marked asked, so the person's own agent sees it first (``cicada_refresh_claim``), committed as ``user``. The read
+    runs before admission and the write and its commit inside it. 409 on the demo bank or while Sleep holds the pages;
+    404 no page or no such source; 400 a source that is not re-checked (an agent's unconfirmed proposal, a note, a
+    path)."""
+    from api.services import demo_guard
+
+    memory_path = settings.memory_path
+    if demo_guard.is_demo(memory_path):
+        raise HTTPException(409, "this is the demo memory, made up for the tour — there are no real sources to check")
+    if not (memory_path / "entities" / f"{entity_id}.md").exists():
+        raise HTTPException(404, f"Entity {entity_id} not found")
+    ref = (request.ref or "").strip()
+    entry = next((s for s in fact_sources.list_sources(memory_path, entity_id)
+                  if str(s.get("ref", "")).strip() == ref
+                  and fact_sources.same_predicate(s.get("predicate"), request.predicate)), None)
+    if entry is None:
+        raise HTTPException(404, "No source with that link and fact on this page")
+    if request.every_days is not None or request.clear:
+        def cadence() -> None:
+            source_refresh.set_every(memory_path, entity_id, ref, request.predicate,
+                                     None if request.clear else request.every_days)
+
+        async def body():
+            await asyncio.to_thread(cadence)
+            await _commit_sources(memory_path, entity_id, "Change")
+        await write_admission.run_admitted(memory_path, body, refuse=lambda: SleepWriting(SOURCE_BUSY))
+        return _sources_payload(memory_path, entity_id)
+    if not source_refresh.tracked(entry):
+        raise HTTPException(400, "Only a source you added or took, or one Cicada's own read confirmed, is re-checked")
+    if source_refresh.checker(entry) == source_refresh.AGENT:
+        async def ask():
+            await asyncio.to_thread(source_refresh.mark_asked, memory_path, entity_id, ref, request.predicate)
+            await _commit_sources(memory_path, entity_id, "Ask to re-check")
+        await write_admission.run_admitted(memory_path, ask, refuse=lambda: SleepWriting(SOURCE_BUSY))
+        return _sources_payload(memory_path, entity_id)
+    item = await asyncio.to_thread(source_refresh.asked_item, memory_path, entity_id, ref, request.predicate)
+    if item is None:
+        raise HTTPException(404, "No source with that link and fact on this page")
+    if (memory_path / ".git").exists():
+        from api.services import sleep_cycle
+
+        if f"entities/{entity_id}.md" in await sleep_cycle._dirty_paths(memory_path):
+            raise HTTPException(409, "this page has changes that are not saved yet — try again in a moment")
+    # The fetch first, outside admission (no admission spans a fetch, G183); then the write and its commit admitted.
+    planned = await source_refresh.observe_due(memory_path, budget=1, only=item)
+    report = source_refresh.Report()
+
+    async def write():
+        try:
+            await asyncio.to_thread(source_refresh.write_observed, memory_path, planned,
+                                    trigger=source_refresh.ROUTE_TRIGGER, report=report)
+            if report.paths and (memory_path / ".git").exists():
+                await git_service.commit_paths(
+                    memory_path,
+                    source_refresh.commit_message(report, date.today(), source_refresh.ROUTE_TRIGGER), report.paths)
+        except Exception:
+            await asyncio.to_thread(source_refresh.restore, memory_path, report)
+            raise HTTPException(500, "the re-check could not be saved; nothing was changed")
+    await write_admission.run_admitted(memory_path, write, refuse=lambda: SleepWriting(SOURCE_BUSY))
+    return _sources_payload(memory_path, entity_id)
+
+
 @router.delete("/entities/{entity_id}/sources/{index}", response_model=EntitySourceList)
+@_admits(SOURCE_BUSY)
 async def delete_entity_source(
     entity_id: str,
     index: int,
     settings: Settings = Depends(get_settings),
 ):
     """Remove the source at ``index`` (0-based, file order)."""
-    _source_guard()
     entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
     if not entity_path.exists():
         raise HTTPException(404, f"Entity {entity_id} not found")
@@ -924,7 +1281,7 @@ async def get_entity_context(
         type=str(fm.get("type", "concept") or "concept"),
         status=str(fm.get("status", "active") or "active"),
         confidence=float(fm.get("confidence", 0.5) or 0.0),
-        markdown_content=parsed.body,
+        markdown_content=served_prose(parsed.body)[0],
         hubs=hubs,
         neighbors=neighbors,
         episodes=episodes,

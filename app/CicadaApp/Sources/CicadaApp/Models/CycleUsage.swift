@@ -77,6 +77,31 @@ extension CycleUsagePlan {
     }
 }
 
+/// Owner 2026-10-16 — how much of one plan window a run used. `basis`: `measured` (the window's own
+/// reading moved; `share` is the move) | `under` (it did not move at the reading's resolution; the share is
+/// below `under`, and `share` is nil — never zero) | `estimated` (the run's list-price size against the rate
+/// `samples` earlier cycles moved the window by; `under` set too when the reading itself did not move).
+struct CycleUsagePlanShare: Codable, Hashable, Identifiable {
+    let window: String
+    let basis: String
+    var share: Double? = nil
+    var under: Double? = nil
+    var samples: Int? = nil
+
+    var id: String { window }
+}
+
+extension CycleUsagePlanShare {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        window = try c.decode(String.self, forKey: .window)
+        basis = try c.decode(String.self, forKey: .basis)
+        share = (try? c.decodeIfPresent(Double.self, forKey: .share)) ?? nil
+        under = (try? c.decodeIfPresent(Double.self, forKey: .under)) ?? nil
+        samples = (try? c.decodeIfPresent(Int.self, forKey: .samples)) ?? nil
+    }
+}
+
 /// `GET /sleep/history/{commit}` → `usage`. Null on the wire means "not recorded"; a cycle with a
 /// `sleep_run` and no calls is `recorded: true` with no models ("No model calls").
 struct CycleUsage: Codable, Hashable {
@@ -89,6 +114,8 @@ struct CycleUsage: Codable, Hashable {
     /// `charged | list | plan | free | mixed`; null when no model was called.
     var basis: String? = nil
     var plan: CycleUsagePlan? = nil
+    /// A plan run's share of each window, weekly first; empty for a metered run, an older backend, or unknown.
+    var planShare: [CycleUsagePlanShare] = []
 }
 
 extension CycleUsage {
@@ -104,6 +131,7 @@ extension CycleUsage {
         totalEquivUsd = (try? c.decodeIfPresent(Double.self, forKey: .totalEquivUsd)) ?? nil
         basis = (try? c.decodeIfPresent(String.self, forKey: .basis)) ?? nil
         plan = try c.decodeIfPresent(CycleUsagePlan.self, forKey: .plan)
+        planShare = ((try? c.decodeIfPresent([CycleUsagePlanShare].self, forKey: .planShare)) ?? nil) ?? []
     }
 }
 
@@ -122,6 +150,7 @@ struct CycleUsageSummary: Codable, Hashable {
     var engine: String? = nil
     var connection: String? = nil
     var plan: CycleUsageSummaryPlan? = nil
+    var planShare: [CycleUsagePlanShare] = []
 }
 
 extension CycleUsageSummary {
@@ -133,6 +162,7 @@ extension CycleUsageSummary {
         engine = (try? c.decodeIfPresent(String.self, forKey: .engine)) ?? nil
         connection = (try? c.decodeIfPresent(String.self, forKey: .connection)) ?? nil
         plan = try c.decodeIfPresent(CycleUsageSummaryPlan.self, forKey: .plan)
+        planShare = ((try? c.decodeIfPresent([CycleUsagePlanShare].self, forKey: .planShare)) ?? nil) ?? []
     }
 }
 
@@ -151,6 +181,10 @@ struct SleepEngineUsage: Codable, Hashable {
     var inputPerMillionUsd: Double? = nil
     var outputPerMillionUsd: Double? = nil
     var lastCycleCostUsd: Double? = nil
+    /// A plan card: its newest run's share of each window, and that run's list-price equivalent (the secondary
+    /// "would have cost" figure, never a charge). Nil from an older backend.
+    var lastRunShare: [CycleUsagePlanShare]? = nil
+    var lastRunEquivUsd: Double? = nil
 }
 
 /// One model's list price per million tokens, for the model picker.

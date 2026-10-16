@@ -38,8 +38,9 @@ struct ContentView: View {
     @Environment(InboxViewModel.self) private var inboxVM
     @Environment(Store.self) private var store
     @Environment(SleepViewModel.self) private var sleepVM
+    @Environment(SleepEngineViewModel.self) private var sleepEngineVM
     @Environment(ConnectionsViewModel.self) private var connectionsVM
-    /// G126 R9 — consumes a Settings → Integrations "Import in Feed →"
+    /// G126 R9 — consumes a Settings → Integrations "Import in Sleep →"
     /// hand-off by switching the rail's own selection.
     @Environment(AppRouter.self) private var router
     /// G152 — the guided tour: modal over the page area, the rail and the titlebar inert under it.
@@ -55,6 +56,7 @@ struct ContentView: View {
     @Environment(ReadingSitesCache.self) private var readingSitesCache
     @Environment(ChannelItemsCache.self) private var channelItemsCache
     @Environment(VideoStateCache.self) private var videoStateCache
+    @Environment(ExploreCache.self) private var exploreCache
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// True while a file is dragged over the window — shows the drop veil (I1).
     @State private var dropTargeted = false
@@ -83,6 +85,12 @@ struct ContentView: View {
             evaluateFirstRun()
             intake.welcomeActive = showFirstRun
         }
+        // The gear's dot reads the engine the person chose (owner 2026-10-16), so the choice is read once the backend
+        // answers, not only when a page that shows it is visited. Keyed on the first status landing: a read before
+        // the backend is up fails quietly and runs again when it answers.
+        .task(id: store.status.value == nil) {
+            if store.status.value != nil, sleepEngineVM.response == nil { await sleepEngineVM.load() }
+        }
         // DR-42 (R-DI3) — the window closing sends a held answer now; the app lives on in the menu bar.
         .onDisappear { Task { await store.flushHeld() } }
         // R-IB15 — while the Welcome shows, every arrival is staged on it.
@@ -101,12 +109,16 @@ struct ContentView: View {
         .onChange(of: store.bank) { old, _ in
             provenance.close()
             provenanceCache.reset()
+            LinkFactsCache.shared.reset()
             projectsCache.reset()
             backlogCache.reset()
             channelItemsCache.reset()
             videoStateCache.reset()
             // G162 — a page on screen keeps its video rows: the reset forgot the answers, never what was asked.
             if videoStateCache.wantsReads { Task { await videoStateCache.revalidate() } }
+            // G166 exploring — the run is per bank; a page on screen reads the new bank's at once.
+            exploreCache.reset()
+            Task { await exploreCache.revalidate() }
             // G166 — the sites list and its icons are per bank.
             readingSitesCache.reset()
             Task { await SiteIconStore.shared.clear(bank: old) }
@@ -121,6 +133,19 @@ struct ContentView: View {
         .onChange(of: store.version) { old, new in
             guard VideoRefresh.shouldRevalidate(old: old, new: new), videoStateCache.wantsReads else { return }
             Task { await videoStateCache.revalidate() }
+        }
+        // G166 exploring — "Picked up" and each recorded capture show within a second of the queue file or a capture
+        // record moving (the `exploreQueue` and `captures` components); unread until Sources asks.
+        .onChange(of: store.version) { old, new in
+            guard ExploreRefresh.shouldRevalidate(old: old, new: new), exploreCache.wantsReads else { return }
+            Task { await exploreCache.revalidate() }
+        }
+        // The engine choice changed somewhere else (or a run started or ended on another engine): the Sleep page's
+        // button, lamp and answers follow it without a revisit.
+        .onChange(of: store.version) { old, new in
+            guard SleepEngineRefresh.shouldReload(old: old, new: new, loaded: sleepEngineVM.response != nil,
+                                                  saving: sleepEngineVM.isSaving) else { return }
+            Task { await sleepEngineVM.load() }
         }
         // A cached hover preview has no validator, so any change to the
         // bank's episodes or entities forgets them (final review): `/inbox`
@@ -219,7 +244,7 @@ struct ContentView: View {
                 labelled: labelledSidebar,
                 inboxCount: inboxVM.pendingCount,
                 isSleeping: store.status.value?.sleep.status == "running" || sleepVM.isRunning,
-                needsAttention: connectionsVM.needsAttention
+                needsAttention: connectionsVM.needsAttention(engine: sleepEngineVM.response)
             )
             .zIndex(1)
             .disabled(tour.isActive)
@@ -242,6 +267,9 @@ struct ContentView: View {
                 ReaderColumn().disabled(tour.isActive)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // Owner 2026-10-07 — the page host is a panel with a rounded top-leading corner inside the rail-coloured
+            // band and rail. Before the tour, so its scrim is not clipped.
+            .shellContentPanel()
             // G152 — the tour over the page area, reading the targets the pages publish (`.tourAnchor`). An overlay
             // on the host, so the rail, the titlebar and the demo banner below are outside the scrim.
             .overlayPreferenceValue(TourAnchorKey.self) { anchors in
@@ -329,7 +357,8 @@ struct ContentView: View {
             bankResolved: store.banks.value != nil,
             isOnboarded: OnboardingState.isOnboarded(bank: store.bank),
             graphLoaded: store.graph.value != nil,
-            graphIsEmpty: store.graph.value?.nodes.hasNoContentBeyondOwner ?? false
+            graphIsEmpty: store.graph.value?.nodes.hasNoContentBeyondOwner ?? false,
+            isDemo: DemoMode.isActive(store.banks.value)
         ) {
             welcomeMode = .firstRun
             showFirstRun = true
@@ -378,9 +407,9 @@ struct ContentView: View {
             router.pendingClustersEntity = id
             withAnimation(CicadaMotion.standard(reduceMotion: reduceMotion)) { selectedTab = .clusters }
         case .feedItem(let id):
-            // R-DL16 — a saved item opens in the Feed's detail column, not a sheet.
+            // R-DL16 — a saved item opens in Sleep › Saved's detail column, not a sheet.
             if store.sources.value?.contains(where: { $0.mediaEntityId == id }) == true {
-                router.routeToFeedItem(id)
+                router.routeToSavedItem(id)
             } else {
                 openFind(.entity(id: id))
             }
@@ -503,8 +532,6 @@ struct ContentView: View {
             EmptyView()
         case .clusters:
             ClustersPage()
-        case .feed:
-            FeedPage()
         case .sleep:
             // An entity chip in the consolidation history's expanded detail
             // navigates the same way an Ask citation (or a Sources
@@ -526,6 +553,10 @@ struct ContentView: View {
             }
         case .projects:
             ProjectsPage()
+        case .looks:
+            LooksPage()
+        case .skills:
+            SkillsPage()
         }
     }
 }

@@ -518,6 +518,8 @@ def write_claim(
             {entity_id: existing_claims},
             settings,
             now_date=(today or date.today()).isoformat(),
+            # Decay is Sleep's arithmetic, committed under `cicada` (G85) — never under the agent's write.
+            decay=False,
         )
         # G113 — an agent's claim superseding or being rejected against the
         # page is feedback on that agent, same as in the Sleep pipeline.
@@ -843,3 +845,63 @@ def mark_episodes_processed(memory_path: Path, revisions: Mapping[str, str], *, 
                 logger.warning(f"could not mark {filepath.name} processed: {exc}")
     missing = [ep_id for ep_id in wanted if ep_id not in marked and ep_id not in changed]
     return MarkResult(marked=marked, changed=changed, missing=missing)
+
+
+# --- the agent's own consolidation loop, as text (one body for the stdio server and the tool door) -----------------
+
+def pending_text(memory_path: Path, limit, listed: dict[str, str]) -> str:
+    """``cicada_pending``: unprocessed episodes, each with the revision its mark must match. ``listed`` is the
+    caller's session memory of what it was shown (the stdio process's own dict; the tool door's round-tripped state,
+    G181 phase 2), updated in place."""
+    try:
+        limit = int(limit) if limit is not None else 50
+    except (TypeError, ValueError):
+        limit = 50
+
+    episodes = list_unprocessed_episodes(memory_path, limit=limit)
+    if not episodes:
+        return "No unprocessed episodes pending."
+
+    lines = [f"{len(episodes)} unprocessed episode(s):"]
+    for ep in episodes:
+        ep_id = str(ep.get("id"))
+        listed[ep_id] = ep["revision"]
+        snippet = (ep.get("content") or "")[:300].strip().replace("\n", " ")
+        lines.append(f"- `{ep_id}` (rev `{revision_tag(ep['revision'])}`) — {ep.get('title', '')}: {snippet}")
+    return "\n".join(lines)
+
+
+def mark_processed_text(memory_path: Path, episode_ids, revisions, listed: Mapping[str, str], harness: str | None) -> str:
+    """``cicada_mark_processed``: flip ``processed: true`` only where the text is still the revision the agent read —
+    the one passed in ``revisions``, else the one ``listed`` this session; an id with neither is refused rather than
+    retired unchecked (audit A01). ``processed_by`` is the harness, or ``agent`` for a client that named none."""
+    if not isinstance(episode_ids, list) or not episode_ids:
+        return "episode_ids is required (a non-empty array of episode ids)."
+    given = revisions if isinstance(revisions, dict) else {}
+
+    checks: dict[str, str] = {}
+    unlisted: list[str] = []
+    for raw in episode_ids:
+        ep_id = str(raw or "").strip()
+        if not ep_id:
+            continue
+        revision = str(given.get(ep_id) or listed.get(ep_id) or "")
+        if revision:
+            checks[ep_id] = revision
+        else:
+            unlisted.append(ep_id)
+
+    harness = (harness or "").strip()
+    by = harness if harness and harness != "unknown" else "agent"
+    result = mark_episodes_processed(memory_path, checks, by=by)
+    lines = [f"Marked {len(result.marked)} episode(s) as processed (processed_by: {by})."]
+    if result.changed:
+        lines.append("Not marked, changed since you listed them (new turns arrived): "
+                     + ", ".join(f"`{i}`" for i in result.changed)
+                     + ". Run cicada_pending again, consolidate what is new, then mark them.")
+    if unlisted:
+        lines.append("Not marked, not listed by cicada_pending in this session and no rev given: "
+                     + ", ".join(f"`{i}`" for i in unlisted) + ". List them with cicada_pending first.")
+    if result.missing:
+        lines.append("Not found: " + ", ".join(f"`{i}`" for i in result.missing) + ".")
+    return "\n".join(lines)

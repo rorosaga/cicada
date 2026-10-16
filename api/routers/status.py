@@ -4,6 +4,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, Request
 from starlette.concurrency import run_in_threadpool
 
+from api import settings_file
 from api.config import Settings, get_settings
 from api.models.schemas import (
     HealthResponse,
@@ -12,13 +13,18 @@ from api.models.schemas import (
     StatusGates,
     StatusInbox,
     StatusResponse,
+    StatusSettings,
+    StatusSettingsEffective,
     StatusSleep,
 )
 from api.services import (
     bank_index,
+    bank_registry,
+    embedding_health,
     env_overrides,
     git_service,
     inbox_service,
+    sleep_cycle,
     sleep_debt,
     sleep_scheduler,
     sync_service,
@@ -33,27 +39,62 @@ router = APIRouter()
 _last_sleep_cache: dict[str, str | None] = {}
 
 
-@router.get("/healthz", response_model=HealthResponse)
+@router.get("/healthz", response_model=HealthResponse, response_model_exclude_none=True)
 async def healthz(request: Request, settings: Settings = Depends(get_settings)):
     """Auth-free liveness probe for the installer / doctor.
 
     Reports counts, the *resolved* embedding mode (post auto-degrade), and
     whether any LEANN index has been built so doctor can verify the offline
     path is active and the indexes exist without parsing logs.
+
+    Every read happens off the event loop: two directory listings and two
+    index connections are thousands of system calls on a large bank, and a
+    probe that stalled on them stalled every other request with it.
     """
+    from api.services import auth
+
+    full = auth.bearer_admits(request.headers.get("authorization"))
+    return await run_in_threadpool(_health, request.app.version, settings, full)
+
+
+def _health(version: str, settings: Settings, full: bool = True) -> HealthResponse:
+    """``full`` False (no token, owner decision 3, 2026-10-16): liveness, version and bank ids only — no path, no
+    count, nothing that names the person's account or memory. ``exclude_none`` on the route drops the rest."""
+    if not full:
+        return HealthResponse(status="ok", version=version, bank_id=_active_bank_id(settings),
+                              bank_ids=bank_registry.bank_ids(settings.memory_root))
     memory_path = settings.memory_path
-    entity_count = _count_md(memory_path / "entities")
-    episode_count = _count_md(memory_path / "episodes")
     return HealthResponse(
         status="ok",
-        version=request.app.version,
-        entity_count=entity_count,
-        episode_count=episode_count,
+        version=version,
+        entity_count=_count_md(memory_path / "entities"),
+        episode_count=_count_md(memory_path / "episodes"),
         embedding_mode=settings.resolved_embedding_mode,
         memory_path=str(memory_path),
         memory_root=str(settings.memory_root),
+        bank_id=_active_bank_id(settings),
+        bank_ids=bank_registry.bank_ids(settings.memory_root),
         leann_present=_leann_present(memory_path),
+        embedding_model=_embedding_model(memory_path, settings),
+        embedding_problem=(embedding_health.problem(memory_path) or {}).get("kind"),
     )
+
+
+def _active_bank_id(settings: Settings) -> str | None:
+    """The request's pinned bank's id (G183(d) pins it before the handler), else the active one's."""
+    pin = bank_registry.pinned_bank()
+    if pin is not None and pin.root == Path(settings.memory_root):
+        return pin.id
+    return bank_registry.bank_id(settings.memory_root, bank_registry.active_bank_name(settings.memory_root))
+
+
+def _embedding_model(memory_path: Path, settings: Settings) -> str | None:
+    try:
+        from api.services import embedding_models
+
+        return embedding_models.recorded_model(memory_path) or embedding_models.build_model(memory_path, settings)
+    except Exception:  # noqa: BLE001 — a liveness probe never fails over a label
+        return None
 
 
 def _count_md(directory: Path) -> int:
@@ -126,6 +167,7 @@ async def get_status(settings: Settings = Depends(get_settings)):
             total_stages=state.total_stages,
             cycle_id=state.cycle_id,
             error=state.error,
+            writing=sleep_cycle.writing_of(state),
         ),
         inbox=StatusInbox(total=total, by_kind=by_kind),
         episodes=StatusEpisodes(
@@ -141,6 +183,25 @@ async def get_status(settings: Settings = Depends(get_settings)):
         telemetry="on" if telemetry.enabled() else "off",
         gates=StatusGates(**env_overrides.gates()),
         env_overrides=env_overrides.present(settings.model_fields_set),
+        settings=_settings_sources(settings),
+    )
+
+
+def _settings_sources(settings: Settings) -> StatusSettings:
+    """Names only, from what the backend's entry recorded when it read the settings file — never a value but the four
+    `effective` ones."""
+    src = settings_file.sources()
+    return StatusSettings(
+        file=src.file,
+        from_file=list(src.from_file),
+        from_environment=list(src.from_environment),
+        replaced_by_environment=list(src.replaced_by_environment),
+        effective=StatusSettingsEffective(
+            agent_max_concurrency=settings.agent_max_concurrency,
+            sleep_resolve_concurrency=settings.sleep_resolve_concurrency,
+            summary_synthesis_enabled=settings.summary_synthesis_enabled,
+            page_articles_enabled=settings.page_articles_enabled,
+        ),
     )
 
 

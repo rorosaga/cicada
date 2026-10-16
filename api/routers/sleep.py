@@ -6,6 +6,7 @@ from api.config import Settings, get_settings
 from api.models.schemas import (
     EpisodeQueueItem,
     ScheduleConfig,
+    ScheduleResponse,
     SleepCancelResponse,
     SleepCycleDetail,
     SleepDebtResponse,
@@ -29,6 +30,7 @@ from api.services import (
     bank_index,
     episode_copy,
     git_service,
+    last_cycle,
     sleep_autocontinue,
     sleep_debt,
     sleep_drain,
@@ -207,6 +209,17 @@ async def cancel_sleep():
     )
 
 
+def _remembered_embedding_problem(state, settings: Settings) -> str | None:
+    """After a restart the last cycle's warning is gone from memory; an embedder that was
+    failing still is (out of credits does not heal itself), so its sentence stands in."""
+    if state.status == "running":
+        return None
+    from api.services import embedding_health
+
+    problem = embedding_health.problem(settings.memory_path)
+    return embedding_health.sentence(problem["kind"]) if problem else None
+
+
 @router.get("/sleep/status", response_model=SleepStatusResponse)
 async def sleep_status(settings: Settings = Depends(get_settings)):
     state = get_sleep_state()
@@ -224,7 +237,7 @@ async def sleep_status(settings: Settings = Depends(get_settings)):
         started_at=state.started_at,
         progress=state.progress,
         error=state.error,
-        index_warning=state.index_warning,
+        index_warning=state.index_warning or _remembered_embedding_problem(state, settings),
         stage=state.stage,
         total_stages=state.total_stages,
         episodes_total=state.episodes_total,
@@ -251,6 +264,7 @@ async def sleep_status(settings: Settings = Depends(get_settings)):
             ds, completed=state.stage, running=state.status == "running",
             unprocessed=debt.unprocessed_count)) if ds is not None else None,
         paused=paused_block(state, settings),
+        last_finished_cycle=await last_cycle.latest(settings.memory_path),
         debt=SleepDebtResponse(
             unprocessed_count=debt.unprocessed_count,
             oldest_unprocessed_age_hours=debt.oldest_unprocessed_age_hours,
@@ -293,7 +307,7 @@ async def sleep_run_detail_route(drain_id: str, request: Request, response: Resp
     except OSError:
         pass
     etag = sync_service.etag_for(settings.memory_path, "telemetry", "git_head", "sleep",
-                                 extra=f"run|{drain_id}|{runs_stamp}")
+                                 extra=f"run|{sleep_run_detail.SHAPE}|{drain_id}|{runs_stamp}")
     not_modified = sync_service.conditional(request, response, etag)
     if not_modified is not None:
         return not_modified
@@ -383,6 +397,7 @@ def _run_options_response(settings: Settings) -> SleepRunOptions:
         continue_after_reset=opts.continue_after_reset,
         reserve_pct=opts.reserve_pct,
         reserve_choices=list(sleep_run_prefs.RESERVE_CHOICES),
+        scheduled_use_plan=opts.scheduled_use_plan,
     )
 
 
@@ -411,17 +426,39 @@ async def put_run_options(body: SleepRunOptionsUpdate, settings: Settings = Depe
         if body.reserve_pct is not None and body.reserve_pct not in sleep_run_prefs.RESERVE_CHOICES:
             raise HTTPException(status_code=422, detail=f"reservePct must be null or one of {list(sleep_run_prefs.RESERVE_CHOICES)}")
         changes["reserve_pct"] = body.reserve_pct
+    if "scheduled_use_plan" in sent:
+        # Ruling 4b: the machine's "Scheduled runs may use my plan" switch — the one door a plan has on a schedule.
+        if body.scheduled_use_plan is None:
+            raise HTTPException(status_code=422, detail="scheduledUsePlan must be true or false")
+        changes["scheduled_use_plan"] = body.scheduled_use_plan
     if changes:
         sleep_run_prefs.write(get_registry(settings), **changes)
     return _run_options_response(settings)
 
 
-@router.get("/sleep/schedule", response_model=ScheduleConfig)
+async def _schedule_response(settings: Settings, cfg: ScheduleConfig) -> ScheduleResponse:
+    """The schedule, plus — while it runs on its own — why a scheduled run would have no engine it may use (owner
+    decision 2, 2026-10-16). A readiness check that fails never fails the schedule: it just says nothing."""
+    from api.services import engine_readiness
+
+    out = ScheduleResponse(**cfg.model_dump())
+    if cfg.mode == "manual":
+        return out
+    try:
+        problem = await engine_readiness.scheduled_problem(settings, get_registry(settings))
+    except Exception:  # noqa: BLE001
+        problem = None
+    if problem is not None:
+        out.warning, out.warning_code = problem.sentence, problem.code
+    return out
+
+
+@router.get("/sleep/schedule", response_model=ScheduleResponse)
 async def get_schedule(settings: Settings = Depends(get_settings)):
-    return sleep_scheduler.load_schedule(settings.memory_path)
+    return await _schedule_response(settings, sleep_scheduler.load_schedule(settings.memory_path))
 
 
-@router.put("/sleep/schedule", response_model=ScheduleConfig)
+@router.put("/sleep/schedule", response_model=ScheduleResponse)
 async def put_schedule(
     cfg: ScheduleConfig,
     request: Request,
@@ -431,7 +468,7 @@ async def put_schedule(
     scheduler = getattr(request.app.state, "scheduler", None)
     if scheduler is not None:
         sleep_scheduler.register_job(scheduler, settings, cfg)
-    return cfg
+    return await _schedule_response(settings, cfg)
 
 
 @router.get("/sleep/engine", response_model=SleepEngineResponse)

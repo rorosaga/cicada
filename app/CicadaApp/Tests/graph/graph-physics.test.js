@@ -62,52 +62,61 @@ check("dense: other nodes move < 40 wu in the 60 ticks after a release", rows.de
     check("hubGravity at alpha 1 pulls the displaced member", member.vx < 0, member.vx);
 }
 
-// ---- Task 3: velocityDecay 0.2, isolate containment, speed clamp ----
+// ---- Task 3: velocityDecay 0.2, speed clamp; satellites in a band (G109, 2026-10-14) ----
 for (const [size, r] of Object.entries(rows)) {
-    // measured: 12 / 13 / 13 ticks, 63 / 99 / 100 wu — Task 2 alone: 6 ticks / 34-35 wu
-    check(`${size}: a 28 wu/tick flick from rest coasts >= 10 ticks`, r.freeCoastTicks >= 10, r.freeCoastTicks);
+    // measured: 13 / 13 / 10 ticks, 96 / 97 / 85 wu (2026-10-14; was 12-13 ticks / 63-100 wu with the fixed 0.28
+    // link strength — d3's default strength holds a low-degree node a little harder)
+    // 2026-10-14 (the ring): measured 13 / 9 / 10 — the peripheral node starts ~70 wu inside the satellite ring,
+    // which now wraps the whole body, and an outward throw ends against it after ~86 wu.
+    check(`${size}: a 28 wu/tick flick from rest coasts >= 9 ticks`, r.freeCoastTicks >= 9, r.freeCoastTicks);
     check(`${size}: ... and gains >= 60 wu`, r.freeCoastDist >= 60, r.freeCoastDist);
-    // measured isoMax/coreMax: 1.06 / 0.82 / 0.93 — Task 2 alone: 1.42 / 1.45 / 1.59
-    check(`${size}: no isolate sits beyond 1.1x the farthest connected node`, r.isoMax <= 1.1 * r.coreMax, `${r.isoMax} vs coreMax ${r.coreMax}`);
-    // measured isoMedian/coreP90: 1.30 / 1.09 / 1.10 — Task 2 alone: 1.71 / 1.60 / 1.59
-    check(`${size}: isolate median radius <= 1.35x core p90`, r.ratioMedToP90 <= 1.35, r.ratioMedToP90);
+    // 2026-10-14: isolates (and every component of <= 30 nodes but the largest) sit in a band just outside the
+    // body instead of on discs inside it. measured isoMedian/coreP90 1.39 / 1.34 / 1.38, isoMax/coreMax 1.19 / 1.16 /
+    // 1.16 (500 isolates is a third of the medium and dense graphs, so their band runs to three rows).
+    check(`${size}: isolates sit outside the core (median > core p90)`, r.ratioMedToP90 > 1, r.ratioMedToP90);
+    check(`${size}: ... in a band, not a halo (median <= 1.5x core p90)`, r.ratioMedToP90 <= 1.5, r.ratioMedToP90);
+    // 2026-10-15: the halo is a loose scatter (graph-look.test.js) and the core tighter with small dots: 1.17-1.32x
+    check(`${size}: no isolate beyond 1.6x the farthest connected node`, r.isoMax <= 1.6 * r.coreMax, `${r.isoMax} vs coreMax ${r.coreMax}`);
 }
-// measured: 99 / 100 wu on the 1500-node synthetics (the memo's >= 80 wu, collide on)
-check("medium: flick from rest gains >= 90 wu", rows.medium.freeCoastDist >= 90, rows.medium.freeCoastDist);
-check("dense: flick from rest gains >= 90 wu", rows.dense.freeCoastDist >= 90, rows.dense.freeCoastDist);
-// measured isoMax/coreP90: 1.31 / 1.28 — Task 2 alone: 2.02 / 2.03 (the ring)
-check("medium: isolate max radius <= 1.35x core p90", rows.medium.ratioMaxToP90 <= 1.35, rows.medium.ratioMaxToP90);
-check("dense: isolate max radius <= 1.35x core p90", rows.dense.ratioMaxToP90 <= 1.35, rows.dense.ratioMaxToP90);
-// Containment must not compress the connected core: Task-2 core medians were 254 / 470 / 484.
-const CORE_MEDIAN_BEFORE_CONTAINMENT = { small: 254, medium: 470, dense: 484 };
-for (const [size, before] of Object.entries(CORE_MEDIAN_BEFORE_CONTAINMENT)) {
+// measured 85 / 97 wu on the dense / medium 1500-node synthetics (the memo's >= 80 wu, collide on)
+check("medium: flick from rest gains >= 80 wu", rows.medium.freeCoastDist >= 80, rows.medium.freeCoastDist);
+check("dense: flick from rest gains >= 80 wu", rows.dense.freeCoastDist >= 80, rows.dense.freeCoastDist);
+// The band must not inflate the connected core: core medians were 254 / 470 / 484 before it (244 / 424 / 418 after it;
+// 174 / 353 / 316 since 2026-10-15, when nodes became small dots with shorter links and one charge each).
+const CORE_MEDIAN_BEFORE_BAND = { small: 254, medium: 470, dense: 484 };
+for (const [size, before] of Object.entries(CORE_MEDIAN_BEFORE_BAND)) {
     const r = rows[size];
-    check(`${size}: core median within +-10% of its pre-containment value (${before})`, r.coreMedian >= 0.9 * before && r.coreMedian <= 1.1 * before, r.coreMedian);
+    check(`${size}: core median between 0.55x and 1.1x its earlier value (${before})`, r.coreMedian >= 0.55 * before && r.coreMedian <= 1.1 * before, r.coreMedian);
 }
 
 {
-    // Slot stability across deltas (the L2/L3 position-preservation contract):
-    // an added isolate whose id sorts FIRST must not shift anyone else's slot; a
-    // removed isolate frees its index; an isolate that gains a link leaves the map.
+    // Halo place stability across deltas (the L2/L3 position-preservation contract): an added isolate whose id sorts
+    // FIRST must not shift anyone else's place; a removed isolate leaves; an isolate that gains a link leaves the halo;
+    // a newcomer starts in its own place. Since 2026-10-15 a place is a function of the unit's own id (`unitHash`).
     const { get, call } = loadGraph();
     const g = synthetic(SIZES.small);
     call("updateGraph", g);
     get("simulation").stop();
-    const before = new Map([...get("isolateSlots")].map(([id, s]) => [id, `${s.type}:${s.index}`]));
-    check("isolates were assigned slots", before.size === SIZES.small.isolates, before.size);
+    const slotOf = () => new Map([...get("satelliteOf")].map(([id, u]) => [id, `${u.angle}:${u.depth}`]));
+    const before = slotOf();
+    check("isolates were placed in the band", before.size === SIZES.small.isolates, before.size);
     const firstIsolate = g.nodes.find(n => n.id === "i0");
     call("updateGraphDelta", { added: [{ ...firstIsolate, id: "a-sorts-first", name: "A" }], updated: [], removed: ["i1"] });
     get("simulation").stop();
-    const after = get("isolateSlots");
+    const after = slotOf();
     check("a new isolate whose id sorts first got a slot", after.has("a-sorts-first"));
     check("the removed isolate lost its slot", !after.has("i1"));
     let shifted = 0;
-    for (const [id, key] of before) if (id !== "i1" && after.has(id) && `${after.get(id).type}:${after.get(id).index}` !== key) shifted += 1;
+    for (const [id, key] of before) if (id !== "i1" && after.has(id) && after.get(id) !== key) shifted += 1;
     check("no surviving isolate changed slot", shifted === 0, shifted);
-    check("the newcomer's slot is in its own type's disc", after.get("a-sorts-first").type === firstIsolate.type, after.get("a-sorts-first").type);
+    check("the newcomer's place is a function of its own id", get("unitHash")("a-sorts-first", 1) * 2 * Math.PI === get("satelliteOf").get("a-sorts-first").angle, after.get("a-sorts-first"));
+    const unit = get("satelliteOf").get("a-sorts-first");
+    const newcomer = get("visibleNodes").find(n => n.id === "a-sorts-first");
+    check("the newcomer starts in its slot, not at its type anchor", Math.hypot(newcomer.x - unit.x, newcomer.y - unit.y) < 1,
+          Math.hypot(newcomer.x - unit.x, newcomer.y - unit.y).toFixed(1));
     call("updateGraphDelta", { added: [], updated: [], removed: [], links: [...g.links, { source: "i2", target: "c0" }] });
     get("simulation").stop();
-    check("an isolate that gained a visible link left the slot map", !get("isolateSlots").has("i2"));
+    check("an isolate that gained a visible link left the band", !get("satelliteOf").has("i2"));
 }
 
 // The delta path (every SSE version tick after a Sleep): a delta with NO change on

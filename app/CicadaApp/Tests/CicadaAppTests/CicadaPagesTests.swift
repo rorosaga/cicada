@@ -4,9 +4,10 @@ import XCTest
 /// G139 — the Cicada group's new pages (design §2.2; R-O17, R-O18, R-O21).
 final class CicadaPagesTests: XCTestCase {
     func testTheCicadaGroupReadsInTheDesignsOrder() {
-        XCTAssertEqual(SettingsGroup.cicada.sections, [.general, .you, .privacy, .memory, .sleep])
+        // Search & files (owner, 2026-10-14) sits between Privacy & data and Memory.
+        XCTAssertEqual(SettingsGroup.cicada.sections, [.general, .you, .privacy, .searchFiles, .memory, .sleep])
         XCTAssertEqual(SettingsGroup.enginesAndKeys.sections, [.engines, .plansAndKeys, .advanced])
-        for section in [SettingsSection.you, .privacy, .memory, .advanced] {
+        for section in [SettingsSection.you, .privacy, .searchFiles, .memory, .advanced] {
             XCTAssertLessThanOrEqual(section.subtitle.count, 60)
             XCTAssertFalse(section.subtitle.lowercased().contains(section.title.lowercased()))
         }
@@ -41,6 +42,22 @@ final class CicadaPagesTests: XCTestCase {
         XCTAssertEqual(full.envOverrides, ["CICADA_LLM_MODE"])
     }
 
+    func testSettingsFileSourcesDecodeAndReadInWords() throws {
+        let body = #"{"sleep":{"status":"idle","stage":0,"totalStages":5},"inbox":{"total":0,"byKind":{}},"episodes":{"unprocessed":0},"settings":{"file":"api/.env","fromFile":["CICADA_AGENT_MAX_CONCURRENCY","CICADA_PAGE_ARTICLES_ENABLED"],"fromEnvironment":["CICADA_MEMORY_PATH"],"replacedByEnvironment":["CICADA_MEMORY_PATH"],"effective":{"agentMaxConcurrency":10,"sleepResolveConcurrency":10,"summarySynthesisEnabled":true,"pageArticlesEnabled":false}}}"#
+        let status = try JSONDecoder().decode(StatusSnapshot.self, from: Data(body.utf8))
+        let sources = try XCTUnwrap(status.settings)
+        XCTAssertEqual(SettingsFileText.detail(sources), "api/.env — 2 settings read.")
+        XCTAssertEqual(SettingsFileText.lines(sources).map(\.name),
+                       ["CICADA_AGENT_MAX_CONCURRENCY", "CICADA_PAGE_ARTICLES_ENABLED", "CICADA_MEMORY_PATH"])
+        XCTAssertEqual(SettingsFileText.lines(sources).last?.note, "In api/.env, but the environment replaces it.")
+        XCTAssertEqual(SettingsFileText.effective(sources.effective),
+                       "In effect: 10 model calls at once · 10 name checks at once · summaries rewritten on · pages as articles off.")
+        let none = StatusSnapshot.SettingsSources(file: nil, fromFile: [], fromEnvironment: ["CICADA_HOME"])
+        XCTAssertEqual(SettingsFileText.detail(none), Copy.settingsFileNone)
+        XCTAssertTrue(SettingsFileText.lines(none).isEmpty)
+        XCTAssertNil(SettingsFileText.effective(nil))
+    }
+
     func testBanksAndHealthDecodeTheirNewFieldsTolerantly() throws {
         let bank = try JSONDecoder().decode(MemoryBank.self, from: Data(#"{"name":"default","active":true,"entityCount":1,"episodeCount":2,"createdAt":"","legacy":true}"#.utf8))
         XCTAssertTrue(bank.legacy)
@@ -72,7 +89,7 @@ final class CicadaPagesTests: XCTestCase {
 
     func testMaintenanceLinesSayWhatHappenedInWords() {
         XCTAssertEqual(MemoryMaintenanceText.index(SearchIndexStatus(state: "building", builtAt: nil, documents: nil)),
-                       "Building for the first time…")
+                       "Getting search ready for the first time…")
         XCTAssertEqual(MemoryMaintenanceText.index(SearchIndexStatus(state: "unavailable", builtAt: nil, documents: nil)),
                        "Not available on this Mac — search still works from your pages.")
         XCTAssertTrue((MemoryMaintenanceText.index(SearchIndexStatus(state: "ready", builtAt: nil, documents: 1200)) ?? "").hasPrefix("Up to date"))

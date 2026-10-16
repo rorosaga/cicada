@@ -15,8 +15,9 @@ from pathlib import Path
 
 from fastapi import Request, Response
 
-from api.services import (backlog, bank_index, logo_service, markdown_parser, reading_asks, reading_settings,
-                              telemetry, video_queue)
+from api.services import (backlog, bank_index, design_refs, logo_service, markdown_parser, person_photo, reading_asks,
+                          reading_settings, telemetry, video_queue)
+from api.services import explore_queue, messages_photos, site_captures
 from api.services.calendar_registry import CALENDARS_FILENAME
 from api.services.feed_registry import FEEDS_FILENAME
 from api.services.folder_source import FOLDERS_FILENAME
@@ -161,8 +162,16 @@ def _reading_component(mp: Path) -> str:
     return f"{mtime:.6f}:{expired}:{reading_settings.mtime():.6f}"
 
 
-def components(memory_path: Path, *, sleep_state=None) -> dict[str, str]:
+#: Components a stat walk of the bank computes outside ``bank_index`` (whose listings the SSE tick reuses instead):
+#: an idle tick between file-change events may carry them over from the last full walk (``sync_ticker``).
+WALKED_OUTSIDE_INDEX = ("backlog", "captures")
+
+
+def components(memory_path: Path, *, sleep_state=None, reuse: dict | None = None) -> dict[str, str]:
+    """``reuse``: :data:`WALKED_OUTSIDE_INDEX` values from the last full walk, for a caller that knows nothing in the
+    bank changed since (the SSE tick between file-change events). Never passed by a request's ETag."""
     mp = Path(memory_path)
+    reuse = reuse or {}
     # Audit 2026-10-05 P2-9: every directory component is a fingerprint of its
     # files' names, sizes and nanosecond mtimes (`bank_index.dir_fingerprint`,
     # one shared scan) — "the newest mtime" stood still for an edit beside a
@@ -182,7 +191,9 @@ def components(memory_path: Path, *, sleep_state=None) -> dict[str, str]:
         # G150 R-B16: every backlog item's stamp (a stat walk, no parse) — the
         # Projects page's backlog reads and `_state.md`'s `backlog_open` move
         # on it; nothing in `entities`/`episodes` notices a backlog write.
-        "backlog": backlog.stamp(mp),
+        "backlog": reuse["backlog"] if "backlog" in reuse else backlog.stamp(mp),
+        # Design taste (2026-10-14): every reference file's stamp — the Looks page's board revalidates on it.
+        "design": design_refs.stamp(mp),
         # `feeds.yaml` / `calendars.yaml` (the RSS + ICS subscription registries)
         # ride the `sources` component: subscribing or unsubscribing changes
         # neither the sources dir nor the url index, so without them the app's
@@ -192,7 +203,8 @@ def components(memory_path: Path, *, sleep_state=None) -> dict[str, str]:
         # `sources/folders.json` (G133) rides it too: registering or renaming a
         # folder adds or relabels a channel row without touching any other
         # component. So does `sources/wispr_flow.json` (G134): turning the
-        # source on adds a channel row the same way (R-LS29).
+        # source on adds a channel row the same way (R-LS29). And
+        # `sources/bookmark_seen.json` (G191 v4: a bookmark that left its browser).
         "sources": (
             f"{bank_index.dir_fingerprint(mp / 'sources')}"
             f":{file_mtime(mp / 'sources' / 'url_index.json'):.6f}"
@@ -201,6 +213,9 @@ def components(memory_path: Path, *, sleep_state=None) -> dict[str, str]:
             f":{file_mtime(mp / FEEDS_FILENAME):.6f}"
             f":{file_mtime(mp / CALENDARS_FILENAME):.6f}"
             f":{file_mtime(mp / SYNC_STATE_FILENAME):.6f}"
+            # G191 v4: the bookmark seen-set carries which links left a browser (`leftBrowser` on `/sources`, `left`
+            # on a bookmark channel's items); the directory fingerprint reads only `*.md`, so it rides by its mtime.
+            f":{file_mtime(mp / 'sources' / 'bookmark_seen.json'):.6f}"
         ),
         # The logo cache lives at `$CICADA_HOME/logos/<bank>/`, *outside* the
         # memory bank, so no other component notices when a warm-up or an
@@ -210,6 +225,14 @@ def components(memory_path: Path, *, sleep_state=None) -> dict[str, str]:
         # (The other direction — an entry aging out of its TTL, which writes
         # nothing — rides the expired count; see `_logos_component`.)
         "logos": _logos_component(mp),
+        # G159 (2026-10-09): a person's public-profile photo is cached at `$CICADA_HOME/pictures/<bank>/people/`,
+        # outside the bank, and `/graph` bakes its `?v=` (or its absence, after a miss) into the node's hash. The
+        # stamp is `meta.json`'s mtime plus the misses past their retry window (an expiry writes nothing). The app
+        # maps it onto `.graph`, like `logos`.
+        # 2026-10-16: a ticked Messages chat's shared photo (`messages_photos`) rides it too — cached at
+        # `$CICADA_HOME/pictures/<bank>/messages/`, drawn at the page its correspondent record links, so a photo stored
+        # or gone, or a link made or lost (a mark, a page Sleep creates), moves the node's picture and nothing else.
+        "photos": f"{person_photo.stamp(logo_service.bank_name(mp))}:{messages_photos.stamp(mp)}",
         # G162: the person's video queue lives at `$CICADA_HOME/video_queue/<bank>.json`,
         # OUTSIDE the bank, so a queued video, an agent's lease or a hand-back moves nothing
         # above. `stamp` is the file's mtime plus how many leases, failed rows and finished
@@ -217,6 +240,12 @@ def components(memory_path: Path, *, sleep_state=None) -> dict[str, str]:
         # changes what /videos/state says). The app revalidates its VideoStateCache on this
         # component (VideoRefresh); it is NOT a Store domain and NOT in `_state.md`'s digest.
         "videoQueue": video_queue.stamp(mp),
+        # G166 exploring (2026-10-14): the explore queue lives at `$CICADA_HOME/explore_queue/<bank>.json`, outside the
+        # bank, with the video queue's stamp rule (mtime plus what came due with nothing written). `captures` is every
+        # capture record's stamp in `<bank>/captures/` (a stat walk, two levels). The app revalidates its
+        # ExploreCache on both; neither is a Store domain.
+        "exploreQueue": explore_queue.stamp(mp),
+        "captures": reuse["captures"] if "captures" in reuse else site_captures.stamp(mp),
         # G166: the reading asks live at `$CICADA_HOME/reading_asks/<bank>.json`
         # and the person's reading settings at `$CICADA_HOME/reading.json` —
         # both OUTSIDE the bank, so nothing above notices a "needs you to sign
@@ -246,9 +275,40 @@ def components(memory_path: Path, *, sleep_state=None) -> dict[str, str]:
         "bank": mp.name,
         # A paused run (Sleep page v5) is not a status: it lives in a machine-local sidecar, so
         # Pause, Continue, End, a restart and an armed auto-continue move this on their own.
+        # G177 — the write window too: the app's write controls follow `writing`, which flips between a drain's
+        # batches with no status change, and `/status` has no ETag of its own to move.
         "sleep": (f"{getattr(sleep_state, 'status', 'idle')}:{getattr(sleep_state, 'cycle_id', '') or ''}"
-                  f"{_paused_token(mp)}"),
+                  f"{_writing_token(sleep_state)}{_paused_token(mp)}"),
+        # The Sleep engine choice lives in `$CICADA_HOME/connections.json`, outside every bank, so a
+        # `PUT /sleep/engine` from anywhere but the app's own menu (curl, an agent, the CLI) moved nothing
+        # and the Sleep page kept naming the old engine until it was reopened. The app reloads its engine
+        # response (not a Store domain) when this moves. While a run of this bank reads, the engine it
+        # pinned at its start rides along, so the page learns when a run starts or ends on another engine.
+        "engine": _engine_token(mp, sleep_state),
     }
+
+
+def _engine_token(mp: Path, sleep_state) -> str:
+    from api.services.auth import cicada_home
+    from api.services.connections.registry import PREFS_FILE_NAME
+
+    try:
+        st = (cicada_home() / PREFS_FILE_NAME).stat()
+        token = f"{st.st_mtime_ns}.{st.st_size}"
+    except OSError:
+        token = "0"
+    ds = getattr(sleep_state, "drain", None) if getattr(sleep_state, "status", None) == "running" else None
+    if ds is not None and getattr(ds, "memory_path", None) in (None, mp) and getattr(ds, "engine_label", None):
+        token += f":{ds.engine_label}/{getattr(ds, 'engine_shown', None) or ''}"
+    return token
+
+
+def _writing_token(sleep_state) -> str:
+    if sleep_state is None:
+        return ""
+    from api.services import sleep_cycle
+
+    return ":writing" if sleep_cycle.writing_of(sleep_state) else ""
 
 
 def _paused_token(mp: Path) -> str:
@@ -265,8 +325,8 @@ def _digest(parts: dict) -> str:
     return hashlib.sha1(json.dumps(parts, sort_keys=True).encode()).hexdigest()[:16]
 
 
-def version(memory_path: Path, sleep_state=None) -> VersionInfo:
-    comps = components(memory_path, sleep_state=sleep_state)
+def version(memory_path: Path, sleep_state=None, *, reuse: dict | None = None) -> VersionInfo:
+    comps = components(memory_path, sleep_state=sleep_state, reuse=reuse)
     return VersionInfo(version=_digest(comps), components=comps)
 
 

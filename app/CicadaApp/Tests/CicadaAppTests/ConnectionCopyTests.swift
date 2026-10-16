@@ -34,4 +34,18 @@ final class ConnectionCopyTests: XCTestCase {
         XCTAssertEqual(max.priceLine, "Claude Max 20x")
         XCTAssertFalse(max.priceLine.contains("$"))
     }
+
+    /// DR-38 (QA 2026-10-16) — a card whose price line is only its title again shows no second line.
+    func testACardNeverRepeatsItsTitleUnderIt() throws {
+        let json = #"{"id":"byok-openai","label":"OpenAI API key","billing":"usage","connected":false}"#
+        let key = try JSONDecoder().decode(ConnectionStatus.self, from: Data(json.utf8))
+        XCTAssertNil(key.subtitle)
+        let plan = #"{"id":"chatgpt-plan","label":"ChatGPT plan","billing":"subscription"}"#
+        XCTAssertNil(try JSONDecoder().decode(ConnectionStatus.self, from: Data(plan.utf8)).subtitle)
+        let max = ConnectionStatus(id: "claude-plan", label: "Claude plan", kind: "subscription",
+                                   available: true, connected: true, plan: "max", planLabel: "Claude Max 20x",
+                                   tier: "20x", account: nil, priceUsdMonth: 200, priceNote: nil,
+                                   billing: "subscription", engineRole: "subscription-cli", detail: nil, login: nil)
+        XCTAssertEqual(max.subtitle, "Claude Max 20x")
+    }
 }

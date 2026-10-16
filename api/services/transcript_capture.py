@@ -40,16 +40,19 @@ from pathlib import Path
 
 from loguru import logger
 
-from api.services import agent_turns, demo_guard, episode_ids, episode_staging, markdown_parser, session_stats, telemetry
+from api.services import (
+    agent_turns, continuity_sessions, demo_guard, episode_ids, episode_staging, episode_title, evidence, markdown_parser,
+    session_stats, telemetry,
+)
 from api.services.transcript_extract import HARNESSES, Conversation, extract
 
 #: 256 MiB. The largest transcript seen on the author's machine during the
 #: 2026-09-03 schema peek was 85 MB; the cap is a ceiling against a runaway
 #: file, not a budget.
 MAX_TRANSCRIPT_BYTES = 256 * 1024 * 1024
-TITLE_MAX = 72
+TITLE_MAX = episode_title.TITLE_MAX
 CAPTURE_KIND = "transcript"
-PRODUCT = {"claude-code": "Claude Code", "codex": "Codex"}
+PRODUCT = episode_title.PRODUCT
 
 _SESSION_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{7,127}$")
 _lock = threading.Lock()
@@ -119,9 +122,118 @@ def validate_transcript_path(harness: str, session_id: str, raw_path: str) -> Pa
     return path
 
 
+#: G110 slice 1a: how many final turns carry exact offsets in `tail_turns`.
+TAIL_TURNS = 8
+#: G110: the capture metadata this writer owns, kept out of `content_hash` and
+#: always before `turns` (which stays the last key, R-PB4), so the continuity
+#: index reads them from an episode's head.
+META_KEYS = ("last_turn_at", "turn_count", "capture_gap", "capture_flags", "reply_gaps", "tail_turns")
+
+
+def capture_meta(conv: Conversation, body: str) -> dict:
+    """Where capture stopped, for the next session (G110 slice 1a, plan C7):
+
+    * ``last_turn_at`` — the last KEPT turn's own time (absent when untimed);
+    * ``turn_count`` — kept turns;
+    * ``tail_turns`` — the last ``TAIL_TURNS`` kept turns as ``{offset,
+      speaker, at?}`` with exact offsets into the body (``_body``'s join), so a
+      reader never guesses turn boundaries from text — the G118 sidecar stops
+      at 500 entries and skips untimed turns;
+    * ``capture_gap`` — only while the session cap dropped the middle (gate
+      B2): how many turns, and the first and last of their times;
+    * ``reply_gaps`` — recorded offsets/counts for clipped final replies;
+    * ``capture_flags`` — a kept person turn looks like a Cicada note (counted,
+      kept, disclosed), or the first request exceeded its cleaned 16k cap."""
+    meta: dict = {}
+    if conv.turns and conv.turns[-1].ts:
+        meta["last_turn_at"] = _utc(conv.turns[-1].ts)
+    meta["turn_count"] = len(conv.turns)
+    if conv.gap is not None:
+        meta["capture_gap"] = {**_gap_meta(conv), "offset": _gap_offset(conv)}
+    note_like = int(conv.summary.get("note_like_turns") or 0)
+    if note_like:
+        meta["capture_flags"] = {"note_like_turns": note_like}
+    if conv.summary.get("first_request_clipped"):
+        meta.setdefault("capture_flags", {})["first_request_clipped"] = True
+    offsets = _turn_offsets(conv)
+    reply_gaps = [{**t.reply_gap, "offset": offsets[i] + len(t.role) + 2 + t.reply_gap["offset"]}
+                  for i, t in enumerate(conv.turns) if t.reply_gap]
+    if reply_gaps:
+        meta["reply_gaps"] = reply_gaps
+    tail = []
+    for i in range(max(0, len(conv.turns) - TAIL_TURNS), len(conv.turns)):
+        entry = {"offset": offsets[i], "speaker": conv.turns[i].role}
+        if conv.turns[i].ts:
+            entry["at"] = _utc(conv.turns[i].ts)
+        tail.append(entry)
+    meta["tail_turns"] = tail
+    return meta
+
+
+def _apply_meta(fm: dict, meta: dict, continues: str | None, workspace: dict | None = None) -> bool:
+    """Write ``meta`` into ``fm`` (absent keys removed) and stamp
+    ``continues`` once. True when anything changed. ``continues`` is never
+    rewritten once set (plan C1: first write wins, bounded to one id)."""
+    before = {k: fm.get(k) for k in (*META_KEYS, "continues", "workspace_identity")}
+    for key in META_KEYS:
+        if key in meta:
+            fm[key] = meta[key]
+        else:
+            fm.pop(key, None)
+    if continues and not fm.get("continues"):
+        fm["continues"] = continues
+    if workspace is not None:
+        from api.services import workspace_identity
+        if workspace_identity.current(workspace, fm.get("project_dir")):
+            fm["workspace_identity"] = workspace
+        else:
+            fm.pop("workspace_identity", None)
+    return before != {k: fm.get(k) for k in (*META_KEYS, "continues", "workspace_identity")}
+
+
+def _continues(memory_path: Path, harness: str, session_id: str, bank_paths) -> str | None:
+    """The one episode Cicada pointed this session at (registry ``continues``),
+    or None. Read only when the caller passed the configured banks (the
+    registry's every-bank guard needs them)."""
+    if bank_paths is None:
+        return None
+    row = continuity_sessions.get(memory_path, harness, session_id, bank_paths=bank_paths) or {}
+    return row.get("continues") or None
+
+
+#: Fix round 1 (review blocker 2): the transcript bytes the write that produced
+#: this body had read — outside `content_hash`, before `turns`.
+EXTENT_KEY = "transcript_bytes"
+
+
+def _stored_extent(fm: dict) -> int | None:
+    v = fm.get(EXTENT_KEY)
+    return v if isinstance(v, int) and not isinstance(v, bool) and v >= 0 else None
+
+
+def _superseded(fm: dict, read_bytes: int, path: Path | None, size: int | None = None) -> bool:
+    """True when this capture's read is OLDER than what the episode stores:
+    it read fewer transcript bytes, and the file now holds at least the stored
+    extent — so a newer capture really saw more. Checked under the writer lock.
+    A file that truly shrank (replaced, not grown) is never "superseded", so a
+    session cannot get stuck; neither windowed turn counts nor body hashes nor
+    hook order decide this."""
+    stored = _stored_extent(fm)
+    if stored is None or read_bytes >= stored:
+        return False
+    if size is not None:
+        # A session read on another machine (G181 phase 2): the client stats its own file when it sends, and the
+        # server never opens a path a client names.
+        return size >= stored
+    try:
+        return path.stat().st_size >= stored
+    except OSError:
+        return False
+
+
 @dataclass
 class CaptureResult:
-    status: str  # created | updated | unchanged | empty | refused
+    status: str  # created | updated | unchanged | metadata | superseded | empty | refused
     episode_id: str | None
     turns_user: int
     turns_assistant: int
@@ -139,10 +251,52 @@ def _utc(ts: str | None) -> str:
     return episode_ids.utc_now_iso()
 
 
+def _gap_meta(conv: Conversation) -> dict:
+    gap: dict = {"dropped_turns": conv.gap.dropped}
+    if conv.gap.first_at:
+        gap["first_dropped_at"] = _utc(conv.gap.first_at)
+    if conv.gap.last_at:
+        gap["last_dropped_at"] = _utc(conv.gap.last_at)
+    return gap
+
+
+def _gap_offset(conv: Conversation) -> int | None:
+    """Where the marker line starts in :func:`_body` — its authoritative range
+    is ``[offset, offset + len(marker))``, stored in ``capture_gap``."""
+    if conv.gap is None:
+        return None
+    lines = _lines(conv)
+    return sum(len(line) + 1 for line in lines[: conv.gap.after])
+
+
+def _lines(conv: Conversation) -> list[str]:
+    """The body's lines: one ``role: text`` per kept turn and, over the session
+    cap (gate B2), the ONE marker line between the head and the tail
+    (``evidence.gap_line``). Every offset this module records is taken here."""
+    out = [f"{t.role}: {t.text}" for t in conv.turns]
+    if conv.gap is not None:
+        g = _gap_meta(conv)
+        out.insert(conv.gap.after, evidence.gap_line(g["dropped_turns"], g.get("first_dropped_at"),
+                                                     g.get("last_dropped_at")))
+    return out
+
+
+def _turn_offsets(conv: Conversation) -> list[int]:
+    """Where each kept turn's line starts in :func:`_body` — the marker line is skipped."""
+    offsets: list[int] = []
+    at = 0
+    for i, line in enumerate(_lines(conv)):
+        if not (conv.gap is not None and i == conv.gap.after):
+            offsets.append(at)
+        at += len(line) + 1
+    return offsets
+
+
 def _body(conv: Conversation) -> str:
     """The importer's exact body shape (``conversations.py:792``), so G118
-    spans and ``evidence.speaker_kind`` read a captured episode unchanged."""
-    return "\n".join(f"{t.role}: {t.text}" for t in conv.turns)
+    spans and ``evidence.speaker_kind`` read a captured episode unchanged —
+    plus, over the cap, the gap marker line (gate B2)."""
+    return "\n".join(_lines(conv))
 
 
 def _turn_sidecar(conv: Conversation, body: str) -> list[dict]:
@@ -155,10 +309,24 @@ def _turn_sidecar(conv: Conversation, body: str) -> list[dict]:
     times, and ``[]`` rather than offsets into text the body does not hold.
     Before this the hook wrote ``turns: <count>`` and every Claude Code turn
     dated to the session's first day."""
-    draft = episode_staging.EpisodeDraft(turns=[
-        episode_staging.Turn(text=t.text, speaker=t.role, ts=t.ts, model=t.model, effort=t.effort)
-        for t in conv.turns])
-    return episode_staging.stamps_for(draft, body)
+    def piece(turns) -> tuple[episode_staging.EpisodeDraft, str]:
+        draft = episode_staging.EpisodeDraft(turns=[
+            episode_staging.Turn(text=t.text, speaker=t.role, ts=t.ts, model=t.model, effort=t.effort)
+            for t in turns])
+        return draft, "\n".join(f"{t.role}: {t.text}" for t in turns)
+
+    if conv.gap is None:
+        return episode_staging.stamps_for(piece(conv.turns)[0], body)
+    # Gate B2: the head and the tail are each the stager's own rendering; the
+    # tail's offsets start after the marker line. Head first under the 500 cap.
+    head_draft, head_body = piece(conv.turns[: conv.gap.after])
+    tail_draft, tail_body = piece(conv.turns[conv.gap.after:])
+    base = _turn_offsets(conv)[conv.gap.after]
+    if body[base:] != tail_body or (head_body and not body.startswith(head_body + "\n")):
+        return []
+    tail = [{**e, "offset": e["offset"] + base} for e in episode_staging.stamps_for(tail_draft, tail_body)]
+    head = episode_staging.stamps_for(head_draft, head_body) if head_body else []
+    return (head + tail)[: episode_staging.MAX_TURN_STAMPS]
 
 
 def _place_turns(fm: dict, sidecar: list[dict]) -> None:
@@ -176,33 +344,50 @@ def _last_offset(conv: Conversation, body: str) -> int | None:
     chunks with `\\n`, so it is the body's length minus that chunk's."""
     if not conv.turns:
         return None
-    last = conv.turns[-1]
-    return len(body) - len(f"{last.role}: {last.text}")
+    return _turn_offsets(conv)[-1]
 
 
-def _agent_fields(sidecar: list[dict], previous, effort: str | None, last_offset: int | None) -> list[dict]:
+def _turn_chunks(conv: Conversation) -> dict[int, str]:
+    """Each kept turn's rendered ``role: text`` keyed by its offset in :func:`_body`."""
+    return {at: f"{t.role}: {t.text}" for at, t in zip(_turn_offsets(conv), conv.turns)}
+
+
+def _agent_fields(sidecar: list[dict], previous, effort: str | None, last_offset: int | None, *,
+                  previous_body: str | None = None, chunks: dict[int, str] | None = None) -> list[dict]:
     """Round 4 C1 (R4B-3): what the transcript did not say about an agent turn.
 
     1. An agent entry the new read left without a `model`/`effort` keeps what the
-       previous sidecar held at the SAME offset — offsets are head-stable (R6), so
-       a hook-supplied effort survives the next Stop.
+       previous sidecar held for the SAME reply. Fix round 1 (review should-fix
+       3): a reply is identified by its own time AND its exact rendered text at
+       the previous entry's offset in the previous body — never by offset alone,
+       because past the session cap the tail slides (gate B2) and another reply
+       can land on an old offset. An entry is remapped to wherever that reply
+       sits now; with no proof of identity the fields stay absent.
     2. The Stop hook's `effort.level` fills the LAST body turn only, only when it
        is the agent's and the transcript gave it none: the transcript wins, and a
        reply not yet flushed leaves the hook's value with no turn to land on
        rather than labelling the previous reply.
     Keys stay in `TURN_STAMP_KEYS` order."""
-    before: dict[int, dict] = {}
-    if isinstance(previous, list):
+    by_ts: dict[str, list[dict]] = {}
+    if isinstance(previous, list) and previous_body is not None and chunks:
         for e in previous:
-            if isinstance(e, dict) and e.get("speaker") == "assistant":
-                try:
-                    before.setdefault(int(e.get("offset")), e)
-                except (TypeError, ValueError):
-                    continue
+            if isinstance(e, dict) and e.get("speaker") == "assistant" and isinstance(e.get("ts"), str):
+                by_ts.setdefault(e["ts"], []).append(e)
+
+    def same_reply(old: dict, line: str) -> bool:
+        try:
+            at = int(old.get("offset"))
+        except (TypeError, ValueError):
+            return False
+        end = at + len(line)
+        return (at >= 0 and previous_body.startswith(line, at)
+                and (end == len(previous_body) or previous_body[end] == "\n"))
+
     for entry in sidecar:
         if entry.get("speaker") != "assistant":
             continue
-        was = before.get(entry["offset"], {})
+        line = (chunks or {}).get(entry["offset"])
+        was = next((e for e in by_ts.get(entry.get("ts"), []) if line and same_reply(e, line)), {})
         if "model" not in entry and (model := agent_turns.clean_model(was.get("model"))):
             entry["model"] = model
         if "effort" not in entry and (kept := agent_turns.clean_effort(was.get("effort"))):
@@ -216,13 +401,9 @@ def _agent_fields(sidecar: list[dict], previous, effort: str | None, last_offset
 
 
 def _title(conv: Conversation, harness: str) -> str:
-    """R12: the first kept user turn's first line, else ``<Product> session``."""
-    for t in conv.turns:
-        if t.role == "user":
-            first = t.text.strip().splitlines()[0].strip()
-            if first:
-                return first if len(first) <= TITLE_MAX else first[: TITLE_MAX - 1] + "…"
-    return f"{PRODUCT.get(harness, harness)} session"
+    """R12: the first person turn's own first line — never a wrapper tag (``episode_title``) — else
+    ``<Product> session``."""
+    return episode_title.title_for((t.text for t in conv.turns if t.role == "user"), harness)
 
 
 def _is_session_episode(fp: Path, session_id: str) -> bool:
@@ -260,8 +441,19 @@ def _find_session_episode(episodes_dir: Path, harness: str, session_id: str) -> 
     return None
 
 
+#: G110 gate A: the hook events capture runs under; the ledger names one of
+#: these or ``other``, never the raw string the hook forwarded. The last three
+#: are the per-turn hooks ``turn_capture`` serves: Cursor's prompt and reply
+#: events and Gemini CLI's end of an agent turn.
+HOOK_EVENTS = ("Stop", "PreCompact", "SessionEnd", "beforeSubmitPrompt", "afterAgentResponse", "AfterAgent")
+
+
+def hook_event_enum(raw) -> str:
+    return raw if isinstance(raw, str) and raw in HOOK_EVENTS else "other"
+
+
 def _record(harness: str, session_id: str, status: str, conv: Conversation | None, bank: str | None,
-            reason: str | None = None) -> None:
+            reason: str | None = None, event: str | None = None) -> None:
     """R10: one ``capture`` ledger row — ids, enums and counts only. Never a
     turn's text, a title, or the cwd: the ledger is machine-global and
     outside the bank. ``telemetry.record`` swallows its own failures, so this
@@ -285,6 +477,11 @@ def _record(harness: str, session_id: str, status: str, conv: Conversation | Non
         "truncated_turns": summary.get("truncated_turns", 0),
         "scrubbed": summary.get("scrubbed", 0),
         "session_cap_hit": summary.get("session_cap_hit", False),
+        # G110: counts only.
+        "refused_turns": summary.get("refused_turns", 0),
+        "note_like_turns": summary.get("note_like_turns", 0),
+        # G110 gate A: which hook ran this capture (Stop, or a flush).
+        "event": hook_event_enum(event),
     }
     if reason:
         refs["reason"] = reason
@@ -302,6 +499,9 @@ def capture_transcript(
     keep_assistant: bool,
     bank: str | None = None,
     effort: str | None = None,
+    bank_paths: tuple | None = None,
+    hook_event: str | None = None,
+    workspace=None,
 ) -> CaptureResult:
     """Validate (R2), extract, and write or update the session's one episode (R3).
 
@@ -313,6 +513,17 @@ def capture_transcript(
 
     ``effort``: the Stop hook's ``effort.level`` for the reply it fired after
     (round 4 C1, R4B-3).
+
+    ``hook_event``: the hook that ran this capture — ``Stop``, or a
+    ``PreCompact``/``SessionEnd`` flush (G110 gate A); the ledger row names it
+    as an enum. The write is the same whichever event fired.
+
+    G110 slice 1a: every write also records :func:`capture_meta` and, once,
+    ``continues`` from the continuity registry (``bank_paths`` — the memory
+    root and every bank, which the registry's guard needs; ``None`` skips the
+    lookup). An unchanged body whose metadata moved (a turn refused by the cap,
+    a late ``continues``) is rewritten in place with the same body, hash and
+    ``processed`` state — status ``metadata``, nothing re-queued.
     """
     if demo_guard.is_demo(memory_path):
         # G141 capture-side track (R-CS12): a demo bank holds only made-up
@@ -320,78 +531,210 @@ def capture_transcript(
         # before the transcript is even validated, and recorded like every
         # other refusal. The router sends the session to a real bank first;
         # this is the guard for any caller that does not.
-        _record(harness, session_id, "refused", None, bank, "demo_bank")
+        _record(harness, session_id, "refused", None, bank, "demo_bank", event=hook_event)
         return CaptureResult("refused", None, 0, 0, {}, reason="demo_bank")
     try:
         path = validate_transcript_path(harness, session_id, transcript_path)
     except TranscriptRefused as exc:
-        _record(harness, session_id, "refused", None, bank, exc.reason)
+        _record(harness, session_id, "refused", None, bank, exc.reason, event=hook_event)
         return CaptureResult("refused", None, 0, 0, {}, reason=exc.reason)
 
-    with path.open("r", encoding="utf-8", errors="replace") as fh:
-        conv = extract(harness, fh, keep_assistant=keep_assistant)
-    kept = conv.summary["kept"]
+    # Fix round 1 (review blocker 2): count the bytes this read consumed — the
+    # transcript's EXTENT. A transcript only grows, so a read that saw less than
+    # what an episode already stores is a stale snapshot (a flush or Stop that
+    # stalled while a newer one committed) and must not replace it.
+    read_bytes = 0
+    with path.open("rb") as fh:
+        def lines():
+            nonlocal read_bytes
+            for raw in fh:
+                read_bytes += len(raw)
+                yield raw.decode("utf-8", "replace")
+        conv = extract(harness, lines(), keep_assistant=keep_assistant)
+    from api.services import workspace_identity
+    observed = workspace_identity.parse(cwd, workspace)
+    if observed and bank_paths is not None and conv.turns:
+        continuity_sessions.apply(memory_path, bank_paths=bank_paths, harness=harness, session_id=session_id,
+                                  events={"workspace_identity": observed}, deadline=None)
+    registry_workspace = None
+    if bank_paths is not None:
+        row = continuity_sessions.get(memory_path, harness, session_id, bank_paths=bank_paths) or {}
+        registry_workspace = row.get("workspace_identity") or {}
 
     episodes_dir = memory_path / "episodes"
     # Audit K01/A01: the process lock orders this backend's threads; the episode
     # lock makes find-or-create one step across processes (one episode per
     # session, G104) and fences the update against Sleep's retirement.
     with _lock, episode_ids.episode_lock(episodes_dir):
-        if not conv.turns:
-            _record(harness, session_id, "empty", conv, bank)
-            return CaptureResult("empty", None, 0, 0, conv.summary)
+        existing = _find_session_episode(episodes_dir, harness, session_id) if conv.turns else None
+        return write_session(memory_path, harness=harness, session_id=session_id, conv=conv, existing=existing,
+                             cwd=cwd, bank=bank, effort=effort, bank_paths=bank_paths, hook_event=hook_event,
+                             registry_workspace=registry_workspace, read_bytes=read_bytes, source_path=path)
 
-        body = _body(conv)
-        content_hash = hashlib.sha256(body.encode()).hexdigest()[:12]
-        existing = _find_session_episode(episodes_dir, harness, session_id)
-        now = episode_ids.utc_now_iso()
 
-        if existing is None:
-            timestamp = _utc(conv.started_at)
-            episode_id = episode_ids.next_episode_id(episodes_dir, timestamp[:10])
-            fm = {
-                "id": episode_id,
-                "timestamp": timestamp,
-                "source": harness,
-                "origin": harness,
-                "title": _title(conv, harness),
-                "processed": False,
-                "content_hash": content_hash,
-                "session_id": session_id,
-                "harness": harness,
-                "capture_kind": CAPTURE_KIND,
-                "captured_at": now,
-            }
-            if cwd:
-                fm["project_dir"] = cwd
-            _place_turns(fm, _agent_fields(_turn_sidecar(conv, body), None, effort, _last_offset(conv, body)))
-            episode_id = episode_ids.create_episode(episodes_dir, fm, body)
-            path_out = episodes_dir / f"{episode_id}.md"
-            _episode_cache[(str(episodes_dir.resolve()), harness, session_id)] = path_out
-            _record(harness, session_id, "created", conv, bank)
-            logger.info(f"capture: created {episode_id} from {harness} session ({len(conv.turns)} turns)")
-            return CaptureResult("created", episode_id, kept["user"], kept["assistant"], conv.summary)
+def capture_posted(
+    memory_path: Path,
+    *,
+    harness: str,
+    session_id: str,
+    conversation,
+    transcript_bytes: int,
+    transcript_size: int,
+    cwd: str | None,
+    keep_assistant: bool,
+    bank: str | None = None,
+    effort: str | None = None,
+    bank_paths: tuple | None = None,
+    hook_event: str | None = None,
+    workspace=None,
+    device: str | None = None,
+) -> CaptureResult:
+    """A session read on another machine by Cicada's own extractor and posted as turns (G181 phase 2, owner ruling 2,
+    2026-10-16): the transcript rail amended, never relaxed. Nothing here opens a path. What arrived is re-checked
+    (``session_post.from_wire``: caps, scrub, the session cap) and then written exactly as :func:`capture_transcript`
+    writes a session it read itself — same lock, same find-or-create (one episode per session, G104), ids minted here,
+    the same body, hash, sidecar and G110 metadata, the same demo refusal. ``transcript_bytes`` is the extent the
+    client read and ``transcript_size`` the file's size when it sent, so a stale snapshot (a resend after an outage
+    that a newer read already beat) is ``superseded`` while a replaced, shorter file is not stuck. ``device`` is the
+    id of the device token that signed the post (``request.state.device``), recorded on the episode as ``device``."""
+    from api.services import session_post
 
-        fm = dict(markdown_parser.parse(existing).frontmatter)
-        previous = fm.get("turns")
-        episode_id = str(fm.get("id") or existing.stem)
-        if fm.get("content_hash") == content_hash:
-            _record(harness, session_id, "unchanged", conv, bank)
-            return CaptureResult("unchanged", episode_id, kept["user"], kept["assistant"], conv.summary)
+    if demo_guard.is_demo(memory_path):
+        _record(harness, session_id, "refused", None, bank, "demo_bank", event=hook_event)
+        return CaptureResult("refused", None, 0, 0, {}, reason="demo_bank")
+    if harness not in HARNESSES:
+        _record(harness, session_id, "refused", None, bank, "bad_harness", event=hook_event)
+        return CaptureResult("refused", None, 0, 0, {}, reason="bad_harness")
+    sid = (session_id or "").strip()
+    if not _SESSION_ID_RE.match(sid):
+        _record(harness, session_id, "refused", None, bank, "bad_session_id", event=hook_event)
+        return CaptureResult("refused", None, 0, 0, {}, reason="bad_session_id")
+    try:
+        conv = session_post.from_wire(conversation, harness=harness, session_id=sid, cwd=cwd,
+                                      keep_assistant=keep_assistant)
+    except session_post.PostRefused as exc:
+        _record(harness, sid, "refused", None, bank, exc.reason, event=hook_event)
+        return CaptureResult("refused", None, 0, 0, {}, reason=exc.reason)
+    from api.services import workspace_identity
+    observed = workspace_identity.parse(cwd, workspace)
+    if observed and bank_paths is not None and conv.turns:
+        continuity_sessions.apply(memory_path, bank_paths=bank_paths, harness=harness, session_id=sid,
+                                  events={"workspace_identity": observed}, deadline=None)
+    registry_workspace = None
+    if bank_paths is not None:
+        row = continuity_sessions.get(memory_path, harness, sid, bank_paths=bank_paths) or {}
+        registry_workspace = row.get("workspace_identity") or {}
+    episodes_dir = memory_path / "episodes"
+    with _lock, episode_ids.episode_lock(episodes_dir):
+        existing = _find_session_episode(episodes_dir, harness, sid) if conv.turns else None
+        return write_session(memory_path, harness=harness, session_id=sid, conv=conv, existing=existing,
+                             cwd=cwd, bank=bank, effort=effort, bank_paths=bank_paths, hook_event=hook_event,
+                             registry_workspace=registry_workspace, read_bytes=transcript_bytes,
+                             source_size=max(transcript_size, transcript_bytes),
+                             extra={"device": device} if device else None)
 
-        # R3: same file, same id, same original timestamp; new body, re-queued,
-        # and the whole per-turn sidecar rewritten (G141 PJ-4, R-PJ16).
-        # `processed_by` is written only beside `processed: true` (G114 R6),
-        # so a re-queued episode must not carry a stale "sleep" stamp.
-        fm["title"] = _title(conv, harness)
-        fm["content_hash"] = content_hash
-        fm["captured_at"] = now
-        fm["processed"] = False
-        fm.pop("processed_by", None)
-        if cwd and not fm.get("project_dir"):
+
+def write_session(memory_path: Path, *, harness: str, session_id: str, conv: Conversation, existing: Path | None,
+                  cwd: str | None, bank: str | None, effort: str | None, bank_paths, hook_event: str | None,
+                  registry_workspace, read_bytes: int | None = None, source_path: Path | None = None,
+                  extra: dict | None = None, stored=None, source_size: int | None = None) -> CaptureResult:
+    """Write or update the session's ONE episode from ``conv`` (R3, G104).
+
+    The caller holds ``_lock`` and the bank's episode lock and has found
+    ``existing``. Shared by the transcript path above and ``turn_capture`` (a
+    harness whose hook posts each turn — Cursor, Gemini CLI), so both write the
+    same body, hash, sidecar and G110 metadata. ``read_bytes``/``source_path``
+    are the transcript extent (``None`` for posted turns: there is no file to be
+    superseded by). ``extra`` is writer-owned frontmatter kept, like
+    :data:`META_KEYS`, outside ``content_hash`` and before ``turns``; ``stored``
+    is the already-parsed ``existing`` when the caller read it."""
+    episodes_dir = memory_path / "episodes"
+    kept = conv.summary["kept"]
+    extra = dict(extra or {})
+    if not conv.turns:
+        _record(harness, session_id, "empty", conv, bank, event=hook_event)
+        return CaptureResult("empty", None, 0, 0, conv.summary)
+
+    body = _body(conv)
+    content_hash = hashlib.sha256(body.encode()).hexdigest()[:12]
+    now = episode_ids.utc_now_iso()
+    meta = capture_meta(conv, body)
+    continues = _continues(memory_path, harness, session_id, bank_paths)
+
+    if existing is None:
+        timestamp = _utc(conv.started_at)
+        episode_id = episode_ids.next_episode_id(episodes_dir, timestamp[:10])
+        fm = {
+            "id": episode_id,
+            "timestamp": timestamp,
+            "source": harness,
+            "origin": harness,
+            "title": _title(conv, harness),
+            "processed": False,
+            "content_hash": content_hash,
+            "session_id": session_id,
+            "harness": harness,
+            "capture_kind": CAPTURE_KIND,
+            "captured_at": now,
+        }
+        if cwd:
             fm["project_dir"] = cwd
-        _place_turns(fm, _agent_fields(_turn_sidecar(conv, body), previous, effort, _last_offset(conv, body)))
-        markdown_parser.write(existing, fm, body)
-        _record(harness, session_id, "updated", conv, bank)
-        logger.info(f"capture: updated {episode_id} from {harness} session ({len(conv.turns)} turns), re-queued")
-        return CaptureResult("updated", episode_id, kept["user"], kept["assistant"], conv.summary)
+        _apply_meta(fm, meta, continues, registry_workspace)
+        if read_bytes is not None:
+            fm[EXTENT_KEY] = read_bytes
+        fm.update(extra)
+        _place_turns(fm, _agent_fields(_turn_sidecar(conv, body), None, effort, _last_offset(conv, body)))
+        episode_id = episode_ids.create_episode(episodes_dir, fm, body)
+        path_out = episodes_dir / f"{episode_id}.md"
+        _episode_cache[(str(episodes_dir.resolve()), harness, session_id)] = path_out
+        _record(harness, session_id, "created", conv, bank, event=hook_event)
+        logger.info(f"capture: created {episode_id} from {harness} session ({len(conv.turns)} turns)")
+        return CaptureResult("created", episode_id, kept["user"], kept["assistant"], conv.summary)
+
+    stored = stored if stored is not None else markdown_parser.parse(existing)
+    fm = dict(stored.frontmatter)
+    previous = fm.get("turns")
+    episode_id = str(fm.get("id") or existing.stem)
+    if read_bytes is not None and (source_path is not None or source_size is not None) \
+            and _superseded(fm, read_bytes, source_path, source_size):
+        _record(harness, session_id, "superseded", conv, bank, event=hook_event)
+        logger.info(f"capture: {episode_id} already holds a later read of this {harness} session — kept")
+        return CaptureResult("superseded", episode_id, kept["user"], kept["assistant"], conv.summary)
+    if fm.get("content_hash") == content_hash:
+        moved = _apply_meta(fm, meta, continues, registry_workspace)
+        if any(fm.get(k) != v for k, v in extra.items()):
+            fm.update(extra)
+            moved = True
+        if moved:
+            # G110: same body, same hash, same `processed` — only where
+            # capture stopped (or which episode it was pointed at) moved.
+            if read_bytes is not None:
+                fm[EXTENT_KEY] = max(read_bytes, _stored_extent(fm) or 0)
+            _place_turns(fm, previous)
+            markdown_parser.write(existing, fm, stored.body)
+            _record(harness, session_id, "metadata", conv, bank, event=hook_event)
+            return CaptureResult("metadata", episode_id, kept["user"], kept["assistant"], conv.summary)
+        _record(harness, session_id, "unchanged", conv, bank, event=hook_event)
+        return CaptureResult("unchanged", episode_id, kept["user"], kept["assistant"], conv.summary)
+
+    # R3: same file, same id, same original timestamp; new body, re-queued,
+    # and the whole per-turn sidecar rewritten (G141 PJ-4, R-PJ16).
+    # `processed_by` is written only beside `processed: true` (G114 R6),
+    # so a re-queued episode must not carry a stale "sleep" stamp.
+    fm["title"] = _title(conv, harness)
+    fm["content_hash"] = content_hash
+    fm["captured_at"] = now
+    fm["processed"] = False
+    fm.pop("processed_by", None)
+    if cwd and not fm.get("project_dir"):
+        fm["project_dir"] = cwd
+    _apply_meta(fm, meta, continues, registry_workspace)
+    if read_bytes is not None:
+        fm[EXTENT_KEY] = read_bytes
+    fm.update(extra)
+    _place_turns(fm, _agent_fields(_turn_sidecar(conv, body), previous, effort, _last_offset(conv, body),
+                                   previous_body=stored.body, chunks=_turn_chunks(conv)))
+    markdown_parser.write(existing, fm, body)
+    _record(harness, session_id, "updated", conv, bank, event=hook_event)
+    logger.info(f"capture: updated {episode_id} from {harness} session ({len(conv.turns)} turns), re-queued")
+    return CaptureResult("updated", episode_id, kept["user"], kept["assistant"], conv.summary)

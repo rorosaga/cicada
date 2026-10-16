@@ -448,8 +448,12 @@ def test_dismiss_with_no_key_removes_a_legacy_item_without_touching_claims(tmp_p
 def test_dismiss_with_no_key_still_400s_for_a_modern_question_item(tmp_path):
     """A modern item (has `options` and/or a `question`) must keep the strict
     400 even for action="dismiss" — only the legacy no-options/no-question
-    shape gets the bypass."""
+    shape gets the bypass. On a single-valued predicate: a multi-valued one (`works-at` since 2026-10-14) is an
+    informational item, which a bare dismiss closes by design (G98/G115 R4)."""
     repo = _workspace(tmp_path)
+    item = repo / "inbox" / "inbox-001.md"
+    parsed = markdown_parser.parse(item)
+    markdown_parser.write(item, {**parsed.frontmatter, "predicate": "part-of"}, parsed.body)
     with pytest.raises(HTTPException) as exc:
         run(inbox_service.resolve(
             "inbox-001", InboxResolveRequest(action="dismiss"), _Settings(repo)

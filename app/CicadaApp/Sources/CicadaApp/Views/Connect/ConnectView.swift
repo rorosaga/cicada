@@ -36,7 +36,7 @@ struct AgentSetup: Identifiable {
 /// apps don't expand shell variables.
 enum AgentSetupCatalog {
     // The harnesses `GET /agents/setup` answers for moved to `AgentCatalog.setupHarnesses` (Round 4 R-AG1): the
-    // selector's ten agents, pinned to the backend by one fixture. These manual steps are each pill's
+    // selector's agents, pinned to the backend by one fixture. These manual steps are each pill's
     // "Do it by hand" (R-AG17).
 
     /// `memoryRoot`, when given, is the LIVE backend's own configured
@@ -239,13 +239,28 @@ enum AgentSetupCatalog {
                     ),
                 ]
             ),
+            // 2026-10-14 — "Another agent": the shape most agents read; the row's prompt asks the agent to adapt it.
+            AgentSetup(
+                id: "other",
+                name: "Another agent",
+                monogram: "…",
+                brand: CicadaTheme.textSecondary,
+                blurb: "Any agent that keeps its own MCP servers.",
+                steps: [
+                    .init(
+                        label: "Merge this into your agent's MCP settings",
+                        command: mcpJSON,
+                        note: "If its settings use another shape, keep the same command, arguments and CICADA_MEMORY_PATH. Then start a new conversation with it."
+                    ),
+                ]
+            ),
         ]
     }
 }
 
 // MARK: - Agents page
 
-/// Settings → Agents — the one-time install, then "Your agents" (Round 4 C8): one selector of ten agents with a
+/// Settings → Agents — the one-time install, then "Your agents" (Round 4 C8): one selector of eleven agents with a
 /// live ✓ (`AgentSelector`), the selected agent's numbered steps below it (`AgentSetupSteps`), and — for an
 /// agent with manual steps — "Do it by hand" under a disclosure (R-AG17). Then the skill row, the automatic
 /// recall group and the From anywhere pointer. The two components are self-contained so phase B's onboarding
@@ -345,6 +360,7 @@ struct ConnectView: View {
                 }
             }
             AutoRecallGroup()
+            PageEditorsGroup()
             SettingsGroupCard {
                 SettingsRow(.agentsCloud, title: Copy.agentsCloudTitle, detail: Copy.agentsCloudDetail) {
                     SettingsInlineLink(section: .remote, label: Copy.fromAnywhere)

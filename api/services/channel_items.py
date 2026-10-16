@@ -18,8 +18,9 @@ means wherever the bank records it, and says so channel by channel below:
   ``addressbook://`` source Cicada added, or its photo mark): **the page's name
   only**. Never an address, a number, a note or the address-book id.
 * ``<browser>-bookmarks`` — the URL hashes the last sync saw in the browser
-  (``sources/bookmark_seen.json``) joined to the saved-URL index; a bank synced
-  before that file existed falls back to the browser's media pages.
+  (``sources/bookmark_seen.json``) joined to the saved-URL index, then the
+  links Cicada kept after they left the browser, each with ``left`` (G191 v4);
+  a bank synced before that file existed falls back to the browser's media pages.
 * ``safari-tabs``, the connectors, ``rss``, ``files`` — the media pages stamped
   with the channel's origins (``source_overview.CATALOG``); ``files`` also takes
   the pages written before writers stamped an origin, as its card does.
@@ -59,7 +60,8 @@ from api.services import (
 from api.services.channel_registry import CHANNEL_IDS
 
 #: Folded into the route's ETag: bump it when the body changes for the same bank files.
-SHAPE = "g161-1"
+#: `g161-2`: a bookmark channel also lists the links that left the browser, with `left` (G191 v4).
+SHAPE = "g161-2"
 LIMIT_DEFAULT = 50
 LIMIT_MAX = 200
 TITLE_CAP = 120
@@ -71,6 +73,7 @@ _ORIGIN_CHANNELS = {
     "chat-export:gemini": ("gemini-export",),
     "wispr-flow": (wispr_flow.ORIGIN,),
     "telegram": ("telegram",),
+    "imessage": ("imessage",),
 }
 #: A channel whose items are media pages, by the origins its catalog row owns.
 _MEDIA_CHANNELS = ("safari-tabs", "pinterest", "reddit", "x", "rss", "files")
@@ -258,18 +261,23 @@ def _contacts(memory_path: Path) -> list[dict]:
 
 
 def _bookmarks(memory_path: Path, channel_id: str, media: _Media) -> list[dict]:
+    """The links in the browser at the last sync, then (G191 v4) the ones Cicada kept after they left it, each with
+    ``left`` — the sync instant that first saw it gone — so the list says "No longer in Chrome"."""
     entry = bookmark_seen.read_seen(memory_path).get(channel_id)
     origin = channel_id[: -len("s")] if channel_id.endswith("-bookmarks") else channel_id
     if not isinstance(entry, dict):
         return media.by_origins((origin,))
     rows, seen = [], set()
-    for h in entry.get("hashes") or []:
+    left = bookmark_seen.left_of(entry)
+    for h, gone_at in [(h, None) for h in entry.get("hashes") or []] + sorted(left.items()):
         indexed = media.by_hash.get(str(h))
         if not isinstance(indexed, dict):
             continue
         entity_id = str(indexed.get("media_entity_id") or "")
         if entity_id and entity_id not in seen and (row := media.row(entity_id)) is not None:
             seen.add(entity_id)
+            if gone_at:
+                row["left"] = gone_at
             rows.append(row)
     return rows
 

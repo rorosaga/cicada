@@ -36,7 +36,7 @@ from api.models.schemas import (
     TimelineFact, TimelineItem, TimelineParticipant, TimelineQuote, TimelineWindow,
 )
 from api.services import (
-    bank_index, claim_expiry, entity_body, evidence, inbox_context, project_state,
+    bank_index, claim_expiry, entity_body, episode_time, evidence, inbox_context, project_state,
     search_index, session_stats, turn_authorship, when,
 )
 from api.services.claim_reconciler import is_human
@@ -123,6 +123,7 @@ class _Bank:
         self.entities = {f.stem: f for f in bank_index.files(self.path, "entities")}
         self.episodes = {f.stem: f for f in bank_index.files(self.path, "episodes")}
         self._all: dict[str, list[Claim]] = {}
+        self._beliefs: dict[str, list[Claim]] = {}
         self._bodies: dict[str, str] = {}
         self._texts: dict[str, str | None] = {}
         self._names: dict[str, str] | None = None
@@ -166,10 +167,13 @@ class _Bank:
 
     def claims(self, eid: str) -> list[Claim]:
         """Beliefs only: records dropped (`is_record`), withdrawn claims dropped —
-        a claim someone said was wrong never becomes a fact chip."""
-        page = self.all_claims(eid)
-        records = {c.id for c in page if is_record(c)}
-        return [c for c in page if c.id not in records and (c.superseded_by or "") not in records]
+        a claim someone said was wrong never becomes a fact chip. Once per page
+        per request: the list reads the owner page for every project."""
+        if eid not in self._beliefs:
+            page = self.all_claims(eid)
+            records = {c.id for c in page if is_record(c)}
+            self._beliefs[eid] = [c for c in page if c.id not in records and (c.superseded_by or "") not in records]
+        return self._beliefs[eid]
 
     def episode_text(self, ep: str) -> str | None:
         if ep not in self._texts:
@@ -235,6 +239,17 @@ class _Bank:
             ts = (self.episodes[ep].frontmatter or {}).get("timestamp")
             hit = self._ep_keys[ep] = (episode_ids.timestamp_sort_key(ts), when.parse_instant(ts))
         return hit
+
+    def timed(self, ep: str) -> bool:
+        """An episode of this bank whose date is a mention's — never a memory export entry ("facts yes,
+        activity no", owner 2026-10-08: its date is the summary's, not when anything in it came up)."""
+        f = self.episodes.get(ep)
+        return f is not None and episode_time.counts_as_activity(f.frontmatter)
+
+    def untimed_only(self, claim: Claim) -> bool:
+        """Every episode the claim cites in this bank is a memory export entry: a fact with no activity day."""
+        eps = [e for e in _claim_episodes(claim) if e in self.episodes]
+        return bool(eps) and not any(self.timed(e) for e in eps)
 
     def charge(self) -> bool:
         self.scanned += 1
@@ -319,9 +334,13 @@ class _Anchor:
 
 def _anchor(bank: _Bank, claim: Claim) -> _Anchor | None:
     """§6.1: the earliest evidence episode, else `source_episodes[0]`, else
-    `valid_from` alone. The turn's own time wins over the episode's (G118)."""
-    spans = [e for e in claim.evidence if e.is_span() and e.episode in bank.episodes]
-    candidates = [e.episode for e in spans] or [ep for ep in claim.source_episodes if ep in bank.episodes]
+    `valid_from` alone. The turn's own time wins over the episode's (G118).
+    A memory export entry is never an anchor: a claim cited only by one is a
+    fact with no day here, and its `valid_from` (the export's date) is not used."""
+    if bank.untimed_only(claim):
+        return None
+    spans = [e for e in claim.evidence if e.is_span() and bank.timed(e.episode)]
+    candidates = [e.episode for e in spans] or [ep for ep in claim.source_episodes if bank.timed(ep)]
     if not candidates:
         day = _day(claim.valid_from)
         return _Anchor(None, day, None, "day", None) if day else None
@@ -330,9 +349,10 @@ def _anchor(bank: _Bank, claim: Claim) -> _Anchor | None:
     fm = bank.episodes[ep].frontmatter or {}
     instant, basis = None, "episode"
     if span is not None:
-        stamps = evidence.turn_stamps(fm)
+        stamps = evidence.turn_stamps(bank_index.with_turns(bank.episodes[ep]))
         if stamps:
-            turn = evidence.turn_at(bank.episode_text(ep) or "", span.start, stamps)
+            text = bank.episode_text(ep) or ""
+            turn = evidence.turn_at(text, span.start, stamps, evidence.gap_ranges(fm, text))
             instant = when.parse_instant((turn or {}).get("ts"))
             basis = "turn" if instant else "episode"
     if instant is None:
@@ -402,7 +422,7 @@ def _neighbours(bank: _Bank, tree: list[str], owner: str | None,
     def add(member: str, claim: Claim, phrase: str) -> None:
         row = out.setdefault(member, {"count": 0, "last": None, "phrases": Counter()})
         row["count"] += 1
-        day = _day(claim.valid_from)
+        day = None if bank.untimed_only(claim) else _day(claim.valid_from)
         if day and (row["last"] is None or day > row["last"]):
             row["last"] = day
         row["phrases"][phrase] += 1
@@ -769,11 +789,13 @@ def _linked(bank: _Bank, p: dict) -> tuple[str | None, bool]:
     return None, False
 
 
-def _events(bank: _Bank, tree: list[str], owner: str | None) -> list[tuple[Claim, str]]:
+def _events(bank: _Bank, tree: list[str], owner: str | None,
+            owner_events: list[tuple[Claim, set[str]]] | None = None) -> list[tuple[Claim, str]]:
     """§6.1 layer 2: event claims on the tree's pages, plus the owner page's
     events that name a tree page (by id, or by a name at read — a happening
     outside any project that is still about this one). `claims()` has already
-    dropped withdrawn ones."""
+    dropped withdrawn ones. `owner_events` is :func:`_owner_events`, passed by a
+    caller that asks for many trees (the list) so the owner page is linked once."""
     out: list[tuple[Claim, str]] = []
     seen: set[str] = set()
     for page in tree:
@@ -783,11 +805,17 @@ def _events(bank: _Bank, tree: list[str], owner: str | None) -> list[tuple[Claim
                 out.append((c, page))
     targets = set(tree)
     if owner and owner not in targets and bank.live(owner):
-        for c in bank.claims(owner):
-            if is_event(c) and c.id not in seen and any(_linked(bank, p)[0] in targets for p in c.participants):
+        for c, linked in (_owner_events(bank, owner) if owner_events is None else owner_events):
+            if c.id not in seen and linked & targets:
                 seen.add(c.id)
                 out.append((c, owner))
     return out
+
+
+def _owner_events(bank: _Bank, owner: str) -> list[tuple[Claim, set[str]]]:
+    """The owner page's events, each with the live pages its participants name, in page order."""
+    return [(c, {_linked(bank, p)[0] for p in c.participants} - {None})
+            for c in bank.claims(owner) if is_event(c)]
 
 
 def _happening(bank: _Bank, owner: str | None, c: Claim, page: str) -> TimelineItem:
@@ -950,7 +978,7 @@ def _activity(bank: _Bank, claims: list[Claim]) -> list[ActivityDay]:
         for sid in c.all_session_ids():
             eps += bank.session_episodes(sid)
         for ep in eps:
-            if ep in seen or ep not in bank.episodes:
+            if ep in seen or not bank.timed(ep):
                 continue
             seen.add(ep)
             day = _ep_day(bank, ep)
@@ -1219,6 +1247,13 @@ def list_projects(memory_path: Path, *, tz_name: str | None, transcript_exists: 
     partial = payloads is None
     payloads = payloads or []
     followups = _followup_counts(bank)
+    # The owner page can carry thousands of claims: resolve each once per request and file it under the page it
+    # names, as the payloads below are — reading it per project was O(projects × owner claims).
+    owner_by_target: dict[str, list[int]] = {}
+    for i, c in enumerate(owner_claims):
+        if c.object_kind in _NODE and (target := bank.resolve(c.object)) is not None:
+            owner_by_target.setdefault(target, []).append(i)
+    owner_events = _owner_events(bank, owner) if owner and bank.live(owner) else []
     # Each payload is converted and resolved ONCE and filed under the page its
     # object names; a project then reads only its own tree's buckets, in the
     # payloads' order. Scanning every payload per project was O(projects ×
@@ -1245,8 +1280,9 @@ def list_projects(memory_path: Path, *, tz_name: str | None, transcript_exists: 
                 if c.id not in seen:
                     seen.add(c.id)
                     claims.append(c)
-        for c in owner_claims:
-            if c.id not in seen and c.object_kind in _NODE and bank.resolve(c.object) in targets:
+        for i in sorted(i for t in tree for i in owner_by_target.get(t, ())):
+            c = owner_claims[i]
+            if c.id not in seen:
                 seen.add(c.id)
                 claims.append(c)
         for i in sorted(i for t in tree for i in by_target.get(t, ())):
@@ -1255,7 +1291,7 @@ def list_projects(memory_path: Path, *, tz_name: str | None, transcript_exists: 
                 continue
             seen.add(c.id)
             claims.append(c)
-        events = _events(bank, tree, owner)
+        events = _events(bank, tree, owner, owner_events)
         # An event's day is when it happened (`valid_from`), not the day of the
         # episode it cites — the detail's rule for `momentDays`, kept here so
         # list and detail agree (R-PJB19). A milestone is a plan, not activity.

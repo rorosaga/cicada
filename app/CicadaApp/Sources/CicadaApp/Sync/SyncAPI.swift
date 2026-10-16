@@ -109,7 +109,9 @@ protocol SyncAPI: Sendable {
     func syncBookmarks(chromeData: Data?, safariData: Data?, folders: [String]?) async throws -> BookmarkSyncResult
     /// Round 4 (C9) — one Chromium-family browser beyond Chrome, posted as `chromium: [{browser, dataB64}]`.
     func syncChromiumBookmarks(browser: String, data: Data) async throws -> BookmarkSyncResult
-    func activateBank(name: String) async throws
+    /// The roster the server answers with (`BankListResponse`) — its `active` is the bank the server is on now, which
+    /// a newer switch may already have moved past this one (G183(d)). `nil` when the body would not decode.
+    func activateBank(name: String) async throws -> BanksResponse?
     func triggerSleep() async throws -> SleepTriggerResponse
     /// Sleep page v5 — `POST /sleep/trigger {"continue": true}`: resume the paused run. Only the Sleep page's
     /// Continue sends it (`SleepViewModel.continueRun`, pinned by `SleepV5DoorsTests`). No default: a conformer that
@@ -126,6 +128,9 @@ protocol SyncAPI: Sendable {
     /// C11 (G146) — the three picture writes (`routers/entities.py`): each answers the page's picture after it and the
     /// inputs the twin re-resolves from; each answers 409 while Sleep runs.
     func setEntityPicture(entityId: String, data: Data, ext: String) async throws -> EntityPictureAnswer
+    /// A PDF the person gave a saved item: the backend draws its first page and keeps it as the page's picture
+    /// (`POST /entities/{id}/picture/pdf`, same answer as an upload).
+    func setEntityPictureFromPDF(entityId: String, data: Data) async throws -> EntityPictureAnswer
     func useEntityInitials(entityId: String) async throws -> EntityPictureAnswer
     func clearEntityPicture(entityId: String) async throws -> EntityPictureAnswer
     /// G61 S3-a — one edit to one of a page's sources, keyed by the entry's current `(ref, predicate)`; answers the
@@ -135,6 +140,10 @@ protocol SyncAPI: Sendable {
     func addEntitySource(entityId: String, ref: String, predicate: String?) async throws -> [EntitySource]
     /// G150 — the Backlog section's three writes (`routers/backlog.py`), each answering the item as it now stands. All
     /// answer 409 while a Sleep cycle runs, and an add whose idea is already open answers 409 naming the item.
+    /// G191 v3 — a bookmark's reasons, from its page: change one answer (`at` names it) or add one (`at` nil).
+    func writeSavedWhy(url: String, at: String?, answer: SavedWhyAnswer) async throws -> SavedWhyReply
+    /// G191 v3 — forget a bookmark in Cicada (the page archived, the episode tombstoned).
+    func removeBookmark(url: String) async throws
     func addBacklogItem(project: String, title: String, description: String) async throws -> BacklogItem
     func addBacklogNote(project: String, item: String, note: String, status: String?) async throws -> BacklogItem
     func updateBacklogItem(project: String, item: String, change: BacklogChange) async throws -> BacklogItem
@@ -243,13 +252,16 @@ struct SleepEventPayload: Codable, Equatable {
     /// current backend means "no paused run" while an older one's means "unknown" (the REST status then decides).
     var paused: SleepPausedSSE? = nil
     var pausedKnown: Bool = false
+    /// G177 — Sleep's write window (`sleep_cycle.is_writing`), which flips between a drain's batches with no status
+    /// change; `nil` on an older backend (`ProjectWriteGate` then reads `status`).
+    var writing: Bool? = nil
 
     enum CodingKeys: String, CodingKey {
         case status, cycleId, stage, totalStages, progress, error
         case progressPct, restedPct, volumePct, agePct
         case unprocessedCount, hasRunBefore, hoursSinceLastCycle
         case queueByOrigin, readByOrigin, drain
-        case parkedCount, readableCount, paused
+        case parkedCount, readableCount, paused, writing
     }
 
     init(status: String, cycleId: String? = nil, stage: Int = 0,
@@ -289,6 +301,7 @@ struct SleepEventPayload: Codable, Equatable {
         readableCount = (try? c.decodeIfPresent(Int.self, forKey: .readableCount)) ?? nil
         pausedKnown = c.contains(.paused)
         paused = (try? c.decodeIfPresent(SleepPausedSSE.self, forKey: .paused)) ?? nil
+        writing = (try? c.decodeIfPresent(Bool.self, forKey: .writing)) ?? nil
     }
 
     func encode(to encoder: Encoder) throws {
@@ -312,6 +325,7 @@ struct SleepEventPayload: Codable, Equatable {
         try c.encodeIfPresent(parkedCount, forKey: .parkedCount)
         try c.encodeIfPresent(readableCount, forKey: .readableCount)
         if pausedKnown { try c.encode(paused, forKey: .paused) }
+        try c.encodeIfPresent(writing, forKey: .writing)
     }
 }
 

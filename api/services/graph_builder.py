@@ -6,12 +6,13 @@ from collections import Counter
 from pathlib import Path
 
 import yaml
+from loguru import logger
 
 from api.models.schemas import GraphLink, GraphNode, GraphResponse
 from api.services import bank_index, claim_contexts, decay_policy, entity_picture, logo_service, predicates
-from api.services.claims import parse_claims, strip_claims_block
+from api.services.claims import is_current, parse_claims, strip_claims_block
 from api.services.id_utils import sanitize_id
-from api.services.markdown_parser import parse
+from api.services.markdown_parser import load_yaml, load_yaml_file, parse, write_yaml
 
 _SUMMARY_RE = re.compile(r"^##\s+Summary\s*$", re.IGNORECASE | re.MULTILINE)
 
@@ -110,6 +111,23 @@ def build_graph(
     )
 
 
+def _photos_stamp(memory_path: Path) -> str:
+    try:
+        from api.services import person_photo
+
+        stamp = person_photo.stamp(logo_service.bank_name(memory_path))
+    except Exception:
+        stamp = ""
+    try:
+        # A Messages chat's shared photo (2026-10-16) is a node's picture too: a photo stored or gone, or its link made
+        # or lost (a mark, a page Sleep creates), rebuilds the graph like a people-photo fetch does.
+        from api.services import messages_photos
+
+        return f"{stamp}:{messages_photos.stamp(memory_path)}"
+    except Exception:
+        return stamp
+
+
 def _build_full(memory_path: Path) -> GraphResponse:
     entities_dir = memory_path / "entities"
     edges_file = memory_path / "graph_edges.yaml"
@@ -126,6 +144,9 @@ def _build_full(memory_path: Path) -> GraphResponse:
         # on-demand fetch moves no other key here — without this the cached
         # response keeps every node's stale `has_logo` (and `content_hash`).
         _mtime(logo_service.meta_path(logo_service.bank_name(memory_path))),
+        # G159 (review B1): the people-photo index, outside the bank too — a stored photo or a miss aging out moves
+        # a node's `picture` (`person_photo.stamp`: the index's mtime plus the misses past their window).
+        _photos_stamp(memory_path),
     )
     if _CACHE["key"] == key:
         return _CACHE["value"]
@@ -171,6 +192,21 @@ def _build_full(memory_path: Path) -> GraphResponse:
         logo_misses = logo_service.missed_ids(logo_service.bank_name(memory_path))
     except Exception:
         logo_misses = {}
+    # G159 (2026-10-09) — the people-photo index, read once: the public-profile rung is offered while not known to
+    # miss, versioned once a copy is stored. Read-only, like the logo sets.
+    try:
+        from api.services import person_photo
+
+        people_photos = person_photo.read_meta(logo_service.bank_name(memory_path))
+    except Exception:
+        people_photos = {}
+    try:
+        # Rung 2a (2026-10-16): each ticked Messages chat's shared photo at the page it links, read once per build.
+        from api.services import messages_photos
+
+        chat_photos = messages_photos.links(memory_path)
+    except Exception:
+        chat_photos = {}
     for f in bank_index.files(memory_path, "entities"):
         fm = f.frontmatter
         eid = f.stem
@@ -181,7 +217,7 @@ def _build_full(memory_path: Path) -> GraphResponse:
         entity_ids.add(eid)
         try:
             for claim in parse_claims(body):
-                if claim.valid_to is not None or claim.superseded_by:
+                if not is_current(claim):
                     continue  # overlay reflects currently-valid beliefs only
                 if claim.observer:
                     subject_observers.setdefault(eid, set()).add(claim.observer)
@@ -200,7 +236,8 @@ def _build_full(memory_path: Path) -> GraphResponse:
         # One malformed page must never cost the whole graph its answer (final review, finding 2): no picture, a ring.
         try:
             picture, _ = entity_picture.resolve_page(memory_path, eid, fm, body, page_mtime=f.mtime_ns / 1e9,
-                                                     cached=logo_ids, missed=logo_misses)
+                                                     cached=logo_ids, missed=logo_misses, photos=people_photos,
+                                                     chats=chat_photos)
         except Exception:
             picture = entity_picture.NOTHING
         nodes.append(
@@ -480,7 +517,7 @@ def _claim_edge_row(claim, page_stem: str) -> dict | None:
     so the full projection Sleep writes and the per-page one a folder sync writes
     can never disagree about a row's shape (F1 R-FX7). Only an open, node-valued
     claim is an edge; closed and superseded beliefs live on in the page and git."""
-    if claim.valid_to is not None or claim.superseded_by:
+    if not is_current(claim):
         return None
     if claim.object_kind not in ("", "node"):
         return None
@@ -558,10 +595,17 @@ def regenerate_edges_from_claims(memory_path: Path) -> int:
     edges_file = memory_path / "graph_edges.yaml"
     preserved: list[dict] = []
     if edges_file.exists():
+        # Unreadable or not a mapping: written as nothing at all, as `upsert_claim_edges` does. Read as empty, it was
+        # rewritten as the claim rows alone and every other edge — relationships, `mentions`, media `about`,
+        # `draws on` — was gone (review 2026-10-14).
         try:
-            data = yaml.safe_load(edges_file.read_text(encoding="utf-8")) or {}
-        except Exception:
-            data = {}
+            data = load_yaml_file(edges_file) or {}
+        except Exception as exc:
+            logger.warning(f"graph_edges.yaml is unreadable ({type(exc).__name__}); claim edges not regenerated")
+            return 0
+        if not isinstance(data, dict):
+            logger.warning("graph_edges.yaml is not a mapping; claim edges not regenerated")
+            return 0
         for edge in data.get("edges", []) or []:
             if not isinstance(edge, dict):
                 continue
@@ -571,10 +615,7 @@ def regenerate_edges_from_claims(memory_path: Path) -> int:
             preserved.append(edge)
 
     merged = preserved + claim_edges
-    edges_file.write_text(
-        yaml.dump({"edges": merged}, default_flow_style=False, sort_keys=False, allow_unicode=True),
-        encoding="utf-8",
-    )
+    write_yaml(edges_file, {"edges": merged})
     return len(claim_edges)
 
 
@@ -623,7 +664,7 @@ def upsert_claim_edges(memory_path: Path, page_ids) -> bool:
     edges: list[dict] = []
     if edges_file.exists():
         try:
-            data = yaml.safe_load(edges_file.read_text(encoding="utf-8")) or {}
+            data = load_yaml_file(edges_file) or {}
         except Exception:
             return False
         if not isinstance(data, dict):
@@ -639,10 +680,7 @@ def upsert_claim_edges(memory_path: Path, page_ids) -> bool:
     if canon([e for e in edges if mine(e)]) == canon(fresh):
         return False
     merged = [e for e in edges if not mine(e)] + fresh
-    edges_file.write_text(
-        yaml.dump({"edges": merged}, default_flow_style=False, sort_keys=False, allow_unicode=True),
-        encoding="utf-8",
-    )
+    write_yaml(edges_file, {"edges": merged})
     return True
 
 
@@ -652,7 +690,7 @@ def _load_edges(memory_path: Path) -> list[GraphLink]:
     if not edges_file.exists():
         return []
     try:
-        data = yaml.safe_load(edges_file.read_text(encoding="utf-8")) or {}
+        data = load_yaml_file(edges_file) or {}
     except Exception:
         return []
     return [
