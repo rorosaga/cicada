@@ -418,9 +418,7 @@ def _refresh_seen(path: Path, rows: list[dict]) -> bool:
         updated.append(r)
     if not changed:
         return False
-    fm["watched"] = updated
-    if "turns" in fm:
-        fm["turns"] = fm.pop("turns")   # the sidecar stays the last key (R-PB4)
+    fm["watched"] = updated   # a watch day carries no `turns` sidecar, so the key order is the stored one
     markdown_parser.write(path, fm, parsed.body)
     return True
 
