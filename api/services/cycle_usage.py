@@ -264,7 +264,8 @@ def usage_of_run(run, calls: list, ledger: "Ledger | None" = None) -> CycleUsage
         total_equiv_usd=_sum([m.equiv_cost_usd for m in models]),
         basis=basis, plan=plan,
         plan_share=plan_share(plan, connection, run_size(calls),
-                              ledger.rates() if ledger is not None and connection else {}) if models else [],
+                              ledger.rates() if ledger is not None and connection else {},
+                              ended_at=_epoch(run.ts)) if models else [],
     )
 
 
@@ -309,7 +310,9 @@ def usage_for_drain(ledger: Ledger, drain_id: str) -> CycleUsage | None:
         total_cost_usd=_sum([m.cost_usd for m in models]),
         total_equiv_usd=_sum([m.equiv_cost_usd for m in models]),
         basis=basis, plan=plan,
-        plan_share=plan_share(plan, connection, run_size(calls), ledger.rates() if connection else {})
+        plan_share=plan_share(plan, connection, run_size(calls), ledger.rates() if connection else {},
+                              ended_at=max((e for e in (_epoch(r.ts) for r in rows) if e is not None),
+                                           default=None))
         if models else [],
     )
 
@@ -506,7 +509,10 @@ def rate_samples(ledger: "Ledger") -> dict:
         size = run_size(ledger.calls.get(cycle, []))
         if connection is None or size is None:
             continue
+        ended = _epoch(run.ts)
         for w in plan.windows:
+            if _rolled_over(w, ended):
+                continue   # its after is the pre-reset peak: the move undercounts the cycle
             moved = w.after - w.before
             if moved >= MIN_SAMPLE_MOVE - 1e-9:
                 out[(cycle, w.window)] = (connection, moved, size)
@@ -546,19 +552,43 @@ def _recent_samples() -> dict:
     return samples
 
 
+def _epoch(ts) -> float | None:
+    """A ledger ``ts`` (ISO-8601, ``Z``) as unix seconds; ``None`` when it does not parse."""
+    from datetime import datetime, timezone
+
+    try:
+        dt = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    return (dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)).timestamp()
+
+
+def _rolled_over(w: CycleUsagePlanWindow, ended_at: float | None) -> bool:
+    """The window reset before the run ended. Claude's ``after`` is then the pre-reset peak
+    (``note_signals`` drops the post-reset readings), so after − before misses whatever the run used
+    after the reset: neither a measurement nor "under 1%" can be said from it."""
+    if w.resets_at is None or ended_at is None:
+        return False
+    reset = float(w.resets_at)
+    if reset > 1e11:   # milliseconds, defensively
+        reset /= 1000.0
+    return reset <= ended_at
+
+
 def _order(window: str) -> tuple[int, str]:
     return (SHARE_ORDER.index(window) if window in SHARE_ORDER else len(SHARE_ORDER), window)
 
 
 def plan_share(plan: CycleUsagePlan | None, connection: str | None, size: float | None,
-               rates: dict) -> list[CycleUsagePlanShare]:
+               rates: dict, *, ended_at: float | None = None) -> list[CycleUsagePlanShare]:
     """How much of each window a plan run used, each with its basis (``CycleUsagePlanShare``):
 
     * the reading moved by a point or more: ``measured``, the move itself;
     * it did not move: ``estimated`` when a rate gives a figure under a point (the reading caps it),
       else ``under`` — below one point, never zero;
-    * it fell (the window reset between readings) or was never read: ``estimated`` when a rate
-      exists and the window is not a model's own, else left out — unknown.
+    * it fell, or it reset before the run ended (``ended_at``, unix seconds; ``_rolled_over``), or it
+      was never read: ``estimated`` when a rate exists and the window is not a model's own unread one,
+      else left out — unknown.
     """
     if connection is None:
         return []
@@ -571,7 +601,7 @@ def plan_share(plan: CycleUsagePlan | None, connection: str | None, size: float 
         if estimate is not None and estimate[0] >= 1.0:
             estimate = None   # more than a whole window from one run is no estimate worth stating
         w = readings.get(name)
-        moved = (w.after - w.before) if w is not None else None
+        moved = (w.after - w.before) if w is not None and not _rolled_over(w, ended_at) else None
         if moved is not None and moved >= RESOLUTION - 1e-9:
             out.append(CycleUsagePlanShare(window=name, basis="measured", share=round(moved, 4)))
         elif moved is not None and moved >= 0:

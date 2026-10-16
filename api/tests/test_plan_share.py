@@ -23,9 +23,13 @@ def _no_machine_samples(monkeypatch):
     cycle_usage.reset_cache()
 
 
-def _plan(*windows, connection="claude-plan"):
+#: A reset time after every run's ``ts`` here (a window that reset before the run ended is its own test).
+_FUTURE = 4_000_000_000
+
+
+def _plan(*windows, connection="claude-plan", resets_at=_FUTURE):
     return {"connection": connection, "windows": [
-        {"window": name, "before": b, "after": a, "resets_at": 100, "before_is_first_seen": True}
+        {"window": name, "before": b, "after": a, "resets_at": resets_at, "before_is_first_seen": True}
         for name, b, a in windows]}
 
 
@@ -116,6 +120,25 @@ def test_a_window_that_fell_reset_meanwhile_and_is_estimated_or_left_out():
     assert cycle_usage.usage_for(alone, "a" * 12).plan_share == []
     with_rate = cycle_usage.Ledger.build(_history() + [_run("p", "a" * 12, plan=fell), _call("p", 0.25)])
     assert _share(cycle_usage.usage_for(with_rate, "a" * 12))["seven_day"] == ("estimated", 0.005, None, 2)
+
+
+def test_a_window_that_reset_before_the_run_ended_is_neither_measured_nor_under():
+    """Claude keeps a window's pre-reset peak as ``after`` (``note_signals``), so a window whose reset time
+    passed before the run ended read too little: no "measured", no "under 1%" — estimated or left out."""
+    rolled = _plan(("seven_day", 0.27, 0.29), ("five_hour", 0.40, 0.40), resets_at=1_759_276_800)  # 2025-10-01
+    alone = cycle_usage.Ledger.build([_run("p", "a" * 12, plan=rolled), _call("p", 0.25)])
+    assert cycle_usage.usage_for(alone, "a" * 12).plan_share == []
+    with_rate = cycle_usage.Ledger.build(_history() + [_run("p", "a" * 12, plan=rolled), _call("p", 0.25)])
+    assert _share(cycle_usage.usage_for(with_rate, "a" * 12))["seven_day"] == ("estimated", 0.005, None, 2)
+    # Nor does such a cycle teach a rate: its move undercounts the cycle.
+    assert cycle_usage.rate_samples(cycle_usage.Ledger.build(
+        [_run("r", "c" * 12, plan=_plan(("seven_day", 0.1, 0.2), resets_at=1_759_276_800)), _call("r", 1.0)])) == {}
+    # A whole run is judged by its last batch's end.
+    rows = [_run("b1", "a" * 12, plan=_plan(("seven_day", 0.27, 0.27), resets_at=1_759_309_200), drain="d1",
+                 batch=1, ts="2025-10-01T08:00:00.000Z"), _call("b1", 0.2, drain="d1"),
+            _run("b2", "b" * 12, plan=_plan(("seven_day", 0.27, 0.30), resets_at=1_759_309_200), drain="d1",
+                 batch=2, ts="2025-10-01T10:00:00.000Z"), _call("b2", 0.2, drain="d1")]
+    assert cycle_usage.usage_for_drain(cycle_usage.Ledger.build(rows), "d1").plan_share == []
 
 
 # --- the rate ------------------------------------------------------------- #
