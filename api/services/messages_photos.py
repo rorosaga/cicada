@@ -134,8 +134,14 @@ def store(memory_path: Path, items: list[dict], *, bank: str | None = None) -> d
         decoded[cid] = _decode(raw) if raw else None
     stored = removed = unchanged = 0
     with _LOCK:
+        # Read the ticks again under the lock: an untick (and its `forget`, which takes this lock) that landed since the
+        # check above must not be followed by this post writing the chat's photo back (gone on untick).
+        still = {cid for cid, e in messages_source.load_settings(memory_path)["conversations"].items()
+                 if e.get("ticked")}
         meta = read_meta(bank)
         for cid, photo in decoded.items():
+            if cid not in still:
+                continue
             if photo is None:
                 removed += int(_drop(bank, cid, meta))
                 continue
