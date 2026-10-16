@@ -177,19 +177,25 @@ struct MessagesWaitingItem: Decodable, Equatable, Identifiable, Sendable {
     var kind = "unknown"
     var messages = 0
     var sittings = 0
+    /// The correspondent's own page when one exists (`messages_source.waiting`: the page Sleep resolves the decided
+    /// correspondent to, never a page that only shares the chat's name) — the bubble draws that page's picture.
+    var page: String? = nil
 
     var id: String { conversation }
 
-    enum CodingKeys: String, CodingKey { case conversation, name, kind, messages, sittings }
-    init(conversation: String, name: String, kind: String = "unknown", messages: Int, sittings: Int = 1) {
+    enum CodingKeys: String, CodingKey { case conversation, name, kind, messages, sittings, page }
+    init(conversation: String, name: String, kind: String = "unknown", messages: Int, sittings: Int = 1,
+         page: String? = nil) {
         self.conversation = conversation; self.name = name; self.kind = kind; self.messages = messages
-        self.sittings = sittings
+        self.sittings = sittings; self.page = page
     }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         conversation = try c.decode(String.self, forKey: .conversation)
         name = c.lenient(.name, ""); kind = c.lenient(.kind, "unknown")
         messages = c.lenient(.messages, 0); sittings = c.lenient(.sittings, 0)
+        let raw: String? = c.lenient(.page)
+        page = raw?.isEmpty == false ? raw : nil
     }
 }
 

@@ -321,7 +321,9 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   `message_keys`. The person's mark changes re-render every saved sitting in place from the stored episodes (`PUT
   /sources/messages/settings`, one `user` commit with the settings file). One `user` commit per sync
   (`capture/messages`); scrub writer `imessage`; demo bank 409. `GET /sources/messages/waiting` sums `message_count`
-  over unread, live sittings per conversation — the Sleep page's and Home's bubbles. Through Sleep, the decided
+  over unread, live sittings per conversation — the Sleep page's and Home's bubbles — and carries `page`: the
+  correspondent's own page when one exists, found from the newest sitting's decided record by `correspondents.find_page`
+  (the rule Stage 2 resolves it by), `null` while undecided or held below the promotion bar. Through Sleep, the decided
   `correspondent` is its own page — a `tool` for an agent, a `person` for a person — never a same-name page of
   another type (*Entity promotion*, "A message conversation's correspondent").
 - **Capture never writes into a demo bank** (G117's synthetic bank; G141 capture-side track). A bank

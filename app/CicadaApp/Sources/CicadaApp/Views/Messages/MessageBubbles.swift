@@ -11,6 +11,8 @@ struct MessageBubble: Identifiable, Equatable {
     let messages: Int
     let isAgent: Bool
     let help: String
+    /// The correspondent's own page (`MessagesWaitingItem.page`), whose picture the bubble draws.
+    var page: String? = nil
 }
 
 enum MessageBubbles {
@@ -33,14 +35,35 @@ enum MessageBubbles {
         var accessibility: String
     }
 
-    /// The person's chosen picture for a chat (the picture precedence's first rung, 2026-10-16): the photo they put on
-    /// the ONE page whose name is exactly the chat's — display only; a name two pages share, a page whose picture is
-    /// not the person's own upload, or no such page answers nil, and the bubble falls to the Contacts photo, then the
-    /// monogram. Nothing is sent or written.
-    static func chosenPicture(name: String, nodes: [GraphNode]) -> PictureURL? {
-        let named = nodes.filter { !$0.isFacet && $0.name == name }
-        guard named.count == 1, let ref = named[0].pictureRef, ref.source == .upload else { return nil }
-        return PictureURL.parse(ref.url)
+    /// The chat's page's resolved picture: the page the backend linked by the conversation's correspondent
+    /// (`MessagesWaitingItem.page`), never a page found by name. Nil without a link or with no such page loaded.
+    static func pagePicture(page: String?, nodes: [GraphNode]) -> EntityPictureRef? {
+        guard let page, !page.isEmpty else { return nil }
+        return nodes.first(where: { $0.id == page })?.pictureRef
+    }
+
+    /// What a bubble draws.
+    enum Face: Equatable {
+        case picture(PictureURL)
+        case photo(Data)
+        case monogram
+    }
+
+    /// The picture precedence for a chat (owner, 2026-10-16): the person's choice on the chat's page (their upload, or
+    /// the monogram they chose) → the chat's Contacts photo (the card on this Mac, else the page's own Contacts rung) →
+    /// the photo the chat shares in Messages → the monogram. A page's logo or public-profile rung is not a chat's face.
+    static func face(page: EntityPictureRef?, contacts: Data?, shared: Data?) -> Face {
+        if let page {
+            switch page.source {
+            case .upload: if let url = PictureURL.parse(page.url) { return .picture(url) }
+            case .initials: return .monogram
+            default: break
+            }
+        }
+        if let contacts, !contacts.isEmpty { return .photo(contacts) }
+        if let page, page.source == .contacts, let url = PictureURL.parse(page.url) { return .picture(url) }
+        if let shared, !shared.isEmpty { return .photo(shared) }
+        return .monogram
     }
 
     /// Most messages first; nil when nothing is waiting (the stack is not drawn then).
@@ -54,7 +77,7 @@ enum MessageBubbles {
             let shown = named.isEmpty ? item.name : named
             return MessageBubble(id: item.conversation, name: shown, initials: LogoImage.monogram(for: shown),
                                  messages: item.messages, isAgent: item.kind == "agent",
-                                 help: Copy.Messages.bubbleHelp(name: shown, messages: item.messages))
+                                 help: Copy.Messages.bubbleHelp(name: shown, messages: item.messages), page: item.page)
         }
         let total = waiting.reduce(0) { $0 + $1.messages }
         return Model(shown: Array(bubbles.prefix(maxShown)), hidden: max(bubbles.count - maxShown, 0), messages: total,
@@ -63,8 +86,8 @@ enum MessageBubbles {
     }
 }
 
-/// The stack itself: each conversation's Contacts photo, else a monogram (`EntityPictureFallback`: a person's initials in
-/// their 1.5 pt hue ring); nothing from the web. Each face sits inside a ring of the ground's own colour, never over it,
+/// The stack itself: each conversation's face by `MessageBubbles.face` (its page's chosen picture, the Contacts photo,
+/// the photo it shares in Messages, else a monogram); nothing from the web. Each face sits inside a ring of the ground's own colour, never over it,
 /// so the monogram's hue ring stays whole. Hovering a bubble names it; clicking the stack (when `interactive`) lists the
 /// names.
 struct MessageBubbleStack: View {
@@ -106,7 +129,8 @@ struct MessageBubbleStack: View {
         return HStack(spacing: -side * MessageBubbles.overlap) {
             ForEach(model.shown) { bubble in
                 MessageBubbleFace(name: bubble.name, photo: watcher.cards[bubble.id]?.thumbnail, size: size,
-                                  chosen: MessageBubbles.chosenPicture(name: bubble.name, nodes: store?.graph.value?.nodes ?? []))
+                                  page: MessageBubbles.pagePicture(page: bubble.page, nodes: store?.graph.value?.nodes ?? []),
+                                  shared: watcher.sharedPhotos[bubble.id])
                     .help(bubble.help)
             }
             if model.hidden > 0 {
@@ -121,26 +145,31 @@ struct MessageBubbleStack: View {
     }
 }
 
-/// One bubble: the face — the person's chosen picture, else the Contacts photo, else the person's monogram — inset by
+/// One bubble: the face (`MessageBubbles.face`: the person's chosen picture, the Contacts photo, the photo the chat
+/// shares in Messages, else the monogram) inset by
 /// `MessageBubbles.groundRing` inside a disc of the ground's colour. Depth is a ring, not a shadow (DR-9): the disc is
 /// what cuts this bubble from the one under it.
 struct MessageBubbleFace: View {
     let name: String
     let photo: Data?
     var size: CGFloat = 20
-    /// The person's chosen picture (`MessageBubbles.chosenPicture`), loaded from Cicada's own store.
-    var chosen: PictureURL? = nil
+    /// The chat's page's resolved picture (`MessageBubbles.pagePicture`), loaded from Cicada's own store.
+    var page: EntityPictureRef? = nil
+    /// The photo the chat shares in Messages (`MessagesWatcher.sharedPhotos`).
+    var shared: Data? = nil
 
     @Environment(Store.self) private var store: Store?
-    @State private var chosenImage: NSImage?
+    @State private var pageImage: NSImage?
+
+    private var face: MessageBubbles.Face { MessageBubbles.face(page: page, contacts: photo, shared: shared) }
 
     var body: some View {
         let side = CicadaTheme.scaled(size)
         let inner = CicadaTheme.scaled(MessageBubbles.faceUnits(size))
         Group {
-            if let chosenImage {
-                Image(nsImage: chosenImage).resizable().scaledToFill()
-            } else if let photo, let image = NSImage(data: photo) {
+            if case .picture = face, let pageImage {
+                Image(nsImage: pageImage).resizable().scaledToFill()
+            } else if case .photo(let data) = face, let image = NSImage(data: data) {
                 Image(nsImage: image).resizable().scaledToFill()
             } else {
                 EntityPictureFallback(type: .person, name: name, units: MessageBubbles.faceUnits(size),
@@ -151,9 +180,9 @@ struct MessageBubbleFace: View {
         .clipShape(Circle())
         .frame(width: side, height: side)
         .background(Circle().fill(CicadaTheme.bgBase))
-        .task(id: chosen) {
-            guard let chosen, let bank = store?.bank else { chosenImage = nil; return }
-            chosenImage = await PictureStore.shared.image(chosen, bank: bank)
+        .task(id: face) {
+            guard case .picture(let url) = face, let bank = store?.bank else { pageImage = nil; return }
+            pageImage = await PictureStore.shared.image(url, bank: bank)
         }
     }
 }

@@ -248,7 +248,8 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   a media thumbnail → a monogram). **A logo comes only from a trusted `website` source — never a domain guessed from a
   name; a person never gets a logo and no service is sent a person's name (G146/G159).** A person's photo is asked only
   with an identifier already on the page or record and given as their own account — the owner's hashed email, a GitHub,
-  X or LinkedIn profile link (owner, 2026-10-09; `network.md`).
+  X or LinkedIn profile link (owner, 2026-10-09; `network.md`). A Messages chat's bubble adds the photo the chat shares
+  in Messages after the Contacts photo — ticked chats only, read from a copy, in memory, never posted (owner 2026-10-16).
   Logos, pictures, media previews (fetched once, then served from the store) and repo observations are caches outside
   every bank.
 - **Link views (owner rulings 2026-10-14):** a view is a word in a link's markdown title (`[T](url "bookmark")`), one

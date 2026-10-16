@@ -562,11 +562,18 @@ def reattribute(memory_path: Path, cid: str, *, bank: str | None = None) -> dict
 
 def waiting(memory_path: Path) -> list[dict]:
     """One entry per conversation with sittings Sleep has not read: its name, who it is with, and how many messages
-    those sittings hold (a re-queued sitting is read whole, so all of its messages count). Frontmatter only."""
-    from api.services import bank_index
+    those sittings hold (a re-queued sitting is read whole, so all of its messages count). Frontmatter only.
+
+    ``page`` is the correspondent's own page when one exists (2026-10-16, so the app draws the chat with that page's
+    picture): found by the newest sitting's decided ``correspondent`` record — the person's mark or an ``identified``
+    detection, never ``unknown`` — through `correspondents.find_page`, the very rule Stage 2 resolves it by (its type,
+    its folded name). Never a page that merely shares the chat's display name; ``None`` while the correspondent is
+    undecided or still held below the promotion bar."""
+    from api.services import bank_index, correspondents
 
     settings = load_settings(memory_path)
     out: dict[str, dict] = {}
+    records: dict[str, dict] = {}
     for f in bank_index.files(Path(memory_path), "episodes"):
         fm = f.frontmatter or {}
         if fm.get("origin") != ORIGIN or fm.get("processed") or fm.get("source_deleted_at"):
@@ -585,10 +592,17 @@ def waiting(memory_path: Path) -> list[dict]:
             row["latest"] = last
             row["name"] = str(actor.get("name") or "")
             row["kind"] = str(actor.get("kind") or agent_detectors.UNKNOWN)
+            records[cid] = actor
+    idents = {cid: correspondents.identity(record) for cid, record in records.items()}
+    pages = ([{"id": f.stem, "frontmatter": f.frontmatter or {}} for f in bank_index.files(Path(memory_path), "entities")]
+             if any(idents.values()) else [])
     for cid, row in out.items():
         entry = settings["conversations"].get(cid) or {}
         row["name"] = entry.get("name") or row["name"] or agent_detectors.UNNAMED
         row["ticked"] = bool(entry.get("ticked"))
+        ident = idents.get(cid)
+        page = correspondents.find_page(pages, ident) if ident is not None else None
+        row["page"] = str(page["id"]) if page is not None else None
     return sorted(out.values(), key=lambda r: (-r["messages"], r["name"]))
 
 

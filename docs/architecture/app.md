@@ -372,9 +372,17 @@ Waiting tab they ride the Messages source row itself (owner, 2026-10-16: one row
 waiting chats' pictures, "N messages", the oldest age and the row's count; the second line is gone), and only when no
 Messages episode is queued yet does `MessagesWaitingRow` draw a line of its own in the same grammar; Home's Today waiting
 line carries the same `MessageBubbleStack` (non-interactive there): up to three overlapping profile bubbles, "+N" past
-three, and the number of messages Sleep will read. A bubble's face follows the picture precedence — the person's chosen
-picture (the photo they uploaded to the ONE page named exactly like the chat, `MessageBubbles.chosenPicture`, display
-only, loaded from Cicada's own picture store), else the Contacts photo, else a monogram (`MessageBubbleFace`: the face
+three, and the number of messages Sleep will read. A bubble's face follows the picture precedence
+(`MessageBubbles.face`, pure and tested; owner 2026-10-16) — the person's choice on the chat's page (their upload, or
+the monogram they chose; the page is the one `GET /sources/messages/waiting` links as `page`, the correspondent's own
+page found by its decided record, never a page that merely shares the chat's name; loaded from Cicada's own picture
+store) → the chat's Contacts photo (the card on this Mac, else the page's own Contacts rung) → **the photo the chat
+shares in Messages** ("Share Name and Photo": `MessagesSharedPhotos` reads `~/Library/Messages/NickNameCache/` only
+for the handles of ticked conversations, once per chat per session — `handledNicknamesKeyStore.db` copied with its
+`-wal`/`-shm` into a private temporary folder and queried there, so Messages' files are never written or locked; the
+record's keyed archive read as a property list, never unarchived; the `…-ad` avatar file used only as a regular file
+directly in that folder, ≤ 8 MB, made ≤ 128 px; the bytes stay in `MessagesWatcher.sharedPhotos`, in memory, never
+posted or written to a bank; unticking forgets it) → a monogram (`MessageBubbleFace`: the face
 inset 1.5 pt inside a disc of the ground's colour; the monogram is a disc filled with the person's hue at 35 % over the
 ground with the letter in `textPrimary` — a hue ring round one letter read as "ⓘ" — and below 24 units its letters are
 half its height, semibold; the bubbles only; never a shadow). Hovering a bubble names it ("Instinct · 34 messages
