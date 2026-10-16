@@ -354,6 +354,37 @@ def test_the_access_log_never_carries_the_query():
     ]
 
 
+def test_the_access_log_never_carries_an_oauth_code():
+    """Hunt 2026-10-16: an OAuth sign-in lands on its callback with ``?code=…&state=…`` (a connector's, or a provider
+    connection's), and uvicorn's access log wrote the authorization code to ``logs/backend.*.log`` — a credential in a
+    log (the credentials rail). The callback lines lose their query like the search's do."""
+    import logging
+
+    from api import main  # noqa: F401  (importing it attaches the filter)
+
+    access = logging.getLogger("uvicorn.access")
+    lines: list[str] = []
+
+    class Capture(logging.Handler):
+        def emit(self, record):
+            lines.append(record.getMessage())
+
+    handler = Capture(level=logging.INFO)
+    saved = (access.level, access.disabled)
+    access.addHandler(handler)
+    access.setLevel(logging.INFO)
+    access.disabled = False
+    try:
+        for path in ("/sources/connectors/pinterest/callback?code=secret-code-xyz&state=nonce-abc",
+                     "/connections/byok-openrouter/callback/n0nce?code=secret-code-xyz"):
+            access.info('%s - "%s %s HTTP/%s" %d', "127.0.0.1:5000", "GET", path, "1.1", 200)
+    finally:
+        access.removeHandler(handler)
+        access.setLevel(saved[0])
+        access.disabled = saved[1]
+    assert lines and not any("secret-code-xyz" in line for line in lines), lines
+
+
 def test_mcp_legs_come_back_in_the_rrf_shape(tmp_path):
     memory = _bank(tmp_path)
     assert search_service.lexical_entity_hits(memory, "hq")[0] == {

@@ -82,13 +82,26 @@ def target(environ) -> tuple[str | None, str, str | None]:
     return base, token, None
 
 
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    """A redirect is never followed. urllib re-sends a redirected POST as a GET, with the ``Authorization`` header, to
+    wherever ``Location`` points (another host, plain http), and that GET's 200 would read as delivered. The 3xx is the
+    answer instead: the token stays with the server it was meant for, and the post is kept for a resend."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def opener():
+    """The person's own server, straight: no proxy from the environment, no redirect followed."""
+    return urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
+
+
 def send(url: str, body: bytes, token: str, timeout: float) -> tuple[int | None, str]:
     """POST; ``(None, "")`` when no answer came (refused, unreachable, timed out) — the spool's signal."""
     req = urllib.request.Request(url, data=body, method="POST",
                                  headers={"Content-Type": "application/json", "Authorization": f"Bearer {token}"})
-    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     try:
-        with opener.open(req, timeout=timeout) as resp:  # noqa: S310 - the person's own server
+        with opener().open(req, timeout=timeout) as resp:  # noqa: S310 - the person's own server
             return resp.status, resp.read().decode("utf-8", "replace")
     except urllib.error.HTTPError as exc:
         return exc.code, exc.read().decode("utf-8", "replace")
@@ -98,6 +111,16 @@ def send(url: str, body: bytes, token: str, timeout: float) -> tuple[int | None,
 
 def landed(status: int | None) -> bool:
     return status is not None and 200 <= status < 300
+
+
+def why(status: int | None) -> str:
+    """The log phrase for a post that was kept: a status or an enum, never content. A 3xx says what to change."""
+    if status is None:
+        return "no answer"
+    if 300 <= status < 400:
+        return (f"http {status} (a redirect, never followed with the token: "
+                "set CICADA_API_BASE to the server's own address)")
+    return f"http {status}"
 
 
 def keep(status: int | None) -> bool:
@@ -168,5 +191,5 @@ def deliver_turn(home: Path, route: str, body: dict, *, environ, post=None, time
         return f"http {status}"
     if keep(status):
         spool.put(home, route, body)
-        return "spooled: " + ("no answer" if status is None else f"http {status}")
+        return "spooled: " + why(status)
     return f"http {status}"

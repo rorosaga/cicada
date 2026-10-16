@@ -925,3 +925,42 @@ def test_the_dry_run_counts_and_writes_nothing(bank, monkeypatch, tmp_path):
     assert _snapshot_tree(bank, home) == before
     assert web_check_dry_run.main(["--bank", str(tmp_path / "nope")]) == 2
     assert os.environ.get("CICADA_HOME") == str(home)
+
+
+def test_a_lookup_the_engine_never_answered_is_not_held_for_thirty_days(bank):
+    """Hunt 2026-10-16: a plan limit (or any engine failure) is a pause, not a lookup — the question it stopped on
+    must be offered again on the next run, not memoized as looked up for 30 days."""
+    from api.services import engine_errors
+
+    def throttled(*, messages, web_search=False, timeout=None, **kw):
+        raise engine_errors.EngineThrottled("rate limited")
+
+    report = _run(bank, throttled)
+    assert report.looked_up == 1 and report.settled == 0
+    calls: list = []
+    report = _run(bank, _fake(_answers, calls=calls))
+    asked = [m[-1]["content"] for m in calls]
+    assert any("Example Film" in u for u in asked), "the question the plan limit stopped on is looked up again"
+    assert report.settled >= 1
+
+
+def test_an_undo_refused_on_an_unreadable_page_changes_nothing(bank):
+    """Hunt 2026-10-16: the undo said "nothing was changed" while it had already taken the held claim off the pending
+    line — an uncommitted pending-store edit, and a settled record that no longer matched what it held."""
+    def answers(user):
+        if "2401.00001" in user:
+            return {"sure": True, "answer": "a paper on dense retrieval", "url": "https://papers.paper-example.net/2401",
+                    "quote": "We present a dense retrieval method."}
+        return {"sure": False}
+    assert _run(bank, _fake(answers)).settled == 1
+    _commit(bank, "settled")
+    # The name was promoted since, and its page's claims block is unreadable.
+    _entity(bank, "2401-00001", type="media", name="2401.00001",
+            body='## Summary\nA paper.\n\n```claims\n- id: clm_x\n  text: "unterminated\n```\n')
+    _commit(bank, "promoted")
+    store_before = (bank / pending_store.PENDING_STORE_FILE).read_bytes()
+    with pytest.raises(web_settle.NotSettleable):
+        web_settle.undo(bank, "inbox-103")
+    assert (bank / pending_store.PENDING_STORE_FILE).read_bytes() == store_before, "nothing was changed"
+    assert _git(bank, "status", "--porcelain") == ""
+    assert "inbox-103" in {r["id"] for r in web_settle.list_settled(bank)}

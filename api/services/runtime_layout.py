@@ -135,6 +135,43 @@ def client_token(environ=os.environ) -> str:
         return ""
 
 
+def opener():
+    """The opener every client of a Cicada backend sends its token through: no proxy from the environment (loopback, or
+    the person's own server over their overlay) and no redirect followed — urllib re-sends a redirected request, as a
+    GET and with its ``Authorization`` header, to wherever ``Location`` points (another host, plain http). The 3xx is
+    the answer instead (hunt 2026-10-16). Stdlib only, like the rest of this module."""
+    import urllib.request
+
+    class _NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, req, fp, code, msg, headers, newurl):
+            return None
+
+    return urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect())
+
+
+def redirect_text(exc) -> str | None:
+    """The plain words for a 3xx a client got instead of an answer (``opener`` follows none), else None. Names only
+    where it pointed (scheme, host, port — never a path or query) and what to change: a base given as ``http://`` that
+    the server sends to ``https://`` is the case a person meets."""
+    code = getattr(exc, "code", None)
+    if not isinstance(code, int) or not 300 <= code < 400:
+        return None
+    from urllib.parse import urljoin, urlsplit
+
+    where = ""
+    try:
+        loc = (exc.headers.get("Location") if getattr(exc, "headers", None) is not None else "") or ""
+        parts = urlsplit(urljoin(getattr(exc, "url", "") or "", loc))
+        if parts.scheme in ("http", "https") and parts.hostname:
+            where = f" to {parts.scheme}://{parts.hostname}" + (f":{parts.port}" if parts.port else "")
+    except ValueError:
+        where = ""
+    return (f"Cicada's server address ({API_BASE_ENV}) answered with a redirect{where} (HTTP {code}) instead of "
+            f"answering. Cicada never follows a redirect with this device's token, so nothing was sent there. Set "
+            f"{API_BASE_ENV} to the server's own address" + (" (the one it points to, if that is your server)"
+                                                             if where else "") + ".")
+
+
 def backend_url(environ=os.environ) -> str:
     """The backend this machine's clients talk to: ``CICADA_API_BASE`` when it is set (a server elsewhere), else this
     machine's own on loopback (``CICADA_PORT``, else 8000). An invalid base raises ``ValueError``."""

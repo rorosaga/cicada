@@ -199,3 +199,23 @@ def test_paths_never_leave_the_cache():
     assert messages_photos.photo_path("work", "../../etc") is None
     assert messages_photos.photo_path("work", "a" * 24, "gif") is None
     assert messages_photos.photo_path("work", "a" * 24).name == f"{'a' * 24}.png"
+
+
+def test_a_chat_unticked_while_its_photo_was_being_posted_keeps_no_photo(bank, chat, home, monkeypatch):
+    """Hunt 2026-10-16: the tick was checked before the store's lock, so an untick (and its `forget`) landing between
+    the check and the write left the photo of an unticked chat on disk — "gone on untick" broken by a race."""
+    _tick(bank, chat.chat_guid(chat.agent), "Instinct", actor={"kind": "agent"})
+    cid = conversation_id(chat.chat_guid(chat.agent))
+    real_decode = messages_photos._decode
+
+    def decode_then_untick(raw):
+        out = real_decode(raw)
+        messages_source.update_settings(bank, conversation={"id": cid, "ticked": False})
+        messages_photos.forget(bank, cid)          # what the settings route does on untick
+        return out
+
+    monkeypatch.setattr(messages_photos, "_decode", decode_then_untick)
+    out = messages_photos.store(bank, [{"conversation": cid, "photo_b64": b64(png())}])
+    assert out["stored"] == 0
+    assert not (home / "pictures" / bank.name / "messages" / f"{cid}.png").exists()
+    assert cid not in messages_photos.read_meta(bank.name)

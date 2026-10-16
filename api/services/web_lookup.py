@@ -438,7 +438,10 @@ async def run_tail(
     answers = await look_up(fn, todo, report)
     by = report.models[0] if report.models else (label or "agent")
     for c, a in answers:
-        memo[c.item_id] = {"at": today.isoformat(), "outcome": "settled" if a.ok else a.reason}
+        # An engine that never answered (a plan limit, a timeout, a signed-out CLI) looked nothing up: the question is
+        # offered again next run, never held for RETRY_DAYS (a plan limit is a pause, not a failure).
+        if a.reason != "engine_error":
+            memo[c.item_id] = {"at": today.isoformat(), "outcome": "settled" if a.ok else a.reason}
         if not a.ok:
             report.skip(a.reason)
             web_settle.record_event(memory_path, action="skip", item_id=c.item_id, entity_id=c.entity_id,
