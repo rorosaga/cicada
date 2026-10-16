@@ -406,7 +406,8 @@ def _lead(body: str, limit: int = 500) -> str:
 
 def _next_item(inbox: Path) -> Path:
     top = 0
-    for path in inbox.glob("inbox-*.md"):
+    # A settled question (``inbox/settled/``, ruling 27) keeps its number for its undo.
+    for path in [*inbox.glob("inbox-*.md"), *(inbox / "settled").glob("inbox-*.md")]:
         try:
             top = max(top, int(path.stem.split("-")[-1]))
         except ValueError:

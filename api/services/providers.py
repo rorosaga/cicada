@@ -20,6 +20,7 @@ Everything here is hermetically testable: ``resolve_llm_fn`` takes an injectable
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import inspect
 import os
 import threading
@@ -466,7 +467,8 @@ def resolve_llm_fn(
         except Exception as sink_exc:
             logger.warning(f"telemetry sink failed: {sink_exc}")
 
-    def _agent_invoke(messages, response_format, timeout: float, reasoning_off: bool = False):
+    def _agent_invoke(messages, response_format, timeout: float, reasoning_off: bool = False,
+                      web_search: bool = False):
         """One plan-CLI call (`claude -p` or `codex exec`), the response shim,
         and telemetry.
 
@@ -508,10 +510,15 @@ def resolve_llm_fn(
                     messages=messages, model=argv_model, stage=stage,
                     want_json=response_format is not None, timeout=timeout, runner=runner,
                     scope=resolved_scope,
-                    policy=agent_engine.CallPolicy.from_settings(settings, reasoning_off=reasoning_off),
+                    policy=dataclasses.replace(
+                        agent_engine.CallPolicy.from_settings(settings, reasoning_off=reasoning_off),
+                        web_search=web_search),
                     on_signals=lambda stream, stop: seen.update(stream=stream, stop=stop),
                 )
                 resp = agent_engine.response_shim(envelope, argv_model)
+                if web_search:
+                    # The searches the call made (the web lookup holds them to its pinned query).
+                    resp["tool_uses"] = envelope.get("_tool_uses") or []
                 used = resp["model"]
                 equiv = agent_engine.equiv_cost_from_envelope(envelope)
                 refs = _claude_refs(envelope, seen.get("stream"))
@@ -585,11 +592,12 @@ def resolve_llm_fn(
             if guard is not None:
                 guard.observe_signals(seen_["stream"].rate_limits)
 
-    def _agent_invoke_sync(messages, response_format, timeout: float, reasoning_off: bool = False):
+    def _agent_invoke_sync(messages, response_format, timeout: float, reasoning_off: bool = False,
+                           web_search: bool = False):
         for attempt in range(2):
             try:
                 with _agent_semaphore(getattr(settings, "agent_max_concurrency", 3)):
-                    return _agent_invoke(messages, response_format, timeout, reasoning_off)
+                    return _agent_invoke(messages, response_format, timeout, reasoning_off, web_search)
             except engine_errors.RETRYABLE as exc:
                 delay = _drain_retry_delay(attempt, exc)
                 if delay is None:
@@ -610,7 +618,8 @@ def resolve_llm_fn(
         logger.warning(f"Sleep engine call timed out or failed; retrying once in {delay}s")
         return delay
 
-    async def _agent_invoke_async(messages, response_format, timeout: float, reasoning_off: bool = False):
+    async def _agent_invoke_async(messages, response_format, timeout: float, reasoning_off: bool = False,
+                                  web_search: bool = False):
         # Round 2 finding 2: the acquire, the call, and the release all
         # happen INSIDE this one `asyncio.to_thread` dispatch, sharing the
         # exact same `threading.BoundedSemaphore` a sync caller blocks on —
@@ -618,7 +627,7 @@ def resolve_llm_fn(
         # loop, while still drawing from the ONE process-wide capacity pool.
         def _run_with_permit():
             with _agent_semaphore(getattr(settings, "agent_max_concurrency", 3)):
-                return _agent_invoke(messages, response_format, timeout, reasoning_off)
+                return _agent_invoke(messages, response_format, timeout, reasoning_off, web_search)
 
         for attempt in range(2):
             try:
@@ -648,15 +657,23 @@ def resolve_llm_fn(
             if parsed is not None and parsed > 0:
                 timeout = parsed
         reasoning_off = _reasoning_off(kw.get("extra_body"))
+        # The web lookup (owner ruling 2026-10-16): the plan's own search as the call's one tool. Only the
+        # Claude plan has it here; the ChatGPT rung never gets a tool.
+        web_search = bool(kw.get("web_search")) and mode == "agent"
         if is_async:
-            return _agent_invoke_async(messages, response_format, timeout, reasoning_off)
-        return _agent_invoke_sync(messages, response_format, timeout, reasoning_off)
+            return _agent_invoke_async(messages, response_format, timeout, reasoning_off, web_search)
+        return _agent_invoke_sync(messages, response_format, timeout, reasoning_off, web_search)
 
     if is_cli:
         return _agent_call
 
     def _call(*, messages, response_format=None, **kw):
+        # The web lookup on a metered engine: the provider's own search, one search per call
+        # (litellm's `search_context_size: low` is Anthropic's `max_uses: 1`), at its price (ruling 12).
+        web_search = bool(kw.pop("web_search", False))
         call_kw: dict[str, Any] = {"model": resolved_model, "messages": messages, **kw}
+        if web_search:
+            call_kw["web_search_options"] = {"search_context_size": "low"}
         if response_format is not None:
             call_kw["response_format"] = response_format
         if headers is not None and "extra_headers" not in call_kw:

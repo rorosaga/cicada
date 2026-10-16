@@ -237,7 +237,9 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   remembered (`sources_removed`) and respected by every automatic writer; a source may link to its own page (`entity:`),
   never creating one. A site is trusted only when the person added or took it, or Cicada's own read confirmed it; a
   destructive verdict needs positive evidence. Agents check sources before a question reaches the person only on sites the
-  person allowed, and **an inbox check never settles, reorders or changes a belief** (S3 is shadow). **A tracked source's
+  person allowed, and **an inbox check never settles, reorders or changes a belief** (S3 is shadow) — **except a question
+  about a public thing (ruling 27):** a web lookup settles it with a cited claim (a citation, never a tracked source),
+  undoable under "Settled by a check"; never a person's name, their files, projects or life (`mcp.md`). **A tracked source's
   dated re-check does (ruling 26):** a new dated fact; the newest evidence wins, even over the person's own words; the same
   day or undated asks once; dead = two failed visits a week apart; walled pages only by the person's agent (`storage.md`).
 - **Pictures:** one precedence (the person's choice → Contacts photo → a person's public-profile photo → a brand's logo →

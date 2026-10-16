@@ -45,9 +45,10 @@ def _inbox_dir(memory_path: Path) -> Path:
 
 
 def next_inbox_num(inbox_dir: Path) -> int:
-    """Next inbox number = max existing number + 1 (never count-based)."""
+    """Next inbox number = max existing number + 1 (never count-based). A question a web lookup settled
+    (``inbox/settled/``, owner ruling 2026-10-16) keeps its number, so its undo can put it back under it."""
     max_num = 0
-    for filepath in inbox_dir.glob("inbox-*.md"):
+    for filepath in [*inbox_dir.glob("inbox-*.md"), *(inbox_dir / "settled").glob("inbox-*.md")]:
         try:
             max_num = max(max_num, int(filepath.stem.split("-")[-1]))
         except ValueError:

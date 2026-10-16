@@ -61,6 +61,10 @@ PINNED_FLAGS: tuple[str, ...] = (
     "--no-session-persistence",
 )
 
+#: The only tools a Cicada call may ever be given (the web lookup's search, owner ruling 2026-10-16). Never a tool
+#: that reads files, runs code or fetches a page: the call answers from search results alone.
+ALLOWED_TOOLS: frozenset[str] = frozenset({"WebSearch"})
+
 DEFAULT_CLI_MAX_RETRIES = 2
 DEFAULT_STOP_UTILIZATION = 0.9
 #: An `--effort` value is one lowercase word (low|medium|high|xhigh|max on
@@ -109,6 +113,9 @@ class CallPolicy:
     max_retries: int = DEFAULT_CLI_MAX_RETRIES
     allow_overage: bool = False
     stop_utilization: float = DEFAULT_STOP_UTILIZATION
+    #: The web lookup (owner ruling 2026-10-16): the plan's own web search is the ONE tool the call gets
+    #: (``--tools WebSearch``), never set by ``from_settings`` — only ``web_lookup`` asks for it, per call.
+    web_search: bool = False
 
     @classmethod
     def from_settings(cls, settings, *, reasoning_off: bool = False) -> "CallPolicy":
@@ -309,8 +316,13 @@ def build_argv(
     json_schema: dict | None = None,
     binary: str = "claude",
     effort: str | None = None,
+    tools: tuple[str, ...] = (),
 ) -> list[str]:
     """The pinned invocation. Never grows a ``--bare``, never a ``--mcp-config``.
+
+    ``tools`` (the web lookup, owner ruling 2026-10-16): the built-in tools this one call may use, replacing the
+    pinned ``--tools ""`` and pre-approved with ``--allowedTools`` (print mode cannot ask). Only names in
+    :data:`ALLOWED_TOOLS` — today ``WebSearch`` alone; every other call keeps no tools at all.
 
     Argv hardening (review fix round 1, M1): a `--model`/`--system-prompt`
     value beginning with ``-`` would otherwise be appended as a bare argv
@@ -348,7 +360,15 @@ def build_argv(
         raise engine_errors.EngineModelNotFound(
             f"invalid effort level: {effort!r} — expected a lowercase word such as 'low'"
         )
-    argv = [binary, *PINNED_FLAGS]
+    unknown = [t for t in tools if t not in ALLOWED_TOOLS]
+    if unknown:
+        raise ValueError(f"tool not allowed for a Cicada call: {unknown[0]!r}")
+    flags = list(PINNED_FLAGS)
+    if tools:
+        at = flags.index("--tools")
+        flags[at + 1] = ",".join(tools)
+        flags += ["--allowedTools", ",".join(tools)]
+    argv = [binary, *flags]
     if model:
         argv += ["--model", model]
     if system_prompt:
@@ -778,7 +798,7 @@ def complete(
         system_prompt = f"{system_prompt}\n\n{JSON_ONLY_SUFFIX}" if system_prompt else JSON_ONLY_SUFFIX
 
     argv = build_argv(model=model, system_prompt=system_prompt, json_schema=schema,
-                      binary=binary, effort=policy.effort)
+                      binary=binary, effort=policy.effort, tools=("WebSearch",) if policy.web_search else ())
     run = runner or _default_runner()
     # R1 gap B: the CLI's default of 10 retries can ride a plan 429 until the
     # wall clock turns it into a retryable timeout that never trips the breaker.
@@ -800,7 +820,11 @@ def complete(
     if (stop is not None and stop.kind in ("overage", "rejected")
             and failed and result.rc != 127):
         raise _stop_error(stop)
-    return parse_envelope(result, stream)
+    envelope = parse_envelope(result, stream)
+    if policy.web_search:
+        # What the call searched for, so the caller can hold it to the pinned query (never logged).
+        envelope["_tool_uses"] = [[name, dict(inp)] for name, inp in stream.tool_uses]
+    return envelope
 
 
 def probe(*, runner: Runner | None = None, binary: str = "claude", timeout: float = 20.0) -> tuple[bool, str]:

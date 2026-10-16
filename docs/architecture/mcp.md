@@ -136,6 +136,37 @@ quote only where the item's `Cause:` quote shows (never to a remote connection w
 (`check_agent`, beside `read_agent`, out of every Usage view) is ids and enums only. The card shows "Your agent looked at
 <host> · <day>", the quote, what it points to and "What your agent reported, not checked by Cicada. Nothing changed; you
 decide." — no highlight, no tag, no reorder.
+**Public things settle (owner ruling 2026-10-16, TODO ruling 27; amends S3).** "A web lookup answers 'what is X' for
+public things and closes the question. The answer is saved with its link and quote, and you can undo it from a 'Settled
+by a check' list. Never searched: people's names, your own files, your projects, your life." The S3 rule above — a check
+settles nothing — still holds for every other question. **Which:** a pending conflict or clarification whose subject is
+a `company`, `concept`, `tool` or `media` page (or such a suggested type with a pending line); never a `person`, an
+untyped name Cicada's own description says is someone (person words), a person page's name or alias, the owner's page,
+a file, path or handle, a page with `path:`/`repos:`, a project, a question that says "you/your", an option naming a
+person or saying "my"/"her" (labels ride in the prompt), a question the person already took a check back on
+(`web_check: undone`), a multi-valued predicate other than what the thing *is*, or a conflict whose predicate is not
+world-truth (`locus` world/artifact or a short public list: `description`, `is-a`… — `web_settle.classify`). **What it
+is** (owner, 2026-10-16, his own example "Is <tool-a> an agent harness or an AI agent itself?"): a type question
+(`web_settle.TYPE_PREDICATES`: `is-a`, `type`, `kind`, `category`, `genre`, `description`) is eligible though `is-a` is
+multi-valued; one option settles only when the page rules the others out (Sleep's answer must say
+`others_ruled_out: true`), the item's own `both` option when the page says it is all of them — one cited claim per
+option, nothing closed — and never an option the item does not have. **What leaves the machine:** the search query is the
+subject's name plus generic category words from a fixed list (`web_settle.query_for`); no conversation text, no other
+name from the bank. **The person's own agent:** `cicada_check_nudges` adds `Public: look it up on the web (search only
+"<query>"), then settle it — cicada_record_check(item_id, source=<the page>, outcome="settles", option_key|proposed_value,
+quotes=[{quote}])` for such a question; `outcome="settles"` writes one cited claim (`web_settle.settle`: a `web-check`
+episode holding the link and the quote as a `page`-kind span, the claim observer `agent`, `source_trust: external`,
+`origin: web-check`; a conflict's other open option claims close today in its favour; a name with no page is held on
+its pending line, no page is created), moves the question to `inbox/settled/`, and commits alone under the harness
+(`Web check <date>`, the session trailer). Refused, writing nothing: a connected app (it reports, never settles), a
+question that is not public, a link that is not a public page (`reading_hosts.classify`, no walled host), no quote, no
+option key / answer, Sleep running, ten settles a session. **Repository state** ("did PR #n merge", "is G<n> shipped")
+is never searched: `From the repository: answer it from its commit — cicada_record_check(…, source="commit:<sha>",
+outcome="settles", …, quotes=[{quote: <the commit's subject>}])` is shown to, and accepted from, a harness on the
+person's trust list only (`page_editors`); the source is `commit:<sha>` or a GitHub/GitLab commit or pull-request link,
+and the backend never runs git in a declared repo. **Sleep's own lookup** is `web_lookup` on the tail (capture-and-sleep.md).
+The ledger row (`web_check`) is ids and enums only. The person sees and undoes all of them under "Settled by a check"
+(features.md).
 **Tracked sources re-checked (G61, TODO ruling 26, owner 2026-10-14: "Update, dated; the newest evidence wins").** The
 inbox check above still settles nothing; a *tracked* source is different: the person's own, one they took, or one
 Cicada's read confirmed (`fact_sources.trusted`) is re-checked on a cadence (30 days, the person's `recheck_days` 7–365)

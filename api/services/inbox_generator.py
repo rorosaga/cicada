@@ -692,9 +692,10 @@ def _update_related_fields(entities_dir: Path, relationships: list[dict]) -> Non
 
 
 def _next_inbox_num(inbox_dir: Path) -> int:
-    """Next inbox number = max existing number + 1 (never count-based)."""
+    """Next inbox number = max existing number + 1 (never count-based), a settled question's included
+    (``inbox/settled/``, kept so its undo can return it under its number)."""
     max_num = 0
-    for filepath in inbox_dir.glob("inbox-*.md"):
+    for filepath in [*inbox_dir.glob("inbox-*.md"), *(inbox_dir / "settled").glob("inbox-*.md")]:
         try:
             max_num = max(max_num, int(filepath.stem.split("-")[-1]))
         except ValueError:

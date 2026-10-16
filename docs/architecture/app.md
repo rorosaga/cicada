@@ -1285,7 +1285,15 @@ Settings panel; DS-2 (2026-09-24) shipped the Inbox in progressive columns and t
 shipped the Graph page and the entity card, and DS-3c (2026-09-24) shipped Clusters, the Feed and Sources in progressive
 columns. The Inbox's focus card gained a name variant on 2026-10-14 (`NameBody`, `FocusCardVariant.name`, chosen by an
 item's `asks: "name"` before its options; DR-43's table and §9): the question about a person Cicada knows only by a
-relation (`features.md`) takes a typed name through `resolve`, or "I'd rather not say" (`NameAnswer.decline`). A
+relation (`features.md`) takes a typed name through `resolve`, or "I'd rather not say" (`NameAnswer.decline`).
+**Settled by a check (owner ruling 2026-10-16):** below the questions at full width (`InboxQuestionList`'s `footer`) and
+on the empty page, `SettledChecksSection` — closed until clicked ("Settled by a check · N"), then one filled row per
+settled question (the subject and its answer, the quote, "From <site> · <age> · your agent looked it up | looked up while
+reading your memory", the link in `.help`) with two compact `NeutralButton`s: Undo (`SettledChecks.undo`: the row leaves
+at once and comes back with a sentence if the server refuses; on success the Inbox refreshes and the question is back)
+and, for a public citation on a subject with a page, Track this source (`SettledChecks.track` → the person's own
+`addEntitySource`, then "Tracked", disabled). `SettledChecks` is in memory, not a Store domain: loaded when the Inbox
+appears and whenever its questions change (`SettledChecksAPI`, faked in `SettledChecksTests`). A
 `page_edit` item (G198, an agent's proposed change to a page's words or aliases) is `InboxKind.pageEdit` ("Page edit",
 `pencil`, clarification's hue in both palettes — no new hue, DR-8) and renders as an options card (`apply` / `dismiss`
 from the server, Not now); `InboxBodyPreview` draws its `body` — "Why: …" and the changes as "- Replace “old” with

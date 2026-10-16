@@ -457,6 +457,26 @@ def release(memory_path: Path, names: Iterable[str]) -> int:
         return gone
 
 
+def unhold(memory_path: Path, subject: str, claim_id: str) -> bool:
+    """Take ONE held claim back off the line whose slug is ``subject`` — the web lookup's undo, which withdraws only
+    what its settle held (owner ruling 2026-10-16). The line itself stays. True when a claim left."""
+    if not subject or not claim_id:
+        return False
+    with _LOCK:
+        entries = load(memory_path)
+        changed = False
+        for e in entries:
+            if sanitize_id(e.name) != subject:
+                continue
+            kept = [d for d in e.held_claims if d.get("id") != claim_id]
+            if len(kept) != len(e.held_claims):
+                e.held_claims = kept
+                changed = True
+        if changed:
+            save(memory_path, entries)
+        return changed
+
+
 def waiting(memory_path: Path) -> tuple[int, int]:
     """``(claims, names)`` still held — R-HP12's ``claims_waiting``. A hold that
     never releases (its name was never mentioned again, or Stage 2 merged it

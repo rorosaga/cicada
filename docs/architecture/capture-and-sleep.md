@@ -614,9 +614,35 @@ An **engine-independent tail** runs on every exit path, idle nights included: th
 refresh, claim expiry (first in the clean-tree-guarded slot, its own `commit_paths` commit),
 follow-ups (G141 PJ-6, right after expiry, its own `cicada` commit), the exact-match source links (G61 S3-a, `source_links`,
 its own `cicada` commit, dirty pages skipped), the site check (G61 S3-b, behind `CICADA_ALLOW_CONNECTOR_FETCH`, its own
-`cicada` commit), the connector poll, RSS/ICS polling (opt-in via `CICADA_ALLOW_FEED_FETCH=1`), and the link
-enrichment backfill — all in a clean-tree-guarded slot, after `_finalize`'s own commit so the poll's
-`git add -A` sweeps only its own files.
+`cicada` commit), the tracked-source re-check (ruling 26), **the web check** (below), the connector poll, RSS/ICS
+polling (opt-in via `CICADA_ALLOW_FEED_FETCH=1`), and the link enrichment backfill — all in a clean-tree-guarded slot,
+after `_finalize`'s own commit so the poll's `git add -A` sweeps only its own files.
+
+**The web check (owner ruling 2026-10-16, TODO ruling 27; `sleep_cycle._web_check_safely`, `web_lookup`).** After the
+run's last nudges, up to `web_check_per_run` (8; `CICADA_WEB_CHECK_PER_RUN`, 0 = off) pending questions about public
+things (`web_settle.classify`, `mcp.md`) are looked up, one engine call each, and the ones the search answers are
+settled with a cited claim and moved to `inbox/settled/` (features.md). **Gate:** `CICADA_ALLOW_CONNECTOR_FETCH`; a
+demo bank never. **Engine (ruling 4):** resolved lazily, only when there is something to look up: a person-started run
+on the Claude plan gets one `claude -p` whose ONE tool is the plan's web search (`--tools WebSearch --allowedTools
+WebSearch`, `agent_engine.ALLOWED_TOOLS`); a scheduled run never uses a plan — not even under an explicit
+`CICADA_LLM_MODE` pin — and a metered engine whose model litellm lists with web search uses the provider's own search
+(`web_search_options: {search_context_size: low}`, one search) at its price, scheduled or not, **only on a provider
+whose searches litellm reports with their query** (`web_lookup.SEARCH_REPORTED_PROVIDERS`: Anthropic, whose
+`server_tool_use` comes back as a `web_search` tool call). Any other metered engine — OpenRouter (the router bills, so
+`openrouter/anthropic/…` counts as OpenRouter), OpenAI's search models, Gemini, xAI — skips with `search_unreported`
+before any paid call, since its searches could never pass the pinned-query check; the ChatGPT plan and a local model
+get no search, so the step skips. Each call is an `llm_call` of stage `web_check` in the run's own scope (a
+drain's tagged with its `drain_id`), so Past reads counts it with its basis (ruling 12). **The pinned query:** the
+prompt carries the subject's name, the category words and a conflict's option labels — no conversation text, no other
+name — and every search the engine reports (the stream's `tool_use` blocks; a metered response's search tool calls) must
+be that query word for word, at most two; a call that searched anything else, or nothing, settles nothing
+(`query_strayed`). An unsure or uncited answer settles nothing either; a type question's single option without
+`others_ruled_out: true` settles nothing (`not_exclusive`), and an option the item lacks never does (`no_option`). A question looked up and left open is not looked
+up again for 30 days (`$CICADA_HOME/web_check/<bank>.json`, ids and enums). A page or item someone left dirty waits. A
+plan limit stops the step (the rest waits for the next run); a drain stopped at the plan's limit skips it. One commit,
+`Web check <date>`, under the model that looked (`Cicada-Engine` its engine), trigger `sleep/web-check`. Every file a
+settle touches is snapshotted first; a failed step or commit puts them all back, unstages them and clears their memo
+rows (`web_lookup.restore`), so nothing dangles for a later `git add -A` to commit under the wrong author.
 
 **Consolidate reads everything (owner, 2026-09-29; TODO ruling 13; scheduled runs too since 2026-09-30, ruling 16).** "I don't want to cap the max episodes per sleep —
 it's just progress Cicada has to go through." A **person-started** run (`POST /sleep/trigger`, so every Consolidate door:

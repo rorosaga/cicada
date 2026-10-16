@@ -10,6 +10,26 @@ extension Copy {
         static func position(_ i: Int, of n: Int) -> String { "\(UsageFormat.count(i)) of \(UsageFormat.count(n))" }
         static let all = "All"
 
+        // "Settled by a check" (owner ruling 2026-10-16): questions a web lookup or the person's agent answered.
+        static let settledTitle = "Settled by a check"
+        static func settledHeader(_ n: Int) -> String { "Settled by a check · \(UsageFormat.count(n))" }
+        static let settledShowHelp = "Show the questions a check answered, with where each answer came from"
+        static func settledFrom(_ host: String, _ when: String) -> String { "From \(host) · \(when)" }
+        static func settledMeta(_ host: String, _ when: String, _ who: String) -> String {
+            "\(settledFrom(host, when)) · \(who)"
+        }
+        static func settledAnswer(_ name: String, _ answer: String) -> String { "\(name) — \(answer)" }
+        static func settledQuote(_ quote: String) -> String { "\u{201C}\(quote)\u{201D}" }
+        static let settledByAgent = "your agent looked it up"
+        static let settledBySleep = "looked up while reading your memory"
+        static let settledUndo = "Undo"
+        static let settledUndoHelp = "Put the question back and take back only what this check wrote"
+        static let settledTrack = "Track this source"
+        static let settledTrackHelp = "Add this page to the places Cicada re-checks for this page's facts"
+        static let settledTracked = "Tracked"
+        static let settledUndoFailed = "That check couldn't be undone. It's still settled."
+        static let settledTrackFailed = "That page couldn't be added as a source."
+
         // The Undo row (R-DI5)
         static let answered = "Answered"
         static func answered(_ what: String) -> String { "Answered · \(what)" }

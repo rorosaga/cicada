@@ -577,6 +577,26 @@ Round 4 (C2–C4):
   `SHAPE` page-sources-2). The tail's commit is `Source refresh <date>` as `cicada`; the person's click
   (`POST /entities/{id}/sources/refresh`) commits as `cicada` with trigger `user/companion_app`, its cadence change and
   a walled source's "asked" as `user`; an agent's reading as its harness.
+  **A citation is not a source (owner refinement, 2026-10-16; TODO ruling 27).** A web lookup that settles a question
+  about a public thing (`web_settle`, features.md) cites the page it found — the URL and a short quote — on THAT claim
+  only: a `web-check` episode (`source: web-check`, `processed: true`, `checked_ref`, `checked_host`, `item_id`,
+  `entity_id`, `checker_kind`; body `assistant: Looked up <name> on the web.`, then `attachment [<host>]: as <checker>
+  read it at <url>` and `> <quote>`; untimed in `episode_time` — a lookup is not a mention) and the claim's `page`-kind
+  span into it, so the link shows wherever the claim's
+  evidence shows. It is **never** written to `sources:`: it joins no re-check set (`source_refresh.due` never sees it),
+  makes no site trusted (`fact_sources.trusted`) and drives no logo (`logo_service.domain_for` reads only a trusted
+  `website` source). The person may promote it with one tap ("Track this source" under "Settled by a check"), which is
+  the person's own `POST /entities/{id}/sources` for the claim's predicate — never automatic. The claim is observer
+  `agent`, `source_trust: external`, `origin: web-check`, `authored_by` the model or harness that looked, confidence
+  0.8, its id `clm_<day>_web_<hash>`; for a conflict the other open option claims close the same day
+  (`superseded_by` it) and the winning option's own claim is left as it was — a type question settled on the item's
+  own `both` option writes one such claim per option and closes nothing; a name with no page is held on its pending
+  line (`pending_store.hold`), never given a page. The question moves to `inbox/settled/<id>.md` (its frontmatter and
+  body kept, plus `settled: {at, by, by_kind, scope, ref, host, quote, answer, predicate, entity_id, entity_name,
+  claim_id, claim_ids, episode, held, closed: [{id, before, after}], option_key?, engine?}`); every inbox id allocator
+  counts those numbers, so the undo can put the question back under its own (`web_settle.undo`, which takes back only
+  the claims in `claim_ids` — from the pending line or the page — and the closures whose claim still reads as `after`;
+  the episode stays; the question returns with `web_check: undone`, so no check settles it again).
 - `website` (G61 S3-b) — the official-site ROLE: a `sources:` entry with `predicate: website`, many allowed. Stage 1 may
   propose ONE for a `company`, `tool` or `project` (an optional `website` field on the extracted entity;
   `site_sources.sanitize_website` keeps only an https origin of a public host that is not a platform (`PLATFORM_HOSTS`:
@@ -1100,7 +1120,10 @@ and the model id when the harness sends one. It is filed beside `read` for the s
 `capture` it is a per-turn receipt that `consumption_stats._activity` keeps out of every Usage view. The
 prompt never is. The `read_agent` kind (G166) is one row per `cicada_record_read` call — entity id, an `outcome` enum, a
 `host_class` enum (`walled | public`), the harness and connector id; never a URL, the tool the agent named, a note or an
-excerpt — filed beside `read` and kept out of every Usage view like `capture`. The `check_agent` kind (G61 S3) is one row per `cicada_record_check` — item id, entity id, `outcome`, `host_class`, `effect` (`noted | recommended`) enums, harness, connector id; never the source, its host, a quote or a proposed value — filed beside `read_agent`. The `video_queue` kind (G162) is one row per claim, release or completion — `action`, `count`, a
+excerpt — filed beside `read` and kept out of every Usage view like `capture`. The `check_agent` kind (G61 S3) is one row per `cicada_record_check` — item id, entity id, `outcome`, `host_class`, `effect` (`noted | recommended`) enums, harness, connector id; never the source, its host, a quote or a proposed value — filed beside `read_agent`. The `web_check` kind (TODO ruling 27) is one row per web lookup settled, skipped or undone —
+`action` (`settle | skip | undo`), item id, entity id, `by` (`sleep | agent | person`), a `reason` enum, harness; never
+the query, the link, its host, the quote or the answer — filed beside `read_agent`; the lookup's engine call itself is
+an `llm_call` of stage `web_check` with its price. The `video_queue` kind (G162) is one row per claim, release or completion — `action`, `count`, a
 closed fail-code enum, the harness and connector ids; never a link, a title or a reason — filed beside `read` and kept
 out of every Usage view (`SIBLING_KINDS`, `NON_SPEND_KINDS`, `PER_TURN_KINDS`).
 
@@ -1148,7 +1171,9 @@ Cicada-Session: <id>
 `Cicada-Author: user` — and the Backlog section's, `Backlog update <date>`), `user/backlog_import` (G150's
 importer),
 `mcp/<harness>` (a local agent's write), `remote/<harness>` (a remote connector's write, G135),
-`inbox/page_edit/resolved:apply|dismiss` (the person's answer to an agent's proposed page edit, G198).
+`inbox/page_edit/resolved:apply|dismiss` (the person's answer to an agent's proposed page edit, G198), `sleep/web-check`
+(the web check's settles, `Web check <date>` under the model, TODO ruling 27; an agent's is `mcp/<harness>`) and
+`inbox/web-check/undone` (the person's undo, `Web check undone <date>`, `Cicada-Author: user`).
 
 **A page edit's commit (G198).** `Page edit <date>` (or `Page edit proposed <date>` for an inbox proposal), the manifest
 line `entities/<id>.md: edited (trigger: …)`, then a paragraph with the agent's `Reason: <one line>` and one
