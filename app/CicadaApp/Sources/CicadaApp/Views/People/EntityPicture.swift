@@ -119,7 +119,7 @@ struct EntityPicture: View {
         switch picture.source {
         case .logo:
             return await LogoStore.shared.image(entityId: id, bank: store.bank)
-        case .upload, .contacts, .thumbnail, .profile:
+        case .upload, .contacts, .messages, .thumbnail, .profile:
             guard let url = PictureURL.parse(raw) else { return nil }
             return await PictureStore.shared.image(url, bank: store.bank)
         case .initials:

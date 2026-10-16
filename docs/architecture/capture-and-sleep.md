@@ -319,7 +319,14 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   `speaker:<label>:`; the frontmatter `correspondent: {name, kind, decided_by, detector?, detection?, signal?}` names
   it, with `conversation`, `service`, `message_count`, `from_person`, `sitting_first_at`/`sitting_last_at` and
   `message_keys`. The person's mark changes re-render every saved sitting in place from the stored episodes (`PUT
-  /sources/messages/settings`, one `user` commit with the settings file). One `user` commit per sync
+  /sources/messages/settings`, one `user` commit with the settings file). **A mark always reaches the record**
+  (2026-10-16, #312 review): a sitting whose words move (`speaker:` ↔ `assistant:`) is rewritten and re-queued — an
+  already-read one too, because who said what changed and Sleep must read it again (pages it fed wrongly are
+  `correspondent_repair`'s, #301); one whose words do not move (an unknown chat marked a person: still
+  `speaker:<name>:`) skipped the stager's unchanged-hash check and kept `correspondent: unknown`, so the mark never
+  reached Sleep or the chat's page. `messages_source._stage` now records the draft's `correspondent` and title on every
+  skipped sitting, frontmatter only (`episode_staging.reattribute`: body, hash and evidence spans untouched, no new
+  episode, the queue as it was — an already-read sitting is not re-queued, since nothing it says moved). One `user` commit per sync
   (`capture/messages`); scrub writer `imessage`; demo bank 409. `GET /sources/messages/waiting` sums `message_count`
   over unread, live sittings per conversation — the Sleep page's and Home's bubbles — and carries `page`: the
   correspondent's own page when one exists, found from the newest sitting's decided record by `correspondents.find_page`

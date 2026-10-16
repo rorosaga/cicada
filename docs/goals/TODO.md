@@ -8,6 +8,16 @@
 
 ## Current state and evidence
 
+- **2026-10-16 — Messages follow-ups: a chat's shared photo is its page's picture, and a mark always reaches Sleep
+  (G179; branch `fix/messages-followups`, not merged).** The app reads each ticked chat's shared Messages photo (at most
+  hourly, from a copy) and posts changes to `PUT /sources/messages/photos` (409 unticked or demo, 422 bad bytes);
+  `messages_photos` keeps them at `$CICADA_HOME/pictures/<bank>/messages/` by conversation, never in a bank or git, and
+  links each to its page at read time through the correspondent record; untick deletes it. New rung 2a on both
+  resolvers (choice → Contacts → shared Messages photo → profile/logo → monogram), `person` and `tool` pages; it rides
+  the `photos` sync component. `messages_source._stage` records the `correspondent`/title on a sitting the stager
+  skipped (frontmatter only via `episode_staging.reattribute`, no re-queue of a read sitting). Tests:
+  `test_messages_photos.py`, the reproduction in `test_messages_source.py`, Swift watcher and resolver twins. Pick up:
+  merge; the owner ticks the agent's chat and checks its page shows the photo.
 - **2026-10-16 — install anywhere: one curl line on Linux, a Homebrew tap in this repo (G181, G76; branch
   `feat/install-anywhere`, not merged).** Owner: "how I can install it with a `curl` command on a Linux machine … can I
   use Brew for that? If not make it so". `scripts/install-server.sh` (curl | bash: prerequisites named together, the

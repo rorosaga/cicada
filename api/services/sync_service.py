@@ -17,7 +17,7 @@ from fastapi import Request, Response
 
 from api.services import (backlog, bank_index, design_refs, logo_service, markdown_parser, person_photo, reading_asks,
                           reading_settings, telemetry, video_queue)
-from api.services import explore_queue, site_captures
+from api.services import explore_queue, messages_photos, site_captures
 from api.services.calendar_registry import CALENDARS_FILENAME
 from api.services.feed_registry import FEEDS_FILENAME
 from api.services.folder_source import FOLDERS_FILENAME
@@ -221,7 +221,10 @@ def components(memory_path: Path, *, sleep_state=None) -> dict[str, str]:
         # outside the bank, and `/graph` bakes its `?v=` (or its absence, after a miss) into the node's hash. The
         # stamp is `meta.json`'s mtime plus the misses past their retry window (an expiry writes nothing). The app
         # maps it onto `.graph`, like `logos`.
-        "photos": person_photo.stamp(logo_service.bank_name(mp)),
+        # 2026-10-16: a ticked Messages chat's shared photo (`messages_photos`) rides it too — cached at
+        # `$CICADA_HOME/pictures/<bank>/messages/`, drawn at the page its correspondent record links, so a photo stored
+        # or gone, or a link made or lost (a mark, a page Sleep creates), moves the node's picture and nothing else.
+        "photos": f"{person_photo.stamp(logo_service.bank_name(mp))}:{messages_photos.stamp(mp)}",
         # G162: the person's video queue lives at `$CICADA_HOME/video_queue/<bank>.json`,
         # OUTSIDE the bank, so a queued video, an agent's lease or a hand-back moves nothing
         # above. `stamp` is the file's mtime plus how many leases, failed rows and finished

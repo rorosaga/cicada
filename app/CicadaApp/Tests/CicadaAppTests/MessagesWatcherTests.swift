@@ -62,6 +62,12 @@ final class FakeMessagesAPI: MessagesAPI {
     }
 
     func fetchMessagesWaiting() async throws -> MessagesWaitingAnswer { MessagesWaitingAnswer(conversations: waitingItems) }
+
+    private(set) var photoPosts: [[MessagesPhotoPayload]] = []
+    func putMessagesPhotos(_ photos: [MessagesPhotoPayload]) async throws -> MessagesPhotosAnswer {
+        photoPosts.append(photos)
+        return MessagesPhotosAnswer(stored: photos.filter { $0.photoB64 != nil }.count)
+    }
 }
 
 /// G179 — nothing is read before a tick; a tick reads that conversation only; the cursor is per memory; unticking
@@ -282,7 +288,45 @@ final class MessagesWatcherTests: XCTestCase {
         XCTAssertEqual(Set(w.sharedPhotos.keys), [instinctId])
         let asked1 = await asked.all
         XCTAssertEqual(asked1, ["+15550000001"], "only the ticked chat's handle, and only once")
+        // 2026-10-16: and it is posted, once, for the chat's page everywhere — never the unticked chat's.
+        XCTAssertEqual(api.photoPosts.flatMap { $0 }, [MessagesPhotoPayload(conversation: instinctId, photo: Data([7]))])
     }
+
+    /// 2026-10-16 — every ticked chat's shared photo reaches the backend (not only a chat with messages waiting: a chat
+    /// Sleep already read still has a page to draw); an unchanged photo is not posted again; a changed one is; one the
+    /// chat stopped sharing is posted as none; a key store that could not be read posts nothing.
+    func testTheSharedPhotoIsPostedForTheChatsPage() async throws {
+        let api = FakeMessagesAPI()
+        api.ticked = [instinctId]
+        api.waitingItems = []                                      // nothing waiting: Sleep read it all
+        let answers = SharedAnswers(["+15550000001": Data([1])])
+        let w = MessagesWatcher(api: api, reader: MessagesReader(database: synthetic.url), defaults: defaults,
+                                folder: synthetic.dir, debounce: .milliseconds(10), minimumInterval: .zero,
+                                makeWatch: { _, _ in nil }, bank: { [unowned self] in self.bank },
+                                lookUpCards: { _ in [:] },
+                                lookUpSharedPhotos: { _ in await answers.current }, sharedRecheck: .zero)
+        await w.bankChanged()                                      // passes: looked up and posted, once
+        XCTAssertEqual(api.photoPosts, [[MessagesPhotoPayload(conversation: instinctId, photo: Data([1]))]])
+        await w.refreshSharedPhotos()                              // the same photo: nothing posted
+        XCTAssertEqual(api.photoPosts.count, 1)
+        await answers.set(["+15550000001": Data([2])])
+        await w.refreshSharedPhotos()                              // a changed photo replaces it
+        XCTAssertEqual(api.photoPosts.last, [MessagesPhotoPayload(conversation: instinctId, photo: Data([2]))])
+        await answers.set(nil)
+        await w.refreshSharedPhotos()                              // unreadable: nothing posted, nothing dropped
+        XCTAssertEqual(api.photoPosts.count, 2)
+        XCTAssertEqual(w.sharedPhotos[instinctId], Data([2]))
+        await answers.set([:])
+        await w.refreshSharedPhotos()                              // no longer shared: posted as none
+        XCTAssertEqual(api.photoPosts.last, [MessagesPhotoPayload(conversation: instinctId, photo: nil)])
+        XCTAssertNil(w.sharedPhotos[instinctId])
+    }
+}
+
+actor SharedAnswers {
+    private(set) var current: [String: Data]?
+    init(_ answer: [String: Data]?) { current = answer }
+    func set(_ answer: [String: Data]?) { current = answer }
 }
 
 /// G179 — the bubbles, pure.
@@ -350,6 +394,11 @@ final class MessageBubblesTests: XCTestCase {
         XCTAssertEqual(MessageBubbles.face(page: logo, contacts: nil, shared: shared), .photo(shared))
         XCTAssertEqual(MessageBubbles.face(page: nil, contacts: nil, shared: shared), .photo(shared))
         XCTAssertEqual(MessageBubbles.face(page: logo, contacts: nil, shared: nil), .monogram)
+        // The page's own Messages rung (the server's copy of the same photo) draws before this session looked it up.
+        let messagesRung = EntityPictureRef(url: "/entities/a/picture?v=9c8b7a6d5e4f", source: .messages)
+        XCTAssertEqual(MessageBubbles.face(page: messagesRung, contacts: nil, shared: nil),
+                       .picture(.api(path: "/entities/a/picture?v=9c8b7a6d5e4f")))
+        XCTAssertEqual(MessageBubbles.face(page: messagesRung, contacts: card, shared: shared), .photo(card))
     }
 
     func testTheWaitingRowCarriesItsPageOffTheWire() throws {

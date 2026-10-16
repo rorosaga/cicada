@@ -637,14 +637,26 @@ Round 4 (C2–C4):
   for "Use initials instead". Written only by `POST|DELETE /entities/{id}/picture` and `…/picture/initials`, each
   committed alone as `user`, 409 while Sleep runs; never by an agent. The app shrinks a picture to ≤ 512 px before
   it leaves the Mac; the server keeps only a PNG or JPEG ≤ 512 KB (no Pillow). `entity_picture.resolve` is the one
-  precedence (the person's choice → a person's Contacts photo → a person's public-profile photo → a brand's logo → a
-  media page's preview → a ring monogram), resolved at read onto `/graph` nodes and the entity; the app's
+  precedence (the person's choice → a person's Contacts photo → the photo a ticked Messages chat shares, on its
+  `person`/`tool` page → a person's public-profile photo → a brand's logo → a media page's preview → a ring monogram),
+  resolved at read onto `/graph` nodes and the entity; the app's
   `EntityPictureResolver` is its twin over `api/tests/fixtures/entity_picture.json`. A person never gets a logo and no
   service is sent a person's name (G159).
-  **A Messages chat's bubble (owner, 2026-10-16)** draws its linked page's choice, then the Contacts photo, then the
-  photo the chat shares in Messages (read by the app from `NickNameCache` for ticked chats only, held in memory), then
-  a monogram (`app.md`, the Messages bubbles). That shared photo is a rung of the bubble only: it is not posted, so a
-  page's resolved picture, the graph and the card are unchanged by it.
+  **The photo a Messages chat shares** (owner, 2026-10-16; `messages_photos`) is the chat's page's picture
+  everywhere — the graph, the card, every list — rung `messages`, after the Contacts photo and before the
+  public-profile photo or a logo, on `person` and `tool` pages only (the types a correspondent can be). The app reads
+  it ("Share Name and Photo", `NickNameCache`, ticked chats only, `app.md`), shrinks it to ≤ 128 px and posts it to
+  `PUT /sources/messages/photos` (`{photos: [{conversation, photoB64 | null}]}`; 409 for a chat not ticked, 422 for
+  anything but a PNG/JPEG ≤ 256 KB within the upload's pixel bounds; demo bank 409). The bytes are a cache at
+  `$CICADA_HOME/pictures/<bank>/messages/<conversation>.png` with `meta.json` (`{sha, ext}` per conversation) —
+  **never in a bank, never in git, never sent anywhere**; nothing is written to a page. Stored by conversation and
+  drawn at its **linked page**, derived at read (`messages_photos.links`): the newest live sitting's decided
+  `correspondent` record through `correspondents.find_page` — the rule Stage 2 and `waiting`'s `page` use — so a page
+  Sleep creates later, the person's mark or its removal moves the link with no second post; an undecided chat links
+  nothing. A changed photo replaces it (new `?v=<sha>`), a post of `null` removes it, unticking removes it
+  (`messages_photos.forget`, from `PUT /sources/messages/settings`). Served by `GET /entities/{id}/picture`. Its stamp
+  rides `/sync/version`'s `photos` component and `graph_builder`'s cache key, so a photo or a link that moves
+  re-renders the node. The person's choice and a Contacts photo outrank it; `person_photo` asks nobody while it shows.
   `POST /entities/{id}/picture/pdf` (a `media` page only; ≤ 32 MB; nothing fetched) is the same write with a PDF the
   person gave: `pdf_page` renders page 1 in the backend — the bundled PDFium wheel (`pypdfium2`) in a child process,
   encoded to PNG with `zlib`, ≤ 480 px wide and ≤ 1024 px tall — and the PNG is stored and committed as an upload

@@ -2521,6 +2521,12 @@ actor APIClient {
         try await get("/sources/messages/waiting")
     }
 
+    /// `PUT /sources/messages/photos` — the photos ticked chats share in Messages (2026-10-16), small PNG bytes the app
+    /// read; the backend keeps them outside every bank and draws each at its chat's page.
+    func putMessagesPhotos(_ photos: [MessagesPhotoPayload]) async throws -> MessagesPhotosAnswer {
+        try await putData("/sources/messages/photos", json: try JSONEncoder().encode(["photos": photos]))
+    }
+
     /// `GET /entities/{id}/paper` — the paper card's two tiers (G133 / G121).
     func fetchPaperDetail(id: String) async throws -> PaperDetail {
         try await get("/entities/\(encodedID(id))/paper")
@@ -3198,6 +3204,21 @@ actor APIClient {
 
     private func postData<T: Decodable>(_ path: String, json: Data) async throws -> T {
         var request = makeRequest(path, method: "POST")
+        request.httpBody = json
+        let (data, response) = try await deliver(request, path: path)
+        guard let http = response as? HTTPURLResponse else {
+            throw APIError.serverUnreachable
+        }
+        guard (200...299).contains(http.statusCode) else {
+            if http.statusCode == 401 { Self.invalidateToken() }
+            let msg = String(data: data, encoding: .utf8) ?? "Unknown error"
+            throw APIError.httpError(http.statusCode, msg)
+        }
+        return try decoder.decode(T.self, from: data)
+    }
+
+    private func putData<T: Decodable>(_ path: String, json: Data) async throws -> T {
+        var request = makeRequest(path, method: "PUT")
         request.httpBody = json
         let (data, response) = try await deliver(request, path: path)
         guard let http = response as? HTTPURLResponse else {

@@ -459,6 +459,37 @@ def plan_sittings(cid: str, stored: list[Sitting], incoming: list[Message], unse
     return planned, gone
 
 
+#: What a sitting's draft decides beyond its words: who the conversation is with, and the title that names them.
+RECORD_KEYS = ("correspondent", "title")
+
+
+def _stage(drafts: list[EpisodeDraft], episodes_dir: Path, index: dict[str, episode_staging.IndexEntry], *,
+           deleted: list[str] = (), bank: str | None = None) -> tuple[episode_staging.StageResult, int]:
+    """Stage the drafts, then record the decision on every sitting the stager skipped because its words did not move.
+
+    The stager's unchanged-hash check skips a draft whose scrubbed body it already holds — right for the words, wrong
+    for the ``correspondent`` record beside them: marking an unknown chat as a person keeps every line
+    ``speaker:<name>:``, so the mark never reached the episode, Sleep never saw it and the chat never got its page
+    (#312 review). The record is frontmatter (`episode_staging.reattribute`): no new episode, the body and its hash —
+    so every evidence span — untouched, and the queue left as it was, because who said what did not move. A mark that
+    DOES move it (an unknown chat marked an agent: ``speaker:`` becomes ``assistant:``) changes the body, and the stager
+    rewrites and re-queues the sitting as it always has. ``(result, sittings recorded)``; their paths join
+    ``result.paths``."""
+    staged = episode_staging.stage(drafts, episodes_dir, deleted_source_ids=list(deleted), bank=bank)
+    recorded = 0
+    for draft, verdict in zip(drafts, staged.verdicts):
+        entry = index.get(str(draft.source_id)) if verdict == "skipped" else None
+        if entry is None:
+            continue
+        wanted = {"correspondent": draft.extra.get("correspondent"), "title": draft.title}
+        if all(entry.fm.get(k) == wanted[k] for k in RECORD_KEYS):
+            continue
+        if episode_staging.reattribute(entry.path, extra=wanted, queue_for_sleep=draft.queue_for_sleep):
+            recorded += 1
+            staged.paths.append(f"{episodes_dir.name}/{entry.path.name}")
+    return staged, recorded
+
+
 # --- Ingest ---------------------------------------------------------------------------------------------------------
 
 
@@ -520,17 +551,19 @@ def ingest(memory_path: Path, payload: dict, *, bank: str | None = None) -> dict
                 unreadable.add(str(e.fm.get("source_id")))
         planned, gone = plan_sittings(cid, stored, incoming, unsent, reserved=frozenset(unreadable))
         drafts = [sitting_draft(cid, sid, msgs, actor, service) for sid, msgs in planned]
-        staged = episode_staging.stage(drafts, episodes_dir, deleted_source_ids=gone, bank=bank)
+        staged, recorded = _stage(drafts, episodes_dir, index, deleted=gone, bank=bank)
     return {"conversation": cid, "messages_seen": counts.seen, "kept": len(incoming), "reactions": counts.reactions,
             "events": counts.events, "empty": counts.empty, "unsent": counts.unsent, "edited": counts.edited,
             "attachments": counts.attachments, "decoded": counts.decoded, "sittings": len(planned),
             "created": staged.created, "updated": staged.updated, "skipped": staged.skipped,
-            "tombstoned": staged.tombstoned, "actor": actor.to_dict(), "paths": staged.paths}
+            "tombstoned": staged.tombstoned, "recorded": recorded, "actor": actor.to_dict(), "paths": staged.paths}
 
 
 def reattribute(memory_path: Path, cid: str, *, bank: str | None = None) -> dict:
     """Re-render every stored sitting of ``cid`` under its current actor — the person just marked who the
-    conversation is with. Nothing is re-read from the Mac; an unchanged body is a skip."""
+    conversation is with. Nothing is re-read from the Mac. A sitting whose words move (``speaker:`` ↔ ``assistant:``)
+    is rewritten and queued for Sleep again; one whose words do not still gets the decision in its ``correspondent``
+    record (``recorded``, `_stage`), so the mark always reaches Sleep and the chat's page."""
     memory_path = Path(memory_path)
     settings = load_settings(memory_path)
     entry = settings["conversations"].get(cid) or {}
@@ -553,8 +586,9 @@ def reattribute(memory_path: Path, cid: str, *, bank: str | None = None) -> dict
             actor = agent_detectors.resolve_actor(name, entry.get("actor"), detection)
             drafts.append(sitting_draft(cid, sitting.source_id, sitting.messages, actor,
                                         str(e.fm.get("service") or entry.get("service") or "iMessage")))
-        staged = episode_staging.stage(drafts, episodes_dir, bank=bank)
-    return {"updated": staged.updated, "skipped": staged.skipped, "paths": staged.paths}
+        staged, recorded = _stage(drafts, episodes_dir, mine, bank=bank)
+    return {"updated": staged.updated, "recorded": recorded, "skipped": staged.skipped - recorded,
+            "paths": staged.paths}
 
 
 # --- What is waiting (the Sleep page's and Home's bubbles) --------------------------------------------------------

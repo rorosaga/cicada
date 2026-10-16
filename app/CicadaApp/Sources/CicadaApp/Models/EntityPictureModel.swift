@@ -7,6 +7,9 @@ enum PictureSource: String, Codable, Sendable, CaseIterable {
     /// G159 (2026-10-09) — a person's public-profile photo, fetched once by the server from an identifier already on the
     /// page and served from Cicada's own copy (`/entities/{id}/photo`).
     case profile
+    /// 2026-10-16 — the photo the page's ticked Messages chat shares ("Share Name and Photo"), read by the app, kept by
+    /// the server outside every bank and served at the chat's linked page (`messages_photos`): rung 2a, after Contacts.
+    case messages
 }
 
 /// A page's resolved picture. `url` is nil only for `initials` — the person chose the monogram.
@@ -38,10 +41,12 @@ struct PictureInputs: Codable, Equatable, Hashable, Sendable {
     var profileSha: String?
     /// Review B1 — the identifiers' hash, which names the photo's URL until a copy is stored.
     var profileKey: String?
+    /// Rung 2a (2026-10-16) — the hash of the photo the page's Messages chat shares.
+    var messagesSha: String?
 
     init(type: String, choice: String? = nil, uploadSha: String? = nil, contactsSha: String? = nil,
          logo: Bool = false, thumbnail: String? = nil, profile: Bool = false, profileSha: String? = nil,
-         profileKey: String? = nil) {
+         profileKey: String? = nil, messagesSha: String? = nil) {
         self.type = type
         self.choice = choice
         self.uploadSha = uploadSha
@@ -51,10 +56,11 @@ struct PictureInputs: Codable, Equatable, Hashable, Sendable {
         self.profile = profile
         self.profileSha = profileSha
         self.profileKey = profileKey
+        self.messagesSha = messagesSha
     }
 
     enum CodingKeys: String, CodingKey { case type, choice, uploadSha, contactsSha, logo, thumbnail, profile, profileSha,
-                                                profileKey }
+                                                profileKey, messagesSha }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -67,13 +73,14 @@ struct PictureInputs: Codable, Equatable, Hashable, Sendable {
         profile = (try? c.decodeIfPresent(Bool.self, forKey: .profile)) ?? false
         profileSha = (try? c.decodeIfPresent(String.self, forKey: .profileSha)) ?? nil
         profileKey = (try? c.decodeIfPresent(String.self, forKey: .profileKey)) ?? nil
+        messagesSha = (try? c.decodeIfPresent(String.self, forKey: .messagesSha)) ?? nil
     }
 }
 
 /// The twin of `entity_picture.resolve` (R-PE3): one precedence, one table — `api/tests/fixtures/entity_picture.json`
 /// runs on both sides, so a rung added on one side only turns the other red (the `timeline_state.json` precedent).
-/// A person reaches rungs 1–2b only (upload or initials, Contacts, a public-profile photo), a media page only its
-/// stored preview, everything else only a logo.
+/// A person reaches rungs 1–2b only (upload or initials, Contacts, the photo their Messages chat shares, a public-profile
+/// photo), a `tool` page the chat's photo then a logo, a media page only its stored preview, everything else only a logo.
 enum EntityPictureResolver {
     /// RFC 3986's unreserved set — exactly what Python's `quote(s, safe="")` leaves alone.
     private static let unreserved = CharacterSet(
@@ -85,10 +92,14 @@ enum EntityPictureResolver {
             return EntityPictureRef(url: "\(path)/picture?v=\(sha)", source: .upload)
         }
         if i.choice == "initials" { return EntityPictureRef(url: nil, source: .initials) }
+        // Rung 2a: only the page types a chat's correspondent can be (`entity_picture.MESSAGES_TYPES`).
+        let messages: EntityPictureRef? = messagesTypes.contains(i.type) && isSha(i.messagesSha)
+            ? i.messagesSha.map { EntityPictureRef(url: "\(path)/picture?v=\($0)", source: .messages) } : nil
         if i.type == "person" {
             if isSha(i.contactsSha), let sha = i.contactsSha {
                 return EntityPictureRef(url: "\(path)/picture?v=\(sha)", source: .contacts)
             }
+            if let messages { return messages }
             guard i.profile else { return nil }
             // The stored bytes name it once there are any; until then the identifiers do, so a changed identifier is a
             // new URL and `PictureStore`'s disk cache can never pin a stale photo (review B1).
@@ -107,6 +118,7 @@ enum EntityPictureResolver {
             guard isSha(i.thumbnail), let key = i.thumbnail else { return nil }
             return EntityPictureRef(url: "\(path)/preview?v=\(key)", source: .thumbnail)
         }
+        if let messages { return messages }
         return i.logo ? EntityPictureRef(url: "\(path)/logo", source: .logo) : nil
     }
 
@@ -117,6 +129,8 @@ enum EntityPictureResolver {
         bare.uploadSha = nil
         return resolve(id: id, bare)
     }
+
+    static let messagesTypes: Set<String> = ["person", "tool"]
 
     static func quote(_ id: String) -> String { id.addingPercentEncoding(withAllowedCharacters: unreserved) ?? id }
 

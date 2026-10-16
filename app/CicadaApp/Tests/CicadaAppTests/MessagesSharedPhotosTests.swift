@@ -64,6 +64,15 @@ final class MessagesSharedPhotosTests: XCTestCase {
         XCTAssertEqual(try snapshot(), before, "Messages' folder is only read: no byte changed, no -wal or -shm made")
     }
 
+    /// 2026-10-16 — the watcher posts "shares no photo" as a removal, so "could not look" must never read as it: a
+    /// key store that is there but cannot be queried is nil; no key store at all is a definite empty answer.
+    func testAnUnreadableKeyStoreIsNilNeverEmpty() throws {
+        XCTAssertEqual(MessagesSharedPhotos.photosIfReadable(for: ["+15550000001"], folder: folder), [:])
+        try Data("not a database".utf8).write(to: folder.appendingPathComponent(MessagesSharedPhotos.keyStore))
+        XCTAssertNil(MessagesSharedPhotos.photosIfReadable(for: ["+15550000001"], folder: folder))
+        XCTAssertEqual(MessagesSharedPhotos.photos(for: ["+15550000001"], folder: folder), [:], "the bubbles' answer")
+    }
+
     func testOnlyTheAskedHandlesAreLookedUp() throws {
         try png(side: 64).write(to: folder.appendingPathComponent("WFla==-ad"))
         try store(["+15550000001": archive(["avatar": "WFla==-ad"]), "+15550000003": archive(["avatar": "WFla==-ad"])])

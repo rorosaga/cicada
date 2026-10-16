@@ -4,7 +4,9 @@ import SQLite3
 import UniformTypeIdentifiers
 
 /// The photo a chat's other side shares through Messages' "Share Name and Photo" (owner, 2026-10-16: "a small circle
-/// with the profile picture of that chat") — the picture rung after the Contacts photo, for the Messages bubbles only.
+/// with the profile picture of that chat") — the picture rung after the Contacts photo: on the Messages bubbles from
+/// memory, and (2026-10-16) on the chat's own page everywhere, posted as these small bytes to the backend, which keeps
+/// them outside every bank (`messages_photos`) and draws them at the page the chat's correspondent links.
 ///
 /// **Where macOS keeps it.** `~/Library/Messages/NickNameCache/handledNicknamesKeyStore.db` holds
 /// `kvtable(key TEXT = the sender's handle, value BLOB = a keyed archive of a dictionary)`; among the archive's objects
@@ -16,7 +18,8 @@ import UniformTypeIdentifiers
 /// The archive is read as a property list — its `$objects` are scanned for a file name, no class is ever instantiated
 /// (`NSKeyedUnarchiver` would build whatever classes an archive names). A name is used only when it is a plain file
 /// name ending in `-ad` that resolves to a regular file inside the folder, under `maxFileBytes`; the image is made
-/// `maxPixels` small here. Nothing is posted, written to a bank or kept on disk: the bytes live in the watcher's memory.
+/// `maxPixels` small here. Nothing is written to a bank or kept on disk by the app; the watcher posts the small PNG of
+/// each ticked chat to the backend's picture cache (`PUT /sources/messages/photos`) and keeps it in memory.
 enum MessagesSharedPhotos {
     static let keyStore = "handledNicknamesKeyStore.db"
     static let avatarSuffix = "-ad"
@@ -31,9 +34,16 @@ enum MessagesSharedPhotos {
     /// The shared photo for each of `handles` that has one, keyed by handle, as small PNG bytes. Empty when the folder
     /// is missing or unreadable — the bubble then falls to the monogram.
     static func photos(for handles: [String], folder: URL = standardFolder) -> [String: Data] {
+        photosIfReadable(for: handles, folder: folder) ?? [:]
+    }
+
+    /// As `photos`, but nil when the key store is there and could not be read (Full Disk Access revoked, a copy that
+    /// failed): "could not look" is never posted as "shares no photo", which would remove a page's picture. A missing
+    /// key store is a definite empty answer — nobody shared a photo on this Mac.
+    static func photosIfReadable(for handles: [String], folder: URL = standardFolder) -> [String: Data]? {
         let wanted = Set(handles.filter { !$0.isEmpty })
         guard !wanted.isEmpty else { return [:] }
-        let names = avatarNames(for: wanted, folder: folder)
+        guard let names = avatarNamesIfReadable(for: wanted, folder: folder) else { return nil }
         var out: [String: Data] = [:]
         for (handle, name) in names {
             if let file = avatarFile(named: name, in: folder), let small = downsized(file) { out[handle] = small }
@@ -43,9 +53,15 @@ enum MessagesSharedPhotos {
 
     /// The avatar file name each handle's record names, read from a private copy of the key store.
     static func avatarNames(for handles: Set<String>, folder: URL) -> [String: String] {
+        avatarNamesIfReadable(for: handles, folder: folder) ?? [:]
+    }
+
+    /// nil when the key store exists but cannot be read or queried; empty when there is none.
+    static func avatarNamesIfReadable(for handles: Set<String>, folder: URL) -> [String: String]? {
         let fm = FileManager.default
         let source = folder.appendingPathComponent(keyStore)
-        guard fm.isReadableFile(atPath: source.path) else { return [:] }
+        guard fm.fileExists(atPath: source.path) else { return [:] }
+        guard fm.isReadableFile(atPath: source.path) else { return nil }
         let scratch = fm.temporaryDirectory.appendingPathComponent("cicada-nicknames-\(UUID().uuidString)", isDirectory: true)
         defer { try? fm.removeItem(at: scratch) }
         do {
@@ -56,7 +72,7 @@ enum MessagesSharedPhotos {
                 try fm.copyItem(at: from, to: scratch.appendingPathComponent(keyStore + suffix))
             }
         } catch {
-            return [:]
+            return nil
         }
         var db: OpaquePointer?
         // The copy is ours: opened read-write so SQLite can read its WAL; closing it may fold that WAL into the copy,
@@ -64,11 +80,11 @@ enum MessagesSharedPhotos {
         guard sqlite3_open_v2(scratch.appendingPathComponent(keyStore).path, &db,
                               SQLITE_OPEN_READWRITE | SQLITE_OPEN_NOMUTEX, nil) == SQLITE_OK else {
             sqlite3_close(db)
-            return [:]
+            return nil
         }
         defer { sqlite3_close(db) }
         var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, "SELECT value FROM kvtable WHERE key = ?1", -1, &stmt, nil) == SQLITE_OK else { return [:] }
+        guard sqlite3_prepare_v2(db, "SELECT value FROM kvtable WHERE key = ?1", -1, &stmt, nil) == SQLITE_OK else { return nil }
         defer { sqlite3_finalize(stmt) }
         let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
         var out: [String: String] = [:]

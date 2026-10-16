@@ -78,6 +78,7 @@ extension Copy {
             case .logo: "Use the logo"
             case .thumbnail: "Use the saved preview"
             case .profile: "Use their public profile photo"
+            case .messages: "Use the photo they share in Messages"
             case .upload, .initials: "Use the picture Cicada found"
             }
         }
@@ -114,6 +115,7 @@ extension Copy {
             case .logo: "Logo from its website"
             case .thumbnail: "Preview from the saved page"
             case .profile: "Photo from their public profile"
+            case .messages: "Photo they share in Messages"
             case nil: "No picture yet"
             }
         }
