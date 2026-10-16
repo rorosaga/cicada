@@ -95,6 +95,36 @@ final class BookmarksPerBankTests: XCTestCase {
         await w.bankChanged()
         XCTAssertEqual(posted, ["beta"])
     }
+
+    /// Review blocker: the app's Store names its placeholder "default" until `hydrate()` reads the roster, and the
+    /// watcher starts before that. The old signature must not move to "default" then — it would leave the memory that
+    /// really had it to read every bookmark again — only to the memory the roster says is active.
+    func testTheOldSignatureWaitsForTheActiveMemoryBeforeMoving() async throws {
+        let sig = BrowserFileSignature(path: dir.appendingPathComponent("Bookmarks").path)!
+        defaults.set(try JSONEncoder().encode(sig), forKey: BrowserWatcher.legacySignatureKey("chrome-bookmarks"))
+        var posted: [String?] = []
+        let w = BrowserWatcher(
+            defaults: defaults,
+            channels: [("chrome-bookmarks", .chromeBookmarks)],
+            paths: { [dir] _ in [dir!.appendingPathComponent("Bookmarks")] },
+            debounce: .milliseconds(60), minimumInterval: .milliseconds(1),
+            performSync: { _, _ in posted.append(BankScope.origin); return "ok" })
+        w.start(store: store)          // Store.bank is still "default"; no roster yet
+        defer { w.stop() }
+        try await Task.sleep(for: .milliseconds(200))
+        await w.catchUp()
+        XCTAssertTrue(posted.isEmpty, "the unchanged file is not read again before the memory is known")
+        XCTAssertNotNil(defaults.data(forKey: BrowserWatcher.legacySignatureKey("chrome-bookmarks")))
+        XCTAssertNil(defaults.data(forKey: BrowserWatcher.signatureKey("chrome-bookmarks", bank: "default")))
+        let alpha = MemoryBank(name: "alpha", active: true, entityCount: 0, episodeCount: 0, createdAt: "2026-10-01",
+                               description: nil)
+        store.banks.value = BanksResponse(banks: [alpha], active: "alpha")
+        store.bank = "alpha"
+        await w.bankChanged()
+        XCTAssertTrue(posted.isEmpty, "the memory that had the bookmarks is not re-read after the upgrade")
+        XCTAssertNotNil(defaults.data(forKey: BrowserWatcher.signatureKey("chrome-bookmarks", bank: "alpha")))
+        XCTAssertNil(defaults.data(forKey: BrowserWatcher.legacySignatureKey("chrome-bookmarks")))
+    }
 }
 
 private actor SentLog {

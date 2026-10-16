@@ -726,6 +726,14 @@ final class BrowserWatcher {
 
     private var currentBank: String { bankOverride?() ?? store?.bank ?? "default" }
     private var currentIsDemo: Bool { isDemoOverride?() ?? DemoMode.isActive(store?.banks.value) }
+    /// The memory `currentBank` names is the active one: the roster has loaded and `Store.bank` has caught up with it
+    /// (`Store.refresh([.banks])` assigns the roster before `hydrate(bank:)` moves `Store.bank`). An injected bank is
+    /// always resolved.
+    private var bankResolved: Bool {
+        if bankOverride != nil { return true }
+        guard let store, let active = store.banks.value?.active, !active.isEmpty else { return false }
+        return active == store.bank
+    }
 
     /// What was synced, per connection (G181) and per memory (owner decision 5, 2026-10-16).
     nonisolated static func signatureKey(_ channel: String, bank: String) -> String {
@@ -748,6 +756,10 @@ final class BrowserWatcher {
         // consent, R-IA2), so another memory never reads as "turned off" for lacking one.
         let legacy = Self.legacySignatureKey(channel)
         guard let data = defaults.data(forKey: legacy) else { return nil }
+        // Until the Store knows which memory is active (`Store.bank` is its placeholder "default" until `hydrate()`
+        // reads the roster, which runs after `start(store:)`), the old signature is only read, never moved: moving it
+        // then would hand it to "default" and leave the memory that really had it to read every bookmark again.
+        guard bankResolved else { return try? JSONDecoder().decode(BrowserFileSignature.self, from: data) }
         defaults.set(data, forKey: Self.signatureKey(channel, bank: bank))
         defaults.removeObject(forKey: legacy)
         if defaults.object(forKey: BrowserWatchPolicy.enabledKey(channel)) == nil {

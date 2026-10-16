@@ -480,8 +480,9 @@ with a catch-up that is never live. *Per memory* (owner decision 5, 2026-10-16):
 AND per memory (`BrowserWatcher.signatureKey(channel, bank:)`), so a bank switch catches the newly active memory up on
 the browsers' bookmarks like every other reader (`bankChanged`, from the app's bank-change hook); each sync's posts are
 bound to the memory it read for (`BankScope.bound`) and its signature is recorded under that memory; a demo memory is
-never read for. The old per-connection signature moves, once, to the first memory that reads it (the one on screen at
-the first launch after the upgrade), and the consent it implied is written down explicitly so no other memory reads as
+never read for. The old per-connection signature moves, once, to the active memory at the first launch after the
+upgrade — only once the roster has loaded and `Store.bank` names it (before `hydrate()` it is the placeholder `default`,
+and the old signature is then only read, never moved) — and the consent it implied is written down explicitly so no other memory reads as
 turned off. *No self-opening field* — every chip and click from the panel goes through
 `SaveWhyCenter.input`, which ignores a choice (and a click elsewhere) within `SaveWhyPolicy.armDelay` (0.5 s) of the
 panel showing — at 0.5 s after a save the hand is still on the page beneath — and `SaveWhyNSPanel.canBecomeKey` is false
