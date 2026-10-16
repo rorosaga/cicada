@@ -40,6 +40,8 @@ class Tick:
     #: (``None`` without a watcher), and that walk's listings of the bank's directories.
     walked_at: float = 0.0
     seq: int | None = None
+    #: Which watcher ``seq`` was read from (``BankWatch.generation``): a count is comparable only within one watcher.
+    watch_gen: int | None = None
     listings: dict | None = field(default=None, repr=False, compare=False)
 
 
@@ -77,7 +79,8 @@ async def current(memory_path: Path, settings, *, max_age: float) -> Tick:
         watch = await asyncio.to_thread(bank_watch.for_bank, memory_path)
         now = time.monotonic()
         if (watch is not None and tick is not None and tick.seq is not None and tick.listings is not None
-                and watch.seq == tick.seq and now - tick.walked_at < bank_watch.FALLBACK_S):
+                and watch.generation == tick.watch_gen and watch.seq == tick.seq
+                and now - tick.walked_at < bank_watch.FALLBACK_S):
             # Nothing in the bank moved since the last walk: its listings answer, everything else is read now.
             reuse = {k: tick.info.components[k] for k in sync_service.WALKED_OUTSIDE_INDEX
                      if k in tick.info.components}
@@ -85,15 +88,16 @@ async def current(memory_path: Path, settings, *, max_age: float) -> Tick:
                 info = await asyncio.to_thread(sync_service.version, memory_path, get_sleep_state(), reuse=reuse)
                 debt = await sleep_debt.compute(memory_path, settings)
             tick = Tick(info=info, debt=debt, at=time.monotonic(), walked_at=tick.walked_at, seq=tick.seq,
-                        listings=tick.listings)
+                        watch_gen=tick.watch_gen, listings=tick.listings)
         else:
             seq = watch.seq if watch is not None else None   # read BEFORE the walk: a change during it walks again
+            gen = watch.generation if watch is not None else None
             with bank_index.shared_scans() as memo:
                 info = await asyncio.to_thread(sync_service.version, memory_path, get_sleep_state())
                 debt = await sleep_debt.compute(memory_path, settings)
             prefix = os.path.join(str(memory_path), "")
             listings = {d: listing for d, listing in (memo or {}).items() if d.startswith(prefix)}
             at = time.monotonic()
-            tick = Tick(info=info, debt=debt, at=at, walked_at=at, seq=seq, listings=listings)
+            tick = Tick(info=info, debt=debt, at=at, walked_at=at, seq=seq, watch_gen=gen, listings=listings)
         _ticks[key] = tick
         return tick

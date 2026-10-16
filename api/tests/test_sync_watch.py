@@ -216,6 +216,26 @@ def test_a_bank_deleted_and_made_again_gets_a_new_watcher(tmp_path):
     assert not first.healthy
 
 
+def test_a_new_watcher_never_vouches_for_the_old_watchers_listings(tmp_path, walks):
+    """A restarted notifier (or a bank directory made again) starts counting from zero: equal counts across two
+    watchers say nothing, so the first tick on the new watcher walks."""
+    bank = _bank(tmp_path)
+
+    async def go():
+        first = await sync_ticker.current(bank, None, max_age=0.0)
+        old = bank_watch.for_bank(bank)
+        old.stop()                                   # the notifier died; the next ask starts another
+        new = bank_watch.for_bank(bank)
+        assert new is not None and new is not old
+        new.seq = first.seq                          # the same count, from another watcher
+        walks.clear()
+        return first, await sync_ticker.current(bank, None, max_age=0.0), new
+
+    first, second, new = asyncio.run(go())
+    assert "episodes" in walks, "the new watcher's first tick walked the bank"
+    assert second.walked_at > first.walked_at and second.watch_gen == new.generation != first.watch_gen
+
+
 def test_a_watcher_nobody_asks_about_is_stopped(tmp_path, monkeypatch):
     a, b = _bank(tmp_path, "a"), _bank(tmp_path, "b")
     wa = bank_watch.for_bank(a)

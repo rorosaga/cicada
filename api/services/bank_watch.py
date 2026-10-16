@@ -18,6 +18,7 @@ Also the bank's machine-local folder (``sleep_local``): the parked list and the 
 """
 from __future__ import annotations
 
+import itertools
 import logging
 import os
 import threading
@@ -37,6 +38,9 @@ TIMEOUT_MS = 2_000
 IDLE_S = 60.0
 
 _IGNORED_ROOT_FILES = ("search_index.db", "vector_index.db")
+#: Every watcher's own number: a tick remembers which watcher's count it read, so a new watcher (a bank directory made
+#: again, a notifier restarted) whose count happens to equal the old one never vouches for the old one's listings.
+_GENERATIONS = itertools.count(1)
 
 
 def enabled() -> bool:
@@ -52,6 +56,7 @@ class BankWatch:
         st = os.stat(self.bank)
         self.identity = (st.st_dev, st.st_ino)
         self.seq = 0
+        self.generation = next(_GENERATIONS)
         self.last_used = time.monotonic()
         self._lock = threading.Lock()
         self._stop = threading.Event()
