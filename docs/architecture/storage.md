@@ -1234,7 +1234,7 @@ stored.
   names and marks as that app; the pre-G135 `mcp-agentic-write` claim placeholder reads as `agent`
   through `canonical_author`, never rewritten (F2-back R-B9, R-B10). A read whose body carries an
   author kind folds `git_service.AUTHOR_SHAPE` into its ETag; bump it when the buckets move.
-  Powers `GET /contributors`: one `git log --name-only --root --no-renames` over the whole history (a `diff-tree` per
+  Powers `GET /contributors`: one `git log --name-only --root --no-renames --no-show-signature` over the whole history (a `diff-tree` per
   commit cost ~18 s at 1,043 commits and ran again on every commit, the ETag being HEAD; 2026-10-16).
 - **`Cicada-Engine:`** — exactly one per main commit (`claude-cli|ollama|litellm`), **omitted
   entirely rather than guessed** when no LLM ran. Read back via git's own
