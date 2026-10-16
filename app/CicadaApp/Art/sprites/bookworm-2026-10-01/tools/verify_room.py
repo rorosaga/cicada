@@ -15,7 +15,7 @@ WEATHER=[base+'-'+time for base in BASES for time in TIMES]
 SKYFX=['mist-day','mist-dusk','mist-night','rainbow-day','rainbow-dusk','shootingstar-night']
 CLOCK=['face','face-night','hour','hour-night','minute','minute-night','second','second-night']
 CONTRACT = {
- 'room-backdrop':((110,64),['dark','lit','night-dark','night-lit'],['glow']),
+ 'room-backdrop':((160,64),['dark','lit','night-dark','night-lit'],['glow']),
  'room-window':((40,38),['idle','night-dark','night-lit'],['glass']),
  'room-weather':((36,32),WEATHER,[]),
  'room-skyfx':((36,32),SKYFX,[]),
@@ -111,7 +111,10 @@ def verify_room(report,palette):
  plan=json.loads((ART/'room-plan.json').read_text());check((plan['cols'],plan['rows'],plan['origin'])==(160,64,'bottom-left'),'room lattice')
  layers=plan['layers'];check([l['z'] for l in layers]==list(range(10)),'draw order')
  check([l['prop'] for l in layers]==['backdrop','clock','pane','skyfx','window','plant','lamp','fly','beanbag','mug'],'layer order')
- for l in layers:check(0<=l['x'] and 0<=l['y'] and l['x']+l['w']<=110 and l['y']+l['h']<=64,'plan bounds/pile')
+ # 2026-10-16: the backdrop (wall, floor, trim) is the whole lattice, so the pile stands in the room; every prop stays
+ # out of the pile's columns.
+ check(layers[0]==dict(prop='backdrop',sheet='room-backdrop',x=0,y=0,w=160,h=64,z=0),'backdrop spans the lattice')
+ for l in layers[1:]:check(0<=l['x'] and 0<=l['y'] and l['x']+l['w']<=110 and l['y']+l['h']<=64,'plan bounds/pile')
  check(plan['worm']==dict(x=36,y=9,w=64,h=48) and plan['pile']==dict(x=110,y=0,w=50,h=52),'worm/pile plan')
  window,win=all_data['room-window'];glass=window['meta']['slices'][0]['keys'][0]['bounds'];check(glass==dict(x=2,y=2,w=36,h=32),'glass slice')
  check((18+glass['x'],23+38-glass['y']-glass['h'])==(20,27),'glass registration')

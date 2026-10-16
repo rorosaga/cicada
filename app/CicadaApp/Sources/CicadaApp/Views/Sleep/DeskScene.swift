@@ -14,6 +14,18 @@ struct DeskSceneLayout: Equatable {
     let layers: [DeskLayer]
     let wormOrigin: CGPoint
     let pileFrame: CGRect
+
+    /// A layer's frame in bottom-leading scene points.
+    func frame(of layer: DeskLayer) -> CGRect {
+        CGRect(x: CGFloat(layer.cellX) * cell, y: CGFloat(layer.cellY) * cell,
+               width: CGFloat(layer.w) * cell, height: CGFloat(layer.h) * cell)
+    }
+
+    /// The painted room — the backdrop's frame. Everything the room holds (the worm, the pile, the props, every
+    /// hotspot) sits inside it, and it IS the lattice (`SleepRoomFrameTests`).
+    var paintedFrame: CGRect {
+        layers.first { $0.prop == .backdrop }.map(frame(of:)) ?? .zero
+    }
 }
 
 /// G176's floor plan; tested against the art run's room-plan.json.
@@ -21,7 +33,9 @@ enum DeskScene {
     static let cols = RoomLattice.cols
     static let rows = RoomLattice.rows
     static let plan: [DeskLayer] = [
-        .init(prop: .backdrop, cellX: 0, cellY: 0, w: 110, h: 64, z: 0),
+        // 2026-10-16 — the wall, floor and trim span the whole lattice, so the pile stands IN the room (out of its
+        // card since #305, a 110-column backdrop left the pile's 50 columns on bare page ground).
+        .init(prop: .backdrop, cellX: 0, cellY: 0, w: 160, h: 64, z: 0),
         .init(prop: .clock, cellX: 94, cellY: 34, w: 15, h: 15, z: 1),
         .init(prop: .pane, cellX: 20, cellY: 27, w: 36, h: 32, z: 2),
         .init(prop: .skyfx, cellX: 20, cellY: 27, w: 36, h: 32, z: 3),

@@ -1,6 +1,8 @@
 local H=require('ase_helpers');local R=require('room_common')
 local ART=(app.params or {}).art or app.fs.joinPath(H.scriptDir(),'..');R.context(ART)
 dofile(app.fs.joinPath(ART,'lua/seed_room_parts.lua'))
+-- 2026-10-16: wall, floor and trim span the 160-column lattice (a no-op once the saved parts are wide).
+dofile(app.fs.joinPath(ART,'lua/widen_room_parts.lua'))
 local function static(name,w,h,layers,tags,slices)
  local s=H.newSprite(w,h,R.pal,layers);local rec=H.recorder(s);local frames={}
  for _,tag in ipairs(tags) do rec:start(tag.name);local cels={};local parts={}
@@ -12,7 +14,7 @@ local function static(name,w,h,layers,tags,slices)
  if #tags==2 then H.addSlice(s,name=='room-backdrop' and 'glow' or 'shade',R.diff(H.flatten(s,1),H.flatten(s,2))) end
  R.finish(s,name,frames)
 end
-static('room-backdrop',110,64,{'wall','floor','trim','glow'},
+static('room-backdrop',160,64,{'wall','floor','trim','glow'},
  {{name='dark',parts={wall='wall',floor='floor',trim='trim'}},{name='lit',parts={wall='wall',floor='floor',trim='trim',glow='glow'}}})
 static('room-window',40,38,{'frame','sill'},{{name='idle',parts={frame='window.frame',sill='window.sill'}}},{glass={x=2,y=2,w=36,h=32}})
 static('room-lamp',18,50,{'lamp','light'},{{name='dark',parts={lamp='lamp.dark'}},{name='lit',parts={lamp='lamp.dark',light='lamp.light'}}})
@@ -45,7 +47,7 @@ end
 rec:stop();rec:apply();H.addSlice(s,'ink',H.spriteInk(s));R.finish(s,'room-fly',frames)
 H.writeJson(app.fs.joinPath(ART,'room-plan.json'),{
  cols=160,rows=64,origin='bottom-left',layers={
- {prop='backdrop',sheet='room-backdrop',x=0,y=0,w=110,h=64,z=0},
+ {prop='backdrop',sheet='room-backdrop',x=0,y=0,w=160,h=64,z=0},
  {prop='clock',sheet='room-clock',x=94,y=34,w=15,h=15,z=1},
  {prop='pane',sheet='room-weather',x=20,y=27,w=36,h=32,z=2},
  {prop='skyfx',sheet='room-skyfx',x=20,y=27,w=36,h=32,z=3},

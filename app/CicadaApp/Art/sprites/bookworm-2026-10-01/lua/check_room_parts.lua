@@ -1,7 +1,7 @@
 local H=require('ase_helpers');local R=require('room_common')
 local ART=(app.params or {}).art or app.fs.joinPath(H.scriptDir(),'..');R.context(ART)
 local s=app.open(app.fs.joinPath(ART,'parts/room-parts.aseprite'))
-local dimensions={wall={110,64},floor={110,64},trim={110,64},glow={110,64},
+local dimensions={wall={160,64},floor={160,64},trim={160,64},glow={160,64},
  ['window.frame']={40,38},['window.sill']={40,38},['lamp.dark']={18,50},['lamp.light']={18,50},
  bag={62,12},plant={12,22},mug={8,9},['cloud.round']={12,4},['cloud.thin']={13,2},sun={7,7},moon={7,8}}
 for i=0,2 do dimensions['tree.'..i]={14,14} end

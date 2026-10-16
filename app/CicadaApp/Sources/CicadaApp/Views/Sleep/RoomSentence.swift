@@ -446,9 +446,14 @@ func whisperLine(scheduleText: String, nextRunText: String, lampLit: Bool) -> St
 // MARK: - The slot
 
 /// The one place the worm speaks (R-Z5), directly under the room. Its height
-/// is reserved — one lead line, two tail lines (`lineLimit(2, reservesSpace:)`)
-/// — so a longer tail, an answer or no tail at all never reflows what sits
-/// below it.
+/// is reserved — one lead line and ONE tail line (2026-10-16) — so a tail, an
+/// answer or no tail at all never reflows what sits below it. Two reserved tail
+/// lines were sized for the old 480 pt card; in the 760 pt column the second
+/// one stood empty above the control on almost every line (the live capture:
+/// ≈ 70 pt between "1 to read — overdue." and Consolidate). A tail takes one
+/// line at 22 pt, else one line at the display floor (20 pt), and only a tail
+/// too long for even that wraps to a second line (`SentenceSlot.tailForm`) —
+/// never cut: R-Z13's 80-character budget still holds.
 ///
 /// Meadow's faces (Z10, Z-B12; F1 R-FX13): the lead in the display face — SF
 /// Pro Display semibold at 30 pt with `displayTracking`, shrinking only to the
@@ -595,10 +600,29 @@ struct RoomSentenceView: View {
         }
     }
 
-    @ViewBuilder
+    /// The slot's reserve (one tail line), then the first form that fits the column: one line at 22 pt, one line at
+    /// the display floor, else two lines at 22 pt. `ViewThatFits` measures each form's ideal width, which for a
+    /// one-line text is its unwrapped width, so a form is picked only when the whole tail fits it.
     private func tailText(_ line: SentenceLine) -> some View {
+        ZStack(alignment: .top) {
+            Text(verbatim: " ")
+                .font(CicadaTheme.displayFont(size: Self.tailSize, italic: true))
+                .lineLimit(SentenceSlot.reservedTailLines, reservesSpace: true)
+                .hidden()
+                .accessibilityHidden(true)
+            // In `SentenceSlot.TailForm`'s order.
+            ViewThatFits(in: .horizontal) {
+                tailForm(line, .oneLine)
+                tailForm(line, .oneLineAtFloor)
+                tailForm(line, .twoLines)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func tailForm(_ line: SentenceLine, _ form: SentenceSlot.TailForm) -> some View {
         let tail = line.tail ?? " "
-        let tailFont = CicadaTheme.displayFont(size: Self.tailSize, italic: true)
+        let tailFont = CicadaTheme.displayFont(size: form.size, italic: true)
         let tailColor = color(line.tailTone, plain: CicadaTheme.textSecondary)
         if let action = line.action, line.tail != nil {
             let link = tailLink(tail)
@@ -607,15 +631,34 @@ struct RoomSentenceView: View {
                 (Text(verbatim: prefix).foregroundStyle(tailColor)
                  + Text(verbatim: link).foregroundStyle(CicadaTheme.accent))
                     .font(tailFont)
-                    .lineLimit(2, reservesSpace: true)
+                    .lineLimit(form.lines)
             }
             .buttonStyle(.cicadaPlain)
         } else {
             Text(verbatim: tail)
                 .font(tailFont)
                 .foregroundStyle(tailColor)
-                .lineLimit(2, reservesSpace: true)
+                .lineLimit(form.lines)
         }
+    }
+}
+
+/// The sentence slot's geometry (R-Z5 as amended 2026-10-16): what it reserves, and the forms a tail may take, in
+/// the order the slot tries them.
+enum SentenceSlot {
+    /// One lead line plus this many tail lines are always reserved.
+    static let reservedTailLines = 1
+
+    enum TailForm: CaseIterable, Hashable {
+        /// One line at the tail's own 22 pt.
+        case oneLine
+        /// One line at the display floor (DR-15's 20 pt), before anything wraps.
+        case oneLineAtFloor
+        /// Two lines at 22 pt — the last resort, for a tail near R-Z13's 80-character budget.
+        case twoLines
+
+        var size: CGFloat { self == .oneLineAtFloor ? CicadaTheme.displayMinimumSize : RoomSentenceView.tailSize }
+        var lines: Int { self == .twoLines ? 2 : 1 }
     }
 }
 
