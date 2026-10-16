@@ -164,9 +164,9 @@ def test_the_walk_is_bounded_and_cached_per_head(bank, monkeypatch):
     calls = []
     real = last_cycle._walk
 
-    async def counting(memory_path):
+    def counting(memory_path):
         calls.append(1)
-        return await real(memory_path)
+        return real(memory_path)
 
     monkeypatch.setattr(last_cycle, "_walk", counting)
     monkeypatch.setattr(last_cycle, "INCOMPLETE_TTL_S", 3600.0)
@@ -200,3 +200,70 @@ def test_with_the_ledger_off_an_ended_run_is_still_found_by_its_span(bank, monke
     got = asyncio.run(last_cycle.latest(bank))
     assert got.commit_hash == last and got.drain_id == "sched" and got.duration_ms == 1_800_000
     assert got.batches == 2 and got.usage_summary is None          # no ledger: the cost is unknown, never zero
+
+
+def _row(commit: str, when: datetime, drain_id: str | None = None) -> UsageEvent:
+    refs = {"cycle_id": f"c-{commit[:6]}", "commit": commit, cycle_usage.TAGGED_REF: True}
+    if drain_id:
+        refs.update({"drain_id": drain_id, "batch": 1, "batches": 1})
+    ev = UsageEvent(kind="sleep_run", engine="litellm", connection="byok-openrouter", duration_ms=60_000, refs=refs)
+    ev.ts = _ts(when)
+    return ev
+
+
+class _Reader:
+    """A ledger reader that records the windows asked for and serves only the days inside them."""
+
+    def __init__(self, events):
+        self.events, self.calls = events, []
+
+    def __call__(self, start=None, end=None):
+        self.calls.append((start, end))
+        return [e for e in self.events if (start is None or e.ts[:10] >= start.isoformat())
+                and (end is None or e.ts[:10] <= end.isoformat())]
+
+
+def test_the_ledger_window_opens_at_the_chosen_commit_or_its_runs_start_never_the_walks_end(bank):
+    chosen, old = "a" * 40, "b" * 40
+    commits = [(chosen, _iso(BASE), "litellm"), (old, _iso(BASE - timedelta(days=30)), "litellm")]
+    reader = _Reader([_row(chosen, BASE), _row(old, BASE - timedelta(days=30))])
+    got, complete = last_cycle.compute(commits, {}, reader)
+    assert got.commit_hash == chosen and complete
+    assert reader.calls == [((BASE - timedelta(days=1)).date(), None)]          # a plain cycle: its own day only
+    # A run's batch: the window widens back to the run's own start — just the missing days — and no further.
+    runs = {"r": {"id": "r", "state": "finished", "started_at": _iso(BASE - timedelta(days=5)), "read_ms": 1000}}
+    early = UsageEvent(kind="llm_call", engine="litellm", connection="byok-openrouter", billing="usage", cost_usd=0.01,
+                       ok=True, refs={"cycle_id": "r-b0", "drain_id": "r"})
+    early.ts = _ts(BASE - timedelta(days=5))
+    reader = _Reader([_row(chosen, BASE, drain_id="r"), early, _row(old, BASE - timedelta(days=30))])
+    got, _ = last_cycle.compute(commits, runs, reader)
+    assert got.drain_id == "r" and got.usage_summary.cost_usd == 0.01
+    assert reader.calls == [((BASE - timedelta(days=1)).date(), None),
+                            ((BASE - timedelta(days=6)).date(), (BASE - timedelta(days=2)).date())]
+
+
+def test_the_miss_path_runs_off_the_event_loop(bank, monkeypatch):
+    import threading
+
+    seen = []
+    monkeypatch.setattr(last_cycle, "_miss", lambda memory_path: (seen.append(threading.current_thread()), (None, True))[1])
+    assert asyncio.run(last_cycle.latest(bank)) is None
+    assert seen and seen[0] is not threading.main_thread()
+
+
+def test_a_commit_with_no_ledger_row_is_complete_once_it_is_five_minutes_old(bank, monkeypatch):
+    commit = "c" * 40
+    commits = [(commit, _iso(BASE), "litellm")]
+    fresh = last_cycle.compute(commits, {}, _Reader([]), now=BASE + timedelta(minutes=1))
+    assert fresh[0].commit_hash == commit and fresh[1] is False                   # its row may still be coming
+    old = last_cycle.compute(commits, {}, _Reader([]), now=BASE + timedelta(minutes=5))
+    assert old[1] is True                                                         # a demo bank, a pre-ledger bank
+    # So an old row-less commit is not recomputed on every poll.
+    Bank(bank).commit(BASE, "litellm")
+    walks = []
+    real = last_cycle._walk
+    monkeypatch.setattr(last_cycle, "_walk", lambda m: (walks.append(1), real(m))[1])
+    monkeypatch.setattr(last_cycle, "INCOMPLETE_TTL_S", 0.0)
+    for _ in range(3):
+        assert asyncio.run(last_cycle.latest(bank)) is not None
+    assert len(walks) == 1
