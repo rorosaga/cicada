@@ -177,12 +177,9 @@ private struct OverflowMoreMenu<ID: Hashable>: View {
                     Button(TextTabSelection.menuLabel(label: tab.label, count: tab.count)) { selection = tab.id }
                 }
             } label: {
-                HStack(spacing: CicadaTheme.scaled(4)) {
-                    Text(Copy.Lists.more)
-                    Image(systemName: "chevron.down")
-                        .font(CicadaTheme.font(size: 9, weight: .semibold))
-                        .accessibilityHidden(true)
-                }
+                // One `Text` with the chevron inline: a `Menu` label lays an HStack's image out first ("⌄ More").
+                (Text(Copy.Lists.more) + Text(verbatim: " ")
+                    + Text(Image(systemName: "chevron.down")).font(CicadaTheme.font(size: 9, weight: .semibold)))
                 .font(CicadaTheme.metaMediumFont)
                 .foregroundStyle(hovering ? CicadaTheme.textSecondary : CicadaTheme.textTertiary)
                 .padding(.horizontal, CicadaTheme.scaled(TextTabs<ID>.horizontalPadding))
