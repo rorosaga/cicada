@@ -263,6 +263,34 @@ final class HeadlessAppTests: XCTestCase {
         XCTAssertEqual(waiting, 1)
     }
 
+    /// G183(d) review: a reader's run stopped by the person or by a bank switch is not "the server is away" — its post
+    /// never waits here under the memory it left (where it would sit ahead of the new memory's posts at the next flush).
+    func testAStoppedReadersPostNeverWaits() async throws {
+        let client = APIClient(session: HeadlessStubProtocol.session(), connection: server("https://cicada.example.ts.net"),
+                               runtime: runtime())
+        HeadlessStubProtocol.fail = URLError(.cancelled)
+        do {
+            _ = try await client.syncNotes(dump: "stopped dump")
+            XCTFail("expected a failure")
+        } catch is ServerLinkError {
+            XCTFail("a stopped post never waits")
+        } catch {}
+        HeadlessStubProtocol.reset()
+        HeadlessStubProtocol.fail = URLError(.cannotConnectToHost)
+        let stopped = Task { () async throws -> Void in
+            withUnsafeCurrentTask { $0?.cancel() }
+            _ = try await client.syncNotes(dump: "cancelled dump")
+        }
+        do {
+            try await stopped.value
+            XCTFail("expected a failure")
+        } catch is ServerLinkError {
+            XCTFail("a cancelled run's post never waits")
+        } catch {}
+        let waiting = await client.outbox.count()
+        XCTAssertEqual(waiting, 0)
+    }
+
     /// Review fix: a newer post never overtakes an older one on the same route — the older goes first, and while it
     /// cannot land the newer waits behind it (a snapshot replayed late would put the server back to an older state).
     func testANewerPostNeverOvertakesAnOlderOneOnTheSameRoute() async throws {

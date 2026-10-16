@@ -216,7 +216,8 @@ On a server the app:
 - sends the readers' bytes (bookmarks, Safari tabs, Notes, watched folders, Calendar, Contacts, tab groups, YouTube
   history, Messages, Wispr Flow) to the server, and keeps a post the server did not take in `$CICADA_HOME/spool/app/`
   (`ReaderOutbox`: 0700/0600, named by route + memory + body hash, ≤ 200 posts / 64 MB / 7 days; no answer, 401/403,
-  409 and 5xx wait, 400/404/405/413/422 are dropped). A newer post on the same route and memory never overtakes one
+  409 and 5xx wait, 400/404/405/413/422 are dropped; a stopped run's post — the person's Cancel, or a bank switch
+  replacing a reader's run (G183(d)) — never waits). A newer post on the same route and memory never overtakes one
   that waits: those go first, and while one still cannot land the newer waits behind it (a snapshot replayed late would
   put the server back to an older state). It is flushed oldest first when the event stream connects again
   (and by *Send now* on the Devices page); the readers keep their cursors and read again, so the outbox is the fast

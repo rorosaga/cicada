@@ -3268,7 +3268,9 @@ actor APIClient {
         let response: URLResponse
         do {
             (data, response) = try await session.data(for: request)
-        } catch let error as URLError where queues {
+        } catch let error as URLError where queues && error.code != .cancelled {
+            // A stopped run (the person's Cancel, or a bank switch replacing a reader's run, G183(d)) is not the
+            // server being away: its post never waits here under the memory it left (`keep` refuses too).
             if await keep(request, path: path) { throw ServerLinkError.queuedOffline }
             throw error
         }
@@ -3289,7 +3291,7 @@ actor APIClient {
     }
 
     private func keep(_ request: URLRequest, path: String) async -> Bool {
-        guard let body = request.httpBody else { return false }
+        guard let body = request.httpBody, !Task.isCancelled else { return false }
         let stored = try? await outbox.put(method: request.httpMethod ?? "POST", path: path, body: body,
                                            bank: request.value(forHTTPHeaderField: BankScope.header))
         return stored == true
