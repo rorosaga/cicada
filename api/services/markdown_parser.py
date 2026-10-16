@@ -1,3 +1,4 @@
+import contextvars
 import datetime
 import errno
 import os
@@ -5,8 +6,10 @@ import pickle
 import re
 import secrets
 import threading
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Iterator
 
 import yaml
 
@@ -129,12 +132,143 @@ def split_frontmatter(content: str) -> tuple[str, str] | None:
     return parts[1], parts[2]
 
 
+class PageCache:
+    """One Sleep batch's page parses (2026-10-16 perf, owner decision 1): every step of a batch re-reads the pages,
+    ~19 whole-bank reads a batch at owner scale, nearly all of files no step has written since. Opened by
+    :func:`page_cache` around one batch and dropped when it ends — never across batches, never for another bank.
+
+    An entry is keyed on the file's path and serves only while the file's own (inode, mtime_ns, size) is unchanged —
+    and, for a page whose claims overflowed into a ledger, the ledger's too (absent counts as a stamp) — the
+    discipline of ``load_yaml_file`` (#324). Every write through this module drops its path first (:func:`_forget`),
+    and a writer's admission ending (``write_admission``) empties the cache of its bank, so neither Sleep's own writes
+    nor anything admitted between its steps is served stale. Each caller gets its own frontmatter (a pickle round
+    trip); the body is a ``str``."""
+
+    __slots__ = ("roots", "entries", "lock", "hits", "misses")
+
+    def __init__(self, root) -> None:
+        given = os.path.abspath(os.fspath(root))
+        real = os.path.realpath(given)
+        self.roots = tuple({given.rstrip(os.sep) + os.sep, real.rstrip(os.sep) + os.sep})
+        #: abspath -> {ledger flag: (stamp, ledger path | None, ledger stamp, pickled frontmatter, body)}
+        self.entries: dict[str, dict[bool, tuple]] = {}
+        self.lock = threading.Lock()
+        self.hits = 0
+        self.misses = 0
+
+    def covers(self, path: str) -> bool:
+        return path.startswith(self.roots)
+
+    def clear(self) -> None:
+        with self.lock:
+            self.entries.clear()
+
+
+#: The batch's cache in the task (and the worker threads ``asyncio.to_thread`` starts, which copy the context).
+_page_cache_var: contextvars.ContextVar["PageCache | None"] = contextvars.ContextVar("page_cache", default=None)
+#: Every open cache, so a write from any thread or task of this process reaches it.
+_open_caches: set = set()
+_open_caches_lock = threading.Lock()
+
+
+@contextmanager
+def page_cache(root) -> Iterator[PageCache]:
+    """Serve :func:`parse` of files under ``root`` from a stat-checked cache for the length of the block (one Sleep
+    batch). Only this context (and threads it starts with a copied context) reads through it; the memory is freed on
+    exit, whichever way the block ends."""
+    cache = PageCache(root)
+    token = _page_cache_var.set(cache)
+    with _open_caches_lock:
+        _open_caches.add(cache)
+    try:
+        yield cache
+    finally:
+        with _open_caches_lock:
+            _open_caches.discard(cache)
+        _page_cache_var.reset(token)
+        cache.clear()
+
+
+def invalidate_pages(root=None) -> None:
+    """Empty every open page cache (of ``root``'s bank only, when given) — a writer outside this module's write path
+    finished (``write_admission``'s release), so nothing it touched is served from before it."""
+    with _open_caches_lock:
+        caches = list(_open_caches)
+    if root is not None:
+        probe = os.path.abspath(os.fspath(root)).rstrip(os.sep) + os.sep
+        real = os.path.realpath(probe.rstrip(os.sep)).rstrip(os.sep) + os.sep
+        caches = [c for c in caches if probe in c.roots or real in c.roots]
+    for cache in caches:
+        cache.clear()
+
+
+def _forget(filepath) -> None:
+    """Drop ``filepath`` from every open page cache — called before any write through this module lands."""
+    if not _open_caches:
+        return
+    with _open_caches_lock:
+        caches = list(_open_caches)
+    path = os.path.abspath(os.fspath(filepath))
+    for cache in caches:
+        with cache.lock:
+            cache.entries.pop(path, None)
+
+
+def _stamp_or_none(path: str):
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    return (st.st_ino, st.st_mtime_ns, st.st_size)
+
+
 def parse(filepath: Path, *, ledger: bool = True) -> ParsedMarkdown:
     """Parse a markdown file with YAML frontmatter delimited by --- fences.
 
     An entity page whose claims overflowed into its ledger (``claims_ledger``) comes back with the ledger's claims
     folded into its fence, so every reader sees the page's whole claim set. ``ledger=False`` — a frontmatter-only
-    scan — never opens the ledger (the body is then the page file's own)."""
+    scan — never opens the ledger (the body is then the page file's own).
+
+    Inside :func:`page_cache` (one Sleep batch), a file unchanged since its last parse is a copy, not a parse."""
+    cache = _page_cache_var.get()
+    if cache is not None:
+        path = os.path.abspath(os.fspath(filepath))
+        if cache.covers(path):
+            return _parse_cached(cache, filepath, path, ledger)
+    return _parse(filepath, ledger=ledger)
+
+
+def _parse_cached(cache: PageCache, filepath: Path, path: str, ledger: bool) -> ParsedMarkdown:
+    stamp = _stamp_or_none(path)
+    if stamp is not None:
+        with cache.lock:
+            hit = cache.entries.get(path, {}).get(ledger)
+        if hit is not None and hit[0] == stamp and (hit[1] is None or _stamp_or_none(hit[1]) == hit[2]):
+            cache.hits += 1
+            return ParsedMarkdown(frontmatter=pickle.loads(hit[3]), body=hit[4])
+    cache.misses += 1
+    ledger_path = ledger_stamp = None
+    if ledger and stamp is not None:
+        from api.services import claims_ledger
+
+        if claims_ledger.is_page(Path(path)):
+            ledger_path = os.fspath(claims_ledger.path_for(Path(path)))
+            ledger_stamp = _stamp_or_none(ledger_path)   # taken BEFORE the read: a later change re-parses
+    parsed = _parse(filepath, ledger=ledger)
+    if stamp is None or not isinstance(parsed.frontmatter, dict):
+        return parsed
+    try:
+        if _stamp_or_none(path) != stamp:   # moved while it was read: the parse may be either version's
+            return parsed
+        snapshot = pickle.dumps(parsed.frontmatter, protocol=pickle.HIGHEST_PROTOCOL)
+    except (pickle.PicklingError, TypeError, AttributeError):
+        return parsed
+    with cache.lock:
+        cache.entries.setdefault(path, {})[ledger] = (stamp, ledger_path, ledger_stamp, snapshot, parsed.body)
+    return parsed
+
+
+def _parse(filepath: Path, *, ledger: bool = True) -> ParsedMarkdown:
     content = filepath.read_text(encoding="utf-8")
     split = split_frontmatter(content)
     if split is None:
@@ -253,6 +387,9 @@ def _replace(filepath: Path, data: bytes) -> tuple[int, int, int]:
     from the staged file before the rename (which keeps both), so a caller that caches on it never stamps another
     writer's file that replaced this one a moment later."""
     target = Path(os.path.realpath(filepath)) if os.path.islink(filepath) else Path(filepath)
+    _forget(filepath)
+    if target != Path(filepath):
+        _forget(target)
     tmp = _stage(target, data)
     try:
         try:
@@ -277,6 +414,7 @@ def write_new(filepath: Path, frontmatter: dict, body: str) -> None:
     ``O_EXCL`` create, which still never replaces a file."""
     target = Path(filepath)
     data = _render(frontmatter, body)
+    _forget(target)
     tmp = _stage(target, data)
     try:
         os.link(tmp, target)

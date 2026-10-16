@@ -156,6 +156,11 @@ def _acquire(key: str) -> list[int]:
 
 def _release(key: str, fds: list[int] | None) -> None:
     _close_all(fds)
+    # A writer admitted between Sleep's steps is done: an open batch's page cache of this bank forgets what it read
+    # before (`markdown_parser.page_cache`), whatever the writer wrote and however it wrote it.
+    from api.services import markdown_parser
+
+    markdown_parser.invalidate_pages(key)
     bank = _bank(key)
     with bank.cond:
         bank.holders -= 1
