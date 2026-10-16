@@ -7,9 +7,12 @@ where decay had left it, as if the topic had been silent all along. Sleep now pl
 (``conflict_resolver._revive_on_time``, ``claim_reconciler._place_on_time``); this recompute does the same, once, for
 what was read before.
 
-Which pages: the old rule leaves one mark. Every other path that moves a page's last mention also moves ``learned_on``
-to the day it was read (on or after the day it was said), so a page whose ``last_referenced`` is LATER than its
-``learned_on`` got its newest mention through the old late-read branch. For such a page the newest mention is placed
+Which pages: the old rule leaves one mark. Every other Sleep path that moves a page's last mention also moves
+``learned_on`` to the day it was read (on or after the day it was said), so a page whose ``last_referenced`` is LATER
+than its ``learned_on`` got its newest mention through the old late-read branch — when that newest mention is one of the
+page's own dated conversations. Writers that are no conversation (an agent's progress note, a decay answer, a conflict
+resolution) also move ``last_referenced`` and leave ``learned_on`` alone; a page whose newest mention no credited
+conversation was said on is theirs, and is left alone (``_page_mention_day``). For such a page the newest mention is placed
 on its day exactly as Sleep now would (``decay_policy.on_time`` from ``RECOVERY_CONFIDENCE``, through the watermark
 plus at most one pass of live silence). A claim carries the same mark (its latest dated conversation after its
 ``recorded_at``); the confidence its late restatement carried is not stored, so it is placed from
@@ -25,8 +28,10 @@ pages dirty in git or written since the survey. No inbox item is written. A seco
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Callable
 
@@ -86,6 +91,40 @@ def _day(value) -> date | None:
         return None
 
 
+#: A conversation's id carries its day; its stamp may sit one day off it (a local day against a UTC stamp).
+_DAY_SLACK = timedelta(days=1)
+#: A lift smaller than this is float noise between one charge and the same charge in steps, never a lift.
+_EPSILON = 1e-9
+
+
+def _page_mention_day(fm: dict, untimed) -> str | None:
+    """The day of the page's newest mention when that mention is a conversation the page credits, else ``None``.
+
+    ``last_referenced`` is also moved by writers that are no conversation and leave ``learned_on`` alone (an agent's
+    progress note, a decay answer, a conflict resolution): those left the same mark as a late read, and reading on time
+    never revived a page for them. Only a newest mention one of the page's own dated conversations was said on (within
+    a day's slack, the earlier of the two days) is placed."""
+    said = _day(fm.get("last_referenced"))
+    conv = _day(decay_policy.latest_said(fm.get("source_episodes"), untimed=untimed))
+    if said is None or conv is None or conv < said - _DAY_SLACK:
+        return None
+    return min(said, conv).isoformat()
+
+
+def _dirty_entities(memory_path: Path) -> frozenset[str]:
+    """``entities/`` paths dirty in git — read with git's optional locks off, so a survey never refreshes (writes) the
+    index or takes its lock from under a running backend's commit."""
+    try:
+        proc = subprocess.run(
+            ["git", "status", "--porcelain", "-z", "--untracked-files=all", "--", "entities"],
+            cwd=str(memory_path), capture_output=True, env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"})
+    except OSError:
+        return frozenset()
+    if proc.returncode != 0:
+        return frozenset()
+    return git_service._parse_status_z(proc.stdout.decode(errors="replace"))
+
+
 def _read_late(said, learned, charged) -> bool:
     """The old rule's mark: the newest mention said after the day Cicada last read the page (or claim), and before
     its watermark."""
@@ -127,7 +166,7 @@ def _place_claims(body: str, about, multiplier: float, untimed, today: date, tal
         lifted = decay_policy.on_time(
             RECOVERY_CONFIDENCE, rate, said, claim.recorded_at, through, nudge_threshold=NUDGE_THRESHOLD,
             conversations=decay_policy.conversations(_said_refs(claim), untimed=untimed))
-        if lifted is None or lifted <= claim.confidence:
+        if lifted is None or lifted <= claim.confidence + _EPSILON:
             continue
         raw["confidence"] = lifted
         raw["decayed_through"] = through.isoformat()
@@ -151,10 +190,7 @@ def survey(memory_path, *, today: date | None = None, settings=None) -> Survey:
     result = Survey()
     dirty: frozenset[str] = frozenset()
     if (memory_path / ".git").exists():
-        try:
-            dirty = git_service.dirty_paths_sync(memory_path, "entities")
-        except git_service.GitError:
-            dirty = frozenset()
+        dirty = _dirty_entities(memory_path)
     untimed = episode_time.untimed_ids(memory_path)
     tuning = decay_tuning.load(memory_path)
     alpha, floor = decay_policy.spacing_params(settings)
@@ -182,11 +218,13 @@ def survey(memory_path, *, today: date | None = None, settings=None) -> Survey:
         kind = decay_policy.entity_type(fm)
         tally = result.by_type.setdefault(kind, _bucket())
         new_fm = dict(fm)
-        said = fm.get("last_referenced")
-        if _read_late(said, fm.get("learned_on"), fm.get("decayed_through")):
+        said = _page_mention_day(fm, untimed)
+        if said is not None and _read_late(said, fm.get("learned_on"), fm.get("decayed_through")):
             result.read_late += 1
             tally["read_late"] += 1
-            _revive_on_time(new_fm, str(said)[:10], params, untimed)
+            _revive_on_time(new_fm, said, params, untimed)
+            if float(new_fm.get("confidence") or 0.0) <= float(fm.get("confidence") or 0.0) + _EPSILON:
+                new_fm = dict(fm)   # float noise, not a lift
             if new_fm.get("confidence") != fm.get("confidence"):
                 result.lifted += 1
                 tally["lifted"] += 1

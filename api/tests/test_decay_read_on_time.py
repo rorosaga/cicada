@@ -362,6 +362,27 @@ def test_the_recompute_dry_run_counts_what_reading_on_time_would_lift(old_bank):
     assert "old-rule" not in json.dumps(counts)
 
 
+def test_the_recompute_dry_run_never_touches_git_index(old_bank):
+    index = old_bank / ".git" / "index"
+    (old_bank / "entities" / "read-live.md").touch()   # a stale stat entry a plain `git status` would refresh
+    before = (index.read_bytes(), index.stat().st_mtime_ns)
+    recompute.survey(old_bank, today=date(2026, 10, 16))
+    assert (index.read_bytes(), index.stat().st_mtime_ns) == before
+
+
+def test_the_recompute_leaves_a_page_whose_newest_mention_is_no_conversation(old_bank):
+    # An agent's progress note (or a decay answer) moved `last_referenced` past every conversation the page credits
+    # and left `learned_on`: the same mark as a late read, but no conversation was read late.
+    _old_page(old_bank, "progress-noted", "2026-10-13", source_episodes=[f"ep_{FIRST}_001", f"ep_{FIRST}_002"])
+    _git(old_bank, "add", "-A")
+    _git(old_bank, "commit", "-qm", "progress note")
+    counts = recompute.survey(old_bank, today=date(2026, 10, 16)).counts()
+    assert counts["read_late"] == 3 and counts["lifted"] == 3
+    result = recompute.apply(old_bank, sleep_running=lambda: False, today=date(2026, 10, 16))
+    assert _fm(old_bank, "progress-noted")["confidence"] == 0.29
+    assert _fm(old_bank, "progress-noted")["status"] == "decaying" and result.written == 3
+
+
 def test_the_recompute_applies_in_one_cicada_commit_and_a_second_run_is_a_no_op(old_bank, monkeypatch):
     monkeypatch.setattr(script, "backend_running", lambda: False)
     result = recompute.apply(old_bank, sleep_running=lambda: False, today=date(2026, 10, 16))
