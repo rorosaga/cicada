@@ -64,7 +64,7 @@ struct FindRowView: View {
             if let speaker = row.speaker {
                 Text(speaker).font(CicadaTheme.font(size: 10, weight: .semibold)).foregroundStyle(CicadaTheme.textSecondary)
             }
-            Text(ExcerptText.attributed(snippet, bold: row.snippetRanges))
+            Text(ExcerptText.cleanAttributed(snippet, bold: row.snippetRanges))
                 .font(CicadaTheme.quoteFont(size: 12))
                 .foregroundStyle(CicadaTheme.textSecondary)
                 .lineLimit(2)

@@ -180,7 +180,7 @@ struct FeedListRow: View {
                         titleText
                         Spacer(minLength: 0)
                         if style == .wide && showsRelevance {
-                            Text(UsageFormat.percent(item.relevance * 100))
+                            Text(Copy.Lists.relevanceShort(UsageFormat.percent(item.relevance * 100)))
                                 .font(CicadaTheme.metaFont)
                                 .monospacedDigit()
                                 .foregroundStyle(metaColor)

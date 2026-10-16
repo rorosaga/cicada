@@ -51,4 +51,13 @@ final class EmptyStateViewTests: XCTestCase {
         XCTAssertTrue(text.contains(".foregroundStyle(CicadaTheme.accentText)"), "the quiet link lost its link ink (DR-5)")
         XCTAssertTrue(text.contains(".primaryActionStyle()"), "the prominent link must go through primaryActionStyle()")
     }
+
+    /// DR-38 (QA 2026-10-16) — an empty state's message never repeats its title, and a pointer points where the thing
+    /// really is.
+    func testEmptyStateWordsSayEachThingOnce() {
+        XCTAssertFalse(Copy.emptyGraphMessage.hasPrefix("Nothing here yet"))
+        XCTAssertFalse(Copy.Skills.emptyInstalledMessage.contains("below"), "nothing is below it on Installed")
+        XCTAssertTrue(Copy.Skills.emptyInstalledMessage.contains(Copy.Skills.discover))
+        XCTAssertFalse(Copy.banksDetail.contains("Graph page"), "DR-24: banks switch in the search bar's menu")
+    }
 }

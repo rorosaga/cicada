@@ -419,7 +419,8 @@ enum Copy {
 
     /// Graph's own blank canvas — the G117 row's opening evidence — finally
     /// says why it's empty and names the one thing to do about it.
-    static let emptyGraphMessage = "Nothing here yet. Connect a source or import."
+    /// The title already says "Nothing here yet" (DR-38: it was said twice, QA 2026-10-16).
+    static let emptyGraphMessage = "Connect a source or import a chat export."
     static let emptyInboxMessage = "Questions appear here after a Sleep cycle."
     static let emptySourcesMessage = "Nothing has fed this memory yet."
 

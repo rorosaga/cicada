@@ -120,6 +120,10 @@ struct ConnectionStatus: Identifiable, Codable, Hashable {
         default: return connected ? "\(label) · usage-based" : label
         }
     }
+
+    /// The card's line under its title: `priceLine`, or nothing when that is only the title again — every card that
+    /// was not signed in read "Claude plan / Claude plan", "OpenAI API key / OpenAI API key" (DR-38, QA 2026-10-16).
+    var subtitle: String? { priceLine == label ? nil : priceLine }
 }
 
 struct LoginHint: Codable, Hashable {

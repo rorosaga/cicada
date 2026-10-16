@@ -277,8 +277,9 @@ all three empty is one `HomeEmptyBlock` (*Choose a file…*), or nothing while G
 *Make it yours* (Appearance, and Scene only while the band shows; `AppearanceTipPolicy`, per viewer) is a row after
 Needs you for that one session; once hidden or seen it lives only in Settings.
 
-**Onboarding (G145, round 4 phase B).** Seven pages in one full-window layer, raised by the unchanged `FirstRunGate`
-(unknown is never empty) or by the one door, `OnboardingState.reset` + `AppRouter.requestFirstRun` (Settings →
+**Onboarding (G145, round 4 phase B).** Seven pages in one full-window layer, raised by `FirstRunGate`
+(unknown is never empty; never over the demo, which its plan marks onboarded one step after the switch — QA
+2026-10-16) or by the one door, `OnboardingState.reset` + `AppRouter.requestFirstRun` (Settings →
 General's *Run setup again*, the demo's *Finish setting up*): Welcome and You're set on the full living painting
 with a card (`WelcomeHero`); Import, Agents, Skills, Who reads and Keep it running in a split frame — the page's pane
 painting (`OnboardingPane`, 540 pt, which gives way before the column does), the column with "Step n of 7 · k still

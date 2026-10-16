@@ -210,6 +210,28 @@ struct LogoImage: View {
         return loaded
     }
 
+    /// A bundled mark for an AppKit menu — a `.menu` `Picker` or a `Menu` item. AppKit flattens such a label into an
+    /// `NSMenuItem` image and draws it at the `NSImage`'s own size, ignoring every SwiftUI frame, so a `LogoImage`
+    /// there showed its full-resolution PNG (a 300 pt OpenAI mark over Who reads, QA 2026-10-16). The copy carries
+    /// the size the menu should draw; nil when no such mark ships. Synchronous: one small PNG, cached like
+    /// `bundledImage`.
+    @MainActor
+    static func menuImage(name: String, size: CGFloat) -> NSImage? {
+        guard let file = resolvedName(for: name) else { return nil }
+        let image: NSImage
+        if let cached = cache[file] {
+            image = cached
+        } else {
+            guard let url = Bundle.cicadaResources.cicadaResource(file, ext: "png", in: "logos"),
+                  let loaded = NSImage(contentsOf: url) else { return nil }
+            cache[file] = loaded
+            image = loaded
+        }
+        let sized = image.copy() as! NSImage
+        sized.size = NSSize(width: size, height: size)
+        return sized
+    }
+
     // MARK: - Platform tile (Task 13)
 
     /// Linear-style "Connected accounts" tile: a rounded-square card with a

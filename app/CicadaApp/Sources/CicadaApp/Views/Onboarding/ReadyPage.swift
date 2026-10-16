@@ -74,6 +74,15 @@ struct ReadyPage: View {
         .accessibilityElement(children: .combine)
     }
 
+    /// The summary's last row: the agents line leads, the startup word trails. With no agent connected the startup
+    /// word leads instead — trailing alone it left an empty row with "Waits in the menu bar" pushed to the far edge
+    /// (QA 2026-10-16).
+    static func lastRow(agents: String?, startup: String?) -> (lead: String, trail: String?)? {
+        if let agents { return (agents, startup) }
+        if let startup { return (startup, nil) }
+        return nil
+    }
+
     @ViewBuilder
     private func rows(now: Date) -> some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -94,14 +103,14 @@ struct ReadyPage: View {
                 .padding(.horizontal, CicadaTheme.scaled(10))
                 .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine))
             }
-            if agents != nil || startup != nil {
+            if let row = Self.lastRow(agents: agents, startup: startup) {
                 HStack(spacing: CicadaTheme.spacingSM) {
                     HStack(spacing: CicadaTheme.scaled(3)) {
                         ForEach(agentMarks) { AgentMark(entry: $0, size: 14).accessibilityHidden(true) }
                     }
-                    if let agents { Text(agents).font(CicadaTheme.font(size: 13, weight: .medium)).foregroundStyle(CicadaTheme.textPrimary) }
+                    Text(row.lead).font(CicadaTheme.font(size: 13, weight: .medium)).foregroundStyle(CicadaTheme.textPrimary)
                     Spacer()
-                    if let startup { Text(startup).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary) }
+                    if let trail = row.trail { Text(trail).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary) }
                 }
                 .padding(.horizontal, CicadaTheme.scaled(10))
                 .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine))
