@@ -925,3 +925,20 @@ def test_the_dry_run_counts_and_writes_nothing(bank, monkeypatch, tmp_path):
     assert _snapshot_tree(bank, home) == before
     assert web_check_dry_run.main(["--bank", str(tmp_path / "nope")]) == 2
     assert os.environ.get("CICADA_HOME") == str(home)
+
+
+def test_a_lookup_the_engine_never_answered_is_not_held_for_thirty_days(bank):
+    """Hunt 2026-10-16: a plan limit (or any engine failure) is a pause, not a lookup — the question it stopped on
+    must be offered again on the next run, not memoized as looked up for 30 days."""
+    from api.services import engine_errors
+
+    def throttled(*, messages, web_search=False, timeout=None, **kw):
+        raise engine_errors.EngineThrottled("rate limited")
+
+    report = _run(bank, throttled)
+    assert report.looked_up == 1 and report.settled == 0
+    calls: list = []
+    report = _run(bank, _fake(_answers, calls=calls))
+    asked = [m[-1]["content"] for m in calls]
+    assert any("Example Film" in u for u in asked), "the question the plan limit stopped on is looked up again"
+    assert report.settled >= 1
