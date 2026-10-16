@@ -98,7 +98,7 @@ final class OriginIconographyTests: XCTestCase {
         XCTAssertEqual(OriginIconography.label(for: "claude-desktop"), "Claude Desktop")
         XCTAssertEqual(OriginIconography.label(for: "cursor"), "Cursor")
         XCTAssertEqual(OriginIconography.label(for: "gemini-cli"), "Gemini CLI")
-        // Byte-for-byte: the Activity origins strip keys on this label.
-        XCTAssertEqual(OriginIconography.label(for: "mcp"), "MCP")
+        // The legacy agent-save origin reads as a person would say it (DR-54; nothing keys on the label).
+        XCTAssertEqual(OriginIconography.label(for: "mcp"), "Saved by an agent", "DR-54: never the protocol's name")
     }
 }

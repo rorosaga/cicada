@@ -84,6 +84,9 @@ extension Copy {
 
 extension Copy.Provenance {
     static let youSaid = "You said"
+    /// DR-57 — a passage from a feed or a calendar: what arrived, never what the person said (⌘K, QA 2026-10-16).
+    static let fromTheFeed = "From the feed"
+    static let onYourCalendar = "On your calendar"
     static let theAgentReplied = "The agent replied"
     static func replied(_ agent: String) -> String { "\(agent) replied" }
     static let inTheVideo = "In the video"
