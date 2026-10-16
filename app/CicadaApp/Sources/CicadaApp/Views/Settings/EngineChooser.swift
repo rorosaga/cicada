@@ -355,8 +355,11 @@ struct EngineChooser: View {
 
     @ViewBuilder
     private func providerMark(_ provider: SleepEngineProvider) -> some View {
-        if let logo = ConnectionMark.logoName(connectionId: provider.connectionId) {
-            LogoImage(name: logo, size: CicadaTheme.scaled(14))
+        // A menu draws its item's image at the NSImage's own size, never a SwiftUI frame: a `LogoImage` here drew
+        // the full-size PNG over the page (QA 2026-10-16). `LogoImage.menuImage` hands AppKit a 14 pt copy.
+        if let logo = ConnectionMark.logoName(connectionId: provider.connectionId),
+           let image = LogoImage.menuImage(name: logo, size: CicadaTheme.scaled(14)) {
+            Image(nsImage: image)
         } else {
             Image(systemName: "key.fill")
         }
