@@ -199,6 +199,8 @@ neither `clarification_manager` nor the dedup sweep proposes the pair again, and
 see Telemetry ledger.
 
 **The page (Direction D, DS-2).** Progressive columns (`ProgressiveColumns`, `ColumnLayout` — DESIGN_RULES §5.3): the
+eyebrow's kind tabs show every kind with its count while they fit, else All and the selected kind with the rest under
+one "More" menu that lists each with its count (`OverflowTextTabs`, owner 2026-10-16 — never a truncated label); the
 questions alone at full width; a click narrows them to the triage column and opens the question as C's focus card;
 "Show in conversation" opens the Reader as the third column. Widths are units (÷ uiScale); the list hides before the
 question drops under 440, and when neither the question's 440 nor the Reader's 360 fits they share the width, so
