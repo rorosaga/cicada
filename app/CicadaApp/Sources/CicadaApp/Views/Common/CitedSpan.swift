@@ -83,6 +83,9 @@ struct CitedSpanRenderer: TextRenderer {
     let underline: Color
     /// DR-61 — 0 → 1 over `spanReveal`; animatable so the wash fades rather than pops.
     var reveal: Double = 1
+    /// False in `CitedPassage`'s wash layer: the washes and the underline only, under a selectable copy that draws
+    /// the words. A selectable `Text` never reaches a `TextRenderer` (2026-10-16, `CitedPassageTests`).
+    var drawsText = true
 
     var animatableData: Double {
         get { reveal }
@@ -107,15 +110,63 @@ struct CitedSpanRenderer: TextRenderer {
                         ctx.fill(Path(CitedSpan.underlineRect(for: bounds)), with: .color(underline.opacity(reveal)))
                     }
                 }
-                ctx.draw(run)
+                if drawsText { ctx.draw(run) }
             }
         }
     }
 }
 
+/// A cited passage that can be selected (DR-18, DR-31): the words in a selectable `Text`, the washes and the
+/// underline drawn by `CitedSpanRenderer` in a second, identical copy laid out behind it.
+///
+/// Why two copies (QA 2026-10-16, "1 of 3 cited here" with nothing washed): on macOS a `Text` with
+/// `.textSelection(.enabled)` is drawn by the selectable-text path and never reaches a `TextRenderer`, so
+/// `.citedSpans()` on a selectable passage drew nothing at all — in the Reader and in the Inbox's quote alike. The
+/// copy behind gets the same segments, font, line spacing and width, so its runs fall exactly under the words; it
+/// draws no glyph (`drawsText: false`), is not hit-tested and is hidden from VoiceOver, so selection, copying and
+/// what VoiceOver reads are the front copy's alone.
+struct CitedPassage: View {
+    let segments: [CitedSpan.Segment]
+    var font: Font = CicadaTheme.quoteFont
+    var lineSpacing: CGFloat = CicadaTheme.quoteLineSpacing
+    var color: Color = CicadaTheme.textPrimary
+    /// DR-61 — 0 → 1 over `spanReveal`.
+    var reveal: Double = 1
+
+    var body: some View {
+        if #available(macOS 15, *) {
+            laidOut(CitedSpan.text(segments))
+                .foregroundStyle(color)
+                .textSelection(.enabled)
+                .background(alignment: .topLeading) {
+                    laidOut(CitedSpan.text(segments))
+                        .textRenderer(CitedSpanRenderer(wash: CicadaTheme.wash, washSoft: CicadaTheme.washSoft,
+                                                        underline: CicadaTheme.accent, reveal: reveal,
+                                                        drawsText: false))
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+        } else {
+            // macOS 14: the fallback string carries its own fill and underline colour, selectable as it is.
+            laidOut(Text(CitedSpan.fallback(segments, reveal: reveal)))
+                .foregroundStyle(color)
+                .textSelection(.enabled)
+        }
+    }
+
+    /// The one layout both copies share.
+    private func laidOut(_ text: Text) -> some View {
+        text.font(font)
+            .lineSpacing(lineSpacing)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
 extension View {
     /// Draws `CitedSpan.text(_:)`'s tagged runs (macOS 15+); a no-op on 14, where the fallback
-    /// string already carries its marks.
+    /// string already carries its marks. **Never on selectable text** — a selectable `Text` skips the renderer, so
+    /// nothing would be washed; a selectable passage is a `CitedPassage`.
     @ViewBuilder
     func citedSpans(reveal: Double = 1) -> some View {
         if #available(macOS 15, *) {
