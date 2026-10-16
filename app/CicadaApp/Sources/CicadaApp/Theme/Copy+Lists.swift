@@ -74,6 +74,8 @@ extension Copy {
         static func savedOn(_ day: String) -> String { "Saved \(day)" }
         static func savedRow(_ day: String) -> String { "saved \(day)" }
         static func relevanceLine(_ pct: String) -> String { "relevance \(pct)" }
+        /// A Saved row's relevance with its noun (DR-59: never a bare "%"; the rows read "90%", QA 2026-10-16).
+        static func relevanceShort(_ pct: String) -> String { "\(pct) relevant" }
         static func noFeedMatch(_ q: String) -> String { "Nothing saved matches “\(q)”." }
         static func openInClusters(_ name: String) -> String { "Open \(name) in Clusters" }
         static func sourceHelp(_ origin: String) -> String { "Saved from \(origin)" }
