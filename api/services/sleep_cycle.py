@@ -1584,7 +1584,9 @@ async def _run_batch(
         if batch.ds is not None:
             sleep_drain.register_batch(batch_cycle_id, batch.ds)   # its calls count toward the drain
     try:
-        with agent_engine.use_scope(f"sleep:{batch_cycle_id}"):
+        # One batch's page reads are served from a stat-checked cache (2026-10-16 perf): freed when the batch ends,
+        # dropped on every write and on every admitted writer's release (`markdown_parser.page_cache`).
+        with agent_engine.use_scope(f"sleep:{batch_cycle_id}"), markdown_parser.page_cache(memory_path):
             try:
                 outcome = await _run_stages(
                     settings, batch_cycle_id, memory_path, user_triggered=user_triggered,

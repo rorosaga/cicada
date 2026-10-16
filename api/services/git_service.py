@@ -538,7 +538,20 @@ def run_git_write_sync(memory_path, *args: str) -> str:
             cut = args.index("--") + 1
             rev = [a for a in args[1:cut - 1] if not a.startswith("-")]
             args = (*args[:cut], *_with_tracked_ledgers(memory_path, list(args[cut:]), rev[0] if rev else None))
-        return _git_sync(memory_path, *args)
+        try:
+            return _git_sync(memory_path, *args)
+        finally:
+            if args and args[0] in _TREE_WRITERS:
+                # Git rewrote working-tree files behind the parser's back: an open Sleep batch's page cache of this
+                # bank starts over (`markdown_parser.page_cache`), stamps or no stamps.
+                from api.services import markdown_parser
+
+                markdown_parser.invalidate_pages(memory_path)
+
+
+#: Write subcommands that can change a working-tree file (``add``, ``commit``, ``update-index`` and ``update-ref`` never
+#: touch one).
+_TREE_WRITERS = WRITE_SUBCOMMANDS - {"add", "commit", "update-index", "update-ref"}
 
 
 #: The commit identity a bank falls back to on a machine with none configured (G181): a fresh Linux server has no

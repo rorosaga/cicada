@@ -345,8 +345,9 @@ def stored_sitting(entry: episode_staging.IndexEntry) -> Sitting | None:
     keys = entry.fm.get("message_keys")
     if not isinstance(keys, list):
         return None
-    body = markdown_parser.parse(entry.path).body
-    stamps = evidence.turn_stamps(entry.fm)
+    parsed = markdown_parser.parse(entry.path)   # the sidecar is the file's, never the header cache's
+    body = parsed.body
+    stamps = evidence.turn_stamps(parsed.frontmatter)
     lines = body.split("\n") if body else []
     if len(lines) != len(keys):
         return None

@@ -206,7 +206,7 @@ def test_synthesis_names_the_owner_too(tmp_path, monkeypatch):
     seen: list[str] = []
 
     async def fake(**kw):
-        seen.append(kw["messages"][0]["content"])
+        seen.append("\n\n".join(m["content"] for m in kw["messages"]))
         return _resp("Merged body.")
 
     monkeypatch.setattr(conflict_resolver.litellm, "acompletion", fake)

@@ -19,6 +19,10 @@ path, its counts and the index's state need the token (owner decision 3, 2026-10
 on the tailnet could otherwise read the server's account name from the path; `auth.bearer_admits`; the CLI's 21a probe,
 `doctor.sh` and the app send it). Tailscale's identity headers are not a substitute for it: tagged devices get none, and anyone
 the device is shared with gets them.
+Responses to another machine are gzipped at level 1 (`/graph` ~11× smaller); the app on the server's own Mac is
+answered uncompressed. Who counts as another machine — a non-loopback peer, a forwarded request, a device token — and
+why ETags are unaffected is in [`api.md`](api.md) ("Compressed only for another machine"); the headers only choose
+compression, never access.
 
 ## Install
 

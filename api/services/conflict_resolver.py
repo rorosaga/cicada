@@ -1327,9 +1327,27 @@ def _max_date(left: str | None, right: str | None) -> str | None:
     return max(candidates) if candidates else None
 
 
-_SYNTHESIS_PROMPT = """You are updating an entity page in a personal knowledge graph.
+# The merge prompt in two messages (2026-10-16 perf): the fixed rules as the system message — the same bytes every
+# call, so an engine's prompt cache serves them — and the page and its new information as the user message.
+# Every line of the one prompt it replaces is in one of the two, in its order within each.
+_SYNTHESIS_RULES = """You are updating an entity page in a personal knowledge graph.
 
-ENTITY: {entity_name} (type: {entity_type})
+INSTRUCTIONS:
+1. Merge the new information into the existing page body. The page reads like a short wiki article about this thing as it figures in the person's life.
+2. The body is markdown sections in this order: `## Summary`, `## Key Facts`, `## History`, `## Links`, `## Open Questions`. Leave out `## Related` (code rebuilds it). Keep any other section exactly as it is.
+3. `## Summary`: one paragraph, 1-3 sentences, at most 600 characters: what it is, what it is to the person (built it, uses it, works with them, is deciding about it) and where it stands as of the latest dated information. Introduce the thing once: never a second sentence that says again what it is. Resolve contradictions by preferring the information with the LATER DATE (under DATES) — not whichever was read last. When the new information is dated earlier than the existing page, it never replaces the page's later statements. Details belong in `## Key Facts`, not in `## Summary`.
+4. `## Key Facts`: keep every existing bullet as written. Add a fact from the new information only when no existing bullet already says it, in any words; one fact per bullet, never two bullets for one fact. Never a bullet about the conversation itself ("was mentioned", "asked about").
+5. `## History`: add new dated entries in chronological order. Do not duplicate existing entries. If a new fact contradicts an older fact, the Summary takes the latest dated state and the earlier fact becomes a history bullet (e.g., "2026-03-15: Previously used Postgres, switched to SQLite").
+6. Preserve every wikilink ([[Entity Name]]) that appears in the existing body.
+7. Preserve specific details — dates, names, numbers.
+8. If the new information implies a change over time but the extraction did not provide an explicit dated history entry, you may use the source episode date as the fallback date for that change.
+9. Write as of when things were said, never as of today. A statement known only from conversations dated more than 90 days before today names its month and year ("In February 2025, …") and is never presented as current. Plans, intentions and states of mind ("considering", "planning", "interested in", "wants", "hopes") always name the month and year they were stated. Keep every date already written on the page. Never write "currently", "now", "recently", "this week" or "soon".
+
+SUMMARY LENGTH (by entity type): skill 1 sentence; person, tool, concept, location 1-2 sentences; project, company 2-3 sentences.
+
+Output ONLY the updated markdown body. Do not include YAML frontmatter, do not wrap in code fences, do not add commentary."""
+
+_SYNTHESIS_INPUT = """ENTITY: {entity_name} (type: {entity_type})
 
 EXISTING PAGE BODY:
 {existing_body}
@@ -1342,22 +1360,7 @@ Source episode date: {source_reference_date}
 DATES (when things were said, and when this is being written):
 Today: {today}
 The existing page was last mentioned in a conversation dated: {page_last_referenced}
-The new information comes from conversation(s) dated: {source_dates}
-
-INSTRUCTIONS:
-1. Merge the new information into the existing page body. The page reads like a short wiki article about this thing as it figures in the person's life.
-2. The body is markdown sections in this order: `## Summary`, `## Key Facts`, `## History`, `## Links`, `## Open Questions`. Leave out `## Related` (code rebuilds it). Keep any other section exactly as it is.
-3. `## Summary`: one paragraph, 1-3 sentences, at most 600 characters: what it is, what it is to the person (built it, uses it, works with them, is deciding about it) and where it stands as of the latest dated information. Introduce the thing once: never a second sentence that says again what it is. Resolve contradictions by preferring the information with the LATER DATE above — not whichever was read last. When the new information is dated earlier than the existing page, it never replaces the page's later statements. Details belong in `## Key Facts`, not in `## Summary`.
-4. `## Key Facts`: keep every existing bullet as written. Add a fact from the new information only when no existing bullet already says it, in any words; one fact per bullet, never two bullets for one fact. Never a bullet about the conversation itself ("was mentioned", "asked about").
-5. `## History`: add new dated entries in chronological order. Do not duplicate existing entries. If a new fact contradicts an older fact, the Summary takes the latest dated state and the earlier fact becomes a history bullet (e.g., "2026-03-15: Previously used Postgres, switched to SQLite").
-6. Preserve every wikilink ([[Entity Name]]) that appears in the existing body.
-7. Preserve specific details — dates, names, numbers.
-8. If the new information implies a change over time but the extraction did not provide an explicit dated history entry, you may use the source episode date as the fallback date for that change.
-9. Write as of when things were said, never as of today. A statement known only from conversations dated more than 90 days before today names its month and year ("In February 2025, …") and is never presented as current. Plans, intentions and states of mind ("considering", "planning", "interested in", "wants", "hopes") always name the month and year they were stated. Keep every date already written on the page. Never write "currently", "now", "recently", "this week" or "soon".
-
-SUMMARY LENGTH (by entity type): skill 1 sentence; person, tool, concept, location 1-2 sentences; project, company 2-3 sentences.
-
-Output ONLY the updated markdown body. Do not include YAML frontmatter, do not wrap in code fences, do not add commentary."""
+The new information comes from conversation(s) dated: {source_dates}"""
 
 
 def _owner_line(name: str | None) -> str:
@@ -1435,7 +1438,7 @@ async def _synthesize_entity_update(
     if not existing_body.strip() and not new_description.strip():
         return None
 
-    prompt = _SYNTHESIS_PROMPT.format(
+    prompt = _SYNTHESIS_INPUT.format(
         entity_name=entity_name,
         entity_type=entity_type,
         existing_body=existing_body[:6000] or "(empty)",
@@ -1461,7 +1464,7 @@ async def _synthesize_entity_update(
         completion=completion, stage="merge",
     )
     response = await llm_fn(
-        messages=[{"role": "user", "content": prompt}],
+        messages=[{"role": "system", "content": _SYNTHESIS_RULES}, {"role": "user", "content": prompt}],
     )
     body = response.choices[0].message.content or ""
     body = body.strip()
@@ -1479,13 +1482,29 @@ async def _synthesize_entity_update(
 # from; and interpolating a real owner would prime the extractor with a person
 # who has nothing to do with the entity it is judging — on a shared or demo
 # bank, with somebody else's name.
-_CONTRADICTION_PROMPT = """You are checking whether two descriptions of the same entity contain an unresolvable contradiction.
+# The contradiction check in two messages (2026-10-16 perf), as `_SYNTHESIS_RULES`: the fixed definition and answer
+# shape as the system message, today and the two descriptions as the user message.
+_CONTRADICTION_RULES = """You are checking whether two descriptions of the same entity contain an unresolvable contradiction.
 
 A contradiction is unresolvable when newer information alone does not make it obvious which statement is currently true. For example: two different stacks mentioned across two conversations with no date cue, or two different roles for the same person.
 
 "Newer" means said on a later date (below), not read later: a description from an earlier conversation does not replace a later one, and two statements made months apart can both have been true at their own dates.
 
-TODAY: {today}
+Respond with JSON only:
+{
+  "has_unresolvable_contradiction": true | false,
+  "contradiction": "one-sentence description of the contradiction, or empty",
+  "question": "ONE short question, in the user's voice, that resolves it (e.g. 'Where does the owner work now?'). Empty when there is no contradiction.",
+  "options": [
+    {"label": "the existing claim, 1-4 words", "description": "one short clause saying where this came from and when"},
+    {"label": "the new claim, 1-4 words", "description": "one short clause saying where this came from and when"},
+    {"label": "Both are true (different contexts)", "description": "Keep both, each tagged with its context"}
+  ]
+}
+
+If there is no contradiction, set has_unresolvable_contradiction to false, question to "", and options to []."""
+
+_CONTRADICTION_INPUT = """TODAY: {today}
 
 ENTITY: {entity_name}
 
@@ -1493,21 +1512,7 @@ EXISTING DESCRIPTION (last mentioned in a conversation dated {existing_as_of}):
 {existing_body}
 
 NEW DESCRIPTION (from conversation(s) dated {new_as_of}):
-{new_description}
-
-Respond with JSON only:
-{{
-  "has_unresolvable_contradiction": true | false,
-  "contradiction": "one-sentence description of the contradiction, or empty",
-  "question": "ONE short question, in the user's voice, that resolves it (e.g. 'Where does the owner work now?'). Empty when there is no contradiction.",
-  "options": [
-    {{"label": "the existing claim, 1-4 words", "description": "one short clause saying where this came from and when"}},
-    {{"label": "the new claim, 1-4 words", "description": "one short clause saying where this came from and when"}},
-    {{"label": "Both are true (different contexts)", "description": "Keep both, each tagged with its context"}}
-  ]
-}}
-
-If there is no contradiction, set has_unresolvable_contradiction to false, question to "", and options to []."""
+{new_description}"""
 
 
 _BOTH_OPTION = {
@@ -1572,7 +1577,7 @@ async def _detect_contradiction(
     G194 A1: both descriptions carry the day they were said, and the prompt carries today."""
     from api.services.claims import strip_claims_block
 
-    prompt = _CONTRADICTION_PROMPT.format(
+    prompt = _CONTRADICTION_INPUT.format(
         entity_name=entity_name,
         existing_body=strip_claims_block(existing_body)[:4000],
         new_description=new_description[:2000],
@@ -1586,7 +1591,8 @@ async def _detect_contradiction(
         completion=completion, stage="conflict",
     )
     response = await llm_fn(
-        messages=[{"role": "user", "content": prompt}],
+        messages=[{"role": "system", "content": _CONTRADICTION_RULES},
+                  {"role": "user", "content": prompt}],
         response_format={"type": "json_object"},
     )
     raw = response.choices[0].message.content

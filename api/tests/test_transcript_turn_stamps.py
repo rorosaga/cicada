@@ -141,4 +141,7 @@ def test_the_turns_key_has_one_shape_owner_and_one_reader():
     # Round 4 C1: `agent_turns.stamps` is the tolerant reader of the two agent
     # keys (model/effort). It reads a non-list as no stamps, so "nothing reads a
     # count" still holds; `evidence.turn_stamps` stays the reader of ts/speaker.
-    assert found == {"episode_staging.py", "evidence.py", "transcript_capture.py", "agent_turns.py"}
+    # 2026-10-16 perf: `markdown_parser.header` and `bank_index` name the key only to leave the sidecar out of the
+    # cached header and hand it back whole (`bank_index.with_turns`); neither reads a count.
+    assert found == {"episode_staging.py", "evidence.py", "transcript_capture.py", "agent_turns.py",
+                     "markdown_parser.py", "bank_index.py"}

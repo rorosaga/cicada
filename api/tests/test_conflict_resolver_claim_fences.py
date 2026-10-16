@@ -61,7 +61,7 @@ def test_synthesis_prompt_strips_fences_before_prose_budget(monkeypatch):
 
     def resolve(*args, **kwargs):
         async def complete(**call):
-            prompts.append(call["messages"][0]["content"])
+            prompts.append("\n\n".join(m["content"] for m in call["messages"]))
             return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="## Summary\nUpdated."))])
         return complete
 

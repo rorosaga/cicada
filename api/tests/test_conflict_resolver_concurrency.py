@@ -129,7 +129,7 @@ class _Engine:
 
     async def __call__(self, **kwargs):
         assert not self.closed, "a call started after Stage 3 returned"
-        prompt = kwargs["messages"][-1]["content"]
+        prompt = "\n\n".join(m["content"] for m in kwargs["messages"])
         self.prompts.append(prompt)
         self.inflight += 1
         self.peak = max(self.peak, self.inflight)
@@ -264,7 +264,7 @@ def test_the_earliest_pages_engine_error_is_the_one_raised(tmp_path, monkeypatch
     class _SlowFirst(_Engine):
         async def __call__(self, **kwargs):
             if not self.prompts:  # the first page's call comes back last
-                self.prompts.append(kwargs["messages"][-1]["content"])
+                self.prompts.append("\n\n".join(m["content"] for m in kwargs["messages"]))
                 self.inflight += 1
                 self.peak = max(self.peak, self.inflight)
                 try:

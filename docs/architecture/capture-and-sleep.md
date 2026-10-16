@@ -582,6 +582,27 @@ extractor keeps crosses the wire:
 
 **`Related` reads the edges once:** `apply_changes` builds each entity's edges from `graph_edges.yaml` on the first update that needs them and reuses them for every page that pass merges (nothing in the pass writes the file); every reader of that file uses `markdown_parser.load_yaml`, the libyaml safe loader. The file grows with the claims; on a 2,000-page synthetic bank one pure-Python read cost ~3.8 s and was paid once per merged entity (`benchmarks/scale`). The hot readers (`apply_changes`, `_write_graph_edges`, `graph_builder`'s regenerate, upsert and graph read) go through `markdown_parser.load_yaml_file`, which parses the file once per change of its (inode, mtime, size) and hands each caller a private copy; `write_yaml` leaves what it wrote there, so a read straight after another step's write is a copy, not a parse (2026-10-16: a batch parsed the ~5 MB owner-scale file ~5 times at ~1.1 s each; a 3-batch synthetic drain went 147 s → 120 s).
 
+**One batch's page reads come from a cache (2026-10-16, owner decision 1).** Every step of a batch re-reads the pages —
+~212k parses on a 3-batch owner-scale drain. `_run_batch` runs each batch inside `markdown_parser.page_cache(bank)`:
+a file under that bank unchanged since its last parse is served as a copy (the frontmatter a pickle round trip, so no
+caller edits another's), keyed on the file's (inode, mtime_ns, size) and, for a page whose claims overflow into a
+ledger, the ledger's stamp too. Every write through `markdown_parser` drops its path from every open cache first; an
+admitted writer's release (`write_admission`) empties the cache of its bank, whatever it wrote and however; a git
+command that rewrites working-tree files (`checkout`, `restore`, `reset`, `stash`…) starts it over. The cache is the
+batch's only — its task and the worker threads `asyncio.to_thread` starts — freed when the batch ends, never across
+banks. Synthetic owner-scale drain (3 × 25, fake engine): 113.1 → 99.8 s, YAML loads 212k → 57k, the pages written
+byte-identical.
+
+**Stage 3's and Stage 4's fixed rules are a system message (2026-10-16).** The merge (`_SYNTHESIS_RULES`), the
+contradiction check (`_CONTRADICTION_RULES`) and skill detection (`SKILL_DETECTION_RULES`) send their instructions as
+the system message — the same bytes on every call, so an engine's prompt cache serves them — and the page, the new
+information and the dates as the user message (`*_INPUT`). Every line of the one prompt each replaces is sent once, in
+its order within its message (`test_stage_prompt_split.py`); the one wording change is the merge rule's "the LATER
+DATE above", now "(under DATES)", since the dates arrive after it. Synthetic owner-scale batch (`sleep_tokens`): the
+share of each stage's prompt characters a prompt cache can serve went merge 1 → 45 %, conflict 16 → 37 % (skills is one
+call a batch: its 1k-character rules repeat across batches, not within one); ~22k characters (~5.5k tokens) of a
+batch's ~360k tokens become cacheable. A 3-batch fake-engine drain wrote byte-identical pages before and after.
+
 **The claim write-back renders only changed pages:** `run_claim_pipeline` keeps each page's claims as read (by value — the reconciler edits claims in place) and skips the parse/render/write of every page whose reconciled claims equal them and that gains no episode credit; such a page still counts as written. On a 2,000-page synthetic bank ~1,940 of 2,006 renders per batch were byte-identical (8 s).
 
 **The question refresh reads only what it asks about:** Stage 5.56's `refresh_open_questions` (and its idle-cycle twin) gets `claim_pipeline.claims_on_demand`, which parses a subject's page the first time an open conflict question names it, instead of every page's claims (a full-bank pass a batch).
