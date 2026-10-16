@@ -255,12 +255,18 @@ struct MessagesConversationRow: View {
 }
 
 enum MessagesConversationText {
-    /// The pill beside a name: who the person said it is, or the detectors' confident suggestion.
+    /// The pill beside a name: who the person said it is, or the detectors' confident suggestion. The person's own
+    /// mark (`marked`) is the answer whenever there is one — "· suggested" is only ever a detector's own answer.
     static func tag(_ state: MessagesConversationState?) -> String? {
         guard let state else { return nil }
+        switch state.markedKind {
+        case "agent"?: return Copy.Messages.agentTag
+        case "person"?: return Copy.Messages.personTag
+        default: break
+        }
         switch (state.actor.kind, state.actor.decidedBy) {
         case ("agent", "person"): return Copy.Messages.agentTag
-        case ("agent", _): return Copy.Messages.agentTagSuggested
+        case ("agent", "detector"): return Copy.Messages.agentTagSuggested
         case ("person", "person"): return Copy.Messages.personTag
         default: return nil
         }

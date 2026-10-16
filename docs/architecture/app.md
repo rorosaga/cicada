@@ -340,7 +340,9 @@ is a `SettingsSheet` (`MessagesPanel`): one sentence on what Cicada reads and wh
 who is who, then each one-to-one conversation (`MessagesConversationRow`) — the contact's Contacts photo (else a
 person's monogram, `EntityPictureFallback`), name (the contact's when Contacts is allowed, else the chat's own, else
 the handle — shown in the app only, never sent), last activity and message count, a pill for who it is with ("AI
-agent", "AI agent · suggested", "A person"), *Is <name> an AI agent?* with Yes/No when the detectors are unsure, a menu
+agent", "AI agent · suggested", "A person" — the person's own mark, `marked`, wins; "· suggested" only for a
+detector's own answer; the free-form `actor` block keeps the backend's `decided_by`, which the app reads in either
+spelling), *Is <name> an AI agent?* with Yes/No when the detectors are unsure, a menu
 (This is an AI agent · This is a person · Let Cicada suggest) and the tick. `MessagesWatcher` (environment, started
 on launch, `bankChanged` on a switch) owns the list, the per-memory ROWID cursors (`cicada.messages.cursor.<bank>.<id>`
 in UserDefaults), the FSEvents watch on `~/Library/Messages` and the waiting bubbles; `MessagesReader` is the one SQL
