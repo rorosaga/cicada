@@ -30,6 +30,24 @@ final class FindSnippetCleanTests: XCTestCase {
         XCTAssertEqual(out.bold, ["Leo"])
     }
 
+    /// Markup goes, words stay: code keeps its text (only the backticks go), and a literal "#", "C#", "2**3" or a
+    /// "#tag" at a line start is never taken for markup.
+    func testLegitimateTextSurvives() {
+        let raw = "use `git log` for #42 in C#, and 2**3 is 8"
+        let out = parts(ExcerptText.cleanAttributed(raw, bold: [[18, 21]]))
+        XCTAssertEqual(out.text, "use git log for #42 in C#, and 2**3 is 8")
+        XCTAssertEqual(out.bold, ["#42"])
+        XCTAssertEqual(parts(ExcerptText.cleanAttributed("#launch day notes", bold: [])).text, "#launch day notes")
+    }
+
+    /// The snippet is drawn as literal text: a markdown link or HTML in it is never parsed into a link or markup.
+    func testASnippetIsNeverParsedAsMarkdownOrHTML() {
+        let raw = "see [here](https://example.com) and <b>this</b>"
+        let attributed = ExcerptText.cleanAttributed(raw, bold: [])
+        XCTAssertEqual(String(attributed.characters), raw)
+        XCTAssertTrue(attributed.runs.allSatisfy { $0.link == nil })
+    }
+
     func testAnOutOfRangeOffsetIsIgnored() {
         let out = parts(ExcerptText.cleanAttributed("plain words", bold: [[3, 99], [-1, 2], [5, 5]]))
         XCTAssertEqual(out.text, "plain words")

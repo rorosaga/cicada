@@ -43,9 +43,6 @@ extension ExcerptText {
         }
     }
 
-    /// `keepLines: false` is a quote's (the focus card, "Where this came from", a chip's preview): list markers and
-    /// numbering go. `true` is the Reader's, which keeps a turn's lines: a bullet is drawn "•" and numbering stays,
-    /// because a numbered list's order is words, not markup.
     /// A search snippet as clean words (DR-56): markup and role labels stripped, the server's bold ranges mapped
     /// through the same cut. The ⌘K palette printed `user: …`, `# Lunch with …` and `**Attendees:**` raw
     /// (QA 2026-10-16).
@@ -60,6 +57,9 @@ extension ExcerptText {
         return attributed(stripped.text, bold: mapped)
     }
 
+    /// `keepLines: false` is a quote's (the focus card, "Where this came from", a chip's preview): list markers and
+    /// numbering go. `true` is the Reader's, which keeps a turn's lines: a bullet is drawn "•" and numbering stays,
+    /// because a numbered list's order is words, not markup.
     static func stripMarkup(_ raw: String, keepLines: Bool) -> Stripped {
         let s = Array(raw.unicodeScalars)
         var drop = [Bool](repeating: false, count: s.count)
