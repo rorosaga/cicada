@@ -151,8 +151,11 @@ is** (owner, 2026-10-16, his own example "Is <tool-a> an agent harness or an AI 
 multi-valued; one option settles only when the page rules the others out (Sleep's answer must say
 `others_ruled_out: true`), the item's own `both` option when the page says it is all of them — one cited claim per
 option, nothing closed — and never an option the item does not have. **What leaves the machine:** the search query is the
-subject's name plus generic category words from a fixed list (`web_settle.query_for`); no conversation text, no other
-name from the bank. **The person's own agent:** `cicada_check_nudges` adds `Public: look it up on the web (search only
+subject's name plus at most one generic category word from a fixed list, read from Cicada's own description, none on a
+type question and none when unsure (`web_settle.query_for`); nothing else. **What the model may read (ruling 27a,
+owner 2026-10-16: "Yes, use local context"):** Sleep's lookup prompt carries `web_settle.local_context` — the
+description and up to two mention lines, ≤ 600 characters, scrubbed, no one's name, no link or path — only to judge
+which search result is the thing the person meant; it never enters the query (capture-and-sleep.md). **The person's own agent:** `cicada_check_nudges` adds `Public: look it up on the web (search only
 "<query>"), then settle it — cicada_record_check(item_id, source=<the page>, outcome="settles", option_key|proposed_value,
 quotes=[{quote}])` for such a question; `outcome="settles"` writes one cited claim (`web_settle.settle`: a `web-check`
 episode holding the link and the quote as a `page`-kind span, the claim observer `agent`, `source_trust: external`,

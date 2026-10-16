@@ -78,6 +78,14 @@
   this source. The answer is a citation on its claim only, never a tracked source. Tests: `test_web_settle.py`,
   `SettledChecksTests`. Pick up: review; then a person-started run on a copy of the real bank, reading the settled list
   and the `web_check` counts (ids only) before merging.
+- **2026-10-16 — the web lookup reads local context (ruling 27a, G61; branch `fix/web-lookup-context`, not merged).** The
+  first real run settled 0 of 8 (all unsure: an ambiguous name, a wrong category word). The prompt now carries
+  `web_settle.local_context` (≤ 600 characters: Cicada's description, up to two mention lines, scrubbed, no one's name,
+  no path) to pick the right result; the query is the name plus at most one category word from the description (none on
+  a type question); clarifications first, conflicts with a mention line next. `api/scripts/web_check_dry_run.py --bank
+  <path> --limit N [--include-recent]` runs the real engine and prints counts only, writing nothing. Pick up: the
+  coordinator runs the dry run on the owner's bank (with `--include-recent` to re-measure the first eight) before
+  merging.
 - **2026-10-16 — the Sleep page redesigned, the Feed folded into it (branch `feat/sleep-redesign`, not merged; owner
   approval 2026-10-16, ⌘ map A).** The "Sleep Cycle" title is gone (an eyebrow: "Sleep · 42 waiting · last read 2 h
   ago"); the room left its card and draws at a whole 5/4/3 pt per cell by the column's width; Details became the tabs
@@ -818,6 +826,22 @@ A whole row moves to DONE only after its remaining implementation and required a
     things a lookup answers, and the person was asked to look them up by hand.
     Revisit if an undo count on `web_check` rows (ids only) shows settles being taken back often, or if a settle is
     found to have searched or written something personal.
+    **27a — local context (owner, 2026-10-16: "Yes, use local context").** The model may read what Cicada already
+    knows about the subject — its page's one-line description and up to two lines where it was mentioned (the item's
+    conversation, its option claims' evidence), ≤ 600 characters, scrubbed as every writer scrubs, people's names,
+    links, addresses, handles and paths taken out (`web_settle.local_context`) — **to judge which search result is the
+    right one**. The search query stays the subject's name plus at most ONE generic category word, checked word for
+    word (any other query settles nothing); the word comes from Cicada's own description, never from the page's type
+    alone, never on a question about what the thing is, never one an option label carries — a bare name when unsure.
+    Clarifications are looked up before conflicts; conflicts with a mention line before those without. **Why.** The
+    first person-started run looked up 8 questions: 8 searched the pinned query, 0 settled, all unsure; a replay with no
+    writes found 69 eligible (31 type conflicts, 1 other conflict, 37 clarifications), three clarifications replayed
+    all unsure. The model saw only a name that also belongs to a restaurant, a town or a product, often with a wrong
+    category word, and was right to be unsure; only the person's context says which thing was meant. The same engine
+    already reads those conversations during Sleep, so the prompt sends nothing new anywhere and what reaches the
+    search provider is unchanged. Measure with `api/scripts/web_check_dry_run.py` (counts only, writes nothing).
+    Revisit if the dry run on the owner's bank still settles none, or if a prompt is found to have carried a person's
+    name or a path.
 28. **Headless clients (owner, 2026-10-16; G181 phase 2, amends the transcript rail and ruling 21a).** **1 — Per-device
     tokens.** A second device never gets the server's master token: each gets its own named, hashed, revocable token
     (`device_tokens`, the G135 store's shape kept apart). Issuing one is an act of the person — `cicada device add` on

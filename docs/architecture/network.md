@@ -17,7 +17,8 @@ Three backend gates, and a separate app-side scenery gate below. They do **not**
   404/410, a name or connection failure, a parking host or "for sale" title, or a landing on another site is a strike —
   two a week apart mark the source dead) — **the web check** (TODO ruling 27: `web_lookup.run_tail` sends no request of
   its own; the engine's search does, so the gate is asked before any engine call, and what reaches the search is only a
-  public subject's name plus generic category words, every reported search held to it — `capture-and-sleep.md`) — and
+  public subject's name plus at most one generic category word, every reported search held to it (the prompt's
+  local context, ruling 27a, is never searched) — `capture-and-sleep.md`) — and
   paper details (below). It is **opt-OUT** (on by default; `=off` disables it, which is what the test suite sets).
   A user-initiated `sync_now`, `POST /maintenance/enrich-links`, `POST /maintenance/verify-sites`, the person's
   "check now" on one source (`POST /entities/{id}/sources/refresh`; a login-walled source is only marked asked for

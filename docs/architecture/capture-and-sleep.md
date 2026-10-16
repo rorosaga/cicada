@@ -711,10 +711,23 @@ whose searches litellm reports with their query** (`web_lookup.SEARCH_REPORTED_P
 before any paid call, since its searches could never pass the pinned-query check; the ChatGPT plan and a local model
 get no search, so the step skips. Each call is an `llm_call` of stage `web_check` in the run's own scope (a
 drain's tagged with its `drain_id`), so Past reads counts it with its basis (ruling 12). **The pinned query:** the
-prompt carries the subject's name, the category words and a conflict's option labels — no conversation text, no other
-name — and every search the engine reports (the stream's `tool_use` blocks; a metered response's search tool calls) must
-be that query word for word, at most two; a call that searched anything else, or nothing, settles nothing
-(`query_strayed`). An unsure or uncited answer settles nothing either; a type question's single option without
+subject's name plus at most ONE category word from a fixed list, read from Cicada's own one-line description — never
+from the page's type alone, none on a question about what the thing is, none that an option label carries, a bare name
+when unsure (`web_settle.query_for`) — and every search the engine reports (the stream's `tool_use` blocks; a metered
+response's search tool calls) must be that query word for word, at most two; a call that searched anything else, or
+nothing, settles nothing (`query_strayed`). **The local context (ruling 27a, owner 2026-10-16: "Yes, use local
+context"):** the prompt also carries what Cicada knows about the subject, for the model to tell which result is the
+thing the person meant — `web_settle.local_context`: the description (left out of a type question, where it is one of
+the options) and up to two lines where the subject was mentioned (the item's conversation, then each option claim's
+evidence span or first mention, then the page's latest conversations), ≤ 600 characters, scrubbed
+(`episode_scrub`), links, addresses, handles and paths replaced, every person's name or alias in the bank (the owner's
+too, and a person held without a page) replaced by "someone" — whole words, any case, the full name and each word of it (a word of the subject's own name
+aside); each line is cleaned whole before it is cut, so a cut never leaves half a name or a code without its cue. It is never searched for; the same engine read those conversations during Sleep. **Order:**
+clarifications first, then conflicts with a mention line, then the rest — each by priority, then age
+(`web_lookup.select`). **The dry run:** `api/scripts/web_check_dry_run.py --bank <path> --limit N [--include-recent]`
+(`web_lookup.dry_run`) runs the person's engine, as a person-started run would, on the next N and prints counts only
+(eligible, looked up, would settle, prompts with mentions/description, bare-name queries, reasons by kind); it writes
+nothing — no settle, no memo, no ledger row (a no-op usage sink), no commit. An unsure or uncited answer settles nothing either; a type question's single option without
 `others_ruled_out: true` settles nothing (`not_exclusive`), and an option the item lacks never does (`no_option`). A question looked up and left open is not looked
 up again for 30 days (`$CICADA_HOME/web_check/<bank>.json`, ids and enums). A page or item someone left dirty waits. A
 plan limit stops the step (the rest waits for the next run); a drain stopped at the plan's limit skips it. One commit,
