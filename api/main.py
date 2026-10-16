@@ -93,13 +93,21 @@ logging.getLogger("openai").setLevel(logging.WARNING)
 _QUERY_PATHS = frozenset({"/search", "/conversations/recent"})
 
 
+def _is_callback(path: str) -> bool:
+    """An OAuth sign-in's landing (``/sources/connectors/<id>/callback``, ``/connections/<id>/callback/<nonce>``): its
+    query carries the authorization code, a credential — never logged (the credentials rail)."""
+    parts = path.split("/")
+    return (len(parts) == 5 and parts[1] == "sources" and parts[2] == "connectors" and parts[4] == "callback") or \
+        (len(parts) == 5 and parts[1] == "connections" and parts[3] == "callback")
+
+
 class _RedactQueryString(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         args = record.args
         # uvicorn's access record: (client, method, path?query, http_version, status)
         if isinstance(args, tuple) and len(args) == 5 and isinstance(args[2], str):
             path, sep, _query = args[2].partition("?")
-            if sep and path in _QUERY_PATHS:
+            if sep and (path in _QUERY_PATHS or _is_callback(path)):
                 record.args = (args[0], args[1], f"{path}?…", args[3], args[4])
         return True
 

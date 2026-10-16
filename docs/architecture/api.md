@@ -315,7 +315,8 @@ skill_folder`). Nothing is written into a bank: agent folders, and `$CICADA_HOME
   neighbours are ranked, never counted. An `indexState` other than `ready`/`stale` means entities and
   media only, from the frontmatter cache. No ETag: it is never a Store domain. Its query string (and
   `/conversations/recent`'s) is stripped from uvicorn's access log; a new query-bearing GET joins
-  `_QUERY_PATHS` in `api/main.py`.
+  `_QUERY_PATHS` in `api/main.py`. An OAuth callback's query (`/sources/connectors/<id>/callback`,
+  `/connections/<id>/callback/<nonce>`) is stripped too: its `code` is a credential (2026-10-16).
 - `POST /conversations/{id}/resume` returns a validated descriptor — **transcripts are never read,
   `isfile()` only**.
 - `POST /banks/demo` re-opens a demo bank that exists (200, never re-populated); a real bank that happens to be called
