@@ -808,3 +808,6 @@ A whole row moves to DONE only after its remaining implementation and required a
     master token's (1 unchanged). The device a request came from is bound for the request (`device_context`) and
     stamped on every new episode it causes, except Sleep's run, which clears it. The app's server setting is a file the
     hooks read too (`$CICADA_HOME/api_base`), so one switch moves the whole Mac; `CICADA_API_BASE` still wins.
+    Review (2026-10-16): the click writes `api_base.next`, moved into place at the next launch, so the agents never
+    switch before the app; a background service is stopped on a server (plist kept); a reader's newer post never
+    overtakes a waiting one on its route; provenance and Reader ETags carry `device1`.

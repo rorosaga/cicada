@@ -86,7 +86,8 @@ when it was last used; `cicada device revoke <id>` ends it at once. The master t
 leaves the server, and a device token can neither issue nor revoke one.
 
 **On the client** (the person's Mac, say), two settings and nothing else — set by the person, or (phase 3) by the
-app on the person's click in Settings → General, which writes `$CICADA_HOME/api_base` and `device_token`, both 0600:
+app on the person's click in Settings → General, which puts `$CICADA_HOME/api_base` in place when Cicada next opens
+and writes `device_token`, both 0600:
 
 - `CICADA_API_BASE` — the address the person's own overlay gives the server (`https://…` for any host; plain `http://`
   only to a loopback address, i.e. an SSH tunnel's local end). Set where the hooks, agents and shells inherit it.
@@ -117,22 +118,29 @@ edit a page.
 Settings → General → *Where your memory lives*: **This Mac** (as always) or **A server** — the address the person's
 overlay gives the server and this device's token from `cicada device add`. Nothing is written until the server
 answers: `GET /healthz` (open) proves it is Cicada, `GET /devices` with the token proves the token and names this
-device. Then the app writes `$CICADA_HOME/api_base` and `device_token` (0600) and offers *Restart Cicada*; the choice is
-used when Cicada opens again (`ServerConnection`, resolved once at launch like `CicadaRuntime`), so the Store, its disk
-cache (one per connection), the event stream and every reader switch together. `CICADA_API_BASE` in the app's
-environment wins and locks the choice. The same file makes this Mac's hooks, stdio MCP server and `cicada` command
-clients (`runtime_layout._raw_base`), so one switch moves the whole Mac. Choosing This Mac again removes the address
-and keeps the token.
+device. Then the app writes `device_token` and the address to `$CICADA_HOME/api_base.next` (0600) and offers *Restart
+Cicada*; at the next launch, before anything resolves, `ServerConnection.applyPending` moves it into `api_base` (or
+removes `api_base` for This Mac) and the app resolves once (`ServerConnection`, like `CicadaRuntime`), so the Store, its
+disk cache (one per connection), the event stream and every reader switch together. `CICADA_API_BASE` in the app's
+environment wins and locks the choice. `api_base` makes this Mac's hooks, stdio MCP server and `cicada` command clients
+(`runtime_layout._raw_base`, read on every call), which is why the click never writes it directly: the agents and the
+app switch at the same launch, never one before the other. A file that is not UTF-8 still makes the Mac a client with an
+invalid address (capture spools), never This Mac. Choosing This Mac again removes the address and keeps the token.
 
 On a server the app:
 
 - talks only to that address, with the device token (never the master token); an address that breaks the rule
   (https, or http to loopback only) sends every request to an unresolvable name — never falls back to this Mac's bank;
-- starts no backend of its own, offers no *Keep memory working* install and repairs no service after an update;
+- starts no backend of its own, offers no *Keep memory working* install and repairs no service after an update; a
+  background service left from This Mac is stopped at launch (`launchctl bootout`, plist kept, so This Mac again, the
+  next login or *Turn on* brings it back), so nothing keeps serving this Mac's bank while everything here points
+  elsewhere;
 - sends the readers' bytes (bookmarks, Safari tabs, Notes, watched folders, Calendar, Contacts, tab groups, YouTube
   history, Messages, Wispr Flow) to the server, and keeps a post the server did not take in `$CICADA_HOME/spool/app/`
   (`ReaderOutbox`: 0700/0600, named by route + memory + body hash, ≤ 200 posts / 64 MB / 7 days; no answer, 401/403,
-  409 and 5xx wait, 400/404/405/413/422 are dropped). It is flushed oldest first when the event stream connects again
+  409 and 5xx wait, 400/404/405/413/422 are dropped). A newer post on the same route and memory never overtakes one
+  that waits: those go first, and while one still cannot land the newer waits behind it (a snapshot replayed late would
+  put the server back to an older state). It is flushed oldest first when the event stream connects again
   (and by *Send now* on the Devices page); the readers keep their cursors and read again, so the outbox is the fast
   path and the server's dedup makes a resend harmless;
 - refuses the demo (`ServerLinkError.demoStaysLocal`, before any request): a demo is a This Mac thing.

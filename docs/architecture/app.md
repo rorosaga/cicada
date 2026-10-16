@@ -175,15 +175,17 @@ Cicada is closed (`BackendAgentService`: a read-only `launchctl print`, and Inst
 launchd the port). **Where your memory lives** (G181 phase 3, its own card before *When Cicada is closed*;
 `MemoryHomeSetting`, `ConnectionSettingsModel`): *This Mac* or *A server* — an address (https, or http to a loopback
 tunnel) and this device's token from `cicada device add`. *Check and use* writes nothing until `ServerProbe` hears the
-server (`/healthz` open, then `/devices` with the token, which names this device); then `$CICADA_HOME/api_base` and
-`device_token` (0600) and *Restart Cicada* (`AppRelaunch`, waits while Sleep runs, DR-41). `ServerConnection` is
-resolved once at launch: `APIClient`'s one base and token, the Store's disk cache (`Cicada/cache` + a per-server
+server (`/healthz` open, then `/devices` with the token, which names this device); then `device_token` and
+`$CICADA_HOME/api_base.next` (0600) and *Restart Cicada* (`AppRelaunch`, waits while Sleep runs, DR-41). At launch
+`ServerConnection.applyPending` puts the choice into `api_base` — the file the hooks, MCP and CLI read — before
+`ServerConnection` is resolved once, so the agents and the app switch together: `APIClient`'s one base and token, the Store's disk cache (`Cicada/cache` + a per-server
 suffix), the pictures/logos stores and every reader's cursor or last-synced signature (`ServerConnection.scoped`) are
 per connection, so a server is sent what it has not had and This Mac's keys are unchanged byte for byte. On a server
-the app starts no backend, *Keep memory working* says it is not needed, an update repairs no service, the demo is
+the app starts no backend, stops a background service left from This Mac (`BackendAgentService.stopForServer`:
+`launchctl bootout`, plist kept), *Keep memory working* says it is not needed, an update repairs no service, the demo is
 refused before any request (`ServerLinkError.demoStaysLocal`), and Advanced's token row names `device_token`; a reader's
-post the server did not take waits in `ReaderOutbox` (`$CICADA_HOME/spool/app/`) and is flushed when the event stream
-connects (`headless.md`, "The Mac app as a client"). **Settings → Devices** (`DevicesSettingsView`,
+post the server did not take waits in `ReaderOutbox` (`$CICADA_HOME/spool/app/`; a newer post on its route waits
+behind it, never overtakes it) and is flushed when the event stream connects (`headless.md`, "The Mac app as a client"). **Settings → Devices** (`DevicesSettingsView`,
 `DevicesPageModel`; not a Store domain): *This app* — where the memory lives, reachable or not as of when (DR-58),
 captures waiting with *Send now* — and *Your devices* (name, added, last seen, *this Mac*; Add a device with its
 token shown once and Revoke on This Mac only, the server's two commands named on a client). Where memory came from is
