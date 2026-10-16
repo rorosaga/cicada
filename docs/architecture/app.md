@@ -1392,7 +1392,9 @@ reading your memory", the link in `.help`) with two compact `NeutralButton`s: Un
 at once and comes back with a sentence if the server refuses; on success the Inbox refreshes and the question is back)
 and, for a public citation on a subject with a page, Track this source (`SettledChecks.track` → the person's own
 `addEntitySource`, then "Tracked", disabled). `SettledChecks` is in memory, not a Store domain: loaded when the Inbox
-appears and whenever its questions change (`SettledChecksAPI`, faked in `SettledChecksTests`). A
+appears, on a bank switch and whenever its questions change (`SettledChecksAPI`, faked in `SettledChecksTests`). Its
+rows are per memory (their ids are inbox ids, which repeat across banks): another bank's read starts empty, and Undo
+and Track name the bank the row was read in (G183(d)), so a row left on screen across a switch is refused. A
 `page_edit` item (G198, an agent's proposed change to a page's words or aliases) is `InboxKind.pageEdit` ("Page edit",
 `pencil`, clarification's hue in both palettes — no new hue, DR-8) and renders as an options card (`apply` / `dismiss`
 from the server, Not now); `InboxBodyPreview` draws its `body` — "Why: …" and the changes as "- Replace “old” with
