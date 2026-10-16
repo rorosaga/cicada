@@ -50,6 +50,8 @@ GATED = {
     ("POST", "/sources/messages/sync"): "/sources/messages/sync",
     ("PUT", "/sources/messages/settings"): "/sources/messages/settings",
     ("POST", "/sources/messages/conversations"): "/sources/messages/conversations",
+    # 2026-10-16: a ticked chat's shared photo — outside the bank, but a demo bank ticks no chat.
+    ("PUT", "/sources/messages/photos"): "/sources/messages/photos",
     # A connector id no adapter has: were the gate missing, the handler 404s
     # before any adapter could reach the network (sync_now passes allow_fetch=True).
     ("POST", "/sources/connectors/{connector_id}/sync"): "/sources/connectors/no-such-connector/sync",

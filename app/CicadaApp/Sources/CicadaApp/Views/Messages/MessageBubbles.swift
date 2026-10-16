@@ -63,6 +63,8 @@ enum MessageBubbles {
         if let contacts, !contacts.isEmpty { return .photo(contacts) }
         if let page, page.source == .contacts, let url = PictureURL.parse(page.url) { return .picture(url) }
         if let shared, !shared.isEmpty { return .photo(shared) }
+        // The same photo, from the server's copy (2026-10-16), before this session has looked it up.
+        if let page, page.source == .messages, let url = PictureURL.parse(page.url) { return .picture(url) }
         return .monogram
     }
 

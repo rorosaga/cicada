@@ -399,11 +399,16 @@ the monogram they chose; the page is the one `GET /sources/messages/waiting` lin
 page found by its decided record, never a page that merely shares the chat's name; loaded from Cicada's own picture
 store) → the chat's Contacts photo (the card on this Mac, else the page's own Contacts rung) → **the photo the chat
 shares in Messages** ("Share Name and Photo": `MessagesSharedPhotos` reads `~/Library/Messages/NickNameCache/` only
-for the handles of ticked conversations, once per chat per session — `handledNicknamesKeyStore.db` copied with its
+for the handles of every ticked conversation, at most once an hour per chat (after each read pass) —
+`handledNicknamesKeyStore.db` copied with its
 `-wal`/`-shm` into a private temporary folder and queried there, so Messages' files are never written or locked; the
 record's keyed archive read as a property list, never unarchived; the `…-ad` avatar file used only as a regular file
-directly in that folder, ≤ 8 MB, made ≤ 128 px; the bytes stay in `MessagesWatcher.sharedPhotos`, in memory, never
-posted or written to a bank; unticking forgets it) → a monogram (`MessageBubbleFace`: the face
+directly in that folder, ≤ 8 MB, made ≤ 128 px; the bytes stay in `MessagesWatcher.sharedPhotos` for the bubbles and,
+when they changed since the last post, go to `PUT /sources/messages/photos` (2026-10-16), which keeps them outside every
+bank and draws them at the chat's page everywhere — the `messages` picture rung, `storage.md`; a chat that stopped
+sharing is posted as none, and a key store that could not be read posts nothing, so a revoked permission never removes
+a page's picture; unticking forgets it on both sides) → the page's own `messages` rung (the server's copy of the same
+photo, before this session looked it up) → a monogram (`MessageBubbleFace`: the face
 inset 1.5 pt inside a disc of the ground's colour; the monogram is a disc filled with the person's hue at 35 % over the
 ground with the letter in `textPrimary` — a hue ring round one letter read as "ⓘ" — and below 24 units its letters are
 half its height, semibold; the bubbles only; never a shadow). Hovering a bubble names it ("Instinct · 34 messages

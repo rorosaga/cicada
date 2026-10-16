@@ -231,6 +231,35 @@ struct MessagesConversationPayload: Encodable, Equatable, Sendable {
     }
 }
 
+/// One ticked chat's shared Messages photo, as posted (`PUT /sources/messages/photos`, 2026-10-16): the small PNG the
+/// app made (`MessagesSharedPhotos.downsized`), or none — the chat shares no photo, so the backend drops a stored one.
+struct MessagesPhotoPayload: Encodable, Equatable, Sendable {
+    let conversation: String
+    let photoB64: String?
+
+    init(conversation: String, photo: Data?) {
+        self.conversation = conversation
+        photoB64 = photo?.base64EncodedString()
+    }
+}
+
+struct MessagesPhotosAnswer: Decodable, Sendable {
+    var stored = 0
+    var removed = 0
+    var unchanged = 0
+    /// Each posted chat's linked page, or nil while it has none (the backend links it as the page appears).
+    var pages: [String: String?] = [:]
+    enum CodingKeys: String, CodingKey { case stored, removed, unchanged, pages }
+    init(stored: Int = 0, removed: Int = 0, unchanged: Int = 0, pages: [String: String?] = [:]) {
+        self.stored = stored; self.removed = removed; self.unchanged = unchanged; self.pages = pages
+    }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        stored = c.lenient(.stored, 0); removed = c.lenient(.removed, 0); unchanged = c.lenient(.unchanged, 0)
+        pages = (try? c.decode([String: String?].self, forKey: .pages)) ?? [:]
+    }
+}
+
 /// The person's answer to "who is this?" — or `clear` to go back to the detectors' suggestion.
 enum MessagesMark: String, Sendable { case agent, person, clear }
 
@@ -244,6 +273,8 @@ protocol MessagesAPI: Sendable {
     func setMessagesSuggestAgents(_ on: Bool) async throws -> MessagesSettingsAnswer
     func postMessages(_ json: Data) async throws -> MessagesSyncResult
     func fetchMessagesWaiting() async throws -> MessagesWaitingAnswer
+    /// The shared photos of ticked chats, kept by the backend outside every bank and drawn at each chat's page.
+    func putMessagesPhotos(_ photos: [MessagesPhotoPayload]) async throws -> MessagesPhotosAnswer
 }
 
 extension APIClient: MessagesAPI {}

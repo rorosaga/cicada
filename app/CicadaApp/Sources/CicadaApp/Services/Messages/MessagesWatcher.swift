@@ -32,7 +32,8 @@ final class MessagesWatcher {
     /// Names and Contacts photos by conversation id (only when Contacts is allowed).
     private(set) var cards: [String: MessagesContactCard] = [:]
     /// The photo each TICKED conversation's other side shares through Messages ("Share Name and Photo"), small PNG
-    /// bytes by conversation id — the bubble's rung after the Contacts photo (`MessagesSharedPhotos`). In memory only.
+    /// bytes by conversation id — the bubble's rung after the Contacts photo (`MessagesSharedPhotos`). Kept in memory
+    /// for the bubbles and posted to the backend (2026-10-16), which draws it at the chat's page everywhere.
     private(set) var sharedPhotos: [String: Data] = [:]
     private(set) var tickedIds: Set<String> = []
     private(set) var listing = false
@@ -52,9 +53,14 @@ final class MessagesWatcher {
     @ObservationIgnored private let makeWatch: FolderWatchFactory
     @ObservationIgnored private let bank: @MainActor () -> String
     @ObservationIgnored private let lookUpCards: @Sendable ([String]) async -> [String: MessagesContactCard]
-    @ObservationIgnored private let lookUpSharedPhotos: @Sendable ([String]) async -> [String: Data]
-    /// Conversations whose shared photo was already looked up this session (found or not): one read per chat.
-    @ObservationIgnored private var sharedLookedUp: Set<String> = []
+    /// nil when the key store could not be read — never taken as "shares no photo".
+    @ObservationIgnored private let lookUpSharedPhotos: @Sendable ([String]) async -> [String: Data]?
+    /// When each ticked chat's shared photo was last looked up (found or not): at most once per `sharedRecheck`, so a
+    /// changed photo reaches the page within that, without copying the key store on every pass.
+    @ObservationIgnored private var sharedCheckedAt: [String: ContinuousClock.Instant] = [:]
+    /// What was last posted per chat this session (empty = "shares none"), so an unchanged photo is not posted again.
+    @ObservationIgnored private var sharedPosted: [String: Data] = [:]
+    @ObservationIgnored private let sharedRecheck: Duration
     @ObservationIgnored private var watch: FSEventsWatch?
     @ObservationIgnored private var pending: Task<Void, Never>?
     @ObservationIgnored private var running: Task<String, Error>?
@@ -66,7 +72,8 @@ final class MessagesWatcher {
          minimumInterval: Duration = .seconds(60), makeWatch: FolderWatchFactory? = nil,
          bank: @escaping @MainActor () -> String = { "default" },
          lookUpCards: @escaping @Sendable ([String]) async -> [String: MessagesContactCard] = { await MessagesContacts.cards(for: $0) },
-         lookUpSharedPhotos: (@Sendable ([String]) async -> [String: Data])? = nil) {
+         lookUpSharedPhotos: (@Sendable ([String]) async -> [String: Data]?)? = nil,
+         sharedRecheck: Duration = .seconds(3600)) {
         self.api = api
         self.reader = reader
         self.lights = lights
@@ -81,8 +88,11 @@ final class MessagesWatcher {
         // The shared photos live under the same Messages folder the watcher reads (a test's synthetic folder there).
         let nicknames = folder.appendingPathComponent(MessagesSharedPhotos.folderName, isDirectory: true)
         self.lookUpSharedPhotos = lookUpSharedPhotos ?? { handles in
-            await Task.detached(priority: .utility) { MessagesSharedPhotos.photos(for: handles, folder: nicknames) }.value
+            await Task.detached(priority: .utility) {
+                MessagesSharedPhotos.photosIfReadable(for: handles, folder: nicknames)
+            }.value
         }
+        self.sharedRecheck = sharedRecheck
     }
 
     private func cursorKey(_ bank: String, _ id: String) -> String {
@@ -108,7 +118,9 @@ final class MessagesWatcher {
         tickedIds = (try? await api.fetchMessagesSettings().tickedIds) ?? []
         waiting = []
         sharedPhotos = sharedPhotos.filter { tickedIds.contains($0.key) }
-        sharedLookedUp.formIntersection(tickedIds)
+        // Another memory: its picture cache has none of this one's posts, so every ticked chat is looked up and posted.
+        sharedCheckedAt = [:]
+        sharedPosted = [:]
         guard !tickedIds.isEmpty else {
             disarm()
             return
@@ -207,9 +219,11 @@ final class MessagesWatcher {
         if on {
             tickedIds.insert(conversation.id)
         } else {
+            // The backend drops the chat's posted photo with the untick (`messages_photos.forget`).
             tickedIds.remove(conversation.id)
             sharedPhotos[conversation.id] = nil
-            sharedLookedUp.remove(conversation.id)
+            sharedCheckedAt[conversation.id] = nil
+            sharedPosted[conversation.id] = nil
         }
         await describe()
         if on {
@@ -300,6 +314,7 @@ final class MessagesWatcher {
             }
         }
         if posted > 0 { await refreshWaiting() }
+        await refreshSharedPhotos(read)
         return posted > 0 ? Copy.Messages.synced(posted) : Copy.Messages.upToDate
     }
 
@@ -308,31 +323,51 @@ final class MessagesWatcher {
         guard let answer = try? await api.fetchMessagesWaiting() else { return }
         waiting = answer.conversations
         let noCard = Set(waiting.map(\.conversation).filter { cards[$0] == nil })
-        // The shared photo is read only for a conversation the person ticked (G179's rule for everything under
-        // ~/Library/Messages), once per chat per session.
-        let noShared = Set(waiting.map(\.conversation).filter { tickedIds.contains($0) && !sharedLookedUp.contains($0) })
-        let unknown = noCard.union(noShared)
-        guard !unknown.isEmpty else { return }
-        var handles = conversations.filter { unknown.contains($0.id) }
-        let missing = unknown.subtracting(handles.map(\.id))
-        if !missing.isEmpty {
-            let reader = self.reader
-            handles += (try? await Task.detached(priority: .utility) { try reader.conversations(ids: missing) }.value) ?? []
-        }
-        let carded = handles.filter { noCard.contains($0.id) }
-        if !carded.isEmpty {
+        if !noCard.isEmpty {
+            let carded = await handles(for: noCard)
             let found = await lookUpCards(carded.map(\.handle))
             for conversation in carded {
                 if let card = found[conversation.handle] { cards[conversation.id] = card }
             }
         }
-        let shared = handles.filter { noShared.contains($0.id) && !$0.handle.isEmpty }
-        if !shared.isEmpty {
-            let found = await lookUpSharedPhotos(shared.map(\.handle))
-            for conversation in shared {
-                sharedLookedUp.insert(conversation.id)
-                if let photo = found[conversation.handle] { sharedPhotos[conversation.id] = photo }
+        await refreshSharedPhotos()
+    }
+
+    /// The listed conversations for `ids`, read by id for any the list does not hold.
+    private func handles(for ids: Set<String>, known: [MessagesConversation]? = nil) async -> [MessagesConversation] {
+        var found = (known ?? conversations).filter { ids.contains($0.id) }
+        let missing = ids.subtracting(found.map(\.id))
+        if !missing.isEmpty {
+            let reader = self.reader
+            found += (try? await Task.detached(priority: .utility) { try reader.conversations(ids: missing) }.value) ?? []
+        }
+        return found
+    }
+
+    /// The photo each ticked chat shares in Messages (2026-10-16). Read only for a conversation the person ticked
+    /// (G179's rule for everything under ~/Library/Messages) — every ticked one, not only those waiting, because a chat
+    /// Sleep already read still has a page to draw — at most once per `sharedRecheck`. What changed since the last post
+    /// is posted (`PUT /sources/messages/photos`): the backend keeps it outside every bank and draws it at the chat's
+    /// page. A key store that could not be read posts nothing, so a page never loses its picture to a revoked
+    /// permission; a refused or failed post is tried again at the next look-up.
+    func refreshSharedPhotos(_ known: [MessagesConversation]? = nil) async {
+        let now = ContinuousClock.now
+        let due = tickedIds.filter { id in sharedCheckedAt[id].map { now - $0 >= sharedRecheck } ?? true }
+        guard !due.isEmpty else { return }
+        let chats = await handles(for: due, known: known).filter { !$0.handle.isEmpty }
+        guard !chats.isEmpty, let found = await lookUpSharedPhotos(chats.map(\.handle)) else { return }
+        var changed: [MessagesPhotoPayload] = []
+        for chat in chats where tickedIds.contains(chat.id) {
+            sharedCheckedAt[chat.id] = now
+            let photo = found[chat.handle]
+            sharedPhotos[chat.id] = photo
+            if sharedPosted[chat.id] != (photo ?? Data()) {
+                changed.append(MessagesPhotoPayload(conversation: chat.id, photo: photo))
             }
+        }
+        guard !changed.isEmpty, (try? await api.putMessagesPhotos(changed)) != nil else { return }
+        for payload in changed {
+            sharedPosted[payload.conversation] = payload.photoB64.flatMap { Data(base64Encoded: $0) } ?? Data()
         }
     }
 

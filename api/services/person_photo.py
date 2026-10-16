@@ -570,8 +570,10 @@ async def _ensure_locked(memory_path: Path, bank: str, entity_id: str, fetcher: 
         fm = markdown_parser.parse(page).frontmatter or {}
     except Exception:  # noqa: BLE001 — an unreadable page asks nobody
         return None
-    inputs = entity_picture.inputs_for(fm)
-    if inputs.type != "person" or inputs.choice is not None or inputs.contacts_sha is not None:
+    inputs = entity_picture.with_chat(memory_path, entity_id, entity_picture.inputs_for(fm))
+    # Every rung above this one outranks it: the person's choice, a Contacts photo, the photo their chat shares.
+    if inputs.type != "person" or inputs.choice is not None or inputs.contacts_sha is not None \
+            or inputs.messages_sha is not None:
         return None
     cands = candidates(fm)
     key = identity_key(cands)

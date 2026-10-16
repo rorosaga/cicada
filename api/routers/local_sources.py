@@ -41,6 +41,8 @@ from api.models.schemas import (
     FolderUpdateRequest,
     MessagesConversationsRequest,
     MessagesConversationsResponse,
+    MessagesPhotosRequest,
+    MessagesPhotosResponse,
     MessagesSettings,
     MessagesSettingsUpdate,
     MessagesSyncRequest,
@@ -59,6 +61,7 @@ from api.services import (
     contacts_local,
     folder_source,
     local_refs,
+    messages_photos,
     messages_source,
     paper_metadata,
     papers,
@@ -404,13 +407,17 @@ async def put_messages_settings(req: MessagesSettingsUpdate, settings: Settings 
                                                       suggest_agents=req.suggest_agents, conversation=conversation)
     except messages_source.PayloadError as exc:
         raise HTTPException(422, str(exc))
+    if conversation is not None and conversation.get("ticked") is False:
+        # Unticking takes the chat's shared photo with it (2026-10-16): nothing of an unticked chat is kept outside
+        # the bank either. Every saved sitting stays, as before.
+        await run_in_threadpool(messages_photos.forget, memory_path, conversation["id"])
     paths = [f"sources/{messages_source.SETTINGS_FILENAME}"]
     reattributed = 0
     if actor_changed or req.suggest_agents is not None:
         ids = [conversation["id"]] if conversation is not None else list(data["conversations"])
         for cid in ids:
             out = await run_in_threadpool(messages_source.reattribute, memory_path, cid, bank=memory_path.name)
-            reattributed += out["updated"]
+            reattributed += out["updated"] + out["recorded"]
             paths += out["paths"]
     await folder_source.commit_paths_for(memory_path, paths, subject="Messages settings",
                                          trigger="user/companion_app", channel=messages_source.CHANNEL_ID)
@@ -447,6 +454,23 @@ async def sync_messages(req: MessagesSyncRequest, settings: Settings = Depends(g
     await folder_source.commit_paths_for(memory_path, out.pop("paths"), subject="Messages sync",
                                          trigger="capture/messages", channel=messages_source.CHANNEL_ID)
     return MessagesSyncResponse(**out, bank=memory_path.name)
+
+
+@router.put("/sources/messages/photos", response_model=MessagesPhotosResponse, dependencies=_DEMO_GATE)
+async def put_messages_photos(req: MessagesPhotosRequest, settings: Settings = Depends(get_settings)):
+    """The photos ticked chats share through Messages (2026-10-16): the app reads them (``~/Library/Messages`` is
+    its), shrinks them and posts the bytes; this keeps them outside every bank (`messages_photos`) and draws each at the
+    page its chat's correspondent record links — the picture rung after the Contacts photo. Writes nothing to the bank
+    and commits nothing. 409 for a chat that is not ticked, 422 for anything that is not a small PNG or JPEG."""
+    memory_path = settings.memory_path
+    try:
+        out = await run_in_threadpool(messages_photos.store, memory_path,
+                                      [p.model_dump(by_alias=False) for p in req.photos])
+    except messages_source.NotSelected as exc:
+        raise HTTPException(409, str(exc))
+    except messages_photos.PayloadError as exc:
+        raise HTTPException(422, str(exc))
+    return MessagesPhotosResponse(**out)
 
 
 @router.get("/sources/messages/waiting", response_model=MessagesWaitingResponse)

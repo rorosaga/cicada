@@ -400,6 +400,46 @@ def test_an_undecided_correspondent_has_no_page_even_when_a_page_shares_its_name
     assert row["kind"] == "unknown" and row["page"] is None
 
 
+def test_a_mark_reaches_the_waiting_sitting_even_when_its_words_do_not_move(bank, chat):
+    """#312 review: marking a chat as a person keeps every line ``speaker:<name>:`` — the body, so its hash, is the
+    same — and the stager's unchanged-hash skip left the sitting's ``correspondent`` at ``unknown``: the mark never
+    reached Sleep and the chat got no page. The decision is frontmatter, recorded without a new episode and without
+    re-queuing a sitting Sleep already read (who said what did not move)."""
+    cid = conversation_id(chat.chat_guid(chat.other))
+    _tick(bank, chat.chat_guid(chat.other), name="Bob Example")
+    chat.message(chat.other, utc(2026, 9, 4, 11, 0), from_me=False, text="A second sitting, a day later.")
+    _sync(bank, chat, chat.other, name="Bob Example", from_me=0, from_them=2)
+    read, waiting_one = _episodes(bank)
+    assert read.frontmatter["correspondent"]["kind"] == "unknown"
+    _mark_read(read)
+    body_before = [d.body for d in _episodes(bank)]
+    files_before = sorted(p.name for p in (bank / "episodes").glob("*.md"))
+    _page(bank, "bob-example", "Bob Example", "person")
+    messages_source.update_settings(bank, conversation={"id": cid, "actor": {"kind": "person"}})
+    out = messages_source.reattribute(bank, cid, bank=bank.name)
+    bank_index.invalidate()
+    after = _episodes(bank)
+    assert [d.body for d in after] == body_before                       # the words did not move
+    assert sorted(p.name for p in (bank / "episodes").glob("*.md")) == files_before   # no new episode
+    assert all(d.frontmatter["correspondent"]["kind"] == "person" for d in after)
+    assert all(d.frontmatter["correspondent"]["decided_by"] == "person" for d in after)
+    assert after[0].frontmatter["processed"] is True                    # already read: not queued again
+    assert after[1].frontmatter["processed"] is False
+    assert out["recorded"] == 2 and len(out["paths"]) == 2               # both committed with the settings
+    (row,) = messages_source.waiting(bank)
+    assert (row["kind"], row["page"]) == ("person", "bob-example")
+    # Clearing the mark takes the decision back the same way.
+    messages_source.update_settings(bank, conversation={"id": cid, "actor": None})
+    messages_source.reattribute(bank, cid, bank=bank.name)
+    bank_index.invalidate()
+    assert all(d.frontmatter["correspondent"]["kind"] == "unknown" for d in _episodes(bank))
+    assert messages_source.waiting(bank)[0]["page"] is None
+    # And a second identical mark writes nothing.
+    messages_source.update_settings(bank, conversation={"id": cid, "actor": {"kind": "person"}})
+    messages_source.reattribute(bank, cid, bank=bank.name)
+    assert messages_source.reattribute(bank, cid, bank=bank.name)["paths"] == []
+
+
 def test_a_person_the_person_marked_has_their_page(bank, chat):
     _tick(bank, chat.chat_guid(chat.other), name="Bob Example", actor={"kind": "person"})
     _sync(bank, chat, chat.other, name="Bob Example", from_me=0, from_them=1)

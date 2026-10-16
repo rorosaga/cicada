@@ -9,6 +9,10 @@ both are held to `api/tests/fixtures/entity_picture.json`, so a rung added on on
 2. **a Contacts photo**, `person` pages only (G154). T-Sources writes the optional `contacts_photo: {sha, ext}` key and
    the bytes at `$CICADA_HOME/pictures/<bank>/contacts/<id>.<ext>` (its R-SR9); until it lands no page carries the key
    and the rung never fires (R-PE7);
+2a. **the photo the chat shares in Messages** (owner 2026-10-16), the correspondent page types only (`person`,
+   `tool`): a ticked Messages chat's "Share Name and Photo" picture, read by the app, cached outside every bank and
+   linked to the page the chat's correspondent record resolves to (`messages_photos`) — served at
+   `/entities/{id}/picture?v=<sha>`. Below the person's choice and the Contacts photo, above everything else;
 2b. **a public profile photo**, `person` pages only (G159 amendment, owner 2026-10-09): `person_photo` asks the
    email's public photo, then the GitHub avatar, ONLY from an identifier already on the page or the person's own record
    (the owner's own email on the owner's page; a GitHub profile link among the page's sources) — never from a name.
@@ -21,7 +25,7 @@ both are held to `api/tests/fixtures/entity_picture.json`, so a rung added on on
    none (G133 fetches no arXiv page or PDF); its picture is the person's own PDF, rung 1;
 5. **nothing** — the app draws a ring monogram, never a solid fill.
 
-A person gets rungs 1–2b only: a surname is not a domain (G59), and no service is ever sent a person's name (G159).
+A person gets rungs 1–2b only, a `tool` page 1, 2a and 3: a surname is not a domain (G59), and no service is ever sent a person's name (G159).
 
 `resolve` does no I/O. `resolve_page` gathers one page's inputs from its frontmatter and the machine-global logo index,
 read-only — `GET /graph` still never fetches, and `GET /entities/{id}/logo` is still the only place a logo is fetched.
@@ -53,7 +57,9 @@ LOGO_TYPES = frozenset(logo_service.GUESSABLE_TYPES)
 CONTACTS_DIR = ("pictures", "contacts")
 #: `papers.KIND`, spelled in `media_preview` so `graph_builder`'s import of this module stays light; a test pins it.
 PAPER_KIND = media_preview.PAPER_KIND
-SOURCES = ("upload", "initials", "contacts", "profile", "logo", "thumbnail")
+SOURCES = ("upload", "initials", "contacts", "messages", "profile", "logo", "thumbnail")
+#: The page types a Messages chat's correspondent can be (`correspondents.PAGE_TYPE`) — the only ones rung 2a reaches.
+MESSAGES_TYPES = ("person", "tool")
 _SHA_RE = re.compile(r"[0-9a-f]{12}")
 _KEY_RE = re.compile(r"[0-9a-f]{16}")
 _DAY_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
@@ -76,24 +82,28 @@ class PictureInputs:
     profile_sha: str | None = None
     #: Review B1: the identifiers' hash, which names the URL until a copy is stored.
     profile_key: str | None = None
+    #: Rung 2a (2026-10-16): the hash of the photo the page's Messages chat shares (`messages_photos.links`).
+    messages_sha: str | None = None
 
     @classmethod
     def from_wire(cls, raw: dict) -> "PictureInputs":
         return cls(type=str(raw.get("type") or "concept"), choice=raw.get("choice"), upload_sha=raw.get("uploadSha"),
                    contacts_sha=raw.get("contactsSha"), logo=bool(raw.get("logo")), thumbnail=raw.get("thumbnail"),
                    profile=bool(raw.get("profile")), profile_sha=raw.get("profileSha"),
-                   profile_key=raw.get("profileKey"))
+                   profile_key=raw.get("profileKey"), messages_sha=raw.get("messagesSha"))
 
     def to_wire(self) -> dict:
         return {"type": self.type, "choice": self.choice, "uploadSha": self.upload_sha,
                 "contactsSha": self.contacts_sha, "logo": self.logo, "thumbnail": self.thumbnail,
-                "profile": self.profile, "profileSha": self.profile_sha, "profileKey": self.profile_key}
+                "profile": self.profile, "profileSha": self.profile_sha, "profileKey": self.profile_key,
+                "messagesSha": self.messages_sha}
 
     def to_fields(self) -> dict:
         """Keyword arguments for `schemas.PictureInputsModel`."""
         return {"type": self.type, "choice": self.choice, "upload_sha": self.upload_sha,
                 "contacts_sha": self.contacts_sha, "logo": self.logo, "thumbnail": self.thumbnail,
-                "profile": self.profile, "profile_sha": self.profile_sha, "profile_key": self.profile_key}
+                "profile": self.profile, "profile_sha": self.profile_sha, "profile_key": self.profile_key,
+                "messages_sha": self.messages_sha}
 
 
 @dataclass(frozen=True)
@@ -118,9 +128,13 @@ def resolve(entity_id: str, inputs: PictureInputs) -> Resolved:
         return Resolved("upload", f"{path}/picture?v={inputs.upload_sha}")
     if inputs.choice == "initials":
         return Resolved("initials", None)
+    messages = (Resolved("messages", f"{path}/picture?v={inputs.messages_sha}")
+                if inputs.type in MESSAGES_TYPES and _sha(inputs.messages_sha) else None)
     if inputs.type == "person":
         if _sha(inputs.contacts_sha):
             return Resolved("contacts", f"{path}/picture?v={inputs.contacts_sha}")
+        if messages is not None:
+            return messages
         if inputs.profile:
             # The stored bytes name it once there are any; until then the identifiers do, so a changed identifier is
             # a new URL and no cache keyed by URL can pin a stale photo (review B1).
@@ -135,6 +149,8 @@ def resolve(entity_id: str, inputs: PictureInputs) -> Resolved:
     if inputs.type == "media":
         # The preview's key (`media_preview.Source.key`), never a URL: the app loads Cicada's stored copy.
         return Resolved("thumbnail", f"{path}/preview?v={inputs.thumbnail}") if _sha(inputs.thumbnail) else NOTHING
+    if messages is not None:
+        return messages
     if inputs.logo:
         return Resolved("logo", f"{path}/logo")
     return NOTHING
@@ -205,17 +221,30 @@ def logo_available(entity_id: str, fm: dict, body: str, *, cached: set[str], mis
     return not (missed_at is not None and page_mtime <= missed_at)
 
 
+def with_chat(memory_path, entity_id: str, inputs: PictureInputs, chats: dict | None = None) -> PictureInputs:
+    """Rung 2a's input: the hash of the photo this page's Messages chat shares, when one links here
+    (`messages_photos.links`; the graph builder passes the map once, a single-page caller lets this read it)."""
+    if inputs.type not in MESSAGES_TYPES:
+        return inputs
+    from api.services import messages_photos   # it imports this module
+
+    link = (messages_photos.links(memory_path) if chats is None else chats).get(entity_id)
+    sha = link.get("sha") if isinstance(link, dict) else None
+    return replace(inputs, messages_sha=sha) if _sha(sha) else inputs
+
+
 def resolve_page(memory_path, entity_id: str, fm: dict, body: str, *, page_mtime: float,
                  cached: set[str] | None = None, missed: dict[str, float] | None = None,
-                 photos: dict | None = None) -> tuple[Resolved, PictureInputs]:
+                 photos: dict | None = None, chats: dict | None = None) -> tuple[Resolved, PictureInputs]:
     """The wire's two answers for one page: what to draw, and the inputs the app's twin re-resolves from. The graph
-    builder passes the bank's logo sets and the people-photo index once; a single-page caller lets this read them."""
+    builder passes the bank's logo sets, the people-photo index and the Messages chat links once; a single-page caller
+    lets this read them."""
     if cached is None or missed is None:
         bank = logo_service.bank_name(Path(memory_path))
         cached = logo_service.cached_ids(bank) if cached is None else cached
         missed = logo_service.missed_ids(bank) if missed is None else missed
     available = logo_available(entity_id, fm, body, cached=cached, missed=missed, page_mtime=page_mtime)
-    inputs = inputs_for(fm, logo_available=available)
+    inputs = with_chat(memory_path, entity_id, inputs_for(fm, logo_available=available), chats)
     if inputs.type == "person":
         from api.services import demo_guard, person_photo   # it imports this module; the rung is its to say
 
@@ -409,10 +438,15 @@ def write_clear(memory_path, entity_id: str) -> PictureWrite | None:
 
 
 def picture_file(memory_path, entity_id: str, fm: dict) -> tuple[Path, str] | None:
-    """What `GET /entities/{id}/picture` serves: the person's upload, else the Contacts photo — at a path derived from
-    the id, never one the page names (R-PE1), within the bound, and only if it sniffs as PNG or JPEG."""
-    resolved = resolve(entity_id, inputs_for(fm))
-    if resolved.source == "upload":
+    """What `GET /entities/{id}/picture` serves: the person's upload, else the Contacts photo, else the photo the
+    page's Messages chat shares — at a path derived from the id (or the chat's id), never one the page names (R-PE1),
+    within the bound, and only if it sniffs as PNG or JPEG."""
+    resolved = resolve(entity_id, with_chat(memory_path, entity_id, inputs_for(fm)))
+    if resolved.source == "messages":
+        from api.services import messages_photos
+
+        path = messages_photos.picture_path(memory_path, entity_id)
+    elif resolved.source == "upload":
         path = upload_path(memory_path, entity_id, fm["picture"]["ext"])
     elif resolved.source == "contacts":
         contacts = fm.get("contacts_photo")

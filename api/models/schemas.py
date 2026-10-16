@@ -490,6 +490,8 @@ class PictureInputsModel(CamelModel):
     profile: bool = False
     profile_sha: Optional[str] = None
     profile_key: Optional[str] = None
+    #: 2026-10-16 — the photo the page's ticked Messages chat shares (`messages_photos`), rung 2a.
+    messages_sha: Optional[str] = None
 
 
 class EntityPictureResponse(CamelModel):
@@ -4482,6 +4484,28 @@ class MessagesWaitingConversation(CamelModel):
     ticked: bool = False
     #: The correspondent's own page (`messages_source.waiting`), so the app draws the chat with its picture.
     page: Optional[str] = None
+
+
+class MessagesPhotoIn(CamelModel):
+    """One ticked chat's shared Messages photo (2026-10-16): PNG or JPEG bytes the app shrank to ≤ 128 px, or none —
+    the chat shares no photo, so a stored one goes."""
+
+    conversation: str
+    photo_b64: Optional[str] = None
+
+
+class MessagesPhotosRequest(CamelModel):
+    """``PUT /sources/messages/photos`` — the chats the app looked up this pass; any other chat's photo is untouched."""
+
+    photos: list[MessagesPhotoIn] = []
+
+
+class MessagesPhotosResponse(CamelModel):
+    stored: int = 0
+    removed: int = 0
+    unchanged: int = 0
+    #: Each posted chat's linked page (`messages_photos.links`), or null while it has none.
+    pages: dict[str, Optional[str]] = {}
 
 
 class MessagesWaitingResponse(CamelModel):

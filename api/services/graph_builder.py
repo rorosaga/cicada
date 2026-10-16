@@ -115,9 +115,17 @@ def _photos_stamp(memory_path: Path) -> str:
     try:
         from api.services import person_photo
 
-        return person_photo.stamp(logo_service.bank_name(memory_path))
+        stamp = person_photo.stamp(logo_service.bank_name(memory_path))
     except Exception:
-        return ""
+        stamp = ""
+    try:
+        # A Messages chat's shared photo (2026-10-16) is a node's picture too: a photo stored or gone, or its link made
+        # or lost (a mark, a page Sleep creates), rebuilds the graph like a people-photo fetch does.
+        from api.services import messages_photos
+
+        return f"{stamp}:{messages_photos.stamp(memory_path)}"
+    except Exception:
+        return stamp
 
 
 def _build_full(memory_path: Path) -> GraphResponse:
@@ -192,6 +200,13 @@ def _build_full(memory_path: Path) -> GraphResponse:
         people_photos = person_photo.read_meta(logo_service.bank_name(memory_path))
     except Exception:
         people_photos = {}
+    try:
+        # Rung 2a (2026-10-16): each ticked Messages chat's shared photo at the page it links, read once per build.
+        from api.services import messages_photos
+
+        chat_photos = messages_photos.links(memory_path)
+    except Exception:
+        chat_photos = {}
     for f in bank_index.files(memory_path, "entities"):
         fm = f.frontmatter
         eid = f.stem
@@ -221,7 +236,8 @@ def _build_full(memory_path: Path) -> GraphResponse:
         # One malformed page must never cost the whole graph its answer (final review, finding 2): no picture, a ring.
         try:
             picture, _ = entity_picture.resolve_page(memory_path, eid, fm, body, page_mtime=f.mtime_ns / 1e9,
-                                                     cached=logo_ids, missed=logo_misses, photos=people_photos)
+                                                     cached=logo_ids, missed=logo_misses, photos=people_photos,
+                                                     chats=chat_photos)
         except Exception:
             picture = entity_picture.NOTHING
         nodes.append(
