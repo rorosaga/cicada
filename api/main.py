@@ -58,7 +58,7 @@ from api.routers import (
     sync,
     tools,
 )
-from api.services import bank_binding, bank_registry, search_index, sleep_refusal, sleep_scheduler
+from api.services import bank_binding, bank_registry, response_compression, search_index, sleep_refusal, sleep_scheduler
 from api.services.providers import warm_query_embedder
 from api.services.auth import auth_enabled, get_token, require_token
 from api.services.bank_migrations import run_bank_migrations
@@ -260,6 +260,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# 2026-10-16 perf: gzip level 1 for a client on another machine only (a headless server's client); loopback is
+# answered exactly as before (`response_compression`).
+app.add_middleware(response_compression.RemoteGZipMiddleware)
 
 app.include_router(graph.router, tags=["graph"])
 app.include_router(search.router, tags=["search"])
