@@ -1126,7 +1126,8 @@ async def _web_check_safely(memory_path: Path, settings: Settings, *, user_trigg
     ruling 4: a scheduled run never uses a plan, a metered engine's search is priced in the run's usage. Its calls run
     in the run's own scope (a drain's calls are tagged with the drain), so Past reads counts them. One commit
     (`Web check <date>`, trigger `sleep/web-check`) under the model that looked; pages dirty before it ran are left
-    alone (a settle there is skipped). Never raises."""
+    alone (a settle there is skipped); a failed step or commit puts every settle back (`web_lookup.restore`). Never
+    raises."""
     from api.services import agent_engine, web_lookup, web_settle
 
     skip: frozenset[str] = frozenset()
@@ -1139,13 +1140,15 @@ async def _web_check_safely(memory_path: Path, settings: Settings, *, user_trigg
     cycle_id = _state.cycle_id
     drain = _state.drain
     batch_id = f"{cycle_id}-web" if (cycle_id and drain is not None) else cycle_id
+    report = web_lookup.Report()
     try:
         if drain is not None and batch_id:
             sleep_drain.register_batch(batch_id, drain)   # its calls count toward the run, like a batch's
         with agent_engine.use_scope(web_lookup.scope_name(batch_id)):
-            report = await web_lookup.run_tail(memory_path, settings, user_triggered=user_triggered, skip=skip)
+            await web_lookup.run_tail(memory_path, settings, user_triggered=user_triggered, skip=skip, report=report)
     except Exception as exc:
-        logger.warning(f"Web check failed: {type(exc).__name__}: {exc}")
+        logger.warning(f"Web check failed — undoing {report.settled} settle(s): {type(exc).__name__}: {exc}")
+        await asyncio.to_thread(web_lookup.restore, memory_path, report)
         return
     finally:
         if drain is not None and batch_id:
@@ -1161,7 +1164,9 @@ async def _web_check_safely(memory_path: Path, settings: Settings, *, user_trigg
         async with _lock:
             await asyncio.to_thread(web_settle.commit_sync, memory_path, message, report.paths)
     except Exception as exc:
-        logger.warning(f"Web check commit failed (the settles stand uncommitted): {type(exc).__name__}")
+        # Never left dangling for a later `git add -A` to commit under the wrong author (the G85 smear): undone.
+        logger.warning(f"Web check commit failed — undoing {report.settled} settle(s): {type(exc).__name__}")
+        await asyncio.to_thread(web_lookup.restore, memory_path, report)
 
 
 async def _run_engine_independent_tail(

@@ -640,7 +640,9 @@ be that query word for word, at most two; a call that searched anything else, or
 `others_ruled_out: true` settles nothing (`not_exclusive`), and an option the item lacks never does (`no_option`). A question looked up and left open is not looked
 up again for 30 days (`$CICADA_HOME/web_check/<bank>.json`, ids and enums). A page or item someone left dirty waits. A
 plan limit stops the step (the rest waits for the next run); a drain stopped at the plan's limit skips it. One commit,
-`Web check <date>`, under the model that looked (`Cicada-Engine` its engine), trigger `sleep/web-check`.
+`Web check <date>`, under the model that looked (`Cicada-Engine` its engine), trigger `sleep/web-check`. Every file a
+settle touches is snapshotted first; a failed step or commit puts them all back, unstages them and clears their memo
+rows (`web_lookup.restore`), so nothing dangles for a later `git add -A` to commit under the wrong author.
 
 **Consolidate reads everything (owner, 2026-09-29; TODO ruling 13; scheduled runs too since 2026-09-30, ruling 16).** "I don't want to cap the max episodes per sleep —
 it's just progress Cicada has to go through." A **person-started** run (`POST /sleep/trigger`, so every Consolidate door:

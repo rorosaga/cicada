@@ -15,6 +15,8 @@ the ones the search answers. The rules, each enforced here:
   Any other metered engine (OpenRouter, OpenAI's search models, Gemini, xAI…) skips the step with
   ``search_unreported`` before any paid call: its searches could never pass the pinned-query check, so every lookup
   would be paid for and thrown away. The ChatGPT plan and a local model get no search: skipped.
+* **Nothing dangles.** Every file a settle touches is snapshotted first; when the run's commit fails, :func:`restore`
+  puts them back and unstages them, so a later ``git add -A`` never commits a settle under the wrong author.
 * **What leaves the machine.** The search query is ``web_settle.query_for`` — the subject's name and generic category
   words — pinned in the prompt, and every search the engine reports is held to it: a call that searched anything
   else (or nothing) is discarded, nothing is settled from it. The prompt carries the name, the category words and, for
@@ -93,6 +95,9 @@ class Report:
     engine: str | None = None
     models: list[str] = field(default_factory=list)
     reason: str | None = None   # why the whole step did nothing (an enum), when it did nothing
+    #: What each touched path held before the first settle wrote it (``None``: it did not exist) — for :func:`restore`.
+    before: dict[str, bytes | None] = field(default_factory=dict)
+    settled_items: list[str] = field(default_factory=list)
 
     def skip(self, why: str) -> None:
         self.skipped[why] = self.skipped.get(why, 0) + 1
@@ -275,16 +280,58 @@ def _model_of(resp: Any) -> str | None:
         return str(getattr(resp, "model", "") or "") or None
 
 
+def _snapshot(memory_path: Path, report: Report, rels: list[str]) -> None:
+    for rel in rels:
+        if rel in report.before:
+            continue   # the first snapshot is the state before this run
+        path = memory_path / rel
+        try:
+            report.before[rel] = path.read_bytes() if path.is_file() else None
+        except OSError:
+            report.before[rel] = None
+
+
+def restore(memory_path: Path, report: Report) -> None:
+    """Undo this run's settles after a failed commit: every touched file goes back to what it held (a new one is
+    removed), the paths are unstaged, and the memo forgets them so the next run may look again. Never raises."""
+    from api.services import bank_index, git_service
+
+    memory_path = Path(memory_path)
+    for rel, data in report.before.items():
+        path = memory_path / rel
+        try:
+            if data is None:
+                path.unlink(missing_ok=True)
+            else:
+                tmp = path.with_name(path.name + ".restore.tmp")
+                tmp.write_bytes(data)
+                tmp.replace(path)
+        except OSError as exc:
+            logger.warning(f"web check restore: a file was not put back ({type(exc).__name__})")
+    if report.before and (memory_path / ".git").exists():
+        try:   # a failed commit may have staged them: the index goes back to HEAD for these paths only
+            git_service.run_git_write_sync(memory_path, "reset", "-q", "--", *sorted(report.before))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"web check restore: unstage failed ({type(exc).__name__})")
+    bank_index.invalidate(memory_path)
+    if report.settled_items:
+        memo = load_memo(memory_path)
+        for item_id in report.settled_items:
+            memo.pop(item_id, None)
+        save_memo(memory_path, memo)
+
+
 async def run_tail(
     memory_path: Path, settings, *, user_triggered: bool, llm_fn: Callable[..., Any] | None = None,
     engine: tuple[Any, str | None, str] | None = None, today: date | None = None, skip: frozenset[str] = frozenset(),
+    report: Report | None = None,
 ) -> Report:
     """Look up and settle this run's public-thing questions. Never raises; the caller commits ``report.paths``.
     ``llm_fn``/``engine`` are test seams (a fake search tool); production resolves both here, lazily — no engine is
     resolved, and no registry touched, when there is nothing to look up."""
     from api.services.connectors.base import network_allowed
 
-    report = Report()
+    report = report if report is not None else Report()
     memory_path = Path(memory_path)
     today = today or date.today()
     cap = int(getattr(settings, "web_check_per_run", DEFAULT_PER_RUN) or 0)
@@ -345,6 +392,9 @@ async def run_tail(
             web_settle.record_event(memory_path, action="skip", item_id=c.item_id, entity_id=c.entity_id,
                                     by_kind="sleep", reason=a.reason, engine=label)
             continue
+        _snapshot(memory_path, report, [
+            f"entities/{c.entity_id}.md", f"entities/{c.entity_id}.claims.jsonl", pending_store.PENDING_STORE_FILE,
+            f"inbox/{c.item_id}.md", f"inbox/{web_settle.SETTLED_DIR}/{c.item_id}.md"])
         try:
             done = await asyncio.to_thread(
                 web_settle.settle, memory_path, c.item_id, ref=a.url, quote=a.quote, option_key=a.option_key,
@@ -357,6 +407,8 @@ async def run_tail(
             continue
         facts = web_settle.bank_facts(memory_path)   # a settle may have changed the pending store
         report.settled += 1
+        report.settled_items.append(c.item_id)
+        report.before[f"episodes/{done.episode_id}.md"] = None   # new: it did not exist before
         report.paths += [p for p in done.paths if p not in report.paths]
         report.lines += done.lines
         web_settle.record_event(memory_path, action="settle", item_id=c.item_id, entity_id=c.entity_id,

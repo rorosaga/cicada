@@ -650,3 +650,38 @@ def test_an_anthropic_metered_lookup_settles_end_to_end_through_litellms_own_res
     assert {r["id"] for r in web_settle.list_settled(bank)} == {"inbox-101", "inbox-102"}
     assert {e.kind for e in events} == {"llm_call"} and {e.stage for e in events} == {"web_check"}
 
+
+# ---------- a failed commit leaves nothing dangling ----------
+
+
+def test_a_failed_web_check_commit_puts_every_settle_back(bank, monkeypatch):
+    import asyncio
+
+    from api.services import sleep_cycle
+
+    async def engine(settings, *, user_triggered):
+        return "resolved", "claude-cli", "plan"
+    monkeypatch.setattr(web_lookup, "engine_for", engine)
+    monkeypatch.setattr(web_lookup, "default_llm_fn", lambda resolved: _fake(_answers))
+    monkeypatch.setattr(sleep_cycle._state, "cycle_id", "cyc-web-fail")
+    monkeypatch.setattr(sleep_cycle._state, "drain", None)
+    head = _git(bank, "rev-parse", "HEAD")
+    page = (bank / "entities" / "tool-a.md").read_bytes()
+    episodes = sorted(p.name for p in (bank / "episodes").glob("*.md"))
+
+    def boom(memory_path, message, paths, **kw):
+        from api.services import git_service
+
+        git_service.run_git_write_sync(memory_path, "add", "-A", "--", *[p for p in paths
+                                                                        if (memory_path / p).exists()])
+        raise git_service.GitError("commit failed")
+    monkeypatch.setattr(web_settle, "commit_sync", boom)
+    asyncio.run(sleep_cycle._web_check_safely(bank, _settings(), user_triggered=True))
+    assert _git(bank, "rev-parse", "HEAD") == head
+    assert _git(bank, "status", "--porcelain").strip() == "", "nothing staged or dirty for a later `git add -A`"
+    assert (bank / "entities" / "tool-a.md").read_bytes() == page
+    assert (bank / "inbox" / "inbox-101.md").exists() and (bank / "inbox" / "inbox-102.md").exists()
+    assert web_settle.list_settled(bank) == []
+    assert sorted(p.name for p in (bank / "episodes").glob("*.md")) == episodes
+    memo = web_lookup.load_memo(bank)
+    assert "inbox-101" not in memo and "inbox-102" not in memo, "the next run may look them up again"
