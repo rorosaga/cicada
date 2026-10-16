@@ -52,5 +52,5 @@ def test_build_entity_question_survives_a_null_payload():
 
 
 def test_contradiction_prompt_asks_for_question_and_descriptions():
-    assert '"question"' in conflict_resolver._CONTRADICTION_PROMPT
-    assert '"description"' in conflict_resolver._CONTRADICTION_PROMPT
+    assert '"question"' in conflict_resolver._CONTRADICTION_RULES
+    assert '"description"' in conflict_resolver._CONTRADICTION_RULES

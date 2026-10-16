@@ -183,7 +183,7 @@ def _capture_prompt(monkeypatch, reply: str) -> list[str]:
     prompts: list[str] = []
 
     async def fake_acompletion(**kw):
-        prompts.append(kw["messages"][0]["content"])
+        prompts.append("\n\n".join(m["content"] for m in kw["messages"]))
         return _resp(reply)
 
     monkeypatch.setattr(conflict_resolver.litellm, "acompletion", fake_acompletion)

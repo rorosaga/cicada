@@ -46,7 +46,7 @@ def test_page_prose_prompt_excludes_fences_and_truncated_fragments(
     settings = Settings(_env_file=None)
 
     def sync_complete(**call):
-        prompts.append(call["messages"][0]["content"])
+        prompts.append("\n\n".join(m["content"] for m in call["messages"]))
         return {"choices": [{"message": {"content": "{}"}}]}
 
     def resolve_async(*args, **kwargs):
