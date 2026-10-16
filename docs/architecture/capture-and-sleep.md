@@ -802,18 +802,25 @@ its source, an article rewritten about the agent — and kept the concept's type
   A type-aware tiebreak would be general homonym handling, a separate decision.
 - **Repair for existing banks** (`api/scripts/repair_correspondent_pages.py` → `correspondent_repair`; dry run prints
   counts only, `--apply` one `cicada` commit, trigger `maintenance/correspondent-split`, refused while Sleep runs or
-  holds the pages, a page dirty in git skipped, a second run a no-op). It finds a page named as a conversation's
-  correspondent that credits one of its episodes while its type does not match, and splits it from the page's own
-  git history: the *base* is the page in the parent of the first commit that credited the conversation. The old page
-  goes back to the base (prose, status, confidence, `last_referenced`, `decayed_through`, its claims as the base had
-  them) plus anything later from another conversation; the correspondent's page (an existing right-type page, merged
-  human-safe, else a new one under `free_id`, born active at `RECOVERY_CONFIDENCE` with its conversations' days) gets the conversation's
-  episodes, every claim added since the base that cites one of them (re-subjected, all provenance kept), the `sources:`
-  rows, tags, aliases and `related` added since the base, the lead and Article when the absorption rewrote them (moved
-  verbatim, so a machine article keeps its stamp and Sleep's writer keeps rewriting it — no model), and the list items
-  the base did not have. Other pages' claims from the conversation that point at the old id are repointed; claim edges
-  are regenerated (Stage 5.7's `regenerate_edges_from_claims`). A page with no version before the conversation, or a
-  bank without git, is counted (`no_history`) and left alone; a wikilink by name in other prose is left as written.
+  holds the pages, a page dirty in git skipped, a second run a no-op). **Nothing not attributable to the
+  correspondent's conversation is lost or moved:** it starts from the page as it is now and subtracts only the
+  conversation's part. It splits a page whose own `name` (an alias alone is `skipped_alias`) folds to a conversation's
+  correspondent, that credits its episodes or holds a claim resting on them alone, and whose type does not match.
+  From git, the *base* is the page before the first commit that credited the conversation, and every commit since is
+  read. Claims keep their current state: one resting only on the conversation (sources and evidence) moves,
+  re-subjected; one also backed elsewhere stays and a copy with only the conversation's episodes and evidence goes to
+  the correspondent's page. The conversation's `source_episodes` move. Prose and the list frontmatter (`tags`,
+  `aliases`, `related`, `sources`) move only when every commit since the base that changed them was a Sleep commit
+  crediting the page with the conversation's episodes alone (then the old prose is the base's, the rewritten lead and
+  Article move verbatim with their stamp, added items and values move); otherwise they stay and the correspondent's
+  page gets its facts from its claims (`prose_left`). Person-set keys (`sources_removed`, `aliases_removed`,
+  `corrections`, `picture`, …) never move. Status and confidence come from the page's own remaining history (the
+  base, then every later change except the conversation's commits and the Sleep decay charges against its lift);
+  `last_referenced` is the remaining conversations' latest day; `dropped` stays. The correspondent's page is an
+  existing right-type page (merged human-safe) or a new one under `free_id`, born active at `RECOVERY_CONFIDENCE` with
+  its conversations' days. Other pages' claims resting on the conversation alone that point at the old id are
+  repointed; claim edges are regenerated (Stage 5.7's `regenerate_edges_from_claims`). A page with no version before
+  the conversation, or a bank without git, is counted (`no_history`) and left alone.
 
 **Stage 2's judge calls overlap, its decisions do not (2026-10-08).** After the name and fuzzy matches, Stage 2 asks
 the disambiguation judge once per (name, same-type page sharing a name token), first `same` wins. Those calls used to

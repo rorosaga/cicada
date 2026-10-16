@@ -192,3 +192,88 @@ def test_a_page_whose_claims_spilled_into_its_ledger_is_split_whole(tmp_path):
     assert {c.subject for c in parse_claims(markdown_parser.parse(agent).body)} == {"instinct-agent"}
     assert _git(memory, "status", "--porcelain") == ""
     assert correspondent_repair.apply(memory, sleep_running=lambda: False).written == 0
+
+
+OTHER_FACT = "Often contrasted with habit."
+
+
+def test_nothing_outside_the_conversation_moves_or_reverts(tmp_path, monkeypatch):
+    """The reviewer's case: after the bad Sleep, a Sleep batch reads an unrelated conversation about the word (a source,
+    a fact, a claim, a lift), and the person edits the page (closes a claim, removes a source and an alias, picks a
+    picture). Only the agent's conversation leaves; everything else stays exactly as it is."""
+    from api.services.claims import strip_claims_block
+
+    memory, _ = _bad_bank(tmp_path, monkeypatch)
+    page = memory / "entities" / "instinct.md"
+    other = "ep_2026-10-12_001"
+    markdown_parser.write(memory / "episodes" / f"{other}.md",
+                          {"id": other, "processed": True, "source": "mcp", "timestamp": "2026-10-12T09:00:00Z"},
+                          "user: is instinct the same as habit?")
+    parsed = markdown_parser.parse(page)
+    fm = {**parsed.frontmatter, "source_episodes": [*parsed.frontmatter["source_episodes"], other],
+          "status": "active", "confidence": 0.6, "last_referenced": "2026-10-12", "decayed_through": "2026-10-12"}
+    later = Claim(id="c-later-1", text="instinct differs from habit", subject="instinct", predicate="differs-from",
+                  object="Habit", object_kind="literal", valid_from="2026-10-12", source_episodes=[other])
+    prose = strip_claims_block(parsed.body).replace("## Key Facts\n", f"## Key Facts\n- {OTHER_FACT}\n")
+    claims = parse_claims(parsed.body)
+    for claim in claims:
+        if claim.predicate == "runs-on":   # the other conversation backs one of the agent's claims too
+            claim.source_episodes = [*claim.source_episodes, other]
+    markdown_parser.write(page, fm, write_claims(prose, [*claims, later]))
+    _commit(memory, "Sleep cycle 2026-10-16 (batch 1 of 1)")
+
+    parsed = markdown_parser.parse(page)
+    fm = {**parsed.frontmatter,
+          "sources_removed": [{"ref": "https://example.com/x", "predicate": "", "by": "user", "on": "2026-10-16"}],
+          "aliases_removed": [{"alias": "Gut feeling", "by": "user", "on": "2026-10-16"}],
+          "picture": {"source": "user", "file": "pictures/x.png"}}
+    claims = parse_claims(parsed.body)
+    for claim in claims:
+        if claim.id == "c-concept-1":
+            claim.valid_to = "2026-10-16"
+    markdown_parser.write(page, fm, write_claims(strip_claims_block(parsed.body), claims))
+    _commit(memory, "Inbox resolution: the person's edits")
+    before = markdown_parser.parse(page)
+    (episode,) = [p for p in (memory / "episodes").glob("*.md") if p.stem != other]
+    conv_ep = markdown_parser.parse(episode).frontmatter["id"]
+
+    plan = correspondent_repair.apply(memory, sleep_running=lambda: False, today="2026-10-16")
+    counts = plan.counts()
+    assert (counts["splits"], counts["prose_left"], counts["prose_moved"], counts["claims_copied"]) == (1, 1, 0, 1)
+
+    after = markdown_parser.parse(page)
+    fm_before, fm_after = before.frontmatter, after.frontmatter
+    # The person's fields and every key the conversation did not set are exactly as they were.
+    for key in ("sources_removed", "aliases_removed", "picture", "type", "name", "aliases", "tags", "related"):
+        assert fm_after.get(key) == fm_before.get(key), key
+    # Its life is its own remaining history's: the later conversation's lift stands, its day is the last mention.
+    assert (fm_after["status"], float(fm_after["confidence"]), str(fm_after["last_referenced"])) == \
+        ("active", 0.6, "2026-10-12")
+    assert fm_after["source_episodes"] == [e for e in fm_before["source_episodes"] if e != conv_ep]
+    # Claims keep their current state; only the agent's conversation's leave.
+    kept = {c.id: c for c in parse_claims(after.body)}
+    assert kept["c-concept-1"].valid_to == "2026-10-16" and "c-later-1" in kept
+    shared = [c for c in kept.values() if c.predicate == "runs-on"]
+    assert len(shared) == 1 and set(shared[0].source_episodes) == {conv_ep, other}   # also backed elsewhere: stays
+    assert all(conv_ep not in c.source_episodes for c in kept.values() if c.predicate != "runs-on")
+    # The prose was touched by more than the conversation: left as it is, the other conversation's fact included.
+    assert OTHER_FACT in after.body and strip_claims_block(after.body) == strip_claims_block(before.body)
+
+    agent = markdown_parser.parse(memory / "entities" / "instinct-agent.md")
+    assert agent.frontmatter["type"] == "tool" and agent.frontmatter["source_episodes"] == [conv_ep]
+    assert OTHER_FACT not in agent.body and "Instinct runs on beta-tool" in agent.body   # its facts from its claims
+    assert {c.subject for c in parse_claims(agent.body)} == {"instinct-agent"}
+    assert all(set(c.source_episodes) == {conv_ep} for c in parse_claims(agent.body))
+    assert "runs-on" in {c.predicate for c in parse_claims(agent.body)}                  # its copy, the agent's part
+
+    assert correspondent_repair.apply(memory, sleep_running=lambda: False).written == 0
+
+
+def test_a_page_that_only_lists_the_name_as_an_alias_is_not_split(tmp_path, monkeypatch):
+    memory, _ = _bad_bank(tmp_path, monkeypatch)
+    page = memory / "entities" / "instinct.md"
+    parsed = markdown_parser.parse(page)
+    markdown_parser.write(page, {**parsed.frontmatter, "name": "Gut sense", "aliases": ["Instinct"]}, parsed.body)
+    _commit(memory, "rename")
+    counts = correspondent_repair.survey(memory).counts()
+    assert (counts["splits"], counts["skipped_alias"]) == (0, 1)

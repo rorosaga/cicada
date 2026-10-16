@@ -19,8 +19,8 @@
   `correspondent` is marked in Stage 1, typed (`tool` agent / `person`) and resolved to its own page in Stage 2
   (`correspondents`; a new page is `<id>-agent` / `<id>-person`), its own claims pinned there; below the unchanged
   promotion bar it is held under that key in the pending store, never on the same-name page. Repair:
-  `api.scripts.repair_correspondent_pages --bank <path>` (dry run counts; `--apply` one `cicada` commit) splits a page
-  that absorbed one back to its pre-conversation git state. Pick up: review, then the coordinator runs the repair on
+  `api.scripts.repair_correspondent_pages --bank <path>` (dry run counts; `--apply` one `cicada` commit) takes a
+  conversation's part off a page that absorbed it, moving nothing else. Pick up: review, then the coordinator runs the repair on
   the real bank.
 - **2026-10-14 (night) — tracked sources re-checked, on branch `feat/source-refresh` (not merged; ruling 26).** A
   trusted source is re-checked monthly (or on the person's ask) and what it says now is a new dated fact; the newest

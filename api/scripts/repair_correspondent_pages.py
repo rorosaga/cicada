@@ -5,10 +5,11 @@
     api/.venv/bin/python -m api.scripts.repair_correspondent_pages --bank <path> --apply   # one `cicada` commit
 
 Before Stage 2 knew a conversation's own correspondent, a texted agent named like an existing page (an archived
-``concept`` about the ordinary word) landed on that page. For each such page — named as the correspondent, crediting
-the conversation, of another type — the old page goes back to what its own git history held before the conversation
-(plus anything later from elsewhere), and the correspondent's claims, sources and the prose the absorption wrote move
-to a page of the right type (``tool`` for an agent, ``person`` for a person), re-rendered without a model.
+``concept`` about the ordinary word) landed on that page. For each such page — its own name the correspondent's,
+crediting the conversation, of another type — only the conversation's part leaves it, as it is now: the claims resting
+on the conversation alone, its source credit, and the prose and list values it added when nothing else touched them
+since (else the prose stays and the new page's facts come from its claims). Nothing else moves or reverts. The part
+goes to a page of the right type (``tool`` for an agent, ``person`` for a person), re-rendered without a model.
 
 The dry run prints counts only (never a page name or a word of the bank). ``--apply`` writes exactly that in one
 `cicada` commit (trigger ``maintenance/correspondent-split``), refused while Sleep runs or holds the pages; a page
