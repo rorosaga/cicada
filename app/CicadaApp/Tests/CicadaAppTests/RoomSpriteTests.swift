@@ -13,7 +13,7 @@ final class RoomSpriteTests: XCTestCase {
             ("room-beanbag", 62, 12, ["idle", "night-dark", "night-lit"], ["ink", "seat"]),
             ("room-plant", 12, 22, ["idle", "night-dark", "night-lit"], ["ink"]),
             ("room-mug", 8, 9, ["idle", "night-dark", "night-lit"], ["ink"]),
-            ("room-spines", 24, 12, Set(SpineKind.allCases.map(\.rawValue)), []),
+            ("room-books", 24, 13, Set(BookKind.allCases.flatMap { [$0.rawValue, $0.rawValue + "-night"] }), []),
         ]
         for (name, w, h, tags, slices) in contracts {
             let sheet = try SpriteTestAssets.sheet(name)

@@ -74,9 +74,9 @@ with open(os.environ['PIPELINE_TRACE'], 'a') as log:
         self.assertEqual(calls.count('lua build_skyfx'), 1)
 
     def test_builder_order_is_canonical_and_whitespace_cannot_skip_requests(self):
-        result, calls = self.run_export('build_skyfx\n build_clock\tbuild_spines build_skyfx')
+        result, calls = self.run_export('build_skyfx\n build_clock\tbuild_books build_skyfx')
         self.assertEqual(result.returncode, 0, result.stderr)
-        for builder in ['build_clock', 'build_spines', 'build_weather', 'build_skyfx']:
+        for builder in ['build_clock', 'build_books', 'build_weather', 'build_skyfx']:
             self.assertEqual(calls.count('lua ' + builder), 1, builder)
         self.assertLess(calls.index('lua build_weather'), calls.index('lua build_skyfx'))
 

@@ -291,6 +291,24 @@ final class MessageBubblesTests: XCTestCase {
         XCTAssertEqual(model.shown[1].initials, "BE")
     }
 
+    /// The picture precedence's first rung (2026-10-16): the photo the person put on the ONE page named exactly like
+    /// the chat. Never a guess — a shared name, a facet, or a picture that is not their own upload answers nil.
+    func testTheChosenPictureIsTheOnePageNamedLikeTheChat() {
+        func node(_ id: String, _ name: String, _ source: String?, facet: Bool = false) -> GraphNode {
+            GraphNode(id: id, name: name, type: .person, isFacet: facet, picture: source.map { _ in "/entities/\(id)/picture" },
+                      pictureSource: source)
+        }
+        let agent = node("agent-example", "Agent Example", "upload")
+        XCTAssertEqual(MessageBubbles.chosenPicture(name: "Agent Example", nodes: [agent]),
+                       .api(path: "/entities/agent-example/picture"))
+        XCTAssertNil(MessageBubbles.chosenPicture(name: "agent example", nodes: [agent]), "exactly the chat's name")
+        XCTAssertNil(MessageBubbles.chosenPicture(name: "Agent Example", nodes: [agent, node("agent-2", "Agent Example", "upload")]))
+        XCTAssertNil(MessageBubbles.chosenPicture(name: "Agent Example", nodes: [node("agent-example", "Agent Example", "contacts")]))
+        XCTAssertNil(MessageBubbles.chosenPicture(name: "Agent Example", nodes: [node("agent-example", "Agent Example", nil)]))
+        XCTAssertNil(MessageBubbles.chosenPicture(name: "Agent Example",
+                                                  nodes: [node("a#work", "Agent Example", "upload", facet: true)]))
+    }
+
     func testTheNameIsThePersonsOwnWhenTheyHaveOne() throws {
         let model = try XCTUnwrap(MessageBubbles.model([item("a", "Instinct", 1)], name: { _ in "My agent" }))
         XCTAssertEqual(model.shown[0].name, "My agent")

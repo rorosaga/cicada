@@ -35,7 +35,7 @@ vm.runInContext(html.match(/<script>([\s\S]*?)<\/script>/)[1],sandbox,{filename:
 await new Promise(ok=>setImmediate(ok));
 assert(sandbox.window.previewReady,'Preview failed to initialise');
 const states=['awake','reading','sleeping','digesting','happy','curious','hungry','error'];
-const roomSheets=['backdrop','window','weather','skyfx','clock','plant','lamp','fly','beanbag','mug','spines'];
+const roomSheets=['backdrop','window','weather','skyfx','clock','plant','lamp','fly','beanbag','mug','books'];
 const expected=[...states.map(s=>'bookworm-'+s),...states.flatMap(s=>['dark','lit'].map(l=>`bookworm-${s}-night-${l}`)),'bookworm-small',...roomSheets.map(s=>'room-'+s)].sort();
 assert.deepEqual(Array.from(vm.runInContext('Object.keys(D).sort()',sandbox)),expected);
 assert.equal(vm.runInContext('tiles.length',sandbox),vm.runInContext('Object.values(D).reduce((n,d)=>n+d.meta.frameTags.length,0)',sandbox));

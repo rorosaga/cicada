@@ -32,7 +32,7 @@ final class SpriteAssetTests: XCTestCase {
 
     func testEveryEntryHasProvenanceAndNoMachinePaths() throws {
         let required = ["id", "png", "json", "role", "generator", "script", "source", "authoring", "date", "licence", "processing", "pngSha256", "jsonSha256"]
-        let roles: Set<String> = ["worm", "worm-small", "room", "weather", "skyfx", "clock", "fly", "spines"]
+        let roles: Set<String> = ["worm", "worm-small", "room", "weather", "skyfx", "clock", "fly", "books"]
         for entry in try manifest().assets {
             for field in required { XCTAssertFalse(try XCTUnwrap(entry[field], field).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) }
             XCTAssertTrue(roles.contains(try XCTUnwrap(entry["role"])))

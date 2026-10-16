@@ -632,7 +632,7 @@ python3 tools/make_integration_review.py             # after the Swift composite
 ### 4.3 What `export_all.sh` does (read the script, not spec §6.1, which is older)
 
 - **Environment.** `ASEPRITE` (binary), `BUILDS` (default every builder:
-  `build_worm build_worm_small build_room build_clock build_weather build_skyfx build_spines`), `STAGE` (`all` or `worm`).
+  `build_worm build_worm_small build_room build_clock build_weather build_skyfx build_books`), `STAGE` (`all` or `worm`).
 - **Paths.** `ART` is the script's parent folder; `RES` is `$ART/../../../Sources/CicadaApp/Resources/sprites`.
 1. **Builds.** For each build, `run_lua <name>` removes `qa/.lua-completed`, runs
    `"$ASE" -b --script-param art="$ART" --script-param run="$script" --script-param status="$status" --script lua/run_checked.lua`,
@@ -1834,7 +1834,8 @@ pixel = ramps[dayRGB(p)][band + 1]                                    -- an unde
   window, plant, lamp, bean bag, mug, which gain `night-dark`/`night-lit` tags on their own sheets) and the 8 worm
   states (16 new sheets).
 - **Not relit:** the sky (time-tinted instead, §8.7), the overlays (own colours), the fly (exists only when lit), the
-  clock (own dark colours), the spines (the real pile is UI), the 18 × 18 set.
+  clock (own dark colours), the pile's books (`room-books` carries its own shadow-band night frames, built by
+  `build_books`, since the pile's columns are in the shadow band), the 18 × 18 set.
 
 **For `<character-name>`** (`$ART/lua/build_mascot_night.lua`, the worm half of `build_night.lua`, §4.6):
 
@@ -1931,7 +1932,7 @@ Sources: `docs/specs/2026-10-02-study-room-scenery.md`, `$BW/room-plan.json`, `$
 | The 15 skies | `$RES/room-weather.*` | `$BW` | Shared, unchanged |
 | The 6 overlays | `$RES/room-skyfx.*` | `$BW` | Shared, unchanged |
 | The wall clock | `$RES/room-clock.*` | `$BW` | Shared, unchanged; your ink stays out of its box |
-| The real pile's spine textures | `$RES/room-spines.*` | `$BW` | Shared, unchanged |
+| The real pile's books | `$RES/room-books.*` | `$BW` | Shared, unchanged |
 | Floor plan, light map, motion sidecar | `$BW/room-plan.json`, `room-light-map.json`, `room-motion.json` | `$BW` | Shared, read-only |
 | Palette | `$BW/palette.json` | `$BW` | Shared (D3: you may add ≤ 6 keys) |
 | Scenery logic, weather reader, Settings → The scenery | Swift (`Scenery.resolve`, `SceneClock`, `LocalWeatherReader`, `ScenerySettings`) | app | Shared, mascot-independent, unchanged |
@@ -2171,7 +2172,7 @@ Every tag plays forward; static tags are one frame of 1,000 ms.
 | `room-beanbag` | 62 × 12 | `idle`, `night-dark`, `night-lit` | `seat (4,2,54,1)`, `ink (0,0,62,12)` |
 | `room-mug` | 8 × 9 | `idle`, `night-dark`, `night-lit` | `ink (0,1,8,8)` |
 | `room-fly` | 20 × 26 | `buzz` (40 frames, 4,590 ms; holds 60–1,200 ms) | `ink (7,0,12,17)` |
-| `room-spines` | 24 × 12 | `chat`, `page`, `note`, `video`, `other` (3 masks each) | — |
+| `room-books` | 24 × 13 | `chat`, `message`, `page`, `note`, `video`, `other`, each with a `-night` twin (4 count-step frames each) | — |
 | `room-weather` | 36 × 32 | 15 tags (§8.7) | — |
 | `room-skyfx` | 36 × 32 | 6 tags (§8.8) | — |
 | `room-clock` | 15 × 15 | 8 tags, 362 frames (§8.12) | — |
@@ -2421,13 +2422,13 @@ The tag set is derived, never hand-listed (`BookwormLook.reachable(for:)` throug
 
 **Manifest entries: 25 objects (24 if D2 = `room`) in `$RES/sprites.manifest.json`** (`{"note": "<non-empty>", "assets": [...]}`; 36
 entries today: 24 `worm`, 1 `worm-small`, 7 `room` (the clock is written as `room`), one each of `weather`, `skyfx`,
-`fly`, `spines`). Each entry is string → string:
+`fly`, `books`). Each entry is string → string:
 
 | Key | Required | Rule |
 |---|---|---|
 | `id` | yes | the sheet name; `png` = `id + ".png"`, `json` = `id + ".json"` |
 | `png`, `json` | yes | basenames in `$RES` |
-| `role` | yes | one of `worm`, `worm-small`, `room`, `weather`, `skyfx`, `clock`, `fly`, `spines`: `worm` for the 24 room sheets, `worm-small` for the menu sheet |
+| `role` | yes | one of `worm`, `worm-small`, `room`, `weather`, `skyfx`, `clock`, `fly`, `books`: `worm` for the 24 room sheets, `worm-small` for the menu sheet |
 | `generator`, `script`, `source`, `authoring`, `licence`, `processing` | yes, non-empty | provenance; `script` and `source` relative to `artFolder` (`lua/build_mascot.lua`, `src/<id>.aseprite`); `authoring` names the D1 model and "headless" |
 | `date` | yes | `YYYY-MM-DD` |
 | `pngSha256`, `jsonSha256` | yes | lowercase 64-hex SHA-256 of the raw bytes |
@@ -2863,7 +2864,7 @@ until then.
 | Tracing bases | `tracing/ref_70x47.*`, `tracing/ref_56x38.*` |
 | Parts (authority) | `parts/worm-parts.aseprite` (64 × 48, 145 tags), `parts/worm-small-parts.aseprite` (18 × 18, 13), `parts/room-parts.aseprite` (110 × 64, 33) |
 | Sources | `src/bookworm-<state>.aseprite` × 8, `src/bookworm-<state>-night-{dark,lit}.aseprite` × 16, `src/bookworm-small.aseprite`, `src/room-*.aseprite` × 11; `menubar.aseprite` (an alias at the art root) |
-| Builders | `lua/build_worm.lua`, `build_worm_small.lua`, `build_night.lua`; room: `build_room`, `build_clock`, `build_weather`, `build_skyfx`, `build_spines`, `check_room_parts` |
+| Builders | `lua/build_worm.lua`, `build_worm_small.lua`, `build_night.lua`; room: `build_room`, `build_clock`, `build_weather`, `build_skyfx`, `build_books`, `check_room_parts` |
 | Script tables and libraries | `lua/worm_scripts.lua`, `error_eyes.lua`, `ase_helpers.lua`, `room_common.lua`, `scenery_common.lua`, `run_checked.lua` |
 | Correction records | headless: `lua/fix_parts.lua`, `refine_wormfix_parts.lua`; GUI (before the headless rule): `gui_wormfix_face.lua`, `gui_owner_error.lua`, `gui_room_tune.lua`, `gui_room_final.lua` and other historical `gui_*` |
 | Pipeline and verifiers | `tools/export_all.sh`, `verify.py`, `verify_night.py`, `verify_room.py`, `verify_clock.py`, `night_palette.py`, `manifest.py`, `make_preview.py`, `check_preview.mjs`, `check_scenery_rebuild.py` |

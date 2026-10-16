@@ -244,18 +244,6 @@
       "pngSha256": "290a3f15aad9a9e972b2447a40385c8637b83facef0a6b993faddc16054446c0",
       "jsonSha256": "674f36644c9b6f95e48d0e104f25958565801363ddedf419df1b47c4b899c0be"
     },
-    "room-spines": {
-      "tags": [
-        "chat",
-        "page",
-        "note",
-        "video",
-        "other"
-      ],
-      "dayTagsSha256": "a6e575099521d338c3f7f6815095da6566660c5e3b13e4fef9394efdb65b9d32",
-      "pngSha256": "2bc50f8abd337d80c860219d10f30282e4c51bb0078197e99bd04e325bd3091f",
-      "jsonSha256": "2f24ba07f9895637b0146376df7d646b0af7154222556f7252f076b19d271f36"
-    },
     "room-weather": {
       "tags": [
         "night",

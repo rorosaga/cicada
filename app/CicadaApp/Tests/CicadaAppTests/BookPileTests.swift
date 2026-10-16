@@ -1,75 +1,53 @@
 import XCTest
 @testable import CicadaApp
 
-/// G125 R9 — the book pile is a pure layout: spine height on a log scale of
-/// characters queued, sorted largest-first, folded beyond `maxBooks` into one
-/// remainder spine. Every case here is exact numbers, not "didn't crash" —
-/// the height formula and the fold are load-bearing for how the pile reads
-/// at a glance.
+/// G125 R9 — the book pile is a pure layout: one book per source, largest first by count, folded beyond `maxBooks`
+/// into one remainder book. Every case here is exact numbers, not "didn't crash".
 final class BookPileTests: XCTestCase {
 
     private func volume(_ origin: String, count: Int, chars: Int, remaining: Int? = nil) -> OriginVolume {
         OriginVolume(origin: origin, count: count, chars: chars, remaining: remaining ?? count)
     }
 
-    // MARK: bookPileLayout — height
+    // MARK: bookPileLayout — order
 
-    func test_height_zeroCharsIsTheEightPointFloor() {
-        let specs = bookPileLayout([volume("claude-code", count: 1, chars: 0)])
-        XCTAssertEqual(specs.first?.height ?? -1, 8, accuracy: 0.01)
-    }
-
-    func test_height_twoThousandCharsIsFourteen() {
-        // 8 + 6*log2(1 + 2000/2000) = 8 + 6*log2(2) = 8 + 6 = 14
-        let specs = bookPileLayout([volume("claude-code", count: 1, chars: 2000)])
-        XCTAssertEqual(specs.first?.height ?? -1, 14, accuracy: 0.01)
-    }
-
-    func test_height_twoMillionCharsClampsAtForty() {
-        let specs = bookPileLayout([volume("claude-code", count: 1, chars: 2_000_000)])
-        XCTAssertEqual(specs.first?.height ?? -1, 40, accuracy: 0.01)
-    }
-
-    // MARK: bookPileLayout — sort
-
-    func test_sortsByCharsDescendingThenOriginAscending() {
+    func test_sortsByCountDescendingThenCharsThenOrigin() {
         let buckets = [
-            volume("safari-tab", count: 1, chars: 500),
-            volume("claude-code", count: 1, chars: 500),
-            volume("telegram", count: 1, chars: 5000),
+            volume("safari-tab", count: 3, chars: 500),
+            volume("claude-code", count: 3, chars: 500),
+            volume("rss", count: 3, chars: 9000),
+            volume("telegram", count: 9, chars: 10),
         ]
-        let specs = bookPileLayout(buckets)
-        XCTAssertEqual(specs.map(\.origin), ["telegram", "claude-code", "safari-tab"])
+        XCTAssertEqual(bookPileLayout(buckets).map(\.origin), ["telegram", "rss", "claude-code", "safari-tab"])
     }
 
     // MARK: bookPileLayout — fold beyond maxBooks
 
     func test_nineBucketsWithMaxBooksEightFoldsTheNinthIntoARemainder() {
-        let buckets = (1...9).map { i in
-            volume("origin-\(i)", count: i, chars: i * 1000)
-        }
+        let buckets = (1...9).map { i in volume("origin-\(i)", count: i, chars: i * 1000) }
         let specs = bookPileLayout(buckets, maxBooks: 8)
         XCTAssertEqual(specs.count, 9)
         XCTAssertFalse(specs[0..<8].contains { $0.isRemainder })
-        let remainder = try? XCTUnwrap(specs.last)
-        XCTAssertEqual(remainder?.isRemainder, true)
-        XCTAssertEqual(remainder?.origin, "+more")
-        // The smallest bucket (origin-1, count 1) is the one folded out —
-        // sorted desc by chars means it's dropped last, i.e. sorted first
-        // eight are origin-9..origin-2, and origin-1 (count 1) is folded.
-        XCTAssertEqual(remainder?.count, 1)
+        XCTAssertEqual(specs.last?.isRemainder, true)
+        XCTAssertEqual(specs.last?.origin, "+more")
+        XCTAssertEqual(specs.last?.count, 1, "the smallest source is the one folded")
+        XCTAssertEqual(PileBooks.maxBooks, 7)
     }
 
-    // MARK: bookPileLayout — width fraction
-
-    func test_widthFractionIsRemainingOverCountWhileRunning() {
-        let specs = bookPileLayout([volume("claude-code", count: 12, chars: 1000, remaining: 3)])
-        XCTAssertEqual(specs.first?.widthFraction ?? -1, 0.25, accuracy: 0.001)
+    func test_theRemainderCarriesTheSumOfWhatItAbsorbed() {
+        let buckets = (1...10).map { i in volume("origin-\(i)", count: i, chars: 0, remaining: i - 1) }
+        let fold = bookPileLayout(buckets).last
+        XCTAssertEqual(fold?.count, 1 + 2 + 3)
+        XCTAssertEqual(fold?.remaining, 0 + 1 + 2)
     }
 
-    func test_widthFractionIsFullWhenRemainingEqualsCount() {
-        let specs = bookPileLayout([volume("claude-code", count: 12, chars: 1000, remaining: 12)])
-        XCTAssertEqual(specs.first?.widthFraction ?? -1, 1, accuracy: 0.001)
+    // MARK: bookPileLayout — what is still unread
+
+    func test_remainingIsCarriedAndClamped() {
+        XCTAssertEqual(bookPileLayout([volume("claude-code", count: 12, chars: 1000, remaining: 3)]).first?.remaining, 3)
+        XCTAssertEqual(BookSpec(origin: "rss", count: 4, remaining: 9).remaining, 4)
+        XCTAssertEqual(BookSpec(origin: "rss", count: 4, remaining: -2).remaining, 0)
+        XCTAssertEqual(BookSpec(origin: "rss", count: 4).remaining, 4)
     }
 
     // MARK: bookPileLayout — empty
@@ -125,8 +103,8 @@ final class BookPileTests: XCTestCase {
     /// An origin the episode cap left out of THIS cycle is queued but is not
     /// a key of `queueByOrigin` at all (distinct from the zero-remaining
     /// case above, where it IS a key). `studyRows` renders that as "next
-    /// cycle" rather than a bogus "0 of 0" — the pile must match: the spine
-    /// stays full-width, not zeroed to a vanished sliver.
+    /// cycle" rather than a bogus "0 of 0" — the pile must match: the book
+    /// stays on the pile.
     func test_originVolumes_running_originLeftOutOfCycleByCapStaysFullWidth() {
         let queued = [
             episode(id: "1", origin: "claude-code", chars: 500),
@@ -138,16 +116,16 @@ final class BookPileTests: XCTestCase {
         XCTAssertEqual(byOrigin["safari-tab"]?.count, 1)
     }
 
-    func test_stackedDisplayOrderPutsTheFattestBookAtTheBottom() {
+    func test_theFattestBookIsAtTheBottomOfThePile() {
         let books = bookPileLayout([
             OriginVolume(origin: "safari-tab", count: 188, chars: 40_000, remaining: 188),
             OriginVolume(origin: "telegram", count: 1, chars: 100, remaining: 1),
             OriginVolume(origin: "claude-code", count: 6, chars: 900_000, remaining: 6),
         ])
-        // Layout contract: largest first.
-        XCTAssertEqual(books.map(\.origin), ["claude-code", "safari-tab", "telegram"])
-        // Display contract: a VStack draws top-down, so the fattest spine must come LAST.
-        XCTAssertEqual(BookPileView.stacked(books).map(\.origin), ["telegram", "safari-tab", "claude-code"])
-        XCTAssertEqual(BookPileView.stacked([]).count, 0)
+        XCTAssertEqual(books.map(\.origin), ["safari-tab", "claude-code", "telegram"])
+        let placed = PileBooks.stack(books)
+        XCTAssertEqual(placed.sorted { $0.y < $1.y }.map(\.spec.origin), ["safari-tab", "claude-code", "telegram"])
+        XCTAssertEqual(placed.map(\.step), [3, 1, 0])
+        XCTAssertTrue(PileBooks.stack([]).isEmpty)
     }
 }

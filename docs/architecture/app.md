@@ -367,13 +367,18 @@ spelling), *Is <name> an AI agent?* with Yes/No when the detectors are unsure, a
 on launch, `bankChanged` on a switch) owns the list, the per-memory ROWID cursors (`cicada.messages.cursor.<bank>.<id>`
 in UserDefaults), the FSEvents watch on `~/Library/Messages` and the waiting bubbles; `MessagesReader` is the one SQL
 reader (`SQLiteReadOnly`, read-only, one transaction; a BLOB projected only from a column named in `base64Blobs`).
-The Sources card's *Sync now* routes to it (`ChannelActions.SyncRoute.messages`). **The bubbles:** the Sleep page's
-Waiting tab has a `MessagesWaitingRow`, and Home's Today waiting line carries the
-same `MessageBubbleStack` (non-interactive there): up to three overlapping profile bubbles (Contacts photo, else a
-monogram — `MessageBubbleFace`: the face inset 1.5 pt inside a disc of the ground's colour, so the monogram keeps its
-own hue ring, and below 24 units its letters are half its height, semibold — the bubbles only; never a shadow), "+N" past three, and the number of messages Sleep will
-read; hovering a bubble names it ("Instinct · 34 messages waiting to be read"), clicking the Sleep page's stack lists
-the names. `MessageBubbles.model` is pure and tested. Not a Store domain: `GET /sources/messages/waiting` is fetched
+The Sources card's *Sync now* routes to it (`ChannelActions.SyncRoute.messages`). **The bubbles:** on the Sleep page's
+Waiting tab they ride the Messages source row itself (owner, 2026-10-16: one row — the Messages mark, its name, the
+waiting chats' pictures, "N messages", the oldest age and the row's count; the second line is gone), and only when no
+Messages episode is queued yet does `MessagesWaitingRow` draw a line of its own in the same grammar; Home's Today waiting
+line carries the same `MessageBubbleStack` (non-interactive there): up to three overlapping profile bubbles, "+N" past
+three, and the number of messages Sleep will read. A bubble's face follows the picture precedence — the person's chosen
+picture (the photo they uploaded to the ONE page named exactly like the chat, `MessageBubbles.chosenPicture`, display
+only, loaded from Cicada's own picture store), else the Contacts photo, else a monogram (`MessageBubbleFace`: the face
+inset 1.5 pt inside a disc of the ground's colour; the monogram is a disc filled with the person's hue at 35 % over the
+ground with the letter in `textPrimary` — a hue ring round one letter read as "ⓘ" — and below 24 units its letters are
+half its height, semibold; the bubbles only; never a shadow). Hovering a bubble names it ("Instinct · 34 messages
+waiting to be read"); the Messages row's tooltip and VoiceOver label carry every waiting chat's line. `MessageBubbles.model` is pure and tested. Not a Store domain: `GET /sources/messages/waiting` is fetched
 in memory whenever the status's unprocessed count moves. **Who is who in the Reader:** `EpisodeText.correspondent`
 names a message conversation's `assistant` turns ("Instinct", through `ModelNames.agentLine`) and its `speaker`
 turns; `ProvenanceConversation.correspondent` makes an evidence chip read "Instinct replied".
@@ -954,9 +959,20 @@ ground, drawn at a whole 5, 4 or 3 pt per lattice cell by the width the art may 
 page over its bottom five cells (`RoomFloorFade`, a mask on the art layer only, never the pile). **The painted room is
 the lattice (2026-10-16):** the backdrop's wall, floor and trim span all 160 columns, so the pile stands on the room's
 floor in its own columns and the worm, props, pile and every hotspot sit inside `DeskSceneLayout.paintedFrame` at every
-step (`SleepRoomFrameTests`; the backdrop was 110 columns, which the old card hid). Each spine rests on the page
-ground in its own silhouette, so the wall never shows through a translucent spine behind its count (DR-13,
-`SleepPileGroundTests`). Under it, in the 760 pt
+step (`SleepRoomFrameTests`; the backdrop was 110 columns, which the old card hid). **The pile is books (owner pick
+"A · Stack", 2026-10-16):** one pixel-art book per waiting source, lying flat, the fattest at the bottom, drawn from the
+`room-books` sheet at the room's own cell size and in its lighting (the night frame in a dark room) — `PileBooks.stack`,
+pure: thickness by count in four steps (1 · 2–9 · 10–49 · 50+ → 7/9/11/13 rows), a colour per source kind from existing
+palette keys (`bookKind`: agent chats the worm's book blue, conversations with people — Messages, Telegram — leaf
+green, pages ochre, notes plum, videos red, the rest and the "+N" steel), a width per kind, each book right-aligned
+against the corner post and nudged 0–3 cells; past 40 rows a second, narrower stack stands to its left, and what neither
+holds folds into one "+N" book (`bookPileLayout` already folds past seven sources). Every book is whole cells inside the
+column and the painted room at 5/4/3/2 pt (`PileStackTests`). `BookArt` joins the sheet's leading cap, its one middle
+column repeated and its trailing cap to any whole width, so a book is the drawing as authored, never a resample. The
+count (and the source's mark, when it fits) sits on a plate of the page ground in whole cells inside the book's outline
+(`PileBooks.plate`); a book too thin for a 15 pt plate at the current scale carries none, and its count lives in the
+tooltip, the popover and the Waiting tab. A book is opaque art, so nothing behind it shows through (DR-13,
+`SleepPileGroundTests`); hover lifts it one whole cell. Under it, in the 760 pt
 text column, one sentence in the display face, one Consolidate/Cancel control with the engine menu
 snug beside it (`HugWidth`: the button is its own width up to its 300 pt cap, never the cap) — a neutral button naming what a cycle you start would run (`preview.manual`, "Auto ·"
 under Auto) that opens the five engines with their real marks, the chosen engine's model and both
@@ -1014,8 +1030,8 @@ with no number — the panel has the counts. A sleeping worm takes the drop and 
 page sends nothing. **Meadow (Z10).** The sentence is the display face (SF Pro Display semibold 30,
 `displayTracking`) over an SF italic tail (F1 R-FX13), Consolidate is the page's one `PrimaryActionButton`, `SleepMotion` forwards its shared names
 to `CicadaMotion`, and the sky band above the page is OFF (`SkyBand.ships`, TODO ruling 10). The
-pile is compressed to its column at every zoom and queue size — at most eight spines, the order and
-every count kept, never cut (`fitPile`) — and the title is `PageTitle`, the view `PageHeader` draws.
+pile fits its column at every scale and queue size — two stacks before a fold, the order and every count kept,
+never cut (`PileBooks.stack`).
 Refused: motion with no state behind it (mug steam, plant sway), a flash or strobe in any weather, a count driving the window (time of day follows the clock or the person's choice, R-Z11 as amended 2026-10-02), duration estimates, and any price or plan figure outside Past reads and the engine menu (TODO ruling 12). State art loops (ruling 18).
 
 **Consolidate reads everything — the app half (G163, ruling 13).** No new door: every trigger already POSTs with no body, and
@@ -1202,8 +1218,9 @@ Tags derive from `BookwormLook.keySegment` and are tested to match each sheet ex
 covers on its own loop. A transition always uses the sleeping sheet from the current room lighting/lamp set; a cold page never transitions, and a real
 completion's cheer wins in either callback order. A lint bans `.offset`/`.scaleEffect`/`.rotationEffect`/`.spring(`
 on every sprite except whole-cell lattice placement. Cached room crops are bounded by distinct frame rects and
-decoded pixels; the small renderer's independent cache keeps its 1024-entry wipe bound. Spines use kind-specific
-binary masks over the existing origin colour; `fitPile` and spine interactions are unchanged. **Feeding** — a file dropped
+decoded pixels; the small renderer's independent cache keeps its 1024-entry wipe bound. The pile's books are the
+`room-books` sheet (six kinds × four count steps, day and night; the spine masks and `room-spines` retired 2026-10-16),
+joined to width by `BookArt` and cached per kind, step, width and lighting; the book interactions are the spines' were. **Feeding** — a file dropped
 on the worm imports through the one intake (R-Z10) — shipped in Z9; the matrix decides its gulp and
 shake like every other beat.
 

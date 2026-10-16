@@ -9,8 +9,8 @@ final class SpineAndLampTests: XCTestCase {
     private let en = Locale(identifier: "en_US")
     private let idleRow = StudyRow(origin: "claude-code", label: "Claude Code", count: 12, oldestAge: "3d", read: nil, total: nil)
     private let runningRow = StudyRow(origin: "claude-code", label: "Claude Code", count: 12, oldestAge: "3d", read: 4, total: 12)
-    private let spine = BookSpec(origin: "claude-code", count: 12, height: 20, widthFraction: 1, isRemainder: false)
-    private let remainder = BookSpec(origin: "+more", count: 4, height: 10, widthFraction: 1, isRemainder: true)
+    private let spine = BookSpec(origin: "claude-code", count: 12)
+    private let remainder = BookSpec(origin: "+more", count: 4, isRemainder: true)
 
     // MARK: Spines (§7.1, I5)
 

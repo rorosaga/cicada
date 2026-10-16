@@ -1,17 +1,14 @@
+import AppKit
 import SwiftUI
 
-/// G125 R1/R9 — the Sleep page's ONE volume encoding: characters queued, per
-/// source, on a log scale. Not a chart (R1 forbids bars-per-source, tiles,
-/// an age histogram) — a pile of book spines is a glance, not a report.
+/// G125 R1/R9 — the Sleep page's ONE volume encoding: one book per waiting source, its thickness stepped by how many
+/// are waiting (owner pick "A · Stack", 2026-10-16). Not a chart (R1 forbids bars-per-source, tiles, an age
+/// histogram) — a pile of books is a glance, not a report.
 struct OriginVolume: Equatable {
     let origin: String
-    /// Episode count for this origin — used for `widthFraction`'s
-    /// denominator and the remainder fold's count, never for height (chars
-    /// alone drives height; a pile with one huge episode and a pile with
-    /// many tiny ones should look different).
+    /// Episode count for this origin — the book's thickness step and the count on its plate.
     let count: Int
-    /// Total body characters across this origin's queued episodes — what
-    /// `bookPileLayout` turns into spine height.
+    /// Total body characters across this origin's queued episodes — breaks a tie in the pile's order.
     let chars: Int
     /// How much of `count` is still unread. Equals `count` while idle (R9:
     /// nothing has been read yet, the whole pile is "remaining"); during a
@@ -20,120 +17,171 @@ struct OriginVolume: Equatable {
     let remaining: Int
 }
 
-/// One spine on the pile. `isRemainder` marks the single folded "+more"
-/// spine `bookPileLayout` synthesizes when there are more buckets than
-/// `maxBooks` — its `origin` is the literal `"+more"`, never a real one.
+/// One book on the pile. `isRemainder` marks the single folded "+N" book `bookPileLayout` (or the stack, when the
+/// column is full) makes of what does not get a book of its own — its `origin` is the literal `"+more"`.
 struct BookSpec: Identifiable, Equatable {
     let origin: String
     let count: Int
-    /// The spine's natural height in points at the reference cell (uiScale
-    /// 1.0) — `fitPile` turns it into what is drawn.
-    let height: CGFloat
-    let widthFraction: Double
+    /// Still unread this cycle; a book read through (`0`) is not drawn.
+    let remaining: Int
     let isRemainder: Bool
     var id: String { origin }
+
+    init(origin: String, count: Int, remaining: Int? = nil, isRemainder: Bool = false) {
+        self.origin = origin
+        self.count = count
+        self.remaining = max(0, min(count, remaining ?? count))
+        self.isRemainder = isRemainder
+    }
+
+    static func remainder(of folded: [BookSpec]) -> BookSpec {
+        BookSpec(origin: "+more", count: folded.reduce(0) { $0 + $1.count },
+                 remaining: folded.reduce(0) { $0 + $1.remaining }, isRemainder: true)
+    }
 }
 
-/// Pure layout (R9): deterministic, no view, no dates. Height is
-/// `8 + 6·log2(1 + chars/2000)` clamped to `8...40` — a `chars` of 0 still
-/// draws the 8 pt floor (an episode with no body is still a book on the
-/// pile, just a thin one). Sorted largest-first by `chars` (origin breaks a
-/// tie) so the biggest pile always reads leftmost; anything past `maxBooks`
-/// folds into one remainder spine sized from the SUM of what it absorbed,
-/// so the pile's total visual mass never silently shrinks just because
-/// there were more than `maxBooks` sources. `maxBooks` defaults to
-/// `PileFitting.maxBooks` (7): the eighth spine is the remainder, and eight is
-/// what the room's column holds with every count readable (Z-B1).
-func bookPileLayout(_ buckets: [OriginVolume], maxBooks: Int = PileFitting.maxBooks) -> [BookSpec] {
-    let sorted = buckets.sorted { $0.chars != $1.chars ? $0.chars > $1.chars : $0.origin < $1.origin }
-    func height(_ chars: Int) -> CGFloat {
-        let h = 8 + 6 * log2(1 + Double(max(0, chars)) / 2000)
-        return CGFloat(min(40, max(8, h)))
+/// Pure (R9): largest first by count (characters, then origin, break a tie), and anything past `maxBooks` folded into
+/// one remainder book carrying the SUM of what it absorbed, so the pile's mass never silently shrinks.
+func bookPileLayout(_ buckets: [OriginVolume], maxBooks: Int = PileBooks.maxBooks) -> [BookSpec] {
+    let sorted = buckets.sorted {
+        $0.count != $1.count ? $0.count > $1.count : $0.chars != $1.chars ? $0.chars > $1.chars : $0.origin < $1.origin
     }
-    var out = sorted.prefix(maxBooks).map { b in
-        BookSpec(origin: b.origin, count: b.count, height: height(b.chars),
-                 widthFraction: b.count > 0 ? min(1, max(0, Double(b.remaining) / Double(b.count))) : 1,
-                 isRemainder: false)
-    }
+    var out = sorted.prefix(maxBooks).map { BookSpec(origin: $0.origin, count: $0.count, remaining: $0.remaining) }
     let rest = sorted.dropFirst(maxBooks)
     if !rest.isEmpty {
-        out.append(BookSpec(origin: "+more", count: rest.reduce(0) { $0 + $1.count },
-                            height: height(rest.reduce(0) { $0 + $1.chars }), widthFraction: 1, isRemainder: true))
+        out.append(.remainder(of: rest.map { BookSpec(origin: $0.origin, count: $0.count, remaining: $0.remaining) }))
     }
     return out
 }
 
-/// How the pile fits the room's column (live check 2026-09-23, Z-B1…Z-B3). On
-/// a bank with hundreds of items across four sources, four 40 pt spines and
-/// their gaps stood 168 pt in a 130 pt column: the pile grew out of the room
-/// and the card's clip cut its top spine. The pile is the page's one volume
-/// encoding (R1/R9), so its art may be COMPRESSED to fit — never cut, never
-/// spilled — while the quantity stays readable where it is true: the count on
-/// each spine, its tooltip, its popover and Details › What's waiting.
-enum PileFitting {
-    /// The cell `bookPileLayout`'s 8–40 pt heights were authored at
-    /// (`RoomLattice.cell(uiScale: 1.0)`, pinned by
-    /// `PileFitTests`). The pile scales with the lattice it stands on, not with
-    /// the font: at 1.2× the room snaps to 4 pt cells, and a pile sized by
-    /// uiScale alone would be a second scale in one picture (P12, Z-B2).
-    static let referenceCell: CGFloat = 3
-    /// The shortest spine that carries its count in `captionFont` — the old
-    /// `spec.height >= 14` rule, now scaled with the font it guards (Z-B2).
-    static let labelMinPoints: CGFloat = 14
-    /// The most spines the column holds with every spine that deserves a count
-    /// still tall enough to show it, at EVERY zoom step: 8 × (floor + gap) is
-    /// 100.3 of 104 pt at 0.8× and 139.2 of 156 pt at 1.1×; nine would need
-    /// 112.8 and 156.6. Measured per step by `PileFitTests`.
-    static let maxSpines = 8
-    /// Real books before the fold — the "+more" remainder is the eighth spine.
-    static let maxBooks = maxSpines - 1
+/// A book placed in the pile's column, in whole cells from the column's bottom-left corner.
+struct PlacedBook: Identifiable, Equatable {
+    let spec: BookSpec
+    let kind: BookKind
+    let step: Int
+    let x: Int
+    let y: Int
+    let width: Int
+    var rows: Int { BookArt.rows[step] }
+    var id: String { spec.id }
 }
 
-/// What `fitPile` decided: each drawn spine's height, by `BookSpec.id`, and
-/// the gap, width and label floor it was decided with.
-struct PileFit: Equatable {
-    var heights: [String: CGFloat]
-    var gap: CGFloat
-    var maxWidth: CGFloat
-    var labelMinHeight: CGFloat
-
-    func height(_ spec: BookSpec) -> CGFloat { heights[spec.id] ?? 0 }
-    /// A spine carries its count only when it is tall enough to hold it.
-    func showsLabel(_ spec: BookSpec) -> Bool { height(spec) + 0.001 >= labelMinHeight }
-    /// The stack as `BookPileView` draws it: every drawn spine plus the gap above it.
-    var totalHeight: CGFloat { heights.values.reduce(0) { $0 + $1 + gap } }
+/// The count's ground on a book's spine: whole cells from the column's bottom-left corner, filled with the page ground
+/// so the number never sits on the art (DR-13). `showsMark` — the source's mark fits beside the count.
+struct BookPlate: Equatable {
+    let x: Int
+    let y: Int
+    let width: Int
+    let height: Int
+    let showsMark: Bool
 }
 
-/// Pure (Z-B1): natural heights when the stack fits the column; otherwise only
-/// what sits above the label floor is compressed, every spine by one factor,
-/// so the order survives and every spine that carried a count still does. A
-/// spine read through this cycle (`widthFraction == 0`) is not drawn and
-/// takes no height.
-func fitPile(_ books: [BookSpec], in layout: DeskSceneLayout, uiScale: Double) -> PileFit {
-    let unit = layout.cell / PileFitting.referenceCell
-    let gap = BookPileView.spineGap * unit
-    let labelMin = PileFitting.labelMinPoints * CGFloat(uiScale)
-    let drawn = books.filter { $0.widthFraction > 0 }
-    let natural = drawn.map { $0.height * unit }
-    let column = layout.pileFrame.height
-    let gaps = CGFloat(drawn.count) * gap
-    var heights = natural
-    if natural.reduce(0, +) + gaps > column {
-        let floors = natural.map { min($0, labelMin) }
-        let excess = zip(natural, floors).reduce(CGFloat(0)) { $0 + ($1.0 - $1.1) }
-        let room = column - gaps - floors.reduce(0, +)
-        let k = excess > 0 ? max(0, min(1, room / excess)) : 0
-        heights = zip(natural, floors).map { $0.1 + ($0.0 - $0.1) * k }
-        // Unreachable within `maxSpines` (tested at every step); kept so a
-        // future fold change degrades to smaller spines, never to a cut pile.
-        let total = heights.reduce(0, +)
-        if total + gaps > column, total > 0 {
-            let shrink = max(0, column - gaps) / total
-            heights = heights.map { $0 * shrink }
+/// The stack (owner pick "A · Stack", 2026-10-16): books lying flat, the fattest at the bottom, right-aligned in the
+/// pile's column and each nudged a cell or two so it reads as a pile someone made. A stack never passes
+/// `maxStackRows`; past it a second, narrower stack stands to its left, and what neither holds folds into one "+N"
+/// book. Everything is whole cells inside the column, so the pile is crisp and inside the painted room at every scale.
+enum PileBooks {
+    /// Real books before the fold.
+    static let maxBooks = 7
+    static let columnWidth = DeskScene.pileCell.width
+    static let columnHeight = DeskScene.pileCell.height
+    /// The books stand two cells up the floor, clear of the floor fade's darkest cells.
+    static let base = 2
+    /// The books' right edge: four columns short of the column's, clear of the room's corner post.
+    static let rightEdge = DeskScene.pileCell.width - 4
+    static let maxStackRows = 40
+    static let wide: [BookKind: Int] = [.chat: 40, .message: 36, .page: 38, .note: 34, .video: 37, .other: 32]
+    static let narrow: [BookKind: Int] = [.chat: 21, .message: 19, .page: 20, .note: 18, .video: 19, .other: 18]
+    static let nudges = [0, 2, 1, 3]
+    static let narrowNudges = [[0, 1, 0, 1], [1, 0, 1, 0]]
+    /// The left stack's right edge: the right stack's widest book and largest nudge, then one clear column.
+    static var leftStackEdge: Int { rightEdge - (narrow.values.max() ?? 0) - 1 - 1 }
+
+    static func rows(_ spec: BookSpec) -> Int { BookArt.rows[BookArt.step(count: spec.count)] }
+
+    static func stack(_ books: [BookSpec]) -> [PlacedBook] {
+        let drawn = books.filter { $0.remaining > 0 }
+        let total = drawn.reduce(0) { $0 + rows($1) }
+        let two = total > maxStackRows
+        var stacks: [[BookSpec]] = [[], []]
+        var heights = [0, 0]
+        var folded: [BookSpec] = drawn.filter(\.isRemainder)
+        for book in drawn where !book.isRemainder {
+            let t = rows(book)
+            if let i = (0..<2).first(where: { heights[$0] + t <= maxStackRows }) {
+                stacks[i].append(book)
+                heights[i] += t
+            } else {
+                folded.append(book)
+            }
         }
+        if !folded.isEmpty {
+            // The fold lies on the left stack (the only one, without a second); a book it does not fit beside is
+            // folded into it too, so the "+N" is always drawn.
+            let target = two ? 1 : 0
+            var fold = BookSpec.remainder(of: folded)
+            while heights[target] + rows(fold) > maxStackRows, let last = stacks[target].popLast() {
+                heights[target] -= rows(last)
+                fold = .remainder(of: [fold, last])
+            }
+            stacks[target].append(fold)
+        }
+        var out: [PlacedBook] = []
+        for (i, stack) in stacks.enumerated() {
+            var y = base
+            for (j, book) in stack.enumerated() {
+                let kind = book.isRemainder ? .other : bookKind(for: book.origin)
+                let width = (two ? narrow : wide)[kind] ?? 32
+                let nudge = two ? narrowNudges[i][j % 4] : nudges[j % 4]
+                let right = i == 0 ? rightEdge : leftStackEdge
+                out.append(PlacedBook(spec: book, kind: kind, step: BookArt.step(count: book.count),
+                                      x: right - nudge - width, y: y, width: width))
+                y += rows(book)
+            }
+        }
+        return out
     }
-    return PileFit(heights: Dictionary(zip(drawn.map(\.id), heights), uniquingKeysWith: { first, _ in first }),
-                   gap: gap, maxWidth: layout.pileFrame.width, labelMinHeight: labelMin)
+
+    // MARK: The plate
+
+    /// The plate starts after the spine's left band and ends before the hinge and page block.
+    static let plateLead = 3
+    static let plateTrail = 5
+    /// What the plate holds at 1×: a 12 pt mark and an 11 pt count, 15 pt tall, 3 pt in from each end, 4 pt apart.
+    static let platePoints: CGFloat = 15
+    static let platePad: CGFloat = 3
+    static let markPoints: CGFloat = 12
+    static let markGap: CGFloat = 4
+
+    static func label(_ spec: BookSpec) -> String { spec.isRemainder ? "+\(spec.count)" : "\(spec.count)" }
+
+    /// The count's width in the caption face at `uiScale` (monospaced digits, medium).
+    static func labelWidth(_ text: String, uiScale: Double) -> CGFloat {
+        let font = NSFont.monospacedDigitSystemFont(ofSize: 11 * CGFloat(uiScale), weight: .medium)
+        return ceil((text as NSString).size(withAttributes: [.font: font]).width)
+    }
+
+    /// The plate for `book` at `cell` points per cell, or nil when it does not fit inside the book's outline: then the
+    /// count lives where it always does — the tooltip, the popover and the Waiting tab. The mark goes first.
+    static func plate(for book: PlacedBook, cell: CGFloat, uiScale: Double) -> BookPlate? {
+        plate(for: book, cell: cell, uiScale: uiScale, labelWidth: labelWidth(label(book.spec), uiScale: uiScale))
+    }
+
+    static func plate(for book: PlacedBook, cell: CGFloat, uiScale: Double, labelWidth: CGFloat) -> BookPlate? {
+        let s = CGFloat(uiScale)
+        func cells(_ points: CGFloat) -> Int { Int((points / cell - 0.001).rounded(.up)) }
+        let height = cells(platePoints * s)
+        guard height <= book.rows - 2 else { return nil }
+        let room = book.width - plateLead - plateTrail
+        let bare = cells((2 * platePad) * s + labelWidth)
+        let marked = cells((2 * platePad + markPoints + markGap) * s + labelWidth)
+        let y = book.y + (book.rows - height) / 2
+        if !book.spec.isRemainder, marked <= room {
+            return BookPlate(x: book.x + plateLead, y: y, width: marked, height: height, showsMark: true)
+        }
+        guard bare <= room else { return nil }
+        return BookPlate(x: book.x + plateLead, y: y, width: bare, height: height, showsMark: false)
+    }
 }
 
 /// Groups the cycle's queued episodes into `OriginVolume`s. Sums `chars` and
@@ -141,12 +189,12 @@ func fitPile(_ books: [BookSpec], in layout: DeskSceneLayout, uiScale: Double) -
 /// body length); `remaining` prefers the live per-cycle dicts while
 /// `running` — `queueByOrigin[origin] - readByOrigin[origin]`, clamped to
 /// never go negative (a transient race between the two counters must never
-/// draw a spine wider than the pile it's slicing) — and otherwise falls
+/// leave a book on the pile with nothing left in it) — and otherwise falls
 /// back to the origin's full `count`: idle (nothing has been read, the
 /// whole pile still stands) AND the case where `origin` is queued but not a
 /// key of `queueByOrigin` at all — the episode cap left it out of this
 /// cycle, same condition `studyRows` renders as "next cycle" rather than a
-/// bogus "0 of 0" — so its spine stays full-width too, not zeroed out.
+/// bogus "0 of 0" — so its book stays on the pile too.
 func originVolumes(
     queued: [EpisodeQueueItem],
     queueByOrigin: [String: Int],
@@ -203,108 +251,74 @@ func spineHelp(spec: BookSpec, row: StudyRow?, locale: Locale = .autoupdatingCur
     }
 }
 
-/// The pile itself: bottom-aligned spines, the fattest book at the BOTTOM
-/// like books actually stack — `bookPileLayout` hands the specs largest-first
-/// (its own tested contract, and what the study list reads), so the view
-/// reverses them for display rather than asking the layout to sort the
-/// other way (owner-side check 2026-09-05: the first cut drew the biggest
-/// spine on top, which read as a chart's bar order, not a pile). A spine
-/// whose `widthFraction` is 0 (everything from that source has been read
-/// this cycle) draws nothing rather than a zero-width sliver.
-///
-/// Track Z Z6 (§7.1): every spine is a control (`SpineButton`). The pile is a
-/// `.contain` container named by its source count, so VoiceOver reaches each
-/// spine inside it, largest first, whatever the bottom-up display order.
+/// The pile itself (owner pick "A · Stack", 2026-10-16): pixel-art books on the room's lattice, each a control
+/// (Track Z §7.1), placed by `PileBooks.stack` in whole cells of the column the room reserves. The pile is a
+/// `.contain` container named by its source count, so VoiceOver reaches each book inside it, largest first.
 struct BookPileView: View {
     let books: [BookSpec]
     var rows: [StudyRow] = []
     var episodes: [EpisodeQueueItem] = []
     var room: RoomModel? = nil
     var onOpenDetails: (DetailsSection) -> Void = { _ in }
-    /// The room the pile stands in, whose reserved column it must fit (Z-B1).
+    /// The room the pile stands in; its column and cell place every book.
     let layout: DeskSceneLayout
+    /// The room's lighting: a dark room draws each book's night frame.
+    var night = false
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    /// The gap above each spine — part of that spine's hit target (§6.2), so
-    /// an 8 pt spine is still comfortable to click (Z-P14). It replaced the
-    /// stack's own 2 pt spacing, which no spine owned. 2 pt at the reference
-    /// cell; `fitPile` scales it with the lattice (Z-B2).
-    static let spineGap: CGFloat = 2
-
     var body: some View {
         let byOrigin = Dictionary(rows.map { ($0.origin, $0) }, uniquingKeysWith: { first, _ in first })
-        // Z-B1 — compressed to the column, never cut. `uiScale` is read here so
-        // a zoom step refits the pile in the frame the room re-snaps.
-        let fit = fitPile(books, in: layout, uiScale: CicadaTheme.uiScale)
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(Self.stacked(books)) { spec in
-                if spec.widthFraction > 0 {
-                    SpineButton(spec: spec, row: byOrigin[spec.origin], episodes: episodes, room: room,
-                                onOpenDetails: onOpenDetails, height: fit.height(spec), gap: fit.gap,
-                                width: fit.maxWidth * spec.widthFraction, showsLabel: fit.showsLabel(spec), cell: layout.cell)
-                        // Inside the pile's own container: largest first (§11),
-                        // whatever the bottom-up display order.
-                        .accessibilitySortPriority(-Double(books.firstIndex(of: spec) ?? 0))
-                }
+        let cell = layout.cell
+        ZStack(alignment: .bottomLeading) {
+            Color.clear
+            ForEach(PileBooks.stack(books)) { book in
+                PileBookButton(book: book, row: byOrigin[book.spec.origin], episodes: episodes, room: room,
+                               onOpenDetails: onOpenDetails, cell: cell, night: night)
+                    .offset(x: CGFloat(book.x) * cell, y: -CGFloat(book.y) * cell)
+                    // Inside the pile's own container: largest first (§11), whatever the drawing order.
+                    .accessibilitySortPriority(-Double(books.firstIndex(of: book.spec) ?? books.count))
             }
         }
-        .frame(maxHeight: .infinity, alignment: .bottom)
+        .frame(width: layout.pileFrame.width, height: layout.pileFrame.height, alignment: .bottomLeading)
         .animation(SleepMotion.pile(reduceMotion: reduceMotion), value: books)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(pileAccessibilityLabel(sourceCount: rows.count))
         .accessibilitySortPriority(RoomA11yOrder.spines)
     }
-
-    /// Display order: `bookPileLayout`'s largest-first list, bottom-up — the
-    /// remainder spine (always last in the layout) lands on the very bottom
-    /// of the pile, under the real books, which is where a folded "+more"
-    /// of small leftovers belongs. Pure and tested.
-    static func stacked(_ books: [BookSpec]) -> [BookSpec] { Array(books.reversed()) }
 }
 
-/// One spine as a control (Track Z §7.1): a click opens its source's queue —
-/// the folded remainder opens Details › What's waiting instead (Z-P20: it
-/// folds several sources, so it has no one queue to show). Hover lifts it
-/// 2 pt (a SwiftUI shape, not pixel art — R-Z4 is about the worm) and tints
-/// its Details row through `room.hoveredOrigin` (I5, I7). No spine starts,
-/// cancels or schedules a cycle (R-Z9).
-struct SpineButton: View {
-    let spec: BookSpec
+/// One book as a control (Track Z §7.1): a click opens its source's queue — the folded "+N" opens Waiting instead
+/// (Z-P20: it folds several sources). Hover lifts it one whole cell and tints its Waiting row through
+/// `room.hoveredOrigin` (I5, I7). No book starts, cancels or schedules a cycle (R-Z9).
+struct PileBookButton: View {
+    let book: PlacedBook
     let row: StudyRow?
     let episodes: [EpisodeQueueItem]
     let room: RoomModel?
     let onOpenDetails: (DetailsSection) -> Void
-    /// What `fitPile` gave this spine (Z-B1): its drawn height, the gap above
-    /// it (inside its hit target, Z-P14), its width, and whether it is tall
-    /// enough to carry its count.
-    let height: CGFloat
-    let gap: CGFloat
-    let width: CGFloat
-    let showsLabel: Bool
-    var cell: CGFloat = RoomLattice.cell(uiScale: CicadaTheme.uiScale)
+    let cell: CGFloat
+    var night = false
 
     @State private var hovering = false
     @State private var showPopover = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        let lifted = hovering || room?.hoveredOrigin == spec.origin
+        let lifted = hovering || room?.hoveredOrigin == book.spec.origin
         Button {
-            if spec.isRemainder || row == nil { onOpenDetails(.waiting) } else { showPopover = true }
+            if book.spec.isRemainder || row == nil { onOpenDetails(.waiting) } else { showPopover = true }
         } label: {
-            shape(lifted: lifted)
-                .padding(.top, gap)
-                .contentShape(Rectangle())
+            art.contentShape(Rectangle())
         }
         .buttonStyle(.cicadaPlain)
         .onHover { inside in
             hovering = inside
-            room?.hover(origin: spec.origin, inside: inside)
+            room?.hover(origin: book.spec.origin, inside: inside)
         }
         .roomLinkCursor()
-        .help(spineHelp(spec: spec, row: row))
-        .accessibilityLabel(spineAccessibilityLabel(spec: spec, row: row))
+        .help(spineHelp(spec: book.spec, row: row))
+        .accessibilityLabel(spineAccessibilityLabel(spec: book.spec, row: row))
         .popover(isPresented: $showPopover, arrowEdge: .trailing) {
             if let row {
                 SpinePopover(row: row, episodes: episodes) {
@@ -313,35 +327,43 @@ struct SpineButton: View {
                 }
             }
         }
+        // A lift is one whole cell, on the lattice like every sprite; the lifted book draws over the one above it.
+        .offset(y: lifted && !reduceMotion ? -cell : 0)
+        .zIndex(lifted ? 1 : 0)
+        .animation(SleepMotion.hover(reduceMotion: reduceMotion), value: lifted)
     }
 
-    private func shape(lifted: Bool) -> some View {
-        let color = spec.isRemainder ? CicadaTheme.textTertiary.opacity(0.4) : OriginIconography.color(for: spec.origin)
-        return ZStack(alignment: .leading) {
-            SpineTexture(kind: spec.isRemainder ? .other : spineKind(for: spec.origin), color: color,
-                         cell: cell, size: CGSize(width: width, height: height))
-            if showsLabel {
-                HStack(spacing: CicadaTheme.spacingXS) {
-                    // Z-B2 — scales with the floor it sits in: a fixed 12 pt
-                    // mark would overhang the 11.2 pt label floor at 0.8×.
-                    if !spec.isRemainder { OriginMark(origin: spec.origin, size: CicadaTheme.scaled(12)) }
-                    Text("\(spec.count)")
-                        .font(CicadaTheme.captionFont)
-                        // Z-P19 / design defect 7 — a theme token, not a literal.
-                        .foregroundStyle(CicadaTheme.onFill)
+    private var art: some View {
+        let size = CGSize(width: CGFloat(book.width) * cell, height: CGFloat(book.rows) * cell)
+        return ZStack(alignment: .bottomLeading) {
+            if let image = BookArt.image(kind: book.kind, step: book.step, width: book.width, night: night) {
+                Image(decorative: image, scale: 1)
+                    .resizable()
+                    .interpolation(.none)
+                    .frame(width: size.width, height: size.height)
+                    .id(night)
+                    .transition(.opacity)
+            } else {
+                // The sheet failed to load (logged once by `SpriteSheets`): a plain block, still a control.
+                Rectangle().fill(CicadaTheme.textTertiary)
+            }
+            if let plate = PileBooks.plate(for: book, cell: cell, uiScale: CicadaTheme.uiScale) {
+                HStack(spacing: CicadaTheme.scaled(PileBooks.markGap)) {
+                    if plate.showsMark { OriginMark(origin: book.spec.origin, size: CicadaTheme.scaled(PileBooks.markPoints)) }
+                    Text(PileBooks.label(book.spec))
+                        .font(CicadaTheme.font(size: 11, weight: .medium))
+                        .monospacedDigit()
+                        // Z-P19 — a theme token on the page ground, never a literal.
+                        .foregroundStyle(CicadaTheme.textPrimary)
+                        .lineLimit(1)
+                        .fixedSize()
                 }
-                .padding(.horizontal, CicadaTheme.spacingXS)
+                .frame(width: CGFloat(plate.width) * cell, height: CGFloat(plate.height) * cell)
+                .background(CicadaTheme.bgBase)
+                .offset(x: CGFloat(plate.x - book.x) * cell, y: -CGFloat(plate.y - book.y) * cell)
             }
         }
-        // Resting at 0.85 is today's look (the colour used to carry the
-        // opacity); a lift is full strength, and 2 pt up unless Reduce Motion.
-        .opacity(spec.isRemainder || lifted ? 1 : 0.85)
-        // The pile stands in the painted room (2026-10-16), and a translucent spine — the remainder's 40 % fill, a
-        // resting 85 % — would let the wall and floor show through behind its count (DR-13: no text on the art). It
-        // rests on the page ground in its own silhouette instead, so it reads exactly as it did on the page.
-        .background(SpineTexture(kind: spec.isRemainder ? .other : spineKind(for: spec.origin), color: CicadaTheme.bgBase,
-                                 cell: cell, size: CGSize(width: width, height: height), silhouetteOnly: true))
-        .offset(y: lifted && !reduceMotion ? -2 : 0)
-        .animation(SleepMotion.hover(reduceMotion: reduceMotion), value: lifted)
+        .frame(width: size.width, height: size.height, alignment: .bottomLeading)
+        .animation(SleepMotion.weather(reduceMotion: reduceMotion), value: night)
     }
 }
