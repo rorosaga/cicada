@@ -33,7 +33,37 @@ struct DesignColourRole: Decodable, Equatable, Hashable, Sendable {
     var source: String
 }
 
-struct DesignImage: Decodable, Equatable, Sendable {
+/// Looks polish (owner, 2026-10-15: "an Aa with the font and the name, or fonts if several") — one family the page
+/// renders, the roles and sizes it is used for, and "Aa" drawn by the page itself in that family when the capture drew
+/// one (`image`, a transparent PNG from the bank). Without one the app sets "Aa" in the family's generic kind and says so.
+struct DesignSpecimen: Decodable, Equatable, Hashable, Sendable {
+    struct Role: Decodable, Equatable, Hashable, Sendable {
+        var role: String
+        var size: Double?
+        var weight: Int?
+    }
+
+    var family: String
+    var generic: String?
+    var roles: [Role]
+    var image: DesignImage?
+
+    init(family: String, generic: String? = nil, roles: [Role] = [], image: DesignImage? = nil) {
+        self.family = family; self.generic = generic; self.roles = roles; self.image = image
+    }
+
+    private enum CodingKeys: String, CodingKey { case family, generic, roles, image }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(family: try c.decode(String.self, forKey: .family),
+                  generic: try c.decodeIfPresent(String.self, forKey: .generic),
+                  roles: (try? c.decodeIfPresent([Role].self, forKey: .roles)) ?? [],
+                  image: try? c.decodeIfPresent(DesignImage.self, forKey: .image))
+    }
+}
+
+struct DesignImage: Decodable, Equatable, Hashable, Sendable {
     var url: String
     var width: Int
     var height: Int
@@ -132,13 +162,15 @@ struct DesignRef: Decodable, Equatable, Sendable {
     /// Looks v2 — the page's computed type by role, and its colour roles (ground, ink, accent, wash).
     var typeRoles: [DesignTypeRole]
     var colourRoles: [DesignColourRole]
+    /// Looks polish — one specimen per family the page renders (at most six).
+    var specimens: [DesignSpecimen]
 
-    private enum CodingKeys: String, CodingKey { case note, snippets, path, typeRoles, colourRoles }
+    private enum CodingKeys: String, CodingKey { case note, snippets, path, typeRoles, colourRoles, specimens }
 
     init(summary: DesignRefSummary, note: String = "", snippets: [DesignSnippet] = [], path: String = "",
-         typeRoles: [DesignTypeRole] = [], colourRoles: [DesignColourRole] = []) {
+         typeRoles: [DesignTypeRole] = [], colourRoles: [DesignColourRole] = [], specimens: [DesignSpecimen] = []) {
         self.summary = summary; self.note = note; self.snippets = snippets; self.path = path
-        self.typeRoles = typeRoles; self.colourRoles = colourRoles
+        self.typeRoles = typeRoles; self.colourRoles = colourRoles; self.specimens = specimens
     }
 
     init(from decoder: Decoder) throws {
@@ -149,6 +181,7 @@ struct DesignRef: Decodable, Equatable, Sendable {
         path = try c.decodeIfPresent(String.self, forKey: .path) ?? ""
         typeRoles = (try? c.decodeIfPresent([DesignTypeRole].self, forKey: .typeRoles)) ?? []
         colourRoles = (try? c.decodeIfPresent([DesignColourRole].self, forKey: .colourRoles)) ?? []
+        specimens = (try? c.decodeIfPresent([DesignSpecimen].self, forKey: .specimens)) ?? []
     }
 }
 

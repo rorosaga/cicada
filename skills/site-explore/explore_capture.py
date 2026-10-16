@@ -14,7 +14,14 @@ custom properties, notable components, at most 1,500 words of visible text) and 
 and colour roles, read in the page by one bounded script (`_DESIGN_JS`: the body text, headings, captions, links and a
 drop cap — family, size, weight, line-height, letter-spacing, colour — plus the page's ground and its most-used
 colours). Hand those fields to `cicada_record_capture`. Cicada reads the colours and the look's hash from the pixels
-itself, and checks `design` against its token schema (`api/services/design_tokens.py`).
+itself, and checks `design` against its token schema (`api/services/design_tokens.py`). `design.specimens` are the
+page's type specimens: "Aa" drawn by the page itself in each family it renders (at most six, each a transparent PNG
+of at most 400x120 px, on a canvas the script never adds to the page), so the person sees the real type.
+
+Every screenshot waits for the page to settle (`_settle`): its web fonts loaded, the images in the first viewport
+complete, no layout change for 500 ms, and the animations in the viewport finished — an infinite one, or motion no
+animation names (a script-driven intro), gets a short grace — all inside a hard cap of 9 seconds after the load, after
+which it captures anyway. `page.settle` records how long it waited and, when it ran out, what it was still waiting on.
 
 The plan (Cicada's, from the person's reason; G166 slice 2) says how far to go. With no reason it is the saved page
 alone: a viewport and a thumbnail. A reason adds page kinds (``pages``: the front page, pricing, docs, a product page,
@@ -40,7 +47,7 @@ from datetime import datetime, timezone
 from urllib import robotparser
 from urllib.parse import urlsplit, urlunsplit
 
-EXPLORE_VERSION = "3"
+EXPLORE_VERSION = "4"
 MAX_PAGES = 6
 PACE_SECONDS = 8
 ROBOTS_MAX = 65536
@@ -51,6 +58,16 @@ MOBILE_W, MOBILE_H = 390, 844
 FULL_MAX_PX = 12000
 SCROLL_STEP, SCROLL_PAUSE = 900, 0.4
 JPEG_QUALITY = 80
+#: Settling before the first screenshot (looks polish, owner 2026-10-15: "the pic was taken too early"). The cap is
+#: hard: after it the shot is taken anyway and ``settle.timed_out`` says what was still pending.
+SETTLE_CAP = 9.0
+SETTLE_NETWORK = 3.0        # the part of the cap network quiet may take
+SETTLE_QUIET = 0.5          # no layout change for this long
+SETTLE_POLL = 0.25
+SETTLE_MOTION_GRACE = 2.5   # an infinite animation, or motion no animation names, is captured after this long
+PROBE_SCALE = 0.125         # the tiny frames compared for motion: 180x112 px of the viewport
+SPECIMEN_PX = 80            # "Aa" is drawn this tall (CSS px) on a canvas of at most 400x120
+MAX_SPECIMENS = 6
 
 _PAGE_JS = r"""
 (() => {
@@ -193,6 +210,56 @@ _DESIGN_JS = r"""
 })()
 """
 
+#: One look at whether the page has settled, read-only: fonts, first-viewport images, a layout signature (offsets,
+#: which ignore transforms, of up to 400 elements in the first viewport, plus the page height), and the running
+#: animations and transitions in the first viewport (finite ones with the time they have left; infinite ones counted).
+_SETTLE_JS = r"""
+(() => {
+  const vh = innerHeight, vw = innerWidth;
+  const inView = r => r.width > 0 && r.height > 0 && r.bottom > 0 && r.top < vh && r.right > 0 && r.left < vw;
+  let pendingImages = 0;
+  for (const img of Array.from(document.images).slice(0, 400)) {
+    if (!img.complete && inView(img.getBoundingClientRect())) pendingImages++; }
+  const sig = [document.documentElement.scrollHeight];
+  let n = 0;
+  for (const e of Array.from(document.querySelectorAll('body *')).slice(0, 3000)) {
+    if (n >= 400) break; const r = e.getBoundingClientRect(); if (!inView(r)) continue; n++;
+    sig.push(e.offsetLeft, e.offsetTop, e.offsetWidth, e.offsetHeight); }
+  let finite = 0, infinite = 0, left = 0;
+  const anims = document.getAnimations ? document.getAnimations().slice(0, 500) : [];
+  for (const a of anims) {
+    if (a.playState !== 'running' || !a.effect) continue;
+    const t = a.effect.target; if (!t || !t.getBoundingClientRect || !inView(t.getBoundingClientRect())) continue;
+    const ct = a.effect.getComputedTiming();
+    if (!isFinite(ct.endTime)) { infinite++; continue; }
+    finite++; left = Math.max(left, ((ct.endTime || 0) - (ct.localTime || 0)) / Math.abs(a.playbackRate || 1)); }
+  return JSON.stringify({fonts: document.fonts ? document.fonts.status : 'loaded', images: pendingImages,
+    layout: sig.join(','), finite, infinite, left: Math.round(left), ready: document.readyState});
+})()
+"""
+
+#: The type specimens: "Aa" drawn in each family the page renders, by the page's own font engine with its own loaded
+#: faces, on a canvas that is never added to the page. A face that is not loaded within 1.5 s is left out (a
+#: specimen in a fallback face would mislead). Read-only for the page; returns PNG data URLs.
+_SPECIMEN_JS = r"""
+(async (items) => {
+  const out = [];
+  for (const it of items) {
+    const font = `${it.style || 'normal'} ${it.weight || 400} %dpx ${it.stack}`;
+    try { await Promise.race([document.fonts.load(font, 'Aa'), new Promise(r => setTimeout(r, 1500))]); } catch (e) {}
+    let loaded = true; try { loaded = document.fonts.check(font, 'Aa'); } catch (e) {}
+    if (!loaded) continue;
+    const c = document.createElement('canvas'); let ctx = c.getContext('2d'); ctx.font = font;
+    const w = ctx.measureText('Aa').width;
+    c.width = Math.max(16, Math.min(400, Math.ceil(w + 24))); c.height = 120;
+    ctx = c.getContext('2d'); ctx.font = font; ctx.fillStyle = '#000'; ctx.textBaseline = 'alphabetic';
+    ctx.fillText('Aa', 12, 96);
+    out.push({stack: it.stack, data: c.toDataURL('image/png')});
+  }
+  return JSON.stringify(out);
+})(%%s)
+""" % SPECIMEN_PX
+
 _ROBOTS_JS = r"""
 fetch('/robots.txt', {credentials: 'omit', redirect: 'follow', cache: 'no-store'})
   .then(r => r.text().then(t => JSON.stringify({status: r.status, text: t.slice(0, %d)})))
@@ -235,25 +302,135 @@ def _metrics(width, height, dpr, mobile=False):
     cdp("Emulation.setDeviceMetricsOverride", width=width, height=height, deviceScaleFactor=dpr, mobile=mobile)
 
 
-def _settle(timeout=8.0):
-    wait_for_load(timeout=20)
+def _probe():
     try:
-        wait_for_network_idle(timeout=timeout, idle_ms=500)
+        got = json.loads(js(_SETTLE_JS) or "null")
+    except Exception:  # noqa: BLE001
+        return None
+    return got if isinstance(got, dict) else None
+
+
+def _frame():
+    """A tiny frame of the viewport (180x112 px) — compared, never kept — to see whether anything still moves."""
+    try:
+        return cdp("Page.captureScreenshot", _response_timeout=10, format="jpeg", quality=50,
+                   clip={"x": 0, "y": 0, "width": VIEW_W, "height": VIEW_H, "scale": PROBE_SCALE / VIEW_DPR})["data"]
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _settle(cap=SETTLE_CAP):
+    """Wait until the page has settled, at most ``cap`` seconds after its load event: the web fonts loaded, the images
+    in the first viewport complete (or failed), no layout change for :data:`SETTLE_QUIET`, the viewport's finite
+    animations and transitions finished, and the viewport's pixels still across two frames — an infinite animation,
+    or motion no animation names (a script-driven intro), gets :data:`SETTLE_MOTION_GRACE` from the load instead.
+    Returns what it recorded: ``{ms, timed_out, waiting_on?, motion?}``. A page whose state cannot be read is not
+    waited on."""
+    wait_for_load(timeout=20)
+    start = time.monotonic()
+    deadline = start + cap
+    try:
+        wait_for_network_idle(timeout=min(SETTLE_NETWORK, cap), idle_ms=500)
     except Exception:
         pass
+    last_sig, sig_since, last_frame = None, time.monotonic(), None
+    pending: list[str] = []
+    while True:
+        now = time.monotonic()
+        state = _probe()
+        if state is None:
+            return {"ms": int((now - start) * 1000), "timed_out": False, "unread": True}
+        sig = state.get("layout")
+        if sig != last_sig:
+            last_sig, sig_since = sig, now
+        pending = []
+        if state.get("fonts") != "loaded":
+            pending.append("fonts")
+        if state.get("images"):
+            pending.append("images")
+        if now - sig_since < SETTLE_QUIET:
+            pending.append("layout")
+        if state.get("finite"):
+            pending.append("animations")
+        motion = None
+        if not pending:
+            graced = now - start >= SETTLE_MOTION_GRACE
+            if state.get("infinite") and graced:
+                motion = "looping"
+            elif time.monotonic() >= deadline:
+                pending.append("motion")   # no frame grab past the cap
+            else:
+                frame = _frame()
+                if frame is not None and frame == last_frame:
+                    motion = "still"
+                elif graced and last_frame is not None:
+                    motion = "moving"
+                last_frame = frame
+                if motion is None:
+                    pending.append("motion")
+        if not pending:
+            out = {"ms": int((time.monotonic() - start) * 1000), "timed_out": False}
+            if motion and motion != "still":
+                out["motion"] = motion
+            return out
+        if time.monotonic() >= deadline:
+            return {"ms": int((time.monotonic() - start) * 1000), "timed_out": True, "waiting_on": pending}
+        wait = SETTLE_POLL
+        if pending == ["animations"] and state.get("left"):
+            wait = max(SETTLE_POLL, min(state["left"] / 1000 + 0.05, 1.0))
+        time.sleep(max(0.0, min(wait, deadline - time.monotonic())))
 
 
 def _read_page():
     return json.loads(js(_PAGE_JS))
 
 
-def _read_design():
-    """The page's computed type and colour roles, or None when the script could not read them (the capture stands)."""
+def _read_design(out_dir=None, prefix=""):
+    """The page's computed type and colour roles, or None when the script could not read them (the capture stands).
+    With ``out_dir``, also its type specimens (:func:`_specimens`) as ``specimens``."""
     try:
         got = json.loads(js(_DESIGN_JS) or "null")
     except Exception:  # noqa: BLE001
         return None
-    return got if isinstance(got, dict) else None
+    if not isinstance(got, dict):
+        return None
+    if out_dir is not None and (specs := _specimens(out_dir, prefix, got)):
+        got["specimens"] = specs
+    return got
+
+
+def _specimens(out_dir, prefix, design):
+    """``[{family, path}]``: "Aa" in each distinct family the page renders (body first, at most six), drawn by the
+    page's own font engine (``_SPECIMEN_JS``) and saved as PNGs under ``out_dir``. Never fatal."""
+    items, seen = [], set()
+    for role in ("body", "heading", "subheading", "caption", "link", "drop_cap"):
+        t = ((design or {}).get("type") or {}).get(role)
+        stack = (t or {}).get("family") if isinstance(t, dict) else None
+        if not isinstance(stack, str) or not stack.strip() or len(stack) > 400 or stack.strip().lower() in seen:
+            continue
+        seen.add(stack.strip().lower())
+        items.append({"stack": stack.strip(), "weight": str((t or {}).get("weight") or "400")[:4]})
+        if len(items) >= MAX_SPECIMENS:
+            break
+    if not items:
+        return []
+    try:
+        drawn = json.loads(js(_SPECIMEN_JS % json.dumps(items)) or "[]")
+    except Exception:  # noqa: BLE001
+        return []
+    out = []
+    for i, item in enumerate(drawn if isinstance(drawn, list) else [], 1):
+        data = str((item or {}).get("data") or "")
+        if not data.startswith("data:image/png;base64,"):
+            continue
+        path = os.path.join(out_dir, f"{prefix}type-{i}.png")
+        try:
+            with open(path, "wb") as handle:
+                handle.write(base64.b64decode(data.split(",", 1)[1]))
+        except (OSError, ValueError):
+            continue
+        out.append({"family": item.get("stack"), "path": path})
+    return out
 
 
 def _scroll_through(height):
@@ -513,7 +690,7 @@ def explore_capture(url, depth="capture", context="signed_in", out_dir=None, pla
         if nav_error:
             result.update(outcome=_classify({}, nav_error), captured_at=_now_iso(), error=nav_error[:120])
             return json.dumps(result)
-        _settle()
+        settled = _settle()
         page = _read_page()
         outcome = _classify(page, "")
         captured_at = _now_iso()
@@ -537,10 +714,11 @@ def explore_capture(url, depth="capture", context="signed_in", out_dir=None, pla
             return json.dumps(result)   # no screenshot of a wall is ever kept
         result["page"] = {k: page.get(k) for k in ("title", "description", "og", "jsonld", "outline", "fonts",
                                                    "typography", "tokens", "components", "text")}
+        result["page"]["settle"] = settled
         if outcome in ("not_found", "parked"):
             return json.dumps(result)
         wants = (plan.get("pages") or [{}])[0].get("shots") or ["viewport"]
-        design = _read_design()
+        design = _read_design(out_dir, "")
         if design:
             result["design"] = design
         result["shots"] = _shots(out_dir, "", wants, page)
@@ -567,15 +745,15 @@ def explore_capture(url, depth="capture", context="signed_in", out_dir=None, pla
                 entry["outcome"] = _classify({}, nav.get("errorText"))
                 result["pages"].append(entry)
                 continue
-            _settle()
+            sub_settled = _settle()
             sub = _read_page()
             entry.update(outcome=_classify(sub, ""), http_status=sub.get("http_status"),
                          final_url=sub.get("final_url") or page_url)
             if entry["outcome"] in ("needs_login", "blocked"):
                 result["pages"].append(entry)
                 break   # a wall ends the visit: no screenshot of it, nothing after it
-            entry["page"] = _page_fields(sub)
-            if entry["outcome"] == "captured" and (sub_design := _read_design()):
+            entry["page"] = {**_page_fields(sub), "settle": sub_settled}
+            if entry["outcome"] == "captured" and (sub_design := _read_design(out_dir, f"p{i}-")):
                 entry["design"] = sub_design
             if entry["outcome"] == "captured":
                 wants = (by_kind.get(kind) or {}).get("shots") or ["viewport"]

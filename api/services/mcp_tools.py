@@ -4211,6 +4211,45 @@ def _design_image(ctx: ToolContext, memory_path: Path, image_path, image_base64)
     return data
 
 
+def _design_specimens(ctx: ToolContext, memory_path: Path, raw) -> list[dict]:
+    """The type specimens a capture handed over with its tokens (``design.specimens``, looks polish), read the way a
+    screenshot is (base64 on any connection; a file the agent itself saved, stdio only, judged by identity) and
+    bounded here, before any admission: ``[{family, data}]``. One that cannot be read is left out — a specimen never
+    stops a save."""
+    import base64
+    import binascii
+    import os
+
+    from api.services import design_refs, design_tokens
+
+    cap = design_refs.MAX_SPECIMEN_BYTES
+    out: list[dict] = []
+    for item in design_tokens.specimen_inputs(raw):
+        data: bytes | None = None
+        if item.get("base64"):
+            text = item["base64"]
+            if text.startswith("data:") and "," in text:
+                text = text.split(",", 1)[1]
+            if len(text) <= (cap * 4) // 3 + 8:
+                try:
+                    data = base64.b64decode(text, validate=True)
+                except (binascii.Error, ValueError):
+                    data = None
+        elif item.get("path") and not ctx.is_remote:
+            given = Path(os.path.expanduser(item["path"]))
+            if given.is_absolute():
+                got = _design_read_file(given, memory_path, cap)
+                data = got if isinstance(got, bytes) else None
+        if data is None:
+            continue
+        try:
+            design_refs.validate_specimen(data)
+        except ValueError:
+            continue
+        out.append({"family": item["family"], "data": data})
+    return out
+
+
 def _design_line(ref, *, memory_path: Path | None = None, legs: list[str] | None = None) -> str:
     from api.services import design_refs
 
@@ -4264,13 +4303,15 @@ def save_design(ctx: ToolContext, url=None, note=None, image_path=None, image_ba
     from api.services import design_tokens
 
     computed, problems = design_tokens.clean(tokens)
+    specimens = _design_specimens(ctx, memory_path, tokens)
     look = design_refs.read_look(data, design_refs.declared_colours(snippets, computed))
     with write_admission.shared(memory_path):   # G183: from the probe through the commit
         if ctx.sleep_running():
             return DESIGN_SLEEPING
         result = design_refs.add_ref(memory_path, image=data, url=url, title=title, note=note, snippets=snippets,
                                      tags=tags if isinstance(tags, list) else None, region=region, via="agent",
-                                     author=ctx.author, session=ctx.session_id, look=look, computed=computed)
+                                     author=ctx.author, session=ctx.session_id, look=look, computed=computed,
+                                     specimens=specimens)
         if result["action"] == "duplicate":
             return f"NOT saved — that screenshot is already on the board as {result['id']}."
         if result["action"] != "added":
@@ -4574,20 +4615,21 @@ def _explore_page_shots(ctx: ToolContext, memory_path: Path, page: dict) -> list
 
 def _explore_looks(ctx: ToolContext, memory_path: Path, *, site, cap: dict, landing: bytes | None,
                    pages: list[dict], why_text: str | None, landing_design=None,
-                   save_look: bool = False) -> tuple[list[str], list[str]]:
+                   save_look: bool = False, landing_specimens=None) -> tuple[list[str], list[str]]:
     """The auto-Look (G196 via G166 slice 2): when the person's reason is the design, the visit's best pictures become
     Looks through the one design writer — the landing page first, then each page whose look is new, never two near
     copies (dHash within ``site_captures.SAME``), at most :data:`MAX_AUTO_LOOKS`. Each names the site, the date and
     the capture it came from; the person's own words about the save are its note — theirs, read by Cicada from the
     save, so it shows as what they liked. Each Look keeps the page's computed type and colour roles when the capture
     printed them (``design``, looks v2). ``save_look`` (the person's "Save its look") keeps the landing page even when
-    its look has not changed since the last visit. ``(ids, paths)``."""
+    its look has not changed since the last visit. Each Look keeps the type specimens its page's capture drew
+    (``specimens``, looks polish). ``(ids, paths)``."""
     from api.services import design_refs, explore_plan, site_captures
 
-    candidates: list[tuple[str, str, str | None, bytes, str | None, str | None, object]] = []
+    candidates: list[tuple[str, str, str | None, bytes, str | None, str | None, object, object]] = []
     if landing is not None and (save_look or (cap.get("change") or {}).get("look") != "same"):
         candidates.append((explore_plan.page_kind(site.url), site.url, cap.get("title"), landing, cap.get("dhash"),
-                           site.entity_id, landing_design))
+                           site.entity_id, landing_design, landing_specimens))
     stored = {p.get("url"): p for p in cap.get("pages") or [] if isinstance(p, dict)}
     for page in pages:
         kept = stored.get(page["url"]) or {}
@@ -4597,12 +4639,12 @@ def _explore_looks(ctx: ToolContext, memory_path: Path, *, site, cap: dict, land
         if (kept.get("change") or {}).get("look") == "same":
             continue
         candidates.append((page["kind"], page["url"], kept.get("title"), viewport, kept.get("dhash"), None,
-                           page.get("design")))
+                           page.get("design"), page.get("specimens")))
     ids: list[str] = []
     paths: list[str] = []
     hashes: list[str] = []
     when = site_captures._parse(cap.get("captured_at"))
-    for kind, url, title, data, dhash, entity, design in candidates:
+    for kind, url, title, data, dhash, entity, design, specimens in candidates:
         if len(ids) >= MAX_AUTO_LOOKS:
             break
         if dhash and any((site_captures.hamming(dhash, h) or 99) <= site_captures.SAME for h in hashes):
@@ -4610,7 +4652,7 @@ def _explore_looks(ctx: ToolContext, memory_path: Path, *, site, cap: dict, land
         result = design_refs.add_ref(
             memory_path, image=data, url=url, title=title, note=why_text, tags=["explored", kind], entity=entity,
             via="explore", author=ctx.author, session=ctx.session_id, now=when, computed=design,
-            note_by=design_refs.USER if why_text else None,
+            note_by=design_refs.USER if why_text else None, specimens=specimens,
             explored={"site": site.site, "captured_at": cap.get("captured_at"), "capture": cap.get("id"),
                       "entity": site.entity_id, "page_kind": kind, "page_url": url})
         if result.get("action") != "added":
@@ -4677,6 +4719,7 @@ def record_capture(ctx: ToolContext, url: str, lease_token: str, outcome: str, c
                 "with context=\"isolated\" (a private, cookie-less context) and pass signed_in=false.")
     from api.services import design_tokens
 
+    specimens = _design_specimens(ctx, memory_path, design)   # read and bounded before the admission
     design = design_tokens.clean(design)[0] or None   # validated before the admission, never inside it
     shot_bytes: list[tuple[str, bytes]] = []
     for shot in list(shots or [])[:len(site_captures.SHOT_KINDS)]:
@@ -4712,7 +4755,8 @@ def record_capture(ctx: ToolContext, url: str, lease_token: str, outcome: str, c
             continue
         # Looks v2: each page's computed tokens are validated here, before the admission (as save_design does).
         ready.append({**page_in, "shots": got, "shots_bytes": got,
-                      "design": design_tokens.clean(page_in.get("design"))[0] or None})
+                      "design": design_tokens.clean(page_in.get("design"))[0] or None,
+                      "specimens": _design_specimens(ctx, memory_path, page_in.get("design"))})
     looks: list[str] = []
     with write_admission.shared(memory_path):   # G183: from the probe through the commit
         if ctx.sleep_running():
@@ -4748,7 +4792,8 @@ def record_capture(ctx: ToolContext, url: str, lease_token: str, outcome: str, c
                 landing = next((d for k, d in shot_bytes if k == "viewport"), None)
                 looks, look_paths = _explore_looks(ctx, memory_path, site=site, cap=cap, landing=landing,
                                                    pages=ready, why_text=(site.why or {}).get("text"),
-                                                   landing_design=design, save_look=bool(plan.get("save_look")))
+                                                   landing_design=design, save_look=bool(plan.get("save_look")),
+                                                   landing_specimens=specimens)
                 paths += look_paths
         if paths:
             agent_commits.commit_write(
@@ -4768,6 +4813,9 @@ def record_capture(ctx: ToolContext, url: str, lease_token: str, outcome: str, c
             "taken in the person's signed-in browser" if signed else "taken in a private context"]
     if change.get("look"):
         bits.append(f"look since {change.get('since')}: {change['look']}")
+    if (settled := cap.get("settle") or {}).get("timed_out"):
+        bits.append(f"the screenshot was taken after {settled.get('ms', 0) / 1000:.1f} s, before the page settled"
+                    + (f" (still waiting on {', '.join(settled['waiting_on'])})" if settled.get("waiting_on") else ""))
     if cap.get("look"):
         bits.append("Cicada read the colours itself: " + ", ".join(cap["look"]))
     if cap.get("pages"):

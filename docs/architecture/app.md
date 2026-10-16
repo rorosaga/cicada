@@ -855,6 +855,20 @@ wrote it, no section for an agent's empty note — the colours with their share,
 (ground, ink, accent, wash; "from the page" or "from the picture"), *Type* by role (body, headings, subheadings,
 captions, links, drop cap: family, then size · weight · leading; the bare font list when the server has no computed
 type), the snippets (`MarkdownBody` code blocks), who saved it and how, *Remove from Looks*.
+**Looks polish (2026-10-15).** *Type* shows one specimen per family (`Views/Looks/LooksSpecimens.swift`): a large
+"Aa", the family's name, and where it is used ("Body 19 px · Drop cap 88 px"). The "Aa" is the page's own drawing
+(`/design/{id}/type/{n}`, a transparent PNG tinted to the text colour of either appearance); a look without one sets
+"Aa" in the family's generic kind (the system serif, sans or monospace) and says "Shown in a generic serif; the page's
+own face wasn't drawn" — a stand-in is never taken for the page's face (DESIGN_RULES 2026-10-15, DR-15). *Colours*
+shows a share only where area means something (`Copy.Looks.share(_:role:)`): the ground, a wash, an unnamed colour;
+none for ink and accent (thin lines read "0 %"); "< 1 %" for a sliver. **The enlarged screenshot**
+(`Views/Looks/LooksZoom.swift`): a click on a tile's picture (which also opens the look beside the board) or on the
+detail's picture grows it over a scrim from that thumbnail's frame to fit the board (`CicadaMotion.morph`), at full
+resolution; a tall full-page shot fits the width and scrolls. Esc, a click outside or × shrinks it back into the
+picture that is there now (`LooksFrameBook`: the detail's picture when the look is open). The keyboard path — ⌘Y on
+the open look, Space on a focused picture, Esc — opens and closes in one frame (`LooksZoom.style`, read from the
+current event; DR-60); Reduce Motion only fades (`CicadaMotion.fade`, DR-66). While it shows, Esc is the overlay's,
+not the detail column's. Tested in `LooksPolishTests`; the review renders add `looks-enlarged-*.png`.
 **Save its look** (`Views/Looks/SaveLookAction.swift`): a neutral compact button in a saved web link's Feed detail
 (`SaveLook.offers`: a link or bookmark over http(s), not a video or a paper) and a context-menu item on a ⌘B bookmark
 row. One click posts `POST /explore/look`; the answer's hand-off prompt is copied through `AppPasteboard` and a toast

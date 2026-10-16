@@ -99,6 +99,14 @@ out of bounds, cleans hashed font names, and merges the colours into the
 palette it reads from the pixels. If the script printed no `design`, record
 the capture without it: the pixels still give the palette.
 
+It also draws "Aa" in each family the page renders, with the page's own loaded
+face, on a canvas it never adds to the page, and prints them as
+`design.specimens` (`[{family, path}]`, at most six small transparent PNGs).
+Leave them inside `design`: Cicada keeps them with the Look so the person sees
+the real type. Before every first screenshot the script waits for the page to
+settle (fonts, images in view, a still layout, finished intro animations; at
+most 9 seconds) and prints how long in `page.settle`: pass `page` as printed.
+
 When the person asks you to save a look outside an explore run (`cicada_save_design`),
 read the same computed styles in the page if your browser tool lets you, and
 pass them as `tokens` in the same shape. Your note shows as yours ("Noted by"

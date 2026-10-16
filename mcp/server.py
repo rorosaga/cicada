@@ -531,7 +531,7 @@ TOOLS = [
                     "kind": {"type": "string", "enum": ["viewport", "thumb", "full", "mobile", "dark"]},
                     "path": {"type": "string", "description": "Absolute path of the JPEG or PNG the script saved."},
                     "base64": {"type": "string", "description": "The picture itself, base64 (when you have no file)."}}}},
-            "page": {"type": "object", "description": "The page data the script printed: title, description, jsonld, outline, fonts, tokens, components, text."},
+            "page": {"type": "object", "description": "The page data the script printed: title, description, jsonld, outline, fonts, tokens, components, text, and settle (how long it waited for the page to settle before the first screenshot)."},
             "signed_in": {"type": "boolean", "description": "True when captured in the person's signed-in browser session, false in a private context."},
             "account_visible": {"type": "boolean", "description": "True when the page showed the person's own account (an avatar or account menu)."},
             "consent_overlay": {"type": "boolean", "description": "True when a cookie or consent banner covered part of the page (never click or hide one)."},
@@ -550,7 +550,7 @@ TOOLS = [
                     "shots": {"type": "array", "items": {"type": "object", "required": ["kind"], "properties": {
                         "kind": {"type": "string", "enum": ["viewport", "thumb", "full", "mobile", "dark"]},
                         "path": {"type": "string"}, "base64": {"type": "string"}}}},
-                    "page": {"type": "object", "description": "title, description, outline, fonts, tokens, components."},
+                    "page": {"type": "object", "description": "title, description, outline, fonts, tokens, components, settle."},
                     "design": design_tokens.JSON_SCHEMA}}},
             "found": {"type": "array", "description": "Same-site links the script found (url, label): they go into the site's map.", "items": {
                 "type": "object", "properties": {"url": {"type": "string"}, "label": {"type": "string"}}}},

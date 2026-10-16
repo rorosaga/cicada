@@ -7,7 +7,8 @@ import UniformTypeIdentifiers
 /// with their share, the type, the snippets, where it came from). The eyebrow's field searches by words; a picture
 /// dropped or pasted anywhere opens the composer, which saves it or finds the looks like it. Applies DR-22 (the rail),
 /// DR-25 (the eyebrow), DR-37 (no card for one line), DR-40 (one primary action, in the composer), DR-41, DR-43
-/// (never blank over good data), DR-44 (pills), DR-59 (copy).
+/// (never blank over good data), DR-44 (pills), DR-59 (copy). Looks polish (2026-10-15): a click on a picture enlarges
+/// it over the board (`LooksZoom`; DR-60, DR-61, DR-66), and the Type section shows one specimen per family.
 ///
 /// The app shrinks a capture before it leaves (`DesignImageShrink`) and posts bytes; the server reads the colours,
 /// keeps the picture in the bank and embeds it (`api/routers/design.py`) — nothing here decodes or ranks.
@@ -133,6 +134,46 @@ struct LooksBoardView: View {
 
     static let detailWidth: CGFloat = 380
     @State private var dropTargeted = false
+    @State private var zoom = LooksZoom()
+    @State private var frames = LooksFrameBook()
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// The look whose picture is enlarged: the open one, or any on the board.
+    private var zoomed: DesignRefSummary? {
+        guard let id = zoom.refId else { return nil }
+        return open?.id == id ? open : refs.first { $0.id == id }
+    }
+
+    private func enlarge(_ ref: DesignRefSummary, from frame: CGRect) {
+        let style = LooksZoom.style(LooksZoom.currentTrigger(), reduceMotion: reduceMotion)
+        switch style {
+        case .instant, .zoom: Instant.run { zoom.present(ref.id, from: frame, style: style) }
+        case .fade: withAnimation(CicadaMotion.fade) { zoom.present(ref.id, from: frame, style: style) }
+        }
+    }
+
+    /// The zoom just appeared collapsed on its thumbnail: grow it on the next frame.
+    private func grow() {
+        guard zoom.isPresented, !zoom.expanded else { return }
+        DispatchQueue.main.async {
+            withAnimation(CicadaMotion.morph(reduceMotion: false)) { zoom.expanded = true }
+        }
+    }
+
+    private func shrink(_ trigger: LooksZoom.Trigger) {
+        guard let id = zoom.refId else { return }
+        switch LooksZoom.style(trigger, reduceMotion: reduceMotion) {
+        case .instant: Instant.run { zoom.dismiss() }
+        case .fade: withAnimation(CicadaMotion.fade) { zoom.dismiss() }
+        case .zoom:
+            Instant.run { zoom.source = frames.frame(for: id, fallback: zoom.source) }
+            withAnimation(CicadaMotion.morph(reduceMotion: false), completionCriteria: .logicallyComplete) {
+                zoom.expanded = false
+            } completion: {
+                Instant.run { zoom.dismiss() }
+            }
+        }
+    }
 
     private var eyebrow: String {
         if searching { return Eyebrow.text(Copy.Looks.page, Copy.Looks.matches(refs.count)) }
@@ -163,9 +204,18 @@ struct LooksBoardView: View {
                 if let open {
                     Rectangle().fill(CicadaTheme.border).frame(width: 1)
                     LooksDetailColumn(summary: open, detail: detail, image: tile(open), onClose: onClose,
-                                      onRemove: { onRemove(open.id) })
+                                      onRemove: { onRemove(open.id) }, escapeCloses: !zoom.isPresented,
+                                      onEnlarge: { frame in enlarge(open, from: frame) },
+                                      onImageFrame: { frame in frames.detail = (open.id, frame) })
                         .frame(width: CicadaTheme.scaled(Self.detailWidth))
                 }
+            }
+        }
+        .coordinateSpace(.named(LooksZoom.space))
+        .overlay {
+            if let zoomed {
+                LooksZoomOverlay(zoom: zoom, summary: zoomed, onClose: shrink, onAppear: grow)
+                    .transition(.opacity)
             }
         }
         .overlay {
@@ -210,7 +260,12 @@ struct LooksBoardView: View {
                                              spacing: CicadaTheme.spacingLG)],
                           alignment: .leading, spacing: CicadaTheme.spacingLG) {
                     ForEach(refs) { ref in
-                        LooksTile(ref: ref, selected: ref.id == open?.id, image: tile(ref)) { onOpen(ref) }
+                        LooksTile(ref: ref, selected: ref.id == open?.id, image: tile(ref),
+                                  onEnlarge: { frame in
+                                      if open?.id != ref.id { onOpen(ref) }
+                                      enlarge(ref, from: frame)
+                                  },
+                                  onImageFrame: { frame in frames.tiles[ref.id] = frame }) { onOpen(ref) }
                     }
                 }
                 .padding(.horizontal, open == nil ? CicadaTheme.spacingGutter : CicadaTheme.spacingXL)
@@ -242,22 +297,46 @@ struct LooksBoardView: View {
     }
 }
 
-/// One look on the board: the screenshot, its name, its colours as one strip, the site and the day.
+/// One look on the board: the screenshot, its name, its colours as one strip, the site and the day. A click on the
+/// screenshot enlarges it (and opens the look beside the board); a click on its name opens the look.
 struct LooksTile: View {
     let ref: DesignRefSummary
     let selected: Bool
     let image: AnyView
+    var onEnlarge: (CGRect) -> Void = { _ in }
+    var onImageFrame: (CGRect) -> Void = { _ in }
     let action: () -> Void
     @State private var hovering = false
+    @State private var imageFrame: CGRect = .zero
 
     var body: some View {
-        Button(action: action) {
-            VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+            Button { onEnlarge(imageFrame) } label: {
                 image
                     .frame(maxWidth: .infinity)
                     .aspectRatio(16.0 / 10.0, contentMode: .fit)
                     .clipShape(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
                     .ringed(in: CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
+                    .looksZoomSource { frame in imageFrame = frame; onImageFrame(frame) }
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.cicadaPlain)
+            .help(Copy.Looks.enlarge)
+            .accessibilityLabel(Copy.Looks.enlarge)
+            Button(action: action) {
+                caption
+            }
+            .buttonStyle(.cicadaPlain)
+            .accessibilityLabel(ref.displayName)
+        }
+        .padding(CicadaTheme.spacingSM)
+        .background(CicadaTheme.shape(CicadaTheme.cornerRadius)
+            .fill(selected ? CicadaTheme.bgSelected : (hovering ? CicadaTheme.bgHover : Color.clear)))
+        .onHover { hovering = $0 }
+    }
+
+    private var caption: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                 Text(ref.displayName)
                     .font(CicadaTheme.rowFont)
                     .foregroundStyle(CicadaTheme.textPrimary)
@@ -270,15 +349,9 @@ struct LooksTile: View {
                         .foregroundStyle(CicadaTheme.textTertiary)
                         .lineLimit(1)
                 }
-            }
-            .padding(CicadaTheme.spacingSM)
-            .background(CicadaTheme.shape(CicadaTheme.cornerRadius)
-                .fill(selected ? CicadaTheme.bgSelected : (hovering ? CicadaTheme.bgHover : Color.clear)))
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.cicadaPlain)
-        .onHover { hovering = $0 }
-        .accessibilityLabel(ref.displayName)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
     }
 }
 
@@ -340,6 +413,11 @@ struct LooksDetailColumn: View {
     let image: AnyView
     let onClose: () -> Void
     let onRemove: () -> Void
+    /// Esc closes the column — except while its picture is enlarged, when Esc closes that first.
+    var escapeCloses = true
+    var onEnlarge: (CGRect) -> Void = { _ in }
+    var onImageFrame: (CGRect) -> Void = { _ in }
+    @State private var imageFrame: CGRect = .zero
 
     var body: some View {
         ScrollView {
@@ -351,13 +429,21 @@ struct LooksDetailColumn: View {
                         .lineLimit(2)
                     Spacer()
                     IconButton(systemName: "xmark", help: Copy.Looks.closeHelp, action: onClose)
-                        .keyboardShortcut(.cancelAction)
+                        .keyboardShortcut(escapeCloses ? .cancelAction : nil)
                 }
-                image
-                    .frame(maxWidth: .infinity)
-                    .aspectRatio(summary.image?.aspect ?? 1.6, contentMode: .fit)
-                    .clipShape(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
-                    .ringed(in: CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
+                Button { onEnlarge(imageFrame) } label: {
+                    image
+                        .frame(maxWidth: .infinity)
+                        .aspectRatio(summary.image?.aspect ?? 1.6, contentMode: .fit)
+                        .clipShape(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
+                        .ringed(in: CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
+                        .looksZoomSource { frame in imageFrame = frame; onImageFrame(frame) }
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.cicadaPlain)
+                .keyboardShortcut("y", modifiers: .command)
+                .help(Copy.Looks.enlargeHelp)
+                .accessibilityLabel(Copy.Looks.enlarge)
                 if let raw = summary.url, let url = URL(string: raw) {
                     InlineLink(title: summary.site ?? Copy.Looks.openPage, help: raw) { NSWorkspace.shared.open(url) }
                 }
@@ -385,8 +471,10 @@ struct LooksDetailColumn: View {
                                             .foregroundStyle(CicadaTheme.textTertiary)
                                     }
                                     Spacer()
-                                    Text(Copy.Looks.share(c.share)).font(CicadaTheme.metaFont).monospacedDigit()
-                                        .foregroundStyle(CicadaTheme.textTertiary)
+                                    if let share = Copy.Looks.share(c.share, role: c.role) {
+                                        Text(share).font(CicadaTheme.metaFont).monospacedDigit()
+                                            .foregroundStyle(CicadaTheme.textTertiary)
+                                    }
                                 }
                             }
                             if !summary.look.isEmpty {
@@ -418,7 +506,9 @@ struct LooksDetailColumn: View {
                         }
                     }
                 }
-                if let roles = detail?.typeRoles, !roles.isEmpty {
+                if let specimens = detail?.specimens, !specimens.isEmpty {
+                    section(Copy.Looks.type) { LooksSpecimenList(specimens: specimens) }
+                } else if let roles = detail?.typeRoles, !roles.isEmpty {
                     section(Copy.Looks.type) {
                         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                             ForEach(roles, id: \.self) { t in

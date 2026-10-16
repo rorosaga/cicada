@@ -415,7 +415,11 @@ never opens a browser and never schedules an agent.
   and dark as the plan asks). Version 2 (slice 2) takes `plan=`: past the saved page it reads `/robots.txt` once from
   the page's own origin with `credentials: 'omit'`, picks pages as above, waits at least `pace_seconds` + 0.5 s between
   loads, stops at the first wall, and prints `loaded_at`, `pages`, `found` (≤ 120 same-host links), `robots` and a
-  technique's `section`. It carries no page-kind table of its own: the plan hands it the words. It never signs in, types, clicks or hides a consent banner, changes the user agent,
+  technique's `section`. It carries no page-kind table of its own: the plan hands it the words. Version 4 (looks
+  polish, 2026-10-15) waits for each page to settle before its first screenshot (fonts, first-viewport images, a still
+  layout, finished viewport animations, a 2.5 s grace for endless motion, a hard 9 s cap; `page.settle` records it,
+  `storage.md`) and draws "Aa" in each family the page renders on a canvas it never adds to the page
+  (`design.specimens`, at most six PNGs). It never signs in, types, clicks or hides a consent banner, changes the user agent,
   retries, or activates a tab. Pinned in `recommended_skills.json` (id `site-explore`, `pin.files` holds the script's
   hash; `scripts/verify-skills.sh` checks every pinned file).
 - **Verified (2026-10-14)** against a local fixture site in a headless Chrome started for the test (never the person's):

@@ -323,8 +323,8 @@
         "ref": "dev",
         "sha": "57a52f77aa64095622377fffcb30902cae37d6ce",
         "path": "skills/site-explore",
-        "skillMdSha256": "ed769a19fe174bc48c6b863c41fe0e0e59f2db0aa5bff50314ee14b435f3d53e",
-        "files": {"explore_capture.py": "5094ea0f6cb93a7da9e8403195b07057c6f7165a1c4017a1b152f8f949472ec8"}
+        "skillMdSha256": "9d83c1cc8b97eda9f36c820619f6376ed90bacb1a932642c2096e1467b91ddfb",
+        "files": {"explore_capture.py": "a8b898bc081e6535ad9152dace0089a56c1f5bd64d50b03c6e9eccaf9bd8dba7"}
       },
       "agents": {
         "claude-code": {"method": "skills-cli"},

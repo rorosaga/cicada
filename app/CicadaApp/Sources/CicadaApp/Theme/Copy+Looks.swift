@@ -54,6 +54,14 @@ extension Copy {
             }
         }
         static func share(_ share: Double) -> String { "\(Int((share * 100).rounded())) %" }
+        /// Looks polish — a colour's share of the picture shows only where area means something: the ground, a wash
+        /// and an unnamed colour. Ink and accent are thin lines that cover almost nothing ("0 %" said nothing true),
+        /// so they show none; a share that rounds to nothing reads "< 1 %", and no share at all (a colour the page
+        /// declares that the picture barely shows) shows none.
+        static func share(_ share: Double, role: String?) -> String? {
+            if role == "ink" || role == "accent" || share <= 0 { return nil }
+            return share < 0.005 ? "< 1 %" : Self.share(share)
+        }
 
         // MARK: Understanding images (the in-context shortcut to Search & files' second click)
         static let pictureOff = "To find looks by what they show, Cicada needs to understand images."
@@ -101,6 +109,29 @@ extension Copy {
             return [size.map(px), weight.map { "\($0)" }, lineHeight.map { "\(px($0)) leading" }]
                 .compactMap { $0 }.joined(separator: " · ")
         }
+        // MARK: Looks polish (2026-10-15) — type specimens and the enlarged screenshot
+        /// "Body 19 px · Links 19 px · Drop cap 88 px" — where a family is used, and how big.
+        static func specimenUses(_ roles: [DesignSpecimen.Role]) -> String {
+            roles.map { r in
+                guard let size = r.size else { return typeRole(r.role) }
+                let px = size == size.rounded() ? "\(Int(size)) px" : String(format: "%.1f px", size)
+                return "\(typeRole(r.role)) \(px)"
+            }.joined(separator: " · ")
+        }
+        /// Said under a specimen the capture could not draw: the "Aa" is the generic kind, not the page's face.
+        static func specimenGeneric(_ generic: String?) -> String {
+            switch generic {
+            case "serif", "ui-serif": "Shown in a generic serif; the page's own face wasn't drawn"
+            case "monospace", "ui-monospace": "Shown in a generic monospace; the page's own face wasn't drawn"
+            case "sans-serif", "ui-sans-serif", "system-ui": "Shown in a generic sans serif; the page's own face wasn't drawn"
+            default: "Shown in the system face; the page's own face wasn't drawn"
+            }
+        }
+        static func specimenLabel(_ family: String) -> String { "Aa, set in \(family)" }
+        static let enlarge = "Enlarge the screenshot"
+        static let enlargeHelp = "Enlarge the screenshot (⌘Y)"
+        static let closeEnlarged = "Close (Esc)"
+
         static let saveLook = "Save its look"
         static let saveLookHelp = "Asks your agent to capture this page's look — a screenshot, its type and colours — "
             + "and keep it in Looks"

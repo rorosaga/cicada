@@ -1,8 +1,8 @@
 """Design taste (owner, 2026-10-14) over HTTP — the board of looks the person likes.
 
 Reads: ``GET /design`` (the board, newest first, with whether search by picture can run here), ``GET /design/{id}``
-(one reference in full: the note, the snippets, the tokens) and ``GET /design/{id}/image`` (the screenshot, from the
-bank). None is a Store domain: the app's ``LooksCache`` revalidates them with the ETag below (the ``design``
+(one reference in full: the note, the snippets, the tokens, the type specimens), ``GET /design/{id}/image`` (the
+screenshot, from the bank) and ``GET /design/{id}/type/{n}`` (type specimen ``n``, a transparent PNG from the bank). None is a Store domain: the app's ``LooksCache`` revalidates them with the ETag below (the ``design``
 component, plus the image model's state) — no ``VersionVector`` mapping, so nothing has to ship beside it.
 
 Writes: ``POST /design`` (a screenshot the app captured, or one dropped or pasted, with the page's link, their note
@@ -71,6 +71,22 @@ class DesignTypeRole(CamelModel):
     color: str | None = None
 
 
+class DesignSpecimenRole(CamelModel):
+    role: str
+    size: float | None = None
+    weight: int | None = None
+
+
+class DesignSpecimen(CamelModel):
+    """One family the page renders (looks polish): its name, the roles and sizes it is used for, and — when the
+    capture drew one — "Aa" in that family, as a transparent PNG the app tints (``image``). Without one the app sets
+    "Aa" in the family's generic kind and says so."""
+    family: str
+    generic: str | None = None
+    roles: list[DesignSpecimenRole] = []
+    image: DesignImage | None = None
+
+
 class DesignColourRole(CamelModel):
     role: str
     hex: str
@@ -106,6 +122,7 @@ class DesignRefModel(DesignRefSummary):
     computed: dict = {}
     type_roles: list[DesignTypeRole] = []
     colour_roles: list[DesignColourRole] = []
+    specimens: list[DesignSpecimen] = []
     path: str = ""
 
 
@@ -159,6 +176,22 @@ def _type_roles(ref: design_refs.Reference) -> list[DesignTypeRole]:
             for role in design_tokens.TYPE_ROLES if isinstance(t := types.get(role), dict)]
 
 
+def _specimens(ref: design_refs.Reference) -> list[DesignSpecimen]:
+    """The specimen model (``design_tokens.specimens``) with each family's drawn "Aa", when the look keeps one."""
+    drawn = {str(s.get("family") or "").lower(): (n, s) for s in ref.specimens
+             if (n := design_refs.specimen_number(ref.id, s)) is not None}
+    out = []
+    for spec in design_tokens.specimens(ref.computed):
+        image = None
+        if (hit := drawn.get(spec["family"].lower())) is not None:
+            n, stored = hit
+            image = DesignImage(url=f"/design/{ref.id}/type/{n}?v={str(stored.get('sha256') or '')[:12]}",
+                                width=int(stored.get("width") or 0), height=int(stored.get("height") or 0))
+        out.append(DesignSpecimen(family=spec["family"], generic=spec.get("generic"), image=image,
+                                  roles=[DesignSpecimenRole(**r) for r in spec["roles"]]))
+    return out
+
+
 def _summary(ref: design_refs.Reference) -> DesignRefSummary:
     kind, _ = git_service.author_identity(ref.added_by)
     note_kind, _ = git_service.author_identity(ref.note_by)
@@ -184,7 +217,7 @@ def _full(ref: design_refs.Reference) -> DesignRefModel:
     return DesignRefModel(**_summary(ref).model_dump(by_alias=False), note=ref.note,
                           snippets=[DesignSnippet(**s) for s in ref.snippets], tokens=ref.tokens or {},
                           computed=ref.computed or {}, type_roles=_type_roles(ref), colour_roles=_colour_roles(ref),
-                          path=ref.path)
+                          specimens=_specimens(ref), path=ref.path)
 
 
 def _vision() -> DesignVision:
@@ -241,6 +274,20 @@ async def design_image(ref_id: str, request: Request, settings: Settings = Depen
     if request.headers.get("if-none-match") == etag:
         return Response(status_code=304, headers=headers)
     return Response(content=data, media_type=media_type, headers=headers)
+
+
+@router.get("/design/{ref_id}/type/{n}")
+async def design_specimen(ref_id: str, n: int, request: Request, settings: Settings = Depends(get_settings)):
+    ref = await run_in_threadpool(design_refs.get_ref, settings.memory_path, ref_id)
+    path = design_refs.specimen_file(settings.memory_path, ref, n) if ref is not None else None
+    if path is None:
+        raise HTTPException(404, "no type specimen here")
+    data = await asyncio.to_thread(path.read_bytes)
+    etag = '"' + entity_picture.sha12(data) + '"'
+    headers = {"ETag": etag, "Cache-Control": "private, max-age=86400"}
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=headers)
+    return Response(content=data, media_type="image/png", headers=headers)
 
 
 def _json_list(raw: str | None, what: str) -> list:

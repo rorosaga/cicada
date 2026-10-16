@@ -32,6 +32,8 @@ SHAPE = "design-tokens-1"
 TYPE_ROLES = ("body", "heading", "subheading", "caption", "link", "drop_cap")
 COLOR_ROLES = ("ground", "ink", "accent", "wash")
 MAX_USED = 12
+#: At most this many type specimens per look (looks polish): one per distinct family.
+MAX_SPECIMENS = 6
 MAX_STACK = 4
 MAX_FAMILY = 80
 MAX_JSON = 16_000
@@ -213,6 +215,8 @@ def clean(raw) -> tuple[dict, list[str]]:
             return {}, ["tokens are not JSON"]
     if not isinstance(raw, dict):
         return {}, ["tokens are an object"]
+    # Specimens are pictures, not tokens: their bytes are read and bounded by the caller (``specimen_inputs``).
+    raw = {k: v for k, v in raw.items() if k != "specimens"}
     if len(json.dumps(raw, default=str)) > MAX_JSON:
         return {}, ["tokens are too large"]
     out: dict = {}
@@ -260,6 +264,64 @@ def fonts(tokens: dict | None) -> list[str]:
     return out
 
 
+def family_of(raw) -> tuple[str | None, str | None]:
+    """``(family, generic)`` for one computed ``font-family``: the first named face, else the generic — the same
+    reading :func:`clean` gives a type role, so a specimen and a role name one family the same way."""
+    names = stack(raw)
+    named = [n for n in names if n.lower() not in GENERIC]
+    generic = next((n.lower() for n in names if n.lower() in GENERIC), None)
+    return (named[0] if named else generic), generic
+
+
+def specimens(tokens: dict | None) -> list[dict]:
+    """One type specimen per distinct family the page renders (looks polish, owner 2026-10-15: "an Aa with the font
+    and the name, or fonts if several"): ``[{family, generic, roles: [{role, size, weight}]}]``, in role order (body
+    first), families compared without case, at most :data:`MAX_SPECIMENS`."""
+    out: list[dict] = []
+    by_name: dict[str, dict] = {}
+    for role in TYPE_ROLES:
+        item = ((tokens or {}).get("type") or {}).get(role)
+        if not isinstance(item, dict) or not isinstance(item.get("family"), str) or not item["family"].strip():
+            continue
+        key = item["family"].strip().lower()
+        spec = by_name.get(key)
+        if spec is None:
+            if len(out) >= MAX_SPECIMENS:
+                continue
+            spec = {"family": item["family"].strip(), "generic": item.get("generic"), "roles": []}
+            by_name[key] = spec
+            out.append(spec)
+        spec["roles"].append({"role": role, "size": item.get("size"), "weight": item.get("weight")})
+        if not spec.get("generic") and item.get("generic"):
+            spec["generic"] = item["generic"]
+    return out
+
+
+def specimen_inputs(raw) -> list[dict]:
+    """The specimen pictures a capture handed over with its tokens (``design.specimens``): ``[{family, path?,
+    base64?}]``, each family read as :func:`family_of` reads a role, repeats dropped, at most :data:`MAX_SPECIMENS`.
+    Only where the bytes are is returned; reading and bounding them is the door's (``mcp_tools``) and the writer's
+    (``design_refs``) job."""
+    if not isinstance(raw, dict) or not isinstance(raw.get("specimens"), list):
+        return []
+    out: list[dict] = []
+    seen: set[str] = set()
+    for item in raw["specimens"][: MAX_SPECIMENS * 2]:
+        if not isinstance(item, dict):
+            continue
+        family, _ = family_of(item.get("family") if item.get("family") is not None else item.get("stack"))
+        if not family or family.lower() in seen:
+            continue
+        where = {k: str(item[k]) for k in ("path", "base64") if isinstance(item.get(k), str) and item[k].strip()}
+        if not where:
+            continue
+        seen.add(family.lower())
+        out.append({"family": family, **where})
+        if len(out) >= MAX_SPECIMENS:
+            break
+    return out
+
+
 def declared(tokens: dict | None) -> list[str]:
     """The colours the page declares, for the palette's merge: the roles, then the most used."""
     t = tokens or {}
@@ -292,5 +354,12 @@ JSON_SCHEMA: dict = {
         "type": {"type": "object", "properties": {role: _role_schema() for role in TYPE_ROLES}},
         "colors": {"type": "object", "properties": {role: {"type": "string"} for role in COLOR_ROLES}},
         "used": {"type": "array", "items": {"type": "string"}, "maxItems": MAX_USED},
+        "specimens": {"type": "array", "maxItems": MAX_SPECIMENS, "description": (
+            "Optional: one small picture per font family the page renders (the capture script draws \"Aa\" in the "
+            "page's own loaded font, a transparent PNG at most 400x120), so the person sees the real type."),
+            "items": {"type": "object", "required": ["family"], "properties": {
+                "family": {"type": "string", "description": "The computed font-family the picture is set in."},
+                "path": {"type": "string", "description": "Absolute path of the PNG the script saved."},
+                "base64": {"type": "string", "description": "The PNG itself, base64 (when you have no file)."}}}},
     },
 }

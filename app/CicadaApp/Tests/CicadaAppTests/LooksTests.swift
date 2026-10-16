@@ -291,7 +291,11 @@ final class LooksTests: XCTestCase {
         let vision = DesignVision(supported: true, installed: false, downloadBytes: 309_277_919)
         let open = refs[4]
         let detail = DesignRef(summary: open, note: open.notePreview, snippets: [DesignSnippet(lang: "css", code:
-            ":root { --bg: #14161c; --panel: #1d2029; --accent: #7c9cff; }\n.panel { border-radius: 10px; padding: 18px; }")])
+            ":root { --bg: #14161c; --panel: #1d2029; --accent: #7c9cff; }\n.panel { border-radius: 10px; padding: 18px; }")],
+            specimens: [DesignSpecimen(family: "Newsreader", generic: "serif",
+                                       roles: [.init(role: "body", size: 19, weight: 400), .init(role: "drop_cap", size: 88)]),
+                        DesignSpecimen(family: "Inter", generic: "sans-serif",
+                                       roles: [.init(role: "heading", size: 56, weight: 700)])])
         for mode in [AppColorScheme.light, .dark] {
             CicadaTheme.mode = mode
             let name = mode == .dark ? "dark" : "light"
@@ -308,6 +312,11 @@ final class LooksTests: XCTestCase {
                 .background(CicadaTheme.bgBase)
             try snapshot(opened, size: CGSize(width: 1180, height: 900), mode: mode,
                          to: URL(fileURLWithPath: dir).appendingPathComponent("looks-open-\(name).png"))
+            var zoom = LooksZoom()
+            zoom.present(open.id, from: .zero, style: .instant)
+            let enlarged = LooksZoomOverlay(zoom: zoom, summary: open, onClose: { _ in })
+            try snapshot(enlarged, size: CGSize(width: 1180, height: 760), mode: mode,
+                         to: URL(fileURLWithPath: dir).appendingPathComponent("looks-enlarged-\(name).png"))
             let empty = LooksBoardView(refs: [], total: 0, phase: .loaded, vision: vision, searching: false,
                                        searchNote: nil, query: .constant(""), open: nil, detail: nil, writeError: nil,
                                        tile: tile)
