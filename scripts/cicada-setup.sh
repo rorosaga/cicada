@@ -25,6 +25,23 @@ REPO="${CICADA_REPO:?CICADA_REPO must name the installed Cicada (the formula set
 export CICADA_REPO="$REPO"
 export CICADA_LOG_DIR="${CICADA_LOG_DIR:-${CICADA_HOME:-$HOME/.cicada}/logs}"
 
+if [ "$(uname -s)" = "Linux" ]; then
+  service_file="${SYSTEMD_USER_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user}/cicada-backend.service"
+else
+  service_file="${LAUNCH_AGENTS_DIR:-$HOME/Library/LaunchAgents}/com.cicada.backend.plist"
+fi
+ours() { [ -f "$service_file" ] && grep -qF "$REPO/api/.venv/bin/python" "$service_file"; }
+
+# --uninstall undoes only this install: when the background service runs another Cicada (the Mac app's, a clone's),
+# that service and the hooks and MCP entry that go with it are left alone.
+for arg in "$@"; do
+  if [ "$arg" = "--uninstall" ] && [ -f "$service_file" ] && ! ours; then
+    echo "  ! The background service ($service_file) runs another Cicada install, not this Homebrew one —" >&2
+    echo "    cicada-setup --uninstall left it, the agent hooks and the MCP entry alone. 'brew uninstall cicada' removes this one's code." >&2
+    exit 0
+  fi
+done
+
 # install.sh leaves a backend that already answers alone; only then does this restart it below.
 was_up=0
 curl -fsS "http://127.0.0.1:8000/healthz" 2>/dev/null | grep -q '"status"' && was_up=1
@@ -37,16 +54,10 @@ done
 
 # Restart a service that already runs this install, so an upgraded keg serves its new code.
 [ "$was_up" -eq 1 ] || exit 0
+ours || exit 0
+echo "  → Restarting the backend service on this install"
 if [ "$(uname -s)" = "Linux" ]; then
-  unit="${SYSTEMD_USER_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user}/cicada-backend.service"
-  if [ -f "$unit" ] && grep -qF "$REPO/api/.venv/bin/python" "$unit"; then
-    echo "  → Restarting the backend service on this install"
-    bash "$REPO/scripts/install-backend-service.sh" || echo "  ! The service didn't restart (above)." >&2
-  fi
+  bash "$REPO/scripts/install-backend-service.sh" || echo "  ! The service didn't restart (above)." >&2
 else
-  plist="${LAUNCH_AGENTS_DIR:-$HOME/Library/LaunchAgents}/com.cicada.backend.plist"
-  if [ -f "$plist" ] && grep -qF "$REPO/api/.venv/bin/python" "$plist"; then
-    echo "  → Restarting the backend service on this install"
-    bash "$REPO/scripts/install-backend-agent.sh" || echo "  ! The service didn't restart (above)." >&2
-  fi
+  bash "$REPO/scripts/install-backend-agent.sh" || echo "  ! The service didn't restart (above)." >&2
 fi

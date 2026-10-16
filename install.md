@@ -39,6 +39,12 @@ brew install cicada
 cicada-setup
 ```
 
+**Both lines work from the next release on** (`main` is still 0.3.1 and has neither file; a `main` URL answers 404
+until then). Before it, a tester installs from `dev`:
+`curl -fsSL https://raw.githubusercontent.com/rorosaga/cicada/dev/scripts/install-server.sh | CICADA_REF=dev bash`,
+or for Homebrew `git clone -b dev https://github.com/rorosaga/cicada && brew tap rorosaga/cicada "$PWD/cicada" && brew
+install --HEAD cicada`.
+
 Connecting other machines to a server, and the topology: `docs/architecture/headless.md`.
 
 The rest of this page installs Cicada **from source**, for developers.

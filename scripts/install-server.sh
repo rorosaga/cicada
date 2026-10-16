@@ -28,10 +28,13 @@
 # arrived, and every child reads /dev/null: nothing can swallow the rest of the script from the pipe.
 set -euo pipefail
 
+MARK="cicada-install-server"   # in <dir>/.git: this script cloned <dir>, so --uninstall may delete it
+
 main() {
   local GIT_URL="${CICADA_GIT_URL:-https://github.com/rorosaga/cicada.git}"
   local DIR="${CICADA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/cicada}"
   local REF="${CICADA_REF:-}"
+  local RELEASE=0   # REF is the latest release's tag: resolved as a tag only, never a branch of the same name
   local UNIT="cicada-backend.service"
   local PORT=8000
   local UNINSTALL=0
@@ -55,6 +58,7 @@ main() {
   # --- the code, at a pinned ref ---
   if [ -z "$REF" ]; then
     REF="$(latest_release "$GIT_URL")" || return 1
+    RELEASE=1
     step "Latest release: $REF"
   fi
   case "$REF" in
@@ -78,9 +82,11 @@ main() {
     git clone --quiet --no-checkout --filter=blob:none "$GIT_URL" "$DIR" </dev/null 2>/dev/null \
       || git clone --quiet --no-checkout "$GIT_URL" "$DIR" </dev/null \
       || { err "Couldn't clone $GIT_URL."; return 1; }
+    # The mark --uninstall needs before it deletes this folder: only a folder this script cloned is ever removed.
+    : > "$DIR/.git/$MARK"
   fi
   local sha
-  sha="$(resolve_ref "$DIR" "$REF")" || { err "$GIT_URL has no branch, tag or commit called '$REF'."; return 1; }
+  sha="$(resolve_ref "$DIR" "$REF" "$RELEASE")" || { err "$GIT_URL has no branch, tag or commit called '$REF'."; return 1; }
   if [ "$sha" != "$before" ]; then
     git -C "$DIR" -c advice.detachedHead=false checkout --quiet --detach "$sha" </dev/null
   fi
@@ -201,9 +207,14 @@ latest_release() {
   printf 'v%s' "$tag"
 }
 
-# A branch follows its tip on each run; a tag or a commit stays put.
+# A branch follows its tip on each run; a tag or a commit stays put. The latest release is its tag and nothing else:
+# a branch that happens to be called v1.2.3 never stands in for the release.
 resolve_ref() {
-  local dir="$1" ref="$2"
+  local dir="$1" ref="$2" release="${3:-0}"
+  if [ "$release" -eq 1 ]; then
+    git -C "$dir" rev-parse --verify --quiet "refs/tags/$ref^{commit}"
+    return
+  fi
   git -C "$dir" rev-parse --verify --quiet "refs/remotes/origin/$ref^{commit}" \
     || git -C "$dir" rev-parse --verify --quiet "refs/tags/$ref^{commit}" \
     || git -C "$dir" rev-parse --verify --quiet "$ref^{commit}"
@@ -219,17 +230,38 @@ is_our_checkout() {
   fi
 }
 
+# The service is ours only when it runs this folder's Python; another Cicada's unit (a clone's) is left alone.
+unit_is_ours() {
+  local unit="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/cicada-backend.service"
+  [ ! -e "$unit" ] || grep -qF "$1/api/.venv/bin/python" "$unit"
+}
+
 uninstall() {
   local dir="$1" link="$HOME/.local/bin/cicada"
   hdr "Removing Cicada (the memory folder and ~/.cicada stay)"
   # Nothing is removed from a folder this installer did not make.
+  case "$dir" in
+    ""|/|"$HOME"|"$HOME/") err "CICADA_DIR='$dir' can't be Cicada's code folder — nothing removed."; return 1 ;;
+  esac
   if [ -e "$dir" ]; then
     is_our_checkout "$dir" "${CICADA_GIT_URL:-https://github.com/rorosaga/cicada.git}" || return 1
-    CICADA_REPO="$dir" bash "$dir/install.sh" --uninstall </dev/null || warn "install.sh --uninstall reported a problem (above)"
-  elif command -v systemctl >/dev/null 2>&1; then
-    systemctl --user disable --now cicada-backend.service >/dev/null 2>&1 || true
-    rm -f "${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/cicada-backend.service"
-    systemctl --user daemon-reload >/dev/null 2>&1 || true
+    if [ ! -f "$dir/.git/$MARK" ]; then
+      err "$dir wasn't cloned by this installer — left alone (remove it yourself if you mean to)."
+      return 1
+    fi
+    if unit_is_ours "$dir"; then
+      CICADA_REPO="$dir" bash "$dir/install.sh" --uninstall </dev/null || warn "install.sh --uninstall reported a problem (above)"
+    else
+      warn "The background service, hooks and MCP entry belong to another Cicada install — left alone"
+    fi
+  elif command -v systemctl >/dev/null 2>&1 && [ -e "${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/cicada-backend.service" ]; then
+    if unit_is_ours "$dir"; then
+      systemctl --user disable --now cicada-backend.service >/dev/null 2>&1 || true
+      rm -f "${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/cicada-backend.service"
+      systemctl --user daemon-reload >/dev/null 2>&1 || true
+    else
+      warn "The background service belongs to another Cicada install — left alone"
+    fi
   fi
   if [ -L "$link" ]; then
     case "$(readlink "$link")" in
@@ -238,7 +270,7 @@ uninstall() {
     esac
   fi
   if [ -d "$dir" ]; then
-    rm -rf "$dir"
+    rm -rf -- "$dir"
     ok "Removed the code, its Python environment and its logs ($dir)"
   else
     ok "No code at $dir"

@@ -32,16 +32,16 @@ curl -fsSL https://raw.githubusercontent.com/rorosaga/cicada/main/scripts/instal
 | Step | What happens |
 |---|---|
 | Prerequisites | `git`, `curl`, `uv` (also found in `~/.local/bin`, where uv's installer puts it) and a reachable systemd user manager, checked together; each missing one is named with the line that fixes it, and nothing is installed (exit 2). Root and non-Linux are refused (a Mac is pointed at Homebrew and the app) |
-| The code | `CICADA_REF` (a branch, tag or commit; validated as a name), else the newest `vX.Y.Z` tag from `git ls-remote` — CI creates a tag only when it publishes a release, so that is the latest release. Cloned into `CICADA_DIR` (default `~/.local/share/cicada`) and checked out detached. A folder there that is not its own checkout (another origin) is left alone; a checkout with local changes is never overwritten |
+| The code | `CICADA_REF` (a branch, tag or commit; validated as a name), else the newest `vX.Y.Z` tag from `git ls-remote` — CI creates a tag only when it publishes a release, so that is the latest release, resolved as a tag only (a branch of the same name never stands in). Cloned into `CICADA_DIR` (default `~/.local/share/cicada`) and checked out detached. A folder there that is not its own checkout (another origin) is left alone; a checkout with local changes is never overwritten |
 | Python | `scripts/sync-server-env.sh`: `uv sync --frozen --no-dev` from `api/uv.lock` minus `sentence-transformers` and what only it needs (torch, the CUDA wheels, transformers, scipy, …) — the release app's set. Measured on Linux arm64: a 338 MB venv |
 | The rest | `CICADA_REPO=<dir> ./install.sh --cli`: search model, memory folder (`~/cicada/memory`, `CICADA_MEMORY_PATH`), `api/.env`, MCP and hook registration, the systemd unit below, `~/.local/bin/cicada` |
 | Update | The same line. Same ref: nothing changes (the backend keeps its PID). A new ref: the code moves, the Python environment re-syncs, and `install-backend-service.sh` rewrites the unit and restarts it |
 | Check | `/healthz` on `127.0.0.1:8000` within 60 s, then `cicada status`; the summary says where the backend's own token lives (never its value) and prints the `enable-linger` line when lingering is off |
-| `--uninstall` | `install.sh --uninstall` (unit, MCP entry, hooks), the `cicada` link, and the code folder (its venv and logs). The memory folder and `~/.cicada` stay |
+| `--uninstall` | `install.sh --uninstall` (unit, MCP entry, hooks) when the unit is this folder's, the `cicada` link when it points here, and the code folder (its venv and logs) only when this script cloned it (a mark in its `.git`). Another install's unit is left alone. The memory folder and `~/.cicada` stay |
 
 The script is one function called on its last line, and every child reads `/dev/null`, so `curl | bash` runs nothing
-until the whole script has arrived and nothing it starts can read the rest of it from the pipe. Testers before a
-release: `curl -fsSL https://raw.githubusercontent.com/rorosaga/cicada/dev/scripts/install-server.sh | CICADA_REF=dev bash`.
+until the whole script has arrived and nothing it starts can read the rest of it from the pipe. The `main` URL works from the next
+release on (`main` is 0.3.1 and has no `install-server.sh`); testers before it: `curl -fsSL https://raw.githubusercontent.com/rorosaga/cicada/dev/scripts/install-server.sh | CICADA_REF=dev bash`.
 
 End to end, on real systemd: `scripts/dev/test-install-linux.sh [ubuntu|fedora]` (Docker; this checkout's HEAD served
 from a local bare repo). `api/tests/test_install_server.py` holds the orchestration rules with fakes.
@@ -79,6 +79,13 @@ cicada-setup               # memory folder, search model, hooks, background serv
   the not-yet-notarized zip would be quarantined by Homebrew's download, and Gatekeeper would block it on every
   machine until the person clicks Open Anyway — exactly what the curl installer avoids. A cask follows notarization
   (G182's Developer ID step).
+- **Beside the app, on one Mac:** there is one backend on `127.0.0.1:8000` and one launchd label
+  (`com.cicada.backend`), never two. `install.sh` skips the service when a backend already answers (the app's), and the
+  app spawns none when one answers (it then uses the Homebrew one, on the same `~/.cicada` and bank); whichever
+  installs the agent last owns the label. `cicada-setup` restarts, and `cicada-setup --uninstall` removes, only a
+  service that runs `opt/cicada/libexec`; another Cicada's service, hooks and MCP entry are left alone. On a Mac whose
+  memory lives on a server (`CICADA_API_BASE` or the app's `~/.cicada/api_base`, phase 3) `install.sh` installs no
+  local backend at all: the hooks, MCP and `cicada` already talk to the server. Use one install per Mac.
 - **Known limit:** the backend computes its own repo path with `resolve()`, so the app's Settings → Agents, run
   against a Homebrew backend, would register hooks under the Cellar path; use `cicada-setup` to connect agents on a
   Homebrew install.

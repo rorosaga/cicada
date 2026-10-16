@@ -144,6 +144,14 @@ brew install cicada
 cicada-setup          # memory folder, search model, agent hooks, background service
 ```
 
+**Not live yet:** both lines arrive with the next release (`main` is still 0.3.1, which has neither file). To try them
+before that, from `dev`:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/rorosaga/cicada/dev/scripts/install-server.sh | CICADA_REF=dev bash
+git clone -b dev https://github.com/rorosaga/cicada && brew tap rorosaga/cicada "$PWD/cicada" && brew install --HEAD cicada
+```
+
 ## Quick start (from source)
 
 Requirements: macOS 14+, Python 3.12, [uv](https://github.com/astral-sh/uv), Xcode command

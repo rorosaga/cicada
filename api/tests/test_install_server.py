@@ -340,3 +340,78 @@ def test_check_version_holds_the_formula_tag_to_version(tmp_path):
     formula.write_text(formula.read_text().replace('tag: "v0.4.0"', 'tag: "v0.3.9"'))
     with pytest.raises(cv.VersionError, match="Formula/cicada.rb"):
         cv.agree(tmp_path)
+
+
+# --------------------------------------------------------------------------- review fixes: what may be resolved and removed
+
+
+def test_a_branch_named_like_the_latest_release_never_stands_in_for_its_tag(world):
+    src = world["src"]
+    _git("checkout", "-q", "-b", "v0.10.0-branch", "v0.3.1", cwd=src)
+    _commit(src, "6.6.6")
+    _git("push", "-q", str(world["served"]), "HEAD:refs/heads/v0.10.0", cwd=src)   # a branch called v0.10.0
+    done = _run(world["env"])
+    assert done.returncode == 0, done.stderr
+    assert "Latest release: v0.10.0" in done.stdout
+    assert _git("rev-parse", "HEAD", cwd=world["dir"]) == world["shas"]["v0.10.0"]
+
+
+def test_uninstall_never_deletes_a_checkout_this_script_did_not_clone(world, tmp_path):
+    # The person's own clone from the same origin, named by CICADA_DIR: same URL, same files, no mark.
+    own = tmp_path / "my-clone"
+    _git("clone", "-q", str(world["served"]), str(own), cwd=tmp_path)
+    (own / "work-in-progress.txt").write_text("mine")
+    done = _run(world["env"], "--uninstall", CICADA_DIR=str(own))
+    assert done.returncode == 1
+    assert "wasn't cloned by this installer" in done.stderr
+    assert (own / "work-in-progress.txt").read_text() == "mine"
+    assert not any(c.startswith("install.sh") for c in _calls(world))
+
+
+@pytest.mark.parametrize("bad", ["/", "HOME"])
+def test_uninstall_refuses_a_code_folder_that_is_root_or_home(world, bad):
+    target = world["env"]["HOME"] if bad == "HOME" else bad
+    done = _run(world["env"], "--uninstall", CICADA_DIR=target)
+    assert done.returncode == 1
+    assert "nothing removed" in done.stderr
+    assert world["home"].exists()
+
+
+def test_uninstall_leaves_another_installs_service_alone(world):
+    assert _run(world["env"]).returncode == 0
+    units = world["home"] / ".config" / "systemd" / "user"
+    units.mkdir(parents=True)
+    unit = units / "cicada-backend.service"
+    unit.write_text('ExecStart="/home/someone/cicada/api/.venv/bin/python" -m uvicorn\n')   # a clone's unit
+    world["log"].write_text("")
+    done = _run(world["env"], "--uninstall")
+    assert done.returncode == 0, done.stderr
+    assert unit.exists()
+    assert not any(c.startswith(("install.sh", "systemctl")) for c in _calls(world))
+    assert not world["dir"].exists()                                  # its own code still goes
+    # With the code already gone, a stray unit of another install is still left alone.
+    done = _run(world["env"], "--uninstall")
+    assert done.returncode == 0 and unit.exists()
+
+
+def test_cicada_setup_uninstall_leaves_another_installs_service_alone(tmp_path):
+    repo = tmp_path / "opt" / "cicada" / "libexec"
+    log = tmp_path / "calls.log"
+    _exe(repo / "install.sh", f'echo "install.sh $*" >> "{log}"\n')
+    fake = tmp_path / "bin"
+    _exe(fake / "uname", "echo Darwin\n")
+    _exe(fake / "curl", "exit 7\n")
+    agents = tmp_path / "LaunchAgents"
+    agents.mkdir()
+    plist = agents / "com.cicada.backend.plist"
+    plist.write_text("<string>/Users/alice-example/.cicada/bin/cicada-backend</string>\n")   # the release app's
+    env = {"HOME": str(tmp_path), "PATH": f"{fake}:/usr/bin:/bin", "CICADA_REPO": str(repo),
+           "LAUNCH_AGENTS_DIR": str(agents)}
+    done = subprocess.run(["/bin/bash", str(SETUP), "--uninstall"], env=env, capture_output=True, text=True, timeout=30)
+    assert done.returncode == 0, done.stderr
+    assert "another Cicada install" in done.stderr
+    assert not log.exists() and plist.exists()
+    plist.write_text(f"<string>{repo}/api/.venv/bin/python</string>\n")                         # ours
+    done = subprocess.run(["/bin/bash", str(SETUP), "--uninstall"], env=env, capture_output=True, text=True, timeout=30)
+    assert done.returncode == 0, done.stderr
+    assert log.read_text().splitlines() == ["install.sh --uninstall"]
