@@ -65,4 +65,17 @@ final class OnboardingSourceTests: XCTestCase {
         XCTAssertTrue(try source("Views/Meadow/OnboardingPane.swift").contains("PaintedScene("))
         XCTAssertFalse(MeadowPlacementLintTests.allowed.contains { $0.contains("Onboarding") })
     }
+
+    /// DR-38 (QA 2026-10-16) — "Connect or disconnect agents any time in Settings → Agents" is the frame's foot line
+    /// on the Agents step; the page itself does not say it again.
+    func testTheAgentsStepSaysItsSettingsPointerOnce() throws {
+        XCTAssertFalse(try source("Views/Onboarding/AgentsPage.swift").contains("Copy.agentsFoot"))
+        XCTAssertTrue(try source("Views/Onboarding/OnboardingView.swift").contains("Copy.agentsFoot"))
+    }
+
+    /// QA 2026-10-16 — every step opens at its top: the frame's one ScrollView is identified by the step, so a step
+    /// never inherits the previous step's scroll offset.
+    func testEachStepOpensAtTheTop() throws {
+        XCTAssertTrue(try source("Views/Onboarding/OnboardingView.swift").contains(".id(page)"))
+    }
 }

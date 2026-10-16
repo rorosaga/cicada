@@ -160,6 +160,9 @@ struct OnboardingView: View {
                 .padding(.vertical, CicadaTheme.spacingLG)
             }
             .scrollBounceBehavior(.basedOnSize)
+            // One scroll per step: the frame's single ScrollView kept the last step's offset, so the next step (and
+            // Back) opened part-way down with its headline cut off under the topbar (QA 2026-10-16).
+            .id(page)
             // Pinned outside the scroll (the G130 lesson): the way forward is never the first thing to clip.
             foot
                 .padding(.horizontal, CicadaTheme.scaled(OnboardingLayout.columnPadding))
