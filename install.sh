@@ -510,13 +510,21 @@ else
 fi
 echo "  capture hook:  $CLAUDE_SETTINGS (hooks.Stop, + PreCompact/SessionEnd flush → api/hooks/capture.py)"
 echo "  recall hooks:  $CLAUDE_SETTINGS (hooks.SessionStart + hooks.UserPromptSubmit → api/hooks/recall.py)"
-if [ "$OS_NAME" = "Linux" ]; then
+if [ -n "$CLIENT_OF" ]; then
+  echo "  service:       none — this machine's memory lives on a server ($CLIENT_OF)"
+elif [ "$OS_NAME" = "Linux" ]; then
   echo "  service:       $SERVICE_UNIT (systemd --user; 127.0.0.1:$PORT only)"
 else
   echo "  launchd:       $PLIST_PATH"
 fi
 [ "$DO_SKILL" -eq 1 ] && echo "  skill:         $CLAUDE_SKILLS_DIR/cicada/SKILL.md"
 [ "$DO_CLI" -eq 1 ] && echo "  command line:  ~/.local/bin/cicada -> $REPO/scripts/cicada"
-echo "  API token:     ${CICADA_HOME:-$HOME/.cicada}/api_token (the app and MCP server read it automatically)"
-echo
-echo "  Next: run 'make doctor' to verify, or 'curl localhost:$PORT/healthz'."
+if [ -n "$CLIENT_OF" ]; then
+  echo "  token:         this device's own, in ${CICADA_HOME:-$HOME/.cicada}/device_token or CICADA_API_TOKEN ('cicada device add <name>' on the server)"
+  echo
+  echo "  Next: run '$REPO/scripts/cicada status' — it asks the server."
+else
+  echo "  API token:     ${CICADA_HOME:-$HOME/.cicada}/api_token (the app and MCP server read it automatically)"
+  echo
+  echo "  Next: run 'make doctor' to verify, or 'curl localhost:$PORT/healthz'."
+fi

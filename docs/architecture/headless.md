@@ -36,7 +36,7 @@ curl -fsSL https://raw.githubusercontent.com/rorosaga/cicada/main/scripts/instal
 | Python | `scripts/sync-server-env.sh`: `uv sync --frozen --no-dev` from `api/uv.lock` minus `sentence-transformers` and what only it needs (torch, the CUDA wheels, transformers, scipy, …) — the release app's set. Measured on Linux arm64: a 338 MB venv |
 | The rest | `CICADA_REPO=<dir> ./install.sh --cli`: search model, memory folder (`~/cicada/memory`, `CICADA_MEMORY_PATH`), `api/.env`, MCP and hook registration, the systemd unit below, `~/.local/bin/cicada` |
 | Update | The same line. Same ref: nothing changes (the backend keeps its PID). A new ref: the code moves, the Python environment re-syncs, and `install-backend-service.sh` rewrites the unit and restarts it |
-| Check | `/healthz` on `127.0.0.1:8000` within 60 s, then `cicada status`; the summary says where the backend's own token lives (never its value) and prints the `enable-linger` line when lingering is off |
+| Check | `/healthz` on `127.0.0.1:8000` within 60 s, then `cicada status`; the summary says where the backend's own token lives (never its value) and prints the `enable-linger` line when lingering is off. On a client (`CICADA_API_BASE` or `$CICADA_HOME/api_base` set) there is no unit to wait for and an update starts none: the check is `cicada status` against the server, a warning with the fix when it does not confirm |
 | `--uninstall` | `install.sh --uninstall` (unit, MCP entry, hooks) when the unit is this folder's, the `cicada` link when it points here, and the code folder (its venv and logs) only when this script cloned it (a mark in its `.git`). Another install's unit is left alone. The memory folder and `~/.cicada` stay |
 
 The script is one function called on its last line, and every child reads `/dev/null`, so `curl | bash` runs nothing
@@ -170,6 +170,10 @@ and writes `device_token`, both 0600:
 - `CICADA_API_BASE` — the address the person's own overlay gives the server (`https://…` for any host; plain `http://`
   only to a loopback address, i.e. an SSH tunnel's local end). Set where the hooks, agents and shells inherit it.
 - the device token in `~/.cicada/device_token` (mode 0600), or `CICADA_API_TOKEN`.
+
+A Linux client gets the code, the hooks and the command with the server's own one line, run with `CICADA_API_BASE`
+exported (`install.sh` then installs no backend; the summary names the device token, not a master token). On a Mac,
+the app's Settings → General → *A server*, or Homebrew's `cicada-setup` with `CICADA_API_BASE` set.
 
 Unset, every client behaves exactly as on one machine. Set, the machine holds no bank:
 
