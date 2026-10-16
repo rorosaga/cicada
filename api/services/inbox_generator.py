@@ -639,7 +639,7 @@ def _write_graph_edges(memory_path: Path, new_edges: list[dict]) -> None:
     data: dict = {}
     if edges_file.exists():
         try:
-            data = markdown_parser.load_yaml(edges_file.read_text(encoding="utf-8")) or {}
+            data = markdown_parser.load_yaml_file(edges_file) or {}
         except Exception:
             # Unreadable: never overwritten with the new edges alone (that would drop every edge it holds).
             logger.warning("graph_edges.yaml is unreadable; new edges not written")

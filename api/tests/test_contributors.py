@@ -149,6 +149,65 @@ def test_contributors_untrailered_commit_attributed_to_unknown(repo):
     assert by_author["unknown"].commit_count == 1
 
 
+def test_contributors_read_the_whole_history_in_one_git_process(repo, monkeypatch):
+    """2026-10-16 perf: a `git diff-tree` per commit made `/contributors` ~18 s on a 1,043-commit bank, paid again on
+    every commit (its ETag is HEAD). One `git log --name-only` now carries every commit's paths — the root commit's,
+    a rename's two paths, and nothing from an empty commit — exactly as the per-commit `diff-tree -r --root` did."""
+    _write_entity(repo, "alpha", "v1")
+    _commit(repo, git_service.build_commit_message("Seed", body_lines=[], authors=["cicada"]))
+    _git(repo, "mv", "entities/alpha.md", "entities/alpha-renamed.md")
+    _commit(repo, git_service.build_commit_message("Rename", body_lines=[], authors=["claude-code"]))
+    _git(repo, "commit", "-q", "--allow-empty", "-m",
+         git_service.build_commit_message("Nothing changed", body_lines=[], authors=["user"]))
+    for i in range(5):
+        _write_entity(repo, f"beta-{i}", "v1")
+        _commit(repo, git_service.build_commit_message(f"Write {i}", body_lines=[], authors=["gpt-5.4-mini"]))
+
+    calls: list[tuple[str, ...]] = []
+    real_run_git = git_service._run_git
+
+    async def counting(memory_path, *args):
+        calls.append(args)
+        return await real_run_git(memory_path, *args)
+    monkeypatch.setattr(git_service, "_run_git", counting)
+
+    by_author = {c.author: c for c in run(git_service.get_contributors(repo))}
+
+    assert [a[0] for a in calls if a[0] != "remote"] == ["log"]   # `remote`: the user avatar's handle, once
+    assert by_author["cicada"].files == ["entities/alpha.md"]                      # the root commit's files
+    assert by_author["claude-code"].files == ["entities/alpha-renamed.md", "entities/alpha.md"]   # both paths
+    assert by_author["user"].commit_count == 1 and by_author["user"].files == []
+    assert by_author["gpt-5.4-mini"].commit_count == 5
+    assert by_author["gpt-5.4-mini"].entity_count == 5
+
+
+def test_contributors_ignore_a_shown_signature(repo, tmp_path):
+    """A `log.showSignature` config prints a signed commit's check ahead of its record; it must not read as a file
+    of the commit listed before it."""
+    import shutil
+
+    if shutil.which("ssh-keygen") is None:
+        pytest.skip("ssh-keygen not available")
+    key = tmp_path / "signing-key"
+    subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(key)], check=True)
+    allowed = tmp_path / "allowed"
+    allowed.write_text(f"test@cicada.local {key.with_suffix('.pub').read_text()}", encoding="utf-8")
+    _git(repo, "config", "gpg.format", "ssh")
+    _git(repo, "config", "user.signingkey", str(key))
+    _git(repo, "config", "gpg.ssh.allowedSignersFile", str(allowed))
+    _write_entity(repo, "alpha", "v1")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-S", "-m", git_service.build_commit_message("Signed", body_lines=[], authors=["user"]))
+    _write_entity(repo, "beta", "v1")
+    _commit(repo, git_service.build_commit_message("After", body_lines=[], authors=["cicada"]))
+    _git(repo, "config", "log.showSignature", "true")
+
+    by_author = {c.author: c for c in run(git_service.get_contributors(repo))}
+
+    assert by_author["cicada"].files == ["entities/beta.md"]
+    assert by_author["user"].files == ["entities/alpha.md"]
+
+
 def test_contributors_on_non_git_dir_returns_empty(tmp_path):
     assert run(git_service.get_contributors(tmp_path / "nope")) == []
 

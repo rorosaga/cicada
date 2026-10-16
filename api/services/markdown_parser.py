@@ -1,8 +1,10 @@
 import datetime
 import errno
 import os
+import pickle
 import re
 import secrets
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -40,6 +42,41 @@ def load_yaml(text: str):
     return yaml.load(text, Loader=_SAFE_LOADER)  # noqa: S506 — a SAFE loader
 
 
+#: path -> ((st_ino, st_mtime_ns, st_size), pickled data): what :func:`load_yaml_file` parsed or :func:`write_yaml`
+#: wrote, held as one pickle (a few MB for a 36k-edge ``graph_edges.yaml``, against ~30 MB of live objects).
+_yaml_files: dict[str, tuple[tuple[int, int, int], bytes]] = {}
+_yaml_files_lock = threading.Lock()
+
+
+def _file_stamp(path: Path) -> tuple[int, int, int]:
+    st = os.stat(path)
+    return (st.st_ino, st.st_mtime_ns, st.st_size)
+
+
+def load_yaml_file(filepath: Path):
+    """:func:`load_yaml` of a whole YAML file, parsed once per change of the file (2026-10-16 perf). One Sleep batch
+    reads ``graph_edges.yaml`` (~5 MB, 36k edges at owner scale: ~1.1 s a parse) about five times, each read but the
+    first straight after another step's :func:`write_yaml` — which leaves what it wrote here, so the next read is a
+    copy, not a parse. Every caller gets its own copy (a pickle round trip, ~30 ms for that file), so a caller that
+    edits what it read never edits what the next one sees. Keyed on the file's inode, mtime and size: any write — a
+    replace, an in-place rewrite, a ``git checkout`` — is parsed afresh. Raises what reading and parsing raise."""
+    path = Path(filepath)
+    stamp = _file_stamp(path)
+    with _yaml_files_lock:
+        hit = _yaml_files.get(str(path))
+    if hit is not None and hit[0] == stamp:
+        return pickle.loads(hit[1])
+    text = path.read_text(encoding="utf-8")
+    data = load_yaml(text)
+    try:
+        if _file_stamp(path) == stamp:   # unchanged while it was read: the parse is this stamp's
+            with _yaml_files_lock:
+                _yaml_files[str(path)] = (stamp, pickle.dumps(data, protocol=pickle.HIGHEST_PROTOCOL))
+    except (OSError, pickle.PicklingError):
+        pass
+    return data
+
+
 _SAFE_DUMPER = getattr(yaml, "CSafeDumper", yaml.SafeDumper)
 
 
@@ -53,7 +90,19 @@ def write_yaml(filepath: Path, data) -> None:
     The safe dumper refuses a value that is not a plain YAML type rather than writing a ``!!python/`` tag the safe
     loader could not read back."""
     text = yaml.dump(data, Dumper=_SAFE_DUMPER, default_flow_style=False, sort_keys=False, allow_unicode=True)
-    _replace(Path(filepath), text.encode("utf-8"))
+    path = Path(filepath)
+    with _yaml_files_lock:
+        _yaml_files.pop(str(path), None)
+    stamp = _replace(path, text.encode("utf-8"))
+    # What was written is what a parse of it returns (the safe dumper writes only plain YAML types, and quotes a
+    # string that would read back as another type), so the next :func:`load_yaml_file` is a copy, not a parse. The
+    # stamp is the written file's own (taken before its rename), never a later writer's.
+    try:
+        snapshot = pickle.dumps(data, protocol=pickle.HIGHEST_PROTOCOL)
+    except pickle.PicklingError:
+        return
+    with _yaml_files_lock:
+        _yaml_files[str(path)] = (stamp, snapshot)
 
 
 @dataclass
@@ -103,6 +152,22 @@ def parse(filepath: Path, *, ledger: bool = True) -> ParsedMarkdown:
 
 
 _LEDGER_STAMP = "claims_ledger"   # `claims_ledger.STAMP`, spelled here so a plain parse imports nothing
+
+
+def body_of(filepath: Path, content: str, frontmatter: dict) -> str:
+    """``parse(filepath).body`` for ``content`` already read, given the frontmatter already parsed from that same
+    content (``bank_index``'s cached entry) — the split and the ledger fold, without a second YAML parse. The fold's
+    read mark goes on a copy, never on the caller's dict."""
+    split = split_frontmatter(content)
+    if split is None:
+        return content
+    body = split[1].strip()
+    if isinstance(frontmatter, dict) and _LEDGER_STAMP in frontmatter:
+        from api.services import claims_ledger
+
+        if claims_ledger.is_page(filepath):
+            body = claims_ledger.fold(filepath, dict(frontmatter), body).strip()
+    return body
 
 
 def _split_ledger(filepath: Path, frontmatter: dict, body: str) -> tuple[dict, str, bytes | None]:
@@ -183,7 +248,10 @@ def write_document(filepath: Path, text: str) -> None:
     _replace(filepath, text.encode("utf-8"))
 
 
-def _replace(filepath: Path, data: bytes) -> None:
+def _replace(filepath: Path, data: bytes) -> tuple[int, int, int]:
+    """Atomically replace ``filepath`` with ``data``. Returns the written file's own (inode, mtime_ns, size), taken
+    from the staged file before the rename (which keeps both), so a caller that caches on it never stamps another
+    writer's file that replaced this one a moment later."""
     target = Path(os.path.realpath(filepath)) if os.path.islink(filepath) else Path(filepath)
     tmp = _stage(target, data)
     try:
@@ -191,10 +259,12 @@ def _replace(filepath: Path, data: bytes) -> None:
             os.chmod(tmp, os.stat(target).st_mode & 0o7777)
         except FileNotFoundError:
             pass
+        st = os.stat(tmp)
         os.replace(tmp, target)
     except BaseException:
         _unlink_quietly(tmp)
         raise
+    return (st.st_ino, st.st_mtime_ns, st.st_size)
 
 
 def write_new(filepath: Path, frontmatter: dict, body: str) -> None:

@@ -12,7 +12,7 @@ from api.models.schemas import GraphLink, GraphNode, GraphResponse
 from api.services import bank_index, claim_contexts, decay_policy, entity_picture, logo_service, predicates
 from api.services.claims import is_current, parse_claims, strip_claims_block
 from api.services.id_utils import sanitize_id
-from api.services.markdown_parser import load_yaml, parse, write_yaml
+from api.services.markdown_parser import load_yaml, load_yaml_file, parse, write_yaml
 
 _SUMMARY_RE = re.compile(r"^##\s+Summary\s*$", re.IGNORECASE | re.MULTILINE)
 
@@ -599,7 +599,7 @@ def regenerate_edges_from_claims(memory_path: Path) -> int:
         # rewritten as the claim rows alone and every other edge — relationships, `mentions`, media `about`,
         # `draws on` — was gone (review 2026-10-14).
         try:
-            data = load_yaml(edges_file.read_text(encoding="utf-8")) or {}
+            data = load_yaml_file(edges_file) or {}
         except Exception as exc:
             logger.warning(f"graph_edges.yaml is unreadable ({type(exc).__name__}); claim edges not regenerated")
             return 0
@@ -664,7 +664,7 @@ def upsert_claim_edges(memory_path: Path, page_ids) -> bool:
     edges: list[dict] = []
     if edges_file.exists():
         try:
-            data = load_yaml(edges_file.read_text(encoding="utf-8")) or {}
+            data = load_yaml_file(edges_file) or {}
         except Exception:
             return False
         if not isinstance(data, dict):
@@ -690,7 +690,7 @@ def _load_edges(memory_path: Path) -> list[GraphLink]:
     if not edges_file.exists():
         return []
     try:
-        data = load_yaml(edges_file.read_text(encoding="utf-8")) or {}
+        data = load_yaml_file(edges_file) or {}
     except Exception:
         return []
     return [

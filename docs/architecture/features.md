@@ -171,7 +171,7 @@ restatement that reinforced an existing claim names that claim) and listing the 
 `write_claim_nudges` merges a later batch's claims into the open item for the pair, and a pair the person answered
 "Correct fold" to (`_predicates.yaml` `confirmed_folds`) is never asked again. "Wrong fold" drops every synonym spelling
 of the pair and repoints every covered claim still on the canonical. The answer runs inside the request's write admission, as one
-page-and-git-lock section through its own `user` commit, the map written atomically (`storage.md`). The question is served on the first covered page still live
+page-and-git-lock section through its own `user` commit, the map written atomically (`storage.md`). Every reader takes the map through `predicates._read_runtime_map`, parsed once per change of the file's (inode, mtime, size) and handed out as a copy (2026-10-16: `GET /inbox` re-parsed it once per conflict item — ~0.6 s of a 240-item read). The question is served on the first covered page still live
 (`_fold_anchor`), hidden only when every covered page is gone. The claim write itself never changes. A one-shot bank
 migration (`dedup_normalization_items`, marker `inbox/.deduped_normalization`) clears the items raised before the fix:
 an admitted transaction (G183) that defers while Sleep holds the pages, under the page and git locks, committing only

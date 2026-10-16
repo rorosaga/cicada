@@ -18,6 +18,7 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--bank", required=True, type=Path)
     ap.add_argument("--top", type=int, default=14)
+    ap.add_argument("--warm", action="store_true", help="profile the second call (caches filled), not the first")
     ap.add_argument("paths", nargs="+")
     a = ap.parse_args()
     isolate.pin_bank(a.bank.resolve())
@@ -36,14 +37,16 @@ def main() -> None:
             return (await c.get(path)).status_code
 
     for path in a.paths:
+        if a.warm:
+            asyncio.run(get(path))
         prof = cProfile.Profile()
         prof.enable()
         status = asyncio.run(get(path))
         prof.disable()
         out = io.StringIO()
         stats = pstats.Stats(prof, stream=out).sort_stats("cumulative")
-        stats.print_stats(r"/api/(services|routers)/", a.top)
-        lines = [ln for ln in out.getvalue().splitlines() if "/api/" in ln or "function calls" in ln]
+        stats.print_stats(r"/api/(services|routers|models)/|yaml|json|pydantic", a.top)
+        lines = [ln for ln in out.getvalue().splitlines() if "/api/" in ln or "function calls" in ln or "yaml" in ln or "json" in ln or "pydantic" in ln]
         print(f"== {path} ({status})")
         for ln in lines:
             print("  " + ln.replace(str(Path.cwd()) + "/", "").strip()[:170])

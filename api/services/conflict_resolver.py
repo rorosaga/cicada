@@ -1137,7 +1137,7 @@ def _edges_by_entity(memory_path) -> dict[str, list[dict]]:
     if not edges_file.exists():
         return by_entity
     try:
-        data = markdown_parser.load_yaml(edges_file.read_text(encoding="utf-8")) or {}
+        data = markdown_parser.load_yaml_file(edges_file) or {}
         for edge in data.get("edges", []) or []:
             source, target = edge.get("source"), edge.get("target")
             if isinstance(source, str):

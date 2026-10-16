@@ -33,7 +33,9 @@ rewrite (M5e), to avoid silently mutating direction during a $0 backfill.
 
 from __future__ import annotations
 
+import copy
 import re
+import threading
 from functools import lru_cache
 from pathlib import Path
 from typing import Callable, NamedTuple
@@ -48,6 +50,8 @@ from api.services.claims import event_cardinality
 _SEED_PATH = Path(__file__).resolve().parents[1] / "data" / "predicates-seed.yaml"
 
 RUNTIME_FILE = "_predicates.yaml"
+#: libyaml's scanner when PyYAML has it — the same safe constructor and output as ``yaml.safe_load``.
+_SAFE_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
 
 NormalizeFn = Callable[[str], str]
 
@@ -103,15 +107,38 @@ def install_predicate_map(memory_path: Path) -> Path:
     return runtime
 
 
+#: path -> ((st_ino, st_mtime_ns, st_size), parsed map). Process-local and disposable: a write of the file (an
+#: ``os.replace`` or an in-place rewrite) moves its stat, and the next read parses it again.
+_runtime_cache: dict[str, tuple[tuple[int, int, int], dict]] = {}
+_runtime_lock = threading.Lock()
+
+
 def _read_runtime_map(memory_path: Path) -> dict:
+    """The bank's ``_predicates.yaml``, parsed once per change of the file (2026-10-16 perf: ``GET /inbox`` asked
+    ``cardinality`` once per conflict item and re-parsed the map each time — 121 parses, ~0.6 s of a 0.64 s inbox
+    read on a 240-item synthetic inbox). Every caller gets its own deep copy, so a caller that edits what it read
+    (``update_runtime_map``) never edits the cache. Every writer replaces the file (``update_runtime_map``'s
+    ``os.replace``) or rewrites it (``install_predicate_map``), so its inode, mtime or size moves and the next read —
+    in this process or another — parses the new file."""
     runtime = Path(memory_path) / RUNTIME_FILE
-    if not runtime.exists():
-        return {}
     try:
-        data = yaml.safe_load(runtime.read_text(encoding="utf-8")) or {}
-    except yaml.YAMLError:
+        st = runtime.stat()
+    except OSError:
         return {}
-    return data if isinstance(data, dict) else {}
+    stamp = (st.st_ino, st.st_mtime_ns, st.st_size)
+    key = str(runtime)
+    with _runtime_lock:
+        hit = _runtime_cache.get(key)
+    if hit is not None and hit[0] == stamp:
+        return copy.deepcopy(hit[1])
+    try:
+        data = yaml.load(runtime.read_text(encoding="utf-8"), Loader=_SAFE_LOADER) or {}
+    except (OSError, yaml.YAMLError):
+        return {}
+    data = data if isinstance(data, dict) else {}
+    with _runtime_lock:
+        _runtime_cache[key] = (stamp, copy.deepcopy(data))
+    return data
 
 
 def update_runtime_map(memory_path: Path, mutate: Callable[[dict], bool]) -> bool:

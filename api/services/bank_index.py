@@ -37,7 +37,18 @@ class IndexedFile:
         return self.path.stem
 
     def body(self) -> str:
-        return markdown_parser.parse(self.path).body
+        """The file's body as ``markdown_parser.parse`` returns it (a page's ledger folded in). The frontmatter this
+        entry holds is the file's own while its ``(mtime, size)`` is unchanged, so its YAML is not parsed a second
+        time (2026-10-16 perf: a cold ``GET /graph`` parsed every page's frontmatter twice, ~0.9 s of 4.6 s at 4,701
+        pages); a file that moved since it was listed is parsed whole, as before."""
+        try:
+            content = self.path.read_text(encoding="utf-8")
+            st = os.stat(self.path)
+        except OSError:
+            return markdown_parser.parse(self.path).body
+        if (st.st_mtime_ns, st.st_size) != (self.mtime_ns, self.size):
+            return markdown_parser.parse(self.path).body
+        return markdown_parser.body_of(self.path, content, self.frontmatter)
 
 
 def invalidate(memory_path: Path | None = None) -> None:
