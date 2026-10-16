@@ -46,6 +46,20 @@ extension ExcerptText {
     /// `keepLines: false` is a quote's (the focus card, "Where this came from", a chip's preview): list markers and
     /// numbering go. `true` is the Reader's, which keeps a turn's lines: a bullet is drawn "•" and numbering stays,
     /// because a numbered list's order is words, not markup.
+    /// A search snippet as clean words (DR-56): markup and role labels stripped, the server's bold ranges mapped
+    /// through the same cut. The ⌘K palette printed `user: …`, `# Lunch with …` and `**Attendees:**` raw
+    /// (QA 2026-10-16).
+    static func cleanAttributed(_ snippet: String, bold offsets: [[Int]]) -> AttributedString {
+        let stripped = stripMarkup(snippet, keepLines: false)
+        let rawCount = snippet.unicodeScalars.count
+        let mapped: [[Int]] = offsets.compactMap { pair in
+            guard pair.count == 2, pair[0] >= 0, pair[0] < pair[1], pair[1] <= rawCount else { return nil }
+            let range = stripped.map(pair[0]..<pair[1])
+            return range.isEmpty ? nil : [range.lowerBound, range.upperBound]
+        }
+        return attributed(stripped.text, bold: mapped)
+    }
+
     static func stripMarkup(_ raw: String, keepLines: Bool) -> Stripped {
         let s = Array(raw.unicodeScalars)
         var drop = [Bool](repeating: false, count: s.count)
