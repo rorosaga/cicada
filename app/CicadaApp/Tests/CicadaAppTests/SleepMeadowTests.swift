@@ -13,14 +13,16 @@ final class SleepMeadowTests: XCTestCase {
     }
 
     /// Z-B12, amended by F1 R-FX13 and 2026-10-16 — the display face (SF Pro
-    /// Display semibold, tracked) for the lead, SF italic at 17 pt for the tail. The owner asked
-    /// for a minimal sans, so the New York quote face left the sentence too.
+    /// Display semibold, tracked) for the lead, SF regular at 17 pt for the tail, never italic (the owner's page at
+    /// rest, 2026-10-16). The owner asked for a minimal sans, so the New York quote face left the sentence too.
     func test_theSentenceSpeaksInMeadowsFaces() throws {
         let code = try sleepFile("RoomSentence.swift")
         XCTAssertTrue(code.contains { $0.contains("CicadaTheme.displayFont(size: Self.leadSize)") })
         XCTAssertTrue(code.contains { $0.contains("CicadaTheme.displayTracking(size: Self.leadSize)") })
-        // The tail left the display face for the ladder's 17 pt italic (2026-10-16): secondary words, not a second title.
-        XCTAssertTrue(code.contains { $0.contains("CicadaTheme.font(size: size).italic()") })
+        // The tail left the display face for the ladder's 17 pt (2026-10-16): secondary words, not a second title —
+        // and not italic (owner 2026-10-16: "no italics").
+        XCTAssertTrue(code.contains { $0.contains("static func tailFont(size: CGFloat) -> Font { CicadaTheme.font(size: size) }") })
+        XCTAssertFalse(code.contains { $0.contains(".italic()") }, "no italic anywhere in the sentence")
         XCTAssertFalse(code.contains { $0.contains("displayFont(size: Self.tailSize") })
         XCTAssertLessThan(RoomSentenceView.tailSize, CicadaTheme.displayMinimumSize)
         XCTAssertFalse(code.contains { $0.contains("quoteFont") }, "the sentence left the serif (R-FX13)")

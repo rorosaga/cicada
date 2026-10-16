@@ -19,15 +19,17 @@ enum SleepTab: String, CaseIterable, Hashable {
         }
     }
 
-    /// The tabs on screen, in order. A count of zero hides its tab (DR-45): Waiting while nothing waits (unless the
-    /// run's own block or a parked conversation still has something to say there), Videos while none is saved. Saved
-    /// and Past reads always show — each has an honest empty state.
-    static func visible(waitingHasRows: Bool, videos: Int) -> [SleepTab] {
+    /// The tabs on screen, in order. A count of zero hides its tab (DR-45; owner 2026-10-16, "Waiting 0 · Saved 0" on a
+    /// fresh page): Waiting while nothing waits (unless a run's own block, a parked conversation or a queue that could
+    /// not be read still has something to say there), Saved while nothing is saved, Videos while none is. Past reads
+    /// always shows — it carries no count, and the page needs one list.
+    static func visible(waitingHasRows: Bool, saved: Int, videos: Int) -> [SleepTab] {
         allCases.filter { tab in
             switch tab {
             case .waiting: waitingHasRows
+            case .saved: saved > 0
             case .videos: videos > 0
-            case .saved, .pastReads: true
+            case .pastReads: true
             }
         }
     }
@@ -37,8 +39,8 @@ enum SleepTab: String, CaseIterable, Hashable {
 
     /// The person's choice wins while its tab is on screen; a choice whose tab hid (the queue emptied, the last video
     /// went) falls back to the preferred tab rather than to a list that is not drawn.
-    static func resolve(chosen: SleepTab?, waitingHasRows: Bool, videos: Int) -> SleepTab {
-        let shown = visible(waitingHasRows: waitingHasRows, videos: videos)
+    static func resolve(chosen: SleepTab?, waitingHasRows: Bool, saved: Int, videos: Int) -> SleepTab {
+        let shown = visible(waitingHasRows: waitingHasRows, saved: saved, videos: videos)
         if let chosen, shown.contains(chosen) { return chosen }
         return preferred(waitingHasRows: waitingHasRows)
     }

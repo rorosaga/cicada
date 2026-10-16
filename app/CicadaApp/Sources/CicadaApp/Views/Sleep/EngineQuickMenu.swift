@@ -171,6 +171,9 @@ struct EngineQuickMenuButton: View {
     @Environment(SleepViewModel.self) private var sleepVM
     @Environment(Store.self) private var store
     @Environment(AppRouter.self) private var router
+    /// The Sleep page's row draws it at Consolidate's height (owner 2026-10-16: "the engine button the same height as
+    /// Consolidate"); the reading options sheet keeps the regular size.
+    var size: NeutralButton.Size = .regular
     @State private var open = false
 
     var body: some View {
@@ -182,7 +185,7 @@ struct EngineQuickMenuButton: View {
                               leading: AnyView(EngineMark(engine: response.preview?.manual.engine ?? "",
                                                           size: CicadaTheme.scaled(14),
                                                           model: response.preview?.manual.model)),
-                              trailingSystemImage: "chevron.down",
+                              trailingSystemImage: "chevron.down", size: size,
                               help: Copy.EngineMenu.buttonHelp) { open.toggle() }
                     .accessibilityLabel(Copy.EngineMenu.buttonAccessibility(label))
             }

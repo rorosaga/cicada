@@ -98,6 +98,8 @@ enum Copy {
     static let lampOn = "The lamp is on."
     static let lampOff = "The lamp is off."
     static let lampOffExplainer = "I read only when you press Consolidate now."
+    /// The Sleep page's schedule sentence with the lamp off — the one place the page says it (owner 2026-10-16).
+    static let lampOffSentence = "The lamp is off — I read when you ask."
     static let lampHint = "Opens the schedule"
     static let readOnSchedule = "Read on a schedule"
     static let rhythmAndTime = "Rhythm and time:"

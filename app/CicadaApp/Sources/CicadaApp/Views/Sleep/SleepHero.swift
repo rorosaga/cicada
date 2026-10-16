@@ -438,7 +438,13 @@ struct SleepControlRow: View {
                 }
                 // The owner's quick switch (R-HS8, R-HS9). It stays while a cycle runs: a change
                 // applies to the next one (G80). It names the person's own engine and model — never another.
-                EngineQuickMenuButton()
+                EngineQuickMenuButton(size: .compact)
+                // The owner's at-rest row (2026-10-16): Consolidate · engine · Options, one height. Options opens the
+                // same reading options the floating "Reading options…" link did, on this row instead of its own line.
+                if showsOptionsLink {
+                    NeutralButton(title: Copy.SleepV5.options, size: .compact,
+                                  help: Copy.SleepV5.optionsHelp) { optionsOpen = true }
+                }
                 if paused != nil, !sleepVM.isRunning {
                     TextButton(title: Copy.SleepV5.endRun, help: Copy.SleepV5.endRunHelp) {
                         Task { await sleepVM.endRun() }
@@ -463,9 +469,6 @@ struct SleepControlRow: View {
                     .foregroundStyle(CicadaTheme.textTertiary)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
-            }
-            if showsOptionsLink {
-                TextButton(title: Copy.SleepV5.readingOptions, inline: true) { optionsOpen = true }
             }
         }
         .frame(maxWidth: .infinity)
@@ -497,7 +500,7 @@ struct SleepControlRow: View {
         return nil
     }
 
-    /// Reading options sits under the row while nothing reads and nothing is paused (A5, A10).
+    /// Options sits in the row while nothing reads and nothing is paused (A5, A10; owner 2026-10-16).
     private var showsOptionsLink: Bool {
         guard let page, !sleepVM.isRunning, page.paused == nil else { return false }
         return (page.readable ?? queuedCount) > 0

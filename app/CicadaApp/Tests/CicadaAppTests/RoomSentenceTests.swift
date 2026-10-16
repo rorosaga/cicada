@@ -76,7 +76,7 @@ final class RoomSentenceTests: XCTestCase {
         XCTAssertEqual(hungry.lead, "1,234 to read — overdue.")
         XCTAssertEqual(hungry.numeral, "1,234")
         XCTAssertEqual(hungry.qualifier, "overdue")
-        XCTAssertEqual(hungry.tone, .warning)
+        XCTAssertEqual(hungry.tone, .plain, "said plainly, never in warning orange (owner 2026-10-16; DR-7)")
         // P9: a bank that has never consolidated is not "overdue" — T8 says why.
         let firstNight = roomSentence(ctx(.hungry, debt: debt(12, hasRunBefore: false, rested: 10)))
         XCTAssertEqual(firstNight.lead, "12 to read.")
@@ -142,21 +142,18 @@ final class RoomSentenceTests: XCTestCase {
         XCTAssertNil(roomSentence(ctx(.hungry, debt: debt(9, hours: 47, rested: 10))).tail, "under two days, no day count")
     }
 
-    func test_T11_theLampIsOffOnlyWhenSomethingWaits() {
+    /// T11 and T12 retired (owner 2026-10-16, the page at rest): the lamp-off sentence is the schedule line under the
+    /// controls, said once, and the biggest pile is what the room already draws (DR-38). Nothing ambient takes their
+    /// place above the controls.
+    func test_T11_T12_retired_theLampAndThePileAreNotSaidAboveTheControls() {
         let off = roomSentence(ctx(.reading, debt: debt(5)) { $0.scheduleMode = "manual" })
-        XCTAssertEqual(off.tail, "The lamp is off — I read when you ask.")
-        XCTAssertEqual(off.action, .openLamp)
+        XCTAssertNil(off.tail)
+        XCTAssertNil(off.action)
+        let pile = roomSentence(ctx(.reading, debt: debt(5)) { $0.topOriginLabel = "Claude Code"; $0.topOrigin = "claude-code" })
+        XCTAssertNil(pile.tail)
+        XCTAssertNil(pile.mark)
         XCTAssertEqual(roomSentence(ctx(.happy, debt: debt(0)) { $0.scheduleMode = "manual" }).tail,
-                       "Drop a file on me to add it to the pile.",
-                       "nothing waits, so no lamp line — T13 speaks instead")
-    }
-
-    func test_T12_theBigPile_orNothingWhenItWouldNotFit() {
-        let line = roomSentence(ctx(.reading, debt: debt(5)) { $0.topOriginLabel = "Claude Code"; $0.topOrigin = "claude-code" })
-        XCTAssertEqual(line.tail, "The Claude Code pile is the big one.")
-        XCTAssertEqual(line.mark, .origin("claude-code"), "a named source wears its mark (Z-P26)")
-        let long = String(repeating: "x", count: 70)
-        XCTAssertNil(roomSentence(ctx(.reading, debt: debt(5)) { $0.topOriginLabel = long }).tail)
+                       "Drop a file on me to add it to the pile.", "T13 still invites a file")
     }
 
     /// T13 (Z-B19) — feeding shipped, so a happy worm invites a file.
@@ -268,8 +265,9 @@ final class RoomSentenceTests: XCTestCase {
     func test_whisperLine_isTheLampsTwinInWords() {
         XCTAssertEqual(whisperLine(scheduleText: "Every day at 03:00", nextRunText: "Next run Sep 24, 3:00 AM", lampLit: true),
                        "Every day at 03:00 · Next run Sep 24, 3:00 AM")
+        // The page's one lamp-off sentence (owner 2026-10-16): said here, not again above the controls.
         XCTAssertEqual(whisperLine(scheduleText: Copy.nextRunManual, nextRunText: Copy.nextRunManual, lampLit: false),
-                       "Manual only — the lamp is off")
+                       "The lamp is off — I read when you ask.")
     }
 
     /// R-HS9 — the caption is what Cancel does while a cycle runs, and nothing otherwise: the

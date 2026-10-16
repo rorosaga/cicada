@@ -54,7 +54,7 @@ struct SentenceLine: Hashable {
     /// The service the tail names, if any, drawn beside it as its mark.
     var mark: SentenceMark? = nil
 
-    /// R-Z13's two budgets: one line of the 30 pt display face, two of the 17 pt italic tail.
+    /// R-Z13's two budgets: one line of the 30 pt display face, two of the 17 pt tail.
     static let maxLead = 40
     static let maxTail = 80
 
@@ -250,8 +250,9 @@ private func sentenceLead(_ ctx: RoomContext) -> SentenceLine {
             guard heroQualifier(ctx.mood, debt: ctx.debt) == "overdue" else {
                 return SentenceLine(lead: "\(numeral) to read.", numeral: numeral)
             }
-            return SentenceLine(lead: "\(numeral) to read — overdue.", numeral: numeral,
-                                qualifier: "overdue", tone: .warning)
+            // Said plainly (owner 2026-10-16): the word carries "overdue", in the lead's own colour — DR-7 keeps
+            // `warning` for the gear's dot and a failed source, never body text. The worm and the pile show it too.
+            return SentenceLine(lead: "\(numeral) to read — overdue.", numeral: numeral, qualifier: "overdue")
         }
         if case .hungry = ctx.mood { return SentenceLine(lead: "Nothing new to read.") }        // L9
         return SentenceLine(lead: "Something new just arrived.")                                // L8b, Z-P6
@@ -329,15 +330,9 @@ private func sentenceTail(_ ctx: RoomContext) -> SentenceTail? {
     if case .hungry = ctx.mood, let hours = ctx.debt?.hoursSinceLastCycle, hours >= 48 {         // T10
         return SentenceTail(text: "It's been \(Int(hours / 24)) days.")
     }
-    if count > 0, ctx.scheduleMode == "manual" {                                                 // T11
-        return SentenceTail(text: "The lamp is off — I read when you ask.", action: .openLamp)
-    }
-    if case .reading = ctx.mood, let label = ctx.topOriginLabel {                                // T12
-        let text = "The \(label) pile is the big one."
-        if text.count <= SentenceLine.maxTail {
-            return SentenceTail(text: text, mark: ctx.topOrigin.map { SentenceMark.origin($0) })
-        }
-    }
+    // T11 and T12 retired (owner 2026-10-16, the Sleep page at rest: one headline, one row of controls, one schedule
+    // sentence; DR-38). "The lamp is off — I read when you ask." is the schedule sentence under the controls now, said
+    // once; "The <source> pile is the big one." repeated the pile the room draws.
     // T13 (Z9, Z-B19) — only once the queue has loaded: "Checking what's
     // waiting…" never carries an invitation.
     if case .happy = ctx.mood, case .loaded = ctx.queueLoad {                                    // T13
@@ -429,10 +424,11 @@ func drainCancelledClause(_ drain: SleepDrainInfo, locale: Locale) -> String {
     return "Stopped — \(filed) filed stay filed; the rest wait."
 }
 
-/// The lamp's twin in words (§7.2): the schedule, then when the next run is —
-/// or that the lamp is off.
+/// The lamp's twin in words (§7.2), and the page's one schedule sentence (owner 2026-10-16): the schedule, then when
+/// the next run is — or, with the lamp off, that it reads when asked. The lamp-off fact is said here and nowhere else
+/// on the page (T11, which said it again above the controls, retired; DR-38).
 func whisperLine(scheduleText: String, nextRunText: String, lampLit: Bool) -> String {
-    lampLit ? "\(scheduleText) · \(nextRunText)" : "\(scheduleText) — the lamp is off"
+    lampLit ? "\(scheduleText) · \(nextRunText)" : Copy.lampOffSentence
 }
 
 // MARK: - The slot
@@ -449,19 +445,20 @@ func whisperLine(scheduleText: String, nextRunText: String, lampLit: Bool) -> St
 ///
 /// Meadow's faces (Z10, Z-B12; F1 R-FX13): the lead in the display face — SF
 /// Pro Display semibold at 30 pt with `displayTracking`, shrinking only to the
-/// display floor; the tail in SF regular italic at 17 pt (2026-10-16, it was 22) —
+/// display floor; the tail in SF regular at 17 pt (2026-10-16, it was a 22 pt italic) —
 /// the owner asked for a minimal sans, so the sentence no longer uses the
 /// quote face.
 struct RoomSentenceView: View {
     static let leadSize: CGFloat = 30
-    /// The one secondary line (2026-10-16): 17 pt regular italic — the heading step of the ladder (DR-16), not the
-    /// display face. At 22 pt the italic read as a second headline under "Filing…" (the owner's live capture).
+    /// The one secondary line (2026-10-16): 17 pt regular — the heading step of the ladder (DR-16), not the display
+    /// face. At 22 pt it read as a second headline under "Filing…" (the owner's live capture). No italic (owner
+    /// 2026-10-16, the page at rest): it is a sentence in `textSecondary`, set like every other line.
     static let tailSize: CGFloat = 17
     /// The size a tail steps down to before it wraps: the detail-body step of the ladder.
     static let tailFloorSize: CGFloat = 15
 
-    /// The tail's face at a size — SF regular italic through the ladder, so it scales with `uiScale` (DR-70).
-    static func tailFont(size: CGFloat) -> Font { CicadaTheme.font(size: size).italic() }
+    /// The tail's face at a size — SF regular through the ladder, so it scales with `uiScale` (DR-70).
+    static func tailFont(size: CGFloat) -> Font { CicadaTheme.font(size: size) }
     /// The lead fits one line by shrinking no further than the display
     /// face's own floor (R-M3) — the old 0.7 would have reached 21 pt.
     static var leadMinimumScale: CGFloat { CicadaTheme.displayMinimumSize / leadSize }
@@ -667,7 +664,7 @@ private struct DwellKey: Equatable {
     let inside: Bool
 }
 
-/// A `SentenceMark`, drawn. At 15 pt it sits beside the 17 pt italic tail
+/// A `SentenceMark`, drawn. At 15 pt it sits beside the 17 pt tail
 /// without out-weighing it.
 private struct SentenceMarkView: View {
     let mark: SentenceMark
