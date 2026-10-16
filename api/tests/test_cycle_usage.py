@@ -433,7 +433,7 @@ def test_the_llm_call_ledger_row_stays_ids_enums_and_numbers(ledger_bank):
     with agent_engine.use_scope("sleep:idc"):
         _fn(events)(messages=[{"role": "user", "content": "secret words"}])
     row = json.loads(events[0].to_json())
-    assert row["refs"] == {"cycle_id": "idc"}
+    assert row["refs"] == {"cycle_id": "idc", "cost_source": "table"}   # an enum from telemetry.COST_SOURCES
     assert "secret words" not in events[0].to_json()
 
 

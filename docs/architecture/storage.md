@@ -1113,6 +1113,7 @@ plan's from two fresh app-server snapshots bracketing the cycle. `api/services/c
 figure carries its basis (`charged` | `list` | `plan` | `free`), and a cycle without the marker reads `null`, never zero.
 The Sleep page's Details (Last cycle, Past nights, an opened cycle's Models) and the engine menu's captions read them
 (2026-09-28 ruling); a `plan` block and a `cycle_id` are numbers and ids, never text.
+An `llm_call` with a real cost carries `refs.cost_source` (`telemetry.COST_SOURCES`, 2026-10-16): `provider` when the figure is the charge the provider reported for that call (OpenRouter's `usage.cost`; litellm sends `usage: {include: true}` on every OpenRouter request), which wins over `table`, litellm's estimate from its bundled price table. A model the table does not list still gets OpenRouter's own charge; with neither, `cost_usd` is `null` and no source is filed — unknown, never zero.
 Since Sleep page v5 a drain's calls also carry `refs.drain_id` (the run's id, ids only), so `GET /sleep/runs/{id}` sums a whole run — a paused or discarded batch's calls included — and `sleep_run` rows carry `drain_id`/`batch`/`batches`; `usage_for_drain` lists a plan window at the run level only when every batch saw the same reset time.
 
 **Feedback events (G113):** every inbox resolution emits a `resolution` event (`stage: feedback`,

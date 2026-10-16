@@ -103,8 +103,9 @@ table from GitHub (5 s timeout, falling back to the copy it ships), on every pro
 forces `LITELLM_LOCAL_MODEL_COST_MAP=True` before any module can import litellm — the backend, the CLI, the MCP server and the
 test suite all import that package first — and the CLI bootstrap and the settings file treat the name as a control key no
 file can set. The table is the installed litellm's own, so prices and the key providers' tested defaults change only with
-a litellm upgrade. A model the table does not list still runs; its cost is unknown (`None`) on the ledger, the Sleep page's
-cost lines and the Usage aggregates, never `$0` (ruling 12).
+a litellm upgrade. A model the table does not list still runs; on OpenRouter its cost is OpenRouter's own reported charge
+(`refs.cost_source: provider`, `storage.md`), elsewhere it is unknown (`None`) on the ledger, the Sleep page's cost lines
+and the Usage aggregates, never `$0` (ruling 12).
 
 **The Neural Engine search model's download (owner 2026-10-09).** EmbeddingGemma 2 (`api/services/model_fetch.py`) is
 fetched only when the person asks: *Turn on* beside *Understand what you mean* in Settings → Search & files, or the
