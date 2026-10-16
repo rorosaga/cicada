@@ -1,6 +1,6 @@
 """A web lookup settles inbox questions about public things (owner ruling 2026-10-16, G61; amends the S3 rail).
 
-Rodrigo, 2026-10-16: "A web lookup answers 'what is X' for public things and closes the question. The answer is saved
+The owner, 2026-10-16: "A web lookup answers 'what is X' for public things and closes the question. The answer is saved
 with its link and quote, and you can undo it from a 'Settled by a check' list. Never searched: people's names, your own
 files, your projects, your life."
 
@@ -380,7 +380,7 @@ def settle(
     """Settle one question with a cited answer. The caller holds the bank (Sleep's window, or admission + page lock),
     has checked its gates, and commits ``paths``. Raises :class:`NotSettleable` with nothing written."""
     from api.services import pending_store
-    from api.services.claims import Claim, MalformedClaimsBlockError, parse_claims, write_claims
+    from api.services.claims import Claim, MalformedClaimsBlockError, is_event, parse_claims, write_claims
 
     memory_path = Path(memory_path)
     item_path = memory_path / "inbox" / f"{item_id}.md"
@@ -439,7 +439,9 @@ def settle(
                 option_ids = {str(o.get("claim_id")) for o in inbox_questions.normalize_options(fm_item.get("options"))
                               if o.get("claim_id")}
                 for old in claims:
-                    if old.id in option_ids and old.id != option_claim and old.valid_to is None:
+                    # An event (`happened`/`milestone`) is closed only by `progress.py` (G141): never here.
+                    if (old.id in option_ids and old.id != option_claim and old.valid_to is None
+                            and not is_event(old)):
                         before = old.to_dict()
                         old.valid_to = today
                         old.superseded_by = claim.id

@@ -1088,5 +1088,31 @@
       "frontmatter": "parsed.frontmatter",
       "disposition": "preserve_frontmatter_guarded"
     }
+  ],
+  "services/web_settle.py": [
+    {
+      "function": "settle",
+      "method": "write",
+      "frontmatter": "page.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "settle",
+      "method": "write",
+      "frontmatter": "{**fm_item, 'settled': record}",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "undo",
+      "method": "write",
+      "frontmatter": "page.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "undo",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    }
   ]
 }

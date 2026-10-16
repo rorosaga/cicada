@@ -1,6 +1,6 @@
 """The web lookup on Sleep's tail: who searches, on which engine, under which gate (owner ruling 2026-10-16, G61).
 
-Rodrigo, 2026-10-16: "Runs from your Claude plan in runs you start; a scheduled metered run costs a few cents more."
+The owner, 2026-10-16: "Runs from your Claude plan in runs you start; a scheduled metered run costs a few cents more."
 
 After the last batch's nudges, a bounded step looks up public-thing questions (``web_settle.classify``) and settles
 the ones the search answers. The rules, each enforced here:
