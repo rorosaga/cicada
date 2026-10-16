@@ -10,8 +10,8 @@ from the page as it is NOW and subtracts only what the conversation brought.
 **Found:** for each conversation whose episodes carry a decided ``correspondent`` record (the newest sitting's record
 names it — the person's current mark), a page whose own ``name`` folds to the correspondent's name (as
 `correspondents` folds), that credits one of those episodes (in ``source_episodes``, or a claim resting only on them)
-while its type is not the correspondent's. A page that only lists the name as an alias is not split (``skipped_alias``). Pages that
-legitimately credit the conversation (the projects it talked about) are never touched.
+while its type is not the correspondent's. A page that only lists the name as an alias is not split
+(``skipped_alias``). Pages that legitimately credit the conversation (the projects it talked about) are never touched.
 
 **From git**, the *base* is the page in the parent of the first commit that credited the conversation, and every
 commit since is read in order:
