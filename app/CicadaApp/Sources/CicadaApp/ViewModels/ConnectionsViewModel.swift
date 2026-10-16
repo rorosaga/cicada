@@ -41,13 +41,21 @@ final class ConnectionsViewModel {
 
     var isLoading: Bool { store.connections.isEmpty && store.connections.isRefreshing }
 
-    /// A subscription whose CLI is installed but is no longer signed in —
-    /// the one connection state that quietly degrades Sleep, Ask and
-    /// clarification wording, so it earns the gear's dot. A key-based
-    /// connection with no key is "not set up yet", not "expired", and a CLI
-    /// that isn't installed can't have expired.
-    var needsAttention: Bool {
-        connections.contains { $0.billing == "subscription" && $0.available && !$0.connected }
+    /// The gear's dot (owner 2026-10-16): only when the engine the person CHOSE is a plan that needs signing in.
+    /// A plan that is merely available — its CLI on the PATH, never chosen — is not the person's problem: lighting
+    /// the dot for it made the warning permanent for anyone with that CLI installed (QA 2026-10-16, a fresh install
+    /// showed "a connection needs you" for a plan nobody picked). A key-based connection with no key is "not set up
+    /// yet", not "expired", and a CLI that isn't installed can't have expired.
+    func needsAttention(engine: SleepEngineResponse?) -> Bool {
+        Self.needsAttention(connections: connections, engine: engine)
+    }
+
+    /// Pure, for `SidebarTabTests`: the chosen card (`selected`, the card the stored choice belongs to) through the
+    /// one card → connection table (`EngineOption.connectionId`). No engine read yet, or an automatic choice that
+    /// names no card, is no dot — never a guess.
+    static func needsAttention(connections: [ConnectionStatus], engine: SleepEngineResponse?) -> Bool {
+        guard let engine, let id = EngineOption.connectionId(for: engine.selected) else { return false }
+        return connections.contains { $0.id == id && $0.billing == "subscription" && $0.available && !$0.connected }
     }
 
     /// Writes a freshly-probed connections array straight into the Store
