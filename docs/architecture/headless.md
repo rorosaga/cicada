@@ -178,7 +178,10 @@ A Linux client gets the code, the hooks and the command with the server's own on
 exported (`install.sh` then installs no backend; the summary names the device token, not a master token). On a Mac,
 the app's Settings → General → *A server*, or Homebrew's `cicada-setup` with `CICADA_API_BASE` set.
 
-Unset, every client behaves exactly as on one machine. Set, the machine holds no bank:
+Unset, every client behaves exactly as on one machine. Set, the machine holds no bank. Every client sends its token
+straight to that address: no proxy from the environment, and no redirect followed (`runtime_layout.opener`,
+`hook_client.opener`) — urllib would re-send a redirected post as a GET, token included, to wherever it points, and its
+200 would read as delivered. A 3xx is the answer: a hook keeps the post in its spool, a tool call says it failed.
 
 | Client | What it does with a base set |
 |---|---|

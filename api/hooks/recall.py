@@ -67,8 +67,10 @@ def _default_post(url: str, body: bytes, token: str, timeout: float) -> tuple[in
         url, data=body, method="POST",
         headers={"Content-Type": "application/json", "Authorization": f"Bearer {token}"},
     )
+    import hook_client  # stdlib sibling: no proxy, and no redirect followed with the token (G181 phase 2)
+
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 - loopback only
+        with hook_client.opener().open(req, timeout=timeout) as resp:  # noqa: S310 - loopback or the person's server
             return resp.status, resp.read().decode("utf-8", "replace")
     except urllib.error.HTTPError as exc:
         # A 4xx body can echo the prompt back (FastAPI's 422): never read it.

@@ -64,9 +64,10 @@ def backend_headers(environ=None) -> dict[str, str]:
 
 
 def _opener():
-    import urllib.request
+    from api.services import runtime_layout
 
-    return urllib.request.build_opener(urllib.request.ProxyHandler({}))   # loopback never goes through a proxy
+    # Loopback never goes through a proxy, and no redirect is followed with the token (a server elsewhere, G181).
+    return runtime_layout.opener()
 
 
 def probe_backend(url: str, root, timeout: float, *, bank_id: str | None = None) -> dict:

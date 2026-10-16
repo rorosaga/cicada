@@ -116,7 +116,7 @@ def call(tool: str, arguments: dict, *, caller: dict, state: dict, surface: str 
                        "surface": surface, "options": options or {}}).encode("utf-8")
     req = urllib.request.Request(f"{base}/tools/call", data=body, method="POST",
                                  headers={"Content-Type": "application/json", "Authorization": f"Bearer {token}"})
-    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    opener = runtime_layout.opener()   # no proxy, and no redirect followed with this device's token
     try:
         with opener.open(req, timeout=timeout or SLOW_TOOLS.get(tool, DEFAULT_TIMEOUT_S)) as resp:
             answer = json.loads(resp.read().decode("utf-8"))

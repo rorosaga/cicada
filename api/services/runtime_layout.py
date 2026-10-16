@@ -135,6 +135,20 @@ def client_token(environ=os.environ) -> str:
         return ""
 
 
+def opener():
+    """The opener every client of a Cicada backend sends its token through: no proxy from the environment (loopback, or
+    the person's own server over their overlay) and no redirect followed — urllib re-sends a redirected request, as a
+    GET and with its ``Authorization`` header, to wherever ``Location`` points (another host, plain http). The 3xx is
+    the answer instead (hunt 2026-10-16). Stdlib only, like the rest of this module."""
+    import urllib.request
+
+    class _NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, req, fp, code, msg, headers, newurl):
+            return None
+
+    return urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect())
+
+
 def backend_url(environ=os.environ) -> str:
     """The backend this machine's clients talk to: ``CICADA_API_BASE`` when it is set (a server elsewhere), else this
     machine's own on loopback (``CICADA_PORT``, else 8000). An invalid base raises ``ValueError``."""

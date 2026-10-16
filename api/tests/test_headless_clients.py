@@ -640,3 +640,58 @@ def test_a_very_long_session_is_read_by_a_detached_child_inside_the_hook_s_wait(
     # The child itself (marked detached) reads and posts, whatever the size.
     _fire({**env, hook.DETACHED_ENV: "1"}, transcript, lambda *a: calls.append(a) or (200, "{}"))
     assert len(calls) == 1
+
+
+def test_a_redirect_is_never_followed_with_the_device_token():
+    """Hunt 2026-10-16: urllib follows a 301/302/303 on a POST as a GET to wherever it points, with the Authorization
+    header — the device token went to another host, and the GET's 200 read as "landed", so the spool dropped a capture
+    the server never got. A 3xx is now the answer: the token stays home and the post is kept for a resend."""
+    import http.server
+    import sys
+    import threading
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "hooks"))
+    import hook_client
+
+    seen: list = []
+
+    class Target(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_GET(self):
+            seen.append(self.headers.get("Authorization"))
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"{}")
+
+    target = http.server.HTTPServer(("127.0.0.1", 0), Target)
+
+    class Redirector(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_POST(self):
+            self.rfile.read(int(self.headers.get("Content-Length") or 0))
+            self.send_response(302)
+            self.send_header("Location", f"http://localhost:{target.server_port}/elsewhere")
+            self.end_headers()
+
+    first = http.server.HTTPServer(("127.0.0.1", 0), Redirector)
+    for srv in (first, target):
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+    from api.services import tool_client
+
+    try:
+        status, _ = hook_client.send(f"http://127.0.0.1:{first.server_port}/capture/turn", b"{}",
+                                     "cic_dev_abcdefgh_placeholder", 3)
+        environ = {"CICADA_API_BASE": f"http://127.0.0.1:{first.server_port}",
+                   "CICADA_API_TOKEN": "cic_dev_abcdefgh_placeholder"}
+        with pytest.raises(tool_client.ToolClientError):
+            tool_client.call("cicada_recall", {"query": "x"}, caller={}, state={}, environ=environ, timeout=3)
+    finally:
+        for srv in (first, target):
+            srv.shutdown()
+            srv.server_close()
+    assert seen == [], "the device token never follows a redirect"
+    assert not hook_client.landed(status) and hook_client.keep(status), "a redirect is not a delivery"
