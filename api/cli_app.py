@@ -196,7 +196,7 @@ def _confirm_root(boot) -> None:
     if state == "confirmed":
         return
     if state == "backend_down":
-        raise Refusal("backend_down", DOWN_TEXT)
+        raise Refusal("backend_down", down_text())
     if state == "mismatch":
         raise Refusal("root_mismatch", MISMATCH_TEXT, _warn(boot))
     raise Refusal("root_unverified", UNVERIFIED_TEXT, _warn(boot) or ["root_unverified"])
@@ -204,6 +204,17 @@ def _confirm_root(boot) -> None:
 
 DOWN_TEXT = ("The app's backend is not running, and this command acts on it. Open Cicada (or start its backend) "
              "and try again. Nothing was changed.")
+#: A Linux machine has no app to open (G181): its backend is the systemd user unit `install.sh` installs.
+SERVER_DOWN_TEXT = ("Cicada's backend is not running on this machine, and this command acts on it. Start it with "
+                    "`systemctl --user start cicada-backend.service` (why it stopped: `journalctl --user -u "
+                    "cicada-backend.service`) and try again. Nothing was changed.")
+
+
+def down_text(platform: str | None = None) -> str:
+    """What a command that needs this machine's own backend says when it does not answer."""
+    import sys
+
+    return SERVER_DOWN_TEXT if (platform or sys.platform).startswith("linux") else DOWN_TEXT
 
 
 def _multipart(field: str, filename: str, data: bytes) -> tuple[bytes, str]:
@@ -230,7 +241,7 @@ def call(boot, method: str, path: str, *, body=None, query: dict | None = None,
 
     state = boot.probe.get("state")
     if state == "backend_down":
-        raise Refusal("backend_down", DOWN_TEXT)
+        raise Refusal("backend_down", down_text())
     if state == "mismatch":
         raise Refusal("root_mismatch", MISMATCH_TEXT, _warn(boot))
     if method != "GET":
@@ -256,13 +267,13 @@ def call(boot, method: str, path: str, *, body=None, query: dict | None = None,
         _raise_for(exc, _warn(boot))
     except urllib.error.URLError as exc:
         if isinstance(exc.reason, ConnectionRefusedError):
-            raise Refusal("backend_down", DOWN_TEXT) from None
+            raise Refusal("backend_down", down_text()) from None
         if isinstance(exc.reason, (TimeoutError, socket.timeout)):
             raise Refusal("backend_timeout", "The app's backend did not answer in time; it may still be working "
                                              "on it. Check with `cicada sleep status` or the app.") from None
-        raise Refusal("backend_down", DOWN_TEXT) from None
+        raise Refusal("backend_down", down_text()) from None
     except ConnectionRefusedError:
-        raise Refusal("backend_down", DOWN_TEXT) from None
+        raise Refusal("backend_down", down_text()) from None
     except (TimeoutError, socket.timeout):
         raise Refusal("backend_timeout", "The app's backend did not answer in time; it may still be working on "
                                          "it. Check with `cicada sleep status` or the app.") from None

@@ -105,3 +105,19 @@ def test_a_device_command_only_the_server_may_run_says_where_to_run_it(monkeypat
     assert refused.value.code == "unauthorized"
     assert "Run it in a terminal on the server" in str(refused.value)
     assert "revoked" not in str(refused.value)
+
+
+def test_a_server_whose_backend_stopped_is_told_how_to_start_it_not_to_open_an_app(monkeypatch):
+    """On Linux there is no app to open: the fix is the systemd user unit install.sh installed."""
+    from api import cli_app
+    from api.cli_types import Refusal
+
+    assert "systemctl --user start cicada-backend.service" in cli_app.down_text("linux")
+    assert "Open Cicada" not in cli_app.down_text("linux")
+    assert "Open Cicada" in cli_app.down_text("darwin")                  # a Mac keeps its words
+    monkeypatch.setattr(sys, "platform", "linux")
+    boot = type("B", (), {"probe": {"state": "backend_down"}})()
+    with pytest.raises(Refusal) as refused:
+        cli_app.call(boot, "POST", "/sleep/trigger")
+    assert refused.value.code == "backend_down"
+    assert "systemctl --user start" in str(refused.value)
