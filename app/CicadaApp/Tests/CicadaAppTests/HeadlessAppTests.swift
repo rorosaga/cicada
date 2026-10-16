@@ -263,6 +263,39 @@ final class HeadlessAppTests: XCTestCase {
         XCTAssertEqual(waiting, 1)
     }
 
+    /// Review fix: a newer post never overtakes an older one on the same route — the older goes first, and while it
+    /// cannot land the newer waits behind it (a snapshot replayed late would put the server back to an older state).
+    func testANewerPostNeverOvertakesAnOlderOneOnTheSameRoute() async throws {
+        let client = APIClient(session: HeadlessStubProtocol.session(), connection: server("https://cicada.example.ts.net"),
+                               runtime: runtime())
+        HeadlessStubProtocol.fail = URLError(.cannotConnectToHost)
+        _ = try? await client.syncNotes(dump: "older dump")
+        var waiting = await client.outbox.count()
+        XCTAssertEqual(waiting, 1)
+        // still away (503): the newer waits behind, and nothing newer was sent
+        HeadlessStubProtocol.reset()
+        HeadlessStubProtocol.respond = { _ in (503, "{}") }
+        do {
+            _ = try await client.syncNotes(dump: "newer dump")
+            XCTFail("expected the post to wait")
+        } catch let error as ServerLinkError {
+            XCTAssertEqual(error, .queuedOffline)
+        }
+        XCTAssertEqual(HeadlessStubProtocol.requests.count, 1)
+        XCTAssertTrue(String(decoding: HeadlessStubProtocol.requests[0].httpBody ?? Data(), as: UTF8.self).contains("older dump"))
+        waiting = await client.outbox.count()
+        XCTAssertEqual(waiting, 2)
+        // back: oldest first, then the newest, which lands directly
+        HeadlessStubProtocol.reset()
+        HeadlessStubProtocol.respond = { _ in (200, #"{"created":0,"updated":0,"unchanged":0,"skipped":0}"#) }
+        _ = try? await client.syncNotes(dump: "newest dump")
+        let bodies = HeadlessStubProtocol.requests.map { String(decoding: $0.httpBody ?? Data(), as: UTF8.self) }
+        XCTAssertEqual(bodies.count, 3)
+        XCTAssertTrue(bodies[0].contains("older dump") && bodies[1].contains("newer dump") && bodies[2].contains("newest dump"))
+        waiting = await client.outbox.count()
+        XCTAssertEqual(waiting, 0)
+    }
+
     func testOnThisMacNothingWaits() async throws {
         HeadlessStubProtocol.fail = URLError(.cannotConnectToHost)
         let client = APIClient(session: HeadlessStubProtocol.session(), connection: ServerConnection(mode: .thisMac, source: .none),

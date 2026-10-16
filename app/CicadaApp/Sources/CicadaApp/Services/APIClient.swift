@@ -3236,6 +3236,13 @@ actor APIClient {
     /// copy goes first when the server answers (`flushOutbox`). Every other request is sent exactly as before.
     private func deliver(_ request: URLRequest, path: String) async throws -> (Data, URLResponse) {
         let queues = connection.isServer && ReaderOutbox.queues(path)
+        // Review fix — never ahead of an older post on the same route and memory: a reader's snapshot (bookmarks,
+        // tabs, tab groups…) replayed after a newer one would put the server back to the older state, and the reader,
+        // having landed the newer one, would not send it again. The older ones go first; if any still waits, this
+        // one waits behind it.
+        if queues, await waitingAhead(request, path: path), await keep(request, path: path) {
+            throw ServerLinkError.queuedOffline
+        }
         let data: Data
         let response: URLResponse
         do {
@@ -3251,6 +3258,15 @@ actor APIClient {
         return (data, response)
     }
 
+    private func waitingAhead(_ request: URLRequest, path: String) async -> Bool {
+        let method = request.httpMethod ?? "POST"
+        let bank = request.value(forHTTPHeaderField: BankScope.header)
+        let same: @Sendable (ReaderOutbox.Entry) -> Bool = { $0.method == method && $0.path == path && $0.bank == bank }
+        guard await outbox.has(where: same) else { return false }
+        await flushOutbox(matching: same)
+        return await outbox.has(where: same)
+    }
+
     private func keep(_ request: URLRequest, path: String) async -> Bool {
         guard let body = request.httpBody else { return false }
         let stored = try? await outbox.put(method: request.httpMethod ?? "POST", path: path, body: body,
@@ -3261,9 +3277,14 @@ actor APIClient {
     /// Send what the readers left waiting while the server was away, oldest first, each signed now and named for the
     /// memory it was read for. Called when the Store hears the server again. Server mode only.
     @discardableResult
-    func flushOutbox() async -> ReaderOutbox.FlushResult {
+    func flushOutbox() async -> ReaderOutbox.FlushResult { await flushOutbox(matching: { _ in true }) }
+
+    /// One route's waiting posts only (`waitingAhead`).
+    @discardableResult
+    func flushOutbox(matching matches: @escaping @Sendable (ReaderOutbox.Entry) -> Bool) async
+        -> ReaderOutbox.FlushResult {
         guard connection.isServer else { return ReaderOutbox.FlushResult() }
-        return await outbox.flush { entry in
+        return await outbox.flush(where: matches) { entry in
             var request = await self.makeRequest(entry.path, method: entry.method)
             if let bank = entry.bank { request.setValue(bank, forHTTPHeaderField: BankScope.header) }
             request.httpBody = entry.body

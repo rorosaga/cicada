@@ -124,6 +124,9 @@ actor ReaderOutbox {
 
     func count() -> Int { entries().count }
 
+    /// Whether a post `matches` still waits (the APIClient asks before sending a newer one on the same route).
+    func has(where matches: (Entry) -> Bool) -> Bool { entries().contains { matches($0.entry) } }
+
     /// Past the bounds the oldest go first: too old, then too many, then too large.
     private func trim() {
         var list = entries()
@@ -139,14 +142,16 @@ actor ReaderOutbox {
     }
 
     /// Send what waits, oldest first; stop at the first post that does not land (the server is still away).
-    /// `send` answers the HTTP status, or nil when no answer came. One flush at a time.
-    func flush(send: @Sendable (Entry) async -> Int?) async -> FlushResult {
+    /// `send` answers the HTTP status, or nil when no answer came. One flush at a time. `matches` narrows it to one
+    /// route's posts (the APIClient sends those before a newer post on that route).
+    func flush(where matches: @Sendable (Entry) -> Bool = { _ in true },
+               send: @Sendable (Entry) async -> Int?) async -> FlushResult {
         guard !flushing else { return FlushResult(waiting: count()) }
         flushing = true
         defer { flushing = false }
         trim()
         var result = FlushResult()
-        for item in entries() {
+        for item in entries() where matches(item.entry) {
             let status = await send(item.entry)
             if let status, (200...299).contains(status) {
                 try? FileManager.default.removeItem(at: item.file)
