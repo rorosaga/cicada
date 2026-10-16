@@ -213,6 +213,33 @@ def test_a_file_that_vanished_raises_as_before(tmp_path):
             markdown_parser.parse(page)
 
 
+def test_a_task_that_outlives_its_batch_never_reads_through_the_closed_cache(tmp_path, counted):
+    """A task spawned inside a batch copies the batch's context; once the batch ends (or raises) its cache is out of
+    the registry, so no write would reach it — that task parses afresh, never from the batch's leftovers."""
+    bank = _bank(tmp_path)
+    page = bank / "entities" / "alpha-project.md"
+
+    async def scenario():
+        release = asyncio.Event()
+
+        async def straggler():
+            await release.wait()
+            return [markdown_parser.parse(page).frontmatter["name"] for _ in range(2)]
+
+        try:
+            with markdown_parser.page_cache(bank):
+                markdown_parser.parse(page)
+                task = asyncio.create_task(straggler())
+                raise RuntimeError("the batch failed")
+        except RuntimeError:
+            pass
+        release.set()
+        return await task
+
+    assert asyncio.run(scenario()) == ["Alpha Project", "Alpha Project"]
+    assert counted == ["alpha-project.md"] * 3, "both of the straggler's reads were real parses"
+
+
 def test_each_sleep_batch_runs_inside_its_own_cache_and_frees_it(tmp_path, monkeypatch):
     from api.services import sleep_cycle
 

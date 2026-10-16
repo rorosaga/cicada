@@ -144,7 +144,7 @@ class PageCache:
     nor anything admitted between its steps is served stale. Each caller gets its own frontmatter (a pickle round
     trip); the body is a ``str``."""
 
-    __slots__ = ("roots", "entries", "lock", "hits", "misses")
+    __slots__ = ("roots", "entries", "lock", "hits", "misses", "closed")
 
     def __init__(self, root) -> None:
         given = os.path.abspath(os.fspath(root))
@@ -155,6 +155,10 @@ class PageCache:
         self.lock = threading.Lock()
         self.hits = 0
         self.misses = 0
+        #: Set when the batch ends. A task or worker thread that copied the batch's context and outlives it (a
+        #: cancelled batch's thread, a task it spawned) then parses uncached: a closed cache is out of the registry,
+        #: so no write would ever reach it again.
+        self.closed = False
 
     def covers(self, path: str) -> bool:
         return path.startswith(self.roots)
@@ -183,6 +187,7 @@ def page_cache(root) -> Iterator[PageCache]:
     try:
         yield cache
     finally:
+        cache.closed = True
         with _open_caches_lock:
             _open_caches.discard(cache)
         _page_cache_var.reset(token)
@@ -231,7 +236,7 @@ def parse(filepath: Path, *, ledger: bool = True) -> ParsedMarkdown:
 
     Inside :func:`page_cache` (one Sleep batch), a file unchanged since its last parse is a copy, not a parse."""
     cache = _page_cache_var.get()
-    if cache is not None:
+    if cache is not None and not cache.closed:
         path = os.path.abspath(os.fspath(filepath))
         if cache.covers(path):
             return _parse_cached(cache, filepath, path, ledger)
