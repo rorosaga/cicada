@@ -2664,6 +2664,10 @@ class SleepStatusResponse(CamelModel):
     # A run that stopped with conversations still waiting (Sleep page v5), read from its
     # machine-local sidecar for the active bank; ``None`` while a run is reading.
     paused: Optional[SleepPaused] = None
+    # 2026-10-16 — the newest FINISHED cycle's figures for Details › Last cycle (`last_cycle.latest`): a drain is one
+    # cycle (its run's time, engine and whole cost); a run still reading or paused is skipped. Always sent — ``None``
+    # means no finished cycle in the newest 200 consolidation commits; an older backend omits the key.
+    last_finished_cycle: Optional["LastFinishedCycle"] = None
 
 
 class CycleUsageModel(CamelModel):
@@ -2733,6 +2737,23 @@ class CycleUsageSummary(CamelModel):
     engine: Optional[str] = None
     connection: Optional[str] = None
     plan: Optional[CycleUsageSummaryPlan] = None
+
+
+class LastFinishedCycle(CamelModel):
+    """``SleepStatusResponse.lastFinishedCycle`` — ids, numbers and enums only. ``drain_id`` names the run when the
+    cycle was one (then ``duration_ms`` is the run's reading time and ``usage_summary`` the whole run's cost); a plain
+    cycle has neither ``drain_id`` nor ``state``. Unknown is ``None``, never zero."""
+    commit_hash: str
+    date: str
+    drain_id: Optional[str] = None
+    batches: Optional[int] = None
+    duration_ms: Optional[int] = None
+    engine: Optional[str] = None
+    usage_summary: Optional[CycleUsageSummary] = None
+    state: Optional[str] = None            # finished | failed | ended, for a run
+
+
+SleepStatusResponse.model_rebuild()
 
 
 class SleepHistoryEntry(CamelModel):

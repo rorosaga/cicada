@@ -417,6 +417,12 @@ def test_the_routes(client, bank, chat):
     assert client.post("/sources/messages/sync", json=bad).status_code == 422
     marked = client.put("/sources/messages/settings", json={"conversation": {"id": cid, "actor": {"kind": "person"}}})
     assert marked.json()["reattributed"] == 2
+    # The wire contract the app's pill reads (2026-10-16): after a mark the answer carries the person's own mark, and
+    # the free-form `actor` block keeps its snake_case `decided_by` (the app reads either spelling).
+    again = client.post("/sources/messages/conversations", json={"conversations": [
+        {"id": cid, "name": "Instinct", "fromMe": 10, "fromThem": 40}]}).json()["conversations"][0]
+    assert again["marked"] == {"kind": "person"}
+    assert (again["actor"]["kind"], again["actor"]["decided_by"]) == ("person", "person")
     bank_index.invalidate()
     assert all("assistant:" not in d.body for d in _episodes(bank))
     cleared = client.put("/sources/messages/settings", json={"conversation": {"id": cid, "clearActor": True}}).json()

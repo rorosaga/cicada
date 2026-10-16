@@ -59,13 +59,17 @@ struct MessagesConversationState: Decodable, Equatable, Sendable {
         var decidedBy = "none"
         var detection: String?
 
-        enum CodingKeys: String, CodingKey { case name, kind, decidedBy, detection }
+        /// `actor` is a free-form block on the wire (`agent_detectors.Actor.to_dict`), so its keys arrive as the backend
+        /// wrote them — `decided_by`, not camelCased by the response model. Both spellings are read: reading only
+        /// `decidedBy` left every person's mark at "none", and the pill kept saying "suggested" after the person chose.
+        enum CodingKeys: String, CodingKey { case name, kind, decidedBy, decidedBySnake = "decided_by", detection }
         init(name: String = "", kind: String = "unknown", decidedBy: String = "none", detection: String? = nil) {
             self.name = name; self.kind = kind; self.decidedBy = decidedBy; self.detection = detection
         }
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
-            name = c.lenient(.name, ""); kind = c.lenient(.kind, "unknown"); decidedBy = c.lenient(.decidedBy, "none")
+            name = c.lenient(.name, ""); kind = c.lenient(.kind, "unknown")
+            decidedBy = c.lenient(.decidedBy) ?? c.lenient(.decidedBySnake) ?? "none"
             detection = try? c.decodeIfPresent(String.self, forKey: .detection)
         }
     }

@@ -177,6 +177,8 @@ extension Copy {
         /// The engine row's dash reason. Not "Sleep hasn't run": `lastEngine` is also nil while the
         /// status is still loading and on an older backend, and a dash's reason is never a guess (R-A14).
         static let noEngineYet = "No cycle has reported its engine yet."
+        /// The readout's dash while no cycle in the recent history has finished (one still reads, or is paused).
+        static let noFinishedCycle = "No finished cycle to show yet."
         static let untitled = "Untitled"
     }
 
@@ -222,7 +224,7 @@ extension Copy {
         SleepDetailsWords.pausedTitle, SleepUsage.lastBatchTitle,
         SleepDetailsWords.capTitle(2), SleepDetailsWords.warningTitle, SleepDetailsWords.inMemory,
         SleepDetailsWords.feedingIt, SleepDetailsWords.lastCycleTook, SleepDetailsWords.lastEngine,
-        SleepDetailsWords.noEngineYet, SleepDetailsWords.untitled,
+        SleepDetailsWords.noEngineYet, SleepDetailsWords.noFinishedCycle, SleepDetailsWords.untitled,
         SleepUsage.notRecorded, SleepUsage.noCalls, SleepUsage.ranLocally, SleepUsage.modelsTitle,
         SleepUsage.lastCycleTitle, SleepUsage.windowReset,
         // `writtenByAnAgentHelp`, `noSubfolders`, `notOnThisMac` and `manageHelp` are sentences over 60 characters,

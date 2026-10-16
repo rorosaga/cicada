@@ -49,6 +49,11 @@ def _pin(body, detail=None):
         body["drain"]["elapsedMs"] = 0   # a measured clock: pinned, the app never joins on it here
     if body.get("paused"):
         body["paused"]["pausedAt"] = "2026-09-29T10:20:00+00:00"
+    if body.get("lastFinishedCycle"):   # a real commit's hash and time, and a measured clock: pinned
+        body["lastFinishedCycle"]["commitHash"] = "0" * 40
+        body["lastFinishedCycle"]["date"] = "2026-09-29T10:20:00+00:00"
+        if body["lastFinishedCycle"].get("durationMs") is not None:
+            body["lastFinishedCycle"]["durationMs"] = 0
     return body
 
 

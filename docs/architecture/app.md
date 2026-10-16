@@ -117,7 +117,11 @@ menu — and nowhere else yet.** This supersedes the 2026-09-03 ruling ("prices 
 in the app") for those two surfaces only: no cost tiles, no `$`/token columns and no cost-per-day chart elsewhere, and
 the `/consumption/*` endpoints are unchanged. Every figure states its basis in words ("charged", "at list price", a
 plan window's share) and a plan's before → after carries the honest limit that it covers all use of the plan
-(`CycleUsageText`, `UsageFormat.currency`).
+(`CycleUsageText`, `UsageFormat.currency`). Details' Last cycle describes the latest *finished* cycle from one history
+record the backend finds, `/sleep/status`'s `lastFinishedCycle` (`LastCycleFigures.resolve`, 2026-10-16): a drain is
+one cycle — its run's reading time, the engine its commits name, and the whole run's cost — and a run still reading or
+paused is skipped; a plan run's line is its window and no price
+(`CycleUsageText.lastCycleLine`); past nights' rows keep each batch's own figures.
 
 **Navigation (Direction D, DS-1).** A 56 pt icon rail (`Views/Shell/NavRail.swift`): Home, Graph, Clusters, Feed,
 Sleep, Inbox, Sources, Projects, Looks at ⌘1–9 in `AppTab.allCases` order (`RailItem`; a page switch is instant), each cell's tooltip
@@ -340,7 +344,9 @@ is a `SettingsSheet` (`MessagesPanel`): one sentence on what Cicada reads and wh
 who is who, then each one-to-one conversation (`MessagesConversationRow`) — the contact's Contacts photo (else a
 person's monogram, `EntityPictureFallback`), name (the contact's when Contacts is allowed, else the chat's own, else
 the handle — shown in the app only, never sent), last activity and message count, a pill for who it is with ("AI
-agent", "AI agent · suggested", "A person"), *Is <name> an AI agent?* with Yes/No when the detectors are unsure, a menu
+agent", "AI agent · suggested", "A person" — the person's own mark, `marked`, wins; "· suggested" only for a
+detector's own answer; the free-form `actor` block keeps the backend's `decided_by`, which the app reads in either
+spelling), *Is <name> an AI agent?* with Yes/No when the detectors are unsure, a menu
 (This is an AI agent · This is a person · Let Cicada suggest) and the tick. `MessagesWatcher` (environment, started
 on launch, `bankChanged` on a switch) owns the list, the per-memory ROWID cursors (`cicada.messages.cursor.<bank>.<id>`
 in UserDefaults), the FSEvents watch on `~/Library/Messages` and the waiting bubbles; `MessagesReader` is the one SQL
@@ -348,7 +354,8 @@ reader (`SQLiteReadOnly`, read-only, one transaction; a BLOB projected only from
 The Sources card's *Sync now* routes to it (`ChannelActions.SyncRoute.messages`). **The bubbles:** Details › What's
 waiting on the Sleep page has a `MessagesWaitingRow` beside the videos' row, and Home's Today waiting line carries the
 same `MessageBubbleStack` (non-interactive there): up to three overlapping profile bubbles (Contacts photo, else a
-monogram; a ring in the ground's colour, never a shadow), "+N" past three, and the number of messages Sleep will
+monogram — `MessageBubbleFace`: the face inset 1.5 pt inside a disc of the ground's colour, so the monogram keeps its
+own hue ring, and below 24 units its letters are half its height, semibold — the bubbles only; never a shadow), "+N" past three, and the number of messages Sleep will
 read; hovering a bubble names it ("Instinct · 34 messages waiting to be read"), clicking the Sleep page's stack lists
 the names. `MessageBubbles.model` is pure and tested. Not a Store domain: `GET /sources/messages/waiting` is fetched
 in memory whenever the status's unprocessed count moves. **Who is who in the Reader:** `EpisodeText.correspondent`

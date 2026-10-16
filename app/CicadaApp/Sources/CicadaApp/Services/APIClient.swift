@@ -963,9 +963,14 @@ struct SleepStatusResponse: Codable {
     /// `nil` while a run reads, when there is none, and on an older backend. Paused is not a state of Sleep:
     /// `status` stays `idle` and nothing is held.
     let paused: SleepPausedRun?
+    /// 2026-10-16 — the newest FINISHED cycle's figures, found by the backend (`last_cycle.latest`): a drain is one
+    /// cycle, and a run still reading or paused is skipped however many history rows it fills. `nil` with
+    /// `reportsLastFinishedCycle` = there is none; an older backend omits the key (`reportsLastFinishedCycle` false).
+    var lastFinishedCycle: LastFinishedCycle? = nil
+    var reportsLastFinishedCycle = false
 
     enum CodingKeys: String, CodingKey {
-        case drain, writing, paused
+        case drain, writing, paused, lastFinishedCycle
         case status, cycleId, startedAt, progress, error, indexWarning, stage, totalStages
         case episodesTotal, entitiesCreated, entitiesUpdated
         case relationshipsCreated, skillsDetected
@@ -1003,7 +1008,41 @@ struct SleepStatusResponse: Codable {
         drain = try? c.decodeIfPresent(SleepDrainInfo.self, forKey: .drain)
         writing = (try? c.decodeIfPresent(Bool.self, forKey: .writing)) ?? false
         paused = (try? c.decodeIfPresent(SleepPausedRun.self, forKey: .paused)) ?? nil
+        reportsLastFinishedCycle = c.contains(.lastFinishedCycle)
+        lastFinishedCycle = (try? c.decodeIfPresent(LastFinishedCycle.self, forKey: .lastFinishedCycle)) ?? nil
     }
+}
+
+/// `SleepStatusResponse.lastFinishedCycle` — ids, numbers and enums. `drainId` names the run when the cycle was one;
+/// then `durationMs` is the run's reading time and `usageSummary` the whole run's cost. Unknown is `nil`, never zero.
+struct LastFinishedCycle: Codable, Equatable {
+    var commitHash: String
+    var date: String
+    var drainId: String?
+    var batches: Int?
+    var durationMs: Int?
+    var engine: String?
+    var usageSummary: CycleUsageSummary?
+    var state: String?
+
+    init(commitHash: String, date: String, drainId: String? = nil, batches: Int? = nil, durationMs: Int? = nil,
+         engine: String? = nil, usageSummary: CycleUsageSummary? = nil, state: String? = nil) {
+        self.commitHash = commitHash; self.date = date; self.drainId = drainId; self.batches = batches
+        self.durationMs = durationMs; self.engine = engine; self.usageSummary = usageSummary; self.state = state
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        commitHash = try c.decode(String.self, forKey: .commitHash)
+        date = ((try? c.decodeIfPresent(String.self, forKey: .date)) ?? nil) ?? ""
+        drainId = (try? c.decodeIfPresent(String.self, forKey: .drainId)) ?? nil
+        batches = (try? c.decodeIfPresent(Int.self, forKey: .batches)) ?? nil
+        durationMs = (try? c.decodeIfPresent(Int.self, forKey: .durationMs)) ?? nil
+        engine = (try? c.decodeIfPresent(String.self, forKey: .engine)) ?? nil
+        usageSummary = (try? c.decodeIfPresent(CycleUsageSummary.self, forKey: .usageSummary)) ?? nil
+        state = (try? c.decodeIfPresent(String.self, forKey: .state)) ?? nil
+    }
+    enum CodingKeys: String, CodingKey { case commitHash, date, drainId, batches, durationMs, engine, usageSummary, state }
 }
 
 /// The `drain` block of `GET /sleep/status` (`sleep_drain.to_wire`): counts and one

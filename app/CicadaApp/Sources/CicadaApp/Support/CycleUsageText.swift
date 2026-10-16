@@ -50,6 +50,30 @@ enum CycleUsageText {
         }
     }
 
+    /// Details' "What it cost" for the latest finished cycle (a drain's whole run). A plan run shows its window's
+    /// before → after and no price (ruling 12: a plan cycle is its window); a list-price estimate is dropped beside a
+    /// plan, while a real charge in the same run (a run continued on another engine) still shows.
+    static func lastCycleLine(_ summary: CycleUsageSummary?, locale: Locale = .autoupdatingCurrent) -> String? {
+        guard var s = summary else { return nil }
+        if isPlan(s) {
+            s.equivCostUsd = nil
+            if s.basis == "list" || s.basis == nil { s.basis = "plan" }
+            if s.basis == "plan" {
+                return [Copy.SleepUsage.source(connection: s.connection, engine: s.engine),
+                        s.plan.map { windowShift(window: $0.window, before: $0.before, after: $0.after) + " · "
+                            + Copy.SleepUsage.planCoversAll }]
+                    .compactMap { $0 }.joined(separator: " · ")
+            }
+        }
+        return summaryLine(kind: "sleep", summary: s, locale: locale)
+    }
+
+    /// The run spent a plan, not money: a plan connection or engine, or a plan window it moved.
+    static func isPlan(_ s: CycleUsageSummary) -> Bool {
+        ["claude-plan", "chatgpt-plan"].contains(s.connection ?? "") || ["claude-cli", "codex-cli"].contains(s.engine ?? "")
+            || s.plan != nil
+    }
+
     /// `.help` for a line that carries a plan window — the honest limit.
     static func summaryHelp(_ summary: CycleUsageSummary?) -> String? {
         summary?.plan == nil ? nil : Copy.SleepUsage.planNote

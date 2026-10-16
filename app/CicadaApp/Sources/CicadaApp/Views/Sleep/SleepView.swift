@@ -176,6 +176,8 @@ struct SleepView: View {
     /// Track Z Z10 — Increase Contrast hides the optional sky band (§11).
     @Environment(\.colorSchemeContrast) private var contrast
     @State private var loadedOnce: Bool = false
+    /// When the page last refetched for a moved Sleep time (`SleepPageRefresh`).
+    @State private var lastRefetch: Date?
     // PR #19 review: rapid live-count changes (a capture landing, then
     // another one right behind it) fired an untracked `sleepVM.load()` Task
     // per change with no cancellation. Mirrors `UsageViewModel.rangeTask`:
@@ -287,10 +289,19 @@ struct SleepView: View {
         }
         .onAppear { consumeDetailsRoute() }
         .onChange(of: appRouter.pendingSleepDetails) { _, _ in consumeDetailsRoute() }
-        .task {
+        // Keyed on the Store's newest Sleep time and Sleep's state too: a cycle this page did not start (a scheduled
+        // drain, the CLI) that moves or finishes while it is open reruns this, so Details' Last cycle rereads what it
+        // describes — at most every 30 s while a run commits batch after batch, and always when it ends.
+        .task(id: refreshKey) {
             if !loadedOnce {
                 loadedOnce = true
+                lastRefetch = Date()
                 await sleepVM.load()
+            } else if SleepPageRefresh.shouldRefetch(running: store.status.value?.sleep.status == "running",
+                                                     last: lastRefetch, now: Date()) {
+                lastRefetch = Date()
+                await sleepVM.refreshStatus()
+                await sleepVM.loadHistory()
             }
             // R-HS12 — every visit, unconditionally: the chooser's response may have been loaded
             // long before (Home's Getting started loads it at launch), and the page reads it FIRST,
@@ -496,6 +507,11 @@ struct SleepView: View {
     /// `queueCount`/`queueNeedsReconcile` above) so the bound and the backoff
     /// curve are unit-testable without standing up a view or a live Task loop.
     static let maxReconcileAttempts = 3
+
+    /// What reruns the page's load task: the Store's newest Sleep time and whether Sleep is running.
+    private var refreshKey: String {
+        "\(store.status.value?.lastSleepAt ?? "")|\(store.status.value?.sleep.status ?? "")"
+    }
 
     static func shouldRetryReconcile(attempt: Int, stillNeedsReconcile: Bool) -> Bool {
         stillNeedsReconcile && attempt < maxReconcileAttempts
@@ -846,5 +862,17 @@ private struct DetailsDisclosureRow: View {
         .onHover { hovering = $0 }
         .accessibilityLabel(Copy.sleepDetails)
         .accessibilityValue(open ? "expanded" : "collapsed")
+    }
+}
+
+/// 2026-10-16 — the Sleep page's refetch when the Store's newest Sleep time moves. A drain moves it every batch, so
+/// while a run reads the page refetches at most once per `interval`; with no run reading (a visit, or the run ending
+/// as Sleep's state flips) it always refetches. Pure, so `LastCycleFiguresTests` holds it.
+enum SleepPageRefresh {
+    static let interval: TimeInterval = 30
+
+    static func shouldRefetch(running: Bool, last: Date?, now: Date) -> Bool {
+        guard running, let last else { return true }
+        return now.timeIntervalSince(last) >= interval
     }
 }

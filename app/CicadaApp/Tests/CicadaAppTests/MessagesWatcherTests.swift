@@ -17,14 +17,23 @@ final class FakeMessagesAPI: MessagesAPI {
 
     func describeMessagesConversations(_ conversations: [MessagesConversationPayload]) async throws
         -> MessagesConversationsAnswer {
-        MessagesConversationsAnswer(conversations: conversations.map { c in
-            let kind = kinds[c.id] ?? (c.name == "Instinct" && c.fromThem >= 2 * max(c.fromMe, 1) ? "agent" : "unknown")
-            return MessagesConversationState(
-                id: c.id, ticked: ticked.contains(c.id),
-                actor: .init(name: c.name, kind: kind, decidedBy: kinds[c.id] == nil ? "detector" : "person"),
-                suggestion: .init(outcome: kind == "agent" ? "identified" : "unknown"),
-                markedKind: kinds[c.id])
-        })
+        // The backend's own wire shape (`messages_source.describe`): `actor` is `Actor.to_dict()`, a free-form block
+        // whose keys stay snake_case, and `marked` is the person's stored mark. Decoded, never built in Swift, so a
+        // key the app reads wrong fails here as it would live.
+        let rows: [[String: Any]] = conversations.map { c in
+            let detected = c.name == "Instinct" && c.fromThem >= 2 * max(c.fromMe, 1)
+            let kind = kinds[c.id] ?? (detected ? "agent" : "unknown")
+            let decidedBy = kinds[c.id] != nil ? "person" : (detected ? "detector" : "none")
+            var row: [String: Any] = [
+                "id": c.id, "ticked": ticked.contains(c.id), "group": false,
+                "actor": ["name": c.name, "kind": kind, "decided_by": decidedBy],
+                "suggestion": ["outcome": detected ? "identified" : "unknown"],
+            ]
+            row["marked"] = kinds[c.id].map { ["kind": $0] } ?? NSNull()
+            return row
+        }
+        return try JSONDecoder().decode(MessagesConversationsAnswer.self, from: JSONSerialization.data(
+            withJSONObject: ["suggestAgents": suggest, "conversations": rows]))
     }
 
     func updateMessagesConversation(id: String, name: String?, ticked: Bool?, mark: MessagesMark?) async throws
@@ -178,13 +187,43 @@ final class MessagesWatcherTests: XCTestCase {
 
     func testTheMarkIsTheBackendsToKeep() async throws {
         let api = FakeMessagesAPI()
-        let w = watcher(api)
+        let w = watcher(api, cards: ["+15550000001": MessagesContactCard(name: "Instinct", thumbnail: nil)])
         await w.loadList()
         let conversation = try XCTUnwrap(w.conversations.first { $0.id == instinctId })
+        XCTAssertEqual(MessagesConversationText.tag(w.states[instinctId]), Copy.Messages.agentTagSuggested,
+                       "before the person says, the detector's answer is a suggestion")
         try await w.mark(conversation, as: .agent)
         XCTAssertEqual(api.updates.last?.mark, .agent)
         XCTAssertEqual(w.states[instinctId]?.actor.decidedBy, "person")
         XCTAssertEqual(MessagesConversationText.tag(w.states[instinctId]), Copy.Messages.agentTag)
+        try await w.mark(conversation, as: .person)
+        XCTAssertEqual(MessagesConversationText.tag(w.states[instinctId]), Copy.Messages.personTag)
+        try await w.mark(conversation, as: .clear)
+        XCTAssertEqual(MessagesConversationText.tag(w.states[instinctId]), Copy.Messages.agentTagSuggested)
+    }
+
+    /// The live report (2026-10-16): the person chose "This is an AI agent", the backend stored it (`decided_by:
+    /// person`), and the pill still read "AI agent · suggested" — the app read `decidedBy` from a block whose keys the
+    /// backend never camelCases. This is the exact answer `POST /sources/messages/conversations` gives after a mark.
+    func testAPersonsMarkReadsAsTheirsOffTheWire() throws {
+        let wire = #"""
+        {"suggestAgents": true, "conversations": [
+          {"id": "aaaaaaaaaaaaaaaaaaaaaaaa", "ticked": true, "group": false,
+           "actor": {"name": "Instinct", "kind": "agent", "decided_by": "person",
+                     "detector": "instinct@1", "detection": "identified", "signal": "name+cadence"},
+           "suggestion": {"outcome": "identified", "detector": "instinct", "version": 1, "signal": "name+cadence"},
+           "marked": {"kind": "agent"}},
+          {"id": "bbbbbbbbbbbbbbbbbbbbbbbb", "ticked": false, "group": false,
+           "actor": {"name": "Instinct", "kind": "agent", "decided_by": "detector"},
+           "suggestion": {"outcome": "identified"}, "marked": null},
+          {"id": "cccccccccccccccccccccccc", "ticked": false, "group": false,
+           "actor": {"name": "alice-example", "kind": "person", "decided_by": "person"},
+           "suggestion": {"outcome": "unknown"}, "marked": {"kind": "person"}}]}
+        """#
+        let answer = try JSONDecoder().decode(MessagesConversationsAnswer.self, from: Data(wire.utf8))
+        XCTAssertEqual(answer.conversations.map(\.actor.decidedBy), ["person", "detector", "person"])
+        XCTAssertEqual(answer.conversations.map { MessagesConversationText.tag($0) },
+                       [Copy.Messages.agentTag, Copy.Messages.agentTagSuggested, Copy.Messages.personTag])
     }
 
     func testARefusedReadShowsTheFullDiskAccessFix() async throws {

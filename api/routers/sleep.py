@@ -29,6 +29,7 @@ from api.services import (
     bank_index,
     episode_copy,
     git_service,
+    last_cycle,
     sleep_autocontinue,
     sleep_debt,
     sleep_drain,
@@ -262,6 +263,7 @@ async def sleep_status(settings: Settings = Depends(get_settings)):
             ds, completed=state.stage, running=state.status == "running",
             unprocessed=debt.unprocessed_count)) if ds is not None else None,
         paused=paused_block(state, settings),
+        last_finished_cycle=await last_cycle.latest(settings.memory_path),
         debt=SleepDebtResponse(
             unprocessed_count=debt.unprocessed_count,
             oldest_unprocessed_age_hours=debt.oldest_unprocessed_age_hours,
