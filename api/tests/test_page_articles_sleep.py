@@ -34,7 +34,7 @@ def run(tmp_path, monkeypatch, *, fields, articles=True, synthesis=False, page=P
     calls = []
 
     async def fake(**kwargs):
-        text = kwargs["messages"][-1]["content"]
+        text = "\n\n".join(m["content"] for m in kwargs["messages"])
         calls.append(text)
         if ARTICLE_MARK in text:
             content = json.dumps(reply(text) if callable(reply) else reply) if reply is not None else json.dumps(
