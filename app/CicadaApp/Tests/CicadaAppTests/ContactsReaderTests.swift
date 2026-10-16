@@ -24,8 +24,11 @@ final class FakeContactsAPI: ContactsSyncAPI {
     var hold = false
     var replies: [Result<ContactsSyncResult, any Error>] = []
     private(set) var payloads: [ContactsSyncPayload] = []
+    /// The bank each post named (`BankScope.origin`, G183(d)).
+    private(set) var banks: [String?] = []
     func syncLocalContacts(_ payload: ContactsSyncPayload) async throws -> ContactsSyncResult {
         payloads.append(payload)
+        banks.append(BankScope.origin)
         if hold { try await Task.sleep(for: .seconds(30)) }
         return replies.isEmpty ? ContactsSyncResult(contacts: payload.contacts.count, matched: 1, people: 1)
                                : try replies.removeFirst().get()

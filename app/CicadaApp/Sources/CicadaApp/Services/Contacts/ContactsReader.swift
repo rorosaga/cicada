@@ -31,6 +31,8 @@ final class ContactsReader {
     @ObservationIgnored private var watch: Task<Void, Never>?
     @ObservationIgnored private var pending: Task<Void, Never>?
     @ObservationIgnored private var running: Task<String, Error>?
+    /// The memory `running` posts for: a run for another memory is stopped and replaced, never joined (G183(d)).
+    @ObservationIgnored private var runningBank: String?
     @ObservationIgnored private let retryAfter: Duration
     /// How many refused (409) runs in a row have been retried — capped so a demo bank's refusal stops asking.
     @ObservationIgnored private var refusedRetries = 0
@@ -106,7 +108,14 @@ final class ContactsReader {
 
     @discardableResult
     func sync() async -> Result<String, Error> {
-        if let running { return await running.result }
+        let bank = self.bank()
+        if let running {
+            // One at a time per memory; a second caller shares the run. A run still posting for the memory the person
+            // switched away from is stopped instead: its post is bound to that memory (refused there now), and the
+            // memory on screen gets its own post at once rather than after the old run (G183(d)).
+            if runningBank == bank { return await running.result }
+            running.cancel()
+        }
         guard enabled else { return .failure(CancellationError()) }
         // Access can be taken away in System Settings while Cicada runs; a read without it comes back empty. Said as
         // the refusal it is — a `CancellationError` here read "Stopped" on a card's Sync now (`ChannelActions.sync`).
@@ -114,16 +123,19 @@ final class ContactsReader {
             status = .denied
             return .failure(BrowserImportActions.ImportActionError.failed(Copy.contactsDenied))
         }
-        let bank = self.bank()
         let task = Task { @MainActor [weak self] () throws -> String in
             guard let self else { throw CancellationError() }
-            return try await self.perform(bank: bank)
+            // G183(d): the post names the memory whose token and last-post time it records.
+            return try await BankScope.bound(to: bank) { try await self.perform(bank: bank) }
         }
         running = task
+        runningBank = bank
         activity?.began(Self.channel, detail: Copy.contactsReading, cancel: { [weak self] in self?.cancel() })
         status = .syncing
         let result = await task.result
+        guard running == task else { return result }   // replaced by the memory on screen's own run: it owns the row
         running = nil
+        runningBank = nil
         activity?.ended(Self.channel)
         switch result {
         case .success:

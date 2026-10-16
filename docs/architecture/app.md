@@ -1236,7 +1236,9 @@ and bookmark imports, a feed or calendar removal, a backlog add, a picture's ini
 captures it before its detached preparation and builds its write from it (`PictureActions.upload(…, bank:)`, the drop
 too); the Fades chip, Fade pace and the owner save capture it before their task; `Store.perform` binds the bank at
 admission unless an enclosing binding already named one (so work queued across a switch keeps its own); a held answer
-carries its own bank; a folder or Wispr Flow scan binds the bank whose configuration and manifest it read; and
+carries its own bank; a folder or Wispr Flow scan binds the bank whose configuration and manifest it read; a Mac reader with a per-memory
+cursor or digest (YouTube history, Messages, tab groups, Contacts) binds each run to the bank it reads for, and a switch
+that lands mid-run stops that run and starts the new memory's own read rather than joining the old one; and
 `SleepViewModel.updateSchedule` / `updateRunOptions` honour an enclosing origin. Work that binds nothing names the bank
 on screen at send time (`BankScope.onScreen`, kept by the app's `Store`) — during a switch still the old bank while the
 server is on the new one, so it too is refused rather than misfiled; such work started in A that first sends after
