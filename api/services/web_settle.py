@@ -766,42 +766,63 @@ _PATH_RE = re.compile(
 _SPEAKER_RE = re.compile(r"^\s*(?:\*\*)?(?:user|assistant|human|agent|me|you)(?:\*\*)?\s*:\s*", re.IGNORECASE)
 
 
-def _redact_people(text: str, names: frozenset[str]) -> str:
+def _redact_people(text: str, names: frozenset[str], keep: frozenset[str] = frozenset()) -> str:
     """Every person's name or alias in the bank (the owner's too) becomes "someone" — the line keeps its sense, the
-    prompt carries no one's name (ruling 27: never another name from the bank)."""
-    for name in sorted(names, key=len, reverse=True):
-        words = re.findall(r"\w+", name)
+    prompt carries no one's name (ruling 27: never another name from the bank). Whole words, any case; a multi-word
+    name whole first, then each of its words of 3+ letters on its own (a person is often named by one of them) —
+    except a word of the subject's own name (``keep``), which the prompt already carries."""
+    whole: set[tuple[str, ...]] = set()
+    for name in names:
+        words = tuple(re.findall(r"\w+", name))
         if not words or len(" ".join(words)) < 3:
             continue
+        whole.add(words)
+        if len(words) > 1:
+            whole.update((w,) for w in words if len(w) >= 3 and w.lower() not in keep)
+    for words in sorted(whole, key=lambda w: len(" ".join(w)), reverse=True):
         pattern = r"(?<!\w)" + r"[\s\-_.']+".join(re.escape(w) for w in words) + r"(?!\w)"
         text = re.sub(pattern, "someone", text, flags=re.IGNORECASE)
     return text
 
 
-def clean_context_line(text: str, facts: BankFacts, *, limit: int = MAX_LINE_CHARS) -> str:
-    """One line of local context, as every writer scrubs it (``episode_scrub``: secrets and one-time codes), then links,
-    addresses, handles and paths out, people's names out, one line, bounded."""
+def _clean(text: str, facts: BankFacts, keep: frozenset[str] = frozenset()) -> str:
+    """Scrubbed as every writer scrubs (``episode_scrub``: secrets and one-time codes), then links, addresses, handles
+    and paths out, people's names out, one line — never cut: a cut comes after, so it cannot leave half a name or a
+    secret whose cue it cut off."""
     text, _ = episode_scrub.scrub(str(text or ""))
     text = _URL_RE.sub("[link]", text)
     text = _EMAIL_RE.sub("[address]", text)
     text = _HANDLE_RE.sub("[handle]", text)
     text = _PATH_RE.sub("[path]", text)
-    text = _redact_people(text, facts.person_names)
-    return _one_liner(_SPEAKER_RE.sub("", " ".join(text.split())), limit)
+    text = _redact_people(text, facts.person_names, keep)
+    return _SPEAKER_RE.sub("", " ".join(text.split()))
 
 
-def _mention_line(body: str, span: tuple[int, int], limit: int = MAX_LINE_CHARS) -> str:
-    """The line holding ``span``, cut to ±``limit``/2 around the mention on word boundaries."""
+def clean_context_line(text: str, facts: BankFacts, *, limit: int = MAX_LINE_CHARS,
+                       keep: frozenset[str] = frozenset()) -> str:
+    """One line of local context: cleaned whole (:func:`_clean`), then bounded."""
+    return _one_liner(_clean(text, facts, keep), limit)
+
+
+def subject_words(name: str) -> frozenset[str]:
+    return frozenset(w.lower() for w in re.findall(r"\w+", name or ""))
+
+
+def _mention_line(body: str, span: tuple[int, int], c: Candidate, facts: BankFacts,
+                  limit: int = MAX_LINE_CHARS) -> str:
+    """The line holding ``span``, cleaned WHOLE (:func:`_clean`) and only then cut to ±``limit``/2 around the subject's
+    mention on word boundaries — so a cut can never leave half a person's name or a secret without its cue."""
     from api.services import inbox_context
 
     start = body.rfind("\n", 0, span[0]) + 1
     end = body.find("\n", span[1])
     end = len(body) if end < 0 else end
-    line = body[start:end]
-    rel = (span[0] - start, span[1] - start)
+    line = _clean(body[start:end], facts, subject_words(c.name))
     if len(line) <= limit:
         return line
-    return inbox_context.excerpt_around(line, rel, radius=max(40, (limit - (rel[1] - rel[0])) // 2)).excerpt
+    at = inbox_context.locate_mention(line, c.name, c.entity_id)
+    radius = max(40, (limit - ((at[1] - at[0]) if at else 0)) // 2)
+    return _one_liner(inbox_context.excerpt_around(line, at, radius=radius).excerpt, limit)
 
 
 def local_context(memory_path: Path, c: Candidate, facts: BankFacts, *, ctx=None) -> list[str]:
@@ -818,7 +839,7 @@ def local_context(memory_path: Path, c: Candidate, facts: BankFacts, *, ctx=None
         ctx = ctx or inbox_context.InboxContext(Path(memory_path), today=date.today().isoformat())
         lines: list[str] = []
         if c.description and not c.type_question:
-            desc = clean_context_line(c.description, facts, limit=MAX_DESCRIPTION_CHARS)
+            desc = clean_context_line(c.description, facts, limit=MAX_DESCRIPTION_CHARS, keep=subject_words(c.name))
             if desc:
                 lines.append(f"Cicada's description: {desc}")
         refs: list[tuple[str, object]] = []
@@ -847,7 +868,7 @@ def local_context(memory_path: Path, c: Candidate, facts: BankFacts, *, ctx=None
             span = span or inbox_context.locate_mention(body, c.name, c.entity_id)
             if span is None:
                 continue   # no line names it: nothing to show, never the head of a conversation
-            line = clean_context_line(_mention_line(body, span), facts)
+            line = _mention_line(body, span, c, facts)
             key = _norm(line)
             if line and key not in seen:
                 seen.add(key)

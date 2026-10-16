@@ -761,6 +761,40 @@ def test_the_pinned_query_check_still_rejects_a_search_carrying_the_context(bank
     assert not list((bank / "inbox" / "settled").glob("*.md")) if (bank / "inbox" / "settled").exists() else True
 
 
+def test_a_cut_never_leaves_half_a_name_or_a_code_without_its_cue():
+    """Review fix: a line is cleaned whole and only then cut, and a person is redacted by any word of their name."""
+    facts = web_settle.BankFacts(person_names=frozenset({"alice example", "owner person"}))
+    c = web_settle.Candidate(item_id="inbox-1", kind="clarification", scope="public", entity_id="tool-b",
+                             name="Tool B", entity_type="tool", has_page=True, predicate="description", options=[],
+                             category=[])
+    for pad in range(0, 260):
+        body = ("q " * 100 + "Alice Example sent the verification code 482913" + " w" * (pad // 2)
+                + (" " if pad % 2 else "") + " and Tool B is great" + " z" * 200)
+        at = body.index("Tool B")
+        line = web_settle._mention_line(body, (at, at + 6), c, facts)
+        assert "Tool B" in line and len(line) <= web_settle.MAX_LINE_CHARS
+        assert not any(t in line for t in ("Alice", "Example", "482913")), (pad, line)
+    for text in ("Alice went", "EXAMPLE said", "owner's mate", "OWNER-PERSON's"):
+        assert web_settle.clean_context_line(text, facts).startswith("someone"), text
+    assert web_settle.clean_context_line("malice examples", facts) == "malice examples", "whole words only"
+    # A word the subject's own name carries stays (the prompt already names it); the person's full name never does.
+    film = web_settle.Candidate(item_id="inbox-2", kind="clarification", scope="public", entity_id="example-film",
+                                name="Example Film", entity_type="media", has_page=True, predicate="description",
+                                options=[], category=[])
+    body = "We saw Example Film with Alice Example and Alice"
+    assert web_settle._mention_line(body, (7, 19), film, facts) == "We saw Example Film with someone and someone"
+
+
+def test_the_pinned_query_is_word_for_word_on_every_search():
+    pinned = "Tool B software"
+    assert web_lookup.queries_ok(["Tool B software"], pinned)
+    assert web_lookup.queries_ok(["tool  b SOFTWARE", "\"Tool B\" software"], pinned), "case, spacing, quotes aside"
+    for bad in (["Tool B software cinema"], ["cinema Tool B software"], ["Tool B software."], ["Tool B, software"],
+                ["Tool-B software"], ["Tool B software site:example.net"], ["Tool B software", "Tool B cinema"],
+                ["Tool B software"] * 3, ["Tool B"], [""], []):
+        assert not web_lookup.queries_ok(bad, pinned), bad
+
+
 def test_a_type_question_carries_its_mentions_but_not_cicadas_own_guess(bank):
     _episode(bank, "ep_2026-09-04_001", "user: I set up Tool B yesterday to run my local models in a loop.")
     body = write_claims("## Summary\nTool B is an AI agent.\n", [
