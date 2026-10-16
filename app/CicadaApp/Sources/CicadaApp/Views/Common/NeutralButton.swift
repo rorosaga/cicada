@@ -66,3 +66,26 @@ struct NeutralButton: View {
         .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering)
     }
 }
+
+/// Sizes its one child to the child's own ideal width — never past `maxWidth`, never past what it is offered — so a
+/// capped control sits snug beside its neighbour. `.frame(maxWidth:)` is not that: offered more than its cap, it takes
+/// the whole cap and centres the child in it. Past the cap the child gets the cap and truncates (`NeutralButton`'s
+/// title does). Pure width rule, tested (`SleepRoomGroupTests`).
+struct HugWidth: Layout {
+    var maxWidth: CGFloat
+
+    static func width(ideal: CGFloat, maxWidth: CGFloat, offered: CGFloat?) -> CGFloat {
+        max(0, min(ideal, maxWidth, offered ?? .infinity))
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let child = subviews.first else { return .zero }
+        let width = Self.width(ideal: child.sizeThatFits(.unspecified).width, maxWidth: maxWidth, offered: proposal.width)
+        let size = child.sizeThatFits(ProposedViewSize(width: width, height: proposal.height))
+        return CGSize(width: min(size.width, width), height: size.height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        subviews.first?.place(at: bounds.origin, proposal: ProposedViewSize(width: bounds.width, height: bounds.height))
+    }
+}

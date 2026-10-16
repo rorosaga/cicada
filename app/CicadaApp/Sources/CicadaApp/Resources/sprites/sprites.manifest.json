@@ -439,8 +439,8 @@
    "provenance": "authoring-provenance.json#night",
    "licence": "MIT, as this repository (see LICENSE). Own work for Cicada; no third-party artwork or brand marks.",
    "processing": "export_all.sh: --sheet-pack --format json-array --list-tags --list-slices; no trim; RGBA8888; binary alpha; palette-locked to palette.json",
-   "pngSha256": "9ae370b9e6345044009c7dbd93843ac8176492d527092972fa5fdd828b0cd5d2",
-   "jsonSha256": "ba510ba2160924077ea04288ed43b7a094c256faaaf0a78910e427a1ea21199d"
+   "pngSha256": "9376fb0fbc7da54d190abb4b19a4bfe434c640eb706961e7e40f885dac8db31d",
+   "jsonSha256": "2cbbbc392738d06e491694949f3102beef17a5f67866634ccc9a90334f7afae6"
   },
   {
    "id": "room-beanbag",

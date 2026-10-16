@@ -76,8 +76,10 @@ final class DeskSceneLayoutTests: XCTestCase {
         XCTAssertEqual([pane.w, pane.h], [Int(glass.width), Int(glass.height)])
     }
 
+    /// The pile is the real queue, never a painted stack (P10): no PROP reaches its columns. The backdrop — wall, floor
+    /// and trim — is the room the pile stands in and spans the lattice (2026-10-16, `SleepRoomFrameTests`).
     func testNoPropInkReachesThePileColumn() throws {
-        for layer in DeskScene.plan {
+        for layer in DeskScene.plan where layer.prop != .backdrop {
             let name = try XCTUnwrap(RoomArt.tag(layer.prop, lampLit: true, scenery: Self.scenery(.sunny, .night, overlay: .mist))?.sheet)
             let sheet = try SpriteTestAssets.sheet(name)
             for frame in sheet.frameRects.indices {

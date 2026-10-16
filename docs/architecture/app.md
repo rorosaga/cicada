@@ -910,9 +910,12 @@ scroll — no title (the "Sleep Cycle" `PageTitle` retired; the page opens on an
 2 h ago", `SleepEyebrow`, with the staleness chip at its right, R-A12); then the room **out of its card**, on the page
 ground, drawn at a whole 5, 4 or 3 pt per lattice cell by the width the art may take (`SleepLayout.artScale`: 5 from
 880, 4 from 720, else 3 — 2 only under ⌘+ zoom with the Reader open; `StudyRoom(cell:)`), its floor fading into the
-page over its bottom five cells (`RoomFloorFade`, a mask on the art layer only, never the pile); under it, in the 760 pt
+page over its bottom five cells (`RoomFloorFade`, a mask on the art layer only, never the pile). **The painted room is
+the lattice (2026-10-16):** the backdrop's wall, floor and trim span all 160 columns, so the pile stands on the room's
+floor in its own columns and the worm, props, pile and every hotspot sit inside `DeskSceneLayout.paintedFrame` at every
+step (`SleepRoomFrameTests`; the backdrop was 110 columns, which the old card hid). Under it, in the 760 pt
 text column, one sentence in the display face, one Consolidate/Cancel control with the engine menu
-beside it — a neutral button naming what a cycle you start would run (`preview.manual`, "Auto ·"
+snug beside it (`HugWidth`: the button is its own width up to its 300 pt cap, never the cap) — a neutral button naming what a cycle you start would run (`preview.manual`, "Auto ·"
 under Auto) that opens the five engines with their real marks, the chosen engine's model and both
 ruling-4 previews; the "Runs on …" caption retired into it, and Cancel's caption shows while running
 — and one whisper line for the schedule. Under the room, **the tab row** (`SleepTabRow`, DR-45 text tabs with counts):
@@ -930,7 +933,10 @@ column, the item the detail, the Reader the third column (`AppTab.hostsOwnReader
 Each queued episode row (`EpisodeRow`, also in the spine popover) is one button: a click copies what Sleep would read — `GET /sleep/episodes`'s `copyValue` from `episode_copy` (a page's link, a conversation's session id, a tab group's links, a folder file's full path, else the episode id) — with a brief toast (`Store.flash`); its meta line names that target and it ends with its day (`changedAt`: a conversation's last capture, else when it arrived; owner 2026-10-05). The worm speaks in that one fixed slot —
 `roomSentence` / `wormAnswers`, pure
 `SentenceLine` values over `SleepPageModel` (lead ≤ 40, tail ≤ 80, clock-free; a missing fact
-omits its rung, never shows a guess); the floating bubble is retired. **Two kinds of art (R-Z1, amended by ruling 18):**
+omits its rung, never shows a guess); the floating bubble is retired. The slot reserves one lead line and **one** tail
+line (R-Z5 as amended 2026-10-16, `SentenceSlot`): a tail takes one line at 22 pt, else one line at the 20 pt display
+floor, and only a tail too long for that wraps to a second — so a tail-less sentence sits one line above the control,
+not two, and a budget tail (80 characters) never moves it at 1×. **Two kinds of art (R-Z1, amended by ruling 18):**
 *state art* — the owner's worm on a 160 × 64 lattice (5/4/3 pt per cell by the column's width since 2026-10-16), the real pile, the lamp (= the schedule)
 and its pixel-size fly, the bean bag, mood-edge yawn/stretch and the Sleep moment overlays — and *response art* (gaze,
 perk, talk, cheer), transient and never contradicting state. **Environment art (2026-10-02)** is the time, base weather
@@ -996,7 +1002,9 @@ digesting adds a rainbow by day/dusk or a shooting star at night. Night OR rainy
 keeps day lighting. The lamp still means the schedule.
 
 `room-weather` uses `<base>-<time>` (five bases × three times). `room-skyfx` uses six moment/time tags, with its layer
-between pane and window in `DeskScene.plan`/`room-plan.json`. In darkness the backdrop/lamp and the window/plant/beanbag/
+between pane and window in `DeskScene.plan`/`room-plan.json`. The backdrop is 160 × 64 (2026-10-16: `lua/widen_room_parts.lua` carried
+the saved wall, floor and trim across the pile's columns once; `verify_night` still pins the authored 0–107 and the corner
+post against the day contract). In darkness the backdrop/lamp and the window/plant/beanbag/
 mug select `night-dark`/`night-lit`, and all eight worm states select `bookworm-<state>-night-dark`/`-night-lit`, including
 beats, covers and both sleeping transitions. Tags, frame counts and timings match the day sheets; the small/menu worm
 has no room lighting. The existing sleeping-outro → reading key frame can still change from a closed to an open

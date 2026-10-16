@@ -171,23 +171,26 @@ struct EngineQuickMenuButton: View {
 
     var body: some View {
         if let response = engineVM.response, let label = EngineQuickMenuModel.buttonLabel(response) {
-            NeutralButton(title: label,
-                          leading: AnyView(EngineMark(engine: response.preview?.manual.engine ?? "",
-                                                      size: CicadaTheme.scaled(14),
-                                                      model: response.preview?.manual.model)),
-                          trailingSystemImage: "chevron.down",
-                          help: Copy.EngineMenu.buttonHelp) { open.toggle() }
-                .frame(maxWidth: CicadaTheme.scaled(EngineQuickMenu.buttonMaxWidth))
-                .accessibilityLabel(Copy.EngineMenu.buttonAccessibility(label))
-                .popover(isPresented: $open, arrowEdge: .bottom) {
-                    // The fixed width lives HERE, not in the menu, so `EngineQuickMenuTests`
-                    // can measure the menu unframed and catch a rigid child (DR-70).
-                    EngineQuickMenu(model: .from(response), isSaving: engineVM.isSaving,
-                                    writeFailed: engineVM.writeFailed,
-                                    choose: choose, pickModel: pickModel, openSettings: openSettings,
-                                    setReserve: setReserve)
-                        .frame(width: CicadaTheme.scaled(EngineQuickMenu.width), alignment: .leading)
-                }
+            // Snug to its label, up to the cap (2026-10-16): a `.frame(maxWidth:)` here took the whole cap whenever the
+            // row offered more, centring a 185 pt button in a 300 pt frame, so Consolidate and the menu stood apart.
+            HugWidth(maxWidth: CicadaTheme.scaled(EngineQuickMenu.buttonMaxWidth)) {
+                NeutralButton(title: label,
+                              leading: AnyView(EngineMark(engine: response.preview?.manual.engine ?? "",
+                                                          size: CicadaTheme.scaled(14),
+                                                          model: response.preview?.manual.model)),
+                              trailingSystemImage: "chevron.down",
+                              help: Copy.EngineMenu.buttonHelp) { open.toggle() }
+                    .accessibilityLabel(Copy.EngineMenu.buttonAccessibility(label))
+            }
+            .popover(isPresented: $open, arrowEdge: .bottom) {
+                // The fixed width lives HERE, not in the menu, so `EngineQuickMenuTests`
+                // can measure the menu unframed and catch a rigid child (DR-70).
+                EngineQuickMenu(model: .from(response), isSaving: engineVM.isSaving,
+                                writeFailed: engineVM.writeFailed,
+                                choose: choose, pickModel: pickModel, openSettings: openSettings,
+                                setReserve: setReserve)
+                    .frame(width: CicadaTheme.scaled(EngineQuickMenu.width), alignment: .leading)
+            }
         }
     }
 

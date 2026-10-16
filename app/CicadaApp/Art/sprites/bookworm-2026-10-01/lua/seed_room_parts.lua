@@ -3,7 +3,8 @@ local H=require('ase_helpers');local R=require('room_common')
 local ART=(app.params or {}).art or app.fs.joinPath(H.scriptDir(),'..');R.context(ART)
 local path=app.fs.joinPath(ART,'parts/room-parts.aseprite')
 if app.fs.isFile(path) then print('room parts exist, not reseeded');return end
--- Aseprite has one canvas per document. All parts register at (0,0) on 110x64;
+-- Aseprite has one canvas per document. All parts register at (0,0) on 110x64 (widen_room_parts.lua then
+-- carries wall, floor and trim across the 160-column lattice, 2026-10-16);
 -- the builders crop to the named part's canvas. Extra area is always transparent.
 local s=H.newSprite(110,64,R.pal,{'parts'});local rec=H.recorder(s)
 local function save(name,im) rec:start(name);rec:frame(1000,{parts=im});rec:stop() end
