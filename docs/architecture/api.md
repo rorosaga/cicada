@@ -74,7 +74,9 @@ token: each device gets its own **named, hashed, revocable** token (`device_toke
 `$CICADA_HOME/devices/devices.db`, 0700/0600, sha256 only, `cic_dev_<id>_<secret>`, no expiry, revocation immediate).
 Issuing is the person's act on the server: `cicada device add <name>` (person-only) or `POST /devices` with the master
 token, which answers the token once (201); `GET /devices` lists (no token), `DELETE /devices/{id}` revokes. A device
-token opens every route but `/devices*` (403) and `auth.require_token` puts the device on `request.state.device` — the
+token opens every route but `/devices*` and the `POST`/`PUT`/`PATCH` writes under `/remote` (403: minting, rotating
+or turning on a G135 connector would leave a credential that outlives the device's revocation; a device may still read
+and revoke) and `auth.require_token` puts the device on `request.state.device` — the
 only way the server learns a call came from another of the person's machines; nothing in a header or body can claim
 it. `/devices*` touch no bank (`bank_binding.NO_BANK_WRITE`). On the client the token is `CICADA_API_TOKEN`, else
 `$CICADA_HOME/device_token` (0600, put there by the person), read by `runtime_layout.client_token` for the hooks, the
