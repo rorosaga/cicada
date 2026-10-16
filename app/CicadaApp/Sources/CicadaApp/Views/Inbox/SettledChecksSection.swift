@@ -67,18 +67,18 @@ struct SettledCheckRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-            Text("\(row.entityName) — \(row.answer)")
+            Text(Copy.Inbox.settledAnswer(row.entityName, row.answer))
                 .font(CicadaTheme.rowFont)
                 .foregroundStyle(CicadaTheme.textSecondary)
                 .lineLimit(2)
             if !row.quote.isEmpty {
-                Text("\u{201C}\(row.quote)\u{201D}")
+                Text(Copy.Inbox.settledQuote(row.quote))
                     .font(CicadaTheme.metaFont)
                     .foregroundStyle(CicadaTheme.textTertiary)
                     .lineLimit(3)
                     .textSelection(.enabled)
             }
-            Text("\(Copy.Inbox.settledFrom(row.host, when)) · \(who)")
+            Text(Copy.Inbox.settledMeta(row.host, when, who))
                 .font(CicadaTheme.captionFont)
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .help(row.ref)

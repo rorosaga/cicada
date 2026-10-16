@@ -15,6 +15,11 @@ extension Copy {
         static func settledHeader(_ n: Int) -> String { "Settled by a check · \(UsageFormat.count(n))" }
         static let settledShowHelp = "Show the questions a check answered, with where each answer came from"
         static func settledFrom(_ host: String, _ when: String) -> String { "From \(host) · \(when)" }
+        static func settledMeta(_ host: String, _ when: String, _ who: String) -> String {
+            "\(settledFrom(host, when)) · \(who)"
+        }
+        static func settledAnswer(_ name: String, _ answer: String) -> String { "\(name) — \(answer)" }
+        static func settledQuote(_ quote: String) -> String { "\u{201C}\(quote)\u{201D}" }
         static let settledByAgent = "your agent looked it up"
         static let settledBySleep = "looked up while reading your memory"
         static let settledUndo = "Undo"
