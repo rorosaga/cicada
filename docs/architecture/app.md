@@ -124,8 +124,8 @@ one cycle — its run's reading time, the engine its commits name, and the whole
 paused is skipped; a plan run's line is its window and no price
 (`CycleUsageText.lastCycleLine`); past nights' rows keep each batch's own figures. **A plan run leads with how much of
 the plan it used, not dollars (owner 2026-10-16):** a row, Last cycle and the engine menu's last line ("Last run: under
-1% of your weekly limit · measured") say the backend's `planShare` with its basis in a word — measured, or estimated,
-never an estimate presented as a reading and never "0%" (`CycleUsageText.shareLine`/`shareFigure`); the help states
+1% of your weekly limit · reading unchanged") say the backend's `planShare` with its basis in words — measured (only
+when the reading moved), reading unchanged (an "under 1%"), or estimated, never an estimate presented as a reading and never "0%" (`CycleUsageText.shareLine`/`shareFigure`); the help states
 each basis in full and the list-price equivalent, "Would have cost about $0.49 on an API key". An opened plan run (Past
 nights' run detail and a cycle's Models) puts the share above the models, drops the models' list price, and moves the
 dollars to that secondary line under the total; a metered run keeps its dollars as before. A plan run with no share reads

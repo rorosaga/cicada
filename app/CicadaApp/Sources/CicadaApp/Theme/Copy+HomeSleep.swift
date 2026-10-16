@@ -124,6 +124,8 @@ extension Copy {
         static func under(_ share: String, of limit: String) -> String { "under \(share) of \(limit)" }
         static let measured = "measured"
         static let estimated = "estimated"
+        /// The basis of an "under 1%" figure: the plan's reading did not move — never called "measured".
+        static let unmoved = "reading unchanged"
         /// A plan run whose share nothing recorded: unknown, never zero.
         static let shareNotRead = "share of the plan not recorded"
         static let measuredNote = "Measured: the plan's own reading before and after the run."

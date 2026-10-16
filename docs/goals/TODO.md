@@ -26,7 +26,7 @@
   new ledger field. The app leads Past reads' rows, Last cycle, an opened run and the engine menu's last line with it;
   the dollar figure becomes "would have cost about $X on an API key" (a secondary line or the help). Metered runs keep
   dollars. Tests: `test_plan_share.py`, `PlanShareTextTests`. Pick up: review; the owner's next plan run should read
-  "under 1% of your weekly limit · measured" (or an estimate once two earlier runs moved the window). Not done: Past
+  "under 1% of your weekly limit · reading unchanged" (or an estimate once two earlier runs moved the window). Not done: Past
   nights' folded run row (no whole-run usage on the history wire; its opened detail shows the share).
 - **2026-10-16 — install anywhere: one curl line on Linux, a Homebrew tap in this repo (G181, G76; branch
   `feat/install-anywhere`, not merged).** Owner: "how I can install it with a `curl` command on a Linux machine … can I

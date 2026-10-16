@@ -119,16 +119,23 @@ enum CycleUsageText {
     }
 
     /// The share as one line: the first `limit` windows in the server's order (weekly first), then the basis
-    /// in one word — or each figure's own when they differ. An estimate is never presented as a measurement.
+    /// in words — once when every figure shares it, else each figure's own. "measured" only when the reading
+    /// moved; an unmoved reading says so; an estimate is never presented as a measurement.
     static func shareLine(_ shares: [CycleUsagePlanShare], limit: Int = 2, locale: Locale = .autoupdatingCurrent) -> String? {
-        let shown = Array(shares.compactMap { s in shareFigure(s, locale: locale).map { (s.basis == "estimated", $0) } }
+        let shown = Array(shares.compactMap { s in shareFigure(s, locale: locale).map { (basisWord(s.basis), $0) } }
             .prefix(limit))
-        guard !shown.isEmpty else { return nil }
-        let estimates = shown.filter(\.0).count
-        if estimates == 0 { return (shown.map(\.1) + [Copy.SleepUsage.measured]).joined(separator: " · ") }
-        if estimates == shown.count { return (shown.map(\.1) + [Copy.SleepUsage.estimated]).joined(separator: " · ") }
-        return shown.map { "\($0.1) (\($0.0 ? Copy.SleepUsage.estimated : Copy.SleepUsage.measured))" }
-            .joined(separator: " · ")
+        guard let first = shown.first else { return nil }
+        if shown.allSatisfy({ $0.0 == first.0 }) { return (shown.map(\.1) + [first.0]).joined(separator: " · ") }
+        return shown.map { "\($0.1) (\($0.0))" }.joined(separator: " · ")
+    }
+
+    /// A share's basis in words: `measured` (the reading moved), `under` (it did not), `estimated`.
+    static func basisWord(_ basis: String) -> String {
+        switch basis {
+        case "measured": Copy.SleepUsage.measured
+        case "under": Copy.SleepUsage.unmoved
+        default: Copy.SleepUsage.estimated
+        }
     }
 
     /// The share's help: every window's figure, each basis that appears said in full, the plan's honest limit,
@@ -139,10 +146,8 @@ enum CycleUsageText {
         var notes = [figures.joined(separator: " · ").prefix(1).uppercased()
             + figures.joined(separator: " · ").dropFirst() + "."]
         let bases = Set(shares.map(\.basis))
-        if bases.contains("measured") || bases.contains("under") {
-            notes.append(Copy.SleepUsage.measuredNote)
-            notes.append(Copy.SleepUsage.planNote)
-        }
+        if bases.contains("measured") { notes.append(Copy.SleepUsage.measuredNote) }
+        if bases.contains("measured") || bases.contains("under") { notes.append(Copy.SleepUsage.planNote) }
         if bases.contains("under") { notes.append(Copy.SleepUsage.underNote) }
         if bases.contains("estimated") {
             notes.append(Copy.SleepUsage.estimatedNote(samples: shares.compactMap(\.samples).max()))
@@ -325,8 +330,8 @@ enum CycleUsageText {
     }
 
     /// "Last cycle: $0.42 charged" — or, on a plan (owner 2026-10-16), "Last run: under 1% of your weekly limit ·
-    /// measured" — from the candidate that says so, the one a cycle you start would use first. The second element
-    /// is the help: the share's bases in full and the plan run's list-price equivalent ("would have cost…").
+    /// reading unchanged" — from the candidate that says so, the one a cycle you start would use first. The second
+    /// element is the help: the share's bases in full and the plan run's list-price equivalent ("would have cost…").
     static func lastCycle(_ candidates: [SleepEngineCandidate], preferring id: String?,
                           locale: Locale = .autoupdatingCurrent) -> (line: String, help: String?)? {
         let ordered = candidates.sorted { ($0.id == id ? 0 : 1) < ($1.id == id ? 0 : 1) }

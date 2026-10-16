@@ -38,12 +38,16 @@ final class PlanShareTextTests: XCTestCase {
     func testTheLineLeadsWithTheWeeklyLimitAndSaysItsBasisOnce() {
         let measured = [share("seven_day", "measured", 0.01), share("five_hour", "under", under: 0.01)]
         XCTAssertEqual(CycleUsageText.shareLine(measured, locale: us),
-                       "about 1% of your weekly limit · under 1% of the 5-hour window · measured")
+                       "about 1% of your weekly limit (measured) · under 1% of the 5-hour window (reading unchanged)",
+                       "\"measured\" only for a reading that moved")
+        let unmoved = [share("seven_day", "under", under: 0.01), share("five_hour", "under", under: 0.01)]
+        XCTAssertEqual(CycleUsageText.shareLine(unmoved, locale: us),
+                       "under 1% of your weekly limit · under 1% of the 5-hour window · reading unchanged")
         let estimated = [share("seven_day", "estimated", 0.004, under: 0.01, samples: 2)]
         XCTAssertEqual(CycleUsageText.shareLine(estimated, locale: us), "about 0.4% of your weekly limit · estimated")
         let mixed = [share("seven_day", "under", under: 0.01), share("five_hour", "estimated", 0.02, samples: 4)]
         XCTAssertEqual(CycleUsageText.shareLine(mixed, locale: us),
-                       "under 1% of your weekly limit (measured) · about 2% of the 5-hour window (estimated)")
+                       "under 1% of your weekly limit (reading unchanged) · about 2% of the 5-hour window (estimated)")
         XCTAssertEqual(CycleUsageText.shareLine(measured, limit: 1, locale: us), "about 1% of your weekly limit · measured")
         XCTAssertNil(CycleUsageText.shareLine([], locale: us), "unknown stays unknown")
     }
@@ -53,7 +57,7 @@ final class PlanShareTextTests: XCTestCase {
             [share("seven_day", "under", under: 0.01), share("five_hour", "estimated", 0.004, under: 0.01, samples: 3)],
             equivUsd: 0.49, locale: us))
         XCTAssertTrue(help.hasPrefix("Under 1% of your weekly limit · about 0.4% of the 5-hour window."), help)
-        XCTAssertTrue(help.contains(Copy.SleepUsage.measuredNote), help)
+        XCTAssertFalse(help.contains(Copy.SleepUsage.measuredNote), "no reading moved, so nothing is called measured")
         XCTAssertTrue(help.contains(Copy.SleepUsage.planNote), help)
         XCTAssertTrue(help.contains(Copy.SleepUsage.underNote), help)
         XCTAssertTrue(help.contains(Copy.SleepUsage.estimatedNote(samples: 3)), help)
@@ -63,6 +67,7 @@ final class PlanShareTextTests: XCTestCase {
         let measuredOnly = try XCTUnwrap(CycleUsageText.shareHelp([share("seven_day", "measured", 0.02)], equivUsd: nil,
                                                                   locale: us))
         XCTAssertFalse(measuredOnly.contains("Estimated"), "a measurement is never described as an estimate")
+        XCTAssertTrue(measuredOnly.contains(Copy.SleepUsage.measuredNote), measuredOnly)
         XCTAssertNil(CycleUsageText.shareHelp([], equivUsd: 0.49, locale: us))
     }
 
@@ -73,7 +78,7 @@ final class PlanShareTextTests: XCTestCase {
                                   plan: CycleUsageSummaryPlan(window: "seven_day", before: 0.27, after: 0.27),
                                   planShare: [share("seven_day", "under", under: 0.01), share("five_hour", "measured", 0.02)])
         let line = try XCTUnwrap(CycleUsageText.summaryLine(kind: "sleep", summary: s, locale: us))
-        XCTAssertEqual(line, "Claude plan · under 1% of your weekly limit · measured")
+        XCTAssertEqual(line, "Claude plan · under 1% of your weekly limit · reading unchanged")
         XCTAssertFalse(line.contains("$") || line.contains("0%"), line)
         XCTAssertEqual(CycleUsageText.lastCycleLine(s, locale: us), line, "Last cycle says the same short figure")
         let help = try XCTUnwrap(CycleUsageText.summaryHelp(s, locale: us))
@@ -101,7 +106,7 @@ final class PlanShareTextTests: XCTestCase {
                                CycleUsagePlanWindow(window: "seven_day", before: 0.27, after: 0.27, beforeIsFirstSeen: true)]),
                            planShare: [share("seven_day", "under", under: 0.01)])
         let lines = CycleUsageText.detailLines(u, locale: us)
-        XCTAssertEqual(lines.share?.text, "under 1% of your weekly limit · measured")
+        XCTAssertEqual(lines.share?.text, "under 1% of your weekly limit · reading unchanged")
         XCTAssertTrue(lines.share?.help.contains(Copy.SleepUsage.underNote) ?? false)
         XCTAssertEqual(lines.equiv, "Would have cost about $0.49 on an API key")
         XCTAssertNil(lines.total)
@@ -147,7 +152,7 @@ final class PlanShareTextTests: XCTestCase {
                                    lastCycleCostUsd: 0.42)
         let both = [candidate("byok", usage: key), candidate("agent", usage: plan)]
         let last = try XCTUnwrap(CycleUsageText.lastCycle(both, preferring: "agent", locale: us))
-        XCTAssertEqual(last.line, "Last run: under 1% of your weekly limit · measured")
+        XCTAssertEqual(last.line, "Last run: under 1% of your weekly limit · reading unchanged")
         XCTAssertTrue(last.help?.hasSuffix("Would have cost about $0.49 on an API key.") ?? false, last.help ?? "")
         XCTAssertEqual(CycleUsageText.lastCycleLine(both, preferring: "byok", locale: us), "Last cycle: $0.42 charged",
                        "a metered card keeps its dollars")
@@ -157,7 +162,7 @@ final class PlanShareTextTests: XCTestCase {
                                         manual: SleepEnginePreview(engine: "claude-cli", model: "sonnet", why: ""),
                                         scheduled: SleepEnginePreview(engine: "claude-cli", model: "sonnet", why: "")))
         let m = EngineQuickMenuModel.from(r, locale: us)
-        XCTAssertEqual(m.lastCycleLine, "Last run: under 1% of your weekly limit · measured")
+        XCTAssertEqual(m.lastCycleLine, "Last run: under 1% of your weekly limit · reading unchanged")
         XCTAssertNotNil(m.lastCycleHelp)
         XCTAssertEqual(m.rows.first { $0.id == "agent" }?.caption, "Signed in",
                        "a plan card with no window reading keeps its own caption")

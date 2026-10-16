@@ -53,7 +53,7 @@ struct EngineQuickMenuModel: Equatable {
     var modelPrices: [String: String] = [:]
     var pricesNote: String? = nil
     /// "Last cycle: $0.42 charged", under the two ruling-4 lines, when a card knows it — on a plan, "Last run: under 1%
-    /// of your weekly limit · measured" (owner 2026-10-16), its help the bases in full and the "would have cost" figure.
+    /// of your weekly limit · reading unchanged" (owner 2026-10-16), its help the bases in full and the "would have cost" figure.
     var lastCycleLine: String? = nil
     var lastCycleHelp: String? = nil
     /// Sleep page v5 — *Keep plan free* (the reserve), only when a run you start would use a plan.
