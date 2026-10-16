@@ -287,6 +287,54 @@ def _parse(filepath: Path, *, ledger: bool = True) -> ParsedMarkdown:
 
 _LEDGER_STAMP = "claims_ledger"   # `claims_ledger.STAMP`, spelled here so a plain parse imports nothing
 
+#: An episode's per-message ``turns: [{offset, ts, speaker, …}]`` sidecar (R-PB4), a top-level key its writers keep
+#: last. ``header`` parses a frontmatter without it.
+_TURNS_LINE = re.compile(r"^turns:[ \t]*(.*)$", re.M)
+
+
+def header(filepath: Path) -> tuple[dict, bool]:
+    """A file's frontmatter WITHOUT its ``turns`` sidecar, and whether it had one — for a cache of every episode's
+    header (``bank_index``), which the sidecar would otherwise dominate (2026-10-16 perf: 99,844 rows, 53 MB and
+    3.6 s of a cold parse over 3,850 synthetic episodes; 5.5 MB and 0.5 s without). Every other key is exactly what
+    :func:`parse` returns; a reader that needs the sidecar parses the file (``bank_index.with_turns``)."""
+    return header_of(filepath.read_text(encoding="utf-8"))
+
+
+def header_of(content: str) -> tuple[dict, bool]:
+    split = split_frontmatter(content)
+    if split is None:
+        return {}, False
+    text = split[0]
+    match = _TURNS_LINE.search(text)
+    if match is None:
+        fm = yaml.load(text.strip(), Loader=_SAFE_LOADER) or {}
+        _normalize_dates(fm)
+        return fm, False
+    # The block runs to the next line that opens another top-level key: a block sequence's `- ` items sit at column
+    # 0 or deeper, every continuation is indented, and a blank line belongs to it.
+    end = len(text)
+    i = text.find("\n", match.start())
+    i = len(text) if i == -1 else i + 1
+    while i < len(text):
+        j = text.find("\n", i)
+        j = len(text) if j == -1 else j
+        line = text[i:j]
+        if line.strip() and line[0] not in " \t-":
+            end = i
+            break
+        i = j + 1
+    cut = text[:match.start()] + text[end:]
+    try:
+        fm = yaml.load(cut.strip(), Loader=_SAFE_LOADER) or {}
+    except yaml.YAMLError:
+        fm = None
+    if not isinstance(fm, dict):   # an unusual layout: the whole parse, the sidecar dropped after
+        fm = yaml.load(text.strip(), Loader=_SAFE_LOADER) or {}
+    if isinstance(fm, dict):
+        fm.pop("turns", None)
+        _normalize_dates(fm)
+    return fm, True
+
 
 def body_of(filepath: Path, content: str, frontmatter: dict) -> str:
     """``parse(filepath).body`` for ``content`` already read, given the frontmatter already parsed from that same

@@ -27,10 +27,14 @@ _cache: dict[tuple[str, str], dict[str, "IndexedFile"]] = {}
 
 @dataclass
 class IndexedFile:
+    """One file's cached header. ``frontmatter`` never holds an episode's ``turns`` sidecar (2026-10-16 perf: it was
+    ~90 % of the cache and of a cold scan's parse time); ``has_turns`` says the file has one, and :func:`with_turns`
+    reads it for the few readers that place a span in its turn."""
     path: Path
     mtime_ns: int
     size: int
     frontmatter: dict = field(default_factory=dict)
+    has_turns: bool = False
 
     @property
     def stem(self) -> str:
@@ -137,7 +141,7 @@ def files(memory_path: Path, subdir: str) -> list[IndexedFile]:
     for name, mtime_ns, size in to_parse:
         path = directory / name
         try:
-            fm = markdown_parser.parse(path, ledger=False).frontmatter
+            fm, has_turns = markdown_parser.header(path)
         except Exception as exc:  # malformed file: skip, never crash a caller
             logger.warning(f"bank_index: skipping malformed {path}: {exc}")
             with _lock:
@@ -158,7 +162,8 @@ def files(memory_path: Path, subdir: str) -> list[IndexedFile]:
                 stamp_now = None
             if stamp_now == (mtime_ns, size):
                 parse_count += 1
-                store[name] = IndexedFile(path=path, mtime_ns=mtime_ns, size=size, frontmatter=fm)
+                store[name] = IndexedFile(path=path, mtime_ns=mtime_ns, size=size, frontmatter=fm,
+                                          has_turns=has_turns)
 
     with _lock:
         known = _cache.setdefault(key, {})
@@ -201,7 +206,10 @@ def file(memory_path: Path, subdir: str, name: str) -> IndexedFile | None:
     except Exception as exc:  # malformed file: skip, never crash a caller
         logger.warning(f"bank_index: skipping malformed {path}: {exc}")
         return None
-    entry = IndexedFile(path=path, mtime_ns=stamp[0], size=stamp[1], frontmatter=fm)
+    has_turns = isinstance(fm, dict) and "turns" in fm
+    if has_turns:
+        fm.pop("turns")   # the cache never holds the sidecar (`IndexedFile`)
+    entry = IndexedFile(path=path, mtime_ns=stamp[0], size=stamp[1], frontmatter=fm, has_turns=has_turns)
     with _lock:
         try:
             st = os.stat(path)
@@ -214,6 +222,35 @@ def file(memory_path: Path, subdir: str, name: str) -> IndexedFile | None:
             parse_count += 1
             _cache.setdefault(key, {})[name] = entry
     return entry
+
+
+def with_turns(entry: IndexedFile | None) -> dict:
+    """``entry``'s frontmatter WITH its ``turns`` sidecar — what ``evidence.turn_stamps`` and ``agent_turns.stamps``
+    read — parsed from the file (a small memo keyed on its stamp, so a request placing many spans in one episode
+    parses it once). The cached header itself when the file has no sidecar; ``{}`` for no entry."""
+    if entry is None:
+        return {}
+    if not entry.has_turns:
+        return entry.frontmatter
+    key = str(entry.path)
+    hit = _TURNS.get(key)
+    if hit is not None and hit[0] == (entry.mtime_ns, entry.size):
+        return {**entry.frontmatter, "turns": hit[1]}
+    try:
+        full = markdown_parser.parse(entry.path, ledger=False).frontmatter
+    except Exception:  # noqa: BLE001 — gone or unreadable since it was listed: no sidecar, as for a malformed one
+        return entry.frontmatter
+    turns = full.get("turns") if isinstance(full, dict) else None
+    with _lock:
+        while len(_TURNS) >= _TURNS_MAX:
+            _TURNS.pop(next(iter(_TURNS)))
+        _TURNS[key] = ((entry.mtime_ns, entry.size), turns)
+    return {**entry.frontmatter, "turns": turns}
+
+
+#: path -> ((mtime_ns, size), turns) for :func:`with_turns`, bounded.
+_TURNS: dict[str, tuple[tuple[int, int], object]] = {}
+_TURNS_MAX = 64
 
 
 def dir_stamp(memory_path: Path, subdir: str) -> tuple[int, int]:
