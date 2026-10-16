@@ -6,8 +6,11 @@ final class FakeTabGroupsAPI: TabGroupsSyncAPI {
     var hold = false
     var replies: [Result<TabGroupsSyncResult, any Error>] = []
     private(set) var payloads: [TabGroupsPayload] = []
+    /// The bank each post named (`BankScope.origin`, G183(d)).
+    private(set) var banks: [String?] = []
     func syncTabGroups(_ payload: TabGroupsPayload) async throws -> TabGroupsSyncResult {
         payloads.append(payload)
+        banks.append(BankScope.origin)
         if hold { try await Task.sleep(for: .seconds(30)) }
         return replies.isEmpty ? TabGroupsSyncResult(groups: payload.groups.count) : try replies.removeFirst().get()
     }

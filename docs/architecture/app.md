@@ -1236,7 +1236,9 @@ and bookmark imports, a feed or calendar removal, a backlog add, a picture's ini
 captures it before its detached preparation and builds its write from it (`PictureActions.upload(…, bank:)`, the drop
 too); the Fades chip, Fade pace and the owner save capture it before their task; `Store.perform` binds the bank at
 admission unless an enclosing binding already named one (so work queued across a switch keeps its own); a held answer
-carries its own bank; a folder or Wispr Flow scan binds the bank whose configuration and manifest it read; and
+carries its own bank; a folder or Wispr Flow scan binds the bank whose configuration and manifest it read; a Mac reader with a per-memory
+cursor or digest (YouTube history, Messages, tab groups, Contacts) binds each run to the bank it reads for, and a switch
+that lands mid-run stops that run and starts the new memory's own read rather than joining the old one; and
 `SleepViewModel.updateSchedule` / `updateRunOptions` honour an enclosing origin. Work that binds nothing names the bank
 on screen at send time (`BankScope.onScreen`, kept by the app's `Store`) — during a switch still the old bank while the
 server is on the new one, so it too is refused rather than misfiled; such work started in A that first sends after
@@ -1390,7 +1392,9 @@ reading your memory", the link in `.help`) with two compact `NeutralButton`s: Un
 at once and comes back with a sentence if the server refuses; on success the Inbox refreshes and the question is back)
 and, for a public citation on a subject with a page, Track this source (`SettledChecks.track` → the person's own
 `addEntitySource`, then "Tracked", disabled). `SettledChecks` is in memory, not a Store domain: loaded when the Inbox
-appears and whenever its questions change (`SettledChecksAPI`, faked in `SettledChecksTests`). A
+appears, on a bank switch and whenever its questions change (`SettledChecksAPI`, faked in `SettledChecksTests`). Its
+rows are per memory (their ids are inbox ids, which repeat across banks): another bank's read starts empty, and Undo
+and Track name the bank the row was read in (G183(d)), so a row left on screen across a switch is refused. A
 `page_edit` item (G198, an agent's proposed change to a page's words or aliases) is `InboxKind.pageEdit` ("Page edit",
 `pencil`, clarification's hue in both palettes — no new hue, DR-8) and renders as an options card (`apply` / `dismiss`
 from the server, Not now); `InboxBodyPreview` draws its `body` — "Why: …" and the changes as "- Replace “old” with

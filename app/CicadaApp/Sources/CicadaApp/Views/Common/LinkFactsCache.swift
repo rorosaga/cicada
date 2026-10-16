@@ -17,6 +17,9 @@ final class LinkFactsCache {
     private(set) var facts: [String: PageLinkFacts] = [:]
     @ObservationIgnored private var tagged = LRUCache<String, Tagged>(capacity: LinkFactsCache.capacity)
     @ObservationIgnored private var inFlight: [String: Task<Void, Never>] = [:]
+    /// Bumped by `reset()`: an answer that lands after a bank switch belongs to the bank it was asked in, and is dropped
+    /// (the `BacklogCache` rule) — cancelling its task does not stop a response already on its way.
+    @ObservationIgnored private var epoch = 0
     @ObservationIgnored private let fetch: @Sendable (String, String?) async throws -> Conditional<PageLinkFacts>
 
     init(fetch: @escaping @Sendable (String, String?) async throws -> Conditional<PageLinkFacts> = { id, etag in
@@ -26,6 +29,7 @@ final class LinkFactsCache {
     }
 
     func reset() {
+        epoch &+= 1
         facts = [:]
         tagged = LRUCache(capacity: Self.capacity)
         inFlight.values.forEach { $0.cancel() }
@@ -41,11 +45,14 @@ final class LinkFactsCache {
     /// Ask again (an ETag makes an unchanged page a 304). One request per page at a time.
     func refresh(_ entityId: String) async {
         if let running = inFlight[entityId] { return await running.value }
+        let asked = epoch
         let task = Task { [weak self] in
             guard let self else { return }
             let cached = self.tagged.get(entityId)
+            defer { if self.epoch == asked { self.inFlight[entityId] = nil } }
             do {
                 let result = try await self.fetch(entityId, cached?.etag)
+                guard self.epoch == asked else { return }   // the bank switched while this was out
                 if let value = result.value {
                     self.tagged.set(entityId, Tagged(etag: result.etag, value: value))
                     self.facts[entityId] = value
@@ -53,12 +60,12 @@ final class LinkFactsCache {
                     self.facts[entityId] = cached.value
                 }
             } catch APIError.httpError(404, _) {
+                guard self.epoch == asked else { return }
                 self.tagged.remove(entityId)
                 self.facts[entityId] = nil
             } catch {
                 // Never blank: the last-known-good copy stays.
             }
-            self.inFlight[entityId] = nil
         }
         inFlight[entityId] = task
         await task.value

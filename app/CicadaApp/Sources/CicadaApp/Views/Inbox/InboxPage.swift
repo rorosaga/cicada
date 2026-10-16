@@ -14,6 +14,7 @@ struct InboxPage: View {
     @Environment(InboxViewModel.self) private var viewModel
     @Environment(AppRouter.self) private var router
     @Environment(ProvenanceRouter.self) private var provenance
+    @Environment(Store.self) private var store
     @AppStorage(ShellMetrics.labelledKey) private var labelledSidebar = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -47,7 +48,8 @@ struct InboxPage: View {
             viewModel.reconcile()
             Task { await settled.load() }   // a run may have settled some; an undo brought one back
         }
-        .task { await settled.load() }
+        // Per memory: a switch reloads it even when the two memories' question ids happen to match (`inbox-001`…).
+        .task(id: store.bank) { await settled.load() }
     }
 
     private var settledSection: some View {

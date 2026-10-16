@@ -258,4 +258,32 @@ final class LinkViewTests: XCTestCase {
         cache.reset()
         XCTAssertNil(cache.fact(seats, on: "alpha-project").title)
     }
+
+    /// A bank switch empties the cache (`reset()`); an answer for the old bank that lands after it — a response already
+    /// on its way when the task was cancelled — is dropped, never painted under the new bank's page of the same id.
+    @MainActor
+    func testAnAnswerLandingAfterABankSwitchIsDropped() async throws {
+        actor Gate {
+            private var waiting: CheckedContinuation<Void, Never>?
+            var isWaiting: Bool { waiting != nil }
+            func wait() async { await withCheckedContinuation { waiting = $0 } }
+            func open() { waiting?.resume(); waiting = nil }
+        }
+        let gate = Gate()
+        let page = PageLinkFacts(entityId: "alpha-project", links: [LinkFact(url: seats, title: "Seats")])
+        let cache = LinkFactsCache(fetch: { _, _ in
+            await gate.wait()   // ignores cancellation, like a response already received
+            return Conditional(value: page, etag: "\"v1\"", notModified: false)
+        })
+        let first = Task { await cache.refresh("alpha-project") }
+        let deadline = ContinuousClock.now + .seconds(3)
+        while !(await gate.isWaiting) {
+            guard ContinuousClock.now < deadline else { return XCTFail("the fetch never started") }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        cache.reset()   // the bank switch
+        await gate.open()
+        await first.value
+        XCTAssertNil(cache.fact(seats, on: "alpha-project").title, "the old bank's answer is not this bank's")
+    }
 }

@@ -8,18 +8,26 @@ final class FakeSettledChecksAPI: SettledChecksAPI {
     var rows: [SettledCheck] = []
     var failUndo = false
     var failTrack = false
+    var failFetch = false
     private(set) var undone: [String] = []
+    /// The bank each write named (`BankScope.origin`, G183(d)).
+    private(set) var writeBanks: [String?] = []
     private(set) var trackedCalls: [(String, String, String?)] = []
 
-    func fetchSettledChecks() async throws -> [SettledCheck] { rows }
+    func fetchSettledChecks() async throws -> [SettledCheck] {
+        if failFetch { throw APIError.serverUnreachable }
+        return rows
+    }
 
     func undoSettledCheck(id: String) async throws {
+        writeBanks.append(BankScope.origin)
         if failUndo { throw APIError.serverUnreachable }
         undone.append(id)
         rows.removeAll { $0.id == id }
     }
 
     func trackCitation(entityId: String, ref: String, predicate: String?) async throws {
+        writeBanks.append(BankScope.origin)
         if failTrack { throw APIError.serverUnreachable }
         trackedCalls.append((entityId, ref, predicate))
     }
@@ -115,5 +123,34 @@ final class SettledChecksTests: XCTestCase {
         api.fail = true
         await model.load()
         XCTAssertEqual(model.rows.map(\.id), ["inbox-101"], "never blank (DR-43)")
+    }
+
+    /// Settled rows carry inbox ids, which repeat across memories (`inbox-101` in each): rows loaded in one memory are
+    /// never shown — nor undone, nor tracked — in another.
+    func testABankSwitchNeverShowsTheOtherMemorysRows() async {
+        var bank = "alpha"
+        let api = FakeSettledChecksAPI()
+        api.rows = [film]
+        let model = SettledChecks(api: api, bank: { bank })
+        await model.load()
+        await model.track(film)
+        XCTAssertEqual(model.rows.map(\.id), ["inbox-101"])
+        bank = "beta"
+        api.failFetch = true
+        await model.load()
+        XCTAssertTrue(model.rows.isEmpty, "alpha's rows are not beta's, even when beta's read fails")
+        XCTAssertTrue(model.tracked.isEmpty)
+    }
+
+    func testAnUndoOrTrackNamesTheMemoryItsRowCameFrom() async {
+        var bank = "alpha"
+        let api = FakeSettledChecksAPI()
+        api.rows = [film, repo]
+        let model = SettledChecks(api: api, bank: { bank })
+        await model.load()
+        bank = "beta"   // switched; the Inbox has not reloaded yet
+        await model.track(film)
+        await model.undo(film)
+        XCTAssertEqual(api.writeBanks, ["alpha", "alpha"], "a stale row is refused by the server, never applied in beta")
     }
 }

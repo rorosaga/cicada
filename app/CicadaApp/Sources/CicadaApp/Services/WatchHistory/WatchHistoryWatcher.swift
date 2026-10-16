@@ -44,6 +44,8 @@ final class WatchHistoryWatcher {
     @ObservationIgnored private let bank: @MainActor () -> String
     @ObservationIgnored private var ticker: Task<Void, Never>?
     @ObservationIgnored private var running: Task<String, Error>?
+    /// The memory `running` reads for: a run for another memory is stopped and replaced, never joined (G183(d)).
+    @ObservationIgnored private var runningBank: String?
     @ObservationIgnored private var lastStamp: String?
 
     init(lights: BrowserWatcher? = nil, activity: SyncActivity? = nil, api: any WatchHistorySyncAPI = APIClient.shared,
@@ -109,21 +111,31 @@ final class WatchHistoryWatcher {
 
     @discardableResult
     func run(force: Bool) async -> Result<String, Error> {
-        if let running { return await running.result }   // one at a time; a second caller shares the run
+        let bank = self.bank()
+        if let running {
+            // One at a time per memory; a second caller shares the run. A run still reading for the memory the person
+            // switched away from is stopped instead: its writes are bound to that memory (refused there now), and the
+            // memory on screen reads past its own cursor at once rather than after the old run (G183(d)).
+            if runningBank == bank { return await running.result }
+            running.cancel()
+        }
         guard enabled else { return .failure(CancellationError()) }
         let stamp = Self.stamp(reader.historyFile)
         if !force, stamp != nil, stamp == lastStamp { return .success(Copy.watchHistorySynced(added: 0)) }
-        let bank = self.bank()
         let task = Task { @MainActor [weak self] () throws -> String in
             guard let self else { throw CancellationError() }
-            return try await self.perform(bank: bank)
+            // G183(d): every batch names the memory whose cursor it reads from and advances.
+            return try await BankScope.bound(to: bank) { try await self.perform(bank: bank) }
         }
         running = task
+        runningBank = bank
         activity?.began(Self.channel, detail: Copy.watchHistoryReading, cancel: { [weak self] in self?.cancel() })
         status = .syncing
         publish()
         let result = await task.result
+        guard running == task else { return result }   // replaced by the memory on screen's own run: it owns the row
         running = nil
+        runningBank = nil
         activity?.ended(Self.channel)
         switch result {
         case .success:

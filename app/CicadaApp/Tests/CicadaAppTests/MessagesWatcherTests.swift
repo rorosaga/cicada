@@ -55,9 +55,14 @@ final class FakeMessagesAPI: MessagesAPI {
         return try await fetchMessagesSettings()
     }
 
+    /// The bank each post named (`BankScope.origin`, G183(d)); `hold` parks a post until the run is stopped.
+    private(set) var banks: [String?] = []
+    var hold = false
     func postMessages(_ json: Data) async throws -> MessagesSyncResult {
         if let refuseSync { throw refuseSync }
         posts.append(try XCTUnwrap(JSONSerialization.jsonObject(with: json) as? [String: Any]))
+        banks.append(BankScope.origin)
+        if hold { try await Task.sleep(for: .seconds(30)) }
         return MessagesSyncResult(created: 1)
     }
 
