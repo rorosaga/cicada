@@ -582,3 +582,71 @@ def test_every_inbox_allocator_skips_a_settled_number(bank):
     cm = clarification_manager.ClarificationManager.__new__(clarification_manager.ClarificationManager)
     cm.dir = inbox
     assert int(cm._next_id().split("-")[1]) > top
+
+
+# ---------- a metered engine searches only where litellm reports the search ----------
+
+
+def test_a_metered_engine_whose_searches_go_unreported_skips_before_any_paid_call(bank, monkeypatch):
+    """OpenRouter (the owner's scheduled engine) and OpenAI's search models report no query, so the pinned-query check
+    could never pass: the step skips with `search_unreported` before a single call — nothing is paid for."""
+    import asyncio
+
+    import litellm
+
+    def never(**kw):
+        raise AssertionError("no capability probe, no call")
+    monkeypatch.setattr(litellm, "supports_web_search", never)
+    for model in ("openrouter/anthropic/claude-haiku-4-5", "openrouter/openai/gpt-4o-search-preview",
+                  "openai/gpt-4o-search-preview", "gemini/gemini-2.5-flash", "xai/grok-3"):
+        async def metered(settings, registry=None, *, user_triggered=True, _m=model):
+            return SimpleNamespace(llm_mode="byok", litellm_model=_m), "byok"
+        monkeypatch.setattr(engine_select, "resolve_settings", metered)
+        calls: list = []
+        report = asyncio.run(web_lookup.run_tail(bank, _settings(), user_triggered=False,
+                                                 llm_fn=_fake(_answers, calls=calls)))
+        assert (report.reason, calls, report.settled) == ("search_unreported", [], 0), model
+    assert web_settle.list_settled(bank) == []
+
+
+def test_an_anthropic_metered_lookup_settles_end_to_end_through_litellms_own_response(bank, monkeypatch):
+    """The real litellm Anthropic transform: a `server_tool_use` web search comes back as a `web_search` tool call with
+    its query, so the pinned-query check passes and the answer settles; the call is priced as an `llm_call`."""
+    import asyncio
+
+    import httpx
+    from litellm.llms.anthropic.chat.transformation import AnthropicConfig
+    from litellm.types.utils import ModelResponse
+
+    async def metered(settings, registry=None, *, user_triggered=True):
+        return SimpleNamespace(llm_mode="byok", litellm_model="anthropic/claude-haiku-4-5-20251001"), "byok"
+    import litellm
+
+    monkeypatch.setattr(engine_select, "resolve_settings", metered)
+    # the capability table varies with litellm's cost map (bundled or fetched): pinned here, the transform is real
+    monkeypatch.setattr(litellm, "supports_web_search", lambda model: model.startswith("anthropic/claude"))
+    resolved, _label, why = asyncio.run(web_lookup.engine_for(object(), user_triggered=False))
+    assert why == "metered", "a model with web search, on a provider whose searches are reported"
+
+    def completion(**kw):
+        assert kw["web_search_options"] == {"search_context_size": "low"}
+        user = kw["messages"][-1]["content"]
+        query = user.split("Search query (use exactly this): ", 1)[1].split("\n", 1)[0]
+        raw = {"id": "msg_x", "type": "message", "role": "assistant", "model": "claude-haiku-4-5-20251001",
+               "content": [{"type": "server_tool_use", "id": "srvtoolu_x", "name": "web_search",
+                            "input": {"query": query}},
+                           {"type": "web_search_tool_result", "tool_use_id": "srvtoolu_x", "content": []},
+                           {"type": "text", "text": json.dumps(_answers(user))}],
+               "stop_reason": "end_turn",
+               "usage": {"input_tokens": 50, "output_tokens": 20, "server_tool_use": {"web_search_requests": 1}}}
+        return AnthropicConfig().transform_parsed_response(
+            completion_response=raw, raw_response=httpx.Response(200, json=raw), model_response=ModelResponse())
+    events: list = []
+    settings = SimpleNamespace(llm_mode="byok", litellm_model="anthropic/claude-haiku-4-5-20251001", ollama_model="x",
+                               ollama_base_url="http://localhost", openrouter_app_url=None, openrouter_app_name=None)
+    fn = providers.resolve_llm_fn(settings, stage="web_check", completion=completion, sink=events.append, bank="b")
+    report = _run(bank, fn, engine=(resolved, "byok-anthropic", "metered"))
+    assert report.settled == 2 and report.skipped == {"unsure": 1}
+    assert {r["id"] for r in web_settle.list_settled(bank)} == {"inbox-101", "inbox-102"}
+    assert {e.kind for e in events} == {"llm_call"} and {e.stage for e in events} == {"web_check"}
+

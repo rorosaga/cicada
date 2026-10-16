@@ -10,7 +10,11 @@ the ones the search answers. The rules, each enforced here:
   the plan's web search (``agent_engine.CallPolicy.web_search``). A scheduled run never uses a plan — not even an
   explicit ``CICADA_LLM_MODE`` pin. On a metered engine (an API key) either run may use that provider's own search
   (litellm's ``web_search_options``) at its price, recorded as an ``llm_call`` of stage ``web_check`` tagged with the
-  run, so Past reads shows it with its basis (ruling 12). The ChatGPT plan and a local model get no search: skipped.
+  run, so Past reads shows it with its basis (ruling 12) — but only a provider whose searches litellm REPORTS
+  (:data:`SEARCH_REPORTED_PROVIDERS`: Anthropic's ``server_tool_use`` blocks come back as tool calls with their query).
+  Any other metered engine (OpenRouter, OpenAI's search models, Gemini, xAI…) skips the step with
+  ``search_unreported`` before any paid call: its searches could never pass the pinned-query check, so every lookup
+  would be paid for and thrown away. The ChatGPT plan and a local model get no search: skipped.
 * **What leaves the machine.** The search query is ``web_settle.query_for`` — the subject's name and generic category
   words — pinned in the prompt, and every search the engine reports is held to it: a call that searched anything
   else (or nothing) is discarded, nothing is settled from it. The prompt carries the name, the category words and, for
@@ -39,6 +43,10 @@ from api.services import web_settle
 
 STAGE = "web_check"
 DEFAULT_PER_RUN = 8
+#: Metered providers whose web searches litellm reports with their query (``tool_calls`` named ``web_search``), so the
+#: pinned-query check can pass. Keyed by ``byok.provider_for_model`` — the router is who answers, so
+#: ``openrouter/anthropic/…`` is OpenRouter (its web plugin reports no query) and skips.
+SEARCH_REPORTED_PROVIDERS = frozenset({"anthropic"})
 MAX_SEARCHES = 2
 RETRY_DAYS = 30
 TIMEOUT_S = 120.0
@@ -118,11 +126,8 @@ def _content(resp: Any) -> str:
 def searched_queries(resp: Any) -> list[str]:
     """Every search the call made, as its query: the plan's stream (``tool_uses``) or a metered response's tool calls."""
     out: list[str] = []
-    uses = None
-    try:
-        uses = resp["tool_uses"]
-    except (KeyError, TypeError):
-        uses = getattr(resp, "tool_uses", None)
+    # A litellm ModelResponse raises AttributeError on a missing key: read a dict as a dict, anything else by attribute.
+    uses = resp.get("tool_uses") if isinstance(resp, dict) else getattr(resp, "tool_uses", None)
     for row in uses or []:
         if isinstance(row, (list, tuple)) and len(row) == 2 and "search" in str(row[0]).lower():
             out.append(str((row[1] or {}).get("query") or ""))
@@ -240,6 +245,10 @@ async def engine_for(settings, *, user_triggered: bool) -> tuple[Any, str | None
     if mode != "byok":
         return None, label, "no_search_tool"
     model = str(getattr(resolved, "litellm_model", "") or "")
+    from api.services.connections import byok
+
+    if byok.provider_for_model(model) not in SEARCH_REPORTED_PROVIDERS:
+        return None, label, "search_unreported"   # decided before any paid call
     try:
         import litellm
 

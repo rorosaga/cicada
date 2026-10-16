@@ -626,8 +626,12 @@ demo bank never. **Engine (ruling 4):** resolved lazily, only when there is some
 on the Claude plan gets one `claude -p` whose ONE tool is the plan's web search (`--tools WebSearch --allowedTools
 WebSearch`, `agent_engine.ALLOWED_TOOLS`); a scheduled run never uses a plan — not even under an explicit
 `CICADA_LLM_MODE` pin — and a metered engine whose model litellm lists with web search uses the provider's own search
-(`web_search_options: {search_context_size: low}`, one search) at its price, scheduled or not; the ChatGPT plan and a
-local model get no search, so the step skips. Each call is an `llm_call` of stage `web_check` in the run's own scope (a
+(`web_search_options: {search_context_size: low}`, one search) at its price, scheduled or not, **only on a provider
+whose searches litellm reports with their query** (`web_lookup.SEARCH_REPORTED_PROVIDERS`: Anthropic, whose
+`server_tool_use` comes back as a `web_search` tool call). Any other metered engine — OpenRouter (the router bills, so
+`openrouter/anthropic/…` counts as OpenRouter), OpenAI's search models, Gemini, xAI — skips with `search_unreported`
+before any paid call, since its searches could never pass the pinned-query check; the ChatGPT plan and a local model
+get no search, so the step skips. Each call is an `llm_call` of stage `web_check` in the run's own scope (a
 drain's tagged with its `drain_id`), so Past reads counts it with its basis (ruling 12). **The pinned query:** the
 prompt carries the subject's name, the category words and a conflict's option labels — no conversation text, no other
 name — and every search the engine reports (the stream's `tool_use` blocks; a metered response's search tool calls) must
