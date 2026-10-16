@@ -499,6 +499,13 @@ struct SleepView: View {
                 .padding(.horizontal, plan.gutter)
                 .padding(.top, CicadaTheme.spacingSM)
         case .saved:
+            if !searching {
+                // R-IB22 — the exports the person is waiting on, where the Feed showed them: Home's Getting started
+                // drops them once it graduates, and the menu bar's line cannot be stopped or dropped on.
+                ExportWaitStrip()
+                    .padding(.horizontal, rowInset + CicadaTheme.scaled(10))
+                    .padding(.top, CicadaTheme.spacingSM)
+            }
             FeedRowsContent(items: feedVM.visible, style: .wide, searching: searching, now: .now,
                             openId: feedVM.columns.openId, open: { open($0) })
                 .padding(.horizontal, rowInset)

@@ -2,9 +2,9 @@ import SwiftUI
 
 /// Sleep › Saved and Videos (the Feed's list until it folded into Sleep, 2026-10-16) — the list column beside an open
 /// item (STATE 1, §5.3): the find row above its own scroll, then the rows. With nothing open the same rows
-/// (`FeedRowsContent`) scroll with the room on the Sleep page itself, under its sticky tab row. The Connected strip
-/// and the export waits retired with the Feed: Sources holds every connected source (its cards' Sync now), and Home's
-/// Getting started holds the waits (DESIGN §3.4).
+/// (`FeedRowsContent`) scroll with the room on the Sleep page itself, under its sticky tab row, the export waits
+/// (`ExportWaitStrip`) at their head. The Connected strip retired with the Feed: Sources holds every connected source
+/// (its cards' Sync now).
 struct FeedListColumn: View {
     let style: ColumnPlan.ListStyle
     @Binding var findOpen: Bool

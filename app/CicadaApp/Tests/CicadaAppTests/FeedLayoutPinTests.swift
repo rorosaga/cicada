@@ -25,7 +25,8 @@ final class FeedLayoutPinTests: XCTestCase {
         XCTAssertFalse(page.contains("PageTitle("), "the Sleep Cycle title retired")
         XCTAssertTrue(page.contains("pinnedViews: [.sectionHeaders]"), "the tab row sticks under the titlebar")
         XCTAssertFalse(page.contains("ConnectedChannelsStrip"), "Connected lives on Sources")
-        XCTAssertFalse(page.contains("ExportWaitStrip"), "export waits live on Home")
+        // Home's Getting started shows waits only until it graduates, so Saved keeps the Feed's strip (R-IB22).
+        XCTAssertEqual(page.components(separatedBy: "ExportWaitStrip()").count - 1, 1, "export waits head Saved")
         XCTAssertFalse(page.contains(".glassCard()"), "the room left its card")
         let rows = try source("Views/Feed/FeedRows.swift")
         XCTAssertFalse(rows.contains("ConnectedChannelsStrip("))

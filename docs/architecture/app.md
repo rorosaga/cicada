@@ -772,7 +772,8 @@ the page's find row.
   row (DR-38). Its rows are 56 pt, each with the origin's real mark (`FeedRowsContent`). With nothing open they scroll
   with the room under the sticky tab row; beside an open item they are `FeedListColumn`'s triage column and the tab
   row rides the eyebrow ("Sleep · Saved · 3 of 160"). The Feed's Connected strip retired (Sources' cards sync each
-  connected source) and its export waits live on Home's Getting started and the menu bar.
+  connected source); its export waits (`ExportWaitStrip`, R-IB22) head the Saved list, as they headed the Feed's, since
+  Home's Getting started shows them only until it graduates and the menu bar's line cannot be stopped or dropped on.
 - **A saved item's detail column** shows `MediaPreview` (a video plays at the column's width), "Why it's saved"
   (the page's own words, then the pages it is about, known ids only), and "Saved from" (the origin's mark, name,
   folder and day, or `[ no source recorded ]`). The palette's saved-item row, ⌘B's bookmark rows and a source page's
