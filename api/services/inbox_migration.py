@@ -177,7 +177,8 @@ def _merge_target_hint(uncertainty_type: str, memory_path: Path) -> str | None:
 
 def _next_inbox_num(inbox_dir: Path) -> int:
     max_num = 0
-    for fp in inbox_dir.glob("inbox-*.md"):
+    # A settled question (``inbox/settled/``, ruling 27) keeps its number for its undo.
+    for fp in [*inbox_dir.glob("inbox-*.md"), *(inbox_dir / "settled").glob("inbox-*.md")]:
         try:
             max_num = max(max_num, int(fp.stem.split("-")[-1]))
         except ValueError:
