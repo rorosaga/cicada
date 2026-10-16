@@ -262,7 +262,9 @@ extension Copy {
     static let memoryLocationTitle = "Where your memory lives"
     static let showInFinder = "Show in Finder"
     static let banksTitle = "Memory banks"
-    static let banksDetail = "Each bank is its own memory, with its own history. Switch or copy one from the Graph page."
+    /// DR-24 — the one bank selector is the search bar's menu; the Graph page lost it (QA 2026-10-16).
+    static let banksDetail = "Each bank is its own memory, with its own history. Switch or copy one from the bank "
+        + "menu in the search bar."
     static let bankExportTitle = "Export a bank"
     static let bankExportDetail = "A zip of the bank's pages and full history. You choose where it goes."
     static let bankDeleteTitle = "Delete a bank"
