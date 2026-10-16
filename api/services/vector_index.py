@@ -162,8 +162,11 @@ class SqliteVecIndexer:
         db_path: Path | None = None,
         defer_model_switch: bool = False,
         should_stop: Callable[[], bool] | None = None,
+        entity_text: str | None = None,
     ):
         self.memory_path = Path(memory_path)
+        # What an entity's vector is made from (`ENTITY_TEXT_MODES`); None reads `entity_embed_text` from Settings.
+        self.entity_text = entity_text
         self.entities_dir = self.memory_path / "entities"
         self.episodes_dir = self.memory_path / "episodes"
         self.db_path = Path(db_path) if db_path else self.memory_path / INDEX_DB_FILE
@@ -649,6 +652,7 @@ class SqliteVecIndexer:
         """
         if not self.entities_dir.exists():
             return 0
+        mode = entity_text_mode(self.entity_text)
         staged: list[tuple[str, str, dict]] = []
         for filepath in sorted(self.entities_dir.glob("*.md")):
             try:
@@ -656,7 +660,7 @@ class SqliteVecIndexer:
             except Exception:
                 continue
             fm = parsed.frontmatter or {}
-            text = _entity_embed_text(fm, parsed.body, filepath.stem)
+            text = _entity_embed_text(fm, parsed.body, filepath.stem, mode=mode)
             if not text:
                 continue
             staged.append((
@@ -1090,8 +1094,35 @@ def _chunk_episode_body(body: str) -> list[str]:
     return chunks
 
 
-def _entity_embed_text(fm: dict, body: str, stem: str) -> str:
+#: What an entity's vector can be made from (Settings ``entity_embed_text``): ``full`` — today's — or ``prose``.
+ENTITY_TEXT_MODES = ("full", "prose")
+#: ``prose``'s cap on the embedded text: ~2k tokens, past every local model's window (EmbeddingGemma reads the first
+#: 512 tokens) and well inside a hosted model's (OpenAI refuses past 8,191 tokens — the owner page's 5M characters
+#: could never be embedded there). The page's head is what is kept: name, type, aliases, then its prose.
+ENTITY_EMBED_MAX_CHARS = 8_000
+
+
+def entity_text_mode(explicit: str | None = None) -> str:
+    """``explicit`` when given, else the setting; anything unknown is today's ``full``."""
+    mode = explicit
+    if mode is None:
+        try:
+            from api.config import get_settings
+
+            mode = getattr(get_settings(), "entity_embed_text", "full")
+        except Exception:  # noqa: BLE001 — a settings read never stops an index build
+            mode = "full"
+    mode = str(mode or "full").strip().lower()
+    return mode if mode in ENTITY_TEXT_MODES else "full"
+
+
+def _entity_embed_text(fm: dict, body: str, stem: str, *, mode: str = "full") -> str:
     """Compose the text embedded for an entity.
+
+    ``mode="prose"`` (2026-10-16, behind the ``entity_embed_text`` setting): the claims fence is left out — every
+    claim has its own vector in the claims index, and on a page whose claims overflow into its ledger the fence is
+    nearly all of the text (the synthetic owner page: 5.0M characters) — and the result is capped at
+    :data:`ENTITY_EMBED_MAX_CHARS`.
 
     We embed **name + type + aliases + body** but deliberately exclude the
     free-form ``tags``: tags are highly repetitive across the graph (many
@@ -1107,7 +1138,14 @@ def _entity_embed_text(fm: dict, body: str, stem: str) -> str:
     aliases = fm.get("aliases") or []
     if aliases:
         header.append("aka: " + ", ".join(str(a) for a in aliases))
-    return "\n".join(str(p) for p in [" ".join(header), body] if p).strip()
+    if mode == "prose":
+        from api.services import claims as claims_mod
+
+        body = claims_mod.served_prose(body or "")[0]
+    text = "\n".join(str(p) for p in [" ".join(header), body] if p).strip()
+    if mode == "prose" and len(text) > ENTITY_EMBED_MAX_CHARS:
+        text = text[:ENTITY_EMBED_MAX_CHARS].rstrip()
+    return text
 
 
 def _resolve_embed_fn(memory_path: Path | None = None) -> tuple[EmbedFn, str]:

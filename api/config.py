@@ -65,6 +65,12 @@ class Settings(BaseSettings):
     # CICADA_EMBEDDING_MODEL maps to this when mode=openrouter; we keep a separate
     # field so swapping mode doesn't clobber the openai model name and vice-versa.
     embedding_model_openrouter: str = "google/gemini-embedding-2"
+    # What an entity page's search vector is made from (2026-10-16 perf, owner decision 4) — CICADA_ENTITY_EMBED_TEXT:
+    #   "full"  -> name, type, aliases and the whole body, its claims fence included. Today's behaviour, the default.
+    #   "prose" -> the same without the claims fence (claims have their own vectors), capped at
+    #              `vector_index.ENTITY_EMBED_MAX_CHARS`. Flipped only after `benchmarks.recall_ab` shows search no
+    #              worse on the person's own queries. A change re-embeds every page once (the text hash moves).
+    entity_embed_text: str = "full"
 
     # LiteLLM model (format: provider/model-name)
     # Examples: gpt-5.4-mini, anthropic/claude-sonnet-4-20250514, gemini/gemini-2.0-flash
