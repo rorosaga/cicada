@@ -754,6 +754,20 @@ def _takeout_html_instant(text: str) -> str | None:
     return local.isoformat()
 
 
+_NETSCAPE_DOCTYPE = re.compile(rb"<!DOCTYPE\s+NETSCAPE-Bookmark-file", re.IGNORECASE)
+_ACTIVITY_CELL = re.compile(rb"class=\"[^\"]*\b(outer-cell|content-cell)\b")
+
+
+def is_takeout_activity_html(content: bytes) -> bool:
+    """Whether HTML bytes are a Google Takeout My Activity page (its ``outer-cell``/``content-cell`` markup), whatever
+    the file is called. A bookmark export always opens with the Netscape doctype and never carries that markup, so it
+    stays a bookmark file."""
+    head = content[:4096]
+    if _NETSCAPE_DOCTYPE.search(head):
+        return False
+    return len({m.group(1) for m in _ACTIVITY_CELL.finditer(content[:262_144])}) == 2
+
+
 def parse_youtube_history_html(content: bytes) -> list[RawItem]:
     """Takeout's DEFAULT watch-history format, ``watch-history.html`` (G71, 2026-10-16).
 
@@ -1512,6 +1526,19 @@ def parse_upload(
         items, _platform, left_out = saved_exports.parse_member(Path(name).name, content,
                                                                 include_history=include_history)
         excluded(left_out)
+        return items, "YouTube Takeout", False
+    if (name.endswith(".html") or name.endswith(".htm")) and is_takeout_activity_html(content):
+        # A Takeout My Activity page under another name — a browser's
+        # ``watch-history (1).html``, a localized Takeout's own file name. It is
+        # never a bookmark file (review 2026-10-16: the Netscape parser below
+        # made every watched video and channel link a saved bookmark): its
+        # YouTube watches are history rows, left out unless asked for.
+        items, _platform, left_out = saved_exports.parse_member("watch-history.html", content,
+                                                                include_history=include_history)
+        excluded(left_out)
+        if not items and not left_out:
+            raise ValueError("This is a Google Takeout activity page with no YouTube watch history, "
+                             "not a list of saves.")
         return items, "YouTube Takeout", False
     if name.endswith(".html") or name.endswith(".htm"):
         # parse_safari_bookmarks falls through to parse_netscape_bookmarks for

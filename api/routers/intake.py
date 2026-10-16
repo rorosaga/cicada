@@ -473,6 +473,13 @@ def sniff_bytes(content: bytes, filename: str, settings: Settings, bank: str | N
         parsed = parse_export(content, filename)
     except HTTPException as exc:
         reason = str(exc.detail)
+        if (reason == NOT_GEMINI_REASON and media_ingestor.is_takeout_activity_html(content)
+                and media_ingestor.parse_youtube_history_html(content)):
+            # The same page under another name (a browser's `watch-history (1).html`, a localized Takeout): the
+            # chat reader said it is not Gemini, and its rows are YouTube watches — history the person may include.
+            saved = _saved_sniff(content, filename, include_history)
+            if saved is not None:
+                return saved
         if reason not in FINAL_REFUSALS:
             saved = _saved_sniff(content, filename, include_history)
             if saved is not None:

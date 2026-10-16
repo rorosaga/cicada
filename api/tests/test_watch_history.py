@@ -147,6 +147,39 @@ def test_a_dropped_watch_history_html_is_never_read_as_bookmarks():
     assert len(items) == 2 and all(i.origin == "youtube-history" for i in items)
 
 
+NETSCAPE_BOOKMARKS = ('<!DOCTYPE NETSCAPE-Bookmark-file-1>\n<META HTTP-EQUIV="Content-Type" CONTENT="text/html; '
+                      'charset=UTF-8">\n<TITLE>Bookmarks</TITLE>\n<H1>Bookmarks</H1>\n<DL><p>\n'
+                      '<DT><H3>Videos</H3>\n<DL><p>\n'
+                      f'<DT><A HREF="https://www.youtube.com/watch?v={VID_A}" ADD_DATE="1760000000">A talk</A>\n'
+                      '<DT><A HREF="https://example.com/a-page" ADD_DATE="1760000000">A page</A>\n'
+                      '</DL><p>\n</DL><p>\n')
+
+
+def test_a_takeout_activity_page_under_another_name_is_still_history_never_bookmarks():
+    """Review 2026-10-16: the name alone decided, so a browser's ``watch-history (1).html`` or a localized Takeout's
+    own file name still went to the Netscape parser. The page's own markup decides now, at every door that reads by
+    name (the upload, the sniff behind it, the command line)."""
+    for name in ("watch-history (1).html", "historial-de-reproducciones.html", "Watch-History.HTML"):
+        stats: dict = {}
+        items, label, from_bookmarks = media_ingestor.parse_upload(TAKEOUT_HTML.encode(), name, stats=stats)
+        assert (items, label, from_bookmarks) == ([], "YouTube Takeout", False), name
+        assert stats == {"history_excluded": 2}, name
+        items, _, _ = media_ingestor.parse_upload(TAKEOUT_HTML.encode(), name, include_history=True)
+        assert [i.origin for i in items] == ["youtube-history"] * 2, name
+    # An activity page of another product holds no watch: refused, never read as links.
+    other = TAKEOUT_HTML.replace("youtube.com/watch?v=", "example.com/item?v=")
+    with pytest.raises(ValueError):
+        media_ingestor.parse_upload(other.encode(), "MyActivity (2).html")
+
+
+def test_a_bookmarks_html_is_still_read_as_bookmarks():
+    assert not media_ingestor.is_takeout_activity_html(NETSCAPE_BOOKMARKS.encode())
+    items, label, from_bookmarks = media_ingestor.parse_upload(NETSCAPE_BOOKMARKS.encode(), "bookmarks_10_16_26.html")
+    assert from_bookmarks is True and label == "Bookmarks"
+    assert sorted(i.url for i in items) == ["https://example.com/a-page", f"https://www.youtube.com/watch?v={VID_A}"]
+    assert all((i.origin or "") != "youtube-history" for i in items)
+
+
 def test_watch_later_is_read_in_the_current_and_older_takeout_layouts_inside_a_whole_archive():
     for path, csv in (("Takeout/YouTube and YouTube Music/playlists/Watch later-videos.csv", WATCH_LATER_CSV),
                       ("Takeout/YouTube and YouTube Music/playlists/Watch later.csv", WATCH_LATER_CSV_OLD),
@@ -290,6 +323,14 @@ def test_the_intake_sniff_offers_history_for_a_dropped_watch_history_page(client
 def _visit(vid_or_url, at, title="Bridge design, part one - YouTube"):
     url = vid_or_url if "://" in vid_or_url else f"https://www.youtube.com/watch?v={vid_or_url}"
     return {"url": url, "title": title, "visitedAt": at}
+
+
+def test_the_intake_sniff_reads_a_renamed_watch_history_page_as_history(client):
+    c, _memory = client
+    r = c.post("/intake/sniff", files={"file": ("watch-history (1).html", TAKEOUT_HTML.encode(), "text/html")})
+    body = r.json()
+    assert body["recognized"] and body["kind"] == "saved" and body["historyExcluded"] == 2, body
+    assert body["counts"]["items"] == 0
 
 
 def test_chrome_visits_become_day_episodes_once_and_anything_else_is_dropped(client):
