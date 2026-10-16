@@ -234,13 +234,18 @@ a film, a paper, a tool, a company, a public concept — is looked up on the web
 Sleep's tail does it on a run the person started (their Claude plan's own search, the call's one tool) or on a metered
 engine at its price, and the person's own agent may do it through `cicada_record_check(outcome="settles")`
 (`mcp.md`). Never searched: a `person`, an untyped name the description says is someone, the owner's page, a file or
-path, a project, a multi-valued predicate, anything personal (`web_settle.classify`; when in doubt the question stays).
+path, a project, a multi-valued predicate other than what the thing *is*, an option label naming a person or saying
+"my", anything personal (`web_settle.classify`; when in doubt the question stays). A type question (`is-a`, `type`,
+`description`…, the owner's own example: "Is <tool-a> an agent harness or an AI agent itself?") settles on one option
+only when the page rules the others out, on the item's own "both" option when the page says it is all of them (one
+cited claim per option, nothing closed), never on an option the item lacks.
 The settled question moves to `inbox/settled/<id>.md` with a `settled:` block naming exactly what it wrote, and is
 served by `GET /inbox/settled` (not a Store domain). **The Inbox shows it under "Settled by a check"** (closed until
 asked for, below the questions and on the empty page): the answer, the quote and the site with when and who
 (`SettledChecksSection`), **Undo** (`POST /inbox/settled/{id}/undo`: the check's claim is withdrawn, what it closed
-reopens — only a claim still as the check left it — and the question returns under its number; committed as the
-person's, `Web check undone <date>`) and, for a public citation on a subject with a page, **Track this source**, which
+reopens — only a claim still as the check left it — and the question returns under its number, marked
+`web_check: undone` so no check settles it again; committed as the person's, `Web check undone <date>`, with an edit
+already on the page committed apart first) and, for a public citation on a subject with a page, **Track this source**, which
 calls the person's own add-source route — a citation is never a tracked source by itself (`storage.md`). Questions
 about whether a PR or a G row merged are answered from the commit by a trusted local agent, never searched.
 

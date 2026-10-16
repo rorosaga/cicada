@@ -957,9 +957,15 @@ def _settle_lines(ctx: ToolContext, memory_path: Path, item_id: str) -> list[str
             return []
         return [f"  From the repository: answer it from its commit \u2014 cicada_record_check(item_id=\"{item_id}\", "
                 f"source=\"commit:<sha>\", outcome=\"settles\", {answer}=\u2026, quotes=[{{quote: <the commit's subject>}}])"]
+    rule = ""
+    if c.type_question:
+        # Owner, 2026-10-16: what a thing IS may be several things at once.
+        rule = (" One option only if the page rules the others out"
+                + (f"; option_key=\"{c.both_key}\" if it says it is all of them" if c.both_key else "")
+                + "; otherwise leave it.")
     return [f"  Public: look it up on the web (search only \"{web_settle.query_for(c)}\"), then settle it \u2014 "
             f"cicada_record_check(item_id=\"{item_id}\", source=<the page>, outcome=\"settles\", {answer}=\u2026, "
-            "quotes=[{quote}])"]
+            "quotes=[{quote}])" + rule]
 
 
 def check_lines(ctx: ToolContext, memory_path: Path, item_id: str, fm: dict, *, index: dict | None,

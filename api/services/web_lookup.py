@@ -14,7 +14,11 @@ the ones the search answers. The rules, each enforced here:
 * **What leaves the machine.** The search query is ``web_settle.query_for`` — the subject's name and generic category
   words — pinned in the prompt, and every search the engine reports is held to it: a call that searched anything
   else (or nothing) is discarded, nothing is settled from it. The prompt carries the name, the category words and, for
-  a conflict, its option labels; never a conversation's text, never another name from the bank.
+  a conflict, its option labels; never a conversation's text, never another name from the bank (a label naming a
+  person, or saying "my"/"her", keeps the question home: ``web_settle.classify``).
+* **What a thing is** (owner, 2026-10-16). A type or description conflict (``is-a`` included, though multi-valued)
+  settles on one option only when the answer says the page rules the others out, and on the item's own "both" option
+  when the page says it is all of them; never on an option the item does not have.
 * **Caps.** ``web_check_per_run`` questions a run (default 8), at most two searches a call; a question already looked
   up and left open is not looked up again for 30 days (a memo outside every bank, ids and enums only).
 """
@@ -50,6 +54,16 @@ SYSTEM_PROMPT = (
 )
 
 
+#: A question about what the thing IS (``web_settle.TYPE_PREDICATES``; owner, 2026-10-16): one option settles only when
+#: the page rules the others out; the item's own "both" option when the page says it is all of them at once.
+TYPE_RULES = (
+    "Rules for this question: choose a single option only when the page says the subject is that AND its words rule "
+    "out every other option; then add \"others_ruled_out\": true. When the page says this one subject is all of the "
+    "options at once, choose option_key {both!r}. When the name belongs to different things, or the page does not "
+    "rule the other options out, answer {{\"sure\": false}}. Never answer with an option that is not listed."
+)
+
+
 @dataclass
 class Answer:
     item_id: str
@@ -82,6 +96,10 @@ def build_messages(c: web_settle.Candidate) -> list[dict]:
     if c.kind == "conflict":
         lines.append(f"Question: which of these is true of {c.name}?")
         lines += [f"  option_key {key!r}: {label}" for key, label in c.options]
+        if c.type_question:
+            if c.both_key:
+                lines.append(f"  option_key {c.both_key!r}: all of the above are true of this one {c.name}")
+            lines.append(TYPE_RULES.format(both=c.both_key or "(none)"))
     else:
         lines.append(f"Question: what is {c.name}? Answer in one short phrase.")
     return [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": "\n".join(lines)}]
@@ -156,8 +174,13 @@ def parse_answer(c: web_settle.Candidate, text: str) -> Answer:
         return Answer(c.item_id, False, "no_citation")
     if c.kind == "conflict":
         key = str(data.get("option_key") or "").strip()
+        if c.both_key and key == c.both_key:
+            return Answer(c.item_id, True, option_key=key, url=url, quote=quote)
         if key not in {k for k, _ in c.options}:
             return Answer(c.item_id, False, "no_option")
+        if c.type_question and data.get("others_ruled_out") is not True:
+            # What a thing is may be several things: one option settles only on a page that rules the others out.
+            return Answer(c.item_id, False, "not_exclusive")
         return Answer(c.item_id, True, option_key=key, url=url, quote=quote)
     answer = " ".join(str(data.get("answer") or "").split())
     if not answer:

@@ -19,9 +19,10 @@ person's source route ("Track this source" in the app), never automatically.
 **What a settle writes**, in one commit: the episode; the claim (observer ``agent``, ``source_trust: external``,
 ``origin: web-check``) on the subject's page — or held on its pending line (``pending_store``) when the name has no
 page yet, so no page is ever created by a lookup; for a conflict, every other open option claim closed today in its
-favour; and the question moved to ``inbox/settled/<id>.md`` with a ``settled:`` block saying exactly what it wrote.
+favour — or, for a type question settled on the item's own "both" option, one cited claim per option and nothing
+closed; and the question moved to ``inbox/settled/<id>.md`` with a ``settled:`` block saying exactly what it wrote.
 :func:`undo` reads that block and takes back only that: the claim, the closures (only where the claim still reads as
-the settle left it) and the record; the question returns under its id.
+the settle left it) and the record; the question returns under its id, marked so no check settles it again.
 """
 from __future__ import annotations
 
@@ -63,6 +64,14 @@ CATEGORY_WORDS = frozenset({
     "university", "museum", "band", "studio", "publisher", "website", "newsletter", "blog",
 })
 TYPE_WORDS = {"tool": "software", "company": "company"}
+#: What a thing IS — its type or description (owner, 2026-10-16: "Is <tool-a> an agent harness for running models or an
+#: AI agent itself?" is the question a lookup exists for). Eligible even where the vocabulary marks the predicate
+#: multi-valued (``is-a``): a page may say the subject is one of the options and rules the others out (that option
+#: settles), or that it is all of them at once (the item's own "both" option settles). Never an option of our own.
+TYPE_PREDICATES = frozenset({"is-a", "type", "kind", "category", "genre", "description"})
+BOTH = "both"
+#: The restored question remembers the person undid a check: it is never looked up or settled again (user authority).
+UNDONE_KEY = "web_check"
 MAX_CATEGORY_WORDS = 3
 MAX_ANSWER_CHARS = 200
 MAX_QUOTE_CHARS = 240
@@ -118,10 +127,33 @@ class Candidate:
     predicate: str
     options: list[tuple[str, str]]   # (key, label)
     category: list[str]
+    #: A type/description conflict (``TYPE_PREDICATES``): one option settles only when the page rules the others out.
+    type_question: bool = False
+    #: The item's own "both are true" option key, offered to a type question only — never one Cicada invents.
+    both_key: str | None = None
 
 
 def _norm(text) -> str:
     return " ".join(str(text or "").split()).strip().lower()
+
+
+def _words(text) -> str:
+    return " ".join(re.findall(r"\w+", str(text or "").lower()))
+
+
+def _names_a_person(text, names: frozenset[str]) -> bool:
+    """True when ``text`` carries a person's name or alias (the owner's included) as whole words — the subject and the
+    option labels are what reach the engine, so a label like "built by <person> and her team" keeps the question home."""
+    hay = f" {_words(text)} "
+    for name in names:
+        n = _words(name)
+        if len(n) >= 3 and f" {n} " in hay:
+            return True
+    return False
+
+
+def is_type_predicate(predicate) -> bool:
+    return str(predicate or "").strip().lower() in TYPE_PREDICATES
 
 
 def bank_facts(memory_path: Path) -> BankFacts:
@@ -177,6 +209,8 @@ def classify(memory_path: Path, fm: dict, body: str, facts: BankFacts) -> tuple[
         return None, "kind"
     if str(fm.get("status") or "pending") != "pending" or str(fm.get("asks") or "") == "name":
         return None, "kind"
+    if fm.get(UNDONE_KEY) == "undone":
+        return None, "undone"   # the person took a check's answer back: the question is theirs now
     entity_id = str(fm.get("entity_id") or "")
     name = " ".join(str(fm.get("entity_name") or "").split())
     if not entity_id or not name:
@@ -197,7 +231,7 @@ def classify(memory_path: Path, fm: dict, body: str, facts: BankFacts) -> tuple[
     stype = _subject_type(fm, page)
     if stype == "person" or str(fm.get("uncertainty_type") or "").lower().startswith("unknown relationship"):
         return None, "person"
-    if _norm(name) in facts.person_names:
+    if _norm(name) in facts.person_names or _names_a_person(name, facts.person_names):
         return None, "person"
     if stype not in PUBLIC_TYPES:
         return None, "private_type"
@@ -210,11 +244,17 @@ def classify(memory_path: Path, fm: dict, body: str, facts: BankFacts) -> tuple[
     question = " ".join([str(fm.get("question") or ""), str(fm.get("title") or "")])
     if re.search(r"\b(you|your|yours)\b", question, re.IGNORECASE):
         return None, "personal"
-    if any(_norm(label) in facts.person_names for label in labels if label):
+    sent_labels = [str(o.get("label") or "") for o in options if str(o.get("key")) not in (BOTH, "neither")]
+    if any(_norm(label) in facts.person_names or _names_a_person(label, facts.person_names)
+           for label in sent_labels if label):
         return None, "person"
+    if any(_PERSON_CUES.search(label) for label in sent_labels if label):
+        return None, "personal"   # an option label is sent with the question: "my", "her friend"... stays home
     if kind == "conflict":
         predicate = str(fm.get("predicate") or "")
-        if predicates.cardinality(memory_path, predicate) == "multi":
+        # A multi-valued predicate's values coexist, so there is nothing to settle — except what the thing IS: a page
+        # may rule an option out, or say it is both (owner, 2026-10-16).
+        if predicates.cardinality(memory_path, predicate) == "multi" and not is_type_predicate(predicate):
             return None, "informational"
         locus = predicates.locus(memory_path, predicate)
         if locus == "person" or (locus == "unknown" and predicate.lower() not in PUBLIC_PREDICATES):
@@ -250,14 +290,17 @@ def candidate(memory_path: Path, item_path: Path, facts: BankFacts) -> Candidate
     entity_id = str(fm.get("entity_id") or "")
     page = facts.pages.get(entity_id)
     etype = _subject_type(fm, page)
-    options = [(str(o.get("key")), str(o.get("label") or "")) for o in inbox_questions.normalize_options(fm.get("options"))
-               if str(o.get("key")) not in ("both", "neither")]
+    raw_options = inbox_questions.normalize_options(fm.get("options"))
+    options = [(str(o.get("key")), str(o.get("label") or "")) for o in raw_options
+               if str(o.get("key")) not in (BOTH, "neither")]
+    type_question = fm.get("kind") == "conflict" and is_type_predicate(fm.get("predicate"))
+    both_key = BOTH if type_question and any(str(o.get("key")) == BOTH for o in raw_options) else None
     return Candidate(
         item_id=item_path.stem, kind=str(fm.get("kind")), scope=scope, entity_id=entity_id,
         name=" ".join(str(fm.get("entity_name") or "").split()), entity_type=etype, has_page=page is not None,
         predicate=str(fm.get("predicate") or ("" if fm.get("kind") == "conflict" else "description")),
         options=options if fm.get("kind") == "conflict" else [],
-        category=_category(fm, page, parsed.body, etype),
+        category=_category(fm, page, parsed.body, etype), type_question=type_question, both_key=both_key,
     )
 
 
@@ -399,30 +442,42 @@ def settle(
     parsed_item = markdown_parser.parse(item_path)
     fm_item = parsed_item.frontmatter
     option_claim: str | None = None
+    both = False
     if c.kind == "conflict":
         key = str(option_key or "").strip()
-        chosen = next(((k, label) for k, label in c.options if k == key), None)
-        if chosen is None:
-            raise NotSettleable("A conflict is settled by one of its own options: give its key.")
-        obj = _one_line(chosen[1], MAX_ANSWER_CHARS)
-        option_claim = next((str(o.get("claim_id")) for o in inbox_questions.normalize_options(fm_item.get("options"))
-                             if str(o.get("key")) == key and o.get("claim_id")), None)
+        if c.both_key and key == c.both_key:
+            # The page says the subject is all of these at once: every option holds, nothing closes.
+            both = True
+            objs = [_one_line(label, MAX_ANSWER_CHARS) for _, label in c.options]
+        else:
+            chosen = next(((k, label) for k, label in c.options if k == key), None)
+            if chosen is None:
+                raise NotSettleable("A conflict is settled by one of its own options: give its key.")
+            objs = [_one_line(chosen[1], MAX_ANSWER_CHARS)]
+            option_claim = next((str(o.get("claim_id")) for o in inbox_questions.normalize_options(
+                fm_item.get("options")) if str(o.get("key")) == key and o.get("claim_id")), None)
     else:
         obj, n = episode_scrub.scrub(_one_line(answer, MAX_ANSWER_CHARS))
         episode_scrub.record("mcp", n)
         if not obj:
             raise NotSettleable("A 'what is it' question is settled by a short answer (at most 200 characters).")
+        objs = [obj]
+    objs = [o for o in dict.fromkeys(objs) if o]
+    if not objs:
+        raise NotSettleable("A conflict is settled by one of its own options: give its key.")
     predicate = predicates.load_normalizer(memory_path)(c.predicate) or c.predicate or "description"
     label = checker if checker and checker != "agent" else "an agent"
     episode_id = _write_episode(memory_path, c=c, ref=ref, host=host, quote=quote, checker_label=label,
                                 checker_kind=checker_kind, origin=origin, session_frontmatter=session_frontmatter)
     paths = [f"episodes/{episode_id}.md"]
-    claim = Claim(
+    evidence = _evidence_for(memory_path, episode_id, quote)
+    new_claims = [Claim(
         id=_claim_id(c.entity_id, predicate, obj, today), text=predicates.predicate_phrase(predicate, c.name, obj),
         subject=c.entity_id, predicate=predicate, object=obj, object_kind="literal", observer="agent",
         source_trust="external", origin=ORIGIN, authored_by=checker or "agent", confidence=0.8,
-        valid_from=today, recorded_at=today, evidence=_evidence_for(memory_path, episode_id, quote),
-    )
+        valid_from=today, recorded_at=today, evidence=list(evidence),
+    ) for obj in objs]
+    claim = new_claims[0]
     closed: list[dict] = []
     held = False
     entity_path = memory_path / "entities" / f"{c.entity_id}.md"
@@ -433,9 +488,9 @@ def settle(
                 claims = parse_claims(page.body, strict=True)
             except MalformedClaimsBlockError as exc:
                 raise NotSettleable("The page's claims could not be read; the question stays for the person.") from exc
-            if any(x.id == claim.id for x in claims):
+            if any(x.id == n.id for x in claims for n in new_claims):
                 raise NotSettleable("That answer is already on the page.")
-            if c.kind == "conflict":
+            if c.kind == "conflict" and not both:
                 option_ids = {str(o.get("claim_id")) for o in inbox_questions.normalize_options(fm_item.get("options"))
                               if o.get("claim_id")}
                 for old in claims:
@@ -447,11 +502,11 @@ def settle(
                         old.superseded_by = claim.id
                         closed.append({"id": old.id, "before": json.dumps(before, sort_keys=True),
                                        "after": json.dumps(old.to_dict(), sort_keys=True)})
-            claims.append(claim)
+            claims.extend(new_claims)
             markdown_parser.write(entity_path, page.frontmatter, write_claims(page.body, claims))
             paths.append(f"entities/{c.entity_id}.md")
         else:
-            out = pending_store.hold(memory_path, {c.entity_id: [claim]})
+            out = pending_store.hold(memory_path, {c.entity_id: list(new_claims)})
             if not out.get(c.entity_id) or out[c.entity_id].held < 1:
                 raise NotSettleable("The name has no page and nothing held for it yet; the question stays.")
             held = True
@@ -464,8 +519,9 @@ def settle(
     settled_dir.mkdir(parents=True, exist_ok=True)
     record = {
         "at": episode_ids.utc_now_iso(), "by": checker or "agent", "by_kind": checker_kind, "scope": c.scope,
-        "ref": ref, "host": host, "quote": quote, "answer": obj, "predicate": predicate,
-        "entity_id": c.entity_id, "entity_name": c.name, "claim_id": claim.id, "episode": episode_id,
+        "ref": ref, "host": host, "quote": quote, "answer": " and ".join(objs), "predicate": predicate,
+        "entity_id": c.entity_id, "entity_name": c.name, "claim_id": claim.id,
+        "claim_ids": [n.id for n in new_claims], "episode": episode_id,
         "held": held, "closed": closed,
         **({"option_key": option_key} if c.kind == "conflict" else {}),
         **({"engine": engine} if engine else {}),
@@ -535,11 +591,12 @@ def undo(memory_path: Path, item_id: str) -> tuple[str, list[str], list[str]]:
     if not isinstance(rec, dict):
         raise NotSettleable("No such settled question.")
     entity_id = str(rec.get("entity_id") or "")
-    claim_id = str(rec.get("claim_id") or "")
+    claim_ids = {str(x) for x in (rec.get("claim_ids") or [rec.get("claim_id")]) if x}
     paths: list[str] = []
     lines: list[str] = []
     # A held claim may have reached its page since (the name was promoted): both places are looked at.
-    if pending_store.unhold(memory_path, entity_id, claim_id):
+    unheld = [cid for cid in sorted(claim_ids) if pending_store.unhold(memory_path, entity_id, cid)]
+    if unheld:
         paths.append(pending_store.PENDING_STORE_FILE)
         lines.append(f"{pending_store.PENDING_STORE_FILE}: updated (source: {item_id}, trigger: inbox/web-check/undone)")
     entity_path = memory_path / "entities" / f"{entity_id}.md"
@@ -549,7 +606,7 @@ def undo(memory_path: Path, item_id: str) -> tuple[str, list[str], list[str]]:
             claims = parse_claims(page.body, strict=True)
         except MalformedClaimsBlockError as exc:
             raise NotSettleable("The page's claims could not be read; nothing was changed.") from exc
-        kept = [x for x in claims if x.id != claim_id]
+        kept = [x for x in claims if x.id not in claim_ids]
         changed = len(kept) != len(claims)
         closed = {str(r.get("id")): r for r in (rec.get("closed") or []) if isinstance(r, dict)}
         for i, x in enumerate(kept):
@@ -565,7 +622,8 @@ def undo(memory_path: Path, item_id: str) -> tuple[str, list[str], list[str]]:
     target = item_id
     if (inbox_dir / f"{target}.md").exists():   # never replace a question that took the number since
         target = f"inbox-{inbox_service.next_inbox_num(inbox_dir):03d}"
-    markdown_parser.write(inbox_dir / f"{target}.md", fm, parsed.body)
+    # The question comes back as it was, plus one mark: the person took this answer back, so no check settles it again.
+    markdown_parser.write(inbox_dir / f"{target}.md", {**fm, UNDONE_KEY: "undone"}, parsed.body)
     rec_path.unlink()
     bank_index.invalidate(memory_path)
     paths += [f"inbox/{target}.md", f"inbox/{SETTLED_DIR}/{item_id}.md"]
@@ -581,13 +639,17 @@ def commit_message(subject: str, lines: list[str], *, authors: list[str], engine
                                             sessions=sessions, engine=engine)
 
 
-def commit_sync(memory_path: Path, message: str, paths: list[str]) -> bool:
-    """Commit exactly ``paths`` (a moved item's old path as its removal). False when the bank has no git."""
+def commit_sync(memory_path: Path, message: str, paths: list[str], *,
+                before: dict[str, bytes | None] | None = None) -> bool:
+    """Commit exactly ``paths`` (a moved item's old path as its removal). False when the bank has no git. ``before``
+    (``git_service.snapshot_dirty``): an edit already on one of these paths is committed apart first, never as ours."""
     from api.services import git_service
 
     if not (Path(memory_path) / ".git").exists():
         return False
-    git_service.commit_touched_sync(memory_path, message, paths)
+    kept = ({"kept_subject": f"Uncommitted edit kept apart {date.today().isoformat()}",
+             "kept_trigger": "inbox/kept-apart"} if before is not None else {})
+    git_service.commit_touched_sync(memory_path, message, paths, before=before, **kept)
     return True
 
 

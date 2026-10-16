@@ -1111,7 +1111,7 @@
     {
       "function": "undo",
       "method": "write",
-      "frontmatter": "fm",
+      "frontmatter": "{**fm, UNDONE_KEY: 'undone'}",
       "disposition": "uninstrumented_guarded"
     }
   ]

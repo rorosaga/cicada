@@ -632,7 +632,8 @@ drain's tagged with its `drain_id`), so Past reads counts it with its basis (rul
 prompt carries the subject's name, the category words and a conflict's option labels — no conversation text, no other
 name — and every search the engine reports (the stream's `tool_use` blocks; a metered response's search tool calls) must
 be that query word for word, at most two; a call that searched anything else, or nothing, settles nothing
-(`query_strayed`). An unsure or uncited answer settles nothing either. A question looked up and left open is not looked
+(`query_strayed`). An unsure or uncited answer settles nothing either; a type question's single option without
+`others_ruled_out: true` settles nothing (`not_exclusive`), and an option the item lacks never does (`no_option`). A question looked up and left open is not looked
 up again for 30 days (`$CICADA_HOME/web_check/<bank>.json`, ids and enums). A page or item someone left dirty waits. A
 plan limit stops the step (the rest waits for the next run); a drain stopped at the plan's limit skips it. One commit,
 `Web check <date>`, under the model that looked (`Cicada-Engine` its engine), trigger `sleep/web-check`.

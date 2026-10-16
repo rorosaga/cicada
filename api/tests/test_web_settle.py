@@ -85,8 +85,8 @@ def bank(tmp_path, monkeypatch):
           title="Who or what is Alpha Project?", suggested_classification="project — a project")
     _item(memory, "inbox-206", kind="clarification", entity_id="ali", entity_name="Ali",
           title="Who or what is Ali?", suggested_classification="concept — a name")
-    _item(memory, "inbox-207", kind="conflict", entity_id="tool-a", entity_name="Tool A", predicate="is-a",
-          options=[{"key": "a", "label": "agent harness"}, {"key": "b", "label": "AI agent"}])
+    _item(memory, "inbox-207", kind="conflict", entity_id="tool-a", entity_name="Tool A", predicate="uses",
+          options=[{"key": "a", "label": "python"}, {"key": "b", "label": "rust"}])
     # Repo state: answered from the commit by a trusted local agent, never searched.
     _item(memory, "inbox-301", kind="clarification", entity_id="beta-project", entity_name="Beta Project",
           title="Did PR #42 merge?", question="Did PR #42 merge?", suggested_classification="project — x")
@@ -111,7 +111,8 @@ def _fake(answer_for, *, strayed=False, calls=None):
 
 def _answers(user: str) -> dict:
     if "Tool A" in user:
-        return {"sure": True, "option_key": "a", "url": TOOL_URL, "quote": "Tool A is a harness that runs agents."}
+        return {"sure": True, "option_key": "a", "others_ruled_out": True, "url": TOOL_URL,
+                "quote": "Tool A is a harness that runs agents."}
     if "Example Film" in user:
         return {"sure": True, "answer": "a 2019 science-fiction film", "url": FILM_URL,
                 "quote": "Example Film is a 2019 science-fiction film."}
@@ -147,7 +148,7 @@ def test_the_filter_searches_a_film_a_paper_and_a_tool_and_never_a_person_a_file
     assert scope["inbox-204"] == (None, "owner")           # the owner's page
     assert scope["inbox-205"] == (None, "private_type")    # a project
     assert scope["inbox-206"] == (None, "person")          # an alias of a person page
-    assert scope["inbox-207"] == (None, "informational")   # a multi-valued predicate: both may be true
+    assert scope["inbox-207"] == (None, "informational")   # a multi-valued predicate (not what it IS): both may be true
     assert scope["inbox-301"][0] == "repo"                 # repo state: never a web search
 
 
@@ -220,6 +221,7 @@ def test_a_conflict_settle_closes_the_other_option_and_undo_restores_exactly_wha
     assert target == "inbox-102"
     assert (bank / "entities" / "tool-a.md").read_text() == before_page
     restored = markdown_parser.parse(bank / "inbox" / "inbox-102.md")
+    assert restored.frontmatter.pop("web_check") == "undone", "the person took it back: no check settles it again"
     assert (restored.frontmatter, restored.body) == (before_item.frontmatter, before_item.body)
     assert "inbox-102" not in {r["id"] for r in web_settle.list_settled(bank)}
     assert "inbox-102" in {i.id for i in inbox_service.load_inbox(bank)}
@@ -448,3 +450,135 @@ def test_a_metered_call_asks_the_provider_for_one_search(monkeypatch):
     seen.clear()
     fn(messages=[{"role": "user", "content": "q"}])
     assert "web_search_options" not in seen
+
+
+# ---------- what a thing IS: type / is-a conflicts (owner, 2026-10-16) ----------
+
+
+def _type_item(memory, item_id="inbox-108", **over):
+    """The owner's own example's shape: "Is <tool-b> an agent harness for running models or an AI agent itself?" — an
+    ``is-a`` conflict (multi-valued in the vocabulary) with the item's "Both are true (different contexts)" option."""
+    body = write_claims("## Summary\nA tool.\n", [
+        Claim(id="clm_th", text="Tool B is an agent harness", subject="tool-b", predicate="is-a",
+              object="agent harness for running models", valid_from="2026-05-01", recorded_at="2026-05-01"),
+        Claim(id="clm_ta", text="Tool B is an AI agent", subject="tool-b", predicate="is-a",
+              object="AI agent itself", valid_from="2026-08-01", recorded_at="2026-08-01"),
+    ])
+    if not (memory / "entities" / "tool-b.md").exists():
+        _entity(memory, "tool-b", type="tool", name="Tool B", body=body)
+    fm = dict(kind="conflict", entity_id="tool-b", entity_name="Tool B", predicate="is-a",
+              question="Is Tool B an agent harness for running models or an AI agent itself?",
+              title="Is Tool B an agent harness for running models or an AI agent itself?",
+              options=[{"key": "a", "label": "agent harness for running models", "claim_id": "clm_th"},
+                       {"key": "b", "label": "AI agent itself", "claim_id": "clm_ta"},
+                       {"key": "both", "label": "Both are true (different contexts)", "claim_id": None}])
+    fm.update(over)
+    _item(memory, item_id, **fm)
+    _commit(memory, f"seed {item_id}")
+
+
+def _only_tool_b(answer):
+    return lambda user: answer if "Tool B" in user else {"sure": False}
+
+
+def test_an_is_a_conflict_is_eligible_and_its_prompt_offers_the_items_own_both_option(bank):
+    from api.services import predicates
+
+    assert predicates.cardinality(bank, "is-a") == "multi", "the shape under test: a multi-valued type predicate"
+    _type_item(bank)
+    parsed = markdown_parser.parse(bank / "inbox" / "inbox-108.md")
+    assert web_settle.classify(bank, parsed.frontmatter, parsed.body, web_settle.bank_facts(bank)) == (
+        "public", "public")
+    c = web_settle.candidate(bank, bank / "inbox" / "inbox-108.md", web_settle.bank_facts(bank))
+    assert c.type_question and c.both_key == "both"
+    assert c.options == [("a", "agent harness for running models"), ("b", "AI agent itself")]
+    user = web_lookup.build_messages(c)[-1]["content"]
+    assert "option_key 'both'" in user and "rule out every other option" in user
+    assert web_settle.query_for(c) == "Tool B software"  # name + generic words only, never an option label
+
+
+def test_a_page_that_supports_both_settles_on_both_with_one_cited_claim_each_and_nothing_closed(bank):
+    _type_item(bank)
+    before_page = (bank / "entities" / "tool-b.md").read_text()
+    report = _run(bank, _fake(_only_tool_b({
+        "sure": True, "option_key": "both", "url": TOOL_URL,
+        "quote": "Tool B is an agent harness for running models and an AI agent itself."})))
+    assert report.settled == 1
+    (row,) = [r for r in web_settle.list_settled(bank) if r["id"] == "inbox-108"]
+    claims = {c.id: c for c in parse_claims(markdown_parser.parse(bank / "entities" / "tool-b.md").body)}
+    assert claims["clm_th"].valid_to is None and claims["clm_ta"].valid_to is None, "both hold: nothing closes"
+    web = [c for c in claims.values() if c.origin == "web-check"]
+    assert sorted(c.object for c in web) == ["AI agent itself", "agent harness for running models"]
+    assert all(c.observer == "agent" and c.evidence[0].kind == "page" for c in web)
+    rec = markdown_parser.parse(bank / "inbox" / "settled" / "inbox-108.md").frontmatter["settled"]
+    assert sorted(rec["claim_ids"]) == sorted(c.id for c in web)
+    web_settle.undo(bank, "inbox-108")
+    assert (bank / "entities" / "tool-b.md").read_text() == before_page, "undo takes back every claim it wrote"
+
+
+def test_one_option_settles_a_type_question_only_when_the_page_rules_the_others_out(bank):
+    _type_item(bank)
+    quote = "Tool B is an agent harness for running models; it is not an agent itself."
+    loose = _run(bank, _fake(_only_tool_b({"sure": True, "option_key": "a", "url": TOOL_URL, "quote": quote})))
+    assert loose.skipped.get("not_exclusive") == 1 and (bank / "inbox" / "inbox-108.md").exists()
+    # an option the item does not have is never settled on
+    _type_item(bank, item_id="inbox-109")
+    invented = _run(bank, _fake(_only_tool_b({"sure": True, "option_key": "c", "others_ruled_out": True,
+                                               "url": TOOL_URL, "quote": quote})))
+    assert invented.skipped.get("no_option") == 1 and (bank / "inbox" / "inbox-109.md").exists()
+    _type_item(bank, item_id="inbox-110")
+    strict = _run(bank, _fake(_only_tool_b({"sure": True, "option_key": "a", "others_ruled_out": True,
+                                             "url": TOOL_URL, "quote": quote})))
+    assert strict.settled == 1
+    claims = {c.id: c for c in parse_claims(markdown_parser.parse(bank / "entities" / "tool-b.md").body)}
+    assert claims["clm_ta"].valid_to == date.today().isoformat(), "the ruled-out option closes"
+    assert claims["clm_th"].valid_to is None
+
+
+def test_a_both_answer_is_refused_where_the_item_has_no_both_option():
+    c = web_settle.Candidate("inbox-1", "conflict", "public", "x", "X", "tool", True, "is-a",
+                             [("a", "one"), ("b", "two")], [], type_question=True, both_key=None)
+    a = web_lookup.parse_answer(c, json.dumps({"sure": True, "option_key": "both", "url": TOOL_URL, "quote": "q"}))
+    assert (a.ok, a.reason) == (False, "no_option")
+
+
+def test_an_option_label_that_names_a_person_or_says_my_keeps_the_question_home(bank):
+    facts = web_settle.bank_facts(bank)
+    base = dict(kind="conflict", status="pending", entity_id="tool-a", entity_name="Tool A", predicate="made-by")
+    named = {**base, "options": [{"key": "a", "label": "built by Alice Example and her team"},
+                                 {"key": "b", "label": "Acme Example"}]}
+    assert web_settle.classify(bank, named, "", facts) == (None, "person")
+    mine = {**base, "options": [{"key": "a", "label": "my side project"}, {"key": "b", "label": "Acme Example"}]}
+    assert web_settle.classify(bank, mine, "", facts) == (None, "personal")
+    owner_in_name = {**base, "entity_name": "Owner Example Toolkit",
+                     "options": [{"key": "a", "label": "x1"}, {"key": "b", "label": "y1"}]}
+    assert web_settle.classify(bank, owner_in_name, "", facts) == (None, "person")
+
+
+def test_an_undone_question_is_never_settled_again(server, bank):
+    _run(bank, _fake(_answers))
+    web_settle.undo(bank, "inbox-101")
+    parsed = markdown_parser.parse(bank / "inbox" / "inbox-101.md")
+    assert web_settle.classify(bank, parsed.frontmatter, parsed.body, web_settle.bank_facts(bank)) == (
+        None, "undone")
+    out = server.handle_tool("cicada_record_check", {
+        "item_id": "inbox-101", "source": FILM_URL, "outcome": "settles",
+        "proposed_value": "a film", "quotes": [{"quote": "Example Film is a film."}]})
+    assert out.startswith("Not recorded")
+
+
+def test_every_inbox_allocator_skips_a_settled_number(bank):
+    from api.services import clarification_manager, inbox_generator, inbox_migration, role_people
+
+    _run(bank, _fake(_answers))
+    top = max(int(p.stem.split("-")[1]) for p in (bank / "inbox" / "settled").glob("inbox-*.md"))
+    for p in (bank / "inbox").glob("inbox-*.md"):
+        p.unlink()
+    inbox = bank / "inbox"
+    assert inbox_service.next_inbox_num(inbox) > top
+    assert inbox_generator._next_inbox_num(inbox) > top
+    assert inbox_migration._next_inbox_num(inbox) > top
+    assert int(role_people._next_item(inbox).stem.split("-")[1]) > top
+    cm = clarification_manager.ClarificationManager.__new__(clarification_manager.ClarificationManager)
+    cm.dir = inbox
+    assert int(cm._next_id().split("-")[1]) > top

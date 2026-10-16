@@ -744,8 +744,11 @@ A whole row moves to DONE only after its remaining implementation and required a
     person's own agent through `cicada_record_check(outcome="settles")`; questions about whether a PR or a G row merged
     are answered from the commit by a trusted local agent, never searched. **Settling:** a claim (observer the agent,
     the citation as its evidence), the question resolved and listed under "Settled by a check" with one-tap undo that
-    takes back only what the check wrote. The S3 rule stays true for everything else: an inbox check on any other
-    question still settles nothing.
+    takes back only what the check wrote (and marks the question so no check settles it again). The S3 rule stays true
+    for everything else: an inbox check on any other question still settles nothing. **What a thing is** (owner, same
+    day, his own example "Is <tool-a> an agent harness or an AI agent itself?"): a type/`is-a` conflict is eligible
+    though `is-a` is multi-valued; it settles on one option only when the cited page rules the others out, on the
+    item's own "both" option when the page supports both, and never on an option Cicada invents.
     **Why.** About 60 of 126 open conflicts and clarifications on the owner's bank (2026-10-16) asked about public
     things a lookup answers, and the person was asked to look them up by hand.
     Revisit if an undo count on `web_check` rows (ids only) shows settles being taken back often, or if a settle is

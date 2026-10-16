@@ -143,8 +143,14 @@ settles nothing — still holds for every other question. **Which:** a pending c
 a `company`, `concept`, `tool` or `media` page (or such a suggested type with a pending line); never a `person`, an
 untyped name Cicada's own description says is someone (person words), a person page's name or alias, the owner's page,
 a file, path or handle, a page with `path:`/`repos:`, a project, a question that says "you/your", an option naming a
-person, a multi-valued predicate, or a conflict whose predicate is not world-truth (`locus` world/artifact or a short
-public list: `description`, `is-a`… — `web_settle.classify`). **What leaves the machine:** the search query is the
+person or saying "my"/"her" (labels ride in the prompt), a question the person already took a check back on
+(`web_check: undone`), a multi-valued predicate other than what the thing *is*, or a conflict whose predicate is not
+world-truth (`locus` world/artifact or a short public list: `description`, `is-a`… — `web_settle.classify`). **What it
+is** (owner, 2026-10-16, his own example "Is <tool-a> an agent harness or an AI agent itself?"): a type question
+(`web_settle.TYPE_PREDICATES`: `is-a`, `type`, `kind`, `category`, `genre`, `description`) is eligible though `is-a` is
+multi-valued; one option settles only when the page rules the others out (Sleep's answer must say
+`others_ruled_out: true`), the item's own `both` option when the page says it is all of them — one cited claim per
+option, nothing closed — and never an option the item does not have. **What leaves the machine:** the search query is the
 subject's name plus generic category words from a fixed list (`web_settle.query_for`); no conversation text, no other
 name from the bank. **The person's own agent:** `cicada_check_nudges` adds `Public: look it up on the web (search only
 "<query>"), then settle it — cicada_record_check(item_id, source=<the page>, outcome="settles", option_key|proposed_value,

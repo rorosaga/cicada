@@ -61,16 +61,18 @@ async def undo_settled(item_id: str, settings: Settings = Depends(get_settings))
     """The one-tap undo: the check's claim is withdrawn, what it closed reopens (only a claim still as the check left
     it), and the question returns to the inbox. Committed as the person's (``Web check undone <date>``). 409 while
     Sleep holds the pages, 404 for no such settled question."""
-    from api.services import page_lock, state_dictionary, web_settle, write_admission
+    from api.services import git_service, page_lock, state_dictionary, web_settle, write_admission
     from api.services.sleep_refusal import SleepWriting
 
     memory_path = settings.memory_path
+    # An edit already on a page the undo rewrites is committed apart, never as the person's undo (audit P1-3).
+    before = await git_service.snapshot_dirty(memory_path)
 
     def work() -> str:
         with page_lock.page_lock(memory_path):
             target, paths, lines = web_settle.undo(memory_path, item_id)
             web_settle.commit_sync(memory_path, web_settle.commit_message("Web check undone", lines, authors=["user"]),
-                                   paths)
+                                   paths, before=before)
             return target
 
     try:
