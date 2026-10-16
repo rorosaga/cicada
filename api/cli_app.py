@@ -113,6 +113,10 @@ CLIENT_DOWN_TEXT = ("The Cicada server this shell uses (CICADA_API_BASE) is not 
 CLIENT_UNAUTHORIZED_TEXT = ("The Cicada server did not accept this device's token (CICADA_API_TOKEN or "
                             "~/.cicada/device_token); it may have been revoked. The person issues a new one on the "
                             "server with `cicada device add`. Nothing was read or changed.")
+CLIENT_NO_TOKEN_TEXT = ("This device has no Cicada token (CICADA_API_TOKEN or ~/.cicada/device_token). The person "
+                        "issues one on the server with `cicada device add <name>`. Nothing was read or changed.")
+CLIENT_MASTER_ONLY_TEXT = ("Only the server itself can do this; a device's token never can. Run it in a terminal on the "
+                           "server. Nothing was changed.")
 CLIENT_UNVERIFIED_TEXT = ("The Cicada server did not say which memory it serves, so this command will not read or "
                           "change anything through it. Nothing was changed; try again.")
 
@@ -121,7 +125,8 @@ def client_probe(base: str, timeout: float = 2.0):
     """G181 phase 2: ``(probe, pin)`` for a client shell. The server's active bank — its name and its id — from ONE
     authenticated read (``GET /banks``), cross-checked with ``/healthz``'s ``bankId``; ``pin`` is None unless the
     server answered both and they agree. States: ``confirmed``, ``backend_down`` (no connection at all),
-    ``unauthorized`` (the token was refused), ``unverified`` (anything else)."""
+    ``unauthorized`` (the token was refused), ``no_token`` (this device holds none, so nothing was asked),
+    ``unverified`` (anything else)."""
     import socket
     import urllib.error
     import urllib.request
@@ -148,6 +153,10 @@ def client_probe(base: str, timeout: float = 2.0):
     out = {"state": "unverified"}
     if isinstance(health, dict) and isinstance(health.get("version"), str):
         out["version"] = health["version"]
+    from api.services import runtime_layout
+
+    if not runtime_layout.client_token(os.environ):
+        return {**out, "state": "no_token"}, None       # nothing to send: never blame a revocation
     try:
         listing = get("/banks", backend_headers())
     except urllib.error.HTTPError as exc:
@@ -307,6 +316,8 @@ def _raise_for(exc, warnings: list[str] | None = None) -> None:
     w = list(warnings or [])
     if status == 409 and code == "bank_mismatch":
         raise Refusal("bank_mismatch", "The active memory changed before this was sent. Nothing was changed.", w)
+    if status == 403 and _client():
+        raise Refusal("unauthorized", CLIENT_MASTER_ONLY_TEXT, w)     # the token is fine; the path is the server's
     if status in (401, 403) and _client():
         raise Refusal("unauthorized", CLIENT_UNAUTHORIZED_TEXT, w)
     if status == 409 and code == "sleep_writing":

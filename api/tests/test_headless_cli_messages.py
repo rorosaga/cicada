@@ -6,6 +6,7 @@ blames a revocation that never happened or prints an exception's class name. Syn
 """
 from __future__ import annotations
 
+import io
 import json
 import os
 import subprocess
@@ -76,3 +77,31 @@ def server():
         yield s
     finally:
         s.close()
+
+
+def test_no_token_says_so_and_never_blames_a_revocation(tmp_path, server):
+    status = _cli(tmp_path, "status", CICADA_API_BASE=server.url)
+    assert "this device has no token" in status.stdout, status.stdout + status.stderr
+    assert "server_no_token" in status.stderr
+    done = _cli(tmp_path, "recall", "alpha-project", CICADA_API_BASE=server.url)
+    assert done.returncode == 1
+    assert "This device has no Cicada token" in done.stderr, done.stderr
+    assert "revoked" not in done.stderr
+
+
+def test_a_device_command_only_the_server_may_run_says_where_to_run_it(monkeypatch):
+    """A 403 is the server saying "a device's token never may" (master-only paths, e.g. `cicada device add`), not
+    "your token was refused": the token works, and the fix is to run the command on the server."""
+    import urllib.error
+
+    from api import cli_app
+    from api.cli_types import Refusal
+
+    monkeypatch.setenv("CICADA_API_BASE", "https://cicada.example.invalid")
+    body = io.BytesIO(json.dumps({"detail": "only the server's own token may do this"}).encode())
+    err = urllib.error.HTTPError("https://cicada.example.invalid/devices", 403, "Forbidden", {}, body)
+    with pytest.raises(Refusal) as refused:
+        cli_app._raise_for(err)
+    assert refused.value.code == "unauthorized"
+    assert "Run it in a terminal on the server" in str(refused.value)
+    assert "revoked" not in str(refused.value)
