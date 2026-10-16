@@ -472,10 +472,38 @@ def ensure_bank_ids(root: Path) -> bool:
                 changed = True
         if changed:
             save_registry(root, registry)
+        _registry_out_of_root_history(root, wrote=changed)
         return changed
     except Exception as exc:  # noqa: BLE001 - an identity never blocks a boot
         logger.warning(f"bank: could not give the banks an id ({type(exc).__name__})")
         return False
+
+
+_REGISTRY_EXCLUDE_HEADER = "# Cicada: the bank registry (banks.yaml) is the root's, never a bank's history (G181)"
+
+
+def _registry_out_of_root_history(root: Path, *, wrote: bool) -> None:
+    """A legacy root IS its default bank's git repo, so ``banks.yaml`` sits in that bank's tree. Written at boot by
+    :func:`ensure_bank_ids`, it would otherwise be swept into the next ``git add -A`` writer's commit under that
+    writer's author (the G85-class smear). Untracked: excluded via ``.git/info/exclude`` (never ``.gitignore``, G136
+    R2). Already tracked (an older install's sweep): the id write is committed alone, as ``cicada``. A root that is not
+    a git repo has nothing to protect."""
+    if _git_dir(root) is None:
+        return
+    from api.services import git_service
+
+    try:
+        tracked = bool(git_service._git_sync(root, "ls-files", "--", REGISTRY_FILENAME).strip())
+    except git_service.GitError:
+        return
+    if not tracked:
+        _append_exclude(root, (REGISTRY_FILENAME,), _REGISTRY_EXCLUDE_HEADER)
+        return
+    if wrote:
+        message = git_service.build_commit_message(
+            f"Bank identities {date.today().isoformat()}",
+            [f"{REGISTRY_FILENAME}: updated (trigger: bank-ids)"], authors=["cicada"])
+        git_service.commit_paths_sync(root, message, [REGISTRY_FILENAME])
 
 
 # --- Scaffolding -----------------------------------------------------------

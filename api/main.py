@@ -156,14 +156,15 @@ async def lifespan(app: FastAPI):
     # for the M5 claim-layer milestones; plus the human-authored
     # ``_predicates.yaml`` / ``_preferences.md`` seeds (created if missing,
     # never clobbered).
-    # G181 phase 2: every bank gets its identity in banks.yaml (what a client on another machine compares, never a
-    # path). Resolution is unchanged; never raises into boot.
-    bank_registry.ensure_bank_ids(settings.memory_root)
-
     git_existed = (settings.memory_path / ".git").exists()
     bank_registry.scaffold_bank(settings.memory_path)
     if not git_existed and (settings.memory_path / ".git").exists():
         logger.info("Initialized git repo in memory directory")
+
+    # G181 phase 2: every bank gets its identity in banks.yaml (what a client on another machine compares, never a
+    # path). Resolution is unchanged; never raises into boot. After the scaffold, so a legacy root's fresh git repo
+    # already exists to keep banks.yaml out of the bank's history.
+    bank_registry.ensure_bank_ids(settings.memory_root)
 
     # The one-shot per-bank migrations (legacy nudges -> inbox/, duplicate open
     # question collapse, decay-class backfill). Each is marker-guarded and never
